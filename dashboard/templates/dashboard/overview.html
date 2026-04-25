@@ -10,17 +10,32 @@
 {{ meios|json_script:"data-meios" }}
 {{ sparkline_24h|json_script:"data-sparkline-24h" }}
 
-<div class="flex items-center justify-between mb-7">
+<div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
   <div>
     <h1 class="text-3xl font-semibold tracking-tight">Visão geral</h1>
     <div class="text-sm text-fg-subtle mt-1">Última atualização {{ kpis.ultima_atualizacao|relative_dt }}</div>
   </div>
   <div class="flex gap-1 items-center text-xs bg-card/60 border border-border rounded-xl p-1">
-    <a href="?dias=7"   class="px-3 py-1.5 rounded-lg {% if periodo_dias == 7 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">7 dias</a>
-    <a href="?dias=30"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">30 dias</a>
-    <a href="?dias=90"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">90 dias</a>
-    <a href="?dias=365" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 365 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">1 ano</a>
+    <a href="?{% query_string request dias=7 %}"   class="px-3 py-1.5 rounded-lg {% if periodo_dias == 7 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">7 dias</a>
+    <a href="?{% query_string request dias=30 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">30 dias</a>
+    <a href="?{% query_string request dias=90 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">90 dias</a>
+    <a href="?{% query_string request dias=365 %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 365 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">1 ano</a>
+    <a href="?{% query_string request dias='all' %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias is None %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">Todo período</a>
   </div>
+</div>
+
+<div class="flex flex-wrap gap-2 items-center mb-7">
+  <span class="text-xs text-fg-subtle mr-1">Tribunal:</span>
+  <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
+  {% for t in tribunais %}
+    <a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if t.sigla|is_in_list:tribunal_filtro %}active{% endif %}">{{ t.sigla }}</a>
+  {% endfor %}
+  {% if tribunal_filtro or periodo_dias is None %}
+    <span class="text-xs text-fg-subtle ml-3">Filtros ativos:</span>
+    {% if tribunal_filtro %}{% include 'dashboard/_partials/badge.html' with text=tribunal_filtro variant='accent' size='mini' %}{% endif %}
+    {% if periodo_dias is None %}{% include 'dashboard/_partials/badge.html' with text='todo período' variant='accent' size='mini' %}{% endif %}
+    <a href="{% url 'dashboard:overview' %}" class="text-xs text-fg-subtle hover:text-danger ml-1">limpar</a>
+  {% endif %}
 </div>
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
@@ -83,8 +98,8 @@
   <div class="card lg:col-span-2">
     <div class="flex items-center justify-between mb-3">
       <div>
-        <div class="text-sm font-medium text-fg-soft">Volume diário</div>
-        <div class="text-xs text-fg-subtle">por tribunal · últimos {{ periodo_dias }} dias</div>
+        <div class="text-sm font-medium text-fg-soft">Volume {% if periodo_dias is None or periodo_dias > 365 %}mensal{% else %}diário{% endif %}</div>
+        <div class="text-xs text-fg-subtle">por tribunal · {% if periodo_dias %}últimos {{ periodo_dias }} dias{% else %}todo o período{% endif %}</div>
       </div>
     </div>
     <div class="h-72" data-echart='{}' x-init="setupChart($el, buildVolumeChart(jsonData('data-volume-diario')))"></div>

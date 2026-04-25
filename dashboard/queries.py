@@ -1,41 +1,76 @@
-"""Queries agregadas usadas pelo dashboard."""
+"""Queries agregadas usadas pelo dashboard.
+
+Convenções:
+- `dias=None` ou `dias=0` significa "todo o período" (sem filtro de data).
+- `tribunais` é uma lista de siglas; `None` ou `[]` significa "todos os tribunais".
+
+Toda função relevante aceita ambos para que o dashboard possa aplicá-los uniformemente.
+"""
 from datetime import date, timedelta
 
-from django.db.models import Count, F, Q
-from django.db.models.functions import TruncDate
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate, TruncMonth
 from django.utils import timezone
 
 from tribunals.models import IngestionRun, Movimentacao, Process, SchemaDriftAlert, Tribunal
 
 
-def kpis_globais() -> dict:
+def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibilizacao'):
+    """Aplica filtros de período e tribunais comuns em qualquer queryset de Movimentacao/Process."""
+    if dias:
+        cutoff = date.today() - timedelta(days=dias)
+        qs = qs.filter(**{f'{date_field}__date__gte': cutoff})
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
+    return qs
+
+
+def kpis_globais(dias=None, tribunais=None):
     agora = timezone.now()
     cutoff_24h = agora - timedelta(hours=24)
     cutoff_48h = agora - timedelta(hours=48)
-    movs_24h = Movimentacao.objects.filter(inserido_em__gte=cutoff_24h).count()
-    movs_24_48h = Movimentacao.objects.filter(inserido_em__gte=cutoff_48h, inserido_em__lt=cutoff_24h).count()
+
+    movs = _aplicar_filtros(Movimentacao.objects.all(), dias=dias, tribunais=tribunais)
+    procs = Process.objects.all()
+    if tribunais:
+        procs = procs.filter(tribunal_id__in=tribunais)
+
+    # 24h é sempre 24h reais — período não aplica, mas tribunal sim.
+    movs_24h_qs = Movimentacao.objects.filter(inserido_em__gte=cutoff_24h)
+    movs_24_48h_qs = Movimentacao.objects.filter(inserido_em__gte=cutoff_48h, inserido_em__lt=cutoff_24h)
+    if tribunais:
+        movs_24h_qs = movs_24h_qs.filter(tribunal_id__in=tribunais)
+        movs_24_48h_qs = movs_24_48h_qs.filter(tribunal_id__in=tribunais)
+
+    movs_24h = movs_24h_qs.count()
+    movs_24_48h = movs_24_48h_qs.count()
     delta_pct = None
     if movs_24_48h:
         delta_pct = round((movs_24h - movs_24_48h) / movs_24_48h * 100, 1)
+
+    drift_qs = SchemaDriftAlert.objects.filter(resolvido=False)
+    if tribunais:
+        drift_qs = drift_qs.filter(tribunal_id__in=tribunais)
+
     return {
-        'total_processos': Process.objects.count(),
-        'total_movimentacoes': Movimentacao.objects.count(),
+        'total_processos': procs.count(),
+        'total_movimentacoes': movs.count(),
         'movs_24h': movs_24h,
         'movs_24h_delta_pct': delta_pct,
-        'cancelados': Movimentacao.objects.filter(ativo=False).count(),
+        'cancelados': movs.filter(ativo=False).count(),
         'ultima_atualizacao': IngestionRun.objects
             .filter(status=IngestionRun.STATUS_SUCCESS).order_by('-finished_at')
             .values_list('finished_at', flat=True).first(),
-        'drift_abertos': SchemaDriftAlert.objects.filter(resolvido=False).count(),
+        'drift_abertos': drift_qs.count(),
     }
 
 
-def sparkline_24h(tribunal_sigla: str | None = None) -> list[int]:
-    """Conta movimentações inseridas por hora nas últimas 24h."""
+def sparkline_24h(tribunais=None):
+    """Conta movs inseridas por hora nas últimas 24h."""
     agora = timezone.now()
     qs = Movimentacao.objects.filter(inserido_em__gte=agora - timedelta(hours=24))
-    if tribunal_sigla:
-        qs = qs.filter(tribunal_id=tribunal_sigla)
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
     pontos = [0] * 24
     for inserido in qs.values_list('inserido_em', flat=True).iterator(chunk_size=5000):
         delta_h = int((agora - inserido).total_seconds() // 3600)
@@ -44,68 +79,68 @@ def sparkline_24h(tribunal_sigla: str | None = None) -> list[int]:
     return pontos
 
 
-def volume_diario(dias: int = 90, tribunal_sigla: str | None = None) -> list[dict]:
-    inicio = date.today() - timedelta(days=dias)
-    qs = Movimentacao.objects.filter(data_disponibilizacao__date__gte=inicio)
-    if tribunal_sigla:
-        qs = qs.filter(tribunal_id=tribunal_sigla)
+def volume_temporal(dias=None, tribunais=None):
+    """Série temporal por tribunal. Auto-bucket: dia se janela <=365d, mês caso contrário."""
+    qs = Movimentacao.objects.all()
+    if dias:
+        qs = qs.filter(data_disponibilizacao__date__gte=date.today() - timedelta(days=dias))
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
+
+    bucket_func = TruncDate if (dias and dias <= 365) else TruncMonth
     rows = (
-        qs.annotate(dia=TruncDate('data_disponibilizacao'))
-        .values('dia', 'tribunal_id')
+        qs.annotate(periodo=bucket_func('data_disponibilizacao'))
+        .values('periodo', 'tribunal_id')
         .annotate(total=Count('id'))
-        .order_by('dia', 'tribunal_id')
+        .order_by('periodo', 'tribunal_id')
     )
-    return [{'dia': r['dia'].isoformat(), 'tribunal': r['tribunal_id'], 'total': r['total']} for r in rows]
+    return [
+        {'dia': r['periodo'].isoformat(), 'tribunal': r['tribunal_id'], 'total': r['total']}
+        for r in rows if r['periodo']
+    ]
 
 
-def distribuicao_por_tribunal() -> list[dict]:
-    rows = (
-        Movimentacao.objects.values('tribunal_id')
-        .annotate(total=Count('id'))
-        .order_by('-total')
-    )
+# Mantido como alias retrocompatível.
+volume_diario = volume_temporal
+
+
+def distribuicao_por_tribunal(dias=None, tribunais=None):
+    qs = _aplicar_filtros(Movimentacao.objects.all(), dias=dias, tribunais=tribunais)
+    rows = qs.values('tribunal_id').annotate(total=Count('id')).order_by('-total')
     return [{'tribunal': r['tribunal_id'], 'total': r['total']} for r in rows]
 
 
-def distribuicao_por_meio(tribunal_sigla: str | None = None) -> list[dict]:
-    qs = Movimentacao.objects.exclude(meio_completo='')
-    if tribunal_sigla:
-        qs = qs.filter(tribunal_id=tribunal_sigla)
+def distribuicao_por_meio(dias=None, tribunais=None):
+    qs = _aplicar_filtros(Movimentacao.objects.all(), dias=dias, tribunais=tribunais).exclude(meio_completo='')
     rows = qs.values('meio_completo').annotate(total=Count('id')).order_by('-total')[:8]
     return [{'meio': r['meio_completo'] or 'Não informado', 'total': r['total']} for r in rows]
 
 
-def top_tipos_comunicacao(limit: int = 15, tribunal_sigla: str | None = None) -> list[dict]:
-    qs = Movimentacao.objects.exclude(tipo_comunicacao='')
-    if tribunal_sigla:
-        qs = qs.filter(tribunal_id=tribunal_sigla)
+def top_tipos_comunicacao(limit=15, dias=None, tribunais=None):
+    qs = _aplicar_filtros(Movimentacao.objects.all(), dias=dias, tribunais=tribunais).exclude(tipo_comunicacao='')
     rows = qs.values('tipo_comunicacao').annotate(total=Count('id')).order_by('-total')[:limit]
     return [{'tipo': r['tipo_comunicacao'], 'total': r['total']} for r in rows]
 
 
-def top_classes(limit: int = 10, tribunal_sigla: str | None = None) -> list[dict]:
-    qs = Movimentacao.objects.exclude(nome_classe='')
-    if tribunal_sigla:
-        qs = qs.filter(tribunal_id=tribunal_sigla)
+def top_classes(limit=10, dias=None, tribunais=None):
+    qs = _aplicar_filtros(Movimentacao.objects.all(), dias=dias, tribunais=tribunais).exclude(nome_classe='')
     rows = qs.values('nome_classe').annotate(total=Count('id')).order_by('-total')[:limit]
     return [{'classe': r['nome_classe'], 'total': r['total']} for r in rows]
 
 
-def top_orgaos(limit: int = 10, tribunal_sigla: str | None = None) -> list[dict]:
-    qs = Movimentacao.objects.exclude(nome_orgao='')
-    if tribunal_sigla:
-        qs = qs.filter(tribunal_id=tribunal_sigla)
+def top_orgaos(limit=10, dias=None, tribunais=None):
+    qs = _aplicar_filtros(Movimentacao.objects.all(), dias=dias, tribunais=tribunais).exclude(nome_orgao='')
     rows = qs.values('nome_orgao').annotate(total=Count('id')).order_by('-total')[:limit]
     return [{'orgao': r['nome_orgao'], 'total': r['total']} for r in rows]
 
 
-def runs_recentes(limit: int = 30) -> list[IngestionRun]:
+def runs_recentes(limit=30):
     return list(
         IngestionRun.objects.select_related('tribunal').order_by('-started_at')[:limit]
     )
 
 
-def cobertura_temporal(tribunal: Tribunal) -> dict:
+def cobertura_temporal(tribunal):
     runs = (
         IngestionRun.objects.filter(tribunal=tribunal, status=IngestionRun.STATUS_SUCCESS)
         .order_by('janela_inicio').values('janela_inicio', 'janela_fim')
@@ -117,8 +152,7 @@ def cobertura_temporal(tribunal: Tribunal) -> dict:
     }
 
 
-def filtros_movimentacoes() -> dict:
-    """Faceta para chips/filtros dinâmicos: top valores de cada campo categórico."""
+def filtros_movimentacoes():
     return {
         'tipos': [r['tipo_comunicacao'] for r in
                   Movimentacao.objects.exclude(tipo_comunicacao='')

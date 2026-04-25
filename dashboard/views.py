@@ -9,12 +9,15 @@ from tribunals.models import Movimentacao, Process, SchemaDriftAlert, Tribunal
 from . import queries
 
 
-def _periodo_dias(request) -> int:
+def _periodo_dias(request, default=90) -> int | None:
+    """Retorna número de dias do filtro de período. None = todo o período."""
+    raw = (request.GET.get('dias') or str(default)).strip()
+    if raw in ('all', '0'):
+        return None
     try:
-        d = int(request.GET.get('dias', '90'))
-    except (TypeError, ValueError):
-        d = 90
-    return min(max(d, 1), 365)
+        return min(max(int(raw), 1), 3650)
+    except ValueError:
+        return default
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -27,17 +30,19 @@ def _split_csv(value: str | None) -> list[str]:
 @require_GET
 def overview(request):
     dias = _periodo_dias(request)
+    tribunais_filtro = _split_csv(request.GET.get('tribunal'))
     ctx = {
-        'kpis': queries.kpis_globais(),
-        'sparkline_24h': queries.sparkline_24h(),
-        'volume_diario': queries.volume_diario(dias=dias),
-        'distribuicao': queries.distribuicao_por_tribunal(),
-        'tipos': queries.top_tipos_comunicacao(limit=10),
-        'orgaos': queries.top_orgaos(limit=10),
-        'classes': queries.top_classes(limit=8),
-        'meios': queries.distribuicao_por_meio(),
+        'kpis': queries.kpis_globais(dias=dias, tribunais=tribunais_filtro),
+        'sparkline_24h': queries.sparkline_24h(tribunais=tribunais_filtro),
+        'volume_diario': queries.volume_temporal(dias=dias, tribunais=tribunais_filtro),
+        'distribuicao': queries.distribuicao_por_tribunal(dias=dias, tribunais=tribunais_filtro),
+        'tipos': queries.top_tipos_comunicacao(limit=10, dias=dias, tribunais=tribunais_filtro),
+        'orgaos': queries.top_orgaos(limit=10, dias=dias, tribunais=tribunais_filtro),
+        'classes': queries.top_classes(limit=8, dias=dias, tribunais=tribunais_filtro),
+        'meios': queries.distribuicao_por_meio(dias=dias, tribunais=tribunais_filtro),
         'periodo_dias': dias,
         'tribunais': Tribunal.objects.filter(ativo=True),
+        'tribunal_filtro': ','.join(tribunais_filtro),
     }
     return render(request, 'dashboard/overview.html', ctx)
 
@@ -58,11 +63,11 @@ def tribunal_detail(request, sigla):
                           .values('nome_orgao').distinct().count(),
         'classes_unicas': Movimentacao.objects.filter(tribunal=t).exclude(nome_classe='')
                            .values('nome_classe').distinct().count(),
-        'volume_diario': queries.volume_diario(dias=dias, tribunal_sigla=t.sigla),
-        'tipos': queries.top_tipos_comunicacao(tribunal_sigla=t.sigla),
-        'orgaos': queries.top_orgaos(tribunal_sigla=t.sigla),
-        'classes': queries.top_classes(tribunal_sigla=t.sigla),
-        'meios': queries.distribuicao_por_meio(tribunal_sigla=t.sigla),
+        'volume_diario': queries.volume_temporal(dias=dias, tribunais=[t.sigla]),
+        'tipos': queries.top_tipos_comunicacao(dias=dias, tribunais=[t.sigla]),
+        'orgaos': queries.top_orgaos(dias=dias, tribunais=[t.sigla]),
+        'classes': queries.top_classes(dias=dias, tribunais=[t.sigla]),
+        'meios': queries.distribuicao_por_meio(dias=dias, tribunais=[t.sigla]),
         'cobertura': queries.cobertura_temporal(t),
         'periodo_dias': dias,
     }
