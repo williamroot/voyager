@@ -15,9 +15,13 @@ logger = logging.getLogger('voyager.djen.parser')
 
 EXPECTED_KEYS = frozenset({
     'id', 'numero_processo', 'numeroprocessocommascara',
-    'siglaTribunal', 'nomeOrgao', 'tipoComunicacao', 'tipoDocumento',
-    'data_disponibilizacao', 'texto', 'destinatarios',
+    'siglaTribunal', 'nomeOrgao', 'idOrgao',
+    'tipoComunicacao', 'tipoDocumento',
+    'data_disponibilizacao', 'datadisponibilizacao',
+    'texto', 'destinatarios', 'destinatarioadvogados',
     'nomeClasse', 'codigoClasse', 'link',
+    'numeroComunicacao', 'hash', 'meio', 'meiocompleto', 'status',
+    'ativo', 'data_cancelamento', 'motivo_cancelamento',
 })
 
 CNJ_REGEX = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
@@ -33,11 +37,21 @@ class ParsedItem:
     tipo_comunicacao: str = ''
     tipo_documento: str = ''
     nome_orgao: str = ''
+    id_orgao: Optional[int] = None
     nome_classe: str = ''
     codigo_classe: str = ''
     link: str = ''
     destinatarios: list = field(default_factory=list)
+    destinatario_advogados: list = field(default_factory=list)
     texto: str = ''
+    numero_comunicacao: str = ''
+    hash: str = ''
+    meio: str = ''
+    meio_completo: str = ''
+    status: str = ''
+    ativo: bool = True
+    data_cancelamento: Optional[datetime] = None
+    motivo_cancelamento: str = ''
 
     def to_movimentacao_kwargs(self) -> dict:
         return {
@@ -46,11 +60,21 @@ class ParsedItem:
             'tipo_comunicacao': self.tipo_comunicacao,
             'tipo_documento': self.tipo_documento,
             'nome_orgao': self.nome_orgao,
+            'id_orgao': self.id_orgao,
             'nome_classe': self.nome_classe,
             'codigo_classe': self.codigo_classe,
             'link': self.link,
             'destinatarios': self.destinatarios,
+            'destinatario_advogados': self.destinatario_advogados,
             'texto': self.texto,
+            'numero_comunicacao': self.numero_comunicacao,
+            'hash': self.hash,
+            'meio': self.meio,
+            'meio_completo': self.meio_completo,
+            'status': self.status,
+            'ativo': self.ativo,
+            'data_cancelamento': self.data_cancelamento,
+            'motivo_cancelamento': self.motivo_cancelamento,
         }
 
 
@@ -151,7 +175,7 @@ def parse_item(item: dict, tribunal: Tribunal, run: IngestionRun) -> Optional[Pa
         })
         return None
 
-    dt = parse_dt(item.get('data_disponibilizacao'))
+    dt = parse_dt(item.get('data_disponibilizacao') or item.get('datadisponibilizacao'))
     if dt is None:
         run.erros.append({
             'pagina': run.paginas_lidas,
@@ -160,6 +184,22 @@ def parse_item(item: dict, tribunal: Tribunal, run: IngestionRun) -> Optional[Pa
         })
         return None
 
+    id_orgao = item.get('idOrgao')
+    try:
+        id_orgao = int(id_orgao) if id_orgao not in (None, '') else None
+    except (TypeError, ValueError):
+        id_orgao = None
+
+    ativo_val = item.get('ativo')
+    if isinstance(ativo_val, bool):
+        ativo = ativo_val
+    elif isinstance(ativo_val, str):
+        ativo = ativo_val.strip().lower() in ('1', 'true', 't', 'sim', 'ativo')
+    elif isinstance(ativo_val, (int, float)):
+        ativo = bool(ativo_val)
+    else:
+        ativo = True
+
     return ParsedItem(
         cnj=cnj,
         external_id=str(external_id)[:64],
@@ -167,9 +207,19 @@ def parse_item(item: dict, tribunal: Tribunal, run: IngestionRun) -> Optional[Pa
         tipo_comunicacao=str(item.get('tipoComunicacao') or '')[:120],
         tipo_documento=str(item.get('tipoDocumento') or '')[:120],
         nome_orgao=str(item.get('nomeOrgao') or '')[:255],
+        id_orgao=id_orgao,
         nome_classe=str(item.get('nomeClasse') or '')[:255],
         codigo_classe=str(item.get('codigoClasse') or '')[:20],
         link=str(item.get('link') or '')[:500],
         destinatarios=item.get('destinatarios') or [],
+        destinatario_advogados=item.get('destinatarioadvogados') or [],
         texto=str(item.get('texto') or ''),
+        numero_comunicacao=str(item.get('numeroComunicacao') or '')[:120],
+        hash=str(item.get('hash') or '')[:128],
+        meio=str(item.get('meio') or '')[:20],
+        meio_completo=str(item.get('meiocompleto') or '')[:120],
+        status=str(item.get('status') or '')[:40],
+        ativo=ativo,
+        data_cancelamento=parse_dt(item.get('data_cancelamento')) if item.get('data_cancelamento') else None,
+        motivo_cancelamento=str(item.get('motivo_cancelamento') or ''),
     )

@@ -52,16 +52,11 @@ class DJENClient:
         }
         headers = {'User-Agent': self.user_agent, 'Accept': 'application/json'}
 
-        cortex_attempts_left = 1 if cortex_proxy_url() else 0
         last_exc: Optional[Exception] = None
+        last_failed_source: Optional[str] = None
 
         for attempt in range(self.max_retries + 1):
-            proxy_url = self.pool.get()
-            using = 'pool'
-            if proxy_url is None and cortex_attempts_left > 0:
-                proxy_url = cortex_proxy_url()
-                using = 'cortex'
-                cortex_attempts_left -= 1
+            proxy_url, using = self._pick_proxy(prefer_other_than=last_failed_source)
             proxies = {'http': proxy_url, 'https': proxy_url} if proxy_url else None
 
             t0 = time.monotonic()
@@ -74,12 +69,23 @@ class DJENClient:
                     'proxy': using if proxy_url else 'direct', 'status_code': resp.status_code,
                     'latency_ms': latency_ms,
                 })
-                if resp.status_code == 429 or 500 <= resp.status_code < 600:
+                # 403/429: proxy bloqueado/limitado → marca ruim e tenta outro proxy.
+                # 5xx: erro do servidor DJEN → backoff e retry mantendo o proxy (não é culpa dele).
+                # 4xx restantes: erro real de request → sem retry.
+                if resp.status_code in (403, 429):
                     if proxy_url and using == 'pool':
                         self.pool.mark_bad(proxy_url)
+                    last_failed_source = using
                     if attempt >= self.max_retries:
                         raise DjenClientError(
-                            f'DJEN {resp.status_code} após {self.max_retries} tentativas'
+                            f'DJEN {resp.status_code} após {self.max_retries} tentativas: {resp.text[:200]}'
+                        )
+                    self._sleep_backoff(attempt)
+                    continue
+                if 500 <= resp.status_code < 600:
+                    if attempt >= self.max_retries:
+                        raise DjenClientError(
+                            f'DJEN {resp.status_code} após {self.max_retries} tentativas: {resp.text[:200]}'
                         )
                     self._sleep_backoff(attempt)
                     continue
@@ -91,6 +97,7 @@ class DJENClient:
                 last_exc = exc
                 if proxy_url and using == 'pool':
                     self.pool.mark_bad(proxy_url)
+                last_failed_source = using
                 logger.warning('djen request transport error', extra={
                     'attempt': attempt, 'erro': str(exc), 'proxy': using if proxy_url else 'direct',
                 })
@@ -99,6 +106,42 @@ class DJENClient:
                 self._sleep_backoff(attempt)
                 continue
         raise DjenClientError(f'esgotadas tentativas: {last_exc}')
+
+    def _pick_proxy(self, prefer_other_than: Optional[str] = None) -> tuple[Optional[str], str]:
+        """Estratégia híbrida: 80% Cortex (residencial fixo, alta taxa de sucesso) + 20% pool ProxyScrape.
+
+        Em retries, evita repetir a fonte que acabou de falhar — força a alternar.
+        """
+        cortex = cortex_proxy_url()
+        pool_proxy = self.pool.get()
+
+        candidatos = []
+        if cortex:
+            candidatos.append((cortex, 'cortex', 80))
+        if pool_proxy:
+            candidatos.append((pool_proxy, 'pool', 20))
+
+        if not candidatos:
+            return None, 'direct'
+
+        if prefer_other_than:
+            outros = [c for c in candidatos if c[1] != prefer_other_than]
+            if outros:
+                candidatos = outros
+
+        if len(candidatos) == 1:
+            url, source, _ = candidatos[0]
+            return url, source
+
+        total = sum(c[2] for c in candidatos)
+        roll = random.uniform(0, total)
+        acc = 0
+        for url, source, weight in candidatos:
+            acc += weight
+            if roll <= acc:
+                return url, source
+        url, source, _ = candidatos[-1]
+        return url, source
 
     def _sleep_backoff(self, attempt: int) -> None:
         wait = min(60.0, 3.0 * (2 ** attempt) + random.uniform(0, 2))

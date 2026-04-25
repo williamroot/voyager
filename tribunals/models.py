@@ -54,11 +54,23 @@ class Movimentacao(models.Model):
     tipo_comunicacao = models.CharField(max_length=120, blank=True)
     tipo_documento = models.CharField(max_length=120, blank=True)
     nome_orgao = models.CharField(max_length=255, blank=True)
+    id_orgao = models.IntegerField(null=True, blank=True)
     nome_classe = models.CharField(max_length=255, blank=True)
     codigo_classe = models.CharField(max_length=20, blank=True)
     link = models.URLField(max_length=500, blank=True)
     destinatarios = models.JSONField(default=list)
+    destinatario_advogados = models.JSONField(default=list)
     texto = models.TextField(blank=True)
+
+    numero_comunicacao = models.CharField(max_length=120, blank=True)
+    hash = models.CharField(max_length=128, blank=True)
+    meio = models.CharField(max_length=20, blank=True)
+    meio_completo = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=40, blank=True)
+
+    ativo = models.BooleanField(default=True)
+    data_cancelamento = models.DateTimeField(null=True, blank=True)
+    motivo_cancelamento = models.TextField(blank=True)
 
     search_vector = SearchVectorField(null=True)
 
@@ -70,6 +82,8 @@ class Movimentacao(models.Model):
             models.Index(fields=['processo', '-data_disponibilizacao']),
             models.Index(fields=['tribunal', '-data_disponibilizacao']),
             models.Index(fields=['inserido_em']),
+            models.Index(fields=['tribunal', 'ativo']),
+            models.Index(fields=['hash']),
             GinIndex(fields=['search_vector'], name='mov_search_vector_gin'),
             GinIndex(name='mov_texto_trgm', fields=['texto'], opclasses=['gin_trgm_ops']),
         ]
