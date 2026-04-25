@@ -1,0 +1,52 @@
+# Voyager — configuração do Ruff (formatter + linter).
+# Política e racional em docs/code-guidelines.md.
+
+line-length = 120
+target-version = "py312"
+extend-exclude = [
+    "*/migrations/*",
+    "static/",
+    "staticfiles/",
+    "node_modules/",
+]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "UP",   # pyupgrade
+    "N",    # naming (PEP 8)
+    "SIM",  # simplify
+    "RET",  # return
+    "PL",   # pylint
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",     # line too long — já controlado por line-length
+    "PLR0913",  # too many arguments — Django views/serializers ofendem
+    "PLR2004",  # magic value — verboso demais para constantes locais
+    "PLR0915",  # too many statements
+    "RUF012",   # mutable class attributes — Django Meta usa
+    "B008",     # Function call in default arg — Django field defaults
+    "N806",     # variable in function should be lowercase — Django QuerySet F() etc.
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S101", "PLR0913", "PLR2004"]
+"*/management/commands/*" = ["PLR0913"]
+"core/settings.py" = ["F401", "E402"]  # imports condicionais e ordenação para Django settings
+"*/migrations/*" = ["E501", "RUF"]
+
+[lint.isort]
+known-first-party = ["core", "tribunals", "djen", "api", "dashboard"]
+combine-as-imports = true
+force-sort-within-sections = false
+
+[format]
+quote-style = "single"
+indent-style = "space"
+docstring-code-format = true

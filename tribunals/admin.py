@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.utils import timezone
 
 from .models import IngestionRun, Movimentacao, Process, SchemaDriftAlert, Tribunal
 
@@ -48,5 +49,4 @@ class SchemaDriftAlertAdmin(admin.ModelAdmin):
 
     @admin.action(description='Marcar como resolvido')
     def marcar_resolvido(self, request, queryset):
-        from django.utils import timezone
         queryset.update(resolvido=True, resolvido_em=timezone.now())

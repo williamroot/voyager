@@ -1,30 +1,98 @@
 {% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
 {% block title %}Movimentações{% endblock %}
 {% block content %}
 <h1 class="text-3xl font-semibold tracking-tight mb-6">Movimentações</h1>
 
-<form method="get" class="flex gap-3 mb-6">
-  <input name="q" value="{{ q }}" placeholder="Buscar texto..." class="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 focus:border-emerald-500 focus:outline-none">
-  <select name="tribunal" class="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
-    <option value="">Todos tribunais</option>
-    {% for t in tribunais %}<option value="{{ t.sigla }}" {% if t.sigla == tribunal_filtro %}selected{% endif %}>{{ t.sigla }}</option>{% endfor %}
-  </select>
-  <button class="bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-semibold rounded-lg px-4">Filtrar</button>
+<form method="get" class="card mb-5 flex flex-col gap-4">
+  <div class="flex gap-3 items-center">
+    <div class="relative flex-1">
+      <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input name="q" value="{{ q }}" placeholder="Buscar texto (mín. 3 chars)..." class="w-full bg-zinc-950/60 border border-zinc-800 rounded-lg pl-10 pr-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+    </div>
+    <button class="bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-semibold rounded-lg px-5 py-2 text-sm">Filtrar</button>
+    <a href="{% url 'dashboard:movimentacoes' %}" class="text-zinc-500 hover:text-zinc-200 text-sm px-2">limpar</a>
+  </div>
+
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-zinc-500 mr-1">Tribunal:</span>
+    <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
+    {% for t in tribunais %}{% if t.ativo %}
+      <a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if t.sigla|is_in_list:tribunal_filtro %}active{% endif %}">{{ t.sigla }}</a>
+    {% endif %}{% endfor %}
+  </div>
+
+  {% if facetas.tipos %}
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-zinc-500 mr-1">Tipo:</span>
+    <a href="?{% query_string request tipo='' %}" class="chip {% if not tipo_filtro %}active{% endif %}">Todos</a>
+    {% for tipo in facetas.tipos %}
+      <a href="?{% query_string request tipo=tipo %}" class="chip {% if tipo|is_in_list:tipo_filtro %}active{% endif %}">{{ tipo }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if facetas.meios %}
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-zinc-500 mr-1">Meio:</span>
+    <a href="?{% query_string request meio='' %}" class="chip {% if not meio_filtro %}active{% endif %}">Todos</a>
+    {% for meio in facetas.meios %}
+      <a href="?{% query_string request meio=meio %}" class="chip {% if meio|is_in_list:meio_filtro %}active{% endif %}">{{ meio }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if facetas.classes %}
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-zinc-500 mr-1">Classe:</span>
+    <a href="?{% query_string request classe='' %}" class="chip {% if not classe_filtro %}active{% endif %}">Todas</a>
+    {% for cl in facetas.classes %}
+      <a href="?{% query_string request classe=cl %}" class="chip {% if cl|is_in_list:classe_filtro %}active{% endif %}">{{ cl|truncate_words_smart:30 }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-zinc-500 mr-1">Status:</span>
+    {% if so_ativos %}
+      <a href="?{% query_string request ativos='0' %}" class="chip active">Apenas ativos</a>
+    {% else %}
+      <a href="?{% query_string request ativos='1' %}" class="chip">Apenas ativos</a>
+    {% endif %}
+    {% if com_link == 'sim' %}
+      <a href="?{% query_string request com_link='' %}" class="chip active">Com link</a>
+    {% else %}
+      <a href="?{% query_string request com_link='sim' %}" class="chip">Com link</a>
+    {% endif %}
+  </div>
 </form>
 
-<div class="space-y-3">
+<div class="space-y-2">
   {% for m in movimentacoes %}
-    <div class="card">
-      <div class="flex gap-2 items-center">
-        <span class="badge bg-zinc-800">{{ m.tribunal_id }}</span>
-        <a href="{% url 'dashboard:processo-detail' m.processo_id %}" class="font-mono text-emerald-400 text-sm">{{ m.processo.numero_cnj }}</a>
-        <span class="text-zinc-500 text-sm">· {{ m.data_disponibilizacao }}</span>
-        {% if m.tipo_comunicacao %}<span class="badge bg-zinc-800/50 text-zinc-400">{{ m.tipo_comunicacao }}</span>{% endif %}
+    <div class="card-tight hover:border-zinc-700 transition-colors">
+      <div class="flex flex-wrap items-center gap-2 mb-2">
+        <span class="badge bg-zinc-900 border-zinc-800 text-zinc-300">{{ m.tribunal_id }}</span>
+        <a href="{% url 'dashboard:processo-detail' m.processo_id %}" class="font-mono text-emerald-400 hover:text-emerald-300 text-[0.78rem]">{{ m.processo.numero_cnj }}</a>
+        <span class="text-zinc-600">·</span>
+        <span class="text-zinc-400 text-xs" title="{{ m.data_disponibilizacao }}">{{ m.data_disponibilizacao|relative_dt }}</span>
+        {% if m.tipo_comunicacao %}<span class="badge {{ m.tipo_comunicacao|type_classes }}">{{ m.tipo_comunicacao }}</span>{% endif %}
+        {% if m.meio_completo %}<span class="badge bg-zinc-900/70 border-zinc-800 text-zinc-400">{{ m.meio_completo }}</span>{% endif %}
+        {% if not m.ativo %}<span class="badge bg-rose-900/40 border-rose-800/60 text-rose-300">cancelada</span>{% endif %}
+        {% if m.link %}<a href="{{ m.link }}" target="_blank" class="badge bg-emerald-900/30 border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/50">↗ documento</a>{% endif %}
       </div>
-      <div class="text-zinc-300 text-sm mt-2">{{ m.texto|truncatechars:400 }}</div>
+      {% if m.nome_orgao or m.nome_classe %}
+        <div class="text-zinc-500 text-xs mb-2">
+          {% if m.nome_orgao %}<span>{{ m.nome_orgao }}</span>{% endif %}
+          {% if m.nome_classe %}<span class="ml-2 text-zinc-600">·</span><span class="ml-2">{{ m.nome_classe }}</span>{% endif %}
+        </div>
+      {% endif %}
+      <div class="text-zinc-300 text-sm leading-relaxed">{{ m.texto|truncate_words_smart:380 }}</div>
     </div>
   {% empty %}
-    <div class="text-zinc-500 text-center p-8">Nenhuma movimentação encontrada.</div>
+    <div class="card text-center py-12">
+      <div class="text-zinc-400">Nenhuma movimentação encontrada.</div>
+      <div class="text-xs text-zinc-500 mt-1">Ajuste os filtros acima ou limpe-os.</div>
+    </div>
   {% endfor %}
 </div>
 {% endblock %}

@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static voyager_extras %}<!doctype html>
 <html lang="pt-br" class="h-full bg-zinc-950">
 <head>
   <meta charset="utf-8">
@@ -10,40 +10,67 @@
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
   <style>
     :root { color-scheme: dark; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; }
-    .card { background: rgb(24 24 27 / 0.5); border: 1px solid rgb(39 39 42 / 0.6); border-radius: 1rem; padding: 1.25rem; }
-    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 500; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
     [x-cloak] { display: none !important; }
+    .card { background: rgb(24 24 27 / 0.55); border: 1px solid rgb(39 39 42 / 0.7); border-radius: 1rem; padding: 1.25rem; }
+    .card-tight { background: rgb(24 24 27 / 0.55); border: 1px solid rgb(39 39 42 / 0.7); border-radius: 0.875rem; padding: 0.875rem; }
+    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 0.375rem; font-size: 0.7rem; font-weight: 500; line-height: 1.1rem; border: 1px solid transparent; gap: 0.25rem; }
+    .chip { display: inline-flex; align-items: center; padding: 0.3rem 0.7rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 500; border: 1px solid rgb(63 63 70 / 0.6); background: rgb(24 24 27 / 0.7); color: rgb(212 212 216); transition: all 0.15s; cursor: pointer; user-select: none; }
+    .chip:hover { background: rgb(39 39 42 / 0.9); border-color: rgb(82 82 91 / 0.8); }
+    .chip.active { background: rgb(16 185 129 / 0.15); color: rgb(110 231 183); border-color: rgb(16 185 129 / 0.45); }
+    .chip-mini { padding: 0.15rem 0.5rem; font-size: 0.7rem; }
+    .nav-item { display: flex; align-items: center; gap: 0.625rem; padding: 0.55rem 0.75rem; border-radius: 0.6rem; color: rgb(161 161 170); font-size: 0.875rem; transition: all 0.12s; }
+    .nav-item:hover { background: rgb(39 39 42 / 0.6); color: rgb(228 228 231); }
+    .nav-item.active { background: rgb(24 24 27); color: rgb(110 231 183); border: 1px solid rgb(63 63 70 / 0.5); }
+    .kpi-num { font-variant-numeric: tabular-nums; letter-spacing: -0.025em; }
+    table.dense td, table.dense th { padding: 0.5rem 0.85rem; }
+    .skeleton { background: linear-gradient(90deg, rgb(39 39 42 / 0.3), rgb(63 63 70 / 0.4), rgb(39 39 42 / 0.3)); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
   </style>
 </head>
 <body class="min-h-full text-zinc-100" x-data="{ sidebar: true }">
   <div class="flex min-h-screen">
-    <aside class="w-60 bg-zinc-950 border-r border-zinc-900 p-4 flex flex-col gap-2" x-show="sidebar">
-      <div class="text-2xl font-semibold tracking-tight text-emerald-400 mb-4">Voyager</div>
+    <aside class="w-60 bg-zinc-950 border-r border-zinc-900/80 p-3 flex flex-col gap-1 sticky top-0 h-screen" x-show="sidebar">
+      <div class="flex items-center gap-2 px-2 py-3 mb-2">
+        <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-sm">V</div>
+        <div class="text-xl font-semibold tracking-tight text-zinc-100">Voyager</div>
+      </div>
       {% url 'dashboard:overview' as overview_url %}
       {% url 'dashboard:processos' as processos_url %}
       {% url 'dashboard:movimentacoes' as movs_url %}
       {% url 'dashboard:ingestao' as ingestao_url %}
-      <a href="{{ overview_url }}" class="px-3 py-2 rounded-lg hover:bg-zinc-900 {% if request.path == overview_url %}bg-zinc-900 text-emerald-400{% endif %}">Visão geral</a>
-      <a href="{{ processos_url }}" class="px-3 py-2 rounded-lg hover:bg-zinc-900 {% if processos_url in request.path %}bg-zinc-900 text-emerald-400{% endif %}">Processos</a>
-      <a href="{{ movs_url }}" class="px-3 py-2 rounded-lg hover:bg-zinc-900 {% if movs_url in request.path %}bg-zinc-900 text-emerald-400{% endif %}">Movimentações</a>
-      <a href="{{ ingestao_url }}" class="px-3 py-2 rounded-lg hover:bg-zinc-900 {% if ingestao_url in request.path %}bg-zinc-900 text-emerald-400{% endif %}">Ingestão</a>
-      <div class="mt-auto text-xs text-zinc-500">
-        <div>{{ user.username }}</div>
-        <a class="text-zinc-400 hover:text-emerald-400" href="{% url 'dashboard:logout' %}">sair</a>
+      <a href="{{ overview_url }}" class="nav-item {% if request.path == overview_url %}active{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M3 12l9-9 9 9-9 9-9-9z"/><path stroke-width="2" d="M3 12h18"/></svg>
+        Visão geral
+      </a>
+      <a href="{{ processos_url }}" class="nav-item {% if processos_url in request.path %}active{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M4 4h12a4 4 0 014 4v12H8a4 4 0 01-4-4V4z"/></svg>
+        Processos
+      </a>
+      <a href="{{ movs_url }}" class="nav-item {% if movs_url in request.path %}active{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M3 6h18M3 12h18M3 18h18"/></svg>
+        Movimentações
+      </a>
+      <a href="{{ ingestao_url }}" class="nav-item {% if ingestao_url in request.path %}active{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        Ingestão
+      </a>
+      <div class="mt-auto px-2 pt-3 border-t border-zinc-900 text-xs text-zinc-500">
+        <div class="text-zinc-400">{{ user.username }}</div>
+        <a class="text-zinc-500 hover:text-emerald-400" href="{% url 'dashboard:logout' %}">sair</a>
       </div>
     </aside>
-    <main class="flex-1 p-8 overflow-x-auto">
+    <main class="flex-1 px-8 py-7 overflow-x-auto max-w-[1600px]">
       {% block content %}{% endblock %}
     </main>
   </div>
 
   <script>
-    // Dispose ECharts antes de re-iniciar para não vazar canvas em swaps HTMX.
     function initChart(el) {
       const existing = echarts.getInstanceByDom(el);
       if (existing) existing.dispose();
       const opts = JSON.parse(el.dataset.echart);
+      if (!opts || Object.keys(opts).length === 0) return;
       const chart = echarts.init(el, 'dark');
       chart.setOption(opts);
       window.addEventListener('resize', () => chart.resize());
@@ -54,6 +81,71 @@
     document.addEventListener('DOMContentLoaded', () => initAllCharts());
     if (window.htmx) {
       htmx.on('htmx:afterSwap', (e) => initAllCharts(e.detail.target));
+    }
+
+    // Helpers de chart compartilhados
+    const VOYAGER_COLORS = {
+      TRF1: '#10b981', TRF3: '#3b82f6', TRF2: '#f59e0b', TRF4: '#ef4444',
+      TRF5: '#8b5cf6', TRF6: '#ec4899', TJSP: '#06b6d4',
+    };
+    function fmt(n) { return Number(n).toLocaleString('pt-BR'); }
+    function buildVolumeChart(rows) {
+      const dias = [...new Set(rows.map(r => r.dia))].sort();
+      const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
+      const lookup = {};
+      rows.forEach(r => { lookup[r.tribunal + '|' + r.dia] = r.total; });
+      return {
+        tooltip: {trigger: 'axis', valueFormatter: fmt},
+        legend: {top: 0, textStyle: {color: '#a1a1aa'}, icon: 'roundRect'},
+        grid: {left: 50, right: 20, top: 30, bottom: 40},
+        xAxis: {type: 'category', data: dias, axisLabel: {color: '#71717a', fontSize: 11}, axisLine: {lineStyle: {color: '#3f3f46'}}},
+        yAxis: {type: 'value', axisLabel: {color: '#71717a', formatter: fmt}, splitLine: {lineStyle: {color: '#27272a'}}},
+        series: tribunais.map(t => ({
+          name: t, type: 'line', stack: 'total', smooth: 0.3, symbol: 'none',
+          areaStyle: {opacity: 0.18}, lineStyle: {width: 1.5},
+          color: VOYAGER_COLORS[t] || '#71717a',
+          data: dias.map(d => lookup[t + '|' + d] || 0),
+        })),
+      };
+    }
+    function buildDonut(rows, key, valueKey) {
+      return {
+        tooltip: {trigger: 'item', valueFormatter: fmt},
+        legend: {bottom: 0, textStyle: {color: '#a1a1aa', fontSize: 11}},
+        series: [{
+          type: 'pie', radius: ['55%', '78%'], center: ['50%', '45%'],
+          label: {color: '#e4e4e7', formatter: p => `${p.name}\n${fmt(p.value)}`, fontSize: 11},
+          itemStyle: {borderColor: '#0a0a0b', borderWidth: 2},
+          data: rows.map(r => ({
+            name: r[key],
+            value: r[valueKey],
+            itemStyle: VOYAGER_COLORS[r[key]] ? {color: VOYAGER_COLORS[r[key]]} : {},
+          })),
+        }],
+      };
+    }
+    function buildHorizBar(rows, key, valueKey, color) {
+      const cats = rows.map(r => r[key]).reverse();
+      const vals = rows.map(r => r[valueKey]).reverse();
+      return {
+        tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, valueFormatter: fmt},
+        grid: {left: 200, right: 30, top: 10, bottom: 30},
+        xAxis: {type: 'value', axisLabel: {color: '#71717a', formatter: fmt}, splitLine: {lineStyle: {color: '#27272a'}}},
+        yAxis: {type: 'category', data: cats, axisLabel: {color: '#a1a1aa', overflow: 'truncate', width: 190, fontSize: 11}, axisLine: {lineStyle: {color: '#3f3f46'}}},
+        series: [{type: 'bar', data: vals, itemStyle: {color: color || '#10b981', borderRadius: [0, 4, 4, 0]}, barMaxWidth: 22}],
+      };
+    }
+    function buildSparkline(values, color) {
+      return {
+        grid: {left: 0, right: 0, top: 4, bottom: 4},
+        xAxis: {show: false, type: 'category'},
+        yAxis: {show: false, type: 'value'},
+        series: [{
+          type: 'line', data: values, smooth: 0.4, symbol: 'none',
+          lineStyle: {color: color || '#10b981', width: 1.6},
+          areaStyle: {color: color ? color + '33' : 'rgba(16,185,129,0.18)'},
+        }],
+      };
     }
   </script>
 </body>

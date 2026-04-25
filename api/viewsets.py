@@ -1,13 +1,12 @@
-from django.db.models import Count, Max
+import django_rq
+import redis
+from django.conf import settings
+from django.db import connection
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-
-import django_rq
-import redis
-from django.conf import settings
 
 from tribunals.models import IngestionRun, Movimentacao, Process, SchemaDriftAlert, Tribunal
 
@@ -101,8 +100,6 @@ class HealthReadinessView(viewsets.ViewSet):
     permission_classes = [AllowAny]
 
     def list(self, request):
-        from django.db import connection
-
         try:
             with connection.cursor() as c:
                 c.execute('SELECT 1')

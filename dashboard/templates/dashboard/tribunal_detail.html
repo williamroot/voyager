@@ -1,68 +1,74 @@
 {% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
 {% block title %}{{ tribunal.sigla }}{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
+<div class="flex items-center justify-between mb-7">
   <div>
-    <h1 class="text-3xl font-semibold tracking-tight">{{ tribunal.sigla }}</h1>
-    <div class="text-zinc-500 text-sm">{{ tribunal.nome }}</div>
+    <div class="flex items-center gap-2">
+      <span class="badge bg-zinc-900 border-zinc-800 text-zinc-300 text-sm px-3 py-1">{{ tribunal.sigla }}</span>
+      {% if tribunal.ativo %}<span class="badge bg-emerald-900/40 border-emerald-800/60 text-emerald-300">ativo</span>{% endif %}
+      {% if tribunal.backfill_concluido_em %}<span class="badge bg-sky-900/40 border-sky-800/60 text-sky-300">backfill ok</span>{% else %}<span class="badge bg-amber-900/40 border-amber-800/60 text-amber-300">backfill em curso</span>{% endif %}
+    </div>
+    <h1 class="text-3xl font-semibold tracking-tight mt-2">{{ tribunal.nome }}</h1>
   </div>
-  <div class="flex gap-2 items-center text-sm">
-    <a href="?dias=7"   class="px-3 py-1 rounded-lg border {% if periodo_dias == 7 %}border-emerald-500 text-emerald-400{% else %}border-zinc-800 text-zinc-400{% endif %}">7d</a>
-    <a href="?dias=30"  class="px-3 py-1 rounded-lg border {% if periodo_dias == 30 %}border-emerald-500 text-emerald-400{% else %}border-zinc-800 text-zinc-400{% endif %}">30d</a>
-    <a href="?dias=90"  class="px-3 py-1 rounded-lg border {% if periodo_dias == 90 %}border-emerald-500 text-emerald-400{% else %}border-zinc-800 text-zinc-400{% endif %}">90d</a>
-    <a href="?dias=365" class="px-3 py-1 rounded-lg border {% if periodo_dias == 365 %}border-emerald-500 text-emerald-400{% else %}border-zinc-800 text-zinc-400{% endif %}">365d</a>
+  <div class="flex gap-1 items-center text-xs bg-zinc-900/60 border border-zinc-800 rounded-xl p-1">
+    <a href="?dias=7"   class="px-3 py-1.5 rounded-lg {% if periodo_dias == 7 %}bg-zinc-800 text-emerald-400{% else %}text-zinc-400 hover:text-zinc-100{% endif %}">7d</a>
+    <a href="?dias=30"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30 %}bg-zinc-800 text-emerald-400{% else %}text-zinc-400 hover:text-zinc-100{% endif %}">30d</a>
+    <a href="?dias=90"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90 %}bg-zinc-800 text-emerald-400{% else %}text-zinc-400 hover:text-zinc-100{% endif %}">90d</a>
+    <a href="?dias=365" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 365 %}bg-zinc-800 text-emerald-400{% else %}text-zinc-400 hover:text-zinc-100{% endif %}">1a</a>
   </div>
 </div>
 
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-  <div class="card"><div class="text-zinc-500 text-xs">Início disponível</div><div class="text-xl mt-1">{{ tribunal.data_inicio_disponivel|default:'—' }}</div></div>
-  <div class="card"><div class="text-zinc-500 text-xs">Backfill concluído</div><div class="text-xl mt-1">{{ tribunal.backfill_concluido_em|default:'—' }}</div></div>
-  <div class="card"><div class="text-zinc-500 text-xs">Overlap diário (dias)</div><div class="text-xl mt-1">{{ tribunal.overlap_dias }}</div></div>
-  <div class="card"><div class="text-zinc-500 text-xs">Ativo</div><div class="text-xl mt-1">{% if tribunal.ativo %}<span class="badge bg-emerald-900/40 text-emerald-300">Sim</span>{% else %}<span class="badge bg-zinc-800 text-zinc-400">Não</span>{% endif %}</div></div>
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+  <div class="card-tight">
+    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Processos</div>
+    <div class="text-2xl font-semibold kpi-num mt-1">{{ total_processos|format_int }}</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Movimentações</div>
+    <div class="text-2xl font-semibold kpi-num mt-1">{{ total_movs|format_int }}</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Cancelamentos</div>
+    <div class="text-2xl font-semibold kpi-num mt-1 {% if cancelados %}text-rose-400{% endif %}">{{ cancelados|format_int }}</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Órgãos únicos</div>
+    <div class="text-2xl font-semibold kpi-num mt-1">{{ orgaos_unicos|format_int }}</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Classes únicas</div>
+    <div class="text-2xl font-semibold kpi-num mt-1">{{ classes_unicas|format_int }}</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Início histórico</div>
+    <div class="text-sm mt-1.5">{{ tribunal.data_inicio_disponivel|date:'d/m/Y'|default:'—' }}</div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+  <div class="card lg:col-span-2">
+    <div class="text-sm font-medium text-zinc-200 mb-3">Volume diário · {{ periodo_dias }} dias</div>
+    <div class="h-72" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildVolumeChart({{ volume_diario_json|safe }}));"></div>
+  </div>
+  <div class="card">
+    <div class="text-sm font-medium text-zinc-200 mb-3">Por meio</div>
+    <div class="h-72" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildDonut({{ meios_json|safe }}, 'meio', 'total'));"></div>
+  </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
   <div class="card">
-    <div class="text-zinc-400 text-sm mb-2">Volume diário</div>
-    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildVolumeChart({{ volume_diario_json|safe }}));"></div>
+    <div class="text-sm font-medium text-zinc-200 mb-3">Top tipos de comunicação</div>
+    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ tipos_json|safe }}, 'tipo', 'total', '#3b82f6'));"></div>
   </div>
   <div class="card">
-    <div class="text-zinc-400 text-sm mb-2">Top tipos de comunicação</div>
-    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ tipos_json|safe }}, 'tipo'));"></div>
+    <div class="text-sm font-medium text-zinc-200 mb-3">Top órgãos julgadores</div>
+    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ orgaos_json|safe }}, 'orgao', 'total', '#10b981'));"></div>
   </div>
   <div class="card lg:col-span-2">
-    <div class="text-zinc-400 text-sm mb-2">Top órgãos julgadores</div>
-    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ orgaos_json|safe }}, 'orgao'));"></div>
+    <div class="text-sm font-medium text-zinc-200 mb-3">Top classes processuais</div>
+    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ classes_json|safe }}, 'classe', 'total', '#8b5cf6'));"></div>
   </div>
 </div>
-
-<script>
-function buildVolumeChart(rows) {
-  const dias = [...new Set(rows.map(r => r.dia))].sort();
-  const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
-  const lookup = {};
-  rows.forEach(r => { lookup[r.tribunal + '|' + r.dia] = r.total; });
-  return {
-    tooltip: {trigger: 'axis'},
-    grid: {left: 40, right: 20, top: 20, bottom: 40},
-    xAxis: {type: 'category', data: dias, axisLabel: {color: '#71717a'}},
-    yAxis: {type: 'value', axisLabel: {color: '#71717a'}},
-    series: tribunais.map(t => ({
-      name: t, type: 'line', smooth: true, symbol: 'none',
-      areaStyle: {opacity: 0.2}, data: dias.map(d => lookup[t + '|' + d] || 0),
-    })),
-  };
-}
-function buildHorizBar(rows, key) {
-  const cats = rows.map(r => r[key]).reverse();
-  const vals = rows.map(r => r.total).reverse();
-  return {
-    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
-    grid: {left: 180, right: 20, top: 10, bottom: 30},
-    xAxis: {type: 'value', axisLabel: {color: '#71717a'}},
-    yAxis: {type: 'category', data: cats, axisLabel: {color: '#a1a1aa', overflow: 'truncate', width: 170}},
-    series: [{type: 'bar', data: vals, itemStyle: {color: '#10b981'}}],
-  };
-}
-</script>
 {% endblock %}

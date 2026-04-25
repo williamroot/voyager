@@ -137,11 +137,7 @@ SLACK_NOTIFY_FAILED_RUN = env.bool('SLACK_NOTIFY_FAILED_RUN', default=True)
 
 # Sentry
 SENTRY_DSN = env('SENTRY_DSN', default='')
-if SENTRY_DSN:
-    import sentry_sdk
-    from sentry_sdk.integrations.django import DjangoIntegration
-    from sentry_sdk.integrations.rq import RqIntegration
-
+if SENTRY_DSN and _SENTRY_AVAILABLE:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         environment=env('SENTRY_ENVIRONMENT', default='production'),
@@ -156,11 +152,21 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
 
+# Optional dependencies — guarded with try/except por serem features opcionais
+# (PEP 8 §3.1 admite imports condicionais para features opcionais).
 try:
     import pythonjsonlogger.jsonlogger  # noqa: F401
     _JSON_LOG_AVAILABLE = True
 except ImportError:
     _JSON_LOG_AVAILABLE = False
+
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.rq import RqIntegration
+    _SENTRY_AVAILABLE = True
+except ImportError:
+    _SENTRY_AVAILABLE = False
 
 LOGGING = {
     'version': 1,
