@@ -39,7 +39,7 @@ Citações que mais aplicamos aqui:
 - **There should be one — and preferably only one — obvious way to do it.** Não duplique helpers.
 - **Now is better than never. Although never is often better than *right* now.** Não atrase deploy por refactoring opcional, nem aceite débito que vire bola de neve.
 
-## 3. Princípios fundamentais (CLAUDE.md global)
+## 3. Princípios fundamentais
 
 - **NUNCA supor nomes de campos** entre camadas (banco, API, função). Sempre ler a fonte de dados.
 - **Verificar antes de alterar**. Quando consumir dados externos, ler a função/SP/modelo que retorna primeiro.

@@ -2,7 +2,7 @@
 
 **Data:** 2026-04-24
 **Status:** Design aprovado, pendente review por agentes
-**Autor:** William Alves (em colaboração com Claude)
+**Autor:** William Alves
 
 ## Sumário
 
