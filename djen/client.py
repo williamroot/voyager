@@ -70,7 +70,7 @@ class DJENClient:
                     'latency_ms': latency_ms,
                 })
                 # 403/429: proxy bloqueado/limitado → marca ruim e tenta outro proxy.
-                # 5xx: erro do servidor DJEN → backoff e retry mantendo o proxy (não é culpa dele).
+                # 5xx: erro do servidor DJEN → backoff longo e retry mantendo o proxy.
                 # 4xx restantes: erro real de request → sem retry.
                 if resp.status_code in (403, 429):
                     if proxy_url and using == 'pool':
@@ -87,7 +87,9 @@ class DJENClient:
                         raise DjenClientError(
                             f'DJEN {resp.status_code} após {self.max_retries} tentativas: {resp.text[:200]}'
                         )
-                    self._sleep_backoff(attempt)
+                    # 504 e outros 5xx geralmente são transitórios mas demoram pra
+                    # estabilizar. Backoff mais longo (factor 3, máx 180s).
+                    self._sleep_backoff(attempt, factor=3.0, max_wait=180.0)
                     continue
                 if 400 <= resp.status_code < 500:
                     raise DjenClientError(f'DJEN {resp.status_code}: {resp.text[:200]}')
@@ -145,8 +147,8 @@ class DJENClient:
         url, source, _ = candidatos[-1]
         return url, source
 
-    def _sleep_backoff(self, attempt: int) -> None:
-        wait = min(60.0, 3.0 * (2 ** attempt) + random.uniform(0, 2))
+    def _sleep_backoff(self, attempt: int, factor: float = 1.0, max_wait: float = 60.0) -> None:
+        wait = min(max_wait, 3.0 * factor * (2 ** attempt) + random.uniform(0, 2))
         time.sleep(wait)
 
     def count_only(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:

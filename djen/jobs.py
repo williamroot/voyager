@@ -46,6 +46,7 @@ def run_backfill(tribunal_sigla: str, force_inicio: str | None = None) -> dict:
     chunks = list(chunk_dates(inicio, fim, days=30))
     completados = 0
     pulados = 0
+    retentados = 0
     falhas = 0
     client = DJENClient()
     for chunk_inicio, chunk_fim in chunks:
@@ -56,12 +57,18 @@ def run_backfill(tribunal_sigla: str, force_inicio: str | None = None) -> dict:
         if ja_ok:
             pulados += 1
             continue
+        # Retenta chunks que falharam antes — apaga IngestionRun(status=failed) anteriores
+        # da mesma janela pra começar limpo.
+        deletados, _ = IngestionRun.objects.filter(
+            tribunal=t, status=IngestionRun.STATUS_FAILED,
+            janela_inicio=chunk_inicio, janela_fim=chunk_fim,
+        ).delete()
+        if deletados:
+            retentados += 1
         try:
             ingest_window(t, chunk_inicio, chunk_fim, client=client)
             completados += 1
         except Exception as exc:
-            # Não mata o job inteiro — uma janela falha vira IngestionRun(status=failed)
-            # e podemos retentar depois. Continua processando as próximas.
             falhas += 1
             logger.warning('chunk falhou, seguindo com o próximo', extra={
                 'tribunal': t.sigla, 'chunk_inicio': str(chunk_inicio),
@@ -85,6 +92,7 @@ def run_backfill(tribunal_sigla: str, force_inicio: str | None = None) -> dict:
         'chunks_total': len(chunks),
         'chunks_completados_agora': completados,
         'chunks_pulados': pulados,
+        'chunks_retentados': retentados,
         'chunks_falharam': falhas,
         'concluido': todos_ok,
     }
