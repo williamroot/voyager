@@ -23,6 +23,9 @@ class Tribunal(models.Model):
 
 class Process(models.Model):
     numero_cnj = models.CharField(max_length=25)
+    # ano_cnj é derivado do numero_cnj (NNNNNNN-DD.AAAA.J.TR.OOOO).
+    # Mantido por trigger SQL — não setar manualmente.
+    ano_cnj = models.PositiveSmallIntegerField(null=True, blank=True)
     tribunal = models.ForeignKey(Tribunal, on_delete=models.PROTECT, related_name='processos')
     primeira_movimentacao_em = models.DateTimeField(null=True, blank=True)
     ultima_movimentacao_em = models.DateTimeField(null=True, blank=True)
@@ -71,6 +74,8 @@ class Process(models.Model):
             models.Index(fields=['enriquecimento_status']),
             models.Index(fields=['classe_codigo']),
             models.Index(fields=['orgao_julgador_codigo']),
+            models.Index(fields=['ano_cnj']),
+            models.Index(fields=['tribunal', 'ano_cnj']),
         ]
 
     def __str__(self):

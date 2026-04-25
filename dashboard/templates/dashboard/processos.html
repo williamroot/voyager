@@ -54,6 +54,29 @@
     <a href="?{% query_string request sort='maismovs' %}" class="chip {% if sort == 'maismovs' %}active{% endif %}">Mais movs</a>
     <a href="?{% query_string request sort='inserido' %}" class="chip {% if sort == 'inserido' %}active{% endif %}">Inseridos agora</a>
   </div>
+
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-fg-subtle mr-1">Enriquecimento:</span>
+    <a href="?{% query_string request enriq='' %}" class="chip {% if not enriq_filtro %}active{% endif %}">Todos</a>
+    <a href="?{% query_string request enriq='ok' %}" class="chip {% if enriq_filtro == 'ok' %}active{% endif %}">Enriquecidos</a>
+    <a href="?{% query_string request enriq='pendente' %}" class="chip {% if enriq_filtro == 'pendente' %}active{% endif %}">Pendentes</a>
+    <a href="?{% query_string request enriq='nao_encontrado' %}" class="chip {% if enriq_filtro == 'nao_encontrado' %}active{% endif %}">Não encontrados</a>
+    <a href="?{% query_string request enriq='erro' %}" class="chip {% if enriq_filtro == 'erro' %}active{% endif %}">Com erro</a>
+  </div>
+
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-fg-subtle mr-1">Ano CNJ:</span>
+    <a href="?{% query_string request ano='' ano_de='' ano_ate='' %}" class="chip {% if not ano_filtro and not ano_de_filtro and not ano_ate_filtro %}active{% endif %}">Todos</a>
+    {% for a in '2026,2025,2024,2023,2022,2021,2020,2019,2018,2017,2016,2015,2014'|cut:' '|stringformat:'s'|slice:':' %}{% endfor %}
+    <a href="?{% query_string request ano='2026' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2026' %}active{% endif %}">2026</a>
+    <a href="?{% query_string request ano='2025' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2025' %}active{% endif %}">2025</a>
+    <a href="?{% query_string request ano='2024' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2024' %}active{% endif %}">2024</a>
+    <a href="?{% query_string request ano='2023' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2023' %}active{% endif %}">2023</a>
+    <a href="?{% query_string request ano='2022' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2022' %}active{% endif %}">2022</a>
+    <a href="?{% query_string request ano_de='2014' ano_ate='2021' ano='' %}" class="chip {% if ano_de_filtro == '2014' and ano_ate_filtro == '2021' %}active{% endif %}">2014-2021</a>
+    <a href="?{% query_string request ano_ate='2013' ano='' ano_de='' %}" class="chip {% if ano_ate_filtro == '2013' %}active{% endif %}">≤2013 (pré-PJe)</a>
+    <input name="ano" value="{{ ano_filtro }}" placeholder="Ano específico" class="bg-base/60 border border-border rounded-md px-2 py-1 text-xs w-28">
+  </div>
 </form>
 
 <div class="card overflow-hidden p-0">

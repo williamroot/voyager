@@ -114,6 +114,25 @@ def processos(request):
     elif com_movs == 'nao':
         qs = qs.filter(total_movimentacoes=0)
 
+    enriq = request.GET.get('enriq')
+    if enriq in ('ok', 'pendente', 'nao_encontrado', 'erro'):
+        qs = qs.filter(enriquecimento_status=enriq)
+
+    ano = request.GET.get('ano')
+    if ano:
+        try:
+            qs = qs.filter(ano_cnj=int(ano))
+        except ValueError:
+            pass
+    ano_de = request.GET.get('ano_de')
+    ano_ate = request.GET.get('ano_ate')
+    if ano_de:
+        try: qs = qs.filter(ano_cnj__gte=int(ano_de))
+        except ValueError: pass
+    if ano_ate:
+        try: qs = qs.filter(ano_cnj__lte=int(ano_ate))
+        except ValueError: pass
+
     backfill_em_curso, cobertura_ate = _backfill_em_curso()
     sort = request.GET.get('sort', 'inserido' if backfill_em_curso else 'recente')
     if sort == 'recente':
@@ -138,7 +157,11 @@ def processos(request):
         'cnj_filtro': cnj,
         'com_movs': com_movs or '',
         'sort': sort,
-        'total_resultados': qs.count() if cnj or tribunais_filtro or com_movs else None,
+        'enriq_filtro': enriq or '',
+        'ano_filtro': ano or '',
+        'ano_de_filtro': ano_de or '',
+        'ano_ate_filtro': ano_ate or '',
+        'total_resultados': qs.count() if (cnj or tribunais_filtro or com_movs or enriq or ano or ano_de or ano_ate) else None,
         'backfill_em_curso': backfill_em_curso,
         'cobertura_ate': cobertura_ate,
     })
