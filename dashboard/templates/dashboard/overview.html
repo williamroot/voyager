@@ -10,6 +10,23 @@
 {{ meios|json_script:"data-meios" }}
 {{ sparkline_24h|json_script:"data-sparkline-24h" }}
 
+{% if backfill_em_curso %}
+<div class="card mb-5 border-warning/30 bg-warning/10">
+  <div class="flex items-start gap-3">
+    <div class="w-9 h-9 rounded-lg bg-warning/15 border border-warning/30 flex items-center justify-center shrink-0">
+      <svg class="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/></svg>
+    </div>
+    <div class="flex-1 text-xs">
+      <div class="font-medium text-warning text-sm mb-0.5">Telemetria em backfill</div>
+      <div class="text-warning/80 leading-relaxed">
+        Já indexamos transmissões até <span class="font-mono text-warning">{{ cobertura_ate|date:'d/m/Y'|default:'…' }}</span>.
+        O período padrão está em <strong>todo o histórico disponível</strong> — janelas curtas como "30 dias" ficariam vazias até a ingestão alcançar a data atual.
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
   <div>
     <h1 class="text-3xl font-semibold tracking-tight">Visão geral</h1>

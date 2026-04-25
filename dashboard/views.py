@@ -11,13 +11,27 @@ from . import queries
 
 def _periodo_dias(request, default=90) -> int | None:
     """Retorna número de dias do filtro de período. None = todo o período."""
-    raw = (request.GET.get('dias') or str(default)).strip()
-    if raw in ('all', '0'):
+    raw = request.GET.get('dias')
+    if raw is None:
+        return default
+    raw = raw.strip()
+    if raw in ('all', '0', ''):
         return None
     try:
         return min(max(int(raw), 1), 3650)
     except ValueError:
         return default
+
+
+def _backfill_em_curso() -> tuple[bool, object]:
+    """Indica se há backfill ativo + última data coberta com sucesso."""
+    em_curso = Tribunal.objects.filter(ativo=True, backfill_concluido_em__isnull=True).exists()
+    cobertura = (
+        Tribunal.objects.filter(ativo=True)
+        .aggregate(m=Max('runs__janela_fim', filter=Q(runs__status='success')))
+        ['m']
+    ) if em_curso else None
+    return em_curso, cobertura
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -29,7 +43,10 @@ def _split_csv(value: str | None) -> list[str]:
 @login_required
 @require_GET
 def overview(request):
-    dias = _periodo_dias(request)
+    backfill_em_curso, cobertura_ate = _backfill_em_curso()
+    # Enquanto o backfill ainda não fechou, default vira "todo período" — caso contrário
+    # janelas curtas (90d) ficam vazias até a ingestão alcançar a data atual.
+    dias = _periodo_dias(request, default=None if backfill_em_curso else 90)
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
     ctx = {
         'kpis': queries.kpis_globais(dias=dias, tribunais=tribunais_filtro),
@@ -43,6 +60,8 @@ def overview(request):
         'periodo_dias': dias,
         'tribunais': Tribunal.objects.filter(ativo=True),
         'tribunal_filtro': ','.join(tribunais_filtro),
+        'backfill_em_curso': backfill_em_curso,
+        'cobertura_ate': cobertura_ate,
     }
     return render(request, 'dashboard/overview.html', ctx)
 
@@ -93,15 +112,7 @@ def processos(request):
     elif com_movs == 'nao':
         qs = qs.filter(total_movimentacoes=0)
 
-    # backfill em curso → ordena por inserido_em (mais útil que ultima_mov, que está
-    # presa ao chunk mais recente já processado).
-    backfill_em_curso = Tribunal.objects.filter(ativo=True, backfill_concluido_em__isnull=True).exists()
-    cobertura_ate = (
-        Tribunal.objects.filter(ativo=True)
-        .aggregate(m=Max('runs__janela_fim', filter=Q(runs__status='success')))
-        ['m']
-    ) if backfill_em_curso else None
-
+    backfill_em_curso, cobertura_ate = _backfill_em_curso()
     sort = request.GET.get('sort', 'inserido' if backfill_em_curso else 'recente')
     if sort == 'recente':
         qs = qs.order_by(F_NULL := '-ultima_movimentacao_em', '-inserido_em').extra(
