@@ -1,0 +1,13 @@
+{% comment %}
+Cabeçalho de seção interna (não-página). Para h2/h3 dentro de páginas.
+
+Uso:
+  {% include 'dashboard/_partials/section_header.html' with title='Drift alerts' subtitle='3 abertos' %}
+{% endcomment %}
+<div class="flex items-end justify-between mb-3">
+  <div>
+    <h2 class="text-lg font-semibold tracking-tight text-fg">{{ title }}</h2>
+    {% if subtitle %}<div class="text-xs text-fg-subtle mt-0.5">{{ subtitle|safe }}</div>{% endif %}
+  </div>
+  {% if actions %}<div class="flex items-center gap-2">{{ actions|safe }}</div>{% endif %}
+</div>

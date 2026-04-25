@@ -1,0 +1,18 @@
+{% comment %}
+Badge semântico com variantes.
+
+Uso:
+  {% include 'dashboard/_partials/badge.html' with text='Ativo' variant='accent' %}
+  {% include 'dashboard/_partials/badge.html' with text='Cancelada' variant='danger' size='mini' %}
+  {% include 'dashboard/_partials/badge.html' with text='Customizado' classes='bg-purple-100 text-purple-700' %}
+
+variant: default | accent | danger | warning | info | neutral
+size:    default | mini
+icon_path: SVG path opcional (renderiza ícone à esquerda)
+classes: classes Tailwind extras (override total se passado)
+{% endcomment %}
+{% spaceless %}
+<span class="badge{% if size == 'mini' %} chip-mini{% endif %} {% if classes %}{{ classes }}{% else %}{% if variant == 'accent' %}bg-accent/15 text-accent-fg border border-accent/30{% elif variant == 'danger' %}bg-danger/15 text-danger border border-danger/30{% elif variant == 'warning' %}bg-warning/15 text-warning border border-warning/30{% elif variant == 'info' %}bg-info/15 text-info border border-info/30{% elif variant == 'neutral' %}bg-muted text-fg-soft border border-border{% else %}bg-surface text-fg-soft border border-border{% endif %}{% endif %}">
+  {% if icon_path %}<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="{{ icon_path }}"/></svg>{% endif %}{{ text }}
+</span>
+{% endspaceless %}

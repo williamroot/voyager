@@ -35,7 +35,7 @@
         </div>
       </div>
     </div>
-    <button onclick="navigator.clipboard.writeText('{{ processo.numero_cnj }}'); this.textContent='copiado'" class="text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">copiar CNJ</button>
+    <button onclick="copyToClipboard('{{ processo.numero_cnj }}', 'CNJ')" class="text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">copiar CNJ</button>
   </div>
 </div>
 

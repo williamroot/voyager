@@ -1,0 +1,8 @@
+{% comment %}
+Chip de filtro com estado ativo.
+
+Uso:
+  {% include 'dashboard/_partials/chip.html' with text='TRF1' href='?tribunal=TRF1' active=True %}
+  {% include 'dashboard/_partials/chip.html' with text='Mini' href='?x=1' active=False mini=True %}
+{% endcomment %}
+<a href="{{ href }}" class="chip{% if mini %} chip-mini{% endif %}{% if active %} active{% endif %}">{{ text }}</a>

@@ -1,0 +1,13 @@
+{% comment %}
+Pill compacto para stat secundário (ex: "1488/1500 saudáveis").
+
+Uso:
+  {% include 'dashboard/_partials/stat_pill.html' with label='Saudáveis' value='1488/1500' variant='accent' %}
+{% endcomment %}
+{% spaceless %}
+<div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card/40">
+  <span class="text-[0.7rem] text-fg-subtle uppercase tracking-wider">{{ label }}</span>
+  <span class="text-sm font-medium kpi-num
+    {% if variant == 'accent' %}text-accent-fg{% elif variant == 'danger' %}text-danger{% elif variant == 'warning' %}text-warning{% elif variant == 'info' %}text-info{% else %}text-fg{% endif %}">{{ value }}</span>
+</div>
+{% endspaceless %}

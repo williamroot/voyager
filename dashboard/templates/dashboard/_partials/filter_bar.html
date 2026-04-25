@@ -1,0 +1,12 @@
+{% comment %}
+Wrapper para uma linha de chips de filtro com label.
+
+Uso:
+  {% include 'dashboard/_partials/filter_bar.html' with label='Tribunal' chips_html='<a class="chip">TRF1</a>...' %}
+
+Para uso flexível, prefira renderizar inline com `<div class="flex flex-wrap gap-2 items-center">`.
+{% endcomment %}
+<div class="flex flex-wrap gap-2 items-center">
+  {% if label %}<span class="text-xs text-fg-subtle mr-1">{{ label }}:</span>{% endif %}
+  {{ chips_html|safe }}
+</div>

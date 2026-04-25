@@ -1,0 +1,34 @@
+{% comment %}
+Container de toasts global. Inclua uma vez no base.html.
+
+Pra disparar um toast em qualquer lugar:
+  window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'OK', type: 'success' }}))
+
+Ou de Alpine: $dispatch('toast', { message: 'erro', type: 'error' })
+
+Tipos: success | error | warning | info
+Auto-dismiss em 4s.
+{% endcomment %}
+<div x-data="{
+       toasts: [],
+       push(t) {
+         const id = Date.now() + Math.random();
+         this.toasts.push({...t, id});
+         setTimeout(() => this.toasts = this.toasts.filter(x => x.id !== id), t.duration || 4000);
+       }
+     }"
+     x-on:toast.window="push($event.detail)"
+     class="fixed bottom-6 right-6 z-50 space-y-2 pointer-events-none">
+  <template x-for="t in toasts" :key="t.id">
+    <div x-show="true" x-transition.opacity.duration.200ms
+         class="card-tight pointer-events-auto px-4 py-3 flex items-center gap-3 min-w-[280px] shadow-2xl"
+         :class="{
+           'border-accent/40 bg-accent/10 text-accent-fg': t.type === 'success',
+           'border-danger/40 bg-danger/10 text-danger':    t.type === 'error',
+           'border-warning/40 bg-warning/10 text-warning': t.type === 'warning',
+           'border-info/40 bg-info/10 text-info':          t.type === 'info' || !t.type,
+         }">
+      <span class="text-sm font-medium" x-text="t.message"></span>
+    </div>
+  </template>
+</div>

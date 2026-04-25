@@ -1,76 +1,103 @@
 {% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
 {% block title %}Ingestão{% endblock %}
 {% block content %}
-<h1 class="text-3xl font-semibold tracking-tight mb-6">Saúde operacional</h1>
+{% include 'dashboard/_partials/page_header.html' with title='Saúde operacional' subtitle='Workers, proxies e drift schema' %}
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-  <div class="card">
-    <div class="text-fg-subtle text-xs">Proxies (ProxyScrape)</div>
-    <div class="text-2xl font-semibold mt-1">{{ proxies.saudaveis }} / {{ proxies.total }}</div>
-    <div class="text-xs text-fg-subtle">{{ proxies.bad }} marcados ruins</div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Proxies (ProxyScrape)</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ proxies.saudaveis|format_int }} <span class="text-fg-subtle text-base">/ {{ proxies.total|format_int }}</span></div>
+    <div class="flex items-center gap-2 mt-2">
+      {% include 'dashboard/_partials/badge.html' with text=proxies.bad|stringformat:'s'|add:' ruins' variant='warning' size='mini' %}
+      {% if proxies.saudaveis %}
+        {% include 'dashboard/_partials/badge.html' with text='OK' variant='accent' size='mini' %}
+      {% else %}
+        {% include 'dashboard/_partials/badge.html' with text='vazio' variant='danger' size='mini' %}
+      {% endif %}
+    </div>
   </div>
-  <div class="card">
-    <div class="text-fg-subtle text-xs">Drift alerts abertos</div>
-    <div class="text-2xl font-semibold mt-1 {% if drift_alerts %}text-danger{% endif %}">{{ drift_alerts.count }}</div>
+
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Drift alerts</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num {% if drift_alerts %}text-danger{% else %}text-fg{% endif %}">{{ drift_alerts.count|format_int }}</div>
+    <div class="text-xs text-fg-subtle mt-1">{% if drift_alerts %}requer atenção{% else %}schema estável{% endif %}</div>
   </div>
-  <div class="card">
-    <div class="text-fg-subtle text-xs">Tribunais ativos</div>
-    <div class="text-2xl font-semibold mt-1">{{ tribunais|length }}</div>
+
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Tribunais ativos</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ tribunais|length }}</div>
+    <div class="flex flex-wrap gap-1 mt-2">
+      {% for t in tribunais %}{% if t.ativo %}
+        {% include 'dashboard/_partials/badge.html' with text=t.sigla variant='neutral' size='mini' %}
+      {% endif %}{% endfor %}
+    </div>
   </div>
 </div>
 
 {% if drift_alerts %}
 <div class="mb-6">
-  <h2 class="text-xl font-semibold mb-3 text-danger">Drift alerts</h2>
+  {% include 'dashboard/_partials/section_header.html' with title='Drift alerts' subtitle=drift_alerts.count|stringformat:'s'|add:' aberto(s)' %}
   <div class="space-y-3">
     {% for a in drift_alerts %}
       <div class="card border-danger/30">
         <div class="flex items-center justify-between">
-          <div class="flex gap-2 items-center">
-            <span class="badge bg-danger/15 text-danger">{{ a.tribunal_id }}</span>
-            <span class="badge bg-muted text-fg-soft">{{ a.get_tipo_display }}</span>
-            <span class="text-fg-subtle text-sm">desde {{ a.detectado_em }}</span>
+          <div class="flex gap-2 items-center flex-wrap">
+            {% include 'dashboard/_partials/badge.html' with text=a.tribunal_id variant='danger' %}
+            {% include 'dashboard/_partials/badge.html' with text=a.get_tipo_display variant='neutral' %}
+            <span class="text-fg-subtle text-sm">desde {{ a.detectado_em|relative_dt }}</span>
           </div>
           <a href="/admin/tribunals/schemadriftalert/{{ a.pk }}/change/" class="text-xs text-accent-fg hover:underline">resolver no admin →</a>
         </div>
-        <div class="mt-2 text-sm">Chaves: <code class="bg-base px-2 py-1 rounded text-fg-soft">{{ a.chaves }}</code></div>
+        <div class="mt-2 text-sm">
+          <span class="text-fg-subtle">Chaves:</span>
+          <code class="bg-base px-2 py-1 rounded text-fg-soft text-xs">{{ a.chaves }}</code>
+        </div>
       </div>
     {% endfor %}
   </div>
 </div>
 {% endif %}
 
-<h2 class="text-xl font-semibold mb-3">Runs recentes</h2>
+{% include 'dashboard/_partials/section_header.html' with title='Runs recentes' subtitle='últimas 50 execuções' %}
 <div class="card overflow-hidden p-0">
-  <table class="w-full text-sm">
-    <thead class="bg-base text-fg-subtle text-xs uppercase">
+  <table class="w-full text-sm dense">
+    <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
       <tr>
-        <th class="text-left px-4 py-3">#</th>
-        <th class="text-left px-4 py-3">Tribunal</th>
-        <th class="text-left px-4 py-3">Status</th>
-        <th class="text-left px-4 py-3">Janela</th>
-        <th class="text-right px-4 py-3">Páginas</th>
-        <th class="text-right px-4 py-3">Novas</th>
-        <th class="text-right px-4 py-3">Dup.</th>
-        <th class="text-left px-4 py-3">Iniciado</th>
+        <th class="text-left">#</th>
+        <th class="text-left">Tribunal</th>
+        <th class="text-left">Status</th>
+        <th class="text-left">Janela</th>
+        <th class="text-right">Páginas</th>
+        <th class="text-right">Novas</th>
+        <th class="text-right">Dup.</th>
+        <th class="text-left">Iniciado</th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-border">
+    <tbody class="divide-y divide-border/80">
       {% for r in runs %}
-        <tr class="hover:bg-card/50">
-          <td class="px-4 py-2 text-fg-muted">{{ r.pk }}</td>
-          <td class="px-4 py-2">{{ r.tribunal_id }}</td>
-          <td class="px-4 py-2">
-            {% if r.status == 'success' %}<span class="badge bg-accent/15 text-accent-fg">OK</span>
-            {% elif r.status == 'failed' %}<span class="badge bg-danger/15 text-danger">FALHOU</span>
-            {% else %}<span class="badge bg-warning/15 text-warning">…</span>{% endif %}
+        <tr class="hover:bg-card/40 transition-colors">
+          <td class="text-fg-muted">{{ r.pk }}</td>
+          <td>
+            <a href="{% url 'dashboard:tribunal-detail' r.tribunal_id %}" class="text-accent-fg hover:underline">{{ r.tribunal_id }}</a>
           </td>
-          <td class="px-4 py-2 text-fg-muted">{{ r.janela_inicio }} → {{ r.janela_fim }}</td>
-          <td class="px-4 py-2 text-right">{{ r.paginas_lidas }}</td>
-          <td class="px-4 py-2 text-right">{{ r.movimentacoes_novas }}</td>
-          <td class="px-4 py-2 text-right text-fg-subtle">{{ r.movimentacoes_duplicadas }}</td>
-          <td class="px-4 py-2 text-fg-muted">{{ r.started_at }}</td>
+          <td>
+            {% if r.status == 'success' %}
+              {% include 'dashboard/_partials/badge.html' with text='OK' variant='accent' size='mini' %}
+            {% elif r.status == 'failed' %}
+              {% include 'dashboard/_partials/badge.html' with text='FALHOU' variant='danger' size='mini' %}
+            {% else %}
+              {% include 'dashboard/_partials/badge.html' with text='rodando' variant='warning' size='mini' %}
+            {% endif %}
+          </td>
+          <td class="text-fg-muted text-xs">{{ r.janela_inicio|date:'d/m/y' }} → {{ r.janela_fim|date:'d/m/y' }}</td>
+          <td class="text-right kpi-num">{{ r.paginas_lidas|format_int }}</td>
+          <td class="text-right kpi-num text-fg-soft">{{ r.movimentacoes_novas|format_int }}</td>
+          <td class="text-right kpi-num text-fg-subtle">{{ r.movimentacoes_duplicadas|format_int }}</td>
+          <td class="text-fg-muted text-xs" title="{{ r.started_at }}">{{ r.started_at|relative_dt }}</td>
         </tr>
+      {% empty %}
+        <tr><td colspan="8" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhuma run ainda' subtitle='dispare um backfill ou aguarde o cron diário' %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
