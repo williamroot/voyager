@@ -1,0 +1,43 @@
+{% load static %}<!doctype html>
+<html lang="pt-br" class="h-full dark">
+<head>
+  <meta charset="utf-8">
+  <title>500 · CRITICAL ANOMALY · VOYAGER</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'dashboard/favicon.svg' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Major+Mono+Display&family=Manrope:wght@400;500;600;700&display=swap">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={darkMode:'class',theme:{extend:{colors:{base:'rgb(var(--c-base) / <alpha-value>)',fg:'rgb(var(--c-fg) / <alpha-value>)','fg-muted':'rgb(var(--c-fg-muted) / <alpha-value>)','fg-subtle':'rgb(var(--c-fg-subtle) / <alpha-value>)',border:'rgb(var(--c-border) / <alpha-value>)',mission:'rgb(var(--c-mission) / <alpha-value>)',pulsar:'rgb(var(--c-pulsar) / <alpha-value>)'}}}};</script>
+  <link rel="stylesheet" href="{% static 'dashboard/voyager-identity.css' %}">
+  <style>
+    :root{color-scheme:dark;--c-base:9 9 11;--c-fg:244 244 245;--c-fg-muted:161 161 170;--c-fg-subtle:113 113 122;--c-border:39 39 42;}
+    body{background:rgb(var(--c-base));color:rgb(var(--c-fg));font-family:'Manrope',sans-serif;}
+  </style>
+</head>
+<body class="error-page">
+  <div class="star-field"></div>
+  <div class="grain"></div>
+
+  <div class="relative z-10 max-w-2xl text-center">
+    <div class="flex items-center justify-center gap-3 mb-2">
+      <span class="mission-tag">// critical anomaly</span>
+    </div>
+    <div class="error-code mb-2">500</div>
+    <div class="signal-noise mb-6 max-w-xs mx-auto"></div>
+    <h1 class="brand-wordmark text-2xl md:text-3xl mb-3">Subsystem failure</h1>
+    <p class="text-fg-muted font-mono text-sm leading-relaxed max-w-md mx-auto">
+      An unexpected anomaly occurred during transmission processing.<br>
+      Ground station has been notified — telemetry forwarded for analysis.
+    </p>
+    <div class="mt-8 flex items-center justify-center gap-3 flex-wrap">
+      <a href="/dashboard/" class="btn-mission">Return to mission control</a>
+      <a href="javascript:location.reload()" class="text-xs font-mono uppercase tracking-widest text-fg-subtle hover:text-mission px-4 py-2">↻ retry transmission</a>
+    </div>
+    <div class="mt-12 telemetry-line justify-center">
+      <span class="dot"></span>
+      <span>VYG.OPS · diagnostic packet dispatched · stand by for repair sequence</span>
+    </div>
+  </div>
+</body>
+</html>

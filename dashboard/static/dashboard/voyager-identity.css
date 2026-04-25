@@ -1,0 +1,213 @@
+/* Voyager — identidade visual.
+ * Variáveis adicionais ao tema base, decorações e tipografia mission-control. */
+
+:root {
+  --c-mission:     234 88 12;     /* NASA orange */
+  --c-pulsar:      134 239 172;   /* Phosphor green */
+  --c-golden:      250 204 21;    /* Golden Record */
+  --c-pale-blue:   147 197 253;   /* Pale Blue Dot */
+}
+
+/* Tipografia. Aplicada como utility via @font-family. */
+.font-display { font-family: 'Major Mono Display', 'JetBrains Mono', monospace; letter-spacing: 0.1em; }
+.font-mono    { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.font-body    { font-family: 'Manrope', -apple-system, sans-serif; }
+
+/* Telemetria — números, timestamps, IDs */
+.telemetry {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: rgb(var(--c-mission));
+}
+
+.telemetry-line {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: rgb(var(--c-fg-subtle));
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.telemetry-line .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgb(var(--c-pulsar));
+  box-shadow: 0 0 8px rgb(var(--c-pulsar) / 0.8);
+  animation: pulsar 1.6s ease-in-out infinite;
+}
+@keyframes pulsar {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* Wordmark VOYAGER — usado no login e branding hero */
+.brand-wordmark {
+  font-family: 'Major Mono Display', monospace;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  color: rgb(var(--c-fg));
+  text-shadow: 0 0 24px rgb(var(--c-mission) / 0.4);
+}
+
+/* Campo de estrelas em camadas, deriva lentíssima */
+.star-field {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background-color: transparent;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, white, transparent 50%),
+    radial-gradient(1.5px 1.5px at 73% 22%, rgba(255,255,255,0.85), transparent 60%),
+    radial-gradient(1px 1px at 41% 73%, white, transparent 50%),
+    radial-gradient(1px 1px at 88% 64%, rgba(147,197,253,0.9), transparent 50%),
+    radial-gradient(2px 2px at 18% 88%, rgba(255,255,255,0.7), transparent 60%),
+    radial-gradient(1px 1px at 62% 11%, rgba(250,204,21,0.6), transparent 50%),
+    radial-gradient(1px 1px at 5% 51%, white, transparent 50%),
+    radial-gradient(1.5px 1.5px at 95% 38%, white, transparent 60%),
+    radial-gradient(1px 1px at 33% 38%, rgba(147,197,253,0.7), transparent 50%),
+    radial-gradient(1px 1px at 81% 91%, white, transparent 50%);
+  background-size: 600px 600px, 800px 800px, 700px 700px, 900px 900px,
+                   500px 500px, 750px 750px, 850px 850px, 650px 650px,
+                   720px 720px, 680px 680px;
+  animation: drift 220s linear infinite;
+  opacity: 0.85;
+}
+html:not(.dark) .star-field { opacity: 0.25; filter: invert(1); }
+@keyframes drift {
+  0%   { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; }
+  100% { background-position: 600px 600px, -800px 800px, 700px -700px, -900px -900px,
+                              500px -500px, -750px 750px, 850px -850px, -650px 650px,
+                              -720px 720px, 680px -680px; }
+}
+
+.star-field-overlay {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at top right,    rgb(var(--c-mission) / 0.10), transparent 55%),
+    radial-gradient(ellipse at bottom left,  rgb(var(--c-pale-blue) / 0.06), transparent 55%);
+}
+
+/* Grão sutil pra sair do plano vetorial */
+.grain {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+  opacity: 0.35;
+}
+html:not(.dark) .grain { opacity: 0.15; mix-blend-mode: multiply; }
+
+/* Trajetória SVG — usada como ornamento de fundo em telas-hero */
+.trajectory {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+/* Cantos com colchetes "mission-control" */
+.frame-brackets { position: relative; }
+.frame-brackets::before,
+.frame-brackets::after {
+  content: '';
+  position: absolute; width: 14px; height: 14px;
+  border-color: rgb(var(--c-mission) / 0.6);
+  border-style: solid;
+}
+.frame-brackets::before { top: -2px; left: -2px; border-width: 1px 0 0 1px; }
+.frame-brackets::after  { bottom: -2px; right: -2px; border-width: 0 1px 1px 0; }
+
+/* Glow "uplink ativo" pra inputs do login */
+.uplink-input:focus { box-shadow: 0 0 0 3px rgb(var(--c-mission) / 0.15); }
+
+/* Botão CTA com aura de transmissão */
+.btn-mission {
+  background: linear-gradient(180deg, rgb(var(--c-mission)), rgb(194 65 12));
+  color: #fff;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  padding: 0.72rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--c-mission) / 0.6);
+  box-shadow: 0 8px 24px -8px rgb(var(--c-mission) / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.18);
+  transition: all 0.15s;
+  cursor: pointer;
+}
+.btn-mission:hover { transform: translateY(-1px); filter: brightness(1.08); }
+.btn-mission:active { transform: translateY(0); }
+
+/* Linha de scan tipo CRT (sutil) */
+.scanlines::before {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    180deg, transparent 0 3px, rgba(255,255,255,0.018) 3px 4px
+  );
+}
+
+/* Hero "telemetry strip" — barra de estado no topo */
+.tlm-strip {
+  display: flex; align-items: center; gap: 1.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgb(var(--c-fg-subtle));
+}
+.tlm-strip .label { color: rgb(var(--c-fg-subtle) / 0.7); }
+.tlm-strip .value { color: rgb(var(--c-fg)); }
+.tlm-strip .accent { color: rgb(var(--c-mission)); }
+
+/* Badge "mission tag" */
+.mission-tag {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.15rem 0.5rem 0.18rem;
+  border: 1px solid rgb(var(--c-mission) / 0.4);
+  background: rgb(var(--c-mission) / 0.08);
+  color: rgb(var(--c-mission));
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  border-radius: 0.3rem;
+}
+
+/* Página de erro hero */
+.error-page {
+  position: relative;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at center, rgb(var(--c-mission) / 0.06), transparent 65%),
+    rgb(var(--c-base));
+  display: flex; align-items: center; justify-content: center;
+  padding: 3rem 1.5rem;
+  overflow: hidden;
+}
+
+.error-code {
+  font-family: 'Major Mono Display', monospace;
+  font-size: clamp(7rem, 22vw, 18rem);
+  line-height: 0.85;
+  letter-spacing: -0.02em;
+  background: linear-gradient(180deg, rgb(var(--c-mission)), rgb(var(--c-mission) / 0.3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 80px rgb(var(--c-mission) / 0.35);
+}
+
+.signal-noise {
+  width: 100%; height: 4px;
+  background: linear-gradient(90deg, transparent, rgb(var(--c-mission) / 0.4), transparent);
+  background-size: 200% 100%;
+  animation: signal-drift 3s linear infinite;
+}
+@keyframes signal-drift {
+  0% { background-position: -100% 0; }
+  100% { background-position: 100% 0; }
+}

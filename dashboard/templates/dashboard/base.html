@@ -3,7 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Voyager{% endblock %} — Voyager</title>
+  <title>{% block title %}Voyager{% endblock %} · VOYAGER</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'dashboard/favicon.svg' %}">
+  <link rel="apple-touch-icon" href="{% static 'dashboard/favicon.svg' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Major+Mono+Display&family=Manrope:wght@400;500;600;700&display=swap">
 
   {# Aplica tema antes de renderizar pra evitar flash. #}
   <script>
@@ -94,7 +99,7 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       -webkit-font-smoothing: antialiased;
       background: rgb(var(--c-base));
       color: rgb(var(--c-fg));
@@ -222,6 +227,7 @@
     }
     @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
   </style>
+  <link rel="stylesheet" href="{% static 'dashboard/voyager-identity.css' %}">
 </head>
 <body class="min-h-full" x-data="{ sidebar: window.innerWidth >= 768 }">
   <div class="md:hidden fixed top-0 left-0 right-0 z-30 bg-base border-b border-border/60 px-4 py-3 flex items-center justify-between">
@@ -240,9 +246,16 @@
   <div class="flex min-h-screen pt-12 md:pt-0">
     <aside class="app-sidebar w-60 bg-base border-r border-border/60 p-3 flex flex-col gap-1 md:sticky md:top-0 md:h-screen"
            :class="{ 'closed': !sidebar }">
-      <div class="flex items-center gap-2 px-2 py-3 mb-2">
-        <div class="w-7 h-7 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent-fg font-bold text-sm">V</div>
-        <div class="text-xl font-semibold tracking-tight text-fg">Voyager</div>
+      <div class="flex items-center gap-2 px-2 py-3 mb-1">
+        <img src="{% static 'dashboard/favicon.svg' %}" alt="" class="w-7 h-7">
+        <div>
+          <div class="brand-wordmark text-base leading-none">VOYAGER</div>
+          <div class="telemetry text-[0.55rem] mt-0.5 text-fg-subtle">DEEP DATA · OPS</div>
+        </div>
+      </div>
+      <div class="px-2 py-2 mb-2 border-y border-border/40 flex items-center gap-2 text-[0.6rem] font-mono uppercase tracking-widest text-fg-subtle">
+        <span class="w-1.5 h-1.5 rounded-full bg-pulsar inline-block" style="box-shadow: 0 0 6px rgb(var(--c-pulsar) / 0.7)"></span>
+        <span>uplink active</span>
       </div>
       {% url 'dashboard:overview' as overview_url %}
       {% url 'dashboard:processos' as processos_url %}
