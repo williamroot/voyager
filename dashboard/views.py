@@ -1,10 +1,12 @@
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Max, Q
+from django.db.models import Count, Max, Q
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
 from djen.proxies import ProxyScrapePool
-from tribunals.models import Movimentacao, Process, SchemaDriftAlert, Tribunal
+from enrichers.jobs import enriquecer_processo
+from tribunals.models import Movimentacao, Parte, Process, ProcessoParte, SchemaDriftAlert, Tribunal
 
 from . import queries
 
@@ -169,14 +171,69 @@ def processo_detail(request, pk):
         .values_list('meio_completo', flat=True).distinct()[:6]
     )
 
+    participacoes = (
+        ProcessoParte.objects.filter(processo=proc)
+        .select_related('parte', 'representa__parte')
+        .order_by('polo', 'papel')
+    )
+    polos = {'ativo': [], 'passivo': [], 'outros': []}
+    for pp in participacoes:
+        polos.setdefault(pp.polo, []).append(pp)
+
     return render(request, 'dashboard/processo_detail.html', {
         'processo': proc,
         'movimentacoes': list(movs_qs[:200]),
+        'polos': polos,
         'tipos_disponiveis': tipos_disponiveis,
         'meios_disponiveis': meios_disponiveis,
         'tipo_filtro': ','.join(tipos_filtro),
         'meio_filtro': ','.join(meios_filtro),
         'so_ativos': so_ativos,
+    })
+
+
+@login_required
+@require_POST
+def processo_enriquecer(request, pk):
+    proc = get_object_or_404(Process, pk=pk)
+    if proc.tribunal_id != 'TRF1':
+        messages.error(request, f'Enriquecimento ainda não suportado para {proc.tribunal_id}.')
+        return redirect('dashboard:processo-detail', pk=pk)
+    j = enriquecer_processo.delay(proc.pk)
+    messages.success(request, f'Atualização enfileirada (job {j.id[:8]}). Recarregue em alguns segundos.')
+    return redirect('dashboard:processo-detail', pk=pk)
+
+
+@login_required
+@require_GET
+def partes(request):
+    tipo = request.GET.get('tipo', '').strip()
+    q = (request.GET.get('q') or '').strip()
+    qs = Parte.objects.all().order_by('-total_processos', 'nome')
+    if tipo:
+        qs = qs.filter(tipo=tipo)
+    if q and len(q) >= 2:
+        qs = qs.filter(Q(nome__icontains=q) | Q(documento__icontains=q) | Q(oab__icontains=q))
+    return render(request, 'dashboard/partes.html', {
+        'partes': qs[:300],
+        'tipo_filtro': tipo,
+        'q': q,
+        'total': qs.count() if (tipo or q) else None,
+    })
+
+
+@login_required
+@require_GET
+def parte_detail(request, pk):
+    parte = get_object_or_404(Parte, pk=pk)
+    participacoes = (
+        ProcessoParte.objects.filter(parte=parte)
+        .select_related('processo', 'processo__tribunal')
+        .order_by('-processo__ultima_movimentacao_em')[:200]
+    )
+    return render(request, 'dashboard/parte_detail.html', {
+        'parte': parte,
+        'participacoes': participacoes,
     })
 
 

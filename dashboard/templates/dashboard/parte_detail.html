@@ -1,0 +1,77 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}{{ parte.nome }}{% endblock %}
+{% block content %}
+<div class="mb-2">
+  <a href="{% url 'dashboard:partes' %}" class="text-fg-subtle text-sm hover:text-accent-fg">← partes</a>
+</div>
+
+<div class="card mb-5">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        {% if parte.tipo == 'advogado' %}{% include 'dashboard/_partials/badge.html' with text='Advogado' variant='info' %}
+        {% elif parte.tipo == 'pj' %}{% include 'dashboard/_partials/badge.html' with text='Pessoa Jurídica' variant='accent' %}
+        {% elif parte.tipo == 'pf' %}{% include 'dashboard/_partials/badge.html' with text='Pessoa Física' variant='neutral' %}
+        {% endif %}
+      </div>
+      <h1 class="text-2xl font-semibold tracking-tight">{{ parte.nome }}</h1>
+      <div class="flex gap-6 mt-3 text-sm">
+        {% if parte.documento %}
+          <div>
+            <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">{{ parte.tipo_documento|default:'Documento' }}</div>
+            <div class="font-mono text-fg-soft">{{ parte.documento }}</div>
+          </div>
+        {% endif %}
+        {% if parte.oab %}
+          <div>
+            <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">OAB</div>
+            <div class="font-mono text-fg-soft">{{ parte.oab }}</div>
+          </div>
+        {% endif %}
+        <div>
+          <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Processos</div>
+          <div class="kpi-num text-fg-soft text-lg">{{ parte.total_processos|format_int }}</div>
+        </div>
+        <div>
+          <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Primeira aparição</div>
+          <div class="text-fg-soft text-sm" title="{{ parte.primeira_aparicao_em }}">{{ parte.primeira_aparicao_em|relative_dt }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% include 'dashboard/_partials/section_header.html' with title='Processos relacionados' subtitle=participacoes|length|stringformat:'s'|add:' participações' %}
+
+<div class="card overflow-hidden p-0">
+  <table class="w-full text-sm dense">
+    <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
+      <tr>
+        <th class="text-left">CNJ</th>
+        <th class="text-left">Tribunal</th>
+        <th class="text-left">Polo</th>
+        <th class="text-left">Papel</th>
+        <th class="text-left">Última mov.</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border/80">
+      {% for pp in participacoes %}
+        <tr class="hover:bg-card/40 group">
+          <td><a href="{% url 'dashboard:processo-detail' pp.processo.pk %}" class="font-mono text-accent-fg hover:underline">{{ pp.processo.numero_cnj }}</a></td>
+          <td>{% include 'dashboard/_partials/badge.html' with text=pp.processo.tribunal_id variant='neutral' size='mini' %}</td>
+          <td>
+            {% if pp.polo == 'ativo' %}<span class="text-accent-fg">ativo</span>
+            {% elif pp.polo == 'passivo' %}<span class="text-warning">passivo</span>
+            {% else %}<span class="text-fg-subtle">{{ pp.polo }}</span>{% endif %}
+          </td>
+          <td class="text-fg-muted">{{ pp.papel|default:'—' }}</td>
+          <td class="text-fg-subtle text-xs">{{ pp.processo.ultima_movimentacao_em|relative_dt }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Sem processos vinculados' %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

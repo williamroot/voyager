@@ -295,6 +295,7 @@
       {% url 'dashboard:overview' as overview_url %}
       {% url 'dashboard:processos' as processos_url %}
       {% url 'dashboard:movimentacoes' as movs_url %}
+      {% url 'dashboard:partes' as partes_url %}
       {% url 'dashboard:ingestao' as ingestao_url %}
       <a href="{{ overview_url }}" class="nav-item {% if request.path == overview_url %}active{% endif %}">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M3 12l9-9 9 9-9 9-9-9z"/><path stroke-width="2" d="M3 12h18"/></svg>
@@ -307,6 +308,10 @@
       <a href="{{ movs_url }}" class="nav-item {% if movs_url in request.path %}active{% endif %}">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M3 6h18M3 12h18M3 18h18"/></svg>
         Movimentações
+      </a>
+      <a href="{{ partes_url }}" class="nav-item {% if partes_url in request.path %}active{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 100-8 4 4 0 000 8zm6 0a3 3 0 100-6 3 3 0 000 6zm-12 0a3 3 0 100-6 3 3 0 000 6z"/></svg>
+        Partes
       </a>
       <a href="{{ ingestao_url }}" class="nav-item {% if ingestao_url in request.path %}active{% endif %}">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>

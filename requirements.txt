@@ -10,6 +10,8 @@ rq-scheduler==0.13.1
 psycopg[binary]==3.2.3
 redis==5.2.0
 requests==2.32.3
+beautifulsoup4==4.12.3
+lxml==5.3.0
 gunicorn==23.0.0
 whitenoise==6.8.2
 django-prometheus==2.3.1

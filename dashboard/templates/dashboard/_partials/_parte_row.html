@@ -1,0 +1,18 @@
+{% load voyager_extras %}
+<div class="py-2 {% if not forloop.last %}border-b border-border/50{% endif %}{% if pp.representa %} ml-5 pl-3 border-l-2 border-info/30{% endif %}">
+  <div class="flex items-center justify-between gap-2">
+    <a href="{% url 'dashboard:parte-detail' pp.parte.pk %}" class="text-sm font-medium text-fg-soft hover:text-accent-fg">{{ pp.parte.nome|default:'(sem nome)' }}</a>
+    <div class="flex gap-1.5 items-center text-[0.65rem]">
+      {% if pp.papel %}<span class="badge bg-card border-border text-fg-muted">{{ pp.papel }}</span>{% endif %}
+      {% if pp.parte.tipo == 'advogado' %}<span class="badge bg-info/15 text-info border-info/30">advogado</span>
+      {% elif pp.parte.tipo == 'pj' %}<span class="badge bg-accent/15 text-accent-fg border-accent/30">PJ</span>
+      {% elif pp.parte.tipo == 'pf' %}<span class="badge bg-muted text-fg-muted border-border">PF</span>{% endif %}
+    </div>
+  </div>
+  {% if pp.parte.documento or pp.parte.oab %}
+    <div class="text-[0.7rem] font-mono text-fg-subtle mt-0.5">
+      {% if pp.parte.documento %}{{ pp.parte.tipo_documento }}: {{ pp.parte.documento }}{% endif %}
+      {% if pp.parte.oab %}{% if pp.parte.documento %} · {% endif %}OAB {{ pp.parte.oab }}{% endif %}
+    </div>
+  {% endif %}
+</div>

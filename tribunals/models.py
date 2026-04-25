@@ -27,6 +27,20 @@ class Process(models.Model):
     primeira_movimentacao_em = models.DateTimeField(null=True, blank=True)
     ultima_movimentacao_em = models.DateTimeField(null=True, blank=True)
     total_movimentacoes = models.PositiveIntegerField(default=0)
+
+    # Enriquecimento via consulta pública do tribunal (TRF1, etc.).
+    classe_codigo = models.CharField(max_length=20, blank=True)
+    classe_nome = models.CharField(max_length=255, blank=True)
+    assunto_codigo = models.CharField(max_length=20, blank=True)
+    assunto_nome = models.CharField(max_length=255, blank=True)
+    data_autuacao = models.DateField(null=True, blank=True)
+    valor_causa = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    orgao_julgador_codigo = models.CharField(max_length=20, blank=True)
+    orgao_julgador_nome = models.CharField(max_length=255, blank=True)
+    juizo = models.CharField(max_length=255, blank=True)
+    segredo_justica = models.BooleanField(default=False)
+    enriquecido_em = models.DateTimeField(null=True, blank=True)
+
     inserido_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -38,10 +52,96 @@ class Process(models.Model):
             models.Index(fields=['tribunal', 'numero_cnj']),
             models.Index(fields=['tribunal', '-ultima_movimentacao_em']),
             models.Index(fields=['inserido_em']),
+            models.Index(fields=['enriquecido_em']),
+            models.Index(fields=['classe_codigo']),
+            models.Index(fields=['orgao_julgador_codigo']),
         ]
 
     def __str__(self):
         return f'{self.tribunal_id}/{self.numero_cnj}'
+
+
+class Parte(models.Model):
+    """Pessoa física, jurídica ou advogado. Pode aparecer em N processos."""
+
+    TIPO_PF = 'pf'
+    TIPO_PJ = 'pj'
+    TIPO_ADV = 'advogado'
+    TIPO_DESCONHECIDO = 'desconhecido'
+    TIPO_CHOICES = [
+        (TIPO_PF, 'Pessoa Física'),
+        (TIPO_PJ, 'Pessoa Jurídica'),
+        (TIPO_ADV, 'Advogado'),
+        (TIPO_DESCONHECIDO, 'Desconhecido'),
+    ]
+
+    nome = models.CharField(max_length=255)
+    documento = models.CharField(max_length=20, blank=True)        # CPF/CNPJ formatado
+    tipo_documento = models.CharField(max_length=10, blank=True)    # 'CPF'|'CNPJ'|''
+    oab = models.CharField(max_length=20, blank=True)               # 'SP123456' — advogados
+    tipo = models.CharField(max_length=20, choices=TIPO_CHOICES, default=TIPO_DESCONHECIDO)
+
+    primeira_aparicao_em = models.DateTimeField(auto_now_add=True)
+    ultima_aparicao_em = models.DateTimeField(auto_now=True)
+    total_processos = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=['documento'], condition=~Q(documento=''),
+                             name='uniq_parte_documento'),
+            UniqueConstraint(fields=['oab'], condition=~Q(oab=''),
+                             name='uniq_parte_oab'),
+        ]
+        indexes = [
+            models.Index(fields=['nome']),
+            models.Index(fields=['documento']),
+            models.Index(fields=['oab']),
+            models.Index(fields=['tipo']),
+        ]
+
+    def __str__(self):
+        ident = self.documento or self.oab or '—'
+        return f'{self.nome} ({ident})'
+
+
+class ProcessoParte(models.Model):
+    """Participação de uma Parte em um Process (com polo/papel)."""
+
+    POLO_ATIVO = 'ativo'
+    POLO_PASSIVO = 'passivo'
+    POLO_OUTROS = 'outros'
+    POLO_CHOICES = [
+        (POLO_ATIVO, 'Polo ativo'),
+        (POLO_PASSIVO, 'Polo passivo'),
+        (POLO_OUTROS, 'Outros'),
+    ]
+
+    processo = models.ForeignKey(Process, on_delete=models.CASCADE, related_name='participacoes')
+    parte = models.ForeignKey(Parte, on_delete=models.PROTECT, related_name='participacoes')
+    polo = models.CharField(max_length=10, choices=POLO_CHOICES)
+    papel = models.CharField(max_length=120, blank=True)            # 'autor', 'réu', 'advogado', etc.
+    representa = models.ForeignKey('self', on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='representado_por')
+    # ^ Advogado: aponta pra ProcessoParte da pessoa representada no mesmo processo.
+
+    inserido_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(
+                fields=['processo', 'parte', 'polo', 'papel'],
+                condition=Q(representa__isnull=True),
+                name='uniq_processo_parte_polo_papel_principal',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['parte', 'polo']),
+            models.Index(fields=['processo', 'polo']),
+            models.Index(fields=['papel']),
+        ]
+
+    def __str__(self):
+        return f'{self.processo.numero_cnj} · {self.parte.nome} ({self.polo}/{self.papel})'
 
 
 class Movimentacao(models.Model):

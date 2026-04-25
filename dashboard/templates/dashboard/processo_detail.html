@@ -35,9 +35,70 @@
         </div>
       </div>
     </div>
-    <button onclick="copyToClipboard('{{ processo.numero_cnj }}', 'CNJ')" class="text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">copiar CNJ</button>
+    <div class="flex flex-col items-end gap-2">
+      <button onclick="copyToClipboard('{{ processo.numero_cnj }}', 'CNJ')" class="text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">copiar CNJ</button>
+      {% if processo.tribunal_id == 'TRF1' %}
+        <form method="post" action="{% url 'dashboard:processo-enriquecer' processo.pk %}" class="inline">
+          {% csrf_token %}
+          <button type="submit" class="text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider">↻ Atualizar dados públicos</button>
+        </form>
+      {% endif %}
+    </div>
   </div>
+  {% if processo.classe_nome or processo.assunto_nome or processo.orgao_julgador_nome %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-border/60">
+      {% if processo.classe_nome %}
+        <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Classe</div><div class="text-sm text-fg-soft mt-0.5">{{ processo.classe_nome }}</div></div>
+      {% endif %}
+      {% if processo.assunto_nome %}
+        <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Assunto</div><div class="text-sm text-fg-soft mt-0.5">{{ processo.assunto_nome }}</div></div>
+      {% endif %}
+      {% if processo.orgao_julgador_nome %}
+        <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Órgão julgador</div><div class="text-sm text-fg-soft mt-0.5">{{ processo.orgao_julgador_nome }}</div></div>
+      {% endif %}
+      {% if processo.valor_causa %}
+        <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Valor da causa</div><div class="text-sm font-mono text-fg-soft mt-0.5">R$ {{ processo.valor_causa|floatformat:2 }}</div></div>
+      {% endif %}
+      {% if processo.data_autuacao %}
+        <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Autuação</div><div class="text-sm text-fg-soft mt-0.5">{{ processo.data_autuacao|date:'d/m/Y' }}</div></div>
+      {% endif %}
+      {% if processo.enriquecido_em %}
+        <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Enriquecido</div><div class="text-sm text-fg-soft mt-0.5" title="{{ processo.enriquecido_em }}">{{ processo.enriquecido_em|relative_dt }}</div></div>
+      {% endif %}
+    </div>
+  {% endif %}
 </div>
+
+{% if polos.ativo or polos.passivo or polos.outros %}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+  {% if polos.ativo %}
+    <div class="card">
+      <div class="text-sm font-medium text-accent-fg mb-3">Polo ativo</div>
+      {% for pp in polos.ativo %}{% include 'dashboard/_partials/_parte_row.html' with pp=pp %}{% endfor %}
+    </div>
+  {% endif %}
+  {% if polos.passivo %}
+    <div class="card">
+      <div class="text-sm font-medium text-warning mb-3">Polo passivo</div>
+      {% for pp in polos.passivo %}{% include 'dashboard/_partials/_parte_row.html' with pp=pp %}{% endfor %}
+    </div>
+  {% endif %}
+  {% if polos.outros %}
+    <div class="card md:col-span-2">
+      <div class="text-sm font-medium text-fg-soft mb-3">Outros interessados</div>
+      {% for pp in polos.outros %}{% include 'dashboard/_partials/_parte_row.html' with pp=pp %}{% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if messages %}
+  <div class="mb-4 space-y-2">
+    {% for m in messages %}
+      <div class="card-tight {% if 'success' in m.tags %}border-accent/40 text-accent-fg{% elif 'error' in m.tags %}border-danger/40 text-danger{% else %}border-info/40 text-info{% endif %}">{{ m }}</div>
+    {% endfor %}
+  </div>
+{% endif %}
 
 {% if tipos_disponiveis or meios_disponiveis %}
 <form method="get" class="card-tight mb-4 flex flex-wrap gap-2 items-center">

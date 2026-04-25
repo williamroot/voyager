@@ -1,0 +1,56 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Partes{% endblock %}
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Partes' subtitle='Pessoas, empresas e advogados que aparecem em processos' %}
+
+<form method="get" class="card mb-5 flex flex-col gap-4">
+  <div class="flex gap-3 items-center">
+    {% include 'dashboard/_partials/search_box.html' with name='q' value=q placeholder='Buscar por nome, CPF/CNPJ ou OAB (mín. 2 chars)' %}
+    <button class="btn-primary">Filtrar</button>
+    <a href="{% url 'dashboard:partes' %}" class="text-fg-subtle hover:text-fg-soft text-sm px-2">limpar</a>
+  </div>
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-fg-subtle mr-1">Tipo:</span>
+    <a href="?{% query_string request tipo='' %}" class="chip {% if not tipo_filtro %}active{% endif %}">Todos</a>
+    <a href="?{% query_string request tipo='advogado' %}" class="chip {% if tipo_filtro == 'advogado' %}active{% endif %}">Advogados</a>
+    <a href="?{% query_string request tipo='pf' %}" class="chip {% if tipo_filtro == 'pf' %}active{% endif %}">Pessoas físicas</a>
+    <a href="?{% query_string request tipo='pj' %}" class="chip {% if tipo_filtro == 'pj' %}active{% endif %}">Pessoas jurídicas</a>
+    <a href="?{% query_string request tipo='desconhecido' %}" class="chip {% if tipo_filtro == 'desconhecido' %}active{% endif %}">Sem identificação</a>
+  </div>
+</form>
+
+<div class="card overflow-hidden p-0">
+  <table class="w-full text-sm dense">
+    <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
+      <tr>
+        <th class="text-left">Nome</th>
+        <th class="text-left">Tipo</th>
+        <th class="text-left">Documento</th>
+        <th class="text-left">OAB</th>
+        <th class="text-right">Processos</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border/80">
+      {% for p in partes %}
+        <tr class="hover:bg-card/40 group">
+          <td><a href="{% url 'dashboard:parte-detail' p.pk %}" class="text-accent-fg hover:underline">{{ p.nome|default:'(sem nome)' }}</a></td>
+          <td>
+            {% if p.tipo == 'advogado' %}{% include 'dashboard/_partials/badge.html' with text='Advogado' variant='info' size='mini' %}
+            {% elif p.tipo == 'pj' %}{% include 'dashboard/_partials/badge.html' with text='PJ' variant='accent' size='mini' %}
+            {% elif p.tipo == 'pf' %}{% include 'dashboard/_partials/badge.html' with text='PF' variant='neutral' size='mini' %}
+            {% else %}{% include 'dashboard/_partials/badge.html' with text='—' size='mini' %}{% endif %}
+          </td>
+          <td class="font-mono text-xs">{{ p.documento|default:'—' }}</td>
+          <td class="font-mono text-xs">{{ p.oab|default:'—' }}</td>
+          <td class="text-right kpi-num">{{ p.total_processos|format_int }}</td>
+          <td class="text-right"><a href="{% url 'dashboard:parte-detail' p.pk %}" class="text-fg-subtle group-hover:text-accent-fg">→</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhuma parte encontrada' subtitle='Enriqueça processos pra começar a popular esta lista' %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
