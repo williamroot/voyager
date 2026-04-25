@@ -50,26 +50,26 @@
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
   <div class="card lg:col-span-2">
     <div class="text-sm font-medium text-fg-soft mb-3">Volume diário · {{ periodo_dias }} dias</div>
-    <div class="h-72" data-echart='{}' x-init="setupChart($el, buildVolumeChart(jsonData('data-volume-diario')))"></div>
+    <div class="h-72 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildVolumeChart(jsonData('data-volume-diario')))" class="absolute inset-0"></div></div>
   </div>
   <div class="card">
     <div class="text-sm font-medium text-fg-soft mb-3">Por meio</div>
-    <div class="h-72" data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-meios'), 'meio', 'total'))"></div>
+    <div class="h-72 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-meios'), 'meio', 'total'))" class="absolute inset-0"></div></div>
   </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
   <div class="card">
     <div class="text-sm font-medium text-fg-soft mb-3">Top tipos de comunicação</div>
-    <div class="h-80" data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-tipos'), 'tipo', 'total', '#3b82f6'))"></div>
+    <div class="h-80 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-tipos'), 'tipo', 'total', '#3b82f6'))" class="absolute inset-0"></div></div>
   </div>
   <div class="card">
     <div class="text-sm font-medium text-fg-soft mb-3">Top órgãos julgadores</div>
-    <div class="h-80" data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-orgaos'), 'orgao', 'total', '#10b981'))"></div>
+    <div class="h-80 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-orgaos'), 'orgao', 'total', '#10b981'))" class="absolute inset-0"></div></div>
   </div>
   <div class="card lg:col-span-2">
     <div class="text-sm font-medium text-fg-soft mb-3">Top classes processuais</div>
-    <div class="h-80" data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-classes'), 'classe', 'total', '#8b5cf6'))"></div>
+    <div class="h-80 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-classes'), 'classe', 'total', '#8b5cf6'))" class="absolute inset-0"></div></div>
   </div>
 </div>
 {% endblock %}

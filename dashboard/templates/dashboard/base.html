@@ -220,12 +220,38 @@
       }
     }
 
-    .skeleton {
-      background: linear-gradient(90deg, rgb(var(--c-muted) / 0.3), rgb(var(--c-muted) / 0.5), rgb(var(--c-muted) / 0.3));
+    .skeleton, .chart-skeleton {
+      background: linear-gradient(90deg, rgb(var(--c-muted) / 0.25), rgb(var(--c-muted) / 0.55), rgb(var(--c-muted) / 0.25));
       background-size: 200% 100%;
-      animation: shimmer 1.5s infinite;
+      animation: shimmer 1.6s infinite ease-in-out;
     }
     @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+    /* Wrapper de chart com skeleton irmão. setupChart() remove o skeleton. */
+    .chart-cell { position: relative; }
+    .chart-cell .chart-skeleton {
+      position: absolute; inset: 0; border-radius: 0.6rem;
+      pointer-events: none;
+    }
+    .chart-cell .chart-skeleton::after {
+      content: ''; position: absolute; inset: 0;
+      background:
+        linear-gradient(180deg, transparent 60%, rgb(var(--c-mission) / 0.05));
+      border-radius: 0.6rem;
+    }
+    .chart-cell .chart-skeleton .pulsar-mark {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      display: flex; align-items: center; gap: 0.5rem;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.62rem;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: rgb(var(--c-fg-subtle)); opacity: 0.7;
+    }
+    .chart-cell .chart-skeleton .pulsar-mark::before {
+      content: ''; width: 8px; height: 8px; border-radius: 50%;
+      background: rgb(var(--c-pulsar));
+      box-shadow: 0 0 8px rgb(var(--c-pulsar) / 0.7);
+      animation: pulsar 1.4s ease-in-out infinite;
+    }
   </style>
   <link rel="stylesheet" href="{% static 'dashboard/voyager-identity.css' %}">
 </head>
@@ -316,6 +342,12 @@
     function setupChart(el, opts) {
       el.dataset.echart = JSON.stringify(opts);
       initChart(el);
+      // Remove skeleton irmão dentro do mesmo .chart-cell quando o chart renderiza.
+      const cell = el.closest('.chart-cell');
+      if (cell) {
+        const skel = cell.querySelector('.chart-skeleton');
+        if (skel) skel.remove();
+      }
     }
     function jsonData(id) {
       const el = document.getElementById(id);
