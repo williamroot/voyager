@@ -41,6 +41,21 @@ class Process(models.Model):
     segredo_justica = models.BooleanField(default=False)
     enriquecido_em = models.DateTimeField(null=True, blank=True)
 
+    ENRIQ_PENDENTE = 'pendente'
+    ENRIQ_OK = 'ok'
+    ENRIQ_NAO_ENCONTRADO = 'nao_encontrado'   # PJe não tem (ex: pré-PJe, físico)
+    ENRIQ_ERRO = 'erro'                        # falha transitória, pode retentar
+    ENRIQ_CHOICES = [
+        (ENRIQ_PENDENTE, 'Pendente'),
+        (ENRIQ_OK, 'Enriquecido'),
+        (ENRIQ_NAO_ENCONTRADO, 'Não encontrado'),
+        (ENRIQ_ERRO, 'Erro'),
+    ]
+    enriquecimento_status = models.CharField(
+        max_length=20, choices=ENRIQ_CHOICES, default=ENRIQ_PENDENTE,
+    )
+    enriquecimento_erro = models.TextField(blank=True)
+
     inserido_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -53,6 +68,7 @@ class Process(models.Model):
             models.Index(fields=['tribunal', '-ultima_movimentacao_em']),
             models.Index(fields=['inserido_em']),
             models.Index(fields=['enriquecido_em']),
+            models.Index(fields=['enriquecimento_status']),
             models.Index(fields=['classe_codigo']),
             models.Index(fields=['orgao_julgador_codigo']),
         ]

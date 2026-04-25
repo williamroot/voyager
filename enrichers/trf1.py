@@ -61,31 +61,59 @@ class Trf1Enricher:
         if processo.tribunal_id != 'TRF1':
             raise Trf1EnricherError(f'Tribunal {processo.tribunal_id} não suportado por este enricher.')
 
-        link_detalhe = self._buscar_processo(processo.numero_cnj)
+        try:
+            link_detalhe = self._buscar_processo(processo.numero_cnj)
+        except Exception as exc:
+            self._marcar_erro(processo, f'busca: {exc}')
+            return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
+
         if not link_detalhe:
-            raise Trf1EnricherError(f'Detalhe não encontrado para {processo.numero_cnj}')
+            # PJe não tem registro — comum em processos pré-PJe (pré-2014 no TRF1)
+            # ou que tramitam em sistemas legados (físico, eproc antigo).
+            self._marcar_nao_encontrado(processo)
+            return {'cnj': processo.numero_cnj, 'status': 'nao_encontrado'}
 
-        soup = self._fetch_detalhe(link_detalhe)
-        dados = self._extrair_dados(soup)
-        partes = self._extrair_partes(soup)
-
-        with transaction.atomic():
-            self._aplicar_dados(processo, dados)
-            self._aplicar_partes(processo, partes)
-            processo.enriquecido_em = timezone.now()
-            processo.save(update_fields=[
-                'classe_codigo', 'classe_nome', 'assunto_codigo', 'assunto_nome',
-                'data_autuacao', 'valor_causa', 'orgao_julgador_codigo',
-                'orgao_julgador_nome', 'juizo', 'segredo_justica', 'enriquecido_em',
-            ])
+        try:
+            soup = self._fetch_detalhe(link_detalhe)
+            dados = self._extrair_dados(soup)
+            partes = self._extrair_partes(soup)
+            with transaction.atomic():
+                self._aplicar_dados(processo, dados)
+                self._aplicar_partes(processo, partes)
+                processo.enriquecido_em = timezone.now()
+                processo.enriquecimento_status = Process.ENRIQ_OK
+                processo.enriquecimento_erro = ''
+                processo.save(update_fields=[
+                    'classe_codigo', 'classe_nome', 'assunto_codigo', 'assunto_nome',
+                    'data_autuacao', 'valor_causa', 'orgao_julgador_codigo',
+                    'orgao_julgador_nome', 'juizo', 'segredo_justica',
+                    'enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro',
+                ])
+        except Exception as exc:
+            logger.exception('falha ao parsear detalhe', extra={'cnj': processo.numero_cnj})
+            self._marcar_erro(processo, f'parse: {exc}')
+            return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
         return {
             'cnj': processo.numero_cnj,
+            'status': 'ok',
             'classe': processo.classe_nome,
             'assunto': processo.assunto_nome,
             'orgao_julgador': processo.orgao_julgador_nome,
             'partes_total': sum(len(v) for v in partes.values()),
         }
+
+    def _marcar_nao_encontrado(self, processo: Process) -> None:
+        processo.enriquecido_em = timezone.now()
+        processo.enriquecimento_status = Process.ENRIQ_NAO_ENCONTRADO
+        processo.enriquecimento_erro = ''
+        processo.save(update_fields=['enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro'])
+
+    def _marcar_erro(self, processo: Process, msg: str) -> None:
+        processo.enriquecido_em = timezone.now()
+        processo.enriquecimento_status = Process.ENRIQ_ERRO
+        processo.enriquecimento_erro = msg[:1000]
+        processo.save(update_fields=['enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro'])
 
     # ---------- HTTP ----------
 
