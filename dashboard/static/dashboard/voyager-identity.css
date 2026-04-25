@@ -50,6 +50,7 @@
   color: rgb(var(--c-fg));
   text-shadow: 0 0 24px rgb(var(--c-mission) / 0.4);
 }
+html:not(.dark) .brand-wordmark { text-shadow: none; color: rgb(var(--c-mission)); }
 
 /* Campo de estrelas em camadas, deriva lentíssima */
 .star-field {

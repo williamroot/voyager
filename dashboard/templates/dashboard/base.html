@@ -79,24 +79,33 @@
     html.dark { /* explicito */ }
 
     html:not(.dark) {
-      /* Tema claro */
-      --c-base:      250 250 250;   /* zinc-50 */
-      --c-surface:   255 255 255;   /* white */
+      /* Tema claro — paleta inspirada no falcon (Juriscope) */
+      --c-base:      248 250 252;   /* slate-50 levemente azulado, separa de cards brancos */
+      --c-surface:   255 255 255;   /* white pure pra cards */
       --c-card:      255 255 255;
-      --c-muted:     244 244 245;   /* zinc-100 */
-      --c-border:    228 228 231;   /* zinc-200 */
-      --c-fg:        24 24 27;      /* zinc-900 */
-      --c-fg-soft:   39 39 42;      /* zinc-800 */
-      --c-fg-muted:  82 82 91;      /* zinc-600 */
-      --c-fg-subtle: 113 113 122;   /* zinc-500 */
+      --c-muted:     241 245 249;   /* slate-100 */
+      --c-border:    203 213 225;   /* slate-300 — borda mais firme, visível */
+      --c-fg:        15 23 42;      /* slate-900 — texto preto-azulado */
+      --c-fg-soft:   30 41 59;      /* slate-800 */
+      --c-fg-muted:  71 85 105;     /* slate-600 — texto secundário legível */
+      --c-fg-subtle: 100 116 139;   /* slate-500 — texto muted (mais escuro que zinc) */
       --c-accent:    16 185 129;    /* emerald-500 */
-      --c-accent-fg: 5 150 105;     /* emerald-600 */
-      --c-danger:    225 29 72;     /* rose-600 */
+      --c-accent-fg: 4 120 87;      /* emerald-700 — mais escuro p/ contraste em fundo claro */
+      --c-danger:    220 38 38;     /* red-600 */
       --c-warning:   217 119 6;     /* amber-600 */
       --c-info:      2 132 199;     /* sky-600 */
+      --c-mission:   234 88 12;
+      --c-pulsar:    5 150 105;     /* emerald-600 (pulsar visível em fundo claro) */
+      --c-golden:    202 138 4;     /* yellow-600 */
+      --c-pale-blue: 37 99 235;     /* blue-600 */
 
-      --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+      --shadow-card: 0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px 0 rgb(15 23 42 / 0.04);
     }
+    html:not(.dark) .card { box-shadow: 0 4px 6px -1px rgb(15 23 42 / 0.06), 0 2px 4px -1px rgb(15 23 42 / 0.04); }
+    html:not(.dark) .card-tight { box-shadow: 0 2px 4px -1px rgb(15 23 42 / 0.05); }
+    html:not(.dark) .chip { background: rgb(255 255 255); }
+    html:not(.dark) .chip:hover { background: rgb(241 245 249); }
+    html:not(.dark) .chip.active { background: rgb(220 252 231); color: rgb(4 120 87); border-color: rgb(110 231 183); }
 
     body {
       font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -270,7 +279,7 @@
   <div class="md:hidden sidebar-backdrop" x-show="sidebar" x-cloak @click="sidebar = false"></div>
 
   <div class="flex min-h-screen pt-12 md:pt-0">
-    <aside class="app-sidebar w-60 bg-base border-r border-border/60 p-3 flex flex-col gap-1 md:sticky md:top-0 md:h-screen"
+    <aside class="app-sidebar w-60 bg-surface dark:bg-base border-r border-border p-3 flex flex-col gap-1 md:sticky md:top-0 md:h-screen"
            :class="{ 'closed': !sidebar }">
       <a href="{% url 'dashboard:overview' %}" class="flex items-center gap-3 px-2 py-3 mb-1 group">
         <img src="{% static 'dashboard/favicon.svg' %}" alt="VOYAGER" class="w-12 h-12 rounded-lg group-hover:scale-105 transition-transform" style="filter: drop-shadow(0 0 12px rgb(var(--c-mission) / 0.25))">
