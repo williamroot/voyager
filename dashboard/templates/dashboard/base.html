@@ -272,13 +272,13 @@
   <div class="flex min-h-screen pt-12 md:pt-0">
     <aside class="app-sidebar w-60 bg-base border-r border-border/60 p-3 flex flex-col gap-1 md:sticky md:top-0 md:h-screen"
            :class="{ 'closed': !sidebar }">
-      <div class="flex items-center gap-2 px-2 py-3 mb-1">
-        <img src="{% static 'dashboard/favicon.svg' %}" alt="" class="w-7 h-7">
-        <div>
-          <div class="brand-wordmark text-base leading-none">VOYAGER</div>
-          <div class="telemetry text-[0.55rem] mt-0.5 text-fg-subtle">DEEP DATA · OPS</div>
+      <a href="{% url 'dashboard:overview' %}" class="flex items-center gap-3 px-2 py-3 mb-1 group">
+        <img src="{% static 'dashboard/favicon.svg' %}" alt="VOYAGER" class="w-12 h-12 rounded-lg group-hover:scale-105 transition-transform" style="filter: drop-shadow(0 0 12px rgb(var(--c-mission) / 0.25))">
+        <div class="leading-tight">
+          <div class="brand-wordmark text-xl leading-none">VOYAGER</div>
+          <div class="telemetry text-[0.55rem] mt-1 text-fg-subtle">DEEP DATA · OPS</div>
         </div>
-      </div>
+      </a>
       <div class="px-2 py-2 mb-2 border-y border-border/40 flex items-center gap-2 text-[0.6rem] font-mono uppercase tracking-widest text-fg-subtle">
         <span class="w-1.5 h-1.5 rounded-full bg-pulsar inline-block" style="box-shadow: 0 0 6px rgb(var(--c-pulsar) / 0.7)"></span>
         <span>uplink active</span>
