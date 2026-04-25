@@ -1,5 +1,3 @@
-import json
-
 from django.contrib.auth.decorators import login_required
 from django.db.models import Max, Q
 from django.shortcuts import get_object_or_404, redirect, render
@@ -32,12 +30,12 @@ def overview(request):
     ctx = {
         'kpis': queries.kpis_globais(),
         'sparkline_24h': queries.sparkline_24h(),
-        'volume_diario_json': json.dumps(queries.volume_diario(dias=dias), default=str),
-        'distribuicao_json': json.dumps(queries.distribuicao_por_tribunal()),
-        'tipos_json': json.dumps(queries.top_tipos_comunicacao(limit=10)),
-        'orgaos_json': json.dumps(queries.top_orgaos(limit=10)),
-        'classes_json': json.dumps(queries.top_classes(limit=8)),
-        'meios_json': json.dumps(queries.distribuicao_por_meio()),
+        'volume_diario': queries.volume_diario(dias=dias),
+        'distribuicao': queries.distribuicao_por_tribunal(),
+        'tipos': queries.top_tipos_comunicacao(limit=10),
+        'orgaos': queries.top_orgaos(limit=10),
+        'classes': queries.top_classes(limit=8),
+        'meios': queries.distribuicao_por_meio(),
         'periodo_dias': dias,
         'tribunais': Tribunal.objects.filter(ativo=True),
     }
@@ -60,12 +58,12 @@ def tribunal_detail(request, sigla):
                           .values('nome_orgao').distinct().count(),
         'classes_unicas': Movimentacao.objects.filter(tribunal=t).exclude(nome_classe='')
                            .values('nome_classe').distinct().count(),
-        'volume_diario_json': json.dumps(queries.volume_diario(dias=dias, tribunal_sigla=t.sigla), default=str),
-        'tipos_json': json.dumps(queries.top_tipos_comunicacao(tribunal_sigla=t.sigla)),
-        'orgaos_json': json.dumps(queries.top_orgaos(tribunal_sigla=t.sigla)),
-        'classes_json': json.dumps(queries.top_classes(tribunal_sigla=t.sigla)),
-        'meios_json': json.dumps(queries.distribuicao_por_meio(tribunal_sigla=t.sigla)),
-        'cobertura_json': json.dumps(queries.cobertura_temporal(t), default=str),
+        'volume_diario': queries.volume_diario(dias=dias, tribunal_sigla=t.sigla),
+        'tipos': queries.top_tipos_comunicacao(tribunal_sigla=t.sigla),
+        'orgaos': queries.top_orgaos(tribunal_sigla=t.sigla),
+        'classes': queries.top_classes(tribunal_sigla=t.sigla),
+        'meios': queries.distribuicao_por_meio(tribunal_sigla=t.sigla),
+        'cobertura': queries.cobertura_temporal(t),
         'periodo_dias': dias,
     }
     return render(request, 'dashboard/tribunal_detail.html', ctx)

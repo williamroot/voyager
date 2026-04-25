@@ -1,0 +1,16 @@
+{% comment %}
+Cabeçalho padrão de página: título + subtítulo opcional + slot de actions.
+
+Uso:
+  {% include 'dashboard/_partials/page_header.html' with title='Processos' subtitle='Mostrando 200' %}
+
+Para slot de actions, use o bloco {% block page_actions %} na página:
+  {% include 'dashboard/_partials/page_header.html' with title='X' actions=actions_html %}
+{% endcomment %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-3xl font-semibold tracking-tight text-fg">{{ title }}</h1>
+    {% if subtitle %}<div class="text-sm text-fg-muted mt-1">{{ subtitle|safe }}</div>{% endif %}
+  </div>
+  {% if actions %}<div class="flex items-center gap-2">{{ actions|safe }}</div>{% endif %}
+</div>

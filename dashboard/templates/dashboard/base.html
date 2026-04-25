@@ -1,39 +1,203 @@
 {% load static voyager_extras %}<!doctype html>
-<html lang="pt-br" class="h-full bg-zinc-950">
+<html lang="pt-br" class="h-full">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Voyager{% endblock %} — Voyager</title>
+
+  {# Aplica tema antes de renderizar pra evitar flash. #}
+  <script>
+    (function() {
+      const saved = localStorage.getItem('voyager-theme');
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            // Design tokens — referências semânticas (não cores literais).
+            // Cada token aceita opacity via Tailwind (ex: bg-surface/50).
+            base:    'rgb(var(--c-base) / <alpha-value>)',
+            surface: 'rgb(var(--c-surface) / <alpha-value>)',
+            card:    'rgb(var(--c-card) / <alpha-value>)',
+            muted:   'rgb(var(--c-muted) / <alpha-value>)',
+            border:  'rgb(var(--c-border) / <alpha-value>)',
+            fg:      'rgb(var(--c-fg) / <alpha-value>)',
+            'fg-soft':   'rgb(var(--c-fg-soft) / <alpha-value>)',
+            'fg-muted':  'rgb(var(--c-fg-muted) / <alpha-value>)',
+            'fg-subtle': 'rgb(var(--c-fg-subtle) / <alpha-value>)',
+            accent:    'rgb(var(--c-accent) / <alpha-value>)',
+            'accent-fg': 'rgb(var(--c-accent-fg) / <alpha-value>)',
+            danger:    'rgb(var(--c-danger) / <alpha-value>)',
+            warning:   'rgb(var(--c-warning) / <alpha-value>)',
+            info:      'rgb(var(--c-info) / <alpha-value>)',
+          },
+        },
+      },
+    };
+  </script>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+
   <style>
-    :root { color-scheme: dark; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+    :root {
+      color-scheme: light dark;
+
+      /* Tema escuro (padrão) */
+      --c-base:      9 9 11;        /* zinc-950 */
+      --c-surface:   24 24 27;      /* zinc-900 */
+      --c-card:      24 24 27;      /* zinc-900 (com /55 nas cards) */
+      --c-muted:     39 39 42;      /* zinc-800 */
+      --c-border:    39 39 42;      /* zinc-800 */
+      --c-fg:        244 244 245;   /* zinc-100 */
+      --c-fg-soft:   228 228 231;   /* zinc-200 */
+      --c-fg-muted:  161 161 170;   /* zinc-400 */
+      --c-fg-subtle: 113 113 122;   /* zinc-500 */
+      --c-accent:    16 185 129;    /* emerald-500 */
+      --c-accent-fg: 110 231 183;   /* emerald-300 */
+      --c-danger:    244 63 94;     /* rose-500 */
+      --c-warning:   245 158 11;    /* amber-500 */
+      --c-info:      14 165 233;    /* sky-500 */
+
+      --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.02) inset;
+    }
+
+    html.dark { /* explicito */ }
+
+    html:not(.dark) {
+      /* Tema claro */
+      --c-base:      250 250 250;   /* zinc-50 */
+      --c-surface:   255 255 255;   /* white */
+      --c-card:      255 255 255;
+      --c-muted:     244 244 245;   /* zinc-100 */
+      --c-border:    228 228 231;   /* zinc-200 */
+      --c-fg:        24 24 27;      /* zinc-900 */
+      --c-fg-soft:   39 39 42;      /* zinc-800 */
+      --c-fg-muted:  82 82 91;      /* zinc-600 */
+      --c-fg-subtle: 113 113 122;   /* zinc-500 */
+      --c-accent:    16 185 129;    /* emerald-500 */
+      --c-accent-fg: 5 150 105;     /* emerald-600 */
+      --c-danger:    225 29 72;     /* rose-600 */
+      --c-warning:   217 119 6;     /* amber-600 */
+      --c-info:      2 132 199;     /* sky-600 */
+
+      --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background: rgb(var(--c-base));
+      color: rgb(var(--c-fg));
+    }
+
     [x-cloak] { display: none !important; }
-    .card { background: rgb(24 24 27 / 0.55); border: 1px solid rgb(39 39 42 / 0.7); border-radius: 1rem; padding: 1.25rem; }
-    .card-tight { background: rgb(24 24 27 / 0.55); border: 1px solid rgb(39 39 42 / 0.7); border-radius: 0.875rem; padding: 0.875rem; }
-    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 0.375rem; font-size: 0.7rem; font-weight: 500; line-height: 1.1rem; border: 1px solid transparent; gap: 0.25rem; }
-    .chip { display: inline-flex; align-items: center; padding: 0.3rem 0.7rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 500; border: 1px solid rgb(63 63 70 / 0.6); background: rgb(24 24 27 / 0.7); color: rgb(212 212 216); transition: all 0.15s; cursor: pointer; user-select: none; }
-    .chip:hover { background: rgb(39 39 42 / 0.9); border-color: rgb(82 82 91 / 0.8); }
-    .chip.active { background: rgb(16 185 129 / 0.15); color: rgb(110 231 183); border-color: rgb(16 185 129 / 0.45); }
+
+    .card {
+      background: rgb(var(--c-card) / var(--card-alpha, 0.55));
+      border: 1px solid rgb(var(--c-border) / 0.7);
+      border-radius: 1rem;
+      padding: 1.25rem;
+      box-shadow: var(--shadow-card);
+    }
+    html:not(.dark) .card { --card-alpha: 1; }
+
+    .card-tight {
+      background: rgb(var(--c-card) / var(--card-alpha, 0.55));
+      border: 1px solid rgb(var(--c-border) / 0.7);
+      border-radius: 0.875rem;
+      padding: 0.875rem;
+      box-shadow: var(--shadow-card);
+    }
+    html:not(.dark) .card-tight { --card-alpha: 1; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 0.25rem;
+      padding: 0.125rem 0.5rem; border-radius: 0.375rem;
+      font-size: 0.7rem; font-weight: 500; line-height: 1.1rem;
+      border: 1px solid transparent;
+    }
+
+    .chip {
+      display: inline-flex; align-items: center;
+      padding: 0.3rem 0.7rem; border-radius: 9999px;
+      font-size: 0.78rem; font-weight: 500;
+      border: 1px solid rgb(var(--c-border) / 0.7);
+      background: rgb(var(--c-surface) / 0.7);
+      color: rgb(var(--c-fg-muted));
+      transition: all 0.15s; cursor: pointer; user-select: none;
+    }
+    .chip:hover { background: rgb(var(--c-muted) / 0.9); border-color: rgb(var(--c-border)); color: rgb(var(--c-fg)); }
+    .chip.active {
+      background: rgb(var(--c-accent) / 0.15);
+      color: rgb(var(--c-accent-fg));
+      border-color: rgb(var(--c-accent) / 0.45);
+    }
     .chip-mini { padding: 0.15rem 0.5rem; font-size: 0.7rem; }
-    .nav-item { display: flex; align-items: center; gap: 0.625rem; padding: 0.55rem 0.75rem; border-radius: 0.6rem; color: rgb(161 161 170); font-size: 0.875rem; transition: all 0.12s; }
-    .nav-item:hover { background: rgb(39 39 42 / 0.6); color: rgb(228 228 231); }
-    .nav-item.active { background: rgb(24 24 27); color: rgb(110 231 183); border: 1px solid rgb(63 63 70 / 0.5); }
+
+    .nav-item {
+      display: flex; align-items: center; gap: 0.625rem;
+      padding: 0.55rem 0.75rem; border-radius: 0.6rem;
+      color: rgb(var(--c-fg-muted)); font-size: 0.875rem;
+      transition: all 0.12s;
+    }
+    .nav-item:hover { background: rgb(var(--c-muted) / 0.6); color: rgb(var(--c-fg)); }
+    .nav-item.active {
+      background: rgb(var(--c-surface));
+      color: rgb(var(--c-accent-fg));
+      border: 1px solid rgb(var(--c-border) / 0.5);
+    }
+
+    .input {
+      width: 100%;
+      background: rgb(var(--c-surface) / 0.6);
+      border: 1px solid rgb(var(--c-border));
+      color: rgb(var(--c-fg));
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.875rem;
+    }
+    .input:focus { border-color: rgb(var(--c-accent)); outline: none; }
+    .input::placeholder { color: rgb(var(--c-fg-subtle)); }
+
+    .btn-primary {
+      background: rgb(var(--c-accent));
+      color: rgb(var(--c-base));
+      font-weight: 600;
+      border-radius: 0.5rem;
+      padding: 0.5rem 1.25rem;
+      font-size: 0.875rem;
+      transition: filter 0.12s;
+    }
+    .btn-primary:hover { filter: brightness(1.1); }
+
     .kpi-num { font-variant-numeric: tabular-nums; letter-spacing: -0.025em; }
+
     table.dense td, table.dense th { padding: 0.5rem 0.85rem; }
-    .skeleton { background: linear-gradient(90deg, rgb(39 39 42 / 0.3), rgb(63 63 70 / 0.4), rgb(39 39 42 / 0.3)); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+
+    .skeleton {
+      background: linear-gradient(90deg, rgb(var(--c-muted) / 0.3), rgb(var(--c-muted) / 0.5), rgb(var(--c-muted) / 0.3));
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
     @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
   </style>
 </head>
-<body class="min-h-full text-zinc-100" x-data="{ sidebar: true }">
+<body class="min-h-full" x-data="{ sidebar: true }">
   <div class="flex min-h-screen">
-    <aside class="w-60 bg-zinc-950 border-r border-zinc-900/80 p-3 flex flex-col gap-1 sticky top-0 h-screen" x-show="sidebar">
+    <aside class="w-60 bg-base border-r border-border/60 p-3 flex flex-col gap-1 sticky top-0 h-screen" x-show="sidebar">
       <div class="flex items-center gap-2 px-2 py-3 mb-2">
-        <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-sm">V</div>
-        <div class="text-xl font-semibold tracking-tight text-zinc-100">Voyager</div>
+        <div class="w-7 h-7 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent-fg font-bold text-sm">V</div>
+        <div class="text-xl font-semibold tracking-tight text-fg">Voyager</div>
       </div>
       {% url 'dashboard:overview' as overview_url %}
       {% url 'dashboard:processos' as processos_url %}
@@ -55,9 +219,15 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         Ingestão
       </a>
-      <div class="mt-auto px-2 pt-3 border-t border-zinc-900 text-xs text-zinc-500">
-        <div class="text-zinc-400">{{ user.username }}</div>
-        <a class="text-zinc-500 hover:text-emerald-400" href="{% url 'dashboard:logout' %}">sair</a>
+      <div class="mt-auto px-2 pt-3 border-t border-border/60 text-xs">
+        <button onclick="window.toggleTheme()" class="flex items-center gap-2 text-fg-muted hover:text-fg-soft transition-colors py-2">
+          <svg class="w-4 h-4 dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+          <svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+          <span class="dark:hidden">Modo escuro</span>
+          <span class="hidden dark:inline">Modo claro</span>
+        </button>
+        <div class="text-fg-muted mt-1">{{ user.username }}</div>
+        <a class="text-fg-subtle hover:text-accent-fg" href="{% url 'dashboard:logout' %}">sair</a>
       </div>
     </aside>
     <main class="flex-1 px-8 py-7 overflow-x-auto max-w-[1600px]">
@@ -69,19 +239,38 @@
     function initChart(el) {
       const existing = echarts.getInstanceByDom(el);
       if (existing) existing.dispose();
-      const opts = JSON.parse(el.dataset.echart);
+      let opts;
+      try { opts = JSON.parse(el.dataset.echart); } catch (e) { return; }
       if (!opts || Object.keys(opts).length === 0) return;
-      const chart = echarts.init(el, 'dark');
+      const theme = document.documentElement.classList.contains('dark') ? 'dark' : undefined;
+      const chart = echarts.init(el, theme);
       chart.setOption(opts);
       window.addEventListener('resize', () => chart.resize());
+    }
+    function setupChart(el, opts) {
+      el.dataset.echart = JSON.stringify(opts);
+      initChart(el);
+    }
+    function jsonData(id) {
+      const el = document.getElementById(id);
+      return el ? JSON.parse(el.textContent) : null;
     }
     function initAllCharts(root) {
       (root || document).querySelectorAll('[data-echart]').forEach(initChart);
     }
-    document.addEventListener('DOMContentLoaded', () => initAllCharts());
     if (window.htmx) {
       htmx.on('htmx:afterSwap', (e) => initAllCharts(e.detail.target));
     }
+
+    // Theme toggle — persiste em localStorage e re-inicializa charts.
+    window.toggleTheme = function() {
+      const html = document.documentElement;
+      const next = html.classList.contains('dark') ? 'light' : 'dark';
+      html.classList.toggle('dark', next === 'dark');
+      html.dataset.theme = next;
+      localStorage.setItem('voyager-theme', next);
+      initAllCharts();
+    };
 
     // Helpers de chart compartilhados
     const VOYAGER_COLORS = {
@@ -89,17 +278,29 @@
       TRF5: '#8b5cf6', TRF6: '#ec4899', TJSP: '#06b6d4',
     };
     function fmt(n) { return Number(n).toLocaleString('pt-BR'); }
+    function chartGridColors() {
+      const isDark = document.documentElement.classList.contains('dark');
+      return {
+        axisLabel: isDark ? '#a1a1aa' : '#52525b',
+        axisLine: isDark ? '#3f3f46' : '#e4e4e7',
+        splitLine: isDark ? '#27272a' : '#f4f4f5',
+        legend: isDark ? '#a1a1aa' : '#52525b',
+        labelInDonut: isDark ? '#e4e4e7' : '#27272a',
+        donutBorder: isDark ? '#0a0a0b' : '#fafafa',
+      };
+    }
     function buildVolumeChart(rows) {
       const dias = [...new Set(rows.map(r => r.dia))].sort();
       const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
       const lookup = {};
       rows.forEach(r => { lookup[r.tribunal + '|' + r.dia] = r.total; });
+      const c = chartGridColors();
       return {
         tooltip: {trigger: 'axis', valueFormatter: fmt},
-        legend: {top: 0, textStyle: {color: '#a1a1aa'}, icon: 'roundRect'},
+        legend: {top: 0, textStyle: {color: c.legend}, icon: 'roundRect'},
         grid: {left: 50, right: 20, top: 30, bottom: 40},
-        xAxis: {type: 'category', data: dias, axisLabel: {color: '#71717a', fontSize: 11}, axisLine: {lineStyle: {color: '#3f3f46'}}},
-        yAxis: {type: 'value', axisLabel: {color: '#71717a', formatter: fmt}, splitLine: {lineStyle: {color: '#27272a'}}},
+        xAxis: {type: 'category', data: dias, axisLabel: {color: c.axisLabel, fontSize: 11}, axisLine: {lineStyle: {color: c.axisLine}}},
+        yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
         series: tribunais.map(t => ({
           name: t, type: 'line', stack: 'total', smooth: 0.3, symbol: 'none',
           areaStyle: {opacity: 0.18}, lineStyle: {width: 1.5},
@@ -109,13 +310,14 @@
       };
     }
     function buildDonut(rows, key, valueKey) {
+      const c = chartGridColors();
       return {
         tooltip: {trigger: 'item', valueFormatter: fmt},
-        legend: {bottom: 0, textStyle: {color: '#a1a1aa', fontSize: 11}},
+        legend: {bottom: 0, textStyle: {color: c.legend, fontSize: 11}},
         series: [{
           type: 'pie', radius: ['55%', '78%'], center: ['50%', '45%'],
-          label: {color: '#e4e4e7', formatter: p => `${p.name}\n${fmt(p.value)}`, fontSize: 11},
-          itemStyle: {borderColor: '#0a0a0b', borderWidth: 2},
+          label: {color: c.labelInDonut, formatter: p => `${p.name}\n${fmt(p.value)}`, fontSize: 11},
+          itemStyle: {borderColor: c.donutBorder, borderWidth: 2},
           data: rows.map(r => ({
             name: r[key],
             value: r[valueKey],
@@ -125,13 +327,14 @@
       };
     }
     function buildHorizBar(rows, key, valueKey, color) {
+      const c = chartGridColors();
       const cats = rows.map(r => r[key]).reverse();
       const vals = rows.map(r => r[valueKey]).reverse();
       return {
         tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, valueFormatter: fmt},
         grid: {left: 200, right: 30, top: 10, bottom: 30},
-        xAxis: {type: 'value', axisLabel: {color: '#71717a', formatter: fmt}, splitLine: {lineStyle: {color: '#27272a'}}},
-        yAxis: {type: 'category', data: cats, axisLabel: {color: '#a1a1aa', overflow: 'truncate', width: 190, fontSize: 11}, axisLine: {lineStyle: {color: '#3f3f46'}}},
+        xAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
+        yAxis: {type: 'category', data: cats, axisLabel: {color: c.axisLabel, overflow: 'truncate', width: 190, fontSize: 11}, axisLine: {lineStyle: {color: c.axisLine}}},
         series: [{type: 'bar', data: vals, itemStyle: {color: color || '#10b981', borderRadius: [0, 4, 4, 0]}, barMaxWidth: 22}],
       };
     }

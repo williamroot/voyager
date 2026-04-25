@@ -5,35 +5,35 @@
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
   <div class="card">
-    <div class="text-zinc-500 text-xs">Proxies (ProxyScrape)</div>
+    <div class="text-fg-subtle text-xs">Proxies (ProxyScrape)</div>
     <div class="text-2xl font-semibold mt-1">{{ proxies.saudaveis }} / {{ proxies.total }}</div>
-    <div class="text-xs text-zinc-500">{{ proxies.bad }} marcados ruins</div>
+    <div class="text-xs text-fg-subtle">{{ proxies.bad }} marcados ruins</div>
   </div>
   <div class="card">
-    <div class="text-zinc-500 text-xs">Drift alerts abertos</div>
-    <div class="text-2xl font-semibold mt-1 {% if drift_alerts %}text-rose-400{% endif %}">{{ drift_alerts.count }}</div>
+    <div class="text-fg-subtle text-xs">Drift alerts abertos</div>
+    <div class="text-2xl font-semibold mt-1 {% if drift_alerts %}text-danger{% endif %}">{{ drift_alerts.count }}</div>
   </div>
   <div class="card">
-    <div class="text-zinc-500 text-xs">Tribunais ativos</div>
+    <div class="text-fg-subtle text-xs">Tribunais ativos</div>
     <div class="text-2xl font-semibold mt-1">{{ tribunais|length }}</div>
   </div>
 </div>
 
 {% if drift_alerts %}
 <div class="mb-6">
-  <h2 class="text-xl font-semibold mb-3 text-rose-400">Drift alerts</h2>
+  <h2 class="text-xl font-semibold mb-3 text-danger">Drift alerts</h2>
   <div class="space-y-3">
     {% for a in drift_alerts %}
-      <div class="card border-rose-900/60">
+      <div class="card border-danger/30">
         <div class="flex items-center justify-between">
           <div class="flex gap-2 items-center">
-            <span class="badge bg-rose-900/40 text-rose-300">{{ a.tribunal_id }}</span>
-            <span class="badge bg-zinc-800 text-zinc-300">{{ a.get_tipo_display }}</span>
-            <span class="text-zinc-500 text-sm">desde {{ a.detectado_em }}</span>
+            <span class="badge bg-danger/15 text-danger">{{ a.tribunal_id }}</span>
+            <span class="badge bg-muted text-fg-soft">{{ a.get_tipo_display }}</span>
+            <span class="text-fg-subtle text-sm">desde {{ a.detectado_em }}</span>
           </div>
-          <a href="/admin/tribunals/schemadriftalert/{{ a.pk }}/change/" class="text-xs text-emerald-400 hover:underline">resolver no admin →</a>
+          <a href="/admin/tribunals/schemadriftalert/{{ a.pk }}/change/" class="text-xs text-accent-fg hover:underline">resolver no admin →</a>
         </div>
-        <div class="mt-2 text-sm">Chaves: <code class="bg-zinc-950 px-2 py-1 rounded text-zinc-300">{{ a.chaves }}</code></div>
+        <div class="mt-2 text-sm">Chaves: <code class="bg-base px-2 py-1 rounded text-fg-soft">{{ a.chaves }}</code></div>
       </div>
     {% endfor %}
   </div>
@@ -43,7 +43,7 @@
 <h2 class="text-xl font-semibold mb-3">Runs recentes</h2>
 <div class="card overflow-hidden p-0">
   <table class="w-full text-sm">
-    <thead class="bg-zinc-950 text-zinc-500 text-xs uppercase">
+    <thead class="bg-base text-fg-subtle text-xs uppercase">
       <tr>
         <th class="text-left px-4 py-3">#</th>
         <th class="text-left px-4 py-3">Tribunal</th>
@@ -55,21 +55,21 @@
         <th class="text-left px-4 py-3">Iniciado</th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-zinc-800">
+    <tbody class="divide-y divide-border">
       {% for r in runs %}
-        <tr class="hover:bg-zinc-900/50">
-          <td class="px-4 py-2 text-zinc-400">{{ r.pk }}</td>
+        <tr class="hover:bg-card/50">
+          <td class="px-4 py-2 text-fg-muted">{{ r.pk }}</td>
           <td class="px-4 py-2">{{ r.tribunal_id }}</td>
           <td class="px-4 py-2">
-            {% if r.status == 'success' %}<span class="badge bg-emerald-900/40 text-emerald-300">OK</span>
-            {% elif r.status == 'failed' %}<span class="badge bg-rose-900/40 text-rose-300">FALHOU</span>
-            {% else %}<span class="badge bg-amber-900/40 text-amber-300">…</span>{% endif %}
+            {% if r.status == 'success' %}<span class="badge bg-accent/15 text-accent-fg">OK</span>
+            {% elif r.status == 'failed' %}<span class="badge bg-danger/15 text-danger">FALHOU</span>
+            {% else %}<span class="badge bg-warning/15 text-warning">…</span>{% endif %}
           </td>
-          <td class="px-4 py-2 text-zinc-400">{{ r.janela_inicio }} → {{ r.janela_fim }}</td>
+          <td class="px-4 py-2 text-fg-muted">{{ r.janela_inicio }} → {{ r.janela_fim }}</td>
           <td class="px-4 py-2 text-right">{{ r.paginas_lidas }}</td>
           <td class="px-4 py-2 text-right">{{ r.movimentacoes_novas }}</td>
-          <td class="px-4 py-2 text-right text-zinc-500">{{ r.movimentacoes_duplicadas }}</td>
-          <td class="px-4 py-2 text-zinc-400">{{ r.started_at }}</td>
+          <td class="px-4 py-2 text-right text-fg-subtle">{{ r.movimentacoes_duplicadas }}</td>
+          <td class="px-4 py-2 text-fg-muted">{{ r.started_at }}</td>
         </tr>
       {% endfor %}
     </tbody>

@@ -1,25 +1,61 @@
 {% load static %}<!doctype html>
-<html lang="pt-br" class="h-full bg-zinc-950">
+<html lang="pt-br" class="h-full">
 <head>
   <meta charset="utf-8">
   <title>Login — Voyager</title>
+  <script>
+    (function() {
+      const saved = localStorage.getItem('voyager-theme');
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            base:    'rgb(var(--c-base) / <alpha-value>)',
+            surface: 'rgb(var(--c-surface) / <alpha-value>)',
+            card:    'rgb(var(--c-card) / <alpha-value>)',
+            muted:   'rgb(var(--c-muted) / <alpha-value>)',
+            border:  'rgb(var(--c-border) / <alpha-value>)',
+            fg:      'rgb(var(--c-fg) / <alpha-value>)',
+            'fg-muted':  'rgb(var(--c-fg-muted) / <alpha-value>)',
+            'fg-subtle': 'rgb(var(--c-fg-subtle) / <alpha-value>)',
+            accent:    'rgb(var(--c-accent) / <alpha-value>)',
+            'accent-fg': 'rgb(var(--c-accent-fg) / <alpha-value>)',
+            danger:    'rgb(var(--c-danger) / <alpha-value>)',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    :root { color-scheme: light dark; --c-base:9 9 11; --c-surface:24 24 27; --c-card:24 24 27; --c-muted:39 39 42; --c-border:39 39 42; --c-fg:244 244 245; --c-fg-muted:161 161 170; --c-fg-subtle:113 113 122; --c-accent:16 185 129; --c-accent-fg:110 231 183; --c-danger:244 63 94; }
+    html:not(.dark) { --c-base:250 250 250; --c-surface:255 255 255; --c-card:255 255 255; --c-muted:244 244 245; --c-border:228 228 231; --c-fg:24 24 27; --c-fg-muted:82 82 91; --c-fg-subtle:113 113 122; --c-accent-fg:5 150 105; --c-danger:225 29 72; }
+    body { background: rgb(var(--c-base)); color: rgb(var(--c-fg)); font-family: -apple-system, 'Inter', sans-serif; }
+  </style>
 </head>
-<body class="min-h-full text-zinc-100 flex items-center justify-center">
-  <div class="w-full max-w-sm bg-zinc-900/60 border border-zinc-800 rounded-2xl p-8">
-    <div class="text-3xl font-semibold tracking-tight text-emerald-400 mb-6">Voyager</div>
+<body class="min-h-full flex items-center justify-center">
+  <div class="w-full max-w-sm bg-card border border-border rounded-2xl p-8 shadow-xl">
+    <div class="text-3xl font-semibold tracking-tight text-accent-fg mb-6">Voyager</div>
     <form method="post" class="flex flex-col gap-4">
       {% csrf_token %}
       <label class="flex flex-col gap-1 text-sm">
-        <span class="text-zinc-400">Usuário</span>
-        <input name="username" required autofocus class="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 focus:border-emerald-500 focus:outline-none">
+        <span class="text-fg-muted">Usuário</span>
+        <input name="username" required autofocus class="bg-base/60 border border-border rounded-lg px-3 py-2 focus:border-accent focus:outline-none text-fg">
       </label>
       <label class="flex flex-col gap-1 text-sm">
-        <span class="text-zinc-400">Senha</span>
-        <input name="password" type="password" required class="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 focus:border-emerald-500 focus:outline-none">
+        <span class="text-fg-muted">Senha</span>
+        <input name="password" type="password" required class="bg-base/60 border border-border rounded-lg px-3 py-2 focus:border-accent focus:outline-none text-fg">
       </label>
-      {% if form.errors %}<div class="text-rose-400 text-sm">Credenciais inválidas.</div>{% endif %}
-      <button class="bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-semibold rounded-lg py-2 mt-2">Entrar</button>
+      {% if form.errors %}<div class="text-danger text-sm">Credenciais inválidas.</div>{% endif %}
+      <button class="bg-accent hover:brightness-110 text-base font-semibold rounded-lg py-2 mt-2">Entrar</button>
     </form>
   </div>
 </body>

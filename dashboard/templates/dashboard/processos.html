@@ -5,22 +5,22 @@
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-3xl font-semibold tracking-tight">Processos</h1>
   {% if total_resultados is not None %}
-    <div class="text-sm text-zinc-500">{{ total_resultados|format_int }} resultado{{ total_resultados|pluralize }}</div>
+    <div class="text-sm text-fg-subtle">{{ total_resultados|format_int }} resultado{{ total_resultados|pluralize }}</div>
   {% endif %}
 </div>
 
 {% if backfill_em_curso %}
-<div class="card mb-5 border-amber-900/60 bg-amber-950/20">
+<div class="card mb-5 border-warning/30 bg-warning/10">
   <div class="flex items-start gap-3">
-    <div class="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
-      <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/></svg>
+    <div class="w-9 h-9 rounded-lg bg-warning/15 border border-warning/30 flex items-center justify-center shrink-0">
+      <svg class="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/></svg>
     </div>
     <div class="flex-1">
-      <div class="font-medium text-amber-200 text-sm">Backfill em andamento</div>
-      <div class="text-xs text-amber-200/70 mt-1 leading-relaxed">
-        Os dados estão sendo ingeridos em ordem cronológica. Já processamos até <span class="font-mono text-amber-100">{{ cobertura_ate|date:'d/m/Y'|default:'…' }}</span>.
+      <div class="font-medium text-warning text-sm">Backfill em andamento</div>
+      <div class="text-xs text-warning/70 mt-1 leading-relaxed">
+        Os dados estão sendo ingeridos em ordem cronológica. Já processamos até <span class="font-mono text-warning">{{ cobertura_ate|date:'d/m/Y'|default:'…' }}</span>.
         Os processos podem ter movimentações mais recentes que ainda <strong>não foram ingeridas</strong> — por isso "Última movimentação" reflete apenas o que já temos no banco.
-        Acompanhe em <a href="{% url 'dashboard:ingestao' %}" class="underline hover:text-amber-100">ingestão</a>.
+        Acompanhe em <a href="{% url 'dashboard:ingestao' %}" class="underline hover:text-warning">ingestão</a>.
       </div>
     </div>
   </div>
@@ -30,26 +30,26 @@
 <form method="get" class="card mb-5 flex flex-col gap-4">
   <div class="flex gap-3 items-center">
     <div class="relative flex-1">
-      <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-      <input name="cnj" value="{{ cnj_filtro }}" placeholder="Buscar CNJ..." class="w-full bg-zinc-950/60 border border-zinc-800 rounded-lg pl-10 pr-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+      <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input name="cnj" value="{{ cnj_filtro }}" placeholder="Buscar CNJ..." class="w-full bg-base/60 border border-border rounded-lg pl-10 pr-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
     </div>
-    <button class="bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-semibold rounded-lg px-5 py-2 text-sm">Filtrar</button>
-    <a href="{% url 'dashboard:processos' %}" class="text-zinc-500 hover:text-zinc-200 text-sm px-2">limpar</a>
+    <button class="bg-accent hover:brightness-110 text-zinc-950 font-semibold rounded-lg px-5 py-2 text-sm">Filtrar</button>
+    <a href="{% url 'dashboard:processos' %}" class="text-fg-subtle hover:text-fg-soft text-sm px-2">limpar</a>
   </div>
 
   <div class="flex flex-wrap gap-2 items-center">
-    <span class="text-xs text-zinc-500 mr-1">Tribunal:</span>
+    <span class="text-xs text-fg-subtle mr-1">Tribunal:</span>
     <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
     {% for t in tribunais %}{% if t.ativo %}
       <a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if t.sigla|is_in_list:tribunal_filtro %}active{% endif %}">{{ t.sigla }}</a>
     {% endif %}{% endfor %}
-    <span class="mx-2 text-zinc-700">|</span>
-    <span class="text-xs text-zinc-500 mr-1">Movs:</span>
+    <span class="mx-2 text-border">|</span>
+    <span class="text-xs text-fg-subtle mr-1">Movs:</span>
     <a href="?{% query_string request com_movs='' %}" class="chip {% if not com_movs %}active{% endif %}">Todos</a>
     <a href="?{% query_string request com_movs='sim' %}" class="chip {% if com_movs == 'sim' %}active{% endif %}">Com mov.</a>
     <a href="?{% query_string request com_movs='nao' %}" class="chip {% if com_movs == 'nao' %}active{% endif %}">Sem mov.</a>
-    <span class="mx-2 text-zinc-700">|</span>
-    <span class="text-xs text-zinc-500 mr-1">Ordenar:</span>
+    <span class="mx-2 text-border">|</span>
+    <span class="text-xs text-fg-subtle mr-1">Ordenar:</span>
     <a href="?{% query_string request sort='recente' %}" class="chip {% if sort == 'recente' %}active{% endif %}">Mais recente</a>
     <a href="?{% query_string request sort='maismovs' %}" class="chip {% if sort == 'maismovs' %}active{% endif %}">Mais movs</a>
     <a href="?{% query_string request sort='inserido' %}" class="chip {% if sort == 'inserido' %}active{% endif %}">Inseridos agora</a>
@@ -58,47 +58,47 @@
 
 <div class="card overflow-hidden p-0">
   <table class="w-full text-sm dense">
-    <thead class="bg-zinc-950/70 text-zinc-500 text-[0.7rem] uppercase tracking-wider border-b border-zinc-800">
+    <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
       <tr>
         <th class="text-left">CNJ</th>
         <th class="text-left">Tribunal</th>
-        <th class="text-left">{% if backfill_em_curso %}Última mov. <span class="text-amber-500/80 font-normal normal-case text-[0.65rem]">(parcial)</span>{% else %}Última movimentação{% endif %}</th>
+        <th class="text-left">{% if backfill_em_curso %}Última mov. <span class="text-warning/80 font-normal normal-case text-[0.65rem]">(parcial)</span>{% else %}Última movimentação{% endif %}</th>
         <th class="text-left">Inserido</th>
         <th class="text-right">Movs</th>
         <th></th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-zinc-900/80">
+    <tbody class="divide-y divide-border/80">
       {% for p in processos %}
-        <tr class="hover:bg-zinc-900/40 group transition-colors">
+        <tr class="hover:bg-card/40 group transition-colors">
           <td>
-            <a href="{% url 'dashboard:processo-detail' p.pk %}" class="font-mono text-emerald-400 hover:text-emerald-300 text-[0.82rem]">{{ p.numero_cnj }}</a>
+            <a href="{% url 'dashboard:processo-detail' p.pk %}" class="font-mono text-accent-fg hover:text-accent-fg text-[0.82rem]">{{ p.numero_cnj }}</a>
           </td>
           <td>
-            <span class="badge bg-zinc-900 border-zinc-800 text-zinc-300">{{ p.tribunal_id }}</span>
+            <span class="badge bg-surface border-border text-fg-soft">{{ p.tribunal_id }}</span>
           </td>
           <td>
             {% if p.ultima_movimentacao_em %}
-              <div class="text-zinc-200 text-[0.82rem]" title="{{ p.ultima_movimentacao_em }}">{{ p.ultima_movimentacao_em|relative_dt }}</div>
+              <div class="text-fg-soft text-[0.82rem]" title="{{ p.ultima_movimentacao_em }}">{{ p.ultima_movimentacao_em|relative_dt }}</div>
             {% else %}
-              <div class="text-zinc-600 text-[0.82rem] italic">aguardando consolidação</div>
+              <div class="text-fg-subtle text-[0.82rem] italic">aguardando consolidação</div>
             {% endif %}
           </td>
-          <td class="text-zinc-500 text-[0.82rem]" title="{{ p.inserido_em }}">{{ p.inserido_em|relative_dt }}</td>
+          <td class="text-fg-subtle text-[0.82rem]" title="{{ p.inserido_em }}">{{ p.inserido_em|relative_dt }}</td>
           <td class="text-right">
             {% if p.total_movimentacoes %}
-              <span class="kpi-num text-zinc-200">{{ p.total_movimentacoes|format_int }}</span>
+              <span class="kpi-num text-fg-soft">{{ p.total_movimentacoes|format_int }}</span>
             {% else %}
-              <span class="text-zinc-700">·</span>
+              <span class="text-border">·</span>
             {% endif %}
           </td>
           <td class="text-right">
-            <a href="{% url 'dashboard:processo-detail' p.pk %}" class="text-zinc-500 group-hover:text-emerald-400 transition-colors">→</a>
+            <a href="{% url 'dashboard:processo-detail' p.pk %}" class="text-fg-subtle group-hover:text-accent-fg transition-colors">→</a>
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="6" class="text-center px-4 py-12 text-zinc-500">
-          <div class="text-zinc-400 mb-1">Nenhum processo encontrado</div>
+        <tr><td colspan="6" class="text-center px-4 py-12 text-fg-subtle">
+          <div class="text-fg-muted mb-1">Nenhum processo encontrado</div>
           <div class="text-xs">Ajuste os filtros ou aguarde a ingestão</div>
         </td></tr>
       {% endfor %}

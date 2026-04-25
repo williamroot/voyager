@@ -2,73 +2,79 @@
 {% load voyager_extras %}
 {% block title %}{{ tribunal.sigla }}{% endblock %}
 {% block content %}
+{{ volume_diario|json_script:"data-volume-diario" }}
+{{ tipos|json_script:"data-tipos" }}
+{{ orgaos|json_script:"data-orgaos" }}
+{{ classes|json_script:"data-classes" }}
+{{ meios|json_script:"data-meios" }}
+
 <div class="flex items-center justify-between mb-7">
   <div>
     <div class="flex items-center gap-2">
-      <span class="badge bg-zinc-900 border-zinc-800 text-zinc-300 text-sm px-3 py-1">{{ tribunal.sigla }}</span>
-      {% if tribunal.ativo %}<span class="badge bg-emerald-900/40 border-emerald-800/60 text-emerald-300">ativo</span>{% endif %}
-      {% if tribunal.backfill_concluido_em %}<span class="badge bg-sky-900/40 border-sky-800/60 text-sky-300">backfill ok</span>{% else %}<span class="badge bg-amber-900/40 border-amber-800/60 text-amber-300">backfill em curso</span>{% endif %}
+      <span class="badge bg-surface border-border text-fg-soft text-sm px-3 py-1">{{ tribunal.sigla }}</span>
+      {% if tribunal.ativo %}<span class="badge bg-accent/15 border-accent/30 text-accent-fg">ativo</span>{% endif %}
+      {% if tribunal.backfill_concluido_em %}<span class="badge bg-info/15 border-info/30 text-info">backfill ok</span>{% else %}<span class="badge bg-warning/15 border-warning/30 text-warning">backfill em curso</span>{% endif %}
     </div>
     <h1 class="text-3xl font-semibold tracking-tight mt-2">{{ tribunal.nome }}</h1>
   </div>
-  <div class="flex gap-1 items-center text-xs bg-zinc-900/60 border border-zinc-800 rounded-xl p-1">
-    <a href="?dias=7"   class="px-3 py-1.5 rounded-lg {% if periodo_dias == 7 %}bg-zinc-800 text-emerald-400{% else %}text-zinc-400 hover:text-zinc-100{% endif %}">7d</a>
-    <a href="?dias=30"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30 %}bg-zinc-800 text-emerald-400{% else %}text-zinc-400 hover:text-zinc-100{% endif %}">30d</a>
-    <a href="?dias=90"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90 %}bg-zinc-800 text-emerald-400{% else %}text-zinc-400 hover:text-zinc-100{% endif %}">90d</a>
-    <a href="?dias=365" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 365 %}bg-zinc-800 text-emerald-400{% else %}text-zinc-400 hover:text-zinc-100{% endif %}">1a</a>
+  <div class="flex gap-1 items-center text-xs bg-card/60 border border-border rounded-xl p-1">
+    <a href="?dias=7"   class="px-3 py-1.5 rounded-lg {% if periodo_dias == 7 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">7d</a>
+    <a href="?dias=30"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">30d</a>
+    <a href="?dias=90"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">90d</a>
+    <a href="?dias=365" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 365 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">1a</a>
   </div>
 </div>
 
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
   <div class="card-tight">
-    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Processos</div>
+    <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">Processos</div>
     <div class="text-2xl font-semibold kpi-num mt-1">{{ total_processos|format_int }}</div>
   </div>
   <div class="card-tight">
-    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Movimentações</div>
+    <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">Movimentações</div>
     <div class="text-2xl font-semibold kpi-num mt-1">{{ total_movs|format_int }}</div>
   </div>
   <div class="card-tight">
-    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Cancelamentos</div>
-    <div class="text-2xl font-semibold kpi-num mt-1 {% if cancelados %}text-rose-400{% endif %}">{{ cancelados|format_int }}</div>
+    <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">Cancelamentos</div>
+    <div class="text-2xl font-semibold kpi-num mt-1 {% if cancelados %}text-danger{% endif %}">{{ cancelados|format_int }}</div>
   </div>
   <div class="card-tight">
-    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Órgãos únicos</div>
+    <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">Órgãos únicos</div>
     <div class="text-2xl font-semibold kpi-num mt-1">{{ orgaos_unicos|format_int }}</div>
   </div>
   <div class="card-tight">
-    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Classes únicas</div>
+    <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">Classes únicas</div>
     <div class="text-2xl font-semibold kpi-num mt-1">{{ classes_unicas|format_int }}</div>
   </div>
   <div class="card-tight">
-    <div class="text-[0.65rem] text-zinc-500 uppercase tracking-wider">Início histórico</div>
+    <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">Início histórico</div>
     <div class="text-sm mt-1.5">{{ tribunal.data_inicio_disponivel|date:'d/m/Y'|default:'—' }}</div>
   </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
   <div class="card lg:col-span-2">
-    <div class="text-sm font-medium text-zinc-200 mb-3">Volume diário · {{ periodo_dias }} dias</div>
-    <div class="h-72" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildVolumeChart({{ volume_diario_json|safe }}));"></div>
+    <div class="text-sm font-medium text-fg-soft mb-3">Volume diário · {{ periodo_dias }} dias</div>
+    <div class="h-72" data-echart='{}' x-init="setupChart($el, buildVolumeChart(jsonData('data-volume-diario')))"></div>
   </div>
   <div class="card">
-    <div class="text-sm font-medium text-zinc-200 mb-3">Por meio</div>
-    <div class="h-72" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildDonut({{ meios_json|safe }}, 'meio', 'total'));"></div>
+    <div class="text-sm font-medium text-fg-soft mb-3">Por meio</div>
+    <div class="h-72" data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-meios'), 'meio', 'total'))"></div>
   </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
   <div class="card">
-    <div class="text-sm font-medium text-zinc-200 mb-3">Top tipos de comunicação</div>
-    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ tipos_json|safe }}, 'tipo', 'total', '#3b82f6'));"></div>
+    <div class="text-sm font-medium text-fg-soft mb-3">Top tipos de comunicação</div>
+    <div class="h-80" data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-tipos'), 'tipo', 'total', '#3b82f6'))"></div>
   </div>
   <div class="card">
-    <div class="text-sm font-medium text-zinc-200 mb-3">Top órgãos julgadores</div>
-    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ orgaos_json|safe }}, 'orgao', 'total', '#10b981'));"></div>
+    <div class="text-sm font-medium text-fg-soft mb-3">Top órgãos julgadores</div>
+    <div class="h-80" data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-orgaos'), 'orgao', 'total', '#10b981'))"></div>
   </div>
   <div class="card lg:col-span-2">
-    <div class="text-sm font-medium text-zinc-200 mb-3">Top classes processuais</div>
-    <div class="h-80" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ classes_json|safe }}, 'classe', 'total', '#8b5cf6'));"></div>
+    <div class="text-sm font-medium text-fg-soft mb-3">Top classes processuais</div>
+    <div class="h-80" data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-classes'), 'classe', 'total', '#8b5cf6'))"></div>
   </div>
 </div>
 {% endblock %}

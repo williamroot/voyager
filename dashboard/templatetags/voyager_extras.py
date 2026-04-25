@@ -45,19 +45,19 @@ def format_int(value):
         return str(value)
 
 
-# Cores estáveis por tipo. Não-mapeado cai em "outros" (zinc).
+# Cores estáveis por tipo. Cada combo dark-aware (light + dark).
 _TYPE_COLORS = {
-    'Intimação':   ('bg-sky-900/40 text-sky-300 border-sky-800/60', 'sky'),
-    'Citação':     ('bg-amber-900/40 text-amber-300 border-amber-800/60', 'amber'),
-    'Decisão':     ('bg-emerald-900/40 text-emerald-300 border-emerald-800/60', 'emerald'),
-    'Despacho':    ('bg-zinc-800/60 text-zinc-300 border-zinc-700/60', 'zinc'),
-    'Sentença':    ('bg-violet-900/40 text-violet-300 border-violet-800/60', 'violet'),
-    'Acórdão':     ('bg-rose-900/40 text-rose-300 border-rose-800/60', 'rose'),
-    'Edital':      ('bg-fuchsia-900/40 text-fuchsia-300 border-fuchsia-800/60', 'fuchsia'),
-    'Comunicação': ('bg-teal-900/40 text-teal-300 border-teal-800/60', 'teal'),
-    'Ofício':      ('bg-indigo-900/40 text-indigo-300 border-indigo-800/60', 'indigo'),
+    'Intimação':   ('bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-800/60', 'sky'),
+    'Citação':     ('bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800/60', 'amber'),
+    'Decisão':     ('bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-800/60', 'emerald'),
+    'Despacho':    ('bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-300 dark:border-zinc-700/60', 'zinc'),
+    'Sentença':    ('bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:border-violet-800/60', 'violet'),
+    'Acórdão':     ('bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-800/60', 'rose'),
+    'Edital':      ('bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 dark:border-fuchsia-800/60', 'fuchsia'),
+    'Comunicação': ('bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-900/40 dark:text-teal-300 dark:border-teal-800/60', 'teal'),
+    'Ofício':      ('bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-800/60', 'indigo'),
 }
-_OUTROS = ('bg-zinc-800/60 text-zinc-300 border-zinc-700/60', 'zinc')
+_OUTROS = ('bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-300 dark:border-zinc-700/60', 'zinc')
 
 
 @register.filter

@@ -1,0 +1,10 @@
+{% comment %}
+Estado vazio padrão.
+
+Uso:
+  {% include 'dashboard/_partials/empty_state.html' with title='Nenhum processo encontrado' subtitle='Ajuste os filtros' %}
+{% endcomment %}
+<div class="text-center py-12">
+  <div class="text-fg-muted mb-1">{{ title|default:'Nada por aqui' }}</div>
+  {% if subtitle %}<div class="text-xs text-fg-subtle">{{ subtitle }}</div>{% endif %}
+</div>

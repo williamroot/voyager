@@ -3,60 +3,60 @@
 {% block title %}{{ processo.numero_cnj }}{% endblock %}
 {% block content %}
 <div class="mb-2">
-  <a href="{% url 'dashboard:processos' %}" class="text-zinc-500 text-sm hover:text-emerald-400">← processos</a>
+  <a href="{% url 'dashboard:processos' %}" class="text-fg-subtle text-sm hover:text-accent-fg">← processos</a>
 </div>
 
 <div class="card mb-5">
   <div class="flex items-start justify-between gap-4">
     <div>
       <div class="flex items-center gap-2 mb-2">
-        <span class="badge bg-zinc-900 border-zinc-800 text-zinc-300">{{ processo.tribunal_id }}</span>
+        <span class="badge bg-surface border-border text-fg-soft">{{ processo.tribunal_id }}</span>
         {% if processo.ultima_movimentacao_em %}
-          <span class="text-xs text-zinc-500">última atividade {{ processo.ultima_movimentacao_em|relative_dt }}</span>
+          <span class="text-xs text-fg-subtle">última atividade {{ processo.ultima_movimentacao_em|relative_dt }}</span>
         {% endif %}
       </div>
-      <h1 class="font-mono text-3xl tracking-tight text-zinc-100">{{ processo.numero_cnj }}</h1>
-      <div class="flex gap-6 mt-3 text-sm text-zinc-500">
+      <h1 class="font-mono text-3xl tracking-tight text-fg">{{ processo.numero_cnj }}</h1>
+      <div class="flex gap-6 mt-3 text-sm text-fg-subtle">
         <div>
-          <div class="text-zinc-600 text-[0.7rem] uppercase tracking-wider">Movimentações</div>
-          <div class="text-zinc-200 kpi-num text-lg">{{ processo.total_movimentacoes|format_int }}</div>
+          <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Movimentações</div>
+          <div class="text-fg-soft kpi-num text-lg">{{ processo.total_movimentacoes|format_int }}</div>
         </div>
         <div>
-          <div class="text-zinc-600 text-[0.7rem] uppercase tracking-wider">Primeira mov.</div>
-          <div class="text-zinc-300 text-sm">{{ processo.primeira_movimentacao_em|date:'d/m/Y'|default:'—' }}</div>
+          <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Primeira mov.</div>
+          <div class="text-fg-soft text-sm">{{ processo.primeira_movimentacao_em|date:'d/m/Y'|default:'—' }}</div>
         </div>
         <div>
-          <div class="text-zinc-600 text-[0.7rem] uppercase tracking-wider">Última mov.</div>
-          <div class="text-zinc-300 text-sm">{{ processo.ultima_movimentacao_em|date:'d/m/Y'|default:'—' }}</div>
+          <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Última mov.</div>
+          <div class="text-fg-soft text-sm">{{ processo.ultima_movimentacao_em|date:'d/m/Y'|default:'—' }}</div>
         </div>
         <div>
-          <div class="text-zinc-600 text-[0.7rem] uppercase tracking-wider">Inserido</div>
-          <div class="text-zinc-300 text-sm" title="{{ processo.inserido_em }}">{{ processo.inserido_em|relative_dt }}</div>
+          <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Inserido</div>
+          <div class="text-fg-soft text-sm" title="{{ processo.inserido_em }}">{{ processo.inserido_em|relative_dt }}</div>
         </div>
       </div>
     </div>
-    <button onclick="navigator.clipboard.writeText('{{ processo.numero_cnj }}'); this.textContent='copiado'" class="text-xs bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg px-3 py-1.5 text-zinc-400">copiar CNJ</button>
+    <button onclick="navigator.clipboard.writeText('{{ processo.numero_cnj }}'); this.textContent='copiado'" class="text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">copiar CNJ</button>
   </div>
 </div>
 
 {% if tipos_disponiveis or meios_disponiveis %}
 <form method="get" class="card-tight mb-4 flex flex-wrap gap-2 items-center">
   {% if tipos_disponiveis %}
-    <span class="text-xs text-zinc-500 mr-1">Tipo:</span>
+    <span class="text-xs text-fg-subtle mr-1">Tipo:</span>
     <a href="?{% query_string request tipo='' %}" class="chip chip-mini {% if not tipo_filtro %}active{% endif %}">Todos</a>
     {% for t in tipos_disponiveis %}
       <a href="?{% query_string request tipo=t %}" class="chip chip-mini {% if t|is_in_list:tipo_filtro %}active{% endif %}">{{ t }}</a>
     {% endfor %}
   {% endif %}
   {% if meios_disponiveis %}
-    <span class="mx-2 text-zinc-700">|</span>
-    <span class="text-xs text-zinc-500 mr-1">Meio:</span>
+    <span class="mx-2 text-border">|</span>
+    <span class="text-xs text-fg-subtle mr-1">Meio:</span>
     <a href="?{% query_string request meio='' %}" class="chip chip-mini {% if not meio_filtro %}active{% endif %}">Todos</a>
     {% for m in meios_disponiveis %}
       <a href="?{% query_string request meio=m %}" class="chip chip-mini {% if m|is_in_list:meio_filtro %}active{% endif %}">{{ m }}</a>
     {% endfor %}
   {% endif %}
-  <span class="mx-2 text-zinc-700">|</span>
+  <span class="mx-2 text-border">|</span>
   {% if so_ativos %}
     <a href="?{% query_string request ativos='0' %}" class="chip chip-mini active">Apenas ativos</a>
   {% else %}
@@ -66,32 +66,32 @@
 {% endif %}
 
 <div class="relative">
-  <div class="absolute left-2.5 top-2 bottom-2 w-px bg-zinc-800/70"></div>
+  <div class="absolute left-2.5 top-2 bottom-2 w-px bg-muted/70"></div>
   <div class="space-y-3">
     {% for m in movimentacoes %}
       <div class="relative pl-9" x-data="{ open: false }">
-        <div class="absolute left-1 top-3 w-3 h-3 rounded-full bg-zinc-700 border-2 border-zinc-950 {% if not m.ativo %}bg-rose-700{% endif %}"></div>
+        <div class="absolute left-1 top-3 w-3 h-3 rounded-full bg-fg-muted border-2 border-base {% if not m.ativo %}bg-danger{% endif %}"></div>
         <div class="card-tight">
           <div class="flex flex-wrap items-center gap-2 mb-2">
-            <span class="text-zinc-200 text-[0.78rem] font-medium" title="{{ m.data_disponibilizacao }}">
+            <span class="text-fg-soft text-[0.78rem] font-medium" title="{{ m.data_disponibilizacao }}">
               {{ m.data_disponibilizacao|date:'d/m/Y' }}
             </span>
-            <span class="text-zinc-500 text-xs">· {{ m.data_disponibilizacao|relative_dt }}</span>
+            <span class="text-fg-subtle text-xs">· {{ m.data_disponibilizacao|relative_dt }}</span>
             {% if m.tipo_comunicacao %}<span class="badge {{ m.tipo_comunicacao|type_classes }}">{{ m.tipo_comunicacao }}</span>{% endif %}
-            {% if m.meio_completo %}<span class="badge bg-zinc-900/70 border-zinc-800 text-zinc-400">{{ m.meio_completo }}</span>{% endif %}
-            {% if not m.ativo %}<span class="badge bg-rose-900/40 border-rose-800/60 text-rose-300">cancelada</span>{% endif %}
-            {% if m.link %}<a href="{{ m.link }}" target="_blank" class="badge bg-emerald-900/30 border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/50">↗</a>{% endif %}
+            {% if m.meio_completo %}<span class="badge bg-card/70 border-border text-fg-muted">{{ m.meio_completo }}</span>{% endif %}
+            {% if not m.ativo %}<span class="badge bg-danger/15 border-danger/30 text-danger">cancelada</span>{% endif %}
+            {% if m.link %}<a href="{{ m.link }}" target="_blank" class="badge bg-accent/15 border-accent/30 text-accent-fg hover:bg-accent/15">↗</a>{% endif %}
           </div>
-          {% if m.nome_orgao %}<div class="text-zinc-400 text-xs mb-1">{{ m.nome_orgao }}{% if m.nome_classe %} · {{ m.nome_classe }}{% endif %}</div>{% endif %}
-          <div class="text-zinc-300 text-sm leading-relaxed" x-show="!open">{{ m.texto|truncate_words_smart:300 }}</div>
-          <div class="text-zinc-300 text-sm leading-relaxed whitespace-pre-wrap" x-show="open" x-cloak>{{ m.texto }}</div>
+          {% if m.nome_orgao %}<div class="text-fg-muted text-xs mb-1">{{ m.nome_orgao }}{% if m.nome_classe %} · {{ m.nome_classe }}{% endif %}</div>{% endif %}
+          <div class="text-fg-soft text-sm leading-relaxed" x-show="!open">{{ m.texto|truncate_words_smart:300 }}</div>
+          <div class="text-fg-soft text-sm leading-relaxed whitespace-pre-wrap" x-show="open" x-cloak>{{ m.texto }}</div>
           {% if m.texto and m.texto|length > 300 %}
-            <button @click="open = !open" class="text-xs text-emerald-500 hover:text-emerald-400 mt-2" x-text="open ? 'recolher' : 'expandir'"></button>
+            <button @click="open = !open" class="text-xs text-accent-fg hover:text-accent-fg mt-2" x-text="open ? 'recolher' : 'expandir'"></button>
           {% endif %}
         </div>
       </div>
     {% empty %}
-      <div class="text-zinc-500 text-center py-12">Nenhuma movimentação para os filtros atuais.</div>
+      <div class="text-fg-subtle text-center py-12">Nenhuma movimentação para os filtros atuais.</div>
     {% endfor %}
   </div>
 </div>

@@ -1,0 +1,22 @@
+{% comment %}
+Card de KPI padrão. Recebe label, value (já formatado), color (key Tailwind tipo 'emerald'), icon (svg path).
+
+Uso:
+  {% include 'dashboard/_partials/kpi.html' with label='Processos' value=total color='accent' %}
+
+Para variantes (sparkline, deltas), copie e adapte inline na página.
+{% endcomment %}
+<div class="card-tight">
+  <div class="flex items-start justify-between">
+    <div>
+      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">{{ label }}</div>
+      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ value }}</div>
+      {% if hint %}<div class="text-xs text-fg-subtle mt-1">{{ hint }}</div>{% endif %}
+    </div>
+    {% if icon_path %}
+      <div class="w-12 h-12 rounded-lg bg-{{ color|default:'accent' }}/10 border border-{{ color|default:'accent' }}/20 flex items-center justify-center">
+        <svg class="w-5 h-5 text-{{ color|default:'accent' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="{{ icon_path }}"/></svg>
+      </div>
+    {% endif %}
+  </div>
+</div>
