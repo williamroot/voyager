@@ -93,7 +93,9 @@ class DJENClient:
                     raise DjenClientError(f'DJEN {resp.status_code}: {resp.text[:200]}')
                 resp.raise_for_status()
                 return resp.json()
-            except (requests.ConnectionError, requests.Timeout) as exc:
+            except (requests.ConnectionError, requests.Timeout,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ContentDecodingError) as exc:
                 last_exc = exc
                 if proxy_url and using == 'pool':
                     self.pool.mark_bad(proxy_url)
