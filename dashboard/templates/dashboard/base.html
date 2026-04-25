@@ -285,7 +285,10 @@
           <span class="hidden dark:inline">Modo claro</span>
         </button>
         <div class="text-fg-muted mt-1">{{ user.username }}</div>
-        <a class="text-fg-subtle hover:text-accent-fg" href="{% url 'dashboard:logout' %}">sair</a>
+        <form method="post" action="{% url 'dashboard:logout' %}" class="inline">
+          {% csrf_token %}
+          <button type="submit" class="text-fg-subtle hover:text-accent-fg bg-transparent p-0 cursor-pointer">sair</button>
+        </form>
       </div>
     </aside>
     <main class="flex-1 px-4 md:px-8 py-5 md:py-7 overflow-x-auto max-w-[1600px]">
