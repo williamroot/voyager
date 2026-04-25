@@ -1,0 +1,35 @@
+{% extends 'dashboard/base.html' %}
+{% block title %}{{ processo.numero_cnj }}{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <a href="{% url 'dashboard:processos' %}" class="text-zinc-500 text-sm hover:text-emerald-400">← processos</a>
+  <h1 class="text-3xl font-semibold tracking-tight mt-2 font-mono">{{ processo.numero_cnj }}</h1>
+  <div class="flex gap-2 mt-2 text-sm text-zinc-400">
+    <span class="badge bg-zinc-800">{{ processo.tribunal_id }}</span>
+    <span>{{ processo.total_movimentacoes }} movimentações</span>
+    <span>inserido {{ processo.inserido_em }}</span>
+  </div>
+</div>
+
+<div class="space-y-3">
+  {% for m in movimentacoes %}
+    <div class="card" x-data="{ open: false }">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <div class="flex gap-2 items-center">
+            <span class="text-emerald-400 font-mono text-sm">{{ m.data_disponibilizacao }}</span>
+            {% if m.tipo_comunicacao %}<span class="badge bg-zinc-800 text-zinc-300">{{ m.tipo_comunicacao }}</span>{% endif %}
+          </div>
+          <div class="text-zinc-400 text-sm mt-1">{{ m.nome_orgao }}{% if m.nome_classe %} · {{ m.nome_classe }}{% endif %}</div>
+        </div>
+        <button @click="open = !open" class="text-xs text-zinc-500 hover:text-emerald-400">expandir</button>
+      </div>
+      <div class="text-zinc-300 text-sm mt-3" x-show="!open">{{ m.texto|truncatechars:300 }}</div>
+      <div class="text-zinc-300 text-sm mt-3 whitespace-pre-wrap" x-show="open" x-cloak>{{ m.texto }}</div>
+      {% if m.link %}<a href="{{ m.link }}" target="_blank" class="text-xs text-emerald-400 mt-2 inline-block">documento original ↗</a>{% endif %}
+    </div>
+  {% empty %}
+    <div class="text-zinc-500">Sem movimentações.</div>
+  {% endfor %}
+</div>
+{% endblock %}

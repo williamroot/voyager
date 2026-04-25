@@ -1,0 +1,26 @@
+{% load static %}<!doctype html>
+<html lang="pt-br" class="h-full bg-zinc-950">
+<head>
+  <meta charset="utf-8">
+  <title>Login — Voyager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-full text-zinc-100 flex items-center justify-center">
+  <div class="w-full max-w-sm bg-zinc-900/60 border border-zinc-800 rounded-2xl p-8">
+    <div class="text-3xl font-semibold tracking-tight text-emerald-400 mb-6">Voyager</div>
+    <form method="post" class="flex flex-col gap-4">
+      {% csrf_token %}
+      <label class="flex flex-col gap-1 text-sm">
+        <span class="text-zinc-400">Usuário</span>
+        <input name="username" required autofocus class="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 focus:border-emerald-500 focus:outline-none">
+      </label>
+      <label class="flex flex-col gap-1 text-sm">
+        <span class="text-zinc-400">Senha</span>
+        <input name="password" type="password" required class="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 focus:border-emerald-500 focus:outline-none">
+      </label>
+      {% if form.errors %}<div class="text-rose-400 text-sm">Credenciais inválidas.</div>{% endif %}
+      <button class="bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-semibold rounded-lg py-2 mt-2">Entrar</button>
+    </form>
+  </div>
+</body>
+</html>

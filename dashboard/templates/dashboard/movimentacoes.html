@@ -1,0 +1,30 @@
+{% extends 'dashboard/base.html' %}
+{% block title %}Movimentações{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-semibold tracking-tight mb-6">Movimentações</h1>
+
+<form method="get" class="flex gap-3 mb-6">
+  <input name="q" value="{{ q }}" placeholder="Buscar texto..." class="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 focus:border-emerald-500 focus:outline-none">
+  <select name="tribunal" class="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
+    <option value="">Todos tribunais</option>
+    {% for t in tribunais %}<option value="{{ t.sigla }}" {% if t.sigla == tribunal_filtro %}selected{% endif %}>{{ t.sigla }}</option>{% endfor %}
+  </select>
+  <button class="bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-semibold rounded-lg px-4">Filtrar</button>
+</form>
+
+<div class="space-y-3">
+  {% for m in movimentacoes %}
+    <div class="card">
+      <div class="flex gap-2 items-center">
+        <span class="badge bg-zinc-800">{{ m.tribunal_id }}</span>
+        <a href="{% url 'dashboard:processo-detail' m.processo_id %}" class="font-mono text-emerald-400 text-sm">{{ m.processo.numero_cnj }}</a>
+        <span class="text-zinc-500 text-sm">· {{ m.data_disponibilizacao }}</span>
+        {% if m.tipo_comunicacao %}<span class="badge bg-zinc-800/50 text-zinc-400">{{ m.tipo_comunicacao }}</span>{% endif %}
+      </div>
+      <div class="text-zinc-300 text-sm mt-2">{{ m.texto|truncatechars:400 }}</div>
+    </div>
+  {% empty %}
+    <div class="text-zinc-500 text-center p-8">Nenhuma movimentação encontrada.</div>
+  {% endfor %}
+</div>
+{% endblock %}

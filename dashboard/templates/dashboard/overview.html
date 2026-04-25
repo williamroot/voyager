@@ -1,0 +1,103 @@
+{% extends 'dashboard/base.html' %}
+{% block title %}Visão geral{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-3xl font-semibold tracking-tight">Visão geral</h1>
+  <form class="flex gap-2 items-center text-sm">
+    <span class="text-zinc-400">Período:</span>
+    <a href="?dias=7"   class="px-3 py-1 rounded-lg border {% if periodo_dias == 7 %}border-emerald-500 text-emerald-400{% else %}border-zinc-800 text-zinc-400 hover:border-zinc-700{% endif %}">7d</a>
+    <a href="?dias=30"  class="px-3 py-1 rounded-lg border {% if periodo_dias == 30 %}border-emerald-500 text-emerald-400{% else %}border-zinc-800 text-zinc-400 hover:border-zinc-700{% endif %}">30d</a>
+    <a href="?dias=90"  class="px-3 py-1 rounded-lg border {% if periodo_dias == 90 %}border-emerald-500 text-emerald-400{% else %}border-zinc-800 text-zinc-400 hover:border-zinc-700{% endif %}">90d</a>
+    <a href="?dias=365" class="px-3 py-1 rounded-lg border {% if periodo_dias == 365 %}border-emerald-500 text-emerald-400{% else %}border-zinc-800 text-zinc-400 hover:border-zinc-700{% endif %}">365d</a>
+  </form>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+  <div class="card">
+    <div class="text-zinc-500 text-xs uppercase tracking-wide">Processos</div>
+    <div class="text-3xl font-semibold mt-1">{{ kpis.total_processos|default:0 }}</div>
+  </div>
+  <div class="card">
+    <div class="text-zinc-500 text-xs uppercase tracking-wide">Movimentações</div>
+    <div class="text-3xl font-semibold mt-1">{{ kpis.total_movimentacoes|default:0 }}</div>
+  </div>
+  <div class="card">
+    <div class="text-zinc-500 text-xs uppercase tracking-wide">Movs nas 24h</div>
+    <div class="text-3xl font-semibold mt-1">{{ kpis.movs_24h|default:0 }}</div>
+  </div>
+  <div class="card">
+    <div class="text-zinc-500 text-xs uppercase tracking-wide">Última atualização</div>
+    <div class="text-lg mt-1">{{ kpis.ultima_atualizacao|default:'—' }}</div>
+    {% if kpis.drift_abertos %}
+      <div class="badge bg-rose-900/40 text-rose-300 mt-2">{{ kpis.drift_abertos }} drift abertos</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+  <div class="card lg:col-span-2">
+    <div class="text-zinc-400 text-sm mb-2">Volume diário por tribunal</div>
+    <div class="h-80" data-echart='{"tooltip":{"trigger":"axis"},"legend":{"top":0},"grid":{"left":40,"right":20,"top":30,"bottom":40},"xAxis":{"type":"category","data":[]},"yAxis":{"type":"value"},"series":[]}'
+         x-init="$el.dataset.echart = JSON.stringify(buildVolumeChart({{ volume_diario_json|safe }}));"></div>
+  </div>
+  <div class="card">
+    <div class="text-zinc-400 text-sm mb-2">Distribuição por tribunal</div>
+    <div class="h-80" data-echart='{"tooltip":{"trigger":"item"},"series":[]}'
+         x-init="$el.dataset.echart = JSON.stringify(buildDonut({{ distribuicao_json|safe }}));"></div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="card">
+    <div class="text-zinc-400 text-sm mb-2">Top tipos de comunicação</div>
+    <div class="h-96" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ tipos_json|safe }}, 'tipo'));"></div>
+  </div>
+  <div class="card">
+    <div class="text-zinc-400 text-sm mb-2">Top órgãos julgadores</div>
+    <div class="h-96" data-echart='{}' x-init="$el.dataset.echart = JSON.stringify(buildHorizBar({{ orgaos_json|safe }}, 'orgao'));"></div>
+  </div>
+</div>
+
+<script>
+function buildVolumeChart(rows) {
+  const dias = [...new Set(rows.map(r => r.dia))].sort();
+  const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
+  const lookup = {};
+  rows.forEach(r => { lookup[r.tribunal + '|' + r.dia] = r.total; });
+  const series = tribunais.map(t => ({
+    name: t, type: 'line', stack: 'total', smooth: true, symbol: 'none',
+    areaStyle: {opacity: 0.15},
+    data: dias.map(d => lookup[t + '|' + d] || 0),
+  }));
+  return {
+    tooltip: {trigger: 'axis'},
+    legend: {top: 0, textStyle: {color: '#a1a1aa'}},
+    grid: {left: 40, right: 20, top: 30, bottom: 40},
+    xAxis: {type: 'category', data: dias, axisLabel: {color: '#71717a'}},
+    yAxis: {type: 'value', axisLabel: {color: '#71717a'}},
+    series,
+  };
+}
+function buildDonut(rows) {
+  return {
+    tooltip: {trigger: 'item'},
+    series: [{
+      type: 'pie', radius: ['50%', '75%'],
+      label: {color: '#e4e4e7'},
+      data: rows.map(r => ({name: r.tribunal, value: r.total})),
+    }],
+  };
+}
+function buildHorizBar(rows, key) {
+  const cats = rows.map(r => r[key]).reverse();
+  const vals = rows.map(r => r.total).reverse();
+  return {
+    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
+    grid: {left: 180, right: 20, top: 10, bottom: 30},
+    xAxis: {type: 'value', axisLabel: {color: '#71717a'}},
+    yAxis: {type: 'category', data: cats, axisLabel: {color: '#a1a1aa', overflow: 'truncate', width: 170}},
+    series: [{type: 'bar', data: vals, itemStyle: {color: '#10b981'}}],
+  };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% load static %}<!doctype html>
+<html lang="pt-br" class="h-full bg-zinc-950">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Voyager{% endblock %} — Voyager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; }
+    .card { background: rgb(24 24 27 / 0.5); border: 1px solid rgb(39 39 42 / 0.6); border-radius: 1rem; padding: 1.25rem; }
+    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 500; }
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="min-h-full text-zinc-100" x-data="{ sidebar: true }">
+  <div class="flex min-h-screen">
+    <aside class="w-60 bg-zinc-950 border-r border-zinc-900 p-4 flex flex-col gap-2" x-show="sidebar">
+      <div class="text-2xl font-semibold tracking-tight text-emerald-400 mb-4">Voyager</div>
+      {% url 'dashboard:overview' as overview_url %}
+      {% url 'dashboard:processos' as processos_url %}
+      {% url 'dashboard:movimentacoes' as movs_url %}
+      {% url 'dashboard:ingestao' as ingestao_url %}
+      <a href="{{ overview_url }}" class="px-3 py-2 rounded-lg hover:bg-zinc-900 {% if request.path == overview_url %}bg-zinc-900 text-emerald-400{% endif %}">Visão geral</a>
+      <a href="{{ processos_url }}" class="px-3 py-2 rounded-lg hover:bg-zinc-900 {% if processos_url in request.path %}bg-zinc-900 text-emerald-400{% endif %}">Processos</a>
+      <a href="{{ movs_url }}" class="px-3 py-2 rounded-lg hover:bg-zinc-900 {% if movs_url in request.path %}bg-zinc-900 text-emerald-400{% endif %}">Movimentações</a>
+      <a href="{{ ingestao_url }}" class="px-3 py-2 rounded-lg hover:bg-zinc-900 {% if ingestao_url in request.path %}bg-zinc-900 text-emerald-400{% endif %}">Ingestão</a>
+      <div class="mt-auto text-xs text-zinc-500">
+        <div>{{ user.username }}</div>
+        <a class="text-zinc-400 hover:text-emerald-400" href="{% url 'dashboard:logout' %}">sair</a>
+      </div>
+    </aside>
+    <main class="flex-1 p-8 overflow-x-auto">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script>
+    // Dispose ECharts antes de re-iniciar para não vazar canvas em swaps HTMX.
+    function initChart(el) {
+      const existing = echarts.getInstanceByDom(el);
+      if (existing) existing.dispose();
+      const opts = JSON.parse(el.dataset.echart);
+      const chart = echarts.init(el, 'dark');
+      chart.setOption(opts);
+      window.addEventListener('resize', () => chart.resize());
+    }
+    function initAllCharts(root) {
+      (root || document).querySelectorAll('[data-echart]').forEach(initChart);
+    }
+    document.addEventListener('DOMContentLoaded', () => initAllCharts());
+    if (window.htmx) {
+      htmx.on('htmx:afterSwap', (e) => initAllCharts(e.detail.target));
+    }
+  </script>
+</body>
+</html>
