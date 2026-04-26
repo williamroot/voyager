@@ -51,26 +51,45 @@
 {{ chart_papel|json_script:"data-chart-papel" }}
 {{ chart_polo|json_script:"data-chart-polo" }}
 
+<script>
+  // Donut compacto pra cards estreitos (224px): esconde labels externos
+  // e leader lines — o legend embaixo já comunica as categorias.
+  function compactDonut(rows) {
+    const opts = buildDonut(rows, 'name', 'value');
+    opts.series[0].label = { show: false };
+    opts.series[0].labelLine = { show: false };
+    opts.series[0].center = ['50%', '42%'];
+    return opts;
+  }
+  // Bar horizontal compacto: reduz o eixo Y reservado pra labels longos.
+  function compactBar(rows) {
+    const opts = buildHorizBar(rows, 'name', 'value');
+    opts.grid = { left: 110, right: 24, top: 8, bottom: 28 };
+    opts.yAxis.axisLabel.width = 100;
+    return opts;
+  }
+</script>
+
 <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
   <div class="card-tight">
     <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Por tribunal</div>
-    <div class="h-56 chart-cell relative">
+    <div class="h-64 chart-cell relative">
       <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
-      <div data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-chart-tribunal'), 'name', 'value'))" class="absolute inset-0"></div>
+      <div data-echart='{}' x-init="setupChart($el, compactDonut(jsonData('data-chart-tribunal')))" class="absolute inset-0"></div>
     </div>
   </div>
   <div class="card-tight">
     <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Por papel</div>
-    <div class="h-56 chart-cell relative">
+    <div class="h-64 chart-cell relative">
       <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
-      <div data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-chart-papel'), 'name', 'value'))" class="absolute inset-0"></div>
+      <div data-echart='{}' x-init="setupChart($el, compactBar(jsonData('data-chart-papel')))" class="absolute inset-0"></div>
     </div>
   </div>
   <div class="card-tight">
     <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Por polo</div>
-    <div class="h-56 chart-cell relative">
+    <div class="h-64 chart-cell relative">
       <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
-      <div data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-chart-polo'), 'name', 'value'))" class="absolute inset-0"></div>
+      <div data-echart='{}' x-init="setupChart($el, compactDonut(jsonData('data-chart-polo')))" class="absolute inset-0"></div>
     </div>
   </div>
 </div>
