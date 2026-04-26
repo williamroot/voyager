@@ -421,6 +421,22 @@
     }
     if (window.htmx) {
       htmx.on('htmx:afterSwap', (e) => initAllCharts(e.detail.target));
+      // Indicator: lista fica semi-transparente durante a troca de página
+      htmx.on('htmx:beforeRequest', (e) => {
+        const tgt = e.detail.target;
+        if (tgt && tgt.style) { tgt.style.opacity = '0.5'; tgt.style.transition = 'opacity 0.15s'; }
+      });
+      htmx.on('htmx:afterRequest', (e) => {
+        const tgt = e.detail.target;
+        if (tgt && tgt.style) tgt.style.opacity = '';
+      });
+      // Scroll suave pro topo da lista após troca de página
+      htmx.on('htmx:afterSettle', (e) => {
+        const tgt = e.detail.target;
+        if (tgt && tgt.id && tgt.id.endsWith('-list')) {
+          tgt.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
+      });
     }
 
     // Theme toggle — persiste em localStorage e re-inicializa charts.

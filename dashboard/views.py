@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -26,6 +27,24 @@ def _periodo_dias(request, default=90) -> int | None:
         return min(max(int(raw), 1), 3650)
     except ValueError:
         return default
+
+
+def _is_htmx(request) -> bool:
+    return request.headers.get('HX-Request') == 'true'
+
+
+def _paginar(qs, request, default_size=50, max_size=200):
+    try:
+        size = max(1, min(int(request.GET.get('page_size', default_size)), max_size))
+    except (TypeError, ValueError):
+        size = default_size
+    paginator = Paginator(qs, size)
+    try:
+        page_num = int(request.GET.get('page', 1))
+    except (TypeError, ValueError):
+        page_num = 1
+    page = paginator.get_page(page_num)
+    return page
 
 
 def _backfill_em_curso() -> tuple[bool, object]:
@@ -205,9 +224,10 @@ def processos(request):
     elif sort == 'inserido':
         qs = qs.order_by('-inserido_em')
 
-    processos_page = list(qs[:200])
-    return render(request, 'dashboard/processos.html', {
-        'processos': processos_page,
+    page = _paginar(qs, request, default_size=50)
+    ctx = {
+        'page': page,
+        'processos': page.object_list,
         'tribunais': Tribunal.objects.all(),
         'tribunal_filtro': ','.join(tribunais_filtro),
         'cnj_filtro': cnj,
@@ -217,10 +237,12 @@ def processos(request):
         'ano_filtro': ano or '',
         'ano_de_filtro': ano_de or '',
         'ano_ate_filtro': ano_ate or '',
-        'total_resultados': qs.count() if (cnj or tribunais_filtro or com_movs or enriq or ano or ano_de or ano_ate) else None,
+        'total_resultados': page.paginator.count,
         'backfill_em_curso': backfill_em_curso,
         'cobertura_ate': cobertura_ate,
-    })
+    }
+    template = '_partials/_processos_list.html' if _is_htmx(request) else 'processos.html'
+    return render(request, f'dashboard/{template}', ctx)
 
 
 @login_required
@@ -303,12 +325,16 @@ def partes(request):
         qs = qs.filter(tipo=tipo)
     if q and len(q) >= 2:
         qs = qs.filter(Q(nome__icontains=q) | Q(documento__icontains=q) | Q(oab__icontains=q))
-    return render(request, 'dashboard/partes.html', {
-        'partes': qs[:300],
+    page = _paginar(qs, request, default_size=50)
+    ctx = {
+        'page': page,
+        'partes': page.object_list,
         'tipo_filtro': tipo,
         'q': q,
-        'total': qs.count() if (tipo or q) else None,
-    })
+        'total': page.paginator.count,
+    }
+    template = '_partials/_partes_list.html' if _is_htmx(request) else 'partes.html'
+    return render(request, f'dashboard/{template}', ctx)
 
 
 @login_required
@@ -387,9 +413,10 @@ def movimentacoes(request):
     if com_link == 'sim':
         qs = qs.exclude(link='')
 
-    rows = list(qs[:200])
-    return render(request, 'dashboard/movimentacoes.html', {
-        'movimentacoes': rows,
+    page = _paginar(qs, request, default_size=50)
+    ctx = {
+        'page': page,
+        'movimentacoes': page.object_list,
         'tribunais': Tribunal.objects.all(),
         'facetas': queries.filtros_movimentacoes(),
         'q': q,
@@ -399,7 +426,9 @@ def movimentacoes(request):
         'classe_filtro': ','.join(classes_filtro),
         'so_ativos': so_ativos,
         'com_link': com_link or '',
-    })
+    }
+    template = '_partials/_movimentacoes_list.html' if _is_htmx(request) else 'movimentacoes.html'
+    return render(request, f'dashboard/{template}', ctx)
 
 
 @login_required

@@ -1,0 +1,59 @@
+{% comment %}
+Paginação HTMX-aware. Recebe:
+  page         — Page object do Django Paginator
+  target       — selector CSS do container que será trocado (ex: "#processos-list")
+  size         — opcional, mini
+
+Uso:
+  {% include 'dashboard/_partials/pagination.html' with page=page target='#processos-list' %}
+{% endcomment %}
+{% load voyager_extras %}
+{% if page.paginator.num_pages > 1 %}
+<div class="flex items-center justify-between gap-3 mt-4 px-4 py-3 border-t border-border/60 text-xs">
+  <div class="text-fg-subtle font-mono">
+    {{ page.start_index|format_int }}–{{ page.end_index|format_int }} de {{ page.paginator.count|format_int }}
+  </div>
+  <div class="flex items-center gap-1">
+    {% if page.has_previous %}
+      <a hx-get="?{% query_string request page=1 %}"
+         hx-target="{{ target }}" hx-swap="outerHTML" hx-push-url="true"
+         href="?{% query_string request page=1 %}"
+         class="px-2 py-1 rounded-md border border-border/60 text-fg-muted hover:text-fg hover:bg-muted font-mono">«</a>
+      <a hx-get="?{% query_string request page=page.previous_page_number %}"
+         hx-target="{{ target }}" hx-swap="outerHTML" hx-push-url="true"
+         href="?{% query_string request page=page.previous_page_number %}"
+         class="px-2 py-1 rounded-md border border-border/60 text-fg-muted hover:text-fg hover:bg-muted font-mono">‹</a>
+    {% else %}
+      <span class="px-2 py-1 rounded-md border border-border/40 text-fg-subtle/40 font-mono">«</span>
+      <span class="px-2 py-1 rounded-md border border-border/40 text-fg-subtle/40 font-mono">‹</span>
+    {% endif %}
+
+    {% for n in page.paginator.page_range %}
+      {% if n == page.number %}
+        <span class="px-2.5 py-1 rounded-md bg-accent/15 text-accent-fg border border-accent/30 font-mono">{{ n }}</span>
+      {% elif n == 1 or n == page.paginator.num_pages or n == page.number|add:'-1' or n == page.number|add:'-2' or n == page.number|add:'1' or n == page.number|add:'2' %}
+        <a hx-get="?{% query_string request page=n %}"
+           hx-target="{{ target }}" hx-swap="outerHTML" hx-push-url="true"
+           href="?{% query_string request page=n %}"
+           class="px-2.5 py-1 rounded-md border border-border/60 text-fg-muted hover:text-fg hover:bg-muted font-mono">{{ n }}</a>
+      {% elif n == page.number|add:'-3' or n == page.number|add:'3' %}
+        <span class="px-1 text-fg-subtle">…</span>
+      {% endif %}
+    {% endfor %}
+
+    {% if page.has_next %}
+      <a hx-get="?{% query_string request page=page.next_page_number %}"
+         hx-target="{{ target }}" hx-swap="outerHTML" hx-push-url="true"
+         href="?{% query_string request page=page.next_page_number %}"
+         class="px-2 py-1 rounded-md border border-border/60 text-fg-muted hover:text-fg hover:bg-muted font-mono">›</a>
+      <a hx-get="?{% query_string request page=page.paginator.num_pages %}"
+         hx-target="{{ target }}" hx-swap="outerHTML" hx-push-url="true"
+         href="?{% query_string request page=page.paginator.num_pages %}"
+         class="px-2 py-1 rounded-md border border-border/60 text-fg-muted hover:text-fg hover:bg-muted font-mono">»</a>
+    {% else %}
+      <span class="px-2 py-1 rounded-md border border-border/40 text-fg-subtle/40 font-mono">›</span>
+      <span class="px-2 py-1 rounded-md border border-border/40 text-fg-subtle/40 font-mono">»</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

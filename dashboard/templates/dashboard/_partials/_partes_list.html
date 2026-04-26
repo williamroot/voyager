@@ -1,0 +1,39 @@
+{% load voyager_extras %}
+<div id="partes-list" class="card overflow-hidden p-0">
+  <table class="w-full text-sm dense">
+    <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
+      <tr>
+        <th class="text-left">Nome</th>
+        <th class="text-left">Tipo</th>
+        <th class="text-left">Documento</th>
+        <th class="text-left">OAB</th>
+        <th class="text-right">Processos</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border/80">
+      {% for p in partes %}
+        <tr class="hover:bg-card/40 group">
+          <td><a href="{% url 'dashboard:parte-detail' p.pk %}" class="text-accent-fg hover:underline">{{ p.nome|default:'(sem nome)' }}</a></td>
+          <td>
+            {% if p.tipo == 'advogado' %}{% include 'dashboard/_partials/badge.html' with text='Advogado' variant='info' size='mini' %}
+            {% elif p.tipo == 'pj' %}{% include 'dashboard/_partials/badge.html' with text='PJ' variant='accent' size='mini' %}
+            {% elif p.tipo == 'pf' %}{% include 'dashboard/_partials/badge.html' with text='PF' variant='neutral' size='mini' %}
+            {% else %}{% include 'dashboard/_partials/badge.html' with text='—' size='mini' %}{% endif %}
+          </td>
+          <td class="font-mono text-xs">{{ p.documento|default:'—' }}</td>
+          <td class="font-mono text-xs">{{ p.oab|default:'—' }}</td>
+          <td class="text-right kpi-num">{{ p.total_processos|format_int }}</td>
+          <td class="text-right">
+            <a href="{% url 'dashboard:parte-detail' p.pk %}" class="inline-flex items-center text-fg-subtle group-hover:text-accent-fg" title="Abrir parte">
+              {% voy_icon "telescope" "w-4 h-4" %}
+            </a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhuma parte encontrada' subtitle='Enriqueça processos pra começar a popular esta lista' %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include 'dashboard/_partials/pagination.html' with page=page target='#partes-list' %}
+</div>

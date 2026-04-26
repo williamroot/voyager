@@ -1,0 +1,34 @@
+{% load voyager_extras %}
+<div id="movs-list">
+  <div class="space-y-2">
+    {% for m in movimentacoes %}
+      <div class="card-tight hover:border-border transition-colors">
+        <div class="flex flex-wrap items-center gap-2 mb-2">
+          <span class="badge bg-surface border-border text-fg-soft">{{ m.tribunal_id }}</span>
+          <a href="{% url 'dashboard:processo-detail' m.processo_id %}" class="font-mono text-accent-fg hover:text-accent-fg text-[0.78rem]">{{ m.processo.numero_cnj }}</a>
+          <span class="text-fg-subtle">·</span>
+          <span class="text-fg-muted text-xs" title="{{ m.data_disponibilizacao }}">{{ m.data_disponibilizacao|relative_dt }}</span>
+          {% if m.tipo_comunicacao %}<span class="badge {{ m.tipo_comunicacao|type_classes }}">{{ m.tipo_comunicacao }}</span>{% endif %}
+          {% if m.meio_completo %}<span class="badge bg-card/70 border-border text-fg-muted">{{ m.meio_completo }}</span>{% endif %}
+          {% if not m.ativo %}<span class="badge bg-danger/15 border-danger/30 text-danger">cancelada</span>{% endif %}
+          {% if m.link %}<a href="{{ m.link }}" target="_blank" class="badge bg-accent/15 border-accent/30 text-accent-fg hover:bg-accent/15">↗ documento</a>{% endif %}
+        </div>
+        {% if m.nome_orgao or m.nome_classe %}
+          <div class="text-fg-subtle text-xs mb-2">
+            {% if m.nome_orgao %}<span>{{ m.nome_orgao }}</span>{% endif %}
+            {% if m.nome_classe %}<span class="ml-2 text-fg-subtle">·</span><span class="ml-2">{{ m.nome_classe }}</span>{% endif %}
+          </div>
+        {% endif %}
+        <div class="text-fg-soft text-sm leading-relaxed">{{ m.texto|truncate_words_smart:380 }}</div>
+      </div>
+    {% empty %}
+      <div class="card text-center py-12">
+        <div class="text-fg-muted">Nenhuma movimentação encontrada.</div>
+        <div class="text-xs text-fg-subtle mt-1">Ajuste os filtros acima ou limpe-os.</div>
+      </div>
+    {% endfor %}
+  </div>
+  <div class="card-tight mt-3 p-0">
+    {% include 'dashboard/_partials/pagination.html' with page=page target='#movs-list' %}
+  </div>
+</div>
