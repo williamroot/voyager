@@ -154,8 +154,26 @@ class Parte(models.Model):
 
     class Meta:
         constraints = [
-            UniqueConstraint(fields=['documento'], condition=~Q(documento=''),
-                             name='uniq_parte_documento'),
+            # Doc REAL (sem máscara): único globalmente — confiamos no CPF/CNPJ
+            # como PK natural mesmo quando nomes divergem por typo.
+            UniqueConstraint(
+                fields=['documento'],
+                condition=(~Q(documento='')
+                           & ~Q(documento__contains='X')
+                           & ~Q(documento__contains='x')
+                           & ~Q(documento__contains='*')),
+                name='uniq_parte_documento_real',
+            ),
+            # Doc MASCARADO (TRF3 esconde dígitos como '639.XXX.XXX-XX'):
+            # único por (nome, doc) — máscaras iguais com nomes diferentes
+            # são partes distintas; mesmo nome + mesma máscara colapsa.
+            UniqueConstraint(
+                fields=['nome', 'documento'],
+                condition=(Q(documento__contains='X')
+                           | Q(documento__contains='x')
+                           | Q(documento__contains='*')),
+                name='uniq_parte_documento_mascarado',
+            ),
             UniqueConstraint(fields=['oab'], condition=~Q(oab=''),
                              name='uniq_parte_oab'),
         ]

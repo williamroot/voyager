@@ -23,6 +23,7 @@ from tribunals.models import Parte, Process, ProcessoParte
 
 from .parsers import (
     classificar_tipo_parte,
+    is_documento_mascarado,
     limpar_nome,
     parse_data_br,
     parse_documento,
@@ -379,17 +380,40 @@ class BasePjeEnricher:
                     )
 
     def _upsert_parte(self, info: dict) -> Parte:
+        """Dedupe de Parte com 3 chaves em ordem de confiança:
+
+        1. OAB — precedência total pra advogados (estável, único por advogado).
+        2. Documento REAL — PK natural (CPF/CNPJ globalmente único).
+        3. Documento MASCARADO + nome — TRF3 esconde dígitos; (nome, máscara)
+           reduz colisão de homônimos sem fingir que máscaras iguais = mesma
+           pessoa quando os nomes diferem.
+        """
         documento = info.get('documento') or ''
         oab = info.get('oab') or ''
-        defaults = {
-            'nome': info['nome'],
+        nome = (info.get('nome') or '')[:255]
+        base = {
+            'nome': nome,
             'tipo_documento': info.get('tipo_documento') or '',
             'tipo': info.get('tipo') or 'desconhecido',
         }
-        if documento:
-            obj, _ = Parte.objects.update_or_create(documento=documento, defaults={**defaults, 'oab': oab})
-            return obj
+
         if oab:
-            obj, _ = Parte.objects.update_or_create(oab=oab, defaults={**defaults, 'documento': ''})
+            obj, _ = Parte.objects.update_or_create(
+                oab=oab, defaults={**base, 'documento': documento},
+            )
             return obj
-        return Parte.objects.create(documento='', oab='', **defaults)
+
+        if documento:
+            if is_documento_mascarado(documento):
+                obj, _ = Parte.objects.update_or_create(
+                    nome=nome, documento=documento,
+                    defaults={**base, 'oab': ''},
+                )
+            else:
+                obj, _ = Parte.objects.update_or_create(
+                    documento=documento,
+                    defaults={**base, 'oab': ''},
+                )
+            return obj
+
+        return Parte.objects.create(documento='', oab='', **base)

@@ -17,25 +17,26 @@ DATE_BR_RE = re.compile(r'(\d{2})/(\d{2})/(\d{4})')
 def parse_documento(text: str) -> tuple[str, str]:
     """Retorna (documento_formatado, tipo) — ('', '') se não achar.
 
-    Quando o documento vem mascarado pelo PJe (X ou * nos dígitos privados),
-    ainda classificamos o tipo (CPF/CNPJ) mas devolvemos doc vazio — não dá
-    pra usar como PK de Parte. Permite tipo='pf'/'pj' sem inflar duplicatas.
+    Mascarado ou não, o match volta intacto — preservamos os dígitos visíveis
+    pra ajudar dedupe de homônimos (TRF3 mascara como '639.XXX.XXX-XX'; um
+    'João' com '639.XXX' é parte distinta de outro 'João' com '438.XXX').
     """
     if not text:
         return '', ''
     m = CNPJ_RE.search(text)
     if m:
-        valor = m.group(1)
-        if 'X' in valor.upper() or '*' in valor:
-            return '', 'CNPJ'
-        return valor, 'CNPJ'
+        return m.group(1), 'CNPJ'
     m = CPF_RE.search(text)
     if m:
-        valor = m.group(1)
-        if 'X' in valor.upper() or '*' in valor:
-            return '', 'CPF'
-        return valor, 'CPF'
+        return m.group(1), 'CPF'
     return '', ''
+
+
+def is_documento_mascarado(documento: str) -> bool:
+    """True se o documento contém qualquer caractere de mascara (X/*)."""
+    if not documento:
+        return False
+    return 'X' in documento.upper() or '*' in documento
 
 
 def parse_oab(text: str) -> str:
