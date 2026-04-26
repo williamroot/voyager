@@ -73,6 +73,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      replicas: 4
     restart: unless-stopped
 
   scheduler:
