@@ -74,7 +74,7 @@ services:
       redis:
         condition: service_healthy
     deploy:
-      replicas: 4
+      replicas: 20
     restart: unless-stopped
 
   scheduler:
