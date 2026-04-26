@@ -45,6 +45,36 @@
   </div>
 </div>
 
+{% include 'dashboard/_partials/section_header.html' with title='Distribuição' subtitle='Por tribunal, papel e polo (todas as participações)' %}
+
+{{ chart_tribunal|json_script:"data-chart-tribunal" }}
+{{ chart_papel|json_script:"data-chart-papel" }}
+{{ chart_polo|json_script:"data-chart-polo" }}
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Por tribunal</div>
+    <div class="h-56 chart-cell relative">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-chart-tribunal'), 'name', 'value'))" class="absolute inset-0"></div>
+    </div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Por papel</div>
+    <div class="h-56 chart-cell relative">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-chart-papel'), 'name', 'value'))" class="absolute inset-0"></div>
+    </div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Por polo</div>
+    <div class="h-56 chart-cell relative">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-chart-polo'), 'name', 'value'))" class="absolute inset-0"></div>
+    </div>
+  </div>
+</div>
+
 {% include 'dashboard/_partials/section_header.html' with title='Processos relacionados' subtitle=parte.total_processos|format_int|add:' participações no total' %}
 
 <div class="card mb-4 flex flex-col gap-3">

@@ -388,6 +388,21 @@ def parte_detail(request, pk):
         base_qs.values_list('processo__tribunal_id', flat=True).distinct()
     )
 
+    # Distribuições pros 3 donuts (Tribunal / Papel / Polo). Sempre
+    # baseadas em base_qs — independem dos filtros aplicados na lista.
+    chart_tribunal = [
+        {'name': r['processo__tribunal_id'], 'value': r['n']}
+        for r in base_qs.values('processo__tribunal_id').annotate(n=Count('id')).order_by('-n')
+    ]
+    chart_papel = [
+        {'name': r['papel'] or '(sem papel)', 'value': r['n']}
+        for r in base_qs.values('papel').annotate(n=Count('id')).order_by('-n')[:10]
+    ]
+    chart_polo = [
+        {'name': r['polo'] or 'outros', 'value': r['n']}
+        for r in base_qs.values('polo').annotate(n=Count('id')).order_by('-n')
+    ]
+
     return render(request, 'dashboard/parte_detail.html', {
         'parte': parte,
         'participacoes': qs[:200],
@@ -398,6 +413,9 @@ def parte_detail(request, pk):
         'papeis_disponiveis': papeis_disponiveis,
         'tribunais_da_parte': tribunais_da_parte,
         'total_filtrado': qs.count() if (polo_filtro or tribunais_filtro or papel_filtro) else None,
+        'chart_tribunal': chart_tribunal,
+        'chart_papel': chart_papel,
+        'chart_polo': chart_polo,
     })
 
 

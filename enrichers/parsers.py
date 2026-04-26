@@ -39,6 +39,23 @@ def is_documento_mascarado(documento: str) -> bool:
     return 'X' in documento.upper() or '*' in documento
 
 
+def real_casa_com_mascara(real: str, mascara: str) -> bool:
+    """True se `real` (sem máscara) é compatível com `mascara` posição-a-posição.
+
+    Ex.: '29.979.036/0001-40' casa com '29.9XX.XXX/XXXX-XX' (visíveis batem,
+    mascarados aceitam qualquer dígito). Permite reusar Parte com CNPJ real
+    quando outra fonte dá só a máscara.
+    """
+    if not real or not mascara or len(real) != len(mascara):
+        return False
+    for r, m in zip(real, mascara):
+        if m.upper() in ('X', '*'):
+            continue
+        if r != m:
+            return False
+    return True
+
+
 def parse_oab(text: str) -> str:
     """Retorna OAB normalizada (ex: 'SP123456' ou 'SP123456-A') ou ''."""
     if not text:

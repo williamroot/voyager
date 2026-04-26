@@ -30,6 +30,7 @@ from .parsers import (
     parse_oab,
     parse_role,
     parse_valor_brl,
+    real_casa_com_mascara,
 )
 
 CAMPO_NUM = 'fPP:numProcesso-inputNumeroProcessoDecoration:numProcesso-inputNumeroProcesso'
@@ -418,6 +419,18 @@ class BasePjeEnricher:
 
         if documento:
             if is_documento_mascarado(documento):
+                # Antes de criar Parte mascarada, ver se existe outra com
+                # mesmo nome e doc REAL que case com a máscara (ex.: TRF1 viu
+                # INSS com CNPJ completo, TRF3 vê mascarado — é a MESMA PJ).
+                from django.db.models import Q
+                candidatos = (
+                    Parte.objects
+                    .filter(nome=nome).exclude(documento='')
+                    .exclude(Q(documento__contains='X') | Q(documento__contains='x') | Q(documento__contains='*'))
+                )
+                for c in candidatos:
+                    if real_casa_com_mascara(c.documento, documento):
+                        return c
                 obj, _ = Parte.objects.update_or_create(
                     nome=nome, documento=documento,
                     defaults={**base, 'oab': ''},
