@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from enrichers.jobs import enriquecer_processo
+from enrichers.jobs import enqueue_enriquecimento, enriquecer_processo
 from tribunals.models import Process
 
 
@@ -22,8 +22,11 @@ class Command(BaseCommand):
                 raise CommandError(f'Process não encontrado: {cnj_or_id}')
 
         if async_:
-            j = enriquecer_processo.delay(p.pk)
-            self.stdout.write(self.style.SUCCESS(f'Enfileirado job {j.id} para Process #{p.pk} ({p.numero_cnj})'))
+            j = enqueue_enriquecimento(p.pk, p.tribunal_id)
+            self.stdout.write(self.style.SUCCESS(
+                f'Enfileirado job {j.id} em enrich_{p.tribunal_id.lower()} '
+                f'para Process #{p.pk} ({p.numero_cnj})'
+            ))
             return
 
         result = enriquecer_processo(p.pk)

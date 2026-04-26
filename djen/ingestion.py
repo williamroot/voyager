@@ -232,9 +232,14 @@ def _enfileirar_enrichers(process_ids: list[int]) -> None:
     djen ↔ enrichers (enrichers usa Tribunal/Process do tribunals)."""
     if not process_ids:
         return
-    from enrichers.jobs import enriquecer_processo
+    from enrichers.jobs import enqueue_enriquecimento
+    # Mapa pid→sigla pra rotear pra fila correta sem N+1 query.
+    siglas = dict(Process.objects.filter(pk__in=process_ids).values_list('pk', 'tribunal_id'))
     for pid in process_ids:
+        sigla = siglas.get(pid)
+        if not sigla:
+            continue
         try:
-            enriquecer_processo.delay(pid)
+            enqueue_enriquecimento(pid, sigla)
         except Exception as exc:
             logger.warning('falha ao enfileirar enrichment', extra={'process_id': pid, 'erro': str(exc)})

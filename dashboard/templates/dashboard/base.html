@@ -327,6 +327,7 @@
         <span>uplink active</span>
       </div>
       {% url 'dashboard:overview' as overview_url %}
+      {% url 'dashboard:tribunais' as tribunais_url %}
       {% url 'dashboard:processos' as processos_url %}
       {% url 'dashboard:movimentacoes' as movs_url %}
       {% url 'dashboard:partes' as partes_url %}
@@ -334,6 +335,10 @@
       <a href="{{ overview_url }}" class="nav-item {% if request.path == overview_url %}active{% endif %}">
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral
+      </a>
+      <a href="{{ tribunais_url }}" class="nav-item {% if tribunais_url in request.path %}active{% endif %}">
+        {% voy_icon "trajectory" "w-4 h-4" %}
+        Tribunais
       </a>
       <a href="{{ processos_url }}" class="nav-item {% if processos_url in request.path %}active{% endif %}">
         {% voy_icon "dossier" "w-4 h-4" %}

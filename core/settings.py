@@ -120,6 +120,10 @@ RQ_QUEUES = {
     'default':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 3600},
     'djen_ingestion':  {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 7200},
     'djen_backfill':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 86400},
+    # Enriquecimento por tribunal — workers dedicados por sigla pra
+    # paralelizar coletas no PJe consulta pública sem misturar pools.
+    'enrich_trf1':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
+    'enrich_trf3':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
 }
 
 # DJEN

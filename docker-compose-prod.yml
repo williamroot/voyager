@@ -96,6 +96,26 @@ services:
     depends_on:
       web:
         condition: service_healthy
+    restart: always
+
+  worker_trf1:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_trf1
+    env_file: .env
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      replicas: 4
+    restart: always
+
+  worker_trf3:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_trf3
+    env_file: .env
+    depends_on:
+      web:
+        condition: service_healthy
     deploy:
       replicas: 4
     restart: always

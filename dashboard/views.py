@@ -9,7 +9,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from djen.jobs import sincronizar_movimentacoes
 from djen.proxies import ProxyScrapePool
-from enrichers.jobs import enriquecer_processo
+from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento
 from tribunals.models import Movimentacao, Parte, Process, ProcessoParte, SchemaDriftAlert, Tribunal
 
 from . import queries
@@ -148,6 +148,16 @@ def chart_data(request, key):
 
     data = handler(dias, tribunais_filtro, sigla)
     return JsonResponse({'data': data}, json_dumps_params={'default': str})
+
+
+@login_required
+@require_GET
+def tribunais(request):
+    """Lista tribunais ativos com KPIs agregados (cards). Server-side, sem
+    queryset gigante — `estatisticas_por_tribunal` faz GROUP BY no banco."""
+    return render(request, 'dashboard/tribunais.html', {
+        'stats': queries.estatisticas_por_tribunal(),
+    })
 
 
 @login_required
@@ -299,10 +309,10 @@ def processo_detail(request, pk):
 @require_POST
 def processo_enriquecer(request, pk):
     proc = get_object_or_404(Process, pk=pk)
-    if proc.tribunal_id != 'TRF1':
+    if proc.tribunal_id not in _ENRICHERS:
         messages.error(request, f'Enriquecimento ainda não suportado para {proc.tribunal_id}.')
         return redirect('dashboard:processo-detail', pk=pk)
-    j = enriquecer_processo.delay(proc.pk)
+    j = enqueue_enriquecimento(proc.pk, proc.tribunal_id)
     messages.success(request, f'Atualização enfileirada (job {j.id[:8]}). Recarregue em alguns segundos.')
     return redirect('dashboard:processo-detail', pk=pk)
 

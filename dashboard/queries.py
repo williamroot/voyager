@@ -190,3 +190,58 @@ def filtros_movimentacoes():
                     Movimentacao.objects.exclude(nome_classe='')
                     .values('nome_classe').annotate(n=Count('id')).order_by('-n')[:6]],
     }
+
+
+def estatisticas_por_tribunal():
+    """Retorna list de dicts — um por tribunal ativo — com métricas
+    agregadas pra a página `/dashboard/tribunais/`. Query única por
+    métrica usando agregações condicionais ou GROUP BY tribunal_id."""
+    agora = timezone.now()
+    cutoff_30d = agora - timedelta(days=30)
+
+    procs_por_trib = dict(
+        Process.objects.values('tribunal_id').annotate(n=Count('id'))
+        .values_list('tribunal_id', 'n')
+    )
+    movs_por_trib = dict(
+        Movimentacao.objects.values('tribunal_id').annotate(n=Count('id'))
+        .values_list('tribunal_id', 'n')
+    )
+    movs_30d_por_trib = dict(
+        Movimentacao.objects.filter(data_disponibilizacao__gte=cutoff_30d)
+        .values('tribunal_id').annotate(n=Count('id'))
+        .values_list('tribunal_id', 'n')
+    )
+
+    # Enriquecimento status (só faz sentido nos que tem enricher).
+    enriq_status = {}
+    rows = (
+        Process.objects.values('tribunal_id', 'enriquecimento_status')
+        .annotate(n=Count('id'))
+    )
+    for r in rows:
+        enriq_status.setdefault(r['tribunal_id'], {})[r['enriquecimento_status']] = r['n']
+
+    # Range temporal: primeira / última movimentação por tribunal.
+    from django.db.models import Max, Min
+    range_trib = {
+        r['tribunal_id']: (r['primeira'], r['ultima'])
+        for r in Movimentacao.objects.values('tribunal_id')
+        .annotate(primeira=Min('data_disponibilizacao'), ultima=Max('data_disponibilizacao'))
+    }
+
+    out = []
+    for t in Tribunal.objects.filter(ativo=True).order_by('sigla'):
+        primeira, ultima = range_trib.get(t.sigla, (None, None))
+        out.append({
+            'tribunal': t,
+            'processos': procs_por_trib.get(t.sigla, 0),
+            'movimentacoes': movs_por_trib.get(t.sigla, 0),
+            'movs_30d': movs_30d_por_trib.get(t.sigla, 0),
+            'enriquecimento': enriq_status.get(t.sigla, {}),
+            'primeira_mov': primeira,
+            'ultima_mov': ultima,
+            'data_inicio': t.data_inicio_disponivel,
+            'backfill_concluido_em': t.backfill_concluido_em,
+        })
+    return out

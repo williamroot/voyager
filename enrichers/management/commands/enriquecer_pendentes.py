@@ -9,7 +9,7 @@ Filtros:
 """
 from django.core.management.base import BaseCommand
 
-from enrichers.jobs import _ENRICHERS, enriquecer_processo
+from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento
 from tribunals.models import Process
 
 
@@ -37,8 +37,9 @@ class Command(BaseCommand):
         if limit > 0:
             qs = qs[:limit]
 
-        ids = list(qs.values_list('pk', flat=True))
-        total = len(ids)
+        # Buscar pid + sigla juntos pra rotear cada job pra fila do tribunal.
+        rows = list(qs.values_list('pk', 'tribunal_id'))
+        total = len(rows)
         self.stdout.write(self.style.HTTP_INFO(
             f'{total} processos elegíveis (tribunais={siglas}, status={status}'
             + (f', ano>={ano_de}' if ano_de else '') + ')'
@@ -47,10 +48,14 @@ class Command(BaseCommand):
             return
 
         enfileirados = 0
-        for pid in ids:
+        por_fila = {}
+        for pid, sigla in rows:
             try:
-                enriquecer_processo.delay(pid)
+                enqueue_enriquecimento(pid, sigla)
                 enfileirados += 1
+                por_fila[sigla] = por_fila.get(sigla, 0) + 1
             except Exception as exc:
                 self.stdout.write(self.style.WARNING(f'  falha em {pid}: {exc}'))
-        self.stdout.write(self.style.SUCCESS(f'{enfileirados} jobs enfileirados em "default"'))
+        for sigla, n in sorted(por_fila.items()):
+            self.stdout.write(self.style.SUCCESS(f'  enrich_{sigla.lower()}: {n:,} jobs'))
+        self.stdout.write(self.style.SUCCESS(f'{enfileirados} jobs enfileirados'))

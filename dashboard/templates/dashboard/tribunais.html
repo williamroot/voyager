@@ -1,0 +1,62 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Tribunais{% endblock %}
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Tribunais' subtitle='Métricas agregadas por tribunal — volume, cobertura, enriquecimento' %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+  {% for s in stats %}
+    {% with t=s.tribunal e=s.enriquecimento %}
+    <a href="{% url 'dashboard:tribunal-detail' t.sigla %}" class="card hover:border-accent/40 transition-colors no-underline block">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-widest mb-1">tribunal</div>
+          <div class="text-2xl font-semibold tracking-tight">{{ t.sigla }}</div>
+          <div class="text-fg-muted text-xs mt-0.5">{{ t.nome }}</div>
+        </div>
+        {% if s.backfill_concluido_em %}
+          {% include 'dashboard/_partials/badge.html' with text='backfill ok' variant='accent' size='mini' %}
+        {% else %}
+          {% include 'dashboard/_partials/badge.html' with text='backfill pendente' variant='warning' size='mini' %}
+        {% endif %}
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">processos</div>
+          <div class="kpi-num text-xl">{{ s.processos|format_int }}</div>
+        </div>
+        <div>
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">movimentações</div>
+          <div class="kpi-num text-xl">{{ s.movimentacoes|format_int }}</div>
+        </div>
+        <div>
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">últimos 30d</div>
+          <div class="kpi-num text-base">{{ s.movs_30d|format_int }} <span class="text-fg-subtle text-xs">movs</span></div>
+        </div>
+        <div>
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">cobertura</div>
+          <div class="text-xs text-fg-soft mt-1">
+            {% if s.primeira_mov %}{{ s.primeira_mov|date:'Y-m-d' }} → {{ s.ultima_mov|date:'Y-m-d' }}{% else %}—{% endif %}
+          </div>
+        </div>
+      </div>
+
+      {% if e %}
+      <div class="border-t border-border pt-3">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-2">enriquecimento</div>
+        <div class="flex flex-wrap gap-1.5">
+          {% if e.ok %}{% include 'dashboard/_partials/badge.html' with text='ok '|add:e.ok|stringformat:'s' variant='accent' size='mini' %}{% endif %}
+          {% if e.pendente %}{% include 'dashboard/_partials/badge.html' with text='pendente '|add:e.pendente|stringformat:'s' variant='neutral' size='mini' %}{% endif %}
+          {% if e.erro %}{% include 'dashboard/_partials/badge.html' with text='erro '|add:e.erro|stringformat:'s' variant='danger' size='mini' %}{% endif %}
+          {% if e.nao_encontrado %}{% include 'dashboard/_partials/badge.html' with text='nao encontrado '|add:e.nao_encontrado|stringformat:'s' variant='warning' size='mini' %}{% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </a>
+    {% endwith %}
+  {% empty %}
+    {% include 'dashboard/_partials/empty_state.html' with title='Nenhum tribunal ativo' subtitle='Marque tribunals.ativo=True na admin' %}
+  {% endfor %}
+</div>
+{% endblock %}
