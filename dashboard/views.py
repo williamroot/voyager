@@ -1,7 +1,9 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Max, Q
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_GET, require_POST
 
 from djen.jobs import sincronizar_movimentacoes
@@ -47,19 +49,11 @@ def _split_csv(value: str | None) -> list[str]:
 @require_GET
 def overview(request):
     backfill_em_curso, cobertura_ate = _backfill_em_curso()
-    # Enquanto o backfill ainda não fechou, default vira "todo período" — caso contrário
-    # janelas curtas (90d) ficam vazias até a ingestão alcançar a data atual.
     dias = _periodo_dias(request, default=None if backfill_em_curso else 90)
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
+    # KPIs ficam server-side (rápido, count() em PG analyze). Charts carregam lazy via fetch.
     ctx = {
         'kpis': queries.kpis_globais(dias=dias, tribunais=tribunais_filtro),
-        'sparkline_24h': queries.sparkline_24h(tribunais=tribunais_filtro),
-        'volume_diario': queries.volume_temporal(dias=dias, tribunais=tribunais_filtro),
-        'distribuicao': queries.distribuicao_por_tribunal(dias=dias, tribunais=tribunais_filtro),
-        'tipos': queries.top_tipos_comunicacao(limit=10, dias=dias, tribunais=tribunais_filtro),
-        'orgaos': queries.top_orgaos(limit=10, dias=dias, tribunais=tribunais_filtro),
-        'classes': queries.top_classes(limit=8, dias=dias, tribunais=tribunais_filtro),
-        'enriq_dist': queries.distribuicao_enriquecimento(tribunais=tribunais_filtro),
         'periodo_dias': dias,
         'tribunais': Tribunal.objects.filter(ativo=True),
         'tribunal_filtro': ','.join(tribunais_filtro),
@@ -69,28 +63,89 @@ def overview(request):
     return render(request, 'dashboard/overview.html', ctx)
 
 
+# Mapa de chaves de chart → callable que retorna lista/dict serializável.
+# Cada callable recebe (dias, tribunais, sigla_tribunal_unica). Endpoints são read-only,
+# leem filtros do request, retornam JSON.
+def _chart_volume_temporal(dias, tribunais, sigla):
+    if sigla:
+        return queries.volume_temporal(dias=dias, tribunais=[sigla])
+    return queries.volume_temporal(dias=dias, tribunais=tribunais)
+
+
+def _chart_distribuicao(dias, tribunais, sigla):
+    if sigla:
+        return queries.distribuicao_por_tribunal(dias=dias, tribunais=[sigla])
+    return queries.distribuicao_por_tribunal(dias=dias, tribunais=tribunais)
+
+
+def _chart_tipos(dias, tribunais, sigla):
+    return queries.top_tipos_comunicacao(limit=10, dias=dias, tribunais=[sigla] if sigla else tribunais)
+
+
+def _chart_orgaos(dias, tribunais, sigla):
+    return queries.top_orgaos(limit=10, dias=dias, tribunais=[sigla] if sigla else tribunais)
+
+
+def _chart_classes(dias, tribunais, sigla):
+    return queries.top_classes(limit=8, dias=dias, tribunais=[sigla] if sigla else tribunais)
+
+
+def _chart_meios(dias, tribunais, sigla):
+    return queries.distribuicao_por_meio(dias=dias, tribunais=[sigla] if sigla else tribunais)
+
+
+def _chart_enriq(dias, tribunais, sigla):
+    return queries.distribuicao_enriquecimento(tribunais=[sigla] if sigla else tribunais)
+
+
+def _chart_sparkline_24h(dias, tribunais, sigla):
+    return queries.sparkline_24h(tribunais=[sigla] if sigla else tribunais)
+
+
+_CHART_HANDLERS = {
+    'volume-temporal': _chart_volume_temporal,
+    'distribuicao': _chart_distribuicao,
+    'tipos': _chart_tipos,
+    'orgaos': _chart_orgaos,
+    'classes': _chart_classes,
+    'meios': _chart_meios,
+    'enriquecimento': _chart_enriq,
+    'sparkline-24h': _chart_sparkline_24h,
+}
+
+
+@login_required
+@require_GET
+def chart_data(request, key):
+    """Endpoint AJAX pros charts. Lazy load do dashboard."""
+    handler = _CHART_HANDLERS.get(key)
+    if not handler:
+        raise Http404(f'chart "{key}" não existe')
+
+    backfill_em_curso, _ = _backfill_em_curso()
+    dias = _periodo_dias(request, default=None if backfill_em_curso else 90)
+    tribunais_filtro = _split_csv(request.GET.get('tribunal'))
+    sigla = request.GET.get('sigla') or None  # detalhes por tribunal específico
+
+    data = handler(dias, tribunais_filtro, sigla)
+    return JsonResponse({'data': data}, json_dumps_params={'default': str})
+
+
 @login_required
 @require_GET
 def tribunal_detail(request, sigla):
     t = get_object_or_404(Tribunal, sigla=sigla)
     dias = _periodo_dias(request)
-    total_processos = Process.objects.filter(tribunal=t).count()
-    total_movs = Movimentacao.objects.filter(tribunal=t).count()
+    # KPIs server-side. Charts via lazy load (chart_data).
     ctx = {
         'tribunal': t,
-        'total_processos': total_processos,
-        'total_movs': total_movs,
+        'total_processos': Process.objects.filter(tribunal=t).count(),
+        'total_movs': Movimentacao.objects.filter(tribunal=t).count(),
         'cancelados': Movimentacao.objects.filter(tribunal=t, ativo=False).count(),
         'orgaos_unicos': Movimentacao.objects.filter(tribunal=t).exclude(nome_orgao='')
                           .values('nome_orgao').distinct().count(),
         'classes_unicas': Movimentacao.objects.filter(tribunal=t).exclude(nome_classe='')
                            .values('nome_classe').distinct().count(),
-        'volume_diario': queries.volume_temporal(dias=dias, tribunais=[t.sigla]),
-        'tipos': queries.top_tipos_comunicacao(dias=dias, tribunais=[t.sigla]),
-        'orgaos': queries.top_orgaos(dias=dias, tribunais=[t.sigla]),
-        'classes': queries.top_classes(dias=dias, tribunais=[t.sigla]),
-        'meios': queries.distribuicao_por_meio(dias=dias, tribunais=[t.sigla]),
-        'cobertura': queries.cobertura_temporal(t),
         'periodo_dias': dias,
     }
     return render(request, 'dashboard/tribunal_detail.html', ctx)

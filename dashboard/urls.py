@@ -18,4 +18,5 @@ urlpatterns = [
     path('partes/', views.partes, name='partes'),
     path('partes/<int:pk>/', views.parte_detail, name='parte-detail'),
     path('ingestao/', views.ingestao, name='ingestao'),
+    path('api/chart/<str:key>/', views.chart_data, name='api-chart'),
 ]

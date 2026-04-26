@@ -2,14 +2,6 @@
 {% load voyager_extras %}
 {% block title %}Visão geral{% endblock %}
 {% block content %}
-{{ volume_diario|json_script:"data-volume-diario" }}
-{{ distribuicao|json_script:"data-distribuicao" }}
-{{ tipos|json_script:"data-tipos" }}
-{{ orgaos|json_script:"data-orgaos" }}
-{{ classes|json_script:"data-classes" }}
-{{ enriq_dist|json_script:"data-enriq" }}
-{{ sparkline_24h|json_script:"data-sparkline-24h" }}
-
 {% if backfill_em_curso %}
 <div class="card mb-5 border-warning/30 bg-warning/10">
   <div class="flex items-start gap-3">
@@ -90,7 +82,7 @@
         {% endif %}
       </div>
     </div>
-    <div class="absolute right-0 bottom-0 w-3/5 h-14 opacity-70" data-echart='{}' x-init="setupChart($el, buildSparkline(jsonData('data-sparkline-24h'), '#10b981'))"></div>
+    <div class="absolute right-0 bottom-0 w-3/5 h-14 opacity-70" data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'sparkline-24h' %}?{% query_string request %}', d => buildSparkline(d, '#10b981'))"></div>
   </div>
   {% if kpis.drift_abertos %}
     <div class="card-tight border-warning/30 bg-warning/5">
@@ -116,12 +108,12 @@
         <div class="text-xs text-fg-subtle">por tribunal · {% if periodo_dias %}últimos {{ periodo_dias }} dias{% else %}todo o período{% endif %}</div>
       </div>
     </div>
-    <div class="h-72 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildVolumeChart(jsonData('data-volume-diario')))" class="absolute inset-0"></div></div>
+    <div class="h-72 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'volume-temporal' %}?{% query_string request %}', d => buildVolumeChart(d))" class="absolute inset-0"></div></div>
   </div>
   <div class="card">
     <div class="text-sm font-medium text-fg-soft mb-1">Distribuição</div>
     <div class="text-xs text-fg-subtle mb-2">por tribunal</div>
-    <div class="h-72 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-distribuicao'), 'tribunal', 'total'))" class="absolute inset-0"></div></div>
+    <div class="h-72 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'distribuicao' %}?{% query_string request %}', d => buildDonut(d, 'tribunal', 'total'))" class="absolute inset-0"></div></div>
   </div>
 </div>
 
@@ -129,12 +121,12 @@
   <div class="card">
     <div class="text-sm font-medium text-fg-soft mb-1">Enriquecimento</div>
     <div class="text-xs text-fg-subtle mb-2">status da consulta pública</div>
-    <div class="h-64 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildEnriqDonut(jsonData('data-enriq')))" class="absolute inset-0"></div></div>
+    <div class="h-64 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'enriquecimento' %}?{% query_string request %}', d => buildEnriqDonut(d))" class="absolute inset-0"></div></div>
   </div>
   <div class="card lg:col-span-2">
     <div class="text-sm font-medium text-fg-soft mb-1">Top tipos de comunicação</div>
     <div class="text-xs text-fg-subtle mb-2">10 mais frequentes</div>
-    <div class="h-64 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-tipos'), 'tipo', 'total', '#3b82f6'))" class="absolute inset-0"></div></div>
+    <div class="h-64 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'tipos' %}?{% query_string request %}', d => buildHorizBar(d, 'tipo', 'total', '#3b82f6'))" class="absolute inset-0"></div></div>
   </div>
 </div>
 
@@ -142,12 +134,12 @@
   <div class="card">
     <div class="text-sm font-medium text-fg-soft mb-1">Top órgãos julgadores</div>
     <div class="text-xs text-fg-subtle mb-2">10 mais ativos</div>
-    <div class="h-80 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-orgaos'), 'orgao', 'total', '#10b981'))" class="absolute inset-0"></div></div>
+    <div class="h-80 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'orgaos' %}?{% query_string request %}', d => buildHorizBar(d, 'orgao', 'total', '#10b981'))" class="absolute inset-0"></div></div>
   </div>
   <div class="card">
     <div class="text-sm font-medium text-fg-soft mb-1">Top classes processuais</div>
     <div class="text-xs text-fg-subtle mb-2">8 mais frequentes</div>
-    <div class="h-80 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildHorizBar(jsonData('data-classes'), 'classe', 'total', '#8b5cf6'))" class="absolute inset-0"></div></div>
+    <div class="h-80 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'classes' %}?{% query_string request %}', d => buildHorizBar(d, 'classe', 'total', '#8b5cf6'))" class="absolute inset-0"></div></div>
   </div>
 </div>
 {% endblock %}

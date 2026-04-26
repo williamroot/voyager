@@ -66,16 +66,25 @@ def kpis_globais(dias=None, tribunais=None):
 
 
 def sparkline_24h(tribunais=None):
-    """Conta movs inseridas por hora nas últimas 24h."""
+    """Conta movs inseridas por hora nas últimas 24h. Agregação SQL via TruncHour."""
+    from django.db.models.functions import TruncHour
+
     agora = timezone.now()
-    qs = Movimentacao.objects.filter(inserido_em__gte=agora - timedelta(hours=24))
+    cutoff = agora - timedelta(hours=24)
+    qs = Movimentacao.objects.filter(inserido_em__gte=cutoff)
     if tribunais:
         qs = qs.filter(tribunal_id__in=tribunais)
-    pontos = [0] * 24
-    for inserido in qs.values_list('inserido_em', flat=True).iterator(chunk_size=5000):
-        delta_h = int((agora - inserido).total_seconds() // 3600)
-        if 0 <= delta_h < 24:
-            pontos[23 - delta_h] += 1
+    rows = (
+        qs.annotate(hora=TruncHour('inserido_em'))
+        .values('hora').annotate(n=Count('id'))
+    )
+    by_hora = {r['hora']: r['n'] for r in rows}
+
+    base = agora.replace(minute=0, second=0, microsecond=0)
+    pontos = []
+    for i in range(24):
+        h = base - timedelta(hours=23 - i)
+        pontos.append(by_hora.get(h, 0))
     return pontos
 
 
