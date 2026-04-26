@@ -236,6 +236,40 @@
     }
     @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
+    /* Overlay de loading nas listas durante swap HTMX. */
+    [id$="-list"].is-loading { transition: opacity 0.15s; }
+    [id$="-list"].is-loading > *:not(.list-loading-mask) { opacity: 0.35; pointer-events: none; }
+    .list-loading-mask {
+      position: absolute; inset: 0; z-index: 20;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding-top: 4rem;
+      background:
+        linear-gradient(180deg, rgb(var(--c-base) / 0.4), rgb(var(--c-base) / 0.05) 60%, transparent);
+      backdrop-filter: blur(1.5px);
+      pointer-events: none;
+      animation: list-mask-in 0.2s ease-out;
+    }
+    @keyframes list-mask-in { from {opacity: 0;} to {opacity: 1;} }
+    .list-loading-pill {
+      display: inline-flex; align-items: center; gap: 0.6rem;
+      padding: 0.55rem 1rem;
+      background: rgb(var(--c-card));
+      border: 1px solid rgb(var(--c-mission) / 0.4);
+      border-radius: 9999px;
+      box-shadow: 0 8px 24px -8px rgb(var(--c-mission) / 0.35);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: rgb(var(--c-mission));
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+    }
+    .list-loading-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: rgb(var(--c-mission));
+      box-shadow: 0 0 10px rgb(var(--c-mission) / 0.7);
+      animation: pulsar 1.2s ease-in-out infinite;
+    }
+
     /* Wrapper de chart com skeleton irmão. setupChart() remove o skeleton. */
     .chart-cell { position: relative; }
     .chart-cell .chart-skeleton {
@@ -421,16 +455,39 @@
     }
     if (window.htmx) {
       htmx.on('htmx:afterSwap', (e) => initAllCharts(e.detail.target));
-      // Indicator: lista fica semi-transparente durante a troca de página
+
+      // Cria um overlay mission-control sobre a lista durante o swap.
+      function buildListOverlay() {
+        const ov = document.createElement('div');
+        ov.className = 'list-loading-mask';
+        const pill = document.createElement('div');
+        pill.className = 'list-loading-pill';
+        const dot = document.createElement('span');
+        dot.className = 'list-loading-dot';
+        const lbl = document.createElement('span');
+        lbl.textContent = 'transmitting';
+        pill.appendChild(dot);
+        pill.appendChild(lbl);
+        ov.appendChild(pill);
+        return ov;
+      }
+
       htmx.on('htmx:beforeRequest', (e) => {
         const tgt = e.detail.target;
-        if (tgt && tgt.style) { tgt.style.opacity = '0.5'; tgt.style.transition = 'opacity 0.15s'; }
+        if (!tgt || !tgt.id || !tgt.id.endsWith('-list')) return;
+        if (getComputedStyle(tgt).position === 'static') tgt.style.position = 'relative';
+        tgt.classList.add('is-loading');
+        if (!tgt.querySelector('.list-loading-mask')) {
+          tgt.appendChild(buildListOverlay());
+        }
       });
       htmx.on('htmx:afterRequest', (e) => {
         const tgt = e.detail.target;
-        if (tgt && tgt.style) tgt.style.opacity = '';
+        if (!tgt) return;
+        tgt.classList.remove('is-loading');
+        const ov = tgt.querySelector('.list-loading-mask');
+        if (ov) ov.remove();
       });
-      // Scroll suave pro topo da lista após troca de página
       htmx.on('htmx:afterSettle', (e) => {
         const tgt = e.detail.target;
         if (tgt && tgt.id && tgt.id.endsWith('-list')) {
