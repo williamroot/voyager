@@ -220,12 +220,17 @@ def status_workers():
     # Workers conectados ao Redis (usa a 1ª queue só pra pegar a connection).
     conn = django_rq.get_connection('default')
     workers_raw = Worker.all(connection=conn)
+    # RQ grava last_heartbeat como datetime naive em UTC. Se a TZ do
+    # processo Django for ≠ UTC, `timezone.now().replace(tzinfo=None)` mente
+    # — daí a comparação direta em UTC.
+    from datetime import datetime, timezone as dt_timezone
+    now_utc_naive = datetime.now(dt_timezone.utc).replace(tzinfo=None)
     workers = []
     for w in workers_raw:
         last_heartbeat = w.last_heartbeat
         idle_seconds = None
         if last_heartbeat:
-            idle_seconds = int((timezone.now().replace(tzinfo=None) - last_heartbeat).total_seconds())
+            idle_seconds = int((now_utc_naive - last_heartbeat).total_seconds())
         workers.append({
             'name': w.name,
             'state': w.get_state(),

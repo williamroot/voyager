@@ -19,7 +19,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from djen.proxies import ProxyScrapePool, cortex_proxy_url
-from tribunals.models import Parte, Process, ProcessoParte
+from tribunals.models import Assunto, ClasseJudicial, Parte, Process, ProcessoParte
 
 from .parsers import (
     classificar_tipo_parte,
@@ -84,6 +84,11 @@ class BasePjeEnricher:
             dados = self._extrair_dados(soup)
             partes = self._extrair_partes(soup)
             with transaction.atomic():
+                # Lock no Process serializa enriquecimentos concorrentes do
+                # mesmo processo: dois jobs duplicados (auto-enqueue + retry,
+                # backfill re-running) viram fila em vez de race em
+                # _aplicar_partes (DELETE+INSERT poderia perder dados).
+                processo = Process.objects.select_for_update().get(pk=processo.pk)
                 self._aplicar_dados(processo, dados)
                 self._aplicar_partes(processo, partes)
                 processo.enriquecido_em = timezone.now()
@@ -260,6 +265,20 @@ class BasePjeEnricher:
 
         return dados
 
+    @staticmethod
+    def _upsert_catalogo(model, codigo: str, nome: str):
+        """Idempotente e race-safe: tenta INSERT ignorando conflito (não
+        levanta IntegrityError em corrida) e devolve a row pelo codigo.
+        Evita poluir a transação atômica do enriquecimento com falhas de
+        chave duplicada quando 2 workers veem um código pela 1ª vez ao
+        mesmo tempo."""
+        nome_final = (nome or codigo)[:255]
+        model.objects.bulk_create(
+            [model(codigo=codigo, nome=nome_final)],
+            ignore_conflicts=True,
+        )
+        return model.objects.get(codigo=codigo)
+
     def _aplicar_dados(self, processo: Process, dados: dict) -> None:
         if 'classe' in dados:
             classe = dados['classe']
@@ -270,24 +289,18 @@ class BasePjeEnricher:
             else:
                 processo.classe_nome = classe[:255]
             if processo.classe_codigo:
-                from tribunals.models import ClasseJudicial
-                cj, _ = ClasseJudicial.objects.get_or_create(
-                    codigo=processo.classe_codigo,
-                    defaults={'nome': processo.classe_nome or processo.classe_codigo},
+                processo.classe = self._upsert_catalogo(
+                    ClasseJudicial, processo.classe_codigo, processo.classe_nome,
                 )
-                processo.classe = cj
         if 'assunto' in dados:
             assunto = dados['assunto']
             m = re.match(r'(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?\s*$', assunto)
             processo.assunto_nome = ((m.group(1) if m else assunto) or '').strip()[:255]
             processo.assunto_codigo = ((m.group(2) if m else '') or '')[:20]
             if processo.assunto_codigo:
-                from tribunals.models import Assunto
-                a, _ = Assunto.objects.get_or_create(
-                    codigo=processo.assunto_codigo,
-                    defaults={'nome': processo.assunto_nome or processo.assunto_codigo},
+                processo.assunto = self._upsert_catalogo(
+                    Assunto, processo.assunto_codigo, processo.assunto_nome,
                 )
-                processo.assunto = a
         if 'data_autuacao' in dados:
             dt = parse_data_br(dados['data_autuacao'])
             if dt:
@@ -416,4 +429,12 @@ class BasePjeEnricher:
                 )
             return obj
 
-        return Parte.objects.create(documento='', oab='', **base)
+        # Sem doc nem OAB: dedupe por (nome, tipo) — evita explosão de
+        # 'Procuradoria Regional Federal' replicada em N processos. Aceita
+        # colisão de homônimos sem doc — limitação intrínseca, não há sinal
+        # melhor pra desambiguar.
+        obj, _ = Parte.objects.get_or_create(
+            documento='', oab='', nome=nome, tipo=base['tipo'],
+            defaults={'tipo_documento': base['tipo_documento']},
+        )
+        return obj
