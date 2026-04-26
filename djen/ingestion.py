@@ -15,6 +15,10 @@ logger = logging.getLogger('voyager.djen.ingestion')
 
 BATCH_SIZE = 500
 
+# Tribunais com enricher implementado. Process novo nesses tribunais é
+# auto-enfileirado pra enriquecimento via consulta pública.
+TRIBUNAIS_COM_ENRICHER = {'TRF1'}
+
 
 def ingest_processo(processo, client: DJENClient | None = None) -> dict:
     """Sincroniza movimentações de UM processo via DJEN.
@@ -123,10 +127,17 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun,
         ]
         if novos_processos:
             Process.objects.bulk_create(novos_processos, ignore_conflicts=True, batch_size=BATCH_SIZE)
+            cnjs_realmente_novos = {p.numero_cnj for p in novos_processos} - existentes_cnj.keys()
             existentes_cnj = dict(
                 Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs_pagina)
                 .values_list('numero_cnj', 'pk')
             )
+            # Auto-enfileira enriquecimento dos processos novos (após commit) — gate por
+            # tribunais com enricher implementado pra evitar ValueError no job.
+            if tribunal.sigla in TRIBUNAIS_COM_ENRICHER:
+                ids_pra_enriquecer = [existentes_cnj[c] for c in cnjs_realmente_novos
+                                       if c in existentes_cnj]
+                transaction.on_commit(lambda ids=ids_pra_enriquecer: _enfileirar_enrichers(ids))
 
         ja_existem_extids = set(
             Movimentacao.objects.filter(tribunal=tribunal, external_id__in=ext_ids_pagina)
@@ -197,3 +208,16 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str]) -> None:
             fields=['primeira_movimentacao_em', 'ultima_movimentacao_em', 'total_movimentacoes'],
             batch_size=500,
         )
+
+
+def _enfileirar_enrichers(process_ids: list[int]) -> None:
+    """Enfileira jobs de enriquecimento. Importação local pra evitar ciclo
+    djen ↔ enrichers (enrichers usa Tribunal/Process do tribunals)."""
+    if not process_ids:
+        return
+    from enrichers.jobs import enriquecer_processo
+    for pid in process_ids:
+        try:
+            enriquecer_processo.delay(pid)
+        except Exception as exc:
+            logger.warning('falha ao enfileirar enrichment', extra={'process_id': pid, 'erro': str(exc)})

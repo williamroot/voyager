@@ -85,6 +85,8 @@
       <tr>
         <th class="text-left">CNJ</th>
         <th class="text-left">Tribunal</th>
+        <th class="text-left">Ano</th>
+        <th class="text-left">Classe</th>
         <th class="text-left">{% if backfill_em_curso %}Última mov. <span class="text-warning/80 font-normal normal-case text-[0.65rem]">(parcial)</span>{% else %}Última movimentação{% endif %}</th>
         <th class="text-left">Inserido</th>
         <th class="text-right">Movs</th>
@@ -99,6 +101,22 @@
           </td>
           <td>
             <span class="badge bg-surface border-border text-fg-soft">{{ p.tribunal_id }}</span>
+          </td>
+          <td class="text-fg-muted text-[0.78rem] font-mono">{{ p.ano_cnj|default:'—' }}</td>
+          <td class="text-fg-soft text-[0.78rem] max-w-xs">
+            {% if p.classe_nome %}
+              <span title="{{ p.classe_nome }}{% if p.classe_codigo %} ({{ p.classe_codigo }}){% endif %}">{{ p.classe_nome|truncate_words_smart:32 }}</span>
+            {% else %}
+              {% if p.enriquecimento_status == 'pendente' %}
+                <span class="text-fg-subtle italic text-[0.7rem]">pendente</span>
+              {% elif p.enriquecimento_status == 'nao_encontrado' %}
+                <span class="text-fg-subtle italic text-[0.7rem]">não encontrado</span>
+              {% elif p.enriquecimento_status == 'erro' %}
+                <span class="text-warning italic text-[0.7rem]">erro</span>
+              {% else %}
+                <span class="text-fg-subtle">—</span>
+              {% endif %}
+            {% endif %}
           </td>
           <td>
             {% if p.ultima_movimentacao_em %}
@@ -120,7 +138,7 @@
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="6" class="text-center px-4 py-12 text-fg-subtle">
+        <tr><td colspan="8" class="text-center px-4 py-12 text-fg-subtle">
           <div class="text-fg-muted mb-1">Nenhum processo encontrado</div>
           <div class="text-xs">Ajuste os filtros ou aguarde a ingestão</div>
         </td></tr>
