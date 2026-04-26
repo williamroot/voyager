@@ -3,7 +3,10 @@
 {% block title %}{{ parte.nome }}{% endblock %}
 {% block content %}
 <div class="mb-2">
-  <a href="{% url 'dashboard:partes' %}" class="text-fg-subtle text-sm hover:text-accent-fg">← partes</a>
+  <a href="{% url 'dashboard:partes' %}" class="inline-flex items-center gap-1.5 text-fg-subtle text-sm hover:text-accent-fg">
+    {% voy_icon "retrograde" "w-3.5 h-3.5" %}
+    partes
+  </a>
 </div>
 
 <div class="card mb-5">
@@ -42,7 +45,58 @@
   </div>
 </div>
 
-{% include 'dashboard/_partials/section_header.html' with title='Processos relacionados' subtitle=participacoes|length|stringformat:'s'|add:' participações' %}
+{% include 'dashboard/_partials/section_header.html' with title='Processos relacionados' subtitle=parte.total_processos|format_int|add:' participações no total' %}
+
+<div class="card mb-4 flex flex-col gap-3">
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-fg-subtle mr-1">Polo:</span>
+    <a href="?{% query_string request polo='' %}" class="chip {% if not polo_filtro %}active{% endif %}">
+      Todos <span class="ml-1 text-fg-subtle">{{ parte.total_processos|format_int }}</span>
+    </a>
+    {% if counts.ativo %}
+      <a href="?{% query_string request polo='ativo' %}" class="chip {% if polo_filtro == 'ativo' %}active{% endif %}">
+        Ativo <span class="ml-1 text-fg-subtle">{{ counts.ativo|format_int }}</span>
+      </a>
+    {% endif %}
+    {% if counts.passivo %}
+      <a href="?{% query_string request polo='passivo' %}" class="chip {% if polo_filtro == 'passivo' %}active{% endif %}">
+        Passivo <span class="ml-1 text-fg-subtle">{{ counts.passivo|format_int }}</span>
+      </a>
+    {% endif %}
+    {% if counts.outros %}
+      <a href="?{% query_string request polo='outros' %}" class="chip {% if polo_filtro == 'outros' %}active{% endif %}">
+        Outros <span class="ml-1 text-fg-subtle">{{ counts.outros|format_int }}</span>
+      </a>
+    {% endif %}
+  </div>
+
+  {% if tribunais_da_parte|length > 1 %}
+    <div class="flex flex-wrap gap-2 items-center">
+      <span class="text-xs text-fg-subtle mr-1">Tribunal:</span>
+      <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
+      {% for t in tribunais_da_parte %}
+        <a href="?{% query_string request tribunal=t %}" class="chip {% if t|is_in_list:tribunal_filtro %}active{% endif %}">{{ t }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if papeis_disponiveis %}
+    <div class="flex flex-wrap gap-2 items-center">
+      <span class="text-xs text-fg-subtle mr-1">Papel:</span>
+      <a href="?{% query_string request papel='' %}" class="chip {% if not papel_filtro %}active{% endif %}">Todos</a>
+      {% for p in papeis_disponiveis %}
+        <a href="?{% query_string request papel=p %}" class="chip {% if p == papel_filtro %}active{% endif %}">{{ p }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if total_filtrado is not None %}
+    <div class="text-xs text-fg-subtle flex items-center gap-2">
+      <span>Mostrando {{ total_filtrado|format_int }} de {{ parte.total_processos|format_int }}</span>
+      <a href="{% url 'dashboard:parte-detail' parte.pk %}" class="text-fg-subtle hover:text-danger">limpar filtros</a>
+    </div>
+  {% endif %}
+</div>
 
 <div class="card overflow-hidden p-0">
   <table class="w-full text-sm dense">
@@ -53,6 +107,7 @@
         <th class="text-left">Polo</th>
         <th class="text-left">Papel</th>
         <th class="text-left">Última mov.</th>
+        <th></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-border/80">
@@ -61,15 +116,20 @@
           <td><a href="{% url 'dashboard:processo-detail' pp.processo.pk %}" class="font-mono text-accent-fg hover:underline">{{ pp.processo.numero_cnj }}</a></td>
           <td>{% include 'dashboard/_partials/badge.html' with text=pp.processo.tribunal_id variant='neutral' size='mini' %}</td>
           <td>
-            {% if pp.polo == 'ativo' %}<span class="text-accent-fg">ativo</span>
-            {% elif pp.polo == 'passivo' %}<span class="text-warning">passivo</span>
-            {% else %}<span class="text-fg-subtle">{{ pp.polo }}</span>{% endif %}
+            {% if pp.polo == 'ativo' %}<span class="badge bg-accent/15 text-accent-fg border-accent/30">ativo</span>
+            {% elif pp.polo == 'passivo' %}<span class="badge bg-warning/15 text-warning border-warning/30">passivo</span>
+            {% else %}<span class="badge bg-muted text-fg-subtle border-border">{{ pp.polo }}</span>{% endif %}
           </td>
           <td class="text-fg-muted">{{ pp.papel|default:'—' }}</td>
           <td class="text-fg-subtle text-xs">{{ pp.processo.ultima_movimentacao_em|relative_dt }}</td>
+          <td class="text-right">
+            <a href="{% url 'dashboard:processo-detail' pp.processo.pk %}" class="inline-flex items-center text-fg-subtle group-hover:text-accent-fg" title="Abrir processo">
+              {% voy_icon "telescope" "w-4 h-4" %}
+            </a>
+          </td>
         </tr>
       {% empty %}
-        <tr><td colspan="5" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Sem processos vinculados' %}</td></tr>
+        <tr><td colspan="6" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Sem processos com esses filtros' subtitle='Limpe ou ajuste os chips acima' %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

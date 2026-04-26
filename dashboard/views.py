@@ -260,14 +260,42 @@ def partes(request):
 @require_GET
 def parte_detail(request, pk):
     parte = get_object_or_404(Parte, pk=pk)
-    participacoes = (
-        ProcessoParte.objects.filter(parte=parte)
-        .select_related('processo', 'processo__tribunal')
-        .order_by('-processo__ultima_movimentacao_em')[:200]
+
+    base_qs = ProcessoParte.objects.filter(parte=parte)
+    # Conta por polo (sempre, independente do filtro — pra exibir nos chips)
+    counts = {row['polo']: row['n'] for row in base_qs.values('polo').annotate(n=Count('id'))}
+
+    polo_filtro = request.GET.get('polo', '')
+    tribunais_filtro = _split_csv(request.GET.get('tribunal'))
+    papel_filtro = (request.GET.get('papel') or '').strip()
+
+    qs = base_qs.select_related('processo', 'processo__tribunal')
+    if polo_filtro in ('ativo', 'passivo', 'outros'):
+        qs = qs.filter(polo=polo_filtro)
+    if tribunais_filtro:
+        qs = qs.filter(processo__tribunal_id__in=tribunais_filtro)
+    if papel_filtro:
+        qs = qs.filter(papel__iexact=papel_filtro)
+    qs = qs.order_by('-processo__ultima_movimentacao_em')
+
+    # Papéis disponíveis pra chip bar (somente os que essa parte tem)
+    papeis_disponiveis = list(
+        base_qs.exclude(papel='').values_list('papel', flat=True).distinct()[:10]
     )
+    tribunais_da_parte = list(
+        base_qs.values_list('processo__tribunal_id', flat=True).distinct()
+    )
+
     return render(request, 'dashboard/parte_detail.html', {
         'parte': parte,
-        'participacoes': participacoes,
+        'participacoes': qs[:200],
+        'counts': counts,
+        'polo_filtro': polo_filtro,
+        'tribunal_filtro': ','.join(tribunais_filtro),
+        'papel_filtro': papel_filtro,
+        'papeis_disponiveis': papeis_disponiveis,
+        'tribunais_da_parte': tribunais_da_parte,
+        'total_filtrado': qs.count() if (polo_filtro or tribunais_filtro or papel_filtro) else None,
     })
 
 
