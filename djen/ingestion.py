@@ -144,9 +144,26 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun,
             .values_list('external_id', flat=True)
         )
 
+        # Catálogo de classes — upsert batch dos pares (codigo, nome) da página.
+        # Usa nome do DJEN só se a classe ainda não existe (Process já populou
+        # nomes melhores via PJe consulta pública).
+        from tribunals.models import ClasseJudicial
+        classes_pagina = {
+            (p.codigo_classe, p.nome_classe)
+            for p in parsed if p.codigo_classe and p.nome_classe
+        }
+        if classes_pagina:
+            ClasseJudicial.objects.bulk_create(
+                [ClasseJudicial(codigo=c, nome=n) for c, n in classes_pagina],
+                ignore_conflicts=True,
+                batch_size=BATCH_SIZE,
+            )
+
         movs = []
         for p in parsed:
             kwargs = p.to_movimentacao_kwargs()
+            if p.codigo_classe:
+                kwargs['classe_id'] = p.codigo_classe
             movs.append(Movimentacao(
                 processo_id=existentes_cnj[p.cnj],
                 tribunal=tribunal,

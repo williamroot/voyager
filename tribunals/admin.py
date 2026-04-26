@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.utils import timezone
 
 from .models import (
+    Assunto,
+    ClasseJudicial,
     IngestionRun,
     Movimentacao,
     Parte,
@@ -17,6 +19,20 @@ class TribunalAdmin(admin.ModelAdmin):
     list_display = ('sigla', 'nome', 'ativo', 'data_inicio_disponivel', 'backfill_concluido_em', 'overlap_dias')
     list_filter = ('ativo',)
     search_fields = ('sigla', 'nome')
+
+
+@admin.register(ClasseJudicial)
+class ClasseJudicialAdmin(admin.ModelAdmin):
+    list_display = ('codigo', 'nome', 'total_processos')
+    search_fields = ('codigo', 'nome')
+    ordering = ('-total_processos',)
+
+
+@admin.register(Assunto)
+class AssuntoAdmin(admin.ModelAdmin):
+    list_display = ('codigo', 'nome', 'total_processos')
+    search_fields = ('codigo', 'nome')
+    ordering = ('-total_processos',)
 
 
 @admin.register(Process)

@@ -21,6 +21,40 @@ class Tribunal(models.Model):
         return self.sigla
 
 
+class ClasseJudicial(models.Model):
+    """Catálogo nacional de classes judiciais (TPU/CNJ).
+
+    PK natural é o código TPU. Nome canônico vem preferencialmente do PJe
+    (consulta pública), mais limpo que a string do DJEN.
+    """
+
+    codigo = models.CharField(max_length=20, primary_key=True)
+    nome = models.CharField(max_length=255)
+    total_processos = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['nome']
+        indexes = [models.Index(fields=['nome'])]
+
+    def __str__(self):
+        return f'{self.codigo} · {self.nome}'
+
+
+class Assunto(models.Model):
+    """Catálogo nacional de assuntos processuais (TPU/CNJ)."""
+
+    codigo = models.CharField(max_length=20, primary_key=True)
+    nome = models.CharField(max_length=255)
+    total_processos = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['nome']
+        indexes = [models.Index(fields=['nome'])]
+
+    def __str__(self):
+        return f'{self.codigo} · {self.nome}'
+
+
 class Process(models.Model):
     numero_cnj = models.CharField(max_length=25)
     # ano_cnj é derivado do numero_cnj (NNNNNNN-DD.AAAA.J.TR.OOOO).
@@ -32,10 +66,20 @@ class Process(models.Model):
     total_movimentacoes = models.PositiveIntegerField(default=0)
 
     # Enriquecimento via consulta pública do tribunal (TRF1, etc.).
+    # Campos string são fonte de verdade na ingestão; FKs são populadas
+    # via data migration / signal pra normalizar e habilitar filtros.
     classe_codigo = models.CharField(max_length=20, blank=True)
     classe_nome = models.CharField(max_length=255, blank=True)
+    classe = models.ForeignKey(
+        ClasseJudicial, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='processos',
+    )
     assunto_codigo = models.CharField(max_length=20, blank=True)
     assunto_nome = models.CharField(max_length=255, blank=True)
+    assunto = models.ForeignKey(
+        Assunto, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='processos',
+    )
     data_autuacao = models.DateField(null=True, blank=True)
     valor_causa = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     orgao_julgador_codigo = models.CharField(max_length=20, blank=True)
@@ -73,6 +117,8 @@ class Process(models.Model):
             models.Index(fields=['enriquecido_em']),
             models.Index(fields=['enriquecimento_status']),
             models.Index(fields=['classe_codigo']),
+            models.Index(fields=['classe']),
+            models.Index(fields=['assunto']),
             models.Index(fields=['orgao_julgador_codigo']),
             models.Index(fields=['ano_cnj']),
             models.Index(fields=['tribunal', 'ano_cnj']),
@@ -178,6 +224,10 @@ class Movimentacao(models.Model):
     id_orgao = models.IntegerField(null=True, blank=True)
     nome_classe = models.CharField(max_length=255, blank=True)
     codigo_classe = models.CharField(max_length=20, blank=True)
+    classe = models.ForeignKey(
+        ClasseJudicial, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='movimentacoes',
+    )
     link = models.URLField(max_length=500, blank=True)
     destinatarios = models.JSONField(default=list)
     destinatario_advogados = models.JSONField(default=list)
@@ -205,6 +255,7 @@ class Movimentacao(models.Model):
             models.Index(fields=['inserido_em']),
             models.Index(fields=['tribunal', 'ativo']),
             models.Index(fields=['hash']),
+            models.Index(fields=['classe']),
             GinIndex(fields=['search_vector'], name='mov_search_vector_gin'),
             GinIndex(name='mov_texto_trgm', fields=['texto'], opclasses=['gin_trgm_ops']),
         ]

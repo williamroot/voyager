@@ -84,7 +84,8 @@ class Trf1Enricher:
                 processo.enriquecimento_status = Process.ENRIQ_OK
                 processo.enriquecimento_erro = ''
                 processo.save(update_fields=[
-                    'classe_codigo', 'classe_nome', 'assunto_codigo', 'assunto_nome',
+                    'classe_codigo', 'classe_nome', 'classe',
+                    'assunto_codigo', 'assunto_nome', 'assunto',
                     'data_autuacao', 'valor_causa', 'orgao_julgador_codigo',
                     'orgao_julgador_nome', 'juizo', 'segredo_justica',
                     'enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro',
@@ -272,11 +273,25 @@ class Trf1Enricher:
                 processo.classe_codigo = (m.group(2) or '')[:20]
             else:
                 processo.classe_nome = classe[:255]
+            if processo.classe_codigo:
+                from tribunals.models import ClasseJudicial
+                cj, _ = ClasseJudicial.objects.get_or_create(
+                    codigo=processo.classe_codigo,
+                    defaults={'nome': processo.classe_nome or processo.classe_codigo},
+                )
+                processo.classe = cj
         if 'assunto' in dados:
             assunto = dados['assunto']
             m = re.match(r'(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?\s*$', assunto)
             processo.assunto_nome = ((m.group(1) if m else assunto) or '').strip()[:255]
             processo.assunto_codigo = ((m.group(2) if m else '') or '')[:20]
+            if processo.assunto_codigo:
+                from tribunals.models import Assunto
+                a, _ = Assunto.objects.get_or_create(
+                    codigo=processo.assunto_codigo,
+                    defaults={'nome': processo.assunto_nome or processo.assunto_codigo},
+                )
+                processo.assunto = a
         if 'data_autuacao' in dados:
             dt = parse_data_br(dados['data_autuacao'])
             if dt:
