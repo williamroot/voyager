@@ -134,7 +134,9 @@
             {% endif %}
           </td>
           <td class="text-right">
-            <a href="{% url 'dashboard:processo-detail' p.pk %}" class="text-fg-subtle group-hover:text-accent-fg transition-colors">→</a>
+            <a href="{% url 'dashboard:processo-detail' p.pk %}" class="inline-flex items-center text-fg-subtle group-hover:text-accent-fg transition-colors" title="Abrir processo">
+              {% voy_icon "telescope" "w-4 h-4" %}
+            </a>
           </td>
         </tr>
       {% empty %}

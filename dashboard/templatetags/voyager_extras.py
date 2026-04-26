@@ -99,6 +99,24 @@ def slugify_id(value):
 
 
 @register.simple_tag
+def voy_icon(name, classes='w-4 h-4'):
+    """Renderiza um ícone Voyager via <use href="...#voy-{name}">.
+
+    Uso:
+      {% voy_icon "telescope" %}                  # default w-4 h-4
+      {% voy_icon "calibrate" "w-5 h-5 text-mission" %}
+    """
+    from django.templatetags.static import static
+    sprite = static('dashboard/voyager-icons.svg')
+    from django.utils.safestring import mark_safe
+    from django.utils.html import escape
+    return mark_safe(
+        f'<svg class="{escape(classes)}" aria-hidden="true">'
+        f'<use href="{sprite}#voy-{escape(name)}"/></svg>'
+    )
+
+
+@register.simple_tag
 def query_string(request, **kwargs):
     """Helper pra construir URLs preservando query existente, sobrescrevendo só os params passados."""
     qd = request.GET.copy()

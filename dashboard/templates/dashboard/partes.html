@@ -45,7 +45,11 @@
           <td class="font-mono text-xs">{{ p.documento|default:'—' }}</td>
           <td class="font-mono text-xs">{{ p.oab|default:'—' }}</td>
           <td class="text-right kpi-num">{{ p.total_processos|format_int }}</td>
-          <td class="text-right"><a href="{% url 'dashboard:parte-detail' p.pk %}" class="text-fg-subtle group-hover:text-accent-fg">→</a></td>
+          <td class="text-right">
+            <a href="{% url 'dashboard:parte-detail' p.pk %}" class="inline-flex items-center text-fg-subtle group-hover:text-accent-fg" title="Abrir parte">
+              {% voy_icon "telescope" "w-4 h-4" %}
+            </a>
+          </td>
         </tr>
       {% empty %}
         <tr><td colspan="6" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhuma parte encontrada' subtitle='Enriqueça processos pra começar a popular esta lista' %}</td></tr>

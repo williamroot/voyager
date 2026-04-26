@@ -3,7 +3,10 @@
 {% block title %}{{ processo.numero_cnj }}{% endblock %}
 {% block content %}
 <div class="mb-2">
-  <a href="{% url 'dashboard:processos' %}" class="text-fg-subtle text-sm hover:text-accent-fg">← processos</a>
+  <a href="{% url 'dashboard:processos' %}" class="inline-flex items-center gap-1.5 text-fg-subtle text-sm hover:text-accent-fg">
+    {% voy_icon "retrograde" "w-3.5 h-3.5" %}
+    processos
+  </a>
 </div>
 
 <div class="card mb-5">
@@ -36,16 +39,25 @@
       </div>
     </div>
     <div class="flex flex-col items-end gap-2">
-      <button onclick="copyToClipboard('{{ processo.numero_cnj }}', 'CNJ')" class="text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">copiar CNJ</button>
+      <button onclick="copyToClipboard('{{ processo.numero_cnj }}', 'CNJ')" class="inline-flex items-center gap-1.5 text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">
+        {% voy_icon "mission-tag" "w-3.5 h-3.5" %}
+        copiar CNJ
+      </button>
       {% if processo.tribunal_id == 'TRF1' %}
         <form method="post" action="{% url 'dashboard:processo-enriquecer' processo.pk %}" class="inline">
           {% csrf_token %}
-          <button type="submit" class="text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">↻ Dados públicos (TRF1)</button>
+          <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">
+            {% voy_icon "calibrate" "w-3.5 h-3.5" %}
+            Dados públicos (TRF1)
+          </button>
         </form>
       {% endif %}
       <form method="post" action="{% url 'dashboard:processo-sincronizar' processo.pk %}" class="inline">
         {% csrf_token %}
-        <button type="submit" class="text-xs bg-info/15 border border-info/30 hover:bg-info/25 text-info rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">↻ Sincronizar movs (DJEN)</button>
+        <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-info/15 border border-info/30 hover:bg-info/25 text-info rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">
+          {% voy_icon "downlink" "w-3.5 h-3.5" %}
+          Sincronizar movs
+        </button>
       </form>
     </div>
   </div>

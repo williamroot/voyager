@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <defs>
+    <!-- Estilo base: stroke=currentColor, stroke-width=1.6, fill=none, linecap/join=round.
+         viewBox=24×24. Hairlines decorativas usam stroke-width=1 com opacity .55. -->
+
+    <!-- probe: Voyager probe — dish à esquerda, bus, boom de antena -->
+    <symbol id="voy-probe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="7" cy="12" r="3.6"/>
+      <path d="M5.2 13.4 L8.8 10.6"/>
+      <rect x="11" y="10" width="5" height="4" rx="0.6"/>
+      <path d="M16 12 H21"/>
+      <circle cx="21" cy="12" r="0.8" fill="currentColor"/>
+      <path d="M7 8.4 V5.5" stroke-width="1"/>
+    </symbol>
+
+    <!-- dossier: pasta-dossiê com aba e linhas de classificação -->
+    <symbol id="voy-dossier" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 7 L9 7 L11 5 L20 5 V19 H4 Z"/>
+      <path d="M7 11 H17 M7 14 H14" stroke-width="1.2" opacity=".7"/>
+    </symbol>
+
+    <!-- transmission: 3 arcos pulsantes saindo de um ponto -->
+    <symbol id="voy-transmission" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="1.6" fill="currentColor"/>
+      <path d="M8.5 8.5 a5 5 0 0 1 7 0"/>
+      <path d="M5.5 5.5 a9 9 0 0 1 13 0" opacity=".7"/>
+      <path d="M8.5 15.5 a5 5 0 0 0 7 0"/>
+      <path d="M5.5 18.5 a9 9 0 0 0 13 0" opacity=".7"/>
+    </symbol>
+
+    <!-- constellation: 5 estrelas conectadas formando rede -->
+    <symbol id="voy-constellation" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 6 L12 9 L19 5 M12 9 L9 16 L17 14 L12 9" stroke-width="1" opacity=".55"/>
+      <circle cx="5" cy="6" r="1.4" fill="currentColor"/>
+      <circle cx="19" cy="5" r="1.4" fill="currentColor"/>
+      <circle cx="12" cy="9" r="1.7" fill="currentColor"/>
+      <circle cx="9" cy="16" r="1.4" fill="currentColor"/>
+      <circle cx="17" cy="14" r="1.4" fill="currentColor"/>
+    </symbol>
+
+    <!-- uplink: antena disco + raios subindo + base -->
+    <symbol id="voy-uplink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 14 L12 5 L19 14"/>
+      <path d="M5 14 H19"/>
+      <path d="M12 14 V20 M9 20 H15"/>
+      <path d="M12 8 V3" stroke-width="1.2"/>
+      <path d="M9 5.5 L12 3 L15 5.5" stroke-width="1.2" opacity=".7"/>
+    </symbol>
+
+    <!-- telescope: tubo angulado em tripé -->
+    <symbol id="voy-telescope" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 16 L17 4"/>
+      <path d="M5.5 12.5 L9 16 L12 13 L8.5 9.5 Z" transform="rotate(-45 9 13)"/>
+      <path d="M11 13 L20 4 L17 1 L8 10" transform="translate(0 0)" opacity=".0"/>
+      <path d="M15 6 L19 10" stroke-width="1" opacity=".6"/>
+      <path d="M11 16 V21 M8 21 H14"/>
+    </symbol>
+
+    <!-- retrograde: seta retornando (curva pra esquerda) -->
+    <symbol id="voy-retrograde" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 7 a8 8 0 1 0 0 10"/>
+      <path d="M9 7 L4 7 L4 12" stroke-linejoin="miter"/>
+    </symbol>
+
+    <!-- trajectory: seta com starburst -->
+    <symbol id="voy-trajectory" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 18 Q11 11 18 7"/>
+      <path d="M14 6 L19 6 L19 11" stroke-linejoin="miter"/>
+      <path d="M3.5 18 L4.5 18 M4 17.5 L4 18.5" stroke-width="1" opacity=".7"/>
+      <path d="M2.5 16.5 L3 17 M5 19 L5.5 19.5" stroke-width="1" opacity=".5"/>
+    </symbol>
+
+    <!-- mission-tag: identificação com canto chanfrado e código -->
+    <symbol id="voy-mission-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 6 L17 6 L20 9 L20 18 L5 18 Z"/>
+      <path d="M17 6 L17 9 L20 9" stroke-width="1.2"/>
+      <path d="M8 12 H15 M8 14.5 H13" stroke-width="1.2" opacity=".7"/>
+    </symbol>
+
+    <!-- calibrate: gear com ticks radiais (atualizar dados públicos) -->
+    <symbol id="voy-calibrate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="4"/>
+      <circle cx="12" cy="12" r="1.5"/>
+      <path d="M12 4 V6 M12 18 V20 M4 12 H6 M18 12 H20" stroke-width="1.4"/>
+      <path d="M6.3 6.3 L7.7 7.7 M16.3 16.3 L17.7 17.7 M6.3 17.7 L7.7 16.3 M16.3 7.7 L17.7 6.3" stroke-width="1" opacity=".7"/>
+    </symbol>
+
+    <!-- downlink: antena recebendo (raios descendo) -->
+    <symbol id="voy-downlink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 10 L12 19 L19 10"/>
+      <path d="M5 10 H19"/>
+      <path d="M12 10 V4 M9 4 H15"/>
+      <path d="M12 16 V21" stroke-width="1.2"/>
+      <path d="M9 18.5 L12 21 L15 18.5" stroke-width="1.2" opacity=".7"/>
+    </symbol>
+
+    <!-- radar: lupa com sweep (busca) -->
+    <symbol id="voy-radar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="6"/>
+      <path d="M11 11 L11 5" stroke-width="1.4"/>
+      <path d="M11 11 L15.5 7.5" stroke-width="1" opacity=".7"/>
+      <path d="M11 11 H17" stroke-width="1" opacity=".4"/>
+      <path d="M16 16 L21 21" stroke-linejoin="miter"/>
+      <circle cx="11" cy="11" r="2.5" stroke-width="1" opacity=".4"/>
+    </symbol>
+
+    <!-- clear: órbita com cancel slash -->
+    <symbol id="voy-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(-25 12 12)"/>
+      <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+      <path d="M6 6 L18 18" stroke-width="1.6"/>
+    </symbol>
+
+    <!-- eject: capsule indo pra cima (sair) -->
+    <symbol id="voy-eject" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3 L19 11 L15 11 L15 17 L9 17 L9 11 L5 11 Z"/>
+      <path d="M9 20 L15 20" stroke-width="1.4"/>
+    </symbol>
+
+    <!-- anomaly: alerta com radar cross -->
+    <symbol id="voy-anomaly" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3 L21 19 L3 19 Z"/>
+      <path d="M12 10 V14" stroke-width="2"/>
+      <circle cx="12" cy="16.5" r="0.9" fill="currentColor"/>
+    </symbol>
+
+    <!-- signal-ok: pulse arc com check -->
+    <symbol id="voy-signal-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 14 a7 7 0 0 1 14 0" opacity=".55" stroke-width="1.2"/>
+      <path d="M7 14 a5 5 0 0 1 10 0"/>
+      <circle cx="12" cy="14" r="1.6" fill="currentColor"/>
+      <path d="M9 17 L11 19 L15 14" stroke-width="1.6" stroke-linejoin="miter"/>
+    </symbol>
+
+    <!-- signal-lost: pulse quebrado -->
+    <symbol id="voy-signal-lost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 14 a7 7 0 0 1 4-6.3" opacity=".55" stroke-width="1.2"/>
+      <path d="M14 7.7 a7 7 0 0 1 5 6.3" opacity=".55" stroke-width="1.2"/>
+      <path d="M7 14 a5 5 0 0 1 2.4-4.3"/>
+      <path d="M14.6 9.7 a5 5 0 0 1 2.4 4.3"/>
+      <circle cx="12" cy="14" r="1.6" fill="currentColor"/>
+      <path d="M5 5 L19 19" stroke-width="1.6"/>
+    </symbol>
+
+    <!-- pulsar: ponto pulsante (animado) — usado em "running" -->
+    <symbol id="voy-pulsar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="2.4" fill="currentColor"/>
+      <circle cx="12" cy="12" r="6" opacity=".5"/>
+      <circle cx="12" cy="12" r="9.5" opacity=".25"/>
+    </symbol>
+
+    <!-- sun (theme light) e moon (dark) — variantes do toggle de tema -->
+    <symbol id="voy-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3.5"/>
+      <path d="M12 3 V5 M12 19 V21 M3 12 H5 M19 12 H21 M5.6 5.6 L7 7 M17 17 L18.4 18.4 M5.6 18.4 L7 17 M17 7 L18.4 5.6"/>
+    </symbol>
+
+    <symbol id="voy-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20.5 14.5 A8.5 8.5 0 1 1 9.5 3.5 a6.5 6.5 0 0 0 11 11 z"/>
+    </symbol>
+
+    <!-- mini-arrow (substitui o → solto) -->
+    <symbol id="voy-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 12 H19 M14 7 L19 12 L14 17"/>
+    </symbol>
+  </defs>
+</svg>

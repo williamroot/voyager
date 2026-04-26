@@ -1,5 +1,5 @@
 {% extends 'dashboard/base.html' %}
-{% load voyager_extras %}
+{% load static voyager_extras %}
 {% block title %}Ingestão{% endblock %}
 {% block content %}
 {% include 'dashboard/_partials/page_header.html' with title='Saúde operacional' subtitle='Workers, proxies e drift schema' %}
@@ -47,7 +47,9 @@
             {% include 'dashboard/_partials/badge.html' with text=a.get_tipo_display variant='neutral' %}
             <span class="text-fg-subtle text-sm">desde {{ a.detectado_em|relative_dt }}</span>
           </div>
-          <a href="/admin/tribunals/schemadriftalert/{{ a.pk }}/change/" class="text-xs text-accent-fg hover:underline">resolver no admin →</a>
+          <a href="/admin/tribunals/schemadriftalert/{{ a.pk }}/change/" class="inline-flex items-center gap-1 text-xs text-accent-fg hover:underline">
+            resolver no admin {% voy_icon "trajectory" "w-3 h-3" %}
+          </a>
         </div>
         <div class="mt-2 text-sm">
           <span class="text-fg-subtle">Chaves:</span>
@@ -83,11 +85,20 @@
           </td>
           <td>
             {% if r.status == 'success' %}
-              {% include 'dashboard/_partials/badge.html' with text='OK' variant='accent' size='mini' %}
+              <span class="inline-flex items-center gap-1 text-accent-fg text-[0.7rem]" title="Sinal travado">
+                {% voy_icon "signal-ok" "w-3.5 h-3.5" %}
+                <span class="font-mono uppercase tracking-wider">OK</span>
+              </span>
             {% elif r.status == 'failed' %}
-              {% include 'dashboard/_partials/badge.html' with text='FALHOU' variant='danger' size='mini' %}
+              <span class="inline-flex items-center gap-1 text-danger text-[0.7rem]" title="Sinal perdido">
+                {% voy_icon "signal-lost" "w-3.5 h-3.5" %}
+                <span class="font-mono uppercase tracking-wider">falha</span>
+              </span>
             {% else %}
-              {% include 'dashboard/_partials/badge.html' with text='rodando' variant='warning' size='mini' %}
+              <span class="inline-flex items-center gap-1 text-warning text-[0.7rem]" title="Transmitindo">
+                <svg class="w-3.5 h-3.5 animate-pulse" aria-hidden="true"><use href="{% static 'dashboard/voyager-icons.svg' %}#voy-pulsar"/></svg>
+                <span class="font-mono uppercase tracking-wider">live</span>
+              </span>
             {% endif %}
           </td>
           <td class="text-fg-muted text-xs">{{ r.janela_inicio|date:'d/m/y' }} → {{ r.janela_fim|date:'d/m/y' }}</td>
