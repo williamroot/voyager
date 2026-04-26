@@ -11,7 +11,11 @@
           {% if m.tipo_comunicacao %}<span class="badge {{ m.tipo_comunicacao|type_classes }}">{{ m.tipo_comunicacao }}</span>{% endif %}
           {% if m.meio_completo %}<span class="badge bg-card/70 border-border text-fg-muted">{{ m.meio_completo }}</span>{% endif %}
           {% if not m.ativo %}<span class="badge bg-danger/15 border-danger/30 text-danger">cancelada</span>{% endif %}
-          {% if m.link %}<a href="{{ m.link }}" target="_blank" class="badge bg-accent/15 border-accent/30 text-accent-fg hover:bg-accent/15">↗ documento</a>{% endif %}
+          {% if m.link %}
+            <a href="{{ m.link }}" target="_blank" rel="noopener"
+               title="Abre no PJe do tribunal. O token x= tem validade curta (alguns dias) e geralmente exige sessão PJe ativa pra renderizar. Se abrir vazio: faça login em pje1g.trf1.jus.br/pje primeiro, ou tente um link recente."
+               class="badge bg-accent/15 border-accent/30 text-accent-fg hover:bg-accent/15">↗ documento</a>
+          {% endif %}
         </div>
         {% if m.nome_orgao or m.nome_classe %}
           <div class="text-fg-subtle text-xs mb-2">

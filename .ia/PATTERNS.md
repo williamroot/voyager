@@ -105,11 +105,19 @@ logger.info('djen request', extra={
 
 ✅ Cada chart envolto em `.chart-cell` com `.chart-skeleton` irmão. `setupChart($el, opts)` remove skeleton ao inicializar.
 
-✅ Dados pro JS via `{{ obj|json_script:"data-x" }}` + `jsonData('data-x')` — não inline `JSON.stringify` em atributos HTML.
+✅ Charts carregam via `lazyChart($el, url, builder)` em vez de SSR — view só passa KPIs, charts buscam JSON em endpoints `/dashboard/api/chart/<key>/`.
+
+✅ **Listagens grandes** (qualquer tabela/lista que possa ter >50 rows) seguem o **pattern shell + lazy + paginação HTMX** — view bifurca por `HX-Request`, retorna shell (sem queryset) ou partial. Detalhes em [`DASHBOARD.md`](DASHBOARD.md#padrão-obrigatório-listagens-com-lazy-load--paginação-htmx).
+
+✅ Container de lista tem `id="<nome>-list"` (sufixo obrigatório — loading overlay detecta via `[id$="-list"]`).
 
 ✅ Filtros em URL (chips são `<a href="?...">`). Back/forward funciona, link compartilhável.
 
 ❌ `data-echart='{...}'` com valores inline — quebra com aspas no JSON.
+
+❌ **Renderizar lista server-side junto com a página**. Sempre lazy.
+
+❌ **Paginação que recarrega a página inteira**. Sempre HTMX swap do `#xxx-list`.
 
 ## CSS
 

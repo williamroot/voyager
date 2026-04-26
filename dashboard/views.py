@@ -173,34 +173,50 @@ def tribunal_detail(request, sigla):
 @login_required
 @require_GET
 def processos(request):
-    qs = Process.objects.select_related('tribunal')
-
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
+    cnj = (request.GET.get('cnj') or '').strip()
+    com_movs = request.GET.get('com_movs')
+    enriq = request.GET.get('enriq')
+    ano = request.GET.get('ano')
+    ano_de = request.GET.get('ano_de')
+    ano_ate = request.GET.get('ano_ate')
+    backfill_em_curso, cobertura_ate = _backfill_em_curso()
+    sort = request.GET.get('sort', 'inserido' if backfill_em_curso else 'recente')
+
+    base_ctx = {
+        'tribunais': Tribunal.objects.all(),
+        'tribunal_filtro': ','.join(tribunais_filtro),
+        'cnj_filtro': cnj,
+        'com_movs': com_movs or '',
+        'sort': sort,
+        'enriq_filtro': enriq or '',
+        'ano_filtro': ano or '',
+        'ano_de_filtro': ano_de or '',
+        'ano_ate_filtro': ano_ate or '',
+        'backfill_em_curso': backfill_em_curso,
+        'cobertura_ate': cobertura_ate,
+    }
+
+    # Shell-only quando NÃO é HTMX — sem queryset, página renderiza instantâneo
+    # e a lista vem via hx-trigger="load".
+    if not _is_htmx(request):
+        return render(request, 'dashboard/processos.html', base_ctx)
+
+    # HTMX: roda queryset + paginação + retorna só o partial.
+    qs = Process.objects.select_related('tribunal')
     if tribunais_filtro:
         qs = qs.filter(tribunal_id__in=tribunais_filtro)
-
-    cnj = (request.GET.get('cnj') or '').strip()
     if cnj:
         qs = qs.filter(numero_cnj__icontains=cnj)
-
-    com_movs = request.GET.get('com_movs')
     if com_movs == 'sim':
         qs = qs.filter(total_movimentacoes__gt=0)
     elif com_movs == 'nao':
         qs = qs.filter(total_movimentacoes=0)
-
-    enriq = request.GET.get('enriq')
     if enriq in ('ok', 'pendente', 'nao_encontrado', 'erro'):
         qs = qs.filter(enriquecimento_status=enriq)
-
-    ano = request.GET.get('ano')
     if ano:
-        try:
-            qs = qs.filter(ano_cnj=int(ano))
-        except ValueError:
-            pass
-    ano_de = request.GET.get('ano_de')
-    ano_ate = request.GET.get('ano_ate')
+        try: qs = qs.filter(ano_cnj=int(ano))
+        except ValueError: pass
     if ano_de:
         try: qs = qs.filter(ano_cnj__gte=int(ano_de))
         except ValueError: pass
@@ -208,10 +224,8 @@ def processos(request):
         try: qs = qs.filter(ano_cnj__lte=int(ano_ate))
         except ValueError: pass
 
-    backfill_em_curso, cobertura_ate = _backfill_em_curso()
-    sort = request.GET.get('sort', 'inserido' if backfill_em_curso else 'recente')
     if sort == 'recente':
-        qs = qs.order_by(F_NULL := '-ultima_movimentacao_em', '-inserido_em').extra(
+        qs = qs.extra(
             select={'ult_null': 'ultima_movimentacao_em IS NULL'},
             order_by=['ult_null', '-ultima_movimentacao_em', '-inserido_em'],
         )
@@ -225,24 +239,12 @@ def processos(request):
         qs = qs.order_by('-inserido_em')
 
     page = _paginar(qs, request, default_size=50)
-    ctx = {
+    return render(request, 'dashboard/_partials/_processos_list.html', {
+        **base_ctx,
         'page': page,
         'processos': page.object_list,
-        'tribunais': Tribunal.objects.all(),
-        'tribunal_filtro': ','.join(tribunais_filtro),
-        'cnj_filtro': cnj,
-        'com_movs': com_movs or '',
-        'sort': sort,
-        'enriq_filtro': enriq or '',
-        'ano_filtro': ano or '',
-        'ano_de_filtro': ano_de or '',
-        'ano_ate_filtro': ano_ate or '',
         'total_resultados': page.paginator.count,
-        'backfill_em_curso': backfill_em_curso,
-        'cobertura_ate': cobertura_ate,
-    }
-    template = '_partials/_processos_list.html' if _is_htmx(request) else 'processos.html'
-    return render(request, f'dashboard/{template}', ctx)
+    })
 
 
 @login_required
@@ -320,21 +322,23 @@ def processo_sincronizar(request, pk):
 def partes(request):
     tipo = request.GET.get('tipo', '').strip()
     q = (request.GET.get('q') or '').strip()
+    base_ctx = {'tipo_filtro': tipo, 'q': q}
+
+    if not _is_htmx(request):
+        return render(request, 'dashboard/partes.html', base_ctx)
+
     qs = Parte.objects.all().order_by('-total_processos', 'nome')
     if tipo:
         qs = qs.filter(tipo=tipo)
     if q and len(q) >= 2:
         qs = qs.filter(Q(nome__icontains=q) | Q(documento__icontains=q) | Q(oab__icontains=q))
     page = _paginar(qs, request, default_size=50)
-    ctx = {
+    return render(request, 'dashboard/_partials/_partes_list.html', {
+        **base_ctx,
         'page': page,
         'partes': page.object_list,
-        'tipo_filtro': tipo,
-        'q': q,
         'total': page.paginator.count,
-    }
-    template = '_partials/_partes_list.html' if _is_htmx(request) else 'partes.html'
-    return render(request, f'dashboard/{template}', ctx)
+    })
 
 
 @login_required
@@ -383,40 +387,15 @@ def parte_detail(request, pk):
 @login_required
 @require_GET
 def movimentacoes(request):
-    qs = Movimentacao.objects.select_related('tribunal', 'processo').order_by('-data_disponibilizacao', '-id')
-
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
-    if tribunais_filtro:
-        qs = qs.filter(tribunal_id__in=tribunais_filtro)
-
     tipos_filtro = _split_csv(request.GET.get('tipo'))
-    if tipos_filtro:
-        qs = qs.filter(tipo_comunicacao__in=tipos_filtro)
-
     meios_filtro = _split_csv(request.GET.get('meio'))
-    if meios_filtro:
-        qs = qs.filter(meio_completo__in=meios_filtro)
-
     classes_filtro = _split_csv(request.GET.get('classe'))
-    if classes_filtro:
-        qs = qs.filter(nome_classe__in=classes_filtro)
-
     so_ativos = request.GET.get('ativos', '1') == '1'
-    if so_ativos:
-        qs = qs.filter(ativo=True)
-
     q = (request.GET.get('q') or '').strip()
-    if q and len(q) >= 3:
-        qs = qs.filter(texto__icontains=q)
-
     com_link = request.GET.get('com_link')
-    if com_link == 'sim':
-        qs = qs.exclude(link='')
 
-    page = _paginar(qs, request, default_size=50)
-    ctx = {
-        'page': page,
-        'movimentacoes': page.object_list,
+    base_ctx = {
         'tribunais': Tribunal.objects.all(),
         'facetas': queries.filtros_movimentacoes(),
         'q': q,
@@ -427,8 +406,32 @@ def movimentacoes(request):
         'so_ativos': so_ativos,
         'com_link': com_link or '',
     }
-    template = '_partials/_movimentacoes_list.html' if _is_htmx(request) else 'movimentacoes.html'
-    return render(request, f'dashboard/{template}', ctx)
+
+    if not _is_htmx(request):
+        return render(request, 'dashboard/movimentacoes.html', base_ctx)
+
+    qs = Movimentacao.objects.select_related('tribunal', 'processo').order_by('-data_disponibilizacao', '-id')
+    if tribunais_filtro:
+        qs = qs.filter(tribunal_id__in=tribunais_filtro)
+    if tipos_filtro:
+        qs = qs.filter(tipo_comunicacao__in=tipos_filtro)
+    if meios_filtro:
+        qs = qs.filter(meio_completo__in=meios_filtro)
+    if classes_filtro:
+        qs = qs.filter(nome_classe__in=classes_filtro)
+    if so_ativos:
+        qs = qs.filter(ativo=True)
+    if q and len(q) >= 3:
+        qs = qs.filter(texto__icontains=q)
+    if com_link == 'sim':
+        qs = qs.exclude(link='')
+
+    page = _paginar(qs, request, default_size=50)
+    return render(request, 'dashboard/_partials/_movimentacoes_list.html', {
+        **base_ctx,
+        'page': page,
+        'movimentacoes': page.object_list,
+    })
 
 
 @login_required

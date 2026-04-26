@@ -1,0 +1,17 @@
+{% comment %}
+Shell de lista. Carrega o partial real via HTMX no load.
+
+Uso:
+  {% include 'dashboard/_partials/_list_shell.html' with id='processos-list' %}
+{% endcomment %}
+<div id="{{ id }}" class="card overflow-hidden p-0 relative min-h-[280px]"
+     hx-get="?{% load voyager_extras %}{% query_string request %}"
+     hx-trigger="load"
+     hx-swap="outerHTML">
+  <div class="list-loading-mask">
+    <div class="list-loading-pill">
+      <span class="list-loading-dot"></span>
+      <span>acquiring data</span>
+    </div>
+  </div>
+</div>
