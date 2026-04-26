@@ -59,7 +59,7 @@ def overview(request):
         'tipos': queries.top_tipos_comunicacao(limit=10, dias=dias, tribunais=tribunais_filtro),
         'orgaos': queries.top_orgaos(limit=10, dias=dias, tribunais=tribunais_filtro),
         'classes': queries.top_classes(limit=8, dias=dias, tribunais=tribunais_filtro),
-        'meios': queries.distribuicao_por_meio(dias=dias, tribunais=tribunais_filtro),
+        'enriq_dist': queries.distribuicao_enriquecimento(tribunais=tribunais_filtro),
         'periodo_dias': dias,
         'tribunais': Tribunal.objects.filter(ativo=True),
         'tribunal_filtro': ','.join(tribunais_filtro),

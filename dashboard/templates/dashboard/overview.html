@@ -7,7 +7,7 @@
 {{ tipos|json_script:"data-tipos" }}
 {{ orgaos|json_script:"data-orgaos" }}
 {{ classes|json_script:"data-classes" }}
-{{ meios|json_script:"data-meios" }}
+{{ enriq_dist|json_script:"data-enriq" }}
 {{ sparkline_24h|json_script:"data-sparkline-24h" }}
 
 {% if backfill_em_curso %}
@@ -92,23 +92,20 @@
     </div>
     <div class="absolute right-0 bottom-0 w-3/5 h-14 opacity-70" data-echart='{}' x-init="setupChart($el, buildSparkline(jsonData('data-sparkline-24h'), '#10b981'))"></div>
   </div>
-  <div class="card-tight">
-    <div class="flex items-start justify-between">
-      <div>
-        <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Cancelamentos</div>
-        <div class="text-3xl font-semibold mt-1 kpi-num">{{ kpis.cancelados|format_int }}</div>
-        {% if kpis.cancelados %}
-          <div class="text-xs text-fg-subtle mt-1">comunicações inativas</div>
-        {% endif %}
-      </div>
-      <div class="w-12 h-12 rounded-lg bg-danger/10 border border-danger/20 flex items-center justify-center">
-        <svg class="w-5 h-5 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+  {% if kpis.drift_abertos %}
+    <div class="card-tight border-warning/30 bg-warning/5">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Drift alerts</div>
+          <div class="text-3xl font-semibold mt-1 kpi-num text-warning">{{ kpis.drift_abertos|format_int }}</div>
+          <a href="{% url 'dashboard:ingestao' %}" class="text-xs text-warning hover:underline mt-1 inline-block">resolver →</a>
+        </div>
+        <div class="w-12 h-12 rounded-lg bg-warning/10 border border-warning/20 flex items-center justify-center text-warning">
+          {% voy_icon "anomaly" "w-5 h-5" %}
+        </div>
       </div>
     </div>
-    {% if kpis.drift_abertos %}
-      <a href="{% url 'dashboard:ingestao' %}" class="badge bg-warning/15 text-warning border border-warning/30 mt-3">⚠ {{ kpis.drift_abertos }} drift abertos</a>
-    {% endif %}
-  </div>
+  {% endif %}
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
@@ -130,9 +127,9 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
   <div class="card">
-    <div class="text-sm font-medium text-fg-soft mb-1">Por meio</div>
-    <div class="text-xs text-fg-subtle mb-2">eletrônico, físico, diário</div>
-    <div class="h-64 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildDonut(jsonData('data-meios'), 'meio', 'total'))" class="absolute inset-0"></div></div>
+    <div class="text-sm font-medium text-fg-soft mb-1">Enriquecimento</div>
+    <div class="text-xs text-fg-subtle mb-2">status da consulta pública</div>
+    <div class="h-64 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="setupChart($el, buildEnriqDonut(jsonData('data-enriq')))" class="absolute inset-0"></div></div>
   </div>
   <div class="card lg:col-span-2">
     <div class="text-sm font-medium text-fg-soft mb-1">Top tipos de comunicação</div>

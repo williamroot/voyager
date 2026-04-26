@@ -116,6 +116,23 @@ def distribuicao_por_meio(dias=None, tribunais=None):
     return [{'meio': r['meio_completo'] or 'Não informado', 'total': r['total']} for r in rows]
 
 
+def distribuicao_enriquecimento(tribunais=None):
+    """Status de enriquecimento dos processos (não respeita período — é estado atual)."""
+    qs = Process.objects.all()
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
+    rows = qs.values('enriquecimento_status').annotate(total=Count('id')).order_by('-total')
+    rotulos = {
+        'ok': 'Enriquecidos',
+        'pendente': 'Pendentes',
+        'nao_encontrado': 'Não encontrados',
+        'erro': 'Com erro',
+    }
+    return [{'status': rotulos.get(r['enriquecimento_status'], r['enriquecimento_status']),
+             'status_key': r['enriquecimento_status'],
+             'total': r['total']} for r in rows]
+
+
 def top_tipos_comunicacao(limit=15, dias=None, tribunais=None):
     qs = _aplicar_filtros(Movimentacao.objects.all(), dias=dias, tribunais=tribunais).exclude(tipo_comunicacao='')
     rows = qs.values('tipo_comunicacao').annotate(total=Count('id')).order_by('-total')[:limit]

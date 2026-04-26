@@ -510,6 +510,29 @@
         series: [{type: 'bar', data: vals, itemStyle: {color: color || '#10b981', borderRadius: [0, 4, 4, 0]}, barMaxWidth: 22}],
       };
     }
+    function buildEnriqDonut(rows) {
+      const c = chartGridColors();
+      const COLORS = {
+        ok: '#10b981',              // emerald — sucesso
+        pendente: '#3b82f6',        // sky — aguardando
+        nao_encontrado: '#71717a',  // zinc — descartado
+        erro: '#f59e0b',            // amber — atenção
+      };
+      return {
+        tooltip: {trigger: 'item', valueFormatter: fmt},
+        legend: {bottom: 0, textStyle: {color: c.legend, fontSize: 11}},
+        series: [{
+          type: 'pie', radius: ['55%', '78%'], center: ['50%', '45%'],
+          label: {color: c.labelInDonut, formatter: p => `${p.name}\n${fmt(p.value)}`, fontSize: 11},
+          itemStyle: {borderColor: c.donutBorder, borderWidth: 2},
+          data: rows.map(r => ({
+            name: r.status,
+            value: r.total,
+            itemStyle: {color: COLORS[r.status_key] || '#71717a'},
+          })),
+        }],
+      };
+    }
     function buildSparkline(values, color) {
       return {
         grid: {left: 0, right: 0, top: 4, bottom: 4},
