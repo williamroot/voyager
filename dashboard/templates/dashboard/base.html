@@ -518,12 +518,37 @@
         nao_encontrado: '#71717a',  // zinc — descartado
         erro: '#f59e0b',            // amber — atenção
       };
+      const total = rows.reduce((acc, r) => acc + (r.total || 0), 0);
       return {
-        tooltip: {trigger: 'item', valueFormatter: fmt},
-        legend: {bottom: 0, textStyle: {color: c.legend, fontSize: 11}},
+        tooltip: {
+          trigger: 'item',
+          formatter: p => `${p.name}: <b>${fmt(p.value)}</b> (${p.percent.toFixed(1)}%)`,
+        },
+        legend: {
+          bottom: 0,
+          textStyle: {color: c.legend, fontSize: 11},
+          formatter: name => {
+            const r = rows.find(x => x.status === name);
+            return r ? `${name}  ${fmt(r.total)}` : name;
+          },
+        },
+        title: {
+          text: fmt(total),
+          subtext: 'processos',
+          left: 'center', top: '36%',
+          textStyle: {color: c.labelInDonut, fontSize: 22, fontWeight: 600,
+                     fontFamily: 'JetBrains Mono, monospace'},
+          subtextStyle: {color: c.legend, fontSize: 10,
+                         fontFamily: 'JetBrains Mono, monospace'},
+        },
         series: [{
-          type: 'pie', radius: ['55%', '78%'], center: ['50%', '45%'],
-          label: {color: c.labelInDonut, formatter: p => `${p.name}\n${fmt(p.value)}`, fontSize: 11},
+          type: 'pie',
+          radius: ['58%', '78%'], center: ['50%', '45%'],
+          // Label só em fatias grandes (>=5%) — evita arrows quebradas em pie chart enviesado
+          label: {
+            show: false,
+          },
+          labelLine: {show: false},
           itemStyle: {borderColor: c.donutBorder, borderWidth: 2},
           data: rows.map(r => ({
             name: r.status,
