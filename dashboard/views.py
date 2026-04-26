@@ -152,6 +152,13 @@ def chart_data(request, key):
 
 @login_required
 @require_GET
+def workers(request):
+    """Visão das filas RQ e workers conectados (auto-refresh via HTMX)."""
+    return render(request, 'dashboard/workers.html', queries.status_workers())
+
+
+@login_required
+@require_GET
 def tribunais(request):
     """Lista tribunais ativos com KPIs agregados (cards). Server-side, sem
     queryset gigante — `estatisticas_por_tribunal` faz GROUP BY no banco."""

@@ -192,6 +192,55 @@ def filtros_movimentacoes():
     }
 
 
+def status_workers():
+    """Snapshot das filas RQ e workers conectados.
+
+    Inclui counters de cada queue (pending/started/finished/failed) e
+    a lista de workers vivos com fila atendida + idle time. Usado pela
+    página `/dashboard/workers/`.
+    """
+    import django_rq
+    from rq import Worker
+
+    queue_names = list(__import__('django.conf', fromlist=['settings']).settings.RQ_QUEUES.keys())
+
+    queues = []
+    for qname in queue_names:
+        q = django_rq.get_queue(qname)
+        queues.append({
+            'name': qname,
+            'pending': len(q),
+            'started': q.started_job_registry.count,
+            'finished': q.finished_job_registry.count,
+            'failed': q.failed_job_registry.count,
+            'scheduled': q.scheduled_job_registry.count,
+            'deferred': q.deferred_job_registry.count,
+        })
+
+    # Workers conectados ao Redis (usa a 1ª queue só pra pegar a connection).
+    conn = django_rq.get_connection('default')
+    workers_raw = Worker.all(connection=conn)
+    workers = []
+    for w in workers_raw:
+        last_heartbeat = w.last_heartbeat
+        idle_seconds = None
+        if last_heartbeat:
+            idle_seconds = int((timezone.now().replace(tzinfo=None) - last_heartbeat).total_seconds())
+        workers.append({
+            'name': w.name,
+            'state': w.get_state(),
+            'queues': [q.name for q in w.queues],
+            'current_job_id': w.get_current_job_id(),
+            'last_heartbeat': last_heartbeat,
+            'idle_seconds': idle_seconds,
+            'successful_jobs': w.successful_job_count,
+            'failed_jobs': w.failed_job_count,
+            'total_working_time': int(w.total_working_time or 0),
+        })
+    workers.sort(key=lambda w: (','.join(w['queues']), w['name']))
+    return {'queues': queues, 'workers': workers}
+
+
 def estatisticas_por_tribunal():
     """Retorna list de dicts — um por tribunal ativo — com métricas
     agregadas pra a página `/dashboard/tribunais/`. Query única por
