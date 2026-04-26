@@ -40,9 +40,13 @@
       {% if processo.tribunal_id == 'TRF1' %}
         <form method="post" action="{% url 'dashboard:processo-enriquecer' processo.pk %}" class="inline">
           {% csrf_token %}
-          <button type="submit" class="text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider">↻ Atualizar dados públicos</button>
+          <button type="submit" class="text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">↻ Dados públicos (TRF1)</button>
         </form>
       {% endif %}
+      <form method="post" action="{% url 'dashboard:processo-sincronizar' processo.pk %}" class="inline">
+        {% csrf_token %}
+        <button type="submit" class="text-xs bg-info/15 border border-info/30 hover:bg-info/25 text-info rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">↻ Sincronizar movs (DJEN)</button>
+      </form>
     </div>
   </div>
   {% if processo.classe_nome or processo.assunto_nome or processo.orgao_julgador_nome %}

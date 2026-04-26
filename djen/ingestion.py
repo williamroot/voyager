@@ -16,6 +16,48 @@ logger = logging.getLogger('voyager.djen.ingestion')
 BATCH_SIZE = 500
 
 
+def ingest_processo(processo, client: DJENClient | None = None) -> dict:
+    """Sincroniza movimentações de UM processo via DJEN.
+
+    Útil pra preencher movs históricas que ainda não foram cobertas pelo backfill,
+    ou pra atualizar um processo específico sob demanda. Reusa _process_page —
+    INSERT idempotente via bulk_create(ignore_conflicts=True).
+    """
+    client = client or DJENClient()
+    tribunal = processo.tribunal
+    run = IngestionRun.objects.create(
+        tribunal=tribunal,
+        status=IngestionRun.STATUS_RUNNING,
+        # Sem janela específica — usamos data_autuacao..hoje como aproximação pra auditoria.
+        janela_inicio=processo.data_autuacao or date(2020, 1, 1),
+        janela_fim=date.today(),
+    )
+    cnjs_tocados: set[str] = set()
+    try:
+        for items in client.iter_pages_processo(tribunal.sigla_djen, processo.numero_cnj):
+            _process_page(items, tribunal, run, cnjs_tocados)
+        if cnjs_tocados:
+            _atualizar_resumo_processos(tribunal, cnjs_tocados)
+        run.status = IngestionRun.STATUS_SUCCESS
+    except Exception as exc:
+        run.status = IngestionRun.STATUS_FAILED
+        run.erros.append({'erro': 'execucao_processo', 'cnj': processo.numero_cnj, 'detalhe': str(exc)[:500]})
+        run.finished_at = timezone.now()
+        run.save(update_fields=['status', 'erros', 'finished_at'])
+        raise
+    finally:
+        if run.status == IngestionRun.STATUS_SUCCESS:
+            run.finished_at = timezone.now()
+            run.save(update_fields=['status', 'finished_at', 'erros'])
+    return {
+        'run_id': run.pk,
+        'cnj': processo.numero_cnj,
+        'novas': run.movimentacoes_novas,
+        'duplicadas': run.movimentacoes_duplicadas,
+        'paginas': run.paginas_lidas,
+    }
+
+
 def chunk_dates(start: date, end: date, days: int = 30) -> Iterator[tuple[date, date]]:
     cur = start
     while cur <= end:

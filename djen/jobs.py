@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from django.utils import timezone
 from django_rq import job
 
-from tribunals.models import IngestionRun, Tribunal
+from tribunals.models import IngestionRun, Process, Tribunal
 
 from .client import DJENClient
 from .ingestion import chunk_dates, ingest_window
@@ -102,3 +102,11 @@ def run_backfill(tribunal_sigla: str, force_inicio: str | None = None) -> dict:
 def refresh_proxy_pool() -> dict:
     count = ProxyScrapePool.singleton().refresh()
     return {'proxies_carregados': count}
+
+
+@job('default', timeout=300)
+def sincronizar_movimentacoes(process_id: int) -> dict:
+    """Atualiza movimentações de um processo específico via DJEN (?numeroProcesso=...)."""
+    from .ingestion import ingest_processo
+    p = Process.objects.select_related('tribunal').get(pk=process_id)
+    return ingest_processo(p)

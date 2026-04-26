@@ -4,6 +4,7 @@ from django.db.models import Count, Max, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
+from djen.jobs import sincronizar_movimentacoes
 from djen.proxies import ProxyScrapePool
 from enrichers.jobs import enriquecer_processo
 from tribunals.models import Movimentacao, Parte, Process, ProcessoParte, SchemaDriftAlert, Tribunal
@@ -224,6 +225,16 @@ def processo_enriquecer(request, pk):
         return redirect('dashboard:processo-detail', pk=pk)
     j = enriquecer_processo.delay(proc.pk)
     messages.success(request, f'Atualização enfileirada (job {j.id[:8]}). Recarregue em alguns segundos.')
+    return redirect('dashboard:processo-detail', pk=pk)
+
+
+@login_required
+@require_POST
+def processo_sincronizar(request, pk):
+    """Dispara sincronização DJEN de movimentações desse processo."""
+    proc = get_object_or_404(Process, pk=pk)
+    j = sincronizar_movimentacoes.delay(proc.pk)
+    messages.success(request, f'Sincronização DJEN enfileirada (job {j.id[:8]}). Recarregue em alguns segundos.')
     return redirect('dashboard:processo-detail', pk=pk)
 
 

@@ -154,3 +154,86 @@ class DJENClient:
     def count_only(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:
         payload = self._fetch(sigla_djen, data_inicio, data_fim, 1)
         return int(payload.get('count') or 0)
+
+    def iter_pages_processo(self, sigla_djen: str, numero_cnj: str) -> Iterator[list[dict]]:
+        """Itera todas as movimentações de UM processo (sem filtro de data).
+
+        DJEN aceita numeroProcesso=<CNJ formatado ou sem máscara> + siglaTribunal.
+        Retorna o histórico completo do processo paginado de 100 em 100.
+        """
+        pagina = 1
+        while True:
+            payload = self._fetch_processo(sigla_djen, numero_cnj, pagina)
+            items = payload.get('items') or []
+            if not items:
+                return
+            yield items
+            count = payload.get('count') or 0
+            if pagina * 100 >= count:
+                return
+            pagina += 1
+            time.sleep(self.page_sleep)
+
+    def _fetch_processo(self, sigla_djen: str, numero_cnj: str, pagina: int) -> dict:
+        # DJEN aceita ambas as formas; usamos sem máscara pra evitar problemas de URL encoding
+        unmask = numero_cnj.replace('-', '').replace('.', '')
+        params = {
+            'pagina': pagina,
+            'itensPorPagina': 100,
+            'siglaTribunal': sigla_djen,
+            'numeroProcesso': unmask,
+        }
+        # Reaproveita pipeline de retry/proxy chamando _fetch genérico via params custom.
+        # Como _fetch hoje recebe data_inicio/data_fim, vamos chamar diretamente o session.get
+        # com a mesma estratégia de proxy.
+        return self._fetch_generic(params)
+
+    def _fetch_generic(self, params: dict) -> dict:
+        """Versão genérica do _fetch que aceita qualquer params dict.
+        Usa a mesma estratégia de proxy + retry de _fetch.
+        """
+        headers = {'User-Agent': self.user_agent, 'Accept': 'application/json'}
+        last_exc: Optional[Exception] = None
+        last_failed_source: Optional[str] = None
+        for attempt in range(self.max_retries + 1):
+            proxy_url, using = self._pick_proxy(prefer_other_than=last_failed_source)
+            proxies = {'http': proxy_url, 'https': proxy_url} if proxy_url else None
+            t0 = time.monotonic()
+            try:
+                resp = self.session.get(self.base_url, params=params, headers=headers,
+                                        proxies=proxies, timeout=self.timeout)
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                logger.info('djen request (processo)', extra={
+                    'params': params, 'attempt': attempt,
+                    'proxy': using if proxy_url else 'direct',
+                    'status_code': resp.status_code, 'latency_ms': latency_ms,
+                })
+                if resp.status_code in (403, 429):
+                    if proxy_url and using == 'pool':
+                        self.pool.mark_bad(proxy_url)
+                    last_failed_source = using
+                    if attempt >= self.max_retries:
+                        raise DjenClientError(f'DJEN {resp.status_code} após {self.max_retries} tentativas')
+                    self._sleep_backoff(attempt)
+                    continue
+                if 500 <= resp.status_code < 600:
+                    if attempt >= self.max_retries:
+                        raise DjenClientError(f'DJEN {resp.status_code} após {self.max_retries} tentativas')
+                    self._sleep_backoff(attempt, factor=3.0, max_wait=180.0)
+                    continue
+                if 400 <= resp.status_code < 500:
+                    raise DjenClientError(f'DJEN {resp.status_code}: {resp.text[:200]}')
+                resp.raise_for_status()
+                return resp.json()
+            except (requests.ConnectionError, requests.Timeout,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ContentDecodingError) as exc:
+                last_exc = exc
+                if proxy_url and using == 'pool':
+                    self.pool.mark_bad(proxy_url)
+                last_failed_source = using
+                if attempt >= self.max_retries:
+                    raise DjenClientError(f'erro de transporte: {exc}') from exc
+                self._sleep_backoff(attempt)
+                continue
+        raise DjenClientError(f'esgotadas tentativas: {last_exc}')
