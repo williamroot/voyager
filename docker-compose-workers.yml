@@ -15,7 +15,7 @@ services:
     command: python manage.py rqworker enrich_trf1
     env_file: .env
     deploy:
-      replicas: 30
+      replicas: 80
     restart: always
 
   worker_trf3:
@@ -23,7 +23,7 @@ services:
     command: python manage.py rqworker enrich_trf3
     env_file: .env
     deploy:
-      replicas: 30
+      replicas: 80
     restart: always
 
   worker_default:

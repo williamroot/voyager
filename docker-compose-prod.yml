@@ -15,19 +15,51 @@ services:
     command:
       - postgres
       - -c
-      - max_connections=300
+      - max_connections=500
+      # Buffer cache em RAM. Regra: 25% da RAM. Servidor tem 15GB → 3GB.
       - -c
-      - shared_buffers=1GB
+      - shared_buffers=3GB
+      # Estimativa do que SO + PG têm em cache. Regra: 50-75% da RAM.
       - -c
-      - effective_cache_size=3GB
+      - effective_cache_size=10GB
+      # Por sort/hash/conn. Em teoria pode ser usado várias vezes simultâneas
+      # (subqueries paralelos). work_mem × max_connections × parallel × 2 = teto
+      # (12MB × 500 × 1 × 2 = 12GB). Mantemos 12MB pra não estourar com alta concorrência.
       - -c
-      - work_mem=16MB
+      - work_mem=12MB
+      # VACUUM, REINDEX, CREATE INDEX. Pode subir alto sem afetar conexões normais.
       - -c
-      - maintenance_work_mem=256MB
+      - maintenance_work_mem=512MB
+      # Reduz frequência de checkpoints (escrita seq mais barata).
       - -c
-      - max_wal_size=2GB
+      - max_wal_size=4GB
+      - -c
+      - min_wal_size=1GB
+      - -c
+      - checkpoint_completion_target=0.9
+      # SSD — random_page == sequential_page custo.
       - -c
       - random_page_cost=1.1
+      # Workers paralelos por query. 16 CPU host → 8 paralelos por query, 16 globalmente.
+      - -c
+      - max_worker_processes=16
+      - -c
+      - max_parallel_workers=16
+      - -c
+      - max_parallel_workers_per_gather=4
+      # WAL otimizações
+      - -c
+      - wal_compression=on
+      - -c
+      - wal_buffers=16MB
+      # Statistics target — melhora plans em colunas com cardinalidade alta.
+      - -c
+      - default_statistics_target=200
+      # Logs de queries lentas pra debug futuro.
+      - -c
+      - log_min_duration_statement=2000
+      - -c
+      - track_io_timing=on
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
