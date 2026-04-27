@@ -377,6 +377,11 @@
         {% voy_icon "calibrate" "w-4 h-4" %}
         Workers
       </a>
+      {% url 'dashboard:wizard' as wizard_url %}
+      <a href="{{ wizard_url }}" class="nav-item {% if wizard_url in request.path %}active{% endif %}">
+        {% voy_icon "eject" "w-4 h-4" %}
+        Exportar
+      </a>
       {% if user.is_superuser %}
       {% url 'accounts:invites-list' as invites_url %}
       <a href="{{ invites_url }}" class="nav-item {% if invites_url in request.path %}active{% endif %}">

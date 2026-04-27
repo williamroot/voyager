@@ -1,0 +1,329 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Wizard de exportação{% endblock %}
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Exportar processos' subtitle='Filtra em 3 passos por classe, tribunal e assunto — exporta CSV ou XLSX' %}
+
+{{ classes|json_script:"data-wizard-classes" }}
+{{ tribunais|json_script:"data-wizard-tribunais" }}
+{{ assuntos|json_script:"data-wizard-assuntos" }}
+
+<div x-data="wizardController()" x-init="init()" class="space-y-5">
+
+  {# ─── Stepper ─── #}
+  <div class="flex items-center gap-2 mb-1">
+    <template x-for="(s, i) in steps" :key="i">
+      <div class="flex items-center gap-2 flex-1">
+        <button type="button"
+                @click="goTo(i)"
+                :disabled="i > maxStep"
+                :class="step === i
+                  ? 'bg-accent text-base border-accent'
+                  : (i <= maxStep
+                      ? 'bg-card border-border text-fg hover:border-accent/40'
+                      : 'bg-card/50 border-border/40 text-fg-subtle cursor-not-allowed')"
+                class="rounded-full w-8 h-8 border flex items-center justify-center font-mono text-sm transition-colors">
+          <span x-text="i + 1"></span>
+        </button>
+        <div class="flex-1 min-w-0">
+          <div class="text-[0.65rem] font-mono uppercase tracking-widest"
+               :class="step === i ? 'text-accent-fg' : (i < maxStep ? 'text-fg-muted' : 'text-fg-subtle')"
+               x-text="s.label"></div>
+          <div class="text-xs text-fg-subtle truncate" x-text="s.summary()"></div>
+        </div>
+        <template x-if="i < steps.length - 1">
+          <div class="h-px flex-1 bg-border/50"></div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+  {# ─── Counter persistente ─── #}
+  <div class="card-tight flex items-center justify-between">
+    <div>
+      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Processos correspondentes</div>
+      <div class="kpi-num text-3xl text-accent-fg" x-text="count.toLocaleString('pt-BR')"></div>
+    </div>
+    <div class="text-fg-muted text-xs text-right">
+      <div x-show="loadingCount" class="flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-pulsar inline-block animate-pulse"></span>
+        atualizando…
+      </div>
+      <div x-show="!loadingCount && step >= 1">classes selecionadas: <span x-text="selectedClasses.length"></span></div>
+      <div x-show="!loadingCount && step >= 2">tribunais selecionados: <span x-text="selectedTribunais.length"></span></div>
+      <div x-show="!loadingCount && step >= 3">assuntos selecionados: <span x-text="selectedAssuntos.length"></span></div>
+    </div>
+  </div>
+
+  {# ─── Step 1: Classes ─── #}
+  <div x-show="step === 0" x-transition class="card">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-semibold">Classe judicial</h2>
+        <div class="text-fg-muted text-xs">Selecione 1 ou mais classes</div>
+      </div>
+      <input type="search" x-model="searchClasse"
+             placeholder="filtrar classes…"
+             class="bg-base border border-border rounded px-3 py-1.5 text-sm w-64">
+    </div>
+
+    <div class="flex flex-wrap gap-1.5 mb-3 min-h-[28px]">
+      <template x-for="c in selectedClassesObj()" :key="c.codigo">
+        <button type="button" @click="toggleClasse(c.codigo)"
+                class="chip active hover:bg-danger/20 hover:border-danger/40 group">
+          <span x-text="c.nome"></span>
+          <span class="ml-1.5 text-fg-subtle group-hover:text-danger">×</span>
+        </button>
+      </template>
+      <div x-show="selectedClasses.length === 0" class="text-fg-subtle text-xs italic">nenhuma classe selecionada</div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-1 max-h-[400px] overflow-y-auto pr-2">
+      <template x-for="c in classesFiltradas()" :key="c.codigo">
+        <label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-card/40 cursor-pointer">
+          <input type="checkbox" :value="c.codigo"
+                 :checked="selectedClasses.includes(c.codigo)"
+                 @change="toggleClasse(c.codigo)"
+                 class="accent-accent">
+          <span class="flex-1 text-sm" x-text="c.nome"></span>
+          <span class="text-fg-subtle text-[0.65rem] font-mono kpi-num"
+                x-text="c.total_processos.toLocaleString('pt-BR')"></span>
+        </label>
+      </template>
+    </div>
+  </div>
+
+  {# ─── Step 2: Tribunais ─── #}
+  <div x-show="step === 1" x-transition class="card">
+    <div class="mb-4">
+      <h2 class="text-lg font-semibold">Tribunal</h2>
+      <div class="text-fg-muted text-xs">Selecione 1 ou mais tribunais</div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <template x-for="t in tribunais" :key="t.sigla">
+        <label class="card-tight cursor-pointer transition-colors"
+               :class="selectedTribunais.includes(t.sigla) ? 'border-accent bg-accent/10' : 'hover:border-accent/40'">
+          <div class="flex items-center justify-between">
+            <input type="checkbox" :value="t.sigla"
+                   :checked="selectedTribunais.includes(t.sigla)"
+                   @change="toggleTribunal(t.sigla)" class="accent-accent">
+            <span class="font-mono text-lg font-semibold" x-text="t.sigla"></span>
+          </div>
+          <div class="text-fg-muted text-xs mt-1" x-text="t.nome"></div>
+        </label>
+      </template>
+    </div>
+  </div>
+
+  {# ─── Step 3: Assuntos ─── #}
+  <div x-show="step === 2" x-transition class="card">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-semibold">Assunto <span class="text-fg-subtle text-xs font-normal">(opcional)</span></h2>
+        <div class="text-fg-muted text-xs">Pule este passo pra incluir todos os assuntos</div>
+      </div>
+      <input type="search" x-model="searchAssunto"
+             placeholder="filtrar assuntos…"
+             class="bg-base border border-border rounded px-3 py-1.5 text-sm w-64">
+    </div>
+
+    <div class="flex flex-wrap gap-1.5 mb-3 min-h-[28px]">
+      <template x-for="a in selectedAssuntosObj()" :key="a.codigo">
+        <button type="button" @click="toggleAssunto(a.codigo)"
+                class="chip active hover:bg-danger/20 hover:border-danger/40 group">
+          <span x-text="a.nome"></span>
+          <span class="ml-1.5 text-fg-subtle group-hover:text-danger">×</span>
+        </button>
+      </template>
+      <div x-show="selectedAssuntos.length === 0" class="text-fg-subtle text-xs italic">nenhum assunto selecionado (todos serão incluídos)</div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-1 max-h-[400px] overflow-y-auto pr-2">
+      <template x-for="a in assuntosFiltrados()" :key="a.codigo">
+        <label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-card/40 cursor-pointer">
+          <input type="checkbox" :value="a.codigo"
+                 :checked="selectedAssuntos.includes(a.codigo)"
+                 @change="toggleAssunto(a.codigo)"
+                 class="accent-accent">
+          <span class="flex-1 text-sm" x-text="a.nome"></span>
+          <span class="text-fg-subtle text-[0.65rem] font-mono kpi-num"
+                x-text="a.total_processos.toLocaleString('pt-BR')"></span>
+        </label>
+      </template>
+    </div>
+  </div>
+
+  {# ─── Step 4: Export ─── #}
+  <div x-show="step === 3" x-transition class="card">
+    <h2 class="text-lg font-semibold mb-1">Exportar</h2>
+    <div class="text-fg-muted text-xs mb-5">
+      Arquivo inclui dados básicos do processo + última movimentação.
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <a :href="exportUrl('csv')"
+         class="card-tight hover:border-accent/40 group flex items-start gap-3 no-underline">
+        <div class="text-accent-fg text-2xl leading-none mt-0.5">↓</div>
+        <div>
+          <div class="font-semibold text-fg group-hover:text-accent-fg transition-colors">CSV</div>
+          <div class="text-fg-muted text-xs mt-0.5">Texto separado por vírgula. Compatível com qualquer planilha ou ferramenta de dados.</div>
+        </div>
+      </a>
+      <a :href="exportUrl('xlsx')"
+         class="card-tight hover:border-accent/40 group flex items-start gap-3 no-underline">
+        <div class="text-accent-fg text-2xl leading-none mt-0.5">↓</div>
+        <div>
+          <div class="font-semibold text-fg group-hover:text-accent-fg transition-colors">XLSX</div>
+          <div class="text-fg-muted text-xs mt-0.5">Excel/Google Sheets. Formatação preservada, abre direto.</div>
+        </div>
+      </a>
+    </div>
+
+    <div class="text-fg-subtle text-xs mt-5">
+      Total estimado: <span class="kpi-num text-fg-muted" x-text="count.toLocaleString('pt-BR')"></span> processos.
+      Streaming server-side — pode demorar conforme o volume.
+    </div>
+  </div>
+
+  {# ─── Navigation ─── #}
+  <div class="flex items-center justify-between gap-3">
+    <button type="button" @click="back()" :disabled="step === 0"
+            :class="step === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:text-accent-fg'"
+            class="text-fg-muted px-3 py-2 transition-colors">
+      ← anterior
+    </button>
+    <div class="flex-1"></div>
+    <button type="button" @click="next()"
+            x-show="step < 3"
+            :disabled="!canAdvance()"
+            :class="canAdvance() ? 'btn-mission' : 'opacity-30 cursor-not-allowed btn-mission'"
+            class="px-5 py-2">
+      próximo →
+    </button>
+  </div>
+</div>
+
+<script>
+function wizardController() {
+  return {
+    step: 0,
+    maxStep: 0,
+    count: 0,
+    loadingCount: false,
+
+    classes: jsonData('data-wizard-classes') || [],
+    tribunais: jsonData('data-wizard-tribunais') || [],
+    assuntos: jsonData('data-wizard-assuntos') || [],
+
+    selectedClasses: [],
+    selectedTribunais: [],
+    selectedAssuntos: [],
+
+    searchClasse: '',
+    searchAssunto: '',
+
+    steps: [
+      { label: 'Classe', summary: () => this.selectedClasses.length === 0 ? '—' : this.selectedClasses.length + ' selecionada' + (this.selectedClasses.length === 1 ? '' : 's') },
+      { label: 'Tribunal', summary: () => this.selectedTribunais.length === 0 ? '—' : this.selectedTribunais.join(', ') },
+      { label: 'Assunto', summary: () => this.selectedAssuntos.length === 0 ? 'todos' : this.selectedAssuntos.length + ' selecionado' + (this.selectedAssuntos.length === 1 ? '' : 's') },
+      { label: 'Exportar', summary: () => this.count.toLocaleString('pt-BR') + ' processos' },
+    ],
+
+    init() {
+      this.refreshCount();
+    },
+
+    classesFiltradas() {
+      const q = (this.searchClasse || '').toLowerCase().trim();
+      if (!q) return this.classes;
+      return this.classes.filter(c =>
+        c.nome.toLowerCase().includes(q) || c.codigo.includes(q));
+    },
+    assuntosFiltrados() {
+      const q = (this.searchAssunto || '').toLowerCase().trim();
+      if (!q) return this.assuntos;
+      return this.assuntos.filter(a =>
+        a.nome.toLowerCase().includes(q) || a.codigo.includes(q));
+    },
+    selectedClassesObj() {
+      const set = new Set(this.selectedClasses);
+      return this.classes.filter(c => set.has(c.codigo));
+    },
+    selectedAssuntosObj() {
+      const set = new Set(this.selectedAssuntos);
+      return this.assuntos.filter(a => set.has(a.codigo));
+    },
+
+    toggleClasse(codigo) {
+      const i = this.selectedClasses.indexOf(codigo);
+      if (i >= 0) this.selectedClasses.splice(i, 1);
+      else this.selectedClasses.push(codigo);
+      this.refreshCount();
+    },
+    toggleTribunal(sigla) {
+      const i = this.selectedTribunais.indexOf(sigla);
+      if (i >= 0) this.selectedTribunais.splice(i, 1);
+      else this.selectedTribunais.push(sigla);
+      this.refreshCount();
+    },
+    toggleAssunto(codigo) {
+      const i = this.selectedAssuntos.indexOf(codigo);
+      if (i >= 0) this.selectedAssuntos.splice(i, 1);
+      else this.selectedAssuntos.push(codigo);
+      this.refreshCount();
+    },
+
+    canAdvance() {
+      if (this.step === 0) return this.selectedClasses.length >= 1;
+      if (this.step === 1) return this.selectedTribunais.length >= 1;
+      if (this.step === 2) return true; // assuntos opcional
+      return false;
+    },
+    next() {
+      if (!this.canAdvance()) return;
+      this.step = Math.min(this.step + 1, this.steps.length - 1);
+      this.maxStep = Math.max(this.maxStep, this.step);
+    },
+    back() {
+      this.step = Math.max(this.step - 1, 0);
+    },
+    goTo(i) {
+      if (i <= this.maxStep) this.step = i;
+    },
+
+    queryParams() {
+      const params = new URLSearchParams();
+      if (this.selectedClasses.length) params.set('classes', this.selectedClasses.join(','));
+      if (this.selectedTribunais.length) params.set('tribunais', this.selectedTribunais.join(','));
+      if (this.selectedAssuntos.length) params.set('assuntos', this.selectedAssuntos.join(','));
+      return params.toString();
+    },
+    exportUrl(fmt) {
+      const p = this.queryParams();
+      return `{% url 'dashboard:wizard-export' %}?format=${fmt}` + (p ? '&' + p : '');
+    },
+
+    _countTimeout: null,
+    refreshCount() {
+      if (this._countTimeout) clearTimeout(this._countTimeout);
+      this._countTimeout = setTimeout(() => this._fetchCount(), 250);
+    },
+    async _fetchCount() {
+      this.loadingCount = true;
+      try {
+        const url = `{% url 'dashboard:wizard-count' %}?` + this.queryParams();
+        const resp = await fetch(url, { headers: { 'HX-Request': 'true' } });
+        const html = await resp.text();
+        const m = html.match(/>([\d.,]+)</);
+        if (m) {
+          this.count = parseInt(m[1].replace(/[.,]/g, ''), 10) || 0;
+        }
+      } finally {
+        this.loadingCount = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

@@ -551,3 +551,150 @@ def ingestao(request):
 @require_GET
 def root(request):
     return redirect('dashboard:overview')
+
+
+# ---------- Wizard de exportação ----------
+
+import csv
+import io
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import OuterRef, Subquery
+from django.utils.decorators import method_decorator
+from django.views import View
+from django.views.generic import TemplateView
+
+from tribunals.models import Assunto, ClasseJudicial
+
+
+class _WizardFiltersMixin:
+    """Reusa parsing dos filtros (classes/tribunais/assuntos) entre Count/Export."""
+
+    def filtered_queryset(self):
+        classes = _split_csv(self.request.GET.get('classes'))
+        tribs = _split_csv(self.request.GET.get('tribunais'))
+        assuntos = _split_csv(self.request.GET.get('assuntos'))
+        qs = Process.objects.all()
+        if classes:
+            qs = qs.filter(classe_codigo__in=classes)
+        if tribs:
+            qs = qs.filter(tribunal_id__in=tribs)
+        if assuntos:
+            qs = qs.filter(assunto_codigo__in=assuntos)
+        return qs
+
+
+@method_decorator(require_GET, name='dispatch')
+class WizardView(LoginRequiredMixin, TemplateView):
+    """Renderiza o shell do wizard. Toda a interação acontece client-side via
+    Alpine; count e export são endpoints separados (CBVs abaixo)."""
+    template_name = 'dashboard/wizard.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['classes'] = list(
+            ClasseJudicial.objects.all()
+            .order_by('-total_processos', 'nome')
+            .values('codigo', 'nome', 'total_processos')
+        )
+        ctx['tribunais'] = list(
+            Tribunal.objects.filter(ativo=True).order_by('sigla')
+            .values('sigla', 'nome')
+        )
+        ctx['assuntos'] = list(
+            Assunto.objects.all()
+            .order_by('-total_processos', 'nome')
+            .values('codigo', 'nome', 'total_processos')[:500]
+        )
+        return ctx
+
+
+@method_decorator(require_GET, name='dispatch')
+class WizardCountView(LoginRequiredMixin, _WizardFiltersMixin, View):
+    """Devolve fragmento HTMX com a contagem do filtro corrente."""
+
+    def get(self, request, *args, **kwargs):
+        return render(request, 'dashboard/_partials/_wizard_count.html', {
+            'count': self.filtered_queryset().count(),
+        })
+
+
+@method_decorator(require_GET, name='dispatch')
+class WizardExportView(LoginRequiredMixin, _WizardFiltersMixin, View):
+    """Streama CSV ou XLSX com dados básicos do processo + última movimentação.
+
+    Campos: tribunal, cnj, ano, classe, assunto, órgão julgador, data autuação,
+    valor causa, total movs, primeira/última movimentação, status enriquecimento,
+    último texto da movimentação (truncado a 500 chars).
+    """
+
+    HEADER = [
+        'tribunal', 'numero_cnj', 'ano_cnj', 'classe_codigo', 'classe_nome',
+        'assunto_codigo', 'assunto_nome', 'orgao_julgador', 'data_autuacao',
+        'valor_causa', 'total_movimentacoes', 'primeira_movimentacao_em',
+        'ultima_movimentacao_em', 'enriquecimento_status',
+        'ultima_mov_data', 'ultima_mov_tipo', 'ultima_mov_orgao', 'ultima_mov_texto',
+    ]
+
+    def get(self, request, *args, **kwargs):
+        fmt = (request.GET.get('format') or 'csv').lower()
+        qs = (self.filtered_queryset()
+              .select_related('tribunal', 'classe', 'assunto')
+              .order_by('-ultima_movimentacao_em'))
+        if fmt == 'xlsx':
+            return self._render_xlsx(qs)
+        return self._render_csv(qs)
+
+    def _annotate_ultima_mov(self, qs):
+        """Subquery única evita N+1 — pega a última mov por processo."""
+        latest = Movimentacao.objects.filter(processo=OuterRef('pk')).order_by('-data_disponibilizacao')
+        return qs.annotate(
+            ultima_mov_data=Subquery(latest.values('data_disponibilizacao')[:1]),
+            ultima_mov_tipo=Subquery(latest.values('tipo_comunicacao')[:1]),
+            ultima_mov_orgao=Subquery(latest.values('nome_orgao')[:1]),
+            ultima_mov_texto=Subquery(latest.values('texto')[:1]),
+        )
+
+    def _row_for(self, p):
+        return [
+            p.tribunal_id, p.numero_cnj, p.ano_cnj or '',
+            p.classe_codigo, p.classe_nome,
+            p.assunto_codigo, p.assunto_nome,
+            p.orgao_julgador_nome,
+            p.data_autuacao.isoformat() if p.data_autuacao else '',
+            str(p.valor_causa) if p.valor_causa is not None else '',
+            p.total_movimentacoes,
+            p.primeira_movimentacao_em.isoformat() if p.primeira_movimentacao_em else '',
+            p.ultima_movimentacao_em.isoformat() if p.ultima_movimentacao_em else '',
+            p.enriquecimento_status,
+            p.ultima_mov_data.isoformat() if p.ultima_mov_data else '',
+            p.ultima_mov_tipo or '',
+            p.ultima_mov_orgao or '',
+            (p.ultima_mov_texto or '')[:500],
+        ]
+
+    def _render_csv(self, qs):
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = 'attachment; filename="voyager-processos.csv"'
+        writer = csv.writer(resp)
+        writer.writerow(self.HEADER)
+        for p in self._annotate_ultima_mov(qs).iterator(chunk_size=500):
+            writer.writerow(self._row_for(p))
+        return resp
+
+    def _render_xlsx(self, qs):
+        from openpyxl import Workbook
+        wb = Workbook(write_only=True)
+        ws = wb.create_sheet('processos')
+        ws.append(self.HEADER)
+        for p in self._annotate_ultima_mov(qs).iterator(chunk_size=500):
+            ws.append(self._row_for(p))
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        resp = HttpResponse(
+            buf.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        resp['Content-Disposition'] = 'attachment; filename="voyager-processos.xlsx"'
+        return resp
