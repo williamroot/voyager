@@ -51,3 +51,45 @@ def enqueue_enriquecimento_manual(process_id: int):
     """
     queue = django_rq.get_queue('manual')
     return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT)
+
+
+# Tamanho do batch periódico — 5k cada chamada x scheduler 5min = ~60k/h por tribunal,
+# folgado pra acompanhar o consumo dos workers (~30/s × 3600 = 100k/h teórico).
+ENQUEUE_BATCH_SIZE = 5_000
+QUEUE_HIGH_WATER = 50_000  # se já tem isso na fila, não re-enfileira
+
+
+@job('default', timeout=300)
+def reabastecer_filas_enriquecimento() -> dict:
+    """Cron: pra cada tribunal com enricher, enfileira até ENQUEUE_BATCH_SIZE
+    Process pendentes — desde que a fila não esteja já cheia.
+
+    Resolve o problema de o `enriquecer_pendentes` ficar dependente de
+    sessão/tty (morre em restart). Aqui é stateless: roda, enfileira o
+    que cabe, termina. Se o scheduler restart, na próxima invocação
+    retoma. Idempotente — sempre filtra `status=pendente`.
+    """
+    from tribunals.models import Process
+
+    relatorio = {}
+    for sigla in _ENRICHERS.keys():
+        queue = django_rq.get_queue(queue_for(sigla))
+        if len(queue) >= QUEUE_HIGH_WATER:
+            relatorio[sigla] = f'skip (fila com {len(queue):,} jobs ≥ {QUEUE_HIGH_WATER})'
+            continue
+        capacidade = QUEUE_HIGH_WATER - len(queue)
+        a_enfileirar = min(capacidade, ENQUEUE_BATCH_SIZE)
+        ids = list(
+            Process.objects.filter(
+                tribunal_id=sigla,
+                enriquecimento_status=Process.ENRIQ_PENDENTE,
+            ).values_list('pk', flat=True)[:a_enfileirar]
+        )
+        for pid in ids:
+            try:
+                queue.enqueue(enriquecer_processo, pid, job_timeout=ENRICH_TIMEOUT)
+            except Exception as exc:
+                logger.warning('falha ao enfileirar', extra={'pid': pid, 'erro': str(exc)})
+        relatorio[sigla] = len(ids)
+    logger.info('reabastecer_filas_enriquecimento', extra=relatorio)
+    return relatorio

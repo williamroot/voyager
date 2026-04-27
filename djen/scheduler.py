@@ -82,5 +82,20 @@ def register_all() -> dict:
     wd_job.save_meta()
     novos += 1
 
+    # reabastecer_filas_enriquecimento a cada 2 min — alimenta enrich_trf{N}
+    # com batches de Process status=pendente até a fila ter 50k jobs.
+    # Sem isso, dependeria de rodar enriquecer_pendentes no shell.
+    from enrichers.jobs import reabastecer_filas_enriquecimento
+    refill_job = scheduler.cron(
+        '*/2 * * * *',
+        func=reabastecer_filas_enriquecimento,
+        queue_name='default',
+        use_local_timezone=True,
+        repeat=None,
+    )
+    refill_job.meta['tag'] = SCHEDULE_TAG
+    refill_job.save_meta()
+    novos += 1
+
     logger.info('schedules registrados', extra={'cancelados': cancelados, 'novos': novos})
     return {'cancelados': cancelados, 'novos': novos}
