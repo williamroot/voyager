@@ -108,7 +108,7 @@ services:
       web:
         condition: service_healthy
     deploy:
-      replicas: 40
+      replicas: 50
     restart: always
 
   worker_trf3:
@@ -119,7 +119,7 @@ services:
       web:
         condition: service_healthy
     deploy:
-      replicas: 40
+      replicas: 50
     restart: always
 
   worker_manual:

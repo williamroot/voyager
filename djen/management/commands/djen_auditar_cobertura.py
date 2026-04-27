@@ -20,8 +20,20 @@ from tribunals.models import Movimentacao, Tribunal
 DJEN_HARD_CAP = 10_000
 
 
+def djen_count_real(client: DJENClient, sigla_djen: str, ini: date, fim: date) -> int:
+    """Count de fato — DJEN responde count máximo 10k, então quando bate o
+    cap, divide a janela em 2 metades e soma recursivamente. Pára quando
+    a janela é de 1 dia (assume que naquele dia é genuíno)."""
+    n = client.count_window(sigla_djen, ini, fim)
+    if n < DJEN_HARD_CAP or (fim - ini).days < 1:
+        return n
+    meio = ini + (fim - ini) // 2
+    return (djen_count_real(client, sigla_djen, ini, meio)
+            + djen_count_real(client, sigla_djen, meio + timedelta(days=1), fim))
+
+
 class Command(BaseCommand):
-    help = "Audita cobertura DJEN vs DB (count por chunk)."
+    help = "Audita cobertura DJEN vs DB (count por chunk com split adaptativo)."
 
     def add_arguments(self, parser):
         parser.add_argument('--tribunal', default=None, help='Sigla; default: todos ativos.')
@@ -59,7 +71,7 @@ class Command(BaseCommand):
 
             for ci, cf in chunk_dates(ini, end, days=chunk_days):
                 try:
-                    djen_count = client.count_window(t.sigla_djen, ci, cf)
+                    djen_count = djen_count_real(client, t.sigla_djen, ci, cf)
                 except Exception as exc:
                     self.stdout.write(self.style.ERROR(f'  {ci}→{cf}: erro DJEN: {str(exc)[:80]}'))
                     continue
