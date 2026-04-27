@@ -101,14 +101,9 @@ class Migration(migrations.Migration):
 
     dependencies = [('tribunals', '0011_parte_doc_mascarado')]
 
+    # Constraint vai numa migration separada (0013) — Postgres não cria
+    # índice partial na mesma transação com trigger events pendentes do
+    # DELETE/UPDATE em ProcessoParte.
     operations = [
         migrations.RunPython(dedup_forward, dedup_reverse),
-        migrations.AddConstraint(
-            model_name='parte',
-            constraint=models.UniqueConstraint(
-                fields=['nome', 'tipo'],
-                condition=Q(documento='') & Q(oab=''),
-                name='uniq_parte_sem_doc_nem_oab',
-            ),
-        ),
     ]
