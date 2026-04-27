@@ -531,12 +531,14 @@ class BasePjeEnricher:
           - B: bulk_create([Parte(...)], ignore_conflicts) — INSERT vira no-op
           - Ambos fazem get() final e veem o MESMO row.
 
-        bulk_create(ignore_conflicts=True) emite INSERT ... ON CONFLICT DO
-        NOTHING — não levanta IntegrityError nem polui a transação atômica
-        do enriquecimento.
+        Merge do `documento`: real > mascarado > vazio. Quando vamos atualizar
+        uma Parte existente, NÃO sobrescrevemos doc real com mascarado — TRF1
+        expõe CPF/CNPJ completo, TRF3 mascara, e o caminho OAB acessa a mesma
+        Parte por ambos os caminhos.
         """
         existing = Parte.objects.filter(**lookup).first()
         if existing is not None:
+            defaults = BasePjeEnricher._merge_doc_defaults(existing, defaults)
             dirty = {k: v for k, v in defaults.items() if getattr(existing, k) != v}
             if dirty:
                 for k, v in dirty.items():
@@ -552,4 +554,35 @@ class BasePjeEnricher:
             ignore_conflicts=True,
         )
         # Constraint partial garante exatamente 1 row pelo lookup.
-        return Parte.objects.get(**lookup)
+        # Pode ter sido inserida por outro worker em corrida — defaults pode
+        # divergir; aplica merge_doc no resultado também.
+        existing = Parte.objects.get(**lookup)
+        merged = BasePjeEnricher._merge_doc_defaults(existing, defaults)
+        dirty = {k: v for k, v in merged.items() if getattr(existing, k) != v}
+        if dirty:
+            for k, v in dirty.items():
+                setattr(existing, k, v)
+            try:
+                existing.save(update_fields=list(dirty))
+            except IntegrityError:
+                pass
+        return existing
+
+    @staticmethod
+    def _merge_doc_defaults(existing: Parte, defaults: dict) -> dict:
+        """Protege doc real do existing contra sobrescrita com versão
+        mascarada vinda do `defaults`. Ordem de qualidade: real > mascarado
+        > vazio. Aplica também em tipo_documento por simetria."""
+        if 'documento' not in defaults:
+            return defaults
+        doc_atual = existing.documento or ''
+        doc_novo = defaults.get('documento') or ''
+        atual_real = bool(doc_atual) and not is_documento_mascarado(doc_atual)
+        novo_real = bool(doc_novo) and not is_documento_mascarado(doc_novo)
+        # Se atual é real, mantém — qualquer outro valor (mascarado/vazio) seria downgrade
+        if atual_real and not novo_real:
+            return {**defaults, 'documento': doc_atual}
+        # Se atual é mascarado e novo é vazio, mantém o mascarado (downgrade evitado)
+        if doc_atual and not doc_novo:
+            return {**defaults, 'documento': doc_atual}
+        return defaults
