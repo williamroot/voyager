@@ -117,20 +117,50 @@ class BasePjeEnricher:
         }
 
     def _marcar_nao_encontrado(self, processo: Process) -> None:
+        update_fields = ['enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro']
+        update_fields += self._fallback_classe_via_djen(processo)
         processo.enriquecido_em = timezone.now()
         processo.enriquecimento_status = Process.ENRIQ_NAO_ENCONTRADO
         processo.enriquecimento_erro = ''
-        processo.save(update_fields=['enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro'])
+        processo.save(update_fields=update_fields)
 
     def _marcar_erro(self, processo: Process, msg: str) -> None:
+        update_fields = [
+            'enriquecido_em', 'enriquecimento_status',
+            'enriquecimento_erro', 'enriquecimento_tentativas',
+        ]
+        update_fields += self._fallback_classe_via_djen(processo)
         processo.enriquecido_em = timezone.now()
         processo.enriquecimento_status = Process.ENRIQ_ERRO
         processo.enriquecimento_erro = msg[:1000]
         processo.enriquecimento_tentativas = (processo.enriquecimento_tentativas or 0) + 1
-        processo.save(update_fields=[
-            'enriquecido_em', 'enriquecimento_status',
-            'enriquecimento_erro', 'enriquecimento_tentativas',
-        ])
+        processo.save(update_fields=update_fields)
+
+    @staticmethod
+    def _fallback_classe_via_djen(processo: Process) -> list[str]:
+        """Quando o PJe não retorna detalhe, usa a classe da movimentação
+        DJEN mais recente como fallback. DJEN sempre traz codigoClasse +
+        nomeClasse no payload de cada item.
+
+        Só preenche se Process estiver sem classe — não sobrescreve quando
+        o PJe já enriqueceu antes.
+        """
+        from tribunals.models import Movimentacao
+        if processo.classe_codigo:
+            return []
+        ultima = (
+            Movimentacao.objects
+            .filter(processo=processo).exclude(codigo_classe='')
+            .order_by('-data_disponibilizacao')
+            .values('codigo_classe', 'nome_classe', 'classe_id')
+            .first()
+        )
+        if not ultima:
+            return []
+        processo.classe_codigo = ultima['codigo_classe']
+        processo.classe_nome = ultima['nome_classe']
+        processo.classe_id = ultima['classe_id']
+        return ['classe_codigo', 'classe_nome', 'classe']
 
     # ---------- HTTP ----------
 
