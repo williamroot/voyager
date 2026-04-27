@@ -192,6 +192,23 @@ def filtros_movimentacoes():
     }
 
 
+def distribuicao_tipos_partes():
+    """Conta Partes por tipo (advogado/pj/pf/desconhecido). Usado pra
+    donut na página /dashboard/partes/."""
+    from tribunals.models import Parte
+    LABELS = {
+        'advogado': 'Advogado',
+        'pj': 'Pessoa Jurídica',
+        'pf': 'Pessoa Física',
+        'desconhecido': 'Sem Identificação',
+    }
+    rows = Parte.objects.values('tipo').annotate(n=Count('id')).order_by('-n')
+    return [
+        {'name': LABELS.get(r['tipo'], r['tipo'] or '—'), 'value': r['n'], 'tipo': r['tipo']}
+        for r in rows
+    ]
+
+
 def status_workers():
     """Snapshot das filas RQ e workers conectados.
 

@@ -386,16 +386,35 @@ def job_status(request, job_id):
 def partes(request):
     tipo = request.GET.get('tipo', '').strip()
     q = (request.GET.get('q') or '').strip()
-    base_ctx = {'tipo_filtro': tipo, 'q': q}
+    min_procs = request.GET.get('min_procs', '').strip()
+    sort = request.GET.get('sort', '-total_processos').strip()
+
+    SORT_VALIDO = {
+        '-total_processos': ('-total_processos', 'nome'),
+        'total_processos': ('total_processos', 'nome'),
+        '-ultima_aparicao_em': ('-ultima_aparicao_em',),
+        'ultima_aparicao_em': ('ultima_aparicao_em',),
+        '-primeira_aparicao_em': ('-primeira_aparicao_em',),
+        'nome': ('nome',),
+        '-nome': ('-nome',),
+    }
+    order_by = SORT_VALIDO.get(sort, SORT_VALIDO['-total_processos'])
+
+    base_ctx = {
+        'tipo_filtro': tipo, 'q': q, 'min_procs': min_procs, 'sort': sort,
+        'distribuicao_tipos': queries.distribuicao_tipos_partes(),
+    }
 
     if not _is_htmx(request):
         return render(request, 'dashboard/partes.html', base_ctx)
 
-    qs = Parte.objects.all().order_by('-total_processos', 'nome')
+    qs = Parte.objects.all().order_by(*order_by)
     if tipo:
         qs = qs.filter(tipo=tipo)
     if q and len(q) >= 2:
         qs = qs.filter(Q(nome__icontains=q) | Q(documento__icontains=q) | Q(oab__icontains=q))
+    if min_procs.isdigit() and int(min_procs) > 0:
+        qs = qs.filter(total_processos__gte=int(min_procs))
     page = _paginar(qs, request, default_size=50)
     return render(request, 'dashboard/_partials/_partes_list.html', {
         **base_ctx,

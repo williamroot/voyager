@@ -4,8 +4,26 @@
 {% block content %}
 {% include 'dashboard/_partials/page_header.html' with title='Partes' subtitle='Pessoas, empresas e advogados que aparecem em processos' %}
 
+{# Gráfico de distribuição por tipo (server-side, sem lazy — payload pequeno) #}
+{{ distribuicao_tipos|json_script:"data-partes-tipos" }}
+<div class="card mb-5">
+  <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Distribuição por tipo</div>
+  <div class="h-56 chart-cell relative">
+    <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+    <div data-echart='{}'
+         x-init="setupChart($el, (() => {
+           const opts = buildDonut(jsonData('data-partes-tipos'), 'name', 'value');
+           opts.series[0].label = { show: false };
+           opts.series[0].labelLine = { show: false };
+           opts.series[0].center = ['50%', '42%'];
+           return opts;
+         })())"
+         class="absolute inset-0"></div>
+  </div>
+</div>
+
 <form method="get" class="card mb-5 flex flex-col gap-4">
-  <div class="flex gap-3 items-center">
+  <div class="flex gap-3 items-center flex-wrap">
     {% include 'dashboard/_partials/search_box.html' with name='q' value=q placeholder='Buscar por nome, CPF/CNPJ ou OAB (mín. 2 chars)' %}
     <button class="btn-primary">Filtrar</button>
     <a href="{% url 'dashboard:partes' %}" class="text-fg-subtle hover:text-fg-soft text-sm px-2">limpar</a>
@@ -17,6 +35,24 @@
     <a href="?{% query_string request tipo='pf' %}" class="chip {% if tipo_filtro == 'pf' %}active{% endif %}">Pessoas físicas</a>
     <a href="?{% query_string request tipo='pj' %}" class="chip {% if tipo_filtro == 'pj' %}active{% endif %}">Pessoas jurídicas</a>
     <a href="?{% query_string request tipo='desconhecido' %}" class="chip {% if tipo_filtro == 'desconhecido' %}active{% endif %}">Sem identificação</a>
+  </div>
+  <div class="flex flex-wrap gap-3 items-center">
+    <label class="text-xs text-fg-subtle">Mín. processos:</label>
+    <input type="number" name="min_procs" value="{{ min_procs }}" min="0" placeholder="0"
+           class="bg-base border border-border rounded px-2 py-1 text-sm w-24">
+    <label class="text-xs text-fg-subtle ml-2">Ordenar por:</label>
+    <select name="sort" class="bg-base border border-border rounded px-2 py-1 text-sm">
+      <option value="-total_processos"   {% if sort == '-total_processos' %}selected{% endif %}>Mais processos</option>
+      <option value="total_processos"    {% if sort == 'total_processos' %}selected{% endif %}>Menos processos</option>
+      <option value="-ultima_aparicao_em" {% if sort == '-ultima_aparicao_em' %}selected{% endif %}>Vista mais recente</option>
+      <option value="ultima_aparicao_em"  {% if sort == 'ultima_aparicao_em' %}selected{% endif %}>Vista há mais tempo</option>
+      <option value="-primeira_aparicao_em" {% if sort == '-primeira_aparicao_em' %}selected{% endif %}>Inserção recente</option>
+      <option value="nome"                {% if sort == 'nome' %}selected{% endif %}>Nome A→Z</option>
+      <option value="-nome"               {% if sort == '-nome' %}selected{% endif %}>Nome Z→A</option>
+    </select>
+    {# Carrega filtros via submit normal (mantém compat com lazy shell) #}
+    <input type="hidden" name="tipo" value="{{ tipo_filtro }}">
+    <input type="hidden" name="q" value="{{ q }}">
   </div>
 </form>
 
