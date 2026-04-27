@@ -10,9 +10,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Major+Mono+Display&family=Manrope:wght@400;500;600;700&display=swap">
 
-  {# Aplica tema antes de renderizar pra evitar flash. Default = prefers-color-scheme
+  {% comment %}Aplica tema antes de renderizar pra evitar flash. Default = prefers-color-scheme
      do sistema. Toggle manual sobrepõe via cookie + localStorage (cookie permite
-     leitura server-side se precisar futuramente; localStorage é fallback). #}
+     leitura server-side se precisar futuramente; localStorage é fallback).{% endcomment %}
   <script>
     (function() {
       function readCookie(name) {
