@@ -4,7 +4,7 @@
 {% block content %}
 {% include 'dashboard/_partials/page_header.html' with title='Workers & filas' subtitle='Estado das queues RQ + workers conectados ao Redis' %}
 
-<div hx-get="{% url 'dashboard:workers' %}" hx-trigger="every 5s" hx-select="#workers-content" hx-target="#workers-content" hx-swap="outerHTML">
+<div hx-get="{% url 'dashboard:workers' %}" hx-trigger="every 15s" hx-select="#workers-content" hx-target="#workers-content" hx-swap="outerHTML">
 <div id="workers-content">
 
   {% include 'dashboard/_partials/section_header.html' with title='Filas' subtitle='pending / started / finished / failed por queue' %}
@@ -75,7 +75,7 @@
   </div>
 
   <div class="text-fg-subtle text-xs mt-4">
-    Auto-refresh a cada 5s via HTMX. Heartbeat dos workers vence a cada ~60s.
+    Auto-refresh a cada 15s via HTMX. Heartbeat dos workers vence a cada ~60s.
   </div>
 
 </div>

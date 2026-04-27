@@ -198,15 +198,20 @@ def status_workers():
     Inclui counters de cada queue (pending/started/finished/failed) e
     a lista de workers vivos com fila atendida + idle time. Usado pela
     página `/dashboard/workers/`.
+
+    Reusa UMA conexão Redis pra todas as queues — antes cada `get_queue`
+    podia abrir conexão nova, com 5+ filas e polling de 15s isso lotava
+    TIME_WAIT no container web (28k+ sockets, port exhaustion).
     """
     import django_rq
-    from rq import Worker
+    from rq import Queue, Worker
 
+    conn = django_rq.get_connection('default')
     queue_names = list(__import__('django.conf', fromlist=['settings']).settings.RQ_QUEUES.keys())
 
     queues = []
     for qname in queue_names:
-        q = django_rq.get_queue(qname)
+        q = Queue(qname, connection=conn)
         queues.append({
             'name': qname,
             'pending': len(q),
@@ -216,9 +221,6 @@ def status_workers():
             'scheduled': q.scheduled_job_registry.count,
             'deferred': q.deferred_job_registry.count,
         })
-
-    # Workers conectados ao Redis (usa a 1ª queue só pra pegar a connection).
-    conn = django_rq.get_connection('default')
     workers_raw = Worker.all(connection=conn)
     # RQ grava last_heartbeat como datetime naive em UTC. Se a TZ do
     # processo Django for ≠ UTC, `timezone.now().replace(tzinfo=None)` mente
