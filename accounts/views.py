@@ -97,10 +97,11 @@ def accept_invite(request, token):
                         'invite': inv,
                     }, status=410)
 
+                email = form.cleaned_data['email']
                 user = User.objects.create_user(
-                    username=form.cleaned_data['username'],
+                    username=email,           # email é o login — username = email
                     password=form.cleaned_data['password'],
-                    email=inv.email_hint or '',
+                    email=email,
                 )
                 inv.used_at = timezone.now()
                 inv.used_by = user

@@ -92,10 +92,10 @@
       <form method="post" class="flex flex-col gap-3">
         {% csrf_token %}
         <label class="flex flex-col gap-1.5">
-          <span class="telemetry text-fg-subtle">// Operator ID</span>
-          <input name="username" required autofocus autocomplete="username"
+          <span class="telemetry text-fg-subtle">// E-mail</span>
+          <input name="username" type="email" required autofocus autocomplete="email"
                  class="uplink-input bg-base/60 border border-border rounded-md px-3 py-2.5 text-fg font-mono text-sm focus:border-mission focus:outline-none transition-shadow"
-                 placeholder="comandante.alves">
+                 placeholder="comandante@dominio.com">
         </label>
         <label class="flex flex-col gap-1.5">
           <span class="telemetry text-fg-subtle">// Encryption Key</span>

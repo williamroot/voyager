@@ -12,9 +12,9 @@ class InviteCreateForm(forms.Form):
 
 
 class AcceptInviteForm(forms.Form):
-    username = forms.CharField(
+    email = forms.EmailField(
         max_length=150,
-        help_text='Letras, dígitos e @/./+/-/_ apenas.',
+        help_text='Será seu login.',
     )
     password = forms.CharField(
         widget=forms.PasswordInput,
@@ -25,11 +25,15 @@ class AcceptInviteForm(forms.Form):
         widget=forms.PasswordInput, label='Confirmar senha',
     )
 
-    def clean_username(self):
-        username = self.cleaned_data['username'].strip()
-        if User.objects.filter(username__iexact=username).exists():
-            raise ValidationError('Username já em uso.')
-        return username
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        # username e email são intercambiáveis — bloqueia ambos pra evitar
+        # colisão de login.
+        if User.objects.filter(email__iexact=email).exists():
+            raise ValidationError('E-mail já cadastrado.')
+        if User.objects.filter(username__iexact=email).exists():
+            raise ValidationError('E-mail já cadastrado.')
+        return email
 
     def clean(self):
         cleaned = super().clean()

@@ -10,14 +10,29 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Major+Mono+Display&family=Manrope:wght@400;500;600;700&display=swap">
 
-  {# Aplica tema antes de renderizar pra evitar flash. #}
+  {# Aplica tema antes de renderizar pra evitar flash. Default = prefers-color-scheme
+     do sistema. Toggle manual sobrepõe via cookie + localStorage (cookie permite
+     leitura server-side se precisar futuramente; localStorage é fallback). #}
   <script>
     (function() {
-      const saved = localStorage.getItem('voyager-theme');
-      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const theme = saved || (prefersDark ? 'dark' : 'light');
+      function readCookie(name) {
+        const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+        return m ? decodeURIComponent(m[1]) : null;
+      }
+      const saved = readCookie('voyager-theme') || localStorage.getItem('voyager-theme');
+      const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+      const theme = saved || ((mq && mq.matches) ? 'dark' : 'light');
       document.documentElement.classList.toggle('dark', theme === 'dark');
       document.documentElement.dataset.theme = theme;
+      // Quando o sistema muda E o usuário não escolheu manualmente, segue.
+      if (mq && !saved) {
+        mq.addEventListener('change', (e) => {
+          if (readCookie('voyager-theme') || localStorage.getItem('voyager-theme')) return;
+          const next = e.matches ? 'dark' : 'light';
+          document.documentElement.classList.toggle('dark', next === 'dark');
+          document.documentElement.dataset.theme = next;
+        });
+      }
     })();
   </script>
 
@@ -313,6 +328,7 @@
   <div class="md:hidden sidebar-backdrop" x-show="sidebar" x-cloak @click="sidebar = false"></div>
 
   <div class="flex min-h-screen pt-12 md:pt-0">
+    {% block sidebar %}
     <aside class="app-sidebar w-60 bg-surface dark:bg-base border-r border-border p-3 flex flex-col gap-1 md:sticky md:top-0 md:h-screen"
            :class="{ 'closed': !sidebar }">
       <a href="{% url 'dashboard:overview' %}" class="flex items-center gap-3 px-2 py-3 mb-1 group">
@@ -375,13 +391,14 @@
           <span class="dark:hidden">Modo escuro</span>
           <span class="hidden dark:inline">Modo claro</span>
         </button>
-        <div class="text-fg-muted mt-1">{{ user.username }}</div>
+        <div class="text-fg-muted mt-1 truncate" title="{{ user.email|default:user.username }}">{{ user.email|default:user.username }}</div>
         <form method="post" action="{% url 'dashboard:logout' %}" class="inline">
           {% csrf_token %}
           <button type="submit" class="text-fg-subtle hover:text-accent-fg bg-transparent p-0 cursor-pointer">sair</button>
         </form>
       </div>
     </aside>
+    {% endblock %}
     <main class="flex-1 px-4 md:px-8 py-5 md:py-7 overflow-x-auto max-w-[1600px]">
       {% block content %}{% endblock %}
     </main>
@@ -513,14 +530,16 @@
       });
     }
 
-    // Theme toggle — persiste em localStorage e re-inicializa charts.
+    // Theme toggle — persiste em cookie (1 ano) + localStorage e re-inicializa charts.
     window.toggleTheme = function() {
       const html = document.documentElement;
       const next = html.classList.contains('dark') ? 'light' : 'dark';
       html.classList.toggle('dark', next === 'dark');
       html.dataset.theme = next;
       localStorage.setItem('voyager-theme', next);
-      initAllCharts();
+      const oneYear = 60 * 60 * 24 * 365;
+      document.cookie = `voyager-theme=${next}; path=/; max-age=${oneYear}; SameSite=Lax`;
+      if (typeof initAllCharts === 'function') initAllCharts();
     };
 
     // Toast helper — uso: window.toast('Salvo', 'success')
