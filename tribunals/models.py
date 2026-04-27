@@ -244,6 +244,9 @@ class Movimentacao(models.Model):
     tribunal = models.ForeignKey(Tribunal, on_delete=models.PROTECT, related_name='movimentacoes')
     external_id = models.CharField(max_length=64)
     data_disponibilizacao = models.DateTimeField()
+    # data_envio: quando o cartório/escrivão liberou a publicação. Geralmente
+    # 1-2 dias antes da disponibilização — útil pra detectar atrasos do diário.
+    data_envio = models.DateField(null=True, blank=True)
     inserido_em = models.DateTimeField(auto_now_add=True)
 
     tipo_comunicacao = models.CharField(max_length=120, blank=True)

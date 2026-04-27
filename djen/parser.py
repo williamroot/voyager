@@ -3,7 +3,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from django.db import IntegrityError, transaction
@@ -18,6 +18,7 @@ EXPECTED_KEYS = frozenset({
     'siglaTribunal', 'nomeOrgao', 'idOrgao',
     'tipoComunicacao', 'tipoDocumento',
     'data_disponibilizacao', 'datadisponibilizacao',
+    'dataenvio',
     'texto', 'destinatarios', 'destinatarioadvogados',
     'nomeClasse', 'codigoClasse', 'link',
     'numeroComunicacao', 'hash', 'meio', 'meiocompleto', 'status',
@@ -34,6 +35,7 @@ class ParsedItem:
     cnj: str
     external_id: str
     data_disponibilizacao: datetime
+    data_envio: Optional[date] = None
     tipo_comunicacao: str = ''
     tipo_documento: str = ''
     nome_orgao: str = ''
@@ -57,6 +59,7 @@ class ParsedItem:
         return {
             'external_id': self.external_id,
             'data_disponibilizacao': self.data_disponibilizacao,
+            'data_envio': self.data_envio,
             'tipo_comunicacao': self.tipo_comunicacao,
             'tipo_documento': self.tipo_documento,
             'nome_orgao': self.nome_orgao,
@@ -91,6 +94,17 @@ def normalizar_cnj(*candidates: Optional[str]) -> Optional[str]:
         if m:
             return m.group(0)
     return None
+
+
+def parse_data_br(value: str) -> Optional[date]:
+    """Parse 'dd/mm/yyyy' (formato BR usado pelo campo dataenvio do DJEN)."""
+    if not value:
+        return None
+    s = str(value).strip()
+    try:
+        return datetime.strptime(s, '%d/%m/%Y').date()
+    except ValueError:
+        return None
 
 
 def parse_dt(value: str) -> Optional[datetime]:
@@ -204,6 +218,7 @@ def parse_item(item: dict, tribunal: Tribunal, run: IngestionRun) -> Optional[Pa
         cnj=cnj,
         external_id=str(external_id)[:64],
         data_disponibilizacao=dt,
+        data_envio=parse_data_br(item.get('dataenvio')),
         tipo_comunicacao=str(item.get('tipoComunicacao') or '')[:120],
         tipo_documento=str(item.get('tipoDocumento') or '')[:120],
         nome_orgao=str(item.get('nomeOrgao') or '')[:255],
