@@ -55,19 +55,53 @@ def dedup_forward(apps, schema_editor):
         """)
         cur.execute("CREATE INDEX ON _pp_envolvidos(pp_id);")
 
+        # Keepers: pra cada chave alvo (processo, target_parte, polo, papel,
+        # representa), guarda o ProcessoParte com menor id. SELECT DISTINCT ON
+        # facilita trazer todos os campos sem GROUP BY ambíguo.
         cur.execute("""
             CREATE TEMP TABLE _pp_keepers ON COMMIT DROP AS
-            SELECT MIN(pp_id) AS keep_pp_id
+            SELECT DISTINCT ON (processo_id, target_parte_id, polo, papel,
+                                COALESCE(representa_id, -1))
+                   pp_id, processo_id, target_parte_id, polo, papel, representa_id
             FROM _pp_envolvidos
-            GROUP BY processo_id, target_parte_id, polo, papel,
-                     COALESCE(representa_id, -1);
+            ORDER BY processo_id, target_parte_id, polo, papel,
+                     COALESCE(representa_id, -1), pp_id;
         """)
-        cur.execute("CREATE INDEX ON _pp_keepers(keep_pp_id);")
+        cur.execute("CREATE INDEX ON _pp_keepers(pp_id);")
+        cur.execute("CREATE INDEX ON _pp_keepers(processo_id, target_parte_id, polo, papel);")
+
+        # Mapa redirect: pra cada pp envolvido NÃO keeper, qual é o keeper
+        # equivalente. Vai servir tanto pra deletar quanto pra re-apontar
+        # representa_id de filhos que apontavam pro dup pp.
+        cur.execute("""
+            CREATE TEMP TABLE _pp_redirect ON COMMIT DROP AS
+            SELECT e.pp_id AS dup_pp_id, k.pp_id AS keep_pp_id
+            FROM _pp_envolvidos e
+            JOIN _pp_keepers k
+              ON k.processo_id = e.processo_id
+             AND k.target_parte_id = e.target_parte_id
+             AND k.polo = e.polo
+             AND k.papel = e.papel
+             AND COALESCE(k.representa_id, -1) = COALESCE(e.representa_id, -1)
+            WHERE e.pp_id <> k.pp_id;
+        """)
+        cur.execute("CREATE INDEX ON _pp_redirect(dup_pp_id);")
+
+        # CRÍTICO: antes de deletar pp dups, re-aponta representa_id dos
+        # filhos (advogados que representavam) pro keeper equivalente.
+        # Sem isso, FK PROTECT bloqueia o DELETE no commit.
+        cur.execute("""
+            UPDATE tribunals_processoparte pp
+            SET representa_id = r.keep_pp_id
+            FROM _pp_redirect r
+            WHERE pp.representa_id = r.dup_pp_id;
+        """)
+        moved_repr = cur.rowcount
+        print(f'  {moved_repr:,} representa_id re-apontados pro keeper')
 
         cur.execute("""
             DELETE FROM tribunals_processoparte
-            WHERE id IN (SELECT pp_id FROM _pp_envolvidos)
-              AND id NOT IN (SELECT keep_pp_id FROM _pp_keepers);
+            WHERE id IN (SELECT dup_pp_id FROM _pp_redirect);
         """)
         deleted_pp = cur.rowcount
         print(f'  {deleted_pp:,} ProcessoParte removidos (manteve menor id por chave alvo)')
