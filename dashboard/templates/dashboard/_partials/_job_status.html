@@ -1,0 +1,17 @@
+{% load voyager_extras %}
+<div id="job-status"
+     hx-get="{% url 'dashboard:job-status' job_id %}"
+     hx-trigger="every 2s"
+     hx-swap="outerHTML"
+     class="inline-flex items-center gap-2 text-fg-muted text-xs">
+  <span class="w-2 h-2 rounded-full bg-pulsar inline-block animate-pulse"
+        style="box-shadow: 0 0 6px rgb(var(--c-pulsar) / 0.7)"></span>
+  <span class="font-mono">
+    {% if state == 'queued' %}aguardando worker
+    {% elif state == 'started' %}atualizando dados…
+    {% elif state == 'deferred' %}adiado
+    {% else %}{{ state }}
+    {% endif %}
+  </span>
+  <span class="text-fg-subtle">job {{ job_id|slice:":8" }}</span>
+</div>

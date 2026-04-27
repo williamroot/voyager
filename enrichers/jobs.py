@@ -40,3 +40,14 @@ def enqueue_enriquecimento(process_id: int, tribunal_sigla: str):
     """Enfileira na queue do tribunal — paraleliza coletas sem misturar pools."""
     queue = django_rq.get_queue(queue_for(tribunal_sigla))
     return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT)
+
+
+def enqueue_enriquecimento_manual(process_id: int):
+    """Enfileira na queue 'manual' — prioritária pra cliques na UI.
+
+    Bypassa as filas per-tribunal (que podem ter centenas de milhares de
+    jobs). Workers dedicados consomem essa fila, garantindo latência baixa
+    pra atualização sob demanda mesmo durante backfill.
+    """
+    queue = django_rq.get_queue('manual')
+    return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT)

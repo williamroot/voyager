@@ -21,4 +21,5 @@ urlpatterns = [
     path('ingestao/', views.ingestao, name='ingestao'),
     path('workers/', views.workers, name='workers'),
     path('api/chart/<str:key>/', views.chart_data, name='api-chart'),
+    path('jobs/<str:job_id>/status/', views.job_status, name='job-status'),
 ]

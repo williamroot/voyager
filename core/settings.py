@@ -125,6 +125,10 @@ RQ_QUEUES = {
     # paralelizar coletas no PJe consulta pública sem misturar pools.
     'enrich_trf1':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
     'enrich_trf3':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
+    # Fila prioritária pra requests on-demand do dashboard (botões de
+    # 'Atualizar dados públicos' / 'Sincronizar movimentações'). Workers
+    # dedicados garantem latência baixa mesmo com filas de backfill cheias.
+    'manual':          {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
 }
 
 # DJEN

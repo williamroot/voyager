@@ -2,14 +2,14 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_GET, require_POST
 
 from djen.jobs import sincronizar_movimentacoes
 from djen.proxies import ProxyScrapePool
-from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento
+from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento, enqueue_enriquecimento_manual
 from tribunals.models import Movimentacao, Parte, Process, ProcessoParte, SchemaDriftAlert, Tribunal
 
 from . import queries
@@ -317,11 +317,12 @@ def processo_detail(request, pk):
 def processo_enriquecer(request, pk):
     proc = get_object_or_404(Process, pk=pk)
     if proc.tribunal_id not in _ENRICHERS:
+        if _is_htmx(request):
+            return HttpResponse('Tribunal não suportado.', status=400)
         messages.error(request, f'Enriquecimento ainda não suportado para {proc.tribunal_id}.')
         return redirect('dashboard:processo-detail', pk=pk)
-    j = enqueue_enriquecimento(proc.pk, proc.tribunal_id)
-    messages.success(request, f'Atualização enfileirada (job {j.id[:8]}). Recarregue em alguns segundos.')
-    return redirect('dashboard:processo-detail', pk=pk)
+    j = enqueue_enriquecimento_manual(proc.pk)
+    return _resposta_job_enfileirado(request, j.id, pk)
 
 
 @login_required
@@ -330,8 +331,54 @@ def processo_sincronizar(request, pk):
     """Dispara sincronização DJEN de movimentações desse processo."""
     proc = get_object_or_404(Process, pk=pk)
     j = sincronizar_movimentacoes.delay(proc.pk)
-    messages.success(request, f'Sincronização DJEN enfileirada (job {j.id[:8]}). Recarregue em alguns segundos.')
-    return redirect('dashboard:processo-detail', pk=pk)
+    return _resposta_job_enfileirado(request, j.id, pk)
+
+
+def _resposta_job_enfileirado(request, job_id: str, processo_pk: int):
+    """Resposta unificada pra cliques de update on-demand:
+    - HTMX: devolve fragmento com polling pra status do job
+    - normal POST: redirect com flash
+    """
+    if _is_htmx(request):
+        return render(request, 'dashboard/_partials/_job_status.html', {
+            'job_id': job_id, 'state': 'queued',
+        })
+    messages.success(request, f'Atualização enfileirada (job {job_id[:8]}). Recarregue em alguns segundos.')
+    return redirect('dashboard:processo-detail', pk=processo_pk)
+
+
+@login_required
+@require_GET
+def job_status(request, job_id):
+    """Polling do status de um job RQ. HTMX swap-fora-do-target.
+
+    Quando o job termina (finished/failed), retorna response com
+    HX-Refresh: true — browser recarrega a página inteira pra mostrar
+    os dados atualizados.
+    """
+    import django_rq
+    job = None
+    for qname in ('manual', 'enrich_trf1', 'enrich_trf3', 'default'):
+        q = django_rq.get_queue(qname)
+        job = q.fetch_job(job_id)
+        if job is not None:
+            break
+    if job is None:
+        # Job sumiu (provável: já terminou e foi limpo do registry).
+        # Sinaliza terminado pra recarregar a página.
+        resp = HttpResponse(status=204)
+        resp['HX-Refresh'] = 'true'
+        return resp
+
+    state = job.get_status()
+    if state in ('finished', 'failed'):
+        resp = HttpResponse(status=204)
+        resp['HX-Refresh'] = 'true'
+        return resp
+
+    return render(request, 'dashboard/_partials/_job_status.html', {
+        'job_id': job_id, 'state': state,
+    })
 
 
 @login_required

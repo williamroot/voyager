@@ -106,7 +106,7 @@ services:
       web:
         condition: service_healthy
     deploy:
-      replicas: 4
+      replicas: 8
     restart: always
 
   worker_trf3:
@@ -118,6 +118,17 @@ services:
         condition: service_healthy
     deploy:
       replicas: 4
+    restart: always
+
+  worker_manual:
+    image: voyager-web:prod
+    command: python manage.py rqworker manual
+    env_file: .env
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      replicas: 2
     restart: always
 
   scheduler:

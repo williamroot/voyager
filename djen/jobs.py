@@ -104,9 +104,13 @@ def refresh_proxy_pool() -> dict:
     return {'proxies_carregados': count}
 
 
-@job('default', timeout=300)
+@job('manual', timeout=300)
 def sincronizar_movimentacoes(process_id: int) -> dict:
-    """Atualiza movimentações de um processo específico via DJEN (?numeroProcesso=...)."""
+    """Atualiza movimentações de um processo específico via DJEN (?numeroProcesso=...).
+
+    Vai na fila 'manual' (prioritária) porque é sempre disparado pelo botão
+    no dashboard — usuário esperando feedback. Filas de backfill não atrapalham.
+    """
     from .ingestion import ingest_processo
     p = Process.objects.select_related('tribunal').get(pk=process_id)
     return ingest_processo(p)

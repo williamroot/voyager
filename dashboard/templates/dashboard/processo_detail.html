@@ -43,22 +43,25 @@
         {% voy_icon "mission-tag" "w-3.5 h-3.5" %}
         copiar CNJ
       </button>
-      {% if processo.tribunal_id == 'TRF1' %}
-        <form method="post" action="{% url 'dashboard:processo-enriquecer' processo.pk %}" class="inline">
+      {% if processo.tribunal_id == 'TRF1' or processo.tribunal_id == 'TRF3' %}
+        <form hx-post="{% url 'dashboard:processo-enriquecer' processo.pk %}"
+              hx-target="#job-area" hx-swap="innerHTML" class="inline">
           {% csrf_token %}
           <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">
             {% voy_icon "calibrate" "w-3.5 h-3.5" %}
-            Dados públicos (TRF1)
+            Dados públicos ({{ processo.tribunal_id }})
           </button>
         </form>
       {% endif %}
-      <form method="post" action="{% url 'dashboard:processo-sincronizar' processo.pk %}" class="inline">
+      <form hx-post="{% url 'dashboard:processo-sincronizar' processo.pk %}"
+            hx-target="#job-area" hx-swap="innerHTML" class="inline">
         {% csrf_token %}
         <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-info/15 border border-info/30 hover:bg-info/25 text-info rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">
           {% voy_icon "downlink" "w-3.5 h-3.5" %}
           Sincronizar movs
         </button>
       </form>
+      <div id="job-area" class="mt-1"></div>
     </div>
   </div>
   {% if processo.classe_nome or processo.assunto_nome or processo.orgao_julgador_nome %}
