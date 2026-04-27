@@ -443,6 +443,17 @@ class BasePjeEnricher:
                 defaults={**base, 'oab': ''},
             )
 
+        # Prioridade pra completude dos dados: se existe exatamente UMA Parte
+        # com mesmo nome e CNPJ REAL preenchido (formato XX.XXX.XXX/XXXX-XX),
+        # reusa essa entidade. CPFs/OABs não entram — risco de homônimo é alto
+        # e dedupar por OAB já é o caminho 1. CNPJ identifica unicamente uma
+        # PJ, então 1 match com mesmo nome → é a mesma entidade.
+        candidatos = Parte.objects.filter(nome=nome).extra(
+            where=[r"documento ~ '^[0-9]{2}\.[0-9]{3}\.[0-9]{3}/[0-9]{4}-[0-9]{2}$'"],
+        )
+        if candidatos.count() == 1:
+            return candidatos.first()
+
         return self._safe_upsert_parte(
             lookup={'documento': '', 'oab': '', 'nome': nome, 'tipo': base['tipo']},
             defaults={'tipo_documento': base['tipo_documento']},
