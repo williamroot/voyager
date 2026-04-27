@@ -2,10 +2,23 @@
 
 Itens pendentes ou planejados, organizados por prioridade.
 
+## Concluído (recentes)
+
+- [x] **Enricher TRF3** via `BasePjeEnricher` (refatorado em `enrichers/pje.py`)
+- [x] **Catálogo nacional ClasseJudicial / Assunto** (TPU/CNJ) com FKs em Process/Movimentacao
+- [x] **Filas per-tribunal** (`enrich_trf1`, `enrich_trf3`) com 4 workers cada
+- [x] **Sistema de convites** (`accounts/`) com captura IP+UA+ip-api.com
+- [x] **Watchdog de ingestão** — auto-heal de zumbis e re-enqueue de backfill/daily a cada 5min
+- [x] **Deploy em prod** via Cloudflare Tunnel (voyager.was.dev.br)
+- [x] **Página /dashboard/workers/** com queue/worker state e auto-refresh HTMX
+- [x] **Página /dashboard/tribunais/** com KPIs por tribunal
+- [x] **Dedupe mascarado→real** de partes (`real_casa_com_mascara`) + command `consolidar_partes_mascaradas`
+- [x] **`enriquecer_pendentes`** — bulk enqueue por tribunal/status
+- [x] **Race fix em enricher** — `Process.objects.select_for_update()` no atomic block
+
 ## Alta — desbloqueiam casos de uso
 
-- [ ] **Enricher TRF3** (PJe v2) — copy/adapt do `enrichers/trf1.py`
-- [ ] **Backfill de partes em batch** — `enriquecer_lote --tribunal TRF1 --limit N` enfileirando jobs
+- [ ] **Backfill TRF1+TRF3 100% até hoje** — em curso (parado em 18/10/2024 — re-disparado pelo watchdog)
 - [ ] **`pg_dump` diário automático** — job RQ na fila `default` ~03:00 + retenção 30d local + S3 opcional
 - [ ] **2FA no admin** via `django-otp` — pra exposição pública
 
@@ -20,7 +33,8 @@ Itens pendentes ou planejados, organizados por prioridade.
 
 ## Baixa — refinamentos
 
-- [ ] **Enrichers TRF2/4/5/6** — todos PJe, mesmo padrão TRF1
+- [ ] **Enrichers TRF2/5/6** — todos PJe, herdam `BasePjeEnricher` (15 linhas cada)
+- [ ] **Enricher TRF4** — eproc, parser próprio
 - [ ] **Enricher TJSP** — e-SAJ (sistema diferente, parser próprio)
 - [ ] **Webhooks** — clientes registram CNJs ou termos e recebem callback HTTP em movimentações novas
 - [ ] **Export CSV** — botão na busca de movimentações + endpoint API. Job na fila `default`, link em `/dashboard/exports/`

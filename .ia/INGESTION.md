@@ -69,6 +69,8 @@ Coração da ingestão. Pra uma janela `(data_inicio, data_fim)`:
 | `run_daily_ingestion(sigla)` | `djen_ingestion` | 2h |
 | `run_backfill(sigla, force_inicio=None)` | `djen_backfill` | 24h |
 | `refresh_proxy_pool()` | `default` | 2min |
+| `watchdog_ingestao()` | `default` | 2min |
+| `sincronizar_movimentacoes(process_id)` | `default` | 5min |
 
 `run_backfill` é resilient + retry-friendly:
 
@@ -91,9 +93,20 @@ Container `scheduler` roda `manage.py djen_register_schedules_and_run`. Na boot:
 2. Re-registra:
    - `run_daily_ingestion(sigla)` para cada `Tribunal.ativo=True`, escalonados em 30min (TRF1 04:00, TRF3 04:30, ...)
    - `refresh_proxy_pool` a cada 15min
+   - `watchdog_ingestao` a cada 5min
 3. `Scheduler(connection, interval=30).run()` — loop infinito
 
 `run_daily_ingestion` faz no-op silencioso se `Tribunal.backfill_concluido_em IS NULL` — evita brigar com backfill em andamento.
+
+## Watchdog de ingestão
+
+`djen.jobs.watchdog_ingestao` roda a cada 5min e faz auto-heal:
+
+1. **Mata zumbis**: `IngestionRun.status=running` e `finished_at IS NULL` há >1h → marca FAILED + grava motivo. Worker que crashou e deixou rastro não trava o sistema.
+2. **Re-enfileira backfill**: pra cada tribunal ativo com `backfill_concluido_em IS NULL`, se nenhum job dele em `djen_backfill` (pending nem started) → `run_backfill.delay(sigla)`. Se redis perdeu state ou backfill morreu, recupera sozinho.
+3. **Re-enfileira daily**: pra tribunal com backfill ok mas sem `IngestionRun success` há >26h → `run_daily_ingestion.delay(sigla)`.
+
+Detecção de "já tem job pra essa sigla" usa `job.args[0]` como chave — evita duplicar quando um backfill está realmente em curso.
 
 ## Comandos manuais
 

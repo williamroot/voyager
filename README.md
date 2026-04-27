@@ -6,9 +6,11 @@ Sistema de ingestão e consulta do **Diário de Justiça Eletrônico Nacional (D
 
 ## Status atual
 
-- **Tribunais ativos:** TRF1 e TRF3 (TRF2/4/5/6/TJSP cadastrados, prontos pra ligar)
+- **Tribunais ativos:** TRF1 e TRF3 com enricher PJe (TRF2/4/5/6/TJSP cadastrados, prontos pra ligar)
 - **Cobertura:** desde **dez/2020** (TRF1) e **jan/2021** (TRF3) até hoje
-- **Volume típico:** ~1.2M movimentações, ~900k processos, ~9 GB Postgres com a cobertura atual
+- **Volume típico:** ~1.2M movimentações, ~900k processos, ~10 GB Postgres
+- **Em prod:** https://voyager.was.dev.br via Cloudflare Tunnel
+- **Auto-heal:** watchdog a cada 5min mata zumbis e re-enfileira backfill/daily se sumiu da fila
 
 ## Stack
 
@@ -28,20 +30,24 @@ Sentry · Prometheus · structlog
 voyager/
 ├── core/         settings.py único + urls + middleware (RequestId, Prometheus)
 ├── tribunals/    Tribunal · Process · Movimentacao · IngestionRun · SchemaDriftAlert
-│                 · Parte · ProcessoParte
+│                 · Parte · ProcessoParte · ClasseJudicial · Assunto
 ├── djen/         cliente HTTP DJEN, pool de proxies, parser, ingestion, jobs RQ,
-│                 scheduler (cancel-and-recreate idempotente), management commands
-├── enrichers/    Consulta pública dos tribunais (TRF1 implementado), parser BS4
-│                 de partes/advogados/metadata, jobs RQ
+│                 scheduler (cancel-and-recreate idempotente), watchdog de auto-heal,
+│                 management commands
+├── enrichers/    BasePjeEnricher genérico + Trf1Enricher / Trf3Enricher (subclasses
+│                 de ~15 linhas), parser BS4 de partes com handling de doc mascarado,
+│                 jobs RQ com filas per-tribunal
+├── accounts/     Sistema de convites (Invite) com captura IP/UA/classificação
+│                 ip-api.com, signup público em /invite/<token>/
 ├── api/          DRF viewsets, filtros, paginação cursor, API key auth
-└── dashboard/    Templates HTMX + ECharts + tema dark/light com tokens CSS
-                  + identidade visual Voyager (mission patch, telemetry,
-                  pulsar bullets, star-field, scanlines)
+└── dashboard/    Templates HTMX + ECharts + tema dark/light com tokens CSS,
+                  + páginas /workers/ /tribunais/ /invites/, identidade visual
+                  Voyager (mission patch, telemetry, pulsar bullets, star-field)
 ```
 
 Detalhes técnicos em [`.ia/`](.ia/) — visão geral, decisões, runbook, padrões.
 
-## Como subir
+## Como subir (dev)
 
 ```bash
 git clone git@github.com:williamroot/voyager.git
@@ -52,7 +58,7 @@ docker compose up -d --build
 docker compose exec web python manage.py createsuperuser
 ```
 
-Subindo o backfill de TRF1+TRF3:
+Subindo o backfill de TRF1+TRF3 (o watchdog faz isso sozinho a cada 5min, mas pode disparar manualmente):
 
 ```bash
 docker compose exec web python manage.py djen_descobrir_inicio TRF1
@@ -61,29 +67,57 @@ docker compose exec web python manage.py djen_backfill TRF1
 docker compose exec web python manage.py djen_backfill TRF3
 ```
 
-Acompanhando:
+Bulk enqueue de enriquecimento:
+```bash
+docker compose exec web python manage.py enriquecer_pendentes --tribunal TRF3 --limit 0
+```
+
+Acompanhando: `/dashboard/workers/` (auto-refresh) ou `docker compose logs -f worker_trf1`.
+
+## Deploy em prod
+
+Stack separada em `docker-compose-prod.yml` com tuning de Postgres, gunicorn, Cloudflare Tunnel e workers per-tribunal (4×TRF1 + 4×TRF3 + 2×ingestion + scheduler + watchdog).
 
 ```bash
-docker compose exec web python manage.py djen_status
-docker compose logs -f worker_ingestion
+ssh ubuntu@<server>
+cd ~/voyager
+git pull --ff-only
+docker compose -f docker-compose-prod.yml build web
+docker compose -f docker-compose-prod.yml up -d
 ```
+
+`web` aplica migrações e `collectstatic` no entrypoint. Domínio público via Cloudflare Tunnel — `CLOUDFLARE_TUNNEL_TOKEN` no `.env` do servidor. Detalhes em [`.ia/OPS.md`](.ia/OPS.md).
 
 ## Endpoints
 
 | Path | Descrição |
 |------|-----------|
 | `/dashboard/` | Visão geral, charts, KPIs |
+| `/dashboard/tribunais/` | Cards por tribunal (processos, movs, cobertura, status enriquecimento) |
 | `/dashboard/processos/` | Lista de processos com filtros |
-| `/dashboard/processos/<id>/` | Detalhe + timeline + partes (botão "Atualizar dados públicos" no TRF1) |
+| `/dashboard/processos/<id>/` | Detalhe + timeline + partes + botão "Atualizar dados públicos" |
 | `/dashboard/movimentacoes/` | Busca textual + filtros chips |
 | `/dashboard/partes/` | Partes/advogados/empresas |
+| `/dashboard/partes/<id>/` | Perfil + 3 charts (tribunal/papel/polo) + lista filtrada |
 | `/dashboard/ingestao/` | Saúde operacional, drift alerts, runs |
+| `/dashboard/workers/` | Filas RQ + workers conectados, auto-refresh 5s |
+| `/dashboard/invites/` | (superuser) Gerar/revogar convites de cadastro |
+| `/invite/<token>/` | (público) Aceitar convite, criar conta |
 | `/api/v1/...` | REST API (HasAPIKey) — Swagger em `/api/v1/docs/` |
 | `/admin/` | Django Admin |
 | `/django-rq/` | Filas RQ |
 | `/metrics` | Prometheus (restrito por IP no nginx) |
 | `/api/v1/health/liveness/` | Liveness probe simples |
 | `/api/v1/health/` | Readiness rico (lag por tribunal, drift, filas) |
+
+## Convites de acesso
+
+Sem auto-cadastro público. Superuser gera link em `/dashboard/invites/`:
+- Token uso único, validade 7 dias
+- Convidado escolhe username/senha em `/invite/<token>/`
+- Captura IP + User-Agent + classificação ip-api.com (país, ISP, mobile/hosting/proxy)
+
+Documentação: [`.ia/ACCOUNTS.md`](.ia/ACCOUNTS.md).
 
 ## Testes
 

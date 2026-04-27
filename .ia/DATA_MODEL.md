@@ -1,6 +1,14 @@
 # Modelo de dados
 
-Todas as entidades em `tribunals/models.py`. Migrations em `tribunals/migrations/`.
+Entidades de domínio em `tribunals/models.py`. Convites em `accounts/models.py`. Migrations em `<app>/migrations/`.
+
+## Apps
+
+```
+tribunals  Tribunal · Process · Movimentacao · IngestionRun · SchemaDriftAlert
+           Parte · ProcessoParte · ClasseJudicial · Assunto
+accounts   Invite
+```
 
 ## Tribunal
 
@@ -28,10 +36,12 @@ ultima_movimentacao_em    datetime NULL
 total_movimentacoes       int           default 0
 
 # Enriquecimento (preenchido pelo enricher do tribunal)
-classe_codigo            char(20)
-classe_nome              char(255)
-assunto_codigo           char(20)
-assunto_nome             char(255)
+classe_codigo            char(20)              # legacy/cache
+classe_nome              char(255)             # legacy/cache
+classe                   FK ClasseJudicial NULL PROTECT      # canônico
+assunto_codigo           char(20)              # legacy/cache
+assunto_nome             char(255)             # legacy/cache
+assunto                  FK Assunto NULL PROTECT             # canônico
 data_autuacao            date  NULL
 valor_causa              numeric(18,2) NULL
 orgao_julgador_codigo    char(20)
@@ -39,6 +49,8 @@ orgao_julgador_nome      char(255)
 juizo                    char(255)
 segredo_justica          bool          default False
 enriquecido_em           datetime NULL
+enriquecimento_status    char(20)      pendente|ok|nao_encontrado|erro
+enriquecimento_erro      text
 
 inserido_em        datetime  auto_now_add
 atualizado_em      datetime  auto_now
@@ -134,17 +146,29 @@ Pessoa física, jurídica ou advogado. **Entidade compartilhada entre processos*
 ```python
 id, primeira_aparicao_em, ultima_aparicao_em, total_processos
 nome                 char(255)
-documento            char(20)            CPF/CNPJ formatado
+documento            char(20)            CPF/CNPJ formatado (real OU mascarado)
 tipo_documento       char(10)            'CPF'|'CNPJ'|''
 oab                  char(20)            'SP123456' — só advogados
 tipo                 char(20)            'pf'|'pj'|'advogado'|'desconhecido'
 
-constraint:  unique(documento)  WHERE documento != ''
-constraint:  unique(oab)        WHERE oab != ''
+constraint:  unique(documento)         WHERE doc != '' AND NOT LIKE '%X%' AND NOT LIKE '%*%'
+                                         (uniq_parte_documento_real)
+constraint:  unique(nome, documento)   WHERE doc LIKE '%X%' OR LIKE '%*%'
+                                         (uniq_parte_documento_mascarado)
+constraint:  unique(oab)               WHERE oab != ''
 indexes:     nome, documento, oab, tipo
 ```
 
-**Dedupe**: chave natural é `documento` (CPF/CNPJ); fallback `oab` pra advogados sem documento; resto cria duplicata aceitável.
+**Dedupe** em 3 caminhos (`enrichers/pje.py::_upsert_parte`):
+
+1. **OAB** (advogados): chave estável e única — precedência.
+2. **Doc real** (CPF/CNPJ sem máscara): PK natural global.
+3. **Doc mascarado** (TRF3 esconde dígitos como `639.XXX.XXX-XX`):
+   - Antes de criar, busca Parte com mesmo nome e doc REAL que case com a máscara via `real_casa_com_mascara` → reusa (mesma entidade vista em TRF1 com doc completo).
+   - Senão, dedupe por `(nome, documento)`.
+4. **Sem doc nem OAB**: `get_or_create((nome, tipo))` — evita explosão de PJ pública (Procuradoria, Defensoria, etc.).
+
+Detalhes em [`ENRICHMENT.md`](ENRICHMENT.md#dedupe-de-partes-_upsert_parte).
 
 ## ProcessoParte
 
@@ -175,7 +199,33 @@ Tribunal 1 ──< Process ──< Movimentacao
 
 Tribunal 1 ──< IngestionRun
 Tribunal 1 ──< SchemaDriftAlert
+
+ClasseJudicial 1 ──< Process
+ClasseJudicial 1 ──< Movimentacao
+Assunto        1 ──< Process
+
+User           1 ──< Invite (created_by)
+User           1 ──< Invite (used_by, OneToOne)
 ```
+
+## ClasseJudicial / Assunto
+
+Catálogos nacionais (TPU/CNJ). PK = código TPU (`char(20)`).
+
+```python
+codigo            char(20)    PK       '1116', '436', etc.
+nome              char(255)            'EXECUÇÃO FISCAL', 'PROCEDIMENTO DO JEC' etc.
+total_processos   int  default 0       atualizado por migration / refresh manual
+indexes:          nome
+```
+
+Padronizados pelo CNJ — uma única tabela serve TRF1, TRF3 e qualquer outro tribunal. Resolve discrepância entre PJe (UPPERCASE limpo) e DJEN (CamelCase com acentos quebrados) usando o nome do PJe como canônico (priorizado em `0010_populate_classe_assunto`).
+
+`enrichers/pje.py::_upsert_catalogo` é race-safe via `bulk_create(ignore_conflicts) + get(codigo=)`.
+
+## Invite (`accounts/models.py`)
+
+Convites de cadastro — uso único, validade 7 dias. Token + classificação ip-api do IP que aceitou. Detalhes em [`ACCOUNTS.md`](ACCOUNTS.md).
 
 ## Volume / espaço
 

@@ -1,6 +1,39 @@
 # Operação
 
-Runbooks específicos por situação. Para troubleshooting geral, comece por `djen_status`.
+Runbooks específicos por situação. Para troubleshooting geral, comece por `djen_status` (CLI) ou `/dashboard/workers/` (UI).
+
+## Stacks
+
+| Ambiente | Compose | Hostname | Tunnel |
+|---|---|---|---|
+| Dev local | `docker-compose.yml` | `localhost` | — |
+| Prod | `docker-compose-prod.yml` | `voyager.was.dev.br` | Cloudflare Tunnel |
+
+Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflared` (token em `CLOUDFLARE_TUNNEL_TOKEN` no `.env`). `web → ALLOWED_HOSTS` e `CSRF_TRUSTED_ORIGINS` precisam incluir o domínio público.
+
+## Workers em prod (`docker-compose-prod.yml`)
+
+```
+worker_default     1 replica   fila 'default' (catch-all)
+worker_ingestion   2 replicas  filas 'djen_ingestion' + 'djen_backfill'
+worker_trf1        4 replicas  fila 'enrich_trf1'
+worker_trf3        4 replicas  fila 'enrich_trf3'
+scheduler          1           rq-scheduler + cancel-and-recreate dos crons
+```
+
+Page `/dashboard/workers/` mostra estado em tempo real (auto-refresh 5s).
+
+## Deploy em prod
+
+```bash
+ssh ubuntu@<server>
+cd ~/voyager
+git pull --ff-only
+docker compose -f docker-compose-prod.yml build web
+docker compose -f docker-compose-prod.yml up -d
+```
+
+`web` roda `migrate --noinput` + `collectstatic` no entrypoint. Migrations grandes (10+ min) tornam o `healthcheck` `unhealthy` temporariamente — workers ficam em `dependency failed to start` até o web ficar healthy. Não é problema, basta aguardar.
 
 ## Comandos do dia-a-dia
 
@@ -67,6 +100,41 @@ docker compose exec web python manage.py djen_backfill TRF3
 ```
 
 `run_backfill` é resilient — pula chunks `success`, retenta `failed`.
+
+## Watchdog de ingestão
+
+Cron `*/5 * * * *` em `djen.jobs.watchdog_ingestao`. Faz auto-heal de 3 cenários:
+
+1. **Zumbis**: `IngestionRun.status=running` e `finished_at IS NULL` há mais de 1h → marca FAILED + grava motivo. Worker que crashou e deixou rastro não trava o sistema.
+2. **Backfill perdido**: pra cada tribunal ativo com `backfill_concluido_em IS NULL`, se nenhum job dele em `djen_backfill` (pending nem started) → `run_backfill.delay(sigla)`. Recupera quando redis perdeu state ou backfill morreu.
+3. **Daily atrasado**: pra tribunal com backfill ok mas sem `IngestionRun success` há >26h → `run_daily_ingestion.delay(sigla)`.
+
+Rodar manualmente (heal imediato sem esperar 5min):
+```bash
+docker compose -f docker-compose-prod.yml exec web python -c "
+import django, os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE','core.settings')
+django.setup()
+from djen.jobs import watchdog_ingestao
+print(watchdog_ingestao())
+"
+```
+
+Output: `{'zumbis_matados': N, 're_backfill': [...], 're_daily': [...]}`.
+
+## Backfill de partes em batch
+
+Re-enfileira processos pendentes/erro pra fila do tribunal:
+
+```bash
+# Todos pendentes do TRF3 (vai pra enrich_trf3)
+docker compose -f docker-compose-prod.yml exec web python manage.py \
+  enriquecer_pendentes --tribunal TRF3 --limit 0
+
+# Reprocessar erros (proxy ruim, rate limit) do TRF1
+docker compose -f docker-compose-prod.yml exec web python manage.py \
+  enriquecer_pendentes --tribunal TRF1 --status erro --limit 0
+```
 
 ## Schema drift detectado
 
@@ -145,6 +213,46 @@ Otimizações se apertar:
 - Drop do índice trigram `mov_texto_trgm` (~700MB) — perde busca por substring exata
 - Particionar `tribunals_movimentacao` por mês (planejado)
 - Cold storage de movs >2 anos pra outra tabela ou S3
+
+## Migrar dados local → prod
+
+`pg_dump` custom format streamado direto pro postgres do servidor:
+
+```bash
+# 1. Para serviços que escrevem no DB do servidor (mantém postgres up)
+ssh ubuntu@<server> "cd ~/voyager && docker compose -f docker-compose-prod.yml \
+  stop web worker_default worker_ingestion worker_trf1 worker_trf3 scheduler"
+
+# 2. Dump local → arquivo no servidor
+docker compose exec -T postgres pg_dump -U voyager -Fc -Z 6 voyager \
+  | ssh ubuntu@<server> "cat > /tmp/voyager.dump"
+
+# 3. Copia pra dentro do container postgres do server e restaura
+ssh ubuntu@<server> "cd ~/voyager && \
+  docker cp /tmp/voyager.dump \$(docker compose -f docker-compose-prod.yml ps -q postgres):/tmp/voyager.dump && \
+  docker compose -f docker-compose-prod.yml exec -T postgres pg_restore \
+    -U voyager -d voyager --clean --if-exists --no-owner --no-acl -j 4 /tmp/voyager.dump"
+
+# 4. Religa serviços
+ssh ubuntu@<server> "cd ~/voyager && docker compose -f docker-compose-prod.yml up -d"
+```
+
+Tempo típico: 11GB local → 2.7GB compressed → ~5min transfer + 20min restore (paralelo `-j 4`).
+
+## Cloudflare Tunnel quebrado / 502 / CSRF falhou
+
+Sintomas:
+- `liveness` retorna 502 → `cloudflared` ou `nginx` desconectou
+- "Verificação CSRF falhou" no login → `X-Forwarded-Proto` chegou como `http`
+
+Diagnóstico:
+```bash
+ssh ubuntu@<server> "cd ~/voyager && docker compose -f docker-compose-prod.yml logs --tail=20 cloudflared"
+```
+
+Espera ver `Registered tunnel connection` em 4 PoPs.
+
+CSRF falha foi resolvida em `infra/nginx.conf`: `proxy_set_header X-Forwarded-Proto https;` (hardcoded) — o nginx em prod só recebe via tunnel, sempre HTTPS no edge.
 
 ## Backups
 
