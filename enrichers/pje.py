@@ -134,63 +134,75 @@ class BasePjeEnricher:
 
     # ---------- HTTP ----------
 
-    def _pick_proxy(self) -> Optional[str]:
-        """Híbrido weighted: pool ProxyScrape 80% (1500 IPs distintos rotativos)
-        + Cortex 20% (residencial via gateway único). Sem essa rotação, o PJe
-        vê sempre o mesmo IP de saída do Cortex e rate-limita rápido.
+    MAX_PROXY_ROTATIONS = 10
 
-        Quando só uma das fontes está disponível, usa ela 100%.
-        """
-        import random
+    def _next_proxy(self, exclude: set) -> Optional[str]:
+        """Próximo proxy do pool ProxyScrape, evitando os já tentados nessa
+        request. Foco no pool (1500 IPs rotativos); Cortex só como fallback
+        quando o pool está realmente exausto."""
+        for _ in range(40):
+            url = self.pool.get()
+            if url and url not in exclude:
+                return url
         cortex = cortex_proxy_url()
-        pool_proxy = self.pool.get()
+        if cortex and cortex not in exclude:
+            return cortex
+        return None
 
-        candidatos = []
-        if pool_proxy:
-            candidatos.append((pool_proxy, 80))
-        if cortex:
-            candidatos.append((cortex, 20))
-
-        if not candidatos:
-            return None
-        if len(candidatos) == 1:
-            return candidatos[0][0]
-
-        urls = [c[0] for c in candidatos]
-        pesos = [c[1] for c in candidatos]
-        return random.choices(urls, weights=pesos, k=1)[0]
-
-    def _proxy(self) -> Optional[dict]:
-        url = self._pick_proxy()
-        return {'http': url, 'https': url} if url else None
+    def _request_with_rotation(self, method: str, url: str, **kwargs) -> requests.Response:
+        """Request com rotação automática em 403/429. Loga cada IP usado e
+        cada rotação. Marca proxy do pool como bad em falha (acelera saída
+        do pool). Sem sleep entre tentativas — a rotação dá um IP novo.
+        Limite: MAX_PROXY_ROTATIONS.
+        """
+        tentados: set = set()
+        last_status = None
+        for tentativa in range(1, self.MAX_PROXY_ROTATIONS + 1):
+            proxy_url = self._next_proxy(tentados)
+            if not proxy_url:
+                self.logger.warning('pool exausto sem proxy disponível', extra={
+                    'tentativa': tentativa, 'url': url,
+                })
+                break
+            tentados.add(proxy_url)
+            proxies = {'http': proxy_url, 'https': proxy_url}
+            self.logger.info('pje request', extra={
+                'method': method, 'url': url[:120], 'proxy': proxy_url,
+                'tentativa': tentativa,
+            })
+            try:
+                resp = self.session.request(
+                    method, url, proxies=proxies, timeout=self.timeout, **kwargs,
+                )
+            except (requests.ConnectionError, requests.Timeout,
+                    requests.exceptions.ChunkedEncodingError) as exc:
+                self.logger.warning('proxy falhou (transport), rotacionando', extra={
+                    'proxy': proxy_url, 'tentativa': tentativa, 'erro': str(exc)[:120],
+                })
+                if proxy_url != cortex_proxy_url():
+                    self.pool.mark_bad(proxy_url)
+                continue
+            if resp.status_code in (403, 429):
+                self.logger.warning('proxy bloqueado pelo PJe, rotacionando', extra={
+                    'proxy': proxy_url, 'status': resp.status_code,
+                    'tentativa': tentativa,
+                })
+                if proxy_url != cortex_proxy_url():
+                    self.pool.mark_bad(proxy_url)
+                last_status = resp.status_code
+                continue
+            resp.raise_for_status()
+            return resp
+        msg = f'{self.MAX_PROXY_ROTATIONS} proxies tentados sem sucesso'
+        if last_status:
+            msg += f' (último status {last_status})'
+        raise requests.HTTPError(msg)
 
     def _get(self, url: str) -> requests.Response:
-        proxy_dict = self._proxy()
-        proxy_url = proxy_dict.get('http') if proxy_dict else None
-        try:
-            resp = self.session.get(url, proxies=proxy_dict, timeout=self.timeout, allow_redirects=True)
-            resp.raise_for_status()
-            return resp
-        except requests.HTTPError as exc:
-            # 403/429 do PJe geralmente indica IP queimado — marca pool bad
-            # pra acelerar rotação. Cortex (gateway) não vai pra bad list.
-            if exc.response is not None and exc.response.status_code in (403, 429):
-                if proxy_url and proxy_url != cortex_proxy_url():
-                    self.pool.mark_bad(proxy_url)
-            raise
+        return self._request_with_rotation('GET', url, allow_redirects=True)
 
     def _post(self, url: str, data: dict) -> requests.Response:
-        proxy_dict = self._proxy()
-        proxy_url = proxy_dict.get('http') if proxy_dict else None
-        try:
-            resp = self.session.post(url, data=data, proxies=proxy_dict, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp
-        except requests.HTTPError as exc:
-            if exc.response is not None and exc.response.status_code in (403, 429):
-                if proxy_url and proxy_url != cortex_proxy_url():
-                    self.pool.mark_bad(proxy_url)
-            raise
+        return self._request_with_rotation('POST', url, data=data)
 
     # ---------- Etapas ----------
 
