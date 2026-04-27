@@ -1,0 +1,19 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Link de convite{% endblock %}
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Link de convite' subtitle='Compartilhe este link com a pessoa convidada — uso único' %}
+
+<div class="card mb-4">
+  <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">URL</div>
+  <input type="text" readonly value="{{ url }}"
+         class="w-full bg-base border border-border rounded px-3 py-2 font-mono text-sm"
+         onclick="this.select(); document.execCommand('copy')">
+  <div class="text-fg-muted text-xs mt-2">
+    Token: <span class="font-mono">{{ invite.token|slice:":24" }}…</span>
+    · Expira em <span title="{{ invite.expires_at }}">{{ invite.expires_at|relative_dt }}</span>
+  </div>
+</div>
+
+<a href="{% url 'accounts:invites-list' %}" class="text-fg-muted hover:text-accent-fg text-sm">← voltar</a>
+{% endblock %}

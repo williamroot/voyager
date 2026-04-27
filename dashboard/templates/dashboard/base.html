@@ -361,6 +361,13 @@
         {% voy_icon "calibrate" "w-4 h-4" %}
         Workers
       </a>
+      {% if user.is_superuser %}
+      {% url 'accounts:invites-list' as invites_url %}
+      <a href="{{ invites_url }}" class="nav-item {% if invites_url in request.path %}active{% endif %}">
+        {% voy_icon "transmission" "w-4 h-4" %}
+        Convites
+      </a>
+      {% endif %}
       <div class="mt-auto px-2 pt-3 border-t border-border/60 text-xs">
         <button onclick="window.toggleTheme()" class="flex items-center gap-2 text-fg-muted hover:text-fg-soft transition-colors py-2">
           <span class="dark:hidden">{% voy_icon "moon" "w-4 h-4" %}</span>

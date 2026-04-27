@@ -1,0 +1,95 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Convites{% endblock %}
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Convites' subtitle='Tokens de cadastro — uso único, validade 7 dias' %}
+
+<div class="card mb-5">
+  <h2 class="text-sm font-semibold text-fg-soft mb-3">Novo convite</h2>
+  <form method="post" action="{% url 'accounts:invites-create' %}" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+    {% csrf_token %}
+    <div>
+      <label class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">E-mail (opcional)</label>
+      <input type="email" name="email_hint" class="w-full bg-base border border-border rounded px-2 py-1.5 text-sm mt-1">
+    </div>
+    <div>
+      <label class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Nota</label>
+      <input type="text" name="note" maxlength="255" class="w-full bg-base border border-border rounded px-2 py-1.5 text-sm mt-1">
+    </div>
+    <button type="submit" class="btn-mission justify-self-start">Gerar link</button>
+  </form>
+</div>
+
+<div class="card overflow-hidden p-0">
+  <table class="w-full text-sm dense">
+    <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
+      <tr>
+        <th class="text-left">Token</th>
+        <th class="text-left">Criado por</th>
+        <th class="text-left">Criado</th>
+        <th class="text-left">Expira</th>
+        <th class="text-left">Status</th>
+        <th class="text-left">Usado por</th>
+        <th class="text-left">IP / Geo</th>
+        <th class="text-right">Ações</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border/80">
+      {% for inv in invites %}
+        <tr class="hover:bg-card/40">
+          <td class="font-mono text-xs">{{ inv.token|slice:":12" }}…</td>
+          <td>{{ inv.created_by.username }}</td>
+          <td class="text-fg-muted" title="{{ inv.created_at }}">{{ inv.created_at|relative_dt }}</td>
+          <td class="text-fg-muted" title="{{ inv.expires_at }}">{{ inv.expires_at|relative_dt }}</td>
+          <td>
+            {% if inv.used_at %}
+              {% include 'dashboard/_partials/badge.html' with text='usado' variant='neutral' size='mini' %}
+            {% elif inv.is_expired %}
+              {% include 'dashboard/_partials/badge.html' with text='expirado' variant='warning' size='mini' %}
+            {% else %}
+              {% include 'dashboard/_partials/badge.html' with text='ativo' variant='accent' size='mini' %}
+            {% endif %}
+            {% if inv.note %}<div class="text-fg-subtle text-[0.7rem] mt-0.5">{{ inv.note }}</div>{% endif %}
+          </td>
+          <td>
+            {% if inv.used_by %}
+              <div class="text-fg-soft">{{ inv.used_by.username }}</div>
+              <div class="text-fg-subtle text-[0.7rem]" title="{{ inv.used_at }}">{{ inv.used_at|relative_dt }}</div>
+            {% else %}
+              <span class="text-fg-subtle">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if inv.used_ip %}
+              <div class="font-mono text-xs">{{ inv.used_ip }}</div>
+              <div class="text-fg-subtle text-[0.7rem]">
+                {% if inv.used_ip_city %}{{ inv.used_ip_city }}, {% endif %}{{ inv.used_ip_country_code|default:'' }}
+              </div>
+              <div class="text-fg-subtle text-[0.65rem]" title="{{ inv.used_user_agent }}">
+                {{ inv.used_ip_isp|default:'' }}
+                {% if inv.used_ip_mobile %} · mobile{% endif %}
+                {% if inv.used_ip_hosting %} · datacenter{% endif %}
+                {% if inv.used_ip_proxy %} · proxy{% endif %}
+              </div>
+            {% else %}
+              <span class="text-fg-subtle">—</span>
+            {% endif %}
+          </td>
+          <td class="text-right whitespace-nowrap">
+            {% if not inv.used_at and not inv.is_expired %}
+              <a href="{% url 'accounts:invites-link' inv.pk %}" class="text-accent-fg hover:underline text-xs">link</a>
+              <form method="post" action="{% url 'accounts:invites-revoke' inv.pk %}" class="inline ml-2">
+                {% csrf_token %}
+                <button type="submit" class="text-danger hover:underline bg-transparent p-0 cursor-pointer text-xs"
+                        onclick="return confirm('Revogar convite?')">revogar</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhum convite criado' subtitle='Use o formulário acima' %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

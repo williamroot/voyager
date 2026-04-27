@@ -10,6 +10,7 @@ urlpatterns = [
     path('', include('django_prometheus.urls')),
     path('api/v1/', include('api.urls')),
     path('dashboard/', include('dashboard.urls')),
+    path('', include('accounts.urls')),
     path('favicon.ico', RedirectView.as_view(url=static_url('dashboard/favicon.svg'), permanent=True)),
     path('', include('dashboard.urls_root')),
 ]

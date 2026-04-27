@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'enrichers',
     'api',
     'dashboard',
+    'accounts',
 ]
 
 MIDDLEWARE = [
@@ -160,6 +161,10 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_TRUSTED_ORIGINS = env.list('DJANGO_CSRF_TRUSTED_ORIGINS', default=[])
+
+# Classificação de IP para auditoria de cadastro (Invite). Vazio = usa
+# endpoint free do ip-api.com (rate limit ~45req/min, sem HTTPS).
+IP_API_KEY = env('IP_API_KEY', default='')
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
