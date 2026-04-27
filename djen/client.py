@@ -28,6 +28,12 @@ class DJENClient:
         self.pool = pool or ProxyScrapePool.singleton()
         self.session = requests.Session()
 
+    def count_window(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:
+        """Devolve o total de movimentações que a DJEN diz existir nessa janela.
+        Faz 1 request com itensPorPagina=1 — barato, usado em auditoria."""
+        payload = self._fetch(sigla_djen, data_inicio, data_fim, pagina=1)
+        return int(payload.get('count') or 0)
+
     def iter_pages(self, sigla_djen: str, data_inicio: date, data_fim: date) -> Iterator[list[dict]]:
         pagina = 1
         while True:
