@@ -22,13 +22,19 @@ class Command(BaseCommand):
         parser.add_argument('--ano-de', type=int, default=None, dest='ano_de')
         parser.add_argument('--limit', type=int, default=1000)
         parser.add_argument('--dry-run', action='store_true', dest='dry_run')
+        parser.add_argument('--max-tentativas', type=int, default=3, dest='max_tentativas',
+                            help='Pula erros já tentados >= N vezes (default 3, evita reprocessamento eterno).')
 
-    def handle(self, *args, tribunal, status, ano_de, limit, dry_run, **opts):
+    def handle(self, *args, tribunal, status, ano_de, limit, dry_run, max_tentativas, **opts):
         siglas = [tribunal] if tribunal else list(_ENRICHERS.keys())
         qs = Process.objects.filter(
             tribunal_id__in=siglas,
             enriquecimento_status=status,
         )
+        # Em status=erro, evita o loop infinito de retentar PJe 403:
+        # após N falhas, deixa quieto. status=pendente nunca foi tentado.
+        if status == Process.ENRIQ_ERRO:
+            qs = qs.filter(enriquecimento_tentativas__lt=max_tentativas)
         if ano_de is not None:
             qs = qs.filter(ano_cnj__gte=ano_de)
 

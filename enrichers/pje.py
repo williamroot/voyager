@@ -126,23 +126,71 @@ class BasePjeEnricher:
         processo.enriquecido_em = timezone.now()
         processo.enriquecimento_status = Process.ENRIQ_ERRO
         processo.enriquecimento_erro = msg[:1000]
-        processo.save(update_fields=['enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro'])
+        processo.enriquecimento_tentativas = (processo.enriquecimento_tentativas or 0) + 1
+        processo.save(update_fields=[
+            'enriquecido_em', 'enriquecimento_status',
+            'enriquecimento_erro', 'enriquecimento_tentativas',
+        ])
 
     # ---------- HTTP ----------
 
+    def _pick_proxy(self) -> Optional[str]:
+        """Híbrido weighted: pool ProxyScrape 80% (1500 IPs distintos rotativos)
+        + Cortex 20% (residencial via gateway único). Sem essa rotação, o PJe
+        vê sempre o mesmo IP de saída do Cortex e rate-limita rápido.
+
+        Quando só uma das fontes está disponível, usa ela 100%.
+        """
+        import random
+        cortex = cortex_proxy_url()
+        pool_proxy = self.pool.get()
+
+        candidatos = []
+        if pool_proxy:
+            candidatos.append((pool_proxy, 80))
+        if cortex:
+            candidatos.append((cortex, 20))
+
+        if not candidatos:
+            return None
+        if len(candidatos) == 1:
+            return candidatos[0][0]
+
+        urls = [c[0] for c in candidatos]
+        pesos = [c[1] for c in candidatos]
+        return random.choices(urls, weights=pesos, k=1)[0]
+
     def _proxy(self) -> Optional[dict]:
-        url = cortex_proxy_url() or self.pool.get()
+        url = self._pick_proxy()
         return {'http': url, 'https': url} if url else None
 
     def _get(self, url: str) -> requests.Response:
-        resp = self.session.get(url, proxies=self._proxy(), timeout=self.timeout, allow_redirects=True)
-        resp.raise_for_status()
-        return resp
+        proxy_dict = self._proxy()
+        proxy_url = proxy_dict.get('http') if proxy_dict else None
+        try:
+            resp = self.session.get(url, proxies=proxy_dict, timeout=self.timeout, allow_redirects=True)
+            resp.raise_for_status()
+            return resp
+        except requests.HTTPError as exc:
+            # 403/429 do PJe geralmente indica IP queimado — marca pool bad
+            # pra acelerar rotação. Cortex (gateway) não vai pra bad list.
+            if exc.response is not None and exc.response.status_code in (403, 429):
+                if proxy_url and proxy_url != cortex_proxy_url():
+                    self.pool.mark_bad(proxy_url)
+            raise
 
     def _post(self, url: str, data: dict) -> requests.Response:
-        resp = self.session.post(url, data=data, proxies=self._proxy(), timeout=self.timeout)
-        resp.raise_for_status()
-        return resp
+        proxy_dict = self._proxy()
+        proxy_url = proxy_dict.get('http') if proxy_dict else None
+        try:
+            resp = self.session.post(url, data=data, proxies=proxy_dict, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code in (403, 429):
+                if proxy_url and proxy_url != cortex_proxy_url():
+                    self.pool.mark_bad(proxy_url)
+            raise
 
     # ---------- Etapas ----------
 

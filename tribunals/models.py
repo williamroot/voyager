@@ -102,6 +102,7 @@ class Process(models.Model):
         max_length=20, choices=ENRIQ_CHOICES, default=ENRIQ_PENDENTE,
     )
     enriquecimento_erro = models.TextField(blank=True)
+    enriquecimento_tentativas = models.PositiveSmallIntegerField(default=0)
 
     inserido_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
