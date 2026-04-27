@@ -1,0 +1,33 @@
+# Compose pra máquinas auxiliares de workers (sem postgres/redis/web/nginx).
+# Conecta no Redis e Postgres do servidor principal (192.168.1.30) via LAN.
+#
+# Setup:
+#   1. .env precisa ter REDIS_URL e DATABASE_URL apontando pra 192.168.1.30
+#   2. Servidor principal precisa expor portas 5432/6379 na LAN (já no
+#      docker-compose-prod.yml com bind 192.168.1.30:porta:porta)
+#   3. docker compose -f docker-compose-workers.yml up -d --build
+services:
+  worker_trf1:
+    build:
+      context: .
+      target: runtime
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_trf1
+    env_file: .env
+    deploy:
+      replicas: 30
+    restart: always
+
+  worker_trf3:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_trf3
+    env_file: .env
+    deploy:
+      replicas: 30
+    restart: always
+
+  worker_default:
+    image: voyager-web:prod
+    command: python manage.py rqworker default
+    env_file: .env
+    restart: always
