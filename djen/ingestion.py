@@ -70,9 +70,19 @@ def chunk_dates(start: date, end: date, days: int = 30) -> Iterator[tuple[date, 
         cur = chunk_end + timedelta(days=1)
 
 
+# DJEN tem cap rígido de 10k itens por janela (paginação para em 100 pgs × 100).
+# Quando bate, chunks com volume alto perdem dados — split adaptativo resolve.
+DJEN_HARD_CAP = 10_000
+
+
 def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
                   client: DJENClient | None = None) -> IngestionRun:
-    """Ingere uma janela contínua de dias para um tribunal. 1 IngestionRun por chamada."""
+    """Ingere uma janela contínua de dias para um tribunal. 1 IngestionRun por chamada.
+
+    Quando o run atinge o cap de 10k (`pgs=100, novas=10000`), divide a
+    janela em 2 metades e re-processa cada uma — recursivamente até cada
+    pedaço caber em 10k. Janelas de 1 dia não são divididas (limite duro).
+    """
     client = client or DJENClient()
     run = IngestionRun.objects.create(
         tribunal=tribunal, status=IngestionRun.STATUS_RUNNING,
@@ -96,6 +106,20 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
         if run.status == IngestionRun.STATUS_SUCCESS:
             run.finished_at = timezone.now()
             run.save(update_fields=['status', 'finished_at', 'erros'])
+
+    # Split adaptativo: se bateu o cap (10k novas + 100 pgs), a janela
+    # provavelmente tinha mais movs que perdemos. Divide em 2 e re-processa.
+    if (run.movimentacoes_novas + run.movimentacoes_duplicadas) >= DJEN_HARD_CAP \
+            and run.paginas_lidas >= 100 \
+            and (data_fim - data_inicio).days >= 1:
+        meio = data_inicio + (data_fim - data_inicio) // 2
+        logger.warning('djen window hit cap, splitting', extra={
+            'tribunal': tribunal.sigla, 'inicio': str(data_inicio), 'fim': str(data_fim),
+            'novas': run.movimentacoes_novas, 'duplicadas': run.movimentacoes_duplicadas,
+        })
+        ingest_window(tribunal, data_inicio, meio, client=client)
+        ingest_window(tribunal, meio + timedelta(days=1), data_fim, client=client)
+
     return run
 
 
