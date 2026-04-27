@@ -18,11 +18,16 @@ EXPECTED_KEYS = frozenset({
     'siglaTribunal', 'nomeOrgao', 'idOrgao',
     'tipoComunicacao', 'tipoDocumento',
     'data_disponibilizacao', 'datadisponibilizacao',
-    'dataenvio',
     'texto', 'destinatarios', 'destinatarioadvogados',
     'nomeClasse', 'codigoClasse', 'link',
     'numeroComunicacao', 'hash', 'meio', 'meiocompleto', 'status',
     'ativo', 'data_cancelamento', 'motivo_cancelamento',
+})
+
+# Chaves que conhecemos e mapeamos mas que o DJEN devolve só em alguns
+# items. Não dispara drift quando ausente OU presente.
+OPTIONAL_KEYS = frozenset({
+    'dataenvio',
 })
 
 CNJ_REGEX = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
@@ -168,7 +173,8 @@ def registrar_drift(tribunal: Tribunal, tipo: str, chaves: list[str], exemplo: d
 
 def parse_item(item: dict, tribunal: Tribunal, run: IngestionRun) -> Optional[ParsedItem]:
     keys = set(item.keys())
-    extra = keys - EXPECTED_KEYS
+    # Opcionais NÃO disparam drift, presença ou ausência.
+    extra = keys - EXPECTED_KEYS - OPTIONAL_KEYS
     missing = EXPECTED_KEYS - keys
     if extra:
         registrar_drift(tribunal, SchemaDriftAlert.TIPO_EXTRA, list(extra), item, run)
