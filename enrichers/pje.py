@@ -15,7 +15,7 @@ from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from djen.proxies import ProxyScrapePool, cortex_proxy_url
@@ -394,13 +394,19 @@ class BasePjeEnricher:
                     )
 
     def _upsert_parte(self, info: dict) -> Parte:
-        """Dedupe de Parte com 3 chaves em ordem de confiança:
+        """Dedupe de Parte em 4 caminhos em ordem de confiança:
 
-        1. OAB — precedência total pra advogados (estável, único por advogado).
-        2. Documento REAL — PK natural (CPF/CNPJ globalmente único).
-        3. Documento MASCARADO + nome — TRF3 esconde dígitos; (nome, máscara)
-           reduz colisão de homônimos sem fingir que máscaras iguais = mesma
-           pessoa quando os nomes diferem.
+        1. OAB — precedência total pra advogados (chave única estável).
+        2. Documento REAL — PK natural global (CPF/CNPJ).
+        3. Documento MASCARADO + nome — TRF3 esconde dígitos; tenta primeiro
+           reusar Parte com doc REAL que case com a máscara (mesma entidade
+           vista em TRF1 com CNPJ completo).
+        4. Sem doc nem OAB — `(nome, tipo)` único pra órgãos públicos
+           (Procuradoria, Defensoria) que aparecem sem CNPJ.
+
+        Todos os caminhos usam `_safe_upsert_parte` que é race-safe via
+        bulk_create(ignore_conflicts) + get — não levanta IntegrityError
+        nem MultipleObjectsReturned em alta concorrência (4+ workers).
         """
         documento = info.get('documento') or ''
         oab = info.get('oab') or ''
@@ -412,16 +418,13 @@ class BasePjeEnricher:
         }
 
         if oab:
-            obj, _ = Parte.objects.update_or_create(
-                oab=oab, defaults={**base, 'documento': documento},
+            return self._safe_upsert_parte(
+                lookup={'oab': oab},
+                defaults={**base, 'documento': documento},
             )
-            return obj
 
         if documento:
             if is_documento_mascarado(documento):
-                # Antes de criar Parte mascarada, ver se existe outra com
-                # mesmo nome e doc REAL que case com a máscara (ex.: TRF1 viu
-                # INSS com CNPJ completo, TRF3 vê mascarado — é a MESMA PJ).
                 from django.db.models import Q
                 candidatos = (
                     Parte.objects
@@ -431,23 +434,51 @@ class BasePjeEnricher:
                 for c in candidatos:
                     if real_casa_com_mascara(c.documento, documento):
                         return c
-                obj, _ = Parte.objects.update_or_create(
-                    nome=nome, documento=documento,
+                return self._safe_upsert_parte(
+                    lookup={'nome': nome, 'documento': documento},
                     defaults={**base, 'oab': ''},
                 )
-            else:
-                obj, _ = Parte.objects.update_or_create(
-                    documento=documento,
-                    defaults={**base, 'oab': ''},
-                )
-            return obj
+            return self._safe_upsert_parte(
+                lookup={'documento': documento},
+                defaults={**base, 'oab': ''},
+            )
 
-        # Sem doc nem OAB: dedupe por (nome, tipo) — evita explosão de
-        # 'Procuradoria Regional Federal' replicada em N processos. Aceita
-        # colisão de homônimos sem doc — limitação intrínseca, não há sinal
-        # melhor pra desambiguar.
-        obj, _ = Parte.objects.get_or_create(
-            documento='', oab='', nome=nome, tipo=base['tipo'],
+        return self._safe_upsert_parte(
+            lookup={'documento': '', 'oab': '', 'nome': nome, 'tipo': base['tipo']},
             defaults={'tipo_documento': base['tipo_documento']},
         )
-        return obj
+
+    @staticmethod
+    def _safe_upsert_parte(*, lookup: dict, defaults: dict) -> Parte:
+        """Race-safe upsert via SELECT → bulk_create(ignore_conflicts) → SELECT.
+
+        Funciona porque cada par `lookup` corresponde a uma UniqueConstraint
+        partial em Parte (real, mascarado, oab, sem-doc-sem-oab). Em corrida:
+          - Worker A faz get(): 0 rows
+          - Worker B faz get(): 0 rows
+          - A: bulk_create([Parte(...)], ignore_conflicts) — INSERT vence
+          - B: bulk_create([Parte(...)], ignore_conflicts) — INSERT vira no-op
+          - Ambos fazem get() final e veem o MESMO row.
+
+        bulk_create(ignore_conflicts=True) emite INSERT ... ON CONFLICT DO
+        NOTHING — não levanta IntegrityError nem polui a transação atômica
+        do enriquecimento.
+        """
+        existing = Parte.objects.filter(**lookup).first()
+        if existing is not None:
+            dirty = {k: v for k, v in defaults.items() if getattr(existing, k) != v}
+            if dirty:
+                for k, v in dirty.items():
+                    setattr(existing, k, v)
+                try:
+                    existing.save(update_fields=list(dirty))
+                except IntegrityError:
+                    pass  # outro worker já atualizou — eventual consistency
+            return existing
+
+        Parte.objects.bulk_create(
+            [Parte(**{**lookup, **defaults})],
+            ignore_conflicts=True,
+        )
+        # Constraint partial garante exatamente 1 row pelo lookup.
+        return Parte.objects.get(**lookup)

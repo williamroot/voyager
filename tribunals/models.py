@@ -174,6 +174,15 @@ class Parte(models.Model):
                            | Q(documento__contains='*')),
                 name='uniq_parte_documento_mascarado',
             ),
+            # Sem doc nem OAB (Procuradoria, Defensoria, órgãos públicos):
+            # único por (nome, tipo) — sem essa constraint o caminho 4 do
+            # _upsert_parte não pode ser idempotente, gerando 64k+ Partes
+            # duplicadas pra "Procuradoria Federal" etc.
+            UniqueConstraint(
+                fields=['nome', 'tipo'],
+                condition=Q(documento='') & Q(oab=''),
+                name='uniq_parte_sem_doc_nem_oab',
+            ),
             UniqueConstraint(fields=['oab'], condition=~Q(oab=''),
                              name='uniq_parte_oab'),
         ]
