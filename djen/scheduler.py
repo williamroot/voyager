@@ -10,7 +10,7 @@ from rq_scheduler import Scheduler
 
 from tribunals.models import Tribunal
 
-from .jobs import refresh_proxy_pool, run_daily_ingestion
+from .jobs import refresh_proxy_pool, run_daily_ingestion, watchdog_ingestao
 
 logger = logging.getLogger('voyager.djen.scheduler')
 
@@ -67,6 +67,19 @@ def register_all() -> dict:
     )
     proxy_job.meta['tag'] = SCHEDULE_TAG
     proxy_job.save_meta()
+    novos += 1
+
+    # watchdog_ingestao a cada 5 min — mata zumbis e re-enfileira backfill/daily
+    # quando algum sumiu da fila (worker crashou, redis perdeu state, etc.).
+    wd_job = scheduler.cron(
+        '*/5 * * * *',
+        func=watchdog_ingestao,
+        queue_name='default',
+        use_local_timezone=True,
+        repeat=None,
+    )
+    wd_job.meta['tag'] = SCHEDULE_TAG
+    wd_job.save_meta()
     novos += 1
 
     logger.info('schedules registrados', extra={'cancelados': cancelados, 'novos': novos})

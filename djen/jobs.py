@@ -110,3 +110,98 @@ def sincronizar_movimentacoes(process_id: int) -> dict:
     from .ingestion import ingest_processo
     p = Process.objects.select_related('tribunal').get(pk=process_id)
     return ingest_processo(p)
+
+
+# Limites do watchdog (constantes em segundos pra deixar explícito)
+WATCHDOG_RUN_ZOMBIE_SECONDS = 60 * 60          # IngestionRun travado >1h = zumbi
+WATCHDOG_DAILY_STALE_SECONDS = 60 * 60 * 26    # Tribunal sem run success em 26h
+
+
+@job('default', timeout=120)
+def watchdog_ingestao() -> dict:
+    """Garante que a ingestão/backfill estão progredindo. Roda em cron.
+
+    Heals:
+      1. Marca como `failed` IngestionRun com status=running e
+         finished_at NULL há mais de 1h (worker crashou).
+      2. Pra cada tribunal ativo com `backfill_concluido_em IS NULL`,
+         re-enfileira `run_backfill` se não houver job dele em
+         djen_backfill (pending ou started).
+      3. Pra cada tribunal com backfill concluído mas sem IngestionRun
+         success nas últimas 26h, re-enfileira `run_daily_ingestion`.
+    """
+    import django_rq
+
+    agora = timezone.now()
+
+    # 1) Zumbis
+    zumbi_cutoff = agora - timedelta(seconds=WATCHDOG_RUN_ZOMBIE_SECONDS)
+    zumbis = IngestionRun.objects.filter(
+        status=IngestionRun.STATUS_RUNNING,
+        finished_at__isnull=True,
+        started_at__lt=zumbi_cutoff,
+    )
+    n_zumbis = zumbis.update(
+        status=IngestionRun.STATUS_FAILED,
+        finished_at=agora,
+        erros=['watchdog: status=running sem finished_at por >1h — worker crashou'],
+    )
+    if n_zumbis:
+        logger.warning('watchdog matou zumbis', extra={'n': n_zumbis})
+
+    # 2 + 3) Re-enfileira backfill/daily
+    backfill_q = django_rq.get_queue('djen_backfill')
+    ingestion_q = django_rq.get_queue('djen_ingestion')
+    backfill_jobs_args = _coletar_args(backfill_q)
+    ingestion_jobs_args = _coletar_args(ingestion_q)
+
+    re_backfill = []
+    re_daily = []
+    daily_stale_cutoff = agora - timedelta(seconds=WATCHDOG_DAILY_STALE_SECONDS)
+
+    for t in Tribunal.objects.filter(ativo=True):
+        if t.backfill_concluido_em is None:
+            if t.sigla not in backfill_jobs_args:
+                from .jobs import run_backfill
+                run_backfill.delay(t.sigla)
+                re_backfill.append(t.sigla)
+            continue
+        # Backfill concluído — confere se daily rodou recentemente.
+        ultima = (
+            IngestionRun.objects.filter(
+                tribunal=t, status=IngestionRun.STATUS_SUCCESS,
+            ).order_by('-finished_at').first()
+        )
+        if (ultima is None or
+            ultima.finished_at is None or
+            ultima.finished_at < daily_stale_cutoff):
+            if t.sigla not in ingestion_jobs_args:
+                from .jobs import run_daily_ingestion
+                run_daily_ingestion.delay(t.sigla)
+                re_daily.append(t.sigla)
+
+    if re_backfill or re_daily:
+        logger.warning('watchdog re-enfileirou jobs', extra={
+            're_backfill': re_backfill, 're_daily': re_daily,
+        })
+
+    return {
+        'zumbis_matados': n_zumbis,
+        're_backfill': re_backfill,
+        're_daily': re_daily,
+    }
+
+
+def _coletar_args(queue) -> set[str]:
+    """Junta o 1º arg de todos os jobs (pending + started) da fila — usado
+    pra detectar 'já tem job pra essa sigla' no watchdog."""
+    siglas = set()
+    for job_id in queue.job_ids:
+        j = queue.fetch_job(job_id)
+        if j and j.args:
+            siglas.add(str(j.args[0]))
+    for job_id in queue.started_job_registry.get_job_ids():
+        j = queue.fetch_job(job_id)
+        if j and j.args:
+            siglas.add(str(j.args[0]))
+    return siglas
