@@ -31,3 +31,11 @@ services:
     command: python manage.py rqworker default
     env_file: .env
     restart: always
+
+  worker_ingestion:
+    image: voyager-web:prod
+    command: python manage.py rqworker djen_ingestion djen_backfill
+    env_file: .env
+    deploy:
+      replicas: 12
+    restart: always

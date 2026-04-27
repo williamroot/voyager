@@ -104,6 +104,23 @@ def refresh_proxy_pool() -> dict:
     return {'proxies_carregados': count}
 
 
+@job('djen_backfill', timeout=14400)
+def reprocessar_janela(tribunal_sigla: str, inicio: str, fim: str) -> dict:
+    """Re-processa uma janela específica (idempotente). Usado pelo command
+    djen_reprocessar_janelas_capped pra paralelizar via fila djen_backfill —
+    cada janela vira 1 job consumido pelos workers, em vez de loop sequencial.
+    """
+    from .ingestion import ingest_window
+    inicio_d = date.fromisoformat(inicio)
+    fim_d = date.fromisoformat(fim)
+    t = Tribunal.objects.get(sigla=tribunal_sigla)
+    run = ingest_window(t, inicio_d, fim_d)
+    return {
+        'run_id': run.pk, 'novas': run.movimentacoes_novas,
+        'pgs': run.paginas_lidas, 'janela': f'{inicio}→{fim}',
+    }
+
+
 @job('manual', timeout=300)
 def sincronizar_movimentacoes(process_id: int) -> dict:
     """Atualiza movimentações de um processo específico via DJEN (?numeroProcesso=...).

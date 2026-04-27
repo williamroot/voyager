@@ -127,7 +127,7 @@ services:
       web:
         condition: service_healthy
     deploy:
-      replicas: 2
+      replicas: 12
     restart: always
 
   worker_default:
