@@ -17,7 +17,14 @@
       {% for p in processos %}
         <tr class="hover:bg-card/40 group transition-colors">
           <td>
-            <a href="{% url 'dashboard:processo-detail' p.pk %}" class="font-mono text-accent-fg hover:text-accent-fg text-[0.82rem]">{{ p.numero_cnj }}</a>
+            <div class="flex items-center gap-2">
+              <a href="{% url 'dashboard:processo-detail' p.pk %}" class="font-mono text-accent-fg hover:text-accent-fg text-[0.82rem]">{{ p.numero_cnj }}</a>
+              {% if p.enriquecimento_status == 'nao_encontrado' %}
+                {% include 'dashboard/_partials/badge.html' with text='não no PJe' variant='warning' size='mini' %}
+              {% elif p.enriquecimento_status == 'erro' %}
+                {% include 'dashboard/_partials/badge.html' with text='falha consulta' variant='danger' size='mini' %}
+              {% endif %}
+            </div>
           </td>
           <td>
             <span class="badge bg-surface border-border text-fg-soft">{{ p.tribunal_id }}</span>
