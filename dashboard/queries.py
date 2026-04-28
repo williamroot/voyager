@@ -335,7 +335,7 @@ def status_workers():
             })
     workers.sort(key=lambda w: (','.join(w['queues']), w['name']))
     result = {'queues': queues, 'workers': workers}
-    cache.set('status_workers_snapshot', result, timeout=15)
+    cache.set('status_workers_snapshot', result, timeout=60)
     return result
 
 

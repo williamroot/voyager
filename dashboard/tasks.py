@@ -48,3 +48,13 @@ def warm_chart_cache():
             errors += 1
 
     logger.info('warm_chart_cache: %d aquecidos, %d erros', warmed, errors)
+
+
+@job('default', timeout=60)
+def warm_workers_cache():
+    """Pré-aquece o snapshot de workers/filas no cache Redis.
+
+    Executado a cada 30s pelo APScheduler — garante que /dashboard/workers/
+    sempre serve do cache (instantâneo), nunca bloqueia na computação Redis.
+    """
+    queries.status_workers()

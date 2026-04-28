@@ -14,7 +14,7 @@ from django.db import close_old_connections
 
 from tribunals.models import Tribunal
 
-from dashboard.tasks import warm_chart_cache
+from dashboard.tasks import warm_chart_cache, warm_workers_cache
 
 from .jobs import (
     refresh_proxy_pool,
@@ -101,6 +101,15 @@ def create_scheduler() -> BlockingScheduler:
         'interval',
         minutes=5,
         id='warm_chart_cache',
+        replace_existing=True,
+    )
+
+    # Aquecimento do snapshot workers/filas: a cada 30s
+    scheduler.add_job(
+        warm_workers_cache.delay,
+        'interval',
+        seconds=30,
+        id='warm_workers_cache',
         replace_existing=True,
     )
 
