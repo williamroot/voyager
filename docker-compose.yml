@@ -31,6 +31,10 @@ services:
     build:
       context: .
       target: runtime
+    volumes:
+      - .:/app
+    environment:
+      PYTHONUNBUFFERED: "1"
     command: >
       sh -c "python manage.py migrate --noinput &&
              gunicorn core.wsgi:application -b 0.0.0.0:8000 -w 4 -k gthread --threads 4 --access-logfile -"
@@ -60,6 +64,19 @@ services:
         condition: service_healthy
     deploy:
       replicas: 2
+    restart: unless-stopped
+
+  worker_audit:
+    build:
+      context: .
+      target: runtime
+    command: python manage.py rqworker djen_audit
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   worker_default:

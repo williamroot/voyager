@@ -226,3 +226,69 @@ def _coletar_args(queue) -> set[str]:
         if j and j.args:
             siglas.add(str(j.args[0]))
     return siglas
+
+
+@job('djen_audit', timeout=3600)
+def audit_cobertura_dia(tribunal_sigla: str, dia_iso: str) -> dict:
+    """Audita a cobertura de um dia que atingiu o CAP via estratégia por órgão.
+
+    Descobrir órgãos a partir da primera passada (até 10k itens), conta itens
+    por órgão e compara com o total já ingerido no banco. Roda na fila djen_audit
+    para não disputar workers com a ingestão principal.
+    """
+    t = Tribunal.objects.get(sigla=tribunal_sigla)
+    dia = date.fromisoformat(dia_iso)
+    client = DJENClient()
+
+    # Coleta primera passada (até 10k) para descobrir os órgãos presentes no dia.
+    primeira_passada: list[dict] = []
+    for pagina in range(1, 11):
+        payload = client._fetch(t.sigla_djen, dia, dia, pagina=pagina, itens_por_pagina=1000)
+        page = payload.get('items') or []
+        primeira_passada.extend(page)
+        if len(page) < 1000:
+            break
+
+    orgao_ids = sorted({it.get('idOrgao') for it in primeira_passada if it.get('idOrgao')})
+    logger.info(
+        'audit %s %s → %d órgãos descobertos via primera passada (%d itens)',
+        tribunal_sigla, dia, len(orgao_ids), len(primeira_passada),
+    )
+
+    # Conta total via probe por órgão (1 request barato por órgão).
+    total_por_orgao: dict[int, int] = {}
+    for oid in orgao_ids:
+        payload = client._fetch(
+            t.sigla_djen, dia, dia,
+            pagina=1, itens_por_pagina=1,
+            extra_params={'orgaoId': oid},
+        )
+        total_por_orgao[oid] = int(payload.get('count') or 0)
+
+    total_via_orgaos = sum(total_por_orgao.values())
+
+    # Conta o que de fato está no banco para esse dia.
+    from tribunals.models import Movimentacao
+    ingerido = Movimentacao.objects.filter(
+        tribunal=t,
+        data_disponibilizacao=dia,
+    ).count()
+
+    gap = total_via_orgaos - ingerido
+    cobertura_pct = ingerido / total_via_orgaos * 100 if total_via_orgaos else 100.0
+
+    log_fn = logger.warning if gap > 100 else logger.info
+    log_fn(
+        'audit %s %s → orgaos=%d total_orgaos=%d ingerido=%d gap=%d cobertura=%.1f%%',
+        tribunal_sigla, dia, len(orgao_ids), total_via_orgaos, ingerido, gap, cobertura_pct,
+    )
+
+    return {
+        'dia': dia_iso,
+        'tribunal': tribunal_sigla,
+        'orgaos_descobertos': len(orgao_ids),
+        'total_via_orgaos': total_via_orgaos,
+        'ingerido': ingerido,
+        'gap': gap,
+        'cobertura_pct': round(cobertura_pct, 1),
+    }

@@ -12,6 +12,7 @@ logger = logging.getLogger('voyager.proxies')
 
 PROXY_LIST_KEY = 'voyager:proxies:scrape:list'
 PROXY_BAD_PREFIX = 'voyager:proxies:scrape:bad:'
+CORTEX_BAD_KEY = 'voyager:proxies:cortex:bad'
 
 
 class ProxyScrapePool:
@@ -61,22 +62,43 @@ class ProxyScrapePool:
             return
         key = PROXY_BAD_PREFIX + url
         self.redis.set(key, '1', ex=self.bad_ttl)
-        logger.warning('proxy marcado ruim', extra={'proxy': url, 'ttl': self.bad_ttl})
+        logger.warning('🚫 proxy ruim: %s (ttl=%ds)', url, self.bad_ttl)
+
+    def mark_cortex_bad(self, ttl: int = 60) -> None:
+        self.redis.set(CORTEX_BAD_KEY, '1', ex=ttl)
+        logger.warning('🚫 cortex em cooldown por %ds (rate-limited)', ttl)
+
+    def cortex_is_bad(self) -> bool:
+        return bool(self.redis.exists(CORTEX_BAD_KEY))
+
+    def load_from_file(self, path: str) -> int:
+        proxies = []
+        with open(path, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                if not line.startswith('http'):
+                    line = f'http://{line}'
+                proxies.append(line)
+        self.redis.set(PROXY_LIST_KEY, json.dumps(proxies))
+        logger.info('🌐 pool carregado do arquivo: %d proxies', len(proxies))
+        return len(proxies)
 
     def refresh(self) -> int:
         if not self.api_key:
-            logger.warning('PROXYSCRAPE_API_KEY não configurada — pool vazio')
+            logger.warning('⚠️  PROXYSCRAPE_API_KEY não configurada — pool vazio')
             self.redis.set(PROXY_LIST_KEY, json.dumps([]))
             return 0
         url = (
             'https://api.proxyscrape.com/v2/account/datacenter_shared/proxy-list'
-            f'?auth={self.api_key}&type=getproxies&protocol=http&format=normal&country=all'
+            f'?auth={self.api_key}&type=getproxies&protocol=http&format=normal&country=BR'
         )
         try:
             resp = requests.get(url, timeout=30)
             resp.raise_for_status()
         except requests.RequestException as exc:
-            logger.error('falha ao atualizar pool ProxyScrape: %s', exc)
+            logger.error('❌ falha ao atualizar pool ProxyScrape: %s', exc)
             return 0
         proxies = []
         for line in resp.text.splitlines():
@@ -87,7 +109,7 @@ class ProxyScrapePool:
                 line = f'http://{line}'
             proxies.append(line)
         self.redis.set(PROXY_LIST_KEY, json.dumps(proxies))
-        logger.info('pool ProxyScrape atualizado', extra={'count': len(proxies)})
+        logger.info('🌐 pool ProxyScrape atualizado: %d proxies BR', len(proxies))
         return len(proxies)
 
     def status(self) -> dict:
@@ -100,7 +122,9 @@ class ProxyScrapePool:
         return {'total': total, 'bad': bad_count, 'saudaveis': max(total - bad_count, 0)}
 
 
-def cortex_proxy_url() -> Optional[str]:
-    if settings.CORTEX_FALLBACK_ENABLED and settings.CORTEX_PROXY_URL:
-        return settings.CORTEX_PROXY_URL
-    return None
+def cortex_proxy_url(pool: Optional['ProxyScrapePool'] = None) -> Optional[str]:
+    if not (settings.CORTEX_FALLBACK_ENABLED and settings.CORTEX_PROXY_URL):
+        return None
+    if pool and pool.cortex_is_bad():
+        return None
+    return settings.CORTEX_PROXY_URL

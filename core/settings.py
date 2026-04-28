@@ -121,6 +121,7 @@ RQ_QUEUES = {
     'default':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 3600},
     'djen_ingestion':  {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 7200},
     'djen_backfill':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 86400},
+    'djen_audit':      {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 3600},
     # Enriquecimento por tribunal — workers dedicados por sigla pra
     # paralelizar coletas no PJe consulta pública sem misturar pools.
     'enrich_trf1':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
@@ -189,11 +190,31 @@ try:
 except ImportError:
     _SENTRY_AVAILABLE = False
 
+try:
+    import colorlog as _colorlog
+    _COLORLOG_AVAILABLE = True
+except ImportError:
+    _COLORLOG_AVAILABLE = False
+
+_use_color = DEBUG and _COLORLOG_AVAILABLE
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'console': {'format': '%(asctime)s %(levelname)s %(name)s — %(message)s'},
+        **({'color': {
+            '()': 'colorlog.ColoredFormatter',
+            'format': '%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(cyan)s%(name)s%(reset)s — %(message)s',
+            'datefmt': '%H:%M:%S',
+            'log_colors': {
+                'DEBUG':    'white',
+                'INFO':     'bold_green',
+                'WARNING':  'bold_yellow',
+                'ERROR':    'bold_red',
+                'CRITICAL': 'bold_red,bg_white',
+            },
+        }} if _use_color else {}),
         **({
             'json': {
                 '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
@@ -204,12 +225,12 @@ LOGGING = {
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'json' if (_JSON_LOG_AVAILABLE and not DEBUG) else 'console',
+            'formatter': 'color' if _use_color else ('json' if (_JSON_LOG_AVAILABLE and not DEBUG) else 'console'),
         },
     },
     'root': {'handlers': ['console'], 'level': 'INFO'},
     'loggers': {
-        'voyager': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'voyager': {'handlers': ['console'], 'level': 'DEBUG' if DEBUG else 'INFO', 'propagate': False},
         'rq.worker': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
     },
 }

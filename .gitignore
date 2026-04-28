@@ -22,3 +22,15 @@ static/dist/
 *.log
 infra/certs/*
 !infra/certs/.gitkeep
+
+# Dados baixados localmente — não commitar
+data/
+
+# Arquivos de sessão do Playwright MCP
+.playwright-mcp/
+
+# Listas de proxies (credenciais)
+proxyscrape_*.txt
+
+# Dumps locais
+*.tar.gz

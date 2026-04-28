@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Iterator
 
@@ -14,6 +15,11 @@ from .parser import parse_item
 logger = logging.getLogger('voyager.djen.ingestion')
 
 BATCH_SIZE = 500
+
+UF_OABS = [
+    'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
+    'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO',
+]
 
 # Tribunais com enricher implementado. Process novo nesses tribunais é
 # auto-enfileirado pra enriquecimento via consulta pública.
@@ -79,11 +85,22 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
                   client: DJENClient | None = None) -> IngestionRun:
     """Ingere uma janela contínua de dias para um tribunal. 1 IngestionRun por chamada.
 
-    Quando o run atinge o cap de 10k (`pgs=100, novas=10000`), divide a
-    janela em 2 metades e re-processa cada uma — recursivamente até cada
-    pedaço caber em 10k. Janelas de 1 dia não são divididas (limite duro).
+    Estratégia adaptativa ao CAP de 10k:
+    - Janela > 1 dia que bate o CAP: divide em 2 metades e re-processa recursivamente.
+    - Janela de 1 dia que bate o CAP: proba count antes e usa ufOab (27 UFs) como filtro,
+      garantindo cobertura completa. Enfileira job de auditoria por órgão.
     """
     client = client or DJENClient()
+
+    # Probe antecipado: dia único com CAP vai direto pra estratégia UF.
+    if data_inicio == data_fim:
+        count = client.count_only(tribunal.sigla_djen, data_inicio, data_fim)
+        if count >= DJEN_HARD_CAP:
+            logger.warning('djen single-day cap detected via probe, using UF strategy', extra={
+                'tribunal': tribunal.sigla, 'dia': str(data_inicio), 'count': count,
+            })
+            return _ingest_day_por_uf(tribunal, data_inicio, client)
+
     run = IngestionRun.objects.create(
         tribunal=tribunal, status=IngestionRun.STATUS_RUNNING,
         janela_inicio=data_inicio, janela_fim=data_fim,
@@ -107,8 +124,7 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
             run.finished_at = timezone.now()
             run.save(update_fields=['status', 'finished_at', 'erros'])
 
-    # Split adaptativo: se bateu o cap (10k novas + 100 pgs), a janela
-    # provavelmente tinha mais movs que perdemos. Divide em 2 e re-processa.
+    # Split adaptativo: se bateu o cap em janela > 1 dia, divide em 2 metades.
     if (run.movimentacoes_novas + run.movimentacoes_duplicadas) >= DJEN_HARD_CAP \
             and run.paginas_lidas >= 100 \
             and (data_fim - data_inicio).days >= 1:
@@ -119,6 +135,93 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
         })
         ingest_window(tribunal, data_inicio, meio, client=client)
         ingest_window(tribunal, meio + timedelta(days=1), data_fim, client=client)
+
+    return run
+
+
+def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> IngestionRun:
+    """Ingere um dia com >10k movs subdividindo por ufOab (27 UFs em paralelo).
+
+    Nenhum UF isolado atinge o CAP, então a soma garante cobertura completa.
+    Itens são deduplicados pelo campo 'id' antes do INSERT.
+    Após ingestão, enfileira job de auditoria por órgão na fila djen_audit.
+    """
+    run = IngestionRun.objects.create(
+        tribunal=tribunal, status=IngestionRun.STATUS_RUNNING,
+        janela_inicio=dia, janela_fim=dia,
+    )
+    cnjs_tocados: set[str] = set()
+
+    def _fetch_uf(uf: str) -> list[dict]:
+        items = []
+        for pagina in range(1, 11):  # max 10 × 1000 = 10k por UF (nenhum UF chega perto)
+            payload = client._fetch(
+                tribunal.sigla_djen, dia, dia,
+                pagina=pagina, itens_por_pagina=1000,
+                extra_params={'ufOab': uf},
+            )
+            page = payload.get('items') or []
+            items.extend(page)
+            if len(page) < 1000:
+                break
+        return items
+
+    try:
+        all_items: list[dict] = []
+        seen_ids: set = set()
+        uf_erros: list[str] = []
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futs = {pool.submit(_fetch_uf, uf): uf for uf in UF_OABS}
+            for fut in as_completed(futs):
+                uf = futs[fut]
+                try:
+                    uf_items = fut.result()
+                    novos_uf = 0
+                    for it in uf_items:
+                        item_id = it.get('id')
+                        if item_id not in seen_ids:
+                            seen_ids.add(item_id)
+                            all_items.append(it)
+                            novos_uf += 1
+                    logger.debug('uf=%s → %d itens (%d únicos novos)', uf, len(uf_items), novos_uf)
+                except Exception as exc:
+                    uf_erros.append(uf)
+                    run.erros.append({'erro': 'uf_fetch', 'uf': uf, 'detalhe': str(exc)[:200]})
+                    logger.warning('falha ao coletar uf=%s: %s', uf, str(exc)[:120])
+
+        if uf_erros:
+            logger.warning('djen UF strategy: %d UFs falharam: %s', len(uf_erros), uf_erros)
+
+        logger.info(
+            'djen UF strategy %s %s → %d itens únicos (%d UFs, %d erros)',
+            tribunal.sigla, dia, len(all_items), len(UF_OABS), len(uf_erros),
+        )
+
+        for i in range(0, len(all_items), BATCH_SIZE):
+            _process_page(all_items[i:i + BATCH_SIZE], tribunal, run, cnjs_tocados)
+
+        if cnjs_tocados:
+            _atualizar_resumo_processos(tribunal, cnjs_tocados)
+        run.status = IngestionRun.STATUS_SUCCESS
+    except Exception as exc:
+        run.status = IngestionRun.STATUS_FAILED
+        run.erros.append({'erro': 'execucao_uf', 'detalhe': str(exc)[:500]})
+        logger.exception('_ingest_day_por_uf failed', extra={'run_id': run.pk, 'tribunal': tribunal.sigla})
+        run.finished_at = timezone.now()
+        run.save(update_fields=['status', 'erros', 'finished_at'])
+        raise
+    finally:
+        if run.status == IngestionRun.STATUS_SUCCESS:
+            run.finished_at = timezone.now()
+            run.save(update_fields=['status', 'finished_at', 'erros'])
+
+    # Enfileira auditoria de cobertura por órgão de forma assíncrona.
+    try:
+        from .jobs import audit_cobertura_dia
+        audit_cobertura_dia.delay(tribunal.sigla, str(dia))
+    except Exception as exc:
+        logger.warning('falha ao enfileirar audit_cobertura_dia: %s', exc)
 
     return run
 
