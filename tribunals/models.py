@@ -87,6 +87,7 @@ class Process(models.Model):
     juizo = models.CharField(max_length=255, blank=True)
     segredo_justica = models.BooleanField(default=False)
     enriquecido_em = models.DateTimeField(null=True, blank=True)
+    ultima_sinc_djen_em = models.DateTimeField(null=True, blank=True)
 
     ENRIQ_PENDENTE = 'pendente'
     ENRIQ_OK = 'ok'

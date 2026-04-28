@@ -133,6 +133,19 @@ def sincronizar_movimentacoes(process_id: int) -> dict:
     return ingest_processo(p)
 
 
+@job('djen_backfill', timeout=600)
+def sync_movimentacoes_bulk(process_id: int) -> dict:
+    """Sincroniza histórico DJEN de um processo — versão bulk para ingestão automática.
+
+    Mesma lógica do botão 'Sincronizar movimentações' na UI, mas roda na fila
+    djen_backfill para não disputar com cliques interativos do dashboard.
+    Disparado automaticamente por _enfileirar_todos_enrichments após cada ingestão.
+    """
+    from .ingestion import ingest_processo
+    p = Process.objects.select_related('tribunal').get(pk=process_id)
+    return ingest_processo(p)
+
+
 # Limites do watchdog (constantes em segundos pra deixar explícito)
 WATCHDOG_RUN_ZOMBIE_SECONDS = 60 * 60          # IngestionRun travado >1h = zumbi
 WATCHDOG_DAILY_STALE_SECONDS = 60 * 60 * 26    # Tribunal sem run success em 26h

@@ -48,6 +48,7 @@ def ingest_processo(processo, client: DJENClient | None = None) -> dict:
             _process_page(items, tribunal, run, cnjs_tocados)
         if cnjs_tocados:
             _atualizar_resumo_processos(tribunal, cnjs_tocados)
+        Process.objects.filter(pk=processo.pk).update(ultima_sinc_djen_em=timezone.now())
         run.status = IngestionRun.STATUS_SUCCESS
     except Exception as exc:
         run.status = IngestionRun.STATUS_FAILED
@@ -111,6 +112,7 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
             _process_page(items, tribunal, run, cnjs_tocados)
         if cnjs_tocados:
             _atualizar_resumo_processos(tribunal, cnjs_tocados)
+            _enfileirar_todos_enrichments(tribunal, cnjs_tocados)
         run.status = IngestionRun.STATUS_SUCCESS
     except Exception as exc:
         run.status = IngestionRun.STATUS_FAILED
@@ -203,6 +205,7 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
 
         if cnjs_tocados:
             _atualizar_resumo_processos(tribunal, cnjs_tocados)
+            _enfileirar_todos_enrichments(tribunal, cnjs_tocados)
         run.status = IngestionRun.STATUS_SUCCESS
     except Exception as exc:
         run.status = IngestionRun.STATUS_FAILED
@@ -254,17 +257,10 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun,
         ]
         if novos_processos:
             Process.objects.bulk_create(novos_processos, ignore_conflicts=True, batch_size=BATCH_SIZE)
-            cnjs_realmente_novos = {p.numero_cnj for p in novos_processos} - existentes_cnj.keys()
             existentes_cnj = dict(
                 Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs_pagina)
                 .values_list('numero_cnj', 'pk')
             )
-            # Auto-enfileira enriquecimento dos processos novos (após commit) — gate por
-            # tribunais com enricher implementado pra evitar ValueError no job.
-            if tribunal.sigla in TRIBUNAIS_COM_ENRICHER:
-                ids_pra_enriquecer = [existentes_cnj[c] for c in cnjs_realmente_novos
-                                       if c in existentes_cnj]
-                transaction.on_commit(lambda ids=ids_pra_enriquecer: _enfileirar_enrichers(ids))
 
         ja_existem_extids = set(
             Movimentacao.objects.filter(tribunal=tribunal, external_id__in=ext_ids_pagina)
@@ -354,19 +350,52 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str]) -> None:
         )
 
 
-def _enfileirar_enrichers(process_ids: list[int]) -> None:
-    """Enfileira jobs de enriquecimento. Importação local pra evitar ciclo
-    djen ↔ enrichers (enrichers usa Tribunal/Process do tribunals)."""
-    if not process_ids:
+def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
+    """Para todo processo tocado na ingestão, enfileira:
+      1. Enriquecimento no tribunal (PJe consulta pública) — só tribunais com enricher.
+      2. Sincronização do histórico DJEN do processo (djen_backfill queue).
+    Pula processos enriquecidos/sincronizados nas últimas 24h.
+    """
+    if not cnjs:
         return
-    from enrichers.jobs import enqueue_enriquecimento
-    # Mapa pid→sigla pra rotear pra fila correta sem N+1 query.
-    siglas = dict(Process.objects.filter(pk__in=process_ids).values_list('pk', 'tribunal_id'))
-    for pid in process_ids:
-        sigla = siglas.get(pid)
-        if not sigla:
-            continue
-        try:
-            enqueue_enriquecimento(pid, sigla)
-        except Exception as exc:
-            logger.warning('falha ao enfileirar enrichment', extra={'process_id': pid, 'erro': str(exc)})
+
+    cutoff = timezone.now() - timedelta(hours=24)
+    procs = list(
+        Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
+        .values('pk', 'enriquecido_em', 'ultima_sinc_djen_em')
+    )
+    if not procs:
+        return
+
+    elegíveis_tribunal = []
+    elegíveis_djen = []
+    for p in procs:
+        enriq_stale = p['enriquecido_em'] is None or p['enriquecido_em'] < cutoff
+        djen_stale = p['ultima_sinc_djen_em'] is None or p['ultima_sinc_djen_em'] < cutoff
+        if enriq_stale:
+            elegíveis_tribunal.append(p['pk'])
+        if djen_stale:
+            elegíveis_djen.append(p['pk'])
+
+    # Enriquecimento no tribunal (PJe).
+    if elegíveis_tribunal and tribunal.sigla in TRIBUNAIS_COM_ENRICHER:
+        from enrichers.jobs import enqueue_enriquecimento
+        for pid in elegíveis_tribunal:
+            try:
+                enqueue_enriquecimento(pid, tribunal.sigla)
+            except Exception as exc:
+                logger.warning('falha ao enfileirar enrichment', extra={'pid': pid, 'erro': str(exc)})
+
+    # Sincronização do histórico DJEN do processo.
+    if elegíveis_djen:
+        from .jobs import sync_movimentacoes_bulk
+        for pid in elegíveis_djen:
+            try:
+                sync_movimentacoes_bulk.delay(pid)
+            except Exception as exc:
+                logger.warning('falha ao enfileirar sync_djen', extra={'pid': pid, 'erro': str(exc)})
+
+    logger.info(
+        'enrichments enfileirados %s → tribunal=%d djen=%d (de %d tocados)',
+        tribunal.sigla, len(elegíveis_tribunal), len(elegíveis_djen), len(procs),
+    )
