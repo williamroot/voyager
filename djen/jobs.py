@@ -228,17 +228,17 @@ def watchdog_ingestao() -> dict:
 
 def _coletar_args(queue) -> set[str]:
     """Junta o 1º arg de todos os jobs (pending + started) da fila — usado
-    pra detectar 'já tem job pra essa sigla' no watchdog."""
-    siglas = set()
-    for job_id in queue.job_ids:
-        j = queue.fetch_job(job_id)
-        if j and j.args:
-            siglas.add(str(j.args[0]))
-    for job_id in queue.started_job_registry.get_job_ids():
-        j = queue.fetch_job(job_id)
-        if j and j.args:
-            siglas.add(str(j.args[0]))
-    return siglas
+    pra detectar 'já tem job pra essa sigla' no watchdog.
+
+    Usa Job.fetch_many (pipeline) em vez de 1 request por job — evita
+    timeout com filas grandes (ex: 14k+ jobs em djen_backfill).
+    """
+    from rq.job import Job as RQJob
+    all_ids = list(queue.job_ids) + list(queue.started_job_registry.get_job_ids())
+    if not all_ids:
+        return set()
+    jobs = RQJob.fetch_many(all_ids, connection=queue.connection)
+    return {str(j.args[0]) for j in jobs if j and j.args}
 
 
 BACKFILL_WATERMARK = 200   # não enfileira mais se djen_backfill já tem isso
