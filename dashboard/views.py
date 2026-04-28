@@ -68,7 +68,9 @@ def _split_csv(value: str | None) -> list[str]:
 @require_GET
 def overview(request):
     backfill_em_curso, cobertura_ate = _backfill_em_curso()
-    dias = _periodo_dias(request, default=None if backfill_em_curso else 90)
+    # Padrão: todo o período (None). Backfill em curso ainda vira None
+    # (mantém banner amarelo). Usuário pode escolher 7d/30d/90d/365d via UI.
+    dias = _periodo_dias(request, default=None)
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
     # KPIs ficam server-side (rápido, count() em PG analyze). Charts carregam lazy via fetch.
     ctx = {
