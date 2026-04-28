@@ -242,43 +242,58 @@ def status_workers():
     a lista de workers vivos com fila atendida + idle time. Usado pela
     página `/dashboard/workers/`.
 
-    Reusa UMA conexão Redis pra todas as queues — antes cada `get_queue`
-    podia abrir conexão nova, com 5+ filas e polling de 15s isso lotava
-    TIME_WAIT no container web (28k+ sockets, port exhaustion).
+    Um único pipeline Redis busca todos os dados de filas + workers —
+    com 170+ workers e Redis saturado, chamadas sequenciais somavam 90s+.
+    Resultado cacheado por 15s para evitar re-cálculo em reloads rápidos.
     """
+    from django.core.cache import cache
+    cached = cache.get('status_workers_snapshot')
+    if cached is not None:
+        return cached
+
     import django_rq
     from rq import Queue
 
     conn = django_rq.get_connection('default')
     queue_names = list(__import__('django.conf', fromlist=['settings']).settings.RQ_QUEUES.keys())
 
-    queues = []
+    # Um pipeline único para todos os contadores de fila (antes: 6 round-trips × N filas)
+    pipe = conn.pipeline()
     for qname in queue_names:
-        q = Queue(qname, connection=conn)
+        pipe.llen(f'rq:queue:{qname}')
+        pipe.zcard(f'rq:wip:{qname}')
+        pipe.zcard(f'rq:finished:{qname}')
+        pipe.zcard(f'rq:failed:{qname}')
+        pipe.zcard(f'rq:scheduled:{qname}')
+        pipe.zcard(f'rq:deferred:{qname}')
+    pipe.smembers('rq:workers')
+    pipe_results = pipe.execute()
+
+    queues = []
+    for i, qname in enumerate(queue_names):
+        base = i * 6
         queues.append({
             'name': qname,
-            'pending': len(q),
-            'started': q.started_job_registry.count,
-            'finished': q.finished_job_registry.count,
-            'failed': q.failed_job_registry.count,
-            'scheduled': q.scheduled_job_registry.count,
-            'deferred': q.deferred_job_registry.count,
+            'pending': pipe_results[base],
+            'started': pipe_results[base + 1],
+            'finished': pipe_results[base + 2],
+            'failed': pipe_results[base + 3],
+            'scheduled': pipe_results[base + 4],
+            'deferred': pipe_results[base + 5],
         })
-    # Worker.all() faz hmget por worker — com 300+ workers (multi-host) e
-    # Redis remoto bate timeout do gunicorn (60s). Lê via pipeline: 1 round-trip
-    # pega o hash de todos. Aceitamos heartbeat parcial — workers zumbis
-    # (hash limpo) são pulados.
+
+    worker_keys = [k.decode() if isinstance(k, bytes) else k
+                   for k in pipe_results[-1]]
+
     from datetime import datetime, timezone as dt_timezone
     now_utc_naive = datetime.now(dt_timezone.utc).replace(tzinfo=None)
 
-    worker_keys = [k.decode() if isinstance(k, bytes) else k
-                   for k in conn.smembers('rq:workers')]
     workers = []
     if worker_keys:
-        pipe = conn.pipeline()
+        pipe2 = conn.pipeline()
         for k in worker_keys:
-            pipe.hgetall(k)
-        results = pipe.execute()
+            pipe2.hgetall(k)
+        results = pipe2.execute()
         for raw in results:
             if not raw:
                 continue
@@ -319,7 +334,9 @@ def status_workers():
                 'total_working_time': working_time,
             })
     workers.sort(key=lambda w: (','.join(w['queues']), w['name']))
-    return {'queues': queues, 'workers': workers}
+    result = {'queues': queues, 'workers': workers}
+    cache.set('status_workers_snapshot', result, timeout=15)
+    return result
 
 
 def estatisticas_por_tribunal():
