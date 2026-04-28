@@ -241,6 +241,111 @@ def _coletar_args(queue) -> set[str]:
     return siglas
 
 
+BACKFILL_WATERMARK = 200   # não enfileira mais se djen_backfill já tem isso
+BACKFILL_BATCH = 100       # dias por tick
+
+
+@job('djen_backfill', timeout=3600)
+def backfill_dia(tribunal_sigla: str, dia_iso: str) -> dict:
+    """Ingere um único dia — unidade atômica do backfill retroativo.
+
+    Skip rápido (sem request à API) se qualquer IngestionRun success já cobre o dia.
+    """
+    t = Tribunal.objects.get(sigla=tribunal_sigla)
+    dia = date.fromisoformat(dia_iso)
+    if _dia_coberto(t, dia):
+        return {'skip': True, 'dia': dia_iso}
+    run = ingest_window(t, dia, dia)
+    return {'run_id': run.pk, 'novas': run.movimentacoes_novas, 'dia': dia_iso}
+
+
+@job('default', timeout=120)
+def tick_backfill_retroativo(tribunal_sigla: str) -> dict:
+    """Tick a cada 10min: loga progresso e alimenta djen_backfill com dias pendentes.
+
+    Percorre de hoje para o passado. Para quando a fila já tem >= BACKFILL_WATERMARK
+    jobs pendentes. Tanto TRF1 quanto TRF3 têm seu próprio tick independente.
+    """
+    import django_rq
+
+    t = Tribunal.objects.filter(sigla=tribunal_sigla, ativo=True).first()
+    if not t or not t.data_inicio_disponivel:
+        return {'skip': 'tribunal inativo ou sem data_inicio_disponivel'}
+
+    hoje = date.today()
+    ini = t.data_inicio_disponivel
+    total_dias = (hoje - ini).days + 1
+
+    cobertos = _dias_cobertos(t, ini, hoje)
+    # Mais recente para o mais antigo — prioriza dados frescos
+    pendentes = [
+        ini + timedelta(days=i)
+        for i in range(total_dias - 1, -1, -1)
+        if (ini + timedelta(days=i)) not in cobertos
+    ]
+
+    pct = len(cobertos) / total_dias * 100 if total_dias else 100.0
+    logger.info(
+        'backfill %s: %d/%d dias (%.1f%%) · %d pendentes · próximo=%s',
+        tribunal_sigla, len(cobertos), total_dias, pct,
+        len(pendentes), pendentes[0] if pendentes else '-',
+    )
+
+    if not pendentes:
+        logger.info('backfill %s: 100%% concluído!', tribunal_sigla)
+        return {'completo': True, 'total': total_dias}
+
+    backfill_q = django_rq.get_queue('djen_backfill')
+    q_len = len(backfill_q)
+    if q_len >= BACKFILL_WATERMARK:
+        logger.debug('backfill %s: fila com %d jobs — aguardando', tribunal_sigla, q_len)
+        return {'aguardando': True, 'fila': q_len, 'pendentes': len(pendentes)}
+
+    vagas = BACKFILL_WATERMARK - q_len
+    a_enfileirar = pendentes[:min(BACKFILL_BATCH, vagas)]
+    for dia in a_enfileirar:
+        backfill_dia.delay(tribunal_sigla, str(dia))
+
+    logger.info(
+        'backfill %s: +%d dias enfileirados (fila era %d) · %.1f%% completo',
+        tribunal_sigla, len(a_enfileirar), q_len, pct,
+    )
+    return {
+        'enfileirados': len(a_enfileirar),
+        'pendentes_restantes': len(pendentes) - len(a_enfileirar),
+        'pct': round(pct, 1),
+    }
+
+
+def _dia_coberto(tribunal: Tribunal, dia: date) -> bool:
+    return IngestionRun.objects.filter(
+        tribunal=tribunal,
+        status=IngestionRun.STATUS_SUCCESS,
+        janela_inicio__lte=dia,
+        janela_fim__gte=dia,
+    ).exists()
+
+
+def _dias_cobertos(tribunal: Tribunal, ini: date, fim: date) -> set[date]:
+    """Retorna set de dates cobertos por algum IngestionRun success na janela."""
+    runs = list(
+        IngestionRun.objects.filter(
+            tribunal=tribunal,
+            status=IngestionRun.STATUS_SUCCESS,
+            janela_inicio__lte=fim,
+            janela_fim__gte=ini,
+        ).values('janela_inicio', 'janela_fim')
+    )
+    covered: set[date] = set()
+    for run in runs:
+        d = max(run['janela_inicio'], ini)
+        end = min(run['janela_fim'], fim)
+        while d <= end:
+            covered.add(d)
+            d += timedelta(days=1)
+    return covered
+
+
 @job('djen_audit', timeout=3600)
 def audit_cobertura_dia(tribunal_sigla: str, dia_iso: str) -> dict:
     """Audita a cobertura de um dia que atingiu o CAP via estratégia por órgão.

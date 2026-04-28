@@ -1,101 +1,96 @@
-"""Registra crons no rq-scheduler de forma idempotente.
+"""Scheduler APScheduler para crons do Voyager.
 
-Sempre cancela as schedules existentes desta aplicação antes de re-registrar,
-evitando duplicação a cada restart do container `scheduler`.
+Usa BlockingScheduler (sem persistência em banco — jobs são leves e
+idempotentes, então re-registrar a cada restart é OK).
+
+Padrão: o scheduler enfileira jobs RQ via .delay(); a execução pesada
+fica nos workers, não no processo do scheduler.
 """
 import logging
 
-import django_rq
-from rq_scheduler import Scheduler
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_SUBMITTED
+from apscheduler.schedulers.blocking import BlockingScheduler
+from django.db import close_old_connections
 
 from tribunals.models import Tribunal
 
-from .jobs import refresh_proxy_pool, run_daily_ingestion, watchdog_ingestao
+from .jobs import (
+    refresh_proxy_pool,
+    run_daily_ingestion,
+    tick_backfill_retroativo,
+    watchdog_ingestao,
+)
 
 logger = logging.getLogger('voyager.djen.scheduler')
 
-SCHEDULE_TAG = 'voyager-cron'
+
+def _close_db(event):
+    close_old_connections()
 
 
-def _get_scheduler() -> Scheduler:
-    return django_rq.get_scheduler('default')
-
-
-def _cancel_existing(scheduler: Scheduler) -> int:
-    cancelled = 0
-    for job in list(scheduler.get_jobs()):
-        meta = job.meta or {}
-        if meta.get('tag') == SCHEDULE_TAG:
-            scheduler.cancel(job)
-            cancelled += 1
-    return cancelled
-
-
-def register_all() -> dict:
-    scheduler = _get_scheduler()
-    cancelados = _cancel_existing(scheduler)
-
-    novos = 0
-    # Tribunais ativos: 1 cron diário cada, escalonado de 30 em 30 min a partir das 04:00.
+def create_scheduler() -> BlockingScheduler:
+    """Cria e configura o BlockingScheduler com todos os crons do Voyager."""
     ativos = list(Tribunal.objects.filter(ativo=True).order_by('sigla'))
+
+    scheduler = BlockingScheduler(timezone='America/Sao_Paulo')
+    scheduler.add_listener(
+        _close_db,
+        EVENT_JOB_SUBMITTED | EVENT_JOB_EXECUTED | EVENT_JOB_ERROR,
+    )
+
+    # Ingestão diária — escalonado de 30 em 30 min a partir das 04:00
     for idx, t in enumerate(ativos):
-        hour, minute = 4, (idx * 30) % 60 + (30 if idx >= 2 else 0)
-        # ex.: TRF1 04:00, TRF3 04:30, TRF? 05:00, ...
         hour = 4 + (idx // 2)
         minute = 0 if idx % 2 == 0 else 30
-        cron = f'{minute} {hour} * * *'
-        sched_job = scheduler.cron(
-            cron,
-            func=run_daily_ingestion,
+        scheduler.add_job(
+            run_daily_ingestion.delay,
+            'cron',
             args=[t.sigla],
-            queue_name='djen_ingestion',
-            use_local_timezone=True,
-            repeat=None,
+            hour=hour,
+            minute=minute,
+            id=f'daily_ingestion_{t.sigla}',
+            replace_existing=True,
         )
-        sched_job.meta['tag'] = SCHEDULE_TAG
-        sched_job.save_meta()
-        novos += 1
-        logger.info('agendado run_daily_ingestion', extra={'tribunal': t.sigla, 'cron': cron})
+        logger.info('agendado daily_ingestion %s %02d:%02d', t.sigla, hour, minute)
 
-    # refresh_proxy_pool a cada 15 min
-    proxy_job = scheduler.cron(
-        '*/15 * * * *',
-        func=refresh_proxy_pool,
-        queue_name='default',
-        use_local_timezone=True,
-        repeat=None,
+    # Tick de backfill retroativo: a cada 10 min por tribunal
+    for t in ativos:
+        scheduler.add_job(
+            tick_backfill_retroativo.delay,
+            'interval',
+            args=[t.sigla],
+            minutes=10,
+            id=f'tick_backfill_{t.sigla}',
+            replace_existing=True,
+        )
+        logger.info('agendado tick_backfill %s (cada 10min)', t.sigla)
+
+    # Refresh do pool de proxies: a cada 15 min
+    scheduler.add_job(
+        refresh_proxy_pool.delay,
+        'interval',
+        minutes=15,
+        id='refresh_proxies',
+        replace_existing=True,
     )
-    proxy_job.meta['tag'] = SCHEDULE_TAG
-    proxy_job.save_meta()
-    novos += 1
 
-    # watchdog_ingestao a cada 5 min — mata zumbis e re-enfileira backfill/daily
-    # quando algum sumiu da fila (worker crashou, redis perdeu state, etc.).
-    wd_job = scheduler.cron(
-        '*/5 * * * *',
-        func=watchdog_ingestao,
-        queue_name='default',
-        use_local_timezone=True,
-        repeat=None,
+    # Watchdog de ingestão: a cada 5 min
+    scheduler.add_job(
+        watchdog_ingestao.delay,
+        'interval',
+        minutes=5,
+        id='watchdog_ingestao',
+        replace_existing=True,
     )
-    wd_job.meta['tag'] = SCHEDULE_TAG
-    wd_job.save_meta()
-    novos += 1
 
-    # reabastecer_filas_enriquecimento a cada 2 min — alimenta enrich_trf{N}
-    # com batches de Process status=pendente até a fila ter 50k jobs.
-    # Sem isso, dependeria de rodar enriquecer_pendentes no shell.
+    # Reabastece filas de enriquecimento: a cada 2 min
     from enrichers.jobs import reabastecer_filas_enriquecimento
-    refill_job = scheduler.cron(
-        '*/2 * * * *',
-        func=reabastecer_filas_enriquecimento,
-        queue_name='default',
-        use_local_timezone=True,
-        repeat=None,
+    scheduler.add_job(
+        reabastecer_filas_enriquecimento.delay,
+        'interval',
+        minutes=2,
+        id='refill_enrichers',
+        replace_existing=True,
     )
-    refill_job.meta['tag'] = SCHEDULE_TAG
-    refill_job.save_meta()
-    novos += 1
 
-    logger.info('schedules registrados', extra={'cancelados': cancelados, 'novos': novos})
-    return {'cancelados': cancelados, 'novos': novos}
+    return scheduler
