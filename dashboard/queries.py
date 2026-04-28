@@ -221,7 +221,7 @@ def status_workers():
     TIME_WAIT no container web (28k+ sockets, port exhaustion).
     """
     import django_rq
-    from rq import Queue, Worker
+    from rq import Queue
 
     conn = django_rq.get_connection('default')
     queue_names = list(__import__('django.conf', fromlist=['settings']).settings.RQ_QUEUES.keys())
@@ -238,29 +238,60 @@ def status_workers():
             'scheduled': q.scheduled_job_registry.count,
             'deferred': q.deferred_job_registry.count,
         })
-    workers_raw = Worker.all(connection=conn)
-    # RQ grava last_heartbeat como datetime naive em UTC. Se a TZ do
-    # processo Django for ≠ UTC, `timezone.now().replace(tzinfo=None)` mente
-    # — daí a comparação direta em UTC.
+    # Worker.all() faz hmget por worker — com 300+ workers (multi-host) e
+    # Redis remoto bate timeout do gunicorn (60s). Lê via pipeline: 1 round-trip
+    # pega o hash de todos. Aceitamos heartbeat parcial — workers zumbis
+    # (hash limpo) são pulados.
     from datetime import datetime, timezone as dt_timezone
     now_utc_naive = datetime.now(dt_timezone.utc).replace(tzinfo=None)
+
+    worker_keys = [k.decode() if isinstance(k, bytes) else k
+                   for k in conn.smembers('rq:workers')]
     workers = []
-    for w in workers_raw:
-        last_heartbeat = w.last_heartbeat
-        idle_seconds = None
-        if last_heartbeat:
-            idle_seconds = int((now_utc_naive - last_heartbeat).total_seconds())
-        workers.append({
-            'name': w.name,
-            'state': w.get_state(),
-            'queues': [q.name for q in w.queues],
-            'current_job_id': w.get_current_job_id(),
-            'last_heartbeat': last_heartbeat,
-            'idle_seconds': idle_seconds,
-            'successful_jobs': w.successful_job_count,
-            'failed_jobs': w.failed_job_count,
-            'total_working_time': int(w.total_working_time or 0),
-        })
+    if worker_keys:
+        pipe = conn.pipeline()
+        for k in worker_keys:
+            pipe.hgetall(k)
+        results = pipe.execute()
+        for raw in results:
+            if not raw:
+                continue
+            d = {(k.decode() if isinstance(k, bytes) else k):
+                 (v.decode() if isinstance(v, bytes) else v)
+                 for k, v in raw.items()}
+            last_heartbeat = None
+            for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ'):
+                try:
+                    last_heartbeat = datetime.strptime(d.get('last_heartbeat', ''), fmt)
+                    break
+                except (ValueError, TypeError):
+                    continue
+            idle_seconds = None
+            if last_heartbeat:
+                idle_seconds = int((now_utc_naive - last_heartbeat).total_seconds())
+                # Pula zumbi que não bate heartbeat há mais de 5min — workers
+                # vivos pingam a cada 60s.
+                if idle_seconds > 300:
+                    continue
+            queues_str = d.get('queues', '')
+            queue_list = [x for x in queues_str.split(',') if x]
+            try:
+                successful = int(d.get('successful_job_count', 0) or 0)
+                failed = int(d.get('failed_job_count', 0) or 0)
+                working_time = int(float(d.get('total_working_time', 0) or 0))
+            except (ValueError, TypeError):
+                successful = failed = working_time = 0
+            workers.append({
+                'name': d.get('name', '?'),
+                'state': d.get('state', 'unknown'),
+                'queues': queue_list,
+                'current_job_id': d.get('current_job_id') or None,
+                'last_heartbeat': last_heartbeat,
+                'idle_seconds': idle_seconds,
+                'successful_jobs': successful,
+                'failed_jobs': failed,
+                'total_working_time': working_time,
+            })
     workers.sort(key=lambda w: (','.join(w['queues']), w['name']))
     return {'queues': queues, 'workers': workers}
 
