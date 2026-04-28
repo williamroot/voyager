@@ -8,7 +8,7 @@ Toda função relevante aceita ambos para que o dashboard possa aplicá-los unif
 """
 from datetime import date, timedelta
 
-from django.db.models import Count, Q
+from django.db.models import Avg, Count, ExpressionWrapper, DurationField, F, Q, Sum
 from django.db.models.functions import TruncDate, TruncMonth
 from django.utils import timezone
 
@@ -375,3 +375,84 @@ def estatisticas_por_tribunal():
             'backfill_concluido_em': t.backfill_concluido_em,
         })
     return out
+
+
+def ingestao_por_dia(dias=None, tribunal=None):
+    """Agrega IngestionRuns por janela_inicio: status, throughput e duração.
+
+    Retorna lista de {dia, tribunal, ok, falha, movs, duracao_s} ordenada por dia.
+    Usado pelos charts da página de ingestão.
+    """
+    _dur = ExpressionWrapper(F('finished_at') - F('started_at'), output_field=DurationField())
+
+    qs = IngestionRun.objects.filter(finished_at__isnull=False)
+    if tribunal:
+        qs = qs.filter(tribunal_id=tribunal)
+    if dias:
+        cutoff = date.today() - timedelta(days=dias)
+        qs = qs.filter(janela_inicio__gte=cutoff)
+
+    rows = list(
+        qs.annotate(duration=_dur)
+        .values('janela_inicio', 'tribunal_id')
+        .annotate(
+            ok=Count('id', filter=Q(status=IngestionRun.STATUS_SUCCESS)),
+            falha=Count('id', filter=Q(status=IngestionRun.STATUS_FAILED)),
+            movs=Sum('movimentacoes_novas', filter=Q(status=IngestionRun.STATUS_SUCCESS)),
+            duracao_avg=Avg('duration', filter=Q(status=IngestionRun.STATUS_SUCCESS)),
+        )
+        .order_by('janela_inicio')
+    )
+
+    result = []
+    for r in rows:
+        avg_s = r['duracao_avg'].total_seconds() if r['duracao_avg'] else None
+        result.append({
+            'dia': r['janela_inicio'].isoformat(),
+            'tribunal': r['tribunal_id'],
+            'ok': r['ok'],
+            'falha': r['falha'],
+            'movs': r['movs'] or 0,
+            'duracao_s': round(avg_s) if avg_s is not None else None,
+        })
+    return result
+
+
+def ingestao_kpis(tribunal=None):
+    """KPIs agregados para a página de ingestão."""
+    qs = IngestionRun.objects.filter(finished_at__isnull=False)
+    if tribunal:
+        qs = qs.filter(tribunal_id=tribunal)
+
+    total = qs.count()
+    n_ok = qs.filter(status=IngestionRun.STATUS_SUCCESS).count()
+    dias_cobertos = (
+        qs.filter(status=IngestionRun.STATUS_SUCCESS)
+        .values('janela_inicio').distinct().count()
+    )
+    movs = (
+        qs.filter(status=IngestionRun.STATUS_SUCCESS)
+        .aggregate(t=Sum('movimentacoes_novas'))['t'] or 0
+    )
+    _dur = ExpressionWrapper(F('finished_at') - F('started_at'), output_field=DurationField())
+    duracao = (
+        qs.filter(status=IngestionRun.STATUS_SUCCESS)
+        .annotate(duration=_dur)
+        .aggregate(avg=Avg('duration'))['avg']
+    )
+
+    dur_s = round(duracao.total_seconds()) if duracao else None
+    if dur_s is not None:
+        duracao_fmt = f'{dur_s // 60}m{dur_s % 60:02d}s' if dur_s >= 60 else f'{dur_s}s'
+    else:
+        duracao_fmt = None
+
+    return {
+        'total_runs': total,
+        'ok_runs': n_ok,
+        'taxa_sucesso': round(n_ok / total * 100, 1) if total else 0,
+        'dias_cobertos': dias_cobertos,
+        'movimentacoes_novas': movs,
+        'duracao_avg_s': dur_s,
+        'duracao_avg_fmt': duracao_fmt,
+    }

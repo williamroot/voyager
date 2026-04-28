@@ -786,6 +786,166 @@
         })),
       };
     }
+
+    function buildIngestaoCoberturaChart(rows) {
+      const c = chartGridColors();
+      if (!rows || !rows.length) return {graphic:[{type:'text',left:'center',top:'middle',style:{text:'Sem dados ainda',fill:c.axisLabel,fontSize:12}}]};
+
+      const allMonths = [...new Set(rows.map(r => r.dia.slice(0,7)))].sort();
+      const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
+
+      const byKey = {};
+      rows.forEach(r => {
+        const k = r.dia.slice(0,7) + '|' + r.tribunal;
+        if (!byKey[k]) byKey[k] = {ok:0, falha:0};
+        byKey[k].ok   += r.ok   || 0;
+        byKey[k].falha += r.falha || 0;
+      });
+
+      const labels = allMonths.map(m => {
+        const d = new Date(m + '-01');
+        return d.toLocaleDateString('pt-BR', {month:'short', year:'2-digit'});
+      });
+
+      const series = [];
+      tribunais.forEach(t => {
+        const col = VOYAGER_COLORS[t] || '#71717a';
+        series.push({
+          name: t + ' · ok', type:'bar', stack: t,
+          data: allMonths.map(m => (byKey[m+'|'+t] || {ok:0}).ok),
+          itemStyle: {color: col, borderRadius:[3,3,0,0]},
+          emphasis: {focus:'series'}, barMaxWidth: 36,
+        });
+        series.push({
+          name: t + ' · falha', type:'bar', stack: t,
+          data: allMonths.map(m => (byKey[m+'|'+t] || {falha:0}).falha),
+          itemStyle: {color:'#f43f5e', opacity:0.75, borderRadius:[3,3,0,0]},
+          emphasis: {focus:'series'}, barMaxWidth: 36,
+        });
+      });
+
+      return {
+        tooltip: {trigger:'axis', axisPointer:{type:'shadow'}},
+        legend: {top:4, right:8, textStyle:{color:c.legend, fontSize:10}, icon:'roundRect'},
+        grid: {left:44, right:16, top:36, bottom:52},
+        xAxis: {type:'category', data:labels,
+          axisLabel:{color:c.axisLabel, fontSize:10, rotate:45, interval:0},
+          axisLine:{lineStyle:{color:c.axisLine}}, axisTick:{show:false}},
+        yAxis: {type:'value',
+          axisLabel:{color:c.axisLabel, fontSize:10},
+          splitLine:{lineStyle:{color:c.splitLine}}},
+        series,
+      };
+    }
+
+    function buildIngestaoDuracaoChart(rows) {
+      const c = chartGridColors();
+      if (!rows || !rows.length) return {graphic:[{type:'text',left:'center',top:'middle',style:{text:'Sem dados ainda',fill:c.axisLabel,fontSize:12}}]};
+
+      const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
+
+      // Agrega por semana (segunda-feira) para reduzir densidade
+      const byKey = {};
+      rows.forEach(r => {
+        if (r.duracao_s == null) return;
+        const d = new Date(r.dia);
+        const dow = (d.getDay() + 6) % 7; // 0=seg
+        const mon = new Date(d); mon.setDate(d.getDate() - dow);
+        const week = mon.toISOString().slice(0,10);
+        const k = week + '|' + r.tribunal;
+        if (!byKey[k]) byKey[k] = {sum:0, n:0, week, tribunal:r.tribunal};
+        byKey[k].sum += r.duracao_s; byKey[k].n++;
+      });
+
+      const allWeeks = [...new Set(Object.values(byKey).map(x => x.week))].sort();
+
+      const series = tribunais.map(t => ({
+        name: t, type:'line', smooth:true,
+        data: allWeeks.map(w => {
+          const x = byKey[w+'|'+t];
+          return x ? [w, Math.round(x.sum / x.n)] : null;
+        }).filter(Boolean),
+        itemStyle: {color: VOYAGER_COLORS[t] || '#71717a'},
+        lineStyle: {color: VOYAGER_COLORS[t] || '#71717a', width:2},
+        showSymbol: false,
+        emphasis: {focus:'series'},
+      }));
+
+      return {
+        tooltip: {
+          trigger:'axis',
+          formatter: params => {
+            const lines = params.map(p => {
+              const s = p.value[1];
+              const min = Math.floor(s/60), sec = s%60;
+              return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:4px"></span>${p.seriesName}: <b>${min}m${sec}s</b>`;
+            });
+            return `<div style="font-size:11px">${params[0]?.axisValue?.slice(0,10)}</div>${lines.join('<br>')}`;
+          },
+        },
+        legend: {top:4, right:8, textStyle:{color:c.legend, fontSize:10}},
+        grid: {left:56, right:16, top:36, bottom:52},
+        xAxis: {type:'time',
+          axisLabel:{color:c.axisLabel, fontSize:10, rotate:45},
+          axisLine:{lineStyle:{color:c.axisLine}}},
+        yAxis: {type:'value', name:'dur. média',
+          nameTextStyle:{color:c.axisLabel, fontSize:9},
+          axisLabel:{color:c.axisLabel, fontSize:10,
+            formatter: v => v >= 60 ? Math.round(v/60)+'m' : v+'s'},
+          splitLine:{lineStyle:{color:c.splitLine}}},
+        series,
+        dataZoom: [{type:'inside'}, {type:'slider', height:18, bottom:4, textStyle:{color:c.axisLabel, fontSize:9}}],
+      };
+    }
+
+    function buildIngestaoMovsChart(rows) {
+      const c = chartGridColors();
+      if (!rows || !rows.length) return {graphic:[{type:'text',left:'center',top:'middle',style:{text:'Sem dados ainda',fill:c.axisLabel,fontSize:12}}]};
+
+      const allMonths = [...new Set(rows.map(r => r.dia.slice(0,7)))].sort();
+      const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
+
+      const byKey = {};
+      rows.forEach(r => {
+        const k = r.dia.slice(0,7) + '|' + r.tribunal;
+        if (!byKey[k]) byKey[k] = 0;
+        byKey[k] += r.movs || 0;
+      });
+
+      const labels = allMonths.map(m => {
+        const d = new Date(m + '-01');
+        return d.toLocaleDateString('pt-BR', {month:'short', year:'2-digit'});
+      });
+
+      const series = tribunais.map(t => ({
+        name: t, type:'bar', stack:'total',
+        data: allMonths.map(m => byKey[m+'|'+t] || 0),
+        itemStyle: {color: VOYAGER_COLORS[t] || '#71717a'},
+        emphasis: {focus:'series'}, barMaxWidth: 36,
+      }));
+
+      return {
+        tooltip: {
+          trigger:'axis', axisPointer:{type:'shadow'},
+          formatter: params => {
+            const total = params.reduce((s,p) => s+(p.value||0), 0);
+            const lines = params.filter(p => p.value > 0)
+              .map(p => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:4px"></span>${p.seriesName}: <b>${fmt(p.value)}</b>`);
+            return `<div style="font-size:11px"><b>${params[0]?.axisValue}</b></div>${lines.join('<br>')}<br><b>Total: ${fmt(total)}</b>`;
+          },
+        },
+        legend: {top:4, right:8, textStyle:{color:c.legend, fontSize:10}, icon:'roundRect'},
+        grid: {left:56, right:16, top:36, bottom:52},
+        xAxis: {type:'category', data:labels,
+          axisLabel:{color:c.axisLabel, fontSize:10, rotate:45, interval:0},
+          axisLine:{lineStyle:{color:c.axisLine}}, axisTick:{show:false}},
+        yAxis: {type:'value',
+          axisLabel:{color:c.axisLabel, fontSize:10,
+            formatter: v => v>=1e6 ? (v/1e6).toFixed(1)+'M' : v>=1000 ? (v/1000).toFixed(0)+'k' : v},
+          splitLine:{lineStyle:{color:c.splitLine}}},
+        series,
+      };
+    }
   </script>
   {# Alpine carregado aqui — depois dos helpers (lazyChart etc.) para que o x-init os encontre #}
   <script src="{% static 'dashboard/vendor/alpinejs.3.14.7.min.js' %}"></script>

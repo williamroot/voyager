@@ -127,6 +127,11 @@ def _chart_ingestao_por_hora(dias, tribunais, sigla):
     return queries.ingestion_rate_por_hora(horas=24, tribunais=[sigla] if sigla else tribunais)
 
 
+def _chart_ingestao_run_stats(dias, tribunais, sigla):
+    tribunal = sigla or (tribunais[0] if tribunais else None)
+    return queries.ingestao_por_dia(dias=dias, tribunal=tribunal)
+
+
 def _chart_cache_key(key: str, dias, tribunais: list) -> str:
     trib = ','.join(sorted(tribunais)) if tribunais else ''
     dias_str = str(dias) if dias is not None else 'all'
@@ -143,6 +148,7 @@ _CHART_HANDLERS = {
     'enriquecimento': _chart_enriq,
     'sparkline-24h': _chart_sparkline_24h,
     'ingestao-por-hora': _chart_ingestao_por_hora,
+    'ingestao-run-stats': _chart_ingestao_run_stats,
 }
 
 
@@ -578,12 +584,18 @@ def movimentacoes(request):
 @login_required
 @require_GET
 def ingestao(request):
+    periodo_dias = _periodo_dias(request, default=90)
+    tribunal_filtro = request.GET.get('tribunal', '')
+
     return render(request, 'dashboard/ingestao.html', {
         'runs': queries.runs_recentes(50),
+        'kpis': queries.ingestao_kpis(tribunal=tribunal_filtro or None),
         'drift_alerts': SchemaDriftAlert.objects.filter(resolvido=False)
                         .select_related('tribunal', 'ingestion_run'),
         'proxies': ProxyScrapePool.singleton().status(),
-        'tribunais': Tribunal.objects.all(),
+        'tribunais': Tribunal.objects.filter(ativo=True),
+        'periodo_dias': periodo_dias,
+        'tribunal_filtro': tribunal_filtro,
     })
 
 

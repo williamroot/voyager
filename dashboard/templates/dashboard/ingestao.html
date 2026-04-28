@@ -2,42 +2,134 @@
 {% load static voyager_extras %}
 {% block title %}Ingestão{% endblock %}
 {% block content %}
-{% include 'dashboard/_partials/page_header.html' with title='Saúde operacional' subtitle='Workers, proxies e drift schema' %}
 
+{# ── Cabeçalho + filtros ─────────────────────────────────────────────────── #}
+<div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
+  <div>
+    <h1 class="text-3xl font-semibold tracking-tight">Dashboard de ingestão</h1>
+    <div class="text-sm text-fg-subtle mt-1">Dias processados · cobertura · velocidade</div>
+  </div>
+  <div class="flex flex-col items-end gap-2">
+    <div class="flex gap-1 items-center text-xs bg-card/60 border border-border rounded-xl p-1">
+      <a href="?{% query_string request dias=30 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30  %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">30d</a>
+      <a href="?{% query_string request dias=90 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90  %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">90d</a>
+      <a href="?{% query_string request dias=180 %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 180 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">180d</a>
+      <a href="?{% query_string request dias=365 %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 365 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">1 ano</a>
+      <a href="?{% query_string request dias='all' %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias is None %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">Todo período</a>
+    </div>
+    <div class="flex flex-wrap gap-1 items-center text-xs">
+      <span class="text-fg-subtle mr-1">Tribunal:</span>
+      <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
+      {% for t in tribunais %}
+        <a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if tribunal_filtro == t.sigla %}active{% endif %}">{{ t.sigla }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{# ── KPIs ─────────────────────────────────────────────────────────────────── #}
+<div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Dias cobertos</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ kpis.dias_cobertos|format_int }}</div>
+    <div class="text-xs text-fg-subtle mt-1">com ≥ 1 run success</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Runs success</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num text-accent-fg">{{ kpis.ok_runs|format_int }}</div>
+    <div class="text-xs text-fg-subtle mt-1">de {{ kpis.total_runs|format_int }} total</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Taxa de sucesso</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num {% if kpis.taxa_sucesso >= 95 %}text-accent-fg{% elif kpis.taxa_sucesso >= 80 %}text-warning{% else %}text-danger{% endif %}">{{ kpis.taxa_sucesso }}%</div>
+    <div class="text-xs text-fg-subtle mt-1">runs concluídas</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Movs ingeridas</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ kpis.movimentacoes_novas|format_int }}</div>
+    <div class="text-xs text-fg-subtle mt-1">registros novos</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Duração média</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ kpis.duracao_avg_fmt|default:"—" }}</div>
+    <div class="text-xs text-fg-subtle mt-1">por run (success)</div>
+  </div>
+</div>
+
+{# ── Chart 1: Dias cobertos por mês ────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Dias ingeridos por mês</div>
+      <div class="text-xs text-fg-subtle">dias de janela processados · agrupados por mês</div>
+    </div>
+    <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">cobertura</span>
+  </div>
+  <div class="h-64 chart-cell">
+    <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+    <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'ingestao-run-stats' %}?dias={{ periodo_dias|default:'all' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}', d => buildIngestaoCoberturaChart(d))" class="absolute inset-0"></div>
+  </div>
+</div>
+
+{# ── Charts row: Duração + Throughput ─────────────────────────────────────── #}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+  <div class="card">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <div class="text-sm font-medium text-fg-soft">Duração média por semana</div>
+        <div class="text-xs text-fg-subtle">tempo de processamento · médio por semana</div>
+      </div>
+      <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">velocidade</span>
+    </div>
+    <div class="h-56 chart-cell">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'ingestao-run-stats' %}?dias={{ periodo_dias|default:'all' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}', d => buildIngestaoDuracaoChart(d))" class="absolute inset-0"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <div class="text-sm font-medium text-fg-soft">Movimentações novas por mês</div>
+        <div class="text-xs text-fg-subtle">registros novos ingeridos · agrupados por mês</div>
+      </div>
+      <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">throughput</span>
+    </div>
+    <div class="h-56 chart-cell">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'ingestao-run-stats' %}?dias={{ periodo_dias|default:'all' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}', d => buildIngestaoMovsChart(d))" class="absolute inset-0"></div>
+    </div>
+  </div>
+</div>
+
+{# ── Saúde operacional ─────────────────────────────────────────────────────── #}
+{% include 'dashboard/_partials/section_header.html' with title='Saúde operacional' subtitle='proxies · drift · workers' %}
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
   <div class="card-tight">
     <div class="text-fg-subtle text-xs uppercase tracking-wider">Proxies (ProxyScrape)</div>
     <div class="text-2xl font-semibold mt-1 kpi-num">{{ proxies.saudaveis|format_int }} <span class="text-fg-subtle text-base">/ {{ proxies.total|format_int }}</span></div>
     <div class="flex items-center gap-2 mt-2">
       {% include 'dashboard/_partials/badge.html' with text=proxies.bad|stringformat:'s'|add:' ruins' variant='warning' size='mini' %}
-      {% if proxies.saudaveis %}
-        {% include 'dashboard/_partials/badge.html' with text='OK' variant='accent' size='mini' %}
-      {% else %}
-        {% include 'dashboard/_partials/badge.html' with text='vazio' variant='danger' size='mini' %}
-      {% endif %}
+      {% if proxies.saudaveis %}{% include 'dashboard/_partials/badge.html' with text='OK' variant='accent' size='mini' %}
+      {% else %}{% include 'dashboard/_partials/badge.html' with text='vazio' variant='danger' size='mini' %}{% endif %}
     </div>
   </div>
-
   <div class="card-tight">
     <div class="text-fg-subtle text-xs uppercase tracking-wider">Drift alerts</div>
     <div class="text-2xl font-semibold mt-1 kpi-num {% if drift_alerts %}text-danger{% else %}text-fg{% endif %}">{{ drift_alerts.count|format_int }}</div>
     <div class="text-xs text-fg-subtle mt-1">{% if drift_alerts %}requer atenção{% else %}schema estável{% endif %}</div>
   </div>
-
   <div class="card-tight">
     <div class="text-fg-subtle text-xs uppercase tracking-wider">Tribunais ativos</div>
     <div class="text-2xl font-semibold mt-1 kpi-num">{{ tribunais|length }}</div>
     <div class="flex flex-wrap gap-1 mt-2">
-      {% for t in tribunais %}{% if t.ativo %}
-        {% include 'dashboard/_partials/badge.html' with text=t.sigla variant='neutral' size='mini' %}
-      {% endif %}{% endfor %}
+      {% for t in tribunais %}{% include 'dashboard/_partials/badge.html' with text=t.sigla variant='neutral' size='mini' %}{% endfor %}
     </div>
   </div>
 </div>
 
 {% if drift_alerts %}
 <div class="mb-6">
-  {% include 'dashboard/_partials/section_header.html' with title='Drift alerts' subtitle=drift_alerts.count|stringformat:'s'|add:' aberto(s)' %}
   <div class="space-y-3">
     {% for a in drift_alerts %}
       <div class="card border-danger/30">
@@ -61,6 +153,7 @@
 </div>
 {% endif %}
 
+{# ── Tabela: runs recentes ─────────────────────────────────────────────────── #}
 {% include 'dashboard/_partials/section_header.html' with title='Runs recentes' subtitle='últimas 50 execuções' %}
 <div class="card overflow-hidden p-0">
   <table class="w-full text-sm dense">
@@ -70,6 +163,7 @@
         <th class="text-left">Tribunal</th>
         <th class="text-left">Status</th>
         <th class="text-left">Janela</th>
+        <th class="text-right">Duração</th>
         <th class="text-right">Páginas</th>
         <th class="text-right">Novas</th>
         <th class="text-right">Dup.</th>
@@ -85,30 +179,35 @@
           </td>
           <td>
             {% if r.status == 'success' %}
-              <span class="inline-flex items-center gap-1 text-accent-fg text-[0.7rem]" title="Sinal travado">
+              <span class="inline-flex items-center gap-1 text-accent-fg text-[0.7rem]">
                 {% voy_icon "signal-ok" "w-3.5 h-3.5" %}
                 <span class="font-mono uppercase tracking-wider">OK</span>
               </span>
             {% elif r.status == 'failed' %}
-              <span class="inline-flex items-center gap-1 text-danger text-[0.7rem]" title="Sinal perdido">
+              <span class="inline-flex items-center gap-1 text-danger text-[0.7rem]">
                 {% voy_icon "signal-lost" "w-3.5 h-3.5" %}
                 <span class="font-mono uppercase tracking-wider">falha</span>
               </span>
             {% else %}
-              <span class="inline-flex items-center gap-1 text-warning text-[0.7rem]" title="Transmitindo">
+              <span class="inline-flex items-center gap-1 text-warning text-[0.7rem]">
                 <svg class="w-3.5 h-3.5 animate-pulse" aria-hidden="true"><use href="{% static 'dashboard/voyager-icons.svg' %}#voy-pulsar"/></svg>
                 <span class="font-mono uppercase tracking-wider">live</span>
               </span>
             {% endif %}
           </td>
-          <td class="text-fg-muted text-xs">{{ r.janela_inicio|date:'d/m/y' }} → {{ r.janela_fim|date:'d/m/y' }}</td>
+          <td class="text-fg-muted text-xs font-mono">{{ r.janela_inicio|date:'d/m/y' }}{% if r.janela_inicio != r.janela_fim %} → {{ r.janela_fim|date:'d/m/y' }}{% endif %}</td>
+          <td class="text-right text-xs font-mono text-fg-muted">
+            {% if r.finished_at and r.started_at %}
+              {% with dur=r.finished_at|timeuntil:r.started_at %}{{ dur }}{% endwith %}
+            {% else %}—{% endif %}
+          </td>
           <td class="text-right kpi-num">{{ r.paginas_lidas|format_int }}</td>
           <td class="text-right kpi-num text-fg-soft">{{ r.movimentacoes_novas|format_int }}</td>
           <td class="text-right kpi-num text-fg-subtle">{{ r.movimentacoes_duplicadas|format_int }}</td>
           <td class="text-fg-muted text-xs" title="{{ r.started_at }}">{{ r.started_at|relative_dt }}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="8" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhuma run ainda' subtitle='dispare um backfill ou aguarde o cron diário' %}</td></tr>
+        <tr><td colspan="9" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhuma run ainda' subtitle='aguarde o backfill ou dispare manualmente' %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
