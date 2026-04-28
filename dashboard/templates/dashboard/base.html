@@ -733,10 +733,11 @@
         }],
       };
     }
-    function buildIngestaoRateChart(rows) {
+    function buildIngestaoRateChart(rows, horas) {
+      horas = horas || 24;
       if (!rows || !rows.length) return {
         graphic: [{type: 'text', left: 'center', top: 'middle',
-          style: {text: 'Sem ingestão nas últimas 48h', fill: chartGridColors().axisLabel, fontSize: 12}}]
+          style: {text: 'Sem ingestão nas últimas ' + horas + 'h', fill: chartGridColors().axisLabel, fontSize: 12}}]
       };
       const horas = [...new Set(rows.map(r => r.hora))].sort();
       const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();

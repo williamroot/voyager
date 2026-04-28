@@ -100,15 +100,25 @@
   {% endif %}
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4" x-data="{horas: 24, baseUrl: '{% url 'dashboard:api-chart' 'ingestao-por-hora' %}?{% query_string request %}'}">
   <div class="flex items-center justify-between mb-3">
     <div>
       <div class="text-sm font-medium text-fg-soft">Velocidade de ingestão</div>
-      <div class="text-xs text-fg-subtle">movimentações inseridas por hora · últimas 48h · por tribunal</div>
+      <div class="text-xs text-fg-subtle">movimentações inseridas por hora · por tribunal</div>
     </div>
-    <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">live · 24h</span>
+    <div class="flex items-center gap-2">
+      <div class="flex gap-0.5 text-[0.65rem] bg-card/60 border border-border rounded-xl p-1">
+        <button @click="horas=24"  :class="horas==24  ? 'bg-muted text-accent-fg' : 'text-fg-muted hover:text-fg'" class="px-2.5 py-1 rounded-lg">24h</button>
+        <button @click="horas=48"  :class="horas==48  ? 'bg-muted text-accent-fg' : 'text-fg-muted hover:text-fg'" class="px-2.5 py-1 rounded-lg">48h</button>
+        <button @click="horas=72"  :class="horas==72  ? 'bg-muted text-accent-fg' : 'text-fg-muted hover:text-fg'" class="px-2.5 py-1 rounded-lg">72h</button>
+      </div>
+      <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">live</span>
+    </div>
   </div>
-  <div class="h-52 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'ingestao-por-hora' %}?{% query_string request %}', d => buildIngestaoRateChart(d))" class="absolute inset-0"></div></div>
+  <div class="h-52 chart-cell">
+    <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+    <div data-echart='{}' x-effect="lazyChart($el, baseUrl + '&horas=' + horas, d => buildIngestaoRateChart(d, horas))" class="absolute inset-0"></div>
+  </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">

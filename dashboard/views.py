@@ -1,10 +1,10 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db.models import Count, Max, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_GET, require_POST
 
 from djen.jobs import sincronizar_movimentacoes
@@ -124,7 +124,13 @@ def _chart_sparkline_24h(dias, tribunais, sigla):
 
 
 def _chart_ingestao_por_hora(dias, tribunais, sigla):
-    return queries.ingestion_rate_por_hora(horas=48, tribunais=[sigla] if sigla else tribunais)
+    return queries.ingestion_rate_por_hora(horas=24, tribunais=[sigla] if sigla else tribunais)
+
+
+def _chart_cache_key(key: str, dias, tribunais: list) -> str:
+    trib = ','.join(sorted(tribunais)) if tribunais else ''
+    dias_str = str(dias) if dias is not None else 'all'
+    return f'chart:{key}:d={dias_str}:t={trib}'
 
 
 _CHART_HANDLERS = {
@@ -151,9 +157,36 @@ def chart_data(request, key):
     backfill_em_curso, _ = _backfill_em_curso()
     dias = _periodo_dias(request, default=None if backfill_em_curso else 90)
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
-    sigla = request.GET.get('sigla') or None  # detalhes por tribunal específico
+    sigla = request.GET.get('sigla') or None
+
+    # Cache só quando não há filtros específicos (homepage sem tribunal/sigla)
+    use_cache = sigla is None and not tribunais_filtro
+
+    # ingestao-por-hora usa parâmetro `horas` em vez de `dias`
+    if key == 'ingestao-por-hora':
+        try:
+            horas = max(1, min(int(request.GET.get('horas', 24)), 168))
+        except (ValueError, TypeError):
+            horas = 24
+        cache_key = f'chart:ingestao-por-hora:h={horas}' if use_cache else None
+        if cache_key:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return JsonResponse({'data': cached}, json_dumps_params={'default': str})
+        data = queries.ingestion_rate_por_hora(horas=horas, tribunais=[sigla] if sigla else tribunais_filtro or None)
+        if cache_key:
+            cache.set(cache_key, data, timeout=3600)
+        return JsonResponse({'data': data}, json_dumps_params={'default': str})
+
+    cache_key = _chart_cache_key(key, dias, tribunais_filtro) if use_cache else None
+    if cache_key:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return JsonResponse({'data': cached}, json_dumps_params={'default': str})
 
     data = handler(dias, tribunais_filtro, sigla)
+    if cache_key:
+        cache.set(cache_key, data, timeout=3600)
     return JsonResponse({'data': data}, json_dumps_params={'default': str})
 
 

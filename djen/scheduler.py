@@ -14,6 +14,8 @@ from django.db import close_old_connections
 
 from tribunals.models import Tribunal
 
+from dashboard.jobs import warm_chart_cache
+
 from .jobs import (
     refresh_proxy_pool,
     run_daily_ingestion,
@@ -90,6 +92,15 @@ def create_scheduler() -> BlockingScheduler:
         'interval',
         minutes=2,
         id='refill_enrichers',
+        replace_existing=True,
+    )
+
+    # Aquecimento do cache de charts: a cada 5 min
+    scheduler.add_job(
+        warm_chart_cache.delay,
+        'interval',
+        minutes=5,
+        id='warm_chart_cache',
         replace_existing=True,
     )
 

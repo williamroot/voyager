@@ -17,6 +17,7 @@ class Command(BaseCommand):
     help = 'Registra todos os crons (APScheduler) e roda o scheduler em loop.'
 
     def handle(self, *args, **opts):
+        from dashboard.jobs import warm_chart_cache
         from djen.jobs import tick_backfill_retroativo
 
         # Kick inicial: enfileira o primeiro tick pra cada tribunal ativo.
@@ -25,6 +26,9 @@ class Command(BaseCommand):
         for t in ativos:
             tick_backfill_retroativo.delay(t.sigla)
             logger.info('tick inicial enfileirado para %s', t.sigla)
+
+        warm_chart_cache.delay()
+        logger.info('aquecimento inicial do cache de charts enfileirado')
 
         scheduler = create_scheduler()
         self.stdout.write(self.style.SUCCESS(

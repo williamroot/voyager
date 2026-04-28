@@ -117,6 +117,15 @@ SPECTACULAR_SETTINGS = {
 
 REDIS_URL = env('REDIS_URL', default='redis://redis:6379/0')
 
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': REDIS_URL,
+        'KEY_PREFIX': 'v',
+        'TIMEOUT': 3600,
+    }
+}
+
 RQ_QUEUES = {
     'default':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 3600},
     'djen_ingestion':  {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 7200},
