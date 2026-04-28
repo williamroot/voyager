@@ -100,6 +100,17 @@
   {% endif %}
 </div>
 
+<div class="card mb-4">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Velocidade de ingestão</div>
+      <div class="text-xs text-fg-subtle">movimentações inseridas por hora · últimas 24h · por tribunal</div>
+    </div>
+    <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">live · 24h</span>
+  </div>
+  <div class="h-52 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'ingestao-por-hora' %}?{% query_string request %}', d => buildIngestaoRateChart(d))" class="absolute inset-0"></div></div>
+</div>
+
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
   <div class="card lg:col-span-2">
     <div class="flex items-center justify-between mb-3">

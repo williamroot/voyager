@@ -65,6 +65,32 @@ def kpis_globais(dias=None, tribunais=None):
     }
 
 
+def ingestion_rate_por_hora(horas=24, tribunais=None):
+    """Movimentações inseridas por hora nas últimas N horas, por tribunal.
+
+    Baseado em `inserido_em` (timestamp do INSERT no banco), não em
+    `data_disponibilizacao` — reflete a velocidade real de ingestão.
+    """
+    from django.db.models.functions import TruncHour
+
+    agora = timezone.now()
+    cutoff = agora - timedelta(hours=horas)
+    qs = Movimentacao.objects.filter(inserido_em__gte=cutoff)
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
+
+    rows = (
+        qs.annotate(hora=TruncHour('inserido_em'))
+        .values('hora', 'tribunal_id')
+        .annotate(total=Count('id'))
+        .order_by('hora', 'tribunal_id')
+    )
+    return [
+        {'hora': r['hora'].isoformat(), 'tribunal': r['tribunal_id'], 'total': r['total']}
+        for r in rows if r['hora']
+    ]
+
+
 def sparkline_24h(tribunais=None):
     """Conta movs inseridas por hora nas últimas 24h. Agregação SQL via TruncHour."""
     from django.db.models.functions import TruncHour

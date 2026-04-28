@@ -733,6 +733,59 @@
         }],
       };
     }
+    function buildIngestaoRateChart(rows) {
+      if (!rows || !rows.length) return {
+        graphic: [{type: 'text', left: 'center', top: 'middle',
+          style: {text: 'Sem ingestão nas últimas 24h', fill: chartGridColors().axisLabel, fontSize: 12}}]
+      };
+      const horas = [...new Set(rows.map(r => r.hora))].sort();
+      const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
+      const lookup = {};
+      rows.forEach(r => { lookup[r.tribunal + '|' + r.hora] = r.total; });
+      const c = chartGridColors();
+      const labels = horas.map(h => {
+        const d = new Date(h);
+        return d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit', hour12: false});
+      });
+      const maxVal = Math.max(...rows.map(r => r.total));
+      return {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {type: 'shadow'},
+          formatter: params => {
+            const hora = horas[params[0].dataIndex];
+            const d = new Date(hora);
+            const label = d.toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false});
+            const lines = params.filter(p => p.value > 0)
+              .map(p => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px"></span>${p.seriesName}: <b>${fmt(p.value)}</b>`);
+            const total = params.reduce((s, p) => s + (p.value || 0), 0);
+            return `<div style="font-size:11px">${label}</div>` +
+              lines.join('<br>') +
+              (tribunais.length > 1 ? `<br><b>Total: ${fmt(total)}</b>` : '');
+          },
+        },
+        legend: {top: 4, right: 8, textStyle: {color: c.legend, fontSize: 11}, icon: 'roundRect'},
+        grid: {left: 52, right: 16, top: 36, bottom: 48},
+        xAxis: {
+          type: 'category', data: labels,
+          axisLabel: {color: c.axisLabel, fontSize: 10, rotate: 45, interval: 1},
+          axisLine: {lineStyle: {color: c.axisLine}},
+          axisTick: {show: false},
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: {color: c.axisLabel, fontSize: 10, formatter: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v},
+          splitLine: {lineStyle: {color: c.splitLine}},
+        },
+        series: tribunais.map(t => ({
+          name: t, type: 'bar', stack: 'total',
+          color: VOYAGER_COLORS[t] || '#71717a',
+          data: horas.map(h => lookup[t + '|' + h] || 0),
+          itemStyle: {borderRadius: tribunais.indexOf(t) === tribunais.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]},
+          emphasis: {focus: 'series'},
+        })),
+      };
+    }
   </script>
 </body>
 </html>
