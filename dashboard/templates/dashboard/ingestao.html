@@ -153,8 +153,42 @@
 </div>
 {% endif %}
 
-{# ── Tabela: runs recentes ─────────────────────────────────────────────────── #}
-{% include 'dashboard/_partials/section_header.html' with title='Runs recentes' subtitle='últimas 50 execuções' %}
+{# ── Tabela: runs com filtros ──────────────────────────────────────────────── #}
+<div class="flex items-center justify-between mb-3 mt-2 flex-wrap gap-3">
+  {% include 'dashboard/_partials/section_header.html' with title='Runs' subtitle='' %}
+  <form method="get" class="flex flex-wrap gap-2 items-center text-xs" id="runs-filter">
+    {# mantém filtros dos charts #}
+    {% if periodo_dias %}<input type="hidden" name="dias" value="{{ periodo_dias }}">{% endif %}
+    {% if tribunal_filtro %}<input type="hidden" name="tribunal" value="{{ tribunal_filtro }}">{% endif %}
+
+    <select name="run_tribunal" class="input text-xs py-1 pl-2 pr-6 rounded-lg" onchange="this.form.submit()">
+      <option value="">Todos tribunais</option>
+      {% for t in tribunais %}
+        <option value="{{ t.sigla }}" {% if run_tribunal == t.sigla %}selected{% endif %}>{{ t.sigla }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="run_status" class="input text-xs py-1 pl-2 pr-6 rounded-lg" onchange="this.form.submit()">
+      <option value="">Todos status</option>
+      <option value="success" {% if run_status == 'success' %}selected{% endif %}>✓ success</option>
+      <option value="failed"  {% if run_status == 'failed'  %}selected{% endif %}>✗ failed</option>
+      <option value="running" {% if run_status == 'running' %}selected{% endif %}>⟳ running</option>
+    </select>
+
+    <div class="flex items-center gap-1">
+      <span class="text-fg-subtle">Janela:</span>
+      <input type="date" name="run_de"  value="{{ run_de }}"  class="input text-xs py-1 px-2 rounded-lg w-32" placeholder="de">
+      <span class="text-fg-subtle">→</span>
+      <input type="date" name="run_ate" value="{{ run_ate }}" class="input text-xs py-1 px-2 rounded-lg w-32" placeholder="até">
+      <button type="submit" class="btn-primary text-xs px-3 py-1 rounded-lg">Filtrar</button>
+    </div>
+
+    {% if run_tribunal or run_status or run_de or run_ate %}
+      <a href="?{% query_string request run_tribunal='' run_status='' run_de='' run_ate='' %}"
+         class="text-xs text-fg-subtle hover:text-danger">limpar</a>
+    {% endif %}
+  </form>
+</div>
 <div class="card overflow-hidden p-0">
   <table class="w-full text-sm dense">
     <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
@@ -207,7 +241,7 @@
           <td class="text-fg-muted text-xs" title="{{ r.started_at }}">{{ r.started_at|relative_dt }}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="9" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhuma run ainda' subtitle='aguarde o backfill ou dispare manualmente' %}</td></tr>
+        <tr><td colspan="9" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhuma run encontrada' subtitle='ajuste os filtros ou aguarde o backfill' %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

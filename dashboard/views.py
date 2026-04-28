@@ -10,7 +10,7 @@ from django.views.decorators.http import require_GET, require_POST
 from djen.jobs import sincronizar_movimentacoes
 from djen.proxies import ProxyScrapePool
 from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento, enqueue_enriquecimento_manual
-from tribunals.models import Movimentacao, Parte, Process, ProcessoParte, SchemaDriftAlert, Tribunal
+from tribunals.models import IngestionRun, Movimentacao, Parte, Process, ProcessoParte, SchemaDriftAlert, Tribunal
 
 from . import queries
 
@@ -584,11 +584,35 @@ def movimentacoes(request):
 @login_required
 @require_GET
 def ingestao(request):
+    from datetime import date as date_type
     periodo_dias = _periodo_dias(request, default=90)
     tribunal_filtro = request.GET.get('tribunal', '')
 
+    # Filtros da tabela de runs
+    run_tribunal = request.GET.get('run_tribunal', '')
+    run_status   = request.GET.get('run_status', '')
+    run_de       = request.GET.get('run_de', '')
+    run_ate      = request.GET.get('run_ate', '')
+
+    runs_qs = IngestionRun.objects.select_related('tribunal').order_by('-started_at')
+    if run_tribunal:
+        runs_qs = runs_qs.filter(tribunal_id=run_tribunal)
+    if run_status:
+        runs_qs = runs_qs.filter(status=run_status)
+    if run_de:
+        try:
+            runs_qs = runs_qs.filter(janela_inicio__gte=date_type.fromisoformat(run_de))
+        except ValueError:
+            pass
+    if run_ate:
+        try:
+            runs_qs = runs_qs.filter(janela_fim__lte=date_type.fromisoformat(run_ate))
+        except ValueError:
+            pass
+    runs = list(runs_qs[:100])
+
     return render(request, 'dashboard/ingestao.html', {
-        'runs': queries.runs_recentes(50),
+        'runs': runs,
         'kpis': queries.ingestao_kpis(tribunal=tribunal_filtro or None),
         'drift_alerts': SchemaDriftAlert.objects.filter(resolvido=False)
                         .select_related('tribunal', 'ingestion_run'),
@@ -596,6 +620,10 @@ def ingestao(request):
         'tribunais': Tribunal.objects.filter(ativo=True),
         'periodo_dias': periodo_dias,
         'tribunal_filtro': tribunal_filtro,
+        'run_tribunal': run_tribunal,
+        'run_status': run_status,
+        'run_de': run_de,
+        'run_ate': run_ate,
     })
 
 
