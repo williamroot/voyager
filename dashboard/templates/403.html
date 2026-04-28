@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Major+Mono+Display&family=Manrope:wght@400;500;600;700&display=swap">
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="{% static 'dashboard/vendor/tailwind.cdn.js' %}"></script>
   <script>tailwind.config={darkMode:'class',theme:{extend:{colors:{base:'rgb(var(--c-base) / <alpha-value>)',fg:'rgb(var(--c-fg) / <alpha-value>)','fg-muted':'rgb(var(--c-fg-muted) / <alpha-value>)','fg-subtle':'rgb(var(--c-fg-subtle) / <alpha-value>)',border:'rgb(var(--c-border) / <alpha-value>)',mission:'rgb(var(--c-mission) / <alpha-value>)',pulsar:'rgb(var(--c-pulsar) / <alpha-value>)'}}}};</script>
   <link rel="stylesheet" href="{% static 'dashboard/voyager-identity.css' %}">
   <style>
