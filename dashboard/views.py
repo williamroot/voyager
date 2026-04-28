@@ -124,7 +124,7 @@ def _chart_sparkline_24h(dias, tribunais, sigla):
 
 
 def _chart_ingestao_por_hora(dias, tribunais, sigla):
-    return queries.ingestion_rate_por_hora(horas=24, tribunais=[sigla] if sigla else tribunais)
+    return queries.ingestion_rate_por_hora(horas=48, tribunais=[sigla] if sigla else tribunais)
 
 
 _CHART_HANDLERS = {
