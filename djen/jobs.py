@@ -227,17 +227,20 @@ def watchdog_ingestao() -> dict:
 
 
 def _coletar_args(queue) -> set[str]:
-    """Junta o 1º arg de todos os jobs (pending + started) da fila — usado
-    pra detectar 'já tem job pra essa sigla' no watchdog.
+    """Retorna o 1º arg dos jobs ATUALMENTE EM EXECUÇÃO na fila.
 
-    Usa Job.fetch_many (pipeline) em vez de 1 request por job — evita
-    timeout com filas grandes (ex: 14k+ jobs em djen_backfill).
+    Intencionalmente ignora jobs pendentes: com filas grandes (ex: 14k+
+    backfill_dia) escanear pending é O(n) e estoura o timeout do watchdog.
+    Jobs pendentes já garantem progresso por si só — o watchdog só precisa
+    saber se algum worker já está rodando aquela sigla.
+    run_backfill/run_daily_ingestion são idempotentes (verificam watermark),
+    então enfileirar duplicata é inofensivo.
     """
     from rq.job import Job as RQJob
-    all_ids = list(queue.job_ids) + list(queue.started_job_registry.get_job_ids())
-    if not all_ids:
+    started_ids = list(queue.started_job_registry.get_job_ids())
+    if not started_ids:
         return set()
-    jobs = RQJob.fetch_many(all_ids, connection=queue.connection)
+    jobs = RQJob.fetch_many(started_ids, connection=queue.connection)
     return {str(j.args[0]) for j in jobs if j and j.args}
 
 
