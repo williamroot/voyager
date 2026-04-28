@@ -6,7 +6,7 @@ from django_rq import job
 
 from . import queries
 
-logger = logging.getLogger('voyager.dashboard.jobs')
+logger = logging.getLogger('voyager.dashboard.tasks')
 
 # Períodos pré-aquecidos (dias=None = todo o período)
 _PERIODOS = [None, 7, 30, 90, 365]

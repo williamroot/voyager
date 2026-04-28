@@ -14,7 +14,7 @@ from django.db import close_old_connections
 
 from tribunals.models import Tribunal
 
-from dashboard.jobs import warm_chart_cache
+from dashboard.tasks import warm_chart_cache
 
 from .jobs import (
     refresh_proxy_pool,
