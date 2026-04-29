@@ -168,12 +168,11 @@ services:
         condition: service_healthy
     restart: always
 
-  # Único consumer do stream de enrichment. Aplica writes em bulk numa
-  # transação por batch — substitui o write direto que cada worker fazia
-  # (causava contenção de BufferMapping LWLock no Postgres). Réplicas != 1
-  # NÃO é suportado: ordering depende de consumer único por group. Mais
-  # de 1 não quebra correção (consumers compartilham PEL), mas perde a
-  # garantia de batch grande == 1 transação grande.
+  # Consumers do stream de enrichment. XREADGROUP distribui entries
+  # entre consumers do mesmo group — escalar replicas dá throughput x N.
+  # Workers concorrentes podem ter racing em upsert de Parte, mas as
+  # partial unique constraints (uniq_parte_*) tornam o pattern
+  # bulk_create(ignore_conflicts) idempotente.
   enrichment_drainer:
     image: voyager-web:prod
     command: python manage.py enrichers_drain --batch-size 1000 --block-ms 1000
@@ -184,7 +183,7 @@ services:
       web:
         condition: service_healthy
     deploy:
-      replicas: 1
+      replicas: 2
     restart: always
 
   nginx:
