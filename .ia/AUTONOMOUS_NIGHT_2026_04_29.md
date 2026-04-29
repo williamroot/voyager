@@ -307,6 +307,21 @@ ts=06:24:11 ingestion_runs_5m=7 broad_janela_5m=0
 7 runs/5min = workers processando 1.4 dias/min com 4 réplicas. Todos
 single-day. Sem broad_janela. Sistema estável.
 
+## Convergência REAL (~03:51 BRT)
+
+Mesmo após todas as ações, queue continuava sendo populada com sync_jobs.
+Investigação revelou: `.177` tinha 45 workers ainda rodando com código
+antigo (uptime 2h). Meus `docker compose stop` anteriores não os mataram
+de fato — algum subset escapou ou foi reiniciado por restart:always após
+crashes.
+
+Solução final: `docker ps --format '{{.Names}}' | grep voyager | xargs
+docker kill --signal SIGKILL` em `.177`. 0 containers. Drenei mais 7.140
+jobs do redis. Queue final: 189 backfill_dia.
+
+A partir de agora `.177` fica inerte (até user decidir o que fazer pela
+manhã). `.30` é o único produtor de jobs e único processador.
+
 ## Verificação: partes salvando + associando corretamente
 
 User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
