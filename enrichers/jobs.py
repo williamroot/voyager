@@ -33,8 +33,11 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool = False,
     cls = _ENRICHERS.get(p.tribunal_id)
     if not cls:
         raise ValueError(f'Sem enricher cadastrado para tribunal {p.tribunal_id}')
+    logger.info('enriquecer_processo inicio %s %s', p.tribunal_id, p.numero_cnj)
     enricher = cls(prefer_cortex=prefer_cortex)
-    return enricher.enriquecer(p, direct_apply=direct_apply)
+    result = enricher.enriquecer(p, direct_apply=direct_apply)
+    logger.info('enriquecer_processo fim %s %s status=%s', p.tribunal_id, p.numero_cnj, result.get('status', 'ok'))
+    return result
 
 
 def enqueue_enriquecimento(process_id: int, tribunal_sigla: str):

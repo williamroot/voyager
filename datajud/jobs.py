@@ -1,10 +1,14 @@
 """Jobs RQ pra ingestão Datajud."""
+import logging
+
 from django_rq import job
 
 from tribunals.models import Process
 
 from .client import DatajudClient
 from .ingestion import sync_processo
+
+logger = logging.getLogger('voyager.datajud.jobs')
 
 
 @job('manual', timeout=300)
@@ -16,6 +20,7 @@ def datajud_sincronizar_processo(process_id: int, prefer_cortex: bool = True) ->
     chamar isso direto pode passar False.
     """
     p = Process.objects.select_related('tribunal').get(pk=process_id)
+    logger.info('datajud_sincronizar_processo %s %s', p.tribunal.sigla, p.numero_cnj)
     client = DatajudClient(prefer_cortex=prefer_cortex)
     return sync_processo(p, client=client)
 
@@ -27,5 +32,6 @@ def datajud_sync_bulk(process_id: int) -> dict:
     disputar com `enrich_trf*` (PJe scraping) nem `djen_backfill`
     (data-based)."""
     p = Process.objects.select_related('tribunal').get(pk=process_id)
+    logger.info('datajud_sync_bulk %s %s', p.tribunal.sigla, p.numero_cnj)
     client = DatajudClient(prefer_cortex=False)
     return sync_processo(p, client=client)

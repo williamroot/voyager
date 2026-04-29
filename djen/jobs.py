@@ -25,6 +25,7 @@ def run_daily_ingestion(tribunal_sigla: str) -> dict:
 
     fim = date.today()
     inicio = fim - timedelta(days=t.overlap_dias)
+    logger.info('daily ingestion inicio %s %s→%s', t.sigla, inicio, fim)
     run = ingest_window(t, inicio, fim, client=DJENClient())
     return {'run_id': run.pk, 'novas': run.movimentacoes_novas, 'duplicadas': run.movimentacoes_duplicadas}
 
@@ -44,6 +45,7 @@ def run_backfill(tribunal_sigla: str, force_inicio: str | None = None) -> dict:
 
     fim = date.today()
     chunks = list(chunk_dates(inicio, fim, days=30))
+    logger.info('run_backfill inicio %s: %d chunks %s→%s', t.sigla, len(chunks), inicio, fim)
     completados = 0
     pulados = 0
     retentados = 0
@@ -114,6 +116,7 @@ def reprocessar_janela(tribunal_sigla: str, inicio: str, fim: str) -> dict:
     inicio_d = date.fromisoformat(inicio)
     fim_d = date.fromisoformat(fim)
     t = Tribunal.objects.get(sigla=tribunal_sigla)
+    logger.info('reprocessar_janela inicio %s %s→%s', tribunal_sigla, inicio, fim)
     run = ingest_window(t, inicio_d, fim_d)
     return {
         'run_id': run.pk, 'novas': run.movimentacoes_novas,
@@ -133,6 +136,7 @@ def sincronizar_movimentacoes(process_id: int) -> dict:
     from .client import DJENClient
     from .ingestion import ingest_processo
     p = Process.objects.select_related('tribunal').get(pk=process_id)
+    logger.info('sincronizar_movimentacoes %s %s', p.tribunal_id, p.numero_cnj)
     return ingest_processo(p, client=DJENClient(prefer_cortex=True))
 
 
@@ -146,6 +150,7 @@ def sync_movimentacoes_bulk(process_id: int) -> dict:
     """
     from .ingestion import ingest_processo
     p = Process.objects.select_related('tribunal').get(pk=process_id)
+    logger.info('sync_movimentacoes_bulk %s %s', p.tribunal_id, p.numero_cnj)
     return ingest_processo(p)
 
 
@@ -266,7 +271,9 @@ def backfill_dia(tribunal_sigla: str, dia_iso: str) -> dict:
     t = Tribunal.objects.get(sigla=tribunal_sigla)
     dia = date.fromisoformat(dia_iso)
     if _dia_coberto(t, dia):
+        logger.debug('backfill_dia skip %s %s (já coberto)', tribunal_sigla, dia_iso)
         return {'skip': True, 'dia': dia_iso}
+    logger.info('backfill_dia inicio %s %s', tribunal_sigla, dia_iso)
     run = ingest_window(t, dia, dia)
     return {'run_id': run.pk, 'novas': run.movimentacoes_novas, 'dia': dia_iso}
 

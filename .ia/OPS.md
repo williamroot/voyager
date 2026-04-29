@@ -11,6 +11,18 @@ Runbooks específicos por situação. Para troubleshooting geral, comece por `dj
 
 Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflared` (token em `CLOUDFLARE_TUNNEL_TOKEN` no `.env`). `web → ALLOWED_HOSTS` e `CSRF_TRUSTED_ORIGINS` precisam incluir o domínio público.
 
+## Inventário de máquinas (LAN prod)
+
+| IP | Papel | Compose |
+|---|---|---|
+| `192.168.1.30` | Servidor principal — web, nginx, cloudflared, scheduler, workers de ingestion. Postgres exposto na LAN (:5432). | `docker-compose-prod.yml` |
+| `192.168.1.82` | Postgres dedicado | — |
+| `192.168.1.219` | Redis dedicado | — |
+| `192.168.1.177` | Máquina auxiliar de workers | `docker-compose-workers.yml` |
+| `192.168.1.184` | Máquina auxiliar de workers | `docker-compose-workers.yml` |
+
+Máquinas auxiliares (`.177` e `.184`) rodam só workers — sem web/db/redis próprios. Conectam no Postgres (`.82`) e Redis (`.219`) via LAN. O drainer do stream de enrichment roda **somente no `.30``**; as auxiliares só publicam resultados.
+
 ## Workers em prod (`docker-compose-prod.yml`)
 
 ```

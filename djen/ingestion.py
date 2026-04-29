@@ -1,4 +1,5 @@
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Iterator
@@ -100,6 +101,8 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
         janela_inicio=data_inicio, janela_fim=data_fim,
     )
     cnjs_tocados: set[str] = set()
+    t0 = time.monotonic()
+    logger.info('ingest_window inicio %s %s→%s run_id=%d', tribunal.sigla, data_inicio, data_fim, run.pk)
     try:
         for items in client.iter_pages(tribunal.sigla_djen, data_inicio, data_fim):
             _process_page(items, tribunal, run, cnjs_tocados)
@@ -115,9 +118,16 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
         run.save(update_fields=['status', 'erros', 'finished_at'])
         raise
     finally:
+        duracao = int(time.monotonic() - t0)
         if run.status == IngestionRun.STATUS_SUCCESS:
             run.finished_at = timezone.now()
             run.save(update_fields=['status', 'finished_at', 'erros'])
+            logger.info(
+                'ingest_window fim %s %s→%s → novas=%d dup=%d pgs=%d %ds run_id=%d',
+                tribunal.sigla, data_inicio, data_fim,
+                run.movimentacoes_novas, run.movimentacoes_duplicadas,
+                run.paginas_lidas, duracao, run.pk,
+            )
 
     # Split adaptativo: se bateu o cap em janela > 1 dia, divide em 2 metades.
     if (run.movimentacoes_novas + run.movimentacoes_duplicadas) >= DJEN_HARD_CAP \
