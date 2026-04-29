@@ -50,6 +50,30 @@ def warm_chart_cache():
     logger.info('warm_chart_cache: %d aquecidos, %d erros', warmed, errors)
 
 
+@job('default', timeout=600)
+def warm_kpis_cache():
+    """Pré-aquece os KPIs da home (kpis_globais) no cache Redis.
+
+    Executado a cada 5 min. Sem isso, a home faz COUNT(*) em 3.5M rows a
+    frio — mesmo com índices pode levar alguns segundos; com cache é < 1ms.
+    """
+    from tribunals.models import Tribunal
+    periodos = [None, 7, 30, 90, 365]
+    try:
+        siglas = list(Tribunal.objects.filter(ativo=True).values_list('sigla', flat=True))
+    except Exception:
+        siglas = []
+
+    errors = 0
+    for dias in periodos:
+        try:
+            queries.kpis_globais(dias=dias, tribunais=None)
+        except Exception as e:
+            logger.warning('warm_kpis_cache dias=%s: %s', dias, e)
+            errors += 1
+    logger.info('warm_kpis_cache: concluído, %d erros', errors)
+
+
 @job('default', timeout=120)
 def warm_workers_cache():
     """Computa e armazena o snapshot de workers/filas no cache Redis.

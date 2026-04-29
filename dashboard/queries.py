@@ -26,6 +26,13 @@ def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibili
 
 
 def kpis_globais(dias=None, tribunais=None):
+    from django.core.cache import cache
+
+    cache_key = f'kpis_globais:dias={dias}:tribunais={",".join(sorted(tribunais or []))}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     agora = timezone.now()
     cutoff_24h = agora - timedelta(hours=24)
     cutoff_48h = agora - timedelta(hours=48)
@@ -35,7 +42,6 @@ def kpis_globais(dias=None, tribunais=None):
     if tribunais:
         procs = procs.filter(tribunal_id__in=tribunais)
 
-    # 24h é sempre 24h reais — período não aplica, mas tribunal sim.
     movs_24h_qs = Movimentacao.objects.filter(inserido_em__gte=cutoff_24h)
     movs_24_48h_qs = Movimentacao.objects.filter(inserido_em__gte=cutoff_48h, inserido_em__lt=cutoff_24h)
     if tribunais:
@@ -52,7 +58,7 @@ def kpis_globais(dias=None, tribunais=None):
     if tribunais:
         drift_qs = drift_qs.filter(tribunal_id__in=tribunais)
 
-    return {
+    result = {
         'total_processos': procs.count(),
         'total_movimentacoes': movs.count(),
         'movs_24h': movs_24h,
@@ -63,6 +69,8 @@ def kpis_globais(dias=None, tribunais=None):
             .values_list('finished_at', flat=True).first(),
         'drift_abertos': drift_qs.count(),
     }
+    cache.set(cache_key, result, timeout=300)
+    return result
 
 
 def ingestion_rate_por_hora(horas=24, tribunais=None):
