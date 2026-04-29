@@ -29,43 +29,32 @@ TRIBUNAIS_COM_ENRICHER = {'TRF1', 'TRF3'}
 def ingest_processo(processo, client: DJENClient | None = None) -> dict:
     """Sincroniza movimentações de UM processo via DJEN.
 
-    Útil pra preencher movs históricas que ainda não foram cobertas pelo backfill,
-    ou pra atualizar um processo específico sob demanda. Reusa _process_page —
-    INSERT idempotente via bulk_create(ignore_conflicts=True).
+    Não cria IngestionRun — esses são reservados pro backfill janela-de-dia
+    via `ingest_window`. Auditoria por-processo fica em
+    `Process.ultima_sinc_djen_em` + `Movimentacao.inserido_em` (do bulk insert).
+
+    Reusa `_process_page` com run=None: bulk_create(ignore_conflicts=True)
+    continua idempotente, só não atualiza contadores de run.
     """
     client = client or DJENClient()
     tribunal = processo.tribunal
-    run = IngestionRun.objects.create(
-        tribunal=tribunal,
-        status=IngestionRun.STATUS_RUNNING,
-        # Sem janela específica — usamos data_autuacao..hoje como aproximação pra auditoria.
-        janela_inicio=processo.data_autuacao or date(2020, 1, 1),
-        janela_fim=date.today(),
-    )
     cnjs_tocados: set[str] = set()
-    try:
-        for items in client.iter_pages_processo(tribunal.sigla_djen, processo.numero_cnj):
-            _process_page(items, tribunal, run, cnjs_tocados)
-        if cnjs_tocados:
-            _atualizar_resumo_processos(tribunal, cnjs_tocados)
-        Process.objects.filter(pk=processo.pk).update(ultima_sinc_djen_em=timezone.now())
-        run.status = IngestionRun.STATUS_SUCCESS
-    except Exception as exc:
-        run.status = IngestionRun.STATUS_FAILED
-        run.erros.append({'erro': 'execucao_processo', 'cnj': processo.numero_cnj, 'detalhe': str(exc)[:500]})
-        run.finished_at = timezone.now()
-        run.save(update_fields=['status', 'erros', 'finished_at'])
-        raise
-    finally:
-        if run.status == IngestionRun.STATUS_SUCCESS:
-            run.finished_at = timezone.now()
-            run.save(update_fields=['status', 'finished_at', 'erros'])
+    novas = 0
+    duplicadas = 0
+    paginas = 0
+    for items in client.iter_pages_processo(tribunal.sigla_djen, processo.numero_cnj):
+        n_novas, n_dup = _process_page(items, tribunal, None, cnjs_tocados)
+        novas += n_novas
+        duplicadas += n_dup
+        paginas += 1
+    if cnjs_tocados:
+        _atualizar_resumo_processos(tribunal, cnjs_tocados)
+    Process.objects.filter(pk=processo.pk).update(ultima_sinc_djen_em=timezone.now())
     return {
-        'run_id': run.pk,
         'cnj': processo.numero_cnj,
-        'novas': run.movimentacoes_novas,
-        'duplicadas': run.movimentacoes_duplicadas,
-        'paginas': run.paginas_lidas,
+        'novas': novas,
+        'duplicadas': duplicadas,
+        'paginas': paginas,
     }
 
 
@@ -229,9 +218,14 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
     return run
 
 
-def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun,
-                  cnjs_tocados: set[str]) -> None:
-    """Processa uma página da DJEN — toda a unidade é atômica para garantir consistência da métrica."""
+def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | None,
+                  cnjs_tocados: set[str]) -> tuple[int, int]:
+    """Processa uma página da DJEN. Retorna (novas, duplicadas) pra caller
+    agregar quando rodando sem IngestionRun (ingest_processo).
+
+    Quando `run` é não-None (caminho ingest_window/backfill_dia), atualiza
+    os contadores no run direto. Atomicidade garante consistência da métrica.
+    """
     parsed = []
     for item in items:
         p = parse_item(item, tribunal, run)
@@ -239,9 +233,10 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun,
             parsed.append(p)
 
     if not parsed:
-        run.paginas_lidas += 1
-        run.save(update_fields=['paginas_lidas', 'erros'])
-        return
+        if run is not None:
+            run.paginas_lidas += 1
+            run.save(update_fields=['paginas_lidas', 'erros'])
+        return (0, 0)
 
     cnjs_pagina = {p.cnj for p in parsed}
     ext_ids_pagina = [p.external_id for p in parsed]
@@ -298,15 +293,17 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun,
         # workers concorrentes podem dupli-contar como "novos" o mesmo external_id;
         # `ignore_conflicts` garante que dados não sejam duplicados, só a métrica.
         novos_count = len(ext_ids_pagina) - len(ja_existem_extids)
-        run.movimentacoes_novas += novos_count
-        run.movimentacoes_duplicadas += len(ja_existem_extids)
-        run.processos_novos += len(novos_processos)
-        run.paginas_lidas += 1
-        run.save(update_fields=[
-            'movimentacoes_novas', 'movimentacoes_duplicadas',
-            'processos_novos', 'paginas_lidas', 'erros',
-        ])
+        if run is not None:
+            run.movimentacoes_novas += novos_count
+            run.movimentacoes_duplicadas += len(ja_existem_extids)
+            run.processos_novos += len(novos_processos)
+            run.paginas_lidas += 1
+            run.save(update_fields=[
+                'movimentacoes_novas', 'movimentacoes_duplicadas',
+                'processos_novos', 'paginas_lidas', 'erros',
+            ])
         cnjs_tocados.update(cnjs_pagina)
+        return (novos_count, len(ja_existem_extids))
 
 
 def _atualizar_resumo_processos(tribunal: Tribunal, cnjs: set[str]) -> None:
