@@ -19,7 +19,7 @@ services:
     command: python manage.py rqworker enrich_trf1
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     deploy:
       replicas: 300
     restart: always
@@ -29,7 +29,7 @@ services:
     command: python manage.py rqworker enrich_trf3
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     deploy:
       replicas: 40
     restart: always
@@ -39,7 +39,7 @@ services:
     command: python manage.py rqworker default
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     restart: always
 
   worker_ingestion:
@@ -47,7 +47,7 @@ services:
     command: python manage.py rqworker djen_ingestion djen_backfill
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     deploy:
       replicas: 4
     restart: always

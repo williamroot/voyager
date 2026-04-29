@@ -81,7 +81,7 @@ services:
                      --access-logfile - --error-logfile -"
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
       - static:/app/staticfiles
     depends_on:
       postgres:
@@ -99,7 +99,7 @@ services:
     command: python manage.py rqworker djen_ingestion djen_backfill
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     depends_on:
       web:
         condition: service_healthy
@@ -112,7 +112,7 @@ services:
     command: python manage.py rqworker default
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     depends_on:
       web:
         condition: service_healthy
@@ -123,7 +123,7 @@ services:
     command: python manage.py rqworker enrich_trf1
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     depends_on:
       web:
         condition: service_healthy
@@ -136,7 +136,7 @@ services:
     command: python manage.py rqworker enrich_trf3
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     depends_on:
       web:
         condition: service_healthy
@@ -149,7 +149,7 @@ services:
     command: python manage.py rqworker manual
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     depends_on:
       web:
         condition: service_healthy
@@ -162,7 +162,7 @@ services:
     command: python manage.py djen_register_schedules_and_run
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     depends_on:
       web:
         condition: service_healthy
@@ -179,7 +179,7 @@ services:
     command: python manage.py enrichers_drain
     env_file: .env
     volumes:
-      - .:/app:ro
+      - .:/app
     depends_on:
       web:
         condition: service_healthy
