@@ -285,63 +285,28 @@ def status_workers():
     worker_keys = [k.decode() if isinstance(k, bytes) else k
                    for k in pipe_results[-1]]
 
-    from datetime import datetime, timezone as dt_timezone
-    now_utc_naive = datetime.now(dt_timezone.utc).replace(tzinfo=None)
-
-    workers = []
-    if worker_keys:
-        pipe2 = conn.pipeline()
-        for k in worker_keys:
-            pipe2.hgetall(k)
-        results = pipe2.execute()
-        for raw in results:
-            if not raw:
-                continue
-            d = {(k.decode() if isinstance(k, bytes) else k):
-                 (v.decode() if isinstance(v, bytes) else v)
-                 for k, v in raw.items()}
-            last_heartbeat = None
-            for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ'):
-                try:
-                    last_heartbeat = datetime.strptime(d.get('last_heartbeat', ''), fmt)
-                    break
-                except (ValueError, TypeError):
-                    continue
-            idle_seconds = None
-            if last_heartbeat:
-                idle_seconds = int((now_utc_naive - last_heartbeat).total_seconds())
-                # Pula zumbi que não bate heartbeat há mais de 5min — workers
-                # vivos pingam a cada 60s.
-                if idle_seconds > 300:
-                    continue
-            queues_str = d.get('queues', '')
-            queue_list = [x for x in queues_str.split(',') if x]
-            try:
-                successful = int(d.get('successful_job_count', 0) or 0)
-                failed = int(d.get('failed_job_count', 0) or 0)
-                working_time = int(float(d.get('total_working_time', 0) or 0))
-            except (ValueError, TypeError):
-                successful = failed = working_time = 0
-            workers.append({
-                'name': d.get('name', '?'),
-                'state': d.get('state', 'unknown'),
-                'queues': queue_list,
-                'current_job_id': d.get('current_job_id') or None,
-                'last_heartbeat': last_heartbeat,
-                'idle_seconds': idle_seconds,
-                'successful_jobs': successful,
-                'failed_jobs': failed,
-                'total_working_time': working_time,
-            })
-    workers.sort(key=lambda w: (','.join(w['queues']), w['name']))
-
     from collections import Counter
     workers_by_queue = Counter()
-    for w in workers:
-        for q in w['queues']:
-            workers_by_queue[q] += 1
+    if worker_keys:
+        # Só precisamos do campo 'queues' de cada worker — evita HGETALL (muito pesado
+        # com 400+ workers em MULTI/EXEC).
+        pipe2 = conn.pipeline(transaction=False)
+        for k in worker_keys:
+            pipe2.hget(k, 'queues')
+        queues_results = pipe2.execute()
+        for raw in queues_results:
+            if not raw:
+                continue
+            queues_str = raw.decode() if isinstance(raw, bytes) else raw
+            for q in queues_str.split(','):
+                if q:
+                    workers_by_queue[q] += 1
 
-    result = {'queues': queues, 'workers': workers, 'workers_by_queue': dict(workers_by_queue)}
+    result = {
+        'queues': queues,
+        'workers': worker_keys,
+        'workers_by_queue': dict(workers_by_queue),
+    }
     cache.set('status_workers_snapshot', result, timeout=60)
     return result
 
