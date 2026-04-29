@@ -10,8 +10,8 @@
 </div>
 
 <div class="card mb-5">
-  <div class="flex items-start justify-between gap-4">
-    <div>
+  <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+    <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2 mb-2 flex-wrap">
         <span class="badge bg-surface border-border text-fg-soft">{{ processo.tribunal_id }}</span>
         {% if processo.enriquecimento_status == 'nao_encontrado' %}
@@ -25,8 +25,8 @@
           <span class="text-xs text-fg-subtle">última atividade {{ processo.ultima_movimentacao_em|relative_dt }}</span>
         {% endif %}
       </div>
-      <h1 class="font-mono text-3xl tracking-tight text-fg">{{ processo.numero_cnj }}</h1>
-      <div class="flex gap-6 mt-3 text-sm text-fg-subtle">
+      <h1 class="font-mono text-xl md:text-3xl tracking-tight text-fg break-all">{{ processo.numero_cnj }}</h1>
+      <div class="grid grid-cols-2 md:flex md:gap-6 gap-3 mt-3 text-sm text-fg-subtle">
         <div>
           <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Movimentações</div>
           <div class="text-fg-soft kpi-num text-lg">{{ processo.total_movimentacoes|format_int }}</div>
@@ -45,8 +45,8 @@
         </div>
       </div>
     </div>
-    <div class="flex flex-col items-end gap-2">
-      <button onclick="copyToClipboard('{{ processo.numero_cnj }}', 'CNJ')" class="inline-flex items-center gap-1.5 text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">
+    <div class="flex flex-col md:items-end gap-2 w-full md:w-auto">
+      <button onclick="copyToClipboard('{{ processo.numero_cnj }}', 'CNJ')" class="w-full md:w-auto inline-flex items-center justify-center gap-1.5 text-xs bg-surface border border-border hover:bg-muted rounded-lg px-3 py-1.5 text-fg-muted">
         {% voy_icon "mission-tag" "w-3.5 h-3.5" %}
         copiar CNJ
       </button>
@@ -55,7 +55,7 @@
               hx-target="#job-area" hx-swap="innerHTML"
               hx-disabled-elt="find button" class="inline">
           {% csrf_token %}
-          <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap disabled:opacity-50 disabled:cursor-wait">
+          <button type="submit" class="w-full md:w-auto inline-flex items-center justify-center gap-1.5 text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider disabled:opacity-50 disabled:cursor-wait">
             <svg class="w-3.5 h-3.5 animate-spin htmx-indicator" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke-width="3" class="opacity-75"/></svg>
             {% voy_icon "calibrate" "w-3.5 h-3.5" %}
             <span>Dados públicos ({{ processo.tribunal_id }})</span>
@@ -66,7 +66,7 @@
             hx-target="#job-area" hx-swap="innerHTML"
             hx-disabled-elt="find button" class="inline">
         {% csrf_token %}
-        <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-info/15 border border-info/30 hover:bg-info/25 text-info rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap disabled:opacity-50 disabled:cursor-wait">
+        <button type="submit" class="w-full md:w-auto inline-flex items-center justify-center gap-1.5 text-xs bg-info/15 border border-info/30 hover:bg-info/25 text-info rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider disabled:opacity-50 disabled:cursor-wait">
           <svg class="w-3.5 h-3.5 animate-spin htmx-indicator" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke-width="3" class="opacity-75"/></svg>
           {% voy_icon "downlink" "w-3.5 h-3.5" %}
           <span>Sincronizar movs</span>
