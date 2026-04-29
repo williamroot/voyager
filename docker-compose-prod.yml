@@ -185,11 +185,13 @@ services:
       web:
         condition: service_healthy
     deploy:
-      # 2 réplicas dão throughput 2x. Deadlock prévio (em
-      # tribunals_processoparte) foi eliminado ordenando eventos por
-      # process_id no apply_batch — réplicas sempre adquirem locks na
-      # mesma ordem, sem ciclo possível.
-      replicas: 2
+      # 1 réplica obrigatória: múltiplas réplicas deadlocavam em
+      # tribunals_processoparte porque XREADGROUP distribui events do
+      # MESMO process_id (publicações múltiplas) entre replicas. Mesmo
+      # ordenando dentro do batch, A e B competem em DELETE+INSERT do
+      # mesmo processo. Solução completa seria partition por hash —
+      # follow-up. Por ora, 1 réplica + batch=1000 é suficiente.
+      replicas: 1
     restart: always
 
   nginx:
