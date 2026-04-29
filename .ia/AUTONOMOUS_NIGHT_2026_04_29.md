@@ -287,6 +287,26 @@ Drenei 10.424 jobs não-backfill_dia + removi 8 `run_backfill` em execução
 do registry + restart workers. Queue agora tem só 13 backfill_dia. Próximo
 tick (em <10min) enche com mais 1-dia jobs.
 
+## Drain rodada 2 + clear pyc
+
+Após restart, queue voltou a 3.490 jobs (394 sync + 196 run_backfill +
+backfill_dia). Os run_backfill em execução (que workers tinham em memória)
+continuaram terminando seus chunks E chamando `_enfileirar_todos_enrichments`.
+Versão antiga de _enfileirar_todos_enrichments (ainda em pyc cache) re-
+adicionou sync_movimentacoes_bulk.
+
+Fix: deletar __pycache__ de djen + restart workers + drain de novo.
+Queue final: 100 backfill_dia.
+
+## ✅ Convergiu (06:24 UTC / 03:24 BRT)
+
+```
+ts=06:24:11 ingestion_runs_5m=7 broad_janela_5m=0
+```
+
+7 runs/5min = workers processando 1.4 dias/min com 4 réplicas. Todos
+single-day. Sem broad_janela. Sistema estável.
+
 ## Verificação: partes salvando + associando corretamente
 
 User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
