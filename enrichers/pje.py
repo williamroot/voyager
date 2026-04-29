@@ -46,6 +46,42 @@ class PjeEnricherError(Exception):
     pass
 
 
+class PjeServerError(PjeEnricherError):
+    """PJe retornou HTTP 200 mas com página de erro JBoss/Hibernate
+    (banco do tribunal indisponível, transaction abortada, etc.).
+    Não é 403 (proxy block) nem 404 (não encontrado) — é o servidor do
+    tribunal com problema interno. Diferenciamos pra:
+    1) Não retentar com proxy diferente (não vai resolver)
+    2) Marcar Process com status='erro' + mensagem clara `tribunal_indisponivel`
+    3) Operacionalmente saber que pausa não é nosso problema, é do TRF
+    """
+    pass
+
+
+# Padrões que identificam página de erro do JBoss/Seam do PJe.
+# Quando algum aparece em resposta 200, sabemos que o tribunal está com
+# problema interno (ex: pool de conexão DB esgotado, transaction abortada).
+_PJE_ERROR_MARKERS = (
+    'errorUnexpected.seam',
+    'IJ000459',  # Transaction is not active
+    'Could not open connection',
+    'Transaction is not active',
+    'GenericJDBCException',
+    'Erro inesperado, por favor tente novamente',
+)
+
+
+def _detect_pje_server_error(text: str) -> str | None:
+    """Retorna o marker encontrado se a resposta indica erro JBoss; None caso contrário."""
+    if not text:
+        return None
+    sample = text[:4096]  # checa só os primeiros 4KB — markers ficam no topo
+    for m in _PJE_ERROR_MARKERS:
+        if m in sample:
+            return m
+    return None
+
+
 class BasePjeEnricher:
     """Subclasse define BASE_URL, LIST_URL, DETALHE_PATH e TRIBUNAL_SIGLA."""
 
@@ -172,6 +208,17 @@ class BasePjeEnricher:
                 last_status = resp.status_code
                 continue
             resp.raise_for_status()
+            # Pré-200 OK do proxy não significa que o PJe entregou conteúdo
+            # útil — TRF1 às vezes retorna 200 com página de erro JBoss
+            # (banco do tribunal indisponível). Detecta e levanta exceção
+            # específica pra não consumir rotações de proxy à toa.
+            err_marker = _detect_pje_server_error(resp.text)
+            if err_marker:
+                self.logger.warning('pje retornou erro do servidor (não-recuperável via proxy)', extra={
+                    'tribunal': self.TRIBUNAL_SIGLA, 'marker': err_marker,
+                    'url': url[:120], 'tentativa': tentativa,
+                })
+                raise PjeServerError(f'tribunal_indisponivel: {err_marker}')
             return resp
         msg = f'{self.MAX_PROXY_ROTATIONS} proxies tentados sem sucesso'
         if last_status:
