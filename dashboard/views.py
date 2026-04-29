@@ -418,9 +418,13 @@ def partes(request):
     }
     order_by = SORT_VALIDO.get(sort, SORT_VALIDO['-total_processos'])
 
+    distribuicao = queries.distribuicao_tipos_partes()
     base_ctx = {
         'tipo_filtro': tipo, 'q': q, 'min_procs': min_procs, 'sort': sort,
-        'distribuicao_tipos': queries.distribuicao_tipos_partes(),
+        'distribuicao_tipos': distribuicao,
+        # `total_partes` é a soma dos buckets por tipo (já consulta GROUP BY
+        # tipo) — evita um count() global extra.
+        'total_partes': sum(d.get('value', 0) for d in distribuicao),
     }
 
     if not _is_htmx(request):

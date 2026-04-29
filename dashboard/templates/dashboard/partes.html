@@ -2,7 +2,15 @@
 {% load voyager_extras %}
 {% block title %}Partes{% endblock %}
 {% block content %}
-{% include 'dashboard/_partials/page_header.html' with title='Partes' subtitle='Pessoas, empresas e advogados que aparecem em processos' %}
+<div class="flex items-end justify-between mb-6 gap-4">
+  {% include 'dashboard/_partials/page_header.html' with title='Partes' subtitle='Pessoas, empresas e advogados que aparecem em processos' %}
+  {% if total_partes %}
+    <div class="text-right shrink-0">
+      <div class="text-xs text-fg-subtle uppercase tracking-wider">Total</div>
+      <div class="kpi-num text-2xl text-fg-soft">{{ total_partes|format_int }}</div>
+    </div>
+  {% endif %}
+</div>
 
 {# Gráfico de distribuição por tipo (server-side, sem lazy — payload pequeno) #}
 {{ distribuicao_tipos|json_script:"data-partes-tipos" }}
