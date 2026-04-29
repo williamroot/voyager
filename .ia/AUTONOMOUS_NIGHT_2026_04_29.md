@@ -173,10 +173,57 @@ adicionar campo `IngestionRun.tipo` numa migration futura e filtrar pela UI.
 - `2315652` (TRF3): ultima_sinc_djen_em=04:24Z ✓ (DJEN movs sincronizou,
   total_movimentacoes=2). Enriquecimento PJe aguardando drain do backlog.
 
+## Bug encontrado e corrigido: `.177` rodando código antigo
+
+`.30` foi pull-ado e restart-ado várias vezes com o fix do `ingest_processo`,
+mas `.177` ficou para trás — git tinha código antigo, workers continuaram
+criando IngestionRun com `janela_inicio=2020-01-01` mesmo após meu commit.
+
+Diagnóstico: `docker exec voyager-worker_ingestion-1 grep IngestionRun.objects.create
+/app/djen/ingestion.py` em `.177` retornou 3 occurrences (vs 2 esperadas no
+código novo). A função `ingest_processo` ainda tinha o create.
+
+Fix: `ssh ubuntu@192.168.1.177 "git pull && docker compose restart"`. Por
+ter 343 containers, o restart sequencial leva ~28min — em curso.
+
+## Verificação: partes salvando + associando corretamente
+
+User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
+às 03:19 UTC após drain do drainer):
+
+```
+polo   | papel     | representa_id | nome                                  | doc                | tipo
+ativo  | EXEQUENTE |               | MONIZ DE ARAGAO & RIBEIRO ADVOGADOS    | 02.590.746/0001-28 | pj
+passivo| EXECUTADO |               | INSTITUTO NACIONAL DO SEGURO SOCIAL    | 29.979.036/0001-40 | pj
+passivo| ADVOGADO  | 4670135       | Procuradoria Federal nos Estados...    |                    | desconhecido
+```
+
+✓ 3 partes corretas, ProcessoParte do advogado tem `representa_id` apontando
+pro principal correto (INSS). PJ identificada por CNPJ; Procuradoria Federal
+fica com `tipo=desconhecido` (sem CPF/CNPJ/OAB) — comportamento esperado pra
+órgão público sem registro.
+
+## Decisão: NÃO implementar content_hash dedup
+
+User disse "se o DJEN republicou tudo bem segue o baile" — duplicatas
+mesmo conteúdo com external_ids diferentes da fonte são aceitáveis. Skip.
+
+## /dashboard/partes/ ganhou contagem total
+
+Page header agora mostra "Total: N" calculado da soma dos buckets de
+`distribuicao_tipos_partes` (já consultado pra o gráfico) — sem extra count.
+Commit `395be24`.
+
 ## Métricas — atualizadas a cada 5min via monitor
 
 ```
 ts=04:35:57 lag=142258 backfill_q=14669    [pre 2-replicas drainer]
+ts=04:46:11 ALERT errors_5m=4              [DJEN 403, esperado]
+ts=04:51:18 ALERT errors_5m=8              [DJEN 403, esperado]
+ts=04:56:23 ALERT errors_5m=1              [DJEN 403, esperado]
+ts=05:01:29 ALERT errors_5m=2              [DJEN 403, esperado]
+ts=05:06:34 ALERT errors_5m=3              [DJEN 403, esperado]
+ts=05:08:56 broad_janela_5m=4              [pre .177 fix]
 ```
 
-(monitor ativo com timeout 1h; se a sessão sobreviver, mais ticks abaixo.)
+(2 monitores ativos: lag/erros + broad_janela. Tickers chegam por notif do harness.)
