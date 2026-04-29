@@ -348,51 +348,47 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str]) -> None:
 
 
 def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
-    """Para todo processo tocado na ingestão, enfileira:
-      1. Enriquecimento no tribunal (PJe consulta pública) — só tribunais com enricher.
-      2. Sincronização do histórico DJEN do processo (djen_backfill queue).
-    Pula processos enriquecidos/sincronizados nas últimas 24h.
+    """Para todo processo tocado na ingestão, enfileira só o enriquecimento
+    no tribunal (PJe consulta pública).
+
+    Histórico DJEN per-processo (`sync_movimentacoes_bulk`) NÃO é enfileirado:
+    o `backfill_dia` (data-based) eventualmente cobre todos os dias na janela
+    do tribunal, então todo histórico DJEN de qualquer processo aparece
+    naturalmente. Auto-enqueue per-processo só duplicava trabalho e
+    saturava a fila `djen_backfill` com 14k+ jobs `sync_movimentacoes_bulk`
+    que travavam o backfill_dia (que é o que importa pra cobertura).
+
+    A sincronização per-processo continua disponível via botão na UI
+    (`sincronizar_movimentacoes` na fila `manual`) — usuário decide quando.
     """
     if not cnjs:
+        return
+
+    if tribunal.sigla not in TRIBUNAIS_COM_ENRICHER:
         return
 
     cutoff = timezone.now() - timedelta(hours=24)
     procs = list(
         Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
-        .values('pk', 'enriquecido_em', 'ultima_sinc_djen_em')
+        .values('pk', 'enriquecido_em')
     )
     if not procs:
         return
 
-    elegíveis_tribunal = []
-    elegíveis_djen = []
-    for p in procs:
-        enriq_stale = p['enriquecido_em'] is None or p['enriquecido_em'] < cutoff
-        djen_stale = p['ultima_sinc_djen_em'] is None or p['ultima_sinc_djen_em'] < cutoff
-        if enriq_stale:
-            elegíveis_tribunal.append(p['pk'])
-        if djen_stale:
-            elegíveis_djen.append(p['pk'])
+    elegíveis = [
+        p['pk'] for p in procs
+        if p['enriquecido_em'] is None or p['enriquecido_em'] < cutoff
+    ]
 
-    # Enriquecimento no tribunal (PJe).
-    if elegíveis_tribunal and tribunal.sigla in TRIBUNAIS_COM_ENRICHER:
+    if elegíveis:
         from enrichers.jobs import enqueue_enriquecimento
-        for pid in elegíveis_tribunal:
+        for pid in elegíveis:
             try:
                 enqueue_enriquecimento(pid, tribunal.sigla)
             except Exception as exc:
                 logger.warning('falha ao enfileirar enrichment', extra={'pid': pid, 'erro': str(exc)})
 
-    # Sincronização do histórico DJEN do processo.
-    if elegíveis_djen:
-        from .jobs import sync_movimentacoes_bulk
-        for pid in elegíveis_djen:
-            try:
-                sync_movimentacoes_bulk.delay(pid)
-            except Exception as exc:
-                logger.warning('falha ao enfileirar sync_djen', extra={'pid': pid, 'erro': str(exc)})
-
     logger.info(
-        'enrichments enfileirados %s → tribunal=%d djen=%d (de %d tocados)',
-        tribunal.sigla, len(elegíveis_tribunal), len(elegíveis_djen), len(procs),
+        'enrichments enfileirados %s → %d (de %d tocados)',
+        tribunal.sigla, len(elegíveis), len(procs),
     )
