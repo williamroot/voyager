@@ -21,7 +21,9 @@ services:
     volumes:
       - .:/app
     deploy:
-      replicas: 300
+      # Reduzido de 300 → 100 (load avg estourava 500+ no startup
+      # simultâneo, host tem 24 logical CPUs).
+      replicas: 100
     restart: always
 
   worker_trf3:
