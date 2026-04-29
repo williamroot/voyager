@@ -41,8 +41,21 @@ logger = logging.getLogger('voyager.enrichers.drainer')
 DLQ_STREAM = 'voyager:enrichment:dlq'
 DLQ_MAXLEN = 10_000
 
-# Match nome (e opcional codigo entre parênteses) — "Classe X (123)" → ('Classe X', '123').
-CLASSE_RE = re.compile(r'(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?\s*$')
+# Match estrito: "Procedimento Comum (1234)" → ('Procedimento Comum', '1234').
+# Sem parênteses → fica o nome inteiro, codigo=''. Evita o pitfall do
+# regex anterior `(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?` que era opcional e
+# casava dígitos no meio do texto como "código" (ex.: "Tributário 12345
+# algo" capturaria 12345).
+CLASSE_COM_CODIGO_RE = re.compile(r'^(.+?)\s*\((\d{2,5})\)\s*$')
+
+
+def _split_nome_codigo(texto: str) -> tuple[str, str]:
+    if not texto:
+        return '', ''
+    m = CLASSE_COM_CODIGO_RE.match(texto)
+    if m:
+        return m.group(1).strip()[:255], m.group(2)[:20]
+    return texto.strip()[:255], ''
 
 
 # ---------- normalização ----------
@@ -55,21 +68,9 @@ def normalize_dados(dados: dict) -> dict:
     """
     out: dict = {}
     if 'classe' in dados:
-        m = CLASSE_RE.match(dados['classe'])
-        if m:
-            out['classe_nome'] = (m.group(1) or '').strip()[:255]
-            out['classe_codigo'] = (m.group(2) or '')[:20]
-        else:
-            out['classe_nome'] = (dados['classe'] or '')[:255]
-            out['classe_codigo'] = ''
+        out['classe_nome'], out['classe_codigo'] = _split_nome_codigo(dados['classe'] or '')
     if 'assunto' in dados:
-        m = CLASSE_RE.match(dados['assunto'])
-        if m:
-            out['assunto_nome'] = (m.group(1) or '').strip()[:255]
-            out['assunto_codigo'] = (m.group(2) or '')[:20]
-        else:
-            out['assunto_nome'] = (dados['assunto'] or '')[:255]
-            out['assunto_codigo'] = ''
+        out['assunto_nome'], out['assunto_codigo'] = _split_nome_codigo(dados['assunto'] or '')
     if 'data_autuacao' in dados:
         dt = parse_data_br(dados['data_autuacao'])
         if dt is not None:
@@ -181,24 +182,30 @@ def upsert_parte(info: dict) -> Parte:
 
 
 def _safe_upsert_parte(*, lookup: dict, defaults: dict) -> Parte:
-    existing = Parte.objects.filter(**lookup).first()
+    """Lookup + insert idempotente. Usa `.first()` (com order_by pk) em
+    vez de `.get()` pra ser robusto a duplicatas pré-existentes — antes
+    das partial unique constraints existirem o caminho sem-doc-sem-oab
+    chegou a gerar 64k+ duplicatas. `.get()` levantaria
+    MultipleObjectsReturned em qualquer linha desse legado.
+    """
+    existing = Parte.objects.filter(**lookup).order_by('pk').first()
     if existing is not None:
-        defaults = _merge_doc_defaults(existing, defaults)
-        dirty = {k: v for k, v in defaults.items() if getattr(existing, k) != v}
-        if dirty:
-            for k, v in dirty.items():
-                setattr(existing, k, v)
-            try:
-                existing.save(update_fields=list(dirty))
-            except IntegrityError:
-                pass
-        return existing
+        return _merge_and_save(existing, defaults)
 
     Parte.objects.bulk_create(
         [Parte(**{**lookup, **defaults})],
         ignore_conflicts=True,
     )
-    existing = Parte.objects.get(**lookup)
+    existing = Parte.objects.filter(**lookup).order_by('pk').first()
+    if existing is None:
+        # bulk_create(ignore_conflicts) virou no-op + lookup não acha
+        # nada — anomalia, log e re-tentar lookup amplo só pelo lookup
+        # original (já é a query mais estreita). Levanta pra savepoint.
+        raise IntegrityError(f'Parte não encontrada após upsert: lookup={lookup}')
+    return _merge_and_save(existing, defaults)
+
+
+def _merge_and_save(existing: Parte, defaults: dict) -> Parte:
     merged = _merge_doc_defaults(existing, defaults)
     dirty = {k: v for k, v in merged.items() if getattr(existing, k) != v}
     if dirty:
@@ -207,7 +214,7 @@ def _safe_upsert_parte(*, lookup: dict, defaults: dict) -> Parte:
         try:
             existing.save(update_fields=list(dirty))
         except IntegrityError:
-            pass
+            pass  # outro writer atualizou — eventual consistency
     return existing
 
 

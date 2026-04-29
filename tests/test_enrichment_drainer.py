@@ -42,6 +42,20 @@ def test_normalize_dados_assunto_sem_codigo():
     assert out['assunto_nome'].startswith('DIREITO')
 
 
+def test_normalize_dados_classe_sem_parens_nao_extrai_digitos_do_meio():
+    """Regression: regex anterior pegava '12345' dentro do texto como código."""
+    out = drainer.normalize_dados({'classe': 'Tributário 12345 algo'})
+    assert out['classe_codigo'] == ''
+    assert out['classe_nome'] == 'Tributário 12345 algo'
+
+
+def test_normalize_dados_classe_codigo_so_entre_parens():
+    out = drainer.normalize_dados({'classe': 'Procedimento (1234) Comum'})
+    # Parênteses no meio não capturam — só no fim.
+    assert out['classe_codigo'] == ''
+    assert out['classe_nome'] == 'Procedimento (1234) Comum'
+
+
 def test_normalize_dados_valor_brl():
     out = drainer.normalize_dados({'valor_causa': 'R$ 1.234,56'})
     assert out['valor_causa'] == Decimal('1234.56')

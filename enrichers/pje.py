@@ -255,7 +255,12 @@ class BasePjeEnricher:
         m_id = re.search(r"idProcessoTrf['\"]?\s*[:=]\s*['\"]?(\d+)", resp.text)
         if m_id:
             return f'{self.BASE_URL}{self.DETALHE_PATH}/listView.seam?ca={m_id.group(1)}'
-        self.logger.warning('detalhe não encontrado', extra={'cnj': numero_cnj, 'sample': resp.text[:500]})
+        # Não logamos `resp.text` porque a página de resposta do PJe pode
+        # conter PII (nome de outras partes, advogados) — só o cnj e tamanho
+        # bastam pra triagem operacional.
+        self.logger.warning('detalhe não encontrado', extra={
+            'cnj': numero_cnj, 'resp_len': len(resp.text),
+        })
         return None
 
     def _fetch_detalhe(self, link_detalhe: str) -> BeautifulSoup:
