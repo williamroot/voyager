@@ -53,10 +53,11 @@ def enqueue_enriquecimento_manual(process_id: int):
     return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT)
 
 
-# Tamanho do batch periódico — 5k cada chamada x scheduler 5min = ~60k/h por tribunal,
-# folgado pra acompanhar o consumo dos workers (~30/s × 3600 = 100k/h teórico).
-ENQUEUE_BATCH_SIZE = 5_000
-QUEUE_HIGH_WATER = 50_000  # se já tem isso na fila, não re-enfileira
+# Buffer pra workers nunca esperarem: com 600+ workers (300 .30 + 300 .177)
+# por tribunal a ~5-10s/job, queima ~60-120/s = ~7-14k/min. 100k high-water
+# garante 7-14min de folga entre refills do scheduler (que roda a cada 2min).
+ENQUEUE_BATCH_SIZE = 10_000
+QUEUE_HIGH_WATER = 100_000  # se já tem isso na fila, não re-enfileira
 
 
 @job('default', timeout=300)
