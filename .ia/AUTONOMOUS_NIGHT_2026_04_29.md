@@ -197,6 +197,31 @@ Verificado via `docker inspect`: `Mounts: []` para worker_ingestion em
 + criar containers com a definição atual de compose. Em curso (~30min mais
 pra recriar 343 réplicas).
 
+## Bug encontrado e corrigido: queue `djen_backfill` saturada de sync jobs
+
+Investigando por que `backfill_dia` estava parado, vi que a fila `djen_backfill`
+tinha 14.5k jobs — TODOS `sync_movimentacoes_bulk` (per-processo). Origem:
+`_enfileirar_todos_enrichments` enfileirava UM `sync_movimentacoes_bulk` por
+processo descoberto durante backfill. Cada `backfill_dia` descobre dezenas/
+centenas de processos novos por dia → milhares de sync jobs por dia → fila
+explodiu.
+
+Pior: cada sync job que falha em DJEN 403 consome 8 retries × ~2s = 16s
+de worker. Os 4 workers gastaram todo o tempo retentando proxies em
+processos individuais, e o backfill_dia (que é o real motor de cobertura
+diária) ficou parado — daí "ingestion_runs_5m=0" no monitor.
+
+**Fix**:
+1. Removido auto-enqueue de `sync_movimentacoes_bulk` em
+   `_enfileirar_todos_enrichments`. O backfill por data cobre todo o
+   histórico do tribunal naturalmente; per-processo só é útil on-demand
+   (botão na UI continua funcionando via fila `manual`).
+2. Drenado 14.282 sync jobs pendentes da fila `djen_backfill`. Sobraram
+   apenas 274 (todos `backfill_dia`).
+
+Commit `2515701`. Após deploy, workers começaram a processar backfill_dia
+de novo (visto via Job OK em logs).
+
 ## Verificação: partes salvando + associando corretamente
 
 User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
