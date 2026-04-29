@@ -185,7 +185,10 @@ services:
       web:
         condition: service_healthy
     deploy:
-      replicas: 2
+      # 2 réplicas davam deadlock em tribunals_processoparte (DELETE+INSERT
+      # do wipe+reinsert de partes). 1 réplica garante zero contenção.
+      # Throughput de 1 com batch=1000 tem se mostrado suficiente.
+      replicas: 1
     restart: always
 
   nginx:
