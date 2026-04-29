@@ -1,0 +1,57 @@
+{% load voyager_extras %}
+{% if tipos_disponiveis or meios_disponiveis %}
+<div class="card-tight mb-4 flex flex-wrap gap-2 items-center">
+  {% if tipos_disponiveis %}
+    <span class="text-xs text-fg-subtle mr-1">Tipo:</span>
+    <a hx-get="{% url 'dashboard:processo-movs' processo.pk %}?{% query_string request tipo='' %}" hx-target="#processo-movs" hx-swap="innerHTML" hx-push-url="{% url 'dashboard:processo-detail' processo.pk %}?{% query_string request tipo='' %}" class="chip chip-mini {% if not tipo_filtro %}active{% endif %}">Todos</a>
+    {% for t in tipos_disponiveis %}
+      <a hx-get="{% url 'dashboard:processo-movs' processo.pk %}?{% query_string request tipo=t %}" hx-target="#processo-movs" hx-swap="innerHTML" hx-push-url="{% url 'dashboard:processo-detail' processo.pk %}?{% query_string request tipo=t %}" class="chip chip-mini {% if t|is_in_list:tipo_filtro %}active{% endif %}">{{ t }}</a>
+    {% endfor %}
+  {% endif %}
+  {% if meios_disponiveis %}
+    <span class="mx-2 text-border">|</span>
+    <span class="text-xs text-fg-subtle mr-1">Meio:</span>
+    <a hx-get="{% url 'dashboard:processo-movs' processo.pk %}?{% query_string request meio='' %}" hx-target="#processo-movs" hx-swap="innerHTML" hx-push-url="{% url 'dashboard:processo-detail' processo.pk %}?{% query_string request meio='' %}" class="chip chip-mini {% if not meio_filtro %}active{% endif %}">Todos</a>
+    {% for m in meios_disponiveis %}
+      <a hx-get="{% url 'dashboard:processo-movs' processo.pk %}?{% query_string request meio=m %}" hx-target="#processo-movs" hx-swap="innerHTML" hx-push-url="{% url 'dashboard:processo-detail' processo.pk %}?{% query_string request meio=m %}" class="chip chip-mini {% if m|is_in_list:meio_filtro %}active{% endif %}">{{ m }}</a>
+    {% endfor %}
+  {% endif %}
+  <span class="mx-2 text-border">|</span>
+  {% if so_ativos %}
+    <a hx-get="{% url 'dashboard:processo-movs' processo.pk %}?{% query_string request ativos='0' %}" hx-target="#processo-movs" hx-swap="innerHTML" hx-push-url="{% url 'dashboard:processo-detail' processo.pk %}?{% query_string request ativos='0' %}" class="chip chip-mini active">Apenas ativos</a>
+  {% else %}
+    <a hx-get="{% url 'dashboard:processo-movs' processo.pk %}?{% query_string request ativos='1' %}" hx-target="#processo-movs" hx-swap="innerHTML" hx-push-url="{% url 'dashboard:processo-detail' processo.pk %}?{% query_string request ativos='1' %}" class="chip chip-mini">Apenas ativos</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="relative">
+  <div class="absolute left-2.5 top-2 bottom-2 w-px bg-muted/70"></div>
+  <div class="space-y-3">
+    {% for m in movimentacoes %}
+      <div class="relative pl-9" x-data="{ open: false }">
+        <div class="absolute left-1 top-3 w-3 h-3 rounded-full bg-fg-muted border-2 border-base {% if not m.ativo %}bg-danger{% endif %}"></div>
+        <div class="card-tight">
+          <div class="flex flex-wrap items-center gap-2 mb-2">
+            <span class="text-fg-soft text-[0.78rem] font-medium" title="{{ m.data_disponibilizacao }}">
+              {{ m.data_disponibilizacao|date:'d/m/Y' }}
+            </span>
+            <span class="text-fg-subtle text-xs">· {{ m.data_disponibilizacao|relative_dt }}</span>
+            {% if m.tipo_comunicacao %}<span class="badge {{ m.tipo_comunicacao|type_classes }}">{{ m.tipo_comunicacao }}</span>{% endif %}
+            {% if m.meio_completo %}<span class="badge bg-card/70 border-border text-fg-muted">{{ m.meio_completo }}</span>{% endif %}
+            {% if not m.ativo %}<span class="badge bg-danger/15 border-danger/30 text-danger">cancelada</span>{% endif %}
+            {% if m.link %}<a href="{{ m.link }}" target="_blank" class="badge bg-accent/15 border-accent/30 text-accent-fg hover:bg-accent/15">↗</a>{% endif %}
+          </div>
+          {% if m.nome_orgao %}<div class="text-fg-muted text-xs mb-1">{{ m.nome_orgao }}{% if m.nome_classe %} · {{ m.nome_classe }}{% endif %}</div>{% endif %}
+          <div class="text-fg-soft text-sm leading-relaxed" x-show="!open">{{ m.texto|truncate_words_smart:300 }}</div>
+          <div class="text-fg-soft text-sm leading-relaxed whitespace-pre-wrap" x-show="open" x-cloak>{{ m.texto }}</div>
+          {% if m.texto and m.texto|length > 300 %}
+            <button @click="open = !open" class="text-xs text-accent-fg hover:text-accent-fg mt-2" x-text="open ? 'recolher' : 'expandir'"></button>
+          {% endif %}
+        </div>
+      </div>
+    {% empty %}
+      <div class="text-fg-subtle text-center py-12">Nenhuma movimentação para os filtros atuais.</div>
+    {% endfor %}
+  </div>
+</div>

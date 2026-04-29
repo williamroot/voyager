@@ -13,6 +13,7 @@ urlpatterns = [
     path('tribunais/<str:sigla>/', views.tribunal_detail, name='tribunal-detail'),
     path('processos/', views.processos, name='processos'),
     path('processos/<int:pk>/', views.processo_detail, name='processo-detail'),
+    path('processos/<int:pk>/movs/', views.processo_movs, name='processo-movs'),
     path('processos/<int:pk>/enriquecer/', views.processo_enriquecer, name='processo-enriquecer'),
     path('processos/<int:pk>/sincronizar/', views.processo_sincronizar, name='processo-sincronizar'),
     path('movimentacoes/', views.movimentacoes, name='movimentacoes'),

@@ -270,30 +270,11 @@ def processos(request):
 @login_required
 @require_GET
 def processo_detail(request, pk):
+    """Shell do detalhe — render rápido (só Process + ProcessoParte). A
+    timeline de movimentações vem via HTMX no endpoint separado pra não
+    bloquear o first paint quando o processo tem muitas movs (DISTINCT
+    + ORDER BY no Postgres pode levar 1s+ por query)."""
     proc = get_object_or_404(Process.objects.select_related('tribunal'), pk=pk)
-    movs_qs = Movimentacao.objects.filter(processo=proc).order_by('-data_disponibilizacao', '-id')
-
-    # filtros inline na timeline
-    tipos_filtro = _split_csv(request.GET.get('tipo'))
-    meios_filtro = _split_csv(request.GET.get('meio'))
-    if tipos_filtro:
-        movs_qs = movs_qs.filter(tipo_comunicacao__in=tipos_filtro)
-    if meios_filtro:
-        movs_qs = movs_qs.filter(meio_completo__in=meios_filtro)
-    so_ativos = request.GET.get('ativos', '1') == '1'
-    if so_ativos:
-        movs_qs = movs_qs.filter(ativo=True)
-
-    # facetas pro chip bar
-    tipos_disponiveis = list(
-        Movimentacao.objects.filter(processo=proc).exclude(tipo_comunicacao='')
-        .values_list('tipo_comunicacao', flat=True).distinct()[:10]
-    )
-    meios_disponiveis = list(
-        Movimentacao.objects.filter(processo=proc).exclude(meio_completo='')
-        .values_list('meio_completo', flat=True).distinct()[:6]
-    )
-
     participacoes = (
         ProcessoParte.objects.filter(processo=proc)
         .select_related('parte', 'representa__parte')
@@ -305,8 +286,42 @@ def processo_detail(request, pk):
 
     return render(request, 'dashboard/processo_detail.html', {
         'processo': proc,
-        'movimentacoes': list(movs_qs[:200]),
         'polos': polos,
+    })
+
+
+@login_required
+@require_GET
+def processo_movs(request, pk):
+    """Partial HTMX com timeline de movs + facetas. Carregado lazy pelo
+    shell do detalhe (`hx-trigger="load"`) e pelo próprio chip bar
+    (filtros aplicados via querystring + hx-get)."""
+    proc = get_object_or_404(Process, pk=pk)
+
+    tipos_filtro = _split_csv(request.GET.get('tipo'))
+    meios_filtro = _split_csv(request.GET.get('meio'))
+    so_ativos = request.GET.get('ativos', '1') == '1'
+
+    movs_qs = Movimentacao.objects.filter(processo=proc).order_by('-data_disponibilizacao', '-id')
+    if tipos_filtro:
+        movs_qs = movs_qs.filter(tipo_comunicacao__in=tipos_filtro)
+    if meios_filtro:
+        movs_qs = movs_qs.filter(meio_completo__in=meios_filtro)
+    if so_ativos:
+        movs_qs = movs_qs.filter(ativo=True)
+
+    tipos_disponiveis = list(
+        Movimentacao.objects.filter(processo=proc).exclude(tipo_comunicacao='')
+        .values_list('tipo_comunicacao', flat=True).distinct()[:10]
+    )
+    meios_disponiveis = list(
+        Movimentacao.objects.filter(processo=proc).exclude(meio_completo='')
+        .values_list('meio_completo', flat=True).distinct()[:6]
+    )
+
+    return render(request, 'dashboard/_partials/_processo_movs.html', {
+        'processo': proc,
+        'movimentacoes': list(movs_qs[:200]),
         'tipos_disponiveis': tipos_disponiveis,
         'meios_disponiveis': meios_disponiveis,
         'tipo_filtro': ','.join(tipos_filtro),
