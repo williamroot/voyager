@@ -50,16 +50,24 @@ def build_external_id(processo_id_datajud: Optional[str], idx: int,
 
 
 def build_texto(mov: dict) -> str:
-    """Monta texto legível: nome do movimento + complementos tabelados."""
+    """Monta texto legível: nome do movimento + complementos tabelados.
+
+    Datajud `complementosTabelados[i]`:
+      - `descricao`: label/categoria (snake_case, ex: 'motivo_da_remessa')
+      - `nome`: valor humano (ex: 'em diligência')
+      - `valor`: id numérico (geralmente FK redundante)
+      - `codigo`: tipo do complemento
+
+    Formato: 'Remessa · motivo da remessa: em diligência'.
+    `descricao` snake_case → spaces pra leitura.
+    """
     partes = [mov.get('nome') or '']
     for c in (mov.get('complementosTabelados') or []):
-        nome = c.get('nome') or ''
-        valor = c.get('valor') or ''
-        descricao = c.get('descricao') or ''
-        if descricao:
-            partes.append(f'{nome}: {descricao}' if nome else descricao)
-        elif valor:
-            partes.append(f'{nome}: {valor}' if nome else str(valor))
+        valor_humano = c.get('nome') or ''
+        label = (c.get('descricao') or '').replace('_', ' ')
+        if not valor_humano:
+            continue
+        partes.append(f'{label}: {valor_humano}' if label else valor_humano)
     return ' · '.join(p for p in partes if p)
 
 
@@ -93,12 +101,26 @@ def parse_movimentos(source: dict) -> list[dict]:
             codigo_int = int(codigo) if codigo is not None else 0
         except (TypeError, ValueError):
             codigo_int = 0
+        # Extrai campos estruturados dos complementosTabelados pelo `descricao`.
+        # Cada complemento tem `descricao` (label snake_case) + `nome` (valor humano).
+        compls = mov.get('complementosTabelados') or []
+        comp_by_desc = {(c.get('descricao') or ''): (c.get('nome') or '') for c in compls}
+        # Override mov.nome quando há complemento que dá mais contexto:
+        # Distribuição → tipo_de_distribuicao_redistribuicao
+        # Documento → tipo_de_documento
+        # Petição → tipo_de_peticao
+        # Remessa → motivo_da_remessa
+        # Conclusão → tipo_de_conclusao
+        tipo_documento = comp_by_desc.get('tipo_de_documento') or ''
         out.append({
             'external_id': build_external_id(str(proc_id), idx, mov.get('dataHora'), codigo_int),
             'data_disponibilizacao': dt,
             'data_envio': dt.date(),
-            'tipo_comunicacao': '',
-            'tipo_documento': '',
+            # Movs Datajud são internos do processo, não publicações DJEN.
+            # Usamos `tipo_comunicacao` pra rotular o tipo do movimento (ex:
+            # 'Distribuição', 'Petição') — facilita filtros chip-bar na UI.
+            'tipo_comunicacao': (mov.get('nome') or '')[:120],
+            'tipo_documento': tipo_documento[:120],
             'nome_orgao': nome_orgao,
             'id_orgao': id_orgao,
             'nome_classe': nome_classe,
