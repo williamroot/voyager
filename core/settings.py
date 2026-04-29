@@ -29,6 +29,7 @@ INSTALLED_APPS = [
 
     'tribunals',
     'djen',
+    'datajud',
     'enrichers',
     'api',
     'dashboard',

@@ -346,9 +346,11 @@ def processo_enriquecer(request, pk):
 @login_required
 @require_POST
 def processo_sincronizar(request, pk):
-    """Dispara sincronização DJEN de movimentações desse processo."""
+    """Dispara sincronização Datajud — mais completo que DJEN
+    (todas as movs, não só publicações em diário)."""
+    from datajud.jobs import datajud_sincronizar_processo
     proc = get_object_or_404(Process, pk=pk)
-    j = sincronizar_movimentacoes.delay(proc.pk)
+    j = datajud_sincronizar_processo.delay(proc.pk)
     return _resposta_job_enfileirado(request, j.id, pk)
 
 
