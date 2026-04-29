@@ -172,6 +172,16 @@
     }
     .chip-mini { padding: 0.15rem 0.5rem; font-size: 0.7rem; }
 
+    /* Mobile: bump tap-targets pra ≥44px (Apple HIG / Google Material). */
+    @media (max-width: 768px) {
+      .chip { padding: 0.55rem 0.85rem; font-size: 0.85rem; min-height: 36px; }
+      .chip-mini { padding: 0.4rem 0.7rem; font-size: 0.78rem; min-height: 32px; }
+      /* Botões pequenos em forms/headers ganham tap area maior */
+      .btn-mini, button.text-xs, a.text-xs[role="button"] { min-height: 36px; }
+      /* Links em listas (parte/processo/movimentacao) ganham padding clicável */
+      a[href*="/dashboard/"]:not(.nav-item):not(.chip) { display: inline-block; padding-block: 2px; }
+    }
+
     .nav-item {
       display: flex; align-items: center; gap: 0.625rem;
       padding: 0.55rem 0.75rem; border-radius: 0.6rem;
