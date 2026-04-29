@@ -242,6 +242,39 @@ auto-enqueue desativado, os 4 workers `.30` são suficientes pra
 backfill_dia diário. Drainer continua puxando o stream com 2 réplicas
 no `.30`.
 
+## Bug encontrado e corrigido: watchdog enfileirava run_backfill (30-dia)
+
+User pediu "1 dia de cada vez" pro backfill. Existem 2 caminhos no código:
+- `run_backfill(tribunal)`: chunks de 30 dias → IngestionRun de 30 dias
+- `tick_backfill_retroativo(tribunal)`: enfileira backfill_dia → IngestionRun
+  de 1 dia
+
+O watchdog estava chamando o primeiro (legacy). Mudei pra usar o segundo.
+Tick agora também seta `backfill_concluido_em` quando 100% coberto.
+
+Commit `51cf259`. Após deploy, novos runs serão sempre 1 dia. Os 4 chunks
+30-dias em curso (criados antes do fix às 06:00 UTC) vão concluir
+naturalmente.
+
+## Refresh manual de proxies
+
+Workers `.30` ficaram travados ~40min em rotações 50/50 com pool degradado.
+Triggerei `ProxyScrapePool.singleton().refresh()` → 1500 IPs frescos.
+Workers retomaram após restart.
+
+## Estado final ao adormecer (~03:00 BRT)
+
+- `.30`: web, scheduler, drainer (2x), workers (todos novos via bind-mount)
+- `.177`: stopped (load avg 510 com recreate; usuário decide pela manhã)
+- Stream lag: drainando, ~141k → menor (ainda com batch=1000 + 2 replicas)
+- backfill: scheduler vai disparar tick_backfill_retroativo a cada 10min
+  (1-day jobs)
+- queue `djen_backfill`: ~270 backfill_dia (drenando)
+- IngestionRun: a partir de agora todas single-day
+- Auto-enqueue de sync_movimentacoes_bulk: desativado (botão UI ainda funciona)
+
+Monitores ativos por mais ~50min cada (lag/erros + broad_janela).
+
 ## Verificação: partes salvando + associando corretamente
 
 User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
