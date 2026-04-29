@@ -364,10 +364,15 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
         if cur is None or (e.get('scraped_at') or '') > (cur.get('scraped_at') or ''):
             by_pid[pid] = e
 
+    # Ordena por process_id pra ter ordem determinística entre múltiplas
+    # réplicas do drainer — locks em tribunals_processoparte sempre adquiridos
+    # na mesma ordem, eliminando deadlock cíclico.
+    sorted_events = sorted(by_pid.values(), key=lambda e: e['process_id'])
+
     ok = 0
     falhas = 0
     with transaction.atomic():
-        for event in by_pid.values():
+        for event in sorted_events:
             try:
                 with transaction.atomic():
                     apply_event(event)
