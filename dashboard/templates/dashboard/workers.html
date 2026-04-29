@@ -8,7 +8,7 @@
 <div id="workers-content">
 
   {% include 'dashboard/_partials/section_header.html' with title='Filas' subtitle='pending / started / finished / failed por queue' %}
-  <div class="card overflow-hidden p-0 mb-6">
+  <div class="card overflow-x-auto p-0 mb-6">
     <table class="w-full text-sm dense">
       <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
         <tr>
@@ -36,7 +36,7 @@
   </div>
 
   {% include 'dashboard/_partials/section_header.html' with title='Workers' subtitle=workers|length|stringformat:'s'|add:' conectados' %}
-  <div class="card overflow-hidden p-0">
+  <div class="card overflow-x-auto p-0">
     <table class="w-full text-sm dense">
       <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
         <tr>
