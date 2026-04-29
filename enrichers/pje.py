@@ -91,7 +91,7 @@ class BasePjeEnricher:
     TRIBUNAL_SIGLA: str = ''
     LOG_NAME: str = 'voyager.enrichers.pje'
 
-    def __init__(self, pool: Optional[ProxyScrapePool] = None):
+    def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         if not (self.BASE_URL and self.LIST_URL and self.DETALHE_PATH and self.TRIBUNAL_SIGLA):
             raise NotImplementedError('Subclasse deve definir BASE_URL/LIST_URL/DETALHE_PATH/TRIBUNAL_SIGLA')
         self.pool = pool or ProxyScrapePool.singleton()
@@ -99,12 +99,19 @@ class BasePjeEnricher:
         self.session.headers.update(DEFAULT_HEADERS)
         self.timeout = (10, 60)
         self.logger = logging.getLogger(self.LOG_NAME)
+        # Quando True (cliques manuais via fila `manual`), tenta Cortex
+        # primeiro — proxy residencial premium, taxa de sucesso muito
+        # maior que pool ProxyScrape rotativo. Click do user vira ~1-3s
+        # em vez de 30s+ rotacionando proxies queimados.
+        self.prefer_cortex = prefer_cortex
 
-    def enriquecer(self, processo: Process) -> dict:
+    def enriquecer(self, processo: Process, direct_apply: bool = False) -> dict:
         """Faz scraping no PJe e publica o resultado no stream.
 
-        Não escreve no DB — o drainer aplica os campos e partes em bulk.
-        Retorna apenas um sumário pro RQ guardar como resultado do job.
+        Por default, publica no stream — drainer aplica em bulk com baixa
+        concorrência. Com `direct_apply=True` (cliques manuais), aplica
+        direto no DB no próprio worker — usuário vê dados imediatamente
+        em vez de esperar drainer drenar o backlog (~10min em pico).
         """
         if processo.tribunal_id != self.TRIBUNAL_SIGLA:
             raise PjeEnricherError(
@@ -124,15 +131,15 @@ class BasePjeEnricher:
         try:
             link_detalhe = self._buscar_processo(processo.numero_cnj)
         except PjeServerError as exc:
-            stream.publish(stream.build_erro_payload(**base, erro=f'busca: {exc}'))
+            self._emit(stream.build_erro_payload(**base, erro=f'busca: {exc}'), direct_apply)
             self._sleep_after_server_error()
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
         except Exception as exc:
-            stream.publish(stream.build_erro_payload(**base, erro=f'busca: {exc}'))
+            self._emit(stream.build_erro_payload(**base, erro=f'busca: {exc}'), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
         if not link_detalhe:
-            stream.publish(stream.build_nao_encontrado_payload(**base))
+            self._emit(stream.build_nao_encontrado_payload(**base), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'nao_encontrado'}
 
         try:
@@ -140,21 +147,41 @@ class BasePjeEnricher:
             dados = self._extrair_dados(soup)
             partes = self._extrair_partes(soup)
         except PjeServerError as exc:
-            stream.publish(stream.build_erro_payload(**base, erro=f'detalhe: {exc}'))
+            self._emit(stream.build_erro_payload(**base, erro=f'detalhe: {exc}'), direct_apply)
             self._sleep_after_server_error()
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
         except Exception as exc:
             self.logger.exception('falha ao parsear detalhe', extra={'cnj': processo.numero_cnj})
-            stream.publish(stream.build_erro_payload(**base, erro=f'parse: {exc}'))
+            self._emit(stream.build_erro_payload(**base, erro=f'parse: {exc}'), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
-        stream.publish(stream.build_ok_payload(**base, dados=dados, partes=partes))
+        self._emit(stream.build_ok_payload(**base, dados=dados, partes=partes), direct_apply)
         return {
             'cnj': processo.numero_cnj,
             'status': 'ok',
             'classe_raw': dados.get('classe'),
             'partes_total': sum(len(v) for v in partes.values()),
         }
+
+    def _emit(self, payload: dict, direct_apply: bool) -> None:
+        """Publica no stream OU aplica direto no DB.
+
+        `direct_apply=True`: usado pra cliques manuais — chama o
+        drainer.apply_event no próprio worker, evitando o lag de drenagem
+        (~10min em pico). User vê dados imediatos no DB após scrape OK.
+        """
+        if direct_apply:
+            from .drainer import apply_event
+            from django.db import transaction
+            try:
+                with transaction.atomic():
+                    apply_event(payload)
+            except Exception:
+                self.logger.exception('apply_event direto falhou — fallback pro stream',
+                                      extra={'process_id': payload.get('process_id')})
+                stream.publish(payload)
+        else:
+            stream.publish(payload)
 
     SERVER_ERROR_SLEEP_SECONDS = 30
 
@@ -174,16 +201,21 @@ class BasePjeEnricher:
     MAX_PROXY_ROTATIONS = 10
 
     def _next_proxy(self, exclude: set) -> Optional[str]:
-        """Próximo proxy do pool ProxyScrape, evitando os já tentados nessa
-        request. Foco no pool (1500 IPs rotativos); Cortex só como fallback
-        quando o pool está realmente exausto."""
+        """Próximo proxy. Por default: pool ProxyScrape primeiro, Cortex
+        como fallback. Com prefer_cortex=True (cliques manuais): Cortex
+        primeiro, pool como fallback."""
+        if self.prefer_cortex:
+            cortex = cortex_proxy_url(self.pool)
+            if cortex and cortex not in exclude:
+                return cortex
         for _ in range(40):
             url = self.pool.get()
             if url and url not in exclude:
                 return url
-        cortex = cortex_proxy_url()
-        if cortex and cortex not in exclude:
-            return cortex
+        if not self.prefer_cortex:
+            cortex = cortex_proxy_url(self.pool)
+            if cortex and cortex not in exclude:
+                return cortex
         return None
 
     def _request_with_rotation(self, method: str, url: str, **kwargs) -> requests.Response:

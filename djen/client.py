@@ -19,7 +19,7 @@ class DjenClientError(Exception):
 class DJENClient:
     """Cliente HTTP da DJEN com paginação, retry exponencial e rotação de proxies."""
 
-    def __init__(self, pool: Optional[ProxyScrapePool] = None):
+    def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         self.base_url = settings.DJEN_BASE_URL
         self.page_sleep = settings.DJEN_PAGE_SLEEP_SECONDS
         self.max_retries = settings.DJEN_MAX_RETRIES
@@ -28,6 +28,11 @@ class DJENClient:
         self.user_agent = settings.DJEN_USER_AGENT
         self.pool = pool or ProxyScrapePool.singleton()
         self.session = requests.Session()
+        # Quando True (cliques manuais via fila `manual`), tenta Cortex
+        # primeiro — proxy residencial premium, success rate muito maior
+        # que pool ProxyScrape rotativo. Click do user retorna em ~3-10s
+        # em vez de 30s+ rotacionando proxies queimados.
+        self.prefer_cortex = prefer_cortex
 
     def count_window(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:
         """Devolve o total de movimentações que a DJEN diz existir nessa janela.
@@ -135,8 +140,17 @@ class DJENClient:
                 continue
 
     def _pick_proxy(self, prefer_other_than: Optional[str] = None) -> tuple[Optional[str], str]:
+        if self.prefer_cortex:
+            from .proxies import cortex_proxy_url
+            cortex = cortex_proxy_url(self.pool)
+            if cortex and cortex != prefer_other_than:
+                return cortex, 'cortex'
         proxy = self.pool.get()
         if not proxy:
+            from .proxies import cortex_proxy_url
+            cortex = cortex_proxy_url(self.pool)
+            if cortex:
+                return cortex, 'cortex'
             return None, 'direct'
         return proxy, 'pool'
 

@@ -126,11 +126,14 @@ def sincronizar_movimentacoes(process_id: int) -> dict:
     """Atualiza movimentações de um processo específico via DJEN (?numeroProcesso=...).
 
     Vai na fila 'manual' (prioritária) porque é sempre disparado pelo botão
-    no dashboard — usuário esperando feedback. Filas de backfill não atrapalham.
+    no dashboard — usuário esperando feedback. Usa `prefer_cortex=True` no
+    DJEN client pra retornar em ~3-10s (proxy residencial) em vez de 30s+
+    rotacionando proxies queimados.
     """
+    from .client import DJENClient
     from .ingestion import ingest_processo
     p = Process.objects.select_related('tribunal').get(pk=process_id)
-    return ingest_processo(p)
+    return ingest_processo(p, client=DJENClient(prefer_cortex=True))
 
 
 @job('djen_backfill', timeout=600)

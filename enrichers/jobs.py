@@ -27,13 +27,14 @@ def queue_for(tribunal_sigla: str) -> str:
 # @job('default') é mantido pra trabalhar como fallback se algo enfileirar
 # direto via .delay() sem passar pela queue per-tribunal.
 @job('default', timeout=ENRICH_TIMEOUT)
-def enriquecer_processo(process_id: int) -> dict:
+def enriquecer_processo(process_id: int, prefer_cortex: bool = False,
+                         direct_apply: bool = False) -> dict:
     p = Process.objects.select_related('tribunal').get(pk=process_id)
     cls = _ENRICHERS.get(p.tribunal_id)
     if not cls:
         raise ValueError(f'Sem enricher cadastrado para tribunal {p.tribunal_id}')
-    enricher = cls()
-    return enricher.enriquecer(p)
+    enricher = cls(prefer_cortex=prefer_cortex)
+    return enricher.enriquecer(p, direct_apply=direct_apply)
 
 
 def enqueue_enriquecimento(process_id: int, tribunal_sigla: str):
@@ -46,11 +47,16 @@ def enqueue_enriquecimento_manual(process_id: int):
     """Enfileira na queue 'manual' — prioritária pra cliques na UI.
 
     Bypassa as filas per-tribunal (que podem ter centenas de milhares de
-    jobs). Workers dedicados consomem essa fila, garantindo latência baixa
-    pra atualização sob demanda mesmo durante backfill.
+    jobs). Passa `prefer_cortex=True` pro enricher tentar o proxy
+    residencial primeiro — click do user retorna em ~1-3s em vez de
+    rotacionar proxies queimados por 30s+.
     """
     queue = django_rq.get_queue('manual')
-    return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT)
+    return queue.enqueue(
+        enriquecer_processo, process_id,
+        kwargs={'prefer_cortex': True, 'direct_apply': True},
+        job_timeout=ENRICH_TIMEOUT,
+    )
 
 
 # Buffer pra workers nunca esperarem: com 600+ workers (300 .30 + 300 .177)
