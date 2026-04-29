@@ -236,28 +236,35 @@ def distribuicao_tipos_partes():
 
 
 def status_workers():
-    """Snapshot das filas RQ e workers conectados.
+    """Lê o snapshot de filas/workers do cache Redis.
 
-    Inclui counters de cada queue (pending/started/finished/failed) e
-    a lista de workers vivos com fila atendida + idle time. Usado pela
-    página `/dashboard/workers/`.
+    A computação real fica em `compute_workers_snapshot()`, chamada apenas
+    pelo job de background `warm_workers_cache` (a cada 30s). Requisições
+    web NUNCA computam diretamente — com 1400+ conexões Redis o pipeline
+    demora 20-30s e estoura o timeout do gunicorn.
 
-    Um único pipeline Redis busca todos os dados de filas + workers —
-    com 170+ workers e Redis saturado, chamadas sequenciais somavam 90s+.
-    Resultado cacheado por 15s para evitar re-cálculo em reloads rápidos.
+    Retorna esqueleto vazio enquanto o cache ainda não foi aquecido.
     """
     from django.core.cache import cache
-    cached = cache.get('status_workers_snapshot')
-    if cached is not None:
-        return cached
+    return cache.get('status_workers_snapshot') or {
+        'queues': [],
+        'workers': [],
+        'workers_by_queue': {},
+    }
 
+
+def compute_workers_snapshot():
+    """Calcula o snapshot de filas/workers via pipelines Redis e armazena no cache.
+
+    Chamado apenas pelo worker RQ (warm_workers_cache). Nunca direto de
+    requisições web — pode demorar 20-30s com Redis saturado.
+    """
+    from django.core.cache import cache
     import django_rq
-    from rq import Queue
 
     conn = django_rq.get_connection('default')
     queue_names = list(__import__('django.conf', fromlist=['settings']).settings.RQ_QUEUES.keys())
 
-    # Um pipeline único para todos os contadores de fila (antes: 6 round-trips × N filas)
     pipe = conn.pipeline()
     for qname in queue_names:
         pipe.llen(f'rq:queue:{qname}')
@@ -282,19 +289,15 @@ def status_workers():
             'deferred': pipe_results[base + 5],
         })
 
-    worker_keys = [k.decode() if isinstance(k, bytes) else k
-                   for k in pipe_results[-1]]
+    worker_keys = [k.decode() if isinstance(k, bytes) else k for k in pipe_results[-1]]
 
     from collections import Counter
     workers_by_queue = Counter()
     if worker_keys:
-        # Só precisamos do campo 'queues' de cada worker — evita HGETALL (muito pesado
-        # com 400+ workers em MULTI/EXEC).
         pipe2 = conn.pipeline(transaction=False)
         for k in worker_keys:
             pipe2.hget(k, 'queues')
-        queues_results = pipe2.execute()
-        for raw in queues_results:
+        for raw in pipe2.execute():
             if not raw:
                 continue
             queues_str = raw.decode() if isinstance(raw, bytes) else raw
