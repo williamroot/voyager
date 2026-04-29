@@ -67,30 +67,6 @@ services:
       retries: 10
     restart: always
 
-  redis:
-    image: redis:7-alpine
-    command:
-      - redis-server
-      - --maxmemory
-      - 1gb
-      - --maxmemory-policy
-      - noeviction
-      - --appendonly
-      - "yes"
-      - --appendfsync
-      - everysec
-    # Expõe na LAN pra workers em outras máquinas (192.168.1.177).
-    ports:
-      - "192.168.1.30:6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-    restart: always
-
   web:
     build:
       context: .
@@ -108,8 +84,6 @@ services:
       - static:/app/staticfiles
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health/liveness/ || exit 1"]
@@ -204,5 +178,4 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   static:
