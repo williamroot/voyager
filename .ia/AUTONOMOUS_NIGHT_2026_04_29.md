@@ -222,6 +222,26 @@ diária) ficou parado — daí "ingestion_runs_5m=0" no monitor.
 Commit `2515701`. Após deploy, workers começaram a processar backfill_dia
 de novo (visto via Job OK em logs).
 
+## Crise: `.177` em load avg 510 com `docker compose up -d --force-recreate`
+
+O recreate de 343 workers simultâneos consumiu todos os recursos do host.
+Load avg foi de ~10 → 510 em minutos. Cada container subindo abria conexão
+no Postgres + Redis novos, e o kernel não dava conta.
+
+Decisão de emergência: parar a operação de recreate (`TaskStop`) e mandar
+`docker compose stop --timeout 5` em todos os workers `.177`. Estratégia:
+
+1. Workers `.30` ficam sozinhos (80 trf1/trf3 + 4 ingestion + 1 default
+   + 1 manual + drainer 2 réplicas). Capacidade reduzida ~80%, mas
+   backfill_dia continua com a queue de 274 jobs.
+2. `.177` fica vazio até a manhã — usuário decide se quer escalar
+   replicas pra menos (ex: 100 trf1) e re-armar.
+
+Capacidade de recovery: com a queue de 14k sync jobs já drenada e o
+auto-enqueue desativado, os 4 workers `.30` são suficientes pra
+backfill_dia diário. Drainer continua puxando o stream com 2 réplicas
+no `.30`.
+
 ## Verificação: partes salvando + associando corretamente
 
 User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
