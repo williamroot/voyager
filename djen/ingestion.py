@@ -348,47 +348,57 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str]) -> None:
 
 
 def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
-    """Para todo processo tocado na ingestão, enfileira só o enriquecimento
-    no tribunal (PJe consulta pública).
+    """Para todo processo NOVO descoberto na ingestão DJEN, enfileira:
+      1. Enriquecimento PJe (consulta pública) — partes/advogados — fila enrich_trf{N}
+      2. Sincronização Datajud — movs+metadados — fila datajud
 
-    Histórico DJEN per-processo (`sync_movimentacoes_bulk`) NÃO é enfileirado:
-    o `backfill_dia` (data-based) eventualmente cobre todos os dias na janela
-    do tribunal, então todo histórico DJEN de qualquer processo aparece
-    naturalmente. Auto-enqueue per-processo só duplicava trabalho e
-    saturava a fila `djen_backfill` com 14k+ jobs `sync_movimentacoes_bulk`
-    que travavam o backfill_dia (que é o que importa pra cobertura).
+    Filtra por enriquecido_em < 24h pra evitar re-enfileirar processos
+    recém-tocados. Cada fila tem workers dedicados, sem competição.
 
-    A sincronização per-processo continua disponível via botão na UI
-    (`sincronizar_movimentacoes` na fila `manual`) — usuário decide quando.
+    Histórico DJEN per-processo (`sync_movimentacoes_bulk`) NÃO é mais
+    enfileirado aqui: o `backfill_dia` cobre todo histórico do tribunal
+    naturalmente, e Datajud já traz o histórico completo do processo em
+    1 request. DJEN per-processo só sob demanda (futuro).
     """
     if not cnjs:
-        return
-
-    if tribunal.sigla not in TRIBUNAIS_COM_ENRICHER:
         return
 
     cutoff = timezone.now() - timedelta(hours=24)
     procs = list(
         Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
-        .values('pk', 'enriquecido_em')
+        .values('pk', 'enriquecido_em', 'ultima_sinc_djen_em')
     )
     if not procs:
         return
 
-    elegíveis = [
-        p['pk'] for p in procs
-        if p['enriquecido_em'] is None or p['enriquecido_em'] < cutoff
-    ]
+    enriq_eligiveis = []
+    datajud_eligiveis = []
+    for p in procs:
+        if p['enriquecido_em'] is None or p['enriquecido_em'] < cutoff:
+            enriq_eligiveis.append(p['pk'])
+        if p['ultima_sinc_djen_em'] is None or p['ultima_sinc_djen_em'] < cutoff:
+            datajud_eligiveis.append(p['pk'])
 
-    if elegíveis:
+    # PJe enricher só pra tribunais com scraper implementado.
+    if enriq_eligiveis and tribunal.sigla in TRIBUNAIS_COM_ENRICHER:
         from enrichers.jobs import enqueue_enriquecimento
-        for pid in elegíveis:
+        for pid in enriq_eligiveis:
             try:
                 enqueue_enriquecimento(pid, tribunal.sigla)
             except Exception as exc:
-                logger.warning('falha ao enfileirar enrichment', extra={'pid': pid, 'erro': str(exc)})
+                logger.warning('falha enfileirar enrichment', extra={'pid': pid, 'erro': str(exc)})
+
+    # Datajud roda pra QUALQUER tribunal (CNJ tem index pra todos).
+    if datajud_eligiveis:
+        from datajud.jobs import datajud_sync_bulk
+        for pid in datajud_eligiveis:
+            try:
+                datajud_sync_bulk.delay(pid)
+            except Exception as exc:
+                logger.warning('falha enfileirar datajud', extra={'pid': pid, 'erro': str(exc)})
 
     logger.info(
-        'enrichments enfileirados %s → %d (de %d tocados)',
-        tribunal.sigla, len(elegíveis), len(procs),
+        'auto-enqueue %s → pje=%d datajud=%d (de %d tocados)',
+        tribunal.sigla, len(enriq_eligiveis) if tribunal.sigla in TRIBUNAIS_COM_ENRICHER else 0,
+        len(datajud_eligiveis), len(procs),
     )

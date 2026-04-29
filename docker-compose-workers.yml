@@ -53,3 +53,15 @@ services:
     deploy:
       replicas: 4
     restart: always
+
+  worker_datajud:
+    image: voyager-web:prod
+    command: python manage.py rqworker datajud
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:
+      # Datajud é leve (1 request HTTP por processo). 30 réplicas pra
+      # processar a frota de processos já enriquecidos em background.
+      replicas: 30
+    restart: always

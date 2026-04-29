@@ -20,11 +20,12 @@ def datajud_sincronizar_processo(process_id: int, prefer_cortex: bool = True) ->
     return sync_processo(p, client=client)
 
 
-@job('djen_backfill', timeout=600)
+@job('datajud', timeout=600)
 def datajud_sync_bulk(process_id: int) -> dict:
-    """Versão bulk pra auto-enqueue durante backfill (não usado por
-    default, deixa pendurado pra ativar quando quiser cobertura total
-    de movs via Datajud em background)."""
+    """Versão bulk auto-enfileirada quando processos novos aparecem na
+    ingestão DJEN. Roda na fila `datajud` (workers dedicados) pra não
+    disputar com `enrich_trf*` (PJe scraping) nem `djen_backfill`
+    (data-based)."""
     p = Process.objects.select_related('tribunal').get(pk=process_id)
     client = DatajudClient(prefer_cortex=False)
     return sync_processo(p, client=client)

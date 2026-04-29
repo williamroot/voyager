@@ -140,6 +140,10 @@ RQ_QUEUES = {
     # 'Atualizar dados públicos' / 'Sincronizar movimentações'). Workers
     # dedicados garantem latência baixa mesmo com filas de backfill cheias.
     'manual':          {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
+    # Sincronização via API Datajud (CNJ) — 1 request por processo,
+    # cobre todos os tribunais. Dedicada pra não competir com DJEN nem
+    # com PJe scraping.
+    'datajud':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
 }
 
 # DJEN

@@ -159,6 +159,21 @@ services:
       replicas: 2
     restart: always
 
+  worker_datajud:
+    image: voyager-web:prod
+    command: python manage.py rqworker datajud
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      # Datajud é 1 request HTTP por processo (rápido). 10 réplicas dão
+      # vazão pra novos processos descobertos durante backfill DJEN.
+      replicas: 10
+    restart: always
+
   scheduler:
     image: voyager-web:prod
     command: python manage.py djen_register_schedules_and_run
