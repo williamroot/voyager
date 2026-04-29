@@ -199,6 +199,10 @@ class Parte(models.Model):
             models.Index(fields=['documento']),
             models.Index(fields=['oab']),
             models.Index(fields=['tipo']),
+            # Cobre sort default da listagem (/dashboard/partes/):
+            # ORDER BY total_processos DESC, nome ASC LIMIT N.
+            models.Index(fields=['-total_processos', 'nome'],
+                         name='parte_total_procs_nome_idx'),
         ]
 
     def __str__(self):

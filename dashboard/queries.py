@@ -226,10 +226,23 @@ def filtros_movimentacoes():
     }
 
 
+PARTES_DISTRIBUICAO_CACHE_KEY = 'partes:distribuicao_tipos'
+
+
 def distribuicao_tipos_partes():
     """Conta Partes por tipo (advogado/pj/pf/desconhecido). Usado pra
-    donut na página /dashboard/partes/."""
+    donut na página /dashboard/partes/.
+
+    A query faz seq scan em ~1M rows (~5s a frio) — cacheada no Redis
+    por 10min. Pré-aquecida pelo job `warm_partes_cache` (5min).
+    """
+    from django.core.cache import cache
     from tribunals.models import Parte
+
+    cached = cache.get(PARTES_DISTRIBUICAO_CACHE_KEY)
+    if cached is not None:
+        return cached
+
     LABELS = {
         'advogado': 'Advogado',
         'pj': 'Pessoa Jurídica',
@@ -237,10 +250,12 @@ def distribuicao_tipos_partes():
         'desconhecido': 'Sem Identificação',
     }
     rows = Parte.objects.values('tipo').annotate(n=Count('id')).order_by('-n')
-    return [
+    result = [
         {'name': LABELS.get(r['tipo'], r['tipo'] or '—'), 'value': r['n'], 'tipo': r['tipo']}
         for r in rows
     ]
+    cache.set(PARTES_DISTRIBUICAO_CACHE_KEY, result, timeout=600)
+    return result
 
 
 def status_workers():

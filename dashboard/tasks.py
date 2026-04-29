@@ -75,6 +75,20 @@ def warm_kpis_cache():
 
 
 @job('default', timeout=120)
+def warm_partes_cache():
+    """Pré-aquece o cache da página /dashboard/partes/.
+
+    A query `distribuicao_tipos_partes` faz GROUP BY em ~1M rows e
+    leva ~5s a frio. Sem warm, o primeiro hit após expiração paga o
+    custo. TTL de 600s no `cache.set` casa com o intervalo desse job.
+    """
+    try:
+        queries.distribuicao_tipos_partes()
+    except Exception as e:
+        logger.warning('warm_partes_cache: %s', e)
+
+
+@job('default', timeout=120)
 def warm_workers_cache():
     """Computa e armazena o snapshot de workers/filas no cache Redis.
 

@@ -14,7 +14,12 @@ from django.db import close_old_connections
 
 from tribunals.models import Tribunal
 
-from dashboard.tasks import warm_chart_cache, warm_kpis_cache, warm_workers_cache
+from dashboard.tasks import (
+    warm_chart_cache,
+    warm_kpis_cache,
+    warm_partes_cache,
+    warm_workers_cache,
+)
 
 from .jobs import (
     refresh_proxy_pool,
@@ -119,6 +124,15 @@ def create_scheduler() -> BlockingScheduler:
         'interval',
         seconds=30,
         id='warm_workers_cache',
+        replace_existing=True,
+    )
+
+    # Aquecimento da distribuição por tipo de Parte: a cada 5 min
+    scheduler.add_job(
+        warm_partes_cache.delay,
+        'interval',
+        minutes=5,
+        id='warm_partes_cache',
         replace_existing=True,
     )
 

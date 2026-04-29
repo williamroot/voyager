@@ -33,12 +33,31 @@ def _is_htmx(request) -> bool:
     return request.headers.get('HX-Request') == 'true'
 
 
-def _paginar(qs, request, default_size=50, max_size=200):
+class _CachedCountPaginator(Paginator):
+    """Paginator que aceita um `count` pré-computado.
+
+    Usado quando o total da tabela já foi calculado por outra via
+    (ex: soma do donut cacheado em `distribuicao_tipos_partes`),
+    evitando um `SELECT COUNT(*)` extra que faria seq scan na hot path.
+
+    Implementação: gravamos o valor diretamente em `self.__dict__['count']`,
+    que é o mesmo slot usado por `Paginator.count` (`cached_property`).
+    Assim `count`, `num_pages`, `page_range` e os derivados em `Page`
+    leem o cache normalmente — sem reissue de COUNT(*) por acesso.
+    """
+
+    def __init__(self, *args, count_override=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if count_override is not None:
+            self.__dict__['count'] = count_override
+
+
+def _paginar(qs, request, default_size=50, max_size=200, count_override=None):
     try:
         size = max(1, min(int(request.GET.get('page_size', default_size)), max_size))
     except (TypeError, ValueError):
         size = default_size
-    paginator = Paginator(qs, size)
+    paginator = _CachedCountPaginator(qs, size, count_override=count_override)
     try:
         page_num = int(request.GET.get('page', 1))
     except (TypeError, ValueError):
@@ -433,13 +452,20 @@ def partes(request):
         return render(request, 'dashboard/partes.html', base_ctx)
 
     qs = Parte.objects.all().order_by(*order_by)
+    has_filter = False
     if tipo:
         qs = qs.filter(tipo=tipo)
+        has_filter = True
     if q and len(q) >= 2:
         qs = qs.filter(Q(nome__icontains=q) | Q(documento__icontains=q) | Q(oab__icontains=q))
+        has_filter = True
     if min_procs.isdigit() and int(min_procs) > 0:
         qs = qs.filter(total_processos__gte=int(min_procs))
-    page = _paginar(qs, request, default_size=50)
+        has_filter = True
+    # Sem filtro a tabela inteira é paginada — reusa a soma do donut
+    # (já cacheada) em vez de pagar um SELECT COUNT(*) que faz seq scan.
+    count_override = base_ctx['total_partes'] if not has_filter else None
+    page = _paginar(qs, request, default_size=50, count_override=count_override)
     return render(request, 'dashboard/_partials/_partes_list.html', {
         **base_ctx,
         'page': page,
