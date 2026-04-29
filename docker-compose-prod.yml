@@ -176,7 +176,7 @@ services:
   # garantia de batch grande == 1 transação grande.
   enrichment_drainer:
     image: voyager-web:prod
-    command: python manage.py enrichers_drain
+    command: python manage.py enrichers_drain --batch-size 1000 --block-ms 1000
     env_file: .env
     volumes:
       - .:/app
