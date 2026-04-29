@@ -275,6 +275,18 @@ Workers retomaram após restart.
 
 Monitores ativos por mais ~50min cada (lag/erros + broad_janela).
 
+## Limpeza adicional pós-fix do watchdog
+
+Mesmo após fix do watchdog, queue ainda tinha contaminação legacy:
+- 230 `sync_movimentacoes_bulk` (acumulados após meu drain anterior)
+- 196 `run_backfill` (de antes do fix do watchdog)
+- 61 `reprocessar_janela` (manual command leftover)
+- 13 `backfill_dia` (correto — único que deveria estar lá)
+
+Drenei 10.424 jobs não-backfill_dia + removi 8 `run_backfill` em execução
+do registry + restart workers. Queue agora tem só 13 backfill_dia. Próximo
+tick (em <10min) enche com mais 1-dia jobs.
+
 ## Verificação: partes salvando + associando corretamente
 
 User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
