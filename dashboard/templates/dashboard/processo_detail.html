@@ -52,20 +52,24 @@
       </button>
       {% if processo.tribunal_id == 'TRF1' or processo.tribunal_id == 'TRF3' %}
         <form hx-post="{% url 'dashboard:processo-enriquecer' processo.pk %}"
-              hx-target="#job-area" hx-swap="innerHTML" class="inline">
+              hx-target="#job-area" hx-swap="innerHTML"
+              hx-disabled-elt="find button" class="inline">
           {% csrf_token %}
-          <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">
+          <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent-fg rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap disabled:opacity-50 disabled:cursor-wait">
+            <svg class="w-3.5 h-3.5 animate-spin htmx-indicator" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke-width="3" class="opacity-75"/></svg>
             {% voy_icon "calibrate" "w-3.5 h-3.5" %}
-            Dados públicos ({{ processo.tribunal_id }})
+            <span>Dados públicos ({{ processo.tribunal_id }})</span>
           </button>
         </form>
       {% endif %}
       <form hx-post="{% url 'dashboard:processo-sincronizar' processo.pk %}"
-            hx-target="#job-area" hx-swap="innerHTML" class="inline">
+            hx-target="#job-area" hx-swap="innerHTML"
+            hx-disabled-elt="find button" class="inline">
         {% csrf_token %}
-        <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-info/15 border border-info/30 hover:bg-info/25 text-info rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap">
+        <button type="submit" class="inline-flex items-center gap-1.5 text-xs bg-info/15 border border-info/30 hover:bg-info/25 text-info rounded-lg px-3 py-1.5 font-mono uppercase tracking-wider whitespace-nowrap disabled:opacity-50 disabled:cursor-wait">
+          <svg class="w-3.5 h-3.5 animate-spin htmx-indicator" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke-width="3" class="opacity-75"/></svg>
           {% voy_icon "downlink" "w-3.5 h-3.5" %}
-          Sincronizar movs
+          <span>Sincronizar movs</span>
         </button>
       </form>
       <div id="job-area" class="mt-1"></div>
