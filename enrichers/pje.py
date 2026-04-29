@@ -123,6 +123,10 @@ class BasePjeEnricher:
 
         try:
             link_detalhe = self._buscar_processo(processo.numero_cnj)
+        except PjeServerError as exc:
+            stream.publish(stream.build_erro_payload(**base, erro=f'busca: {exc}'))
+            self._sleep_after_server_error()
+            return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
         except Exception as exc:
             stream.publish(stream.build_erro_payload(**base, erro=f'busca: {exc}'))
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
@@ -135,6 +139,10 @@ class BasePjeEnricher:
             soup = self._fetch_detalhe(link_detalhe)
             dados = self._extrair_dados(soup)
             partes = self._extrair_partes(soup)
+        except PjeServerError as exc:
+            stream.publish(stream.build_erro_payload(**base, erro=f'detalhe: {exc}'))
+            self._sleep_after_server_error()
+            return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
         except Exception as exc:
             self.logger.exception('falha ao parsear detalhe', extra={'cnj': processo.numero_cnj})
             stream.publish(stream.build_erro_payload(**base, erro=f'parse: {exc}'))
@@ -147,6 +155,19 @@ class BasePjeEnricher:
             'classe_raw': dados.get('classe'),
             'partes_total': sum(len(v) for v in partes.values()),
         }
+
+    SERVER_ERROR_SLEEP_SECONDS = 30
+
+    def _sleep_after_server_error(self) -> None:
+        """Da uma pausa pro tribunal recuperar antes do worker pegar
+        proximo job. Usado quando o PJe retorna pagina de erro JBoss
+        (banco do tribunal travado) — bombardear com mais requests so
+        atrapalha. Sleep eh INTRA-job (RQ vai contar isso no timeout
+        da call atual antes de ir pro proximo)."""
+        self.logger.warning('pje server error — sleep %ds antes de prox job',
+                            self.SERVER_ERROR_SLEEP_SECONDS,
+                            extra={'tribunal': self.TRIBUNAL_SIGLA})
+        time.sleep(self.SERVER_ERROR_SLEEP_SECONDS)
 
     # ---------- HTTP ----------
 
