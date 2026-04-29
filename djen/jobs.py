@@ -193,11 +193,17 @@ def watchdog_ingestao() -> dict:
     re_daily = []
     daily_stale_cutoff = agora - timedelta(seconds=WATCHDOG_DAILY_STALE_SECONDS)
 
+    default_q = django_rq.get_queue('default')
+    default_jobs_args = _coletar_args(default_q)
+
     for t in Tribunal.objects.filter(ativo=True):
         if t.backfill_concluido_em is None:
-            if t.sigla not in backfill_jobs_args:
-                from .jobs import run_backfill
-                run_backfill.delay(t.sigla)
+            # Usa tick_backfill_retroativo (1 dia por run) em vez de
+            # run_backfill (30 dias por chunk). Ticks ficam na fila
+            # `default` — verificamos lá pra evitar duplicar.
+            if t.sigla not in default_jobs_args and t.sigla not in backfill_jobs_args:
+                from .jobs import tick_backfill_retroativo
+                tick_backfill_retroativo.delay(t.sigla)
                 re_backfill.append(t.sigla)
             continue
         # Backfill concluído — confere se daily rodou recentemente.
@@ -296,6 +302,9 @@ def tick_backfill_retroativo(tribunal_sigla: str) -> dict:
 
     if not pendentes:
         logger.info('backfill %s: 100%% concluído!', tribunal_sigla)
+        if t.backfill_concluido_em is None:
+            Tribunal.objects.filter(pk=t.pk).update(backfill_concluido_em=timezone.now())
+            logger.info('backfill %s: backfill_concluido_em setado pelo tick', tribunal_sigla)
         return {'completo': True, 'total': total_dias}
 
     backfill_q = django_rq.get_queue('djen_backfill')
