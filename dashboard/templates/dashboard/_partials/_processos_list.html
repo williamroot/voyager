@@ -7,9 +7,8 @@
         <th class="text-left">Tribunal</th>
         <th class="text-left">Ano</th>
         <th class="text-left">Classe</th>
-        <th class="text-left">{% if backfill_em_curso %}Última mov. <span class="text-warning/80 font-normal normal-case text-[0.65rem]">(parcial)</span>{% else %}Última movimentação{% endif %}</th>
+        <th class="text-left">Última movimentação</th>
         <th class="text-left">Inserido</th>
-        <th class="text-right">Movs</th>
         <th></th>
       </tr>
     </thead>
@@ -54,20 +53,13 @@
           </td>
           <td class="text-fg-subtle text-[0.82rem]" title="{{ p.inserido_em }}">{{ p.inserido_em|relative_dt }}</td>
           <td class="text-right">
-            {% if p.total_movimentacoes %}
-              <span class="kpi-num text-fg-soft">{{ p.total_movimentacoes|format_int }}</span>
-            {% else %}
-              <span class="text-border">·</span>
-            {% endif %}
-          </td>
-          <td class="text-right">
             <a href="{% url 'dashboard:processo-detail' p.pk %}" class="inline-flex items-center text-fg-subtle group-hover:text-accent-fg transition-colors" title="Abrir processo">
               {% voy_icon "telescope" "w-4 h-4" %}
             </a>
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="8" class="text-center px-4 py-12 text-fg-subtle">
+        <tr><td colspan="7" class="text-center px-4 py-12 text-fg-subtle">
           <div class="text-fg-muted mb-1">Nenhum processo encontrado</div>
           <div class="text-xs">Ajuste os filtros ou aguarde a ingestão</div>
         </td></tr>

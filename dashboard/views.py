@@ -237,27 +237,12 @@ def tribunal_detail(request, sigla):
 @require_GET
 def processos(request):
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
-    cnj = (request.GET.get('cnj') or '').strip()
-    com_movs = request.GET.get('com_movs')
     enriq = request.GET.get('enriq')
-    ano = request.GET.get('ano')
-    ano_de = request.GET.get('ano_de')
-    ano_ate = request.GET.get('ano_ate')
-    backfill_em_curso, cobertura_ate = _backfill_em_curso()
-    sort = request.GET.get('sort', 'inserido' if backfill_em_curso else 'recente')
 
     base_ctx = {
         'tribunais': Tribunal.objects.all(),
         'tribunal_filtro': ','.join(tribunais_filtro),
-        'cnj_filtro': cnj,
-        'com_movs': com_movs or '',
-        'sort': sort,
         'enriq_filtro': enriq or '',
-        'ano_filtro': ano or '',
-        'ano_de_filtro': ano_de or '',
-        'ano_ate_filtro': ano_ate or '',
-        'backfill_em_curso': backfill_em_curso,
-        'cobertura_ate': cobertura_ate,
     }
 
     # Shell-only quando NÃO é HTMX — sem queryset, página renderiza instantâneo
@@ -266,40 +251,12 @@ def processos(request):
         return render(request, 'dashboard/processos.html', base_ctx)
 
     # HTMX: roda queryset + paginação + retorna só o partial.
-    qs = Process.objects.select_related('tribunal')
+    # Ordenação fixa por -id (PK reverse scan, mesma ordem cronológica de inserção).
+    qs = Process.objects.select_related('tribunal').order_by('-id')
     if tribunais_filtro:
         qs = qs.filter(tribunal_id__in=tribunais_filtro)
-    if cnj:
-        qs = qs.filter(numero_cnj__icontains=cnj)
-    if com_movs == 'sim':
-        qs = qs.filter(total_movimentacoes__gt=0)
-    elif com_movs == 'nao':
-        qs = qs.filter(total_movimentacoes=0)
     if enriq in ('ok', 'pendente', 'nao_encontrado', 'erro'):
         qs = qs.filter(enriquecimento_status=enriq)
-    if ano:
-        try: qs = qs.filter(ano_cnj=int(ano))
-        except ValueError: pass
-    if ano_de:
-        try: qs = qs.filter(ano_cnj__gte=int(ano_de))
-        except ValueError: pass
-    if ano_ate:
-        try: qs = qs.filter(ano_cnj__lte=int(ano_ate))
-        except ValueError: pass
-
-    if sort == 'recente':
-        qs = qs.extra(
-            select={'ult_null': 'ultima_movimentacao_em IS NULL'},
-            order_by=['ult_null', '-ultima_movimentacao_em', '-inserido_em'],
-        )
-    elif sort == 'antigo':
-        qs = qs.order_by('ultima_movimentacao_em')
-    elif sort == 'maismovs':
-        qs = qs.order_by('-total_movimentacoes', '-ultima_movimentacao_em')
-    elif sort == 'menosmovs':
-        qs = qs.order_by('total_movimentacoes')
-    elif sort == 'inserido':
-        qs = qs.order_by('-inserido_em')
 
     page = _paginar(qs, request, default_size=50)
     return render(request, 'dashboard/_partials/_processos_list.html', {

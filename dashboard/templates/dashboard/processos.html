@@ -9,50 +9,13 @@
   {% endif %}
 </div>
 
-{% if backfill_em_curso %}
-<div class="card mb-5 border-warning/30 bg-warning/10">
-  <div class="flex items-start gap-3">
-    <div class="w-9 h-9 rounded-lg bg-warning/15 border border-warning/30 flex items-center justify-center shrink-0">
-      <svg class="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/></svg>
-    </div>
-    <div class="flex-1">
-      <div class="font-medium text-warning text-sm">Backfill em andamento</div>
-      <div class="text-xs text-warning/70 mt-1 leading-relaxed">
-        Os dados estão sendo ingeridos em ordem cronológica. Já processamos até <span class="font-mono text-warning">{{ cobertura_ate|date:'d/m/Y'|default:'…' }}</span>.
-        Os processos podem ter movimentações mais recentes que ainda <strong>não foram ingeridas</strong> — por isso "Última movimentação" reflete apenas o que já temos no banco.
-        Acompanhe em <a href="{% url 'dashboard:ingestao' %}" class="underline hover:text-warning">ingestão</a>.
-      </div>
-    </div>
-  </div>
-</div>
-{% endif %}
-
 <form method="get" class="card mb-5 flex flex-col gap-4">
-  <div class="flex gap-3 items-center">
-    <div class="relative flex-1">
-      <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-      <input name="cnj" value="{{ cnj_filtro }}" placeholder="Buscar CNJ..." class="w-full bg-base/60 border border-border rounded-lg pl-10 pr-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
-    </div>
-    <button class="bg-accent hover:brightness-110 text-zinc-950 font-semibold rounded-lg px-5 py-2 text-sm">Filtrar</button>
-    <a href="{% url 'dashboard:processos' %}" class="text-fg-subtle hover:text-fg-soft text-sm px-2">limpar</a>
-  </div>
-
   <div class="flex flex-wrap gap-2 items-center">
     <span class="text-xs text-fg-subtle mr-1">Tribunal:</span>
     <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
     {% for t in tribunais %}{% if t.ativo %}
       <a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if t.sigla|is_in_list:tribunal_filtro %}active{% endif %}">{{ t.sigla }}</a>
     {% endif %}{% endfor %}
-    <span class="mx-2 text-border">|</span>
-    <span class="text-xs text-fg-subtle mr-1">Movs:</span>
-    <a href="?{% query_string request com_movs='' %}" class="chip {% if not com_movs %}active{% endif %}">Todos</a>
-    <a href="?{% query_string request com_movs='sim' %}" class="chip {% if com_movs == 'sim' %}active{% endif %}">Com mov.</a>
-    <a href="?{% query_string request com_movs='nao' %}" class="chip {% if com_movs == 'nao' %}active{% endif %}">Sem mov.</a>
-    <span class="mx-2 text-border">|</span>
-    <span class="text-xs text-fg-subtle mr-1">Ordenar:</span>
-    <a href="?{% query_string request sort='recente' %}" class="chip {% if sort == 'recente' %}active{% endif %}">Mais recente</a>
-    <a href="?{% query_string request sort='maismovs' %}" class="chip {% if sort == 'maismovs' %}active{% endif %}">Mais movs</a>
-    <a href="?{% query_string request sort='inserido' %}" class="chip {% if sort == 'inserido' %}active{% endif %}">Inseridos agora</a>
   </div>
 
   <div class="flex flex-wrap gap-2 items-center">
@@ -62,20 +25,6 @@
     <a href="?{% query_string request enriq='pendente' %}" class="chip {% if enriq_filtro == 'pendente' %}active{% endif %}">Pendentes</a>
     <a href="?{% query_string request enriq='nao_encontrado' %}" class="chip {% if enriq_filtro == 'nao_encontrado' %}active{% endif %}">Não encontrados</a>
     <a href="?{% query_string request enriq='erro' %}" class="chip {% if enriq_filtro == 'erro' %}active{% endif %}">Com erro</a>
-  </div>
-
-  <div class="flex flex-wrap gap-2 items-center">
-    <span class="text-xs text-fg-subtle mr-1">Ano CNJ:</span>
-    <a href="?{% query_string request ano='' ano_de='' ano_ate='' %}" class="chip {% if not ano_filtro and not ano_de_filtro and not ano_ate_filtro %}active{% endif %}">Todos</a>
-    {% for a in '2026,2025,2024,2023,2022,2021,2020,2019,2018,2017,2016,2015,2014'|cut:' '|stringformat:'s'|slice:':' %}{% endfor %}
-    <a href="?{% query_string request ano='2026' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2026' %}active{% endif %}">2026</a>
-    <a href="?{% query_string request ano='2025' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2025' %}active{% endif %}">2025</a>
-    <a href="?{% query_string request ano='2024' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2024' %}active{% endif %}">2024</a>
-    <a href="?{% query_string request ano='2023' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2023' %}active{% endif %}">2023</a>
-    <a href="?{% query_string request ano='2022' ano_de='' ano_ate='' %}" class="chip {% if ano_filtro == '2022' %}active{% endif %}">2022</a>
-    <a href="?{% query_string request ano_de='2014' ano_ate='2021' ano='' %}" class="chip {% if ano_de_filtro == '2014' and ano_ate_filtro == '2021' %}active{% endif %}">2014-2021</a>
-    <a href="?{% query_string request ano_ate='2013' ano='' ano_de='' %}" class="chip {% if ano_ate_filtro == '2013' %}active{% endif %}">≤2013 (pré-PJe)</a>
-    <input name="ano" value="{{ ano_filtro }}" placeholder="Ano específico" class="bg-base/60 border border-border rounded-md px-2 py-1 text-xs w-28">
   </div>
 </form>
 
