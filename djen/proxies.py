@@ -2,6 +2,7 @@ import json
 import logging
 import random
 import threading
+import time
 from typing import Optional
 
 import redis
@@ -11,8 +12,11 @@ from django.conf import settings
 logger = logging.getLogger('voyager.proxies')
 
 PROXY_LIST_KEY = 'voyager:proxies:scrape:list'
-PROXY_BAD_PREFIX = 'voyager:proxies:scrape:bad:'
+PROXY_BAD_ZSET = 'voyager:proxies:scrape:bad_zset'  # score = expiry unix timestamp
 CORTEX_BAD_KEY = 'voyager:proxies:cortex:bad'
+
+# In-memory cache para _healthy_list() — evita round-trip Redis em cada request.
+_HEALTHY_CACHE_TTL = 30  # segundos
 
 
 class ProxyScrapePool:
@@ -25,6 +29,8 @@ class ProxyScrapePool:
         self.redis = redis.from_url(settings.REDIS_URL, decode_responses=True)
         self.api_key = settings.PROXYSCRAPE_API_KEY
         self.bad_ttl = settings.PROXY_BAD_TTL_SECONDS
+        self._healthy_cache: list[str] = []
+        self._healthy_cache_ts: float = 0.0
 
     @classmethod
     def singleton(cls) -> 'ProxyScrapePool':
@@ -44,6 +50,10 @@ class ProxyScrapePool:
         return random.choice(proxies)
 
     def _healthy_list(self) -> list[str]:
+        now = time.time()
+        if now - self._healthy_cache_ts < _HEALTHY_CACHE_TTL and self._healthy_cache:
+            return self._healthy_cache
+
         raw = self.redis.get(PROXY_LIST_KEY)
         if not raw:
             return []
@@ -53,20 +63,30 @@ class ProxyScrapePool:
             return []
         if not all_proxies:
             return []
-        bad = self.redis.keys(PROXY_BAD_PREFIX + '*')
-        bad_set = {b.split(':')[-1] for b in bad}
-        return [p for p in all_proxies if p not in bad_set]
+
+        # Remove expirados e pega bad set num pipeline — O(log n + n_bad) em vez de KEYS O(n_total)
+        pipe = self.redis.pipeline(transaction=False)
+        pipe.zremrangebyscore(PROXY_BAD_ZSET, '-inf', now)
+        pipe.zrange(PROXY_BAD_ZSET, 0, -1)
+        _, bad_list = pipe.execute()
+        bad_set = set(bad_list)
+
+        healthy = [p for p in all_proxies if p not in bad_set]
+        self._healthy_cache = healthy
+        self._healthy_cache_ts = now
+        return healthy
 
     def mark_bad(self, url: str) -> None:
         if not url:
             return
-        key = PROXY_BAD_PREFIX + url
-        self.redis.set(key, '1', ex=self.bad_ttl)
-        logger.warning('🚫 proxy ruim: %s (ttl=%ds)', url, self.bad_ttl)
+        expiry = time.time() + self.bad_ttl
+        self.redis.zadd(PROXY_BAD_ZSET, {url: expiry})
+        self._healthy_cache_ts = 0.0  # invalida cache local
+        logger.warning('proxy ruim: %s (ttl=%ds)', url, self.bad_ttl)
 
     def mark_cortex_bad(self, ttl: int = 60) -> None:
         self.redis.set(CORTEX_BAD_KEY, '1', ex=ttl)
-        logger.warning('🚫 cortex em cooldown por %ds (rate-limited)', ttl)
+        logger.warning('cortex em cooldown por %ds (rate-limited)', ttl)
 
     def cortex_is_bad(self) -> bool:
         return bool(self.redis.exists(CORTEX_BAD_KEY))
@@ -82,12 +102,12 @@ class ProxyScrapePool:
                     line = f'http://{line}'
                 proxies.append(line)
         self.redis.set(PROXY_LIST_KEY, json.dumps(proxies))
-        logger.info('🌐 pool carregado do arquivo: %d proxies', len(proxies))
+        logger.info('pool carregado do arquivo: %d proxies', len(proxies))
         return len(proxies)
 
     def refresh(self) -> int:
         if not self.api_key:
-            logger.warning('⚠️  PROXYSCRAPE_API_KEY não configurada — pool vazio')
+            logger.warning('PROXYSCRAPE_API_KEY não configurada — pool vazio')
             self.redis.set(PROXY_LIST_KEY, json.dumps([]))
             return 0
         url = (
@@ -98,7 +118,7 @@ class ProxyScrapePool:
             resp = requests.get(url, timeout=30)
             resp.raise_for_status()
         except requests.RequestException as exc:
-            logger.error('❌ falha ao atualizar pool ProxyScrape: %s', exc)
+            logger.error('falha ao atualizar pool ProxyScrape: %s', exc)
             return 0
         proxies = []
         for line in resp.text.splitlines():
@@ -109,7 +129,8 @@ class ProxyScrapePool:
                 line = f'http://{line}'
             proxies.append(line)
         self.redis.set(PROXY_LIST_KEY, json.dumps(proxies))
-        logger.info('🌐 pool ProxyScrape atualizado: %d proxies BR', len(proxies))
+        self._healthy_cache_ts = 0.0
+        logger.info('pool ProxyScrape atualizado: %d proxies BR', len(proxies))
         return len(proxies)
 
     def status(self) -> dict:
@@ -118,7 +139,8 @@ class ProxyScrapePool:
             total = len(json.loads(raw)) if raw else 0
         except (TypeError, json.JSONDecodeError):
             total = 0
-        bad_count = len(self.redis.keys(PROXY_BAD_PREFIX + '*'))
+        now = time.time()
+        bad_count = self.redis.zcount(PROXY_BAD_ZSET, now, '+inf')
         return {'total': total, 'bad': bad_count, 'saudaveis': max(total - bad_count, 0)}
 
 
