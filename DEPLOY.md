@@ -12,29 +12,37 @@ Repositório: `/home/ubuntu/voyager` (em ambos os hosts)
 
 ---
 
-## Deploy completo (ambos os hosts)
+## Deploy
 
-### 1 — Servidor principal (192.168.1.30)
+O código fica bind-mounted em `/app:ro` dentro dos containers. Mudança
+de código é só `git pull` + restart — sem rebuild da imagem.
+
+### Caminho rápido (mudança de código apenas)
 
 ```bash
-ssh ubuntu@192.168.1.30
-cd /home/ubuntu/voyager
-git pull origin main
+# .30
+ssh ubuntu@192.168.1.30 "cd /home/ubuntu/voyager && git pull origin main && \
+  docker compose -f docker-compose-prod.yml restart"
+
+# .177
+ssh ubuntu@192.168.1.177 "cd /home/ubuntu/voyager && git pull origin main && \
+  docker compose -f docker-compose-workers.yml restart"
+```
+
+> Sempre `.30` primeiro — o entrypoint do `web` roda `migrate` antes de
+> subir, e o `.177` depende do schema atualizado.
+
+### Quando precisa rebuild
+
+Apenas se mudou:
+- `requirements.txt` (libs Python novas)
+- `Dockerfile` ou `Dockerfile.*`
+- Ferramentas do sistema (apt packages)
+
+```bash
 docker compose -f docker-compose-prod.yml build
 docker compose -f docker-compose-prod.yml up -d
 ```
-
-### 2 — Workers auxiliares (192.168.1.177)
-
-```bash
-ssh ubuntu@192.168.1.177
-cd /home/ubuntu/voyager
-git pull origin main
-docker compose -f docker-compose-workers.yml build
-docker compose -f docker-compose-workers.yml up -d
-```
-
-> Sempre fazer o deploy no `.30` primeiro — o `.177` depende do postgres e redis que rodam lá.
 
 ---
 

@@ -18,6 +18,8 @@ services:
     image: voyager-web:prod
     command: python manage.py rqworker enrich_trf1
     env_file: .env
+    volumes:
+      - .:/app:ro
     deploy:
       replicas: 300
     restart: always
@@ -26,6 +28,8 @@ services:
     image: voyager-web:prod
     command: python manage.py rqworker enrich_trf3
     env_file: .env
+    volumes:
+      - .:/app:ro
     deploy:
       replicas: 40
     restart: always
@@ -34,12 +38,16 @@ services:
     image: voyager-web:prod
     command: python manage.py rqworker default
     env_file: .env
+    volumes:
+      - .:/app:ro
     restart: always
 
   worker_ingestion:
     image: voyager-web:prod
     command: python manage.py rqworker djen_ingestion djen_backfill
     env_file: .env
+    volumes:
+      - .:/app:ro
     deploy:
       replicas: 4
     restart: always
