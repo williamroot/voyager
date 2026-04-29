@@ -21,9 +21,8 @@ services:
     volumes:
       - .:/app
     deploy:
-      # Reduzido de 300 → 100 (load avg estourava 500+ no startup
-      # simultâneo, host tem 24 logical CPUs).
-      replicas: 100
+      # TRF1 com problema interno — reduzido drasticamente até recuperar.
+      replicas: 10
     restart: always
 
   worker_trf3:
@@ -33,7 +32,8 @@ services:
     volumes:
       - .:/app
     deploy:
-      replicas: 40
+      # Capacidade redirecionada do TRF1 pra TRF3.
+      replicas: 130
     restart: always
 
   worker_default:

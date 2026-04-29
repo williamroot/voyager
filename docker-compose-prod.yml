@@ -128,7 +128,9 @@ services:
       web:
         condition: service_healthy
     deploy:
-      replicas: 40
+      # TRF1 com problema de banco (JBoss errorUnexpected) — reduzido pra
+      # 5 enquanto eles não estabilizam. Capacidade redirecionada pra TRF3.
+      replicas: 5
     restart: always
 
   worker_trf3:
@@ -141,7 +143,7 @@ services:
       web:
         condition: service_healthy
     deploy:
-      replicas: 40
+      replicas: 75
     restart: always
 
   worker_manual:
