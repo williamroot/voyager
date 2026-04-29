@@ -186,6 +186,17 @@ código novo). A função `ingest_processo` ainda tinha o create.
 Fix: `ssh ubuntu@192.168.1.177 "git pull && docker compose restart"`. Por
 ter 343 containers, o restart sequencial leva ~28min — em curso.
 
+**Fix REAL (continuação)**: o `restart` apenas reinicia o processo dentro do
+container existente — NÃO re-lê o compose. Como a versão anterior do
+compose-workers.yml (deployada antes do meu bind-mount commit) não tinha
+o `volumes: -.:/app`, os containers `.177` não tinham mount nenhum. Mesmo
+após git pull, o code dentro do container era o COPY do build (antigo).
+
+Verificado via `docker inspect`: `Mounts: []` para worker_ingestion em
+`.177`. Solução real: `docker compose up -d --force-recreate` para destruir
++ criar containers com a definição atual de compose. Em curso (~30min mais
+pra recriar 343 réplicas).
+
 ## Verificação: partes salvando + associando corretamente
 
 User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
