@@ -334,7 +334,14 @@ def status_workers():
                 'total_working_time': working_time,
             })
     workers.sort(key=lambda w: (','.join(w['queues']), w['name']))
-    result = {'queues': queues, 'workers': workers}
+
+    from collections import Counter
+    workers_by_queue = Counter()
+    for w in workers:
+        for q in w['queues']:
+            workers_by_queue[q] += 1
+
+    result = {'queues': queues, 'workers': workers, 'workers_by_queue': dict(workers_by_queue)}
     cache.set('status_workers_snapshot', result, timeout=60)
     return result
 

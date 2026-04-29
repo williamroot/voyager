@@ -40,35 +40,18 @@
     <table class="w-full text-sm dense">
       <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border">
         <tr>
-          <th class="text-left">Worker</th>
-          <th class="text-left">Estado</th>
-          <th class="text-left">Filas</th>
-          <th class="text-left">Job atual</th>
-          <th class="text-right">Idle</th>
-          <th class="text-right">Sucesso</th>
-          <th class="text-right">Falha</th>
-          <th class="text-right">Working time</th>
+          <th class="text-left">Fila</th>
+          <th class="text-right">Workers</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-border/80">
-        {% for w in workers %}
+        {% for qname, count in workers_by_queue.items %}
           <tr class="hover:bg-card/40">
-            <td class="font-mono text-xs">{{ w.name|slice:":40" }}</td>
-            <td>
-              {% if w.state == 'busy' %}{% include 'dashboard/_partials/badge.html' with text='busy' variant='accent' size='mini' %}
-              {% elif w.state == 'idle' %}{% include 'dashboard/_partials/badge.html' with text='idle' variant='neutral' size='mini' %}
-              {% elif w.state == 'suspended' %}{% include 'dashboard/_partials/badge.html' with text='suspended' variant='warning' size='mini' %}
-              {% else %}{% include 'dashboard/_partials/badge.html' with text=w.state variant='danger' size='mini' %}{% endif %}
-            </td>
-            <td class="font-mono text-xs text-fg-muted">{{ w.queues|join:', ' }}</td>
-            <td class="font-mono text-[0.7rem] text-fg-subtle">{{ w.current_job_id|default:'—'|slice:":12" }}</td>
-            <td class="text-right kpi-num text-xs">{% if w.idle_seconds is None %}—{% else %}{{ w.idle_seconds }}s{% endif %}</td>
-            <td class="text-right kpi-num text-fg-muted">{{ w.successful_jobs|format_int }}</td>
-            <td class="text-right kpi-num {% if w.failed_jobs %}text-danger{% else %}text-fg-subtle{% endif %}">{{ w.failed_jobs|format_int }}</td>
-            <td class="text-right kpi-num text-fg-muted">{{ w.total_working_time }}s</td>
+            <td class="font-mono text-accent-fg">{{ qname }}</td>
+            <td class="text-right kpi-num">{{ count }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="8" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhum worker conectado' subtitle='Suba os containers worker_*' %}</td></tr>
+          <tr><td colspan="2" class="p-6">{% include 'dashboard/_partials/empty_state.html' with title='Nenhum worker conectado' subtitle='Suba os containers worker_*' %}</td></tr>
         {% endfor %}
       </tbody>
     </table>
