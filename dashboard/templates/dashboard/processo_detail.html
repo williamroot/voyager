@@ -105,8 +105,34 @@
       {% if processo.data_autuacao %}
         <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Autuação</div><div class="text-sm text-fg-soft mt-0.5">{{ processo.data_autuacao|date:'d/m/Y' }}</div></div>
       {% endif %}
-      {% if processo.enriquecido_em %}
-        <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Enriquecido</div><div class="text-sm text-fg-soft mt-0.5" title="{{ processo.enriquecido_em }}">{{ processo.enriquecido_em|relative_dt }}</div></div>
+    </div>
+  {% endif %}
+  {% if processo.data_enriquecimento_tribunal or processo.data_enriquecimento_djen or processo.data_enriquecimento_datajud %}
+    <div class="mt-4 pt-3 border-t border-border/40 flex flex-wrap gap-x-6 gap-y-2 text-xs">
+      <div class="text-fg-subtle uppercase tracking-wider mr-1">Sincronizações</div>
+      {% if processo.data_enriquecimento_tribunal %}
+        <div class="flex items-center gap-1.5">
+          <span class="text-fg-subtle">Tribunal (PJe):</span>
+          <span class="text-fg-soft" title="{{ processo.data_enriquecimento_tribunal }}">{{ processo.data_enriquecimento_tribunal|relative_dt }}</span>
+        </div>
+      {% else %}
+        <div class="flex items-center gap-1.5"><span class="text-fg-subtle">Tribunal (PJe):</span><span class="text-fg-muted italic">nunca</span></div>
+      {% endif %}
+      {% if processo.data_enriquecimento_djen %}
+        <div class="flex items-center gap-1.5">
+          <span class="text-fg-subtle">DJEN:</span>
+          <span class="text-fg-soft" title="{{ processo.data_enriquecimento_djen }}">{{ processo.data_enriquecimento_djen|relative_dt }}</span>
+        </div>
+      {% else %}
+        <div class="flex items-center gap-1.5"><span class="text-fg-subtle">DJEN:</span><span class="text-fg-muted italic">nunca</span></div>
+      {% endif %}
+      {% if processo.data_enriquecimento_datajud %}
+        <div class="flex items-center gap-1.5">
+          <span class="text-fg-subtle">Datajud:</span>
+          <span class="text-fg-soft" title="{{ processo.data_enriquecimento_datajud }}">{{ processo.data_enriquecimento_datajud|relative_dt }}</span>
+        </div>
+      {% else %}
+        <div class="flex items-center gap-1.5"><span class="text-fg-subtle">Datajud:</span><span class="text-fg-muted italic">nunca</span></div>
       {% endif %}
     </div>
   {% endif %}

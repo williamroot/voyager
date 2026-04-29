@@ -97,11 +97,15 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
                 total=Count('id'),
             )
         )
+        now_ts = timezone.now()
         Process.objects.filter(pk=processo.pk).update(
             primeira_movimentacao_em=agg['primeira'],
             ultima_movimentacao_em=agg['ultima'],
             total_movimentacoes=agg['total'] or 0,
-            ultima_sinc_djen_em=timezone.now(),
+            data_enriquecimento_datajud=now_ts,
+            # ultima_sinc_djen_em é compartilhado historicamente; mantém
+            # atualizado pra UI/queries antigas continuarem funcionando.
+            ultima_sinc_djen_em=now_ts,
         )
 
     novos = len(movs_to_create)

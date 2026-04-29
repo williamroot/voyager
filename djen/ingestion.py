@@ -49,7 +49,11 @@ def ingest_processo(processo, client: DJENClient | None = None) -> dict:
         paginas += 1
     if cnjs_tocados:
         _atualizar_resumo_processos(tribunal, cnjs_tocados)
-    Process.objects.filter(pk=processo.pk).update(ultima_sinc_djen_em=timezone.now())
+    now_ts = timezone.now()
+    Process.objects.filter(pk=processo.pk).update(
+        data_enriquecimento_djen=now_ts,
+        ultima_sinc_djen_em=now_ts,
+    )
     return {
         'cnj': processo.numero_cnj,
         'novas': novas,
@@ -320,6 +324,7 @@ def _atualizar_resumo_processos(tribunal: Tribunal, cnjs: set[str]) -> None:
 
 def _flush_resumo(tribunal: Tribunal, cnjs: list[str]) -> None:
     procs = Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
+    now_ts = timezone.now()
     aggregates = (
         Movimentacao.objects.filter(tribunal=tribunal, processo__in=procs)
         .values('processo_id')
@@ -338,11 +343,16 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str]) -> None:
         p.primeira_movimentacao_em = agg['primeira']
         p.ultima_movimentacao_em = agg['ultima']
         p.total_movimentacoes = agg['total']
+        # Marca passagem do DJEN também no caminho data-based (backfill_dia
+        # / daily_ingestion). Cada page processada cobre um conjunto de
+        # processos — todos têm seu data_enriquecimento_djen renovado.
+        p.data_enriquecimento_djen = now_ts
         to_update.append(p)
     if to_update:
         Process.objects.bulk_update(
             to_update,
-            fields=['primeira_movimentacao_em', 'ultima_movimentacao_em', 'total_movimentacoes'],
+            fields=['primeira_movimentacao_em', 'ultima_movimentacao_em',
+                    'total_movimentacoes', 'data_enriquecimento_djen'],
             batch_size=500,
         )
 

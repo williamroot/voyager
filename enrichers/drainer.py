@@ -309,11 +309,14 @@ def apply_event(event: dict) -> None:
                         representa=pp_principal,
                     )
 
-        processo.enriquecido_em = timezone.now()
+        now_ts = timezone.now()
+        processo.enriquecido_em = now_ts
+        processo.data_enriquecimento_tribunal = now_ts
         processo.enriquecimento_status = Process.ENRIQ_OK
         processo.enriquecimento_erro = ''
         update_fields.extend([
-            'enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro',
+            'enriquecido_em', 'data_enriquecimento_tribunal',
+            'enriquecimento_status', 'enriquecimento_erro',
         ])
 
     elif status == STATUS_NAO_ENCONTRADO:
@@ -593,9 +596,13 @@ def _apply_to_proc(proc: Process, ev: dict, classe_by_code: dict,
                 setattr(proc, fld, d[fld])
                 changed.add(fld)
         proc.enriquecido_em = now_ts
+        proc.data_enriquecimento_tribunal = now_ts
         proc.enriquecimento_status = Process.ENRIQ_OK
         proc.enriquecimento_erro = ''
-        changed.update({'enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro'})
+        changed.update({
+            'enriquecido_em', 'data_enriquecimento_tribunal',
+            'enriquecimento_status', 'enriquecimento_erro',
+        })
 
     elif status == STATUS_NAO_ENCONTRADO:
         fb = fallback.get(proc.pk) or {}

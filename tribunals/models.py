@@ -88,6 +88,12 @@ class Process(models.Model):
     segredo_justica = models.BooleanField(default=False)
     enriquecido_em = models.DateTimeField(null=True, blank=True)
     ultima_sinc_djen_em = models.DateTimeField(null=True, blank=True)
+    # Timestamps por fonte de enriquecimento — quando cada source rodou
+    # com sucesso pra esse processo. Permitem detectar staleness por
+    # source independentemente.
+    data_enriquecimento_tribunal = models.DateTimeField(null=True, blank=True)
+    data_enriquecimento_djen = models.DateTimeField(null=True, blank=True)
+    data_enriquecimento_datajud = models.DateTimeField(null=True, blank=True)
 
     ENRIQ_PENDENTE = 'pendente'
     ENRIQ_OK = 'ok'
