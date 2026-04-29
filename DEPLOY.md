@@ -55,6 +55,7 @@ docker compose -f docker-compose-workers.yml up -d
 | `worker_trf1` | 40 | Fila `enrich_trf1` |
 | `worker_trf3` | 40 | Fila `enrich_trf3` |
 | `worker_manual` | 2 | Fila `manual` |
+| `enrichment_drainer` | **1** | Consumer único do stream `voyager:enrichment:results` — workers só publicam, drainer aplica writes em bulk |
 
 ### 192.168.1.177 — `docker-compose-workers.yml`
 

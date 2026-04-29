@@ -1,11 +1,15 @@
 # Compose pra máquinas auxiliares de workers (sem postgres/redis/web/nginx).
-# Conecta no Redis e Postgres do servidor principal (192.168.1.30) via LAN.
+# Conecta no Postgres dedicado (192.168.1.82) e Redis dedicado (192.168.1.219).
 #
 # Setup:
-#   1. .env precisa ter REDIS_URL e DATABASE_URL apontando pra 192.168.1.30
-#   2. Servidor principal precisa expor portas 5432/6379 na LAN (já no
-#      docker-compose-prod.yml com bind 192.168.1.30:porta:porta)
+#   1. .env precisa ter DATABASE_URL=postgres://...@192.168.1.82:5432/voyager
+#      e REDIS_URL=redis://192.168.1.219:6379/0
+#   2. Hosts dedicados precisam estar acessíveis na LAN
 #   3. docker compose -f docker-compose-workers.yml up -d --build
+#
+# IMPORTANTE: o drainer do stream de enrichment roda APENAS no .30
+# (docker-compose-prod.yml). Workers daqui só publicam — nenhum deles
+# consome o stream de resultados.
 services:
   worker_trf1:
     build:

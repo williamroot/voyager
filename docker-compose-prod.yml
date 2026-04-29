@@ -155,6 +155,23 @@ services:
         condition: service_healthy
     restart: always
 
+  # Único consumer do stream de enrichment. Aplica writes em bulk numa
+  # transação por batch — substitui o write direto que cada worker fazia
+  # (causava contenção de BufferMapping LWLock no Postgres). Réplicas != 1
+  # NÃO é suportado: ordering depende de consumer único por group. Mais
+  # de 1 não quebra correção (consumers compartilham PEL), mas perde a
+  # garantia de batch grande == 1 transação grande.
+  enrichment_drainer:
+    image: voyager-web:prod
+    command: python manage.py enrichers_drain
+    env_file: .env
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+    restart: always
+
   nginx:
     image: nginx:alpine
     expose:

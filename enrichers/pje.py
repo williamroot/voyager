@@ -7,7 +7,11 @@ página de detalhe com metadados + polos.
 Subclasses precisam apenas configurar `BASE_URL`, `LIST_URL` e
 `DETALHE_PATH`. Toda a lógica de form/parsing/dedupe de partes é
 compartilhada.
+
+Workers só publicam o resultado bruto no stream — o drainer (consumer
+único) faz a normalização e o write em bulk no Postgres.
 """
+import datetime as _dt
 import logging
 import re
 import time
@@ -15,22 +19,18 @@ from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
-from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from djen.proxies import ProxyScrapePool, cortex_proxy_url
-from tribunals.models import Assunto, ClasseJudicial, Parte, Process, ProcessoParte
+from tribunals.models import Process
 
+from . import stream
 from .parsers import (
     classificar_tipo_parte,
-    is_documento_mascarado,
     limpar_nome,
-    parse_data_br,
     parse_documento,
     parse_oab,
     parse_role,
-    parse_valor_brl,
-    real_casa_com_mascara,
 )
 
 CAMPO_NUM = 'fPP:numProcesso-inputNumeroProcessoDecoration:numProcesso-inputNumeroProcesso'
@@ -65,102 +65,52 @@ class BasePjeEnricher:
         self.logger = logging.getLogger(self.LOG_NAME)
 
     def enriquecer(self, processo: Process) -> dict:
+        """Faz scraping no PJe e publica o resultado no stream.
+
+        Não escreve no DB — o drainer aplica os campos e partes em bulk.
+        Retorna apenas um sumário pro RQ guardar como resultado do job.
+        """
         if processo.tribunal_id != self.TRIBUNAL_SIGLA:
             raise PjeEnricherError(
                 f'Tribunal {processo.tribunal_id} não suportado por {self.__class__.__name__}.'
             )
 
+        # scraped_at sempre em UTC ISO8601 — drainer faz dedup por
+        # comparação lexicográfica entre strings, e workers em TZs diferentes
+        # quebram a ordem se cada um publicar com seu offset local.
+        base = {
+            'process_id': processo.pk,
+            'tribunal': processo.tribunal_id,
+            'numero_cnj': processo.numero_cnj,
+            'scraped_at': timezone.now().astimezone(_dt.timezone.utc).isoformat(),
+        }
+
         try:
             link_detalhe = self._buscar_processo(processo.numero_cnj)
         except Exception as exc:
-            self._marcar_erro(processo, f'busca: {exc}')
+            stream.publish(stream.build_erro_payload(**base, erro=f'busca: {exc}'))
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
         if not link_detalhe:
-            self._marcar_nao_encontrado(processo)
+            stream.publish(stream.build_nao_encontrado_payload(**base))
             return {'cnj': processo.numero_cnj, 'status': 'nao_encontrado'}
 
         try:
             soup = self._fetch_detalhe(link_detalhe)
             dados = self._extrair_dados(soup)
             partes = self._extrair_partes(soup)
-            with transaction.atomic():
-                # Lock no Process serializa enriquecimentos concorrentes do
-                # mesmo processo: dois jobs duplicados (auto-enqueue + retry,
-                # backfill re-running) viram fila em vez de race em
-                # _aplicar_partes (DELETE+INSERT poderia perder dados).
-                processo = Process.objects.select_for_update().get(pk=processo.pk)
-                self._aplicar_dados(processo, dados)
-                self._aplicar_partes(processo, partes)
-                processo.enriquecido_em = timezone.now()
-                processo.enriquecimento_status = Process.ENRIQ_OK
-                processo.enriquecimento_erro = ''
-                processo.save(update_fields=[
-                    'classe_codigo', 'classe_nome', 'classe',
-                    'assunto_codigo', 'assunto_nome', 'assunto',
-                    'data_autuacao', 'valor_causa', 'orgao_julgador_codigo',
-                    'orgao_julgador_nome', 'juizo', 'segredo_justica',
-                    'enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro',
-                ])
         except Exception as exc:
             self.logger.exception('falha ao parsear detalhe', extra={'cnj': processo.numero_cnj})
-            self._marcar_erro(processo, f'parse: {exc}')
+            stream.publish(stream.build_erro_payload(**base, erro=f'parse: {exc}'))
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
+        stream.publish(stream.build_ok_payload(**base, dados=dados, partes=partes))
         return {
             'cnj': processo.numero_cnj,
             'status': 'ok',
-            'classe': processo.classe_nome,
-            'assunto': processo.assunto_nome,
-            'orgao_julgador': processo.orgao_julgador_nome,
+            'classe_raw': dados.get('classe'),
             'partes_total': sum(len(v) for v in partes.values()),
         }
-
-    def _marcar_nao_encontrado(self, processo: Process) -> None:
-        update_fields = ['enriquecido_em', 'enriquecimento_status', 'enriquecimento_erro']
-        update_fields += self._fallback_classe_via_djen(processo)
-        processo.enriquecido_em = timezone.now()
-        processo.enriquecimento_status = Process.ENRIQ_NAO_ENCONTRADO
-        processo.enriquecimento_erro = ''
-        processo.save(update_fields=update_fields)
-
-    def _marcar_erro(self, processo: Process, msg: str) -> None:
-        update_fields = [
-            'enriquecido_em', 'enriquecimento_status',
-            'enriquecimento_erro', 'enriquecimento_tentativas',
-        ]
-        update_fields += self._fallback_classe_via_djen(processo)
-        processo.enriquecido_em = timezone.now()
-        processo.enriquecimento_status = Process.ENRIQ_ERRO
-        processo.enriquecimento_erro = msg[:1000]
-        processo.enriquecimento_tentativas = (processo.enriquecimento_tentativas or 0) + 1
-        processo.save(update_fields=update_fields)
-
-    @staticmethod
-    def _fallback_classe_via_djen(processo: Process) -> list[str]:
-        """Quando o PJe não retorna detalhe, usa a classe da movimentação
-        DJEN mais recente como fallback. DJEN sempre traz codigoClasse +
-        nomeClasse no payload de cada item.
-
-        Só preenche se Process estiver sem classe — não sobrescreve quando
-        o PJe já enriqueceu antes.
-        """
-        from tribunals.models import Movimentacao
-        if processo.classe_codigo:
-            return []
-        ultima = (
-            Movimentacao.objects
-            .filter(processo=processo).exclude(codigo_classe='')
-            .order_by('-data_disponibilizacao')
-            .values('codigo_classe', 'nome_classe', 'classe_id')
-            .first()
-        )
-        if not ultima:
-            return []
-        processo.classe_codigo = ultima['codigo_classe']
-        processo.classe_nome = ultima['nome_classe']
-        processo.classe_id = ultima['classe_id']
-        return ['classe_codigo', 'classe_nome', 'classe']
 
     # ---------- HTTP ----------
 
@@ -356,57 +306,6 @@ class BasePjeEnricher:
 
         return dados
 
-    @staticmethod
-    def _upsert_catalogo(model, codigo: str, nome: str):
-        """Idempotente e race-safe: tenta INSERT ignorando conflito (não
-        levanta IntegrityError em corrida) e devolve a row pelo codigo.
-        Evita poluir a transação atômica do enriquecimento com falhas de
-        chave duplicada quando 2 workers veem um código pela 1ª vez ao
-        mesmo tempo."""
-        nome_final = (nome or codigo)[:255]
-        model.objects.bulk_create(
-            [model(codigo=codigo, nome=nome_final)],
-            ignore_conflicts=True,
-        )
-        return model.objects.get(codigo=codigo)
-
-    def _aplicar_dados(self, processo: Process, dados: dict) -> None:
-        if 'classe' in dados:
-            classe = dados['classe']
-            m = re.match(r'(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?\s*$', classe)
-            if m:
-                processo.classe_nome = (m.group(1) or '').strip()[:255]
-                processo.classe_codigo = (m.group(2) or '')[:20]
-            else:
-                processo.classe_nome = classe[:255]
-            if processo.classe_codigo:
-                processo.classe = self._upsert_catalogo(
-                    ClasseJudicial, processo.classe_codigo, processo.classe_nome,
-                )
-        if 'assunto' in dados:
-            assunto = dados['assunto']
-            m = re.match(r'(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?\s*$', assunto)
-            processo.assunto_nome = ((m.group(1) if m else assunto) or '').strip()[:255]
-            processo.assunto_codigo = ((m.group(2) if m else '') or '')[:20]
-            if processo.assunto_codigo:
-                processo.assunto = self._upsert_catalogo(
-                    Assunto, processo.assunto_codigo, processo.assunto_nome,
-                )
-        if 'data_autuacao' in dados:
-            dt = parse_data_br(dados['data_autuacao'])
-            if dt:
-                processo.data_autuacao = dt.date()
-        if 'valor_causa' in dados:
-            valor = parse_valor_brl(dados['valor_causa'])
-            if valor:
-                processo.valor_causa = valor
-        if 'orgao_julgador' in dados:
-            processo.orgao_julgador_nome = dados['orgao_julgador'][:255]
-        if 'juizo' in dados:
-            processo.juizo = dados['juizo'][:255]
-        if 'segredo_justica' in dados:
-            processo.segredo_justica = bool(dados['segredo_justica'])
-
     # ---------- Polos / Partes ----------
 
     _IGNORE_TEXTOS = frozenset({'participante', 'situação', 'situacao', 'ativo', 'inativo', ''})
@@ -462,157 +361,3 @@ class BasePjeEnricher:
             'papel': papel[:120],
             'tipo': tipo,
         }
-
-    def _aplicar_partes(self, processo: Process, polos: dict[str, list[dict]]) -> None:
-        ProcessoParte.objects.filter(processo=processo).delete()
-        for polo, partes in polos.items():
-            for principal in partes:
-                p_principal = self._upsert_parte(principal)
-                pp_principal, _ = ProcessoParte.objects.get_or_create(
-                    processo=processo, parte=p_principal,
-                    polo=polo, papel=principal.get('papel', ''),
-                    representa=None,
-                )
-                for rep in principal.get('representantes', []):
-                    p_rep = self._upsert_parte(rep)
-                    if p_rep.pk == p_principal.pk:
-                        continue
-                    ProcessoParte.objects.create(
-                        processo=processo, parte=p_rep,
-                        polo=polo, papel=rep.get('papel', '') or 'ADVOGADO',
-                        representa=pp_principal,
-                    )
-
-    def _upsert_parte(self, info: dict) -> Parte:
-        """Dedupe de Parte em 4 caminhos em ordem de confiança:
-
-        1. OAB — precedência total pra advogados (chave única estável).
-        2. Documento REAL — PK natural global (CPF/CNPJ).
-        3. Documento MASCARADO + nome — TRF3 esconde dígitos; tenta primeiro
-           reusar Parte com doc REAL que case com a máscara (mesma entidade
-           vista em TRF1 com CNPJ completo).
-        4. Sem doc nem OAB — `(nome, tipo)` único pra órgãos públicos
-           (Procuradoria, Defensoria) que aparecem sem CNPJ.
-
-        Todos os caminhos usam `_safe_upsert_parte` que é race-safe via
-        bulk_create(ignore_conflicts) + get — não levanta IntegrityError
-        nem MultipleObjectsReturned em alta concorrência (4+ workers).
-        """
-        documento = info.get('documento') or ''
-        oab = info.get('oab') or ''
-        nome = (info.get('nome') or '')[:255]
-        base = {
-            'nome': nome,
-            'tipo_documento': info.get('tipo_documento') or '',
-            'tipo': info.get('tipo') or 'desconhecido',
-        }
-
-        if oab:
-            return self._safe_upsert_parte(
-                lookup={'oab': oab},
-                defaults={**base, 'documento': documento},
-            )
-
-        if documento:
-            if is_documento_mascarado(documento):
-                from django.db.models import Q
-                candidatos = (
-                    Parte.objects
-                    .filter(nome=nome).exclude(documento='')
-                    .exclude(Q(documento__contains='X') | Q(documento__contains='x') | Q(documento__contains='*'))
-                )
-                for c in candidatos:
-                    if real_casa_com_mascara(c.documento, documento):
-                        return c
-                return self._safe_upsert_parte(
-                    lookup={'nome': nome, 'documento': documento},
-                    defaults={**base, 'oab': ''},
-                )
-            return self._safe_upsert_parte(
-                lookup={'documento': documento},
-                defaults={**base, 'oab': ''},
-            )
-
-        # Prioridade pra completude dos dados: se existe exatamente UMA Parte
-        # com mesmo nome e CNPJ REAL preenchido (formato XX.XXX.XXX/XXXX-XX),
-        # reusa essa entidade. CPFs/OABs não entram — risco de homônimo é alto
-        # e dedupar por OAB já é o caminho 1. CNPJ identifica unicamente uma
-        # PJ, então 1 match com mesmo nome → é a mesma entidade.
-        candidatos = Parte.objects.filter(nome=nome).extra(
-            where=[r"documento ~ '^[0-9]{2}\.[0-9]{3}\.[0-9]{3}/[0-9]{4}-[0-9]{2}$'"],
-        )
-        if candidatos.count() == 1:
-            return candidatos.first()
-
-        return self._safe_upsert_parte(
-            lookup={'documento': '', 'oab': '', 'nome': nome, 'tipo': base['tipo']},
-            defaults={'tipo_documento': base['tipo_documento']},
-        )
-
-    @staticmethod
-    def _safe_upsert_parte(*, lookup: dict, defaults: dict) -> Parte:
-        """Race-safe upsert via SELECT → bulk_create(ignore_conflicts) → SELECT.
-
-        Funciona porque cada par `lookup` corresponde a uma UniqueConstraint
-        partial em Parte (real, mascarado, oab, sem-doc-sem-oab). Em corrida:
-          - Worker A faz get(): 0 rows
-          - Worker B faz get(): 0 rows
-          - A: bulk_create([Parte(...)], ignore_conflicts) — INSERT vence
-          - B: bulk_create([Parte(...)], ignore_conflicts) — INSERT vira no-op
-          - Ambos fazem get() final e veem o MESMO row.
-
-        Merge do `documento`: real > mascarado > vazio. Quando vamos atualizar
-        uma Parte existente, NÃO sobrescrevemos doc real com mascarado — TRF1
-        expõe CPF/CNPJ completo, TRF3 mascara, e o caminho OAB acessa a mesma
-        Parte por ambos os caminhos.
-        """
-        existing = Parte.objects.filter(**lookup).first()
-        if existing is not None:
-            defaults = BasePjeEnricher._merge_doc_defaults(existing, defaults)
-            dirty = {k: v for k, v in defaults.items() if getattr(existing, k) != v}
-            if dirty:
-                for k, v in dirty.items():
-                    setattr(existing, k, v)
-                try:
-                    existing.save(update_fields=list(dirty))
-                except IntegrityError:
-                    pass  # outro worker já atualizou — eventual consistency
-            return existing
-
-        Parte.objects.bulk_create(
-            [Parte(**{**lookup, **defaults})],
-            ignore_conflicts=True,
-        )
-        # Constraint partial garante exatamente 1 row pelo lookup.
-        # Pode ter sido inserida por outro worker em corrida — defaults pode
-        # divergir; aplica merge_doc no resultado também.
-        existing = Parte.objects.get(**lookup)
-        merged = BasePjeEnricher._merge_doc_defaults(existing, defaults)
-        dirty = {k: v for k, v in merged.items() if getattr(existing, k) != v}
-        if dirty:
-            for k, v in dirty.items():
-                setattr(existing, k, v)
-            try:
-                existing.save(update_fields=list(dirty))
-            except IntegrityError:
-                pass
-        return existing
-
-    @staticmethod
-    def _merge_doc_defaults(existing: Parte, defaults: dict) -> dict:
-        """Protege doc real do existing contra sobrescrita com versão
-        mascarada vinda do `defaults`. Ordem de qualidade: real > mascarado
-        > vazio. Aplica também em tipo_documento por simetria."""
-        if 'documento' not in defaults:
-            return defaults
-        doc_atual = existing.documento or ''
-        doc_novo = defaults.get('documento') or ''
-        atual_real = bool(doc_atual) and not is_documento_mascarado(doc_atual)
-        novo_real = bool(doc_novo) and not is_documento_mascarado(doc_novo)
-        # Se atual é real, mantém — qualquer outro valor (mascarado/vazio) seria downgrade
-        if atual_real and not novo_real:
-            return {**defaults, 'documento': doc_atual}
-        # Se atual é mascarado e novo é vazio, mantém o mascarado (downgrade evitado)
-        if doc_atual and not doc_novo:
-            return {**defaults, 'documento': doc_atual}
-        return defaults
