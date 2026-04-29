@@ -322,6 +322,30 @@ jobs do redis. Queue final: 189 backfill_dia.
 A partir de agora `.177` fica inerte (até user decidir o que fazer pela
 manhã). `.30` é o único produtor de jobs e único processador.
 
+## Monitor ajustado: threshold > 7 dias
+
+Daily ingestion (`run_daily_ingestion`) usa janela = `today - overlap_dias`
+(3 dias) → today, então cria 1 IngestionRun de 4 dias por dia. Isso era
+disparando alerta `broad_janela_5m=1` legítimo. Refinei filtro pra `> 7`
+dias — só pega chunks multi-semana suspeitos.
+
+## Nota: TRF1 backfill_concluido_em setado prematuramente
+
+Verificando estado, vi que TRF1 tem `backfill_concluido_em=2026-04-29
+06:16 UTC` mesmo com cobertura incompleta. Foi setado por um `run_backfill`
+legacy que terminou achando que estava completo (porque meu DELETE de
+broad-janela rows incluiu rows success que ele referenciava em todos_ok).
+
+Isso faz `run_daily_ingestion` rodar pra TRF1 (esperado quando concluído),
+mas tick_backfill continua processando backfill_dia (continua coberto).
+Daily roda 1x/dia (04:00+30min), tick roda 10/10min. Coexistem OK.
+
+Pra "honest state", user pode resetar manualmente:
+```sql
+UPDATE tribunals_tribunal SET backfill_concluido_em = NULL WHERE sigla='TRF1';
+```
+Não fiz overnight pra evitar mexer em estado sem sinal claro.
+
 ## Verificação: partes salvando + associando corretamente
 
 User pediu pra confirmar. Conferi o processo `2314208` (TRF1, enriquecido
