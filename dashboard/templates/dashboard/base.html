@@ -697,8 +697,13 @@
           formatter: p => `${p.name}: <b>${fmt(p.value)}</b> (${p.percent.toFixed(1)}%)`,
         },
         legend: {
+          type: 'scroll',
           bottom: 0,
+          itemGap: 8,
           textStyle: {color: c.legend, fontSize: 11},
+          pageTextStyle: {color: c.legend},
+          pageIconColor: c.legend,
+          pageIconInactiveColor: c.axisLine,
           formatter: name => {
             const r = rows.find(x => x.status === name);
             return r ? `${name}  ${fmt(r.total)}` : name;
