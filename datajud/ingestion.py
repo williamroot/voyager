@@ -43,12 +43,23 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
     sigla = tribunal.sigla
     source = client.fetch_processo(sigla, processo.numero_cnj)
     if not source:
+        # Marca data_enriquecimento_datajud mesmo quando não encontrado:
+        # processo passou pelo Datajud, sem hit no índice CNJ. Evita retry
+        # infinito a cada bulk re-enqueue.
+        now_ts = timezone.now()
+        Process.objects.filter(pk=processo.pk).update(
+            data_enriquecimento_datajud=now_ts,
+        )
         return {'cnj': processo.numero_cnj, 'novos': 0, 'duplicados': 0,
                 'fonte': 'datajud', 'encontrado': False}
 
     items = parse_movimentos(source)
     if not items:
-        Process.objects.filter(pk=processo.pk).update(ultima_sinc_djen_em=timezone.now())
+        now_ts = timezone.now()
+        Process.objects.filter(pk=processo.pk).update(
+            ultima_sinc_djen_em=now_ts,
+            data_enriquecimento_datajud=now_ts,
+        )
         return {'cnj': processo.numero_cnj, 'novos': 0, 'duplicados': 0,
                 'fonte': 'datajud', 'encontrado': True}
 
