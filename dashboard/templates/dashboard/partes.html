@@ -52,9 +52,9 @@
     <select name="sort" class="bg-base border border-border rounded px-2 py-1 text-sm">
       <option value="-total_processos"   {% if sort == '-total_processos' %}selected{% endif %}>Mais processos</option>
       <option value="total_processos"    {% if sort == 'total_processos' %}selected{% endif %}>Menos processos</option>
-      <option value="-ultima_aparicao_em" {% if sort == '-ultima_aparicao_em' %}selected{% endif %}>Vista mais recente</option>
-      <option value="ultima_aparicao_em"  {% if sort == 'ultima_aparicao_em' %}selected{% endif %}>Vista há mais tempo</option>
-      <option value="-primeira_aparicao_em" {% if sort == '-primeira_aparicao_em' %}selected{% endif %}>Inserção recente</option>
+      <option value="-ultima_aparicao_em" {% if sort == '-ultima_aparicao_em' %}selected{% endif %}>Última ingestão recente</option>
+      <option value="ultima_aparicao_em"  {% if sort == 'ultima_aparicao_em' %}selected{% endif %}>Última ingestão antiga</option>
+      <option value="-primeira_aparicao_em" {% if sort == '-primeira_aparicao_em' %}selected{% endif %}>Primeira ingestão recente</option>
       <option value="nome"                {% if sort == 'nome' %}selected{% endif %}>Nome A→Z</option>
       <option value="-nome"               {% if sort == '-nome' %}selected{% endif %}>Nome Z→A</option>
     </select>

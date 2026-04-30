@@ -238,15 +238,25 @@ def tribunal_detail(request, sigla):
     t = get_object_or_404(Tribunal, sigla=sigla)
     dias = _periodo_dias(request)
     # KPIs server-side. Charts via lazy load (chart_data).
+    # Cacheia por 5min — 5 counts em Movimentacao com filtro só por tribunal
+    # faz seq scan em ~10M-30M rows (2-5s a frio).
+    from django.core.cache import cache
+    kpi_key = f'tribunal_kpis:{t.sigla}'
+    kpis_t = cache.get(kpi_key)
+    if kpis_t is None:
+        kpis_t = {
+            'total_processos': Process.objects.filter(tribunal=t).count(),
+            'total_movs': Movimentacao.objects.filter(tribunal=t).count(),
+            'cancelados': Movimentacao.objects.filter(tribunal=t, ativo=False).count(),
+            'orgaos_unicos': Movimentacao.objects.filter(tribunal=t).exclude(nome_orgao='')
+                              .values('nome_orgao').distinct().count(),
+            'classes_unicas': Movimentacao.objects.filter(tribunal=t).exclude(nome_classe='')
+                               .values('nome_classe').distinct().count(),
+        }
+        cache.set(kpi_key, kpis_t, timeout=300)
     ctx = {
         'tribunal': t,
-        'total_processos': Process.objects.filter(tribunal=t).count(),
-        'total_movs': Movimentacao.objects.filter(tribunal=t).count(),
-        'cancelados': Movimentacao.objects.filter(tribunal=t, ativo=False).count(),
-        'orgaos_unicos': Movimentacao.objects.filter(tribunal=t).exclude(nome_orgao='')
-                          .values('nome_orgao').distinct().count(),
-        'classes_unicas': Movimentacao.objects.filter(tribunal=t).exclude(nome_classe='')
-                           .values('nome_classe').distinct().count(),
+        **kpis_t,
         'periodo_dias': dias,
     }
     return render(request, 'dashboard/tribunal_detail.html', ctx)

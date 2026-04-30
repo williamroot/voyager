@@ -634,6 +634,9 @@
       };
     }
     function buildVolumeChart(rows) {
+      // Bucket marcado parcial (mês/dia corrente incompleto) é descartado —
+      // sem isso o gráfico sugeria queda artificial todo dia/mês.
+      rows = rows.filter(r => !r.parcial);
       const dias = [...new Set(rows.map(r => r.dia))].sort();
       const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
       const lookup = {};

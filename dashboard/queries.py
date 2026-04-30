@@ -47,6 +47,16 @@ def kpis_globais(dias=None, tribunais=None):
     procs = Process.objects.all()
     if tribunais:
         procs = procs.filter(tribunal_id__in=tribunais)
+    else:
+        procs = procs.filter(tribunal__ativo=True)
+    if dias:
+        # Quando há filtro de período, "Processos" passa a significar
+        # "processos com pelo menos 1 mov no período" — semântica
+        # consistente com total_movimentacoes que já filtra.
+        cutoff = date.today() - timedelta(days=dias)
+        procs = procs.filter(
+            movimentacoes__data_disponibilizacao__date__gte=cutoff,
+        ).distinct()
 
     # Usa data_disponibilizacao (publicação real) e NÃO inserido_em — durante
     # backfill, inserido_em explode com movs antigas reingeridas, distorcendo
@@ -143,22 +153,42 @@ def sparkline_24h(tribunais=None):
 
 
 def volume_temporal(dias=None, tribunais=None):
-    """Série temporal por tribunal. Auto-bucket: dia se janela <=365d, mês caso contrário."""
+    """Série temporal por tribunal. Auto-bucket: dia se janela <=365d, mês caso contrário.
+
+    Bucket parcial (dia/mês corrente que ainda não acabou) recebe `parcial: True`
+    pro frontend renderizar tracejado — sem flag, o gráfico sugeria queda
+    artificial sempre no fim.
+    """
     qs = Movimentacao.objects.all()
     if dias:
         qs = qs.filter(data_disponibilizacao__date__gte=date.today() - timedelta(days=dias))
     if tribunais:
         qs = qs.filter(tribunal_id__in=tribunais)
+    else:
+        qs = qs.filter(tribunal__ativo=True)
 
-    bucket_func = TruncDate if (dias and dias <= 365) else TruncMonth
+    is_daily = dias and dias <= 365
+    bucket_func = TruncDate if is_daily else TruncMonth
     rows = (
         qs.annotate(periodo=bucket_func('data_disponibilizacao'))
         .values('periodo', 'tribunal_id')
         .annotate(total=Count('id'))
         .order_by('periodo', 'tribunal_id')
     )
+
+    hoje = date.today()
+    if is_daily:
+        bucket_corrente = hoje
+    else:
+        bucket_corrente = hoje.replace(day=1)
+
     return [
-        {'dia': r['periodo'].isoformat(), 'tribunal': r['tribunal_id'], 'total': r['total']}
+        {
+            'dia': r['periodo'].isoformat(),
+            'tribunal': r['tribunal_id'],
+            'total': r['total'],
+            'parcial': (r['periodo'].date() if hasattr(r['periodo'], 'date') else r['periodo']) == bucket_corrente,
+        }
         for r in rows if r['periodo']
     ]
 
@@ -233,17 +263,31 @@ def cobertura_temporal(tribunal):
 
 
 def filtros_movimentacoes():
-    return {
+    """Top tipos/meios/classes pra facetas. Cacheia 1h — seq scan em ~30M
+    sem cache fazia toda /movimentacoes lenta a cada hit. Top values mudam
+    devagar em escala histórica.
+    """
+    from django.core.cache import cache
+    cache_key = 'filtros_movimentacoes'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    result = {
         'tipos': [r['tipo_comunicacao'] for r in
-                  Movimentacao.objects.exclude(tipo_comunicacao='')
+                  Movimentacao.objects.filter(tribunal__ativo=True)
+                  .exclude(tipo_comunicacao='')
                   .values('tipo_comunicacao').annotate(n=Count('id')).order_by('-n')[:8]],
         'meios': [r['meio_completo'] for r in
-                  Movimentacao.objects.exclude(meio_completo='')
+                  Movimentacao.objects.filter(tribunal__ativo=True)
+                  .exclude(meio_completo='')
                   .values('meio_completo').annotate(n=Count('id')).order_by('-n')[:6]],
         'classes': [r['nome_classe'] for r in
-                    Movimentacao.objects.exclude(nome_classe='')
+                    Movimentacao.objects.filter(tribunal__ativo=True)
+                    .exclude(nome_classe='')
                     .values('nome_classe').annotate(n=Count('id')).order_by('-n')[:6]],
     }
+    cache.set(cache_key, result, timeout=3600)
+    return result
 
 
 PARTES_DISTRIBUICAO_CACHE_KEY = 'partes:distribuicao_tipos'
