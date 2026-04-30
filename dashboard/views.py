@@ -179,8 +179,10 @@ def chart_data(request, key):
     if not handler:
         raise Http404(f'chart "{key}" não existe')
 
-    backfill_em_curso, _ = _backfill_em_curso()
-    dias = _periodo_dias(request, default=None if backfill_em_curso else 90)
+    # Default None (todo período) = mesmo que overview/KPIs.
+    # Sem isso, donut/charts mostravam 90d enquanto KPIs mostravam todo
+    # período — números visivelmente divergentes na mesma página.
+    dias = _periodo_dias(request, default=None)
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
     sigla = request.GET.get('sigla') or None
 
