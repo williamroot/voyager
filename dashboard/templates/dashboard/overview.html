@@ -73,12 +73,15 @@
   <div class="card-tight relative overflow-hidden">
     <div class="flex items-start justify-between relative z-10">
       <div>
-        <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Inseridas em 24h</div>
+        <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Publicadas em 24h</div>
         <div class="text-3xl font-semibold mt-1 kpi-num">{{ kpis.movs_24h|format_int }}</div>
         {% if kpis.movs_24h_delta_pct is not None %}
           <div class="text-xs mt-1 {% if kpis.movs_24h_delta_pct >= 0 %}text-accent-fg{% else %}text-danger{% endif %}">
             {% if kpis.movs_24h_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ kpis.movs_24h_delta_pct }}% vs 24h anteriores
           </div>
+        {% endif %}
+        {% if kpis.ins_24h and kpis.ins_24h != kpis.movs_24h %}
+          <div class="text-[0.65rem] text-fg-subtle mt-1">{{ kpis.ins_24h|format_int }} ingeridas (backfill)</div>
         {% endif %}
       </div>
     </div>
@@ -132,8 +135,8 @@
     <div class="h-72 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'volume-temporal' %}?{% query_string request %}', d => buildVolumeChart(d))" class="absolute inset-0"></div></div>
   </div>
   <div class="card">
-    <div class="text-sm font-medium text-fg-soft mb-1">Distribuição</div>
-    <div class="text-xs text-fg-subtle mb-2">por tribunal</div>
+    <div class="text-sm font-medium text-fg-soft mb-1">Volume por tribunal</div>
+    <div class="text-xs text-fg-subtle mb-2">total de movimentações</div>
     <div class="h-72 chart-cell"><div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div><div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'distribuicao' %}?{% query_string request %}', d => buildDonut(d, 'tribunal', 'total'))" class="absolute inset-0"></div></div>
   </div>
 </div>

@@ -16,12 +16,18 @@ from tribunals.models import IngestionRun, Movimentacao, Process, SchemaDriftAle
 
 
 def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibilizacao'):
-    """Aplica filtros de período e tribunais comuns em qualquer queryset de Movimentacao/Process."""
+    """Aplica filtros de período e tribunais comuns em qualquer queryset de Movimentacao/Process.
+
+    Quando `tribunais` é vazio/None, restringe a Tribunal.ativo=True por
+    default — evita que tribunais desativados apareçam fantasma em donuts/tops.
+    """
     if dias:
         cutoff = date.today() - timedelta(days=dias)
         qs = qs.filter(**{f'{date_field}__date__gte': cutoff})
     if tribunais:
         qs = qs.filter(tribunal_id__in=tribunais)
+    else:
+        qs = qs.filter(tribunal__ativo=True)
     return qs
 
 
@@ -42,8 +48,13 @@ def kpis_globais(dias=None, tribunais=None):
     if tribunais:
         procs = procs.filter(tribunal_id__in=tribunais)
 
-    movs_24h_qs = Movimentacao.objects.filter(inserido_em__gte=cutoff_24h)
-    movs_24_48h_qs = Movimentacao.objects.filter(inserido_em__gte=cutoff_48h, inserido_em__lt=cutoff_24h)
+    # Usa data_disponibilizacao (publicação real) e NÃO inserido_em — durante
+    # backfill, inserido_em explode com movs antigas reingeridas, distorcendo
+    # o KPI de "atividade do dia" pra centenas de M.
+    movs_24h_qs = Movimentacao.objects.filter(data_disponibilizacao__gte=cutoff_24h)
+    movs_24_48h_qs = Movimentacao.objects.filter(
+        data_disponibilizacao__gte=cutoff_48h, data_disponibilizacao__lt=cutoff_24h,
+    )
     if tribunais:
         movs_24h_qs = movs_24h_qs.filter(tribunal_id__in=tribunais)
         movs_24_48h_qs = movs_24_48h_qs.filter(tribunal_id__in=tribunais)
@@ -54,6 +65,12 @@ def kpis_globais(dias=None, tribunais=None):
     if movs_24_48h:
         delta_pct = round((movs_24h - movs_24_48h) / movs_24_48h * 100, 1)
 
+    # Velocidade de ingestão (DB INSERT) — métrica operacional separada.
+    ins_24h_qs = Movimentacao.objects.filter(inserido_em__gte=cutoff_24h)
+    if tribunais:
+        ins_24h_qs = ins_24h_qs.filter(tribunal_id__in=tribunais)
+    ins_24h = ins_24h_qs.count()
+
     drift_qs = SchemaDriftAlert.objects.filter(resolvido=False)
     if tribunais:
         drift_qs = drift_qs.filter(tribunal_id__in=tribunais)
@@ -63,6 +80,7 @@ def kpis_globais(dias=None, tribunais=None):
         'total_movimentacoes': movs.count(),
         'movs_24h': movs_24h,
         'movs_24h_delta_pct': delta_pct,
+        'ins_24h': ins_24h,
         'cancelados': movs.filter(ativo=False).count(),
         'ultima_atualizacao': IngestionRun.objects
             .filter(status=IngestionRun.STATUS_SUCCESS).order_by('-finished_at')
@@ -100,16 +118,18 @@ def ingestion_rate_por_hora(horas=24, tribunais=None):
 
 
 def sparkline_24h(tribunais=None):
-    """Conta movs inseridas por hora nas últimas 24h. Agregação SQL via TruncHour."""
+    """Conta movs disponibilizadas por hora nas últimas 24h. Usa
+    data_disponibilizacao (publicação real) — espelha o KPI movs_24h.
+    """
     from django.db.models.functions import TruncHour
 
     agora = timezone.now()
     cutoff = agora - timedelta(hours=24)
-    qs = Movimentacao.objects.filter(inserido_em__gte=cutoff)
+    qs = Movimentacao.objects.filter(data_disponibilizacao__gte=cutoff)
     if tribunais:
         qs = qs.filter(tribunal_id__in=tribunais)
     rows = (
-        qs.annotate(hora=TruncHour('inserido_em'))
+        qs.annotate(hora=TruncHour('data_disponibilizacao'))
         .values('hora').annotate(n=Count('id'))
     )
     by_hora = {r['hora']: r['n'] for r in rows}
