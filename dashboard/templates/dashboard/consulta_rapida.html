@@ -1,0 +1,144 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Consulta rápida{% endblock %}
+{% block content %}
+<div x-data="consultaRapida()" class="space-y-4">
+  <div class="card-tight">
+    <h1 class="text-lg font-semibold text-fg-soft mb-1">Consulta rápida</h1>
+    <p class="text-xs text-fg-subtle mb-4">Debug de DJEN/Datajud em tempo real. Não persiste nada.</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+      <div class="md:col-span-5">
+        <label class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">CNJ</label>
+        <input x-model="cnj" type="text" placeholder="0000000-00.0000.0.00.0000"
+               class="w-full mt-1 px-3 py-2 bg-bg-subtle border border-border rounded-md text-sm font-mono"
+               @keydown.enter="consultar()">
+      </div>
+      <div class="md:col-span-2">
+        <label class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">Tribunal</label>
+        <select x-model="tribunal" class="w-full mt-1 px-3 py-2 bg-bg-subtle border border-border rounded-md text-sm">
+          {% for t in tribunais %}<option value="{{ t.sigla }}">{{ t.sigla }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="md:col-span-3 flex items-end gap-2">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="usarDjen"> DJEN</label>
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="usarDatajud"> Datajud</label>
+      </div>
+      <div class="md:col-span-2 flex items-end">
+        <button @click="consultar()" :disabled="loading"
+                class="w-full px-4 py-2 bg-accent text-accent-fg rounded-md text-sm font-medium hover:bg-accent/90 disabled:opacity-50">
+          <span x-show="!loading">Consultar</span>
+          <span x-show="loading">Consultando...</span>
+        </button>
+      </div>
+    </div>
+
+    <div x-show="erro" class="mt-3 text-sm text-danger" x-text="erro"></div>
+  </div>
+
+  <div x-show="resultados" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <!-- DJEN -->
+    <div x-show="resultados.djen" class="card-tight">
+      <div class="flex items-baseline justify-between mb-2">
+        <h2 class="text-sm font-semibold text-fg-soft">DJEN</h2>
+        <span class="text-xs text-fg-subtle" x-text="resultados.djen?.ms + 'ms'"></span>
+      </div>
+      <template x-if="resultados.djen?.erro">
+        <div class="text-sm text-danger" x-text="resultados.djen.erro"></div>
+      </template>
+      <template x-if="!resultados.djen?.erro">
+        <div class="space-y-2">
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div><span class="text-fg-subtle">páginas:</span> <span x-text="resultados.djen.paginas"></span></div>
+            <div><span class="text-fg-subtle">itens:</span> <span x-text="resultados.djen.itens"></span></div>
+          </div>
+          <details class="text-xs" :open="resultados.djen.itens > 0">
+            <summary class="cursor-pointer text-fg-soft">amostra ({{ '{{' }} resultados.djen.amostra?.length || 0 {{ '}}' }} primeiros)</summary>
+            <pre class="bg-bg-subtle border border-border rounded p-2 mt-1 overflow-auto text-[0.7rem] max-h-96"
+                 x-text="JSON.stringify(resultados.djen.amostra, null, 2)"></pre>
+          </details>
+        </div>
+      </template>
+    </div>
+
+    <!-- Datajud -->
+    <div x-show="resultados.datajud" class="card-tight">
+      <div class="flex items-baseline justify-between mb-2">
+        <h2 class="text-sm font-semibold text-fg-soft">Datajud</h2>
+        <span class="text-xs text-fg-subtle" x-text="resultados.datajud?.ms + 'ms'"></span>
+      </div>
+      <template x-if="resultados.datajud?.erro">
+        <div class="text-sm text-danger" x-text="resultados.datajud.erro"></div>
+      </template>
+      <template x-if="!resultados.datajud?.erro && resultados.datajud?.encontrado === false">
+        <div class="text-sm text-warning">
+          <span class="text-warning">⚠</span> processo não encontrado no índice CNJ Datajud
+        </div>
+      </template>
+      <template x-if="resultados.datajud?.encontrado">
+        <div class="space-y-2">
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div><span class="text-fg-subtle">CNJ:</span> <code x-text="resultados.datajud.numero_processo"></code></div>
+            <div><span class="text-fg-subtle">sistema:</span> <span x-text="resultados.datajud.sistema?.nome || '-'"></span></div>
+            <div><span class="text-fg-subtle">classe:</span> <span x-text="resultados.datajud.classe?.nome || '-'"></span></div>
+            <div><span class="text-fg-subtle">cód:</span> <code x-text="resultados.datajud.classe?.codigo || '-'"></code></div>
+            <div><span class="text-fg-subtle">órgão:</span> <span x-text="resultados.datajud.orgao_julgador?.nome || '-'"></span></div>
+            <div><span class="text-fg-subtle">ajuiz.:</span> <span x-text="resultados.datajud.data_ajuizamento || '-'"></span></div>
+            <div><span class="text-fg-subtle">movs total:</span> <span x-text="resultados.datajud.movimentos_total"></span></div>
+            <div><span class="text-fg-subtle">parsed:</span> <span x-text="resultados.datajud.movimentos_parsed"></span></div>
+          </div>
+          <div class="text-xs">
+            <div class="text-fg-subtle mb-1">assuntos:</div>
+            <ul class="ml-4 list-disc">
+              <template x-for="a in (resultados.datajud.assuntos || [])">
+                <li><span x-text="a.nome || a.codigo"></span></li>
+              </template>
+            </ul>
+          </div>
+          <details class="text-xs" open>
+            <summary class="cursor-pointer text-fg-soft">amostra parsed (5 primeiros movs)</summary>
+            <pre class="bg-bg-subtle border border-border rounded p-2 mt-1 overflow-auto text-[0.7rem] max-h-96"
+                 x-text="JSON.stringify(resultados.datajud.amostra_parsed, null, 2)"></pre>
+          </details>
+          <details class="text-xs">
+            <summary class="cursor-pointer text-fg-soft">amostra raw Datajud (5 primeiros)</summary>
+            <pre class="bg-bg-subtle border border-border rounded p-2 mt-1 overflow-auto text-[0.7rem] max-h-96"
+                 x-text="JSON.stringify(resultados.datajud.amostra_raw, null, 2)"></pre>
+          </details>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+
+<script>
+function consultaRapida() {
+  return {
+    cnj: '',
+    tribunal: 'TRF1',
+    usarDjen: true,
+    usarDatajud: true,
+    loading: false,
+    erro: '',
+    resultados: null,
+    consultar() {
+      this.erro = '';
+      const cnj = (this.cnj || '').trim();
+      if (!cnj) { this.erro = 'informe um CNJ'; return; }
+      const fontes = [];
+      if (this.usarDjen) fontes.push('djen');
+      if (this.usarDatajud) fontes.push('datajud');
+      if (!fontes.length) { this.erro = 'selecione pelo menos uma fonte'; return; }
+      this.loading = true;
+      this.resultados = null;
+      const url = `/dashboard/consulta-rapida/api/?cnj=${encodeURIComponent(cnj)}&tribunal=${this.tribunal}&fontes=${fontes.join(',')}`;
+      fetch(url, {headers: {'Accept': 'application/json'}})
+        .then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(d.erro || r.status)))
+        .then(d => { this.resultados = d.resultados; })
+        .catch(e => { this.erro = String(e); })
+        .finally(() => { this.loading = false; });
+    },
+  };
+}
+</script>
+{% endblock %}

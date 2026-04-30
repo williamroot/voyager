@@ -668,6 +668,104 @@ def root(request):
     return redirect('dashboard:overview')
 
 
+# ---------- Consulta rápida (debug Datajud/DJEN, sem persistir) ----------
+
+@login_required
+@require_GET
+def consulta_rapida(request):
+    """Tela de debug — consulta CNJ ao vivo no DJEN e Datajud sem salvar nada."""
+    return render(request, 'dashboard/consulta_rapida.html', {
+        'tribunais': Tribunal.objects.filter(ativo=True),
+    })
+
+
+@login_required
+@require_GET
+def consulta_rapida_api(request):
+    """API JSON: chama DJEN + Datajud em paralelo e retorna raw + resumo.
+
+    Não usa cache, não persiste — pra debug. Aceita ?cnj=...&tribunal=TRF1&fontes=djen,datajud.
+    """
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    cnj = (request.GET.get('cnj') or '').strip()
+    sigla = (request.GET.get('tribunal') or 'TRF1').strip()
+    fontes = set((request.GET.get('fontes') or 'djen,datajud').split(','))
+
+    if not cnj:
+        return JsonResponse({'erro': 'cnj obrigatório'}, status=400)
+
+    try:
+        tribunal = Tribunal.objects.get(sigla=sigla)
+    except Tribunal.DoesNotExist:
+        return JsonResponse({'erro': f'tribunal {sigla} não existe'}, status=400)
+
+    def consulta_djen():
+        from djen.client import DJENClient
+        t0 = time.monotonic()
+        try:
+            cli = DJENClient(prefer_cortex=True)
+            paginas = []
+            for items in cli.iter_pages_processo(tribunal.sigla_djen, cnj):
+                paginas.append(items)
+                if len(paginas) >= 5:
+                    break
+            flat = [it for pg in paginas for it in pg]
+            return {
+                'fonte': 'djen',
+                'ms': int((time.monotonic() - t0) * 1000),
+                'paginas': len(paginas),
+                'itens': len(flat),
+                'amostra': flat[:5],
+            }
+        except Exception as e:
+            return {'fonte': 'djen', 'erro': str(e)[:300], 'ms': int((time.monotonic() - t0) * 1000)}
+
+    def consulta_datajud():
+        from datajud.client import DatajudClient
+        from datajud.parser import parse_movimentos
+        t0 = time.monotonic()
+        try:
+            cli = DatajudClient(prefer_cortex=True)
+            source = cli.fetch_processo(sigla, cnj)
+            if source is None:
+                return {'fonte': 'datajud', 'ms': int((time.monotonic()-t0)*1000),
+                        'encontrado': False, 'movimentos': 0}
+            parsed = parse_movimentos(source)
+            return {
+                'fonte': 'datajud',
+                'ms': int((time.monotonic()-t0)*1000),
+                'encontrado': True,
+                'numero_processo': source.get('numeroProcesso'),
+                'classe': source.get('classe'),
+                'sistema': source.get('sistema'),
+                'orgao_julgador': source.get('orgaoJulgador'),
+                'data_ajuizamento': source.get('dataAjuizamento'),
+                'assuntos': source.get('assuntos', []),
+                'movimentos_total': len(source.get('movimentos', [])),
+                'movimentos_parsed': len(parsed),
+                'amostra_raw': source.get('movimentos', [])[:5],
+                'amostra_parsed': parsed[:5],
+                'source_keys': list(source.keys()),
+            }
+        except Exception as e:
+            return {'fonte': 'datajud', 'erro': str(e)[:300], 'ms': int((time.monotonic()-t0)*1000)}
+
+    resultados = {}
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        futs = {}
+        if 'djen' in fontes:
+            futs['djen'] = ex.submit(consulta_djen)
+        if 'datajud' in fontes:
+            futs['datajud'] = ex.submit(consulta_datajud)
+        for k, fut in futs.items():
+            resultados[k] = fut.result()
+
+    return JsonResponse({'cnj': cnj, 'tribunal': sigla, 'resultados': resultados},
+                        json_dumps_params={'default': str, 'ensure_ascii': False, 'indent': 2})
+
+
 # ---------- Wizard de exportação ----------
 
 import csv
