@@ -490,8 +490,14 @@ def parte_detail(request, pk):
     parte = get_object_or_404(Parte, pk=pk)
 
     base_qs = ProcessoParte.objects.filter(parte=parte)
-    # Conta por polo (sempre, independente do filtro — pra exibir nos chips)
-    counts = {row['polo']: row['n'] for row in base_qs.values('polo').annotate(n=Count('id'))}
+    # Conta por polo (sempre, independente do filtro — pra exibir nos chips).
+    # Normaliza polo='' → 'outros' pra bater com chart_polo (mesma chave nos
+    # dois caminhos; senão template `counts.outros` ficava 0 enquanto donut
+    # mostrava N).
+    counts = {}
+    for row in base_qs.values('polo').annotate(n=Count('id')):
+        key = row['polo'] or 'outros'
+        counts[key] = counts.get(key, 0) + row['n']
 
     polo_filtro = request.GET.get('polo', '')
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
@@ -571,23 +577,36 @@ def movimentacoes(request):
     if not _is_htmx(request):
         return render(request, 'dashboard/movimentacoes.html', base_ctx)
 
-    qs = Movimentacao.objects.select_related('tribunal', 'processo').order_by('-data_disponibilizacao', '-id')
+    # Mesma estratégia do /processos (commit 55a19a3): order_by('-id')
+    # = PK reverse scan, ~aproximadamente cronológico, sem custo do
+    # ORDER BY (data_disponibilizacao, id) em 26M rows. Diferença prática:
+    # poucas movs têm data_disponibilizacao fora de ordem com id.
+    qs = Movimentacao.objects.select_related('tribunal', 'processo').order_by('-id')
+    has_filter = False
     if tribunais_filtro:
-        qs = qs.filter(tribunal_id__in=tribunais_filtro)
+        qs = qs.filter(tribunal_id__in=tribunais_filtro); has_filter = True
     if tipos_filtro:
-        qs = qs.filter(tipo_comunicacao__in=tipos_filtro)
+        qs = qs.filter(tipo_comunicacao__in=tipos_filtro); has_filter = True
     if meios_filtro:
-        qs = qs.filter(meio_completo__in=meios_filtro)
+        qs = qs.filter(meio_completo__in=meios_filtro); has_filter = True
     if classes_filtro:
-        qs = qs.filter(nome_classe__in=classes_filtro)
+        qs = qs.filter(nome_classe__in=classes_filtro); has_filter = True
     if so_ativos:
-        qs = qs.filter(ativo=True)
+        qs = qs.filter(ativo=True); has_filter = True
     if q and len(q) >= 3:
-        qs = qs.filter(texto__icontains=q)
+        qs = qs.filter(texto__icontains=q); has_filter = True
     if com_link == 'sim':
         qs = qs.exclude(link='')
+        has_filter = True
 
-    page = _paginar(qs, request, default_size=50)
+    # Sem filtro: 26M rows. Reusa total_movimentacoes do kpis_globais
+    # (cacheado 5min) em vez de SELECT COUNT(*) seq scan.
+    count_override = None
+    if not has_filter:
+        kpis = queries.kpis_globais()
+        count_override = kpis['total_movimentacoes']
+
+    page = _paginar(qs, request, default_size=50, count_override=count_override)
     return render(request, 'dashboard/_partials/_movimentacoes_list.html', {
         **base_ctx,
         'page': page,
