@@ -28,16 +28,17 @@ Uso:
       <span class="px-2 py-1 rounded-md border border-border/40 text-fg-subtle/40 font-mono">‹</span>
     {% endif %}
 
-    {% for n in page.paginator.page_range %}
-      {% if n == page.number %}
+    {% visible_pages page as page_numbers %}
+    {% for n in page_numbers %}
+      {% if n is None %}
+        <span class="px-1 text-fg-subtle">…</span>
+      {% elif n == page.number %}
         <span class="px-2.5 py-1 rounded-md bg-accent/15 text-accent-fg border border-accent/30 font-mono">{{ n }}</span>
-      {% elif n == 1 or n == page.paginator.num_pages or n == page.number|add:'-1' or n == page.number|add:'-2' or n == page.number|add:'1' or n == page.number|add:'2' %}
+      {% else %}
         <a hx-get="?{% query_string request page=n %}"
            hx-target="{{ target }}" hx-swap="outerHTML" hx-push-url="true"
            href="?{% query_string request page=n %}"
            class="px-2.5 py-1 rounded-md border border-border/60 text-fg-muted hover:text-fg hover:bg-muted font-mono">{{ n }}</a>
-      {% elif n == page.number|add:'-3' or n == page.number|add:'3' %}
-        <span class="px-1 text-fg-subtle">…</span>
       {% endif %}
     {% endfor %}
 

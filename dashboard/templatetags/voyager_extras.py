@@ -134,3 +134,26 @@ def is_in_list(value, csv):
     if not csv:
         return False
     return str(value) in str(csv).split(',')
+
+
+@register.simple_tag
+def visible_pages(page):
+    """Lista compacta de páginas pra paginação: [1, None, 4, 5, 6, None, 100].
+
+    `None` é placeholder de elipse. Substitui o loop sobre
+    `paginator.page_range` (que itera TODAS as páginas — em listagens
+    com 60k+ páginas, gera megabytes de whitespace e segundos de
+    template processing).
+    """
+    n = page.number
+    total = page.paginator.num_pages
+    wanted = sorted({1, total, n - 2, n - 1, n, n + 1, n + 2})
+    visible = [p for p in wanted if 1 <= p <= total]
+    out = []
+    prev = 0
+    for p in visible:
+        if prev and p > prev + 1:
+            out.append(None)
+        out.append(p)
+        prev = p
+    return out
