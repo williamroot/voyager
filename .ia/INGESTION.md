@@ -51,6 +51,11 @@ Sem auth. Resposta JSON com `count`, `items[]`. Cada item = 1 movimentação.
 
 Coração da ingestão. Pra uma janela `(data_inicio, data_fim)`:
 
+**Cap rígido de 10k**: A DJEN para de paginar em 100 pgs × 100 = 10.000 itens por janela. Estratégia adaptativa em duas camadas:
+
+- **Multi-dia que capou** (`paginas_lidas == 100 && novas+dup >= 10k && days >= 1`): divide em 2 metades e re-processa recursivamente, propagando `forcar_uf_em_1d=True`.
+- **1-dia**: probe via `count_only`. Se `count >= 10k` OU se vier de split (`forcar_uf_em_1d=True`), vai direto pra `_ingest_day_por_uf` (paraleliza por 27 `ufOab`). A flag existe porque `count_only` pode mentir sob WAF/proxy ruim — payload truncado com `count` pequeno faria o caminho normal re-cap ar e perder dados.
+
 1. Cria `IngestionRun(status='running')`
 2. `for items in client.iter_pages(...)`: chama `_process_page(items, tribunal, run, cnjs_tocados)`
    - `_process_page` envolto em **`transaction.atomic()`** — todo INSERT da página é atômico

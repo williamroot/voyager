@@ -50,6 +50,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # _ingest_day_por_uf abre 27 fetches paralelos (UFs) × proxy retries. Sem
+    # ulimit alto, esgota FDs do container e os jobs morrem com errno 24
+    # ("Too many open files"), perdendo dados nas janelas de 1 dia.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     deploy:
       replicas: 4
     restart: always

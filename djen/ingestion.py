@@ -77,18 +77,31 @@ DJEN_HARD_CAP = 10_000
 
 
 def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
-                  client: DJENClient | None = None) -> IngestionRun:
+                  client: DJENClient | None = None,
+                  forcar_uf_em_1d: bool = False) -> IngestionRun:
     """Ingere uma janela contínua de dias para um tribunal. 1 IngestionRun por chamada.
 
     Estratégia adaptativa ao CAP de 10k:
-    - Janela > 1 dia que bate o CAP: divide em 2 metades e re-processa recursivamente.
+    - Janela > 1 dia que bate o CAP: divide em 2 metades e re-processa recursivamente,
+      propagando `forcar_uf_em_1d=True` pros filhos.
     - Janela de 1 dia que bate o CAP: proba count antes e usa ufOab (27 UFs) como filtro,
       garantindo cobertura completa. Enfileira job de auditoria por órgão.
+
+    `forcar_uf_em_1d`: quando True e a janela for de 1 dia, pula o probe
+    `count_only` e vai direto pra `_ingest_day_por_uf`. Usado pelos filhos
+    do split adaptativo — um count baixo nesse contexto é quase certo
+    falso negativo (WAF/proxy ruim retornando payload truncado), e ignorá-lo
+    foi causa documentada de perda de dados (~10k/dia/tribunal).
     """
     client = client or DJENClient()
 
     # Probe antecipado: dia único com CAP vai direto pra estratégia UF.
     if data_inicio == data_fim:
+        if forcar_uf_em_1d:
+            logger.info('djen single-day forçando UF strategy (split de janela capada)', extra={
+                'tribunal': tribunal.sigla, 'dia': str(data_inicio),
+            })
+            return _ingest_day_por_uf(tribunal, data_inicio, client)
         count = client.count_only(tribunal.sigla_djen, data_inicio, data_fim)
         if count >= DJEN_HARD_CAP:
             logger.warning('djen single-day cap detected via probe, using UF strategy', extra={
@@ -130,6 +143,8 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
             )
 
     # Split adaptativo: se bateu o cap em janela > 1 dia, divide em 2 metades.
+    # Filhos sempre forçam UF strategy quando chegarem em 1 dia — count_only
+    # pode mentir (WAF) e o caminho normal de paginação re-cap aria.
     if (run.movimentacoes_novas + run.movimentacoes_duplicadas) >= DJEN_HARD_CAP \
             and run.paginas_lidas >= 100 \
             and (data_fim - data_inicio).days >= 1:
@@ -138,8 +153,9 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
             'tribunal': tribunal.sigla, 'inicio': str(data_inicio), 'fim': str(data_fim),
             'novas': run.movimentacoes_novas, 'duplicadas': run.movimentacoes_duplicadas,
         })
-        ingest_window(tribunal, data_inicio, meio, client=client)
-        ingest_window(tribunal, meio + timedelta(days=1), data_fim, client=client)
+        ingest_window(tribunal, data_inicio, meio, client=client, forcar_uf_em_1d=True)
+        ingest_window(tribunal, meio + timedelta(days=1), data_fim, client=client,
+                      forcar_uf_em_1d=True)
 
     return run
 
