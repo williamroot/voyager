@@ -91,7 +91,52 @@ services:
       redis:
         condition: service_healthy
     deploy:
+      replicas: 4
+    restart: unless-stopped
+
+  worker_datajud:
+    build:
+      context: .
+      target: runtime
+    command: python manage.py rqworker datajud
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
       replicas: 30
+    restart: unless-stopped
+
+  worker_classificacao:
+    build:
+      context: .
+      target: runtime
+    command: python manage.py rqworker classificacao
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 4
+    restart: unless-stopped
+
+  worker_tjmg:
+    build:
+      context: .
+      target: runtime
+    command: python manage.py rqworker enrich_tjmg manual
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 4
     restart: unless-stopped
 
   scheduler:

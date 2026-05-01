@@ -36,6 +36,16 @@ services:
       replicas: 130
     restart: always
 
+  worker_tjmg:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjmg
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:
+      replicas: 20
+    restart: always
+
   worker_default:
     image: voyager-web:prod
     command: python manage.py rqworker default

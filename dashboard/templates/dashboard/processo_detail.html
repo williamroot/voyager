@@ -57,7 +57,7 @@
         {% voy_icon "mission-tag" "w-3.5 h-3.5" %}
         copiar CNJ
       </button>
-      {% if processo.tribunal_id == 'TRF1' or processo.tribunal_id == 'TRF3' %}
+      {% if processo.tribunal_id == 'TRF1' or processo.tribunal_id == 'TRF3' or processo.tribunal_id == 'TJMG' %}
         <form hx-post="{% url 'dashboard:processo-enriquecer' processo.pk %}"
               hx-target="#job-area" hx-swap="innerHTML"
               hx-disabled-elt="find button" class="inline">

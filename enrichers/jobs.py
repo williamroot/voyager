@@ -5,6 +5,7 @@ from django_rq import job
 
 from tribunals.models import Process
 
+from .tjmg import TjmgEnricher
 from .trf1 import Trf1Enricher
 from .trf3 import Trf3Enricher
 
@@ -14,6 +15,7 @@ logger = logging.getLogger('voyager.enrichers.jobs')
 _ENRICHERS = {
     'TRF1': Trf1Enricher,
     'TRF3': Trf3Enricher,
+    'TJMG': TjmgEnricher,
 }
 
 ENRICH_TIMEOUT = 300
