@@ -12,19 +12,24 @@ from .models import Movimentacao, Process
 logger = logging.getLogger('voyager.tribunals.jobs')
 
 
-@job('default', timeout=14400)
+@job('classificacao', timeout=14400)
 def reclassificar_recentes(dias: int = 7, batch_size: int = 1000,
-                           cap_nunca_classificados: int = 500_000) -> dict:
+                           cap_nunca_classificados: int = 500_000,
+                           paralelizar: bool = True) -> dict:
     """Re-classifica processos com mov inserida nos últimos N dias.
 
     Idempotente — atualiza Process.classificacao_em a cada run.
     Re-classifica também processos NUNCA classificados (classificacao_em IS NULL)
     pra cobrir backlog inicial. Cap default 500k é suficiente pra rodar
     de hora em hora e drenar ~2.4M backlog em alguns dias.
+
+    Quando `paralelizar=True` (default), splitta o trabalho em N jobs
+    `reclassificar_batch` enfileirados na fila `classificacao` — workers
+    paralelos drenam. Quando False, processa sequencialmente neste job
+    (útil pra runs pequenos / debug).
     """
     cutoff = timezone.now() - timedelta(days=dias)
 
-    # Process com mov recente OU nunca classificado
     pids_qs = (
         Movimentacao.objects.filter(inserido_em__gte=cutoff)
         .values_list('processo_id', flat=True)
@@ -37,9 +42,19 @@ def reclassificar_recentes(dias: int = 7, batch_size: int = 1000,
     )
     pids_alvo = list(pids_recentes | nunca_classificados)
     logger.info(
-        'reclassificar_recentes: alvo=%d (recentes=%d novos=%d)',
-        len(pids_alvo), len(pids_recentes), len(nunca_classificados),
+        'reclassificar_recentes: alvo=%d (recentes=%d novos=%d) paralelizar=%s',
+        len(pids_alvo), len(pids_recentes), len(nunca_classificados), paralelizar,
     )
+
+    if paralelizar and len(pids_alvo) > batch_size:
+        # Enfileira N batches na fila classificacao — workers drenam paralelo
+        n_jobs = 0
+        for i in range(0, len(pids_alvo), batch_size):
+            batch = pids_alvo[i:i+batch_size]
+            reclassificar_batch.delay(batch)
+            n_jobs += 1
+        logger.info('reclassificar_recentes split em %d batches de %d', n_jobs, batch_size)
+        return {'enfileirados': n_jobs, 'pids_total': len(pids_alvo), 'versao': VERSAO}
 
     n_done = 0; n_fail = 0
     for i in range(0, len(pids_alvo), batch_size):
@@ -59,7 +74,7 @@ def reclassificar_recentes(dias: int = 7, batch_size: int = 1000,
     return {'classificados': n_done, 'falhas': n_fail, 'versao': VERSAO}
 
 
-@job('default', timeout=600)
+@job('classificacao', timeout=600)
 def reclassificar_batch(process_ids: list[int]) -> dict:
     """Reclassifica um lote de processos passados por ID. Usado pelo
     auto-enqueue da ingestão DJEN quando processos recebem movs novas

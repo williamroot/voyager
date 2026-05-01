@@ -454,8 +454,27 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
             except Exception as exc:
                 logger.warning('falha enfileirar datajud', extra={'pid': pid, 'erro': str(exc)})
 
+    # Reclassificação: TODOS os processos tocados (não só os elegíveis a
+    # PJe/Datajud) ganham re-classificação em batch. Movs novas alteram as
+    # features (F15_logMovs, F21_diasUltMovZ, etc) — sem este caminho,
+    # processos descobertos via UF strategy só seriam reclassificados no
+    # cron horário, atrasando lead detection. Vai pra fila `classificacao`
+    # (workers dedicados) em chunks de 500 pra não estourar timeout.
+    todos_pids = [p['pk'] for p in procs]
+    if todos_pids:
+        try:
+            from tribunals.jobs import reclassificar_batch
+        except ImportError:
+            logger.exception('reclassificar_batch indisponível — skip auto-reclassif')
+        else:
+            for i in range(0, len(todos_pids), 500):
+                try:
+                    reclassificar_batch.delay(todos_pids[i:i + 500])
+                except Exception as exc:
+                    logger.warning('falha enfileirar reclassif chunk %d: %s', i, exc)
+
     logger.info(
-        'auto-enqueue %s → pje=%d datajud=%d (de %d tocados)',
+        'auto-enqueue %s → pje=%d datajud=%d reclassif=%d (de %d tocados)',
         tribunal.sigla, len(enriq_eligiveis) if tribunal.sigla in TRIBUNAIS_COM_ENRICHER else 0,
-        len(datajud_eligiveis), len(procs),
+        len(datajud_eligiveis), len(todos_pids), len(procs),
     )

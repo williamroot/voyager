@@ -144,6 +144,10 @@ RQ_QUEUES = {
     # cobre todos os tribunais. Dedicada pra não competir com DJEN nem
     # com PJe scraping.
     'datajud':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
+    # Classificação de leads (modelo LR v5). reclassificar_recentes pode
+    # rodar 500k procs por hora — isolar pra não bloquear default que
+    # também tem watchdogs e ticks.
+    'classificacao':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 14400},
 }
 
 # DJEN

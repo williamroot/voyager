@@ -50,18 +50,36 @@
 
   <div class="card-tight" title="Quantos processos foram classificados como Precatório e ainda NÃO foram consumidos pelo Juriscope (não estão na fila de baixar autos). Esse é o estoque disponível para enviar agora.">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
-      💎 Backlog Precatório
+      💎 Precatório
       <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
     </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n1_pendente)">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">
       <template x-if="d.runway_dias != null">
-        <span>≈ <strong x-text="d.runway_dias"></strong> dias até esgotar (no ritmo atual)</span>
+        <span>≈ <strong x-text="d.runway_dias"></strong> dias até esgotar</span>
       </template>
-      <template x-if="d.runway_dias == null && d.juriscope_ativo">
-        <span>aguardando Juriscope começar a consumir</span>
+      <template x-if="d.runway_dias == null">
+        <span>backlog disponível</span>
       </template>
     </div>
+  </div>
+
+  <div class="card-tight" title="Total de processos classificados como Pré-precatório — perto de virar precatório. Em homologação dos cálculos. Re-checar mensalmente.">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
+      ⏳ Pré-precatório
+      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+    </div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n2_total)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">em homologação dos cálculos</div>
+  </div>
+
+  <div class="card-tight" title="Total de processos classificados como Direito Creditório — sinais batem mas ainda longe da homologação. Watch-list, re-checar trimestralmente.">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
+      🌱 Direito creditório
+      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+    </div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n3_total)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">potencial em fase de conhecimento</div>
   </div>
 
   <div class="card-tight" title="% dos processos consumidos pelo Juriscope nos últimos 30 dias que foram CONFIRMADOS como lead (resultado=validado ou pago). Compara com a precision do treino — se cair muito abaixo, o modelo pode estar degradando.">
@@ -71,9 +89,9 @@
     </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.taxa_validacao_30d != null ? (d.taxa_validacao_30d*100).toFixed(1) + '%' : '—'">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">
-      <template x-if="d.taxa_validacao_30d == null"><span>sem dados (Juriscope ainda não validou)</span></template>
+      <template x-if="d.taxa_validacao_30d == null"><span>sem dados ainda</span></template>
       <template x-if="d.taxa_validacao_30d != null">
-        <span>esperado pelo treino: <strong x-text="(d.taxa_validacao_treino*100).toFixed(1)"></strong>%</span>
+        <span>treino: <strong x-text="(d.taxa_validacao_treino*100).toFixed(1)"></strong>%</span>
       </template>
     </div>
   </div>
@@ -94,24 +112,6 @@
     </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.throughput_consumidos_dia">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">via Juriscope · últimos 7 dias</div>
-  </div>
-
-  <div class="card-tight" title="Total de processos classificados como Pré-precatório — perto de virar precatório. Em homologação dos cálculos. Re-checar mensalmente.">
-    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
-      ⏳ Pré-precatório
-      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
-    </div>
-    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n2_total)">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">total classificados pré-precatório</div>
-  </div>
-
-  <div class="card-tight" title="Total de processos classificados como Direito Creditório — sinais batem mas ainda longe da homologação. Watch-list, re-checar trimestralmente.">
-    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
-      🌱 Direito creditório
-      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
-    </div>
-    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n3_total)">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">total classificados direito creditório</div>
   </div>
 </div>
 

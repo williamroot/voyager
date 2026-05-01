@@ -27,8 +27,14 @@ class Command(BaseCommand):
         parser.add_argument('--dry-run', action='store_true', dest='dry_run')
         parser.add_argument('--sync', action='store_true',
                             help='Roda inline em vez de enfileirar (debug).')
+        parser.add_argument('--include-truncados', action='store_true',
+                            dest='include_truncados',
+                            help='Inclui também runs success com pgs<=5 e '
+                                 'novas+dup<=500 em dias úteis (heurística pra '
+                                 'WAF que retorna count truncado e o cliente '
+                                 'para cedo achando que não havia mais movs).')
 
-    def handle(self, *args, tribunal, limit, dry_run, sync, **opts):
+    def handle(self, *args, tribunal, limit, dry_run, sync, include_truncados, **opts):
         qs = (IngestionRun.objects
               .filter(status='success', paginas_lidas__gte=100)
               .extra(where=['movimentacoes_novas + movimentacoes_duplicadas >= %s'],
@@ -36,6 +42,21 @@ class Command(BaseCommand):
               .order_by('-janela_fim'))
         if tribunal:
             qs = qs.filter(tribunal_id=tribunal)
+
+        # Heurística do count_only truncado: pgs<=5 com pouquíssimas movs
+        # em janela 1-dia útil. Postgres EXTRACT(DOW): 0=domingo, 6=sábado.
+        # union() descarta order_by dos qs internos — re-aplica no combinado.
+        if include_truncados:
+            truncados = (IngestionRun.objects
+                .filter(status='success', paginas_lidas__lte=5)
+                .extra(where=[
+                    'movimentacoes_novas + movimentacoes_duplicadas <= 500',
+                    'janela_inicio = janela_fim',
+                    'EXTRACT(DOW FROM janela_inicio) NOT IN (0, 6)',
+                ]))
+            if tribunal:
+                truncados = truncados.filter(tribunal_id=tribunal)
+            qs = qs.union(truncados, all=False).order_by('-janela_fim')
         # Dedupe — evita re-rodar a mesma (tribunal, janela) várias vezes
         # quando há multiple runs success na mesma janela.
         seen = set()

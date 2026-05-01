@@ -110,6 +110,21 @@ services:
       replicas: 10
     restart: always
 
+  worker_classificacao:
+    image: voyager-web:prod
+    command: python manage.py rqworker classificacao
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      # Classificação é compute-bound (queries Movimentacao + bytecode LR).
+      # 4 réplicas drenam ~500k/h confortavelmente.
+      replicas: 4
+    restart: always
+
   scheduler:
     image: voyager-web:prod
     command: python manage.py djen_register_schedules_and_run

@@ -100,6 +100,19 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Reabastece fila Datajud: análogo ao PJe — drena backlog histórico
+    # de Process com data_enriquecimento_datajud=NULL. Sem este job,
+    # processos antigos ficavam pra sempre sem Datajud (observado 96%
+    # TRF3 e 38% TRF1 backlog).
+    from datajud.jobs import reabastecer_fila_datajud
+    scheduler.add_job(
+        reabastecer_fila_datajud.delay,
+        'interval',
+        minutes=2,
+        id='refill_datajud',
+        replace_existing=True,
+    )
+
     # Aquecimento dos KPIs da home: a cada 5 min
     scheduler.add_job(
         warm_kpis_cache.delay,
@@ -136,15 +149,23 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
-    # Re-classifica processos com mov nova nos últimos 7 dias
-    # Roda 1x por dia às 03:00 — período de menor concorrência.
+    # Re-classifica processos com mov nova nos últimos 7 dias + drena
+    # backlog de nunca-classificados (cap default 500k por run).
+    # Cada hora — backlog inicial de ~2.4M (96% TRF1 + 99.5% TRF3) leva
+    # alguns dias pra drenar nesse ritmo. Auto-enqueue per-batch da
+    # ingestão DJEN cobre o caminho quente; este cron drena o frio.
+    # max_instances=1 + coalesce=True: o job tem timeout 4h em interval 1h —
+    # se atrasar, novos triggers são consolidados em vez de empilhar
+    # (evita 2 schedulers competindo no mesmo lote).
     from tribunals.jobs import reclassificar_recentes
     scheduler.add_job(
         reclassificar_recentes.delay,
-        'cron',
-        hour=3, minute=0,
+        'interval',
+        hours=1,
         id='reclassificar_recentes',
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
     return scheduler
