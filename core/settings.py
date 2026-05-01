@@ -72,6 +72,14 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 DATABASES = {'default': env.db('DATABASE_URL', default='postgres://voyager:voyager@postgres:5432/voyager')}
 DATABASES['default']['ENGINE'] = 'django_prometheus.db.backends.postgresql'
+# pgbouncer transaction-mode: cursors server-side e prepared statements quebram
+# (a conexão pode pular pra outro backend entre cursor.fetch). Django 4.2+
+# expõe estes flags em OPTIONS — mais seguro que CONN_MAX_AGE=0 isolado.
+DATABASES['default'].setdefault('OPTIONS', {}).update({
+    'server_side_binding': False,
+})
+DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
+DATABASES['default']['CONN_MAX_AGE'] = 0
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 10}},
