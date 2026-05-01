@@ -111,13 +111,19 @@ def reprocessar_janela(tribunal_sigla: str, inicio: str, fim: str) -> dict:
     """Re-processa uma janela específica (idempotente). Usado pelo command
     djen_reprocessar_janelas_capped pra paralelizar via fila djen_backfill —
     cada janela vira 1 job consumido pelos workers, em vez de loop sequencial.
+
+    Pra janelas 1-dia, força UF strategy (`forcar_uf_em_1d=True`) — quem
+    chama reprocessar_janela quer cobertura completa, e o probe count_only
+    pode mentir sob WAF (count truncado pra ~100). Sem isso, o reprocesso
+    de dia 1-dia faz iter_pages normal e termina cedo com `pgs=1 dup=100`,
+    deixando 10k+ movs perdidas mesmo após o "success".
     """
     from .ingestion import ingest_window
     inicio_d = date.fromisoformat(inicio)
     fim_d = date.fromisoformat(fim)
     t = Tribunal.objects.get(sigla=tribunal_sigla)
     logger.info('reprocessar_janela inicio %s %s→%s', tribunal_sigla, inicio, fim)
-    run = ingest_window(t, inicio_d, fim_d)
+    run = ingest_window(t, inicio_d, fim_d, forcar_uf_em_1d=(inicio_d == fim_d))
     return {
         'run_id': run.pk, 'novas': run.movimentacoes_novas,
         'pgs': run.paginas_lidas, 'janela': f'{inicio}→{fim}',
