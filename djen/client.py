@@ -86,12 +86,14 @@ class DJENClient:
                                         proxies=proxies, timeout=self.timeout)
                 latency_ms = int((time.monotonic() - t0) * 1000)
                 proxy_label = using if proxy_url else 'direct'
-                # 403/429: IP bloqueado → marca proxy ruim e troca imediatamente, sem sleep.
+                # 403/429: IP bloqueado → marca proxy ruim e troca.
+                # Backoff progressivo quando muitas rotações falham seguidas:
+                # WAF da DJEN tipicamente "abre" se pausarmos um momento.
                 if resp.status_code in (403, 429):
                     if using == 'pool' and proxy_url:
                         self.pool.mark_bad(proxy_url)
                     elif using == 'cortex':
-                        self.pool.mark_cortex_bad(ttl=60)
+                        self.pool.mark_cortex_bad()  # usa CORTEX_BAD_TTL_SECONDS
                     last_failed_source = using
                     proxy_rotations += 1
                     if proxy_rotations > self.max_proxy_rotations:
@@ -102,6 +104,16 @@ class DJENClient:
                         '🔄 %s bloqueado via %s → rotação %d/%d',
                         resp.status_code, proxy_label, proxy_rotations, self.max_proxy_rotations,
                     )
+                    pause_after = getattr(settings, 'DJEN_ROTATION_PAUSE_AFTER', 10)
+                    pause_step = getattr(settings, 'DJEN_ROTATION_PAUSE_STEP', 5.0)
+                    pause_max = getattr(settings, 'DJEN_ROTATION_PAUSE_MAX', 30.0)
+                    if proxy_rotations >= pause_after and proxy_rotations % pause_after == 0:
+                        wait = min(pause_max, pause_step * (proxy_rotations // pause_after))
+                        logger.warning(
+                            'WAF wave: %d rotações falhando seguidas, pausando %ds',
+                            proxy_rotations, wait,
+                        )
+                        time.sleep(wait)
                     continue
                 # 5xx: erro do servidor → backoff longo, limite de retries de transporte.
                 if 500 <= resp.status_code < 600:

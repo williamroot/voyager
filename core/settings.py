@@ -159,11 +159,26 @@ PROXYSCRAPE_API_KEY = env('PROXYSCRAPE_API_KEY', default='')
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)
-PROXY_BAD_TTL_SECONDS = env.int('PROXY_BAD_TTL_SECONDS', default=600)
+# IPs datacenter reciclam rápido — 10 min de quarentena queimava o pool
+# inteiro durante ondas de WAF (1490/1500 bad observados). 2 min permite
+# rotação saudável sem voltar imediatamente pro mesmo IP queimado.
+PROXY_BAD_TTL_SECONDS = env.int('PROXY_BAD_TTL_SECONDS', default=120)
+# Cooldown do Cortex residencial. Curto porque o gateway tem rotação
+# interna — basta um momento pro próximo IP ser saudável.
+CORTEX_BAD_TTL_SECONDS = env.int('CORTEX_BAD_TTL_SECONDS', default=15)
 # Probabilidade de cada request DJEN sair via Cortex (residencial) em vez do
 # pool ProxyScrape (datacenter). Diversifica IPs por request — quando o WAF
 # bloqueia datacenter em onda, ainda passa metade via Cortex e vice-versa.
 DJEN_CORTEX_RATIO = env.float('DJEN_CORTEX_RATIO', default=0.5)
+# Em ondas pesadas de WAF (todas as fontes bloqueando), o cliente faz pausas
+# escalonadas entre rotações pra dar tempo do WAF "abrir" — evita queimar
+# 51 rotações em <30s e morrer.
+DJEN_ROTATION_PAUSE_AFTER = env.int('DJEN_ROTATION_PAUSE_AFTER', default=10)
+DJEN_ROTATION_PAUSE_STEP = env.float('DJEN_ROTATION_PAUSE_STEP', default=5.0)
+DJEN_ROTATION_PAUSE_MAX = env.float('DJEN_ROTATION_PAUSE_MAX', default=30.0)
+# Quando saudáveis ficam abaixo desse limiar, força refresh da ProxyScrape API
+# pra puxar IPs novos.
+DJEN_POOL_REFRESH_THRESHOLD = env.int('DJEN_POOL_REFRESH_THRESHOLD', default=20)
 
 # Notificações
 SLACK_WEBHOOK_URL = env('SLACK_WEBHOOK_URL', default='')

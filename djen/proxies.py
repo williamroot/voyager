@@ -29,8 +29,11 @@ class ProxyScrapePool:
         self.redis = redis.from_url(settings.REDIS_URL, decode_responses=True)
         self.api_key = settings.PROXYSCRAPE_API_KEY
         self.bad_ttl = settings.PROXY_BAD_TTL_SECONDS
+        self.cortex_bad_ttl = getattr(settings, 'CORTEX_BAD_TTL_SECONDS', 15)
+        self.refresh_threshold = getattr(settings, 'DJEN_POOL_REFRESH_THRESHOLD', 20)
         self._healthy_cache: list[str] = []
         self._healthy_cache_ts: float = 0.0
+        self._last_refresh_attempt: float = 0.0
 
     @classmethod
     def singleton(cls) -> 'ProxyScrapePool':
@@ -42,9 +45,17 @@ class ProxyScrapePool:
 
     def get(self) -> Optional[str]:
         proxies = self._healthy_list()
-        if not proxies:
-            self.refresh()
-            proxies = self._healthy_list()
+        # Auto-refresh quando saudáveis abaixo do limiar — em ondas WAF
+        # o pool fica 99% queimado e o refresh agendado (15min) demora
+        # demais. Throttle de 60s entre tentativas pra não martelar a API.
+        if len(proxies) < self.refresh_threshold:
+            now = time.time()
+            if now - self._last_refresh_attempt > 60:
+                self._last_refresh_attempt = now
+                logger.warning('pool degradado (%d saudáveis < %d): forçando refresh',
+                               len(proxies), self.refresh_threshold)
+                self.refresh()
+                proxies = self._healthy_list()
         if not proxies:
             return None
         return random.choice(proxies)
@@ -84,7 +95,8 @@ class ProxyScrapePool:
         self._healthy_cache_ts = 0.0  # invalida cache local
         logger.warning('proxy ruim: %s (ttl=%ds)', url, self.bad_ttl)
 
-    def mark_cortex_bad(self, ttl: int = 60) -> None:
+    def mark_cortex_bad(self, ttl: Optional[int] = None) -> None:
+        ttl = ttl if ttl is not None else self.cortex_bad_ttl
         self.redis.set(CORTEX_BAD_KEY, '1', ex=ttl)
         logger.warning('cortex em cooldown por %ds (rate-limited)', ttl)
 
