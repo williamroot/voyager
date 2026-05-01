@@ -79,7 +79,7 @@ def chunk_dates(start: date, end: date, days: int = 30) -> Iterator[tuple[date, 
         cur = chunk_end + timedelta(days=1)
 
 
-# DJEN tem cap rígido de 10k itens por janela (paginação para em 100 pgs × 100).
+# DJEN tem cap rígido de 10k itens por janela (paginação atinge em 10 pgs × 1000).
 # Quando bate, chunks com volume alto perdem dados — split adaptativo resolve.
 DJEN_HARD_CAP = 10_000
 
@@ -154,7 +154,7 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
     # Filhos sempre forçam UF strategy quando chegarem em 1 dia — count_only
     # pode mentir (WAF) e o caminho normal de paginação re-cap aria.
     if (run.movimentacoes_novas + run.movimentacoes_duplicadas) >= DJEN_HARD_CAP \
-            and run.paginas_lidas >= 100 \
+            and run.paginas_lidas >= 10 \
             and (data_fim - data_inicio).days >= 1:
         meio = data_inicio + (data_fim - data_inicio) // 2
         logger.warning('djen window hit cap, splitting', extra={

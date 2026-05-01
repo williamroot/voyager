@@ -19,6 +19,10 @@ class DjenClientError(Exception):
 class DJENClient:
     """Cliente HTTP da DJEN com paginação, retry exponencial e rotação de proxies."""
 
+    # Cap interno máximo da API DJEN — 1000 itens por página.
+    # itensPorPagina>1000 retorna 1000 silenciosamente.
+    PAGE_SIZE = 1000
+
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         self.base_url = settings.DJEN_BASE_URL
         self.page_sleep = settings.DJEN_PAGE_SLEEP_SECONDS
@@ -39,27 +43,35 @@ class DJENClient:
         self.cortex_ratio = getattr(settings, 'DJEN_CORTEX_RATIO', 0.5)
 
     def count_window(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:
-        """Devolve o total de movimentações que a DJEN diz existir nessa janela.
-        Faz 1 request com itensPorPagina=1 — barato, usado em auditoria."""
-        payload = self._fetch(sigla_djen, data_inicio, data_fim, pagina=1)
+        """Estimativa do total de movimentações na janela.
+
+        DJEN não retorna count real — `count` no payload é apenas
+        `min(total, itensPorPagina)` (descoberta empírica). Usamos itens=1 que
+        retorna count=10000 quando a janela tem >=10000 movs (cap interno),
+        ou count<10000 se realmente houver menos. Útil pra heurística;
+        para volume real, usar `iter_pages` que vai até items=[]."""
+        payload = self._fetch(sigla_djen, data_inicio, data_fim, pagina=1, itens_por_pagina=1)
         return int(payload.get('count') or 0)
 
     def iter_pages(self, sigla_djen: str, data_inicio: date, data_fim: date) -> Iterator[list[dict]]:
+        """Itera páginas até esgotar a janela. Usa itensPorPagina=1000 (cap
+        máximo da DJEN). Para quando última página retorna < 1000 itens."""
         pagina = 1
+        page_size = self.PAGE_SIZE
         while True:
-            payload = self._fetch(sigla_djen, data_inicio, data_fim, pagina)
+            payload = self._fetch(sigla_djen, data_inicio, data_fim, pagina, itens_por_pagina=page_size)
             items = payload.get('items') or []
             if not items:
                 return
             yield items
-            count = payload.get('count') or 0
-            if pagina * 100 >= count:
+            # Última página tem menos que page_size: chegou ao fim da janela.
+            if len(items) < page_size:
                 return
             pagina += 1
             time.sleep(self.page_sleep)
 
     def _fetch(self, sigla_djen: str, data_inicio: date, data_fim: date, pagina: int,
-               itens_por_pagina: int = 100, extra_params: Optional[dict] = None) -> dict:
+               itens_por_pagina: int = 1000, extra_params: Optional[dict] = None) -> dict:
         params = {
             'pagina': pagina,
             'itensPorPagina': itens_por_pagina,
@@ -199,34 +211,37 @@ class DJENClient:
         time.sleep(wait)
 
     def count_only(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:
-        payload = self._fetch(sigla_djen, data_inicio, data_fim, 1)
+        """Estimativa via probe rápido — itens=1 retorna count saturado em
+        10000 quando volume >= cap, ou count real quando menor."""
+        payload = self._fetch(sigla_djen, data_inicio, data_fim, 1, itens_por_pagina=1)
         return int(payload.get('count') or 0)
 
     def iter_pages_processo(self, sigla_djen: str, numero_cnj: str) -> Iterator[list[dict]]:
         """Itera todas as movimentações de UM processo (sem filtro de data).
 
         DJEN aceita numeroProcesso=<CNJ formatado ou sem máscara> + siglaTribunal.
-        Retorna o histórico completo do processo paginado de 100 em 100.
+        Pagina até items=[]. PAGE_SIZE=1000 (cap DJEN).
         """
         pagina = 1
+        page_size = self.PAGE_SIZE
         while True:
-            payload = self._fetch_processo(sigla_djen, numero_cnj, pagina)
+            payload = self._fetch_processo(sigla_djen, numero_cnj, pagina, page_size)
             items = payload.get('items') or []
             if not items:
                 return
             yield items
-            count = payload.get('count') or 0
-            if pagina * 100 >= count:
+            if len(items) < page_size:
                 return
             pagina += 1
             time.sleep(self.page_sleep)
 
-    def _fetch_processo(self, sigla_djen: str, numero_cnj: str, pagina: int) -> dict:
+    def _fetch_processo(self, sigla_djen: str, numero_cnj: str, pagina: int,
+                        itens_por_pagina: int = 1000) -> dict:
         # DJEN aceita ambas as formas; usamos sem máscara pra evitar problemas de URL encoding
         unmask = numero_cnj.replace('-', '').replace('.', '')
         params = {
             'pagina': pagina,
-            'itensPorPagina': 100,
+            'itensPorPagina': itens_por_pagina,
             'siglaTribunal': sigla_djen,
             'numeroProcesso': unmask,
         }
