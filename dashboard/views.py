@@ -315,9 +315,42 @@ def processo_detail(request, pk):
     for pp in participacoes:
         polos.setdefault(pp.polo, []).append(pp)
 
+    # Explicação da classificação: pega último ClassificacaoLog + computa
+    # contribuições por feature (peso × valor) pra explainability.
+    classif_explicacao = None
+    if proc.classificacao_em:
+        from tribunals.classificador import WEIGHTS, THRESHOLD_PRECATORIO, THRESHOLD_PRE_PRECATORIO, THRESHOLD_DIREITO_CREDITORIO
+        from tribunals.models import ClassificacaoLog
+        ultimo_log = ClassificacaoLog.objects.filter(processo=proc).order_by('-criada_em').first()
+        feats = (ultimo_log.features_snapshot if ultimo_log else None) or {}
+        if feats:
+            # Contribuição de cada feature = peso × valor (em logit). Negativos
+            # = puxam contra lead. Ordenamos por |contribuição| desc.
+            contribs = []
+            for fname, val in feats.items():
+                w = WEIGHTS.get(fname, 0.0)
+                contrib = w * val
+                if abs(contrib) > 0.001:
+                    contribs.append({
+                        'feature': fname, 'peso': round(w, 3),
+                        'valor': round(val, 3), 'contribuicao': round(contrib, 3),
+                    })
+            contribs.sort(key=lambda x: -abs(x['contribuicao']))
+            classif_explicacao = {
+                'log': ultimo_log,
+                'features': feats,
+                'contribuicoes': contribs[:10],  # top 10
+                'thresholds': {
+                    'precatorio': THRESHOLD_PRECATORIO,
+                    'pre': THRESHOLD_PRE_PRECATORIO,
+                    'direito': THRESHOLD_DIREITO_CREDITORIO,
+                },
+            }
+
     return render(request, 'dashboard/processo_detail.html', {
         'processo': proc,
         'polos': polos,
+        'classif_explicacao': classif_explicacao,
     })
 
 

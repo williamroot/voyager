@@ -145,6 +145,97 @@
   {% endif %}
 </div>
 
+{% if classif_explicacao %}
+<div class="card mb-5" x-data="{open: false}">
+  <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Por que essa classificação</div>
+      <div class="text-xs text-fg-subtle">
+        modelo <code class="font-mono">{{ processo.classificacao_versao|default:'v5' }}</code>
+        · classificado {{ processo.classificacao_em|relative_dt }}
+        <span title="{{ processo.classificacao_em }}">({{ processo.classificacao_em|date:'d/m/Y H:i' }})</span>
+      </div>
+    </div>
+    <div class="flex items-baseline gap-3">
+      <div>
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Score</div>
+        <div class="text-2xl font-semibold kpi-num">{{ processo.classificacao_score|floatformat:3 }}</div>
+      </div>
+      <div>
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Categoria</div>
+        <div class="text-sm font-mono">
+          {% if processo.classificacao == 'PRECATORIO' %}💎 PRECATÓRIO
+          {% elif processo.classificacao == 'PRE_PRECATORIO' %}⏳ PRÉ-PRECATÓRIO
+          {% elif processo.classificacao == 'DIREITO_CREDITORIO' %}🌱 DIREITO CREDITÓRIO
+          {% else %}—{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs mb-3">
+    <div class="card-tight">
+      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Threshold N1 · Precatório</div>
+      <div class="font-mono">≥ {{ classif_explicacao.thresholds.precatorio }}</div>
+      <div class="text-[0.65rem] text-fg-subtle mt-0.5">+ tem F2 ou F11 (precatório/RPV explícito)</div>
+    </div>
+    <div class="card-tight">
+      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Threshold N2 · Pré-precatório</div>
+      <div class="font-mono">≥ {{ classif_explicacao.thresholds.pre }}</div>
+      <div class="text-[0.65rem] text-fg-subtle mt-0.5">+ classe Cumprimento contra Fazenda</div>
+    </div>
+    <div class="card-tight">
+      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Threshold N3 · Direito Creditório</div>
+      <div class="font-mono">≥ {{ classif_explicacao.thresholds.direito }}</div>
+      <div class="text-[0.65rem] text-fg-subtle mt-0.5">+ classe Cumprimento</div>
+    </div>
+  </div>
+
+  <div class="text-xs">
+    <div class="text-fg-subtle uppercase tracking-wider mb-2">Top features que contribuíram</div>
+    <table class="w-full text-xs">
+      <thead class="text-fg-subtle">
+        <tr>
+          <th class="text-left py-1">Feature</th>
+          <th class="text-right py-1">Peso</th>
+          <th class="text-right py-1">Valor</th>
+          <th class="text-right py-1">Contribuição</th>
+          <th class="py-1 pl-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border/60">
+        {% for c in classif_explicacao.contribuicoes %}
+        <tr>
+          <td class="py-1.5 font-mono text-[0.7rem]">{{ c.feature }}</td>
+          <td class="py-1.5 text-right kpi-num {% if c.peso < 0 %}text-fg-muted{% endif %}">{{ c.peso }}</td>
+          <td class="py-1.5 text-right kpi-num">{{ c.valor }}</td>
+          <td class="py-1.5 text-right kpi-num font-semibold {% if c.contribuicao < 0 %}text-fg-subtle{% else %}text-fg-soft{% endif %}">
+            {% if c.contribuicao >= 0 %}+{% endif %}{{ c.contribuicao }}
+          </td>
+          <td class="py-1.5 pl-3 w-32">
+            <div class="flex items-center" style="height: 8px;">
+              {% if c.contribuicao >= 0 %}
+                <div class="flex-1"></div>
+                <div class="bg-fg-soft" style="width: {{ c.contribuicao|floatformat:0 }}px; height: 6px; max-width: 50%;" title="contribuição positiva"></div>
+              {% else %}
+                <div class="bg-fg-subtle" style="width: {{ c.contribuicao|floatformat:0 }}px; height: 6px; max-width: 50%; margin-left: auto;" title="contribuição negativa"></div>
+                <div class="flex-1"></div>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="text-[0.65rem] text-fg-subtle mt-3 leading-relaxed">
+      <strong>Como ler:</strong> contribuição = peso × valor da feature. Soma das contribuições + intercept (-3.196) → logit → sigmoid → score.
+      Pesos vêm do modelo Logistic Regression treinado em 396k leads históricos (AUC 0.95).
+      <a href="{% url 'dashboard:api-docs' %}" class="text-accent-fg hover:underline">ver documentação completa →</a>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if polos.ativo or polos.passivo or polos.outros %}
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
   {% if polos.ativo %}
