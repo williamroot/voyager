@@ -17,6 +17,7 @@ from tribunals.models import Tribunal
 from dashboard.tasks import (
     refresh_materialized_views,
     warm_chart_cache,
+    warm_estatisticas_tribunal,
     warm_kpis_cache,
     warm_partes_cache,
     warm_workers_cache,
@@ -153,6 +154,16 @@ def create_scheduler() -> BlockingScheduler:
         'interval',
         minutes=5,
         id='warm_partes_cache',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    scheduler.add_job(
+        warm_estatisticas_tribunal.delay,
+        'interval',
+        minutes=5,
+        id='warm_estatisticas_tribunal',
         replace_existing=True,
         max_instances=1,
         coalesce=True,

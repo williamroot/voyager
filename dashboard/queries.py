@@ -273,9 +273,22 @@ def top_tipos_comunicacao(limit=15, dias=None, tribunais=None):
 
 
 def top_classes(limit=10, dias=None, tribunais=None):
-    qs = _aplicar_filtros(Movimentacao.objects.all(), dias=dias, tribunais=tribunais).exclude(nome_classe='')
-    rows = qs.values('nome_classe').annotate(total=Count('id')).order_by('-total')[:limit]
-    return [{'classe': r['nome_classe'], 'total': r['total']} for r in rows]
+    """Top N classes processuais por número de PROCESSOS (não movs).
+
+    Filtros de data e tribunal aplicados no Process via última atividade.
+    Usa `classe_nome` populado pelo Datajud em Process — uma linha por proc,
+    em vez de N linhas (uma por mov) inflando os totais.
+    """
+    qs = Process.objects.exclude(classe_nome='')
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
+    else:
+        qs = qs.filter(tribunal__ativo=True)
+    if dias:
+        cutoff = date.today() - timedelta(days=dias)
+        qs = qs.filter(ultima_movimentacao_em__date__gte=cutoff)
+    rows = qs.values('classe_nome').annotate(total=Count('id')).order_by('-total')[:limit]
+    return [{'classe': r['classe_nome'], 'total': r['total']} for r in rows]
 
 
 def top_orgaos(limit=10, dias=None, tribunais=None):
@@ -441,10 +454,59 @@ def compute_workers_snapshot():
     return result
 
 
+_ESTATISTICAS_TRIBUNAL_CACHE_KEY = 'estatisticas_por_tribunal:v2'
+_ESTATISTICAS_TRIBUNAL_TTL = 1800  # 30 min — cron warm refaz a cada 5 min
+
+
 def estatisticas_por_tribunal():
-    """Retorna list de dicts — um por tribunal ativo — com métricas
-    agregadas pra a página `/dashboard/tribunais/`. Query única por
-    métrica usando agregações condicionais ou GROUP BY tribunal_id."""
+    """Lê APENAS do cache. Aquecido por `warm_estatisticas_tribunal` (5min).
+
+    Hot-path nunca computa: Movimentacao.values('tribunal_id').annotate(Count)
+    em ~30M rows toma >60s sob carga e tomba o gunicorn worker.
+    Em cache miss, retorna placeholder com flag `_pending` por tribunal.
+    """
+    from django.core.cache import cache
+    from redis.exceptions import RedisError
+    try:
+        cached = cache.get(_ESTATISTICAS_TRIBUNAL_CACHE_KEY)
+    except RedisError:
+        cached = None
+    if cached is not None:
+        # Reidrata Tribunal pra cada entry (não serializável bem em cache).
+        siglas_in_cache = {row['tribunal_sigla'] for row in cached}
+        tribs = {t.sigla: t for t in Tribunal.objects.filter(sigla__in=siglas_in_cache)}
+        return [
+            {**{k: v for k, v in row.items() if k != 'tribunal_sigla'},
+             'tribunal': tribs.get(row['tribunal_sigla'])}
+            for row in cached if row['tribunal_sigla'] in tribs
+        ]
+    # Cache miss — placeholder pra todos os ativos
+    return [
+        {
+            'tribunal': t,
+            'processos': None,
+            'movimentacoes': None,
+            'movs_30d': None,
+            'enriquecimento': {},
+            'primeira_mov': None,
+            'ultima_mov': None,
+            'data_inicio': t.data_inicio_disponivel,
+            'backfill_concluido_em': t.backfill_concluido_em,
+            '_pending': True,
+        }
+        for t in Tribunal.objects.filter(ativo=True).order_by('sigla')
+    ]
+
+
+def compute_estatisticas_por_tribunal():
+    """Computa e grava no cache (TTL 30min). Chamado pelo cron, NUNCA pela view.
+
+    Query única por métrica usando GROUP BY tribunal_id em vez de N queries
+    por tribunal. Total ~5 queries pesadas em tabelas grandes.
+    """
+    from django.core.cache import cache
+    from django.db.models import Max, Min
+    from redis.exceptions import RedisError
     agora = timezone.now()
     cutoff_30d = agora - timedelta(days=30)
 
@@ -462,8 +524,7 @@ def estatisticas_por_tribunal():
         .values_list('tribunal_id', 'n')
     )
 
-    # Enriquecimento status (só faz sentido nos que tem enricher).
-    enriq_status = {}
+    enriq_status: dict[str, dict] = {}
     rows = (
         Process.objects.values('tribunal_id', 'enriquecimento_status')
         .annotate(n=Count('id'))
@@ -471,19 +532,17 @@ def estatisticas_por_tribunal():
     for r in rows:
         enriq_status.setdefault(r['tribunal_id'], {})[r['enriquecimento_status']] = r['n']
 
-    # Range temporal: primeira / última movimentação por tribunal.
-    from django.db.models import Max, Min
     range_trib = {
         r['tribunal_id']: (r['primeira'], r['ultima'])
         for r in Movimentacao.objects.values('tribunal_id')
         .annotate(primeira=Min('data_disponibilizacao'), ultima=Max('data_disponibilizacao'))
     }
 
-    out = []
+    payload = []
     for t in Tribunal.objects.filter(ativo=True).order_by('sigla'):
         primeira, ultima = range_trib.get(t.sigla, (None, None))
-        out.append({
-            'tribunal': t,
+        payload.append({
+            'tribunal_sigla': t.sigla,  # serialização — Tribunal hidratado no read
             'processos': procs_por_trib.get(t.sigla, 0),
             'movimentacoes': movs_por_trib.get(t.sigla, 0),
             'movs_30d': movs_30d_por_trib.get(t.sigla, 0),
@@ -493,7 +552,11 @@ def estatisticas_por_tribunal():
             'data_inicio': t.data_inicio_disponivel,
             'backfill_concluido_em': t.backfill_concluido_em,
         })
-    return out
+    try:
+        cache.set(_ESTATISTICAS_TRIBUNAL_CACHE_KEY, payload, timeout=_ESTATISTICAS_TRIBUNAL_TTL)
+    except RedisError:
+        pass
+    return payload
 
 
 def ingestao_por_dia(dias=None, tribunal=None):

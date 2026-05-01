@@ -80,6 +80,22 @@ def warm_kpis_cache():
         cache.delete(lock_key)
 
 
+@job('default', timeout=600)
+def warm_estatisticas_tribunal():
+    """Pré-aquece /dashboard/tribunais/. Query GROUP BY em ~30M movs."""
+    lock_key = 'lock:warm_estatisticas_tribunal'
+    if not cache.add(lock_key, '1', timeout=540):
+        logger.info('warm_estatisticas_tribunal: skip (lock held)')
+        return
+    try:
+        queries.compute_estatisticas_por_tribunal()
+        logger.info('warm_estatisticas_tribunal: ok')
+    except Exception as e:
+        logger.warning('warm_estatisticas_tribunal: %s', e)
+    finally:
+        cache.delete(lock_key)
+
+
 @job('default', timeout=120)
 def warm_partes_cache():
     """Pré-aquece /dashboard/partes/. Lock impede pile-up em DB lento."""
