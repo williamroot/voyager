@@ -34,6 +34,7 @@ from .parsers import (
 from .stream import (
     GROUP_NAME, STATUS_ERRO, STATUS_NAO_ENCONTRADO, STATUS_OK,
     STREAM_KEY, ensure_consumer_group, get_redis, parse_entry,
+    stream_key_partition,
 )
 
 logger = logging.getLogger('voyager.enrichers.drainer')
@@ -636,6 +637,10 @@ def _apply_to_proc(proc: Process, ev: dict, classe_by_code: dict,
 def apply_batch(events: list[dict]) -> tuple[int, int]:
     """Bulk apply de N events em ~10 queries (versão otimizada).
 
+    Retorna `(applied, skipped)` — `applied` é quantos events efetivamente
+    mudaram o Postgres; `skipped` conta events ignorados por idempotência
+    (proc.enriquecido_em >= scraped_at do event). Caller usa só pra log.
+
     Substitui o per-event apply (~30 queries × 1000 events = 30k queries)
     por bulk ops:
       1. Carrega todos os Process num in_bulk
@@ -767,7 +772,7 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
             update_fields = list(all_changed)
             Process.objects.bulk_update(to_update, fields=update_fields, batch_size=500)
 
-    return (len(valid) + skipped, 0)
+    return (len(valid), skipped)
 
 
 # ---------- loop principal ----------
@@ -813,7 +818,8 @@ def _send_to_dlq(redis_client, raw_fields: dict, reason: str) -> bool:
         return False
 
 
-def _autoclaim(r, consumer: str, min_idle_ms: int, count: int, start_id: str = '0'):
+def _autoclaim(r, stream_key: str, consumer: str, min_idle_ms: int,
+               count: int, start_id: str = '0'):
     """XAUTOCLAIM: pega entries lidas por outro consumer mas não acked
     em min_idle_ms (consumer crashou).
 
@@ -823,7 +829,7 @@ def _autoclaim(r, consumer: str, min_idle_ms: int, count: int, start_id: str = '
     entries idle do que `count`.
     """
     result = r.xautoclaim(
-        STREAM_KEY, GROUP_NAME, consumer,
+        stream_key, GROUP_NAME, consumer,
         min_idle_time=min_idle_ms, start_id=start_id, count=count,
     )
     if not result:
@@ -838,9 +844,9 @@ def _autoclaim(r, consumer: str, min_idle_ms: int, count: int, start_id: str = '
     return next_id, ids, raws
 
 
-def _read_new(r, consumer: str, count: int, block_ms: int):
+def _read_new(r, stream_key: str, consumer: str, count: int, block_ms: int):
     result = r.xreadgroup(
-        GROUP_NAME, consumer, {STREAM_KEY: '>'},
+        GROUP_NAME, consumer, {stream_key: '>'},
         count=count, block=block_ms,
     )
     if not result:
@@ -855,77 +861,121 @@ def _read_new(r, consumer: str, count: int, block_ms: int):
 
 
 def run(*, batch_size: int = 200, block_ms: int = 2000,
-        idle_ms: int = 60_000, trim_after_ack: bool = True) -> None:
+        idle_ms: int = 60_000, trim_after_ack: bool = True,
+        partition: int | str | None = None) -> None:
     """Loop principal. Cada iteração:
       1. XAUTOCLAIM entries idle (consumer travou em outro pod)
       2. XREADGROUP entries novas (block até block_ms)
       3. apply_batch numa transação
       4. XACK + XDEL pras entries processadas (mantém stream bounded)
+
+    `partition` seleciona o stream físico:
+      - int [0, N): processa shard daquele índice (modo normal sharded).
+      - None: processa stream legado (`STREAM_KEY` sem suffix). Usado pra
+        esvaziar entries publicadas antes do deploy do shard.
+      - 'all': **modo rollback**. Round-robin entre legado + todos shards.
+        Reintroduz potencial deadlock (mesmo motivo do drainer pré-shard),
+        mas permite voltar pra topologia 1-drainer sem refactor — útil em
+        emergência se algum shard tiver bug.
     """
+    from .stream import STREAM_PARTITIONS
     _install_signal_handlers()
     r = get_redis()
-    ensure_consumer_group(r)
     consumer = f'{socket.gethostname()}-{os.getpid()}'
+
+    if partition == 'all':
+        stream_keys = [STREAM_KEY] + [stream_key_partition(i) for i in range(STREAM_PARTITIONS)]
+    elif partition is None:
+        stream_keys = [STREAM_KEY]
+    else:
+        stream_keys = [stream_key_partition(int(partition))]
+
+    for sk in stream_keys:
+        ensure_consumer_group(r, stream_key=sk)
     logger.info('drainer iniciado', extra={
         'consumer': consumer, 'batch_size': batch_size,
-        'stream': STREAM_KEY, 'group': GROUP_NAME,
+        'streams': stream_keys, 'group': GROUP_NAME,
+        'partition': partition if partition is not None else 'legacy',
     })
 
-    autoclaim_cursor = '0'
+    autoclaim_cursors: dict[str, str] = {sk: '0' for sk in stream_keys}
+    rr_idx = 0  # round-robin entre stream_keys
+
     while not _should_stop:
-        try:
-            autoclaim_cursor, claimed_ids, claimed_raws = _autoclaim(
-                r, consumer, idle_ms, batch_size, start_id=autoclaim_cursor,
-            )
-        except Exception:
-            logger.exception('falha em XAUTOCLAIM')
-            autoclaim_cursor, claimed_ids, claimed_raws = '0', [], []
+        stream_key = stream_keys[rr_idx % len(stream_keys)]
+        rr_idx += 1
+        _process_one_stream(
+            r, stream_key, consumer, batch_size, block_ms, idle_ms,
+            trim_after_ack, autoclaim_cursors,
+        )
 
-        try:
-            new_ids, new_raws = _read_new(r, consumer, batch_size, block_ms)
-        except Exception:
-            logger.exception('falha em XREADGROUP')
-            time.sleep(1)
+
+def _process_one_stream(r, stream_key, consumer, batch_size, block_ms, idle_ms,
+                        trim_after_ack, autoclaim_cursors):
+    """Iteração única do loop drainer pra UM stream. Extraído pra que
+    o caller possa rotacionar entre streams (modo 'all') sem duplicar
+    a lógica de claim+read+apply+ack. Cursor de autoclaim é per-stream
+    (passado em `autoclaim_cursors`) pra preservar paginação entre voltas."""
+
+    autoclaim_cursor = autoclaim_cursors.get(stream_key, '0')
+    try:
+        autoclaim_cursor, claimed_ids, claimed_raws = _autoclaim(
+            r, stream_key, consumer, idle_ms, batch_size,
+            start_id=autoclaim_cursor,
+        )
+        autoclaim_cursors[stream_key] = autoclaim_cursor
+    except Exception:
+        logger.exception('falha em XAUTOCLAIM', extra={'stream': stream_key})
+        autoclaim_cursors[stream_key] = '0'
+        claimed_ids, claimed_raws = [], []
+
+    try:
+        new_ids, new_raws = _read_new(r, stream_key, consumer, batch_size, block_ms)
+    except Exception:
+        logger.exception('falha em XREADGROUP', extra={'stream': stream_key})
+        time.sleep(1)
+        return
+
+    all_ids = claimed_ids + new_ids
+    all_raws = claimed_raws + new_raws
+    if not all_ids:
+        return
+
+    events: list[dict] = []
+    # Track quais ids podemos XACKar com segurança. Entries com payload
+    # ruim só vão pro ack se o XADD na DLQ teve sucesso — caso
+    # contrário ficam pendentes pra retry.
+    ackable_ids: list[str] = list(all_ids)
+    bad_kept: int = 0
+    for entry_id, raw in zip(all_ids, all_raws):
+        payload = parse_entry(raw)
+        if payload is None:
+            if not _send_to_dlq(r, raw, reason='parse_failed'):
+                ackable_ids.remove(entry_id)
+                bad_kept += 1
             continue
+        events.append(payload)
 
-        all_ids = claimed_ids + new_ids
-        all_raws = claimed_raws + new_raws
-        if not all_ids:
-            continue
+    try:
+        applied, skipped = apply_batch(events)
+    except Exception:
+        logger.exception('apply_batch lançou exception não capturada — entries não serão acked',
+                         extra={'stream': stream_key})
+        time.sleep(1)
+        return
 
-        events: list[dict] = []
-        # Track quais ids podemos XACKar com segurança. Entries com payload
-        # ruim só vão pro ack se o XADD na DLQ teve sucesso — caso
-        # contrário ficam pendentes pra retry.
-        ackable_ids: list[str] = list(all_ids)
-        bad_kept: int = 0
-        for entry_id, raw in zip(all_ids, all_raws):
-            payload = parse_entry(raw)
-            if payload is None:
-                if not _send_to_dlq(r, raw, reason='parse_failed'):
-                    ackable_ids.remove(entry_id)
-                    bad_kept += 1
-                continue
-            events.append(payload)
-
+    if ackable_ids:
         try:
-            ok, falhas = apply_batch(events)
+            r.xack(stream_key, GROUP_NAME, *ackable_ids)
+            if trim_after_ack:
+                r.xdel(stream_key, *ackable_ids)
         except Exception:
-            logger.exception('apply_batch lançou exception não capturada — entries não serão acked')
-            time.sleep(1)
-            continue
+            logger.exception('falha em XACK/XDEL', extra={'stream': stream_key})
 
-        if ackable_ids:
-            try:
-                r.xack(STREAM_KEY, GROUP_NAME, *ackable_ids)
-                if trim_after_ack:
-                    r.xdel(STREAM_KEY, *ackable_ids)
-            except Exception:
-                logger.exception('falha em XACK/XDEL')
-
-        logger.info('batch aplicado', extra={
-            'ok': ok, 'falhas': falhas,
-            'bad_acked': len(all_ids) - len(events) - bad_kept,
-            'bad_pending_retry': bad_kept,
-            'total': len(all_ids),
-        })
+    logger.info('batch aplicado', extra={
+        'stream': stream_key,
+        'applied': applied, 'skipped_idempotent': skipped,
+        'bad_acked': len(all_ids) - len(events) - bad_kept,
+        'bad_pending_retry': bad_kept,
+        'total': len(all_ids),
+    })

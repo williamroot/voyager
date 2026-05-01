@@ -161,3 +161,123 @@ docker compose exec web python manage.py consolidar_partes_mascaradas
 4. Adicionar fila `enrich_trfN` em `core/settings.py::RQ_QUEUES`.
 5. Adicionar serviço `worker_trfN` em `docker-compose-prod.yml` com `replicas: 4`.
 6. Restart scheduler pra registrar daily cron.
+
+## Stream sharded (drainer × N)
+
+### Por que shard
+
+O drainer original era **single-replica** porque múltiplas instâncias deadlocavam:
+o XREADGROUP do Redis distribui entries aleatoriamente entre consumers, e dois
+drainers podiam pegar events do **mesmo `process_id`** (uma re-publicação após retry,
+por exemplo) e competir em `DELETE FROM tribunals_processoparte WHERE processo_id=…`
+seguido de `INSERT`. Resultado: PG deadlock detector mata um dos lados.
+
+A consequência operacional era throughput hard-cap em ~1k entries/min — pra cada
+~100k events publicados, o drainer ficava 1.5h atrás. Sob carga pesada (re-fix do
+backfill TRF3, deploy do TJMG) a lag chegou a 460k entries.
+
+### Como funciona
+
+Cada `process_id` é hashado (`process_id % STREAM_PARTITIONS`) pra escolher uma
+das N partições. Workers publicam direto na partição certa via
+`stream.publish(payload)` — a função olha `payload['process_id']` e escolhe o
+stream físico:
+
+```
+voyager:enrichment:results:0
+voyager:enrichment:results:1
+voyager:enrichment:results:2
+voyager:enrichment:results:3
+```
+
+Cada drainer roda com `--partition I` e consome **apenas** seu stream físico.
+**O mesmo `process_id` SEMPRE cai no mesmo drainer**, então as serializações de
+`DELETE+INSERT` por proc continuam sequenciais (sem deadlock entre drainers).
+Entre `process_id`s diferentes, os 4 drainers paralelizam.
+
+`STREAM_PARTITIONS=4` (vide `enrichers/stream.py`). Mudar este valor exige
+quiescer o pipeline (parar workers + drenar streams existentes) — senão events
+publicados sob N antigo ficam órfãos em partições que ninguém lê.
+
+### Stream legado
+
+`voyager:enrichment:results` (sem suffix) é o **stream legado** — usado antes
+do shard. O serviço `enrichment_drainer` (sem suffix) continua processando-o
+até que `XLEN` chegue a zero, momento em que pode ser desligado:
+
+```bash
+ssh ubuntu@192.168.1.219 redis-cli XLEN voyager:enrichment:results
+# quando = 0:
+ssh ubuntu@192.168.1.30 docker compose -f docker-compose-prod.yml stop enrichment_drainer
+```
+
+### Operação
+
+```bash
+# Ver lag por partição
+for p in 0 1 2 3; do
+  redis-cli -h 192.168.1.219 XLEN voyager:enrichment:results:$p
+done
+
+# Stats do consumer group de uma partição
+redis-cli -h 192.168.1.219 XINFO GROUPS voyager:enrichment:results:0
+```
+
+### Capacity model
+
+Drainer único → 1k entries/min. Com 4 partições + drainer dedicado por shard,
+throughput nominal = 4k/min. Limite real é PG write-throughput em
+`tribunals_processoparte` (DELETE+INSERT em batch + UPSERT em catálogos
+`Parte`/`ClasseJudicial`/`Assunto`).
+
+Sob 4× a carga, observar `pg_stat_activity` filtrado por
+`wait_event_type='Lock'` — se contention crescer, considerar:
+1. Aumentar `STREAM_PARTITIONS` (hot redeploy: drenar + reconfigurar).
+2. Trocar `wipe + reinsert` de partes por `INSERT … ON CONFLICT DO UPDATE`.
+3. Particionar `tribunals_processoparte` por hash(processo_id).
+
+### Rollback emergencial (modo `--partition all`)
+
+Se algum shard tiver bug grave em produção (ex: `apply_event` falhando só
+pra partição N), pode-se voltar imediatamente pra topologia 1-drainer
+sem refactor:
+
+```bash
+# Para 4 dos 5 services sharded
+docker compose -f docker-compose-prod.yml stop \
+  enrichment_drainer_p0 enrichment_drainer_p1 \
+  enrichment_drainer_p2 enrichment_drainer_p3
+
+# Reconfigura o legacy pra processar TUDO (round-robin entre legado + 4 shards)
+docker compose -f docker-compose-prod.yml \
+  run -d --name voyager-enrichment_drainer-rollback \
+  enrichment_drainer python manage.py enrichers_drain --partition all \
+  --batch-size 1000 --block-ms 500
+```
+
+Modo `all` faz round-robin entre todos os streams num único drainer.
+Reintroduz a possibilidade de deadlock (mesmo problema do drainer
+pré-shard) — usar **só pra rescue de curto prazo** enquanto se diagnostica
+o bug do shard. Tempo: ~2min pra ativar. Sem perda de dados.
+
+### Monitoramento (TODO follow-up)
+
+- **Alerta por partition**: cron a cada 5min checa `XLEN voyager:enrichment:results:I`
+  e se `> 5_000` por 3 ciclos consecutivos, envia alerta. Sem isso, lag
+  numa partição é invisível pro usuário do dashboard.
+- **Auto-stop legacy**: cron checa se `XLEN voyager:enrichment:results == 0`
+  por 30min consecutivos, então `docker stop voyager-enrichment_drainer-1`.
+  Manual hoje — risco de zombie consumindo entries antigas indefinidamente.
+
+### Out-of-order safety
+
+`apply_batch` (drainer.py:680) tem guard: se `proc.enriquecido_em >=
+event.scraped_at`, o event é descartado (contado em `skipped`). Isso protege
+contra:
+- Re-publicação tardia do legacy stream sobrescrevendo dados frescos
+  do shard
+- Click manual ("Atualizar dados públicos") chegando antes de um batch
+  agendado mais antigo
+
+Dentro do mesmo batch, dedupe por `process_id` mantém o event de
+`scraped_at` mais recente (drainer.py:662).

@@ -73,8 +73,9 @@ def test_parse_entry_acima_do_cap_retorna_none():
     assert stream.parse_entry({'data': big}) is None
 
 
-def test_publish_aplica_maxlen():
-    """publish() chama xadd com maxlen ~ STREAM_MAXLEN — defense-in-depth."""
+def test_publish_aplica_maxlen_per_partition():
+    """publish() chama xadd com maxlen ~ STREAM_MAXLEN/N — cap distribuído
+    entre partições, total agregado ≈ STREAM_MAXLEN."""
     fake_redis = MagicMock()
     fake_redis.xadd.return_value = b'1-0'
     payload = stream.build_nao_encontrado_payload(
@@ -82,11 +83,12 @@ def test_publish_aplica_maxlen():
     )
     stream.publish(payload, redis_client=fake_redis)
     _args, kwargs = fake_redis.xadd.call_args
-    assert kwargs.get('maxlen') == stream.STREAM_MAXLEN
+    assert kwargs.get('maxlen') == stream.STREAM_MAXLEN // stream.STREAM_PARTITIONS
     assert kwargs.get('approximate') is True
 
 
-def test_publish_chama_xadd_com_fields_corretos():
+def test_publish_chama_xadd_no_stream_da_particao_correta():
+    """publish() roteia o XADD pro stream físico baseado em hash(process_id)."""
     fake_redis = MagicMock()
     fake_redis.xadd.return_value = b'1714350000000-0'
     payload = stream.build_ok_payload(
@@ -97,9 +99,24 @@ def test_publish_chama_xadd_com_fields_corretos():
     assert msg_id == '1714350000000-0'
     fake_redis.xadd.assert_called_once()
     args, _ = fake_redis.xadd.call_args
-    assert args[0] == stream.STREAM_KEY
+    # process_id=1 → partição 1 (1 % 4 == 1) — sempre vai pro mesmo shard
+    assert args[0] == stream.stream_key_for(1)
+    assert args[0] != stream.STREAM_KEY  # legado (sem suffix) não recebe mais
     body = json.loads(args[1]['data'])
     assert body == payload
+
+
+def test_stream_key_for_distribui_uniformemente():
+    """process_ids consecutivos cobrem todas as partições — distribuição justa."""
+    seen = {stream.stream_key_for(pid) for pid in range(stream.STREAM_PARTITIONS * 4)}
+    assert len(seen) == stream.STREAM_PARTITIONS
+
+
+def test_stream_key_for_pid_invalido_cai_na_particao_zero():
+    """Defesa: process_id None/negativo/string cai na p0 sem quebrar."""
+    assert stream.stream_key_for(-1) == stream.stream_key_partition(0)
+    assert stream.stream_key_for('not-an-int') == stream.stream_key_partition(0)  # type: ignore[arg-type]
+    assert stream.stream_key_for(None) == stream.stream_key_partition(0)  # type: ignore[arg-type]
 
 
 def test_ensure_consumer_group_idempotente_em_busygroup():

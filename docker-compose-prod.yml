@@ -105,10 +105,10 @@ services:
       web:
         condition: service_healthy
     deploy:
-      # Datajud é 1 request HTTP por processo (rápido). 30 réplicas em .30
-      # (web + workers compartilhados) — Postgres lida bem com connections
-      # pq cada job é curto e libera conn rápido.
-      replicas: 30
+      # Datajud é 1 request HTTP por processo (rápido). 15 réplicas em .30
+      # (host de 16 cores compartilhado com web/scheduler/outros workers).
+      # Hosts dedicados .177/.184 têm 90 cada.
+      replicas: 15
     restart: always
 
   worker_classificacao:
@@ -142,9 +142,13 @@ services:
   # Workers concorrentes podem ter racing em upsert de Parte, mas as
   # partial unique constraints (uniq_parte_*) tornam o pattern
   # bulk_create(ignore_conflicts) idempotente.
+  # Drainer LEGACY: consome o stream antigo `voyager:enrichment:results`
+  # (sem suffix), onde estão entries publicadas antes do deploy do shard.
+  # Workers atuais publicam apenas nos streams sharded — assim que o XLEN
+  # do legacy zerar, este service pode ser desligado.
   enrichment_drainer:
     image: voyager-web:prod
-    command: python manage.py enrichers_drain --batch-size 1000 --block-ms 1000
+    command: python manage.py enrichers_drain --partition legacy --batch-size 1000 --block-ms 500
     env_file: .env
     volumes:
       - .:/app
@@ -152,12 +156,62 @@ services:
       web:
         condition: service_healthy
     deploy:
-      # 1 réplica obrigatória: múltiplas réplicas deadlocavam em
-      # tribunals_processoparte porque XREADGROUP distribui events do
-      # MESMO process_id (publicações múltiplas) entre replicas. Mesmo
-      # ordenando dentro do batch, A e B competem em DELETE+INSERT do
-      # mesmo processo. Solução completa seria partition por hash —
-      # follow-up. Por ora, 1 réplica + batch=1000 é suficiente.
+      replicas: 1
+    restart: always
+
+  # Drainers SHARDED: 1 instância por partition (hash(process_id) % N).
+  # Cada partition tem seu próprio stream físico — sem cruzamento de
+  # DELETE+INSERT no mesmo process_id entre drainers, sem deadlock.
+  # N=4 (vide enrichers/stream.py:STREAM_PARTITIONS).
+  enrichment_drainer_p0:
+    image: voyager-web:prod
+    command: python manage.py enrichers_drain --partition 0 --batch-size 1000 --block-ms 500
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+    restart: always
+
+  enrichment_drainer_p1:
+    image: voyager-web:prod
+    command: python manage.py enrichers_drain --partition 1 --batch-size 1000 --block-ms 500
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+    restart: always
+
+  enrichment_drainer_p2:
+    image: voyager-web:prod
+    command: python manage.py enrichers_drain --partition 2 --batch-size 1000 --block-ms 500
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+    restart: always
+
+  enrichment_drainer_p3:
+    image: voyager-web:prod
+    command: python manage.py enrichers_drain --partition 3 --batch-size 1000 --block-ms 500
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
       replicas: 1
     restart: always
 
