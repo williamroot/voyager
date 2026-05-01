@@ -321,25 +321,130 @@ def processo_detail(request, pk):
     if proc.classificacao_em:
         from tribunals.classificador import WEIGHTS, THRESHOLD_PRECATORIO, THRESHOLD_PRE_PRECATORIO, THRESHOLD_DIREITO_CREDITORIO
         from tribunals.models import ClassificacaoLog
+
+        # Catálogo human-friendly de cada feature (emoji + label curto + descrição)
+        FEATURE_META = {
+            'F1_cumprim': {
+                'emoji': '⚖️', 'label': 'Classe Cumprimento contra Fazenda',
+                'desc': 'Processo está classificado como uma das variantes de "Cumprimento de Sentença contra a Fazenda Pública" (códigos CNJ 12078, 156, 15160, 15215). É o caminho processual padrão pra emissão de precatório/RPV.',
+            },
+            'F10_juizado_ANTI': {
+                'emoji': '🚫', 'label': 'Juizado Especial / Recurso (anti)',
+                'desc': 'Processo é de Juizado Especial, Recurso Inominado ou Procedimento Comum — esses NUNCA terminam em precatório. Sinal forte de que NÃO é lead.',
+            },
+            'F2_precat_tc': {
+                'emoji': '📜', 'label': 'Expedição de precatório/RPV (tipo_comunicacao)',
+                'desc': 'Existe movimentação com tipo de comunicação "Expedição de precatório/rpv" ou "Precatório" — sinal direto e estruturado.',
+            },
+            'F7_envTrib_tc': {
+                'emoji': '📤', 'label': 'Enviado ao Tribunal',
+                'desc': 'Tem movimentação de "Enviada ao Tribunal" ou "Preparada para Envio" — geralmente o ofício/precatório sendo encaminhado pro TRF.',
+            },
+            'F11_precat_text': {
+                'emoji': '🔎', 'label': 'Texto contém "precatório"',
+                'desc': 'Alguma movimentação tem a palavra "precatório" no texto. Captura sinais que não estão nos campos estruturados.',
+            },
+            'F12_rpv_text': {
+                'emoji': '🔎', 'label': 'Texto contém "rpv"',
+                'desc': 'Alguma movimentação menciona "RPV" (Requisição de Pequeno Valor) no texto.',
+            },
+            'F13_reqPag_text': {
+                'emoji': '⚠️', 'label': '"Requisição de pagamento" no texto (anti)',
+                'desc': 'Aparece muito em processos NÃO-leads (ex: requerimento administrativo). Teve peso negativo no treino.',
+            },
+            'F14_oficio_text': {
+                'emoji': '⚠️', 'label': '"Ofício requisitório" no texto (anti)',
+                'desc': 'Apareceu mais em não-leads que em leads no treino. Quando ele aparece sozinho (sem outros sinais), tende a empurrar pra fora.',
+            },
+            'F15_logMovs': {
+                'emoji': '📈', 'label': 'Volume de movimentações (log)',
+                'desc': 'log(total movs + 1) normalizado. Leads tipicamente acumulam histórico longo — quanto mais movs, mais provável.',
+            },
+            'F16_logTipos': {
+                'emoji': '🌀', 'label': 'Variedade de tipos de mov (log, anti)',
+                'desc': 'Processos "diversificados" (muitos tipos diferentes de mov) tendem a NÃO ser leads — é mais sinal de processo de conhecimento ativo do que cumprimento focado.',
+            },
+            'F17_logN1count': {
+                'emoji': '🎯', 'label': 'Quantidade de palavras N1 no texto',
+                'desc': 'Soma das ocorrências de precatório+rpv+req. pagamento+ofício no texto, em log. Muitas menções = sinal forte.',
+            },
+            'F18_anoZ': {
+                'emoji': '📅', 'label': 'Ano do CNJ (z-score)',
+                'desc': 'Ano de autuação do processo, normalizado. Modelo tem leve preferência por processos mais recentes.',
+            },
+            'F19_cancelado_ANTI': {
+                'emoji': '❌', 'label': 'Cancelamento/revogação (anti)',
+                'desc': 'Tem movimentação de cancelamento ou revogação de precatório/RPV. Anula o lead. Peso treinado próximo de zero porque é raro nas movs públicas (vive nos autos).',
+            },
+            'F20_exp_juriscope': {
+                'emoji': '✅', 'label': 'Termos exatos do filtro Juriscope',
+                'desc': 'Texto contém os termos exatos que o Juriscope usa pra confirmar precatório expedido (ex: "precatório expedido", "rpv expedida"). Raro nas movs DJEN/Datajud.',
+            },
+            'F21_diasUltMovZ': {
+                'emoji': '🕰️', 'label': 'Dias desde última mov (z-score)',
+                'desc': 'Quantos dias atrás foi a última mov, normalizado. Leads tendem a ter histórico longo, então mov antiga (z>0) ainda contribui positivo (já completou o ciclo).',
+            },
+            'F23_logPartes': {
+                'emoji': '👥', 'label': 'Número de partes (log, anti)',
+                'desc': 'Processos com muitas partes (ações coletivas) tendem a NÃO ser leads de precatório individual.',
+            },
+            'F1xF11': {
+                'emoji': '🔗', 'label': 'Cumprimento × precatório no texto',
+                'desc': 'Interação: ajusta peso quando ambos F1 e F11 estão ativos juntos (evita dupla contagem).',
+            },
+            'F1xF15': {
+                'emoji': '🔗', 'label': 'Cumprimento × volume movs',
+                'desc': 'Sinergia forte: muitas movs DENTRO de classe Cumprimento é sinal extra de lead avançado.',
+            },
+            'F1xF20': {
+                'emoji': '🔗', 'label': 'Cumprimento × termos Juriscope',
+                'desc': 'Ajuste fino quando termos Juriscope aparecem em processo de Cumprimento.',
+            },
+        }
+
         ultimo_log = ClassificacaoLog.objects.filter(processo=proc).order_by('-criada_em').first()
         feats = (ultimo_log.features_snapshot if ultimo_log else None) or {}
         if feats:
-            # Contribuição de cada feature = peso × valor (em logit). Negativos
-            # = puxam contra lead. Ordenamos por |contribuição| desc.
             contribs = []
             for fname, val in feats.items():
                 w = WEIGHTS.get(fname, 0.0)
                 contrib = w * val
                 if abs(contrib) > 0.001:
+                    meta = FEATURE_META.get(fname, {'emoji': '•', 'label': fname, 'desc': ''})
                     contribs.append({
                         'feature': fname, 'peso': round(w, 3),
                         'valor': round(val, 3), 'contribuicao': round(contrib, 3),
+                        'emoji': meta['emoji'], 'label': meta['label'], 'desc': meta['desc'],
                     })
             contribs.sort(key=lambda x: -abs(x['contribuicao']))
+
+            # Para o "porque dessa categoria" — sumário humano
+            classif_resumo = None
+            cat = proc.classificacao
+            score = proc.classificacao_score or 0
+            if cat == 'PRECATORIO':
+                classif_resumo = (
+                    f'Score {score:.2f} ≥ {THRESHOLD_PRECATORIO} '
+                    f'E tem precatório/RPV explícito (F2 ou F11) → 💎 PRECATÓRIO.'
+                )
+            elif cat == 'PRE_PRECATORIO':
+                classif_resumo = (
+                    f'Score {score:.2f} ≥ {THRESHOLD_PRE_PRECATORIO} '
+                    f'E classe é Cumprimento contra Fazenda, mas SEM expedição explícita → ⏳ PRÉ-PRECATÓRIO.'
+                )
+            elif cat == 'DIREITO_CREDITORIO':
+                classif_resumo = (
+                    f'Score {score:.2f} ≥ {THRESHOLD_DIREITO_CREDITORIO} '
+                    f'E classe é Cumprimento → 🌱 DIREITO CREDITÓRIO.'
+                )
+            else:
+                classif_resumo = f'Score {score:.2f} abaixo do threshold mínimo OU não bate critério de classe → não-lead.'
+
             classif_explicacao = {
                 'log': ultimo_log,
                 'features': feats,
-                'contribuicoes': contribs[:10],  # top 10
+                'contribuicoes': contribs[:12],
+                'resumo': classif_resumo,
                 'thresholds': {
                     'precatorio': THRESHOLD_PRECATORIO,
                     'pre': THRESHOLD_PRE_PRECATORIO,

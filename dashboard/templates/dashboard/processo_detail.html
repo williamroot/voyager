@@ -191,46 +191,52 @@
     </div>
   </div>
 
+  <div class="card-tight mb-3 bg-muted/30 text-xs">
+    <span class="text-fg-subtle uppercase tracking-wider mr-1">Decisão:</span>
+    <span class="text-fg-soft">{{ classif_explicacao.resumo }}</span>
+  </div>
+
   <div class="text-xs">
-    <div class="text-fg-subtle uppercase tracking-wider mb-2">Top features que contribuíram</div>
-    <table class="w-full text-xs">
-      <thead class="text-fg-subtle">
-        <tr>
-          <th class="text-left py-1">Feature</th>
-          <th class="text-right py-1">Peso</th>
-          <th class="text-right py-1">Valor</th>
-          <th class="text-right py-1">Contribuição</th>
-          <th class="py-1 pl-3"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-border/60">
-        {% for c in classif_explicacao.contribuicoes %}
-        <tr>
-          <td class="py-1.5 font-mono text-[0.7rem]">{{ c.feature }}</td>
-          <td class="py-1.5 text-right kpi-num {% if c.peso < 0 %}text-fg-muted{% endif %}">{{ c.peso }}</td>
-          <td class="py-1.5 text-right kpi-num">{{ c.valor }}</td>
-          <td class="py-1.5 text-right kpi-num font-semibold {% if c.contribuicao < 0 %}text-fg-subtle{% else %}text-fg-soft{% endif %}">
+    <div class="text-fg-subtle uppercase tracking-wider mb-2 flex items-baseline justify-between gap-2">
+      <span>🧮 Top features que contribuíram</span>
+      <span class="text-[0.65rem] normal-case tracking-normal text-fg-subtle">passe o mouse pra ler cada uma</span>
+    </div>
+    <div class="space-y-1.5">
+      {% for c in classif_explicacao.contribuicoes %}
+      <details class="group border border-border/40 rounded-md hover:bg-muted/30 transition-colors">
+        <summary class="cursor-pointer list-none px-3 py-2 flex items-center gap-2 text-sm" title="{{ c.desc }}">
+          <span class="text-base">{{ c.emoji }}</span>
+          <span class="flex-1 text-fg-soft">{{ c.label }}</span>
+          <span class="text-fg-subtle text-[0.7rem] font-mono mr-2">{{ c.feature }}</span>
+          <span class="kpi-num font-semibold {% if c.contribuicao < 0 %}text-fg-subtle{% else %}text-fg{% endif %} w-16 text-right">
             {% if c.contribuicao >= 0 %}+{% endif %}{{ c.contribuicao }}
-          </td>
-          <td class="py-1.5 pl-3 w-32">
-            <div class="flex items-center" style="height: 8px;">
-              {% if c.contribuicao >= 0 %}
-                <div class="flex-1"></div>
-                <div class="bg-fg-soft" style="width: {{ c.contribuicao|floatformat:0 }}px; height: 6px; max-width: 50%;" title="contribuição positiva"></div>
-              {% else %}
-                <div class="bg-fg-subtle" style="width: {{ c.contribuicao|floatformat:0 }}px; height: 6px; max-width: 50%; margin-left: auto;" title="contribuição negativa"></div>
-                <div class="flex-1"></div>
-              {% endif %}
+          </span>
+          <span class="text-fg-subtle text-[0.65rem] group-open:rotate-90 transition-transform">▸</span>
+        </summary>
+        <div class="px-3 pb-3 pt-1 text-fg-muted leading-relaxed">
+          <p class="mb-2">{{ c.desc }}</p>
+          <div class="grid grid-cols-3 gap-2 text-[0.7rem] mt-2 pt-2 border-t border-border/40">
+            <div>
+              <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Peso (modelo)</span>
+              <div class="kpi-num {% if c.peso < 0 %}text-fg-muted{% else %}text-fg-soft{% endif %}">{{ c.peso }}</div>
             </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+            <div>
+              <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Valor (deste processo)</span>
+              <div class="kpi-num">{{ c.valor }}</div>
+            </div>
+            <div>
+              <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Contribuição</span>
+              <div class="kpi-num font-semibold">{% if c.contribuicao >= 0 %}+{% endif %}{{ c.contribuicao }}</div>
+            </div>
+          </div>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
     <div class="text-[0.65rem] text-fg-subtle mt-3 leading-relaxed">
-      <strong>Como ler:</strong> contribuição = peso × valor da feature. Soma das contribuições + intercept (-3.196) → logit → sigmoid → score.
-      Pesos vêm do modelo Logistic Regression treinado em 396k leads históricos (AUC 0.95).
-      <a href="{% url 'dashboard:api-docs' %}" class="text-accent-fg hover:underline">ver documentação completa →</a>
+      <strong>Como ler:</strong> contribuição = peso × valor. Soma de todas + intercept (−3.196) = logit → sigmoid → score (0..1).
+      Pesos vêm do modelo Logistic Regression v5 treinado em 396k leads históricos (AUC 0.95, precision@5k 93.9%).
+      <a href="{% url 'dashboard:api-docs' %}" class="text-accent-fg hover:underline">documentação completa →</a>
     </div>
   </div>
 </div>
