@@ -39,12 +39,21 @@
   </div>
 </div>
 
+<!-- Banner: Juriscope ainda não consumiu nada -->
+<div x-data="{shown: false}" x-init="fetch('{% url 'dashboard:leads-chart' 'kpis' %}?{% query_string request %}').then(r=>r.json()).then(d=>{shown = d.juriscope_ativo === false || d.consumidos_total === 0})"
+     x-show="shown" x-cloak class="card-tight mb-3 border-fg-subtle/40">
+  <div class="flex items-start gap-2 text-xs text-fg-muted">
+    <span>ℹ</span>
+    <span>Juriscope ainda não consumiu leads via API. Métricas de validação/runway só aparecem quando o cliente começar a marcar processos via <code class="font-mono bg-muted px-1 py-0.5 rounded">POST /leads/consumed/</code>.</span>
+  </div>
+</div>
+
 <!-- KPIs (lazy load via fetch) -->
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5"
      x-data="leadsKpis()" x-init="load()" data-leads-block="kpis">
   <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">💎 Backlog N1</div>
-    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n1_pendente)" :class="d.runway_dias != null && d.runway_dias < 1 ? 'text-warning' : ''">—</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n1_pendente)">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1" x-show="d.runway_dias != null">
       ~<span x-text="d.runway_dias"></span> dias de runway
     </div>
@@ -182,8 +191,8 @@ function buildLeadsTimeseries(d) {
     xAxis: {type: 'category', data: allDates, axisLabel: {color: c.axisLabel, fontSize: 11}, axisLine: {lineStyle: {color: c.axisLine}}},
     yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
     series: [
-      {name: 'descobertos N1', type: 'line', smooth: 0.3, symbol: 'none', data: allDates.map(d => descobMap[d] || 0), lineStyle: {width: 2}, color: '#10b981'},
-      {name: 'consumidos', type: 'line', smooth: 0.3, symbol: 'none', data: allDates.map(d => consMap[d] || 0), lineStyle: {width: 2}, color: '#3b82f6'},
+      {name: 'descobertos N1', type: 'line', smooth: 0.3, symbol: 'none', data: allDates.map(d => descobMap[d] || 0), lineStyle: {width: 2.5}, color: '#52525b'},
+      {name: 'consumidos', type: 'line', smooth: 0.3, symbol: 'none', data: allDates.map(d => consMap[d] || 0), lineStyle: {width: 2, type: 'dashed'}, color: '#a1a1aa'},
     ],
   };
 }
@@ -198,9 +207,9 @@ function buildLeadsByTribunal(rows) {
     xAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
     yAxis: {type: 'category', data: cats, axisLabel: {color: c.axisLabel}, axisLine: {lineStyle: {color: c.axisLine}}},
     series: [
-      {name: '💎 N1', type: 'bar', stack: 'total', data: rows.map(r => r.n1), itemStyle: {color: '#10b981'}},
-      {name: '⏳ N2', type: 'bar', stack: 'total', data: rows.map(r => r.n2), itemStyle: {color: '#f59e0b'}},
-      {name: '🌱 N3', type: 'bar', stack: 'total', data: rows.map(r => r.n3), itemStyle: {color: '#71717a'}},
+      {name: '💎 N1', type: 'bar', stack: 'total', data: rows.map(r => r.n1), itemStyle: {color: '#52525b'}},
+      {name: '⏳ N2', type: 'bar', stack: 'total', data: rows.map(r => r.n2), itemStyle: {color: '#a1a1aa'}},
+      {name: '🌱 N3', type: 'bar', stack: 'total', data: rows.map(r => r.n3), itemStyle: {color: '#d4d4d8'}},
     ],
   };
 }
@@ -220,18 +229,19 @@ function buildCalibration(d) {
     xAxis: {type: 'category', data: rows.map(r => `D${r.decil}`), axisLabel: {color: c.axisLabel}, axisLine: {lineStyle: {color: c.axisLine}}},
     yAxis: {type: 'value', min: 0, max: 1, axisLabel: {color: c.axisLabel, formatter: v => (v*100).toFixed(0) + '%'}, splitLine: {lineStyle: {color: c.splitLine}}},
     series: [
-      {name: 'score previsto', type: 'line', smooth: 0.2, symbol: 'circle', data: rows.map(r => r.score_med), lineStyle: {color: '#71717a', width: 2, type: 'dashed'}, color: '#71717a'},
-      {name: 'taxa real validação', type: 'line', smooth: 0.2, symbol: 'circle', data: rows.map(r => r.taxa_real), lineStyle: {color: '#10b981', width: 2}, color: '#10b981'},
+      {name: 'score previsto', type: 'line', smooth: 0.2, symbol: 'circle', data: rows.map(r => r.score_med), lineStyle: {color: '#a1a1aa', width: 2, type: 'dashed'}, color: '#a1a1aa'},
+      {name: 'taxa real validação', type: 'line', smooth: 0.2, symbol: 'circle', data: rows.map(r => r.taxa_real), lineStyle: {color: '#27272a', width: 2.5}, color: '#27272a'},
     ],
   };
 }
 
 function buildLeadsFunnel(d) {
   const c = chartGridColors();
+  // Paleta neutra (zinc) — mais escuro = mais positivo (validado/pago)
   const result_colors = {
-    validado: '#10b981', pago: '#059669',
-    sem_expedicao: '#f59e0b', erro: '#dc2626',
-    pendente: '#3b82f6', arquivado: '#71717a', cedido: '#a855f7',
+    validado: '#27272a', pago: '#3f3f46',
+    sem_expedicao: '#a1a1aa', erro: '#71717a',
+    pendente: '#52525b', arquivado: '#d4d4d8', cedido: '#71717a',
   };
   const por_res = d.por_resultado || {};
   const data = [
@@ -261,7 +271,7 @@ function buildScoreHist(d) {
     grid: {left: 50, right: 20, top: 20, bottom: 40},
     xAxis: {type: 'category', data: bins.map(b => b.lo.toFixed(2)), axisLabel: {color: c.axisLabel, fontSize: 10}, axisLine: {lineStyle: {color: c.axisLine}}},
     yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
-    series: [{type: 'bar', data: bins.map(b => b.n), itemStyle: {color: '#10b981'}, barMaxWidth: 30}],
+    series: [{type: 'bar', data: bins.map(b => b.n), itemStyle: {color: '#52525b'}, barMaxWidth: 30}],
   };
 }
 </script>

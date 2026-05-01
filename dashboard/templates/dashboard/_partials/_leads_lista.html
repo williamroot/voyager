@@ -40,10 +40,10 @@
   </div>
   <div class="flex gap-2">
     {% if page.has_previous %}
-      <a hx-get="{% url 'dashboard:leads-lista' %}?page={{ page.previous_page_number }}&nivel={{ nivel }}{% if tribunal %}&tribunal={{ tribunal }}{% endif %}" hx-target="closest div[hx-get]" hx-swap="outerHTML" class="chip-mini cursor-pointer">‹ anterior</a>
+      <a hx-get="{% url 'dashboard:leads-lista' %}?page={{ page.previous_page_number }}&nivel={{ nivel }}{% if tribunal %}&tribunal={{ tribunal }}{% endif %}{% if cliente_nome %}&cliente={{ cliente_nome }}{% endif %}{% if incluir_consumidos %}&incluir_consumidos=1{% endif %}" hx-target="closest div[hx-get]" hx-swap="outerHTML" class="chip-mini cursor-pointer">‹ anterior</a>
     {% endif %}
     {% if page.has_next %}
-      <a hx-get="{% url 'dashboard:leads-lista' %}?page={{ page.next_page_number }}&nivel={{ nivel }}{% if tribunal %}&tribunal={{ tribunal }}{% endif %}" hx-target="closest div[hx-get]" hx-swap="outerHTML" class="chip-mini cursor-pointer">próxima ›</a>
+      <a hx-get="{% url 'dashboard:leads-lista' %}?page={{ page.next_page_number }}&nivel={{ nivel }}{% if tribunal %}&tribunal={{ tribunal }}{% endif %}{% if cliente_nome %}&cliente={{ cliente_nome }}{% endif %}{% if incluir_consumidos %}&incluir_consumidos=1{% endif %}" hx-target="closest div[hx-get]" hx-swap="outerHTML" class="chip-mini cursor-pointer">próxima ›</a>
     {% endif %}
   </div>
 </div>

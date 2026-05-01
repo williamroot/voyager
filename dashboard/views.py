@@ -747,8 +747,15 @@ def leads_export_csv(request):
         qs = qs.exclude(pk__in=consumidos)
     qs = qs[:limit]
 
+    import logging
+    logger_ = logging.getLogger('voyager.dashboard.leads_export')
+    logger_.info('export CSV: user=%s nivel=%s tribunal=%s limit=%d',
+                 request.user.username, nivel, tribunal or '*', limit)
+
     resp = HttpResponse(content_type='text/csv; charset=utf-8')
     resp['Content-Disposition'] = f'attachment; filename="leads_{nivel.lower()}_{tribunal or "todos"}.csv"'
+    # BOM pra Excel pt-BR não quebrar acentos
+    resp.write('﻿')
     w = csv.writer(resp)
     w.writerow(['rank', 'numero_cnj', 'pid', 'classificacao', 'score', 'classe_codigo', 'classe_nome', 'ano_cnj', 'tribunal'])
     for rank, p in enumerate(qs.iterator(chunk_size=500), 1):
@@ -763,14 +770,15 @@ def leads_export_csv(request):
 # ===== API endpoints lazy pros widgets da dashboard de leads =====
 
 def _leads_filtros(request):
-    """Lê tribunal/nivel/dias do request com defaults sensatos."""
+    """Lê tribunal/nivel/dias/cliente do request com defaults sensatos."""
     tribunal = (request.GET.get('tribunal') or '').upper() or None
     nivel = (request.GET.get('nivel') or '').upper() or None
+    cliente_nome = (request.GET.get('cliente') or 'juriscope').strip()
     try:
         dias = max(1, min(int(request.GET.get('dias', 30)), 365))
     except (TypeError, ValueError):
         dias = 30
-    return tribunal, nivel, dias
+    return tribunal, nivel, dias, cliente_nome
 
 
 @login_required
@@ -778,25 +786,38 @@ def _leads_filtros(request):
 def leads_chart_data(request, key):
     """Endpoint genérico — cada `key` retorna JSON pro respectivo widget.
 
-    Cache 5min agressivo (cache.get_or_set) por key + filtros.
+    Cache 5min agressivo por key + (tribunal, nivel, dias, cliente).
+
+    Caveats:
+    - ClassificacaoLog é gravado apenas em TRANSIÇÃO de categoria
+      (classificador.classificar_e_persistir). "Descobertos N1" no
+      timeseries = transições para PRECATORIO, não primeira ingestão.
+    - LeadConsumption permite re-consumo (sem unique). Funil deduplica
+      por processo_id + último resultado.
     """
     from datetime import timedelta
     from django.core.cache import cache
-    from django.db.models import Count, Q
+    from django.db.models import Count, Exists, OuterRef, Q
     from django.utils import timezone as djtz
     from tribunals.models import ApiClient, ClassificacaoLog, LeadConsumption
 
-    tribunal, nivel, dias = _leads_filtros(request)
-    cache_key = f'dashleads:{key}:t={tribunal or ""}:n={nivel or ""}:d={dias}'
+    tribunal, nivel, dias, cliente_nome = _leads_filtros(request)
+    cache_key = f'dashleads:{key}:t={tribunal or ""}:n={nivel or ""}:d={dias}:c={cliente_nome}'
     cached = cache.get(cache_key)
     if cached is not None:
         return JsonResponse(cached, safe=False, json_dumps_params={'default': str})
 
-    cliente = ApiClient.objects.filter(nome='juriscope').first()
-    consumidos_subq = (
-        LeadConsumption.objects.filter(cliente=cliente).values('processo_id')
-        if cliente else None
-    )
+    cliente = ApiClient.objects.filter(nome=cliente_nome, ativo=True).first()
+
+    # Anti-join via Exists() pra evitar NOT IN (subquery) caro
+    def _excluir_consumidos(qs):
+        if not cliente:
+            return qs
+        return qs.annotate(
+            _consumido=Exists(LeadConsumption.objects.filter(
+                cliente=cliente, processo_id=OuterRef('pk'),
+            )),
+        ).filter(_consumido=False)
 
     base = Process.objects.exclude(classificacao__isnull=True)
     if tribunal:
@@ -805,11 +826,18 @@ def leads_chart_data(request, key):
     data = None
 
     if key == 'kpis':
-        n1 = base.filter(classificacao='PRECATORIO').count()
-        n2 = base.filter(classificacao='PRE_PRECATORIO').count()
-        n3 = base.filter(classificacao='DIREITO_CREDITORIO').count()
-        if consumidos_subq is not None:
-            n1_pendente = base.filter(classificacao='PRECATORIO').exclude(pk__in=consumidos_subq).count()
+        # Counts em uma única query via aggregate(filter=Q(...))
+        agg = base.aggregate(
+            n1=Count('id', filter=Q(classificacao='PRECATORIO')),
+            n2=Count('id', filter=Q(classificacao='PRE_PRECATORIO')),
+            n3=Count('id', filter=Q(classificacao='DIREITO_CREDITORIO')),
+        )
+        n1, n2, n3 = agg['n1'], agg['n2'], agg['n3']
+
+        # n1_pendente: anti-join ao invés de NOT IN
+        if cliente:
+            n1_qs = _excluir_consumidos(base.filter(classificacao='PRECATORIO'))
+            n1_pendente = n1_qs.count()
         else:
             n1_pendente = n1
 
@@ -823,28 +851,45 @@ def leads_chart_data(request, key):
         descobertos_7d = descob_qs.count()
         throughput_descob = descobertos_7d / 7
 
-        # Throughput consumidos/dia (últimos 7d)
+        # Throughput consumidos/dia (últimos 7d) — APLICA filtro tribunal pra consistência
         if cliente:
             cons7 = LeadConsumption.objects.filter(cliente=cliente, consumido_em__gte=cutoff7)
+            cons_total_qs = LeadConsumption.objects.filter(cliente=cliente)
+            if tribunal:
+                cons7 = cons7.filter(processo__tribunal_id=tribunal)
+                cons_total_qs = cons_total_qs.filter(processo__tribunal_id=tribunal)
             consumidos_7d = cons7.count()
-            consumidos_total = LeadConsumption.objects.filter(cliente=cliente).count()
+            consumidos_total = cons_total_qs.count()
         else:
             consumidos_7d = 0; consumidos_total = 0
         throughput_cons = consumidos_7d / 7
 
         # Taxa de validação 30d
         cutoff30 = djtz.now() - timedelta(days=30)
+        cons30_total = 0; validados30 = 0; taxa_val = None
         if cliente:
             cons30 = LeadConsumption.objects.filter(cliente=cliente, consumido_em__gte=cutoff30)
-            cons30_total = cons30.count()
-            validados30 = cons30.filter(resultado='validado').count()
+            if tribunal:
+                cons30 = cons30.filter(processo__tribunal_id=tribunal)
+            # Filtra só resultados conclusivos (não conta 'pendente' nem 'erro')
+            cons30_conclusivo = cons30.filter(resultado__in=[
+                'validado', 'pago', 'sem_expedicao', 'arquivado', 'cedido',
+            ])
+            cons30_total = cons30_conclusivo.count()
+            validados30 = cons30_conclusivo.filter(resultado__in=['validado', 'pago']).count()
             taxa_val = (validados30 / cons30_total) if cons30_total else None
-        else:
-            cons30_total = 0; validados30 = 0; taxa_val = None
 
         runway = (n1_pendente / throughput_cons) if throughput_cons > 0 else None
+        # Clamp absurdo — backlog gigante não é informação útil em "dias"
+        runway_label = None
+        if runway is not None:
+            if runway > 180:
+                runway_label = '180+'
+            else:
+                runway_label = round(runway, 1)
 
         data = {
+            'juriscope_ativo': cliente is not None,
             'n1_total': n1, 'n2_total': n2, 'n3_total': n3,
             'n1_pendente': n1_pendente,
             'consumidos_total': consumidos_total,
@@ -852,14 +897,15 @@ def leads_chart_data(request, key):
             'throughput_consumidos_dia': round(throughput_cons, 1),
             'taxa_validacao_30d': round(taxa_val, 3) if taxa_val is not None else None,
             'taxa_validacao_treino': 0.939,
-            'runway_dias': round(runway, 1) if runway else None,
+            'runway_dias': runway_label,
             'cons30_total': cons30_total, 'validados30': validados30,
         }
 
     elif key == 'timeseries':
         from django.db.models.functions import TruncDate
         cutoff = djtz.now() - timedelta(days=dias)
-        # Descobertos por dia (criada_em ClassificacaoLog onde a categoria é nova ou mudou para PRECATORIO)
+        # Descobertos por dia — atenção: ClassificacaoLog só registra
+        # TRANSIÇÃO de categoria, então mede "novos N1" não "ingestões".
         desc_qs = ClassificacaoLog.objects.filter(
             classificacao='PRECATORIO', criada_em__gte=cutoff,
         )
@@ -872,9 +918,14 @@ def leads_chart_data(request, key):
         cons_qs = LeadConsumption.objects.filter(consumido_em__gte=cutoff)
         if cliente:
             cons_qs = cons_qs.filter(cliente=cliente)
+        if tribunal:
+            cons_qs = cons_qs.filter(processo__tribunal_id=tribunal)
+        # Deduplica por (processo, dia) pra não inflar com re-consumos
         consumidos = (
-            cons_qs.annotate(d=TruncDate('consumido_em')).values('d')
-            .annotate(n=Count('id')).order_by('d')
+            cons_qs.annotate(d=TruncDate('consumido_em'))
+            .values('d', 'processo_id').distinct()
+            .values('d').annotate(n=Count('processo_id', distinct=True))
+            .order_by('d')
         )
         data = {
             'descobertos': [{'dia': r['d'].isoformat(), 'n': r['n']} for r in descobertos if r['d']],
@@ -882,56 +933,69 @@ def leads_chart_data(request, key):
         }
 
     elif key == 'calibration':
-        # Decis de score na população atual de PRECATORIO. Para taxa real,
-        # cruzaremos com LeadConsumption (validado/total).
-        from django.db.models import Case, FloatField, Sum, When
+        # Calibração: agrupa processos consumidos COM resultado conclusivo
+        # em decis de score, e mede taxa de validação real por bucket.
+        # Conclusivo = exclui 'pendente' e 'erro' (esses não dão sinal de label).
         if not cliente:
             data = {'rows': [], 'sample_size': 0}
         else:
-            # Pega processos consumidos pelo Juriscope com score (top N=10000)
-            cons_pids = list(
-                LeadConsumption.objects.filter(cliente=cliente)
-                .values_list('processo_id', flat=True)[:50000]
-            )
-            qs = (
-                Process.objects.filter(pk__in=cons_pids,
-                                       classificacao_score__isnull=False)
-                .values('pk', 'classificacao_score')
-            )
-            scores = {r['pk']: r['classificacao_score'] for r in qs}
-            # Resultados por processo
+            CONCLUSIVOS = ('validado', 'pago', 'sem_expedicao', 'arquivado', 'cedido')
+            POSITIVOS = ('validado', 'pago')
+            # Para cada (processo, último resultado conclusivo) — deduplica re-consumos
             from collections import defaultdict
-            consumos = defaultdict(list)
-            for c in LeadConsumption.objects.filter(cliente=cliente).values('processo_id', 'resultado'):
-                consumos[c['processo_id']].append(c['resultado'])
+            ultimo_resultado = {}
+            cons_qs = (
+                LeadConsumption.objects.filter(cliente=cliente, resultado__in=CONCLUSIVOS)
+                .order_by('processo_id', '-consumido_em')
+                .values('processo_id', 'resultado')
+            )
+            for c in cons_qs.iterator(chunk_size=5000):
+                # primeiro registro de cada processo == último consumido (DESC)
+                pid = c['processo_id']
+                if pid not in ultimo_resultado:
+                    ultimo_resultado[pid] = c['resultado']
 
-            buckets = []
-            for pid, score in scores.items():
-                resultados = consumos.get(pid, [])
-                # validado se algum resultado é 'validado' ou 'pago'
-                validado = any(r in ('validado', 'pago') for r in resultados)
-                buckets.append((score, validado))
-
-            if not buckets:
+            if not ultimo_resultado:
                 data = {'rows': [], 'sample_size': 0}
             else:
-                buckets.sort(key=lambda x: x[0])
-                n = len(buckets)
-                rows = []
-                for d in range(10):
-                    lo = int(d * n / 10); hi = int((d+1) * n / 10)
-                    sl = buckets[lo:hi]
-                    if not sl: continue
-                    score_med = sum(s for s, _ in sl) / len(sl)
-                    taxa = sum(1 for _, v in sl if v) / len(sl)
-                    rows.append({
-                        'decil': d + 1, 'score_med': round(score_med, 3),
-                        'taxa_real': round(taxa, 3), 'n': len(sl),
-                    })
-                data = {'rows': rows, 'sample_size': n}
+                # Pega scores em chunks pra evitar IN gigante
+                pids = list(ultimo_resultado.keys())
+                scores = {}
+                for i in range(0, len(pids), 5000):
+                    chunk = pids[i:i+5000]
+                    for r in (Process.objects.filter(pk__in=chunk,
+                                                      classificacao_score__isnull=False)
+                              .values('pk', 'classificacao_score')):
+                        scores[r['pk']] = r['classificacao_score']
+
+                buckets = []
+                for pid, score in scores.items():
+                    res = ultimo_resultado.get(pid)
+                    if res is None: continue
+                    validado = res in POSITIVOS
+                    buckets.append((score, validado))
+
+                if not buckets:
+                    data = {'rows': [], 'sample_size': 0}
+                else:
+                    buckets.sort(key=lambda x: x[0])
+                    n = len(buckets)
+                    rows = []
+                    for d in range(10):
+                        lo = int(d * n / 10); hi = int((d+1) * n / 10)
+                        sl = buckets[lo:hi]
+                        if not sl: continue
+                        score_med = sum(s for s, _ in sl) / len(sl)
+                        taxa = sum(1 for _, v in sl if v) / len(sl)
+                        rows.append({
+                            'decil': d + 1, 'score_med': round(score_med, 3),
+                            'taxa_real': round(taxa, 3), 'n': len(sl),
+                        })
+                    data = {'rows': rows, 'sample_size': n}
 
     elif key == 'funnel':
-        # Funil ÚLTIMOS 30 DIAS: descobertos N1 (ClassificacaoLog) → enviados (LeadConsumption) → por resultado
+        # Funil ÚLTIMOS N DIAS: descobertos N1 → consumidos (deduplicados
+        # por processo, último resultado) → buckets por resultado.
         cutoff = djtz.now() - timedelta(days=dias)
         desc_qs = ClassificacaoLog.objects.filter(
             classificacao='PRECATORIO', criada_em__gte=cutoff,
@@ -946,10 +1010,18 @@ def leads_chart_data(request, key):
         if tribunal:
             cons_qs = cons_qs.filter(processo__tribunal_id=tribunal)
 
-        por_resultado = dict(
-            cons_qs.values_list('resultado').annotate(n=Count('id'))
-        )
-        consumidos_total = sum(por_resultado.values())
+        # Deduplica: pega o ÚLTIMO resultado por processo (re-consumo permitido,
+        # mas no funil cada processo conta 1x com o estado mais recente).
+        ultimo_por_proc = {}
+        for c in (cons_qs.order_by('processo_id', '-consumido_em')
+                         .values('processo_id', 'resultado')
+                         .iterator(chunk_size=5000)):
+            pid = c['processo_id']
+            if pid not in ultimo_por_proc:
+                ultimo_por_proc[pid] = c['resultado']
+        from collections import Counter
+        por_resultado = dict(Counter(ultimo_por_proc.values()))
+        consumidos_total = len(ultimo_por_proc)
 
         data = {
             'descobertos': descobertos,
