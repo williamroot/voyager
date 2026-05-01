@@ -805,7 +805,7 @@ def leads_chart_data(request, key):
     cache_key = f'dashleads:{key}:t={tribunal or ""}:n={nivel or ""}:d={dias}:c={cliente_nome}'
     cached = cache.get(cache_key)
     if cached is not None:
-        return JsonResponse(cached, safe=False, json_dumps_params={'default': str})
+        return JsonResponse({'data': cached}, json_dumps_params={'default': str})
 
     cliente = ApiClient.objects.filter(nome=cliente_nome, ativo=True).first()
 
@@ -1063,7 +1063,7 @@ def leads_chart_data(request, key):
         return JsonResponse({'erro': f'key inválida: {key}'}, status=400)
 
     cache.set(cache_key, data, timeout=300)
-    return JsonResponse(data, safe=False, json_dumps_params={'default': str})
+    return JsonResponse({'data': data}, json_dumps_params={'default': str})
 
 
 @login_required

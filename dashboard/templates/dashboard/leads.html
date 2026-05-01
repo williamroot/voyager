@@ -40,7 +40,7 @@
 </div>
 
 <!-- Banner: Juriscope ainda não consumiu nada -->
-<div x-data="{shown: false}" x-init="fetch('{% url 'dashboard:leads-chart' 'kpis' %}?{% query_string request %}').then(r=>r.json()).then(d=>{shown = d.juriscope_ativo === false || d.consumidos_total === 0})"
+<div x-data="{shown: false}" x-init="fetch('{% url 'dashboard:leads-chart' 'kpis' %}?{% query_string request %}').then(r=>r.json()).then(j=>{const d=j.data||j; shown = d.juriscope_ativo === false || d.consumidos_total === 0})"
      x-show="shown" x-cloak class="card-tight mb-3 border-fg-subtle/40">
   <div class="flex items-start gap-2 text-xs text-fg-muted">
     <span>ℹ</span>
@@ -173,7 +173,7 @@ function leadsKpis() {
     load() {
       const u = new URL(window.location);
       fetch(`{% url 'dashboard:leads-chart' 'kpis' %}?${u.searchParams.toString()}`)
-        .then(r => r.json()).then(d => { this.d = d; });
+        .then(r => r.json()).then(j => { this.d = j.data || j; });
     },
   };
 }
