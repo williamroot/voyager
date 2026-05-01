@@ -146,11 +146,20 @@
 </div>
 
 {% if classif_explicacao %}
-<div class="card mb-5" x-data="{open: false}">
-  <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
+<style>
+  /* esconde marker default do <details> */
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary { list-style: none; }
+</style>
+<details class="card mb-5 group">
+  <summary class="cursor-pointer list-none flex items-baseline justify-between gap-2 flex-wrap">
     <div>
-      <div class="text-sm font-medium text-fg-soft">Por que essa classificação</div>
-      <div class="text-xs text-fg-subtle">
+      <div class="text-sm font-medium text-fg-soft flex items-center gap-2">
+        <span class="text-fg-subtle text-[0.65rem] group-open:rotate-90 transition-transform">▸</span>
+        Por que essa classificação
+        <span class="text-[0.65rem] text-fg-subtle font-normal normal-case">(clique pra expandir)</span>
+      </div>
+      <div class="text-xs text-fg-subtle mt-0.5 ml-4">
         modelo <code class="font-mono">{{ processo.classificacao_versao|default:'v5' }}</code>
         · classificado {{ processo.classificacao_em|relative_dt }}
         <span title="{{ processo.classificacao_em }}">({{ processo.classificacao_em|date:'d/m/Y H:i' }})</span>
@@ -171,7 +180,8 @@
         </div>
       </div>
     </div>
-  </div>
+  </summary>
+  <div class="mt-4 pt-4 border-t border-border/40">
 
   <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs mb-3">
     <div class="card-tight">
@@ -239,7 +249,8 @@
       <a href="{% url 'dashboard:api-docs' %}" class="text-accent-fg hover:underline">documentação completa →</a>
     </div>
   </div>
-</div>
+  </div><!-- /collapsed-content -->
+</details>
 {% endif %}
 
 {% if polos.ativo or polos.passivo or polos.outros %}
