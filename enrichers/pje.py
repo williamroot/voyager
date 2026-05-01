@@ -68,6 +68,13 @@ _PJE_ERROR_MARKERS = (
     'Transaction is not active',
     'GenericJDBCException',
     'Erro inesperado, por favor tente novamente',
+    # Página oficial de manutenção/indisponibilidade do TRF1 (publicada
+    # quando o PJe sai do ar planejado ou cai). Header "Secretaria de
+    # Tecnologia da Informação" + "indisponível no momento".
+    'sistema Processo Judicial Eletr',  # "Eletrônico (PJe) está indisponível"
+    'indispon&iacute;vel no momento',
+    'indisponível no momento',
+    'RelatorioIndisponibilidade',  # link no rodapé da página de indisponibilidade
 )
 
 
