@@ -7,6 +7,7 @@ app_name = 'dashboard'
 
 urlpatterns = [
     path('', views.overview, name='overview'),
+    path('kpis/', views.overview_kpis, name='overview-kpis'),
     path('login/', LoginView.as_view(template_name='dashboard/login.html'), name='login'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('tribunais/', views.tribunais, name='tribunais'),

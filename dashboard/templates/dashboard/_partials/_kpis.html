@@ -1,0 +1,83 @@
+{% load voyager_extras %}
+{% if kpis.pending %}
+<div hx-get="{% url 'dashboard:overview-kpis' %}{% if request.GET.dias or request.GET.tribunal %}?{% query_string request %}{% endif %}"
+     hx-trigger="load delay:10s"
+     hx-swap="outerHTML">
+  <div class="text-sm text-fg-subtle mt-1 flex items-center gap-2">
+    <span class="inline-block w-3 h-3 rounded-full bg-fg-subtle/30 animate-pulse"></span>
+    Aquecendo cache…
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
+    {% for _ in '1234' %}
+    <div class="card-tight">
+      <div class="flex items-start justify-between">
+        <div class="flex-1">
+          <div class="h-3 w-24 rounded bg-muted/40 animate-pulse"></div>
+          <div class="h-8 w-32 rounded bg-muted/40 animate-pulse mt-2"></div>
+        </div>
+        <div class="w-12 h-12 rounded-lg bg-muted/40 animate-pulse"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div>
+<div class="text-sm text-fg-subtle mt-1">Última atualização {{ kpis.ultima_atualizacao|relative_dt }}</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
+  <div class="card-tight">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Processos</div>
+        <div class="text-3xl font-semibold mt-1 kpi-num">{{ kpis.total_processos|format_int }}</div>
+      </div>
+      <div class="w-12 h-12 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center">
+        <svg class="w-5 h-5 text-accent-fg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      </div>
+    </div>
+  </div>
+  <div class="card-tight">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Movimentações</div>
+        <div class="text-3xl font-semibold mt-1 kpi-num">{{ kpis.total_movimentacoes|format_int }}</div>
+      </div>
+      <div class="w-12 h-12 rounded-lg bg-info/10 border border-info/20 flex items-center justify-center">
+        <svg class="w-5 h-5 text-info" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2"/></svg>
+      </div>
+    </div>
+  </div>
+  <div class="card-tight relative overflow-hidden">
+    <div class="flex items-start justify-between relative z-10">
+      <div>
+        <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Publicadas em 24h</div>
+        <div class="text-3xl font-semibold mt-1 kpi-num">{{ kpis.movs_24h|format_int }}</div>
+        {% if kpis.movs_24h_delta_pct is not None %}
+          <div class="text-xs mt-1 {% if kpis.movs_24h_delta_pct >= 0 %}text-accent-fg{% else %}text-danger{% endif %}">
+            {% if kpis.movs_24h_delta_pct >= 0 %}↑{% else %}↓{% endif %} {{ kpis.movs_24h_delta_pct }}% vs 24h anteriores
+          </div>
+        {% endif %}
+        {% if kpis.ins_24h and kpis.ins_24h != kpis.movs_24h %}
+          <div class="text-[0.65rem] text-fg-subtle mt-1">{{ kpis.ins_24h|format_int }} ingeridas (backfill)</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% if kpis.drift_abertos %}
+    <div class="card-tight border-warning/30 bg-warning/5">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Drift alerts</div>
+          <div class="text-3xl font-semibold mt-1 kpi-num text-warning">{{ kpis.drift_abertos|format_int }}</div>
+          <a href="{% url 'dashboard:ingestao' %}" class="text-xs text-warning hover:underline mt-1 inline-block">resolver →</a>
+        </div>
+        <div class="w-12 h-12 rounded-lg bg-warning/10 border border-warning/20 flex items-center justify-center text-warning">
+          {% voy_icon "anomaly" "w-5 h-5" %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+</div>
+{% endif %}

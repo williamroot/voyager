@@ -87,13 +87,9 @@ def _split_csv(value: str | None) -> list[str]:
 @require_GET
 def overview(request):
     backfill_em_curso, cobertura_ate = _backfill_em_curso()
-    # Padrão: todo o período (None). Backfill em curso ainda vira None
-    # (mantém banner amarelo). Usuário pode escolher 7d/30d/90d/365d via UI.
     dias = _periodo_dias(request, default=None)
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
-    # KPIs ficam server-side (rápido, count() em PG analyze). Charts carregam lazy via fetch.
     ctx = {
-        'kpis': queries.kpis_globais(dias=dias, tribunais=tribunais_filtro),
         'periodo_dias': dias,
         'tribunais': Tribunal.objects.filter(ativo=True),
         'tribunal_filtro': ','.join(tribunais_filtro),
@@ -101,6 +97,18 @@ def overview(request):
         'cobertura_ate': cobertura_ate,
     }
     return render(request, 'dashboard/overview.html', ctx)
+
+
+@login_required
+@require_GET
+def overview_kpis(request):
+    """Carregamento lazy dos KPIs da overview — count() em tabelões pesados
+    pode demorar; isolar do shell evita gunicorn timeout no caminho da home."""
+    dias = _periodo_dias(request, default=None)
+    tribunais_filtro = _split_csv(request.GET.get('tribunal'))
+    return render(request, 'dashboard/_partials/_kpis.html', {
+        'kpis': queries.kpis_globais(dias=dias, tribunais=tribunais_filtro),
+    })
 
 
 # Mapa de chaves de chart → callable que retorna lista/dict serializável.
@@ -195,25 +203,25 @@ def chart_data(request, key):
             horas = max(1, min(int(request.GET.get('horas', 24)), 168))
         except (ValueError, TypeError):
             horas = 24
-        cache_key = f'chart:ingestao-por-hora:h={horas}' if use_cache else None
-        if cache_key:
-            cached = cache.get(cache_key)
-            if cached is not None:
-                return JsonResponse({'data': cached}, json_dumps_params={'default': str})
+        if use_cache:
+            cached = cache.get(f'chart:ingestao-por-hora:h={horas}')
+            return JsonResponse(
+                {'data': cached if cached is not None else [], 'pending': cached is None},
+                json_dumps_params={'default': str},
+            )
+        # Filtro custom (por sigla/tribunal): computa on-demand — não pré-aquecido.
         data = queries.ingestion_rate_por_hora(horas=horas, tribunais=[sigla] if sigla else tribunais_filtro or None)
-        if cache_key:
-            cache.set(cache_key, data, timeout=3600)
         return JsonResponse({'data': data}, json_dumps_params={'default': str})
 
-    cache_key = _chart_cache_key(key, dias, tribunais_filtro) if use_cache else None
-    if cache_key:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return JsonResponse({'data': cached}, json_dumps_params={'default': str})
+    if use_cache:
+        cached = cache.get(_chart_cache_key(key, dias, tribunais_filtro))
+        return JsonResponse(
+            {'data': cached if cached is not None else [], 'pending': cached is None},
+            json_dumps_params={'default': str},
+        )
 
+    # Filtro custom: computa on-demand, sem persistir em cache (cron só aquece o caminho default).
     data = handler(dias, tribunais_filtro, sigla)
-    if cache_key:
-        cache.set(cache_key, data, timeout=3600)
     return JsonResponse({'data': data}, json_dumps_params={'default': str})
 
 
@@ -739,12 +747,20 @@ def movimentacoes(request):
         qs = qs.exclude(link='')
         has_filter = True
 
-    # Sem filtro: 26M rows. Reusa total_movimentacoes do kpis_globais
-    # (cacheado 5min) em vez de SELECT COUNT(*) seq scan.
+    # Sem filtro: 26M rows. Reusa total_movimentacoes do kpis_globais (cache).
+    # Se cache frio (kpis pending → None), usa estimativa rápida do reltuples
+    # — paginar caindo num count() seq-scan dispara o mesmo timeout que motivou
+    # a refatoração da home.
     count_override = None
     if not has_filter:
         kpis = queries.kpis_globais()
-        count_override = kpis['total_movimentacoes']
+        count_override = kpis.get('total_movimentacoes')
+        if count_override is None:
+            from django.db import connection
+            with connection.cursor() as cur:
+                cur.execute("SELECT reltuples::bigint FROM pg_class WHERE relname='tribunals_movimentacao'")
+                row = cur.fetchone()
+                count_override = int(row[0]) if row and row[0] else 0
 
     page = _paginar(qs, request, default_size=50, count_override=count_override)
     return render(request, 'dashboard/_partials/_movimentacoes_list.html', {

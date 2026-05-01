@@ -492,11 +492,19 @@
      * @param {string} url — endpoint que retorna {data: [...]}
      * @param {Function} builder — recebe data e retorna opts pro ECharts
      */
-    async function lazyChart(el, url, builder) {
+    async function lazyChart(el, url, builder, _attempt) {
+      const attempt = _attempt || 1;
       try {
         const resp = await fetch(url, {credentials: 'same-origin', headers: {'Accept': 'application/json'}});
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const json = await resp.json();
+        // Backend pediu retry: cache aquecendo (cron warm_chart_cache em 5min,
+        // que pode demorar mais sob DB lento). 30 × 10s = 5min — cobre uma
+        // janela completa de cron + slack pra pico de carga.
+        if (json.pending && attempt <= 30) {
+          setTimeout(() => lazyChart(el, url, builder, attempt + 1), 10000);
+          return;
+        }
         const opts = builder(json.data);
         setupChart(el, opts);
       } catch (e) {

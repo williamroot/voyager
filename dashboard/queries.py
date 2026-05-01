@@ -31,13 +31,50 @@ def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibili
     return qs
 
 
-def kpis_globais(dias=None, tribunais=None):
-    from django.core.cache import cache
+_KPIS_TTL = 1800  # 30 min — cron warm_kpis_cache refaz a cada 5 min.
 
-    cache_key = f'kpis_globais:dias={dias}:tribunais={",".join(sorted(tribunais or []))}'
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+
+def _kpis_cache_key(dias, tribunais):
+    return f'kpis_globais:dias={dias}:tribunais={",".join(sorted(tribunais or []))}'
+
+
+def _kpis_placeholder():
+    """Retornado quando o cache está frio. View renderiza '—' (format_int aceita None)."""
+    return {
+        'total_processos': None,
+        'total_movimentacoes': None,
+        'movs_24h': None,
+        'movs_24h_delta_pct': None,
+        'ins_24h': None,
+        'cancelados': None,
+        'ultima_atualizacao': None,
+        'drift_abertos': 0,
+        'pending': True,
+    }
+
+
+def kpis_globais(dias=None, tribunais=None):
+    """Lê APENAS do cache. Sem hit, retorna placeholder com `pending=True`.
+
+    Aquecimento via cron `warm_kpis_cache` (5 min). Read-only no caminho da
+    request — query DB nunca roda em hot-path.
+    """
+    from django.core.cache import cache
+    from redis.exceptions import RedisError
+
+    try:
+        cached = cache.get(_kpis_cache_key(dias, tribunais))
+    except RedisError:
+        return _kpis_placeholder()
+    return cached if cached is not None else _kpis_placeholder()
+
+
+def compute_kpis_globais(dias=None, tribunais=None):
+    """Computa KPIs e grava no cache (TTL 30min). Chamado pelo cron, NUNCA pela view."""
+    from django.core.cache import cache
+    from redis.exceptions import RedisError
+
+    cache_key = _kpis_cache_key(dias, tribunais)
 
     agora = timezone.now()
     cutoff_24h = agora - timedelta(hours=24)
@@ -97,7 +134,10 @@ def kpis_globais(dias=None, tribunais=None):
             .values_list('finished_at', flat=True).first(),
         'drift_abertos': drift_qs.count(),
     }
-    cache.set(cache_key, result, timeout=300)
+    try:
+        cache.set(cache_key, result, timeout=_KPIS_TTL)
+    except RedisError:
+        pass
     return result
 
 

@@ -113,40 +113,48 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
-    # Aquecimento dos KPIs da home: a cada 5 min
+    # Aquecimento dos KPIs/charts/partes: a cada 5 min.
+    # max_instances=1 + coalesce=True: se a invocação anterior ainda está em
+    # execução (DB lento), a próxima é descartada — evita acumular jobs RQ
+    # idênticos quando o sistema está sobrecarregado.
     scheduler.add_job(
         warm_kpis_cache.delay,
         'interval',
         minutes=5,
         id='warm_kpis_cache',
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
-    # Aquecimento do cache de charts: a cada 5 min
     scheduler.add_job(
         warm_chart_cache.delay,
         'interval',
         minutes=5,
         id='warm_chart_cache',
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
-    # Aquecimento do snapshot workers/filas: a cada 30s
     scheduler.add_job(
         warm_workers_cache.delay,
         'interval',
         seconds=30,
         id='warm_workers_cache',
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
-    # Aquecimento da distribuição por tipo de Parte: a cada 5 min
     scheduler.add_job(
         warm_partes_cache.delay,
         'interval',
         minutes=5,
         id='warm_partes_cache',
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
     # Re-classifica processos com mov nova nos últimos 7 dias + drena

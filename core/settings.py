@@ -124,6 +124,11 @@ CACHES = {
         'LOCATION': REDIS_URL,
         'KEY_PREFIX': 'v',
         'TIMEOUT': 3600,
+        'OPTIONS': {
+            'socket_connect_timeout': 2,
+            'socket_timeout': 3,
+            'retry_on_timeout': True,
+        },
     }
 }
 

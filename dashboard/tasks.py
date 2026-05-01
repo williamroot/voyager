@@ -14,86 +14,96 @@ _PERIODOS = [None, 7, 30, 90, 365]
 _HORAS = [24, 48, 72]
 
 
-@job('default', timeout=300)
+_WARM_TTL = 1800  # 30 min — cron refaz a cada 5 min.
+
+
+@job('default', timeout=600)
 def warm_chart_cache():
-    """Pré-aquece o cache Redis de todos os charts da home para cada período.
+    """Pré-aquece todos os charts da home (TTL 30min). Hot-path NUNCA computa.
 
-    Executado a cada 5 min pelo APScheduler — garante que o usuário sempre
-    bate no cache (TTL 1h), nunca em query fria.
+    Lock Redis impede pile-up se DB lento prolongar a execução.
     """
-    # Import aqui para evitar circular (views importa queries, jobs importa views)
-    from .views import _CHART_HANDLERS, _chart_cache_key
-
-    warmed = errors = 0
-
-    for dias in _PERIODOS:
-        for chart_key, handler in _CHART_HANDLERS.items():
-            if chart_key == 'ingestao-por-hora':
-                continue  # aquecido separadamente abaixo
+    lock_key = 'lock:warm_chart_cache'
+    if not cache.add(lock_key, '1', timeout=660):
+        logger.info('warm_chart_cache: skip (lock held)')
+        return
+    try:
+        from .views import _CHART_HANDLERS, _chart_cache_key
+        warmed = errors = 0
+        for dias in _PERIODOS:
+            for chart_key, handler in _CHART_HANDLERS.items():
+                if chart_key == 'ingestao-por-hora':
+                    continue
+                try:
+                    data = handler(dias, [], None)
+                    cache.set(_chart_cache_key(chart_key, dias, []), data, timeout=_WARM_TTL)
+                    warmed += 1
+                except Exception as e:
+                    logger.warning('warm_chart_cache %s/d=%s: %s', chart_key, dias, e)
+                    errors += 1
+        for horas in _HORAS:
             try:
-                data = handler(dias, [], None)
-                cache.set(_chart_cache_key(chart_key, dias, []), data, timeout=3600)
+                data = queries.ingestion_rate_por_hora(horas=horas)
+                cache.set(f'chart:ingestao-por-hora:h={horas}', data, timeout=_WARM_TTL)
                 warmed += 1
             except Exception as e:
-                logger.warning('warm_chart_cache %s/d=%s: %s', chart_key, dias, e)
+                logger.warning('warm_chart_cache ingestao-por-hora/h=%s: %s', horas, e)
                 errors += 1
-
-    for horas in _HORAS:
-        try:
-            data = queries.ingestion_rate_por_hora(horas=horas)
-            cache.set(f'chart:ingestao-por-hora:h={horas}', data, timeout=3600)
-            warmed += 1
-        except Exception as e:
-            logger.warning('warm_chart_cache ingestao-por-hora/h=%s: %s', horas, e)
-            errors += 1
-
-    logger.info('warm_chart_cache: %d aquecidos, %d erros', warmed, errors)
+        logger.info('warm_chart_cache: %d aquecidos, %d erros', warmed, errors)
+    finally:
+        cache.delete(lock_key)
 
 
 @job('default', timeout=600)
 def warm_kpis_cache():
-    """Pré-aquece os KPIs da home (kpis_globais) no cache Redis.
+    """Pré-aquece KPIs da home no cache (TTL 30min). Hot-path NUNCA computa.
 
-    Executado a cada 5 min. Sem isso, a home faz COUNT(*) em 3.5M rows a
-    frio — mesmo com índices pode levar alguns segundos; com cache é < 1ms.
+    Executado a cada 5 min. Lock Redis impede pile-up — se uma execução
+    ainda roda, a próxima pula. Sem isso, em DB lento o RQ enfileiraria
+    múltiplas instâncias e amplificaria a carga.
     """
-    from tribunals.models import Tribunal
-    periodos = [None, 7, 30, 90, 365]
+    from django.core.cache import cache
+    lock_key = 'lock:warm_kpis_cache'
+    if not cache.add(lock_key, '1', timeout=660):  # 9min — < 5min interval × 2
+        logger.info('warm_kpis_cache: skip (lock held)')
+        return
     try:
-        siglas = list(Tribunal.objects.filter(ativo=True).values_list('sigla', flat=True))
-    except Exception:
-        siglas = []
-
-    errors = 0
-    for dias in periodos:
-        try:
-            queries.kpis_globais(dias=dias, tribunais=None)
-        except Exception as e:
-            logger.warning('warm_kpis_cache dias=%s: %s', dias, e)
-            errors += 1
-    logger.info('warm_kpis_cache: concluído, %d erros', errors)
+        errors = 0
+        for dias in _PERIODOS:
+            try:
+                queries.compute_kpis_globais(dias=dias, tribunais=None)
+            except Exception as e:
+                logger.warning('warm_kpis_cache dias=%s: %s', dias, e)
+                errors += 1
+        logger.info('warm_kpis_cache: concluído, %d erros', errors)
+    finally:
+        cache.delete(lock_key)
 
 
 @job('default', timeout=120)
 def warm_partes_cache():
-    """Pré-aquece o cache da página /dashboard/partes/.
-
-    A query `distribuicao_tipos_partes` faz GROUP BY em ~1M rows e
-    leva ~5s a frio. Sem warm, o primeiro hit após expiração paga o
-    custo. TTL de 600s no `cache.set` casa com o intervalo desse job.
-    """
+    """Pré-aquece /dashboard/partes/. Lock impede pile-up em DB lento."""
+    lock_key = 'lock:warm_partes_cache'
+    if not cache.add(lock_key, '1', timeout=660):
+        logger.info('warm_partes_cache: skip (lock held)')
+        return
     try:
         queries.distribuicao_tipos_partes()
     except Exception as e:
         logger.warning('warm_partes_cache: %s', e)
+    finally:
+        cache.delete(lock_key)
 
 
 @job('default', timeout=120)
 def warm_workers_cache():
-    """Computa e armazena o snapshot de workers/filas no cache Redis.
-
-    Executado a cada 30s pelo APScheduler. O job roda num worker RQ
-    (sem timeout de gunicorn), então pode demorar 20-30s com Redis saturado.
-    A view status_workers() só lê do cache — nunca computa diretamente.
+    """Snapshot de workers/filas. Lock curto (50s) — cron de 30s.
+    A view só lê cache; computa só aqui.
     """
-    queries.compute_workers_snapshot()
+    lock_key = 'lock:warm_workers_cache'
+    if not cache.add(lock_key, '1', timeout=50):
+        return
+    try:
+        queries.compute_workers_snapshot()
+    finally:
+        cache.delete(lock_key)
