@@ -14,6 +14,13 @@
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2 mb-2 flex-wrap">
         <span class="badge bg-surface border-border text-fg-soft">{{ processo.tribunal_id }}</span>
+        {% if processo.classificacao == 'PRECATORIO' %}
+          <span class="badge bg-fg-soft/10 border-fg-soft/40 text-fg" title="Lead confirmado · score {{ processo.classificacao_score|floatformat:2 }}">💎 PRECATÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
+        {% elif processo.classificacao == 'PRE_PRECATORIO' %}
+          <span class="badge bg-fg-muted/10 border-fg-muted/40 text-fg-soft" title="Pré-precatório · score {{ processo.classificacao_score|floatformat:2 }}">⏳ PRÉ-PRECATÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
+        {% elif processo.classificacao == 'DIREITO_CREDITORIO' %}
+          <span class="badge bg-fg-subtle/10 border-fg-subtle/40 text-fg-muted" title="Potencial · score {{ processo.classificacao_score|floatformat:2 }}">🌱 DIREITO CREDITÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
+        {% endif %}
         {% if processo.enriquecimento_status == 'nao_encontrado' %}
           {% include 'dashboard/_partials/badge.html' with text='não encontrado no PJe' variant='warning' %}
         {% elif processo.enriquecimento_status == 'erro' %}

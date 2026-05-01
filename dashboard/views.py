@@ -672,6 +672,35 @@ def root(request):
 
 @login_required
 @require_GET
+def api_docs(request):
+    """Tela de documentação da API de leads — endpoints, exemplos, etc."""
+    from tribunals.models import ApiClient, ClassificadorVersao, LeadConsumption, Process
+    from django.db.models import Count
+
+    versao_ativa = ClassificadorVersao.objects.filter(ativa=True).first()
+    clientes = ApiClient.objects.filter(ativo=True).only('nome', 'criado_em')
+
+    # Stats globais (sem filtrar por cliente)
+    classif_counts = dict(
+        Process.objects.exclude(classificacao__isnull=True)
+        .values_list('classificacao').annotate(n=Count('id'))
+    )
+    consumos_total = LeadConsumption.objects.count()
+    consumos_resultado = dict(
+        LeadConsumption.objects.values_list('resultado').annotate(n=Count('id'))
+    )
+
+    return render(request, 'dashboard/api_docs.html', {
+        'versao_ativa': versao_ativa,
+        'clientes': clientes,
+        'classif_counts': classif_counts,
+        'consumos_total': consumos_total,
+        'consumos_resultado': consumos_resultado,
+    })
+
+
+@login_required
+@require_GET
 def consulta_rapida(request):
     """Tela de debug — consulta CNJ ao vivo no DJEN e Datajud sem salvar nada."""
     return render(request, 'dashboard/consulta_rapida.html', {

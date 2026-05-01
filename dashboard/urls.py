@@ -23,6 +23,7 @@ urlpatterns = [
     path('workers/', views.workers, name='workers'),
     path('consulta-rapida/', views.consulta_rapida, name='consulta-rapida'),
     path('consulta-rapida/api/', views.consulta_rapida_api, name='consulta-rapida-api'),
+    path('api/', views.api_docs, name='api-docs'),
     path('api/chart/<str:key>/', views.chart_data, name='api-chart'),
     path('jobs/<str:job_id>/status/', views.job_status, name='job-status'),
     path('wizard/', views.WizardView.as_view(), name='wizard'),

@@ -391,6 +391,11 @@
         {% voy_icon "eject" "w-4 h-4" %}
         Exportar
       </a>
+      {% url 'dashboard:api-docs' as api_docs_url %}
+      <a href="{{ api_docs_url }}" class="nav-item {% if api_docs_url in request.path %}active{% endif %}">
+        {% voy_icon "transmission" "w-4 h-4" %}
+        API
+      </a>
       {% if user.is_superuser %}
       {% url 'accounts:invites-list' as invites_url %}
       <a href="{{ invites_url }}" class="nav-item {% if invites_url in request.path %}active{% endif %}">

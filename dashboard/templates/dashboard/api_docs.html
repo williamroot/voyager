@@ -1,0 +1,234 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}API · docs{% endblock %}
+{% block content %}
+
+<div class="mb-5">
+  <h1 class="text-2xl font-semibold text-fg-soft mb-1">API de leads</h1>
+  <p class="text-sm text-fg-subtle">Endpoints REST para clientes externos consumirem processos classificados como leads (precatório / pré-precatório / direito creditório).</p>
+</div>
+
+<!-- Stats -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">💎 Precatório</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ classif_counts.PRECATORIO|default:0|format_int }}</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">⏳ Pré-precatório</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ classif_counts.PRE_PRECATORIO|default:0|format_int }}</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">🌱 Direito creditório</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ classif_counts.DIREITO_CREDITORIO|default:0|format_int }}</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">consumos totais</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ consumos_total|format_int }}</div>
+  </div>
+</div>
+
+<!-- Modelo ativo -->
+{% if versao_ativa %}
+<div class="card-tight mb-6">
+  <div class="flex items-baseline justify-between mb-2">
+    <div>
+      <h2 class="text-sm font-semibold text-fg-soft">Modelo classificador ativo</h2>
+      <span class="text-xs text-fg-subtle">treinado em {{ versao_ativa.criada_em|date:"d/m/Y H:i" }}</span>
+    </div>
+    <span class="badge bg-surface border-border text-fg-soft">{{ versao_ativa.versao }}</span>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+    <div><span class="text-fg-subtle">AUC:</span> <span class="text-fg-soft kpi-num">{{ versao_ativa.metricas.auc|floatformat:3 }}</span></div>
+    <div><span class="text-fg-subtle">precision@1k:</span> <span class="text-fg-soft kpi-num">{{ versao_ativa.metricas.precision_at_1000|floatformat:3 }}</span></div>
+    <div><span class="text-fg-subtle">precision@5k:</span> <span class="text-fg-soft kpi-num">{{ versao_ativa.metricas.precision_at_5000|floatformat:3 }}</span></div>
+    <div><span class="text-fg-subtle">precision@10k:</span> <span class="text-fg-soft kpi-num">{{ versao_ativa.metricas.precision_at_10000|floatformat:3 }}</span></div>
+    <div><span class="text-fg-subtle">features:</span> <span class="text-fg-soft kpi-num">{{ versao_ativa.metricas.n_features }}</span></div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Auth -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2">Autenticação</h2>
+  <p class="text-xs text-fg-muted mb-3">Toda request precisa de um header <code class="font-mono bg-muted px-1 py-0.5 rounded">X-API-Key</code> com a chave do cliente. Chaves são geradas via Django admin (modelo <code>ApiClient</code>).</p>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>X-API-Key: &lt;sua-chave&gt;</code></pre>
+  {% if clientes %}
+  <div class="mt-3">
+    <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Clientes ativos</div>
+    <div class="flex flex-wrap gap-2">
+      {% for c in clientes %}<span class="badge bg-surface border-border text-fg-soft">{{ c.nome }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- GET /api/v1/leads/ -->
+<div class="card-tight mb-4">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="badge bg-info/15 border-info/30 text-info font-mono">GET</span>
+    <code class="text-sm font-mono text-fg-soft">/api/v1/leads/</code>
+  </div>
+  <p class="text-xs text-fg-muted mb-3">Lista próximos N leads não consumidos pelo cliente. Por padrão exclui processos já marcados como consumidos.</p>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Query params</div>
+  <table class="w-full text-xs mb-3">
+    <tbody class="divide-y divide-border">
+      <tr><td class="font-mono text-accent-fg py-1.5 pr-3">nivel</td><td class="text-fg-muted py-1.5">PRECATORIO (default) · PRE_PRECATORIO · DIREITO_CREDITORIO</td></tr>
+      <tr><td class="font-mono text-accent-fg py-1.5 pr-3">tribunal</td><td class="text-fg-muted py-1.5">TRF1 · TRF3 · vazio = todos</td></tr>
+      <tr><td class="font-mono text-accent-fg py-1.5 pr-3">limit</td><td class="text-fg-muted py-1.5">1..10000 (default 5000)</td></tr>
+      <tr><td class="font-mono text-accent-fg py-1.5 pr-3">min_score</td><td class="text-fg-muted py-1.5">0..1 (default 0)</td></tr>
+      <tr><td class="font-mono text-accent-fg py-1.5 pr-3">incluir_consumidos</td><td class="text-fg-muted py-1.5">1/true/sim — retorna mesmo já consumidos</td></tr>
+    </tbody>
+  </table>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Exemplo</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>curl -H 'X-API-Key: &lt;sua-chave&gt;' \
+  'https://voyager.was.dev.br/api/v1/leads/?nivel=PRECATORIO&limit=5000'</code></pre>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mt-3 mb-1">Response</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>{
+  "count": 5000,
+  "limit": 5000,
+  "nivel": "PRECATORIO",
+  "tribunal": null,
+  "min_score": 0.0,
+  "results": [
+    {
+      "cnj": "1047957-32.2025.4.01.3300",
+      "tribunal": "TRF1",
+      "classificacao": "PRECATORIO",
+      "score": 0.989,
+      "classe_nome": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+      "classe_codigo": "12078",
+      "ano_cnj": 2025,
+      "classificado_em": "2026-04-30T20:51:14Z",
+      "classificacao_versao": "v5",
+      "link_voyager": "https://voyager.was.dev.br/dashboard/processos/1446087/"
+    }
+  ]
+}</code></pre>
+</div>
+
+<!-- POST /api/v1/leads/consumed/ -->
+<div class="card-tight mb-4">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="badge bg-accent/15 border-accent/30 text-accent-fg font-mono">POST</span>
+    <code class="text-sm font-mono text-fg-soft">/api/v1/leads/consumed/</code>
+  </div>
+  <p class="text-xs text-fg-muted mb-3">Marca processos como consumidos com resultado. Cada chamada cria registro novo (re-consumo permitido).</p>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Body</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>{
+  "consumos": [
+    {"cnj": "1047957-32.2025.4.01.3300", "resultado": "validado"},
+    {"cnj": "1036737-37.2025.4.01.3300", "resultado": "sem_expedicao"},
+    {"cnj": "1093994-45.2024.4.01.3400", "resultado": "pago"}
+  ]
+}</code></pre>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mt-3 mb-1">Resultados aceitos</div>
+  <div class="flex flex-wrap gap-2 text-xs mb-3">
+    <span class="badge bg-surface border-border text-fg-soft">validado</span>
+    <span class="badge bg-surface border-border text-fg-soft">sem_expedicao</span>
+    <span class="badge bg-surface border-border text-fg-soft">erro</span>
+    <span class="badge bg-surface border-border text-fg-soft">pendente</span>
+    <span class="badge bg-surface border-border text-fg-soft">pago</span>
+    <span class="badge bg-surface border-border text-fg-soft">arquivado</span>
+    <span class="badge bg-surface border-border text-fg-soft">cedido</span>
+  </div>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Exemplo</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>curl -X POST -H 'X-API-Key: &lt;sua-chave&gt;' \
+  -H 'Content-Type: application/json' \
+  -d '{"consumos":[{"cnj":"1047957-32.2025.4.01.3300","resultado":"validado"}]}' \
+  'https://voyager.was.dev.br/api/v1/leads/consumed/'</code></pre>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mt-3 mb-1">Response (201)</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>{ "criados": 1, "nao_encontrados": [] }</code></pre>
+</div>
+
+<!-- GET /api/v1/leads/stats/ -->
+<div class="card-tight mb-4">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="badge bg-info/15 border-info/30 text-info font-mono">GET</span>
+    <code class="text-sm font-mono text-fg-soft">/api/v1/leads/stats/</code>
+  </div>
+  <p class="text-xs text-fg-muted mb-3">Métricas agregadas pra esse cliente: pendentes por nível, consumidos hoje/total, taxa de validação, versão do modelo.</p>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Response</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>{
+  "pending": {
+    "PRECATORIO": 4521,
+    "PRE_PRECATORIO": 12330,
+    "DIREITO_CREDITORIO": 78112
+  },
+  "consumidos_total": 5000,
+  "consumidos_hoje": 5000,
+  "consumidos_por_resultado": {
+    "validado": 4180,
+    "sem_expedicao": 720,
+    "pago": 100
+  },
+  "validados_total": 4180,
+  "taxa_validacao": 0.836,
+  "modelo_versao": "v5",
+  "modelo_atualizado_em": "2026-04-30T20:51:14Z"
+}</code></pre>
+</div>
+
+<!-- Classificação explicada -->
+<div class="card-tight mb-4">
+  <h2 class="text-sm font-semibold text-fg-soft mb-3">Como a classificação funciona</h2>
+  <p class="text-xs text-fg-muted mb-3">Cada processo é avaliado por um modelo de <strong>Logistic Regression</strong> com 19 features (classe judicial, presença de movs específicas como precatório/RPV, contagem de movs, recência, idade, partes). O modelo retorna uma probabilidade [0,1] e a hierarquia abaixo determina a categoria.</p>
+
+  <table class="w-full text-xs">
+    <thead class="text-fg-subtle uppercase tracking-wider">
+      <tr><th class="text-left py-1.5">Categoria</th><th class="text-left py-1.5">Critério</th><th class="text-left py-1.5">Ação</th></tr>
+    </thead>
+    <tbody class="divide-y divide-border">
+      <tr>
+        <td class="py-2"><span class="badge bg-fg-soft/10 border-fg-soft/40 text-fg">💎 PRECATÓRIO</span></td>
+        <td class="text-fg-muted py-2">score &gt; 0.7 + tem expedição explícita (precatório/RPV no texto ou tipo)</td>
+        <td class="text-fg-muted py-2">Fila imediata pra baixar autos</td>
+      </tr>
+      <tr>
+        <td class="py-2"><span class="badge bg-fg-muted/10 border-fg-muted/40 text-fg-soft">⏳ PRÉ-PRECATÓRIO</span></td>
+        <td class="text-fg-muted py-2">score &gt; 0.4 + classe de Cumprimento contra Fazenda</td>
+        <td class="text-fg-muted py-2">Re-checar mensalmente</td>
+      </tr>
+      <tr>
+        <td class="py-2"><span class="badge bg-fg-subtle/10 border-fg-subtle/40 text-fg-muted">🌱 DIREITO CREDITÓRIO</span></td>
+        <td class="text-fg-muted py-2">score &gt; 0.2 + classe de Cumprimento</td>
+        <td class="text-fg-muted py-2">Watch-list</td>
+      </tr>
+      <tr>
+        <td class="py-2"><span class="text-fg-subtle">não-lead</span></td>
+        <td class="text-fg-muted py-2">demais</td>
+        <td class="text-fg-muted py-2">ignorar</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card-tight mb-4">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2">Triggers automáticos</h2>
+  <ul class="text-xs text-fg-muted space-y-1.5 list-disc list-inside">
+    <li><strong class="text-fg-soft">Após cada sync</strong> (Datajud/DJEN), processo com mov nova é re-classificado automaticamente.</li>
+    <li><strong class="text-fg-soft">Cron 03:00 diário</strong>: re-classifica todos processos com mov nos últimos 7 dias (caso modelo mude ou features evoluam).</li>
+    <li><strong class="text-fg-soft">Re-treino:</strong> manual via novo registro em <code>ClassificadorVersao</code> (apenas 1 versão ativa por vez).</li>
+  </ul>
+</div>
+
+{% if consumos_resultado %}
+<div class="card-tight mb-4">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2">Consumos agregados (todos clientes)</h2>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+    {% for resultado, n in consumos_resultado.items %}
+    <div><span class="text-fg-subtle">{{ resultado }}:</span> <span class="text-fg-soft kpi-num">{{ n|format_int }}</span></div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

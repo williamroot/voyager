@@ -1,10 +1,16 @@
+import secrets
+
 from django.contrib import admin
 from django.utils import timezone
 
 from .models import (
+    ApiClient,
     Assunto,
     ClasseJudicial,
+    ClassificacaoLog,
+    ClassificadorVersao,
     IngestionRun,
+    LeadConsumption,
     Movimentacao,
     Parte,
     Process,
@@ -12,6 +18,51 @@ from .models import (
     SchemaDriftAlert,
     Tribunal,
 )
+
+
+@admin.register(ApiClient)
+class ApiClientAdmin(admin.ModelAdmin):
+    list_display = ('nome', 'api_key_preview', 'ativo', 'criado_em')
+    list_filter = ('ativo',)
+    search_fields = ('nome',)
+    readonly_fields = ('api_key', 'criado_em')
+
+    def api_key_preview(self, obj):
+        return f'{obj.api_key[:6]}…{obj.api_key[-4:]}' if obj.api_key else '—'
+
+    def save_model(self, request, obj, form, change):
+        if not obj.api_key:
+            obj.api_key = secrets.token_urlsafe(32)
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(ClassificadorVersao)
+class ClassificadorVersaoAdmin(admin.ModelAdmin):
+    list_display = ('versao', 'ativa', 'auc', 'precision_at_5k', 'criada_em')
+    list_filter = ('ativa',)
+    readonly_fields = ('criada_em',)
+
+    def auc(self, obj):
+        return f"{obj.metricas.get('auc', 0):.3f}"
+
+    def precision_at_5k(self, obj):
+        return f"{obj.metricas.get('precision_at_5000', 0):.3f}"
+
+
+@admin.register(LeadConsumption)
+class LeadConsumptionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'cliente', 'processo', 'resultado', 'consumido_em')
+    list_filter = ('cliente', 'resultado')
+    search_fields = ('processo__numero_cnj',)
+    readonly_fields = ('consumido_em',)
+
+
+@admin.register(ClassificacaoLog)
+class ClassificacaoLogAdmin(admin.ModelAdmin):
+    list_display = ('id', 'processo', 'classificacao', 'score', 'versao', 'criada_em')
+    list_filter = ('classificacao', 'versao')
+    search_fields = ('processo__numero_cnj',)
+    readonly_fields = ('criada_em',)
 
 
 @admin.register(Tribunal)
