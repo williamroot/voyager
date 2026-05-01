@@ -15,6 +15,7 @@ from django.db import close_old_connections
 from tribunals.models import Tribunal
 
 from dashboard.tasks import (
+    refresh_materialized_views,
     warm_chart_cache,
     warm_kpis_cache,
     warm_partes_cache,
@@ -152,6 +153,18 @@ def create_scheduler() -> BlockingScheduler:
         'interval',
         minutes=5,
         id='warm_partes_cache',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # REFRESH MATERIALIZED VIEW CONCURRENTLY: a cada 5min.
+    # MVs cobrem volume_temporal e ingestion_rate_por_hora — agregados de 75M rows.
+    scheduler.add_job(
+        refresh_materialized_views.delay,
+        'interval',
+        minutes=5,
+        id='refresh_materialized_views',
         replace_existing=True,
         max_instances=1,
         coalesce=True,

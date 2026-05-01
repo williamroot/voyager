@@ -95,6 +95,30 @@ def warm_partes_cache():
         cache.delete(lock_key)
 
 
+@job('default', timeout=600)
+def refresh_materialized_views():
+    """REFRESH MATERIALIZED VIEW CONCURRENTLY pras MVs do dashboard.
+
+    Executa a cada 5min. CONCURRENTLY garante que reads não bloqueiam.
+    Lock impede pile-up se REFRESH demorar (75M rows na origem da MV).
+    """
+    from django.db import connection
+    lock_key = 'lock:refresh_mv'
+    if not cache.add(lock_key, '1', timeout=540):
+        logger.info('refresh_materialized_views: skip (lock held)')
+        return
+    try:
+        with connection.cursor() as cur:
+            for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora'):
+                try:
+                    cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}')
+                    logger.info('refresh MV %s ok', mv)
+                except Exception as e:
+                    logger.warning('refresh MV %s falhou: %s', mv, e)
+    finally:
+        cache.delete(lock_key)
+
+
 @job('default', timeout=120)
 def warm_workers_cache():
     """Snapshot de workers/filas. Lock curto (50s) — cron de 30s.
