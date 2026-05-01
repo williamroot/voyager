@@ -13,12 +13,14 @@ logger = logging.getLogger('voyager.tribunals.jobs')
 
 
 @job('default', timeout=14400)
-def reclassificar_recentes(dias: int = 7, batch_size: int = 1000) -> dict:
+def reclassificar_recentes(dias: int = 7, batch_size: int = 1000,
+                           cap_nunca_classificados: int = 500_000) -> dict:
     """Re-classifica processos com mov inserida nos últimos N dias.
 
     Idempotente — atualiza Process.classificacao_em a cada run.
     Re-classifica também processos NUNCA classificados (classificacao_em IS NULL)
-    pra cobrir backlog inicial.
+    pra cobrir backlog inicial. Cap default 500k é suficiente pra rodar
+    de hora em hora e drenar ~2.4M backlog em alguns dias.
     """
     cutoff = timezone.now() - timedelta(days=dias)
 
@@ -31,7 +33,7 @@ def reclassificar_recentes(dias: int = 7, batch_size: int = 1000) -> dict:
     pids_recentes = set(pids_qs)
     nunca_classificados = set(
         Process.objects.filter(classificacao_em__isnull=True)
-        .values_list('id', flat=True)[:50000]  # cap pra não estourar
+        .values_list('id', flat=True)[:cap_nunca_classificados]
     )
     pids_alvo = list(pids_recentes | nunca_classificados)
     logger.info(
@@ -55,3 +57,22 @@ def reclassificar_recentes(dias: int = 7, batch_size: int = 1000) -> dict:
     logger.info('reclassificar_recentes done: ok=%d fail=%d versao=%s',
                 n_done, n_fail, VERSAO)
     return {'classificados': n_done, 'falhas': n_fail, 'versao': VERSAO}
+
+
+@job('default', timeout=600)
+def reclassificar_batch(process_ids: list[int]) -> dict:
+    """Reclassifica um lote de processos passados por ID. Usado pelo
+    auto-enqueue da ingestão DJEN quando processos recebem movs novas
+    via UF strategy mas não disparam Datajud sync (cutoff de 24h em
+    `_enfileirar_todos_enrichments`). Sem este caminho, novas movs
+    descobertas só seriam reclassificadas no cron de hora em hora.
+    """
+    n_done = 0; n_fail = 0
+    for p in Process.objects.filter(pk__in=process_ids).iterator(chunk_size=200):
+        try:
+            classificar_e_persistir(p, registrar_log=True)
+            n_done += 1
+        except Exception as exc:
+            logger.warning('reclassificar_batch fail pid=%d: %s', p.pk, exc)
+            n_fail += 1
+    return {'classificados': n_done, 'falhas': n_fail}

@@ -17,25 +17,21 @@
 </div>
 
 <!-- Filtros -->
-<div class="card-tight mb-4" x-data="leadsFilters()">
-  <div class="flex flex-wrap items-center gap-3 text-sm">
-    <span class="text-xs text-fg-subtle uppercase tracking-wider">Filtros</span>
+<div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <span class="text-xs text-fg-subtle uppercase tracking-wider">Tribunal:</span>
+    <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
+    {% for t in tribunais %}<a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if t.sigla == tribunal_filtro %}active{% endif %}">{{ t.sigla }}</a>{% endfor %}
 
-    <select x-model="tribunal" @change="apply()" class="bg-bg-subtle border border-border rounded-md px-2 py-1 text-sm">
-      <option value="">todos tribunais</option>
-      {% for t in tribunais %}<option value="{{ t.sigla }}" {% if t.sigla == tribunal_filtro %}selected{% endif %}>{{ t.sigla }}</option>{% endfor %}
-    </select>
+    <span class="text-xs text-fg-subtle uppercase tracking-wider ml-3">Nível:</span>
+    {% for v, label in niveis %}<a href="?{% query_string request nivel=v %}" class="chip {% if v == nivel_filtro %}active{% endif %}">{{ label }}</a>{% endfor %}
+  </div>
 
-    <select x-model="nivel" @change="apply()" class="bg-bg-subtle border border-border rounded-md px-2 py-1 text-sm">
-      {% for v, label in niveis %}<option value="{{ v }}" {% if v == nivel_filtro %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-
-    <select x-model="dias" @change="apply()" class="bg-bg-subtle border border-border rounded-md px-2 py-1 text-sm">
-      <option value="7">últimos 7 dias</option>
-      <option value="30" {% if periodo_dias == 30 %}selected{% endif %}>últimos 30 dias</option>
-      <option value="90">últimos 90 dias</option>
-      <option value="365">últimos 12 meses</option>
-    </select>
+  <div class="flex gap-1 items-center text-xs bg-card/60 border border-border rounded-xl p-1">
+    <a href="?{% query_string request dias=7 %}"   class="px-3 py-1.5 rounded-lg {% if periodo_dias == 7 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">7 dias</a>
+    <a href="?{% query_string request dias=30 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">30 dias</a>
+    <a href="?{% query_string request dias=90 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">90 dias</a>
+    <a href="?{% query_string request dias=365 %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 365 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">1 ano</a>
   </div>
 </div>
 
@@ -51,37 +47,71 @@
 <!-- KPIs (lazy load via fetch) -->
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5"
      x-data="leadsKpis()" x-init="load()" data-leads-block="kpis">
-  <div class="card-tight">
-    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">💎 Backlog N1</div>
+
+  <div class="card-tight" title="Quantos processos foram classificados como Precatório e ainda NÃO foram consumidos pelo Juriscope (não estão na fila de baixar autos). Esse é o estoque disponível para enviar agora.">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
+      💎 Backlog Precatório
+      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+    </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n1_pendente)">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1" x-show="d.runway_dias != null">
-      ~<span x-text="d.runway_dias"></span> dias de runway
+    <div class="text-[0.65rem] text-fg-subtle mt-1">
+      <template x-if="d.runway_dias != null">
+        <span>≈ <strong x-text="d.runway_dias"></strong> dias até esgotar (no ritmo atual)</span>
+      </template>
+      <template x-if="d.runway_dias == null && d.juriscope_ativo">
+        <span>aguardando Juriscope começar a consumir</span>
+      </template>
     </div>
   </div>
-  <div class="card-tight">
-    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Taxa de validação 30d</div>
+
+  <div class="card-tight" title="% dos processos consumidos pelo Juriscope nos últimos 30 dias que foram CONFIRMADOS como lead (resultado=validado ou pago). Compara com a precision do treino — se cair muito abaixo, o modelo pode estar degradando.">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
+      ✅ Taxa de validação 30d
+      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+    </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.taxa_validacao_30d != null ? (d.taxa_validacao_30d*100).toFixed(1) + '%' : '—'">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1" x-show="d.taxa_validacao_treino">
-      treino: <span x-text="(d.taxa_validacao_treino*100).toFixed(1)"></span>%
+    <div class="text-[0.65rem] text-fg-subtle mt-1">
+      <template x-if="d.taxa_validacao_30d == null"><span>sem dados (Juriscope ainda não validou)</span></template>
+      <template x-if="d.taxa_validacao_30d != null">
+        <span>esperado pelo treino: <strong x-text="(d.taxa_validacao_treino*100).toFixed(1)"></strong>%</span>
+      </template>
     </div>
   </div>
-  <div class="card-tight">
-    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Descobertos/dia</div>
+
+  <div class="card-tight" title="Quantos novos processos viraram Precatório por dia, em média, nos últimos 7 dias. Mede a velocidade de descoberta — quanto novo lead está entrando.">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
+      📥 Descobertos/dia
+      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+    </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.throughput_descobertos_dia">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">média 7d</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">média móvel 7 dias</div>
   </div>
-  <div class="card-tight">
-    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Consumidos/dia</div>
+
+  <div class="card-tight" title="Quantos processos o Juriscope marcou como consumidos por dia, em média, nos últimos 7 dias. Se descobertos > consumidos = backlog crescendo (saudável). Se consumidos > descobertos = vai esgotar logo.">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
+      📤 Consumidos/dia
+      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+    </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.throughput_consumidos_dia">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">via Juriscope, 7d</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">via Juriscope · últimos 7 dias</div>
   </div>
-  <div class="card-tight">
-    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">⏳ N2 total</div>
+
+  <div class="card-tight" title="Total de processos classificados como Pré-precatório — perto de virar precatório. Em homologação dos cálculos. Re-checar mensalmente.">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
+      ⏳ Pré-precatório
+      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+    </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n2_total)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">total classificados pré-precatório</div>
   </div>
-  <div class="card-tight">
-    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">🌱 N3 total</div>
+
+  <div class="card-tight" title="Total de processos classificados como Direito Creditório — sinais batem mas ainda longe da homologação. Watch-list, re-checar trimestralmente.">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
+      🌱 Direito creditório
+      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+    </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n3_total)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">total classificados direito creditório</div>
   </div>
 </div>
 
@@ -89,7 +119,7 @@
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
   <div class="card">
     <div class="text-sm font-medium text-fg-soft mb-1">Oferta vs consumo</div>
-    <div class="text-xs text-fg-subtle mb-2">leads N1 descobertos vs consumidos por dia</div>
+    <div class="text-xs text-fg-subtle mb-2">leads precatório descobertos vs consumidos por dia</div>
     <div class="h-72 chart-cell">
       <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
       <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:leads-chart' 'timeseries' %}?{% query_string request %}', d => buildLeadsTimeseries(d))" class="absolute inset-0"></div>
@@ -127,7 +157,7 @@
 
 <!-- Distribuição de score -->
 <div class="card mb-4">
-  <div class="text-sm font-medium text-fg-soft mb-1">Distribuição de score (N1)</div>
+  <div class="text-sm font-medium text-fg-soft mb-1">Distribuição de score (Precatório)</div>
   <div class="text-xs text-fg-subtle mb-2">histograma — quantos processos por bucket de probabilidade</div>
   <div class="h-56 chart-cell">
     <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
@@ -181,9 +211,13 @@ function leadsKpis() {
 // Chart builders
 function buildLeadsTimeseries(d) {
   const c = chartGridColors();
+  const isDark = document.documentElement.classList.contains('dark');
   const allDates = [...new Set([...(d.descobertos || []).map(x => x.dia), ...(d.consumidos || []).map(x => x.dia)])].sort();
   const descobMap = Object.fromEntries((d.descobertos || []).map(x => [x.dia, x.n]));
   const consMap = Object.fromEntries((d.consumidos || []).map(x => [x.dia, x.n]));
+  // Cores com contraste alto pelo tema
+  const cor1 = isDark ? '#f4f4f5' : '#18181b';   // descobertos — destaque
+  const cor2 = isDark ? '#71717a' : '#a1a1aa';   // consumidos — secundário
   return {
     tooltip: {trigger: 'axis', valueFormatter: fmt},
     legend: {top: 0, textStyle: {color: c.legend}},
@@ -191,8 +225,11 @@ function buildLeadsTimeseries(d) {
     xAxis: {type: 'category', data: allDates, axisLabel: {color: c.axisLabel, fontSize: 11}, axisLine: {lineStyle: {color: c.axisLine}}},
     yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
     series: [
-      {name: 'descobertos N1', type: 'line', smooth: 0.3, symbol: 'none', data: allDates.map(d => descobMap[d] || 0), lineStyle: {width: 2.5}, color: '#52525b'},
-      {name: 'consumidos', type: 'line', smooth: 0.3, symbol: 'none', data: allDates.map(d => consMap[d] || 0), lineStyle: {width: 2, type: 'dashed'}, color: '#a1a1aa'},
+      {name: 'descobertos precatório', type: 'line', smooth: 0.3, symbol: 'circle', symbolSize: 5,
+       data: allDates.map(d => descobMap[d] || 0), lineStyle: {width: 2.5}, color: cor1,
+       areaStyle: {opacity: 0.12}},
+      {name: 'consumidos', type: 'line', smooth: 0.3, symbol: 'circle', symbolSize: 4,
+       data: allDates.map(d => consMap[d] || 0), lineStyle: {width: 2, type: 'dashed'}, color: cor2},
     ],
   };
 }
@@ -200,22 +237,63 @@ function buildLeadsTimeseries(d) {
 function buildLeadsByTribunal(rows) {
   const c = chartGridColors();
   const cats = rows.map(r => r.tribunal);
+  const isDark = document.documentElement.classList.contains('dark');
+
+  // Em DARK fundo escuro → cores claras pra contraste; em LIGHT → escuras.
+  // Hierarquia: N1 (mais importante) = mais saturado/contrastante.
+  const colors = isDark
+    ? {n1: '#f4f4f5', n2: '#a1a1aa', n3: '#52525b'}
+    : {n1: '#18181b', n2: '#52525b', n3: '#a1a1aa'};
+  const labelColor = isDark ? '#f4f4f5' : '#27272a';
+
+  const totals = rows.map(r => (r.n1 || 0) + (r.n2 || 0) + (r.n3 || 0));
+
   return {
-    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, valueFormatter: fmt},
+    tooltip: {
+      trigger: 'axis', axisPointer: {type: 'shadow'},
+      formatter: (params) => {
+        const idx = params[0].dataIndex;
+        const tot = totals[idx] || 0;
+        let html = `<strong>${params[0].axisValue}</strong> · ${fmt(tot)} total<br/>`;
+        params.forEach(p => {
+          const pct = tot > 0 ? (p.value / tot * 100).toFixed(1) : '0.0';
+          html += `${p.marker} ${p.seriesName}: <strong>${fmt(p.value)}</strong> <span style="opacity:.6">(${pct}%)</span><br/>`;
+        });
+        return html;
+      },
+    },
     legend: {top: 0, textStyle: {color: c.legend}},
-    grid: {left: 60, right: 20, top: 30, bottom: 30},
+    grid: {left: 60, right: 70, top: 30, bottom: 30},
     xAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
-    yAxis: {type: 'category', data: cats, axisLabel: {color: c.axisLabel}, axisLine: {lineStyle: {color: c.axisLine}}},
+    yAxis: {type: 'category', data: cats, axisLabel: {color: c.axisLabel, fontWeight: 600}, axisLine: {lineStyle: {color: c.axisLine}}},
     series: [
-      {name: '💎 N1', type: 'bar', stack: 'total', data: rows.map(r => r.n1), itemStyle: {color: '#52525b'}},
-      {name: '⏳ N2', type: 'bar', stack: 'total', data: rows.map(r => r.n2), itemStyle: {color: '#a1a1aa'}},
-      {name: '🌱 N3', type: 'bar', stack: 'total', data: rows.map(r => r.n3), itemStyle: {color: '#d4d4d8'}},
+      {
+        name: '💎 Precatório', type: 'bar', data: rows.map(r => r.n1),
+        itemStyle: {color: colors.n1, borderRadius: [0, 4, 4, 0]}, barGap: '20%', barCategoryGap: '30%',
+        label: {show: true, position: 'right', formatter: p => p.value > 0 ? fmt(p.value) : '',
+                color: c.axisLabel, fontSize: 11, fontWeight: 'bold'},
+      },
+      {
+        name: '⏳ Pré-precatório', type: 'bar', data: rows.map(r => r.n2),
+        itemStyle: {color: colors.n2, borderRadius: [0, 4, 4, 0]},
+        label: {show: true, position: 'right', formatter: p => p.value > 0 ? fmt(p.value) : '',
+                color: c.axisLabel, fontSize: 11},
+      },
+      {
+        name: '🌱 Direito Creditório', type: 'bar', data: rows.map(r => r.n3),
+        itemStyle: {color: colors.n3, borderRadius: [0, 4, 4, 0]},
+        label: {show: true, position: 'right', formatter: p => p.value > 0 ? fmt(p.value) : '',
+                color: c.axisLabel, fontSize: 11},
+      },
     ],
   };
 }
 
 function buildCalibration(d) {
   const c = chartGridColors();
+  const isDark = document.documentElement.classList.contains('dark');
+  const cor1 = isDark ? '#f4f4f5' : '#18181b';
+  const cor2 = isDark ? '#71717a' : '#a1a1aa';
   const rows = d.rows || [];
   if (!rows.length) {
     return {
@@ -223,14 +301,18 @@ function buildCalibration(d) {
     };
   }
   return {
-    tooltip: {trigger: 'axis', formatter: p => p.map(s => `${s.seriesName}: ${(s.value*100).toFixed(1)}%`).join('<br>')},
+    tooltip: {trigger: 'axis', formatter: p => p.map(s => `${s.marker} ${s.seriesName}: ${(s.value*100).toFixed(1)}%`).join('<br>')},
     legend: {top: 0, textStyle: {color: c.legend}},
     grid: {left: 50, right: 20, top: 30, bottom: 40},
     xAxis: {type: 'category', data: rows.map(r => `D${r.decil}`), axisLabel: {color: c.axisLabel}, axisLine: {lineStyle: {color: c.axisLine}}},
     yAxis: {type: 'value', min: 0, max: 1, axisLabel: {color: c.axisLabel, formatter: v => (v*100).toFixed(0) + '%'}, splitLine: {lineStyle: {color: c.splitLine}}},
     series: [
-      {name: 'score previsto', type: 'line', smooth: 0.2, symbol: 'circle', data: rows.map(r => r.score_med), lineStyle: {color: '#a1a1aa', width: 2, type: 'dashed'}, color: '#a1a1aa'},
-      {name: 'taxa real validação', type: 'line', smooth: 0.2, symbol: 'circle', data: rows.map(r => r.taxa_real), lineStyle: {color: '#27272a', width: 2.5}, color: '#27272a'},
+      {name: 'score previsto', type: 'line', smooth: 0.2, symbol: 'circle', symbolSize: 6,
+       data: rows.map(r => r.score_med),
+       lineStyle: {color: cor2, width: 2, type: 'dashed'}, color: cor2},
+      {name: 'taxa real validação', type: 'line', smooth: 0.2, symbol: 'circle', symbolSize: 7,
+       data: rows.map(r => r.taxa_real),
+       lineStyle: {color: cor1, width: 3}, color: cor1},
     ],
   };
 }
@@ -245,7 +327,7 @@ function buildLeadsFunnel(d) {
   };
   const por_res = d.por_resultado || {};
   const data = [
-    {value: d.descobertos || 0, name: '1. descobertos N1'},
+    {value: d.descobertos || 0, name: '1. descobertos precatório'},
     {value: d.consumidos_total || 0, name: '2. consumidos'},
     ...Object.entries(por_res).map(([k, v]) => ({value: v, name: `3. ${k}`, itemStyle: {color: result_colors[k] || '#a1a1aa'}})),
   ];
@@ -265,13 +347,27 @@ function buildLeadsFunnel(d) {
 
 function buildScoreHist(d) {
   const c = chartGridColors();
+  const isDark = document.documentElement.classList.contains('dark');
   const bins = d.bins || [];
+  // Gradient: bins de score baixo cinza-claro, score alto cinza-escuro/branco
   return {
-    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, valueFormatter: fmt},
+    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'},
+              formatter: p => `bin ${p[0].axisValue}–${(parseFloat(p[0].axisValue)+0.05).toFixed(2)}: <strong>${fmt(p[0].value)}</strong> processos`},
     grid: {left: 50, right: 20, top: 20, bottom: 40},
     xAxis: {type: 'category', data: bins.map(b => b.lo.toFixed(2)), axisLabel: {color: c.axisLabel, fontSize: 10}, axisLine: {lineStyle: {color: c.axisLine}}},
     yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
-    series: [{type: 'bar', data: bins.map(b => b.n), itemStyle: {color: '#52525b'}, barMaxWidth: 30}],
+    series: [{
+      type: 'bar', data: bins.map((b, i) => ({
+        value: b.n,
+        itemStyle: {
+          // intensidade cresce com score
+          color: isDark
+            ? `rgba(244,244,245,${0.25 + (i/19)*0.75})`
+            : `rgba(24,24,27,${0.20 + (i/19)*0.75})`,
+          borderRadius: [3, 3, 0, 0],
+        },
+      })), barMaxWidth: 32,
+    }],
   };
 }
 </script>
