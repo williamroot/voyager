@@ -227,6 +227,19 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
             tribunal.sigla, dia, len(all_items), len(UF_OABS), len(uf_erros),
         )
 
+        # Falha o run se a coleta foi degradada demais — antes, qualquer
+        # combinação de UFs com erro virava success silencioso, mascarando
+        # perda total de dados em ondas de WAF.
+        limiar_erros = max(1, len(UF_OABS) // 2)  # >=14/27 UFs falhando
+        if len(uf_erros) >= limiar_erros:
+            raise RuntimeError(
+                f'UF strategy degradada: {len(uf_erros)}/{len(UF_OABS)} UFs falharam'
+            )
+        if not all_items and uf_erros:
+            raise RuntimeError(
+                f'UF strategy: zero itens coletados com {len(uf_erros)} UFs em erro'
+            )
+
         for i in range(0, len(all_items), BATCH_SIZE):
             _process_page(all_items[i:i + BATCH_SIZE], tribunal, run, cnjs_tocados)
 

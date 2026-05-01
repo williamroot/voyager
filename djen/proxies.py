@@ -155,6 +155,11 @@ class ProxyScrapePool:
         bad_count = self.redis.zcount(PROXY_BAD_ZSET, now, '+inf')
         return {'total': total, 'bad': bad_count, 'saudaveis': max(total - bad_count, 0)}
 
+    def is_degraded(self) -> bool:
+        """Pool está em estado crítico (saudáveis abaixo do limiar de refresh).
+        Cliente DJEN usa pra forçar mais tráfego via Cortex residencial."""
+        return len(self._healthy_list()) < self.refresh_threshold
+
 
 def cortex_proxy_url(pool: Optional['ProxyScrapePool'] = None) -> Optional[str]:
     if not (settings.CORTEX_FALLBACK_ENABLED and settings.CORTEX_PROXY_URL):

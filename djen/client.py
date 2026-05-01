@@ -178,7 +178,10 @@ class DJENClient:
         elif prefer_other_than == 'pool':
             quer_cortex = True
         else:
-            quer_cortex = random.random() < self.cortex_ratio
+            # Quando pool degradado, joga 90% via Cortex — datacenter queimado
+            # não vale a aposta de 50/50.
+            ratio = 0.9 if self.pool.is_degraded() else self.cortex_ratio
+            quer_cortex = random.random() < ratio
 
         if quer_cortex and cortex:
             return cortex, 'cortex'
