@@ -111,3 +111,44 @@ Decisões arquiteturais relevantes com motivação. Estilo ADR enxuto.
 - `/api/v1/health/` — readiness rico, 503 se DB/Redis fora ou lag>36h. Usado por monitoring externo. Drift NÃO trippa 503 (só aparece no payload).
 
 **Consequência:** Sistema fica disponível mesmo com schema drift. Monitoring vê o problema sem derrubar a app.
+
+## ADR-014 — Logistic Regression (puro Python) vs sklearn/XGBoost pra classificação de leads
+
+**Contexto:** Precisava de modelo pra classificar 887k+ processos como Precatório/Pré/Direito Creditório. Container web já tinha Django + dependências mínimas — adicionar sklearn (50MB+) ou xgboost (200MB+) inflaria imagem. Plus, treino é 1x manual; inferência é per-processo (1 dot-product de 19 floats).
+
+**Decisão:** Logistic Regression manual com gradient descent batch + L2:
+- Treino: numpy puro (instalado on-demand quando re-treinar)
+- Inferência: pesos hardcoded em `tribunals/classificador.py` como dict Python
+- Features: 19 dimensões — binárias (presença) + log-normalizadas (volume) + z-score (recência/ano)
+- Hierarquia categorial em código (regras + thresholds), não no modelo (modelo só dá score 0..1)
+
+**Consequência:**
+- Imagem leve, sem dependências adicionais runtime
+- Inference <1ms por processo (negligível no path de sync)
+- Re-treino requer numpy + persistir pesos em `ClassificadorVersao` no DB
+- Trade-off: sem features non-linear automáticas. Mitigado adicionando interações manuais (F1×F11, F1×F15, F1×F2)
+- Resultado v5: AUC 0.95, precision@5k 93.9% — competitivo com modelos complexos pra esse dataset
+
+## ADR-015 — Classificar TODOS os processos vs só os de tribunais com ground truth
+
+**Contexto:** Modelo treinado só com TRF1 (396k leads). Universo tem TRF3, TJMG, TJSP. Aplicar onde não treinou pode dar precision ruim.
+
+**Decisão:** Classifier APLICA em qualquer tribunal — features são universais (classe Cumprimento, palavras-chave, contagens). NÃO filtra por tribunal.
+
+**Consequência:**
+- TRF3 classificado em produção (15% taxa de lead — plausível pq SP concentra cumprimentos)
+- TJMG/TJSP em POC: precisava `Process.classe_codigo` populado (corrigido via patch Datajud)
+- Trade-off: precision real desconhecida em tribunais sem ground truth — mitigado via calibration plot (Juriscope marca consumed → vemos taxa real por bucket)
+- Quando tiver ground truth de outros tribunais, re-treinar v6 multi-tribunal
+
+## ADR-016 — Re-consumo permitido em LeadConsumption (sem unique constraint)
+
+**Contexto:** API expõe `POST /leads/consumed/` pro Juriscope marcar processos. Mesmo (cliente, processo) pode aparecer 2+ vezes?
+
+**Decisão:** SEM unique constraint. Cada chamada cria registro novo. Histórico completo preservado.
+
+**Consequência:**
+- Cliente pode atualizar resultado: `pendente` → `validado` → `pago` (todos visíveis na linha do tempo)
+- Listar leads disponíveis: anti-join via `Exists(OuterRef)` (presença em qualquer registro)
+- Funil/calibration usa MAIS RECENTE por processo (`order_by('-consumido_em').first()`)
+- Trade-off: tabela cresce mais rápido (~1.8M/ano em ritmo de 5k/dia, fácil pro Postgres)

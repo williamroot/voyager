@@ -44,6 +44,9 @@ Tema dark/light via `data-theme` no `<html>` + `tailwind.config.darkMode = 'clas
 | `/dashboard/tribunais/<sigla>/` | `tribunal_detail.html` | Detalhe de um tribunal (KPIs + charts) |
 | `/dashboard/workers/` | `workers.html` | Filas RQ + workers conectados, auto-refresh HTMX 5s |
 | `/dashboard/ingestao/` | `ingestao.html` | Saúde operacional (proxies, drift, runs) |
+| `/dashboard/leads/` | `leads.html` | Pipeline de leads (Precatório/Pré/Direito Creditório) — KPIs + charts lazy + tabela paginada + export CSV |
+| `/dashboard/api/` | `api_docs.html` | Docs da API de leads + cards de stats por nível + clientes ativos + métricas do modelo |
+| `/dashboard/consulta-rapida/` | `consulta_rapida.html` | Debug em tempo real: consulta CNJ no DJEN+Datajud, mostra raw + parsed sem persistir |
 | `/dashboard/invites/` | `accounts/invites_list.html` | **Superuser**: gerar/revogar convites de cadastro |
 | `/invite/<token>/` | `accounts/accept_invite.html` | **Público**: aceitar convite, criar conta |
 | `/dashboard/login/` | `login.html` | Patch + wordmark + telemetry strip + SOL counter |

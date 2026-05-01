@@ -15,6 +15,9 @@ DRF read-only sob `/api/v1/`. Auth via API key (`Authorization: Api-Key <key>`).
 | GET | `/api/v1/movimentacoes/` | Lista paginada (cursor) com `?q=` busca textual |
 | GET | `/api/v1/movimentacoes/<id>/` | Detalhe |
 | GET | `/api/v1/ingestion-runs/` | Histórico |
+| GET | `/api/v1/leads/` | Próximos N leads não consumidos (Juriscope integration) |
+| POST | `/api/v1/leads/consumed/` | Marca processos como consumidos com resultado |
+| GET | `/api/v1/leads/stats/` | Métricas agregadas pro cliente |
 | GET | `/api/v1/health/` | Readiness rico (503 se lag >36h em algum ativo) |
 | GET | `/api/v1/health/liveness/` | Liveness simples (200 sempre se up) |
 | GET | `/api/v1/schema/` | OpenAPI (drf-spectacular) |
@@ -94,3 +97,51 @@ curl -sH "Authorization: Api-Key K" \
 ## OpenAPI
 
 Schema gerado automaticamente em `/api/v1/schema/`. Swagger UI em `/api/v1/docs/`.
+
+## Leads API (Juriscope integration)
+
+**Auth diferente**: header `X-API-Key: <key>` (não `Authorization: Api-Key`). Cada cliente tem `tribunals.ApiClient` com chave única (gerar via Django admin). Chave inválida → 403.
+
+Documentação completa + casos de uso: ver [`CLASSIFICACAO.md`](CLASSIFICACAO.md).
+
+### `GET /api/v1/leads/?nivel=PRECATORIO&tribunal=TRF1&limit=5000&min_score=0`
+
+Retorna processos classificados não-consumidos pelo cliente. Filtra `LeadConsumption` via `Exists(OuterRef)` (anti-join — escala com 100k+ consumos).
+
+```json
+{
+  "count": 5000, "limit": 5000, "nivel": "PRECATORIO",
+  "results": [
+    {"cnj": "1047957-32.2025.4.01.3300", "tribunal": "TRF1",
+     "classificacao": "PRECATORIO", "score": 0.989,
+     "classe_nome": "...", "ano_cnj": 2025,
+     "link_voyager": "https://voyager.was.dev.br/dashboard/processos/1446087/"}
+  ]
+}
+```
+
+### `POST /api/v1/leads/consumed/`
+
+Body:
+```json
+{"consumos": [
+  {"cnj": "...", "resultado": "validado"},
+  {"cnj": "...", "resultado": "sem_expedicao"}
+]}
+```
+
+Resultados aceitos: `validado`, `sem_expedicao`, `erro`, `pendente`, `pago`, `arquivado`, `cedido`.
+
+Sem unique constraint — re-consumo permitido (cria registro novo, mantém histórico).
+
+### `GET /api/v1/leads/stats/`
+
+```json
+{
+  "pending": {"PRECATORIO": 4521, "PRE_PRECATORIO": 12330, "DIREITO_CREDITORIO": 78112},
+  "consumidos_total": 5000, "consumidos_hoje": 5000,
+  "consumidos_por_resultado": {"validado": 4180, "sem_expedicao": 720},
+  "validados_total": 4180, "taxa_validacao": 0.836,
+  "modelo_versao": "v5", "modelo_atualizado_em": "..."
+}
+```

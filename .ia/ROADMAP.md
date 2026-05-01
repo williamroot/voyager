@@ -4,6 +4,15 @@ Itens pendentes ou planejados, organizados por prioridade.
 
 ## Concluído (recentes)
 
+- [x] **Sistema de classificação ML de leads** — Logistic Regression v5, AUC 0.95, precision@5k 93.9%. Pipeline end-to-end (DJEN/Datajud → classifier → API → Juriscope). Detalhe: [`CLASSIFICACAO.md`](CLASSIFICACAO.md)
+- [x] **API REST `/api/v1/leads/`** — auth via X-API-Key. GET (lista pendentes), POST consumed, GET stats
+- [x] **Tela `/dashboard/leads/`** — KPIs lazy + 5 charts ECharts + tabela paginada + export CSV + chips de filtros
+- [x] **Tela `/dashboard/api/`** — docs interativas dos endpoints + métricas do modelo + clientes ativos
+- [x] **Tela `/dashboard/consulta-rapida/`** — debug em tempo real DJEN+Datajud sem persistir
+- [x] **Card explainability no detalhe do processo** — top features com emoji + tooltip + descrição completa, colapsável
+- [x] **Patch `datajud.sync_processo` popula `Process.classe_codigo`** — corrige caso TJMG/TJSP onde nem DJEN nem PJe enricher populavam
+- [x] **Detecção página de indisponibilidade TRF1** — markers novos no `_PJE_ERROR_MARKERS` (sleep 30s automático)
+- [x] **Fila dedicada `classificacao`** + paralelização batch (`reclassificar_recentes(paralelizar=True)`)
 - [x] **Enricher TRF3** via `BasePjeEnricher` (refatorado em `enrichers/pje.py`)
 - [x] **Catálogo nacional ClasseJudicial / Assunto** (TPU/CNJ) com FKs em Process/Movimentacao
 - [x] **Filas per-tribunal** (`enrich_trf1`, `enrich_trf3`) com 4 workers cada
@@ -50,6 +59,27 @@ Itens pendentes ou planejados, organizados por prioridade.
 - [ ] **Volumes nomeados pro static** em prod — montar volume `static` em `/app/staticfiles` no `web`, voltar `nginx` pra `alias /var/www/static/` (em vez de proxy_pass)
 - [ ] **`SECRET_KEY` em vault** (Doppler/Vault) em vez de `.env`
 - [ ] **Tests** — atualmente só `tests/test_parser.py` e `tests/test_ingestion_chunks.py`. Faltam: ingestion integration, api endpoints, dashboard views, enricher TRF1 com `responses` mockado.
+
+## Classificação de leads (ML)
+
+Sistema operando em produção (v5, AUC 0.95). Ver [`CLASSIFICACAO.md`](CLASSIFICACAO.md) pra detalhes técnicos.
+
+### Curto prazo
+- [ ] Drenar batch inicial — `reclassificar_recentes` em curso (~2.4M procs, ETA dias)
+- [ ] **Validar precision real em produção** — esperar Juriscope marcar `POST /leads/consumed/` por algumas semanas, ver calibration plot na `/dashboard/leads/`
+- [ ] **Ground truth TRF3** — já temos 347 (amostra) → pedir lista maior pra re-treinar v6 multi-tribunal
+
+### Médio prazo
+- [ ] **Adaptação justiça estadual (TJMG/TJSP)** — patch já aplicado: `datajud.sync_processo` popula `Process.classe_codigo` quando vazio. POC TJSP detectou 3 leads em 100 procs. Pra produção: enfileirar Datajud em massa pros tribunais novos
+- [ ] **PSI / drift score** em tempo real — alerta quando distribuição de scores muda significativamente vs treino
+- [ ] **Heatmap tribunal × ano CNJ** — descobrir gap de captura
+- [ ] **Hot reload de pesos** — workers leem `ClassificadorVersao.ativa` periodicamente, sem precisar restart pra novo modelo
+- [ ] **Webhook outbound** — Voyager notifica Juriscope quando novo lead high-confidence aparece (em vez de polling)
+
+### Longo prazo
+- [ ] **Texto dos autos via Juriscope** — features F19/F20 hoje deram peso ~zero porque os termos `'precatório expedido'`/`'rpv expedida'` vivem nos autos completos. Integrar texto dos autos baixados aumentaria precision
+- [ ] **Modelo por tribunal** — treinar v6.1 só TRF3, v6.2 só TJMG, etc. Talvez melhor que multi-tribunal único
+- [ ] **Active learning** — Juriscope marca FPs (precision real baixa em algum bucket) → aplicar ao re-treino próximo
 
 ## Não-objetivos (declarados fora de escopo)
 

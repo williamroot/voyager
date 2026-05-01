@@ -23,17 +23,48 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 
 Máquinas auxiliares (`.177` e `.184`) rodam só workers — sem web/db/redis próprios. Conectam no Postgres (`.82`) e Redis (`.219`) via LAN. O drainer do stream de enrichment roda **somente no `.30``**; as auxiliares só publicam resultados.
 
-## Workers em prod (`docker-compose-prod.yml`)
+## Workers em prod (configuração atual — 2026-04-30)
 
+**`.30` (host principal, 16 cores)** via `docker-compose-prod.yml`:
 ```
-worker_default     1 replica   fila 'default' (catch-all)
-worker_ingestion   2 replicas  filas 'djen_ingestion' + 'djen_backfill'
-worker_trf1        4 replicas  fila 'enrich_trf1'
-worker_trf3        4 replicas  fila 'enrich_trf3'
-scheduler          1           rq-scheduler + cancel-and-recreate dos crons
+worker_default        1 replica   fila 'default' (catch-all)
+worker_ingestion      2 replicas  filas 'djen_ingestion' + 'djen_backfill'
+worker_trf1           5 replicas  fila 'enrich_trf1'
+worker_trf3          75 replicas  fila 'enrich_trf3'
+worker_manual         2 replicas  fila 'manual' (cliques on-demand)
+worker_datajud       15 replicas  fila 'datajud' (cortado de 30 — load alto em .30)
+worker_classificacao  4 replicas  fila 'classificacao' (batch ML)
+scheduler             1           APScheduler com todos os crons
+web                   1           Django + nginx
 ```
+
+**`.177` (workers, 24 cores)** via `docker-compose-workers.yml`:
+```
+worker_trf3         130 replicas
+worker_datajud       90 replicas
+worker_ingestion      4 replicas
+worker_default        1 replica
+worker_trf1          10 replicas
+```
+
+**`.184` (workers, 24 cores)**: mesma config do .177, mas datajud ajustado pra 70 réplicas (load saturando).
+
+Total datajud: ~175 workers; trf3: ~135; trf1: ~15; classificacao: 4.
 
 Page `/dashboard/workers/` mostra estado em tempo real (auto-refresh 5s).
+
+### Filas RQ (`core/settings.py::RQ_QUEUES`)
+```
+default          — catch-all
+djen_ingestion   — daily ingestions
+djen_backfill    — backfill de janelas + sync per-CNJ
+djen_audit       — auditoria por órgão
+enrich_trf1      — PJe scraping TRF1
+enrich_trf3      — PJe scraping TRF3
+manual           — UI clicks (alta prioridade)
+datajud          — Datajud sync per-CNJ
+classificacao    — batch ML (TIMEOUT 4h)
+```
 
 ## Deploy em prod
 
@@ -286,3 +317,59 @@ gunzip -c backups/voyager-2026-04-25.sql.gz | docker compose exec -T postgres ps
 | `/api/v1/health/` | Monitoring externo, k8s readiness | 200 se OK; 503 se DB/Redis fora ou lag>36h em algum tribunal ativo. Drift alerts não trippam 503 (só aparecem no payload) |
 
 Drift e lag em monitoring externo (Slack/Sentry) — não afetam disponibilidade da API/dashboard.
+
+## Classificação de leads — operação
+
+Pipeline ML que classifica processos como Precatório/Pré/Direito Creditório. Detalhe completo em [`CLASSIFICACAO.md`](CLASSIFICACAO.md).
+
+### Disparar batch manual (re-classificar tudo)
+
+```bash
+ssh ubuntu@192.168.1.30 "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web python manage.py shell -c \"
+from tribunals.jobs import reclassificar_recentes
+job = reclassificar_recentes.delay(dias=7, paralelizar=True)
+print(f'job: {job.id}')
+\""
+```
+
+Job principal splitta em batches → vão pra fila `classificacao` → workers paralelos drenam.
+
+### Auditar fila datajud / classificacao
+
+```python
+import django_rq
+qd = django_rq.get_queue('datajud')        # fila Datajud
+qc = django_rq.get_queue('classificacao')  # fila ML batch
+print(f'datajud: pending={len(qd):,} failed={qd.failed_job_registry.count}')
+print(f'classificacao: pending={len(qc):,} failed={qc.failed_job_registry.count}')
+```
+
+### Re-enfileirar failures
+
+Há um script comum `/tmp/requeue_failed_datajud.py` que pega todos `failed_job_registry`, extrai `process_id` dos args e re-enfileira na fila `datajud`. Útil quando rolling restart deixa jobs órfãos como AbandonedJobError.
+
+### Gerar API key pra novo cliente externo
+
+Via Django admin (`/admin/tribunals/apiclient/`):
+1. Add ApiClient → digita só `nome` (ex: 'cliente_x')
+2. Salvar — `api_key` é gerada automaticamente (`secrets.token_urlsafe(32)`)
+3. Copiar key e enviar pro cliente
+
+Cliente usa header `X-API-Key: <key>` em todas requests pra `/api/v1/leads/*`.
+
+### Cliente atual: Juriscope
+- API key: armazenada em `.env` deles (não documentar aqui)
+- Capacidade: ~5.000 leads/dia
+- Endpoint chamado tipicamente em cron diário (madrugada)
+
+## Adicionar tribunal novo (TJMG, TJSP, etc)
+
+1. Criar `Tribunal` (sigla, sigla_djen, data_inicio_disponivel, ativo=True)
+2. Verificar se Datajud tem index — `api_publica_<sigla>` (ex: `api_publica_tjmg`)
+3. Verificar se DJEN aceita a sigla (manualmente: `curl -G 'https://comunicaapi.pje.jus.br/api/v1/comunicacao' --data-urlencode 'siglaTribunal=TJMG' --data-urlencode 'dataDisponibilizacaoInicio=2026-04-15' --data-urlencode 'dataDisponibilizacaoFim=2026-04-15' --data-urlencode 'pagina=1'`)
+4. Backfill DJEN — APScheduler já enfileira automaticamente (1 cron diário + tick_backfill_retroativo)
+5. Datajud sync acontece automaticamente via auto-enqueue (`_enfileirar_todos_enrichments` na ingestão DJEN), mas pra acelerar vale enfileirar em massa
+6. Classificação roda automaticamente após Datajud sync; cron `reclassificar_recentes` cobre o restante
+7. Sem ground truth do tribunal novo, modelo TRF1 é aplicado mas precision real é desconhecida — calibration plot na `/dashboard/leads/` revela depois que Juriscope começar a consumir + marcar `validado/sem_expedicao`
+
+**Caveat estaduais**: o patch de `datajud.sync_processo` agora popula `Process.classe_codigo` quando vazio — necessário pra TJ* funcionarem. Se o tribunal novo não estiver no Datajud, classe fica vazia e classificador retorna NAO_LEAD em todos.

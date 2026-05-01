@@ -7,6 +7,7 @@ Entidades de domínio em `tribunals/models.py`. Convites em `accounts/models.py`
 ```
 tribunals  Tribunal · Process · Movimentacao · IngestionRun · SchemaDriftAlert
            Parte · ProcessoParte · ClasseJudicial · Assunto
+           ClassificadorVersao · ClassificacaoLog · ApiClient · LeadConsumption
 accounts   Invite
 ```
 
@@ -226,6 +227,38 @@ Padronizados pelo CNJ — uma única tabela serve TRF1, TRF3 e qualquer outro tr
 ## Invite (`accounts/models.py`)
 
 Convites de cadastro — uso único, validade 7 dias. Token + classificação ip-api do IP que aceitou. Detalhes em [`ACCOUNTS.md`](ACCOUNTS.md).
+
+## Classificação de leads (`tribunals/models.py`)
+
+Sistema de ML pra classificar processos como Precatório / Pré-precatório / Direito Creditório. Detalhe completo em [`CLASSIFICACAO.md`](CLASSIFICACAO.md).
+
+**Process** ganhou 4 campos (migration 0020):
+- `classificacao` (CharField indexed, choices PRECATORIO/PRE_PRECATORIO/DIREITO_CREDITORIO/NAO_LEAD)
+- `classificacao_score` (FloatField 0..1)
+- `classificacao_versao` (CharField, ex: 'v5')
+- `classificacao_em` (DateTimeField indexed)
+
+**ClassificadorVersao** — versões treinadas:
+- `versao` (unique), `pesos` (JSON dict), `metricas` (JSON), `ativa` (bool)
+- Constraint partial: só 1 ativa por vez
+
+**ClassificacaoLog** — histórico de transições (N3→N2→N1):
+- `processo` (FK), `classificacao`, `score`, `versao`, `features_snapshot` (JSON), `criada_em`
+- Criado apenas quando categoria MUDA
+
+**ApiClient** — credenciais pra integração externa:
+- `nome` (unique, ex: 'juriscope'), `api_key` (unique indexed), `ativo`
+- Key gerada via Django admin (`secrets.token_urlsafe(32)`)
+
+**LeadConsumption** — registros de consumo via API:
+- `processo` (FK), `cliente` (FK), `consumido_em` (auto), `resultado` (choices)
+- Resultados: validado/sem_expedicao/erro/pendente/pago/arquivado/cedido
+- **Sem unique constraint** — re-consumo permitido (cada chamada = registro novo)
+- Indexes: `(cliente, -consumido_em)`, `(cliente, processo)`
+
+**Auxiliar** (não-Django, criada via SQL na migração de seed):
+- `lead_trf1 (process_id BIGINT PK, numero_cnj, criado_em)` — ground truth dos 396k leads TRF1 confirmados pelo Juriscope
+- `lead_trf3 (...)` — análoga (atualmente 347 amostras)
 
 ## Volume / espaço
 
