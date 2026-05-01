@@ -136,4 +136,15 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Re-classifica processos com mov nova nos últimos 7 dias
+    # Roda 1x por dia às 03:00 — período de menor concorrência.
+    from tribunals.jobs import reclassificar_recentes
+    scheduler.add_job(
+        reclassificar_recentes.delay,
+        'cron',
+        hour=3, minute=0,
+        id='reclassificar_recentes',
+        replace_existing=True,
+    )
+
     return scheduler

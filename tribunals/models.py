@@ -114,6 +114,23 @@ class Process(models.Model):
     inserido_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
+    # Classificação de lead (modelo LR aplicado após enriquecimento).
+    # Categorias hierárquicas: PRECATORIO > PRE_PRECATORIO > DIREITO_CREDITORIO > NAO_LEAD.
+    CLASSIF_PRECATORIO = 'PRECATORIO'
+    CLASSIF_PRE_PRECATORIO = 'PRE_PRECATORIO'
+    CLASSIF_DIREITO_CREDITORIO = 'DIREITO_CREDITORIO'
+    CLASSIF_NAO_LEAD = 'NAO_LEAD'
+    CLASSIF_CHOICES = [
+        (CLASSIF_PRECATORIO, 'Precatório'),
+        (CLASSIF_PRE_PRECATORIO, 'Pré-precatório'),
+        (CLASSIF_DIREITO_CREDITORIO, 'Direito creditório'),
+        (CLASSIF_NAO_LEAD, 'Não-lead'),
+    ]
+    classificacao = models.CharField(max_length=20, choices=CLASSIF_CHOICES, null=True, blank=True, db_index=True)
+    classificacao_score = models.FloatField(null=True, blank=True)
+    classificacao_versao = models.CharField(max_length=10, null=True, blank=True)
+    classificacao_em = models.DateTimeField(null=True, blank=True, db_index=True)
+
     class Meta:
         constraints = [
             UniqueConstraint(fields=['tribunal', 'numero_cnj'], name='uniq_proc_tribunal_cnj'),
@@ -364,4 +381,88 @@ class SchemaDriftAlert(models.Model):
         ]
         indexes = [
             models.Index(fields=['resolvido', 'tribunal']),
+        ]
+
+
+# ============== Classificação de leads + API integration ==============
+
+class ClassificadorVersao(models.Model):
+    """Versionamento dos modelos de classificação treinados.
+
+    Apenas 1 ativa por vez (constraint partial) — workers carregam essa.
+    """
+    versao = models.CharField(max_length=10, unique=True)  # 'v5'
+    pesos = models.JSONField()                              # {feature_name: weight, _intercept_: ...}
+    metricas = models.JSONField(default=dict)               # {auc, prec_at_5k, prec_at_1k, ...}
+    ativa = models.BooleanField(default=False, db_index=True)
+    criada_em = models.DateTimeField(auto_now_add=True)
+    notas = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=['ativa'], condition=Q(ativa=True),
+                             name='uniq_classificador_versao_ativa'),
+        ]
+
+    def __str__(self):
+        return f'{self.versao}{" [ativa]" if self.ativa else ""}'
+
+
+class ClassificacaoLog(models.Model):
+    """Histórico de classificações — útil pra auditar transições N3→N2→N1."""
+    processo = models.ForeignKey(Process, on_delete=models.CASCADE, related_name='classif_logs')
+    classificacao = models.CharField(max_length=20)
+    score = models.FloatField()
+    versao = models.CharField(max_length=10)
+    features_snapshot = models.JSONField(default=dict)
+    criada_em = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['processo', '-criada_em']),
+        ]
+
+
+class ApiClient(models.Model):
+    """Cliente externo que consome a API de leads (ex: Juriscope)."""
+    nome = models.CharField(max_length=64, unique=True)
+    api_key = models.CharField(max_length=64, unique=True, db_index=True)
+    ativo = models.BooleanField(default=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    notas = models.TextField(blank=True)
+
+    def __str__(self):
+        return f'{self.nome}{" [ativo]" if self.ativo else ""}'
+
+
+class LeadConsumption(models.Model):
+    """Registro de processo consumido por um cliente externo. Sem unique
+    constraint — re-consumo é permitido (cria novo registro)."""
+    RESULTADO_VALIDADO = 'validado'
+    RESULTADO_SEM_EXPEDICAO = 'sem_expedicao'
+    RESULTADO_ERRO = 'erro'
+    RESULTADO_PENDENTE = 'pendente'
+    RESULTADO_PAGO = 'pago'
+    RESULTADO_ARQUIVADO = 'arquivado'
+    RESULTADO_CEDIDO = 'cedido'
+    RESULTADO_CHOICES = [
+        (RESULTADO_VALIDADO, 'Validado'),
+        (RESULTADO_SEM_EXPEDICAO, 'Sem expedição'),
+        (RESULTADO_ERRO, 'Erro'),
+        (RESULTADO_PENDENTE, 'Pendente'),
+        (RESULTADO_PAGO, 'Pago'),
+        (RESULTADO_ARQUIVADO, 'Arquivado'),
+        (RESULTADO_CEDIDO, 'Cedido'),
+    ]
+
+    processo = models.ForeignKey(Process, on_delete=models.CASCADE, related_name='consumos')
+    cliente = models.ForeignKey(ApiClient, on_delete=models.CASCADE, related_name='consumos')
+    consumido_em = models.DateTimeField(auto_now_add=True, db_index=True)
+    resultado = models.CharField(max_length=20, choices=RESULTADO_CHOICES,
+                                 default=RESULTADO_PENDENTE, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['cliente', '-consumido_em']),
+            models.Index(fields=['cliente', 'processo']),
         ]

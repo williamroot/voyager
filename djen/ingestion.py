@@ -55,6 +55,14 @@ def ingest_processo(processo, client: DJENClient | None = None) -> dict:
         data_enriquecimento_djen=now_ts,
         ultima_sinc_djen_em=now_ts,
     )
+
+    if novas > 0 or processo.classificacao_em is None:
+        try:
+            from tribunals.classificador import classificar_e_persistir
+            classificar_e_persistir(processo)
+        except Exception as exc:
+            logger.warning('falha ao classificar %s: %s', processo.numero_cnj, exc)
+
     return {
         'cnj': processo.numero_cnj,
         'novas': novas,

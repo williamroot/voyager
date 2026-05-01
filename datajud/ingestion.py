@@ -123,6 +123,16 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
     duplicados = len(items) - novos
     logger.info('datajud sync %s: novos=%d duplicados=%d',
                 processo.numero_cnj, novos, duplicados)
+
+    # Re-classifica após mov nova/atualizada. Só vale a pena recalcular
+    # se houve mov nova; movs duplicadas não mudam features.
+    if novos > 0 or processo.classificacao_em is None:
+        try:
+            from tribunals.classificador import classificar_e_persistir
+            classificar_e_persistir(processo)
+        except Exception as exc:
+            logger.warning('falha ao classificar %s: %s', processo.numero_cnj, exc)
+
     return {
         'cnj': processo.numero_cnj,
         'novos': novos,
