@@ -33,6 +33,10 @@ class DJENClient:
         # que pool ProxyScrape rotativo. Click do user retorna em ~3-10s
         # em vez de 30s+ rotacionando proxies queimados.
         self.prefer_cortex = prefer_cortex
+        # Em modo normal (não-manual) intercala Cortex/Pool por request via
+        # sorteio nesta proporção. Cada request sai com IP diferente —
+        # diversifica de verdade quando o WAF bloqueia datacenter em onda.
+        self.cortex_ratio = getattr(settings, 'DJEN_CORTEX_RATIO', 0.5)
 
     def count_window(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:
         """Devolve o total de movimentações que a DJEN diz existir nessa janela.
@@ -140,19 +144,39 @@ class DJENClient:
                 continue
 
     def _pick_proxy(self, prefer_other_than: Optional[str] = None) -> tuple[Optional[str], str]:
+        from .proxies import cortex_proxy_url
+
+        cortex = cortex_proxy_url(self.pool)
+        # Modo manual (cliques do user): Cortex sempre primeiro — latência
+        # baixa importa mais que diversificar fontes.
         if self.prefer_cortex:
-            from .proxies import cortex_proxy_url
-            cortex = cortex_proxy_url(self.pool)
-            if cortex and cortex != prefer_other_than:
+            if cortex and prefer_other_than != 'cortex':
                 return cortex, 'cortex'
+            proxy = self.pool.get()
+            if proxy:
+                return proxy, 'pool'
+            return (cortex, 'cortex') if cortex else (None, 'direct')
+
+        # Modo normal: sorteia entre Cortex e Pool em cada request. IP varia
+        # entre fontes a cada chamada, distribuindo carga e contornando
+        # ondas de WAF que bloqueiam só datacenter ou só residencial.
+        # `prefer_other_than` (passado em retry) força a fonte alternativa.
+        if prefer_other_than == 'cortex':
+            quer_cortex = False
+        elif prefer_other_than == 'pool':
+            quer_cortex = True
+        else:
+            quer_cortex = random.random() < self.cortex_ratio
+
+        if quer_cortex and cortex:
+            return cortex, 'cortex'
         proxy = self.pool.get()
-        if not proxy:
-            from .proxies import cortex_proxy_url
-            cortex = cortex_proxy_url(self.pool)
-            if cortex:
-                return cortex, 'cortex'
-            return None, 'direct'
-        return proxy, 'pool'
+        if proxy:
+            return proxy, 'pool'
+        # Fallback final: usa o que sobrou.
+        if cortex:
+            return cortex, 'cortex'
+        return None, 'direct'
 
 
     def _sleep_backoff(self, attempt: int, factor: float = 1.0, max_wait: float = 60.0) -> None:

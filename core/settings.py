@@ -160,6 +160,10 @@ PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)
 PROXY_BAD_TTL_SECONDS = env.int('PROXY_BAD_TTL_SECONDS', default=600)
+# Probabilidade de cada request DJEN sair via Cortex (residencial) em vez do
+# pool ProxyScrape (datacenter). Diversifica IPs por request — quando o WAF
+# bloqueia datacenter em onda, ainda passa metade via Cortex e vice-versa.
+DJEN_CORTEX_RATIO = env.float('DJEN_CORTEX_RATIO', default=0.5)
 
 # Notificações
 SLACK_WEBHOOK_URL = env('SLACK_WEBHOOK_URL', default='')

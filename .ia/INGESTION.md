@@ -23,9 +23,10 @@ Sem auth. Resposta JSON com `count`, `items[]`. Cada item = 1 movimentação.
 - Sleep 1.0s entre páginas (`DJEN_PAGE_SLEEP_SECONDS`)
 
 **Estratégia de proxy híbrida** (`_pick_proxy`):
-- 80% Cortex (residencial fixo) + 20% ProxyScrape pool
-- Em retry, prefere alternar fonte (`prefer_other_than=last_failed_source`)
-- Pool armazenado em Redis (`voyager:proxies:scrape:list`), bad TTL 600s
+- Modo normal: sorteia Cortex (residencial) vs Pool (datacenter ProxyScrape) por request, com `random() < DJEN_CORTEX_RATIO` (default 0.5). Cada request sai por IP diferente — pool já randomiza internamente, Cortex tem rotação no gateway. Diversifica fontes pra contornar ondas de WAF que bloqueiam só datacenter ou só residencial.
+- Modo `prefer_cortex=True` (fila `manual`): tenta Cortex primeiro (latência baixa pro user esperando feedback). Pool é fallback.
+- Em retry, `prefer_other_than=last_failed_source` força a fonte oposta.
+- Pool armazenado em Redis (`voyager:proxies:scrape:list`), bad TTL 600s.
 
 **Tratamento de erros (cumulativo nos retries):**
 - `403/429`: marca proxy bad (se vier do pool) + retry com outro
