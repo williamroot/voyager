@@ -230,9 +230,16 @@ def volume_temporal(dias=None, tribunais=None):
     else:
         bucket_corrente = hoje.replace(day=1)
 
+    # Serializa só `YYYY-MM-DD` (sem hora) — eixo X do chart precisa só
+    # da data, e `datetime.isoformat()` mete `T00:00:00-03:00` que polui.
+    def _bucket_iso(periodo):
+        if hasattr(periodo, 'date'):
+            return periodo.date().isoformat()
+        return periodo.isoformat()
+
     return [
         {
-            'dia': r['periodo'].isoformat(),
+            'dia': _bucket_iso(r['periodo']),
             'tribunal': r['tribunal_id'],
             'total': r['total'],
             'parcial': (r['periodo'].date() if hasattr(r['periodo'], 'date') else r['periodo']) == bucket_corrente,
