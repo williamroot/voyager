@@ -660,11 +660,25 @@
       const lookup = {};
       rows.forEach(r => { lookup[r.tribunal + '|' + r.dia] = r.total; });
       const c = chartGridColors();
+      // Auto-detect bucket: ISO completo (T...) = dia; só YYYY-MM-DD = mensal.
+      // Formata o eixo X compacto (mês/ano ou dia/mês conforme bucket).
+      const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      const formatBucket = (raw) => {
+        const s = String(raw).slice(0, 10); // 'YYYY-MM-DD'
+        const [y, m, d] = s.split('-');
+        if (!y || !m) return raw;
+        // Bucket mensal (dia=01) → "Jan/24"; bucket diário → "01/Jan"
+        return d === '01' ? `${MESES[+m - 1]}/${y.slice(2)}` : `${d}/${MESES[+m - 1]}`;
+      };
       return {
-        tooltip: {trigger: 'axis', valueFormatter: fmt},
+        tooltip: {trigger: 'axis', valueFormatter: fmt, axisPointer: {label: {formatter: p => formatBucket(p.value)}}},
         legend: {top: 0, textStyle: {color: c.legend}, icon: 'roundRect'},
         grid: {left: 50, right: 20, top: 30, bottom: 40},
-        xAxis: {type: 'category', data: dias, axisLabel: {color: c.axisLabel, fontSize: 11}, axisLine: {lineStyle: {color: c.axisLine}}},
+        xAxis: {
+          type: 'category', data: dias,
+          axisLabel: {color: c.axisLabel, fontSize: 11, formatter: formatBucket},
+          axisLine: {lineStyle: {color: c.axisLine}},
+        },
         yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
         series: tribunais.map(t => ({
           name: t, type: 'line', stack: 'total', smooth: 0.3, symbol: 'none',

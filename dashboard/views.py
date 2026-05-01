@@ -240,7 +240,7 @@ def tribunais(request):
     stats = queries.estatisticas_por_tribunal()
     return render(request, 'dashboard/tribunais.html', {
         'stats': stats,
-        'has_pending': any(s.get('_pending') for s in stats),
+        'has_pending': any(s.get('pending') for s in stats),
     })
 
 

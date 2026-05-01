@@ -500,7 +500,7 @@ def estatisticas_por_tribunal():
             'ultima_mov': None,
             'data_inicio': t.data_inicio_disponivel,
             'backfill_concluido_em': t.backfill_concluido_em,
-            '_pending': True,
+            'pending': True,
         }
         for t in Tribunal.objects.filter(ativo=True).order_by('sigla')
     ]
