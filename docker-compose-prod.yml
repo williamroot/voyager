@@ -105,9 +105,10 @@ services:
       web:
         condition: service_healthy
     deploy:
-      # Datajud é 1 request HTTP por processo (rápido). 10 réplicas dão
-      # vazão pra novos processos descobertos durante backfill DJEN.
-      replicas: 10
+      # Datajud é 1 request HTTP por processo (rápido). 30 réplicas em .30
+      # (web + workers compartilhados) — Postgres lida bem com connections
+      # pq cada job é curto e libera conn rápido.
+      replicas: 30
     restart: always
 
   worker_classificacao:

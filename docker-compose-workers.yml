@@ -68,7 +68,7 @@ services:
     volumes:
       - .:/app
     deploy:
-      # Datajud é leve (1 request HTTP por processo). 30 réplicas pra
-      # processar a frota de processos já enriquecidos em background.
-      replicas: 30
+      # Datajud é leve (1 request HTTP por processo). 90 réplicas em
+      # cada host de workers (.177, .184) — total ~210 com .30.
+      replicas: 90
     restart: always

@@ -14,7 +14,7 @@ logger = logging.getLogger('voyager.tribunals.jobs')
 
 @job('classificacao', timeout=14400)
 def reclassificar_recentes(dias: int = 7, batch_size: int = 1000,
-                           cap_nunca_classificados: int = 500_000,
+                           cap_nunca_classificados: int = 5_000_000,
                            paralelizar: bool = True) -> dict:
     """Re-classifica processos com mov inserida nos últimos N dias.
 
