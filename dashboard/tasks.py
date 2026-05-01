@@ -80,11 +80,15 @@ def warm_kpis_cache():
         cache.delete(lock_key)
 
 
-@job('default', timeout=600)
+@job('default', timeout=1200)
 def warm_estatisticas_tribunal():
-    """Pré-aquece /dashboard/tribunais/. Query GROUP BY em ~30M movs."""
+    """Pré-aquece /dashboard/tribunais/. Query GROUP BY em ~30M movs.
+
+    Observado: compute leva ~270s sob carga normal (workers Datajud
+    inserindo). Timeout 1200s + lock 1100s dão margem de 4× pra picos.
+    """
     lock_key = 'lock:warm_estatisticas_tribunal'
-    if not cache.add(lock_key, '1', timeout=540):
+    if not cache.add(lock_key, '1', timeout=1100):
         logger.info('warm_estatisticas_tribunal: skip (lock held)')
         return
     try:
