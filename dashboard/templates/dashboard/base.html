@@ -362,6 +362,11 @@
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral
       </a>
+      {% url 'dashboard:leads' as leads_url %}
+      <a href="{{ leads_url }}" class="nav-item {% if leads_url in request.path %}active{% endif %}">
+        {% voy_icon "pulsar" "w-4 h-4" %}
+        Leads
+      </a>
       <a href="{{ tribunais_url }}" class="nav-item {% if tribunais_url in request.path %}active{% endif %}">
         {% voy_icon "trajectory" "w-4 h-4" %}
         Tribunais

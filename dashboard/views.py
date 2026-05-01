@@ -672,6 +672,330 @@ def root(request):
 
 @login_required
 @require_GET
+def leads_overview(request):
+    """Shell da dashboard de leads — só renderiza filtros + skeletons.
+    Cards/charts/tabela carregam lazy via fetch/HTMX.
+    """
+    return render(request, 'dashboard/leads.html', {
+        'tribunais': Tribunal.objects.filter(ativo=True),
+        'niveis': [
+            ('PRECATORIO', '💎 Precatório'),
+            ('PRE_PRECATORIO', '⏳ Pré-precatório'),
+            ('DIREITO_CREDITORIO', '🌱 Direito creditório'),
+        ],
+        'tribunal_filtro': request.GET.get('tribunal', ''),
+        'nivel_filtro': request.GET.get('nivel', 'PRECATORIO'),
+        'periodo_dias': _periodo_dias(request, default=30),
+    })
+
+
+@login_required
+@require_GET
+def leads_lista(request):
+    """HTMX partial — tabela paginada de leads pendentes (não consumidos).
+
+    Default: top N1 não-consumidos pelo cliente Juriscope.
+    """
+    from tribunals.models import ApiClient, LeadConsumption
+
+    nivel = (request.GET.get('nivel') or 'PRECATORIO').upper()
+    tribunal = (request.GET.get('tribunal') or '').upper()
+    cliente_nome = request.GET.get('cliente') or 'juriscope'
+    incluir_consumidos = request.GET.get('incluir_consumidos') == '1'
+
+    qs = (
+        Process.objects.filter(classificacao=nivel)
+        .select_related('tribunal')
+        .order_by('-classificacao_score', '-id')
+    )
+    if tribunal:
+        qs = qs.filter(tribunal_id=tribunal)
+    cliente = ApiClient.objects.filter(nome=cliente_nome).first()
+    if cliente and not incluir_consumidos:
+        consumidos = LeadConsumption.objects.filter(cliente=cliente).values('processo_id')
+        qs = qs.exclude(pk__in=consumidos)
+
+    page = _paginar(qs, request, default_size=50)
+    return render(request, 'dashboard/_partials/_leads_lista.html', {
+        'page': page, 'leads': page.object_list,
+        'nivel': nivel, 'tribunal': tribunal, 'cliente_nome': cliente_nome,
+        'incluir_consumidos': incluir_consumidos,
+    })
+
+
+@login_required
+@require_GET
+def leads_export_csv(request):
+    """Exporta CSV dos top N leads pendentes — pra colar na fila do Juriscope."""
+    import csv
+    from tribunals.models import ApiClient, LeadConsumption
+
+    nivel = (request.GET.get('nivel') or 'PRECATORIO').upper()
+    tribunal = (request.GET.get('tribunal') or '').upper()
+    try:
+        limit = max(100, min(int(request.GET.get('limit', 5000)), 50000))
+    except ValueError:
+        limit = 5000
+    cliente_nome = request.GET.get('cliente') or 'juriscope'
+
+    qs = Process.objects.filter(classificacao=nivel).order_by('-classificacao_score', '-id')
+    if tribunal:
+        qs = qs.filter(tribunal_id=tribunal)
+    cliente = ApiClient.objects.filter(nome=cliente_nome).first()
+    if cliente:
+        consumidos = LeadConsumption.objects.filter(cliente=cliente).values('processo_id')
+        qs = qs.exclude(pk__in=consumidos)
+    qs = qs[:limit]
+
+    resp = HttpResponse(content_type='text/csv; charset=utf-8')
+    resp['Content-Disposition'] = f'attachment; filename="leads_{nivel.lower()}_{tribunal or "todos"}.csv"'
+    w = csv.writer(resp)
+    w.writerow(['rank', 'numero_cnj', 'pid', 'classificacao', 'score', 'classe_codigo', 'classe_nome', 'ano_cnj', 'tribunal'])
+    for rank, p in enumerate(qs.iterator(chunk_size=500), 1):
+        w.writerow([
+            rank, p.numero_cnj, p.pk, p.classificacao,
+            f'{p.classificacao_score or 0:.4f}',
+            p.classe_codigo or '', p.classe_nome or '', p.ano_cnj or '', p.tribunal_id,
+        ])
+    return resp
+
+
+# ===== API endpoints lazy pros widgets da dashboard de leads =====
+
+def _leads_filtros(request):
+    """Lê tribunal/nivel/dias do request com defaults sensatos."""
+    tribunal = (request.GET.get('tribunal') or '').upper() or None
+    nivel = (request.GET.get('nivel') or '').upper() or None
+    try:
+        dias = max(1, min(int(request.GET.get('dias', 30)), 365))
+    except (TypeError, ValueError):
+        dias = 30
+    return tribunal, nivel, dias
+
+
+@login_required
+@require_GET
+def leads_chart_data(request, key):
+    """Endpoint genérico — cada `key` retorna JSON pro respectivo widget.
+
+    Cache 5min agressivo (cache.get_or_set) por key + filtros.
+    """
+    from datetime import timedelta
+    from django.core.cache import cache
+    from django.db.models import Count, Q
+    from django.utils import timezone as djtz
+    from tribunals.models import ApiClient, ClassificacaoLog, LeadConsumption
+
+    tribunal, nivel, dias = _leads_filtros(request)
+    cache_key = f'dashleads:{key}:t={tribunal or ""}:n={nivel or ""}:d={dias}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached, safe=False, json_dumps_params={'default': str})
+
+    cliente = ApiClient.objects.filter(nome='juriscope').first()
+    consumidos_subq = (
+        LeadConsumption.objects.filter(cliente=cliente).values('processo_id')
+        if cliente else None
+    )
+
+    base = Process.objects.exclude(classificacao__isnull=True)
+    if tribunal:
+        base = base.filter(tribunal_id=tribunal)
+
+    data = None
+
+    if key == 'kpis':
+        n1 = base.filter(classificacao='PRECATORIO').count()
+        n2 = base.filter(classificacao='PRE_PRECATORIO').count()
+        n3 = base.filter(classificacao='DIREITO_CREDITORIO').count()
+        if consumidos_subq is not None:
+            n1_pendente = base.filter(classificacao='PRECATORIO').exclude(pk__in=consumidos_subq).count()
+        else:
+            n1_pendente = n1
+
+        # Throughput descobertos/dia (rolling 7d via ClassificacaoLog)
+        cutoff7 = djtz.now() - timedelta(days=7)
+        descob_qs = ClassificacaoLog.objects.filter(
+            classificacao='PRECATORIO', criada_em__gte=cutoff7,
+        )
+        if tribunal:
+            descob_qs = descob_qs.filter(processo__tribunal_id=tribunal)
+        descobertos_7d = descob_qs.count()
+        throughput_descob = descobertos_7d / 7
+
+        # Throughput consumidos/dia (últimos 7d)
+        if cliente:
+            cons7 = LeadConsumption.objects.filter(cliente=cliente, consumido_em__gte=cutoff7)
+            consumidos_7d = cons7.count()
+            consumidos_total = LeadConsumption.objects.filter(cliente=cliente).count()
+        else:
+            consumidos_7d = 0; consumidos_total = 0
+        throughput_cons = consumidos_7d / 7
+
+        # Taxa de validação 30d
+        cutoff30 = djtz.now() - timedelta(days=30)
+        if cliente:
+            cons30 = LeadConsumption.objects.filter(cliente=cliente, consumido_em__gte=cutoff30)
+            cons30_total = cons30.count()
+            validados30 = cons30.filter(resultado='validado').count()
+            taxa_val = (validados30 / cons30_total) if cons30_total else None
+        else:
+            cons30_total = 0; validados30 = 0; taxa_val = None
+
+        runway = (n1_pendente / throughput_cons) if throughput_cons > 0 else None
+
+        data = {
+            'n1_total': n1, 'n2_total': n2, 'n3_total': n3,
+            'n1_pendente': n1_pendente,
+            'consumidos_total': consumidos_total,
+            'throughput_descobertos_dia': round(throughput_descob, 1),
+            'throughput_consumidos_dia': round(throughput_cons, 1),
+            'taxa_validacao_30d': round(taxa_val, 3) if taxa_val is not None else None,
+            'taxa_validacao_treino': 0.939,
+            'runway_dias': round(runway, 1) if runway else None,
+            'cons30_total': cons30_total, 'validados30': validados30,
+        }
+
+    elif key == 'timeseries':
+        from django.db.models.functions import TruncDate
+        cutoff = djtz.now() - timedelta(days=dias)
+        # Descobertos por dia (criada_em ClassificacaoLog onde a categoria é nova ou mudou para PRECATORIO)
+        desc_qs = ClassificacaoLog.objects.filter(
+            classificacao='PRECATORIO', criada_em__gte=cutoff,
+        )
+        if tribunal:
+            desc_qs = desc_qs.filter(processo__tribunal_id=tribunal)
+        descobertos = (
+            desc_qs.annotate(d=TruncDate('criada_em')).values('d')
+            .annotate(n=Count('id')).order_by('d')
+        )
+        cons_qs = LeadConsumption.objects.filter(consumido_em__gte=cutoff)
+        if cliente:
+            cons_qs = cons_qs.filter(cliente=cliente)
+        consumidos = (
+            cons_qs.annotate(d=TruncDate('consumido_em')).values('d')
+            .annotate(n=Count('id')).order_by('d')
+        )
+        data = {
+            'descobertos': [{'dia': r['d'].isoformat(), 'n': r['n']} for r in descobertos if r['d']],
+            'consumidos': [{'dia': r['d'].isoformat(), 'n': r['n']} for r in consumidos if r['d']],
+        }
+
+    elif key == 'calibration':
+        # Decis de score na população atual de PRECATORIO. Para taxa real,
+        # cruzaremos com LeadConsumption (validado/total).
+        from django.db.models import Case, FloatField, Sum, When
+        if not cliente:
+            data = {'rows': [], 'sample_size': 0}
+        else:
+            # Pega processos consumidos pelo Juriscope com score (top N=10000)
+            cons_pids = list(
+                LeadConsumption.objects.filter(cliente=cliente)
+                .values_list('processo_id', flat=True)[:50000]
+            )
+            qs = (
+                Process.objects.filter(pk__in=cons_pids,
+                                       classificacao_score__isnull=False)
+                .values('pk', 'classificacao_score')
+            )
+            scores = {r['pk']: r['classificacao_score'] for r in qs}
+            # Resultados por processo
+            from collections import defaultdict
+            consumos = defaultdict(list)
+            for c in LeadConsumption.objects.filter(cliente=cliente).values('processo_id', 'resultado'):
+                consumos[c['processo_id']].append(c['resultado'])
+
+            buckets = []
+            for pid, score in scores.items():
+                resultados = consumos.get(pid, [])
+                # validado se algum resultado é 'validado' ou 'pago'
+                validado = any(r in ('validado', 'pago') for r in resultados)
+                buckets.append((score, validado))
+
+            if not buckets:
+                data = {'rows': [], 'sample_size': 0}
+            else:
+                buckets.sort(key=lambda x: x[0])
+                n = len(buckets)
+                rows = []
+                for d in range(10):
+                    lo = int(d * n / 10); hi = int((d+1) * n / 10)
+                    sl = buckets[lo:hi]
+                    if not sl: continue
+                    score_med = sum(s for s, _ in sl) / len(sl)
+                    taxa = sum(1 for _, v in sl if v) / len(sl)
+                    rows.append({
+                        'decil': d + 1, 'score_med': round(score_med, 3),
+                        'taxa_real': round(taxa, 3), 'n': len(sl),
+                    })
+                data = {'rows': rows, 'sample_size': n}
+
+    elif key == 'funnel':
+        # Funil ÚLTIMOS 30 DIAS: descobertos N1 (ClassificacaoLog) → enviados (LeadConsumption) → por resultado
+        cutoff = djtz.now() - timedelta(days=dias)
+        desc_qs = ClassificacaoLog.objects.filter(
+            classificacao='PRECATORIO', criada_em__gte=cutoff,
+        )
+        if tribunal:
+            desc_qs = desc_qs.filter(processo__tribunal_id=tribunal)
+        descobertos = desc_qs.count()
+
+        cons_qs = LeadConsumption.objects.filter(consumido_em__gte=cutoff)
+        if cliente:
+            cons_qs = cons_qs.filter(cliente=cliente)
+        if tribunal:
+            cons_qs = cons_qs.filter(processo__tribunal_id=tribunal)
+
+        por_resultado = dict(
+            cons_qs.values_list('resultado').annotate(n=Count('id'))
+        )
+        consumidos_total = sum(por_resultado.values())
+
+        data = {
+            'descobertos': descobertos,
+            'consumidos_total': consumidos_total,
+            'por_resultado': por_resultado,
+        }
+
+    elif key == 'by-tribunal':
+        rows = list(
+            base.values('tribunal_id', 'classificacao')
+            .annotate(n=Count('id'))
+        )
+        agg = {}
+        for r in rows:
+            t = r['tribunal_id']; c = r['classificacao']
+            agg.setdefault(t, {'tribunal': t, 'n1': 0, 'n2': 0, 'n3': 0, 'nao_lead': 0})
+            if c == 'PRECATORIO': agg[t]['n1'] = r['n']
+            elif c == 'PRE_PRECATORIO': agg[t]['n2'] = r['n']
+            elif c == 'DIREITO_CREDITORIO': agg[t]['n3'] = r['n']
+            else: agg[t]['nao_lead'] = r['n']
+        data = sorted(agg.values(), key=lambda x: -(x['n1'] + x['n2'] + x['n3']))
+
+    elif key == 'distribuicao-score':
+        # Histograma de scores N1
+        from django.db.models import F
+        scores = list(
+            base.filter(classificacao='PRECATORIO',
+                        classificacao_score__isnull=False)
+            .values_list('classificacao_score', flat=True)[:50000]
+        )
+        # Bins de 0.05
+        bins = [0]*20
+        for s in scores:
+            idx = min(int(s * 20), 19)
+            bins[idx] += 1
+        data = {'bins': [{'lo': i*0.05, 'hi': (i+1)*0.05, 'n': bins[i]} for i in range(20)]}
+
+    else:
+        return JsonResponse({'erro': f'key inválida: {key}'}, status=400)
+
+    cache.set(cache_key, data, timeout=300)
+    return JsonResponse(data, safe=False, json_dumps_params={'default': str})
+
+
+@login_required
+@require_GET
 def api_docs(request):
     """Tela de documentação da API de leads — endpoints, exemplos, etc."""
     from tribunals.models import ApiClient, ClassificadorVersao, LeadConsumption, Process

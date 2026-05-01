@@ -1,0 +1,50 @@
+{% load voyager_extras %}
+
+<div class="overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="text-xs text-fg-subtle uppercase tracking-wider border-b border-border">
+      <tr>
+        <th class="text-left py-2 pr-3">CNJ</th>
+        <th class="text-left py-2 pr-3">Tribunal</th>
+        <th class="text-left py-2 pr-3">Score</th>
+        <th class="text-left py-2 pr-3">Classe</th>
+        <th class="text-left py-2 pr-3">Ano</th>
+        <th class="text-left py-2 pr-3">Classificado</th>
+        <th class="text-right py-2"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border/80">
+      {% for p in leads %}
+      <tr>
+        <td class="py-2 pr-3 font-mono text-xs">{{ p.numero_cnj }}</td>
+        <td class="py-2 pr-3"><span class="badge bg-surface border-border text-fg-soft">{{ p.tribunal_id }}</span></td>
+        <td class="py-2 pr-3 kpi-num">{{ p.classificacao_score|floatformat:3 }}</td>
+        <td class="py-2 pr-3 text-xs text-fg-muted">{{ p.classe_nome|truncatechars:50 }}</td>
+        <td class="py-2 pr-3 text-fg-subtle">{{ p.ano_cnj|default:'—' }}</td>
+        <td class="py-2 pr-3 text-fg-subtle text-xs" title="{{ p.classificacao_em }}">{{ p.classificacao_em|relative_dt }}</td>
+        <td class="py-2 text-right">
+          <a href="{% url 'dashboard:processo-detail' pk=p.pk %}" class="text-accent-fg hover:underline text-xs">abrir →</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="py-8 text-center text-fg-subtle text-sm">Nenhum lead pendente nessa configuração — ou o Juriscope já consumiu todos.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page.paginator.num_pages > 1 %}
+<div class="flex items-center justify-between mt-3 text-xs">
+  <div class="text-fg-subtle">
+    {{ page.start_index }}–{{ page.end_index }} de {{ page.paginator.count|format_int }} pendentes
+  </div>
+  <div class="flex gap-2">
+    {% if page.has_previous %}
+      <a hx-get="{% url 'dashboard:leads-lista' %}?page={{ page.previous_page_number }}&nivel={{ nivel }}{% if tribunal %}&tribunal={{ tribunal }}{% endif %}" hx-target="closest div[hx-get]" hx-swap="outerHTML" class="chip-mini cursor-pointer">‹ anterior</a>
+    {% endif %}
+    {% if page.has_next %}
+      <a hx-get="{% url 'dashboard:leads-lista' %}?page={{ page.next_page_number }}&nivel={{ nivel }}{% if tribunal %}&tribunal={{ tribunal }}{% endif %}" hx-target="closest div[hx-get]" hx-swap="outerHTML" class="chip-mini cursor-pointer">próxima ›</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

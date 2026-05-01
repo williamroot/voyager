@@ -1,0 +1,268 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Leads{% endblock %}
+{% block content %}
+
+<div class="flex items-baseline justify-between mb-3 flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-semibold text-fg-soft">Pipeline de leads</h1>
+    <p class="text-xs text-fg-subtle">Classificação ML + integração Juriscope</p>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    <a href="{% url 'dashboard:api-docs' %}" class="chip">📡 API docs</a>
+    <a href="{% url 'dashboard:leads-export' %}?nivel={{ nivel_filtro|default:'PRECATORIO' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}&limit=5000"
+       class="chip">⬇ exportar CSV (5k)</a>
+  </div>
+</div>
+
+<!-- Filtros -->
+<div class="card-tight mb-4" x-data="leadsFilters()">
+  <div class="flex flex-wrap items-center gap-3 text-sm">
+    <span class="text-xs text-fg-subtle uppercase tracking-wider">Filtros</span>
+
+    <select x-model="tribunal" @change="apply()" class="bg-bg-subtle border border-border rounded-md px-2 py-1 text-sm">
+      <option value="">todos tribunais</option>
+      {% for t in tribunais %}<option value="{{ t.sigla }}" {% if t.sigla == tribunal_filtro %}selected{% endif %}>{{ t.sigla }}</option>{% endfor %}
+    </select>
+
+    <select x-model="nivel" @change="apply()" class="bg-bg-subtle border border-border rounded-md px-2 py-1 text-sm">
+      {% for v, label in niveis %}<option value="{{ v }}" {% if v == nivel_filtro %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+
+    <select x-model="dias" @change="apply()" class="bg-bg-subtle border border-border rounded-md px-2 py-1 text-sm">
+      <option value="7">últimos 7 dias</option>
+      <option value="30" {% if periodo_dias == 30 %}selected{% endif %}>últimos 30 dias</option>
+      <option value="90">últimos 90 dias</option>
+      <option value="365">últimos 12 meses</option>
+    </select>
+  </div>
+</div>
+
+<!-- KPIs (lazy load via fetch) -->
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5"
+     x-data="leadsKpis()" x-init="load()" data-leads-block="kpis">
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">💎 Backlog N1</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n1_pendente)" :class="d.runway_dias != null && d.runway_dias < 1 ? 'text-warning' : ''">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1" x-show="d.runway_dias != null">
+      ~<span x-text="d.runway_dias"></span> dias de runway
+    </div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Taxa de validação 30d</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.taxa_validacao_30d != null ? (d.taxa_validacao_30d*100).toFixed(1) + '%' : '—'">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1" x-show="d.taxa_validacao_treino">
+      treino: <span x-text="(d.taxa_validacao_treino*100).toFixed(1)"></span>%
+    </div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Descobertos/dia</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.throughput_descobertos_dia">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">média 7d</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Consumidos/dia</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.throughput_consumidos_dia">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">via Juriscope, 7d</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">⏳ N2 total</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n2_total)">—</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">🌱 N3 total</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n3_total)">—</div>
+  </div>
+</div>
+
+<!-- Charts: time-series + by-tribunal -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  <div class="card">
+    <div class="text-sm font-medium text-fg-soft mb-1">Oferta vs consumo</div>
+    <div class="text-xs text-fg-subtle mb-2">leads N1 descobertos vs consumidos por dia</div>
+    <div class="h-72 chart-cell">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:leads-chart' 'timeseries' %}?{% query_string request %}', d => buildLeadsTimeseries(d))" class="absolute inset-0"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="text-sm font-medium text-fg-soft mb-1">Distribuição por tribunal</div>
+    <div class="text-xs text-fg-subtle mb-2">leads classificados por nível</div>
+    <div class="h-72 chart-cell">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:leads-chart' 'by-tribunal' %}?{% query_string request %}', d => buildLeadsByTribunal(d))" class="absolute inset-0"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts: calibration + funnel -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  <div class="card">
+    <div class="text-sm font-medium text-fg-soft mb-1">Calibração do modelo</div>
+    <div class="text-xs text-fg-subtle mb-2">score previsto vs taxa real de validação (decis)</div>
+    <div class="h-72 chart-cell">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:leads-chart' 'calibration' %}?{% query_string request %}', d => buildCalibration(d))" class="absolute inset-0"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="text-sm font-medium text-fg-soft mb-1">Funil de consumo</div>
+    <div class="text-xs text-fg-subtle mb-2">descobertos → consumidos → resultado (período)</div>
+    <div class="h-72 chart-cell">
+      <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+      <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:leads-chart' 'funnel' %}?{% query_string request %}', d => buildLeadsFunnel(d))" class="absolute inset-0"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Distribuição de score -->
+<div class="card mb-4">
+  <div class="text-sm font-medium text-fg-soft mb-1">Distribuição de score (N1)</div>
+  <div class="text-xs text-fg-subtle mb-2">histograma — quantos processos por bucket de probabilidade</div>
+  <div class="h-56 chart-cell">
+    <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+    <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:leads-chart' 'distribuicao-score' %}?{% query_string request %}', d => buildScoreHist(d))" class="absolute inset-0"></div>
+  </div>
+</div>
+
+<!-- Tabela: top N leads pendentes -->
+<div class="card">
+  <div class="flex items-baseline justify-between mb-3">
+    <div>
+      <h2 class="text-sm font-semibold text-fg-soft">Próximos leads pendentes</h2>
+      <span class="text-xs text-fg-subtle">não consumidos pelo Juriscope · ordenados por score</span>
+    </div>
+  </div>
+  <div hx-get="{% url 'dashboard:leads-lista' %}?nivel={{ nivel_filtro|default:'PRECATORIO' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}"
+       hx-trigger="load" hx-swap="innerHTML">
+    <div class="text-xs text-fg-subtle py-6 text-center">carregando lista…</div>
+  </div>
+</div>
+
+<script>
+function leadsFilters() {
+  const u = new URL(window.location);
+  return {
+    tribunal: u.searchParams.get('tribunal') || '',
+    nivel: u.searchParams.get('nivel') || 'PRECATORIO',
+    dias: u.searchParams.get('dias') || '30',
+    apply() {
+      const params = new URLSearchParams();
+      if (this.tribunal) params.set('tribunal', this.tribunal);
+      if (this.nivel) params.set('nivel', this.nivel);
+      if (this.dias) params.set('dias', this.dias);
+      window.location.search = params.toString();
+    },
+  };
+}
+
+function leadsKpis() {
+  return {
+    d: {},
+    fmtInt(n) { return n != null ? Number(n).toLocaleString('pt-BR') : '—'; },
+    load() {
+      const u = new URL(window.location);
+      fetch(`{% url 'dashboard:leads-chart' 'kpis' %}?${u.searchParams.toString()}`)
+        .then(r => r.json()).then(d => { this.d = d; });
+    },
+  };
+}
+
+// Chart builders
+function buildLeadsTimeseries(d) {
+  const c = chartGridColors();
+  const allDates = [...new Set([...(d.descobertos || []).map(x => x.dia), ...(d.consumidos || []).map(x => x.dia)])].sort();
+  const descobMap = Object.fromEntries((d.descobertos || []).map(x => [x.dia, x.n]));
+  const consMap = Object.fromEntries((d.consumidos || []).map(x => [x.dia, x.n]));
+  return {
+    tooltip: {trigger: 'axis', valueFormatter: fmt},
+    legend: {top: 0, textStyle: {color: c.legend}},
+    grid: {left: 50, right: 20, top: 30, bottom: 40},
+    xAxis: {type: 'category', data: allDates, axisLabel: {color: c.axisLabel, fontSize: 11}, axisLine: {lineStyle: {color: c.axisLine}}},
+    yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
+    series: [
+      {name: 'descobertos N1', type: 'line', smooth: 0.3, symbol: 'none', data: allDates.map(d => descobMap[d] || 0), lineStyle: {width: 2}, color: '#10b981'},
+      {name: 'consumidos', type: 'line', smooth: 0.3, symbol: 'none', data: allDates.map(d => consMap[d] || 0), lineStyle: {width: 2}, color: '#3b82f6'},
+    ],
+  };
+}
+
+function buildLeadsByTribunal(rows) {
+  const c = chartGridColors();
+  const cats = rows.map(r => r.tribunal);
+  return {
+    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, valueFormatter: fmt},
+    legend: {top: 0, textStyle: {color: c.legend}},
+    grid: {left: 60, right: 20, top: 30, bottom: 30},
+    xAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
+    yAxis: {type: 'category', data: cats, axisLabel: {color: c.axisLabel}, axisLine: {lineStyle: {color: c.axisLine}}},
+    series: [
+      {name: '💎 N1', type: 'bar', stack: 'total', data: rows.map(r => r.n1), itemStyle: {color: '#10b981'}},
+      {name: '⏳ N2', type: 'bar', stack: 'total', data: rows.map(r => r.n2), itemStyle: {color: '#f59e0b'}},
+      {name: '🌱 N3', type: 'bar', stack: 'total', data: rows.map(r => r.n3), itemStyle: {color: '#71717a'}},
+    ],
+  };
+}
+
+function buildCalibration(d) {
+  const c = chartGridColors();
+  const rows = d.rows || [];
+  if (!rows.length) {
+    return {
+      title: {text: 'sem dados ainda — Juriscope ainda não consumiu nenhum lead', textStyle: {color: c.legend, fontSize: 12}, left: 'center', top: 'center'},
+    };
+  }
+  return {
+    tooltip: {trigger: 'axis', formatter: p => p.map(s => `${s.seriesName}: ${(s.value*100).toFixed(1)}%`).join('<br>')},
+    legend: {top: 0, textStyle: {color: c.legend}},
+    grid: {left: 50, right: 20, top: 30, bottom: 40},
+    xAxis: {type: 'category', data: rows.map(r => `D${r.decil}`), axisLabel: {color: c.axisLabel}, axisLine: {lineStyle: {color: c.axisLine}}},
+    yAxis: {type: 'value', min: 0, max: 1, axisLabel: {color: c.axisLabel, formatter: v => (v*100).toFixed(0) + '%'}, splitLine: {lineStyle: {color: c.splitLine}}},
+    series: [
+      {name: 'score previsto', type: 'line', smooth: 0.2, symbol: 'circle', data: rows.map(r => r.score_med), lineStyle: {color: '#71717a', width: 2, type: 'dashed'}, color: '#71717a'},
+      {name: 'taxa real validação', type: 'line', smooth: 0.2, symbol: 'circle', data: rows.map(r => r.taxa_real), lineStyle: {color: '#10b981', width: 2}, color: '#10b981'},
+    ],
+  };
+}
+
+function buildLeadsFunnel(d) {
+  const c = chartGridColors();
+  const result_colors = {
+    validado: '#10b981', pago: '#059669',
+    sem_expedicao: '#f59e0b', erro: '#dc2626',
+    pendente: '#3b82f6', arquivado: '#71717a', cedido: '#a855f7',
+  };
+  const por_res = d.por_resultado || {};
+  const data = [
+    {value: d.descobertos || 0, name: '1. descobertos N1'},
+    {value: d.consumidos_total || 0, name: '2. consumidos'},
+    ...Object.entries(por_res).map(([k, v]) => ({value: v, name: `3. ${k}`, itemStyle: {color: result_colors[k] || '#a1a1aa'}})),
+  ];
+  return {
+    tooltip: {trigger: 'item', valueFormatter: fmt},
+    legend: {orient: 'vertical', right: 0, top: 'middle', textStyle: {color: c.legend, fontSize: 11}},
+    series: [{
+      type: 'funnel', left: '5%', top: 30, bottom: 30, width: '60%',
+      sort: 'descending', gap: 2,
+      label: {color: c.labelInDonut, fontSize: 11, formatter: p => `${p.name}: ${fmt(p.value)}`},
+      labelLine: {length: 10, lineStyle: {width: 1, type: 'solid'}},
+      itemStyle: {borderColor: c.donutBorder, borderWidth: 1},
+      data,
+    }],
+  };
+}
+
+function buildScoreHist(d) {
+  const c = chartGridColors();
+  const bins = d.bins || [];
+  return {
+    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, valueFormatter: fmt},
+    grid: {left: 50, right: 20, top: 20, bottom: 40},
+    xAxis: {type: 'category', data: bins.map(b => b.lo.toFixed(2)), axisLabel: {color: c.axisLabel, fontSize: 10}, axisLine: {lineStyle: {color: c.axisLine}}},
+    yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
+    series: [{type: 'bar', data: bins.map(b => b.n), itemStyle: {color: '#10b981'}, barMaxWidth: 30}],
+  };
+}
+</script>
+{% endblock %}
