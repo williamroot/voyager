@@ -235,10 +235,12 @@ def workers(request):
 @login_required
 @require_GET
 def tribunais(request):
-    """Lista tribunais ativos com KPIs agregados (cards). Server-side, sem
-    queryset gigante — `estatisticas_por_tribunal` faz GROUP BY no banco."""
+    """Lista tribunais ativos com KPIs agregados (cards). Lê só do cache;
+    cron `warm_estatisticas_tribunal` (5min) computa o GROUP BY pesado."""
+    stats = queries.estatisticas_por_tribunal()
     return render(request, 'dashboard/tribunais.html', {
-        'stats': queries.estatisticas_por_tribunal(),
+        'stats': stats,
+        'has_pending': any(s.get('_pending') for s in stats),
     })
 
 

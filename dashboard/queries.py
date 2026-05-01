@@ -192,14 +192,22 @@ def sparkline_24h(tribunais=None):
     return pontos
 
 
+_VOLUME_TEMPORAL_MIN_DATE = date(2020, 1, 1)
+
+
 def volume_temporal(dias=None, tribunais=None):
     """Série temporal por tribunal. Auto-bucket: dia se janela <=365d, mês caso contrário.
 
     Bucket parcial (dia/mês corrente que ainda não acabou) recebe `parcial: True`
     pro frontend renderizar tracejado — sem flag, o gráfico sugeria queda
     artificial sempre no fim.
+
+    Floor em 2020-01-01: DJEN só foi criado no fim de 2020. Movs com
+    `data_disponibilizacao` anterior vêm via Datajud (processos legados,
+    publicados décadas atrás) e distorcem visualmente o eixo X — a curva
+    real começa em 2020+.
     """
-    qs = Movimentacao.objects.all()
+    qs = Movimentacao.objects.filter(data_disponibilizacao__date__gte=_VOLUME_TEMPORAL_MIN_DATE)
     if dias:
         qs = qs.filter(data_disponibilizacao__date__gte=date.today() - timedelta(days=dias))
     if tribunais:

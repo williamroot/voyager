@@ -4,6 +4,9 @@
 {% block content %}
 {% include 'dashboard/_partials/page_header.html' with title='Tribunais' subtitle='Métricas agregadas por tribunal — volume, cobertura, enriquecimento' %}
 
+{# Auto-reload enquanto cache estiver aquecendo (cron warm_estatisticas_tribunal a cada 5min). #}
+{% if has_pending %}<script>setTimeout(() => location.reload(), 15000);</script>{% endif %}
+
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
   {% for s in stats %}
     {% with t=s.tribunal e=s.enriquecimento %}
@@ -21,37 +24,48 @@
         {% endif %}
       </div>
 
-      <div class="grid grid-cols-2 gap-3 mb-4">
-        <div>
-          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">processos</div>
-          <div class="kpi-num text-xl">{{ s.processos|format_int }}</div>
+      {% if s._pending %}
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          {% for _ in '123' %}
+          <div>
+            <div class="h-2.5 w-20 rounded bg-muted/40 animate-pulse"></div>
+            <div class="h-6 w-24 rounded bg-muted/40 animate-pulse mt-2"></div>
+          </div>
+          {% endfor %}
         </div>
-        <div>
-          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">movimentações</div>
-          <div class="kpi-num text-xl">{{ s.movimentacoes|format_int }}</div>
-        </div>
-        <div>
-          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">últimos 30d</div>
-          <div class="kpi-num text-base">{{ s.movs_30d|format_int }} <span class="text-fg-subtle text-xs">movs</span></div>
-        </div>
-        <div>
-          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">cobertura</div>
-          <div class="text-xs text-fg-soft mt-1">
-            {% if s.primeira_mov %}{{ s.primeira_mov|date:'Y-m-d' }} → {{ s.ultima_mov|date:'Y-m-d' }}{% else %}—{% endif %}
+        <div class="border-t border-border pt-3">
+          <div class="h-2.5 w-28 rounded bg-muted/40 animate-pulse mb-2"></div>
+          <div class="flex gap-1.5">
+            <div class="h-4 w-16 rounded bg-muted/40 animate-pulse"></div>
+            <div class="h-4 w-20 rounded bg-muted/40 animate-pulse"></div>
+            <div class="h-4 w-14 rounded bg-muted/40 animate-pulse"></div>
           </div>
         </div>
-      </div>
-
-      {% if e %}
-      <div class="border-t border-border pt-3">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-2">enriquecimento</div>
-        <div class="flex flex-wrap gap-1.5">
-          {% if e.ok %}{% include 'dashboard/_partials/badge.html' with text='ok '|add:e.ok|stringformat:'s' variant='accent' size='mini' %}{% endif %}
-          {% if e.pendente %}{% include 'dashboard/_partials/badge.html' with text='pendente '|add:e.pendente|stringformat:'s' variant='neutral' size='mini' %}{% endif %}
-          {% if e.erro %}{% include 'dashboard/_partials/badge.html' with text='erro '|add:e.erro|stringformat:'s' variant='danger' size='mini' %}{% endif %}
-          {% if e.nao_encontrado %}{% include 'dashboard/_partials/badge.html' with text='nao encontrado '|add:e.nao_encontrado|stringformat:'s' variant='warning' size='mini' %}{% endif %}
+      {% else %}
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">processos</div>
+            <div class="kpi-num text-xl">{{ s.processos|format_int }}</div>
+          </div>
+          <div>
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">cobertura</div>
+            <div class="text-xs text-fg-soft mt-1">
+              {% if s.primeira_mov %}{{ s.primeira_mov|date:'Y-m-d' }} → {{ s.ultima_mov|date:'Y-m-d' }}{% else %}—{% endif %}
+            </div>
+          </div>
         </div>
-      </div>
+
+        {% if e %}
+        <div class="border-t border-border pt-3">
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-2">enriquecimento</div>
+          <div class="flex flex-wrap gap-1.5">
+            {% if e.ok %}{% include 'dashboard/_partials/badge.html' with text='ok '|add:e.ok|stringformat:'s' variant='accent' size='mini' %}{% endif %}
+            {% if e.pendente %}{% include 'dashboard/_partials/badge.html' with text='pendente '|add:e.pendente|stringformat:'s' variant='neutral' size='mini' %}{% endif %}
+            {% if e.erro %}{% include 'dashboard/_partials/badge.html' with text='erro '|add:e.erro|stringformat:'s' variant='danger' size='mini' %}{% endif %}
+            {% if e.nao_encontrado %}{% include 'dashboard/_partials/badge.html' with text='nao encontrado '|add:e.nao_encontrado|stringformat:'s' variant='warning' size='mini' %}{% endif %}
+          </div>
+        </div>
+        {% endif %}
       {% endif %}
     </a>
     {% endwith %}
