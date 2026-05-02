@@ -640,6 +640,13 @@
       TRF5: '#8b5cf6', TRF6: '#ec4899', TJSP: '#06b6d4', TJMG: '#a3e635',
     };
     function fmt(n) { return Number(n).toLocaleString('pt-BR'); }
+    // Versão compacta pra eixos Y — evita "1.000.000" cortando margem esquerda
+    function fmtCompact(n) {
+      const v = Number(n);
+      if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1).replace(/\.0$/, '') + 'k';
+      return String(v);
+    }
     function chartGridColors() {
       const isDark = document.documentElement.classList.contains('dark');
       return {
@@ -679,7 +686,7 @@
           axisLabel: {color: c.axisLabel, fontSize: 11, formatter: formatBucket},
           axisLine: {lineStyle: {color: c.axisLine}},
         },
-        yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmt}, splitLine: {lineStyle: {color: c.splitLine}}},
+        yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmtCompact}, splitLine: {lineStyle: {color: c.splitLine}}},
         series: tribunais.map(t => ({
           name: t, type: 'line', stack: 'total', smooth: 0.3, symbol: 'none',
           areaStyle: {opacity: 0.18}, lineStyle: {width: 1.5},
