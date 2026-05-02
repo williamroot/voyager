@@ -140,18 +140,17 @@ def refresh_materialized_views():
         cache.delete(lock_key)
 
 
-@job('default', timeout=120)
-def warm_workers_cache():
-    """Snapshot de workers/filas. Lock curto (50s) — cron de 30s.
-    A view só lê cache; computa só aqui.
+def warm_workers_cache_inline():
+    """Snapshot de workers/filas — versão inline (rodada DIRETO no thread
+    do scheduler, sem RQ). É leve (só lê Redis) e fazia pile-up na fila
+    default quando workers ficavam presos no warm_dashboard_all pesado.
+    APScheduler `max_instances=1 + coalesce=True` já garante uma execução
+    por vez — sem necessidade de lock Redis.
     """
-    lock_key = 'lock:warm_workers_cache'
-    if not cache.add(lock_key, '1', timeout=50):
-        return
     try:
         queries.compute_workers_snapshot()
-    finally:
-        cache.delete(lock_key)
+    except Exception as e:
+        logger.warning('warm_workers_cache_inline: %s', e)
 
 
 @job('default', timeout=3600)

@@ -16,7 +16,7 @@ from tribunals.models import Tribunal
 
 from dashboard.tasks import (
     warm_dashboard_all,
-    warm_workers_cache,
+    warm_workers_cache_inline,
 )
 
 from .jobs import (
@@ -125,10 +125,11 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
-    # Workers snapshot fica fora do warm_all — é leve (só lê Redis) e roda
-    # mais frequente pra UX da página /workers/.
+    # Workers snapshot — INLINE no thread do scheduler (sem RQ). É leve
+    # (só lê Redis) e enfileirar fazia pile-up na fila default quando
+    # workers ficavam ocupados no warm_dashboard_all pesado.
     scheduler.add_job(
-        warm_workers_cache.delay,
+        warm_workers_cache_inline,
         'interval',
         seconds=30,
         id='warm_workers_cache',
