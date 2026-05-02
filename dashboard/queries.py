@@ -332,16 +332,24 @@ def cobertura_temporal(tribunal):
     }
 
 
+FILTROS_MOVIMENTACOES_CACHE_KEY = 'filtros_movimentacoes'
+
+
 def filtros_movimentacoes():
-    """Top tipos/meios/classes pra facetas. Cacheia 1h — seq scan em ~30M
-    sem cache fazia toda /movimentacoes lenta a cada hit. Top values mudam
-    devagar em escala histórica.
+    """Top tipos/meios/classes pra facetas. APENAS lê do cache —
+    aquecido pelo warm_dashboard_all. Hot-path nunca computa: a query é
+    seq scan em ~30M rows e estoura o timeout do gunicorn (observado 500
+    em /movimentacoes/ com cache frio).
     """
     from django.core.cache import cache
-    cache_key = 'filtros_movimentacoes'
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    return cache.get(FILTROS_MOVIMENTACOES_CACHE_KEY) or {
+        'tipos': [], 'meios': [], 'classes': [],
+    }
+
+
+def compute_filtros_movimentacoes():
+    """Calcula e armazena no cache. Chamado APENAS pelo warm task."""
+    from django.core.cache import cache
     result = {
         'tipos': [r['tipo_comunicacao'] for r in
                   Movimentacao.objects.filter(tribunal__ativo=True)
@@ -356,7 +364,7 @@ def filtros_movimentacoes():
                     .exclude(nome_classe='')
                     .values('nome_classe').annotate(n=Count('id')).order_by('-n')[:6]],
     }
-    cache.set(cache_key, result, timeout=7200)  # 2h — top values mudam devagar
+    cache.set(FILTROS_MOVIMENTACOES_CACHE_KEY, result, timeout=7200)
     return result
 
 

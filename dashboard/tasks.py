@@ -211,6 +211,11 @@ def warm_dashboard_all():
         except Exception as e:
             logger.warning('warm_dashboard_all: estatisticas: %s', e)
 
+        try:
+            queries.compute_filtros_movimentacoes()
+        except Exception as e:
+            logger.warning('warm_dashboard_all: filtros_movs: %s', e)
+
         logger.info('warm_dashboard_all: concluído em %.1fs', time.time() - started)
     finally:
         cache.delete(lock_key)
