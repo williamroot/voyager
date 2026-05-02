@@ -20,6 +20,12 @@
           <span class="badge bg-fg-muted/10 border-fg-muted/40 text-fg-soft" title="Pré-precatório · score {{ processo.classificacao_score|floatformat:2 }}">⏳ PRÉ-PRECATÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
         {% elif processo.classificacao == 'DIREITO_CREDITORIO' %}
           <span class="badge bg-fg-subtle/10 border-fg-subtle/40 text-fg-muted" title="Potencial · score {{ processo.classificacao_score|floatformat:2 }}">🌱 DIREITO CREDITÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
+        {% elif processo.classificacao == 'NAO_LEAD' %}
+          <span class="badge bg-red-500/10 border-red-500/40 text-red-400" title="Classificado como NÃO-LEAD · score {{ processo.classificacao_score|floatformat:2 }}">🚫 NÃO É LEAD · {{ processo.classificacao_score|floatformat:2 }}</span>
+        {% elif processo.classificacao_em %}
+          <span class="badge bg-yellow-500/10 border-yellow-500/40 text-yellow-400" title="Classificado mas sem categoria">classificação inconclusiva</span>
+        {% else %}
+          <span class="badge bg-surface border-border/50 text-fg-subtle" title="Ainda não classificado">não classificado</span>
         {% endif %}
         {% if processo.enriquecimento_status == 'nao_encontrado' %}
           {% include 'dashboard/_partials/badge.html' with text='não encontrado no PJe' variant='warning' %}
@@ -173,10 +179,12 @@
       <div>
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Categoria</div>
         <div class="text-sm font-mono">
-          {% if processo.classificacao == 'PRECATORIO' %}💎 PRECATÓRIO
-          {% elif processo.classificacao == 'PRE_PRECATORIO' %}⏳ PRÉ-PRECATÓRIO
-          {% elif processo.classificacao == 'DIREITO_CREDITORIO' %}🌱 DIREITO CREDITÓRIO
-          {% else %}—{% endif %}
+          {% if processo.classificacao == 'PRECATORIO' %}<span class="text-fg">💎 PRECATÓRIO</span>
+          {% elif processo.classificacao == 'PRE_PRECATORIO' %}<span class="text-fg-soft">⏳ PRÉ-PRECATÓRIO</span>
+          {% elif processo.classificacao == 'DIREITO_CREDITORIO' %}<span class="text-fg-muted">🌱 DIREITO CREDITÓRIO</span>
+          {% elif processo.classificacao == 'NAO_LEAD' %}<span class="text-red-400">🚫 NÃO É LEAD</span>
+          {% elif processo.classificacao_em %}<span class="text-yellow-400">inconclusiva</span>
+          {% else %}<span class="text-fg-subtle">não classificado</span>{% endif %}
         </div>
       </div>
     </div>

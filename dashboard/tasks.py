@@ -14,7 +14,8 @@ _PERIODOS = [None, 7, 30, 90, 365]
 _HORAS = [24, 48, 72]
 
 
-_WARM_TTL = 1800  # 30 min — cron refaz a cada 5 min.
+_WARM_TTL = 7200  # 2h — TTL longo evita "cache vazio" se warm falhar
+# em sequência (DB lento, OOM, restart). Cron renova a cada 5min.
 
 
 @job('default', timeout=600)
@@ -149,5 +150,68 @@ def warm_workers_cache():
         return
     try:
         queries.compute_workers_snapshot()
+    finally:
+        cache.delete(lock_key)
+
+
+@job('default', timeout=3600)
+def warm_dashboard_all():
+    """Executa TODOS os warms do dashboard em sequência sob 1 lock global.
+
+    Bloqueante: refresh MV → kpis → charts → partes → estatísticas. Sem
+    paralelismo entre eles — evita 5 jobs concorrendo no mesmo PG e
+    inflando contention. Cron único de 5min substitui os schedules
+    individuais antigos. Workers snapshot fica fora (cron 30s).
+    """
+    lock_key = 'lock:warm_dashboard_all'
+    if not cache.add(lock_key, '1', timeout=3500):
+        logger.info('warm_dashboard_all: skip (lock held)')
+        return
+    import time
+    from django.db import connection
+    started = time.time()
+    try:
+        for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora'):
+            try:
+                with connection.cursor() as cur:
+                    cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}')
+                logger.info('warm_dashboard_all: MV %s ok', mv)
+            except Exception as e:
+                logger.warning('warm_dashboard_all: MV %s falhou: %s', mv, e)
+
+        for dias in _PERIODOS:
+            try:
+                queries.compute_kpis_globais(dias=dias, tribunais=None)
+            except Exception as e:
+                logger.warning('warm_dashboard_all: kpis dias=%s: %s', dias, e)
+
+        from .views import _CHART_HANDLERS, _chart_cache_key
+        for dias in _PERIODOS:
+            for chart_key, handler in _CHART_HANDLERS.items():
+                if chart_key == 'ingestao-por-hora':
+                    continue
+                try:
+                    data = handler(dias, [], None)
+                    cache.set(_chart_cache_key(chart_key, dias, []), data, timeout=_WARM_TTL)
+                except Exception as e:
+                    logger.warning('warm_dashboard_all: chart %s/d=%s: %s', chart_key, dias, e)
+        for horas in _HORAS:
+            try:
+                data = queries.ingestion_rate_por_hora(horas=horas)
+                cache.set(f'chart:ingestao-por-hora:h={horas}', data, timeout=_WARM_TTL)
+            except Exception as e:
+                logger.warning('warm_dashboard_all: ingestao-por-hora h=%s: %s', horas, e)
+
+        try:
+            queries.distribuicao_tipos_partes()
+        except Exception as e:
+            logger.warning('warm_dashboard_all: partes: %s', e)
+
+        try:
+            queries.compute_estatisticas_por_tribunal()
+        except Exception as e:
+            logger.warning('warm_dashboard_all: estatisticas: %s', e)
+
+        logger.info('warm_dashboard_all: concluído em %.1fs', time.time() - started)
     finally:
         cache.delete(lock_key)

@@ -31,7 +31,8 @@ def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibili
     return qs
 
 
-_KPIS_TTL = 1800  # 30 min — cron warm_kpis_cache refaz a cada 5 min.
+_KPIS_TTL = 7200  # 2h — cron warm_kpis_cache a cada 5 min. TTL longo
+# evita "cache vazio" (que mata a UX); warm renova bem antes de expirar.
 
 
 def _kpis_cache_key(dias, tribunais):
@@ -144,26 +145,27 @@ def compute_kpis_globais(dias=None, tribunais=None):
 def ingestion_rate_por_hora(horas=24, tribunais=None):
     """Movimentações inseridas por hora nas últimas N horas, por tribunal.
 
-    Baseado em `inserido_em` (timestamp do INSERT no banco), não em
-    `data_disponibilizacao` — reflete a velocidade real de ingestão.
+    Lê de `mv_ingestion_rate_hora` (refresh por cron 5min). Sem MV a query
+    direta com TruncHour em ~30M+ rows leva >60s e estoura o warm.
     """
-    from django.db.models.functions import TruncHour
+    from django.db import connection
 
-    agora = timezone.now()
-    cutoff = agora - timedelta(hours=horas)
-    qs = Movimentacao.objects.filter(inserido_em__gte=cutoff)
+    cutoff_sql = f"NOW() - INTERVAL '{int(horas)} hours'"
+    where = ['hora >= ' + cutoff_sql]
+    params: list = []
     if tribunais:
-        qs = qs.filter(tribunal_id__in=tribunais)
-
-    rows = (
-        qs.annotate(hora=TruncHour('inserido_em'))
-        .values('hora', 'tribunal_id')
-        .annotate(total=Count('id'))
-        .order_by('hora', 'tribunal_id')
+        where.append('tribunal_id = ANY(%s)')
+        params.append(list(tribunais))
+    sql = (
+        'SELECT hora, tribunal_id, total FROM mv_ingestion_rate_hora '
+        f'WHERE {" AND ".join(where)} ORDER BY hora, tribunal_id'
     )
+    with connection.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
     return [
-        {'hora': r['hora'].isoformat(), 'tribunal': r['tribunal_id'], 'total': r['total']}
-        for r in rows if r['hora']
+        {'hora': hora.isoformat(), 'tribunal': trib, 'total': total}
+        for hora, trib, total in rows if hora
     ]
 
 
@@ -354,7 +356,7 @@ def filtros_movimentacoes():
                     .exclude(nome_classe='')
                     .values('nome_classe').annotate(n=Count('id')).order_by('-n')[:6]],
     }
-    cache.set(cache_key, result, timeout=3600)
+    cache.set(cache_key, result, timeout=7200)  # 2h — top values mudam devagar
     return result
 
 
@@ -386,7 +388,7 @@ def distribuicao_tipos_partes():
         {'name': LABELS.get(r['tipo'], r['tipo'] or '—'), 'value': r['n'], 'tipo': r['tipo']}
         for r in rows
     ]
-    cache.set(PARTES_DISTRIBUICAO_CACHE_KEY, result, timeout=600)
+    cache.set(PARTES_DISTRIBUICAO_CACHE_KEY, result, timeout=7200)  # 2h — warm a cada 5 min
     return result
 
 
@@ -465,12 +467,16 @@ def compute_workers_snapshot():
         'workers': worker_keys,
         'workers_by_queue': dict(workers_by_queue),
     }
-    cache.set('status_workers_snapshot', result, timeout=60)
+    # TTL 2h garante que a página continua exibindo o último snapshot
+    # mesmo se vários warms falharem em sequência. Warm cron roda
+    # frequente — TTL é só rede de segurança contra "cache vazio" matar UX.
+    cache.set('status_workers_snapshot', result, timeout=7200)
     return result
 
 
 _ESTATISTICAS_TRIBUNAL_CACHE_KEY = 'estatisticas_por_tribunal:v2'
-_ESTATISTICAS_TRIBUNAL_TTL = 1800  # 30 min — cron warm refaz a cada 5 min
+_ESTATISTICAS_TRIBUNAL_TTL = 7200  # 2h — cron warm a cada 5 min, TTL longo
+# evita "cache vazio" se warm falhar (Redis lento, OOM, etc).
 
 
 def estatisticas_por_tribunal():
