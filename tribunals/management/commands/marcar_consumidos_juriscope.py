@@ -42,13 +42,15 @@ RESULTADO = LeadConsumption.RESULTADO_VALIDADO
 
 
 class Command(BaseCommand):
-    help = 'Marca processos TRF1 como já consumidos pelo Juriscope (LeadConsumption).'
+    help = 'Marca processos como já consumidos pelo Juriscope (LeadConsumption).'
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true',
                             help='Apenas reporta contagens, sem inserir nada.')
         parser.add_argument('--apply', action='store_true',
                             help='Executa o insert. Mutuamente exclusivo com --dry-run.')
+        parser.add_argument('--tribunal', default='TRF1',
+                            help='Sigla do tribunal (default TRF1).')
         parser.add_argument('--batch-size', type=int, default=5000,
                             help='Linhas por chunk (default 5000).')
         parser.add_argument('--unmatched-log', default='/tmp/juriscope_unmatched.txt',
@@ -63,9 +65,12 @@ class Command(BaseCommand):
         batch = opts['batch_size']
         limit = opts['limit']
         unmatched_path = opts['unmatched_log']
+        tribunal_sigla = opts['tribunal'].upper()
+        tribunal_lower = tribunal_sigla.lower()
 
         self.stdout.write(self.style.NOTICE(
-            f'modo: {"DRY-RUN" if dry else "APPLY"} · batch={batch} · limit={limit or "todos"}'
+            f'modo: {"DRY-RUN" if dry else "APPLY"} · tribunal={tribunal_sigla} · '
+            f'batch={batch} · limit={limit or "todos"}'
         ))
 
         # 1) Cliente Juriscope
@@ -104,10 +109,10 @@ class Command(BaseCommand):
         # DISTINCT ON garante 1 row por numero_autos (CNJ); ORDER BY pega o
         # created_at mais antigo (1ª vez que Juriscope tocou o processo) —
         # melhor do que `MIN(created_at) GROUP BY` em performance e clareza.
-        sql = """
+        sql = f"""
             SELECT DISTINCT ON (numero_autos) numero_autos, created_at
             FROM datamodel_process
-            WHERE LOWER(tribunal) = 'trf1'
+            WHERE LOWER(tribunal) = '{tribunal_lower}'
               AND files_downloaded = true
               AND numero_autos IS NOT NULL
               AND numero_autos <> ''
@@ -137,7 +142,7 @@ class Command(BaseCommand):
 
             cnj_to_pid: dict[str, int] = dict(
                 Process.objects.filter(
-                    numero_cnj__in=cnjs, tribunal_id='TRF1',
+                    numero_cnj__in=cnjs, tribunal_id=tribunal_sigla,
                 ).values_list('numero_cnj', 'id')
             )
 
