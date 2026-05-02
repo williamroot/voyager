@@ -61,7 +61,13 @@ ANO_STD = 6.6
 DIAS_ULT_MOV_MEAN = 687.0
 DIAS_ULT_MOV_STD = 570.0
 
-CLASSES_CUMPRIMENTO = {'12078', '156', '15160', '15215'}
+CLASSES_CUMPRIMENTO = {
+    '12078',  # Cumprimento de Sentença contra a Fazenda Pública (federal e estadual)
+    '156',    # Cumprimento de Sentença
+    '15160',  # Cumprimento de Sentença de Ações Coletivas
+    '15215',  # Cumprimento contra Fazenda Mediante Execução Invertida
+    '12079',  # Execução de Título Extrajudicial contra a Fazenda Pública (estadual)
+}
 
 CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 

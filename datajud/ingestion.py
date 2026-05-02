@@ -54,12 +54,21 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
                 'fonte': 'datajud', 'encontrado': False}
 
     items = parse_movimentos(source)
+
+    # Datajud retorna metadata do processo (classe + assunto) — popula
+    # Process.classe_codigo/nome quando o tribunal não tem PJe enricher
+    # próprio (ex: TJMG/TJSP onde DJEN também não traz classe).
+    classe_obj = source.get('classe') or {}
+    classe_codigo_src = str(classe_obj.get('codigo') or '').strip()
+    classe_nome_src = (classe_obj.get('nome') or '').strip()[:255]
+
     if not items:
         now_ts = timezone.now()
-        Process.objects.filter(pk=processo.pk).update(
-            ultima_sinc_djen_em=now_ts,
-            data_enriquecimento_datajud=now_ts,
-        )
+        update_kwargs = dict(ultima_sinc_djen_em=now_ts, data_enriquecimento_datajud=now_ts)
+        if classe_codigo_src and not processo.classe_codigo:
+            update_kwargs['classe_codigo'] = classe_codigo_src
+            update_kwargs['classe_nome'] = classe_nome_src
+        Process.objects.filter(pk=processo.pk).update(**update_kwargs)
         return {'cnj': processo.numero_cnj, 'novos': 0, 'duplicados': 0,
                 'fonte': 'datajud', 'encontrado': True}
 
@@ -109,7 +118,7 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
             )
         )
         now_ts = timezone.now()
-        Process.objects.filter(pk=processo.pk).update(
+        update_kwargs = dict(
             primeira_movimentacao_em=agg['primeira'],
             ultima_movimentacao_em=agg['ultima'],
             total_movimentacoes=agg['total'] or 0,
@@ -118,6 +127,10 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
             # atualizado pra UI/queries antigas continuarem funcionando.
             ultima_sinc_djen_em=now_ts,
         )
+        if classe_codigo_src and not processo.classe_codigo:
+            update_kwargs['classe_codigo'] = classe_codigo_src
+            update_kwargs['classe_nome'] = classe_nome_src
+        Process.objects.filter(pk=processo.pk).update(**update_kwargs)
 
     novos = len(movs_to_create)
     duplicados = len(items) - novos
