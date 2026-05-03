@@ -221,9 +221,15 @@ def watchdog_ingestao() -> dict:
                 re_backfill.append(t.sigla)
             continue
         # Backfill concluído — confere se daily rodou recentemente.
+        # janela_fim__gte=hoje-1 distingue daily (cobre hoje) de backfill_dia
+        # (dia histórico). Sem esse filtro, qualquer backfill_dia success
+        # mascarava o daily quebrado — visto TRF1 sem ingestão por 3 dias
+        # enquanto o tick_backfill rodava normalmente.
+        hoje = date.today()
         ultima = (
             IngestionRun.objects.filter(
                 tribunal=t, status=IngestionRun.STATUS_SUCCESS,
+                janela_fim__gte=hoje - timedelta(days=1),
             ).order_by('-finished_at').first()
         )
         if (ultima is None or
