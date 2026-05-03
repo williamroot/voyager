@@ -8,7 +8,7 @@ import logging
 import time
 
 from django.core.cache import cache
-from django.db import close_old_connections, connection
+from django.db import close_old_connections, connection, transaction
 from django_rq import job
 
 from . import queries
@@ -32,9 +32,18 @@ def _reset_connection():
         pass
 
 
-def _set_statement_timeout(seconds: int):
-    with connection.cursor() as cur:
-        cur.execute(f"SET statement_timeout = '{int(seconds)}s'")
+def _with_timeout(timeout_s: int, fn):
+    """Executa fn() dentro de transação com SET LOCAL statement_timeout.
+
+    pgbouncer transaction-mode descarta SET statement_timeout entre queries
+    (cada cursor.execute pode ir pra conexão diferente). SET LOCAL dentro
+    de transaction.atomic() vincula o timeout a TODA query da transação,
+    garantindo que pesadas (GROUP BY em 30M rows) abortem em vez de travar.
+    """
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            cur.execute(f"SET LOCAL statement_timeout = '{int(timeout_s)}s'")
+        fn()
 
 
 def _with_lock(lock_key: str, ttl: int, fn):
@@ -67,16 +76,14 @@ def warm_workers_cache_inline():
 @job('warm', timeout=1500)
 def warm_kpis():
     """KPIs globais (None + 7d). compute_kpis_globais faz vários COUNT em
-    30M+ rows. timeout 1500s (25min) > soma dos statement_timeouts internos."""
+    30M+ rows. Cada período em transação separada com SET LOCAL timeout."""
     def _run():
-        _set_statement_timeout(60)
         for dias in _PERIODOS:
             try:
-                queries.compute_kpis_globais(dias=dias, tribunais=None)
+                _with_timeout(120, lambda d=dias: queries.compute_kpis_globais(dias=d, tribunais=None))
             except Exception as e:
                 logger.warning('warm_kpis dias=%s: %s', dias, e)
                 _reset_connection()
-                _set_statement_timeout(60)
     _with_lock('lock:warm_kpis', 1800, _run)
 
 
@@ -85,24 +92,23 @@ def warm_charts():
     """Pré-aquece charts da home (volume-temporal, top_*, etc).
 
     NÃO inclui ingestao-por-hora (job próprio, lê de MV). 7 charts × 2
-    períodos = 14 queries; cada GROUP BY em ~30M rows leva ~1-3min sem
-    índice/MV específico. statement_timeout 180s ⇒ 2520s pior caso;
-    horse timeout 3000s (50min) dá folga.
+    períodos = 14 queries; cada chart em transação isolada com timeout
+    SET LOCAL — pgbouncer transaction-mode descarta SET sem LOCAL.
     """
     def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
-        _set_statement_timeout(180)
         for dias in _PERIODOS:
             for chart_key, handler in _CHART_HANDLERS.items():
                 if chart_key == 'ingestao-por-hora':
                     continue
                 try:
-                    data = handler(dias, [], None)
-                    cache.set(_chart_cache_key(chart_key, dias, []), data, timeout=_WARM_TTL)
+                    def _go(c=chart_key, d=dias, h=handler):
+                        data = h(d, [], None)
+                        cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
+                    _with_timeout(180, _go)
                 except Exception as e:
                     logger.warning('warm_charts %s/d=%s: %s', chart_key, dias, e)
                     _reset_connection()
-                    _set_statement_timeout(180)
     _with_lock('lock:warm_charts', 3300, _run)
 
 
@@ -110,43 +116,37 @@ def warm_charts():
 def warm_ingestao_por_hora():
     """Velocidade de ingestão (lê da MV mv_ingestion_rate_hora)."""
     def _run():
-        _set_statement_timeout(60)
         for horas in _HORAS:
             try:
-                data = queries.ingestion_rate_por_hora(horas=horas)
-                cache.set(f'chart:ingestao-por-hora:h={horas}', data, timeout=_WARM_TTL)
+                def _go(h=horas):
+                    data = queries.ingestion_rate_por_hora(horas=h)
+                    cache.set(f'chart:ingestao-por-hora:h={h}', data, timeout=_WARM_TTL)
+                _with_timeout(60, _go)
             except Exception as e:
                 logger.warning('warm_ingestao_por_hora h=%s: %s', horas, e)
                 _reset_connection()
-                _set_statement_timeout(60)
     _with_lock('lock:warm_ingestao_por_hora', 300, _run)
 
 
 @job('warm', timeout=120)
 def warm_partes():
     """Distribuição de tipos de partes (/dashboard/partes/)."""
-    def _run():
-        _set_statement_timeout(60)
-        queries.distribuicao_tipos_partes()
-    _with_lock('lock:warm_partes', 300, _run)
+    _with_lock('lock:warm_partes', 300,
+               lambda: _with_timeout(60, queries.distribuicao_tipos_partes))
+
+
+@job('warm', timeout=600)
+def warm_estatisticas_tribunal():
+    """Estatísticas por tribunal (/dashboard/tribunais/). GROUP BY em 30M+ movs."""
+    _with_lock('lock:warm_estatisticas_tribunal', 900,
+               lambda: _with_timeout(300, queries.compute_estatisticas_por_tribunal))
 
 
 @job('warm', timeout=300)
-def warm_estatisticas_tribunal():
-    """Estatísticas por tribunal (/dashboard/tribunais/). GROUP BY em 30M+ movs."""
-    def _run():
-        _set_statement_timeout(180)
-        queries.compute_estatisticas_por_tribunal()
-    _with_lock('lock:warm_estatisticas_tribunal', 600, _run)
-
-
-@job('warm', timeout=180)
 def warm_filtros_movimentacoes():
     """Top tipos/meios/classes pra facetas de /movimentacoes/."""
-    def _run():
-        _set_statement_timeout(60)
-        queries.compute_filtros_movimentacoes()
-    _with_lock('lock:warm_filtros_movimentacoes', 300, _run)
+    _with_lock('lock:warm_filtros_movimentacoes', 600,
+               lambda: _with_timeout(180, queries.compute_filtros_movimentacoes))
 
 
 @job('warm', timeout=600)
