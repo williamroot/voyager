@@ -73,27 +73,27 @@ def warm_workers_cache_inline():
         logger.warning('warm_workers_cache_inline: %s', e)
 
 
-@job('warm', timeout=1500)
+@job('warm', timeout=2400)
 def warm_kpis():
     """KPIs globais (None + 7d). compute_kpis_globais faz vários COUNT em
-    30M+ rows. Cada período em transação separada com SET LOCAL timeout."""
+    30M+ rows. timeout 600s/período: queries tomam 1-3min em DB lento."""
     def _run():
         for dias in _PERIODOS:
             try:
-                _with_timeout(120, lambda d=dias: queries.compute_kpis_globais(dias=d, tribunais=None))
+                _with_timeout(600, lambda d=dias: queries.compute_kpis_globais(dias=d, tribunais=None))
             except Exception as e:
                 logger.warning('warm_kpis dias=%s: %s', dias, e)
                 _reset_connection()
-    _with_lock('lock:warm_kpis', 1800, _run)
+    _with_lock('lock:warm_kpis', 2700, _run)
 
 
-@job('warm', timeout=3000)
+@job('warm', timeout=5400)
 def warm_charts():
     """Pré-aquece charts da home (volume-temporal, top_*, etc).
 
     NÃO inclui ingestao-por-hora (job próprio, lê de MV). 7 charts × 2
-    períodos = 14 queries; cada chart em transação isolada com timeout
-    SET LOCAL — pgbouncer transaction-mode descarta SET sem LOCAL.
+    períodos = 14 queries; timeout 300s/each ⇒ 4200s pior caso. RQ
+    horse 5400s (90min) cobre. Falha de uma não bloqueia outras.
     """
     def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
@@ -105,11 +105,11 @@ def warm_charts():
                     def _go(c=chart_key, d=dias, h=handler):
                         data = h(d, [], None)
                         cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
-                    _with_timeout(180, _go)
+                    _with_timeout(300, _go)
                 except Exception as e:
                     logger.warning('warm_charts %s/d=%s: %s', chart_key, dias, e)
                     _reset_connection()
-    _with_lock('lock:warm_charts', 3300, _run)
+    _with_lock('lock:warm_charts', 5700, _run)
 
 
 @job('warm', timeout=180)
@@ -135,18 +135,18 @@ def warm_partes():
                lambda: _with_timeout(60, queries.distribuicao_tipos_partes))
 
 
-@job('warm', timeout=600)
+@job('warm', timeout=1500)
 def warm_estatisticas_tribunal():
     """Estatísticas por tribunal (/dashboard/tribunais/). GROUP BY em 30M+ movs."""
-    _with_lock('lock:warm_estatisticas_tribunal', 900,
-               lambda: _with_timeout(300, queries.compute_estatisticas_por_tribunal))
+    _with_lock('lock:warm_estatisticas_tribunal', 1800,
+               lambda: _with_timeout(900, queries.compute_estatisticas_por_tribunal))
 
 
-@job('warm', timeout=300)
+@job('warm', timeout=900)
 def warm_filtros_movimentacoes():
     """Top tipos/meios/classes pra facetas de /movimentacoes/."""
-    _with_lock('lock:warm_filtros_movimentacoes', 600,
-               lambda: _with_timeout(180, queries.compute_filtros_movimentacoes))
+    _with_lock('lock:warm_filtros_movimentacoes', 1200,
+               lambda: _with_timeout(600, queries.compute_filtros_movimentacoes))
 
 
 @job('warm', timeout=600)
