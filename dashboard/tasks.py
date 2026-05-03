@@ -69,18 +69,11 @@ def warm_dashboard_all():
 
     started = time.time()
     try:
-        # REFRESH MV CONCURRENTLY pode travar 1-2h em tabelas de 75M+ rows
-        # e empilhar várias execuções com lock contention (observado 11
-        # REFRESH bloqueados, derrubando PG). statement_timeout aborta o
-        # comando se demorar demais, evitando que warm fique preso.
-        for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora'):
-            def _refresh(mv=mv):
-                with connection.cursor() as cur:
-                    cur.execute("SET statement_timeout = '180s'")
-                    cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}')
-                    cur.execute("SET statement_timeout = 0")
-                logger.info('warm_dashboard_all: MV %s ok', mv)
-            _safe(f'MV {mv}', _refresh)
+        # REFRESH MV está DESABILITADO temporariamente — empilhava locks no
+        # PG e derrubava o postmaster ao tentar matar (observado 2x crash).
+        # Os caches dependentes (volume_temporal, ingestao_por_hora) lerão
+        # da MV com dados levemente atrasados — preferível a derrubar tudo.
+        # Deve ser feito por job separado com nice scheduling/timeout.
 
         for dias in _PERIODOS:
             _safe(f'kpis d={dias}', lambda d=dias: queries.compute_kpis_globais(dias=d, tribunais=None))
