@@ -18,7 +18,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         from dashboard.tasks import (
-            warm_charts,
+            warm_charts_leves,
+            warm_charts_pesados,
             warm_estatisticas_tribunal,
             warm_filtros_movimentacoes,
             warm_ingestao_por_hora,
@@ -34,11 +35,12 @@ class Command(BaseCommand):
             tick_backfill_retroativo.delay(t.sigla)
             logger.info('tick inicial enfileirado para %s', t.sigla)
 
-        for warm_job in (warm_kpis, warm_charts, warm_ingestao_por_hora,
-                         warm_partes, warm_estatisticas_tribunal,
+        for warm_job in (warm_kpis, warm_charts_leves, warm_charts_pesados,
+                         warm_ingestao_por_hora, warm_partes,
+                         warm_estatisticas_tribunal,
                          warm_filtros_movimentacoes):
             warm_job.delay()
-        logger.info('aquecimento inicial do dashboard enfileirado (6 jobs)')
+        logger.info('aquecimento inicial do dashboard enfileirado (7 jobs)')
 
         scheduler = create_scheduler()
         self.stdout.write(self.style.SUCCESS(

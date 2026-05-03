@@ -87,19 +87,23 @@ def warm_kpis():
     _with_lock('lock:warm_kpis', 2700, _run)
 
 
-@job('warm', timeout=5400)
-def warm_charts():
-    """Pré-aquece charts da home (volume-temporal, top_*, etc).
+# Charts leves (Process ~3.6M rows ou filtros temporais que limitam IO).
+_CHARTS_LEVES = ('volume-temporal', 'distribuicao', 'classes', 'enriquecimento', 'sparkline-24h')
+# Charts pesados (GROUP BY em 187M+ rows tribunals_movimentacao).
+_CHARTS_PESADOS = ('tipos', 'orgaos', 'meios')
 
-    NÃO inclui ingestao-por-hora (job próprio, lê de MV). 7 charts × 2
-    períodos = 14 queries; timeout 300s/each ⇒ 4200s pior caso. RQ
-    horse 5400s (90min) cobre. Falha de uma não bloqueia outras.
+
+@job('warm', timeout=2400)
+def warm_charts_leves():
+    """Charts rápidos (Process ou filtros temporais). 5 charts × 2 períodos
+    = 10 queries; timeout 300s/each. Esses populam confiável a cada cycle.
     """
     def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
         for dias in _PERIODOS:
-            for chart_key, handler in _CHART_HANDLERS.items():
-                if chart_key == 'ingestao-por-hora':
+            for chart_key in _CHARTS_LEVES:
+                handler = _CHART_HANDLERS.get(chart_key)
+                if not handler:
                     continue
                 try:
                     def _go(c=chart_key, d=dias, h=handler):
@@ -107,9 +111,33 @@ def warm_charts():
                         cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
                     _with_timeout(300, _go)
                 except Exception as e:
-                    logger.warning('warm_charts %s/d=%s: %s', chart_key, dias, e)
+                    logger.warning('warm_charts_leves %s/d=%s: %s', chart_key, dias, e)
                     _reset_connection()
-    _with_lock('lock:warm_charts', 5700, _run)
+    _with_lock('lock:warm_charts_leves', 2700, _run)
+
+
+@job('warm', timeout=7200)
+def warm_charts_pesados():
+    """Charts com GROUP BY em 187M+ rows (tipos/orgaos/meios). Cada um
+    leva 5-15min sem MV. timeout 1200s/each ⇒ 7200s pior caso = horse.
+    Roda em job separado pra não bloquear charts leves.
+    """
+    def _run():
+        from .views import _CHART_HANDLERS, _chart_cache_key
+        for dias in _PERIODOS:
+            for chart_key in _CHARTS_PESADOS:
+                handler = _CHART_HANDLERS.get(chart_key)
+                if not handler:
+                    continue
+                try:
+                    def _go(c=chart_key, d=dias, h=handler):
+                        data = h(d, [], None)
+                        cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
+                    _with_timeout(1200, _go)
+                except Exception as e:
+                    logger.warning('warm_charts_pesados %s/d=%s: %s', chart_key, dias, e)
+                    _reset_connection()
+    _with_lock('lock:warm_charts_pesados', 7500, _run)
 
 
 @job('warm', timeout=180)
