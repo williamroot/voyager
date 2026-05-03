@@ -13,8 +13,18 @@ from .proxies import ProxyScrapePool
 logger = logging.getLogger('voyager.djen.jobs')
 
 
-@job('djen_ingestion', timeout=7200)
+@job('djen_ingestion', timeout=300)
 def run_daily_ingestion(tribunal_sigla: str) -> dict:
+    """Fan-out: enfileira N backfill_dia (1 dia cada) na fila djen_backfill.
+
+    Antes era 1 ingest_window cobrindo overlap_dias+1 dias num único request
+    pageado. DJEN responde HTTP 500 ("sistema muito ocupado") em janelas
+    grandes — observado TRF1/TRF3 falhando 3 dias seguidos no daily 4-dias
+    enquanto backfill_dia (1 dia) sucede normalmente.
+
+    backfill_dia é idempotente (skip via IngestionRun success já cobrindo
+    o dia) — re-enfileirar overlap_dias todo dia é barato.
+    """
     t = Tribunal.objects.filter(sigla=tribunal_sigla, ativo=True).first()
     if not t:
         logger.info('daily skip: tribunal inativo ou inexistente', extra={'tribunal': tribunal_sigla})
@@ -25,9 +35,15 @@ def run_daily_ingestion(tribunal_sigla: str) -> dict:
 
     fim = date.today()
     inicio = fim - timedelta(days=t.overlap_dias)
-    logger.info('daily ingestion inicio %s %s→%s', t.sigla, inicio, fim)
-    run = ingest_window(t, inicio, fim, client=DJENClient())
-    return {'run_id': run.pk, 'novas': run.movimentacoes_novas, 'duplicadas': run.movimentacoes_duplicadas}
+    dias = []
+    d = inicio
+    while d <= fim:
+        backfill_dia.delay(tribunal_sigla, str(d))
+        dias.append(str(d))
+        d += timedelta(days=1)
+    logger.info('daily fan-out %s %s→%s: %d backfill_dia enfileirados',
+                t.sigla, inicio, fim, len(dias))
+    return {'fanout_dias': len(dias), 'inicio': str(inicio), 'fim': str(fim)}
 
 
 @job('djen_backfill', timeout=86400)
