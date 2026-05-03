@@ -80,17 +80,18 @@ def warm_kpis():
     _with_lock('lock:warm_kpis', 1800, _run)
 
 
-@job('warm', timeout=2400)
+@job('warm', timeout=3000)
 def warm_charts():
     """Pré-aquece charts da home (volume-temporal, top_*, etc).
 
     NÃO inclui ingestao-por-hora (job próprio, lê de MV). 7 charts × 2
-    períodos = 14 queries. Cada uma com statement_timeout 60s ⇒ 840s
-    pior caso; horse timeout 2400s (40min) dá folga.
+    períodos = 14 queries; cada GROUP BY em ~30M rows leva ~1-3min sem
+    índice/MV específico. statement_timeout 180s ⇒ 2520s pior caso;
+    horse timeout 3000s (50min) dá folga.
     """
     def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
-        _set_statement_timeout(60)
+        _set_statement_timeout(180)
         for dias in _PERIODOS:
             for chart_key, handler in _CHART_HANDLERS.items():
                 if chart_key == 'ingestao-por-hora':
@@ -101,8 +102,8 @@ def warm_charts():
                 except Exception as e:
                     logger.warning('warm_charts %s/d=%s: %s', chart_key, dias, e)
                     _reset_connection()
-                    _set_statement_timeout(60)
-    _with_lock('lock:warm_charts', 2700, _run)
+                    _set_statement_timeout(180)
+    _with_lock('lock:warm_charts', 3300, _run)
 
 
 @job('warm', timeout=180)
