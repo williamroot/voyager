@@ -137,6 +137,23 @@ services:
         condition: service_healthy
     restart: always
 
+  # Worker dedicado pra warm de cache do dashboard. Roda na fila `warm`
+  # (kpis, charts, partes, estatísticas, filtros, MV refresh). 2 réplicas
+  # permitem queries lentas e rápidas em paralelo sem bloquear umas às
+  # outras. Isolado do `default` (que tem watchdogs/ticks do scheduler).
+  worker_warm:
+    image: voyager-web:prod
+    command: python manage.py rqworker warm
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+    restart: always
+
   # Consumers do stream de enrichment. XREADGROUP distribui entries
   # entre consumers do mesmo group — escalar replicas dá throughput x N.
   # Workers concorrentes podem ter racing em upsert de Parte, mas as

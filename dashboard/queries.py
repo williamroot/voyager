@@ -348,22 +348,47 @@ def filtros_movimentacoes():
 
 
 def compute_filtros_movimentacoes():
-    """Calcula e armazena no cache. Chamado APENAS pelo warm task."""
+    """Calcula e armazena no cache. Chamado APENAS pelo warm task.
+
+    1 query SQL com 3 GROUP BY paralelos (UNION ALL) — antes eram 3
+    seq scans em ~30M rows. Tribunal__ativo=True trocado por subquery
+    cacheada de `tribunal_id IN (...)` pra evitar JOIN.
+    """
     from django.core.cache import cache
-    result = {
-        'tipos': [r['tipo_comunicacao'] for r in
-                  Movimentacao.objects.filter(tribunal__ativo=True)
-                  .exclude(tipo_comunicacao='')
-                  .values('tipo_comunicacao').annotate(n=Count('id')).order_by('-n')[:8]],
-        'meios': [r['meio_completo'] for r in
-                  Movimentacao.objects.filter(tribunal__ativo=True)
-                  .exclude(meio_completo='')
-                  .values('meio_completo').annotate(n=Count('id')).order_by('-n')[:6]],
-        'classes': [r['nome_classe'] for r in
-                    Movimentacao.objects.filter(tribunal__ativo=True)
-                    .exclude(nome_classe='')
-                    .values('nome_classe').annotate(n=Count('id')).order_by('-n')[:6]],
-    }
+    from django.db import connection
+    sql = """
+        WITH ativos AS (
+            SELECT sigla FROM tribunals_tribunal WHERE ativo = true
+        ),
+        movs AS (
+            SELECT tipo_comunicacao, meio_completo, nome_classe
+            FROM tribunals_movimentacao
+            WHERE tribunal_id IN (SELECT sigla FROM ativos)
+        ),
+        tipos AS (
+            SELECT 'tipos' AS k, tipo_comunicacao AS v, COUNT(*) AS n
+            FROM movs WHERE tipo_comunicacao <> ''
+            GROUP BY tipo_comunicacao ORDER BY n DESC LIMIT 8
+        ),
+        meios AS (
+            SELECT 'meios' AS k, meio_completo AS v, COUNT(*) AS n
+            FROM movs WHERE meio_completo <> ''
+            GROUP BY meio_completo ORDER BY n DESC LIMIT 6
+        ),
+        classes AS (
+            SELECT 'classes' AS k, nome_classe AS v, COUNT(*) AS n
+            FROM movs WHERE nome_classe <> ''
+            GROUP BY nome_classe ORDER BY n DESC LIMIT 6
+        )
+        SELECT k, v FROM tipos UNION ALL
+        SELECT k, v FROM meios UNION ALL
+        SELECT k, v FROM classes
+    """
+    result = {'tipos': [], 'meios': [], 'classes': []}
+    with connection.cursor() as cur:
+        cur.execute(sql)
+        for k, v in cur.fetchall():
+            result[k].append(v)
     cache.set(FILTROS_MOVIMENTACOES_CACHE_KEY, result, timeout=7200)
     return result
 

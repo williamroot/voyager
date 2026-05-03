@@ -1,116 +1,168 @@
-"""Jobs RQ do dashboard — executados pelos workers, enfileirados pelo scheduler."""
+"""Jobs RQ do dashboard — executados pelos workers, enfileirados pelo scheduler.
+
+Arquitetura: 6 jobs warm independentes na fila `warm` (worker dedicado em .30).
+Cada job tem lock próprio + statement_timeout SQL — falha de um não bloqueia
+os outros, e queries pesadas cancelam ao invés de travar o pipeline.
+"""
 import logging
+import time
 
 from django.core.cache import cache
+from django.db import close_old_connections, connection
 from django_rq import job
 
 from . import queries
 
 logger = logging.getLogger('voyager.dashboard.tasks')
 
-# Períodos pré-aquecidos. Reduzido de [None, 7, 30, 90, 365] pra [None, 7]:
-# os outros multiplicavam queries pesadas em 30M+ rows e travavam o warm.
-# Períodos fora desses são computados on-demand pelo handler quando o filtro
-# é aplicado — caminho frio aceitável pra clicks raros.
+# Períodos pré-aquecidos. Apenas [None, 7] na home — outros computam on-demand.
 _PERIODOS = [None, 7]
 # Janelas da velocidade de ingestão (horas)
 _HORAS = [24, 48, 72]
 
-
-_WARM_TTL = 7200  # 2h — TTL longo evita "cache vazio" se warm falhar
-# em sequência (DB lento, OOM, restart). Cron renova a cada 5min.
+_WARM_TTL = 7200  # 2h
 
 
+def _reset_connection():
+    """Garante cursor limpo: query anterior cancelada deixa cursor 'busy'."""
+    close_old_connections()
+    try:
+        connection.connection and connection.connection.cancel()
+    except Exception:
+        pass
+
+
+def _set_statement_timeout(seconds: int):
+    with connection.cursor() as cur:
+        cur.execute(f"SET statement_timeout = '{int(seconds)}s'")
+
+
+def _with_lock(lock_key: str, ttl: int, fn):
+    """Executa fn() sob lock Redis + reset de conexão. Idempotente."""
+    if not cache.add(lock_key, '1', timeout=ttl):
+        logger.info('%s: skip (lock held)', lock_key)
+        return
+    try:
+        _reset_connection()
+        fn()
+    except Exception as e:
+        logger.warning('%s: %s', lock_key, e)
+        try:
+            connection.close()
+        except Exception:
+            pass
+    finally:
+        cache.delete(lock_key)
+
+
+# Workers snapshot — INLINE no scheduler thread, sem RQ. É leve (só lê Redis)
+# e fazia pile-up na fila default quando workers ficavam ocupados.
 def warm_workers_cache_inline():
-    """Snapshot de workers/filas — versão inline (rodada DIRETO no thread
-    do scheduler, sem RQ). É leve (só lê Redis) e fazia pile-up na fila
-    default quando workers ficavam presos no warm_dashboard_all pesado.
-    APScheduler `max_instances=1 + coalesce=True` já garante uma execução
-    por vez — sem necessidade de lock Redis.
-    """
     try:
         queries.compute_workers_snapshot()
     except Exception as e:
         logger.warning('warm_workers_cache_inline: %s', e)
 
 
-@job('default', timeout=3600)
-def warm_dashboard_all():
-    """Executa TODOS os warms do dashboard em sequência sob 1 lock global.
-
-    Bloqueante: refresh MV → kpis → charts → partes → estatísticas. Sem
-    paralelismo entre eles — evita 5 jobs concorrendo no mesmo PG e
-    inflando contention. Cron único de 5min substitui os schedules
-    individuais antigos. Workers snapshot fica fora (cron 30s).
-    """
-    lock_key = 'lock:warm_dashboard_all'
-    # Lock TTL 600s (10min) — antes era 3500s (58min) e órfão de worker
-    # morto deixava warm parado por quase 1h. Cron 5min, então 10min cobre
-    # 2 ciclos. Se warm precisar mais que isso, a query estourou timeout
-    # e queremos que próximo ciclo tente de novo.
-    if not cache.add(lock_key, '1', timeout=600):
-        logger.info('warm_dashboard_all: skip (lock held)')
-        return
-    import time
-    from django.db import connection, close_old_connections
-
-    def _safe(label, fn, timeout_s=60):
-        # Reseta a conexão antes de cada step. Se uma query anterior foi
-        # cancelada (timeout, OOM, kill), o cursor fica em estado "busy" e
-        # a próxima erra com "another command is already in progress",
-        # poisonando o resto do warm. close_old_connections + cancel garante
-        # cursor limpo a cada step.
-        # statement_timeout SQL aborta a query se demorar — sem ele uma
-        # única query pesada (COUNT em 30M rows) trava 5+ min e o lock
-        # bloqueia o próximo ciclo do cron.
-        try:
-            close_old_connections()
-            try:
-                connection.connection and connection.connection.cancel()
-            except Exception:
-                pass
-            with connection.cursor() as cur:
-                cur.execute(f"SET statement_timeout = '{int(timeout_s)}s'")
-            fn()
-        except Exception as e:
-            logger.warning('warm_dashboard_all: %s: %s', label, e)
-            try:
-                connection.close()
-            except Exception:
-                pass
-
-    started = time.time()
-    try:
-        # REFRESH MV está DESABILITADO temporariamente — empilhava locks no
-        # PG e derrubava o postmaster ao tentar matar (observado 2x crash).
-        # Os caches dependentes (volume_temporal, ingestao_por_hora) lerão
-        # da MV com dados levemente atrasados — preferível a derrubar tudo.
-        # Deve ser feito por job separado com nice scheduling/timeout.
-
+@job('warm', timeout=300)
+def warm_kpis():
+    """KPIs globais (None + 7d). compute_kpis_globais faz COUNT em 30M+ rows."""
+    def _run():
+        _set_statement_timeout(90)
         for dias in _PERIODOS:
-            _safe(f'kpis d={dias}',
-                  lambda d=dias: queries.compute_kpis_globais(dias=d, tribunais=None),
-                  timeout_s=90)
+            try:
+                queries.compute_kpis_globais(dias=dias, tribunais=None)
+            except Exception as e:
+                logger.warning('warm_kpis dias=%s: %s', dias, e)
+                _reset_connection()
+                _set_statement_timeout(90)
+    _with_lock('lock:warm_kpis', 600, _run)
 
+
+@job('warm', timeout=600)
+def warm_charts():
+    """Pré-aquece charts da home (volume-temporal, top_*, etc).
+
+    NÃO inclui ingestao-por-hora (job próprio, lê de MV).
+    """
+    def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
+        _set_statement_timeout(90)
         for dias in _PERIODOS:
             for chart_key, handler in _CHART_HANDLERS.items():
                 if chart_key == 'ingestao-por-hora':
                     continue
-                def _chart(c=chart_key, d=dias, h=handler):
-                    data = h(d, [], None)
-                    cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
-                _safe(f'chart {chart_key}/d={dias}', _chart, timeout_s=90)
+                try:
+                    data = handler(dias, [], None)
+                    cache.set(_chart_cache_key(chart_key, dias, []), data, timeout=_WARM_TTL)
+                except Exception as e:
+                    logger.warning('warm_charts %s/d=%s: %s', chart_key, dias, e)
+                    _reset_connection()
+                    _set_statement_timeout(90)
+    _with_lock('lock:warm_charts', 900, _run)
+
+
+@job('warm', timeout=180)
+def warm_ingestao_por_hora():
+    """Velocidade de ingestão (lê da MV mv_ingestion_rate_hora)."""
+    def _run():
+        _set_statement_timeout(60)
         for horas in _HORAS:
-            def _ingest(h=horas):
-                data = queries.ingestion_rate_por_hora(horas=h)
-                cache.set(f'chart:ingestao-por-hora:h={h}', data, timeout=_WARM_TTL)
-            _safe(f'ingestao-por-hora h={horas}', _ingest, timeout_s=60)
+            try:
+                data = queries.ingestion_rate_por_hora(horas=horas)
+                cache.set(f'chart:ingestao-por-hora:h={horas}', data, timeout=_WARM_TTL)
+            except Exception as e:
+                logger.warning('warm_ingestao_por_hora h=%s: %s', horas, e)
+                _reset_connection()
+                _set_statement_timeout(60)
+    _with_lock('lock:warm_ingestao_por_hora', 300, _run)
 
-        _safe('partes', queries.distribuicao_tipos_partes, timeout_s=60)
-        _safe('estatisticas', queries.compute_estatisticas_por_tribunal, timeout_s=180)
-        _safe('filtros_movs', queries.compute_filtros_movimentacoes, timeout_s=60)
 
-        logger.info('warm_dashboard_all: concluído em %.1fs', time.time() - started)
-    finally:
-        cache.delete(lock_key)
+@job('warm', timeout=120)
+def warm_partes():
+    """Distribuição de tipos de partes (/dashboard/partes/)."""
+    def _run():
+        _set_statement_timeout(60)
+        queries.distribuicao_tipos_partes()
+    _with_lock('lock:warm_partes', 300, _run)
+
+
+@job('warm', timeout=300)
+def warm_estatisticas_tribunal():
+    """Estatísticas por tribunal (/dashboard/tribunais/). GROUP BY em 30M+ movs."""
+    def _run():
+        _set_statement_timeout(180)
+        queries.compute_estatisticas_por_tribunal()
+    _with_lock('lock:warm_estatisticas_tribunal', 600, _run)
+
+
+@job('warm', timeout=180)
+def warm_filtros_movimentacoes():
+    """Top tipos/meios/classes pra facetas de /movimentacoes/."""
+    def _run():
+        _set_statement_timeout(60)
+        queries.compute_filtros_movimentacoes()
+    _with_lock('lock:warm_filtros_movimentacoes', 300, _run)
+
+
+@job('warm', timeout=600)
+def refresh_materialized_views():
+    """REFRESH MATERIALIZED VIEW CONCURRENTLY. Cron diário, NÃO no warm path.
+
+    `lock_timeout` PG aborta se outro REFRESH segura lock — evita empilhar
+    (observado 11 REFRESH bloqueados crashou o postmaster).
+    """
+    def _run():
+        with connection.cursor() as cur:
+            cur.execute("SET lock_timeout = '5s'")
+            cur.execute("SET statement_timeout = '600s'")
+            for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora'):
+                try:
+                    cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}')
+                    logger.info('refresh MV %s ok', mv)
+                except Exception as e:
+                    logger.warning('refresh MV %s: %s', mv, e)
+                    _reset_connection()
+                    _set_statement_timeout(600)
+                    cur.execute("SET lock_timeout = '5s'")
+    _with_lock('lock:refresh_mv', 1800, _run)

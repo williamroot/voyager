@@ -15,7 +15,13 @@ from django.db import close_old_connections
 from tribunals.models import Tribunal
 
 from dashboard.tasks import (
-    warm_dashboard_all,
+    refresh_materialized_views,
+    warm_charts,
+    warm_estatisticas_tribunal,
+    warm_filtros_movimentacoes,
+    warm_ingestao_por_hora,
+    warm_kpis,
+    warm_partes,
     warm_workers_cache_inline,
 )
 
@@ -111,15 +117,38 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
-    # Aquecimento do dashboard em sequência bloqueante (refresh MV → kpis →
-    # charts → partes → estatísticas), 1 lock global. Substitui os schedules
-    # individuais antigos — evita 5 jobs concorrendo no mesmo PG e inflando
-    # contention sob carga. Cron 5min; o lock interno protege contra pile-up.
+    # Aquecimento do dashboard — 6 jobs independentes na fila `warm`.
+    # Cada um tem lock + statement_timeout próprios; falha de um não
+    # bloqueia os outros. Worker `warm` dedicado em .30 garante isolation
+    # do `default` (que tem ticks/watchdogs). REFRESH MV separado em
+    # cron diário pra não interferir no warm path quente.
+    for warm_job, job_id in (
+        (warm_kpis, 'warm_kpis'),
+        (warm_charts, 'warm_charts'),
+        (warm_ingestao_por_hora, 'warm_ingestao_por_hora'),
+        (warm_partes, 'warm_partes'),
+        (warm_estatisticas_tribunal, 'warm_estatisticas_tribunal'),
+        (warm_filtros_movimentacoes, 'warm_filtros_movimentacoes'),
+    ):
+        scheduler.add_job(
+            warm_job.delay,
+            'interval',
+            minutes=5,
+            id=job_id,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+
+    # REFRESH MV CONCURRENTLY — diário às 3h. Fora do warm path porque
+    # pode travar 1-2h em tabelas grandes; lock_timeout=5s aborta cedo
+    # se outro REFRESH segura lock (visto empilhar 11 conexões + crash).
     scheduler.add_job(
-        warm_dashboard_all.delay,
-        'interval',
-        minutes=5,
-        id='warm_dashboard_all',
+        refresh_materialized_views.delay,
+        'cron',
+        hour=3,
+        minute=0,
+        id='refresh_materialized_views',
         replace_existing=True,
         max_instances=1,
         coalesce=True,
