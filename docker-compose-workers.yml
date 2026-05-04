@@ -33,7 +33,7 @@ services:
       - .:/app
     deploy:
       # Capacidade redirecionada do TRF1 pra TRF3.
-      replicas: 130
+      replicas: 50
     restart: always
 
   worker_tjmg:
@@ -43,7 +43,7 @@ services:
     volumes:
       - .:/app
     deploy:
-      replicas: 20
+      replicas: 50
     restart: always
 
   worker_default:
@@ -52,6 +52,8 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    deploy:
+      replicas: 2
     restart: always
 
   worker_ingestion:
