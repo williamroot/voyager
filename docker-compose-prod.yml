@@ -22,66 +22,7 @@ services:
       retries: 5
       start_period: 30s
     restart: always
-
-  worker_ingestion:
-    image: voyager-web:prod
-    command: python manage.py rqworker djen_ingestion djen_backfill
-    env_file: .env
-    volumes:
-      - .:/app
-    # _ingest_day_por_uf abre 27 fetches paralelos (UFs) × proxy retries. Sem
-    # ulimit alto, esgota FDs do container e os jobs morrem com errno 24
-    # ("Too many open files"), perdendo dados nas janelas de 1 dia.
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-    depends_on:
-      web:
-        condition: service_healthy
-    deploy:
-      replicas: 4
-    restart: always
-
-  worker_default:
-    image: voyager-web:prod
-    command: python manage.py rqworker default
-    env_file: .env
-    volumes:
-      - .:/app
-    depends_on:
-      web:
-        condition: service_healthy
-    restart: always
-
-  worker_trf1:
-    image: voyager-web:prod
-    command: python manage.py rqworker enrich_trf1
-    env_file: .env
-    volumes:
-      - .:/app
-    depends_on:
-      web:
-        condition: service_healthy
-    deploy:
-      # TRF1 com problema de banco (JBoss errorUnexpected) — reduzido pra
-      # 5 enquanto eles não estabilizam. Capacidade redirecionada pra TRF3.
-      replicas: 5
-    restart: always
-
-  worker_trf3:
-    image: voyager-web:prod
-    command: python manage.py rqworker enrich_trf3
-    env_file: .env
-    volumes:
-      - .:/app
-    depends_on:
-      web:
-        condition: service_healthy
-    deploy:
-      replicas: 75
-    restart: always
-
+  
   worker_manual:
     image: voyager-web:prod
     command: python manage.py rqworker manual
@@ -93,38 +34,7 @@ services:
         condition: service_healthy
     deploy:
       replicas: 2
-    restart: always
-
-  worker_datajud:
-    image: voyager-web:prod
-    command: python manage.py rqworker datajud
-    env_file: .env
-    volumes:
-      - .:/app
-    depends_on:
-      web:
-        condition: service_healthy
-    deploy:
-      # Datajud é 1 request HTTP por processo (rápido). 15 réplicas em .30
-      # (host de 16 cores compartilhado com web/scheduler/outros workers).
-      # Hosts dedicados .177/.184 têm 90 cada.
-      replicas: 15
-    restart: always
-
-  worker_classificacao:
-    image: voyager-web:prod
-    command: python manage.py rqworker classificacao
-    env_file: .env
-    volumes:
-      - .:/app
-    depends_on:
-      web:
-        condition: service_healthy
-    deploy:
-      # Classificação é compute-bound (queries Movimentacao + bytecode LR).
-      # 4 réplicas drenam ~500k/h confortavelmente.
-      replicas: 4
-    restart: always
+    restart: always  
 
   scheduler:
     image: voyager-web:prod

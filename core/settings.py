@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'django_rq',
     'django_prometheus',
 
+    'core',
     'tribunals',
     'djen',
     'datajud',
