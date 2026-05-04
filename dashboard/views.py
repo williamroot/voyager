@@ -2,7 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Exists, Max, OuterRef, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
@@ -667,7 +667,7 @@ def parte_detail(request, pk):
         base_qs.exclude(papel='').values_list('papel', flat=True).distinct()[:10]
     )
     tribunais_da_parte = list(
-        base_qs.values_list('processo__tribunal_id', flat=True).distinct()
+        base_qs.values_list('processo__tribunal_id', flat=True).distinct()[:50]
     )
 
     # Distribuições pros 3 donuts (Tribunal / Papel / Polo). Sempre
@@ -694,7 +694,7 @@ def parte_detail(request, pk):
         'papel_filtro': papel_filtro,
         'papeis_disponiveis': papeis_disponiveis,
         'tribunais_da_parte': tribunais_da_parte,
-        'total_filtrado': qs.count() if (polo_filtro or tribunais_filtro or papel_filtro) else None,
+        'total_filtrado': qs.order_by().count() if (polo_filtro or tribunais_filtro or papel_filtro) else None,
         'chart_tribunal': chart_tribunal,
         'chart_papel': chart_papel,
         'chart_polo': chart_polo,
@@ -868,8 +868,8 @@ def leads_lista(request):
         qs = qs.filter(tribunal_id=tribunal)
     cliente = ApiClient.objects.filter(nome=cliente_nome).first()
     if cliente and not incluir_consumidos:
-        consumidos = LeadConsumption.objects.filter(cliente=cliente).values('processo_id')
-        qs = qs.exclude(pk__in=consumidos)
+        consumidos_subq = LeadConsumption.objects.filter(cliente=cliente, processo_id=OuterRef('pk'))
+        qs = qs.annotate(_consumido=Exists(consumidos_subq)).filter(_consumido=False)
 
     page = _paginar(qs, request, default_size=50)
     return render(request, 'dashboard/_partials/_leads_lista.html', {
@@ -899,8 +899,8 @@ def leads_export_csv(request):
         qs = qs.filter(tribunal_id=tribunal)
     cliente = ApiClient.objects.filter(nome=cliente_nome).first()
     if cliente:
-        consumidos = LeadConsumption.objects.filter(cliente=cliente).values('processo_id')
-        qs = qs.exclude(pk__in=consumidos)
+        consumidos_subq = LeadConsumption.objects.filter(cliente=cliente, processo_id=OuterRef('pk'))
+        qs = qs.annotate(_consumido=Exists(consumidos_subq)).filter(_consumido=False)
     qs = qs[:limit]
 
     import logging
@@ -1076,10 +1076,9 @@ def leads_chart_data(request, key):
             cons_qs = cons_qs.filter(cliente=cliente)
         if tribunal:
             cons_qs = cons_qs.filter(processo__tribunal_id=tribunal)
-        # Deduplica por (processo, dia) pra não inflar com re-consumos
+        # COUNT(DISTINCT processo_id) já deduplica re-consumos por dia.
         consumidos = (
             cons_qs.annotate(d=TruncDate('consumido_em'))
-            .values('d', 'processo_id').distinct()
             .values('d').annotate(n=Count('processo_id', distinct=True))
             .order_by('d')
         )
@@ -1408,9 +1407,12 @@ class WizardCountView(LoginRequiredMixin, _WizardFiltersMixin, View):
     """Devolve fragmento HTMX com a contagem do filtro corrente."""
 
     def get(self, request, *args, **kwargs):
-        return render(request, 'dashboard/_partials/_wizard_count.html', {
-            'count': self.filtered_queryset().count(),
-        })
+        cache_key = f'wizard_count:{request.GET.urlencode()}'
+        count = cache.get(cache_key)
+        if count is None:
+            count = self.filtered_queryset().count()
+            cache.set(cache_key, count, timeout=60)
+        return render(request, 'dashboard/_partials/_wizard_count.html', {'count': count})
 
 
 @method_decorator(require_GET, name='dispatch')

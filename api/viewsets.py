@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from tribunals.models import IngestionRun, Movimentacao, Process, SchemaDriftAlert, Tribunal
 
 from .filters import IngestionRunFilter, MovimentacaoFilter, ProcessFilter
-from .pagination import DefaultPagination, MovimentacaoCursorPagination
+from .pagination import DefaultPagination, MovimentacaoCursorPagination, ProcessPagination
 from .serializers import (
     IngestionRunSerializer,
     MovimentacaoDetailSerializer,
@@ -45,7 +45,7 @@ class TribunalViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets
 class ProcessViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = Process.objects.select_related('tribunal').all()
     filterset_class = ProcessFilter
-    pagination_class = DefaultPagination
+    pagination_class = ProcessPagination
     ordering_fields = ('inserido_em', 'ultima_movimentacao_em', 'total_movimentacoes')
 
     def get_serializer_class(self):
@@ -114,12 +114,19 @@ class HealthReadinessView(viewsets.ViewSet):
         except Exception:
             redis_ok = False
 
-        ativos = Tribunal.objects.filter(ativo=True)
+        ativos = list(Tribunal.objects.filter(ativo=True))
         agora = timezone.now()
+        # DISTINCT ON: 1 query em vez de N+1 (uma por tribunal)
+        ult_runs = {
+            r.tribunal_id: r
+            for r in IngestionRun.objects.filter(tribunal__in=ativos)
+            .order_by('tribunal_id', '-started_at')
+            .distinct('tribunal_id')
+        }
         tribunais = []
         algum_lag_alto = False
         for t in ativos:
-            ult = IngestionRun.objects.filter(tribunal=t).order_by('-started_at').first()
+            ult = ult_runs.get(t.sigla)
             if ult:
                 lag_h = (agora - ult.started_at).total_seconds() / 3600
                 tribunais.append({
