@@ -353,9 +353,14 @@ def compute_filtros_movimentacoes():
     1 query SQL com 3 GROUP BY paralelos (UNION ALL) — antes eram 3
     seq scans em ~30M rows. Tribunal__ativo=True trocado por subquery
     cacheada de `tribunal_id IN (...)` pra evitar JOIN.
+
+    Roteia pra replica via thread-local (ReplicaRouter) — caller usa `with
+    use_replica():` e este SELECT vai pra alias `replica` automaticamente.
     """
     from django.core.cache import cache
-    from django.db import connection
+    from django.db import connections
+    from core.db_router import _local
+    alias = getattr(_local, 'reads_alias', None) or 'default'
     sql = """
         WITH ativos AS (
             SELECT sigla FROM tribunals_tribunal WHERE ativo = true
@@ -385,7 +390,7 @@ def compute_filtros_movimentacoes():
         SELECT k, v FROM classes
     """
     result = {'tipos': [], 'meios': [], 'classes': []}
-    with connection.cursor() as cur:
+    with connections[alias].cursor() as cur:
         cur.execute(sql)
         for k, v in cur.fetchall():
             result[k].append(v)

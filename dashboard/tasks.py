@@ -7,13 +7,20 @@ os outros, e queries pesadas cancelam ao invés de travar o pipeline.
 import logging
 import time
 
+from django.conf import settings
 from django.core.cache import cache
-from django.db import close_old_connections, connection, transaction
+from django.db import close_old_connections, connection, connections, transaction
 from django_rq import job
+
+from core.db_router import use_replica
 
 from . import queries
 
 logger = logging.getLogger('voyager.dashboard.tasks')
+
+# Roteia jobs pesados pra replica quando configurada. Falha aberta — sem
+# replica, usa default. Evita acoplar deploy do código com deploy da replica.
+_REPLICA_ALIAS = 'replica' if 'replica' in settings.DATABASES else 'default'
 
 # Períodos pré-aquecidos. Apenas [None, 7] na home — outros computam on-demand.
 _PERIODOS = [None, 7]
@@ -23,25 +30,28 @@ _HORAS = [24, 48, 72]
 _WARM_TTL = 7200  # 2h
 
 
-def _reset_connection():
+def _reset_connection(using: str = 'default'):
     """Garante cursor limpo: query anterior cancelada deixa cursor 'busy'."""
     close_old_connections()
     try:
-        connection.connection and connection.connection.cancel()
+        conn = connections[using]
+        conn.connection and conn.connection.cancel()
     except Exception:
         pass
 
 
-def _with_timeout(timeout_s: int, fn):
+def _with_timeout(timeout_s: int, fn, using: str = 'default'):
     """Executa fn() dentro de transação com SET LOCAL statement_timeout.
 
     pgbouncer transaction-mode descarta SET statement_timeout entre queries
     (cada cursor.execute pode ir pra conexão diferente). SET LOCAL dentro
     de transaction.atomic() vincula o timeout a TODA query da transação,
     garantindo que pesadas (GROUP BY em 30M rows) abortem em vez de travar.
+
+    `using`: roteia pra outro database alias (ex: 'replica' pra read-only).
     """
-    with transaction.atomic():
-        with connection.cursor() as cur:
+    with transaction.atomic(using=using):
+        with connections[using].cursor() as cur:
             cur.execute(f"SET LOCAL statement_timeout = '{int(timeout_s)}s'")
         fn()
 
@@ -121,22 +131,26 @@ def warm_charts_pesados():
     """Charts com GROUP BY em 187M+ rows (tipos/orgaos/meios). Cada um
     leva 5-15min sem MV. timeout 1200s/each ⇒ 7200s pior caso = horse.
     Roda em job separado pra não bloquear charts leves.
+
+    Roteado pra `replica` quando configurada — tira IO/CPU pesado do primário,
+    libera workers de ingestão. Cache da replica esquenta com primeiras runs.
     """
     def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
-        for dias in _PERIODOS:
-            for chart_key in _CHARTS_PESADOS:
-                handler = _CHART_HANDLERS.get(chart_key)
-                if not handler:
-                    continue
-                try:
-                    def _go(c=chart_key, d=dias, h=handler):
-                        data = h(d, [], None)
-                        cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
-                    _with_timeout(1200, _go)
-                except Exception as e:
-                    logger.warning('warm_charts_pesados %s/d=%s: %s', chart_key, dias, e)
-                    _reset_connection()
+        with use_replica():
+            for dias in _PERIODOS:
+                for chart_key in _CHARTS_PESADOS:
+                    handler = _CHART_HANDLERS.get(chart_key)
+                    if not handler:
+                        continue
+                    try:
+                        def _go(c=chart_key, d=dias, h=handler):
+                            data = h(d, [], None)
+                            cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
+                        _with_timeout(1200, _go, using=_REPLICA_ALIAS)
+                    except Exception as e:
+                        logger.warning('warm_charts_pesados %s/d=%s: %s', chart_key, dias, e)
+                        _reset_connection(_REPLICA_ALIAS)
     _with_lock('lock:warm_charts_pesados', 7500, _run)
 
 
@@ -165,16 +179,26 @@ def warm_partes():
 
 @job('warm', timeout=1500)
 def warm_estatisticas_tribunal():
-    """Estatísticas por tribunal (/dashboard/tribunais/). GROUP BY em 30M+ movs."""
-    _with_lock('lock:warm_estatisticas_tribunal', 1800,
-               lambda: _with_timeout(900, queries.compute_estatisticas_por_tribunal))
+    """Estatísticas por tribunal (/dashboard/tribunais/). GROUP BY em 30M+ movs.
+
+    Roteado pra replica quando configurada.
+    """
+    def _run():
+        with use_replica():
+            _with_timeout(900, queries.compute_estatisticas_por_tribunal, using=_REPLICA_ALIAS)
+    _with_lock('lock:warm_estatisticas_tribunal', 1800, _run)
 
 
 @job('warm', timeout=900)
 def warm_filtros_movimentacoes():
-    """Top tipos/meios/classes pra facetas de /movimentacoes/."""
-    _with_lock('lock:warm_filtros_movimentacoes', 1200,
-               lambda: _with_timeout(600, queries.compute_filtros_movimentacoes))
+    """Top tipos/meios/classes pra facetas de /movimentacoes/.
+
+    Roteado pra replica quando configurada.
+    """
+    def _run():
+        with use_replica():
+            _with_timeout(600, queries.compute_filtros_movimentacoes, using=_REPLICA_ALIAS)
+    _with_lock('lock:warm_filtros_movimentacoes', 1200, _run)
 
 
 @job('warm', timeout=600)

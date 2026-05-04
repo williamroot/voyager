@@ -81,6 +81,24 @@ DATABASES['default'].setdefault('OPTIONS', {}).update({
 DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 DATABASES['default']['CONN_MAX_AGE'] = 0
 
+# Replica read-only opcional. Quando REPLICA_DATABASE_URL está setado, jobs
+# warm pesados (charts/estatísticas/filtros) usam esta conexão via .using('replica')
+# em vez de competir com workers no primário. Falha aberta — código checa a
+# presença de 'replica' em settings.DATABASES antes de usar.
+_REPLICA_URL = env('REPLICA_DATABASE_URL', default='')
+if _REPLICA_URL:
+    DATABASES['replica'] = env.db_url_config(_REPLICA_URL)
+    DATABASES['replica']['ENGINE'] = 'django_prometheus.db.backends.postgresql'
+    # Replica é hot standby PG direto (sem pgbouncer) — pode usar prepared
+    # statements, server-side cursors. Mas mantemos OPTIONS consistentes.
+    DATABASES['replica'].setdefault('OPTIONS', {}).update({
+        'server_side_binding': False,
+    })
+    DATABASES['replica']['DISABLE_SERVER_SIDE_CURSORS'] = True
+    DATABASES['replica']['CONN_MAX_AGE'] = 0
+    DATABASES['replica']['TEST'] = {'MIRROR': 'default'}
+    DATABASE_ROUTERS = ['core.db_router.ReplicaRouter']
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 10}},
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
