@@ -151,7 +151,7 @@ class ProxyScrapePool:
                 resp = requests.get(url, timeout=30)
                 resp.raise_for_status()
             except requests.RequestException as exc:
-                logger.error('falha ao atualizar pool[%s] (%s): %s', self.name, url, exc)
+                logger.warning('pool[%s] endpoint indisponível, tentando próximo: %s', self.name, exc)
                 continue
             if 'invalid session' in resp.text.lower() or 'unauthorized' in resp.text.lower():
                 logger.warning('pool[%s] endpoint não suportado pelo plano, tentando próximo', self.name)
