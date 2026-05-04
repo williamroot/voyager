@@ -1,5 +1,8 @@
 services:
   worker_datajud:
+    build:
+      context: .
+      target: runtime
     image: voyager-web:prod
     command: python manage.py rqworker datajud
     env_file: .env
