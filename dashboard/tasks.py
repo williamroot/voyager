@@ -27,7 +27,7 @@ _PERIODOS = [None, 7]
 # Janelas da velocidade de ingestão (horas)
 _HORAS = [24, 48, 72]
 
-_WARM_TTL = 7200  # 2h
+_WARM_TTL = 86400  # 24h — tolera warm jobs que timeoutam (chart pesado 20min+)
 
 
 def _reset_connection(using: str = 'default'):
