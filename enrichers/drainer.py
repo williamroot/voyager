@@ -173,8 +173,9 @@ def upsert_parte(info: dict) -> Parte:
         nome=nome,
         documento__regex=r'^[0-9]{2}\.[0-9]{3}\.[0-9]{3}/[0-9]{4}-[0-9]{2}$',
     )
-    if candidatos.count() == 1:
-        return candidatos.first()
+    candidatos_list = list(candidatos[:2])
+    if len(candidatos_list) == 1:
+        return candidatos_list[0]
 
     return _safe_upsert_parte(
         lookup={'documento': '', 'oab': '', 'nome': nome, 'tipo': base['tipo']},
@@ -426,7 +427,7 @@ def _bulk_upsert_partes(events_by_pid: dict) -> dict:
                     tipo=paths['doc_masc'][k].get('tipo') or 'desconhecido',
                     oab='',
                 ) for k in not_matched_keys
-            ], ignore_conflicts=True)
+            ], ignore_conflicts=True, batch_size=500)
 
     # sem_id: tenta primeiro casar com 1 Parte existente do mesmo nome com
     # CNPJ formatado completo (regra "Procuradoria/Defensoria com PJ ID").
@@ -455,7 +456,7 @@ def _bulk_upsert_partes(events_by_pid: dict) -> dict:
                     nome=k[0], tipo=k[1], documento='', oab='',
                     tipo_documento=paths['sem_id'][k].get('tipo_documento') or '',
                 ) for k in not_matched_keys
-            ], ignore_conflicts=True)
+            ], ignore_conflicts=True, batch_size=500)
 
     # oab: bulk_create simples — partial unique constraint dedup
     if paths['oab']:
@@ -466,7 +467,7 @@ def _bulk_upsert_partes(events_by_pid: dict) -> dict:
                 tipo_documento=s.get('tipo_documento') or '',
                 tipo=s.get('tipo') or 'desconhecido',
             ) for oab, s in paths['oab'].items()
-        ], ignore_conflicts=True)
+        ], ignore_conflicts=True, batch_size=500)
 
     # doc_real: bulk_create simples
     if paths['doc_real']:
@@ -476,7 +477,7 @@ def _bulk_upsert_partes(events_by_pid: dict) -> dict:
                 tipo_documento=s.get('tipo_documento') or '',
                 tipo=s.get('tipo') or 'desconhecido', oab='',
             ) for doc, s in paths['doc_real'].items()
-        ], ignore_conflicts=True)
+        ], ignore_conflicts=True, batch_size=500)
 
     # SELECTs em bulk pra mapear chaves → IDs
     if paths['oab']:

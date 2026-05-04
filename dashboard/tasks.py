@@ -186,7 +186,7 @@ def warm_ingestao_por_hora():
 def warm_partes():
     """Distribuição de tipos de partes (/dashboard/partes/)."""
     _with_lock('lock:warm_partes', 300,
-               lambda: _with_timeout(60, queries.distribuicao_tipos_partes))
+               lambda: _with_timeout(60, queries.compute_distribuicao_tipos_partes))
 
 
 @job('warm', timeout=1500)
@@ -221,16 +221,14 @@ def refresh_materialized_views():
     (observado 11 REFRESH bloqueados crashou o postmaster).
     """
     def _run():
-        with connection.cursor() as cur:
-            cur.execute("SET lock_timeout = '5s'")
-            cur.execute("SET statement_timeout = '600s'")
-            for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora'):
-                try:
-                    cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}')
-                    logger.info('refresh MV %s ok', mv)
-                except Exception as e:
-                    logger.warning('refresh MV %s: %s', mv, e)
-                    _reset_connection()
-                    _set_statement_timeout(600)
+        for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora'):
+            try:
+                with connection.cursor() as cur:
                     cur.execute("SET lock_timeout = '5s'")
+                    cur.execute("SET statement_timeout = '600s'")
+                    cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}')
+                logger.info('refresh MV %s ok', mv)
+            except Exception as e:
+                logger.warning('refresh MV %s: %s', mv, e)
+                _reset_connection()
     _with_lock('lock:refresh_mv', 1800, _run)

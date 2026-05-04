@@ -123,13 +123,17 @@ def compute_kpis_globais(dias=None, tribunais=None):
     if tribunais:
         drift_qs = drift_qs.filter(tribunal_id__in=tribunais)
 
+    movs_agg = movs.aggregate(
+        total=Count('id'),
+        cancelados=Count('id', filter=Q(ativo=False)),
+    )
     result = {
         'total_processos': procs.count(),
-        'total_movimentacoes': movs.count(),
+        'total_movimentacoes': movs_agg['total'],
         'movs_24h': movs_24h,
         'movs_24h_delta_pct': delta_pct,
         'ins_24h': ins_24h,
-        'cancelados': movs.filter(ativo=False).count(),
+        'cancelados': movs_agg['cancelados'],
         'ultima_atualizacao': IngestionRun.objects
             .filter(status=IngestionRun.STATUS_SUCCESS).order_by('-finished_at')
             .values_list('finished_at', flat=True).first(),
@@ -402,18 +406,19 @@ PARTES_DISTRIBUICAO_CACHE_KEY = 'partes:distribuicao_tipos'
 
 
 def distribuicao_tipos_partes():
-    """Conta Partes por tipo (advogado/pj/pf/desconhecido). Usado pra
-    donut na página /dashboard/partes/.
+    """Lê APENAS do cache. Aquecido por warm_partes (5min).
 
-    A query faz seq scan em ~1M rows (~5s a frio) — cacheada no Redis
-    por 10min. Pré-aquecida pelo job `warm_partes_cache` (5min).
+    Hot-path nunca computa: seq scan em ~1M rows (~5s a frio).
+    Em cache miss retorna [] — view renderiza donut vazio até o próximo warm.
     """
     from django.core.cache import cache
-    from tribunals.models import Parte
+    return cache.get(PARTES_DISTRIBUICAO_CACHE_KEY) or []
 
-    cached = cache.get(PARTES_DISTRIBUICAO_CACHE_KEY)
-    if cached is not None:
-        return cached
+
+def compute_distribuicao_tipos_partes():
+    """Computa e grava no cache. Chamado APENAS pelo warm task."""
+    from django.core.cache import cache
+    from tribunals.models import Parte
 
     LABELS = {
         'advogado': 'Advogado',
@@ -426,7 +431,7 @@ def distribuicao_tipos_partes():
         {'name': LABELS.get(r['tipo'], r['tipo'] or '—'), 'value': r['n'], 'tipo': r['tipo']}
         for r in rows
     ]
-    cache.set(PARTES_DISTRIBUICAO_CACHE_KEY, result, timeout=604800)  # 2h — warm a cada 5 min
+    cache.set(PARTES_DISTRIBUICAO_CACHE_KEY, result, timeout=604800)
     return result
 
 
@@ -665,22 +670,23 @@ def ingestao_kpis(tribunal=None):
     if tribunal:
         qs = qs.filter(tribunal_id=tribunal)
 
-    total = qs.count()
-    n_ok = qs.filter(status=IngestionRun.STATUS_SUCCESS).count()
-    dias_cobertos = (
-        qs.filter(status=IngestionRun.STATUS_SUCCESS)
-        .values('janela_inicio').distinct().count()
-    )
-    movs = (
-        qs.filter(status=IngestionRun.STATUS_SUCCESS)
-        .aggregate(t=Sum('movimentacoes_novas'))['t'] or 0
-    )
     _dur = ExpressionWrapper(F('finished_at') - F('started_at'), output_field=DurationField())
-    duracao = (
-        qs.filter(status=IngestionRun.STATUS_SUCCESS)
-        .annotate(duration=_dur)
-        .aggregate(avg=Avg('duration'))['avg']
+
+    # 1 query: total, n_ok e soma de movimentações
+    agg = qs.aggregate(
+        total=Count('id'),
+        n_ok=Count('id', filter=Q(status=IngestionRun.STATUS_SUCCESS)),
+        movs=Sum('movimentacoes_novas', filter=Q(status=IngestionRun.STATUS_SUCCESS)),
     )
+    total = agg['total']
+    n_ok = agg['n_ok']
+    movs = agg['movs'] or 0
+
+    qs_ok = qs.filter(status=IngestionRun.STATUS_SUCCESS)
+    # COUNT DISTINCT não compõe bem com os demais agregados no mesmo pass
+    dias_cobertos = qs_ok.aggregate(n=Count('janela_inicio', distinct=True))['n']
+    # avg de duração precisa de annotate antes de aggregate
+    duracao = qs_ok.annotate(duration=_dur).aggregate(avg=Avg('duration'))['avg']
 
     dur_s = round(duracao.total_seconds()) if duracao else None
     if dur_s is not None:
