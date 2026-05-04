@@ -86,12 +86,17 @@ def warm_workers_cache_inline():
 @job('warm', timeout=2400)
 def warm_kpis():
     """KPIs globais (None + 7d). compute_kpis_globais faz vários COUNT em
-    187M+ rows (Movimentacao.count() é o mais caro). Roteado pra replica."""
+    187M+ rows (Movimentacao.count() é o mais caro). Roteado pra replica.
+
+    Timeout 1800s/period: empiricamente kpis_None levou 22min em cold cache
+    da replica; 1800s = 30min cobre folga. Statement_timeout do PG aborta
+    individuais — total job pode levar até 60min.
+    """
     def _run():
         with use_replica():
             for dias in _PERIODOS:
                 try:
-                    _with_timeout(600,
+                    _with_timeout(1800,
                         lambda d=dias: queries.compute_kpis_globais(dias=d, tribunais=None),
                         using=_REPLICA_ALIAS)
                 except Exception as e:
@@ -133,10 +138,10 @@ def warm_charts_leves():
     _with_lock('lock:warm_charts_leves', 2700, _run)
 
 
-@job('warm', timeout=7200)
+@job('warm', timeout=14400)
 def warm_charts_pesados():
     """Charts com GROUP BY em 187M+ rows (tipos/orgaos/meios). Cada um
-    leva 5-15min sem MV. timeout 1200s/each ⇒ 7200s pior caso = horse.
+    leva 5-15min sem MV. timeout 1800s/each ⇒ 10800s pior caso = horse.
     Roda em job separado pra não bloquear charts leves.
 
     Roteado pra `replica` quando configurada — tira IO/CPU pesado do primário,
@@ -154,11 +159,11 @@ def warm_charts_pesados():
                         def _go(c=chart_key, d=dias, h=handler):
                             data = h(d, [], None)
                             cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
-                        _with_timeout(1200, _go, using=_REPLICA_ALIAS)
+                        _with_timeout(1800, _go, using=_REPLICA_ALIAS)
                     except Exception as e:
                         logger.warning('warm_charts_pesados %s/d=%s: %s', chart_key, dias, e)
                         _reset_connection(_REPLICA_ALIAS)
-    _with_lock('lock:warm_charts_pesados', 7500, _run)
+    _with_lock('lock:warm_charts_pesados', 14700, _run)
 
 
 @job('warm', timeout=180)
