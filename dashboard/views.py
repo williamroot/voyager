@@ -294,12 +294,28 @@ def processos(request):
     # HTMX: roda queryset + paginação + retorna só o partial.
     # Ordenação fixa por -id (PK reverse scan, mesma ordem cronológica de inserção).
     qs = Process.objects.select_related('tribunal').order_by('-id')
+    has_filter = False
     if tribunais_filtro:
         qs = qs.filter(tribunal_id__in=tribunais_filtro)
+        has_filter = True
     if enriq in ('ok', 'pendente', 'nao_encontrado', 'erro'):
         qs = qs.filter(enriquecimento_status=enriq)
+        has_filter = True
 
-    page = _paginar(qs, request, default_size=50)
+    # Sem filtro: 500k+ rows. Reusa total_processos do kpis_globais (cache).
+    # Se cache frio, usa estimativa reltuples — evita seq-scan no COUNT(*).
+    count_override = None
+    if not has_filter:
+        kpis = queries.kpis_globais()
+        count_override = kpis.get('total_processos')
+        if count_override is None:
+            from django.db import connection
+            with connection.cursor() as cur:
+                cur.execute("SELECT reltuples::bigint FROM pg_class WHERE relname='tribunals_process'")
+                row = cur.fetchone()
+                count_override = int(row[0]) if row and row[0] else 0
+
+    page = _paginar(qs, request, default_size=50, count_override=count_override)
     return render(request, 'dashboard/_partials/_processos_list.html', {
         **base_ctx,
         'page': page,
