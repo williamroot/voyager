@@ -136,7 +136,7 @@ class ProxyScrapePool:
         'https://api.proxyscrape.com/v2/account/datacenter_shared/proxy-list'
         '?auth={key}&type=getproxies&protocol=http&format=normal&country=BR',
         'https://api.proxyscrape.com/v2/?request=getproxies'
-        '&auth={key}&protocol=http&country=all',
+        '&auth={key}&protocol=http&country=BR',
     ]
 
     def refresh(self) -> int:
