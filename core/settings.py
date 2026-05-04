@@ -198,6 +198,10 @@ DJEN_USER_AGENT = env('DJEN_USER_AGENT', default='voyager-ingestion/0.1')
 
 # Proxies
 PROXYSCRAPE_API_KEY = env('PROXYSCRAPE_API_KEY', default='')
+# API key alternativa para workers Datajud numa máquina específica.
+# Quando definida, DatajudClient usa pool isolada (Redis: voyager:proxies:datajud:*)
+# sem interferir na pool padrão das outras máquinas.
+DATAJUD_PROXYSCRAPE_API_KEY = env('DATAJUD_PROXYSCRAPE_API_KEY', default='')
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)

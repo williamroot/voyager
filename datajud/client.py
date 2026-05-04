@@ -70,7 +70,15 @@ class DatajudClient:
 
     def __init__(self, pool: Optional[ProxyScrapePool] = None,
                  prefer_cortex: bool = False, api_key: Optional[str] = None):
-        self.pool = pool or ProxyScrapePool.singleton()
+        if pool is None:
+            datajud_proxy_key = getattr(settings, 'DATAJUD_PROXYSCRAPE_API_KEY', '')
+            self.pool = (
+                ProxyScrapePool.singleton(name='datajud', api_key=datajud_proxy_key)
+                if datajud_proxy_key
+                else ProxyScrapePool.singleton()
+            )
+        else:
+            self.pool = pool
         self.api_key = api_key or getattr(settings, 'DATAJUD_API_KEY', None) or DEFAULT_API_KEY
         self.prefer_cortex = prefer_cortex
         self.session = requests.Session()
