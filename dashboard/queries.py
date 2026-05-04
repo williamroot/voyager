@@ -31,7 +31,7 @@ def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibili
     return qs
 
 
-_KPIS_TTL = 86400  # 24h — warm jobs podem demorar 20min+ em queries pesadas
+_KPIS_TTL = 604800  # 7 dias
 # evita "cache vazio" (que mata a UX); warm renova bem antes de expirar.
 
 
@@ -394,7 +394,7 @@ def compute_filtros_movimentacoes():
         cur.execute(sql)
         for k, v in cur.fetchall():
             result[k].append(v)
-    cache.set(FILTROS_MOVIMENTACOES_CACHE_KEY, result, timeout=86400)
+    cache.set(FILTROS_MOVIMENTACOES_CACHE_KEY, result, timeout=604800)
     return result
 
 
@@ -426,7 +426,7 @@ def distribuicao_tipos_partes():
         {'name': LABELS.get(r['tipo'], r['tipo'] or '—'), 'value': r['n'], 'tipo': r['tipo']}
         for r in rows
     ]
-    cache.set(PARTES_DISTRIBUICAO_CACHE_KEY, result, timeout=86400)  # 2h — warm a cada 5 min
+    cache.set(PARTES_DISTRIBUICAO_CACHE_KEY, result, timeout=604800)  # 2h — warm a cada 5 min
     return result
 
 
