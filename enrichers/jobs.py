@@ -58,7 +58,8 @@ def enqueue_enriquecimento_manual(process_id: int):
     """
     queue = django_rq.get_queue('manual')
     return queue.enqueue(
-        enriquecer_processo, process_id,
+        enriquecer_processo,
+        args=(process_id,),
         kwargs={'prefer_cortex': True, 'direct_apply': True},
         job_timeout=ENRICH_TIMEOUT,
     )
