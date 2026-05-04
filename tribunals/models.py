@@ -147,6 +147,10 @@ class Process(models.Model):
             models.Index(fields=['orgao_julgador_codigo']),
             models.Index(fields=['ano_cnj']),
             models.Index(fields=['tribunal', 'ano_cnj']),
+            # Cobrem ORDER BY id DESC LIMIT 50 com filtro por tribunal ou enriq_status
+            # — evitam bitmap heap scan + sort quando resultado esperado é pequeno.
+            models.Index(fields=['tribunal', '-id'], name='proc_tribunal_id_idx'),
+            models.Index(fields=['enriquecimento_status', '-id'], name='proc_enriq_id_idx'),
         ]
 
     def __str__(self):

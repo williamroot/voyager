@@ -293,7 +293,12 @@ def processos(request):
 
     # HTMX: roda queryset + paginação + retorna só o partial.
     # Ordenação fixa por -id (PK reverse scan, mesma ordem cronológica de inserção).
-    qs = Process.objects.select_related('tribunal').order_by('-id')
+    # only(): template usa 9 campos — buscar 36 colunas (Process + JOIN tribunal) era desperdício.
+    # select_related removido: template só usa tribunal_id (FK column), nunca p.tribunal.attr.
+    qs = Process.objects.only(
+        'numero_cnj', 'enriquecimento_status', 'tribunal_id',
+        'ano_cnj', 'classe_nome', 'classe_codigo', 'ultima_movimentacao_em', 'inserido_em',
+    ).order_by('-id')
     has_filter = False
     if tribunais_filtro:
         qs = qs.filter(tribunal_id__in=tribunais_filtro)
