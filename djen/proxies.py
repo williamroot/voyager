@@ -129,25 +129,42 @@ class ProxyScrapePool:
         logger.info('pool[%s] carregado do arquivo: %d proxies', self.name, len(proxies))
         return len(proxies)
 
+    # Endpoints tentados em ordem. O datacenter_shared exige plano específico;
+    # se retornar "Invalid session", cai no endpoint genérico (funciona com
+    # qualquer plano pago). Ambos retornam ip:port por linha.
+    _REFRESH_URLS = [
+        'https://api.proxyscrape.com/v2/account/datacenter_shared/proxy-list'
+        '?auth={key}&type=getproxies&protocol=http&format=normal&country=BR',
+        'https://api.proxyscrape.com/v2/?request=getproxies'
+        '&auth={key}&protocol=http&country=BR',
+    ]
+
     def refresh(self) -> int:
         if not self.api_key:
             logger.warning('pool[%s] sem API key — pool vazio', self.name)
             self.redis.set(self._list_key, json.dumps([]))
             return 0
-        url = (
-            'https://api.proxyscrape.com/v2/account/datacenter_shared/proxy-list'
-            f'?auth={self.api_key}&type=getproxies&protocol=http&format=normal&country=BR'
-        )
-        try:
-            resp = requests.get(url, timeout=30)
-            resp.raise_for_status()
-        except requests.RequestException as exc:
-            logger.error('falha ao atualizar pool[%s] ProxyScrape: %s', self.name, exc)
+        text = None
+        for url_tpl in self._REFRESH_URLS:
+            url = url_tpl.format(key=self.api_key)
+            try:
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+            except requests.RequestException as exc:
+                logger.error('falha ao atualizar pool[%s] (%s): %s', self.name, url, exc)
+                continue
+            if 'invalid session' in resp.text.lower() or 'unauthorized' in resp.text.lower():
+                logger.warning('pool[%s] endpoint não suportado pelo plano, tentando próximo', self.name)
+                continue
+            text = resp.text
+            break
+        if text is None:
+            logger.error('pool[%s] todos os endpoints falharam', self.name)
             return 0
         proxies = []
-        for line in resp.text.splitlines():
+        for line in text.splitlines():
             line = line.strip()
-            if not line:
+            if not line or line.startswith('<') or line.startswith('{'):
                 continue
             if not line.startswith('http'):
                 line = f'http://{line}'
