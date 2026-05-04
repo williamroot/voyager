@@ -86,14 +86,17 @@ def warm_workers_cache_inline():
 @job('warm', timeout=2400)
 def warm_kpis():
     """KPIs globais (None + 7d). compute_kpis_globais faz vários COUNT em
-    30M+ rows. timeout 600s/período: queries tomam 1-3min em DB lento."""
+    187M+ rows (Movimentacao.count() é o mais caro). Roteado pra replica."""
     def _run():
-        for dias in _PERIODOS:
-            try:
-                _with_timeout(600, lambda d=dias: queries.compute_kpis_globais(dias=d, tribunais=None))
-            except Exception as e:
-                logger.warning('warm_kpis dias=%s: %s', dias, e)
-                _reset_connection()
+        with use_replica():
+            for dias in _PERIODOS:
+                try:
+                    _with_timeout(600,
+                        lambda d=dias: queries.compute_kpis_globais(dias=d, tribunais=None),
+                        using=_REPLICA_ALIAS)
+                except Exception as e:
+                    logger.warning('warm_kpis dias=%s: %s', dias, e)
+                    _reset_connection(_REPLICA_ALIAS)
     _with_lock('lock:warm_kpis', 2700, _run)
 
 
@@ -107,22 +110,26 @@ _CHARTS_PESADOS = ('tipos', 'orgaos', 'meios')
 def warm_charts_leves():
     """Charts rápidos (Process ou filtros temporais). 5 charts × 2 períodos
     = 10 queries; timeout 300s/each. Esses populam confiável a cada cycle.
+
+    Roteado pra replica — alguns chart_handlers (volume-temporal) fazem
+    GROUP BY pesado em Movimentacao mesmo filtrado por período.
     """
     def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
-        for dias in _PERIODOS:
-            for chart_key in _CHARTS_LEVES:
-                handler = _CHART_HANDLERS.get(chart_key)
-                if not handler:
-                    continue
-                try:
-                    def _go(c=chart_key, d=dias, h=handler):
-                        data = h(d, [], None)
-                        cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
-                    _with_timeout(300, _go)
-                except Exception as e:
-                    logger.warning('warm_charts_leves %s/d=%s: %s', chart_key, dias, e)
-                    _reset_connection()
+        with use_replica():
+            for dias in _PERIODOS:
+                for chart_key in _CHARTS_LEVES:
+                    handler = _CHART_HANDLERS.get(chart_key)
+                    if not handler:
+                        continue
+                    try:
+                        def _go(c=chart_key, d=dias, h=handler):
+                            data = h(d, [], None)
+                            cache.set(_chart_cache_key(c, d, []), data, timeout=_WARM_TTL)
+                        _with_timeout(300, _go, using=_REPLICA_ALIAS)
+                    except Exception as e:
+                        logger.warning('warm_charts_leves %s/d=%s: %s', chart_key, dias, e)
+                        _reset_connection(_REPLICA_ALIAS)
     _with_lock('lock:warm_charts_leves', 2700, _run)
 
 
