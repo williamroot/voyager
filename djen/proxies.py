@@ -169,9 +169,20 @@ class ProxyScrapePool:
             if not line.startswith('http'):
                 line = f'http://{line}'
             proxies.append(line)
-        self.redis.set(self._list_key, json.dumps(proxies))
+        pipe = self.redis.pipeline(transaction=False)
+        pipe.set(self._list_key, json.dumps(proxies))
+        # Limpa bad_zset: proxies recém-buscados merecem chance nova.
+        # Sem isso, pool de 13 proxies que foram todos marcados ruins
+        # continua vazia mesmo após refresh bem-sucedido.
+        pipe.delete(self._bad_key)
+        pipe.execute()
         self._healthy_cache_ts = 0.0
-        logger.info('pool[%s] ProxyScrape atualizado: %d proxies BR', self.name, len(proxies))
+        # Adapta threshold ao tamanho real do pool para evitar refresh
+        # constante quando o plano entrega menos proxies que o padrão.
+        if proxies:
+            self.refresh_threshold = min(self.refresh_threshold, max(len(proxies) // 2, 5))
+        logger.info('pool[%s] ProxyScrape atualizado: %d proxies (threshold=%d)',
+                    self.name, len(proxies), self.refresh_threshold)
         return len(proxies)
 
     def status(self) -> dict:
