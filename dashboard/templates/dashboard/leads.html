@@ -23,8 +23,6 @@
     <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
     {% for t in tribunais %}<a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if t.sigla == tribunal_filtro %}active{% endif %}">{{ t.sigla }}</a>{% endfor %}
 
-    <span class="text-xs text-fg-subtle uppercase tracking-wider ml-3">Nível:</span>
-    {% for v, label in niveis %}<a href="?{% query_string request nivel=v %}" class="chip {% if v == nivel_filtro %}active{% endif %}">{{ label }}</a>{% endfor %}
   </div>
 
   <div class="flex gap-1 items-center text-xs bg-card/60 border border-border rounded-xl p-1">
@@ -48,10 +46,16 @@
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5"
      x-data="leadsKpis()" x-init="load()" data-leads-block="kpis">
 
-  <div class="card-tight" title="Quantos processos foram classificados como Precatório e ainda NÃO foram consumidos pelo Juriscope (não estão na fila de baixar autos). Esse é o estoque disponível para enviar agora.">
+  <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
       💎 Precatório
-      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+      <div class="relative inline-flex" x-data="{t:false}">
+        <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
+        <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
+          <strong class="text-fg-soft block mb-1">💎 Precatório · N1</strong>
+          Score ≥ 0,70 + expedição confirmada (ofício ou texto). Fila imediata — baixar autos agora. Estoque não consumido pelo Juriscope.
+        </div>
+      </div>
     </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n1_pendente)">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">
@@ -64,28 +68,45 @@
     </div>
   </div>
 
-  <div class="card-tight" title="Total de processos classificados como Pré-precatório — perto de virar precatório. Em homologação dos cálculos. Re-checar mensalmente.">
+  <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
       ⏳ Pré-precatório
-      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+      <div class="relative inline-flex" x-data="{t:false}">
+        <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
+        <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
+          <strong class="text-fg-soft block mb-1">⏳ Pré-precatório · N2</strong>
+          Score ≥ 0,40 + classe Cumprimento contra Fazenda. Em homologação dos cálculos — re-checar mensalmente.
+        </div>
+      </div>
     </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n2_total)">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">em homologação dos cálculos</div>
   </div>
 
-  <div class="card-tight" title="Total de processos classificados como Direito Creditório — sinais batem mas ainda longe da homologação. Watch-list, re-checar trimestralmente.">
+  <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
       🌱 Direito creditório
-      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+      <div class="relative inline-flex" x-data="{t:false}">
+        <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
+        <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
+          <strong class="text-fg-soft block mb-1">🌱 Direito Creditório · N3</strong>
+          Score ≥ 0,20 + classe Cumprimento. Potencial em fase de conhecimento — watch-list trimestral.
+        </div>
+      </div>
     </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.n3_total)">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">potencial em fase de conhecimento</div>
   </div>
 
-  <div class="card-tight" title="% dos processos consumidos pelo Juriscope nos últimos 30 dias que foram CONFIRMADOS como lead (resultado=validado ou pago). Compara com a precision do treino — se cair muito abaixo, o modelo pode estar degradando.">
+  <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
       ✅ Taxa de validação 30d
-      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+      <div class="relative inline-flex" x-data="{t:false}">
+        <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
+        <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
+          % dos consumidos pelo Juriscope nos últimos 30 dias confirmados como lead (validado/pago). Se cair muito abaixo da precisão do treino, o modelo pode estar degradando.
+        </div>
+      </div>
     </div>
     <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.taxa_validacao_30d != null ? (d.taxa_validacao_30d*100).toFixed(1) + '%' : '—'">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">
@@ -96,21 +117,31 @@
     </div>
   </div>
 
-  <div class="card-tight" title="Quantos novos processos viraram Precatório por dia, em média, nos últimos 7 dias. Mede a velocidade de descoberta — quanto novo lead está entrando.">
+  <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
       📥 Descobertos/dia
-      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+      <div class="relative inline-flex" x-data="{t:false}">
+        <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
+        <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
+          Novos processos classificados como Precatório por dia (média móvel 7 dias). Mede a velocidade de descoberta de novos leads.
+        </div>
+      </div>
     </div>
-    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.throughput_descobertos_dia">—</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.throughput_descobertos_dia)">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">média móvel 7 dias</div>
   </div>
 
-  <div class="card-tight" title="Quantos processos o Juriscope marcou como consumidos por dia, em média, nos últimos 7 dias. Se descobertos > consumidos = backlog crescendo (saudável). Se consumidos > descobertos = vai esgotar logo.">
+  <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
       📤 Consumidos/dia
-      <span class="text-fg-subtle/60 cursor-help">ⓘ</span>
+      <div class="relative inline-flex" x-data="{t:false}">
+        <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
+        <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
+          Leads marcados como consumidos pelo Juriscope por dia (média 7 dias). Descobertos &gt; Consumidos = backlog crescendo. Consumidos &gt; Descobertos = estoque esgotando.
+        </div>
+      </div>
     </div>
-    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="d.throughput_consumidos_dia">—</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num" x-text="fmtInt(d.throughput_consumidos_dia)">—</div>
     <div class="text-[0.65rem] text-fg-subtle mt-1">via Juriscope · últimos 7 dias</div>
   </div>
 </div>
