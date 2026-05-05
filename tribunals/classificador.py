@@ -16,7 +16,10 @@ import math
 import re
 from typing import Optional
 
+from django.db import connection
 from django.utils import timezone as djtz
+
+from .models import ProcessoParte
 
 # === v5 — pesos treinados em 2026-04-30 (TRF1, 887k procs) ==================
 VERSAO = 'v5'
@@ -71,6 +74,29 @@ CLASSES_CUMPRIMENTO = {
 
 CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 
+# Agrega todos os counts de movimentações em uma única passagem pela tabela,
+# eliminando os ~10 round-trips separados do código anterior.
+_MOVS_AGG_SQL = """
+    SELECT
+        COUNT(*) AS total_movs,
+        COUNT(DISTINCT CASE WHEN tipo_comunicacao <> '' THEN tipo_comunicacao END) AS distinct_tipos,
+        COALESCE(SUM(CASE WHEN tipo_comunicacao IN ('Expedição de precatório/rpv','Precatório')
+                          THEN 1 ELSE 0 END), 0) AS f2_n,
+        COALESCE(SUM(CASE WHEN tipo_comunicacao IN ('Enviada ao Tribunal','Preparada para Envio')
+                          THEN 1 ELSE 0 END), 0) AS f7_n,
+        COALESCE(SUM(CASE WHEN texto ~* 'precat[óo]rio'                THEN 1 ELSE 0 END), 0) AS f11_n,
+        COALESCE(SUM(CASE WHEN texto ~* '\\mrpv\\M'                    THEN 1 ELSE 0 END), 0) AS f12_n,
+        COALESCE(SUM(CASE WHEN texto ~* 'requisi[çc][ãa]o de pagamento' THEN 1 ELSE 0 END), 0) AS f13_n,
+        COALESCE(SUM(CASE WHEN texto ~* 'of[íi]cio requisit[óo]rio'    THEN 1 ELSE 0 END), 0) AS f14_n,
+        COALESCE(SUM(CASE WHEN texto ~* 'cancelamento de precat[óo]rio|cancelamento de rpv|revoga[çc][ãa]o de precat[óo]rio|revoga[çc][ãa]o de rpv'
+                          THEN 1 ELSE 0 END), 0) AS f19_n,
+        COALESCE(SUM(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
+                          THEN 1 ELSE 0 END), 0) AS f20_n,
+        MAX(data_disponibilizacao) AS ult_mov_dt
+    FROM tribunals_movimentacao
+    WHERE processo_id = %s
+"""
+
 # Thresholds (revisáveis com base em produção)
 THRESHOLD_PRECATORIO = 0.70
 THRESHOLD_PRE_PRECATORIO = 0.40
@@ -103,7 +129,7 @@ def compute_features(processo) -> dict:
     Retorna dict {feature_name: value}. Valores numéricos contínuos
     já normalizados (z-score / log).
     """
-    from .models import Movimentacao, ProcessoParte
+    from .models import ProcessoParte
 
     classe_cod = (processo.classe_codigo or '')
     classe_nome = processo.classe_nome or ''
@@ -111,37 +137,19 @@ def compute_features(processo) -> dict:
     f1 = int(classe_cod in CLASSES_CUMPRIMENTO)
     f10 = _is_anti_classe(classe_nome)
 
-    # Aggregations sobre Movimentacao do processo
-    movs = Movimentacao.objects.filter(processo_id=processo.pk)
-    total_movs = movs.count()
+    with connection.cursor() as cur:
+        cur.execute(_MOVS_AGG_SQL, [processo.pk])
+        row = cur.fetchone()
 
-    if total_movs == 0:
+    (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
+     f13_n, f14_n, f19_n, f20_n, ult_mov_dt) = row
+
+    if not total_movs:
         return _empty_features(ano, f1, f10)
 
-    # Counts por tipo_comunicacao + texto
-    f2_n = movs.filter(tipo_comunicacao__in=['Expedição de precatório/rpv', 'Precatório']).count()
-    f7_n = movs.filter(tipo_comunicacao__in=['Enviada ao Tribunal', 'Preparada para Envio']).count()
-    distinct_tipos = movs.exclude(tipo_comunicacao='').values('tipo_comunicacao').distinct().count()
+    dias_ult = ((djtz.now() - ult_mov_dt).total_seconds() / 86400
+                if ult_mov_dt else 9999)
 
-    f11_n = movs.filter(texto__iregex=r'precat[óo]rio').count()
-    f12_n = movs.filter(texto__iregex=r'\mrpv\M').count()
-    f13_n = movs.filter(texto__iregex=r'requisi[çc][ãa]o de pagamento').count()
-    f14_n = movs.filter(texto__iregex=r'of[íi]cio requisit[óo]rio').count()
-    f19_n = movs.filter(
-        texto__iregex=r'cancelamento de precat[óo]rio|cancelamento de rpv|revoga[çc][ãa]o de precat[óo]rio|revoga[çc][ãa]o de rpv'
-    ).count()
-    f20_n = movs.filter(
-        texto__iregex=r'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
-    ).count()
-
-    # Recência
-    ult_mov_dt = movs.values_list('data_disponibilizacao', flat=True).order_by('-data_disponibilizacao').first()
-    if ult_mov_dt:
-        dias_ult = (djtz.now() - ult_mov_dt).total_seconds() / 86400
-    else:
-        dias_ult = 9999
-
-    # Partes
     n_partes = ProcessoParte.objects.filter(processo_id=processo.pk).count()
 
     f15 = math.log1p(total_movs) / math.log(500)
