@@ -152,7 +152,7 @@ def create_scheduler() -> BlockingScheduler:
             _enqueue_singleton,
             'interval',
             args=[warm_job, 'warm', job_id],
-            minutes=5,
+            minutes=15,
             id=job_id,
             replace_existing=True,
             max_instances=1,
