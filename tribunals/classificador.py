@@ -131,7 +131,7 @@ def compute_features(processo) -> dict:
         texto__iregex=r'cancelamento de precat[óo]rio|cancelamento de rpv|revoga[çc][ãa]o de precat[óo]rio|revoga[çc][ãa]o de rpv'
     ).count()
     f20_n = movs.filter(
-        texto__iregex=r'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv'
+        texto__iregex=r'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
     ).count()
 
     # Recência
@@ -228,6 +228,12 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
         cat = Process.CLASSIF_PRE_PRECATORIO
     elif score >= THRESHOLD_DIREITO_CREDITORIO and is_cumprim:
         cat = Process.CLASSIF_DIREITO_CREDITORIO
+        # F13 (requisição de pagamento) tem peso negativo no modelo porque sem
+        # "precatório" era falso positivo no treino — mas combinado com Cumprimento
+        # e sem cancelamento é sinal claro de expedição em andamento.
+        if (features.get('F13_reqPag_text', 0) == 1
+                and features.get('F19_cancelado_ANTI', 0) == 0):
+            cat = Process.CLASSIF_PRE_PRECATORIO
     else:
         cat = Process.CLASSIF_NAO_LEAD
 
