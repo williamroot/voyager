@@ -15,7 +15,11 @@ class ReplicaReadMiddleware:
     """
 
     REPLICA_PREFIXES = ('/dashboard/',)
-    REPLICA_EXCLUSIONS = ('/dashboard/processos/',)
+    REPLICA_EXCLUSIONS = (
+        '/dashboard/processos/',
+        '/dashboard/leads/',
+        '/dashboard/api/leads/',
+    )
 
     def __init__(self, get_response):
         self.get_response = get_response
