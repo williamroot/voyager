@@ -95,6 +95,7 @@ if _REPLICA_URL:
     # statements, server-side cursors. Mas mantemos OPTIONS consistentes.
     DATABASES['replica'].setdefault('OPTIONS', {}).update({
         'server_side_binding': False,
+        'connect_timeout': 3,
     })
     DATABASES['replica']['DISABLE_SERVER_SIDE_CURSORS'] = True
     DATABASES['replica']['CONN_MAX_AGE'] = 0
