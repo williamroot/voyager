@@ -22,8 +22,22 @@ services:
       - .:/app
     deploy:
       # TRF1 com problema interno — reduzido drasticamente até recuperar.
+      replicas: 60
+    restart: always
+
+  worker_djen_audit:
+    build:
+      context: .
+      target: runtime
+    image: voyager-web:prod
+    command: python manage.py rqworker djen_audit
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:    
       replicas: 10
     restart: always
+    
 
   worker_trf3:
     image: voyager-web:prod
