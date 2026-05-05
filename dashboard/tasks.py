@@ -57,12 +57,13 @@ def _with_lock(lock_key: str, ttl: int, fn):
     try:
         _reset_connection()
         fn()
-    except Exception as e:
-        logger.warning('%s: %s', lock_key, e)
+    except BaseException as e:
+        logger.warning('%s: abortado (%s: %s)', lock_key, type(e).__name__, e)
         try:
             connection.close()
         except Exception:
             pass
+        raise
     finally:
         cache.delete(lock_key)
 
