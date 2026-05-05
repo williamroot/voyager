@@ -8,9 +8,12 @@ fica nos workers, não no processo do scheduler.
 """
 import logging
 
+import django_rq
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_SUBMITTED
 from apscheduler.schedulers.blocking import BlockingScheduler
 from django.db import close_old_connections
+from rq.exceptions import NoSuchJobError
+from rq.job import Job
 
 from tribunals.models import Tribunal
 
@@ -38,6 +41,19 @@ logger = logging.getLogger('voyager.djen.scheduler')
 
 def _close_db(event):
     close_old_connections()
+
+
+def _enqueue_singleton(fn, queue_name: str, job_id: str):
+    """Enfileira fn na queue apenas se não há job pendente/executando com esse job_id."""
+    q = django_rq.get_queue(queue_name)
+    try:
+        existing = Job.fetch(job_id, connection=q.connection)
+        if existing.get_status() in ('queued', 'started'):
+            logger.debug('singleton skip %s (já na fila)', job_id)
+            return
+    except NoSuchJobError:
+        pass
+    q.enqueue(fn, job_id=job_id)
 
 
 def create_scheduler() -> BlockingScheduler:
@@ -133,8 +149,9 @@ def create_scheduler() -> BlockingScheduler:
         (warm_filtros_movimentacoes, 'warm_filtros_movimentacoes'),
     ):
         scheduler.add_job(
-            warm_job.delay,
+            _enqueue_singleton,
             'interval',
+            args=[warm_job, 'warm', job_id],
             minutes=5,
             id=job_id,
             replace_existing=True,
@@ -145,8 +162,9 @@ def create_scheduler() -> BlockingScheduler:
     # Charts pesados (GROUP BY em 187M rows): cron 30min — não fazem
     # parte do hot-path da home; podem ficar com dados de até 2h velhos.
     scheduler.add_job(
-        warm_charts_pesados.delay,
+        _enqueue_singleton,
         'interval',
+        args=[warm_charts_pesados, 'warm', 'warm_charts_pesados'],
         minutes=30,
         id='warm_charts_pesados',
         replace_existing=True,
