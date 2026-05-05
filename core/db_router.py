@@ -18,10 +18,18 @@ _local = threading.local()
 
 
 class ReplicaRouter:
-    """Roteia reads pra 'replica' quando thread-local está ativo."""
+    """Roteia reads pra 'replica' quando thread-local está ativo.
+
+    Sessions e auth sempre leem do primário — lag na réplica causa
+    AttributeError no SessionStore quando _session_cache não é setado.
+    """
+
+    _PRIMARY_ONLY_APPS = frozenset({'sessions', 'auth'})
 
     def db_for_read(self, model, **hints):
         if 'replica' not in settings.DATABASES:
+            return None
+        if model._meta.app_label in self._PRIMARY_ONLY_APPS:
             return None
         return getattr(_local, 'reads_alias', None)
 
