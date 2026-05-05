@@ -72,7 +72,7 @@ def _enqueue_singleton(fn, queue_name: str, job_id: str):
                     return
     except NoSuchJobError:
         pass
-    q.enqueue(fn, job_id=job_id, timeout=_SINGLETON_TIMEOUT)
+    q.enqueue(fn, job_id=job_id, job_timeout=_SINGLETON_TIMEOUT)
 
 
 def create_scheduler() -> BlockingScheduler:
