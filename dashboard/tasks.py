@@ -179,26 +179,20 @@ def warm_partes():
                lambda: _with_timeout(60, queries.compute_distribuicao_tipos_partes))
 
 
-@job('warm', timeout=1500)
+@job('warm', timeout=7200)
 def warm_estatisticas_tribunal():
-    """Estatísticas por tribunal (/dashboard/tribunais/). GROUP BY em 30M+ movs.
-
-    Roteado pra replica quando configurada.
-    """
+    """Estatísticas por tribunal (/dashboard/tribunais/). GROUP BY em 30M+ movs."""
     def _run():
-        _with_timeout(900, queries.compute_estatisticas_por_tribunal)
-    _with_lock('lock:warm_estatisticas_tribunal', 1800, _run)
+        _with_timeout(3600, queries.compute_estatisticas_por_tribunal)
+    _with_lock('lock:warm_estatisticas_tribunal', 7500, _run)
 
 
-@job('warm', timeout=900)
+@job('warm', timeout=7200)
 def warm_filtros_movimentacoes():
-    """Top tipos/meios/classes pra facetas de /movimentacoes/.
-
-    Roteado pra replica quando configurada.
-    """
+    """Top tipos/meios/classes pra facetas de /movimentacoes/."""
     def _run():
-        _with_timeout(600, queries.compute_filtros_movimentacoes)
-    _with_lock('lock:warm_filtros_movimentacoes', 1200, _run)
+        _with_timeout(3600, queries.compute_filtros_movimentacoes)
+    _with_lock('lock:warm_filtros_movimentacoes', 7500, _run)
 
 
 @job('warm', timeout=600)

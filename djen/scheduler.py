@@ -43,17 +43,36 @@ def _close_db(event):
     close_old_connections()
 
 
+_SINGLETON_TIMEOUT = 86400  # 24h — sobrepõe o timeout do decorator @job
+_FAIL_COOLDOWN_S = 1800    # não re-enfileira job falho nos últimos 30min
+
+
 def _enqueue_singleton(fn, queue_name: str, job_id: str):
-    """Enfileira fn na queue apenas se não há job pendente/executando com esse job_id."""
+    """Enfileira fn na queue apenas se não há job pendente/executando com esse job_id.
+
+    Cooldown de 30min pós-falha evita re-enqueue em loop quando o job falha
+    sistematicamente (ex: statement_timeout). timeout=86400 sobrepõe o
+    decorator @job — rq 1.16.x ignora timeout=-1 e cai no decorator.
+    """
+    import time as _time
     q = django_rq.get_queue(queue_name)
     try:
         existing = Job.fetch(job_id, connection=q.connection)
-        if existing.get_status() in ('queued', 'started'):
-            logger.debug('singleton skip %s (já na fila)', job_id)
+        status = existing.get_status()
+        if status in ('queued', 'started'):
+            logger.debug('singleton skip %s (já na fila, status=%s)', job_id, status)
             return
+        if status == 'failed':
+            ended_at = existing.ended_at
+            if ended_at is not None:
+                age_s = _time.time() - ended_at.timestamp()
+                if age_s < _FAIL_COOLDOWN_S:
+                    logger.debug('singleton skip %s (falhou há %.0fs < cooldown %ds)',
+                                 job_id, age_s, _FAIL_COOLDOWN_S)
+                    return
     except NoSuchJobError:
         pass
-    q.enqueue(fn, job_id=job_id, timeout=-1)
+    q.enqueue(fn, job_id=job_id, timeout=_SINGLETON_TIMEOUT)
 
 
 def create_scheduler() -> BlockingScheduler:
