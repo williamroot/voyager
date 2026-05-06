@@ -131,19 +131,19 @@ def create_scheduler() -> BlockingScheduler:
     # Sem fila RQ: sem acúmulo de duplicatas, sem dependência de workers externos.
     # _with_lock em cada função é a proteção primária contra sobreposição;
     # max_instances=1 + coalesce=True no APScheduler é a segunda camada.
-    for warm_fn, job_id, interval_min in (
-        (warm_kpis,                  'warm_kpis',                  15),
-        (warm_charts_leves,          'warm_charts_leves',          15),
-        (warm_ingestao_por_hora,     'warm_ingestao_por_hora',     15),
-        (warm_partes,                'warm_partes',                15),
-        (warm_estatisticas_tribunal, 'warm_estatisticas_tribunal', 15),
-        (warm_filtros_movimentacoes, 'warm_filtros_movimentacoes', 15),
-        (warm_charts_pesados,        'warm_charts_pesados',        30),
+    for warm_fn, job_id, interval_kwargs in (
+        (warm_kpis,                  'warm_kpis',                  {'minutes': 30}),
+        (warm_charts_leves,          'warm_charts_leves',          {'minutes': 30}),
+        (warm_ingestao_por_hora,     'warm_ingestao_por_hora',     {'minutes': 30}),
+        (warm_partes,                'warm_partes',                {'minutes': 30}),
+        (warm_estatisticas_tribunal, 'warm_estatisticas_tribunal', {'minutes': 30}),
+        (warm_filtros_movimentacoes, 'warm_filtros_movimentacoes', {'minutes': 30}),
+        (warm_charts_pesados,        'warm_charts_pesados',        {'hours': 4}),
     ):
         scheduler.add_job(
             warm_fn,
             'interval',
-            minutes=interval_min,
+            **interval_kwargs,
             id=job_id,
             replace_existing=True,
             max_instances=1,
