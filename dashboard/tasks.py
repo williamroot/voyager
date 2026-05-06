@@ -97,19 +97,16 @@ def warm_kpis():
     _with_lock('lock:warm_kpis', 2700, _run)
 
 
-# Charts leves (Process ~3.6M rows ou filtros temporais que limitam IO).
-_CHARTS_LEVES = ('volume-temporal', 'distribuicao', 'classes', 'enriquecimento', 'sparkline-24h')
+# Charts leves (filtros temporais que limitam IO).
+_CHARTS_LEVES = ('classes', 'enriquecimento', 'sparkline-24h')
 # Charts pesados (GROUP BY em 187M+ rows tribunals_movimentacao).
-_CHARTS_PESADOS = ('tipos', 'orgaos', 'meios')
+_CHARTS_PESADOS = ('volume-temporal', 'distribuicao', 'tipos', 'orgaos', 'meios')
 
 
 @job('warm', timeout=2400)
 def warm_charts_leves():
-    """Charts rápidos (Process ou filtros temporais). 5 charts × 2 períodos
-    = 10 queries; timeout 300s/each. Esses populam confiável a cada cycle.
-
-    Roteado pra replica — alguns chart_handlers (volume-temporal) fazem
-    GROUP BY pesado em Movimentacao mesmo filtrado por período.
+    """Charts rápidos (filtros temporais). 3 charts × 2 períodos = 6 queries;
+    timeout 300s/each. Esses populam de forma confiável a cada cycle.
     """
     def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
@@ -131,12 +128,9 @@ def warm_charts_leves():
 
 @job('warm', timeout=14400)
 def warm_charts_pesados():
-    """Charts com GROUP BY em 187M+ rows (tipos/orgaos/meios). Cada um
-    leva 5-15min sem MV. timeout 1800s/each ⇒ 10800s pior caso = horse.
+    """Charts com GROUP BY pesado em 187M+ rows (volume-temporal, distribuicao,
+    tipos, orgaos, meios). Cada um leva 5-30min sem MV. timeout 1800s/each.
     Roda em job separado pra não bloquear charts leves.
-
-    Roteado pra `replica` quando configurada — tira IO/CPU pesado do primário,
-    libera workers de ingestão. Cache da replica esquenta com primeiras runs.
     """
     def _run():
         from .views import _CHART_HANDLERS, _chart_cache_key
