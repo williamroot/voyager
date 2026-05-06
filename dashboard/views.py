@@ -15,6 +15,14 @@ from tribunals.models import IngestionRun, Movimentacao, Parte, Process, Process
 from . import queries
 
 
+def _safe_cache_get(key, default=None):
+    """Wrapper de cache.get() que retorna `default` ao invés de propagar exceções Redis."""
+    try:
+        return cache.get(key, default)
+    except Exception:
+        return default
+
+
 def _periodo_dias(request, default=90) -> int | None:
     """Retorna número de dias do filtro de período. None = todo o período."""
     raw = request.GET.get('dias')
@@ -204,7 +212,7 @@ def chart_data(request, key):
         except (ValueError, TypeError):
             horas = 24
         if use_cache:
-            cached = cache.get(f'chart:ingestao-por-hora:h={horas}')
+            cached = _safe_cache_get(f'chart:ingestao-por-hora:h={horas}')
             return JsonResponse(
                 {'data': cached if cached is not None else [], 'pending': cached is None},
                 json_dumps_params={'default': str},
@@ -214,7 +222,7 @@ def chart_data(request, key):
         return JsonResponse({'data': data}, json_dumps_params={'default': str})
 
     if use_cache:
-        cached = cache.get(_chart_cache_key(key, dias, tribunais_filtro))
+        cached = _safe_cache_get(_chart_cache_key(key, dias, tribunais_filtro))
         return JsonResponse(
             {'data': cached if cached is not None else [], 'pending': cached is None},
             json_dumps_params={'default': str},
@@ -252,9 +260,8 @@ def tribunal_detail(request, sigla):
     # KPIs server-side. Charts via lazy load (chart_data).
     # Cacheia por 5min — 5 counts em Movimentacao com filtro só por tribunal
     # faz seq scan em ~10M-30M rows (2-5s a frio).
-    from django.core.cache import cache
     kpi_key = f'tribunal_kpis:{t.sigla}'
-    kpis_t = cache.get(kpi_key)
+    kpis_t = _safe_cache_get(kpi_key)
     if kpis_t is None:
         kpis_t = {
             'total_processos': Process.objects.filter(tribunal=t).count(),
@@ -980,7 +987,7 @@ def leads_chart_data(request, key):
 
     tribunal, nivel, dias, cliente_nome = _leads_filtros(request)
     cache_key = f'dashleads:{key}:t={tribunal or ""}:n={nivel or ""}:d={dias}:c={cliente_nome}'
-    cached = cache.get(cache_key)
+    cached = _safe_cache_get(cache_key)
     if cached is not None:
         return JsonResponse({'data': cached}, json_dumps_params={'default': str})
 
@@ -1429,10 +1436,13 @@ class WizardCountView(LoginRequiredMixin, _WizardFiltersMixin, View):
 
     def get(self, request, *args, **kwargs):
         cache_key = f'wizard_count:{request.GET.urlencode()}'
-        count = cache.get(cache_key)
+        count = _safe_cache_get(cache_key)
         if count is None:
             count = self.filtered_queryset().count()
-            cache.set(cache_key, count, timeout=60)
+            try:
+                cache.set(cache_key, count, timeout=60)
+            except Exception:
+                pass
         return render(request, 'dashboard/_partials/_wizard_count.html', {'count': count})
 
 
