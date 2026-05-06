@@ -171,10 +171,7 @@ RQ_QUEUES = {
     # rodar 500k procs por hora — isolar pra não bloquear default que
     # também tem watchdogs e ticks.
     'classificacao':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 14400, **_RQ_CONN},
-    # Warm de cache do dashboard (KPIs, charts, partes, estatísticas, filtros).
-    # Fila dedicada pra não competir com `default` (que tem watchdogs/ticks
-    # do scheduler). Worker em .30, perto do scheduler.
-    'warm':            {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 900,   **_RQ_CONN},
+
 }
 
 # DJEN
