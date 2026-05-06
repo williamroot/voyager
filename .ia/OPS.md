@@ -23,7 +23,7 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 
 Máquinas auxiliares (`.177` e `.184`) rodam só workers — sem web/db/redis próprios. Conectam no Postgres (`.82`) e Redis (`.219`) via LAN. O drainer do stream de enrichment roda **somente no `.30``**; as auxiliares só publicam resultados.
 
-## Workers em prod (configuração atual — 2026-04-30)
+## Workers em prod (configuração atual — 2026-05-06)
 
 **`.30` (host principal, 16 cores)** via `docker-compose-prod.yml`:
 ```
@@ -34,9 +34,14 @@ worker_trf3          75 replicas  fila 'enrich_trf3'
 worker_manual         2 replicas  fila 'manual' (cliques on-demand)
 worker_datajud       15 replicas  fila 'datajud' (cortado de 30 — load alto em .30)
 worker_classificacao  4 replicas  fila 'classificacao' (batch ML)
-scheduler             1           APScheduler com todos os crons
+scheduler             1           APScheduler + ThreadPoolExecutor(20).
+                                  Warm jobs do dashboard rodam INLINE aqui.
 web                   1           Django + nginx
 ```
+
+> **Nota:** `worker_warm` foi removido em 2026-05-06. Os jobs de warm de cache
+> (KPIs, charts, partes, estatísticas, filtros, MV refresh) passaram a rodar
+> inline no thread pool do `scheduler`, sem fila RQ. Ver ADR-017.
 
 **`.177` (workers, 24 cores)** via `docker-compose-workers.yml`:
 ```
@@ -65,6 +70,9 @@ manual           — UI clicks (alta prioridade)
 datajud          — Datajud sync per-CNJ
 classificacao    — batch ML (TIMEOUT 4h)
 ```
+
+> **Removida:** fila `warm` foi eliminada em 2026-05-06. Warm jobs rodam inline
+> no scheduler. Não existe mais `worker_warm` nem entrada `warm` em `RQ_QUEUES`.
 
 ## Deploy em prod
 

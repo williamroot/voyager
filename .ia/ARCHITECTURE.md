@@ -41,13 +41,16 @@ voyager/
 ## Containers (docker-compose)
 
 ```
-postgres    Postgres 16 + extensions (pg_trgm, unaccent) + triggers customizados
-redis       Redis 7 (AOF, noeviction — pra preservar pool de proxies)
-web         Gunicorn + Django (DRF + dashboard + admin)
+postgres          Postgres 16 + extensions (pg_trgm, unaccent) + triggers customizados
+redis             Redis 7 (AOF, noeviction — pra preservar pool de proxies)
+web               Gunicorn + Django (DRF + dashboard + admin)
 worker_ingestion  rqworker djen_ingestion djen_backfill (replicas escaláveis)
 worker_default    rqworker default (manutenção, exports, enrichers, refresh proxy pool)
-scheduler   rqscheduler (idempotente: cancela e re-registra crons na boot)
-nginx       Reverse proxy + cache de /static/ + resolver dinâmico do Docker DNS
+scheduler         APScheduler (BlockingScheduler + ThreadPoolExecutor(20)).
+                  Roda todos os crons: ingestão diária, backfill, watchdog, proxies,
+                  enrichers, datajud, classificação. Warm jobs do dashboard rodam
+                  INLINE no thread pool — sem fila RQ, sem worker externo.
+nginx             Reverse proxy + cache de /static/ + resolver dinâmico do Docker DNS
 ```
 
 ## Fluxo de ingestão

@@ -141,6 +141,21 @@ Decisões arquiteturais relevantes com motivação. Estilo ADR enxuto.
 - Trade-off: precision real desconhecida em tribunais sem ground truth — mitigado via calibration plot (Juriscope marca consumed → vemos taxa real por bucket)
 - Quando tiver ground truth de outros tribunais, re-treinar v6 multi-tribunal
 
+## ADR-017 — Warm jobs do dashboard inline no scheduler (sem fila RQ)
+
+**Contexto:** Jobs de warm de cache (KPIs, charts, partes, estatísticas, filtros, MV refresh) eram enfileirados na fila `warm` via `_enqueue_singleton`. A lógica de singleton era complexa e sofria race condition quando 6+ jobs disparavam simultaneamente, gerando acúmulo de duplicatas na fila. Reiniciar o `worker_warm` via SIGKILL deixava locks Redis presos e queries PG zumbis.
+
+**Decisão:** Jobs de warm passaram a ser agendados diretamente no `BlockingScheduler` com `ThreadPoolExecutor(20)`. Cada função warm roda inline no thread pool — sem fila RQ, sem worker externo. `max_instances=1` + `coalesce=True` no APScheduler + `_with_lock` Redis são as camadas de proteção contra sobreposição.
+
+**Removido:** `worker_warm` (2 réplicas), fila `warm` em `RQ_QUEUES`, `_enqueue_singleton`.
+
+**Intervalos:**
+- KPIs, charts leves/pesados, partes, estatísticas, filtros: a cada 30 min
+- Velocidade de ingestão (`warm_ingestao_por_hora`): a cada 4h (lê da MV, muda pouco)
+- MV refresh (`refresh_materialized_views`): cron diário 03:00
+
+**Consequência:** Zero acúmulo de jobs na fila. Sem dependência de worker externo pra dashboard funcionar. Falha de 1 warm job não afeta os outros (thread pool isolado). Trade-off: warm jobs pesados (charts_pesados, estatisticas) ocupam threads do scheduler por até 30-60min — mitigado pelo pool de 20 threads.
+
 ## ADR-016 — Re-consumo permitido em LeadConsumption (sem unique constraint)
 
 **Contexto:** API expõe `POST /leads/consumed/` pro Juriscope marcar processos. Mesmo (cliente, processo) pode aparecer 2+ vezes?
