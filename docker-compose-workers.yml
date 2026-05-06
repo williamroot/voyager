@@ -23,7 +23,7 @@ services:
     deploy:
       # TRF1 com problema interno — reduzido drasticamente até recuperar.
       replicas: 60
-    restart: always
+    restart: unless-stopped
 
   worker_djen_audit:
     build:
@@ -36,7 +36,7 @@ services:
       - .:/app
     deploy:    
       replicas: 10
-    restart: always
+    restart: unless-stopped
     
 
   worker_trf3:
@@ -48,7 +48,7 @@ services:
     deploy:
       # Capacidade redirecionada do TRF1 pra TRF3.
       replicas: 50
-    restart: always
+    restart: unless-stopped
 
   worker_tjmg:
     image: voyager-web:prod
@@ -58,7 +58,7 @@ services:
       - .:/app
     deploy:
       replicas: 50
-    restart: always
+    restart: unless-stopped
 
   worker_default:
     image: voyager-web:prod
@@ -68,7 +68,7 @@ services:
       - .:/app
     deploy:
       replicas: 2
-    restart: always
+    restart: unless-stopped
 
   worker_ingestion:
     image: voyager-web:prod
@@ -85,7 +85,7 @@ services:
         hard: 65536
     deploy:
       replicas: 4
-    restart: always
+    restart: unless-stopped
 
   worker_datajud:
     image: voyager-web:prod
@@ -97,4 +97,4 @@ services:
       # Datajud é leve (1 request HTTP por processo). 90 réplicas em
       # cada host de workers (.177, .184) — total ~210 com .30.
       replicas: 90
-    restart: always
+    restart: unless-stopped
