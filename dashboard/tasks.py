@@ -166,11 +166,11 @@ def warm_ingestao_por_hora():
     _with_lock('lock:warm_ingestao_por_hora', 300, _run)
 
 
-@job('warm', timeout=120)
+@job('warm', timeout=1200)
 def warm_partes():
     """Distribuição de tipos de partes (/dashboard/partes/)."""
-    _with_lock('lock:warm_partes', 300,
-               lambda: _with_timeout(60, queries.compute_distribuicao_tipos_partes))
+    _with_lock('lock:warm_partes', 900,
+               lambda: _with_timeout(600, queries.compute_distribuicao_tipos_partes))
 
 
 @job('warm', timeout=7200)
