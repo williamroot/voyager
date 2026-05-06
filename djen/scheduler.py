@@ -176,20 +176,18 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
-    # Re-classifica processos com mov nova nos últimos 7 dias + drena
-    # backlog de nunca-classificados (cap default 500k por run).
-    # Cada hora — backlog inicial de ~2.4M (96% TRF1 + 99.5% TRF3) leva
-    # alguns dias pra drenar nesse ritmo. Auto-enqueue per-batch da
-    # ingestão DJEN cobre o caminho quente; este cron drena o frio.
-    # max_instances=1 + coalesce=True: o job tem timeout 4h em interval 1h —
-    # se atrasar, novos triggers são consolidados em vez de empilhar
-    # (evita 2 schedulers competindo no mesmo lote).
-    from tribunals.jobs import reclassificar_recentes
+    # Classificação por prioridade — único cron, substitui todos os fluxos inline.
+    # Grupo 1: desatualizados (classificacao_em < ultima_movimentacao_em), mais recentes primeiro.
+    # Grupo 2 (fallback): classificados há mais tempo (classificacao_em ASC).
+    # Idle quando tudo está atualizado — zero enqueue desnecessário.
+    # max_instances=1 + coalesce=True: job coordenador é rápido (só enfileira),
+    # mas os batches têm timeout 10min; sem proteção acumulariam na fila.
+    from tribunals.jobs import reclassificar_por_prioridade
     scheduler.add_job(
-        reclassificar_recentes.delay,
+        reclassificar_por_prioridade.delay,
         'interval',
-        hours=1,
-        id='reclassificar_recentes',
+        minutes=20,
+        id='reclassificar_por_prioridade',
         replace_existing=True,
         max_instances=1,
         coalesce=True,

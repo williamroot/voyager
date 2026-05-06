@@ -138,6 +138,7 @@ class Process(models.Model):
         indexes = [
             models.Index(fields=['tribunal', 'numero_cnj']),
             models.Index(fields=['tribunal', '-ultima_movimentacao_em']),
+            models.Index(fields=['ultima_movimentacao_em', 'classificacao_em'], name='proc_ultmov_classif_idx'),
             models.Index(fields=['inserido_em']),
             models.Index(fields=['enriquecido_em']),
             models.Index(fields=['enriquecimento_status']),
