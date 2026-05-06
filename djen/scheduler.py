@@ -3,17 +3,18 @@
 Usa BlockingScheduler (sem persistência em banco — jobs são leves e
 idempotentes, então re-registrar a cada restart é OK).
 
-Padrão: o scheduler enfileira jobs RQ via .delay(); a execução pesada
-fica nos workers, não no processo do scheduler.
+Padrão: jobs leves e de enfileiramento usam .delay() (RQ). Jobs de warm
+do dashboard rodam INLINE no thread pool do scheduler — evita acúmulo
+na fila `warm` e elimina dependência de workers externos para o dashboard.
+Cada função de warm tem _with_lock próprio; max_instances=1 no APScheduler
+é a segunda camada de proteção contra execuções sobrepostas.
 """
 import logging
 
-import django_rq
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_SUBMITTED
+from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.blocking import BlockingScheduler
 from django.db import close_old_connections
-from rq.exceptions import NoSuchJobError
-from rq.job import Job
 
 from tribunals.models import Tribunal
 
@@ -43,87 +44,16 @@ def _close_db(event):
     close_old_connections()
 
 
-_SINGLETON_TIMEOUT = 86400  # 24h — sobrepõe o timeout do decorator @job
-_FAIL_COOLDOWN_S = 1800    # não re-enfileira job falho nos últimos 30min
-
-
-def _enqueue_singleton(fn, queue_name: str, job_id: str):
-    """Enfileira fn na queue apenas se não há job pendente/executando.
-
-    Detecta tanto jobs com o singleton job_id quanto UUID jobs da mesma
-    função (criados por restarts antigos ou .delay() calls). Isso evita
-    acúmulo de duplicatas na fila quando UUID jobs coexistem com singletons.
-
-    job_timeout=86400 sobrepõe o decorator @job — rq 1.16.x usa 'job_timeout'
-    (não 'timeout') no parse_args; o decorator @job ainda fica como fallback
-    mas o valor passado aqui tem precedência.
-    """
-    import time as _time
-    from rq.registry import StartedJobRegistry
-
-    q = django_rq.get_queue(queue_name)
-    fn_name = f'{fn.__module__}.{fn.__qualname__}'
-
-    # Verifica job singleton pelo ID conhecido
-    try:
-        existing = Job.fetch(job_id, connection=q.connection)
-        status = existing.get_status()
-        if status == 'started':
-            logger.debug('singleton skip %s (id match, status=started)', job_id)
-            return
-        if status == 'queued':
-            # Verifica se o job está de fato na fila (pode ter sido orfanado
-            # por deleção direta de rq:queue:* sem remover o hash do job).
-            if job_id in q.job_ids:
-                logger.debug('singleton skip %s (id match, status=queued)', job_id)
-                return
-            # Job hash diz "queued" mas não está na fila — deletar e re-enfileirar.
-            logger.warning('singleton %s: status=queued mas não está na fila — re-enfileirando', job_id)
-            q.connection.delete(f'rq:job:{job_id}')
-        if status == 'failed':
-            ended_at = existing.ended_at
-            if ended_at is not None:
-                from datetime import timezone as _tz
-                if ended_at.tzinfo is None:
-                    ended_at = ended_at.replace(tzinfo=_tz.utc)
-                age_s = _time.time() - ended_at.timestamp()
-                if age_s < _FAIL_COOLDOWN_S:
-                    logger.debug('singleton skip %s (fail cooldown %.0fs)', job_id, age_s)
-                    return
-    except NoSuchJobError:
-        pass
-
-    # Verifica qualquer job da mesma função em execução (captura UUID jobs)
-    for jid in StartedJobRegistry(queue=q).get_job_ids():
-        try:
-            j = Job.fetch(jid, connection=q.connection)
-            if j.func_name == fn_name:
-                logger.debug('singleton skip %s (uuid job rodando: %s)', job_id, jid[:8])
-                return
-        except Exception:
-            pass
-
-    # Verifica qualquer job da mesma função aguardando na fila (captura UUID jobs)
-    for jid in q.job_ids:
-        if jid == job_id:
-            logger.debug('singleton skip %s (já na fila como singleton)', job_id)
-            return
-        try:
-            j = Job.fetch(jid, connection=q.connection)
-            if j.func_name == fn_name:
-                logger.debug('singleton skip %s (uuid job na fila: %s)', job_id, jid[:8])
-                return
-        except Exception:
-            pass
-
-    q.enqueue(fn, job_id=job_id, job_timeout=_SINGLETON_TIMEOUT)
-
-
 def create_scheduler() -> BlockingScheduler:
     """Cria e configura o BlockingScheduler com todos os crons do Voyager."""
     ativos = list(Tribunal.objects.filter(ativo=True).order_by('sigla'))
 
-    scheduler = BlockingScheduler(timezone='America/Sao_Paulo')
+    # 20 threads: jobs de warm podem rodar horas em paralelo (kpis, charts_pesados,
+    # estatisticas, filtros) sem bloquear os ticks curtos (watchdog, backfill).
+    scheduler = BlockingScheduler(
+        timezone='America/Sao_Paulo',
+        executors={'default': ThreadPoolExecutor(20)},
+    )
     scheduler.add_listener(
         _close_db,
         EVENT_JOB_SUBMITTED | EVENT_JOB_EXECUTED | EVENT_JOB_ERROR,
@@ -197,49 +127,33 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
-    # Aquecimento do dashboard — 6 jobs independentes na fila `warm`.
-    # Cada um tem lock + statement_timeout próprios; falha de um não
-    # bloqueia os outros. Worker `warm` dedicado em .30 garante isolation
-    # do `default` (que tem ticks/watchdogs). REFRESH MV separado em
-    # cron diário pra não interferir no warm path quente.
-    # Charts leves + jobs rápidos: cron 5min
-    for warm_job, job_id in (
-        (warm_kpis, 'warm_kpis'),
-        (warm_charts_leves, 'warm_charts_leves'),
-        (warm_ingestao_por_hora, 'warm_ingestao_por_hora'),
-        (warm_partes, 'warm_partes'),
-        (warm_estatisticas_tribunal, 'warm_estatisticas_tribunal'),
-        (warm_filtros_movimentacoes, 'warm_filtros_movimentacoes'),
+    # Aquecimento do dashboard — inline no thread pool do scheduler.
+    # Sem fila RQ: sem acúmulo de duplicatas, sem dependência de workers externos.
+    # _with_lock em cada função é a proteção primária contra sobreposição;
+    # max_instances=1 + coalesce=True no APScheduler é a segunda camada.
+    for warm_fn, job_id, interval_min in (
+        (warm_kpis,                  'warm_kpis',                  15),
+        (warm_charts_leves,          'warm_charts_leves',          15),
+        (warm_ingestao_por_hora,     'warm_ingestao_por_hora',     15),
+        (warm_partes,                'warm_partes',                15),
+        (warm_estatisticas_tribunal, 'warm_estatisticas_tribunal', 15),
+        (warm_filtros_movimentacoes, 'warm_filtros_movimentacoes', 15),
+        (warm_charts_pesados,        'warm_charts_pesados',        30),
     ):
         scheduler.add_job(
-            _enqueue_singleton,
+            warm_fn,
             'interval',
-            args=[warm_job, 'warm', job_id],
-            minutes=15,
+            minutes=interval_min,
             id=job_id,
             replace_existing=True,
             max_instances=1,
             coalesce=True,
         )
 
-    # Charts pesados (GROUP BY em 187M rows): cron 30min — não fazem
-    # parte do hot-path da home; podem ficar com dados de até 2h velhos.
+    # REFRESH MV CONCURRENTLY — diário às 3h, inline.
+    # lock_timeout=5s na query aborta se outro REFRESH segura lock.
     scheduler.add_job(
-        _enqueue_singleton,
-        'interval',
-        args=[warm_charts_pesados, 'warm', 'warm_charts_pesados'],
-        minutes=30,
-        id='warm_charts_pesados',
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-
-    # REFRESH MV CONCURRENTLY — diário às 3h. Fora do warm path porque
-    # pode travar 1-2h em tabelas grandes; lock_timeout=5s aborta cedo
-    # se outro REFRESH segura lock (visto empilhar 11 conexões + crash).
-    scheduler.add_job(
-        refresh_materialized_views.delay,
+        refresh_materialized_views,
         'cron',
         hour=3,
         minute=0,
