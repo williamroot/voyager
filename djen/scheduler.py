@@ -134,11 +134,11 @@ def create_scheduler() -> BlockingScheduler:
     for warm_fn, job_id, interval_kwargs in (
         (warm_kpis,                  'warm_kpis',                  {'minutes': 30}),
         (warm_charts_leves,          'warm_charts_leves',          {'minutes': 30}),
-        (warm_ingestao_por_hora,     'warm_ingestao_por_hora',     {'minutes': 30}),
+        (warm_ingestao_por_hora,     'warm_ingestao_por_hora',     {'hours': 4}),
         (warm_partes,                'warm_partes',                {'minutes': 30}),
         (warm_estatisticas_tribunal, 'warm_estatisticas_tribunal', {'minutes': 30}),
         (warm_filtros_movimentacoes, 'warm_filtros_movimentacoes', {'minutes': 30}),
-        (warm_charts_pesados,        'warm_charts_pesados',        {'hours': 4}),
+        (warm_charts_pesados,        'warm_charts_pesados',        {'minutes': 30}),
     ):
         scheduler.add_job(
             warm_fn,
