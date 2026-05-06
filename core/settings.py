@@ -134,8 +134,8 @@ CACHES = {
         'KEY_PREFIX': 'v',
         'TIMEOUT': 3600,
         'OPTIONS': {
-            'socket_connect_timeout': 2,
-            'socket_timeout': 3,
+            'socket_connect_timeout': 5,
+            'socket_timeout': 30,
             'retry_on_timeout': True,
         },
     }
