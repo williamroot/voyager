@@ -441,11 +441,14 @@ def status_workers():
     Retorna esqueleto vazio enquanto o cache ainda não foi aquecido.
     """
     from django.core.cache import cache
-    return cache.get('status_workers_snapshot') or {
-        'queues': [],
-        'workers': [],
-        'workers_by_queue': {},
-    }
+    try:
+        return cache.get('status_workers_snapshot') or {
+            'queues': [],
+            'workers': [],
+            'workers_by_queue': {},
+        }
+    except Exception:
+        return {'queues': [], 'workers': [], 'workers_by_queue': {}}
 
 
 def compute_workers_snapshot():
