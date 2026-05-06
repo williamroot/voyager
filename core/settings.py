@@ -137,19 +137,16 @@ CACHES = {
             'socket_connect_timeout': 2,
             'socket_timeout': 3,
             'retry_on_timeout': True,
-            'max_connections': 20,
         },
     }
 }
 
-# Kwargs compartilhados por todas as filas RQ — limita pool de conexões por
-# processo (evita crescimento ilimitado com muitos workers) e define timeouts
-# de socket (workers sem timeout bloqueiam forever em ops Redis que não sejam BLPOP).
+# Kwargs compartilhados por todas as filas RQ — timeouts de socket para
+# workers não bloquearem forever em ops Redis que não sejam BLPOP.
 _RQ_CONN = {
     'socket_connect_timeout': 2,
     'socket_timeout': 10,
     'retry_on_timeout': True,
-    'max_connections': 20,
 }
 
 RQ_QUEUES = {

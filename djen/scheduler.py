@@ -83,6 +83,9 @@ def _enqueue_singleton(fn, queue_name: str, job_id: str):
         if status == 'failed':
             ended_at = existing.ended_at
             if ended_at is not None:
+                from datetime import timezone as _tz
+                if ended_at.tzinfo is None:
+                    ended_at = ended_at.replace(tzinfo=_tz.utc)
                 age_s = _time.time() - ended_at.timestamp()
                 if age_s < _FAIL_COOLDOWN_S:
                     logger.debug('singleton skip %s (fail cooldown %.0fs)', job_id, age_s)
