@@ -189,22 +189,24 @@ def warm_filtros_movimentacoes():
     _with_lock('lock:warm_filtros_movimentacoes', 7500, _run)
 
 
-@job('warm', timeout=600)
+@job('warm', timeout=7200)
 def refresh_materialized_views():
     """REFRESH MATERIALIZED VIEW CONCURRENTLY. Cron diário, NÃO no warm path.
 
     `lock_timeout` PG aborta se outro REFRESH segura lock — evita empilhar
     (observado 11 REFRESH bloqueados crashou o postmaster).
+    timeout=7200: mv_ingestion_rate_hora leva 30-60min num scan de 7d em
+    187M+ rows; 600s matava o job antes de terminar, deixando o MV stale.
     """
     def _run():
         for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora'):
             try:
                 with connection.cursor() as cur:
                     cur.execute("SET lock_timeout = '5s'")
-                    cur.execute("SET statement_timeout = '600s'")
+                    cur.execute("SET statement_timeout = '3600s'")
                     cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}')
                 logger.info('refresh MV %s ok', mv)
             except Exception as e:
                 logger.warning('refresh MV %s: %s', mv, e)
                 _reset_connection()
-    _with_lock('lock:refresh_mv', 1800, _run)
+    _with_lock('lock:refresh_mv', 7200, _run)
