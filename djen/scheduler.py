@@ -48,30 +48,62 @@ _FAIL_COOLDOWN_S = 1800    # não re-enfileira job falho nos últimos 30min
 
 
 def _enqueue_singleton(fn, queue_name: str, job_id: str):
-    """Enfileira fn na queue apenas se não há job pendente/executando com esse job_id.
+    """Enfileira fn na queue apenas se não há job pendente/executando.
 
-    Cooldown de 30min pós-falha evita re-enqueue em loop quando o job falha
-    sistematicamente (ex: statement_timeout). timeout=86400 sobrepõe o
-    decorator @job — rq 1.16.x ignora timeout=-1 e cai no decorator.
+    Detecta tanto jobs com o singleton job_id quanto UUID jobs da mesma
+    função (criados por restarts antigos ou .delay() calls). Isso evita
+    acúmulo de duplicatas na fila quando UUID jobs coexistem com singletons.
+
+    job_timeout=86400 sobrepõe o decorator @job — rq 1.16.x usa 'job_timeout'
+    (não 'timeout') no parse_args; o decorator @job ainda fica como fallback
+    mas o valor passado aqui tem precedência.
     """
     import time as _time
+    from rq.registry import StartedJobRegistry
+
     q = django_rq.get_queue(queue_name)
+    fn_name = f'{fn.__module__}.{fn.__qualname__}'
+
+    # Verifica job singleton pelo ID conhecido
     try:
         existing = Job.fetch(job_id, connection=q.connection)
         status = existing.get_status()
         if status in ('queued', 'started'):
-            logger.debug('singleton skip %s (já na fila, status=%s)', job_id, status)
+            logger.debug('singleton skip %s (id match, status=%s)', job_id, status)
             return
         if status == 'failed':
             ended_at = existing.ended_at
             if ended_at is not None:
                 age_s = _time.time() - ended_at.timestamp()
                 if age_s < _FAIL_COOLDOWN_S:
-                    logger.debug('singleton skip %s (falhou há %.0fs < cooldown %ds)',
-                                 job_id, age_s, _FAIL_COOLDOWN_S)
+                    logger.debug('singleton skip %s (fail cooldown %.0fs)', job_id, age_s)
                     return
     except NoSuchJobError:
         pass
+
+    # Verifica qualquer job da mesma função em execução (captura UUID jobs)
+    for jid in StartedJobRegistry(queue=q).get_job_ids():
+        try:
+            j = Job.fetch(jid, connection=q.connection)
+            if j.func_name == fn_name:
+                logger.debug('singleton skip %s (uuid job rodando: %s)', job_id, jid[:8])
+                return
+        except Exception:
+            pass
+
+    # Verifica qualquer job da mesma função aguardando na fila (captura UUID jobs)
+    for jid in q.job_ids:
+        if jid == job_id:
+            logger.debug('singleton skip %s (já na fila como singleton)', job_id)
+            return
+        try:
+            j = Job.fetch(jid, connection=q.connection)
+            if j.func_name == fn_name:
+                logger.debug('singleton skip %s (uuid job na fila: %s)', job_id, jid[:8])
+                return
+        except Exception:
+            pass
+
     q.enqueue(fn, job_id=job_id, job_timeout=_SINGLETON_TIMEOUT)
 
 
