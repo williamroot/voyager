@@ -20,6 +20,7 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 | `192.168.1.219` | Redis dedicado | — |
 | `192.168.1.177` | Máquina auxiliar de workers | `docker-compose-workers.yml` |
 | `192.168.1.184` | Máquina auxiliar de workers | `docker-compose-workers.yml` |
+| `10.10.0.115`   | Máquina auxiliar de workers | `docker-compose-workers.yml` |
 
 Máquinas auxiliares (`.177` e `.184`) rodam só workers — sem web/db/redis próprios. Conectam no Postgres (`.82`) e Redis (`.219`) via LAN. O drainer do stream de enrichment roda **somente no `.30``**; as auxiliares só publicam resultados.
 
