@@ -137,36 +137,47 @@ CACHES = {
             'socket_connect_timeout': 2,
             'socket_timeout': 3,
             'retry_on_timeout': True,
+            'max_connections': 20,
         },
     }
 }
 
+# Kwargs compartilhados por todas as filas RQ — limita pool de conexões por
+# processo (evita crescimento ilimitado com muitos workers) e define timeouts
+# de socket (workers sem timeout bloqueiam forever em ops Redis que não sejam BLPOP).
+_RQ_CONN = {
+    'socket_connect_timeout': 2,
+    'socket_timeout': 10,
+    'retry_on_timeout': True,
+    'max_connections': 20,
+}
+
 RQ_QUEUES = {
-    'default':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 3600},
-    'djen_ingestion':  {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 7200},
-    'djen_backfill':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 86400},
-    'djen_audit':      {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 3600},
+    'default':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 3600,  **_RQ_CONN},
+    'djen_ingestion':  {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 7200,  **_RQ_CONN},
+    'djen_backfill':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 86400, **_RQ_CONN},
+    'djen_audit':      {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 3600,  **_RQ_CONN},
     # Enriquecimento por tribunal — workers dedicados por sigla pra
     # paralelizar coletas no PJe consulta pública sem misturar pools.
-    'enrich_trf1':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
-    'enrich_trf3':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
-    'enrich_tjmg':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
+    'enrich_trf1':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
+    'enrich_trf3':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
+    'enrich_tjmg':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     # Fila prioritária pra requests on-demand do dashboard (botões de
     # 'Atualizar dados públicos' / 'Sincronizar movimentações'). Workers
     # dedicados garantem latência baixa mesmo com filas de backfill cheias.
-    'manual':          {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
+    'manual':          {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     # Sincronização via API Datajud (CNJ) — 1 request por processo,
     # cobre todos os tribunais. Dedicada pra não competir com DJEN nem
     # com PJe scraping.
-    'datajud':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600},
+    'datajud':         {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     # Classificação de leads (modelo LR v5). reclassificar_recentes pode
     # rodar 500k procs por hora — isolar pra não bloquear default que
     # também tem watchdogs e ticks.
-    'classificacao':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 14400},
+    'classificacao':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 14400, **_RQ_CONN},
     # Warm de cache do dashboard (KPIs, charts, partes, estatísticas, filtros).
     # Fila dedicada pra não competir com `default` (que tem watchdogs/ticks
     # do scheduler). Worker em .30, perto do scheduler.
-    'warm':            {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 900},
+    'warm':            {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 900,   **_RQ_CONN},
 }
 
 # DJEN
