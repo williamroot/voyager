@@ -68,9 +68,18 @@ def _enqueue_singleton(fn, queue_name: str, job_id: str):
     try:
         existing = Job.fetch(job_id, connection=q.connection)
         status = existing.get_status()
-        if status in ('queued', 'started'):
-            logger.debug('singleton skip %s (id match, status=%s)', job_id, status)
+        if status == 'started':
+            logger.debug('singleton skip %s (id match, status=started)', job_id)
             return
+        if status == 'queued':
+            # Verifica se o job está de fato na fila (pode ter sido orfanado
+            # por deleção direta de rq:queue:* sem remover o hash do job).
+            if job_id in q.job_ids:
+                logger.debug('singleton skip %s (id match, status=queued)', job_id)
+                return
+            # Job hash diz "queued" mas não está na fila — deletar e re-enfileirar.
+            logger.warning('singleton %s: status=queued mas não está na fila — re-enfileirando', job_id)
+            q.connection.delete(f'rq:job:{job_id}')
         if status == 'failed':
             ended_at = existing.ended_at
             if ended_at is not None:
