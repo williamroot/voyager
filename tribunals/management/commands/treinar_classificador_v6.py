@@ -220,13 +220,29 @@ class Command(BaseCommand):
     def _extract(self, tribunais):
         ph = ', '.join(['%s'] * len(tribunais))
 
-        self.stdout.write('  movimentacoes (query única — pode levar minutos)...')
+        self.stdout.write('  movimentacoes (query única com work_mem=512MB)...')
         t = time.time()
+        mov_map = {}
         with connection.cursor() as c:
-            c.execute('SET statement_timeout = 0')
+            # SET LOCAL vale só dentro desta transação — garante que pgbouncer
+            # mantenha o mesmo backend. Sem isso GROUP BY em 9M rows espirra pro disco.
+            c.execute("BEGIN")
+            c.execute("SET LOCAL statement_timeout = 0")
+            c.execute("SET LOCAL work_mem = '512MB'")
             c.execute(_SQL_MOVS.format(placeholders=ph), tribunais)
-            rows_mov = c.fetchall()
-        mov_map = {r[0]: r[1:] for r in rows_mov}
+            # Streaming para não explodir memória Python de uma vez
+            chunk_size = 50_000
+            total_fetched = 0
+            while True:
+                chunk = c.fetchmany(chunk_size)
+                if not chunk:
+                    break
+                for r in chunk:
+                    mov_map[r[0]] = r[1:]
+                total_fetched += len(chunk)
+                elapsed = time.time() - t
+                self.stdout.write(f'  → {total_fetched:,} processos lidos... ({elapsed:.0f}s)')
+            c.execute("COMMIT")
         self.stdout.write(f'  → {len(mov_map):,} processos c/ movs  ({time.time()-t:.0f}s)')
 
         self.stdout.write('  partes...')
