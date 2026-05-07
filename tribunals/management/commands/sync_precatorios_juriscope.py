@@ -41,14 +41,18 @@ class Command(BaseCommand):
                             help='Apenas reporta contagens, sem inserir nada.')
         parser.add_argument('--apply', action='store_true',
                             help='Executa o insert. Mutuamente exclusivo com --dry-run.')
+        parser.add_argument('--tribunal', default='TRF1',
+                            help='Sigla do tribunal (default TRF1).')
 
     def handle(self, *args, **opts):
         if opts['dry_run'] == opts['apply']:
             raise CommandError('Passe --dry-run OU --apply (exatamente um).')
         dry = opts['dry_run']
+        tribunal_sigla = opts['tribunal'].upper()
+        tribunal_lower = tribunal_sigla.lower()
 
         self.stdout.write(self.style.NOTICE(
-            f'modo: {"DRY-RUN" if dry else "APPLY"} · tribunal=TRF1 · classificacao=PRECATORIO'
+            f'modo: {"DRY-RUN" if dry else "APPLY"} · tribunal={tribunal_sigla} · classificacao=PRECATORIO'
         ))
 
         # 1) Cliente juriscope
@@ -72,11 +76,11 @@ class Command(BaseCommand):
                 .values_list('processo_id', flat=True)
             )
 
-        # 2) Todos os PRECATORIO TRF1 não consumidos
+        # 2) Todos os PRECATORIO do tribunal não consumidos
         prec_qs = Process.objects.filter(
-            tribunal_id='TRF1', classificacao='PRECATORIO',
+            tribunal_id=tribunal_sigla, classificacao='PRECATORIO',
         ).exclude(id__in=ja_consumidos)
-        total_prec = Process.objects.filter(tribunal_id='TRF1', classificacao='PRECATORIO').count()
+        total_prec = Process.objects.filter(tribunal_id=tribunal_sigla, classificacao='PRECATORIO').count()
         ja_consumidos_prec = total_prec - prec_qs.count()
 
         cnj_to_pid: dict[str, int] = dict(prec_qs.values_list('numero_cnj', 'id'))
@@ -91,11 +95,11 @@ class Command(BaseCommand):
         # 3) Busca no falcon: CNJs TRF1 com ao menos 1 parte com valor+oficio
         self.stdout.write('conectando ao falcon...')
         t0 = time.time()
-        sql = """
+        sql = f"""
             SELECT DISTINCT p.numero_autos, p.created_at
             FROM datamodel_process p
             JOIN datamodel_processpart pp ON pp.process_id = p.id
-            WHERE LOWER(p.tribunal) = 'trf1'
+            WHERE LOWER(p.tribunal) = '{tribunal_lower}'
               AND pp.is_lawyer = false
               AND pp.oficio_requisitorio IS NOT NULL
               AND pp.oficio_requisitorio <> ''
