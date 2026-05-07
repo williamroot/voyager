@@ -218,62 +218,38 @@ class Command(BaseCommand):
         return gt
 
     def _extract(self, tribunais):
+        import os
+        import psycopg as _psycopg
+
         ph = ', '.join(['%s'] * len(tribunais))
 
-        # Busca IDs de todos os processos com movs para iterar em batches.
-        # Abordagem em batches de 10k evita full scan único (que espirrava pro disco
-        # com work_mem=32MB) e permite mostrar progresso incremental.
-        self.stdout.write('  carregando IDs dos processos...')
-        with connection.cursor() as c:
-            c.execute(
-                f"SELECT id FROM tribunals_process WHERE tribunal_id IN ({ph}) "
-                f"AND total_movimentacoes > 0 ORDER BY id",
-                tribunais,
-            )
-            all_pids = [r[0] for r in c.fetchall()]
+        # Movimentacoes: conecta direto ao PG (porta 5432) para poder usar
+        # SET work_mem na sessão. pgbouncer (6432) em transaction pooling descarta
+        # settings de sessão entre transações, tornando SET work_mem ineficaz.
+        # Sem work_mem suficiente o GROUP BY derrama pro disco e leva horas.
+        raw_url = os.environ.get('DATABASE_URL', '')
+        direct_url = raw_url.replace(':6432/', ':5432/')
 
-        self.stdout.write(f'  {len(all_pids):,} processos a extrair em batches de 10k...')
-        t = time.time()
+        _SQL_MOV_TRIB = _SQL_MOVS.replace('{placeholders}', '%s')
+
         mov_map = {}
-        batch_size = 10_000
-        n_batches = (len(all_pids) + batch_size - 1) // batch_size
-        _SQL_BATCH = """
-            SELECT
-                m.processo_id,
-                COUNT(*)                                                                              AS total_movs,
-                COUNT(DISTINCT CASE WHEN m.tipo_comunicacao <> '' THEN m.tipo_comunicacao END)        AS distinct_tipos,
-                MAX(m.data_disponibilizacao)                                                          AS ult_mov_dt,
-                SUM(CASE WHEN m.tipo_comunicacao IN
-                    ('Expedição de precatório/rpv','Precatório')                THEN 1 ELSE 0 END)   AS f2_n,
-                SUM(CASE WHEN m.tipo_comunicacao IN
-                    ('Enviada ao Tribunal','Preparada para Envio')              THEN 1 ELSE 0 END)   AS f7_n,
-                SUM(CASE WHEN m.texto ~* 'precat[óo]rio'                       THEN 1 ELSE 0 END)   AS f11_n,
-                SUM(CASE WHEN m.texto ~* '\\mrpv\\M'                           THEN 1 ELSE 0 END)   AS f12_n,
-                SUM(CASE WHEN m.texto ~* 'requisi[çc][ãa]o de pagamento'       THEN 1 ELSE 0 END)   AS f13_n,
-                SUM(CASE WHEN m.texto ~* 'of[íi]cio requisit[óo]rio'          THEN 1 ELSE 0 END)   AS f14_n,
-                SUM(CASE WHEN m.texto ~* 'cancelamento de precat[óo]rio|cancelamento de rpv|revoga[çc][ãa]o de precat[óo]rio|revoga[çc][ãa]o de rpv'
-                                                                               THEN 1 ELSE 0 END)   AS f19_n,
-                SUM(CASE WHEN m.texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
-                                                                               THEN 1 ELSE 0 END)   AS f20_n
-            FROM tribunals_movimentacao m
-            WHERE m.processo_id = ANY(%s)
-            GROUP BY m.processo_id
-        """
+        with _psycopg.connect(direct_url, autocommit=True) as conn:
+            conn.execute("SET work_mem = '512MB'")
+            conn.execute("SET statement_timeout = 0")
+            for trib in tribunais:
+                self.stdout.write(f'  movimentacoes {trib} (work_mem=512MB, direto no PG)...')
+                t = time.time()
+                count = 0
+                with conn.cursor() as cur:
+                    cur.execute(_SQL_MOV_TRIB, [trib])
+                    while chunk := cur.fetchmany(50_000):
+                        for r in chunk:
+                            mov_map[r[0]] = r[1:]
+                        count += len(chunk)
+                        self.stdout.write(f'    {trib}: {count:,} processos...')
+                self.stdout.write(f'  → {trib}: {count:,} processos c/ movs ({time.time()-t:.0f}s)')
 
-        for batch_n, i in enumerate(range(0, len(all_pids), batch_size), 1):
-            batch_ids = all_pids[i:i + batch_size]
-            with connection.cursor() as c:
-                c.execute(_SQL_BATCH, [batch_ids])
-                for r in c.fetchall():
-                    mov_map[r[0]] = r[1:]
-            if batch_n % 10 == 0 or batch_n == n_batches:
-                elapsed = time.time() - t
-                eta = (elapsed / batch_n) * (n_batches - batch_n)
-                self.stdout.write(
-                    f'  → batch {batch_n}/{n_batches}  '
-                    f'{len(mov_map):,} processos  {elapsed:.0f}s  ETA {eta:.0f}s'
-                )
-        self.stdout.write(f'  → {len(mov_map):,} processos c/ movs  ({time.time()-t:.0f}s)')
+        self.stdout.write(f'  → total movimentacoes: {len(mov_map):,} processos')
 
         self.stdout.write('  partes...')
         t = time.time()
