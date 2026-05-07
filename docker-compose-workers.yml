@@ -98,3 +98,13 @@ services:
       # cada host de workers (.177, .184) — total ~210 com .30.
       replicas: 90
     restart: unless-stopped
+
+  worker_classificacao:
+    image: voyager-web:prod
+    command: python manage.py rqworker classificacao
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:
+      replicas: 8
+    restart: unless-stopped
