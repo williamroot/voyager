@@ -1,8 +1,8 @@
-"""Classifier de leads — aplica modelo Logistic Regression v5.
+"""Classifier de leads — aplica modelo Logistic Regression v6.
 
-Pesos hardcoded da primeira versão (treinada em 2026-04-30, AUC=0.9523,
-precision@5000=0.939). Quando subir nova versão, persistimos em
-ClassificadorVersao e carregamos do banco.
+v6 treinada em 2026-05-08 (TRF1, 1,050,791 procs, AUC=0.9610,
+precision@5000=0.991). Retreinamento com universo atualizado e
+normalização recalculada.
 
 Hierarquia de classificação:
   PRECATORIO (N1)         — score > 0.7 + tem expedição explícita (F2 ou F11)
@@ -21,48 +21,48 @@ from django.utils import timezone as djtz
 
 from .models import ProcessoParte
 
-# === v5 — pesos treinados em 2026-04-30 (TRF1, 887k procs) ==================
-VERSAO = 'v5'
+# === v6 — pesos treinados em 2026-05-08 (TRF1, 1.05M procs) =================
+VERSAO = 'v6'
 
 WEIGHTS = {
-    '_intercept_':            -3.196,
-    'F1_cumprim':              1.922,
-    'F10_juizado_ANTI':       -1.129,
-    'F2_precat_tc':            0.079,
-    'F7_envTrib_tc':           0.085,
-    'F11_precat_text':         0.894,
-    'F12_rpv_text':            0.527,
-    'F13_reqPag_text':        -0.560,
-    'F14_oficio_text':        -0.186,
-    'F15_logMovs':             2.311,
-    'F16_logTipos':           -1.738,
-    'F17_logN1count':          0.181,
-    'F18_anoZ':                0.438,
-    'F19_cancelado_ANTI':     -0.000,
-    'F20_exp_juriscope':      -0.025,
-    'F21_diasUltMovZ':         0.570,
-    'F23_logPartes':          -0.401,
-    'F1xF11':                 -0.134,
-    'F1xF15':                  1.612,
-    'F1xF20':                 -0.021,
+    '_intercept_':            -2.635,
+    'F1_cumprim':              1.801,
+    'F10_juizado_ANTI':       -1.119,
+    'F2_precat_tc':            0.129,
+    'F7_envTrib_tc':           0.292,
+    'F11_precat_text':         0.746,
+    'F12_rpv_text':            0.357,
+    'F13_reqPag_text':        -0.659,
+    'F14_oficio_text':        -0.174,
+    'F15_logMovs':             1.546,
+    'F16_logTipos':           -3.184,
+    'F17_logN1count':          0.143,
+    'F18_anoZ':                0.334,
+    'F19_cancelado_ANTI':      0.000,
+    'F20_exp_juriscope':      -0.033,
+    'F21_diasUltMovZ':         0.497,
+    'F23_logPartes':          -0.606,
+    'F1xF11':                 -0.131,
+    'F1xF15':                  1.630,
+    'F1xF20':                 -0.027,
 }
 
 METRICAS = {
-    'auc': 0.9523,
-    'precision_at_500': 0.978,
-    'precision_at_1000': 0.969,
-    'precision_at_5000': 0.939,
-    'precision_at_10000': 0.919,
-    'train_size': 710028,
-    'test_size': 177506,
+    'auc': 0.9610,
+    'precision_at_500': 0.986,
+    'precision_at_1000': 0.993,
+    'precision_at_5000': 0.991,
+    'precision_at_10000': 0.982,
+    'train_size': 840634,
+    'test_size': 210157,
     'n_features': 19,
 }
 
 # Estatísticas pra normalização (mesmas do treino)
-ANO_MEAN = 2018.9
-ANO_STD = 6.6
-DIAS_ULT_MOV_MEAN = 687.0
-DIAS_ULT_MOV_STD = 570.0
+ANO_MEAN = 2019.66
+ANO_STD = 6.49
+DIAS_ULT_MOV_MEAN = 532.24
+DIAS_ULT_MOV_STD = 574.57
 
 CLASSES_CUMPRIMENTO = {
     '12078',  # Cumprimento de Sentença contra a Fazenda Pública (federal e estadual)
