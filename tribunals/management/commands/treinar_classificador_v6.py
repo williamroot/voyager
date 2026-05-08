@@ -91,7 +91,7 @@ def _auc(y, scores):
         return 0.0
     tpr = np.cumsum(ys) / n_pos
     fpr = np.cumsum(1 - ys) / n_neg
-    return float(np.trapz(tpr, fpr))
+    return float(np.sum((fpr[1:] - fpr[:-1]) * (tpr[1:] + tpr[:-1])) / 2)
 
 
 def _prec_at_k(y, scores, k):
