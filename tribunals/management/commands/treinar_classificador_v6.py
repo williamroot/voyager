@@ -481,7 +481,7 @@ class Command(BaseCommand):
         self.stdout.write(f'\nClassificadorVersao v6 {"criada" if created else "atualizada"} (id={cv.pk})')
 
         # 2) Atualiza classificador.py diretamente
-        clf_path = Path(__file__).parents[3] / 'classificador.py'
+        clf_path = Path(__file__).parents[2] / 'classificador.py'
         src = clf_path.read_text()
 
         def _fmt_weights(weights_dict, indent=4):
