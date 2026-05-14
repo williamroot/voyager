@@ -1,0 +1,57 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Lote concluído · validação{% endblock %}
+
+{% block content %}
+<div class="validacao-page" data-page="leads-validacao-concluido">
+
+  {% include 'dashboard/_partials/page_header.html' with title='LOTE CONCLUÍDO ✓' subtitle='Mission complete · resumo da anotação' %}
+
+  <div class="card mission-complete">
+    <div class="mission-complete-head">
+      <span class="brand-wordmark">MISSION COMPLETE</span>
+      <span class="jb-mono text-fg-muted">LOTE-{{ lote.pk|stringformat:"04d" }}</span>
+    </div>
+
+    <p class="mission-complete-summary">
+      <strong class="jb-mono">{{ minhas_total }}</strong> de
+      <strong class="jb-mono">{{ total }}</strong> itens anotados
+      {% if lote.tribunal %}· tribunal <strong>{{ lote.tribunal.sigla }}</strong>{% endif %}
+      · estratégia <strong>{{ lote.get_estrategia_display }}</strong>
+      · modelo <strong class="jb-mono">{{ lote.versao_modelo }}</strong>
+    </p>
+
+    <div class="mission-complete-dist" aria-label="Distribuição de resultados">
+      <h3 class="text-fg-muted text-xs uppercase tracking-wider mb-2">Distribuição</h3>
+      <ul class="dist-list">
+        {% for resultado, n in por_resultado.items %}
+          <li class="dist-row">
+            <span class="dist-label">{{ resultado }}</span>
+            <span class="dist-bar" aria-hidden="true">
+              {% if minhas_total %}
+              <span class="dist-bar-fill" style="width: {% widthratio n minhas_total 100 %}%"></span>
+              {% endif %}
+            </span>
+            <span class="dist-count jb-mono">{{ n }}</span>
+            <span class="dist-pct jb-mono text-fg-subtle">
+              {% if minhas_total %}{% widthratio n minhas_total 100 %}%{% else %}0%{% endif %}
+            </span>
+          </li>
+        {% empty %}
+          <li class="dist-row dist-empty">Sem decisões registradas.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="mission-complete-actions">
+      <a class="btn-primary" href="{% url 'dashboard:leads_validacao_overview' %}#novo-lote">
+        + Criar novo lote
+      </a>
+      <a class="chip" href="{% url 'dashboard:leads_validacao_overview' %}">
+        ← Voltar à lista
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

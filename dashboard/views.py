@@ -1525,3 +1525,637 @@ class WizardExportView(LoginRequiredMixin, _WizardFiltersMixin, View):
         )
         resp['Content-Disposition'] = 'attachment; filename="voyager-processos.xlsx"'
         return resp
+
+
+# ===========================================================================
+# Validação humana de leads (T8)
+# ===========================================================================
+#
+# Views adicionadas:
+# - leads_visibilidade            shell de observabilidade (charts lazy)
+# - chart_*                       5 endpoints JSON cacheados (5min) p/ charts
+# - leads_validacao_overview      lista de lotes do usuário
+# - leads_validacao_lote          fila do lote, redireciona pro item 1
+# - leads_validacao_item          partial do card (HTMX swap)
+# - leads_validacao_salvar        POST JSON, cria ProcessoValidacao
+# - leads_validacao_criar_lote    POST form-data, chama sampling.criar_lote
+#
+# Templates referenciados (T12/T13 vão criar):
+#   dashboard/leads/visibilidade.html
+#   dashboard/leads/validacao_overview.html
+#   dashboard/leads/validacao_lote.html
+#   dashboard/leads/_partials/_validacao_card.html
+#   dashboard/leads/_partials/_lote_concluido.html
+#
+# Segurança:
+# - Todas as views exigem login + permission específica
+# - leads_validacao_salvar valida que processo_id ∈ lote_id (proteção IDOR)
+# - @require_POST + CSRF padrão Django em todas as mutações
+
+import hashlib  # noqa: E402
+import json  # noqa: E402
+
+from django.contrib.auth.decorators import permission_required  # noqa: E402
+from django.urls import reverse  # noqa: E402
+from django.views.decorators.csrf import csrf_protect  # noqa: E402
+
+_CHART_VALIDACAO_TTL = 300  # 5 min
+_MOTIVO_MAX_CHARS = 5000
+_TEMPO_MAX_SEGUNDOS = 3600
+
+_logger_validacao = __import__('logging').getLogger('voyager.dashboard.validacao')
+
+
+def _validacao_filtros(request):
+    """Lê filtros comuns de tribunal/classificacao/periodo."""
+    tribunais = _split_csv(request.GET.get('tribunal'))
+    classificacao = (request.GET.get('classificacao') or '').upper() or None
+    try:
+        dias = max(1, min(int(request.GET.get('dias', 90)), 365))
+    except (TypeError, ValueError):
+        dias = 90
+    return tribunais, classificacao, dias
+
+
+_CHART_VERSION_KEY = 'voyager:chart_version'
+
+
+def _chart_validacao_cache_version() -> int:
+    """Versão atual do namespace de cache dos charts. Increment-only.
+    Permite invalidação O(1) sem depender de delete_pattern (django-redis only)."""
+    ver = cache.get(_CHART_VERSION_KEY)
+    if ver is None:
+        cache.set(_CHART_VERSION_KEY, 0, None)
+        return 0
+    return int(ver)
+
+
+def _bump_chart_version():
+    """Invalida todos os caches de chart de validação atomicamente."""
+    try:
+        cache.incr(_CHART_VERSION_KEY)
+    except ValueError:
+        # key não existe ainda; cria.
+        cache.set(_CHART_VERSION_KEY, 1, None)
+
+
+def _chart_validacao_cache_key(nome: str, request) -> str:
+    """Cache key versionada — incrementar version invalida tudo de uma vez."""
+    raw = (
+        request.GET.get('tribunal', '') + '|'
+        + request.GET.get('classificacao', '') + '|'
+        + str(request.GET.get('dias', ''))
+    )
+    h = hashlib.md5(raw.encode('utf-8')).hexdigest()[:10]
+    ver = _chart_validacao_cache_version()
+    return f'voyager:chart:{nome}:{h}:v{ver}'
+
+
+def _chart_validacao_endpoint(nome: str, builder):
+    """Wrapper comum: cache + JSON + tratamento de erro."""
+    def _resolve(request):
+        key = _chart_validacao_cache_key(nome, request)
+        cached = _safe_cache_get(key)
+        if cached is not None:
+            return JsonResponse({'data': cached}, json_dumps_params={'default': str})
+        try:
+            data = builder(request)
+        except Exception as exc:
+            _logger_validacao.exception(
+                'chart_falhou', extra={'nome': nome, 'erro': str(exc)[:300]},
+            )
+            return JsonResponse(
+                {'data': None, 'error': f'{nome}: {str(exc)[:120]}'},
+                status=503,
+            )
+        try:
+            cache.set(key, data, timeout=_CHART_VALIDACAO_TTL)
+        except Exception:
+            pass
+        return JsonResponse({'data': data}, json_dumps_params={'default': str})
+    return _resolve
+
+
+# ---------- /dashboard/leads/visibilidade/ ----------
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_view_validacao_dashboard', raise_exception=True)
+def leads_visibilidade(request):
+    """Shell — instantâneo. Charts e listas carregam lazy."""
+    kpis = queries.kpis_validacao(usuario=request.user)
+    return render(request, 'dashboard/leads/visibilidade.html', {
+        'tribunais': Tribunal.objects.filter(ativo=True),
+        'tribunal_filtro': request.GET.get('tribunal', ''),
+        'classificacao_filtro': request.GET.get('classificacao', ''),
+        'periodo_dias': _periodo_dias(request, default=90),
+        'kpis_validacao': kpis,
+    })
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_view_validacao_dashboard', raise_exception=True)
+def chart_histograma_score(request):
+    return _chart_validacao_endpoint(
+        'histograma_score',
+        lambda r: queries.histograma_score_por_tribunal(
+            tribunais=_split_csv(r.GET.get('tribunal')) or None,
+            classificacao=(r.GET.get('classificacao') or '').upper() or None,
+        ),
+    )(request)
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_view_validacao_dashboard', raise_exception=True)
+def chart_calibracao_por_tribunal(request):
+    tribunais, _classif, dias = _validacao_filtros(request)
+    return _chart_validacao_endpoint(
+        'calibracao',
+        lambda r: queries.calibracao_por_tribunal(
+            tribunais=tribunais or None, periodo_dias=dias,
+        ),
+    )(request)
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_view_validacao_dashboard', raise_exception=True)
+def chart_heatmap_tribunal_ano(request):
+    return _chart_validacao_endpoint(
+        'heatmap_tribunal_ano',
+        lambda r: queries.heatmap_tribunal_ano(),
+    )(request)
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_view_validacao_dashboard', raise_exception=True)
+def chart_funil_ampliado(request):
+    _t, _c, dias = _validacao_filtros(request)
+    return _chart_validacao_endpoint(
+        'funil_ampliado',
+        lambda r: queries.funil_ampliado(periodo_dias=dias),
+    )(request)
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_view_validacao_dashboard', raise_exception=True)
+def chart_top_fn_semana(request):
+    return _chart_validacao_endpoint(
+        'top_fn_semana',
+        lambda r: queries.top_fn_semana(limit=10),
+    )(request)
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_view_validacao_dashboard', raise_exception=True)
+def chart_shadow_status(request):
+    """Status do shadow mode (T19). Sem cache — estado leve e mutável."""
+    try:
+        data = queries.shadow_status()
+    except Exception as exc:
+        _logger_validacao.exception(
+            'chart_falhou', extra={'nome': 'shadow_status', 'erro': str(exc)[:300]},
+        )
+        return JsonResponse(
+            {'data': None, 'error': f'shadow_status: {str(exc)[:120]}'}, status=503,
+        )
+    return JsonResponse({'data': data}, json_dumps_params={'default': str})
+
+
+# ---------- /dashboard/leads/validacao/ ----------
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_view_validacao_dashboard', raise_exception=True)
+def leads_validacao_overview(request):
+    """Lista de lotes ativos + KPIs do usuário."""
+    from tribunals.models import AmostraValidacao
+
+    kpis = queries.kpis_validacao(usuario=request.user)
+    lotes = list(
+        AmostraValidacao.objects.select_related('tribunal')
+        .order_by('-criada_em')[:50]
+        .values('id', 'estrategia', 'tribunal_id', 'tamanho_alvo', 'criada_em',
+                'versao_modelo')
+    )
+    return render(request, 'dashboard/leads/validacao_overview.html', {
+        'kpis_validacao': kpis,
+        'lotes': lotes,
+        'estrategias': [
+            ('top_score', 'Top score (≥ 0.7)'),
+            ('borderline', 'Borderline (0.30-0.70)'),
+            ('low_score', 'Low score (0.05-0.30)'),
+            ('falsos_consumidos', 'Falsos consumidos'),
+            ('recuperados', 'Recuperados'),
+            ('on_demand', 'Sob demanda'),
+            ('fn_candidatos', 'Candidatos a falso negativo'),
+        ],
+        'tribunais': Tribunal.objects.filter(ativo=True),
+    })
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_validate_lead', raise_exception=True)
+def leads_validacao_lote(request, lote_id: int):
+    """Render fila + carrega item 1 via HTMX."""
+    from tribunals.models import AmostraProcesso, AmostraValidacao, ProcessoValidacao
+
+    lote = get_object_or_404(AmostraValidacao, pk=lote_id)
+    total = AmostraProcesso.objects.filter(amostra=lote).count()
+    anotados = ProcessoValidacao.objects.filter(
+        amostra=lote, usuario=request.user,
+    ).count()
+    return render(request, 'dashboard/leads/validacao_lote.html', {
+        'lote': lote,
+        'total': total,
+        'anotados': anotados,
+        'progresso_pct': round(100 * anotados / total, 1) if total else 0,
+    })
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_validate_lead', raise_exception=True)
+def leads_validacao_item(request, lote_id: int, posicao: int):
+    """Partial _validacao_card.html. `posicao` é 1-based.
+
+    Pula processos já anotados pelo usuário até encontrar não anotado.
+    Se passar do total, redirect pra concluido.
+    """
+    from tribunals.models import (
+        AmostraProcesso, AmostraValidacao, Movimentacao,
+        ProcessoParte, ProcessoValidacao,
+    )
+
+    lote = get_object_or_404(AmostraValidacao, pk=lote_id)
+    itens = list(
+        AmostraProcesso.objects.filter(amostra=lote)
+        .select_related('processo', 'processo__tribunal')
+        .order_by('ordem')
+    )
+    total = len(itens)
+    if total == 0 or posicao > total:
+        return redirect('dashboard:leads_validacao_lote_concluido', lote_id=lote_id)
+    posicao = max(posicao, 1)
+
+    # Pula anotados pelo usuário corrente — avança até não anotado ou fim.
+    anotados_ids = set(
+        ProcessoValidacao.objects.filter(amostra=lote, usuario=request.user)
+        .values_list('processo_id', flat=True)
+    )
+    while posicao <= total and itens[posicao - 1].processo_id in anotados_ids:
+        posicao += 1
+    if posicao > total:
+        return redirect('dashboard:leads_validacao_lote_concluido', lote_id=lote_id)
+
+    item = itens[posicao - 1]
+    processo = item.processo
+
+    ultimas_movs = list(
+        Movimentacao.objects.filter(processo=processo)
+        .order_by('-data_disponibilizacao', '-id')[:5]
+    )
+    partes = list(
+        ProcessoParte.objects.filter(processo=processo)
+        .select_related('parte').order_by('polo', 'papel')[:20]
+    )
+
+    suspeita = None
+    if item.suspeita_score is not None:
+        suspeita = {
+            'score': round(item.suspeita_score, 3),
+            'motivos': item.motivos_suspeita or [],
+        }
+
+    score_breakdown = queries.compute_score_breakdown(processo, top_n=5)
+
+    return render(
+        request,
+        'dashboard/leads/_partials/_validacao_card.html',
+        {
+            'lote': lote,
+            'lote_id': lote_id,
+            'posicao': posicao,
+            'total': total,
+            'processo': processo,
+            'item': item,
+            'suspeita': suspeita,
+            'score_breakdown': score_breakdown,
+            'ultimas_movs': ultimas_movs,
+            'partes': partes,
+        },
+    )
+
+
+@login_required
+@require_GET
+@permission_required('tribunals.can_validate_lead', raise_exception=True)
+def leads_validacao_lote_concluido(request, lote_id: int):
+    """Tela de "mission complete" pós-fim do lote."""
+    from tribunals.models import AmostraProcesso, AmostraValidacao, ProcessoValidacao
+
+    lote = get_object_or_404(AmostraValidacao, pk=lote_id)
+    total = AmostraProcesso.objects.filter(amostra=lote).count()
+    minhas = ProcessoValidacao.objects.filter(amostra=lote, usuario=request.user)
+    por_resultado = dict(
+        minhas.values_list('resultado').annotate(n=Count('id'))
+    )
+    return render(request, 'dashboard/leads/_partials/_lote_concluido.html', {
+        'lote': lote,
+        'total': total,
+        'minhas_total': minhas.count(),
+        'por_resultado': por_resultado,
+    })
+
+
+@login_required
+@require_POST
+@csrf_protect
+@permission_required('tribunals.can_validate_lead', raise_exception=True)
+def leads_validacao_salvar(request):  # noqa: PLR0911, PLR0912
+    """POST JSON {processo_id, lote_id, resultado, confianca, motivo, tempo_segundos}.
+
+    Validações:
+    - processo_id ∈ lote_id (anti-IDOR via AmostraProcesso)
+    - resultado em ProcessoValidacao.RESULTADO_CHOICES
+    - confianca em CONFIANCA_CHOICES (default 'media' se omitida)
+    - tempo_segundos > 0 e < 3600 se informado
+    - motivo truncado a 5000 chars
+    - UniqueConstraint(processo, usuario): segundo save = 409
+    """
+    from django.db import IntegrityError
+
+    from tribunals.models import AmostraProcesso, ProcessoValidacao
+
+    # Aceita JSON ou form-data.
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads(request.body or b'{}')
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'json inválido'}, status=400)
+    else:
+        payload = request.POST.dict()
+
+    try:
+        processo_id = int(payload.get('processo_id') or 0)
+        lote_id = int(payload.get('lote_id') or 0)
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'processo_id/lote_id inválidos'}, status=400)
+    if not processo_id or not lote_id:
+        return JsonResponse({'error': 'processo_id e lote_id obrigatórios'}, status=400)
+
+    resultado = (payload.get('resultado') or '').strip()
+    valid_resultados = {c[0] for c in ProcessoValidacao.RESULTADO_CHOICES}
+    if resultado not in valid_resultados:
+        return JsonResponse(
+            {'error': f'resultado inválido (opções: {sorted(valid_resultados)})'},
+            status=400,
+        )
+
+    confianca = (payload.get('confianca') or ProcessoValidacao.CONFIANCA_MEDIA).strip()
+    valid_confiancas = {c[0] for c in ProcessoValidacao.CONFIANCA_CHOICES}
+    if confianca not in valid_confiancas:
+        return JsonResponse({'error': 'confianca inválida'}, status=400)
+
+    tempo_segundos = payload.get('tempo_segundos')
+    if tempo_segundos is not None and tempo_segundos != '':
+        try:
+            tempo_segundos = int(tempo_segundos)
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'tempo_segundos inválido'}, status=400)
+        if tempo_segundos <= 0 or tempo_segundos >= _TEMPO_MAX_SEGUNDOS:
+            return JsonResponse({'error': 'tempo_segundos fora de faixa'}, status=400)
+    else:
+        tempo_segundos = None
+
+    motivo = (payload.get('motivo') or '')[:_MOTIVO_MAX_CHARS]
+
+    # Anti-IDOR: processo_id deve pertencer ao lote_id.
+    item = AmostraProcesso.objects.filter(
+        amostra_id=lote_id, processo_id=processo_id,
+    ).select_related('amostra').first()
+    if item is None:
+        _logger_validacao.warning(
+            'idor_attempt',
+            extra={
+                'action': 'validacao_salvar',
+                'usuario_id': request.user.pk,
+                'lote_id': lote_id,
+                'processo_id': processo_id,
+            },
+        )
+        return JsonResponse(
+            {'error': 'processo não pertence ao lote'}, status=403,
+        )
+
+    # Snapshot do score/classificação vem do MOMENTO DO SORTEIO (auditoria).
+    score_snap = float(item.score_no_sorteio or 0.0)
+    classif_snap = item.classificacao_no_sorteio or ''
+    versao = item.amostra.versao_modelo
+
+    # Features snapshot — best-effort.
+    features_snap = {}
+    try:
+        from tribunals.classificador import compute_features
+        feats = compute_features(item.processo)
+        features_snap = {k: round(float(v), 4) for k, v in feats.items()}
+    except Exception as exc:
+        _logger_validacao.warning(
+            'features_snapshot_falhou',
+            extra={'processo_id': processo_id, 'erro': str(exc)[:120]},
+        )
+        features_snap = {}
+
+    # LGPD anonimização: descomissionada — campo `usuario_hash` permanece
+    # no schema mas não é populado. Reativar futuramente via setting.
+    try:
+        ProcessoValidacao.objects.create(
+            processo_id=processo_id,
+            amostra_id=lote_id,
+            usuario=request.user,
+            resultado=resultado,
+            confianca=confianca,
+            motivo=motivo,
+            tempo_segundos=tempo_segundos,
+            versao_modelo=versao,
+            classificacao_no_momento=classif_snap,
+            score_no_momento=score_snap,
+            features_snapshot=features_snap,
+        )
+    except IntegrityError:
+        return JsonResponse(
+            {'error': 'você já anotou esse processo (re-anotação proibida)'},
+            status=409,
+        )
+
+    # Invalida charts via versionamento (1 INCR — funciona em qualquer
+    # backend Redis, sem depender de delete_pattern do django-redis).
+    _bump_chart_version()
+
+    # Métricas pós-save pro toast/UI.
+    minhas = ProcessoValidacao.objects.filter(amostra_id=lote_id, usuario=request.user)
+    total_anotados = minhas.count()
+    tempos = list(
+        minhas.exclude(tempo_segundos__isnull=True).values_list('tempo_segundos', flat=True)
+    )
+    tempo_medio = round(sum(tempos) / len(tempos), 1) if tempos else None
+    total_lote = (
+        AmostraProcesso.objects.filter(amostra_id=lote_id).count()
+    )
+    progresso_pct = round(100 * total_anotados / total_lote, 1) if total_lote else 0
+
+    # Próxima URL: aponta pro próximo item.
+    next_url = reverse(
+        'dashboard:leads_validacao_item',
+        kwargs={'lote_id': lote_id, 'posicao': item.ordem + 1},
+    )
+
+    _logger_validacao.info(
+        'validacao_salva',
+        extra={
+            'action': 'validacao_salva',
+            'lote_id': lote_id,
+            'usuario_id': request.user.pk,
+            'processo_id': processo_id,
+            'resultado': resultado,
+        },
+    )
+
+    return JsonResponse({
+        'ok': True,
+        'next_url': next_url,
+        'total_anotados': total_anotados,
+        'tempo_medio': tempo_medio,
+        'progresso_pct': progresso_pct,
+    })
+
+
+_ESTRATEGIAS_PERMITIDAS = {
+    'top_score', 'borderline', 'low_score',
+    'falsos_consumidos', 'recuperados', 'on_demand',
+    'fn_candidatos',
+}
+
+
+@login_required
+@require_POST
+@csrf_protect
+@permission_required('tribunals.can_validate_lead', raise_exception=True)
+def leads_validacao_criar_lote(request):
+    """POST form-data {estrategia, tribunal_sigla, tamanho, parametros_json}.
+
+    Despacha pra sampling.<estrategia>() + sampling.criar_lote(...).
+    """
+    from tribunals import sampling
+    from tribunals.models import AmostraValidacao, Tribunal as _T
+
+    estrategia = (request.POST.get('estrategia') or '').strip()
+    if estrategia not in _ESTRATEGIAS_PERMITIDAS:
+        return JsonResponse(
+            {'error': f'estrategia inválida (opções: {sorted(_ESTRATEGIAS_PERMITIDAS)})'},
+            status=400,
+        )
+    tribunal_sigla = (request.POST.get('tribunal_sigla') or '').strip().upper() or None
+    try:
+        tamanho = int(request.POST.get('tamanho') or 300)
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'tamanho inválido'}, status=400)
+    if tamanho <= 0 or tamanho > 5000:
+        return JsonResponse({'error': 'tamanho fora de faixa (1-5000)'}, status=400)
+
+    tribunal_obj = None
+    if tribunal_sigla:
+        try:
+            tribunal_obj = _T.objects.get(pk=tribunal_sigla)
+        except _T.DoesNotExist:
+            return JsonResponse({'error': f'tribunal {tribunal_sigla} não existe'}, status=400)
+
+    parametros = {}
+    raw_params = request.POST.get('parametros_json', '')
+    if raw_params:
+        try:
+            parametros = json.loads(raw_params)
+            if not isinstance(parametros, dict):
+                return JsonResponse({'error': 'parametros_json deve ser objeto'}, status=400)
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'parametros_json inválido'}, status=400)
+
+    # Despacho de estratégia.
+    try:
+        if estrategia == 'borderline':
+            faixa = parametros.get('faixa') or [0.30, 0.70]
+            qs = sampling.sample_borderline(
+                faixa=(float(faixa[0]), float(faixa[1])),
+                tribunal=tribunal_obj, limit=tamanho, usuario=request.user,
+            )
+        elif estrategia == 'fn_candidatos':
+            qs = sampling.sample_fn_candidatos(
+                tribunal=tribunal_obj, limit=tamanho,
+                csv_path=parametros.get('csv_path'),
+                usuario=request.user,
+            )
+        elif estrategia == 'top_score':
+            qs = sampling.sample_n1_alto(
+                min_score=float(parametros.get('min_score', 0.85)),
+                tribunal=tribunal_obj, limit=tamanho, usuario=request.user,
+            )
+        elif estrategia == 'low_score':
+            qs = sampling.sample_nao_lead_top(
+                min_score=float(parametros.get('min_score', 0.05)),
+                tribunal=tribunal_obj, limit=tamanho, usuario=request.user,
+            )
+        elif estrategia == 'falsos_consumidos':
+            qs = sampling.sample_falsos_consumidos(
+                tribunal=tribunal_obj, limit=tamanho,
+                csv_path=parametros.get('csv_path',
+                                        'leads_trf1_falsos_consumidos_1327.csv'),
+                usuario=request.user,
+            )
+        elif estrategia == 'recuperados':
+            qs = sampling.sample_recuperados(
+                tribunal=tribunal_obj, limit=tamanho,
+                csv_path=parametros.get('csv_path',
+                                        'leads_trf1_recuperados_1327.csv'),
+                usuario=request.user,
+            )
+        elif estrategia == 'on_demand':
+            if tribunal_obj is None:
+                return JsonResponse(
+                    {'error': 'on_demand exige tribunal_sigla'}, status=400,
+                )
+            qs = sampling.sample_random_tribunal(
+                tribunal=tribunal_obj, limit=tamanho, usuario=request.user,
+            )
+        else:
+            return JsonResponse({'error': 'estrategia não implementada'}, status=400)
+
+        lote = sampling.criar_lote(
+            estrategia=estrategia,
+            queryset=qs,
+            criada_por=request.user,
+            tribunal=tribunal_obj,
+            tamanho_alvo=tamanho,
+            parametros=parametros,
+        )
+    except FileNotFoundError as exc:
+        return JsonResponse({'error': f'CSV não encontrado: {exc}'}, status=400)
+    except Exception as exc:
+        _logger_validacao.exception(
+            'criar_lote_falhou',
+            extra={'estrategia': estrategia, 'erro': str(exc)[:300]},
+        )
+        return JsonResponse({'error': f'falha ao criar lote: {str(exc)[:200]}'}, status=500)
+
+    _ = AmostraValidacao  # silenced lint
+    return JsonResponse({
+        'ok': True,
+        'lote_id': lote.pk,
+        'tamanho_real': lote.itens.count(),
+        'redirect_url': reverse('dashboard:leads_validacao_lote', kwargs={'lote_id': lote.pk}),
+    })

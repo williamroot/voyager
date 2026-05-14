@@ -1,0 +1,194 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Validação por amostragem · leads{% endblock %}
+
+{% block content %}
+<div class="validacao-page" data-page="leads-validacao-overview"
+     x-data="{ novoLoteOpen: window.location.hash === '#novo-lote',
+               estrategiaSel: 'borderline',
+               tamanho: 300,
+               tribunalSigla: '',
+               faixaBorderline: '0.30,0.70',
+               criando: false,
+               erroCriar: '' }">
+
+  {% include 'dashboard/_partials/page_header.html' with title='VALIDAÇÃO POR AMOSTRAGEM' subtitle='Anote processos um-por-vez · alvo 100/h · atalhos 1/2/3/4 · I · E · S · ?' %}
+
+  <div class="overview-actions mb-4">
+    <button type="button" class="btn-primary"
+            @click="novoLoteOpen = true; $nextTick(() => $refs.estrategiaSelect && $refs.estrategiaSelect.focus())">
+      + Novo lote
+    </button>
+    <a class="chip ml-2" href="{% url 'dashboard:leads_visibilidade' %}">
+      Ver dashboard de visibilidade
+    </a>
+  </div>
+
+  {# ── KPIs ─────────────────────────────────────────────────────────── #}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    {% include 'dashboard/_partials/kpi.html' with label='Backlog precatório' value=kpis_validacao.backlog_precatorio|format_int color='accent' %}
+    {% include 'dashboard/_partials/kpi.html' with label='FN descobertos (7d)' value=kpis_validacao.fn_semana|format_int color='warning' %}
+    {% include 'dashboard/_partials/kpi.html' with label='Lotes ativos (30d)' value=kpis_validacao.lotes_ativos|format_int color='info' %}
+    {% include 'dashboard/_partials/kpi.html' with label='Modelo ativo' value='v6' color='accent' %}
+  </div>
+
+  {# ── LOTES ATIVOS ────────────────────────────────────────────────── #}
+  <section class="mb-8">
+    <h2 class="section-h2">Lotes ativos</h2>
+    {% if kpis_validacao.lotes_do_usuario %}
+      <ul class="lote-grid">
+        {% for l in kpis_validacao.lotes_do_usuario|slice:":10" %}
+          <li class="lote-card">
+            <div class="lote-card-head">
+              <span class="pulsar" aria-hidden="true"></span>
+              <strong class="jb-mono">LOTE-{{ l.id|stringformat:"04d" }}</strong>
+              <span class="lote-chip">{{ l.estrategia }}</span>
+              {% if l.tribunal_id %}<span class="lote-chip lote-chip-tribunal">{{ l.tribunal_id }}</span>{% endif %}
+            </div>
+            <div class="lote-progress" role="progressbar"
+                 aria-valuenow="{{ l.progresso_pct|default:0 }}"
+                 aria-valuemin="0" aria-valuemax="100"
+                 aria-label="Progresso do lote {{ l.id }}">
+              <div class="lote-progress-fill" style="width: {{ l.progresso_pct|default:0 }}%"></div>
+            </div>
+            <div class="lote-meta">
+              <span class="jb-mono">{{ l.anotados|default:0 }} / {{ l.total|default:l.tamanho_alvo }}</span>
+              <span class="jb-mono text-fg-subtle">{{ l.progresso_pct|default:0 }}%</span>
+              <span class="text-fg-subtle">criada {{ l.criada_em|relative_dt }}</span>
+            </div>
+            <div class="lote-cta">
+              <a class="btn-primary btn-sm" href="{% url 'dashboard:leads_validacao_lote' l.id %}">
+                ▶ Continuar
+              </a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      {% include 'dashboard/_partials/empty_state.html' with title='Nenhum lote ativo' subtitle='Crie um novo lote para começar a anotar.' %}
+    {% endif %}
+  </section>
+
+  {# ── HISTÓRICO (últimos lotes) ───────────────────────────────────── #}
+  {% if lotes %}
+  <section class="mb-8">
+    <h2 class="section-h2">Últimos lotes do sistema</h2>
+    <div class="card overflow-x-auto p-0">
+      <table class="w-full dense text-sm">
+        <thead class="text-fg-subtle text-xs uppercase tracking-wider">
+          <tr>
+            <th class="text-left">ID</th>
+            <th class="text-left">Estratégia</th>
+            <th class="text-left">Tribunal</th>
+            <th class="text-left">Tamanho</th>
+            <th class="text-left">Modelo</th>
+            <th class="text-left">Criada</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in lotes|slice:":15" %}
+          <tr class="border-t border-border/40">
+            <td class="jb-mono">#{{ l.id }}</td>
+            <td>{{ l.estrategia }}</td>
+            <td>{{ l.tribunal_id|default:'—' }}</td>
+            <td class="jb-mono">{{ l.tamanho_alvo }}</td>
+            <td class="jb-mono">{{ l.versao_modelo }}</td>
+            <td class="text-fg-subtle">{{ l.criada_em|relative_dt }}</td>
+            <td>
+              <a class="chip chip-mini" href="{% url 'dashboard:leads_validacao_lote' l.id %}">abrir</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── MODAL: criar novo lote ──────────────────────────────────────── #}
+  <div id="novo-lote"
+       class="modal-shell"
+       x-show="novoLoteOpen"
+       x-cloak
+       @keydown.escape.window="novoLoteOpen = false">
+    <div class="modal-backdrop" @click="novoLoteOpen = false" aria-hidden="true"></div>
+    <div class="modal-content card" @click.stop role="dialog" aria-modal="true" aria-labelledby="novo-lote-title">
+      <header class="modal-head">
+        <h3 id="novo-lote-title" class="text-lg font-semibold">Novo lote de anotação</h3>
+        <button type="button" class="modal-close" @click="novoLoteOpen = false" aria-label="Fechar">×</button>
+      </header>
+
+      <form hx-post="{% url 'dashboard:leads_validacao_criar_lote' %}"
+            hx-trigger="submit"
+            @htmx:before-request="criando = true"
+            @htmx:after-request="criando = false"
+            hx-on::after-request="(function(form, evt){
+              form.dataset.criando = '';
+              try {
+                const resp = JSON.parse(evt.detail.xhr.responseText);
+                if (resp.ok && resp.redirect_url) {
+                  window.location.href = resp.redirect_url;
+                } else if (resp.error) {
+                  form.querySelector('.erro-criar').textContent = resp.error;
+                }
+              } catch (e) {
+                form.querySelector('.erro-criar').textContent = 'Erro inesperado ao criar lote.';
+              }
+            })(this, event)"
+            class="modal-body">
+        {% csrf_token %}
+
+        <label class="field">
+          <span class="field-label">Estratégia</span>
+          <select name="estrategia" class="input" x-ref="estrategiaSelect" x-model="estrategiaSel" required>
+            {% for value, label in estrategias %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Tribunal (opcional)</span>
+          <select name="tribunal_sigla" class="input" x-model="tribunalSigla">
+            <option value="">— todos —</option>
+            {% for t in tribunais %}
+              <option value="{{ t.sigla }}">{{ t.sigla }} — {{ t.nome }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Tamanho</span>
+          <input type="number" name="tamanho" class="input" min="1" max="5000"
+                 x-model.number="tamanho" required>
+        </label>
+
+        <label class="field" x-show="estrategiaSel === 'borderline'" x-cloak>
+          <span class="field-label">Faixa borderline (min,max)</span>
+          <input type="text" class="input"
+                 x-ref="faixaInput"
+                 x-model="faixaBorderline"
+                 placeholder="0.30,0.70"
+                 pattern="^\d*\.?\d+\s*,\s*\d*\.?\d+$">
+          <input type="hidden" name="parametros_json"
+                 :value="estrategiaSel === 'borderline'
+                   ? JSON.stringify({faixa: faixaBorderline.split(',').map(s => parseFloat(s.trim()))})
+                   : ''">
+        </label>
+
+        <p class="erro-criar text-danger text-sm min-h-[1.2em]" role="alert"></p>
+
+        <footer class="modal-actions">
+          <button type="button" class="chip" @click="novoLoteOpen = false">Cancelar</button>
+          <button type="submit" class="btn-primary" :disabled="criando">
+            <span x-show="!criando">▶ Criar lote</span>
+            <span x-show="criando" x-cloak>criando…</span>
+          </button>
+        </footer>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

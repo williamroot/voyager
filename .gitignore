@@ -34,3 +34,7 @@ proxyscrape_*.txt
 
 # Dumps locais
 *.tar.gz
+
+# Relatórios timestamped de runs do minerar_fn (gerados em runtime, não versionar)
+.ia/MINING_FN_v1_*.md
+.ia/SHADOW_COMPARISON_*.md

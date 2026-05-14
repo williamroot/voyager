@@ -206,9 +206,9 @@ do shard. O serviço `enrichment_drainer` (sem suffix) continua processando-o
 até que `XLEN` chegue a zero, momento em que pode ser desligado:
 
 ```bash
-ssh ubuntu@192.168.1.219 redis-cli XLEN voyager:enrichment:results
+ssh ubuntu@192.168.1.30 redis-cli XLEN voyager:enrichment:results
 # quando = 0:
-ssh ubuntu@192.168.1.30 docker compose -f docker-compose-prod.yml stop enrichment_drainer
+ssh ubuntu@192.168.1.32 docker compose -f docker-compose-prod.yml stop enrichment_drainer
 ```
 
 ### Operação
@@ -216,11 +216,11 @@ ssh ubuntu@192.168.1.30 docker compose -f docker-compose-prod.yml stop enrichmen
 ```bash
 # Ver lag por partição
 for p in 0 1 2 3; do
-  redis-cli -h 192.168.1.219 XLEN voyager:enrichment:results:$p
+  redis-cli -h 192.168.1.30 XLEN voyager:enrichment:results:$p
 done
 
 # Stats do consumer group de uma partição
-redis-cli -h 192.168.1.219 XINFO GROUPS voyager:enrichment:results:0
+redis-cli -h 192.168.1.30 XINFO GROUPS voyager:enrichment:results:0
 ```
 
 ### Capacity model

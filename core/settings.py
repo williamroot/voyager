@@ -212,10 +212,28 @@ DJEN_ROTATION_PAUSE_MAX = env.float('DJEN_ROTATION_PAUSE_MAX', default=30.0)
 # pra puxar IPs novos.
 DJEN_POOL_REFRESH_THRESHOLD = env.int('DJEN_POOL_REFRESH_THRESHOLD', default=20)
 
+# Classificador — hot reload de pesos
+# TTL do cache em memória do classificador. A cada N segundos, o classificador
+# tenta recarregar a ClassificadorVersao(ativa=True) do DB. Em erro/inválido,
+# mantém o cache atual (ou cai pra hardcoded fallback no boot).
+CLASSIFICADOR_RELOAD_TTL = env.int('CLASSIFICADOR_RELOAD_TTL', default=60)
+
+# Shadow mode — fração [0, 1] de classificações principais que disparam
+# também a aplicação das ClassificadorVersao(shadow=True) em job async.
+# 0.0 desliga (default em testes); 0.1 = 10% sample em prod.
+SHADOW_SAMPLE_RATE = env.float('SHADOW_SAMPLE_RATE', default=0.1)
+
 # Notificações
 SLACK_WEBHOOK_URL = env('SLACK_WEBHOOK_URL', default='')
 SLACK_NOTIFY_DRIFT = env.bool('SLACK_NOTIFY_DRIFT', default=True)
 SLACK_NOTIFY_FAILED_RUN = env.bool('SLACK_NOTIFY_FAILED_RUN', default=True)
+
+# Pipeline semanal de lotes de validação humana (T21).
+# Quando True, scheduler adiciona cron domingo 02:00 que minera FN
+# candidatos e cria AmostraValidacao(estrategia='fn_candidatos').
+VALIDACAO_LOTES_SEMANAIS_ENABLED = env.bool(
+    'VALIDACAO_LOTES_SEMANAIS_ENABLED', default=True,
+)
 
 # Sentry
 SENTRY_DSN = env('SENTRY_DSN', default='')

@@ -157,6 +157,112 @@ logger.info('djen request', extra={
 
 ❌ Testes que dependem de ordem (use fixtures isoladas).
 
+## Cache versioning via INCR (não delete_pattern)
+
+✅ Invalidar grupos de chaves de cache via versão monotônica em vez de `cache.delete_pattern`:
+
+```python
+# Invalidar:
+cache.incr('voyager:chart_version')  # ou cache.set se 1ª vez
+
+# Compor a key:
+ver = cache.get('voyager:chart_version') or 1
+key = f'voyager:chart:{nome}:v{ver}:tribunais={...}'
+```
+
+❌ `cache.delete_pattern(...)` — no-op em backends sem scan/SCAN (LocMem, RedisCache padrão sem suporte). Pode parecer funcional em dev e falhar em prod.
+
+Aplicação atual: `dashboard/views.py` invalida cache de charts de validação via `INCR voyager:chart_version`.
+
+## Gating de campos sensíveis via helper de modelo
+
+✅ Quando um campo é confidencial intra-equipe (texto livre com PII potencial, opinião pessoal etc), expor via método de instância:
+
+```python
+class ProcessoValidacao(models.Model):
+    motivo = models.TextField(blank=True)
+
+    def motivo_visivel_para(self, user) -> str:
+        if user is None or not user.is_authenticated:
+            return ''
+        if self.usuario_id == user.pk:
+            return self.motivo
+        if user.has_perm('tribunals.can_view_motivo'):
+            return self.motivo
+        return ''
+```
+
+✅ Templatetag delega ao método (`{% motivo_visivel pv user %}`). DRF serializer chama o helper em `get_motivo`.
+
+❌ Espalhar `if user.has_perm(...)` em N templates/views — corrige inconsistência depois.
+
+## Compartilhar lógica entre paths A/B
+
+✅ Quando um caminho ativo e um shadow precisam dar o mesmo resultado em algum sub-passo (ex.: categorização), extrair função pura compartilhada:
+
+```python
+def _categorizar(score, features, tribunal_id, versao_modelo=None):
+    # lê ThresholdTribunal do DB, fallback aos defaults...
+
+def classificar(processo, features=None):
+    score = predict_score(features, pesos=_current_weights())
+    return _categorizar(score, features, processo.tribunal_id), score, features
+
+def classificar_shadow(processo):
+    for sv in shadow_versoes:
+        score = predict_score(features, pesos=sv.pesos)
+        cat = _categorizar(score, features, processo.tribunal_id)
+        # ...
+```
+
+✅ Garante que A/B compara só o que varia (pesos do modelo), não a política de threshold.
+
+❌ Duplicar a lógica de threshold em 2 funções — drift é inevitável (REVIEW_T20 issue #1).
+
+## Sample weight em treino ML
+
+✅ Logistic regression com `sample_weight` por origem do label permite misturar fontes de confiabilidade diferente sem descartar dados:
+
+```python
+# loss ponderada
+loss = np.average(per_sample_loss, weights=sample_weight)
+# gradiente também ponderado
+grad = X.T @ (sample_weight * (sigmoid(X @ W) - y)) / sum(sample_weight)
+```
+
+Pesos atuais em uso: humano=3.0, juriscope=2.0, csv reforçado=2.0, csv base=1.0 (ver ADR-019).
+
+## Hot reload de pesos (TTL + double-check lock)
+
+✅ Quando configuração viva no DB precisa propagar pra workers sem restart:
+
+```python
+_CACHE = {'value': None, 'loaded_at': 0.0}
+_LOCK = threading.Lock()
+
+def _maybe_reload():
+    if time.time() - _CACHE['loaded_at'] < TTL:
+        return                                    # fast path sem lock
+    with _LOCK:
+        if time.time() - _CACHE['loaded_at'] < TTL:
+            return                                # double-check
+        try:
+            _CACHE['value'] = read_from_db()
+            _CACHE['loaded_at'] = time.time()
+        except Exception:
+            # preserva último valor bom; atualiza só timestamp pra
+            # evitar storm de retry quando DB está fora
+            _CACHE['loaded_at'] = time.time()
+```
+
+✅ Fallback hardcoded no módulo pra garantir que o worker **nunca** fica sem valor.
+
+✅ `force_reload()` em testes/commands pula o TTL.
+
+❌ Reload em cada chamada — caro e adiciona dependência de DB no hot path.
+
+❌ Reload sem `loaded_at` no `except` — storm de retry quando DB está fora.
+
 ## Commits
 
 ✅ Conventional Commits, em **pt-BR**, imperativo, presente:

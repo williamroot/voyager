@@ -4,6 +4,16 @@ Itens pendentes ou planejados, organizados por prioridade.
 
 ## Concluído (recentes)
 
+- [x] **Classificador v6** (TRF1 1.05M procs, AUC 0.9610, prec@5000 0.991) ativo desde commit 6cdfff6 (2026-05-08)
+- [x] **Sistema de validação humana** end-to-end — `AmostraValidacao` + `AmostraProcesso` + `ProcessoValidacao` + permissions custom, fila 1-por-vez com hotkeys, dupla-anotação 10% + kappa (LGPD/anonimização: fora de escopo nesta versão)
+- [x] **Mining de FN candidates** — 6 estratégias E1-E6 + composite suspeita_score, command `minerar_fn`, cron semanal `gerar_lotes_semanais_fn`
+- [x] **Hot reload de pesos** — TTL 60s, thread-safe, fallback hardcoded, sem restart de worker
+- [x] **Shadow mode** — `ClassificadorVersao.shadow=True` + `ClassificacaoShadowLog` + cron `comparar_shadow_daily` (04:00)
+- [x] **Categorização DB-driven** — `ThresholdTribunal` por (tribunal × versao_modelo), compartilhada entre path ativo e shadow
+- [x] **Dashboard de visibilidade** — `/dashboard/leads/visibilidade/` com 8 KPIs + 5 charts + heatmap + widget shadow
+- [x] **Dashboard de validação** — `/dashboard/leads/validacao/*` (overview + fila + concluído)
+- [x] **API stats por tribunal** + calibração por tribunal (drift detection)
+- [x] **Heatmap tribunal × ano CNJ** (na tela de visibilidade)
 - [x] **Sistema de classificação ML de leads** — Logistic Regression v5, AUC 0.95, precision@5k 93.9%. Pipeline end-to-end (DJEN/Datajud → classifier → API → Juriscope). Detalhe: [`CLASSIFICACAO.md`](CLASSIFICACAO.md)
 - [x] **API REST `/api/v1/leads/`** — auth via X-API-Key. GET (lista pendentes), POST consumed, GET stats
 - [x] **Tela `/dashboard/leads/`** — KPIs lazy + 5 charts ECharts + tabela paginada + export CSV + chips de filtros
@@ -71,10 +81,15 @@ Sistema operando em produção (v5, AUC 0.95). Ver [`CLASSIFICACAO.md`](CLASSIFI
 
 ### Médio prazo
 - [ ] **Adaptação justiça estadual (TJMG/TJSP)** — patch já aplicado: `datajud.sync_processo` popula `Process.classe_codigo` quando vazio. POC TJSP detectou 3 leads em 100 procs. Pra produção: enfileirar Datajud em massa pros tribunais novos
-- [ ] **PSI / drift score** em tempo real — alerta quando distribuição de scores muda significativamente vs treino
-- [ ] **Heatmap tribunal × ano CNJ** — descobrir gap de captura
-- [ ] **Hot reload de pesos** — workers leem `ClassificadorVersao.ativa` periodicamente, sem precisar restart pra novo modelo
+- [ ] **PSI / drift score formal** — shadow mode cobre parte (KS test + agreement), falta métrica PSI canônica
 - [ ] **Webhook outbound** — Voyager notifica Juriscope quando novo lead high-confidence aparece (em vez de polling)
+- [ ] **Trigger PG UPDATE-block em `ProcessoValidacao`** — hoje imutabilidade é só via `UniqueConstraint`; antes de publish externo do dataset
+- [ ] **Focus trap em modais** (modal de criar lote, modal de ajuda) — acessibilidade
+- [ ] **CV interno no grid de thresholds v7** — hoje é só holdout único
+- [ ] **Numpy no Dockerfile** (não só `requirements.txt`) — estabilidade
+- [ ] **Cleanup job de `ClassificacaoShadowLog`** — retention 90 dias
+- [ ] **[BIZ] `model_admins ∩ validadores_leads` permitido?** — conflito de interesse documentado em REGRAS_NEGOCIO_VALIDACAO §5
+- [ ] **LGPD / anonimização** — fora de escopo nesta versão. Reabrir quando expandir validação além da equipe interna; reativar `usuario_hash` (salt em ENV) + comando `anonimizar_usuario`.
 
 ### Longo prazo
 - [ ] **Texto dos autos via Juriscope** — features F19/F20 hoje deram peso ~zero porque os termos `'precatório expedido'`/`'rpv expedida'` vivem nos autos completos. Integrar texto dos autos baixados aumentaria precision

@@ -1,0 +1,35 @@
+{% comment %}
+Card genérico de chart com lazy-load via fetch + ECharts.
+Usa o helper global `lazyChart(el, url, builder)` definido em base.html.
+
+Parâmetros:
+  chart_id   — id único (obrigatório), usado em data-chart e aria-label
+  titulo     — título do card (obrigatório)
+  subtitulo  — texto secundário (opcional)
+  url        — endpoint JSON `{data}` (obrigatório)
+  builder    — nome da função JS construtora ECharts (default `buildVisChart`)
+  min_height — classe Tailwind de altura mínima (default `h-72`)
+
+A função `builder` deve ser global no escopo da página (ver visibilidade.html).
+{% endcomment %}
+<section class="chart-card card"
+         data-chart="{{ chart_id }}"
+         role="region"
+         aria-label="{{ titulo }}">
+  <header class="mb-2">
+    <h3 class="text-sm font-medium text-fg-soft">{{ titulo }}</h3>
+    {% if subtitulo %}<p class="chart-subtitle text-xs text-fg-subtle mt-0.5">{{ subtitulo }}</p>{% endif %}
+  </header>
+  <div class="chart-cell {{ min_height|default:'h-72' }}"
+       data-chart-url="{{ url }}"
+       data-chart-builder="{{ builder|default:'buildVisChart' }}">
+    <div class="chart-skeleton" role="status" aria-live="polite">
+      <div class="pulsar-mark">acquiring signal</div>
+    </div>
+    <div data-echart='{}'
+         class="absolute inset-0"
+         aria-label="{{ titulo }} — gráfico"
+         x-data
+         x-init="lazyChart($el, '{{ url }}', (window['{{ builder|default:'buildVisChart' }}'] || function(){return {};}))"></div>
+  </div>
+</section>

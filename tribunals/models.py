@@ -1,7 +1,9 @@
+from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 from django.db.models import Q, UniqueConstraint
+from django.utils.translation import gettext_lazy as _
 
 
 class Tribunal(models.Model):
@@ -400,6 +402,11 @@ class ClassificadorVersao(models.Model):
     pesos = models.JSONField()                              # {feature_name: weight, _intercept_: ...}
     metricas = models.JSONField(default=dict)               # {auc, prec_at_5k, prec_at_1k, ...}
     ativa = models.BooleanField(default=False, db_index=True)
+    # Shadow mode (T5): N versões podem rodar em paralelo registrando
+    # ClassificacaoShadowLog sem afetar Process.classificacao oficial.
+    # Pode haver N shadow=True simultaneamente; a constraint partial sobre
+    # ativa=True garante que só 1 esteja em produção por vez.
+    shadow = models.BooleanField(default=False, db_index=True)
     criada_em = models.DateTimeField(auto_now_add=True)
     notas = models.TextField(blank=True)
 
@@ -471,3 +478,318 @@ class LeadConsumption(models.Model):
             models.Index(fields=['cliente', '-consumido_em']),
             models.Index(fields=['cliente', 'processo']),
         ]
+
+
+# ============== Validação humana de classificação (T4/T5) ==============
+#
+# Pipeline de revisão manual sobre a saída do classificador, para gerar
+# ground truth de treino, medir precision real por tribunal e detectar
+# drift entre re-treinos. Regras de negócio em
+# `.ia/REGRAS_NEGOCIO_VALIDACAO.md` (ADR-018):
+#
+# - AmostraValidacao: lote sorteado por estratégia (top_score, borderline,
+#   low_score, falsos_consumidos, recuperados, on_demand, fn_candidatos,
+#   shadow_disagree). Seed persistida para reprodutibilidade.
+# - AmostraProcesso: through M2M explícito — preserva ordem, score e
+#   motivos de suspeita no momento do sorteio.
+# - ProcessoValidacao: DECISÃO HUMANA IMUTÁVEL. Append-only via
+#   UniqueConstraint(processo, usuario) — re-anotação proibida; divergência
+#   resolvida em `label_final` por revisor sênior. SET_NULL na FK usuario
+#   preserva label se o User for deletado.
+# - ClassificacaoShadowLog: registra previsões de versões shadow (T5)
+#   sem afetar Process.classificacao oficial. Retention 90 dias
+#   (job de cleanup é tarefa futura).
+# - ThresholdTribunal: thresholds N1/N2/N3 por tribunal, versionados.
+#   1 ativo por (tribunal, versao_modelo).
+
+class AmostraValidacao(models.Model):
+    """Lote sorteado por estratégia para anotação humana."""
+
+    ESTRATEGIA_TOP_SCORE = 'top_score'
+    ESTRATEGIA_BORDERLINE = 'borderline'
+    ESTRATEGIA_LOW_SCORE = 'low_score'
+    ESTRATEGIA_FALSOS_CONSUMIDOS = 'falsos_consumidos'
+    ESTRATEGIA_RECUPERADOS = 'recuperados'
+    ESTRATEGIA_ON_DEMAND = 'on_demand'
+    ESTRATEGIA_FN_CANDIDATOS = 'fn_candidatos'
+    ESTRATEGIA_SHADOW_DISAGREE = 'shadow_disagree'
+    ESTRATEGIA_CHOICES = [
+        (ESTRATEGIA_TOP_SCORE, _('Top score (≥ 0.7)')),
+        (ESTRATEGIA_BORDERLINE, _('Borderline (0.30-0.70)')),
+        (ESTRATEGIA_LOW_SCORE, _('Low score (0.05-0.30)')),
+        (ESTRATEGIA_FALSOS_CONSUMIDOS, _('Falsos consumidos')),
+        (ESTRATEGIA_RECUPERADOS, _('Recuperados (backfill recente)')),
+        (ESTRATEGIA_ON_DEMAND, _('Sob demanda (manual)')),
+        (ESTRATEGIA_FN_CANDIDATOS, _('Candidatos a falso negativo')),
+        (ESTRATEGIA_SHADOW_DISAGREE, _('Divergência shadow vs ativa')),
+    ]
+
+    estrategia = models.CharField(max_length=30, choices=ESTRATEGIA_CHOICES)
+    # null = lote multi-tribunal (ex.: análise global)
+    tribunal = models.ForeignKey(
+        Tribunal, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='amostras_validacao',
+    )
+    versao_modelo = models.CharField(max_length=10)  # snapshot, ex 'v6'
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='amostras_validacao_criadas',
+    )
+    criada_em = models.DateTimeField(auto_now_add=True)
+    parametros = models.JSONField(default=dict)  # configs do sorteio
+    tamanho_alvo = models.PositiveIntegerField()
+    # Seed persistida — biz exige reprodutibilidade do sorteio.
+    seed = models.BigIntegerField()
+    processos = models.ManyToManyField(
+        Process, through='AmostraProcesso', related_name='amostras_validacao',
+    )
+
+    class Meta:
+        verbose_name = _('amostra de validação')
+        verbose_name_plural = _('amostras de validação')
+        ordering = ['-criada_em']
+        indexes = [
+            models.Index(fields=['-criada_em']),
+            models.Index(fields=['estrategia']),
+        ]
+
+    def __str__(self):
+        alvo = self.tribunal_id or 'multi'
+        return f'Amostra #{self.pk} · {self.estrategia} · {alvo} · {self.tamanho_alvo}'
+
+
+class AmostraProcesso(models.Model):
+    """Through M2M: associação Amostra↔Process com metadados do sorteio."""
+
+    amostra = models.ForeignKey(
+        AmostraValidacao, on_delete=models.CASCADE, related_name='itens',
+    )
+    processo = models.ForeignKey(
+        Process, on_delete=models.CASCADE, related_name='amostra_itens',
+    )
+    ordem = models.PositiveIntegerField()
+    score_no_sorteio = models.FloatField()
+    classificacao_no_sorteio = models.CharField(max_length=20)
+    # Score do "mining" (FN candidates, shadow disagree). NULL = sorteio aleatório.
+    suspeita_score = models.FloatField(null=True, blank=True)
+    # Lista opcional de estratégias que ativaram o item no mining.
+    motivos_suspeita = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _('item de amostra')
+        verbose_name_plural = _('itens de amostra')
+        constraints = [
+            UniqueConstraint(
+                fields=['amostra', 'processo'],
+                name='uq_amostra_processo',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['amostra', 'ordem']),
+        ]
+        ordering = ['amostra', 'ordem']
+
+
+class ProcessoValidacao(models.Model):
+    """Decisão humana sobre a classificação de um processo.
+
+    APPEND-ONLY: UniqueConstraint(processo, usuario) impede re-anotação.
+    Divergências entre anotadores são resolvidas em `label_final` por
+    usuário com permission `can_resolve_disagreement`.
+
+    `usuario` é SET_NULL no delete do User (preserva label órfã).
+    Anonimização LGPD via `usuario_hash` está descomissionada nesta versão
+    (campo permanece no schema mas não é populado).
+    """
+
+    RESULTADO_EH_LEAD = 'eh_lead'
+    RESULTADO_EH_PRECATORIO = 'eh_precatorio'
+    RESULTADO_EH_PRE = 'eh_pre'
+    RESULTADO_EH_DC = 'eh_dc'
+    RESULTADO_NAO_LEAD = 'nao_lead'
+    RESULTADO_INCERTO = 'incerto'
+    RESULTADO_PRECISA_ENRIQUECER = 'precisa_enriquecer'
+    RESULTADO_SKIP = 'skip'
+    RESULTADO_CHOICES = [
+        (RESULTADO_EH_LEAD, _('É lead (genérico)')),
+        (RESULTADO_EH_PRECATORIO, _('É precatório (N1)')),
+        (RESULTADO_EH_PRE, _('É pré-precatório (N2)')),
+        (RESULTADO_EH_DC, _('É direito creditório (N3)')),
+        (RESULTADO_NAO_LEAD, _('Não é lead')),
+        (RESULTADO_INCERTO, _('Incerto')),
+        (RESULTADO_PRECISA_ENRIQUECER, _('Precisa enriquecer')),
+        (RESULTADO_SKIP, _('Pulou (skip)')),
+    ]
+
+    CONFIANCA_ALTA = 'alta'
+    CONFIANCA_MEDIA = 'media'
+    CONFIANCA_BAIXA = 'baixa'
+    CONFIANCA_CHOICES = [
+        (CONFIANCA_ALTA, _('Alta')),
+        (CONFIANCA_MEDIA, _('Média')),
+        (CONFIANCA_BAIXA, _('Baixa')),
+    ]
+
+    processo = models.ForeignKey(
+        Process, on_delete=models.CASCADE, related_name='validacoes',
+    )
+    amostra = models.ForeignKey(
+        AmostraValidacao, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='validacoes',
+    )
+    # SET_NULL preserva label se User for deletado (turnover, conta apagada).
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='validacoes',
+    )
+    # Reservado pra anonimização futura (LGPD). Não populado nesta versão.
+    usuario_hash = models.CharField(max_length=64, blank=True)
+
+    resultado = models.CharField(max_length=20, choices=RESULTADO_CHOICES)
+    confianca = models.CharField(
+        max_length=10, choices=CONFIANCA_CHOICES, default=CONFIANCA_ALTA,
+    )
+    motivo = models.TextField(blank=True)
+    tempo_segundos = models.PositiveIntegerField(null=True, blank=True)
+
+    # Snapshot do estado do modelo no momento da anotação.
+    versao_modelo = models.CharField(max_length=10)
+    classificacao_no_momento = models.CharField(max_length=20)
+    score_no_momento = models.FloatField()
+    features_snapshot = models.JSONField(default=dict)
+
+    criada_em = models.DateTimeField(auto_now_add=True)
+
+    # Resolução de divergência em dupla-anotação (10% dos lotes).
+    # Preenchido por revisor sênior — campos editáveis pós-criação.
+    label_final = models.CharField(
+        max_length=20, choices=RESULTADO_CHOICES, null=True, blank=True,
+    )
+    label_final_resolvido_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='validacoes_resolvidas',
+    )
+    label_final_resolvido_em = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _('validação de processo')
+        verbose_name_plural = _('validações de processo')
+        constraints = [
+            # Imutabilidade — biz exige sem UPDATE. Garantido também por
+            # trigger Postgres em migration futura (T5+).
+            UniqueConstraint(
+                fields=['processo', 'usuario'],
+                name='uq_processo_usuario_validacao',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['processo', 'criada_em']),
+            models.Index(fields=['usuario', 'criada_em']),
+            models.Index(fields=['resultado']),
+            models.Index(fields=['amostra']),
+            models.Index(fields=['label_final']),
+        ]
+        permissions = [
+            ('can_validate_lead',
+             'Pode anotar validações de leads'),
+            ('can_publish_model',
+             'Pode promover ClassificadorVersao e editar thresholds'),
+            ('can_view_validacao_dashboard',
+             'Pode ver dashboard de validação'),
+            ('can_resolve_disagreement',
+             'Pode resolver divergências preenchendo label_final'),
+            ('can_view_motivo',
+             'Pode ler o campo motivo de validações de outros usuários'),
+        ]
+
+    def __str__(self):
+        return f'Validação #{self.pk} · {self.processo_id} · {self.resultado}'
+
+    def motivo_visivel_para(self, user) -> str:
+        """Retorna o motivo se `user` tem direito; senão string vazia.
+
+        Regra (REGRAS_NEGOCIO_VALIDACAO):
+        - Autor da anotação sempre vê o próprio motivo
+        - Outros precisam de `tribunals.can_view_motivo`
+        Use SEMPRE este helper em templates/serializers que mostram
+        motivos de outros validadores.
+        """
+        if user is None or not getattr(user, 'is_authenticated', False):
+            return ''
+        if self.usuario_id and self.usuario_id == getattr(user, 'pk', None):
+            return self.motivo
+        if user.has_perm('tribunals.can_view_motivo'):
+            return self.motivo
+        return ''
+
+
+class ClassificacaoShadowLog(models.Model):
+    """Predições de versões shadow do classificador (T5).
+
+    Registra previsões paralelas de candidatas a próxima versão sem
+    afetar `Process.classificacao` oficial. Permite comparar AUC/precision
+    contra a versão ativa antes de promover.
+
+    Retention: 90 dias. Job de cleanup é tarefa futura — não há trigger
+    de purge neste model.
+    """
+
+    processo = models.ForeignKey(
+        Process, on_delete=models.CASCADE, related_name='shadow_logs',
+    )
+    versao_shadow = models.CharField(max_length=10)
+    score = models.FloatField()
+    categoria = models.CharField(
+        max_length=20, choices=Process.CLASSIF_CHOICES,
+    )
+    criada_em = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = _('log de classificação shadow')
+        verbose_name_plural = _('logs de classificação shadow')
+        indexes = [
+            models.Index(fields=['versao_shadow', 'criada_em'],
+                         name='shadow_log_versao_em_idx'),
+        ]
+
+
+class ThresholdTribunal(models.Model):
+    """Thresholds de classificação (N1/N2/N3) por tribunal e versão.
+
+    Biz exige DB-driven (não hardcoded em código). Fallback para defaults
+    em código se row não existir. Apenas 1 ativo por (tribunal, versao_modelo).
+    """
+
+    tribunal = models.ForeignKey(
+        Tribunal, on_delete=models.CASCADE, related_name='thresholds',
+    )
+    versao_modelo = models.CharField(max_length=10)
+    threshold_precatorio = models.FloatField()
+    threshold_pre = models.FloatField()
+    threshold_dc = models.FloatField()
+    ativo = models.BooleanField(default=True)
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='thresholds_atualizados',
+    )
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _('threshold por tribunal')
+        verbose_name_plural = _('thresholds por tribunal')
+        constraints = [
+            UniqueConstraint(
+                fields=['tribunal', 'versao_modelo'],
+                name='uq_threshold_tribunal_versao',
+            ),
+            # Apenas 1 ativo por (tribunal, versao_modelo).
+            UniqueConstraint(
+                fields=['tribunal', 'versao_modelo'],
+                condition=Q(ativo=True),
+                name='uq_threshold_ativo_por_tribunal_versao',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.tribunal_id}/{self.versao_modelo}'

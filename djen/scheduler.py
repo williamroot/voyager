@@ -14,6 +14,7 @@ import logging
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_SUBMITTED
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.blocking import BlockingScheduler
+from django.conf import settings
 from django.db import close_old_connections
 
 from tribunals.models import Tribunal
@@ -192,5 +193,40 @@ def create_scheduler() -> BlockingScheduler:
         max_instances=1,
         coalesce=True,
     )
+
+    # Comparação shadow (T19) — cron diário 04:00. Compara Process.classificacao
+    # (versão ativa) contra ClassificacaoShadowLog (versão shadow) das últimas
+    # 24h e grava .ia/SHADOW_COMPARISON_YYYYMMDD.md.
+    from tribunals.jobs import comparar_shadow_wrapper
+    scheduler.add_job(
+        comparar_shadow_wrapper,
+        'cron',
+        hour=4,
+        minute=0,
+        id='comparar_shadow_daily',
+        replace_existing=True,
+        misfire_grace_time=3600,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # Pipeline semanal de lotes de validação humana (T21).
+    # Domingo 02:00 — minera FN candidates por tribunal ativo e cria
+    # AmostraValidacao(estrategia='fn_candidatos'). Notifica validadores.
+    if getattr(settings, 'VALIDACAO_LOTES_SEMANAIS_ENABLED', True):
+        from tribunals.jobs import gerar_lotes_semanais_fn
+        scheduler.add_job(
+            gerar_lotes_semanais_fn.delay,
+            'cron',
+            day_of_week='sun',
+            hour=2,
+            minute=0,
+            id='gerar_lotes_semanais_fn',
+            replace_existing=True,
+            misfire_grace_time=7200,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info('agendado gerar_lotes_semanais_fn (dom 02:00)')
 
     return scheduler

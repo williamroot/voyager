@@ -167,3 +167,107 @@ Decisões arquiteturais relevantes com motivação. Estilo ADR enxuto.
 - Listar leads disponíveis: anti-join via `Exists(OuterRef)` (presença em qualquer registro)
 - Funil/calibration usa MAIS RECENTE por processo (`order_by('-consumido_em').first()`)
 - Trade-off: tabela cresce mais rápido (~1.8M/ano em ritmo de 5k/dia, fácil pro Postgres)
+
+## ADR-018 — Sistema de validação humana por amostragem estratificada
+
+**Contexto:** v6 (TRF1, AUC 0.961) precisa de ground truth para gate v7 e pra medir precision real em tribunais sem lista Juriscope (TRF3, TJMG, TJSP). Tensão entre 2 eixos: (a) imutabilidade necessária pra confiar nos labels como dataset de treino, (b) prevenção de viés de re-anotação ("efeito âncora").
+
+**Decisão:**
+- `AmostraValidacao` (lote) com 8 estratégias (`top_score`, `borderline`, `low_score`, `falsos_consumidos`, `recuperados`, `on_demand`, `fn_candidatos`, `shadow_disagree`). Seed persistida para reprodutibilidade do sorteio.
+- `AmostraProcesso` (through M2M) preserva ordem, score no sorteio, e `suspeita_score`/`motivos_suspeita` quando vindo de mining FN ou shadow.
+- `ProcessoValidacao` append-only via `UniqueConstraint(processo, usuario)`. Re-anotação proibida; divergência resolvida em `label_final` por revisor sênior (`can_resolve_disagreement`).
+- 10% dupla-anotação automática para Cohen's kappa por anotador.
+- `motivo` (texto livre) confidencial intra-equipe: helper `motivo_visivel_para(user)` + templatetag `{% motivo_visivel %}` checam ownership ou `can_view_motivo`.
+- **LGPD/anonimização fora de escopo nesta versão.** Campo `usuario_hash` permanece no schema mas não é populado; `usuario` é `SET_NULL` apenas pra cobrir delete administrativo de User. Reativar quando abrir validação a anotadores externos.
+
+**Alternativas rejeitadas:**
+- *Permitir UPDATE da label* — destrói série temporal necessária pra detectar drift de anotador e calcular kappa.
+- *Re-anotação livre* — efeito âncora (literatura de annotation research): anotador relê e "concorda consigo mesmo" mesmo errado.
+
+**Consequência:**
+- Dataset cresce monotonicamente; recálculos do gate v7 reprodutíveis dado snapshot temporal.
+- Anotações ruins (kappa baixo) não removíveis — só ponderadas via `sample_weight` (ADR-019). Trade-off aceito por transparência.
+- Follow-up: trigger Postgres UPDATE-block em `ProcessoValidacao` (hoje só constraint `UniqueConstraint` no insert). LGPD pode virar ADR-023 quando reabrir.
+
+## ADR-019 — Pesos amostrais por origem do label no retreino v7
+
+**Contexto:** v7 mistura 3 fontes de label: anotação humana, `LeadConsumption.resultado` do Juriscope, e CSVs históricos (`leads_trf1.csv`, `leads_trf1_recuperados_1327.csv`). Fontes têm confiabilidade muito diferentes — humano lê os autos completos, Juriscope marca após baixar autos (alto sinal mas com lag), CSV agregado tem ruído de extração.
+
+**Decisão:** logistic regression treinada com `sample_weight` por origem:
+
+| Origem | Peso | Racional |
+|---|---|---|
+| Anotação humana (`ProcessoValidacao.label_final` ou única label) | **3.0** | Olho humano sobre autos completos, mais confiável |
+| Juriscope `LeadConsumption.resultado IN {validado,pago}` | **2.0** | Confirmação operacional, alto sinal |
+| `leads_trf1_recuperados_1327.csv` (FN consumidos confirmados) | **2.0** | Equivalente a Juriscope (curado) |
+| `leads_trf1.csv` (lista base) | **1.0** | Ground truth original, mais ruidoso |
+
+**Alternativas rejeitadas:**
+- *Treinar só com humano:* volume insuficiente (≤ 500/tribunal no go-live) — overfit garantido.
+- *Igualar todas as fontes:* desperdiça sinal de qualidade humana, dilui correção dos FNs recuperados.
+- *Filtrar conflitos (humano≠CSV) antes do treino:* descarta informação; melhor manter conflito e deixar otimização ponderar.
+
+**Consequência:**
+- v7 converge com gradient descent ponderado (`np.average(loss, weights=sample_weight)`).
+- Dataset de gate v7 (REGRAS_NEGOCIO_VALIDACAO §3) inclui as 3 fontes, com humano dominando o sinal local.
+- Trade-off: anotador com kappa baixo ainda contribui 3.0 — mitigação futura é multiplicar por kappa_individual.
+
+## ADR-020 — Hot reload de pesos + shadow mode para A/B sem deploy
+
+**Contexto:** Re-treinar v7/v8/... e propagar pra workers exige rebuild de imagem + force-recreate (15-30 min de janela). Inviável pra iterar threshold ou ajustar peso no curto prazo. E pra rodar A/B legítimo entre v6 (ativo) e candidata, precisa de comparação no MESMO universo de processos sem afetar `Process.classificacao` oficial.
+
+**Decisão:**
+- **Hot reload**: `tribunals.classificador._WEIGHTS_CACHE` mantém pesos da `ClassificadorVersao(ativa=True)` com TTL configurável (`CLASSIFICADOR_RELOAD_TTL`, default 60s). Cada `classificar()` cheka se TTL venceu e recarrega do DB via double-check locking. Fallback silencioso pra `HARDCODED_WEIGHTS` em DB-down/pesos corrompidos/sem versão ativa. `force_reload_weights()` pula TTL em testes/commands.
+- **Shadow mode**: `ClassificadorVersao.shadow=True` (N podem coexistir) roda em job assíncrono separado (`classificar_shadow_async`) com sample rate configurável (`SHADOW_SAMPLE_RATE`, default 0.10). Resultados em `ClassificacaoShadowLog`, NÃO atualizam `Process.classificacao`. Comparação A/B via job `comparar_shadow` (cron 04:00 UTC) — calcula agreement rate, KS test entre score distributions, lista de disagreements pra revisão.
+- Constraint `ativa=True` continua partial unique (1 ativa por vez). `shadow=True` não restrito (suporta N candidatas em paralelo).
+
+**Alternativas rejeitadas:**
+- *Restart de worker pra propagar:* 15-30 min de janela, prejudica iteração rápida e ainda tem race condition entre hosts.
+- *Comparar via batch reclassify retroativo:* enorme custo computacional pra cada experimento. Shadow inline aproveita pipeline normal.
+- *Substituir `ativa=True` por v7 e medir produção direto:* inaceitável — qualquer regressão atinge fila Juriscope.
+
+**Consequência:**
+- Re-treino v7 → ajustar pesos do DB → propaga em ≤ 60s.
+- A/B legítimo: shadow só compara score; categorização é a mesma (ADR-022).
+- Retention `ClassificacaoShadowLog`: 90 dias (job de cleanup é follow-up).
+- Trade-off: features novas (F24-F28 do v7) não funcionam por hot reload — precisam deploy de código pra atualizar `compute_features`. Hot reload cobre só ajuste de pesos das features já conhecidas. Documentado na docstring do `classificador.py`.
+
+## ADR-021 — Thresholds N1/N2/N3 por tribunal em ThresholdTribunal (DB-driven)
+
+**Contexto:** TRF3 tem 15% taxa de lead (concentração de cumprimentos contra Fazenda em SP) vs ~2% no TRF1 — mesmo threshold N1=0.7 corta volumes muito diferentes. TJMG/TJSP têm menos cobertura via DJEN (intimações por correio físico, sigilo) — threshold maior protege precision até consolidar ground truth. Hardcoded em código exigiria deploy pra ajustar.
+
+**Decisão:** tabela `ThresholdTribunal(tribunal, versao_modelo, threshold_precatorio, threshold_pre, threshold_dc, ativo)`:
+
+| Constraint | Garante |
+|---|---|
+| `UniqueConstraint(tribunal, versao_modelo)` | 1 row por par |
+| `UniqueConstraint(tribunal, versao_modelo) WHERE ativo=True` (partial) | só 1 ativo por (tribunal, versao_modelo) |
+
+`_categorizar(score, features, tribunal_id, versao_modelo)` lê row ativa filtrando por versão. Fallback silencioso pros defaults hardcoded (`THRESHOLD_PRECATORIO=0.7`, etc.) se row não existir ou erro. Filtro por versão protege transição v6→v7 onde podem coexistir thresholds.
+
+**Alternativas rejeitadas:**
+- *Threshold único global:* TRF3 perde leads de borderline; TJMG/TJSP ficam ruidosos.
+- *Tabela sem `versao_modelo`:* impossível ajustar thresholds independentes durante shadow A/B (v6 thresholds afetariam v7 e vice-versa).
+- *Thresholds em settings.py:* exige deploy; sem auditoria de quem alterou e quando.
+
+**Consequência:**
+- Mudança requer `can_publish_model` (RBAC). UI bloqueia sem permission.
+- Cadência de revisão trimestral + auto após cada `ClassificadorVersao.ativa=True` flip.
+- Auditoria por `atualizado_por` + `atualizado_em` na própria row.
+- Follow-up: CV interno no grid de thresholds v7 (hoje é só holdout único).
+
+## ADR-022 — Categorização compartilhada entre classificar() e classificar_shadow()
+
+**Contexto:** REVIEW_T20 issue média #1 detectou drift de lógica: `classificar()` (path ativo) usava thresholds hardcoded; `classificar_shadow()` lia `ThresholdTribunal` do DB. Resultado: `comparar_shadow` reportaria agreement rate artificialmente baixo — divergência viria de **política de threshold**, não de pesos do modelo. Inviabiliza A/B legítimo.
+
+**Decisão:** extrair `_categorizar(score, features, tribunal_id, versao_modelo)` em `tribunals/classificador.py` como função única. Ambos os paths (ativo e shadow) chamam o mesmo `_categorizar` passando o `tribunal_id` do processo. Versão do modelo é parâmetro explícito, default `get_versao_ativa()`.
+
+**Alternativas rejeitadas:**
+- *Manter dois paths divergentes:* impede comparação shadow legítima — bloqueia gate v7.
+- *Calcular thresholds em job offline e cachear em settings:* trade-off de complexidade não justificado; query é trivial.
+- *Pular categorização no shadow (só comparar score):* perde-se sinal de movimentação entre níveis (N1↔N2↔N3), que é o que a fila Juriscope consome.
+
+**Consequência:**
+- Shadow A/B compara apenas o efeito dos PESOS (score) — categorização idêntica.
+- Mudança de threshold em `ThresholdTribunal` afeta os dois paths simultaneamente.
+- Removido issue média #1 da REVIEW_T20 — não bloqueia mais o flip v7.

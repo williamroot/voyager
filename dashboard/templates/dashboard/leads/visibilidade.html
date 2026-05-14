@@ -1,0 +1,693 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Leads · Visibilidade{% endblock %}
+
+{% block content %}
+{# ==========================================================================
+   /dashboard/leads/visibilidade/ — observabilidade do pipeline de leads (T12)
+   Implementa o mockup em .ia/MOCKUP_visibilidade.md
+   ========================================================================== #}
+
+{# ── Header ─────────────────────────────────────────────────────────────── #}
+<header class="mb-5">
+  <div class="flex items-baseline justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="brand-wordmark text-xl md:text-2xl leading-none tracking-widest"
+          style="font-family: 'Major Mono Display', monospace;">
+        VOYAGER · LEADS · VISIBILIDADE
+      </h1>
+      <p class="text-xs text-fg-subtle mt-2">
+        Observabilidade do pipeline · classificação + validação
+        <span class="hidden md:inline">· shell &lt;300ms · charts lazy</span>
+      </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="{% url 'dashboard:api-docs' %}"
+         class="mission-tag"
+         title="Métricas do modelo + docs"
+         aria-label="Versão do modelo">
+        v6 · AUC 0.961
+      </a>
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest text-fg-subtle hidden md:inline"
+            x-data="{ now: '--:--:--' }"
+            x-init="setInterval(() => { now = new Date().toISOString().slice(11,19) }, 1000)"
+            x-text="now + ' UTC'"
+            aria-hidden="true">--:--:-- UTC</span>
+      <a href="{% url 'dashboard:api-docs' %}" class="chip" aria-label="API docs">API docs</a>
+      <a href="{% url 'dashboard:leads-export' %}?nivel=PRECATORIO{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}&limit=5000"
+         class="chip" aria-label="Exportar CSV">exportar CSV</a>
+      <a href="{% url 'dashboard:leads_validacao_overview' %}"
+         class="chip" aria-label="Novo lote">novo lote</a>
+    </div>
+  </div>
+</header>
+
+{# ── Filtros ─────────────────────────────────────────────────────────────── #}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-3" role="group" aria-label="Filtros">
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <span class="text-xs text-fg-subtle uppercase tracking-wider">Tribunal:</span>
+    <a href="?{% query_string request tribunal='' %}"
+       class="chip {% if not tribunal_filtro %}active{% endif %}"
+       aria-pressed="{% if not tribunal_filtro %}true{% else %}false{% endif %}">Todos</a>
+    {% for t in tribunais %}
+      <a href="?{% query_string request tribunal=t.sigla %}"
+         class="chip {% if t.sigla == tribunal_filtro %}active{% endif %}"
+         aria-pressed="{% if t.sigla == tribunal_filtro %}true{% else %}false{% endif %}">{{ t.sigla }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="flex gap-1 items-center text-xs bg-card/60 border border-border rounded-xl p-1"
+       role="group" aria-label="Período">
+    <a href="?{% query_string request dias=7 %}"   class="px-3 py-1.5 rounded-lg {% if periodo_dias == 7 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">7d</a>
+    <a href="?{% query_string request dias=30 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">30d</a>
+    <a href="?{% query_string request dias=90 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">90d</a>
+    <a href="?{% query_string request dias=365 %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 365 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">1a</a>
+    <a href="?{% query_string request dias=0 %}"   class="px-3 py-1.5 rounded-lg {% if not periodo_dias %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">Tudo</a>
+  </div>
+</div>
+
+{# ── Banner Juriscope inativo ───────────────────────────────────────────── #}
+<div x-data="{shown: false}"
+     x-init="fetch('{% url 'dashboard:leads-chart' 'kpis' %}?{% query_string request %}').then(r=>r.json()).then(j=>{const d=j.data||j; shown = d.juriscope_ativo === false || d.consumidos_total === 0})"
+     x-show="shown" x-cloak class="card-tight mb-3 border-fg-subtle/40">
+  <div class="flex items-start gap-2 text-xs text-fg-muted">
+    <span>ℹ</span>
+    <span>Juriscope ainda não consumiu leads via API. Métricas de validação/runway só aparecem quando o cliente começar a marcar processos via <code class="font-mono bg-muted px-1 py-0.5 rounded">POST /leads/consumed/</code>.</span>
+  </div>
+</div>
+
+{# ── KPIs (8 cards) ──────────────────────────────────────────────────────── #}
+<div class="kpi-grid mb-5"
+     x-data="leadsKpis()"
+     x-init="load()"
+     data-leads-block="kpis"
+     role="group"
+     aria-label="Indicadores principais">
+
+  {# 1 — Precatório #}
+  <div class="card-tight kpi-card" data-kpi="precatorio">
+    <div class="kpi-label">💎 Precatório</div>
+    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.n1_pendente)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">
+      <template x-if="d.runway_dias != null">
+        <span>≈ <strong x-text="d.runway_dias"></strong>d até fim</span>
+      </template>
+      <template x-if="d.runway_dias == null"><span>backlog disponível</span></template>
+    </div>
+  </div>
+
+  {# 2 — Pré-precatório #}
+  <div class="card-tight kpi-card" data-kpi="pre">
+    <div class="kpi-label">⏳ Pré-precatório</div>
+    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.n2_total)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">em homologação</div>
+  </div>
+
+  {# 3 — Direito creditório #}
+  <div class="card-tight kpi-card" data-kpi="dc">
+    <div class="kpi-label">🌱 Direito creditório</div>
+    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.n3_total)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">watch-list</div>
+  </div>
+
+  {# 4 — Validação 30d #}
+  <div class="card-tight kpi-card" data-kpi="validacao">
+    <div class="kpi-label">✅ Valid. 30d</div>
+    <div class="kpi-num text-2xl font-semibold mt-1"
+         x-text="d.taxa_validacao_30d != null ? (d.taxa_validacao_30d*100).toFixed(1) + '%' : '—'">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">
+      <template x-if="d.taxa_validacao_30d == null"><span>sem dados ainda</span></template>
+      <template x-if="d.taxa_validacao_30d != null">
+        <span>treino: <strong x-text="(d.taxa_validacao_treino*100).toFixed(1)"></strong>%</span>
+      </template>
+    </div>
+  </div>
+
+  {# 5 — Descobertos/dia #}
+  <div class="card-tight kpi-card" data-kpi="descobertos">
+    <div class="kpi-label">📥 Descob./d</div>
+    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.throughput_descobertos_dia)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">MM7d</div>
+  </div>
+
+  {# 6 — Consumidos/dia #}
+  <div class="card-tight kpi-card" data-kpi="consumidos">
+    <div class="kpi-label">📤 Consum./d</div>
+    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.throughput_consumidos_dia)">—</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">via Juriscope</div>
+  </div>
+
+  {# 7 NOVO — Lotes ativos (vem do context kpis_validacao, server-side) #}
+  <div class="card-tight kpi-card" data-kpi="lotes-ativos">
+    <div class="kpi-label">🛰 Lotes ativos</div>
+    <div class="kpi-num text-2xl font-semibold mt-1">{{ kpis_validacao.lotes_ativos|default:"—" }}</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">últimos 30d</div>
+  </div>
+
+  {# 8 NOVO — FN descobertos esta semana #}
+  <div class="card-tight kpi-card" data-kpi="fn-semana">
+    <div class="kpi-label">🔭 FN semana</div>
+    <div class="kpi-num text-2xl font-semibold mt-1">{{ kpis_validacao.fn_semana|default:"0" }}</div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">recuperados pelo time</div>
+  </div>
+</div>
+
+{# ── Charts top: histograma score + calibração ──────────────────────────── #}
+{% url 'dashboard:chart_histograma_score' as hist_url %}
+{% url 'dashboard:chart_calibracao_por_tribunal' as calib_url %}
+{% url 'dashboard:chart_heatmap_tribunal_ano' as heatmap_url %}
+{% url 'dashboard:chart_funil_ampliado' as funil_url %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  {% include 'dashboard/_partials/_chart_card.html' with chart_id='hist-score-tribunal' titulo='Histograma de score · por tribunal' subtitulo='curvas overlay (densidade) — sample-cap 50k/tribunal' url=hist_url builder='buildHistScoreTribunal' %}
+
+  {% include 'dashboard/_partials/_chart_card.html' with chart_id='calibracao-tribunal' titulo='Calibração · por tribunal' subtitulo='decil de score × taxa real de validação (diagonal = ideal)' url=calib_url builder='buildCalibracaoTribunal' %}
+</div>
+
+{# ── Charts: heatmap + funil ────────────────────────────────────────────── #}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  <section class="chart-card card heatmap-card"
+           data-chart="heatmap-tribunal-ano"
+           role="region"
+           aria-label="Heatmap tribunal × ano CNJ"
+           x-data="heatmapCard()">
+    <header class="mb-2 flex items-start justify-between gap-2">
+      <div>
+        <h3 class="text-sm font-medium text-fg-soft">Heatmap · tribunal × ano CNJ</h3>
+        <p class="text-xs text-fg-subtle mt-0.5">células vermelhas = gaps de ingestão · clique para re-ingerir</p>
+      </div>
+      <div class="text-[0.6rem] font-mono uppercase tracking-widest text-fg-subtle flex gap-2 hidden md:flex" aria-hidden="true">
+        <span><span class="hm-swatch hm-ok"></span> ok</span>
+        <span><span class="hm-swatch hm-medio"></span> médio</span>
+        <span><span class="hm-swatch hm-baixo"></span> baixo</span>
+        <span><span class="hm-swatch hm-vazio"></span> gap</span>
+      </div>
+    </header>
+    <div class="chart-cell h-72"
+         data-chart-url="{{ heatmap_url }}"
+         data-chart-builder="buildHeatmapTribunalAno">
+      <div class="chart-skeleton" role="status" aria-live="polite">
+        <div class="pulsar-mark">acquiring signal</div>
+      </div>
+      <div data-echart='{}'
+           class="absolute inset-0"
+           aria-label="Heatmap tribunal × ano CNJ"
+           x-init="lazyChart($el, '{{ heatmap_url }}', d => buildHeatmapTribunalAno(d, openReingest))"></div>
+    </div>
+
+    {# Modal stub de re-ingestão #}
+    <div x-show="showReingestModal"
+         x-cloak
+         x-transition.opacity
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+         @keydown.escape.window="showReingestModal=false"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="reingest-modal-title">
+      <div class="card max-w-sm w-[92%]" @click.outside="showReingestModal=false">
+        <h4 id="reingest-modal-title" class="text-sm font-semibold text-fg mb-2 uppercase tracking-wider"
+            style="font-family:'JetBrains Mono', monospace">
+          Reingerir DJEN?
+        </h4>
+        <p class="text-sm text-fg-muted mb-3">
+          Tribunal <strong x-text="modalContent.tribunal"></strong>
+          · ano <strong x-text="modalContent.ano"></strong>
+          <span class="block text-xs text-fg-subtle mt-1">Esta operação enfileira um backfill assíncrono.</span>
+        </p>
+        <div class="flex justify-end gap-2">
+          <button type="button"
+                  class="chip"
+                  @click="showReingestModal=false">Cancelar</button>
+          <button type="button"
+                  class="btn-primary text-xs"
+                  @click="confirmReingest()">Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {% include 'dashboard/_partials/_chart_card.html' with chart_id='funil-ampliado' titulo='Funil ampliado' subtitulo='descobertos → enviados → consumidos → validados → FN recuperados' url=funil_url builder='buildFunilAmpliado' %}
+</div>
+
+{# ── Distribuição de score (secundário) ─────────────────────────────────── #}
+{% url 'dashboard:leads-chart' 'distribuicao-score' as distrib_url %}
+{% include 'dashboard/_partials/_chart_card.html' with chart_id='distribuicao-score' titulo='Distribuição de score (Precatório · agregada)' subtitulo='histograma — quantos processos por bucket de probabilidade' url=distrib_url builder='buildScoreHistMini' min_height='h-56' %}
+
+{# ── Lotes de validação ativos + Top 10 FN preview ──────────────────────── #}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 mb-4">
+  <div class="card lg:col-span-2" role="region" aria-label="Lotes de validação ativos">
+    <div class="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+      <div>
+        <h2 class="text-sm font-semibold text-fg-soft uppercase tracking-wider"
+            style="font-family:'JetBrains Mono', monospace">
+          Lotes de validação ativos
+        </h2>
+        <span class="text-xs text-fg-subtle">últimos 30 dias · {{ kpis_validacao.lotes_ativos|default:0 }} ativo{{ kpis_validacao.lotes_ativos|pluralize:"s" }}</span>
+      </div>
+      <a href="{% url 'dashboard:leads_validacao_overview' %}"
+         class="chip" aria-label="Criar novo lote">+ criar novo lote</a>
+    </div>
+
+    {% if kpis_validacao.lotes_do_usuario %}
+      <ul class="lotes-list" role="list">
+        {% for lote in kpis_validacao.lotes_do_usuario|slice:":5" %}
+          <li class="lote-row">
+            <span class="lote-pulsar" aria-hidden="true"></span>
+            <a href="{% url 'dashboard:leads_validacao_lote' lote_id=lote.id %}"
+               class="lote-link" aria-label="Abrir lote {{ lote.estrategia }}">
+              <span class="lote-nome">{{ lote.estrategia }}</span>
+              <span class="lote-trib">{{ lote.tribunal_id|default:"ALL" }}</span>
+              <span class="lote-bar" role="progressbar"
+                    aria-valuenow="{{ lote.progresso_pct|default:0 }}"
+                    aria-valuemin="0" aria-valuemax="100">
+                <span class="lote-bar-fill" style="width: {{ lote.progresso_pct|default:0 }}%"></span>
+              </span>
+              <span class="lote-pct kpi-num">{{ lote.progresso_pct|default:0 }}%</span>
+              <span class="lote-arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+      {% if kpis_validacao.lotes_do_usuario|length > 5 %}
+        <div class="text-right mt-3">
+          <a href="{% url 'dashboard:leads_validacao_overview' %}"
+             class="chip chip-mini" aria-label="Ver todos os lotes">+ ver todos · {{ kpis_validacao.lotes_do_usuario|length }}</a>
+        </div>
+      {% endif %}
+    {% else %}
+      {% include 'dashboard/_partials/empty_state.html' with title='Nenhum lote ativo' subtitle='Crie um lote para começar a validar' %}
+    {% endif %}
+  </div>
+
+  <div class="card" role="region" aria-label="Top FN suspeitos">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="text-sm font-semibold text-fg-soft uppercase tracking-wider"
+          style="font-family:'JetBrains Mono', monospace">
+        Top FN preview
+      </h2>
+    </div>
+    <div id="top-fn-preview"
+         class="text-xs text-fg-muted"
+         x-data="topFnList('{% url 'dashboard:chart_top_fn_semana' %}', 5)"
+         x-init="load()">
+      <template x-if="loading">
+        <div class="text-fg-subtle py-4 text-center font-mono uppercase text-[0.65rem] tracking-widest">acquiring signal</div>
+      </template>
+      <template x-if="!loading && error">
+        <div class="text-danger py-4 text-center font-mono uppercase text-[0.65rem] tracking-widest">signal lost · <button @click="load()" class="underline">retry</button></div>
+      </template>
+      <template x-if="!loading && !error && !rows.length">
+        <div class="text-fg-subtle py-4 text-center">Sem suspeitos novos.</div>
+      </template>
+      <ul class="space-y-1" x-show="!loading && !error && rows.length">
+        <template x-for="r in rows" :key="r.cnj">
+          <li class="flex items-center justify-between gap-2 font-mono text-[0.72rem]">
+            <span class="truncate text-fg" x-text="r.cnj"></span>
+            <span class="text-fg-subtle" x-text="r.tribunal"></span>
+            <span class="text-fg" x-text="r.score.toFixed(2)"></span>
+            <span class="text-warning" aria-label="suspeito">⚠</span>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </div>
+</div>
+
+{# ── Tabela Top 10 FN suspeitos esta semana ─────────────────────────────── #}
+<div class="card fn-table-card"
+     role="region"
+     aria-label="Top 10 FN suspeitos esta semana">
+  <div class="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+    <div>
+      <h2 class="text-sm font-semibold text-fg-soft uppercase tracking-wider"
+          style="font-family:'JetBrains Mono', monospace">
+        Top 10 FN suspeitos · 7d
+      </h2>
+      <span class="text-xs text-fg-subtle">processos onde humano disse "é lead" mas modelo classificou como NAO_LEAD</span>
+    </div>
+  </div>
+  <div x-data="topFnList('{% url 'dashboard:chart_top_fn_semana' %}', 10)" x-init="load()">
+    <template x-if="loading">
+      <div class="text-fg-subtle py-6 text-center font-mono uppercase text-[0.65rem] tracking-widest">acquiring signal</div>
+    </template>
+    <template x-if="!loading && error">
+      <div class="text-danger py-6 text-center font-mono uppercase text-[0.65rem] tracking-widest">
+        signal lost · <button @click="load()" class="underline">retry</button>
+      </div>
+    </template>
+    <template x-if="!loading && !error && !rows.length">
+      <div class="text-fg-muted py-6 text-center">
+        <div class="text-fg-muted mb-1">Sem suspeitos novos</div>
+        <div class="text-xs text-fg-subtle">Modelo e ground-truth estão alinhados — boa!</div>
+      </div>
+    </template>
+    <table class="dense w-full text-xs" x-show="!loading && !error && rows.length">
+      <thead>
+        <tr class="text-left text-fg-subtle uppercase tracking-wider">
+          <th class="py-2">#</th>
+          <th>CNJ</th>
+          <th>Trib</th>
+          <th class="text-right">Score</th>
+          <th>Resultado</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="(r, i) in rows" :key="r.cnj">
+          <tr class="border-t border-border/40 hover:bg-muted/40">
+            <td class="py-2 font-mono text-fg-subtle" x-text="i + 1"></td>
+            <td class="font-mono" x-text="r.cnj"></td>
+            <td x-text="r.tribunal"></td>
+            <td class="text-right font-mono kpi-num" x-text="r.score.toFixed(3)"></td>
+            <td class="text-fg-muted" x-text="r.resultado"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Scripts: builders + Alpine helpers ─────────────────────────────────── #}
+<script>
+/* leadsKpis() reusa o mesmo endpoint que /dashboard/leads/ (compatibilidade) */
+function leadsKpis() {
+  return {
+    d: {},
+    fmtInt(n) { return n != null ? Number(n).toLocaleString('pt-BR') : '—'; },
+    load() {
+      const u = new URL(window.location);
+      fetch(`{% url 'dashboard:leads-chart' 'kpis' %}?${u.searchParams.toString()}`,
+            {credentials: 'same-origin'})
+        .then(r => r.json())
+        .then(j => { this.d = j.data || j; })
+        .catch(() => { this.d = {}; });
+    },
+  };
+}
+
+/* Componente Alpine para lista de top FN (usado em preview e tabela) */
+function topFnList(url, limit) {
+  return {
+    rows: [],
+    loading: true,
+    error: null,
+    load() {
+      this.loading = true; this.error = null;
+      fetch(url, {credentials: 'same-origin', headers: {'Accept': 'application/json'}})
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(j => {
+          const data = j.data || [];
+          this.rows = Array.isArray(data) ? data.slice(0, limit) : [];
+          this.loading = false;
+        })
+        .catch(e => { this.error = String(e.message || e); this.loading = false; });
+    },
+  };
+}
+
+/* Heatmap card Alpine — modal de re-ingestão */
+function heatmapCard() {
+  return {
+    showReingestModal: false,
+    modalContent: {tribunal: '', ano: ''},
+    openReingest(tribunal, ano) {
+      this.modalContent = {tribunal, ano};
+      this.showReingestModal = true;
+    },
+    confirmReingest() {
+      const {tribunal, ano} = this.modalContent;
+      // Stub: endpoint não existe ainda; deixar 404 sinalizar.
+      fetch('/dashboard/ingestao/reingerir/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '',
+        },
+        body: JSON.stringify({tribunal, ano}),
+      })
+        .then(r => {
+          if (r.ok) {
+            window.toast && window.toast(`Reingestão enfileirada: ${tribunal}/${ano}`, 'success');
+          } else {
+            window.toast && window.toast(`Reingestão falhou (HTTP ${r.status})`, 'error');
+          }
+        })
+        .catch(e => {
+          window.toast && window.toast('Falha de rede: ' + e.message, 'error');
+        })
+        .finally(() => { this.showReingestModal = false; });
+    },
+  };
+}
+
+/* ── Chart builders ────────────────────────────────────────────────────── */
+
+/* Histograma de score por tribunal — curvas overlay (densidade) */
+window.buildHistScoreTribunal = function(d) {
+  const c = chartGridColors();
+  if (!d || !d.series || !d.series.length) {
+    return {title: {text: 'sem dados', textStyle: {color: c.legend, fontSize: 12},
+                    left: 'center', top: 'center'}};
+  }
+  const tribs = d.tribunais || d.series.map(s => s.tribunal);
+  const palette = window.VOYAGER_COLORS || {};
+  const bins = (d.bins || []).slice(0, -1); // edges → centers
+  return {
+    tooltip: {trigger: 'axis', valueFormatter: fmt},
+    legend: {top: 0, textStyle: {color: c.legend}},
+    grid: {left: 50, right: 20, top: 30, bottom: 40},
+    xAxis: {
+      type: 'category',
+      data: bins.map(b => b.toFixed(2)),
+      name: 'score',
+      nameTextStyle: {color: c.axisLabel, fontSize: 10},
+      axisLabel: {color: c.axisLabel, fontSize: 11},
+      axisLine: {lineStyle: {color: c.axisLine}},
+    },
+    yAxis: {
+      type: 'value', name: 'n',
+      nameTextStyle: {color: c.axisLabel, fontSize: 10},
+      axisLabel: {color: c.axisLabel, formatter: fmtCompact},
+      splitLine: {lineStyle: {color: c.splitLine}},
+    },
+    series: d.series.map((s, i) => ({
+      name: s.tribunal,
+      type: 'line', smooth: 0.3, symbol: 'none',
+      data: s.dados,
+      lineStyle: {width: 2, color: palette[s.tribunal] || undefined},
+      areaStyle: {opacity: 0.08},
+      color: palette[s.tribunal] || undefined,
+      emphasis: {focus: 'series'},
+    })),
+  };
+};
+
+/* Calibração por tribunal — decis × taxa real */
+window.buildCalibracaoTribunal = function(d) {
+  const c = chartGridColors();
+  const lista = (d && d.tribunais) || [];
+  if (!lista.length) {
+    return {title: {text: 'sem dados ainda — Juriscope ainda não consumiu nenhum lead',
+                    textStyle: {color: c.legend, fontSize: 12},
+                    left: 'center', top: 'center'}};
+  }
+  const palette = window.VOYAGER_COLORS || {};
+  const decis_x = ['D1','D2','D3','D4','D5','D6','D7','D8','D9','D10'];
+  const series = [
+    {
+      name: 'ideal',
+      type: 'line', symbol: 'none',
+      data: decis_x.map((_, i) => (i + 1) / 10),
+      lineStyle: {type: 'dashed', width: 1, color: c.legend},
+      color: c.legend,
+      tooltip: {show: false},
+    },
+  ];
+  lista.forEach(t => {
+    if (!t.decis || !t.decis.length) return;
+    series.push({
+      name: t.tribunal,
+      type: 'line', smooth: 0.2, symbol: 'circle', symbolSize: 5,
+      data: t.decis.map(r => r.taxa_real),
+      lineStyle: {width: 2.5, color: palette[t.tribunal] || undefined},
+      color: palette[t.tribunal] || undefined,
+    });
+  });
+  return {
+    tooltip: {trigger: 'axis',
+              formatter: p => p.filter(s => s.seriesName !== 'ideal')
+                .map(s => `${s.marker} ${s.seriesName}: ${(s.value * 100).toFixed(1)}%`).join('<br>')},
+    legend: {top: 0, textStyle: {color: c.legend}},
+    grid: {left: 50, right: 20, top: 30, bottom: 40},
+    xAxis: {type: 'category', data: decis_x, axisLabel: {color: c.axisLabel},
+            axisLine: {lineStyle: {color: c.axisLine}}},
+    yAxis: {type: 'value', min: 0, max: 1,
+            axisLabel: {color: c.axisLabel, formatter: v => (v * 100).toFixed(0) + '%'},
+            splitLine: {lineStyle: {color: c.splitLine}}},
+    series,
+  };
+};
+
+/* Heatmap tribunal × ano CNJ — clique em "vazio" abre modal de re-ingestão */
+window.buildHeatmapTribunalAno = function(d, onClickGap) {
+  const c = chartGridColors();
+  if (!d || !d.tribunais || !d.tribunais.length) {
+    return {title: {text: 'sem dados', textStyle: {color: c.legend, fontSize: 12},
+                    left: 'center', top: 'center'}};
+  }
+  const tribunais = d.tribunais;
+  const anos = (d.anos || []).map(String);
+  // Mapa cor → cores Voyager (ver MOCKUP, seção 4)
+  const COR = {
+    ok:    'rgba(16, 185, 129, 0.60)',   // pulsar/emerald
+    medio: 'rgba(202, 138, 4, 0.55)',    // golden
+    baixo: 'rgba(217, 119, 6, 0.55)',    // amber escuro
+    vazio: 'rgba(220, 38, 38, 0.55)',    // danger
+  };
+  const series_data = (d.celulas || []).map(cel => {
+    const x = anos.indexOf(String(cel.ano));
+    const y = tribunais.indexOf(cel.tribunal);
+    return {
+      value: [x, y, cel.n || 0],
+      itemStyle: {color: COR[cel.cor] || COR.vazio},
+      _cor: cel.cor, _tribunal: cel.tribunal, _ano: cel.ano,
+    };
+  });
+  const opts = {
+    tooltip: {
+      formatter: p => {
+        const t = tribunais[p.value[1]];
+        const a = anos[p.value[0]];
+        const v = fmt(p.value[2]);
+        const tag = p.data._cor === 'vazio' ? '<br><em style="opacity:.7">click para re-ingerir</em>' : '';
+        return `<strong>${t} · ${a}</strong><br>${v} processos${tag}`;
+      },
+    },
+    grid: {left: 60, right: 20, top: 20, bottom: 40},
+    xAxis: {type: 'category', data: anos,
+            axisLabel: {color: c.axisLabel, fontSize: 11},
+            axisLine: {lineStyle: {color: c.axisLine}},
+            splitArea: {show: true}},
+    yAxis: {type: 'category', data: tribunais,
+            axisLabel: {color: c.axisLabel, fontWeight: 600},
+            axisLine: {lineStyle: {color: c.axisLine}},
+            splitArea: {show: true}},
+    series: [{
+      name: 'cobertura', type: 'heatmap',
+      data: series_data,
+      label: {show: false},
+      emphasis: {itemStyle: {borderColor: c.legend, borderWidth: 1}},
+    }],
+  };
+  // Click handler para gaps (vazio): chama onClickGap(tribunal, ano)
+  if (typeof onClickGap === 'function') {
+    opts._clickHandler = (params) => {
+      if (params.data && params.data._cor === 'vazio') {
+        onClickGap(params.data._tribunal, params.data._ano);
+      }
+    };
+  }
+  return opts;
+};
+
+/* Funil ampliado — descobertos → enviados → consumidos → validados → FN */
+window.buildFunilAmpliado = function(d) {
+  const c = chartGridColors();
+  const etapas = (d && d.etapas) || [];
+  if (!etapas.length) {
+    return {title: {text: 'sem dados', textStyle: {color: c.legend, fontSize: 12},
+                    left: 'center', top: 'center'}};
+  }
+  // Cores: degradê neutro + FN destacado em mission orange
+  const isDark = document.documentElement.classList.contains('dark');
+  const PALETTE = isDark
+    ? ['#f4f4f5', '#d4d4d8', '#a1a1aa', '#71717a', '#ea580c']
+    : ['#18181b', '#3f3f46', '#71717a', '#a1a1aa', '#ea580c'];
+  const labels = {
+    descobertos: '1. descobertos',
+    enviados: '2. enviados (API)',
+    consumidos: '3. consumidos',
+    validados: '4. validados',
+    fn_recuperados: '5. FN recuperados',
+  };
+  return {
+    tooltip: {trigger: 'item', valueFormatter: fmt},
+    legend: {orient: 'vertical', right: 0, top: 'middle',
+             textStyle: {color: c.legend, fontSize: 11}},
+    series: [{
+      type: 'funnel', left: '5%', top: 30, bottom: 30, width: '60%',
+      sort: 'descending', gap: 2,
+      label: {color: c.labelInDonut, fontSize: 11,
+              formatter: p => `${p.name}: ${fmt(p.value)}`},
+      labelLine: {length: 10, lineStyle: {width: 1}},
+      itemStyle: {borderColor: c.donutBorder, borderWidth: 1},
+      data: etapas.map((e, i) => ({
+        value: e.n,
+        name: labels[e.nome] || e.nome,
+        itemStyle: {color: PALETTE[i] || PALETTE[PALETTE.length - 1]},
+      })),
+    }],
+  };
+};
+
+/* Histograma de score (mini, agregado) — reusa builder de leads.html */
+window.buildScoreHistMini = function(d) {
+  const c = chartGridColors();
+  const isDark = document.documentElement.classList.contains('dark');
+  const bins = (d && d.bins) || [];
+  if (!bins.length) {
+    return {title: {text: 'sem dados', textStyle: {color: c.legend, fontSize: 12},
+                    left: 'center', top: 'center'}};
+  }
+  return {
+    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'},
+              formatter: p => `bin ${p[0].axisValue}: <strong>${fmt(p[0].value)}</strong>`},
+    grid: {left: 50, right: 20, top: 20, bottom: 40},
+    xAxis: {type: 'category', data: bins.map(b => (b.lo != null ? b.lo : b.score || 0).toFixed(2)),
+            axisLabel: {color: c.axisLabel, fontSize: 10},
+            axisLine: {lineStyle: {color: c.axisLine}}},
+    yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmtCompact},
+            splitLine: {lineStyle: {color: c.splitLine}}},
+    series: [{
+      type: 'bar',
+      data: bins.map((b, i) => ({
+        value: b.n != null ? b.n : (b.total || 0),
+        itemStyle: {
+          color: isDark
+            ? `rgba(244,244,245,${0.25 + (i / Math.max(bins.length - 1, 1)) * 0.75})`
+            : `rgba(24,24,27,${0.20 + (i / Math.max(bins.length - 1, 1)) * 0.75})`,
+          borderRadius: [3, 3, 0, 0],
+        },
+      })),
+      barMaxWidth: 28,
+    }],
+  };
+};
+
+/* Hook do ECharts: aplica `_clickHandler` quando o setOption é chamado.
+   setupChart é definido em base.html; aqui sobrescrevemos para registrar clicks
+   *após* a inicialização do chart, sem duplicar a função (delegação leve). */
+(function() {
+  if (window.__visClickHooked) return;
+  window.__visClickHooked = true;
+  document.addEventListener('click', function() {/* noop, ensures Alpine starts */}, {once: true});
+  // Observador: após cada lazyChart, registra o click handler caso exista.
+  const _origSetup = window.setupChart;
+  if (typeof _origSetup === 'function') {
+    window.setupChart = function(el, opts) {
+      _origSetup(el, opts);
+      try {
+        const inst = echarts.getInstanceByDom(el);
+        if (inst && opts && typeof opts._clickHandler === 'function') {
+          inst.off('click');
+          inst.on('click', opts._clickHandler);
+        }
+      } catch (e) { /* swallow */ }
+    };
+  }
+})();
+</script>
+
+{# CSRF token — necessário pro fetch do stub de re-ingestão #}
+{% csrf_token %}
+{% endblock %}

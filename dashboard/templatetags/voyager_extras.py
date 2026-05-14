@@ -6,6 +6,19 @@ from django.utils import timezone as djtz
 register = template.Library()
 
 
+@register.simple_tag
+def motivo_visivel(processo_validacao, user):
+    """Retorna o motivo de uma ProcessoValidacao se o usuário pode ver.
+
+    Wrapper template-side de `ProcessoValidacao.motivo_visivel_para(user)`.
+    Use em qualquer template que renderiza motivo de outros validadores
+    (admin, divergence resolution, audit log).
+    """
+    if processo_validacao is None:
+        return ''
+    return processo_validacao.motivo_visivel_para(user)
+
+
 @register.filter
 def relative_dt(value):
     """'há 5min', 'há 3h', 'ontem', 'há 2 dias', 'há 3 meses'."""
@@ -134,6 +147,50 @@ def is_in_list(value, csv):
     if not csv:
         return False
     return str(value) in str(csv).split(',')
+
+
+@register.filter
+def nivel_suspeita(score):
+    """Classifica float 0..1 em 'baixa' | 'media' | 'alta'.
+
+    Usado pra estilizar banner de suspeita FN no card de validação (T14).
+    """
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return 'baixa'
+    if s < 0.4:
+        return 'baixa'
+    if s < 0.7:
+        return 'media'
+    return 'alta'
+
+
+@register.filter
+def absval(value):
+    """|x|. Helper p/ templates onde precisamos do módulo."""
+    try:
+        return abs(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+@register.simple_tag
+def bar_pct(contribuicao, max_abs):
+    """Largura % da barra relativa ao max absoluto da lista.
+
+    Uso:
+      {% bar_pct c.contribuicao max_abs as pct %}
+      <span style="width: {{ pct }}%"></span>
+    """
+    try:
+        c = abs(float(contribuicao))
+        m = abs(float(max_abs))
+        if m == 0:
+            return 0
+        return min(100, round(c / m * 100))
+    except (TypeError, ValueError):
+        return 0
 
 
 @register.simple_tag

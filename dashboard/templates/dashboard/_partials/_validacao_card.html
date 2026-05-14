@@ -1,0 +1,281 @@
+{% comment %}
+Card grande de processo — fila de validação humana (T14).
+
+Renderiza isoladamente. NÃO depende de {% block %} da base.html.
+Reutilizável: pode embutir em outras páginas (preview de lote, drill-down).
+
+Contexto esperado:
+  processo                  Process — numero_cnj, tribunal.sigla, classe_nome,
+                            ano_cnj, total_movimentacoes
+  classificacao_no_momento  str — ex 'PRE_PRECATORIO'
+  score_no_momento          float — 0..1
+  score_breakdown           list[dict] — ver _score_breakdown.html
+  suspeita                  dict | None — {score: float, motivos: [str]}
+  ultimas_movs              list[Movimentacao] — até 5
+  partes                    list[ProcessoParte]
+  lote_id                   int
+  posicao                   int
+  total                     int
+  versao_modelo             str — ex 'v6'
+  salvar_url                str — URL absoluta para o POST de decisão (T8 preenche)
+{% endcomment %}
+{% load voyager_extras %}
+
+<article class="validacao-card"
+         data-processo-id="{{ processo.pk }}"
+         data-lote-id="{{ lote_id }}"
+         data-posicao="{{ posicao }}"
+         x-data="validacaoCard()">
+
+  {# ── HEADER ─────────────────────────────────────────────────────────── #}
+  <header class="vc-header">
+    <div class="vc-header-left">
+      <span class="vc-cnj jb-mono" title="CNJ">{{ processo.numero_cnj }}</span>
+      {% include 'dashboard/_partials/badge.html' with text=processo.tribunal.sigla variant='neutral' %}
+      {% include 'dashboard/_partials/badge.html' with text=classificacao_no_momento variant='info' %}
+      <span class="vc-score jb-mono" title="score atual do modelo">{{ score_no_momento|floatformat:3 }}</span>
+      <span class="vc-versao" title="versão do classificador">{{ versao_modelo }}</span>
+    </div>
+    <div class="vc-header-right">
+      <span class="vc-posicao jb-mono" aria-label="Posição no lote">#{{ posicao }}/{{ total }}</span>
+    </div>
+  </header>
+
+  {% if processo.classe_nome %}
+  <p class="vc-classe">
+    <span class="vc-meta-label">classe</span>
+    <span>{{ processo.classe_nome }}</span>
+    {% if processo.ano_cnj %}<span class="vc-meta-sep">·</span>{% endif %}
+    {% if processo.ano_cnj %}<span class="jb-mono">{{ processo.ano_cnj }}</span>{% endif %}
+    <span class="vc-meta-sep">·</span>
+    <span class="jb-mono">{{ processo.total_movimentacoes }} movs</span>
+  </p>
+  {% endif %}
+
+  {# ── BANNER SUSPEITA (condicional) ──────────────────────────────────── #}
+  {% if suspeita %}
+  <div class="vc-banner-suspeita" data-nivel="{{ suspeita.score|nivel_suspeita }}" role="alert">
+    <div class="vc-banner-head">
+      <strong>⚠ Suspeita FN</strong>
+      <span class="jb-mono">{{ suspeita.score|floatformat:2 }}</span>
+    </div>
+    {% if suspeita.motivos %}
+    <div class="vc-banner-motivos">
+      {% for motivo in suspeita.motivos %}
+        <span class="vc-chip-motivo">{{ motivo }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── SCORE BREAKDOWN ────────────────────────────────────────────────── #}
+  <section class="vc-section">
+    <button type="button"
+            class="vc-section-header"
+            aria-expanded="true"
+            @click="toggleSection('score')"
+            :aria-expanded="sections.score">
+      <h3>Por que essa classificação</h3>
+      <span class="vc-toggle" aria-hidden="true" :class="{ 'is-open': sections.score }">▾</span>
+    </button>
+    <div class="vc-section-body" x-show="sections.score" x-transition x-cloak>
+      {% include 'dashboard/_partials/_score_breakdown.html' with score_breakdown=score_breakdown top_n=5 %}
+    </div>
+  </section>
+
+  {# ── ÚLTIMAS MOVS ───────────────────────────────────────────────────── #}
+  <section class="vc-section">
+    <button type="button"
+            class="vc-section-header"
+            aria-expanded="false"
+            @click="toggleSection('movs')"
+            :aria-expanded="sections.movs">
+      <h3>Últimas {{ ultimas_movs|length }} movimentações</h3>
+      <span class="vc-toggle" aria-hidden="true" :class="{ 'is-open': sections.movs }">▾</span>
+    </button>
+    <ul class="vc-section-body vc-movs-list" x-show="sections.movs" x-transition x-cloak>
+      {% for mov in ultimas_movs %}
+        <li class="vc-mov-item">
+          <span class="vc-mov-data jb-mono">{{ mov.data_disponibilizacao|date:"Y-m-d" }}</span>
+          <span class="vc-mov-tipo">{{ mov.tipo_comunicacao|default:"—" }}</span>
+          {% if mov.texto %}
+            <p class="vc-mov-texto">{{ mov.texto|truncatewords:30 }}</p>
+          {% endif %}
+        </li>
+      {% empty %}
+        <li class="vc-empty">Sem movimentações</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  {# ── PARTES ─────────────────────────────────────────────────────────── #}
+  <section class="vc-section">
+    <button type="button"
+            class="vc-section-header"
+            aria-expanded="false"
+            @click="toggleSection('partes')"
+            :aria-expanded="sections.partes">
+      <h3>Partes ({{ partes|length }})</h3>
+      <span class="vc-toggle" aria-hidden="true" :class="{ 'is-open': sections.partes }">▾</span>
+    </button>
+    <div class="vc-section-body vc-partes-list" x-show="sections.partes" x-transition x-cloak>
+      {% for pp in partes %}
+        <span class="vc-parte" data-polo="{{ pp.polo }}">
+          <span class="vc-parte-polo">{{ pp.polo }}</span>
+          <span class="vc-parte-nome">{{ pp.parte.nome }}</span>
+          {% if pp.papel %}<span class="vc-parte-papel">{{ pp.papel }}</span>{% endif %}
+        </span>
+      {% empty %}
+        <span class="vc-empty">Sem partes cadastradas</span>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ── LINK EXTERNO ───────────────────────────────────────────────────── #}
+  <p class="vc-link-wrap">
+    <a class="vc-link-voyager"
+       href="{% url 'dashboard:processo-detail' processo.pk %}"
+       target="_blank"
+       rel="noopener">
+      Ver tudo no Voyager <span aria-hidden="true">↗</span>
+    </a>
+  </p>
+
+  {# ── FORM DE DECISÃO ───────────────────────────────────────────────── #}
+  <form class="vc-form-decisao"
+        method="POST"
+        action="{{ salvar_url|default:'' }}"
+        {% if salvar_url %}hx-post="{{ salvar_url }}"{% endif %}
+        hx-target="#card-container"
+        hx-swap="outerHTML"
+        @keydown.window="handleHotkey($event)">
+    {% csrf_token %}
+    <input type="hidden" name="processo_id" value="{{ processo.pk }}">
+    <input type="hidden" name="lote_id" value="{{ lote_id }}">
+    <input type="hidden" name="tempo_segundos" x-model="tempoSegundos">
+
+    <fieldset class="vc-botoes-decisao">
+      <legend class="sr-only">Decisão</legend>
+
+      <button type="submit" name="resultado" value="eh_precatorio"
+              class="vc-btn-decisao vc-kind-precatorio"
+              data-hotkey="1"
+              aria-label="Marcar como Precatório (atalho 1)">
+        <span class="vc-btn-emoji" aria-hidden="true">💎</span>
+        <span class="vc-btn-text">Precatório</span>
+        <kbd class="vc-kbd">1</kbd>
+      </button>
+
+      <button type="submit" name="resultado" value="eh_pre"
+              class="vc-btn-decisao vc-kind-pre"
+              data-hotkey="2"
+              aria-label="Marcar como Pré-precatório (atalho 2)">
+        <span class="vc-btn-emoji" aria-hidden="true">⏳</span>
+        <span class="vc-btn-text">Pré</span>
+        <kbd class="vc-kbd">2</kbd>
+      </button>
+
+      <button type="submit" name="resultado" value="eh_dc"
+              class="vc-btn-decisao vc-kind-dc"
+              data-hotkey="3"
+              aria-label="Marcar como Direito Creditório (atalho 3)">
+        <span class="vc-btn-emoji" aria-hidden="true">🌱</span>
+        <span class="vc-btn-text">D. Creditório</span>
+        <kbd class="vc-kbd">3</kbd>
+      </button>
+
+      <button type="submit" name="resultado" value="nao_lead"
+              class="vc-btn-decisao vc-kind-nao-lead"
+              data-hotkey="4"
+              aria-label="Marcar como Não-lead (atalho 4)">
+        <span class="vc-btn-emoji" aria-hidden="true">❌</span>
+        <span class="vc-btn-text">Não-lead</span>
+        <kbd class="vc-kbd">4</kbd>
+      </button>
+
+      <button type="submit" name="resultado" value="incerto"
+              class="vc-btn-decisao vc-kind-incerto"
+              data-hotkey="I"
+              aria-label="Marcar como Incerto (atalho I)">
+        <span class="vc-btn-emoji" aria-hidden="true">❓</span>
+        <span class="vc-btn-text">Incerto</span>
+        <kbd class="vc-kbd">I</kbd>
+      </button>
+
+      <button type="submit" name="resultado" value="precisa_enriquecer"
+              class="vc-btn-decisao vc-kind-enriquecer"
+              data-hotkey="E"
+              aria-label="Enviar para enriquecer (atalho E)">
+        <span class="vc-btn-emoji" aria-hidden="true">🔄</span>
+        <span class="vc-btn-text">Enriquecer</span>
+        <kbd class="vc-kbd">E</kbd>
+      </button>
+
+      <button type="submit" name="resultado" value="skip"
+              class="vc-btn-decisao vc-kind-skip"
+              data-hotkey="S"
+              aria-label="Pular este processo (atalho S)">
+        <span class="vc-btn-emoji" aria-hidden="true">⏭</span>
+        <span class="vc-btn-text">Pular</span>
+        <kbd class="vc-kbd">S</kbd>
+      </button>
+    </fieldset>
+
+    <fieldset class="vc-confianca">
+      <legend>Confiança</legend>
+      <label class="vc-radio">
+        <input type="radio" name="confianca" value="alta" checked>
+        <span>Alta</span>
+      </label>
+      <label class="vc-radio">
+        <input type="radio" name="confianca" value="media">
+        <span>Média</span>
+      </label>
+      <label class="vc-radio">
+        <input type="radio" name="confianca" value="baixa">
+        <span>Baixa</span>
+      </label>
+    </fieldset>
+
+    <details class="vc-motivo-wrapper" :open="motivoExpandido">
+      <summary>Motivo (opcional)</summary>
+      <textarea name="motivo"
+                rows="3"
+                maxlength="5000"
+                placeholder="Por que essa decisão? Útil pra retreino futuro."></textarea>
+    </details>
+  </form>
+</article>
+
+<script>
+function validacaoCard() {
+  return {
+    sections: { score: true, movs: false, partes: false },
+    tempoSegundos: 0,
+    motivoExpandido: false,
+    iniciado: Date.now(),
+    toggleSection(name) { this.sections[name] = !this.sections[name]; },
+    handleHotkey(e) {
+      // ignorar se o foco está em input/textarea (deixa o usuário digitar)
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'textarea' || tag === 'input') return;
+      // ignorar com modifiers (Ctrl+1, etc) — reservados ao browser
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      this.tempoSegundos = Math.floor((Date.now() - this.iniciado) / 1000);
+
+      const hotkey = (e.key || '').toUpperCase();
+      const btn = document.querySelector(`.vc-btn-decisao[data-hotkey="${hotkey}"]`);
+      if (btn) {
+        e.preventDefault();
+        // expandir motivo automaticamente em INCERTO/ENRIQUECER
+        if (hotkey === 'I' || hotkey === 'E') {
+          this.motivoExpandido = true;
+        }
+        btn.click();
+      }
+    },
+  };
+}
+</script>

@@ -15,14 +15,14 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 
 | IP | Papel | Compose |
 |---|---|---|
-| `192.168.1.30` | Servidor principal — web, nginx, cloudflared, scheduler, workers de ingestion. Postgres exposto na LAN (:5432). | `docker-compose-prod.yml` |
-| `192.168.1.82` | Postgres dedicado | — |
-| `192.168.1.219` | Redis dedicado | — |
-| `192.168.1.177` | Máquina auxiliar de workers | `docker-compose-workers.yml` |
-| `192.168.1.184` | Máquina auxiliar de workers | `docker-compose-workers.yml` |
-| `10.10.0.115`   | Máquina auxiliar de workers | `docker-compose-workers.yml` |
+| `192.168.1.32` | Servidor principal — web, nginx, cloudflared, scheduler, workers de ingestion | `docker-compose-prod.yml` |
+| `192.168.1.28` | Postgres dedicado (sem container do projeto) | — |
+| `192.168.1.30` | Redis dedicado (sem container do projeto) | — |
+| `192.168.1.36` | Máquina auxiliar de workers (consolidação dos antigos `.177`/`.184`/`.115`) | `docker-compose-workers.yml` |
 
-Máquinas auxiliares (`.177` e `.184`) rodam só workers — sem web/db/redis próprios. Conectam no Postgres (`.82`) e Redis (`.219`) via LAN. O drainer do stream de enrichment roda **somente no `.30``**; as auxiliares só publicam resultados.
+**Histórico (2026-05-12)**: topologia anterior usava `.30` (web), `.82` (db), `.219` (redis), `.177`/`.184`/`.115` (3 hosts de workers). Atual usa 4 hosts dedicados (web, db, redis, 1 host workers). Comandos antigos com IPs `.30`/`.82`/`.219`/`.177`/`.184`/`.115` precisam ser remapeados.
+
+Máquina auxiliar (`.36`) roda só workers — sem web/db/redis próprios. Conecta no Postgres (`.28`) e Redis (`.30`) via LAN. O drainer do stream de enrichment roda **somente no `.32`**; a auxiliar só publica resultados.
 
 ## Workers em prod (configuração atual — 2026-05-06)
 
@@ -334,7 +334,7 @@ Pipeline ML que classifica processos como Precatório/Pré/Direito Creditório. 
 ### Disparar batch manual (re-classificar tudo)
 
 ```bash
-ssh ubuntu@192.168.1.30 "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web python manage.py shell -c \"
+ssh ubuntu@192.168.1.32 "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web python manage.py shell -c \"
 from tribunals.jobs import reclassificar_recentes
 job = reclassificar_recentes.delay(dias=7, paralelizar=True)
 print(f'job: {job.id}')
@@ -370,6 +370,94 @@ Cliente usa header `X-API-Key: <key>` em todas requests pra `/api/v1/leads/*`.
 - API key: armazenada em `.env` deles (não documentar aqui)
 - Capacidade: ~5.000 leads/dia
 - Endpoint chamado tipicamente em cron diário (madrugada)
+
+## Validação humana, shadow mode e retreino v7
+
+Sistema entregue em Wave 0-5 (T4-T22). Detalhe técnico em
+[`CLASSIFICACAO.md`](CLASSIFICACAO.md), regras de negócio em
+[`REGRAS_NEGOCIO_VALIDACAO.md`](REGRAS_NEGOCIO_VALIDACAO.md), procedimento de
+deploy em [`V7_DEPLOY_DECISION.md`](V7_DEPLOY_DECISION.md).
+
+### Settings novos (em `core/settings.py`)
+
+| Setting | Default | Função |
+|---|---|---|
+| `CLASSIFICADOR_RELOAD_TTL` | 60 | Segundos entre tentativas de hot reload da `ClassificadorVersao(ativa=True)` |
+| `SHADOW_SAMPLE_RATE` | 0.10 | Fração [0,1] das classificações que disparam shadow async. 0 desliga |
+| `VALIDACAO_LOTES_SEMANAIS_ENABLED` | True | Liga/desliga cron semanal de mining FN + criar lote |
+
+### Crons novos (scheduler do `.30`)
+
+| Job | Schedule | Fila | Função |
+|---|---|---|---|
+| `gerar_lotes_semanais_fn` | dom 02:00 | default | minera FN por tribunal e cria `AmostraValidacao(estrategia='fn_candidatos')` |
+| `comparar_shadow_daily` | 04:00 diário | default | roda `comparar_shadow('v_ativa', 'v_shadow', dias=7)` por par de versões |
+
+### CSVs de ground truth (versionados em git)
+
+Desde 2026-05-12, CSVs de ground truth ficam em `data_ground_truth/` (versionados):
+
+| Arquivo | Tipo | Usado por |
+|---|---|---|
+| `leads_trf1.csv` (396k) | label=1, peso 1.0 | `exportar_labels_retreino`, `treinar_classificador_v7`, `minerar_fn` (E4/E5) |
+| `leads_trf1_recuperados_1327.csv` | label=1, peso 2.0 | mesmo + `gerar_lote_validacao --estrategia recuperados` |
+| `leads_trf1_falsos_consumidos_1327.csv` | label=0, peso 2.0 | mesmo + gate de regressão FP no v7 |
+| `leads_trf1_precatorio_1336.csv` | label=1 (N1), peso 2.0 | `exportar_labels_retreino` |
+| `leads_trf3.csv` + `leads_trf3_precatorio_500.csv` | label=1, peso 2.0 | idem |
+| `leads_trf3_top1000_recentes.csv`, `lista_5000_*.csv`, `poc_*.csv` | candidatos/POC | mining + análise |
+
+**Em prod**: o `git pull` na `web` (.32) e em `workers` (.36) já traz os CSVs — não precisa `scp` manual. Total ~13MB, cabe no repo sem LFS. CSVs de runtime (geram em treino/mining) continuam em `data/` (gitignored).
+
+### Management commands novos
+
+| Comando | Função |
+|---|---|
+| `minerar_fn` | Roda E1-E6 sobre universo, gera CSV `fn_candidatos_<sigla>_<data>.csv` |
+| `gerar_lote_validacao` | Cria lote manual (`--estrategia X --tribunal Y --tamanho N`) |
+| `gerar_lotes_semanais_fn` | Pipeline completo: mining + criação de lotes (usado pelo cron) |
+| `exportar_labels_retreino` | Consolida fontes de label (humano + Juriscope + CSVs) em dataset com `sample_weight` por origem |
+| `treinar_classificador_v6` | Treino v6 (TRF1) — usado em 2026-05-08 |
+| `treinar_classificador_v7` | Treino v7: 24 features + sample_weight + 6 gates + grid de thresholds + opcionalmente deploy |
+| `setup_validacao_groups` | Cria grupos `validadores_leads`, `revisores_seniores`, `auditores_leads`, `model_admins` e aplica permissions |
+
+### Páginas de dashboard novas
+
+| URL | Descrição |
+|---|---|
+| `/dashboard/leads/visibilidade/` | Overview com 8 KPIs + 5 charts (histograma score, calibração, funil, top FN, shadow status) + heatmap tribunal × ano CNJ |
+| `/dashboard/leads/validacao/` | Lista de lotes ativos do usuário; botão "criar lote" (precisa `can_publish_model`) |
+| `/dashboard/leads/validacao/<id>/` | Fila de anotação 1-por-vez com hotkeys; navega item por item |
+| `/dashboard/leads/validacao/<id>/concluido/` | Sumário pós-finalização do lote |
+
+Acesso: `can_view_validacao_dashboard` (visibilidade/overview); `can_validate_lead`
+(anotação). Decorators em `dashboard/views.py`.
+
+### Procedimento deploy v7 (sumário)
+
+Detalhes em [`V7_DEPLOY_DECISION.md`](V7_DEPLOY_DECISION.md). Visão de alto nível:
+
+1. Treinar v7 com `treinar_classificador_v7` — gera relatório de 6 gates.
+2. Se Pass 6/6 (ou Warn com dupla aprovação) → criar `ClassificadorVersao(versao='v7', shadow=True)`.
+3. Aguardar 7 dias com `SHADOW_SAMPLE_RATE=0.10`. Cron `comparar_shadow_daily` produz relatório.
+4. Sign-off humano (review disagreements + KS + agreement).
+5. Flip de `ativa=True` (`ClassificadorVersao.objects.filter(versao='v7').update(ativa=True)`) — propaga em ≤ 60s via hot reload.
+
+### Rollback v7
+
+```bash
+ssh ubuntu@192.168.1.32 \
+  "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
+   python manage.py shell -c \"
+from tribunals.models import ClassificadorVersao
+from django.db import transaction
+with transaction.atomic():
+    ClassificadorVersao.objects.filter(versao='v7').update(ativa=False)
+    ClassificadorVersao.objects.filter(versao='v6').update(ativa=True)
+print('rollback aplicado')
+\""
+```
+
+Workers detectam em ≤ 60s. Re-classificar últimas 24h: `reclassificar_recentes.delay(dias=1, paralelizar=True)`.
 
 ## Adicionar tribunal novo (TJMG, TJSP, etc)
 

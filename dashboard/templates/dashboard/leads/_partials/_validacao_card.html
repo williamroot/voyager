@@ -1,0 +1,11 @@
+{% comment %}
+Wrapper. A `view leads_validacao_item` aponta para este caminho
+(`dashboard/leads/_partials/_validacao_card.html`), enquanto o partial
+real entregue pela T14 vive em `dashboard/_partials/_validacao_card.html`.
+
+Este arquivo apenas injeta a `salvar_url` (obrigatória para o form HTMX
+disparar o POST de decisão) e delega para o partial T14, mantendo-o
+intacto.
+{% endcomment %}
+{% url 'dashboard:leads_validacao_salvar' as salvar_url_resolved %}
+{% include 'dashboard/_partials/_validacao_card.html' with salvar_url=salvar_url_resolved classificacao_no_momento=item.classificacao_no_sorteio score_no_momento=item.score_no_sorteio versao_modelo=lote.versao_modelo %}

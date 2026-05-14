@@ -4,10 +4,13 @@ from django.contrib import admin
 from django.utils import timezone
 
 from .models import (
+    AmostraProcesso,
+    AmostraValidacao,
     ApiClient,
     Assunto,
     ClasseJudicial,
     ClassificacaoLog,
+    ClassificacaoShadowLog,
     ClassificadorVersao,
     IngestionRun,
     LeadConsumption,
@@ -15,7 +18,9 @@ from .models import (
     Parte,
     Process,
     ProcessoParte,
+    ProcessoValidacao,
     SchemaDriftAlert,
+    ThresholdTribunal,
     Tribunal,
 )
 
@@ -141,3 +146,105 @@ class SchemaDriftAlertAdmin(admin.ModelAdmin):
     @admin.action(description='Marcar como resolvido')
     def marcar_resolvido(self, request, queryset):
         queryset.update(resolvido=True, resolvido_em=timezone.now())
+
+
+# ============== Validação humana ==============
+
+class AmostraProcessoInline(admin.TabularInline):
+    model = AmostraProcesso
+    extra = 0
+    raw_id_fields = ('processo',)
+    readonly_fields = ('ordem', 'score_no_sorteio', 'classificacao_no_sorteio',
+                       'suspeita_score', 'motivos_suspeita')
+    can_delete = False
+    show_change_link = True
+
+
+@admin.register(AmostraValidacao)
+class AmostraValidacaoAdmin(admin.ModelAdmin):
+    list_display = ('id', 'estrategia', 'tribunal', 'versao_modelo',
+                    'criada_por', 'criada_em', 'tamanho_alvo')
+    list_filter = ('estrategia', 'tribunal', 'versao_modelo')
+    search_fields = ('id',)
+    raw_id_fields = ('criada_por', 'tribunal')
+    readonly_fields = ('criada_em',)
+    inlines = [AmostraProcessoInline]
+
+
+@admin.register(AmostraProcesso)
+class AmostraProcessoAdmin(admin.ModelAdmin):
+    list_display = ('id', 'amostra', 'processo', 'ordem',
+                    'score_no_sorteio', 'classificacao_no_sorteio')
+    list_filter = ('classificacao_no_sorteio',)
+    search_fields = ('processo__numero_cnj',)
+    raw_id_fields = ('amostra', 'processo')
+
+
+@admin.register(ProcessoValidacao)
+class ProcessoValidacaoAdmin(admin.ModelAdmin):
+    """Admin read-mostly — biz exige imutabilidade.
+
+    Delete bloqueado para qualquer usuário (incluindo superuser via UI);
+    snapshots e timestamp são readonly.
+    """
+
+    list_display = ('id', 'processo', 'usuario', 'resultado', 'confianca',
+                    'versao_modelo', 'criada_em', 'label_final')
+    list_filter = ('resultado', 'confianca', 'versao_modelo')
+    search_fields = ('processo__numero_cnj',)
+    raw_id_fields = ('processo', 'amostra', 'usuario',
+                     'label_final_resolvido_por')
+    readonly_fields = (
+        'processo', 'amostra', 'usuario', 'usuario_hash',
+        'resultado', 'confianca', 'motivo', 'tempo_segundos',
+        'versao_modelo', 'classificacao_no_momento', 'score_no_momento',
+        'features_snapshot', 'criada_em',
+    )
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ClassificacaoShadowLog)
+class ClassificacaoShadowLogAdmin(admin.ModelAdmin):
+    """Read-only — admin é apenas consulta. Insert/Update via job/worker."""
+
+    list_display = ('id', 'processo', 'versao_shadow', 'score', 'categoria', 'criada_em')
+    list_filter = ('versao_shadow', 'categoria')
+    search_fields = ('processo__numero_cnj',)
+    raw_id_fields = ('processo',)
+    readonly_fields = ('processo', 'versao_shadow', 'score', 'categoria', 'criada_em')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ThresholdTribunal)
+class ThresholdTribunalAdmin(admin.ModelAdmin):
+    """Editável apenas por superuser — biz exige dupla aprovação no fluxo
+    real (UI dedicada com `can_publish_model`). Admin é fallback operacional.
+    """
+
+    list_display = ('id', 'tribunal', 'versao_modelo', 'threshold_precatorio',
+                    'threshold_pre', 'threshold_dc', 'ativo', 'atualizado_em')
+    list_filter = ('tribunal', 'versao_modelo', 'ativo')
+    raw_id_fields = ('tribunal', 'atualizado_por')
+    readonly_fields = ('atualizado_em',)
+
+    def _is_super(self, request):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return self._is_super(request)
+
+    def has_change_permission(self, request, obj=None):
+        return self._is_super(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return self._is_super(request)

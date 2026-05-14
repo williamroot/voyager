@@ -1,0 +1,90 @@
+{% extends 'dashboard/base.html' %}
+{% load static voyager_extras %}
+
+{% block title %}LOTE-{{ lote.pk|stringformat:"04d" }} · anotação · validação{% endblock %}
+
+{% block content %}
+<div class="validacao-page validacao-page--lote" data-page="leads-validacao-lote"
+     x-data="{ hotkeysOpen: false, paneOpen: false }">
+
+  {# ── HEADER STICKY ─────────────────────────────────────────────────── #}
+  <header class="lote-header">
+    <div class="lote-header-left">
+      <a class="lote-back" href="{% url 'dashboard:leads_validacao_overview' %}" aria-label="Voltar à lista de lotes">← lotes</a>
+      <strong class="jb-mono">LOTE-{{ lote.pk|stringformat:"04d" }}</strong>
+      {% if lote.tribunal %}
+        {% include 'dashboard/_partials/badge.html' with text=lote.tribunal.sigla variant='neutral' %}
+      {% endif %}
+      {% include 'dashboard/_partials/badge.html' with text=lote.get_estrategia_display variant='info' %}
+      <span class="jb-mono text-fg-subtle">modelo {{ lote.versao_modelo }}</span>
+    </div>
+    <div class="lote-header-right">
+      <button type="button" class="chip" @click="hotkeysOpen = !hotkeysOpen" aria-label="Mostrar atalhos">
+        <kbd class="kbd">?</kbd> hotkeys
+      </button>
+    </div>
+  </header>
+
+  {# ── PROGRESS BAR ──────────────────────────────────────────────────── #}
+  <div class="lote-progress-bar" role="progressbar"
+       aria-valuenow="{{ progresso_pct }}" aria-valuemin="0" aria-valuemax="100"
+       aria-label="Progresso do lote">
+    <div class="lote-progress-bar-fill" style="width: {{ progresso_pct }}%"></div>
+    <span class="lote-progress-bar-label jb-mono">
+      {{ anotados }} / {{ total }} · {{ progresso_pct }}%
+    </span>
+  </div>
+
+  {# ── CARD CONTAINER (HTMX swap) ────────────────────────────────────── #}
+  <div id="card-container"
+       class="card-container"
+       hx-get="{% url 'dashboard:leads_validacao_item' lote.id 1 %}"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="acquiring-signal" role="status" aria-live="polite">
+      <span class="pulsar" aria-hidden="true"></span>
+      <span class="jb-mono">ACQUIRING SIGNAL</span>
+    </div>
+  </div>
+
+  {# ── NAV HINT ──────────────────────────────────────────────────────── #}
+  <p class="lote-nav-hint text-fg-subtle text-xs jb-mono text-center mt-4">
+    Enter = confirmar · 1/2/3/4 · I · E · S · Ctrl+Z desfaz (2s) · ? ajuda
+  </p>
+
+  {# ── MODAL HOTKEYS ─────────────────────────────────────────────────── #}
+  <div class="modal-shell"
+       x-show="hotkeysOpen"
+       x-cloak
+       @keydown.escape.window="hotkeysOpen = false"
+       @validacao:show-hotkeys.window="hotkeysOpen = !hotkeysOpen"
+       @validacao:hide-hotkeys.window="hotkeysOpen = false">
+    <div class="modal-backdrop" @click="hotkeysOpen = false" aria-hidden="true"></div>
+    <div class="modal-content card hotkeys-overlay" @click.stop
+         role="dialog" aria-modal="true" aria-labelledby="hotkeys-title">
+      <header class="modal-head">
+        <h3 id="hotkeys-title" class="text-lg font-semibold">Atalhos</h3>
+        <button type="button" class="modal-close" @click="hotkeysOpen = false" aria-label="Fechar">×</button>
+      </header>
+      <dl class="hotkeys-grid">
+        <dt><kbd class="kbd">1</kbd></dt><dd>💎 Precatório</dd>
+        <dt><kbd class="kbd">2</kbd></dt><dd>⏳ Pré-precatório</dd>
+        <dt><kbd class="kbd">3</kbd></dt><dd>🌱 Direito creditório</dd>
+        <dt><kbd class="kbd">4</kbd></dt><dd>❌ Não-lead</dd>
+        <dt><kbd class="kbd">I</kbd></dt><dd>❓ Incerto (abre motivo)</dd>
+        <dt><kbd class="kbd">E</kbd></dt><dd>🔄 Enriquecer (re-classifica depois)</dd>
+        <dt><kbd class="kbd">S</kbd></dt><dd>⏭ Pular (skip)</dd>
+        <dt><kbd class="kbd">?</kbd></dt><dd>Mostrar/esconder esta ajuda</dd>
+        <dt><kbd class="kbd">Esc</kbd></dt><dd>Fecha modal aberto</dd>
+        <dt><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Z</kbd></dt><dd>Desfazer última decisão (2s)</dd>
+      </dl>
+      <footer class="modal-actions">
+        <button type="button" class="chip" @click="hotkeysOpen = false">Fechar</button>
+      </footer>
+    </div>
+  </div>
+</div>
+
+{# ── JS de hotkeys da página de validação ─────────────────────────── #}
+<script src="{% static 'dashboard/validacao_hotkeys.js' %}" defer></script>
+{% endblock %}

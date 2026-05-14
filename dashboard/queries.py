@@ -15,6 +15,375 @@ from django.utils import timezone
 from tribunals.models import IngestionRun, Movimentacao, Process, SchemaDriftAlert, Tribunal
 
 
+# ===========================================================================
+# Validação humana / observabilidade de leads (T8)
+# ===========================================================================
+
+
+def kpis_validacao(usuario=None):
+    """KPIs do bloco superior de /dashboard/leads/visibilidade/ e /validacao/.
+
+    - backlog_precatorio: total Process(classificacao=PRECATORIO) (estado atual)
+    - fn_semana: ProcessoValidacao com resultado=eh_* na semana corrente
+      (terminologia spec — "FN descobertos pelo time")
+    - lotes_ativos: AmostraValidacao criadas nos últimos 30 dias
+    - lotes_do_usuario: idem mas filtrado por criada_por OR processos
+      pendentes pro usuário (filtragem permissiva — UI decide).
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from tribunals.models import (
+        AmostraProcesso, AmostraValidacao, ProcessoValidacao,
+    )
+
+    agora = timezone.now()
+    cutoff_semana = agora - timedelta(days=7)
+    cutoff_lote_ativo = agora - timedelta(days=30)
+
+    backlog_precatorio = Process.objects.filter(
+        classificacao=Process.CLASSIF_PRECATORIO,
+    ).count()
+
+    POSITIVOS = [
+        ProcessoValidacao.RESULTADO_EH_LEAD,
+        ProcessoValidacao.RESULTADO_EH_PRECATORIO,
+        ProcessoValidacao.RESULTADO_EH_PRE,
+        ProcessoValidacao.RESULTADO_EH_DC,
+    ]
+    fn_semana = ProcessoValidacao.objects.filter(
+        criada_em__gte=cutoff_semana,
+        resultado__in=POSITIVOS,
+        # FN ≡ humano disse "é lead" mas snapshot era NAO_LEAD
+        classificacao_no_momento=Process.CLASSIF_NAO_LEAD,
+    ).count()
+
+    lotes_qs = AmostraValidacao.objects.filter(criada_em__gte=cutoff_lote_ativo)
+    lotes_ativos = lotes_qs.count()
+
+    lotes_do_usuario = []
+    if usuario is not None and getattr(usuario, 'pk', None):
+        # Single query: anota total + anotados por lote num GROUP BY.
+        # Substitui o loop antigo de 2N COUNTs (review T11).
+        from django.db.models import Count, Q
+        rows = list(
+            lotes_qs.order_by('-criada_em')[:20]
+            .annotate(
+                total=Count('itens', distinct=True),
+                anotados=Count(
+                    'validacoes',
+                    filter=Q(validacoes__usuario=usuario),
+                    distinct=True,
+                ),
+            )
+            .values(
+                'id', 'estrategia', 'tribunal_id', 'tamanho_alvo',
+                'criada_em', 'total', 'anotados',
+            )
+        )
+        for r in rows:
+            tot = r['total'] or 0
+            r['progresso_pct'] = round(100 * r['anotados'] / tot, 1) if tot else 0
+        lotes_do_usuario = rows
+
+    return {
+        'backlog_precatorio': backlog_precatorio,
+        'fn_semana': fn_semana,
+        'lotes_ativos': lotes_ativos,
+        'lotes_do_usuario': lotes_do_usuario,
+    }
+
+
+def histograma_score_por_tribunal(tribunais=None, classificacao=None):
+    """Histograma de score (bins 0.05) por tribunal.
+
+    Retorna {'tribunais': [...], 'bins': [...], 'series': [{tribunal, dados:[...]}]}
+    Resposta enxuta (≤30 bins × ≤6 tribunais).
+    """
+    qs = Process.objects.exclude(classificacao_score__isnull=True)
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
+    else:
+        qs = qs.filter(tribunal__ativo=True)
+    if classificacao:
+        qs = qs.filter(classificacao=classificacao)
+
+    # Sample-cap pra evitar leitura de milhões de rows.
+    BUCKETS = 20  # 0.05 cada
+    AMOSTRA_CAP = 50000
+
+    sigs = sorted(set(qs.values_list('tribunal_id', flat=True).distinct()))
+    series = []
+    for sig in sigs[:6]:
+        scores = list(
+            qs.filter(tribunal_id=sig)
+            .values_list('classificacao_score', flat=True)[:AMOSTRA_CAP]
+        )
+        bins = [0] * BUCKETS
+        for s in scores:
+            idx = min(int(s * BUCKETS), BUCKETS - 1)
+            bins[idx] += 1
+        series.append({'tribunal': sig, 'dados': bins, 'amostra': len(scores)})
+
+    return {
+        'tribunais': sigs[:6],
+        'bins': [round(i / BUCKETS, 2) for i in range(BUCKETS + 1)],
+        'series': series,
+    }
+
+
+def calibracao_por_tribunal(tribunais=None, periodo_dias=90):
+    """Decis de score × taxa real de validação (resultado humano).
+
+    Sinal: ProcessoValidacao por tribunal nos últimos N dias.
+    Retorna {'tribunais': [{sigla, decis: [{decil, score_med, taxa_real, n}]}], ...}
+    Tribunal sem amostra retorna lista vazia (UI decide se omite ou mostra placeholder).
+    """
+    from collections import defaultdict
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from tribunals.models import ProcessoValidacao
+
+    agora = timezone.now()
+    cutoff = agora - timedelta(days=periodo_dias) if periodo_dias else None
+    POSITIVOS = {
+        ProcessoValidacao.RESULTADO_EH_LEAD,
+        ProcessoValidacao.RESULTADO_EH_PRECATORIO,
+        ProcessoValidacao.RESULTADO_EH_PRE,
+        ProcessoValidacao.RESULTADO_EH_DC,
+    }
+
+    qs = ProcessoValidacao.objects.select_related('processo').exclude(
+        score_no_momento__isnull=True,
+    )
+    if cutoff:
+        qs = qs.filter(criada_em__gte=cutoff)
+    if tribunais:
+        qs = qs.filter(processo__tribunal_id__in=tribunais)
+    else:
+        qs = qs.filter(processo__tribunal__ativo=True)
+
+    por_trib: dict[str, list[tuple[float, bool]]] = defaultdict(list)
+    for v in qs.values('processo__tribunal_id', 'score_no_momento', 'resultado').iterator(
+        chunk_size=5000
+    ):
+        por_trib[v['processo__tribunal_id']].append(
+            (float(v['score_no_momento'] or 0.0), v['resultado'] in POSITIVOS)
+        )
+
+    result = []
+    for sigla, pares in sorted(por_trib.items()):
+        if len(pares) < 10:
+            result.append({'tribunal': sigla, 'decis': [], 'sample_size': len(pares)})
+            continue
+        pares.sort(key=lambda x: x[0])
+        n = len(pares)
+        decis = []
+        for d in range(10):
+            lo = int(d * n / 10)
+            hi = int((d + 1) * n / 10)
+            sl = pares[lo:hi]
+            if not sl:
+                continue
+            score_med = sum(s for s, _ in sl) / len(sl)
+            taxa = sum(1 for _, v in sl if v) / len(sl)
+            decis.append({
+                'decil': d + 1,
+                'score_med': round(score_med, 3),
+                'taxa_real': round(taxa, 3),
+                'n': len(sl),
+            })
+        result.append({'tribunal': sigla, 'decis': decis, 'sample_size': n})
+
+    return {'tribunais': result, 'periodo_dias': periodo_dias}
+
+
+def heatmap_tribunal_ano():
+    """Matriz tribunal × ano_cnj de Process: contagem de processos com classificação.
+
+    Retorna {'tribunais': [...], 'anos': [...], 'celulas': [{tribunal, ano, n, cor}]}
+    onde cor é classificada em ok|medio|baixo|vazio pela proporção contra max global
+    do tribunal.
+    """
+    rows = list(
+        Process.objects.filter(tribunal__ativo=True, ano_cnj__isnull=False)
+        .exclude(ano_cnj=0)
+        .values('tribunal_id', 'ano_cnj')
+        .annotate(n=Count('id'))
+        .order_by('tribunal_id', 'ano_cnj')
+    )
+    if not rows:
+        return {'tribunais': [], 'anos': [], 'celulas': []}
+    sigs = sorted({r['tribunal_id'] for r in rows})
+    anos = sorted({r['ano_cnj'] for r in rows})
+    # Faixa razoável: últimos 10 anos
+    anos = [a for a in anos if a >= max(anos) - 10]
+
+    by_trib_max = {}
+    for r in rows:
+        t = r['tribunal_id']
+        by_trib_max[t] = max(by_trib_max.get(t, 0), r['n'])
+
+    def _cor(n: int, mx: int) -> str:
+        if n == 0 or mx == 0:
+            return 'vazio'
+        ratio = n / mx
+        if ratio < 0.1:
+            return 'baixo'
+        if ratio < 0.4:
+            return 'medio'
+        return 'ok'
+
+    by_key = {(r['tribunal_id'], r['ano_cnj']): r['n'] for r in rows}
+    celulas = []
+    for sig in sigs:
+        mx = by_trib_max.get(sig, 0)
+        for ano in anos:
+            n = by_key.get((sig, ano), 0)
+            celulas.append({
+                'tribunal': sig, 'ano': ano, 'n': n, 'cor': _cor(n, mx),
+            })
+
+    return {'tribunais': sigs, 'anos': anos, 'celulas': celulas}
+
+
+def funil_ampliado(periodo_dias=30):
+    """Funil estendido: descobertos → enviados → consumidos → validados → FN recuperados.
+
+    "Enviados" usa contagem de Process N1 pendente (proxy: candidatos a envio).
+    "FN recuperados" usa ProcessoValidacao(eh_* AND classificacao_no_momento=NAO_LEAD).
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from tribunals.models import (
+        ClassificacaoLog, LeadConsumption, ProcessoValidacao,
+    )
+
+    agora = timezone.now()
+    cutoff = agora - timedelta(days=periodo_dias) if periodo_dias else None
+
+    desc_qs = ClassificacaoLog.objects.filter(
+        classificacao=Process.CLASSIF_PRECATORIO,
+    )
+    if cutoff:
+        desc_qs = desc_qs.filter(criada_em__gte=cutoff)
+    descobertos = desc_qs.count()
+
+    enviados = Process.objects.filter(
+        classificacao=Process.CLASSIF_PRECATORIO,
+    ).count()  # proxy total disponível
+
+    cons_qs = LeadConsumption.objects.all()
+    if cutoff:
+        cons_qs = cons_qs.filter(consumido_em__gte=cutoff)
+    consumidos = cons_qs.values('processo_id').distinct().count()
+
+    validados = cons_qs.filter(
+        resultado__in=['validado', 'pago'],
+    ).values('processo_id').distinct().count()
+
+    POSITIVOS = [
+        ProcessoValidacao.RESULTADO_EH_LEAD,
+        ProcessoValidacao.RESULTADO_EH_PRECATORIO,
+        ProcessoValidacao.RESULTADO_EH_PRE,
+        ProcessoValidacao.RESULTADO_EH_DC,
+    ]
+    fn_qs = ProcessoValidacao.objects.filter(
+        resultado__in=POSITIVOS,
+        classificacao_no_momento=Process.CLASSIF_NAO_LEAD,
+    )
+    if cutoff:
+        fn_qs = fn_qs.filter(criada_em__gte=cutoff)
+    fn_recuperados = fn_qs.count()
+
+    return {
+        'etapas': [
+            {'nome': 'descobertos', 'n': descobertos},
+            {'nome': 'enviados', 'n': enviados},
+            {'nome': 'consumidos', 'n': consumidos},
+            {'nome': 'validados', 'n': validados},
+            {'nome': 'fn_recuperados', 'n': fn_recuperados},
+        ],
+        'periodo_dias': periodo_dias,
+    }
+
+
+def top_fn_semana(limit=10):
+    """Top FN suspeitos da semana: ProcessoValidacao com eh_lead mas
+    classificacao_no_momento=NAO_LEAD, ordenado por score_no_momento desc.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from tribunals.models import ProcessoValidacao
+
+    agora = timezone.now()
+    cutoff = agora - timedelta(days=7)
+    POSITIVOS = [
+        ProcessoValidacao.RESULTADO_EH_LEAD,
+        ProcessoValidacao.RESULTADO_EH_PRECATORIO,
+        ProcessoValidacao.RESULTADO_EH_PRE,
+        ProcessoValidacao.RESULTADO_EH_DC,
+    ]
+    qs = (
+        ProcessoValidacao.objects.filter(
+            criada_em__gte=cutoff,
+            resultado__in=POSITIVOS,
+            classificacao_no_momento=Process.CLASSIF_NAO_LEAD,
+        )
+        .select_related('processo', 'processo__tribunal')
+        .order_by('-score_no_momento', '-criada_em')[:limit]
+    )
+    return [
+        {
+            'cnj': v.processo.numero_cnj,
+            'tribunal': v.processo.tribunal_id,
+            'score': round(v.score_no_momento or 0.0, 3),
+            'resultado': v.resultado,
+            'criada_em': v.criada_em.isoformat(),
+        }
+        for v in qs
+    ]
+
+
+def compute_score_breakdown(processo, top_n=5):
+    """Reproduz a explainability do processo_detail.html — top features e
+    contribuições. Retorna lista de dicts ou [] se sem dados.
+    """
+    try:
+        from tribunals.classificador import WEIGHTS
+        from tribunals.models import ClassificacaoLog
+    except Exception:
+        return []
+
+    ultimo_log = (
+        ClassificacaoLog.objects.filter(processo=processo)
+        .order_by('-criada_em').first()
+    )
+    feats = (ultimo_log.features_snapshot if ultimo_log else None) or {}
+    if not feats:
+        return []
+    contribs = []
+    for fname, val in feats.items():
+        w = WEIGHTS.get(fname, 0.0)
+        contrib = w * val
+        if abs(contrib) > 0.001:
+            contribs.append({
+                'feature': fname,
+                'peso': round(w, 3),
+                'valor': round(val, 3),
+                'contribuicao': round(contrib, 3),
+            })
+    contribs.sort(key=lambda x: -abs(x['contribuicao']))
+    return contribs[:top_n]
+
+
 def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibilizacao'):
     """Aplica filtros de período e tribunais comuns em qualquer queryset de Movimentacao/Process.
 
@@ -700,4 +1069,60 @@ def ingestao_kpis(tribunal=None):
         'movimentacoes_novas': movs,
         'duracao_avg_s': dur_s,
         'duracao_avg_fmt': duracao_fmt,
+    }
+
+
+# ===========================================================================
+# Shadow mode (T19) — estado pra widget do dashboard de visibilidade
+# ===========================================================================
+
+
+def shadow_status():
+    """Retorna estado do shadow mode pra card de `/dashboard/leads/visibilidade/`.
+
+    Estrutura:
+      None se não há ClassificadorVersao(shadow=True).
+      dict {
+        'versao_shadow': str,
+        'total_logs_7d': int,
+        'last_log_at': datetime | None,
+        'last_report': str | None,   # apenas nome do arquivo (sem path absoluto)
+        'sample_rate': float,
+      }
+    """
+    from pathlib import Path
+
+    from django.conf import settings as dj_settings
+
+    from tribunals.models import ClassificacaoShadowLog, ClassificadorVersao
+
+    try:
+        shadow_v = ClassificadorVersao.objects.filter(shadow=True).first()
+    except Exception:
+        return None
+    if shadow_v is None:
+        return None
+
+    agora = timezone.now()
+    cutoff = agora - timedelta(days=7)
+    qs = ClassificacaoShadowLog.objects.filter(versao_shadow=shadow_v.versao)
+    total_7d = qs.filter(criada_em__gte=cutoff).count()
+    last = qs.order_by('-criada_em').only('criada_em').first()
+
+    last_report = None
+    try:
+        base_dir = Path(getattr(dj_settings, 'BASE_DIR', '.')) / '.ia'
+        if base_dir.exists():
+            reports = sorted(base_dir.glob('SHADOW_COMPARISON_*.md'), reverse=True)
+            if reports:
+                last_report = reports[0].name
+    except Exception:
+        last_report = None
+
+    return {
+        'versao_shadow': shadow_v.versao,
+        'total_logs_7d': total_7d,
+        'last_log_at': last.criada_em if last else None,
+        'last_report': last_report,
+        'sample_rate': float(getattr(dj_settings, 'SHADOW_SAMPLE_RATE', 0.0) or 0.0),
     }

@@ -8,6 +8,8 @@ Entidades de domínio em `tribunals/models.py`. Convites em `accounts/models.py`
 tribunals  Tribunal · Process · Movimentacao · IngestionRun · SchemaDriftAlert
            Parte · ProcessoParte · ClasseJudicial · Assunto
            ClassificadorVersao · ClassificacaoLog · ApiClient · LeadConsumption
+           AmostraValidacao · AmostraProcesso · ProcessoValidacao
+           ClassificacaoShadowLog · ThresholdTribunal
 accounts   Invite
 ```
 
@@ -240,7 +242,7 @@ Sistema de ML pra classificar processos como Precatório / Pré-precatório / Di
 
 **ClassificadorVersao** — versões treinadas:
 - `versao` (unique), `pesos` (JSON dict), `metricas` (JSON), `ativa` (bool)
-- Constraint partial: só 1 ativa por vez
+- `shadow` (bool, indexed) — N versões podem rodar em paralelo registrando `ClassificacaoShadowLog` sem afetar Process. Constraint partial é só sobre `ativa=True` (1 ativa por vez)
 
 **ClassificacaoLog** — histórico de transições (N3→N2→N1):
 - `processo` (FK), `classificacao`, `score`, `versao`, `features_snapshot` (JSON), `criada_em`
@@ -259,6 +261,152 @@ Sistema de ML pra classificar processos como Precatório / Pré-precatório / Di
 **Auxiliar** (não-Django, criada via SQL na migração de seed):
 - `lead_trf1 (process_id BIGINT PK, numero_cnj, criado_em)` — ground truth dos 396k leads TRF1 confirmados pelo Juriscope
 - `lead_trf3 (...)` — análoga (atualmente 347 amostras)
+
+## Validação humana + shadow + thresholds (`tribunals/models.py`)
+
+Pipeline de revisão manual sobre saída do classificador (T4-T22). Detalhes de regra
+em [`REGRAS_NEGOCIO_VALIDACAO.md`](REGRAS_NEGOCIO_VALIDACAO.md) e ADRs 018-022.
+
+### AmostraValidacao
+
+Lote sorteado por estratégia. Seed persistida para reprodutibilidade.
+
+```python
+id                 bigint    PK
+estrategia         char(30)  choices: top_score | borderline | low_score |
+                              falsos_consumidos | recuperados | on_demand |
+                              fn_candidatos | shadow_disagree
+tribunal           FK Tribunal  NULL PROTECT  (null = lote multi-tribunal)
+versao_modelo      char(10)              snapshot 'v6'
+criada_por         FK User      NULL SET_NULL
+criada_em          datetime  auto_now_add
+parametros         jsonb                 configs do sorteio
+tamanho_alvo       int
+seed               bigint                (auditável; regenerável)
+processos          M2M Process through=AmostraProcesso
+
+indexes:  (-criada_em), estrategia
+ordering: -criada_em
+```
+
+### AmostraProcesso (through M2M)
+
+```python
+amostra                    FK AmostraValidacao  CASCADE
+processo                   FK Process           CASCADE
+ordem                      int                  ordem no lote
+score_no_sorteio           float
+classificacao_no_sorteio   char(20)
+suspeita_score             float  NULL          score do mining (FN/shadow) — NULL se sorteio aleatório
+motivos_suspeita           jsonb  NULL          lista de E1..E6 ou outras tags
+
+constraint:  unique(amostra, processo)
+indexes:     (amostra, ordem)
+ordering:    amostra, ordem
+```
+
+### ProcessoValidacao
+
+Decisão humana **imutável**. Append-only via constraint. LGPD/anonimização
+fora de escopo desta versão (campo `usuario_hash` no schema, não populado).
+
+```python
+processo                   FK Process           CASCADE
+amostra                    FK AmostraValidacao  NULL SET_NULL
+usuario                    FK User              NULL SET_NULL  (SET_NULL cobre delete admin)
+usuario_hash               char(64)                            (reservado, não populado)
+
+resultado                  char(20)  choices: eh_lead | eh_precatorio | eh_pre |
+                                              eh_dc | nao_lead | incerto |
+                                              precisa_enriquecer | skip
+confianca                  char(10)  choices: alta | media | baixa (default alta)
+motivo                     text                 confidencial intra-equipe
+tempo_segundos             int  NULL
+
+# Snapshot do estado do modelo no momento da anotação
+versao_modelo              char(10)
+classificacao_no_momento   char(20)
+score_no_momento           float
+features_snapshot          jsonb
+
+criada_em                  datetime  auto_now_add
+
+# Resolução de divergência em dupla-anotação (10% dos lotes)
+label_final                char(20)  NULL  preenchido por revisor sênior
+label_final_resolvido_por  FK User  NULL SET_NULL
+label_final_resolvido_em   datetime NULL
+
+constraint:  unique(processo, usuario)  ← impede re-anotação
+indexes:     (processo, criada_em), (usuario, criada_em), resultado, amostra,
+             label_final
+
+permissions (Meta.permissions, custom):
+  can_validate_lead              — anotar validações
+  can_publish_model              — promover ClassificadorVersao + editar ThresholdTribunal
+  can_view_validacao_dashboard   — acessar /dashboard/leads/visibilidade/ e /validacao/
+  can_resolve_disagreement       — preencher label_final
+  can_view_motivo                — ler motivo de outros anotadores
+```
+
+Helper `motivo_visivel_para(user)` (e templatetag `{% motivo_visivel %}`) faz o gating
+de `motivo`: autor sempre vê o próprio; outros precisam de `can_view_motivo`.
+
+**Follow-up:** trigger Postgres UPDATE-block (hoje a imutabilidade é garantida só
+pela `UniqueConstraint`).
+
+### ClassificacaoShadowLog
+
+Predições de versões `shadow=True` em paralelo à versão `ativa=True`. Não afetam
+`Process.classificacao` — comparação A/B via job `comparar_shadow` (cron 04:00).
+
+```python
+processo         FK Process       CASCADE
+versao_shadow    char(10)
+score            float
+categoria        char(20)         (mesma choices de Process.classificacao)
+criada_em        datetime  auto_now_add  db_index=True
+
+indexes: (versao_shadow, criada_em)  → shadow_log_versao_em_idx
+```
+
+Retention 90 dias (cleanup job é follow-up).
+
+### ThresholdTribunal
+
+Thresholds N1/N2/N3 por (tribunal × versao_modelo). DB-driven com fallback aos
+defaults hardcoded em código.
+
+```python
+tribunal               FK Tribunal      CASCADE  related_name='thresholds'
+versao_modelo          char(10)
+threshold_precatorio   float
+threshold_pre          float
+threshold_dc           float
+ativo                  bool             default True
+atualizado_por         FK User          NULL SET_NULL
+atualizado_em          datetime  auto_now
+
+constraint:  unique(tribunal, versao_modelo)
+constraint:  unique(tribunal, versao_modelo) WHERE ativo=True   ← partial
+```
+
+Lido por `_categorizar(score, features, tribunal_id, versao_modelo)` — usado
+tanto pelo path ativo quanto pelo shadow (ADR-022).
+
+### ER (validação humana)
+
+```
+Tribunal 1 ──< AmostraValidacao ──< AmostraProcesso >── Process
+                                                          │
+                                                          └──< ProcessoValidacao
+User 1 ──< AmostraValidacao (criada_por)                       │
+User 1 ──< ProcessoValidacao (usuario, autor)                  │
+User 1 ──< ProcessoValidacao (label_final_resolvido_por)       │
+                                                               │
+Process ──< ClassificacaoShadowLog                             │
+                                                               │
+Tribunal 1 ──< ThresholdTribunal  (versionado por versao_modelo)
+```
 
 ## Volume / espaço
 

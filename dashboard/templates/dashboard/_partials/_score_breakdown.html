@@ -1,0 +1,55 @@
+{% comment %}
+Score breakdown — top features que contribuíram pra classificação.
+
+Renderiza tabela compacta ordenada por |contribuicao| DESC (responsabilidade
+do caller). Reutilizado em:
+- processo_detail.html (drill-down de score)
+- _validacao_card.html (workbench de anotação humana — T14)
+
+Contexto:
+  score_breakdown: list[dict] — cada item com:
+    feature (str, ex 'F1'), label (str legível), peso (float, com sinal),
+    valor (float), contribuicao (float, com sinal)
+  top_n: int — quantos itens mostrar (default 5)
+
+Bar visual mostra |contribuicao| relativa ao max abs da lista (calculado aqui).
+{% endcomment %}
+{% load voyager_extras %}
+{% with breakdown=score_breakdown limit=top_n|default:5 %}
+{% if breakdown %}
+  {# calcula max |contribuicao| pra escala da barra #}
+  {% with max_abs=breakdown.0.contribuicao|absval %}
+  <div class="score-breakdown" role="table" aria-label="Top features que contribuíram para a classificação">
+    <div class="score-breakdown-head" role="row">
+      <span class="sb-col-feat" role="columnheader">feature</span>
+      <span class="sb-col-label" role="columnheader">descrição</span>
+      <span class="sb-col-peso" role="columnheader">peso</span>
+      <span class="sb-col-contrib" role="columnheader">contribuição</span>
+    </div>
+    {% for c in breakdown %}
+      {% if forloop.counter <= limit %}
+      {% bar_pct c.contribuicao max_abs as pct %}
+      <div class="score-breakdown-row" role="row">
+        <span class="sb-col-feat jb-mono" role="cell">{{ c.feature }}</span>
+        <span class="sb-col-label" role="cell">{{ c.label }}</span>
+        <span class="sb-col-peso jb-mono {% if c.peso < 0 %}sb-neg{% else %}sb-pos{% endif %}" role="cell">
+          {% if c.peso >= 0 %}+{% endif %}{{ c.peso|floatformat:2 }}
+        </span>
+        <span class="sb-col-contrib" role="cell">
+          <span class="sb-contrib-val jb-mono {% if c.contribuicao < 0 %}sb-neg{% else %}sb-pos{% endif %}">
+            {% if c.contribuicao >= 0 %}+{% endif %}{{ c.contribuicao|floatformat:2 }}
+          </span>
+          <span class="sb-bar" aria-hidden="true">
+            <span class="sb-bar-fill {% if c.contribuicao < 0 %}sb-bar-neg{% else %}sb-bar-pos{% endif %}"
+                  style="width: {{ pct }}%"></span>
+          </span>
+        </span>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endwith %}
+{% else %}
+  <p class="sb-empty">Score breakdown indisponível.</p>
+{% endif %}
+{% endwith %}

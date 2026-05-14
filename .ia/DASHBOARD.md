@@ -45,6 +45,10 @@ Tema dark/light via `data-theme` no `<html>` + `tailwind.config.darkMode = 'clas
 | `/dashboard/workers/` | `workers.html` | Filas RQ + workers conectados, auto-refresh HTMX 5s |
 | `/dashboard/ingestao/` | `ingestao.html` | Saúde operacional (proxies, drift, runs) |
 | `/dashboard/leads/` | `leads.html` | Pipeline de leads (Precatório/Pré/Direito Creditório) — KPIs + charts lazy + tabela paginada + export CSV |
+| `/dashboard/leads/visibilidade/` | `leads/visibilidade.html` | Observabilidade do classificador — 8 KPIs + 5 charts (histograma de score, calibração por tribunal, funil, top FN, shadow status) + heatmap tribunal × ano CNJ. Requer `can_view_validacao_dashboard` |
+| `/dashboard/leads/validacao/` | `leads/validacao_overview.html` | Lista de lotes ativos do usuário; botão criar lote (precisa `can_publish_model`) |
+| `/dashboard/leads/validacao/<id>/` | `leads/validacao_lote.html` | Fila de anotação 1-por-vez com hotkeys (HTMX swap entre itens) |
+| `/dashboard/leads/validacao/<id>/concluido/` | `leads/_partials/_lote_concluido.html` | Sumário pós-finalização do lote |
 | `/dashboard/api/` | `api_docs.html` | Docs da API de leads + cards de stats por nível + clientes ativos + métricas do modelo |
 | `/dashboard/consulta-rapida/` | `consulta_rapida.html` | Debug em tempo real: consulta CNJ no DJEN+Datajud, mostra raw + parsed sem persistir |
 | `/dashboard/invites/` | `accounts/invites_list.html` | **Superuser**: gerar/revogar convites de cadastro |
@@ -70,6 +74,11 @@ Tema dark/light via `data-theme` no `<html>` + `tailwind.config.darkMode = 'clas
 | `toast_container.html` | Container global de toasts |
 | `dropdown.html` | Menu Alpine click.outside |
 | `_parte_row.html` | Linha de parte em card de polo (com indent pra advogados) |
+| `_chart_card.html` | Card padronizado de chart com header + skeleton + lazy-load |
+| `_validacao_card.html` | Card de item de validação (CNJ, score, features, decision buttons) |
+| `_score_breakdown.html` | Detalhamento das top features (positivas e negativas) com `bar_pct` |
+| `leads/_partials/_validacao_card.html` | Wrapper específico do dashboard de validação |
+| `leads/_partials/_lote_concluido.html` | Sumário do lote |
 
 ## Filtros globais
 
@@ -110,7 +119,33 @@ Em troca de tema: `initAllCharts()` re-renderiza tudo (palette adaptável).
 
 ## Atalhos de teclado
 
-`g h` → home, `g p` → processos, `g m` → movimentações, `g i` → ingestão, `/` → busca, `t` → toggle tema, `?` → modal de ajuda. Implementação em `base.html` (event listener com flag `pendingG`).
+Globais (em `base.html`): `g h` → home, `g p` → processos, `g m` → movimentações, `g i` → ingestão, `/` → busca, `t` → toggle tema, `?` → modal de ajuda. Listener com flag `pendingG`.
+
+Fila de validação (`/dashboard/leads/validacao/<id>/`, em `dashboard/static/dashboard/validacao_hotkeys.js`):
+
+| Tecla | Ação |
+|---|---|
+| `1` | É Precatório (N1) |
+| `2` | É Pré-precatório (N2) |
+| `3` | É Direito Creditório (N3) |
+| `4` | Não é lead |
+| `I` | Incerto |
+| `E` | Precisa enriquecer |
+| `S` | Skip (pula) |
+| `J` / `K` | Próximo / anterior item (sem salvar) |
+| `Ctrl+Z` | Desfazer última anotação |
+| `?` | Mostrar mapa de atalhos |
+
+## Custom template tags e filters (`voyager_extras.py`)
+
+Além dos já existentes (`type_classes`, `format_cnj`, etc), as Waves 0-5 adicionaram:
+
+| Nome | Tipo | Função |
+|---|---|---|
+| `motivo_visivel` | simple_tag | Wrapper de `ProcessoValidacao.motivo_visivel_para(user)` — retorna o motivo só se user tem direito |
+| `nivel_suspeita` | filter | Mapeia `suspeita_score` → label/cor (baixa/média/alta) pra badge no card de validação |
+| `absval` | filter | `abs(value)` — usado em barras de contribuição negativa |
+| `bar_pct` | simple_tag | `{% bar_pct contrib max_abs as pct %}` — produz % de largura relativa pra barra de feature breakdown |
 
 ## Mobile
 
