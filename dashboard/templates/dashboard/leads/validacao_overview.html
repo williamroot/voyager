@@ -15,6 +15,65 @@
 
   {% include 'dashboard/_partials/page_header.html' with title='VALIDAÇÃO POR AMOSTRAGEM' subtitle='Anote processos um-por-vez · alvo 100/h · atalhos 1/2/3/4 · I · E · S · ?' %}
 
+  {# ── Manual didático ────────────────────────────────────────────────── #}
+  <section class="mission-brief mb-5" x-data="{ open: false }">
+    <button type="button"
+            class="mission-brief-toggle"
+            @click="open = !open"
+            :aria-expanded="open ? 'true' : 'false'"
+            aria-controls="validacao-brief-body">
+      <span class="mission-brief-icon" aria-hidden="true">🛰️</span>
+      <span class="mission-brief-title">
+        <span class="mission-brief-eyebrow">VOYAGER · PROTOCOLO DE VALIDAÇÃO</span>
+        <span class="mission-brief-subtitle" x-show="!open">primeira vez por aqui? toque pra ler o manual</span>
+        <span class="mission-brief-subtitle" x-show="open" x-cloak>fechar manual</span>
+      </span>
+      <span class="mission-brief-chevron" aria-hidden="true" :class="open ? 'is-open' : ''">▾</span>
+    </button>
+    <div id="validacao-brief-body" class="mission-brief-body" x-show="open" x-transition x-cloak>
+      <div class="mission-brief-grid">
+        <article>
+          <h4>🧭 Por que essa tela existe?</h4>
+          <p>O classificador automático erra. Pra <strong>medir o quanto</strong> e <strong>aprender a errar menos</strong>, precisamos de humanos rotulando uma amostra. Você é o sensor de referência da nave 🛸.</p>
+        </article>
+        <article>
+          <h4>🎲 O que é um “lote”?</h4>
+          <p>Um conjunto de processos sorteado segundo uma <em>estratégia</em>:</p>
+          <ul>
+            <li>📊 <strong>Borderline</strong>: scores na zona de dúvida (0,30–0,70) — sinal de retreino.</li>
+            <li>🔭 <strong>FN candidatos</strong>: suspeitos de que o modelo deixou passar.</li>
+            <li>💎 <strong>Top score</strong>: confirmar precisão no topo.</li>
+            <li>🌊 <strong>Low score</strong>: confirmar que descartamos certo.</li>
+          </ul>
+        </article>
+        <article>
+          <h4>⌨️ Atalhos da fila</h4>
+          <ul>
+            <li><kbd>1</kbd> 💎 Precatório · <kbd>2</kbd> ⏳ Pré · <kbd>3</kbd> 🌱 D. Creditório</li>
+            <li><kbd>4</kbd> ❌ Não-lead · <kbd>I</kbd> ❓ Incerto</li>
+            <li><kbd>E</kbd> 🔄 Precisa enriquecer · <kbd>S</kbd> ⏭ Pular</li>
+            <li><kbd>?</kbd> abre painel · <kbd>Ctrl+Z</kbd> desfaz a última (2s)</li>
+          </ul>
+        </article>
+        <article>
+          <h4>📐 Quanto vale cada anotação?</h4>
+          <p>No re-treino, label humano pesa <strong>3×</strong> mais que Juriscope e <strong>1×</strong> CSV histórico. Anotar 300 processos cuidadosamente vale mais que mil rótulos automatizados.</p>
+        </article>
+        <article>
+          <h4>🛡️ Política de imutabilidade</h4>
+          <p>Sua anotação não pode ser editada — é <em>append-only</em>. Se houver divergência entre 2 anotadores, um <strong>revisor sênior</strong> resolve em campo separado (<code>label_final</code>).</p>
+        </article>
+        <article>
+          <h4>🎯 Meta operacional</h4>
+          <p>Ritmo-alvo: <strong>100 anotações/hora</strong>. ~36s por item, com auto-avanço 200ms após decisão. Pra evitar fadiga: lotes de 300, pause entre lotes, dupla-anotação em 10% pra calcular concordância (κ ≥ 0,7).</p>
+        </article>
+      </div>
+      <footer class="mission-brief-footer">
+        <span aria-hidden="true">📡</span> Comece pelo botão <strong>+ Novo lote</strong> aqui em cima. Quando entrar na fila, aperte <code class="mission-brief-pill">?</code> pra ver os atalhos.
+      </footer>
+    </div>
+  </section>
+
   <div class="overview-actions mb-4">
     <button type="button" class="btn-primary"
             @click="novoLoteOpen = true; $nextTick(() => $refs.estrategiaSelect && $refs.estrategiaSelect.focus())">

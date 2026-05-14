@@ -1267,3 +1267,194 @@ html:not(.dark) .grain { opacity: 0.15; mix-blend-mode: multiply; }
   .pulsar { animation: none !important; }
 }
 /* === fim a11y reduced-motion ============================================ */
+
+/* === mission-brief & chart-help (didático, T13.5) ======================== */
+/* "Manual da missão" — banner expansível no topo da página com explicação
+   pra leigos. Tema Voyager (telemetria espacial). */
+.mission-brief {
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 14px;
+  background: linear-gradient(
+    180deg,
+    rgb(var(--c-card) / 0.85) 0%,
+    rgb(var(--c-surface) / 0.65) 100%
+  );
+  overflow: hidden;
+  position: relative;
+}
+.mission-brief::before {
+  /* halo Pulsar discreto na borda esquerda */
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, rgb(var(--c-pulsar) / 0.0), rgb(var(--c-pulsar) / 0.55), rgb(var(--c-pulsar) / 0.0));
+}
+.mission-brief-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: rgb(var(--c-fg));
+}
+.mission-brief-toggle:hover { background: rgb(var(--c-mission) / 0.06); }
+.mission-brief-toggle:focus-visible {
+  outline: 2px solid rgb(var(--c-mission));
+  outline-offset: -2px;
+}
+.mission-brief-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+  display: inline-flex;
+}
+.mission-brief-title { display: flex; flex-direction: column; gap: 0.15rem; flex: 1 1 auto; min-width: 0; }
+.mission-brief-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgb(var(--c-mission));
+}
+.mission-brief-subtitle {
+  font-size: 0.78rem;
+  color: rgb(var(--c-fg-subtle));
+}
+.mission-brief-chevron {
+  font-family: monospace;
+  color: rgb(var(--c-fg-subtle));
+  transition: transform 0.2s ease;
+}
+.mission-brief-chevron.is-open { transform: rotate(180deg); color: rgb(var(--c-pulsar)); }
+.mission-brief-body {
+  padding: 0 1rem 1rem;
+  border-top: 1px dashed rgb(var(--c-border));
+}
+.mission-brief-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.mission-brief-grid article {
+  background: rgb(var(--c-base) / 0.5);
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 10px;
+  padding: 0.85rem 0.95rem;
+}
+.mission-brief-grid h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.45rem;
+  color: rgb(var(--c-fg));
+}
+.mission-brief-grid p,
+.mission-brief-grid li {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: rgb(var(--c-fg-muted));
+}
+.mission-brief-grid ul { margin-top: 0.35rem; padding-left: 1rem; display: grid; gap: 0.15rem; }
+.mission-brief-grid strong { color: rgb(var(--c-fg)); font-weight: 600; }
+.mission-brief-grid a:hover { color: rgb(var(--c-pulsar)); }
+.mission-brief-footer {
+  margin-top: 0.9rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed rgb(var(--c-border));
+  font-size: 0.72rem;
+  color: rgb(var(--c-fg-subtle));
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.mission-brief-pill {
+  display: inline-flex;
+  padding: 0 0.35rem;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 4px;
+  background: rgb(var(--c-card));
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+}
+
+/* Botão de ajuda 📡 dentro de cada chart-card */
+.chart-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 8px;
+  background: rgb(var(--c-card) / 0.6);
+  color: rgb(var(--c-fg-muted));
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.chart-help-btn:hover {
+  border-color: rgb(var(--c-pulsar));
+  background: rgb(var(--c-pulsar) / 0.08);
+  transform: translateY(-1px);
+}
+.chart-help-btn:focus-visible {
+  outline: 2px solid rgb(var(--c-mission));
+  outline-offset: 2px;
+}
+.chart-help-btn.is-open {
+  border-color: rgb(var(--c-pulsar));
+  background: rgb(var(--c-pulsar) / 0.12);
+  color: rgb(var(--c-pulsar));
+}
+.chart-help-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(320px, 92vw);
+  background: rgb(var(--c-card));
+  border: 1px solid rgb(var(--c-pulsar) / 0.4);
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.45),
+              0 0 0 1px rgb(var(--c-pulsar) / 0.08);
+  border-radius: 10px;
+  padding: 0.85rem 0.95rem;
+  z-index: 40;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: rgb(var(--c-fg-muted));
+}
+.chart-help-popover::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  background: rgb(var(--c-card));
+  border-left: 1px solid rgb(var(--c-pulsar) / 0.4);
+  border-top: 1px solid rgb(var(--c-pulsar) / 0.4);
+  transform: rotate(45deg);
+}
+.chart-help-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgb(var(--c-pulsar));
+  margin-bottom: 0.55rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.chart-help-body strong { color: rgb(var(--c-fg)); }
+.chart-help-body p + p { margin-top: 0.5rem; }
+.chart-help-body ul {
+  margin-top: 0.4rem;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.15rem;
+}
+/* === fim mission-brief & chart-help ===================================== */
