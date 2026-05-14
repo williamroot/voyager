@@ -49,14 +49,25 @@ no `.32`. Ficaram consolidados no `.36`.
 worker_ingestion       4   fila 'djen_ingestion' + 'djen_backfill'
 worker_default         2   fila 'default' (catch-all)
 worker_djen_audit     10   fila 'djen_audit'
-worker_trf1           60   fila 'enrich_trf1'
-worker_trf3           50   fila 'enrich_trf3'
-worker_tjmg           50   fila 'enrich_tjmg'
-worker_datajud        90   fila 'datajud'
+worker_trf1           90   fila 'enrich_trf1'   (rebalanceado 2026-05-14)
+worker_trf3           90   fila 'enrich_trf3'   (rebalanceado 2026-05-14)
+worker_tjmg           90   fila 'enrich_tjmg'   (rebalanceado 2026-05-14)
+worker_datajud        20   fila 'datajud'       (reduzido 90→20: fila ociosa, RAM cedida pros enrich)
 worker_classificacao   8   fila 'classificacao' (réplica adicional)
 ```
 
-Total observado pós-deploy 2026-05-14: ~274 containers vivos.
+Total observado pós-rebalanceamento 2026-05-14 23:14: ~314 containers vivos.
+
+### Quando ressubir worker_datajud
+
+Antes de rodar reclassificação em massa (`reclassificar_recentes` ou
+`reclassificar_trf1_bulk`), volte o pool pra 90 réplicas:
+```bash
+ssh ubuntu@192.168.1.36 'cd ~/voyager && \
+  docker compose -f docker-compose-workers.yml up -d --scale worker_datajud=90 worker_datajud'
+```
+Isso vai puxar ~7GB de RAM — só faça quando o backlog de enrich estiver
+drenado, senão estoura RAM (.36 fica em 90% pós-rebalanceamento).
 
 Page `/dashboard/workers/` mostra estado em tempo real (auto-refresh 5s).
 

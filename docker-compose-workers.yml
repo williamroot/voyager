@@ -21,8 +21,9 @@ services:
     volumes:
       - .:/app
     deploy:
-      # TRF1 com problema interno — reduzido drasticamente até recuperar.
-      replicas: 60
+      # 2026-05-14: rebalanceado pra 90 (datajud cedeu RAM, fila enrich
+      # com 99k backlog).
+      replicas: 90
     restart: unless-stopped
 
   worker_djen_audit:
@@ -46,8 +47,8 @@ services:
     volumes:
       - .:/app
     deploy:
-      # Capacidade redirecionada do TRF1 pra TRF3.
-      replicas: 50
+      # 2026-05-14: 50 → 90 (rebalanceamento, datajud cedeu RAM).
+      replicas: 90
     restart: unless-stopped
 
   worker_tjmg:
@@ -57,7 +58,8 @@ services:
     volumes:
       - .:/app
     deploy:
-      replicas: 50
+      # 2026-05-14: 50 → 90 (rebalanceamento).
+      replicas: 90
     restart: unless-stopped
 
   worker_default:
@@ -94,9 +96,11 @@ services:
     volumes:
       - .:/app
     deploy:
-      # Datajud é leve (1 request HTTP por processo). 90 réplicas em
-      # cada host de workers (.177, .184) — total ~210 com .30.
-      replicas: 90
+      # Datajud é leve (1 request HTTP por processo).
+      # 2026-05-14: 90 → 20 — fila zerada, RAM cedida pros enrich.
+      # Reescalar via `docker compose up --scale worker_datajud=90` antes
+      # de qualquer reclassificação grande.
+      replicas: 20
     restart: unless-stopped
 
   worker_classificacao:
