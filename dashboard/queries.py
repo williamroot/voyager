@@ -134,9 +134,12 @@ def histograma_score_por_tribunal(tribunais=None, classificacao=None):
 
 
 def calibracao_por_tribunal(tribunais=None, periodo_dias=90):
-    """Decis de score × taxa real de validação (resultado humano).
+    """Decis de score × taxa real de validação.
 
-    Sinal: ProcessoValidacao por tribunal nos últimos N dias.
+    Fonte primária: LeadConsumption do Juriscope (alto volume real).
+    Fallback: ProcessoValidacao (anotação interna) quando não há consumo
+    do Juriscope ainda — usado em dev e pré-go-live com Juriscope.
+
     Retorna {'tribunais': [{sigla, decis: [{decil, score_med, taxa_real, n}]}], ...}
     Tribunal sem amostra retorna lista vazia (UI decide se omite ou mostra placeholder).
     """
@@ -145,34 +148,64 @@ def calibracao_por_tribunal(tribunais=None, periodo_dias=90):
 
     from django.utils import timezone
 
-    from tribunals.models import ProcessoValidacao
+    from tribunals.models import LeadConsumption, ProcessoValidacao
 
     agora = timezone.now()
     cutoff = agora - timedelta(days=periodo_dias) if periodo_dias else None
-    POSITIVOS = {
+
+    # 1) Tenta LeadConsumption primeiro (fonte real do Juriscope)
+    POSITIVOS_LC = {LeadConsumption.RESULTADO_VALIDADO, LeadConsumption.RESULTADO_PAGO}
+    NEGATIVOS_LC = {
+        LeadConsumption.RESULTADO_SEM_EXPEDICAO,
+        LeadConsumption.RESULTADO_ARQUIVADO,
+    }
+    # pendente/erro/cedido excluídos da calibração (não-conclusivos).
+
+    qs_lc = LeadConsumption.objects.select_related('processo').filter(
+        resultado__in=POSITIVOS_LC | NEGATIVOS_LC,
+        processo__classificacao_score__isnull=False,
+    )
+    if cutoff:
+        qs_lc = qs_lc.filter(consumido_em__gte=cutoff)
+    if tribunais:
+        qs_lc = qs_lc.filter(processo__tribunal_id__in=tribunais)
+    else:
+        qs_lc = qs_lc.filter(processo__tribunal__ativo=True)
+
+    por_trib: dict[str, list[tuple[float, bool]]] = defaultdict(list)
+    for v in qs_lc.values(
+        'processo__tribunal_id', 'processo__classificacao_score', 'resultado',
+    ).iterator(chunk_size=5000):
+        por_trib[v['processo__tribunal_id']].append((
+            float(v['processo__classificacao_score'] or 0.0),
+            v['resultado'] in POSITIVOS_LC,
+        ))
+
+    # 2) Fallback ProcessoValidacao se LeadConsumption não tem dado pro tribunal
+    POSITIVOS_PV = {
         ProcessoValidacao.RESULTADO_EH_LEAD,
         ProcessoValidacao.RESULTADO_EH_PRECATORIO,
         ProcessoValidacao.RESULTADO_EH_PRE,
         ProcessoValidacao.RESULTADO_EH_DC,
     }
-
-    qs = ProcessoValidacao.objects.select_related('processo').exclude(
-        score_no_momento__isnull=True,
-    )
-    if cutoff:
-        qs = qs.filter(criada_em__gte=cutoff)
-    if tribunais:
-        qs = qs.filter(processo__tribunal_id__in=tribunais)
-    else:
-        qs = qs.filter(processo__tribunal__ativo=True)
-
-    por_trib: dict[str, list[tuple[float, bool]]] = defaultdict(list)
-    for v in qs.values('processo__tribunal_id', 'score_no_momento', 'resultado').iterator(
-        chunk_size=5000
-    ):
-        por_trib[v['processo__tribunal_id']].append(
-            (float(v['score_no_momento'] or 0.0), v['resultado'] in POSITIVOS)
-        )
+    NEGATIVO_PV = ProcessoValidacao.RESULTADO_NAO_LEAD
+    if not por_trib:
+        qs_pv = ProcessoValidacao.objects.select_related('processo').exclude(
+            score_no_momento__isnull=True,
+        ).filter(resultado__in=POSITIVOS_PV | {NEGATIVO_PV})
+        if cutoff:
+            qs_pv = qs_pv.filter(criada_em__gte=cutoff)
+        if tribunais:
+            qs_pv = qs_pv.filter(processo__tribunal_id__in=tribunais)
+        else:
+            qs_pv = qs_pv.filter(processo__tribunal__ativo=True)
+        for v in qs_pv.values(
+            'processo__tribunal_id', 'score_no_momento', 'resultado',
+        ).iterator(chunk_size=5000):
+            por_trib[v['processo__tribunal_id']].append((
+                float(v['score_no_momento'] or 0.0),
+                v['resultado'] in POSITIVOS_PV,
+            ))
 
     result = []
     for sigla, pares in sorted(por_trib.items()):
