@@ -96,12 +96,32 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
 
-# WhiteNoise: em DEBUG serve direto via finders (sem manifest);
-# em prod, exige `collectstatic` pra gerar manifest e tira benefícios de cache busting + compressão.
+# WhiteNoise: em DEBUG serve via finders (sem manifest, autoreload);
+# em prod, gera staticfiles.json com hashes (cache busting estrutural).
+#
+# IMPORTANTE: Django 5 ignora `STATICFILES_STORAGE` legacy em favor de `STORAGES`.
+# Sem essa config, `collectstatic` não gera manifest, `{% static %}` retorna
+# URL sem hash, e o nginx serve com `Cache-Control: immutable max-age=30d`
+# fazendo browsers nunca pegarem atualizações de CSS/JS sem bust manual.
+# Ver ADR-023 em .ia/DECISIONS.md.
 WHITENOISE_USE_FINDERS = DEBUG
 WHITENOISE_AUTOREFRESH = DEBUG
-if not DEBUG:
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.StaticFilesStorage' if DEBUG
+            else 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+        ),
+    },
+}
+# Tolera entries faltando no manifest — evita ValueError em runtime se algum
+# template referenciar arquivo que não foi coletado. Em vez de explodir,
+# Whitenoise serve o nome original. Útil pra resolver chicken-and-egg de
+# `static_url()` chamado em import-time de URLConf (core/urls.py favicon).
+WHITENOISE_MANIFEST_STRICT = False
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

@@ -271,3 +271,60 @@ Decisões arquiteturais relevantes com motivação. Estilo ADR enxuto.
 - Shadow A/B compara apenas o efeito dos PESOS (score) — categorização idêntica.
 - Mudança de threshold em `ThresholdTribunal` afeta os dois paths simultaneamente.
 - Removido issue média #1 da REVIEW_T20 — não bloqueia mais o flip v7.
+
+## ADR-023 — Static files com hash via `STORAGES` (Django 5)
+
+**Contexto:** após o deploy 2026-05-14 (commit 52b81cf), mudanças em
+`voyager-identity.css` não chegavam ao browser dos usuários mesmo após
+restart do `web`. O nginx serve `/static/` com
+`Cache-Control: public, immutable, max-age=30d`, e o template referenciava
+`{% static 'dashboard/voyager-identity.css' %}` que retornava o nome do
+arquivo SEM hash (`voyager-identity.css`). Browser tratava como mesma URL
+e usava a cópia em cache.
+
+Investigação revelou que `settings.STATICFILES_STORAGE = 'whitenoise...'`
+estava configurado, mas **Django 5.0+ ignora silenciosamente** essa setting
+em favor da nova API `STORAGES = {...}`. Sem o manifest, `collectstatic`
+não gerava `staticfiles.json` e o `{% static %}` caía no comportamento
+padrão (URL sem hash).
+
+**Decisão:** migrar pra `STORAGES` (API nova) com
+`CompressedManifestStaticFilesStorage` em prod:
+
+```python
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.StaticFilesStorage' if DEBUG
+            else 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+        ),
+    },
+}
+```
+
+Resultado:
+- `collectstatic` gera `/app/staticfiles/staticfiles.json` com mapa
+  `arquivo.ext → arquivo.HASH.ext`.
+- `{% static 'dashboard/voyager-identity.css' %}` renderiza
+  `/static/dashboard/voyager-identity.a1b2c3.css`.
+- Toda mudança no source produz hash diferente → URL diferente → cache
+  do browser e do nginx miss automaticamente → fetch da versão nova.
+- `Cache-Control: immutable max-age=30d` continua válido (arquivo
+  específico é imutável; só o que muda é o nome).
+
+**Alternativas rejeitadas:**
+- *Query string `?v=AAAAMMDD`* — gambiarra: exige bump manual a cada
+  deploy de CSS/JS, esquecível, não cobre includes indiretos.
+- *Desligar cache no nginx* — perde 99% das requests servidas do cache
+  edge; degrada UX e custa CPU sem necessidade.
+- *Versionar tudo via Git LFS / S3* — overkill pro projeto.
+
+**Consequência:**
+- Hot deploys de CSS/JS via `docker cp` + restart `web` (que roda
+  `collectstatic`) entregam a nova versão imediatamente, sem hard refresh.
+- Operacional não precisa lembrar de invalidar cache.
+- Templates ficaram limpos (sem `?v=...`).
+- Limitação: imagens/arquivos referenciados via `url()` no próprio CSS
+  precisam usar caminho relativo pro Whitenoise re-escrever os hashes —
+  é o comportamento padrão, mas vale lembrar em PRs futuros.

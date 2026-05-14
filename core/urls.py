@@ -2,7 +2,21 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView, TemplateView
-from django.templatetags.static import static as static_url
+
+
+class FaviconRedirect(RedirectView):
+    """Redirect lazy pra /static/dashboard/favicon.svg.
+
+    Resolve `static()` no request-time (não no import) — sem isso,
+    `CompressedManifestStaticFilesStorage` levanta ValueError se o
+    manifest ainda não foi gerado (ex: 1º boot, antes do collectstatic).
+    """
+    permanent = True
+
+    def get_redirect_url(self, *args, **kwargs):
+        from django.templatetags.static import static
+        return static('dashboard/favicon.svg')
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -11,7 +25,7 @@ urlpatterns = [
     path('api/v1/', include('api.urls')),
     path('dashboard/', include('dashboard.urls')),
     path('', include('accounts.urls')),
-    path('favicon.ico', RedirectView.as_view(url=static_url('dashboard/favicon.svg'), permanent=True)),
+    path('favicon.ico', FaviconRedirect.as_view()),
     path('', include('dashboard.urls_root')),
 ]
 
