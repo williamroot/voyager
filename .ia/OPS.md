@@ -49,14 +49,35 @@ no `.32`. Ficaram consolidados no `.36`.
 worker_ingestion       4   fila 'djen_ingestion' + 'djen_backfill'
 worker_default         2   fila 'default' (catch-all)
 worker_djen_audit     10   fila 'djen_audit'
-worker_trf1           90   fila 'enrich_trf1'   (rebalanceado 2026-05-14)
-worker_trf3           90   fila 'enrich_trf3'   (rebalanceado 2026-05-14)
-worker_tjmg           90   fila 'enrich_tjmg'   (rebalanceado 2026-05-14)
+worker_trf1          120   fila 'enrich_trf1'   (scale-up 2026-05-14)
+worker_trf3          120   fila 'enrich_trf3'   (scale-up 2026-05-14)
+worker_tjmg          120   fila 'enrich_tjmg'   (scale-up 2026-05-14)
 worker_datajud        20   fila 'datajud'       (reduzido 90→20: fila ociosa, RAM cedida pros enrich)
-worker_classificacao   8   fila 'classificacao' (réplica adicional)
+worker_classificacao   8   fila 'classificacao'
 ```
 
-Total observado pós-rebalanceamento 2026-05-14 23:14: ~314 containers vivos.
+Total observado pós-resize+scale 2026-05-14 23:25: ~404 containers vivos.
+
+### Resize da VM voyager-workers (VMID 100) — 2026-05-14
+
+Antes: 32GB RAM / 24 vCPUs / NUMA 16GB×2 — RAM crítica em 90% pós-scale.
+Agora: **56GB RAM** / 24 vCPUs / NUMA 28GB×2.
+
+Procedimento (Proxmox CLI no host pve):
+```bash
+ssh root@<pve>
+qm shutdown 100 --timeout 60      # falha se Docker travar; cair pra qm stop
+qm stop 100                        # hard stop (workers re-enfileiram jobs via RQ retry)
+qm set 100 -memory 57344
+qm set 100 -numa0 cpus=0-11,hostnodes=1,memory=28672,policy=preferred
+qm set 100 -numa1 cpus=12-23,hostnodes=1,memory=28672,policy=preferred
+qm start 100
+# após boot:
+ssh ubuntu@192.168.1.36 'cd ~/voyager && docker compose -f docker-compose-workers.yml up -d'
+```
+
+⚠️ Hotplug CPU/memory **não habilitado** nessa VM — reboot é obrigatório
+pra resize. Pra futuro: `qm set 100 -hotplug disk,network,usb,memory,cpu`.
 
 ### Quando ressubir worker_datajud
 

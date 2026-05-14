@@ -23,7 +23,7 @@ services:
     deploy:
       # 2026-05-14: rebalanceado pra 90 (datajud cedeu RAM, fila enrich
       # com 99k backlog).
-      replicas: 90
+      replicas: 120
     restart: unless-stopped
 
   worker_djen_audit:
@@ -48,7 +48,7 @@ services:
       - .:/app
     deploy:
       # 2026-05-14: 50 → 90 (rebalanceamento, datajud cedeu RAM).
-      replicas: 90
+      replicas: 120
     restart: unless-stopped
 
   worker_tjmg:
@@ -59,7 +59,7 @@ services:
       - .:/app
     deploy:
       # 2026-05-14: 50 → 90 (rebalanceamento).
-      replicas: 90
+      replicas: 120
     restart: unless-stopped
 
   worker_default:
