@@ -24,38 +24,39 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 
 Máquina auxiliar (`.36`) roda só workers — sem web/db/redis próprios. Conecta no Postgres (`.28`) e Redis (`.30`) via LAN. O drainer do stream de enrichment roda **somente no `.32`**; a auxiliar só publica resultados.
 
-## Workers em prod (configuração atual — 2026-05-06)
+## Workers em prod (configuração atual — 2026-05-14)
 
-**`.30` (host principal, 16 cores)** via `docker-compose-prod.yml`:
+**`.32` (host web)** via `docker-compose-prod.yml`:
 ```
-worker_default        1 replica   fila 'default' (catch-all)
-worker_ingestion      2 replicas  filas 'djen_ingestion' + 'djen_backfill'
-worker_trf1           5 replicas  fila 'enrich_trf1'
-worker_trf3          75 replicas  fila 'enrich_trf3'
-worker_manual         2 replicas  fila 'manual' (cliques on-demand)
-worker_datajud       15 replicas  fila 'datajud' (cortado de 30 — load alto em .30)
-worker_classificacao  4 replicas  fila 'classificacao' (batch ML)
-scheduler             1           APScheduler + ThreadPoolExecutor(20).
-                                  Warm jobs do dashboard rodam INLINE aqui.
-web                   1           Django + nginx
+web                       1   Django + Gunicorn
+scheduler                 1   APScheduler + ThreadPoolExecutor(20). Warm jobs inline.
+worker_manual             2   fila 'manual' (cliques on-demand)
+worker_classificacao      8   fila 'classificacao' (batch ML, hot reload v6)
+enrichment_drainer_p0..p3 4   drainer do stream Redis (RODA SÓ AQUI — não nas auxiliares)
+nginx                     1   reverse proxy
+cloudflared               1   tunnel pra voyager.was.dev.br
 ```
+
+Workers de ingestão e enrich pesados (TRF1/TRF3/DJEN/Datajud/TJMG) **não** rodam
+no `.32`. Ficaram consolidados no `.36`.
 
 > **Nota:** `worker_warm` foi removido em 2026-05-06. Os jobs de warm de cache
 > (KPIs, charts, partes, estatísticas, filtros, MV refresh) passaram a rodar
 > inline no thread pool do `scheduler`, sem fila RQ. Ver ADR-017.
 
-**`.177` (workers, 24 cores)** via `docker-compose-workers.yml`:
+**`.36` (host workers consolidado)** via `docker-compose-workers.yml`:
 ```
-worker_trf3         130 replicas
-worker_datajud       90 replicas
-worker_ingestion      4 replicas
-worker_default        1 replica
-worker_trf1          10 replicas
+worker_ingestion       4   fila 'djen_ingestion' + 'djen_backfill'
+worker_default         2   fila 'default' (catch-all)
+worker_djen_audit     10   fila 'djen_audit'
+worker_trf1           60   fila 'enrich_trf1'
+worker_trf3           50   fila 'enrich_trf3'
+worker_tjmg           50   fila 'enrich_tjmg'
+worker_datajud        90   fila 'datajud'
+worker_classificacao   8   fila 'classificacao' (réplica adicional)
 ```
 
-**`.184` (workers, 24 cores)**: mesma config do .177, mas datajud ajustado pra 70 réplicas (load saturando).
-
-Total datajud: ~175 workers; trf3: ~135; trf1: ~15; classificacao: 4.
+Total observado pós-deploy 2026-05-14: ~274 containers vivos.
 
 Page `/dashboard/workers/` mostra estado em tempo real (auto-refresh 5s).
 

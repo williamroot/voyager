@@ -4,6 +4,7 @@ Itens pendentes ou planejados, organizados por prioridade.
 
 ## Concluído (recentes)
 
+- [x] **Deploy do sistema de validação humana + v7-ready (commit 4c25b7c, 2026-05-14)** — 4 migrations aplicadas em prod (.32), 5 modelos novos, hot reload validado (`hardcoded → v6`), 274 containers vivos entre .32 e .36, 4 grupos de permissão criados via `setup_validacao_groups`. `VALIDACAO_LOTES_SEMANAIS_ENABLED=False` pré-flip (aguardando autorização biz). Procedimento de flip v7 em [`V7_DEPLOY_DECISION.md`](V7_DEPLOY_DECISION.md).
 - [x] **Classificador v6** (TRF1 1.05M procs, AUC 0.9610, prec@5000 0.991) ativo desde commit 6cdfff6 (2026-05-08)
 - [x] **Sistema de validação humana** end-to-end — `AmostraValidacao` + `AmostraProcesso` + `ProcessoValidacao` + permissions custom, fila 1-por-vez com hotkeys, dupla-anotação 10% + kappa (LGPD/anonimização: fora de escopo nesta versão)
 - [x] **Mining de FN candidates** — 6 estratégias E1-E6 + composite suspeita_score, command `minerar_fn`, cron semanal `gerar_lotes_semanais_fn`

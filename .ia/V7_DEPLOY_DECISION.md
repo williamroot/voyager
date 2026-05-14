@@ -53,11 +53,14 @@ quando executado, vai produzir o sign-off final.
 
 ## Pré-requisitos antes de rodar treino real
 
-- [ ] Imagem `web` reconstruída com `numpy>=1.26` instalado.
-  - Já está em `requirements.txt` linha 2 (`numpy>=1.26`).
-  - Confirmar com: `docker compose exec web python -c "import numpy; print(numpy.__version__)"`.
-  - Se faltar, `docker compose -f docker-compose-prod.yml build web` e
-    `docker compose up -d --force-recreate web worker_classificacao`.
+- [x] **Imagem `web` reconstruída em 2026-05-14** com numpy via `requirements.txt`.
+  - Deploy do código (4c25b7c) concluído nos 2 hosts.
+  - `.32`: web + scheduler + worker_manual + worker_classificacao + 4 drainers + nginx + cloudflared.
+  - `.36`: worker_ingestion + worker_default + worker_djen_audit + worker_trf1 + worker_trf3 + worker_tjmg + worker_datajud + worker_classificacao.
+  - Migrations 0024-0027 aplicadas. ClassificadorVersao(versao=v6, ativa=True) seedada por 0026.
+  - Hot reload validado: `classifier reloaded: hardcoded -> v6` logado em worker_ingestion.
+  - `setup_validacao_groups` rodado: 4 grupos criados (`validadores_leads`, `revisores_seniores`, `auditores_leads`, `model_admins`).
+  - Liveness https://voyager.was.dev.br/api/v1/health/liveness/ → 200.
 - [ ] Mining TRF1 + TRF3 rodado pelo menos 1x → CSV de FN candidatos
       disponível em `/app/data/fn_candidatos_*.csv`.
 - [ ] `exportar_labels_retreino` rodado em prod → CSV em
@@ -81,9 +84,13 @@ quando executado, vai produzir o sign-off final.
     Path ativo e shadow usam a mesma lógica de threshold.
   - Issue #2: `_categorizar()` filtra `ThresholdTribunal` por
     `versao_modelo` (default = versão ativa via `get_versao_ativa()`).
-- [ ] Settings `SHADOW_SAMPLE_RATE`, `CLASSIFICADOR_RELOAD_TTL`,
+- [x] Settings `SHADOW_SAMPLE_RATE`, `CLASSIFICADOR_RELOAD_TTL`,
       `VALIDACAO_LOTES_SEMANAIS_ENABLED` documentadas em `.ia/OPS.md`
-      e `.ia/CLASSIFICACAO.md` (follow-up T20 nit; bloqueia T23 docs).
+      e `.ia/CLASSIFICACAO.md`.
+- [x] Em prod (2026-05-14), `VALIDACAO_LOTES_SEMANAIS_ENABLED=False`
+      seteado no `.env` de `.32` e `.36` pré-deploy. Cron semanal
+      desativado até autorização biz pra abrir validação. Reativar com
+      `VALIDACAO_LOTES_SEMANAIS_ENABLED=True` + restart do `scheduler`.
 
 ---
 
