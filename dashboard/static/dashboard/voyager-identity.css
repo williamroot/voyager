@@ -1458,3 +1458,175 @@ html:not(.dark) .grain { opacity: 0.15; mix-blend-mode: multiply; }
   gap: 0.15rem;
 }
 /* === fim mission-brief & chart-help ===================================== */
+
+/* === KPI tiles (T13.5 — redesign 2026-05-14) ============================ */
+/* Substitui o grid antigo .kpi-grid de 1×8 por 2 fileiras × 4 tiles,
+   cada uma com header curto identificando a categoria. */
+.kpi-row-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.5rem;
+}
+.kpi-row-header + .kpi-row-header { margin-top: 1.1rem; }
+.kpi-row-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgb(var(--c-fg-subtle));
+  white-space: nowrap;
+}
+.kpi-row-divider {
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--c-border) / 0.7) 0%,
+    rgb(var(--c-border) / 0.1) 100%
+  );
+}
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+.kpi-row + .kpi-row-header { margin-top: 1.2rem; }
+
+@media (max-width: 1023px) {
+  .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 540px) {
+  .kpi-row {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 78%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    padding-bottom: 0.4rem;
+  }
+  .kpi-row > .kpi-tile { scroll-snap-align: start; }
+}
+
+.kpi-tile {
+  position: relative;
+  background: rgb(var(--c-card) / 0.9);
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 12px;
+  padding: 0.85rem 1rem 0.9rem 1.2rem;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.kpi-tile::after {
+  /* halo sutil top-right (acende no hover) */
+  content: '';
+  position: absolute;
+  inset: -40% -40% auto auto;
+  width: 140px;
+  height: 140px;
+  background: radial-gradient(
+    closest-side,
+    var(--kpi-color, rgb(var(--c-mission))) / 0.18,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.kpi-tile:hover {
+  transform: translateY(-1px);
+  border-color: var(--kpi-color-strong, rgb(var(--c-pulsar) / 0.55));
+  box-shadow: 0 6px 24px -10px rgb(0 0 0 / 0.45);
+}
+.kpi-tile:hover::after { opacity: 1; }
+
+.kpi-tile-stripe {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--kpi-color-strong, rgb(var(--c-pulsar)));
+  opacity: 0.85;
+}
+
+.kpi-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+.kpi-tile-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+.kpi-tile-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: rgb(var(--c-fg-subtle));
+  text-transform: none;
+  font-weight: 500;
+}
+.kpi-tile-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.55rem;
+  line-height: 1.1;
+  color: rgb(var(--c-fg));
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-tile-hint {
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+  color: rgb(var(--c-fg-subtle));
+  line-height: 1.35;
+}
+.kpi-tile-hint strong {
+  color: rgb(var(--c-fg-muted));
+  font-weight: 600;
+}
+
+/* Cores por categoria — usa as variáveis Voyager existentes. */
+.kpi-tile--precatorio {
+  --kpi-color: rgb(var(--c-mission));
+  --kpi-color-strong: rgb(var(--c-mission) / 0.6);
+}
+.kpi-tile--precatorio .kpi-tile-value { color: rgb(var(--c-mission)); }
+
+.kpi-tile--pre {
+  --kpi-color: rgb(var(--c-golden));
+  --kpi-color-strong: rgb(var(--c-golden) / 0.55);
+}
+
+.kpi-tile--dc {
+  --kpi-color: rgb(var(--c-pulsar));
+  --kpi-color-strong: rgb(var(--c-pulsar) / 0.6);
+}
+
+.kpi-tile--valid {
+  --kpi-color: rgb(var(--c-pulsar));
+  --kpi-color-strong: rgb(var(--c-pulsar) / 0.55);
+}
+.kpi-tile--valid .kpi-tile-value { color: rgb(var(--c-pulsar)); }
+
+.kpi-tile--descob {
+  --kpi-color: rgb(var(--c-pale-blue));
+  --kpi-color-strong: rgb(var(--c-pale-blue) / 0.55);
+}
+.kpi-tile--consum {
+  --kpi-color: rgb(var(--c-info));
+  --kpi-color-strong: rgb(var(--c-info) / 0.55);
+}
+.kpi-tile--lotes {
+  --kpi-color: rgb(var(--c-mission));
+  --kpi-color-strong: rgb(var(--c-mission) / 0.55);
+}
+.kpi-tile--fn {
+  --kpi-color: rgb(var(--c-golden));
+  --kpi-color-strong: rgb(var(--c-golden) / 0.55);
+}
+.kpi-tile--fn .kpi-tile-value { color: rgb(var(--c-golden)); }
+/* === fim KPI tiles ===================================================== */

@@ -135,79 +135,120 @@ Implementa o mockup em .ia/MOCKUP_visibilidade.md
   </div>
 </div>
 
-{# ── KPIs (8 cards) ──────────────────────────────────────────────────────── #}
-<div class="kpi-grid mb-5"
-     x-data="leadsKpis()"
-     x-init="load()"
-     data-leads-block="kpis"
-     role="group"
-     aria-label="Indicadores principais">
+{# ── KPIs (2 fileiras × 4 cards) ─────────────────────────────────────────── #}
+<div x-data="leadsKpis()" x-init="load()" data-leads-block="kpis" class="mb-6">
 
-  {# 1 — Precatório #}
-  <div class="card-tight kpi-card" data-kpi="precatorio">
-    <div class="kpi-label">💎 Precatório</div>
-    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.n1_pendente)">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">
-      <template x-if="d.runway_dias != null">
-        <span>≈ <strong x-text="d.runway_dias"></strong>d até fim</span>
-      </template>
-      <template x-if="d.runway_dias == null"><span>backlog disponível</span></template>
+  {# Fileira 1 — PIPELINE (estado atual dos leads por nível) #}
+  <div class="kpi-row-header">
+    <span class="kpi-row-eyebrow">PIPELINE · ESTOQUE</span>
+    <span class="kpi-row-divider" aria-hidden="true"></span>
+  </div>
+  <div class="kpi-row" role="group" aria-label="Estado do pipeline">
+    {# 1 — Precatório #}
+    <div class="kpi-tile kpi-tile--precatorio" data-kpi="precatorio">
+      <div class="kpi-tile-stripe" aria-hidden="true"></div>
+      <div class="kpi-tile-head">
+        <span class="kpi-tile-icon" aria-hidden="true">💎</span>
+        <span class="kpi-tile-label">Precatório</span>
+      </div>
+      <div class="kpi-tile-value" x-text="fmtInt(d.n1_pendente)">—</div>
+      <div class="kpi-tile-hint">
+        <template x-if="d.runway_dias != null">
+          <span>≈ <strong x-text="d.runway_dias"></strong>d de runway</span>
+        </template>
+        <template x-if="d.runway_dias == null"><span>backlog disponível</span></template>
+      </div>
+    </div>
+
+    {# 2 — Pré-precatório #}
+    <div class="kpi-tile kpi-tile--pre" data-kpi="pre">
+      <div class="kpi-tile-stripe" aria-hidden="true"></div>
+      <div class="kpi-tile-head">
+        <span class="kpi-tile-icon" aria-hidden="true">⏳</span>
+        <span class="kpi-tile-label">Pré-precatório</span>
+      </div>
+      <div class="kpi-tile-value" x-text="fmtInt(d.n2_total)">—</div>
+      <div class="kpi-tile-hint">em homologação</div>
+    </div>
+
+    {# 3 — Direito creditório #}
+    <div class="kpi-tile kpi-tile--dc" data-kpi="dc">
+      <div class="kpi-tile-stripe" aria-hidden="true"></div>
+      <div class="kpi-tile-head">
+        <span class="kpi-tile-icon" aria-hidden="true">🌱</span>
+        <span class="kpi-tile-label">Direito creditório</span>
+      </div>
+      <div class="kpi-tile-value" x-text="fmtInt(d.n3_total)">—</div>
+      <div class="kpi-tile-hint">watch-list</div>
+    </div>
+
+    {# 4 — Validação 30d #}
+    <div class="kpi-tile kpi-tile--valid" data-kpi="validacao">
+      <div class="kpi-tile-stripe" aria-hidden="true"></div>
+      <div class="kpi-tile-head">
+        <span class="kpi-tile-icon" aria-hidden="true">✅</span>
+        <span class="kpi-tile-label">Validação 30d</span>
+      </div>
+      <div class="kpi-tile-value"
+           x-text="d.taxa_validacao_30d != null ? (d.taxa_validacao_30d*100).toFixed(1) + '%' : '—'">—</div>
+      <div class="kpi-tile-hint">
+        <template x-if="d.taxa_validacao_30d == null"><span>sem dados ainda</span></template>
+        <template x-if="d.taxa_validacao_30d != null">
+          <span>treino: <strong x-text="(d.taxa_validacao_treino*100).toFixed(1)"></strong>%</span>
+        </template>
+      </div>
     </div>
   </div>
 
-  {# 2 — Pré-precatório #}
-  <div class="card-tight kpi-card" data-kpi="pre">
-    <div class="kpi-label">⏳ Pré-precatório</div>
-    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.n2_total)">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">em homologação</div>
+  {# Fileira 2 — FLUXO (velocidade operacional) #}
+  <div class="kpi-row-header">
+    <span class="kpi-row-eyebrow">FLUXO · TELEMETRIA</span>
+    <span class="kpi-row-divider" aria-hidden="true"></span>
   </div>
-
-  {# 3 — Direito creditório #}
-  <div class="card-tight kpi-card" data-kpi="dc">
-    <div class="kpi-label">🌱 Direito creditório</div>
-    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.n3_total)">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">watch-list</div>
-  </div>
-
-  {# 4 — Validação 30d #}
-  <div class="card-tight kpi-card" data-kpi="validacao">
-    <div class="kpi-label">✅ Valid. 30d</div>
-    <div class="kpi-num text-2xl font-semibold mt-1"
-         x-text="d.taxa_validacao_30d != null ? (d.taxa_validacao_30d*100).toFixed(1) + '%' : '—'">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">
-      <template x-if="d.taxa_validacao_30d == null"><span>sem dados ainda</span></template>
-      <template x-if="d.taxa_validacao_30d != null">
-        <span>treino: <strong x-text="(d.taxa_validacao_treino*100).toFixed(1)"></strong>%</span>
-      </template>
+  <div class="kpi-row" role="group" aria-label="Fluxo operacional">
+    {# 5 — Descobertos/dia #}
+    <div class="kpi-tile kpi-tile--descob" data-kpi="descobertos">
+      <div class="kpi-tile-stripe" aria-hidden="true"></div>
+      <div class="kpi-tile-head">
+        <span class="kpi-tile-icon" aria-hidden="true">📥</span>
+        <span class="kpi-tile-label">Descobertos/d</span>
+      </div>
+      <div class="kpi-tile-value" x-text="fmtInt(d.throughput_descobertos_dia)">—</div>
+      <div class="kpi-tile-hint">média móvel 7d</div>
     </div>
-  </div>
 
-  {# 5 — Descobertos/dia #}
-  <div class="card-tight kpi-card" data-kpi="descobertos">
-    <div class="kpi-label">📥 Descob./d</div>
-    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.throughput_descobertos_dia)">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">MM7d</div>
-  </div>
+    {# 6 — Consumidos/dia #}
+    <div class="kpi-tile kpi-tile--consum" data-kpi="consumidos">
+      <div class="kpi-tile-stripe" aria-hidden="true"></div>
+      <div class="kpi-tile-head">
+        <span class="kpi-tile-icon" aria-hidden="true">📤</span>
+        <span class="kpi-tile-label">Consumidos/d</span>
+      </div>
+      <div class="kpi-tile-value" x-text="fmtInt(d.throughput_consumidos_dia)">—</div>
+      <div class="kpi-tile-hint">via Juriscope</div>
+    </div>
 
-  {# 6 — Consumidos/dia #}
-  <div class="card-tight kpi-card" data-kpi="consumidos">
-    <div class="kpi-label">📤 Consum./d</div>
-    <div class="kpi-num text-2xl font-semibold mt-1" x-text="fmtInt(d.throughput_consumidos_dia)">—</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">via Juriscope</div>
-  </div>
+    {# 7 — Lotes ativos #}
+    <div class="kpi-tile kpi-tile--lotes" data-kpi="lotes-ativos">
+      <div class="kpi-tile-stripe" aria-hidden="true"></div>
+      <div class="kpi-tile-head">
+        <span class="kpi-tile-icon" aria-hidden="true">🛰</span>
+        <span class="kpi-tile-label">Lotes ativos</span>
+      </div>
+      <div class="kpi-tile-value">{{ kpis_validacao.lotes_ativos|default:"—" }}</div>
+      <div class="kpi-tile-hint">últimos 30d</div>
+    </div>
 
-  {# 7 NOVO — Lotes ativos (vem do context kpis_validacao, server-side) #}
-  <div class="card-tight kpi-card" data-kpi="lotes-ativos">
-    <div class="kpi-label">🛰 Lotes ativos</div>
-    <div class="kpi-num text-2xl font-semibold mt-1">{{ kpis_validacao.lotes_ativos|default:"—" }}</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">últimos 30d</div>
-  </div>
-
-  {# 8 NOVO — FN descobertos esta semana #}
-  <div class="card-tight kpi-card" data-kpi="fn-semana">
-    <div class="kpi-label">🔭 FN semana</div>
-    <div class="kpi-num text-2xl font-semibold mt-1">{{ kpis_validacao.fn_semana|default:"0" }}</div>
-    <div class="text-[0.65rem] text-fg-subtle mt-1">recuperados pelo time</div>
+    {# 8 — FN descobertos esta semana #}
+    <div class="kpi-tile kpi-tile--fn" data-kpi="fn-semana">
+      <div class="kpi-tile-stripe" aria-hidden="true"></div>
+      <div class="kpi-tile-head">
+        <span class="kpi-tile-icon" aria-hidden="true">🔭</span>
+        <span class="kpi-tile-label">FN semana</span>
+      </div>
+      <div class="kpi-tile-value">{{ kpis_validacao.fn_semana|default:"0" }}</div>
+      <div class="kpi-tile-hint">recuperados pelo time</div>
+    </div>
   </div>
 </div>
 
