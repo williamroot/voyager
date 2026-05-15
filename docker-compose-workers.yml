@@ -21,9 +21,9 @@ services:
     volumes:
       - .:/app
     deploy:
-      # 2026-05-14: rebalanceado pra 90 (datajud cedeu RAM, fila enrich
-      # com 99k backlog).
-      replicas: 120
+      # 2026-05-14: 60 → 90 → 120 → 40 (realocação: TRF3/TJMG são bottleneck,
+      # TRF1 com 40 workers já drena em ~12h, libera CPU/RAM pros outros).
+      replicas: 40
     restart: unless-stopped
 
   worker_djen_audit:
@@ -47,8 +47,8 @@ services:
     volumes:
       - .:/app
     deploy:
-      # 2026-05-14: 50 → 90 (rebalanceamento, datajud cedeu RAM).
-      replicas: 120
+      # 2026-05-14: 50 → 90 → 120 → 160 → 180 (pós-resize 32→56GB VM).
+      replicas: 180
     restart: unless-stopped
 
   worker_tjmg:
@@ -58,8 +58,8 @@ services:
     volumes:
       - .:/app
     deploy:
-      # 2026-05-14: 50 → 90 (rebalanceamento).
-      replicas: 120
+      # 2026-05-14: 50 → 90 → 120 → 160 → 180. Bottleneck upstream PJe.
+      replicas: 180
     restart: unless-stopped
 
   worker_default:
