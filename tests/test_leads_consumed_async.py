@@ -33,3 +33,24 @@ def test_lote_id_nulo_permite_duplicata(cliente, proc):
     LeadConsumption.objects.create(processo=proc, cliente=cliente, resultado='validado')
     LeadConsumption.objects.create(processo=proc, cliente=cliente, resultado='validado')
     assert LeadConsumption.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_registrar_consumo_idempotente(cliente, proc):
+    from tribunals.jobs import registrar_consumo_leads
+    lote = str(uuid.uuid4())
+    consumos = [{'cnj': proc.numero_cnj, 'resultado': 'validado'}]
+    r1 = registrar_consumo_leads(cliente.id, consumos, lote)
+    r2 = registrar_consumo_leads(cliente.id, consumos, lote)  # replay
+    assert r1['criados'] == 1
+    assert r2['criados'] == 0
+    assert LeadConsumption.objects.filter(cliente=cliente, processo=proc).count() == 1
+
+
+@pytest.mark.django_db
+def test_registrar_consumo_cnj_inexistente(cliente):
+    from tribunals.jobs import registrar_consumo_leads
+    r = registrar_consumo_leads(cliente.id, [{'cnj': '9-9.9.9.9', 'resultado': 'erro'}],
+                                str(uuid.uuid4()))
+    assert r['criados'] == 0
+    assert '9-9.9.9.9' in r['nao_encontrados']
