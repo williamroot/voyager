@@ -2,7 +2,7 @@ import pytest
 from datetime import date, datetime, timezone
 from django.db import connection
 from tribunals.models import Tribunal, Process, IngestionRun
-from dashboard.queries import _classificar_celula, pipeline_saude_grid
+from dashboard.queries import _classificar_celula, pipeline_saude_grid, pipeline_volume_temporal, pipeline_kpis
 
 @pytest.mark.django_db(transaction=True)
 def test_mv_pipeline_diario_popula_tres_fontes():
@@ -43,3 +43,18 @@ def test_pipeline_saude_grid_djen_usa_max_nao_sum():
             if c['tribunal_id'] == t.pk and c['fonte'] == 'djen' and c['dia'] == d][0]
     assert djen['novas'] == 12          # MAX(10,12), nao 22
     assert djen['encontradas'] == 15    # MAX(novas+dup) = 12+3
+
+
+@pytest.mark.django_db
+def test_pipeline_volume_temporal_e_kpis():
+    t = Tribunal.objects.create(sigla='TVK', sigla_djen='TVK', nome='T', ativo=True)
+    d = date(2026, 5, 15)
+    IngestionRun.objects.create(
+        tribunal=t, status=IngestionRun.STATUS_SUCCESS, janela_inicio=d,
+        janela_fim=d, movimentacoes_novas=50, movimentacoes_duplicadas=0,
+        paginas_lidas=5, finished_at=datetime(2026, 5, 15, 3, tzinfo=timezone.utc))
+    serie = pipeline_volume_temporal(dias=3650, tribunais=[t.pk])
+    pontos = [p for p in serie if p['fonte'] == 'djen' and p['dia'] == d]
+    assert pontos and pontos[0]['volume'] == 50
+    k = pipeline_kpis(tribunais=[t.pk])
+    assert 'ultima_ingestao_djen' in k and 'anomalias_24h' in k

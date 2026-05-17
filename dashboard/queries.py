@@ -1244,6 +1244,38 @@ def pipeline_saude_grid(dias=30, tribunais=None):
     return cells
 
 
+def pipeline_volume_temporal(dias=90, tribunais=None):
+    """Série diária [{dia, fonte, volume}] somando todos os tribunais do filtro."""
+    from collections import defaultdict
+    grid = pipeline_saude_grid(dias=dias, tribunais=tribunais)
+    agg = defaultdict(int)
+    for c in grid:
+        agg[(c['dia'], c['fonte'])] += c['volume']
+    return [{'dia': d, 'fonte': f, 'volume': v}
+            for (d, f), v in sorted(agg.items())]
+
+
+def pipeline_kpis(tribunais=None):
+    from datetime import date, timedelta
+    grid = pipeline_saude_grid(dias=30, tribunais=tribunais)
+    hoje = date.today()
+    ontem = hoje - timedelta(days=1)
+    djen = [c for c in grid if c['fonte'] == 'djen']
+    ultima = max((c['dia'] for c in djen), default=None)
+    anomalias = sum(1 for c in grid
+                    if c['dia'] >= ontem and c['cor'] == 'vermelho')
+    def lag(fonte):
+        ds = [c['dia'] for c in grid if c['fonte'] == fonte]
+        return (hoje - max(ds)).days if ds else None
+    return {
+        'ultima_ingestao_djen': ultima,
+        'anomalias_24h': anomalias,
+        'datajud_lag_dias': lag('datajud'),
+        'classif_lag_dias': lag('classif'),
+        'dias_ok': sum(1 for c in djen if c['cor'] == 'verde'),
+    }
+
+
 def _classificar_celula(volume, baseline_amostras, dia_util):
     """Cor de saúde de uma célula (tribunal,fonte,dia).
 
