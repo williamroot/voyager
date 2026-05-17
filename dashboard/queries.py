@@ -7,6 +7,7 @@ Convenções:
 Toda função relevante aceita ambos para que o dashboard possa aplicá-los uniformemente.
 """
 from datetime import date, timedelta
+from statistics import median
 
 from django.db.models import Avg, Count, ExpressionWrapper, DurationField, F, Q, Sum
 from django.db.models.functions import TruncDate, TruncMonth
@@ -1159,3 +1160,25 @@ def shadow_status():
         'last_report': last_report,
         'sample_rate': float(getattr(dj_settings, 'SHADOW_SAMPLE_RATE', 0.0) or 0.0),
     }
+
+
+def _classificar_celula(volume, baseline_amostras, dia_util):
+    """Cor de saúde de uma célula (tribunal,fonte,dia).
+
+    baseline = mediana das últimas amostras do mesmo tipo de dia.
+    Sem baseline -> 'cinza' (não alarma fonte nova/sem histórico).
+    Fim de semana -> 'cinza' (DJEN/Datajud não publicam).
+    """
+    if not dia_util:
+        return 'cinza'
+    if not baseline_amostras:
+        return 'cinza'
+    base = median(baseline_amostras)
+    if base <= 0:
+        return 'cinza'
+    ratio = volume / base
+    if ratio >= 0.60:
+        return 'verde'
+    if ratio >= 0.20:
+        return 'amarelo'
+    return 'vermelho'

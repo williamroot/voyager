@@ -2,6 +2,7 @@ import pytest
 from datetime import date, datetime, timezone
 from django.db import connection
 from tribunals.models import Tribunal, Process
+from dashboard.queries import _classificar_celula
 
 @pytest.mark.django_db(transaction=True)
 def test_mv_pipeline_diario_popula_tres_fontes():
@@ -16,3 +17,12 @@ def test_mv_pipeline_diario_popula_tres_fontes():
                   "WHERE tribunal_id=%s AND dia=%s ORDER BY fonte", [t.pk, date(2026,5,15)])
         rows = dict(c.fetchall())
     assert rows == {'classif': 1, 'datajud': 1, 'pje': 1}
+
+
+def test_classificar_celula():
+    base = [100, 100, 100, 100]
+    assert _classificar_celula(90, base, dia_util=True) == 'verde'
+    assert _classificar_celula(40, base, dia_util=True) == 'amarelo'
+    assert _classificar_celula(5, base, dia_util=True) == 'vermelho'
+    assert _classificar_celula(0, base, dia_util=False) == 'cinza'
+    assert _classificar_celula(0, [], dia_util=True) == 'cinza'
