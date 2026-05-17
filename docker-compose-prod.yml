@@ -60,6 +60,19 @@ services:
       replicas: 8
     restart: always
 
+  worker_leads_consumo:
+    image: voyager-web:prod
+    command: python manage.py rqworker leads_consumo
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      replicas: 4
+    restart: always
+
   # Consumers do stream de enrichment. XREADGROUP distribui entries
   # entre consumers do mesmo group — escalar replicas dá throughput x N.
   # Workers concorrentes podem ter racing em upsert de Parte, mas as
