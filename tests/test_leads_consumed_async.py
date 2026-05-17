@@ -1,6 +1,6 @@
 import uuid
 import pytest
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from tribunals.models import ApiClient, LeadConsumption, Process, Tribunal
 
 
@@ -23,7 +23,7 @@ def test_lote_id_unique_por_cliente_processo(cliente, proc):
     lote = uuid.uuid4()
     LeadConsumption.objects.create(processo=proc, cliente=cliente,
                                    resultado='pendente', lote_id=lote)
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError), transaction.atomic():
         LeadConsumption.objects.create(processo=proc, cliente=cliente,
                                        resultado='pendente', lote_id=lote)
 
