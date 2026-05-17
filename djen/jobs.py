@@ -378,14 +378,15 @@ def _dia_coberto(tribunal: Tribunal, dia: date) -> bool:
         janela_inicio__lte=dia, janela_fim__gte=dia,
     ).values('movimentacoes_novas', 'movimentacoes_duplicadas', 'paginas_lidas')
     horizonte = date.today() - timedelta(days=tribunal.overlap_dias)
-    if dia >= horizonte:
+    if dia >= horizonte and dia.weekday() < 5:
         return any(_run_tem_dados(v) for v in qs)
     return qs.exists()
 
 
 def _dias_cobertos(tribunal: Tribunal, ini: date, fim: date) -> set[date]:
-    """Dias cobertos por IngestionRun success. Para dias no horizonte recente
-    (hoje - overlap_dias), exige run com dados; dias antigos: qualquer success."""
+    """Dias cobertos por IngestionRun success. Para DIAS ÚTEIS no horizonte
+    recente (hoje - overlap_dias), exige run com dados; fim de semana e dias
+    antigos: qualquer success (DJEN não publica sáb/dom)."""
     runs = list(IngestionRun.objects.filter(
         tribunal=tribunal, status=IngestionRun.STATUS_SUCCESS,
         janela_inicio__lte=fim, janela_fim__gte=ini,
@@ -398,7 +399,7 @@ def _dias_cobertos(tribunal: Tribunal, ini: date, fim: date) -> set[date]:
         end = min(run['janela_fim'], fim)
         com_dados = _run_tem_dados(run)
         while d <= end:
-            if d < horizonte or com_dados:
+            if d < horizonte or d.weekday() >= 5 or com_dados:
                 covered.add(d)
             d += timedelta(days=1)
     return covered
