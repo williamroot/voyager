@@ -1162,6 +1162,88 @@ def shadow_status():
     }
 
 
+def pipeline_saude_grid(dias=30, tribunais=None):
+    """Lista de células {tribunal_id, fonte, dia, ...metricas, cor}.
+
+    DJEN: live de IngestionRun (MAX por dia — overlap idempotente).
+    datajud/pje/classif: de mv_pipeline_diario.
+    """
+    from collections import defaultdict
+    from django.db import connection
+    from django.db.models import Max
+
+    hoje = date.today()
+    inicio = hoje - timedelta(days=dias)
+
+    djen_qs = (
+        IngestionRun.objects
+        .filter(
+            status=IngestionRun.STATUS_SUCCESS,
+            janela_inicio=F('janela_fim'),
+            janela_inicio__gte=inicio,
+        )
+    )
+    if tribunais:
+        djen_qs = djen_qs.filter(tribunal_id__in=tribunais)
+    djen_rows = (
+        djen_qs
+        .values('tribunal_id', 'janela_inicio')
+        .annotate(
+            novas=Max('movimentacoes_novas'),
+            duplicadas=Max('movimentacoes_duplicadas'),
+            paginas=Max('paginas_lidas'),
+            runs=Count('pk'),
+        )
+    )
+
+    cells = []
+    for r in djen_rows:
+        cells.append({
+            'tribunal_id': r['tribunal_id'],
+            'fonte': 'djen',
+            'dia': r['janela_inicio'],
+            'novas': r['novas'],
+            'duplicadas': r['duplicadas'],
+            'paginas': r['paginas'],
+            'runs': r['runs'],
+            'encontradas': r['novas'] + r['duplicadas'],
+            'volume': r['novas'] + r['duplicadas'],
+        })
+
+    where = ['dia >= %s']
+    params = [inicio]
+    if tribunais:
+        where.append('tribunal_id = ANY(%s)')
+        params.append(list(tribunais))
+    sql = (
+        'SELECT tribunal_id, dia, fonte, processos FROM mv_pipeline_diario '
+        f'WHERE {" AND ".join(where)}'
+    )
+    with connection.cursor() as cur:
+        cur.execute(sql, params)
+        for tid, dia, fonte, proc in cur.fetchall():
+            cells.append({
+                'tribunal_id': tid,
+                'fonte': fonte,
+                'dia': dia,
+                'volume': proc,
+                'processos': proc,
+            })
+
+    series = defaultdict(list)
+    for c in sorted(cells, key=lambda x: x['dia']):
+        series[(c['tribunal_id'], c['fonte'], c['dia'].weekday() < 5)].append(c)
+    for c in cells:
+        dia_util = c['dia'].weekday() < 5
+        hist = [
+            s['volume']
+            for s in series[(c['tribunal_id'], c['fonte'], dia_util)]
+            if s['dia'] < c['dia']
+        ][-4:]
+        c['cor'] = _classificar_celula(c['volume'], hist, dia_util)
+    return cells
+
+
 def _classificar_celula(volume, baseline_amostras, dia_util):
     """Cor de saúde de uma célula (tribunal,fonte,dia).
 

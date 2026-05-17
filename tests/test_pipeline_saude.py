@@ -1,8 +1,8 @@
 import pytest
 from datetime import date, datetime, timezone
 from django.db import connection
-from tribunals.models import Tribunal, Process
-from dashboard.queries import _classificar_celula
+from tribunals.models import Tribunal, Process, IngestionRun
+from dashboard.queries import _classificar_celula, pipeline_saude_grid
 
 @pytest.mark.django_db(transaction=True)
 def test_mv_pipeline_diario_popula_tres_fontes():
@@ -26,3 +26,20 @@ def test_classificar_celula():
     assert _classificar_celula(5, base, dia_util=True) == 'vermelho'
     assert _classificar_celula(0, base, dia_util=False) == 'cinza'
     assert _classificar_celula(0, [], dia_util=True) == 'cinza'
+
+
+@pytest.mark.django_db
+def test_pipeline_saude_grid_djen_usa_max_nao_sum():
+    t = Tribunal.objects.create(sigla='TSU', sigla_djen='TSU', nome='T', ativo=True)
+    d = date(2026, 5, 15)
+    for novas in (10, 12):
+        IngestionRun.objects.create(
+            tribunal=t, status=IngestionRun.STATUS_SUCCESS,
+            janela_inicio=d, janela_fim=d, movimentacoes_novas=novas,
+            movimentacoes_duplicadas=3, paginas_lidas=2,
+            finished_at=datetime(2026, 5, 15, 3, tzinfo=timezone.utc))
+    grid = pipeline_saude_grid(dias=3650, tribunais=[t.pk])
+    djen = [c for c in grid
+            if c['tribunal_id'] == t.pk and c['fonte'] == 'djen' and c['dia'] == d][0]
+    assert djen['novas'] == 12          # MAX(10,12), nao 22
+    assert djen['encontradas'] == 15    # MAX(novas+dup) = 12+3
