@@ -473,7 +473,7 @@ class LeadConsumption(models.Model):
     resultado = models.CharField(max_length=20, choices=RESULTADO_CHOICES,
                                  default=RESULTADO_PENDENTE, db_index=True)
     lote_id = models.UUIDField(
-        null=True, blank=True, db_index=True,
+        null=True, blank=True,
         help_text='UUID do lote de reporte (idempotência). NULL = legado.',
     )
 
@@ -481,6 +481,7 @@ class LeadConsumption(models.Model):
         indexes = [
             models.Index(fields=['cliente', '-consumido_em']),
             models.Index(fields=['cliente', 'processo']),
+            models.Index(fields=['lote_id'], name='trib_lc_lote_id_idx'),
         ]
         constraints = [
             models.UniqueConstraint(

@@ -88,3 +88,13 @@ def test_consumed_lote_id_invalido_400(cliente, proc):
                                'consumos': [{'cnj': proc.numero_cnj, 'resultado': 'validado'}]},
                          content_type='application/json', HTTP_X_API_KEY='k-test')
     assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_consumed_payload_grande_400(cliente, proc):
+    from django.test import Client
+    body = {'lote_id': str(uuid.uuid4()),
+            'consumos': [{'cnj': proc.numero_cnj, 'resultado': 'validado'}] * 5001}
+    resp = Client().post('/api/v1/leads/consumed/', data=body,
+                          content_type='application/json', HTTP_X_API_KEY='k-test')
+    assert resp.status_code == 400

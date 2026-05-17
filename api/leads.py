@@ -124,6 +124,8 @@ def marcar_consumidos(request):
         return Response({'erro': 'lote_id deve ser um UUID válido'}, status=400)
     if not isinstance(consumos, list) or not consumos:
         return Response({'erro': 'consumos deve ser lista não-vazia'}, status=400)
+    if len(consumos) > 5000:
+        return Response({'erro': 'consumos excede 5000 por requisição'}, status=400)
 
     try:
         django_rq.get_queue('leads_consumo').enqueue(
