@@ -1,4 +1,5 @@
-from django.db import migrations
+from django.contrib.postgres.operations import AddIndexConcurrently
+from django.db import migrations, models
 
 CREATE = """
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_pipeline_diario AS
@@ -16,15 +17,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS mv_pipeline_diario_uniq
   ON mv_pipeline_diario (tribunal_id, dia, fonte);
 """
 DROP = "DROP MATERIALIZED VIEW IF EXISTS mv_pipeline_diario;"
-IDX = ("CREATE INDEX CONCURRENTLY IF NOT EXISTS proc_datajud_em_idx "
-       "ON tribunals_process (data_enriquecimento_datajud);")
-IDX_DROP = "DROP INDEX CONCURRENTLY IF EXISTS proc_datajud_em_idx;"
 
 
 class Migration(migrations.Migration):
+
     atomic = False
+
     dependencies = [('tribunals', '0028_leadconsumption_lote_id')]
+
     operations = [
         migrations.RunSQL(CREATE, DROP),
-        migrations.RunSQL(IDX, IDX_DROP),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                AddIndexConcurrently(
+                    'process',
+                    models.Index(
+                        fields=['data_enriquecimento_datajud'],
+                        name='proc_datajud_em_idx',
+                    ),
+                ),
+            ],
+            state_operations=[
+                migrations.AddIndex(
+                    model_name='process',
+                    index=models.Index(
+                        fields=['data_enriquecimento_datajud'],
+                        name='proc_datajud_em_idx',
+                    ),
+                ),
+            ],
+        ),
     ]

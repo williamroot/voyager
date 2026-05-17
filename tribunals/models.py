@@ -154,6 +154,7 @@ class Process(models.Model):
             # — evitam bitmap heap scan + sort quando resultado esperado é pequeno.
             models.Index(fields=['tribunal', '-id'], name='proc_tribunal_id_idx'),
             models.Index(fields=['enriquecimento_status', '-id'], name='proc_enriq_id_idx'),
+            models.Index(fields=['data_enriquecimento_datajud'], name='proc_datajud_em_idx'),
         ]
 
     def __str__(self):
