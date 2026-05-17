@@ -363,10 +363,24 @@
         Visão geral
       </a>
       {% url 'dashboard:leads' as leads_url %}
-      <a href="{{ leads_url }}" class="nav-item {% if leads_url in request.path %}active{% endif %}">
+      <a href="{{ leads_url }}" class="nav-item {% if request.path == leads_url %}active{% endif %}">
         {% voy_icon "pulsar" "w-4 h-4" %}
         Leads
       </a>
+      {% if perms.tribunals.can_view_validacao_dashboard %}
+      {% url 'dashboard:leads_visibilidade' as leads_visib_url %}
+      <a href="{{ leads_visib_url }}" class="nav-item nav-sub {% if request.path == leads_visib_url %}active{% endif %}">
+        {% voy_icon "trajectory" "w-4 h-4" %}
+        <span class="opacity-70">↳</span> Visibilidade
+      </a>
+      {% endif %}
+      {% if perms.tribunals.can_validate_lead %}
+      {% url 'dashboard:leads_validacao_overview' as leads_valid_url %}
+      <a href="{{ leads_valid_url }}" class="nav-item nav-sub {% if '/leads/validacao' in request.path %}active{% endif %}">
+        {% voy_icon "calibrate" "w-4 h-4" %}
+        <span class="opacity-70">↳</span> Validação
+      </a>
+      {% endif %}
       <a href="{{ tribunais_url }}" class="nav-item {% if tribunais_url in request.path %}active{% endif %}">
         {% voy_icon "trajectory" "w-4 h-4" %}
         Tribunais

@@ -16,9 +16,31 @@ A função `builder` deve ser global no escopo da página (ver visibilidade.html
          data-chart="{{ chart_id }}"
          role="region"
          aria-label="{{ titulo }}">
-  <header class="mb-2">
-    <h3 class="text-sm font-medium text-fg-soft">{{ titulo }}</h3>
-    {% if subtitulo %}<p class="chart-subtitle text-xs text-fg-subtle mt-0.5">{{ subtitulo }}</p>{% endif %}
+  <header class="mb-2 flex items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h3 class="text-sm font-medium text-fg-soft">{{ titulo }}</h3>
+      {% if subtitulo %}<p class="chart-subtitle text-xs text-fg-subtle mt-0.5">{{ subtitulo }}</p>{% endif %}
+    </div>
+    {% if ajuda %}
+    <div class="relative shrink-0" x-data="{ open: false }" @click.outside="open=false">
+      <button type="button"
+              class="chart-help-btn"
+              :class="open ? 'is-open' : ''"
+              @click="open=!open"
+              aria-label="O que esse gráfico mostra?"
+              :aria-expanded="open ? 'true' : 'false'">
+        <span aria-hidden="true">📡</span>
+      </button>
+      <div class="chart-help-popover"
+           x-show="open"
+           x-transition.opacity
+           x-cloak
+           role="tooltip">
+        <div class="chart-help-title"><span aria-hidden="true">🛰️</span> {{ titulo }}</div>
+        <div class="chart-help-body">{{ ajuda|safe }}</div>
+      </div>
+    </div>
+    {% endif %}
   </header>
   <div class="chart-cell {{ min_height|default:'h-72' }}"
        data-chart-url="{{ url }}"
