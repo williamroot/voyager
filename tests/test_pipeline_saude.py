@@ -1,6 +1,7 @@
 import pytest
 from datetime import date, datetime, timezone
 from django.db import connection
+from django.contrib.auth import get_user_model
 from tribunals.models import Tribunal, Process, IngestionRun
 from dashboard.queries import _classificar_celula, pipeline_saude_grid, pipeline_volume_temporal, pipeline_kpis
 
@@ -58,3 +59,15 @@ def test_pipeline_volume_temporal_e_kpis():
     assert pontos and pontos[0]['volume'] == 50
     k = pipeline_kpis(tribunais=[t.pk])
     assert 'ultima_ingestao_djen' in k and 'anomalias_24h' in k
+
+
+@pytest.mark.django_db
+def test_ingestao_saude_view_200(client, settings):
+    settings.STORAGES = {
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    }
+    u = get_user_model().objects.create_user('w', password='x')
+    client.force_login(u)
+    resp = client.get('/dashboard/ingestao/saude/')
+    assert resp.status_code == 200

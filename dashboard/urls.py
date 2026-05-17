@@ -21,6 +21,7 @@ urlpatterns = [
     path('partes/', views.partes, name='partes'),
     path('partes/<int:pk>/', views.parte_detail, name='parte-detail'),
     path('ingestao/', views.ingestao, name='ingestao'),
+    path('ingestao/saude/', views.ingestao_saude, name='ingestao-saude'),
     path('workers/', views.workers, name='workers'),
     path('consulta-rapida/', views.consulta_rapida, name='consulta-rapida'),
     path('consulta-rapida/api/', views.consulta_rapida_api, name='consulta-rapida-api'),

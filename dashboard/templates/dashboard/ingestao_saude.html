@@ -1,0 +1,109 @@
+{% extends 'dashboard/base.html' %}
+{% load static voyager_extras %}
+{% block title %}Saúde do pipeline{% endblock %}
+{% block content %}
+
+{# ── Cabeçalho + filtros ─────────────────────────────────────────────────── #}
+<div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
+  <div>
+    <h1 class="text-3xl font-semibold tracking-tight">Dashboard de saúde do pipeline</h1>
+    <div class="text-sm text-fg-subtle mt-1">Ingestão · enriquecimento · classificação</div>
+  </div>
+  <div class="flex flex-col items-end gap-2">
+    <div class="flex gap-1 items-center text-xs bg-card/60 border border-border rounded-xl p-1">
+      <a href="?{% query_string request dias=30 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30  %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">30d</a>
+      <a href="?{% query_string request dias=90 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90  %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">90d</a>
+      <a href="?{% query_string request dias=180 %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 180 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">180d</a>
+    </div>
+    <div class="flex flex-wrap gap-1 items-center text-xs">
+      <span class="text-fg-subtle mr-1">Tribunal:</span>
+      <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
+      {% for t in tribunais %}
+        <a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if tribunal_filtro == t.sigla %}active{% endif %}">{{ t.sigla }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{# ── KPIs ─────────────────────────────────────────────────────────────────── #}
+<div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Última ingestão DJEN</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ kpis.ultima_ingestao_djen|date:"d/m/y"|default:"—" }}</div>
+    <div class="text-xs text-fg-subtle mt-1">data da janela mais recente</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Anomalias 24h</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num {% if kpis.anomalias_24h %}text-danger{% else %}text-accent-fg{% endif %}">{{ kpis.anomalias_24h }}</div>
+    <div class="text-xs text-fg-subtle mt-1">células vermelhas ontem/hoje</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Lag Datajud</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num {% if kpis.datajud_lag_dias is not None and kpis.datajud_lag_dias > 3 %}text-warning{% endif %}">{{ kpis.datajud_lag_dias|default:"—" }}{% if kpis.datajud_lag_dias is not None %}d{% endif %}</div>
+    <div class="text-xs text-fg-subtle mt-1">dias desde último enriquecimento</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Lag Classificação</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num {% if kpis.classif_lag_dias is not None and kpis.classif_lag_dias > 3 %}text-warning{% endif %}">{{ kpis.classif_lag_dias|default:"—" }}{% if kpis.classif_lag_dias is not None %}d{% endif %}</div>
+    <div class="text-xs text-fg-subtle mt-1">dias desde última classificação</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Dias OK (DJEN)</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num text-accent-fg">{{ kpis.dias_ok }}</div>
+    <div class="text-xs text-fg-subtle mt-1">células verdes nos últimos 30d</div>
+  </div>
+</div>
+
+{# ── Link para detalhe de runs ────────────────────────────────────────────── #}
+<div class="mb-5 flex items-center gap-3">
+  <a href="{% url 'dashboard:ingestao' %}" class="inline-flex items-center gap-1.5 text-xs text-accent-fg hover:underline">
+    {% voy_icon "uplink" "w-3.5 h-3.5" %}
+    Detalhe de runs
+  </a>
+  <span class="text-fg-subtle text-xs">· logs e tabela completa de IngestionRun</span>
+</div>
+
+{# ── Chart 1: Volume temporal por fonte ──────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Volume por fonte ao longo do tempo</div>
+      <div class="text-xs text-fg-subtle">movimentações/processos diários · empilhado por fonte</div>
+    </div>
+    <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">throughput</span>
+  </div>
+  <div class="h-64 chart-cell">
+    <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+    <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'pipeline-temporal' %}?dias={{ periodo_dias|default:'all' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}', d => buildPipelineTemporal(d))" class="absolute inset-0"></div>
+  </div>
+</div>
+
+{# ── Chart 2: Heatmap saúde do pipeline ──────────────────────────────────── #}
+<div class="card mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Mapa de saúde por tribunal · fonte · dia</div>
+      <div class="text-xs text-fg-subtle">
+        <span class="inline-flex items-center gap-1 mr-3">
+          <span class="w-2 h-2 rounded-sm inline-block" style="background:#10b981"></span> verde — normal
+        </span>
+        <span class="inline-flex items-center gap-1 mr-3">
+          <span class="w-2 h-2 rounded-sm inline-block" style="background:#f59e0b"></span> amarelo — abaixo da mediana
+        </span>
+        <span class="inline-flex items-center gap-1 mr-3">
+          <span class="w-2 h-2 rounded-sm inline-block" style="background:#f43f5e"></span> vermelho — anomalia
+        </span>
+        <span class="inline-flex items-center gap-1">
+          <span class="w-2 h-2 rounded-sm inline-block opacity-30" style="background:#3f3f46"></span> cinza — sem atividade
+        </span>
+      </div>
+    </div>
+    <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">saúde</span>
+  </div>
+  <div class="h-80 chart-cell">
+    <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+    <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-chart' 'pipeline-grid' %}?dias={{ periodo_dias|default:'all' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}', d => buildPipelineHeatmap(d))" class="absolute inset-0"></div>
+  </div>
+</div>
+
+{% endblock %}

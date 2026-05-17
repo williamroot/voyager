@@ -167,6 +167,14 @@ def _chart_ingestao_run_stats(dias, tribunais, sigla):
     return queries.ingestao_por_dia(dias=dias, tribunal=tribunal)
 
 
+def _chart_pipeline_grid(dias, tribunais, sigla):
+    return queries.pipeline_saude_grid(dias=dias, tribunais=[sigla] if sigla else tribunais)
+
+
+def _chart_pipeline_temporal(dias, tribunais, sigla):
+    return queries.pipeline_volume_temporal(dias=dias, tribunais=[sigla] if sigla else tribunais)
+
+
 def _chart_cache_key(key: str, dias, tribunais: list) -> str:
     trib = ','.join(sorted(tribunais)) if tribunais else ''
     dias_str = str(dias) if dias is not None else 'all'
@@ -184,6 +192,8 @@ _CHART_HANDLERS = {
     'sparkline-24h': _chart_sparkline_24h,
     'ingestao-por-hora': _chart_ingestao_por_hora,
     'ingestao-run-stats': _chart_ingestao_run_stats,
+    'pipeline-grid': _chart_pipeline_grid,
+    'pipeline-temporal': _chart_pipeline_temporal,
 }
 
 
@@ -843,6 +853,20 @@ def ingestao(request):
         'run_status': run_status,
         'run_de': run_de,
         'run_ate': run_ate,
+    })
+
+
+@login_required
+@require_GET
+def ingestao_saude(request):
+    periodo_dias = _periodo_dias(request, default=30)
+    tribunal_filtro = request.GET.get('tribunal', '')
+    return render(request, 'dashboard/ingestao_saude.html', {
+        'periodo_dias': periodo_dias,
+        'tribunal_filtro': tribunal_filtro,
+        'tribunais': Tribunal.objects.filter(ativo=True).order_by('sigla'),
+        'kpis': queries.pipeline_kpis(
+            tribunais=[tribunal_filtro] if tribunal_filtro else None),
     })
 
 
