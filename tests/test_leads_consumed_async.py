@@ -54,3 +54,27 @@ def test_registrar_consumo_cnj_inexistente(cliente):
                                 str(uuid.uuid4()))
     assert r['criados'] == 0
     assert '9-9.9.9.9' in r['nao_encontrados']
+
+
+@pytest.mark.django_db
+def test_consumed_endpoint_enfileira_202(cliente, proc):
+    from django.test import Client
+    import django_rq
+    django_rq.get_queue('leads_consumo').empty()
+    body = {'lote_id': str(uuid.uuid4()),
+            'consumos': [{'cnj': proc.numero_cnj, 'resultado': 'validado'}]}
+    resp = Client().post('/api/v1/leads/consumed/', data=body,
+                          content_type='application/json',
+                          HTTP_X_API_KEY='k-test')
+    assert resp.status_code == 202
+    assert resp.json()['enfileirado'] is True
+    assert django_rq.get_queue('leads_consumo').count == 1
+
+
+@pytest.mark.django_db
+def test_consumed_sem_lote_id_400(cliente, proc):
+    from django.test import Client
+    resp = Client().post('/api/v1/leads/consumed/',
+                          data={'consumos': [{'cnj': proc.numero_cnj, 'resultado': 'validado'}]},
+                          content_type='application/json', HTTP_X_API_KEY='k-test')
+    assert resp.status_code == 400

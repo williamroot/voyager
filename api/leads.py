@@ -100,47 +100,29 @@ def listar_leads(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def marcar_consumidos(request):
-    """POST /api/leads/consumed/ {consumos: [{cnj, resultado}, ...]}"""
+    """POST /api/leads/consumed/ {lote_id, consumos: [{cnj, resultado}, ...]}"""
+    import django_rq
+    from rq import Retry
+    from tribunals.jobs import registrar_consumo_leads
+
     cliente = _autenticar(request)
     if not cliente:
         return Response({'erro': 'X-API-Key inválida ou ausente'}, status=403)
 
+    lote_id = (request.data.get('lote_id') or '').strip()
     consumos = request.data.get('consumos') or []
-    if not isinstance(consumos, list):
-        return Response({'erro': 'consumos deve ser lista'}, status=400)
+    if not lote_id:
+        return Response({'erro': 'lote_id obrigatório'}, status=400)
+    if not isinstance(consumos, list) or not consumos:
+        return Response({'erro': 'consumos deve ser lista não-vazia'}, status=400)
 
-    resultados_validos = dict(LeadConsumption.RESULTADO_CHOICES)
-
-    cnjs = []
-    resultado_por_cnj = {}
-    for c in consumos:
-        if not isinstance(c, dict):
-            continue
-        cnj = (c.get('cnj') or '').strip()
-        resultado = (c.get('resultado') or LeadConsumption.RESULTADO_PENDENTE).strip()
-        if not cnj or resultado not in resultados_validos:
-            continue
-        cnjs.append(cnj)
-        resultado_por_cnj[cnj] = resultado
-
-    if not cnjs:
-        return Response({'criados': 0, 'duplicados': 0, 'nao_encontrados': []})
-
-    procs = list(Process.objects.filter(numero_cnj__in=cnjs).only('id', 'numero_cnj'))
-    proc_por_cnj = {p.numero_cnj: p for p in procs}
-    nao_encontrados = [c for c in cnjs if c not in proc_por_cnj]
-
-    a_criar = []
-    for cnj, p in proc_por_cnj.items():
-        a_criar.append(LeadConsumption(
-            processo=p, cliente=cliente,
-            resultado=resultado_por_cnj[cnj],
-        ))
-    criados_objs = LeadConsumption.objects.bulk_create(a_criar)
-    return Response({
-        'criados': len(criados_objs),
-        'nao_encontrados': nao_encontrados,
-    }, status=status.HTTP_201_CREATED)
+    django_rq.get_queue('leads_consumo').enqueue(
+        registrar_consumo_leads, cliente.id, consumos, lote_id,
+        job_timeout=1800, result_ttl=86400, failure_ttl=604800,
+        retry=Retry(max=3, interval=[30, 120, 600]),
+    )
+    return Response({'enfileirado': True, 'lote_id': lote_id,
+                     'recebidos': len(consumos)}, status=202)
 
 
 @api_view(['GET'])
