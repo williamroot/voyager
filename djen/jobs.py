@@ -367,31 +367,39 @@ def tick_backfill_retroativo(tribunal_sigla: str) -> dict:
     }
 
 
+def _run_tem_dados(v) -> bool:
+    return bool(v['movimentacoes_novas'] or v['movimentacoes_duplicadas']
+                or v['paginas_lidas'])
+
+
 def _dia_coberto(tribunal: Tribunal, dia: date) -> bool:
-    return IngestionRun.objects.filter(
-        tribunal=tribunal,
-        status=IngestionRun.STATUS_SUCCESS,
-        janela_inicio__lte=dia,
-        janela_fim__gte=dia,
-    ).exists()
+    qs = IngestionRun.objects.filter(
+        tribunal=tribunal, status=IngestionRun.STATUS_SUCCESS,
+        janela_inicio__lte=dia, janela_fim__gte=dia,
+    ).values('movimentacoes_novas', 'movimentacoes_duplicadas', 'paginas_lidas')
+    horizonte = date.today() - timedelta(days=tribunal.overlap_dias)
+    if dia >= horizonte:
+        return any(_run_tem_dados(v) for v in qs)
+    return qs.exists()
 
 
 def _dias_cobertos(tribunal: Tribunal, ini: date, fim: date) -> set[date]:
-    """Retorna set de dates cobertos por algum IngestionRun success na janela."""
-    runs = list(
-        IngestionRun.objects.filter(
-            tribunal=tribunal,
-            status=IngestionRun.STATUS_SUCCESS,
-            janela_inicio__lte=fim,
-            janela_fim__gte=ini,
-        ).values('janela_inicio', 'janela_fim')
-    )
+    """Dias cobertos por IngestionRun success. Para dias no horizonte recente
+    (hoje - overlap_dias), exige run com dados; dias antigos: qualquer success."""
+    runs = list(IngestionRun.objects.filter(
+        tribunal=tribunal, status=IngestionRun.STATUS_SUCCESS,
+        janela_inicio__lte=fim, janela_fim__gte=ini,
+    ).values('janela_inicio', 'janela_fim', 'movimentacoes_novas',
+             'movimentacoes_duplicadas', 'paginas_lidas'))
+    horizonte = date.today() - timedelta(days=tribunal.overlap_dias)
     covered: set[date] = set()
     for run in runs:
         d = max(run['janela_inicio'], ini)
         end = min(run['janela_fim'], fim)
+        com_dados = _run_tem_dados(run)
         while d <= end:
-            covered.add(d)
+            if d < horizonte or com_dados:
+                covered.add(d)
             d += timedelta(days=1)
     return covered
 
