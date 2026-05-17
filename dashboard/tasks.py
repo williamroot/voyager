@@ -166,6 +166,22 @@ def warm_ingestao_por_hora():
     _with_lock('lock:warm_ingestao_por_hora', 300, _run)
 
 
+@job('warm', timeout=900)
+def warm_pipeline_diario():
+    """REFRESH CONCURRENTLY mv_pipeline_diario — intraday, hoje/ontem fresco."""
+    def _run():
+        try:
+            with connection.cursor() as cur:
+                cur.execute("SET lock_timeout = '5s'")
+                cur.execute("SET statement_timeout = '600s'")
+                cur.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_pipeline_diario')
+            logger.info('refresh MV mv_pipeline_diario ok (warm)')
+        except Exception as e:
+            logger.warning('warm_pipeline_diario: %s', e)
+            _reset_connection()
+    _with_lock('lock:warm_pipeline_diario', 900, _run)
+
+
 @job('warm', timeout=1200)
 def warm_partes():
     """Distribuição de tipos de partes (/dashboard/partes/)."""
@@ -199,7 +215,7 @@ def refresh_materialized_views():
     187M+ rows; 600s matava o job antes de terminar, deixando o MV stale.
     """
     def _run():
-        for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora'):
+        for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora', 'mv_pipeline_diario'):
             try:
                 with connection.cursor() as cur:
                     cur.execute("SET lock_timeout = '5s'")
