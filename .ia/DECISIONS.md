@@ -394,3 +394,16 @@ quando todos os tribunais ficam vermelhos no mesmo dia).
 **Consequência:** Dashboard renderiza em <200ms. Schema sempre em sync com o código.
 Feriados geram falso-vermelho (aceito). Bug `_dia_coberto` fica visível no heatmap
 (tracking separado).
+
+**Follow-up (implementado):**
+
+(a) **Fix `_dia_coberto` com horizonte recente:** dias dentro de `hoje − overlap_dias`
+só contam cobertos se o run `success` teve dados (`novas | duplicadas | paginas > 0`).
+Decisão: não quebrar o backfill de dias antigos vazios — feriados/recesso histórico
+(fora do horizonte) continuam aceitos com qualquer `success`, evitando re-processamento
+de ruído. Apenas o horizonte recente exige dados reais pra fechar o bug latente.
+
+(b) **Dashboard sintetiza dia útil ausente como vermelho:** dia útil sem run de
+ingestão (`< hoje`, tribunal ativo com backfill concluído) agora é gerado como célula
+`volume=0, cor=vermelho` em vez de ficar ausente (que aparecia como cinza / invisível).
+Isso fecha o gap onde "ausente == cinza" escondia lacunas reais de ingestão no heatmap.

@@ -1068,10 +1068,11 @@
       const c = chartGridColors();
       if (!rows || !rows.length) return {graphic:[{type:'text',left:'center',top:'middle',style:{text:'Sem dados ainda',fill:c.axisLabel,fontSize:12}}]};
       const COR_COLORS = {verde:'#10b981', amarelo:'#f59e0b', vermelho:'#f43f5e', cinza:'#3f3f46'};
+      const COR_LABELS = {verde:'OK', amarelo:'atenção', vermelho:'anomalia', cinza:'esperado vazio / sem baseline'};
       const dias = [...new Set(rows.map(r => String(r.dia).slice(0,10)))].sort();
       const eixoY = [...new Set(rows.map(r => r.tribunal_id + ' · ' + r.fonte))].sort();
       const lookup = {};
-      rows.forEach(r => { lookup[r.tribunal_id + ' · ' + r.fonte + '|' + String(r.dia).slice(0,10)] = r.cor; });
+      rows.forEach(r => { lookup[r.tribunal_id + ' · ' + r.fonte + '|' + String(r.dia).slice(0,10)] = r; });
       const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
       const formatDia = raw => {
         const s = String(raw).slice(0,10);
@@ -1081,7 +1082,8 @@
       const data = [];
       eixoY.forEach((y, yi) => {
         dias.forEach((d, xi) => {
-          const cor = lookup[y + '|' + d] || 'cinza';
+          const row = lookup[y + '|' + d];
+          const cor = row ? (row.cor || 'cinza') : 'cinza';
           data.push([xi, yi, cor]);
         });
       });
@@ -1089,8 +1091,26 @@
         tooltip: {
           trigger:'item',
           formatter: p => {
-            const d = dias[p.data[0]], y = eixoY[p.data[1]], cor = p.data[2];
-            return `<b>${y}</b><br>${formatDia(d)}<br>Status: <b>${cor}</b>`;
+            const row = lookup[eixoY[p.data[1]] + '|' + dias[p.data[0]]] || {};
+            const fonte = typeof row.fonte !== 'undefined' ? row.fonte : '';
+            const tribunal = typeof row.tribunal_id !== 'undefined' ? row.tribunal_id : '';
+            const dia = typeof row.dia !== 'undefined' ? formatDia(String(row.dia).slice(0,10)) : formatDia(dias[p.data[0]]);
+            const cor = p.data[2] || 'cinza';
+            const statusLabel = COR_LABELS[cor] || cor;
+            const header = `<div style="font-size:11px"><b>${fonte.toUpperCase()} · ${tribunal} · ${dia}</b></div>`;
+            const statusLine = `Status: <b>${statusLabel}</b>`;
+            const metricsLines = [];
+            if (fonte === 'djen') {
+              if (typeof row.encontradas !== 'undefined') metricsLines.push(`encontradas: <b>${fmt(row.encontradas)}</b>`);
+              if (typeof row.novas !== 'undefined') metricsLines.push(`novas: <b>${fmt(row.novas)}</b>`);
+              if (typeof row.duplicadas !== 'undefined') metricsLines.push(`duplicadas: <b>${fmt(row.duplicadas)}</b>`);
+              if (typeof row.paginas !== 'undefined') metricsLines.push(`páginas: <b>${fmt(row.paginas)}</b>`);
+              if (typeof row.runs !== 'undefined') metricsLines.push(`runs: <b>${fmt(row.runs)}</b>`);
+            } else {
+              if (typeof row.processos !== 'undefined') metricsLines.push(`processos: <b>${fmt(row.processos)}</b>`);
+            }
+            const body = [statusLine, ...metricsLines].join('<br>');
+            return `${header}${body}`;
           },
         },
         grid: {left:140, right:20, top:10, bottom:60},

@@ -98,6 +98,19 @@ cinza    → fim de semana  OU  sem baseline (primeiras semanas de dados)
 | `djen` | Live de `IngestionRun` — `MAX(janela_fim)` por tribunal/dia; anti-double-count de overlap. Chaves: `novas`, `duplicadas`, `encontradas`, `paginas`. **Não está na MV.** |
 | `datajud` / `pje` / `classif` | MV `mv_pipeline_diario` — formato long: `SELECT tribunal_id, dia, fonte, processos FROM mv_pipeline_diario WHERE fonte = '<fonte>'`. Coluna de valor: `processos` (int). |
 
+### Atualizações recentes
+
+- **Dia útil DJEN ausente → vermelho (não cinza):** dia útil sem run de ingestão
+  (`< hoje`, tribunal ativo com `backfill_concluido_em` definido) é sintetizado
+  como célula com `volume=0` e pintado vermelho, tornando lacunas explícitas em
+  vez de invisíveis (cinza).
+- **Tooltip do heatmap com métricas nativas:** ao passar o mouse sobre uma
+  célula, o tooltip mostra cabeçalho `<FONTE> · <tribunal> · <dia>`, status
+  legível (`OK / atenção / anomalia / esperado vazio / sem baseline`) e métricas
+  por fonte — DJEN: `encontradas`, `novas`, `duplicadas`, `páginas`, `runs`;
+  demais fontes: `processos`. Todos os campos são guardados contra ausência
+  (não lança erro se uma chave faltar).
+
 ### Limitação conhecida
 
 Feriado forense (Corpus Christi, feriado estadual, recesso) não está em nenhum

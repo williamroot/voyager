@@ -156,6 +156,24 @@ Colunas: `tribunal_id` (sigla), `dia` (date), `fonte` (text: `'datajud'` | `'pje
 `MAX(janela_fim)` por tribunal/dia para não duplicar overlap de janelas
 (dois runs com janela sobreposta contam o mesmo dia duas vezes se somados).
 
+### Cobertura e `_dia_coberto`
+
+`_dia_coberto` e `_dias_cobertos` (`djen/jobs.py`) determinam se um dia já foi
+processado — usado pelo backfill pra pular janelas feitas e pelo watchdog de
+re-enfileiramento.
+
+**Regra de horizonte recente (bug latente fechado):** dias dentro de
+`hoje − overlap_dias` só contam cobertos se o `success` teve dados reais
+(`novas | duplicadas | paginas > 0`). Um run com `success` mas zeroes
+(ex: tribunal fora do ar, request retornou vazio sem erro) **não** marca o
+dia coberto — o backfill re-tentará. Dias antigos (fora do horizonte) aceitam
+qualquer `success`, inclusive vazio, pois representam feriados/recesso
+histórico legítimos — re-processar seria ruído sem ganho.
+
+Isso fecha o bug latente onde um `success` vazio sobre-escrevia dias recentes
+como cobertos, silenciando lacunas de ingestão que deveriam ser vistas no
+heatmap de saúde como vermelho.
+
 ### Refresh
 
 | Job | Schedule | Como |
