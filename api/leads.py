@@ -10,6 +10,12 @@ Endpoints:
 """
 from __future__ import annotations
 
+import logging
+import uuid
+
+import django_rq
+from rq import Retry
+
 from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
@@ -18,9 +24,12 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from tribunals.jobs import registrar_consumo_leads
 from tribunals.models import (
     ApiClient, ClassificadorVersao, LeadConsumption, Process,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _autenticar(request) -> ApiClient | None:
@@ -101,10 +110,6 @@ def listar_leads(request):
 @permission_classes([AllowAny])
 def marcar_consumidos(request):
     """POST /api/leads/consumed/ {lote_id, consumos: [{cnj, resultado}, ...]}"""
-    import django_rq
-    from rq import Retry
-    from tribunals.jobs import registrar_consumo_leads
-
     cliente = _autenticar(request)
     if not cliente:
         return Response({'erro': 'X-API-Key inválida ou ausente'}, status=403)
@@ -113,14 +118,22 @@ def marcar_consumidos(request):
     consumos = request.data.get('consumos') or []
     if not lote_id:
         return Response({'erro': 'lote_id obrigatório'}, status=400)
+    try:
+        uuid.UUID(lote_id)
+    except (ValueError, TypeError, AttributeError):
+        return Response({'erro': 'lote_id deve ser um UUID válido'}, status=400)
     if not isinstance(consumos, list) or not consumos:
         return Response({'erro': 'consumos deve ser lista não-vazia'}, status=400)
 
-    django_rq.get_queue('leads_consumo').enqueue(
-        registrar_consumo_leads, cliente.id, consumos, lote_id,
-        job_timeout=1800, result_ttl=86400, failure_ttl=604800,
-        retry=Retry(max=3, interval=[30, 120, 600]),
-    )
+    try:
+        django_rq.get_queue('leads_consumo').enqueue(
+            registrar_consumo_leads, cliente.id, consumos, lote_id,
+            job_timeout=1800, result_ttl=86400, failure_ttl=604800,
+            retry=Retry(max=3, interval=[30, 120, 600]),
+        )
+    except Exception:
+        logger.exception('leads_consumo enqueue falhou lote=%s cliente=%s', lote_id, cliente.id)
+        return Response({'erro': 'fila indisponível, tente novamente'}, status=503)
     return Response({'enfileirado': True, 'lote_id': lote_id,
                      'recebidos': len(consumos)}, status=202)
 
