@@ -328,3 +328,30 @@ Resultado:
 - Limitação: imagens/arquivos referenciados via `url()` no próprio CSS
   precisam usar caminho relativo pro Whitenoise re-escrever os hashes —
   é o comportamento padrão, mas vale lembrar em PRs futuros.
+
+## ADR-024 — `POST /leads/consumed/` assíncrono + idempotente por lote (2026-05-16)
+
+**Contexto:** O catch-up do Falcon (~268k processos) e o reporte diário do
+Juriscope precisam ser à prova de falha — gravar consumo síncrono num request
+HTTP perde dados se o request cair no meio, e reenvio cego (retry do cliente)
+duplicava `LeadConsumption` (ADR-016 não tinha constraint nenhuma).
+
+**Decisão:**
+- `POST /leads/consumed/` passa a exigir `lote_id` (UUID) no body e responde
+  `202 {enfileirado, lote_id, recebidos}` — só enfileira o job RQ
+  `registrar_consumo_leads` na fila `leads_consumo` (worker
+  `worker_leads_consumo`, 4 réplicas, `Retry(max=3, interval=[30,120,600])`).
+- Idempotência via `UniqueConstraint(cliente, processo, lote_id)
+  WHERE lote_id IS NOT NULL` + `bulk_create(ignore_conflicts=True)` no job:
+  retry RQ ou reenvio do mesmo lote nunca duplica nem perde linha.
+- `LeadConsumption.lote_id` nullable — NULL = registros legados pré-cutover
+  (re-consumo solto continua suportado, ADR-016).
+- `503` no enqueue (Redis fora) sinaliza ao cliente pra retentar; nada se perde.
+
+**Scheduler:** `run_daily_ingestion` de TRF1 às **02:00** e TRF3 às **02:30**
+(`djen/scheduler.py::EARLY`) — pré-processa cedo pra que o pull diário do
+Falcon às 08:00 já encontre tudo classificado.
+
+**Consequência:** Zero perda / zero duplicata no reporte de consumo mesmo sob
+falha de rede ou restart de worker. Trade-off: cliente não recebe mais o
+resultado de gravação na hora (criados/duplicados ficam no resultado do job RQ).

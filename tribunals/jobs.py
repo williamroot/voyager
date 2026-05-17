@@ -1,6 +1,7 @@
 """Jobs RQ pro app tribunals — classificação de leads em batch."""
 import logging
 import math
+import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -662,3 +663,56 @@ def gerar_lotes_semanais_fn(
             logger.exception('Falha notificando lotes semanais')
 
     return resultados
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Consumo de leads assíncrono — gravação idempotente por lote_id
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@job('leads_consumo', timeout=1800)
+def registrar_consumo_leads(cliente_id: int, consumos: list[dict],
+                            lote_id: str) -> dict:
+    """Grava LeadConsumption idempotente por (cliente, processo, lote_id).
+
+    Replay (retry RQ) não duplica: filtra CNJs já gravados nesse lote.
+    `consumos`: [{'cnj': str, 'resultado': str}, ...].
+    """
+    lote_uuid = uuid.UUID(str(lote_id))
+    from .models import LeadConsumption
+    validos = dict(LeadConsumption.RESULTADO_CHOICES)
+    res_por_cnj = {}
+    for c in consumos:
+        if not isinstance(c, dict):
+            continue
+        cnj = (c.get('cnj') or '').strip()
+        resultado = (c.get('resultado') or LeadConsumption.RESULTADO_PENDENTE).strip()
+        if cnj and resultado in validos:
+            res_por_cnj[cnj] = resultado
+    if not res_por_cnj:
+        return {'criados': 0, 'duplicados': 0, 'nao_encontrados': []}
+
+    procs = {p.numero_cnj: p for p in
+             Process.objects.filter(numero_cnj__in=list(res_por_cnj)).only('id', 'numero_cnj')}
+    nao_encontrados = [c for c in res_por_cnj if c not in procs]
+
+    ja = set(LeadConsumption.objects
+             .filter(cliente_id=cliente_id, lote_id=lote_uuid,
+                     processo__numero_cnj__in=list(procs))
+             .values_list('processo__numero_cnj', flat=True))
+    a_criar = [
+        LeadConsumption(processo=p, cliente_id=cliente_id,
+                        resultado=res_por_cnj[cnj], lote_id=lote_uuid)
+        for cnj, p in procs.items() if cnj not in ja
+    ]
+    existentes_antes = len(ja)
+    LeadConsumption.objects.bulk_create(a_criar, batch_size=1000,
+                                        ignore_conflicts=True)
+    total_agora = (LeadConsumption.objects
+                   .filter(cliente_id=cliente_id, lote_id=lote_uuid,
+                           processo__numero_cnj__in=list(procs))
+                   .count())
+    criados = total_agora - existentes_antes
+    duplicados = len(procs) - criados
+    return {'criados': criados, 'duplicados': duplicados,
+            'nao_encontrados': nao_encontrados}

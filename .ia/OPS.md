@@ -32,6 +32,7 @@ web                       1   Django + Gunicorn
 scheduler                 1   APScheduler + ThreadPoolExecutor(20). Warm jobs inline.
 worker_manual             2   fila 'manual' (cliques on-demand)
 worker_classificacao      8   fila 'classificacao' (batch ML, hot reload v6)
+worker_leads_consumo      4   fila 'leads_consumo' (consumo Juriscope async, idempotente)
 enrichment_drainer_p0..p3 4   drainer do stream Redis (RODA SÓ AQUI — não nas auxiliares)
 nginx                     1   reverse proxy
 cloudflared               1   tunnel pra voyager.was.dev.br
@@ -103,6 +104,7 @@ enrich_trf3      — PJe scraping TRF3
 manual           — UI clicks (alta prioridade)
 datajud          — Datajud sync per-CNJ
 classificacao    — batch ML (TIMEOUT 4h)
+leads_consumo    — consumo Juriscope async (POST /leads/consumed/, idempotente por lote_id)
 ```
 
 > **Removida:** fila `warm` foi eliminada em 2026-05-06. Warm jobs rodam inline

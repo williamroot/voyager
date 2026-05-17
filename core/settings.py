@@ -191,6 +191,10 @@ RQ_QUEUES = {
     # rodar 500k procs por hora — isolar pra não bloquear default que
     # também tem watchdogs e ticks.
     'classificacao':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 14400, **_RQ_CONN},
+    # Consumo de leads reportado pelo Falcon — assíncrono e idempotente.
+    # Isolado pra não competir com classificação/ingestão; volume em rajada
+    # (catch-up de ~268k + reportes diários).
+    'leads_consumo':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 1800,  **_RQ_CONN},
 
 }
 
