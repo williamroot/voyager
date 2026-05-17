@@ -61,9 +61,13 @@ def create_scheduler() -> BlockingScheduler:
     )
 
     # Ingestão diária — escalonado de 30 em 30 min a partir das 04:00
+    EARLY = {'TRF1': (2, 0), 'TRF3': (2, 30)}
     for idx, t in enumerate(ativos):
-        hour = 4 + (idx // 2)
-        minute = 0 if idx % 2 == 0 else 30
+        if t.sigla in EARLY:
+            hour, minute = EARLY[t.sigla]
+        else:
+            hour = 4 + (idx // 2)
+            minute = 0 if idx % 2 == 0 else 30
         scheduler.add_job(
             run_daily_ingestion.delay,
             'cron',
