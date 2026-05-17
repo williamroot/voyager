@@ -16,7 +16,7 @@ DRF read-only sob `/api/v1/`. Auth via API key (`Authorization: Api-Key <key>`).
 | GET | `/api/v1/movimentacoes/<id>/` | Detalhe |
 | GET | `/api/v1/ingestion-runs/` | Histórico |
 | GET | `/api/v1/leads/` | Próximos N leads não consumidos (Juriscope integration) |
-| POST | `/api/v1/leads/consumed/` | Marca processos como consumidos com resultado |
+| POST | `/api/v1/leads/consumed/` | Enfileira consumo (async, 202) — requer `lote_id` |
 | GET | `/api/v1/leads/stats/` | Métricas agregadas pro cliente |
 | GET | `/api/v1/health/` | Readiness rico (503 se lag >36h em algum ativo) |
 | GET | `/api/v1/health/liveness/` | Liveness simples (200 sempre se up) |
@@ -120,19 +120,35 @@ Retorna processos classificados não-consumidos pelo cliente. Filtra `LeadConsum
 }
 ```
 
-### `POST /api/v1/leads/consumed/`
+### `POST /api/v1/leads/consumed/` — **assíncrono (202)**
 
-Body:
+Body (`lote_id` UUID obrigatório):
 ```json
-{"consumos": [
-  {"cnj": "...", "resultado": "validado"},
-  {"cnj": "...", "resultado": "sem_expedicao"}
+{"lote_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+ "consumos": [
+   {"cnj": "...", "resultado": "validado"},
+   {"cnj": "...", "resultado": "sem_expedicao"}
 ]}
 ```
 
 Resultados aceitos: `validado`, `sem_expedicao`, `erro`, `pendente`, `pago`, `arquivado`, `cedido`.
 
-Sem unique constraint — re-consumo permitido (cria registro novo, mantém histórico).
+Não grava síncrono: **enfileira** o job RQ `registrar_consumo_leads` na fila
+`leads_consumo` (worker `worker_leads_consumo`, 4 réplicas) e responde `202`:
+
+```json
+{"enfileirado": true, "lote_id": "f47ac10b-...", "recebidos": 4180}
+```
+
+Idempotente por `(cliente, processo, lote_id)` via constraint partial
+(`uniq_consumo_cliente_proc_lote WHERE lote_id IS NOT NULL`): retry RQ /
+reenvio do mesmo lote nunca duplica nem perde. `LeadConsumption.lote_id`
+é nullable (NULL = legado pré-cutover).
+
+Erros:
+- `403` — X-API-Key inválida/ausente
+- `400` — `lote_id` ausente ou não-UUID; `consumos` vazio, não-lista ou >5000
+- `503` — enqueue na fila falhou (Redis fora) — **cliente deve retentar**
 
 ### `GET /api/v1/leads/stats/`
 

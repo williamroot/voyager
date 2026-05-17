@@ -175,8 +175,8 @@ Query params: `nivel`, `tribunal`, `limit` (1..10000, default 5000), `min_score`
 
 Por default exclui processos com registro em `LeadConsumption` para esse cliente. Anti-join via `Exists(OuterRef)` pra escalar com 100k+ consumos.
 
-### `POST /api/v1/leads/consumed/`
-Marca processos como consumidos. Re-consumo permitido (sem unique constraint — cada chamada cria registro novo).
+### `POST /api/v1/leads/consumed/` — assíncrono (202)
+Requer `lote_id` (UUID) no body: `{lote_id, consumos: [{cnj, resultado}, ...]}`. Enfileira o job RQ `registrar_consumo_leads` (fila `leads_consumo`) e responde `202 {enfileirado, lote_id, recebidos}`. Idempotente por `(cliente, processo, lote_id)` — retry/reenvio não duplica nem perde. Detalhes em [`API.md`](API.md) e ADR-024.
 
 Resultados aceitos: `validado` · `sem_expedicao` · `erro` · `pendente` · `pago` · `arquivado` · `cedido`.
 
