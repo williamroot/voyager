@@ -164,15 +164,25 @@ re-enfileiramento.
 
 **Regra de horizonte recente (bug latente fechado):** dias dentro de
 `hoje − overlap_dias` só contam cobertos se o `success` teve dados reais
-(`novas | duplicadas | paginas > 0`). Um run com `success` mas zeroes
-(ex: tribunal fora do ar, request retornou vazio sem erro) **não** marca o
-dia coberto — o backfill re-tentará. Dias antigos (fora do horizonte) aceitam
-qualquer `success`, inclusive vazio, pois representam feriados/recesso
-histórico legítimos — re-processar seria ruído sem ganho.
+(`novas | duplicadas | paginas > 0`) — **mas essa exigência de dados se aplica
+apenas a dias úteis** (`weekday() < 5`). Exemplos:
+
+| Situação | Resultado |
+|---|---|
+| Dia útil recente, `success` com `novas=0` (vazio) | **não coberto** — backfill re-tentará |
+| Sábado ou domingo recente, `success` vazio | **coberto** — DJEN não publica fim de semana; sem retry desnecessário |
+| Qualquer dia fora do horizonte, `success` (qualquer) | **coberto** — backfill histórico de feriado/recesso intacto |
 
 Isso fecha o bug latente onde um `success` vazio sobre-escrevia dias recentes
 como cobertos, silenciando lacunas de ingestão que deveriam ser vistas no
-heatmap de saúde como vermelho.
+heatmap de saúde como vermelho, sem gerar falsos retries em fins de semana.
+
+**Ressalva — feriado forense:** não há calendário de feriados forenses (Corpus
+Christi, feriados estaduais, recesso). Um feriado recente com `success` vazio é
+tratado como dia útil perdido → o fan-out diário e o `tick_backfill_retroativo`
+o re-tentarão repetidamente até ele envelhecer fora do horizonte. Custo baixo
+(proxy/worker), não é outage; consistente com a nota "Falso-vermelho em feriado
+forense" do `DASHBOARD.md`.
 
 ### Refresh
 
