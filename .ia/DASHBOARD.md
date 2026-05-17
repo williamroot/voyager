@@ -95,10 +95,8 @@ cinza    → fim de semana  OU  sem baseline (primeiras semanas de dados)
 
 | Fonte | Como é lido |
 |---|---|
-| `djen` | Live de `IngestionRun` — `MAX(janela_fim)` por tribunal/dia; anti-double-count de overlap |
-| `datajud` | MV `mv_pipeline_diario` coluna `cnt_datajud` |
-| `pje` | MV `mv_pipeline_diario` coluna `cnt_pje` |
-| `classif` | MV `mv_pipeline_diario` coluna `cnt_classif` |
+| `djen` | Live de `IngestionRun` — `MAX(janela_fim)` por tribunal/dia; anti-double-count de overlap. Chaves: `novas`, `duplicadas`, `encontradas`, `paginas`. **Não está na MV.** |
+| `datajud` / `pje` / `classif` | MV `mv_pipeline_diario` — formato long: `SELECT tribunal_id, dia, fonte, processos FROM mv_pipeline_diario WHERE fonte = '<fonte>'`. Coluna de valor: `processos` (int). |
 
 ### Limitação conhecida
 

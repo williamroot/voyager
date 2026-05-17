@@ -136,19 +136,21 @@ djen_status
 Criada na migration `0029`. Agrega contagens de Process por tribunal, dia e fonte de enriquecimento.
 
 ```sql
--- definição conceitual
-SELECT
-    tribunal_id,
-    DATE(data_enriquecimento_datajud) AS dia,   -- fonte datajud
-    COUNT(*)                                     AS cnt_datajud
-FROM tribunals_process
-WHERE data_enriquecimento_datajud IS NOT NULL
-GROUP BY tribunal_id, DATE(data_enriquecimento_datajud)
-
--- colunas análogas para enriquecido_em (pje) e classificacao_em (classif)
+-- formato LONG: uma linha por (tribunal_id, dia, fonte)
+SELECT tribunal_id, data_enriquecimento_datajud::date AS dia,
+       'datajud'::text AS fonte, COUNT(*)::int AS processos
+  FROM tribunals_process
+ WHERE data_enriquecimento_datajud IS NOT NULL GROUP BY 1,2
+UNION ALL
+SELECT tribunal_id, enriquecido_em::date, 'pje', COUNT(*)::int
+  FROM tribunals_process WHERE enriquecido_em IS NOT NULL GROUP BY 1,2
+UNION ALL
+SELECT tribunal_id, classificacao_em::date, 'classif', COUNT(*)::int
+  FROM tribunals_process WHERE classificacao_em IS NOT NULL GROUP BY 1,2;
 ```
 
-Colunas: `tribunal_id`, `dia` (date), `cnt_datajud`, `cnt_pje`, `cnt_classif`.
+Colunas: `tribunal_id` (sigla), `dia` (date), `fonte` (text: `'datajud'` | `'pje'` | `'classif'`), `processos` (int).
+Índice único em `(tribunal_id, dia, fonte)` — permite `REFRESH CONCURRENTLY`.
 
 **Nota:** DJEN **não está** na MV. É lido live de `IngestionRun` com
 `MAX(janela_fim)` por tribunal/dia para não duplicar overlap de janelas
