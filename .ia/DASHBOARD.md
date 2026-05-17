@@ -44,6 +44,7 @@ Tema dark/light via `data-theme` no `<html>` + `tailwind.config.darkMode = 'clas
 | `/dashboard/tribunais/<sigla>/` | `tribunal_detail.html` | Detalhe de um tribunal (KPIs + charts) |
 | `/dashboard/workers/` | `workers.html` | Filas RQ + workers conectados, auto-refresh HTMX 5s |
 | `/dashboard/ingestao/` | `ingestao.html` | Saúde operacional (proxies, drift, runs) |
+| `/dashboard/ingestao/saude/` | `ingestao_saude.html` | Dashboard de saúde do pipeline — KPI strip + heatmap tribunal×fonte×dia + gráfico temporal |
 | `/dashboard/leads/` | `leads.html` | Pipeline de leads (Precatório/Pré/Direito Creditório) — KPIs + charts lazy + tabela paginada + export CSV |
 | `/dashboard/leads/visibilidade/` | `leads/visibilidade.html` | Observabilidade do classificador — 8 KPIs + 5 charts (histograma de score, calibração por tribunal, funil, top FN, shadow status) + heatmap tribunal × ano CNJ. Requer `can_view_validacao_dashboard` |
 | `/dashboard/leads/validacao/` | `leads/validacao_overview.html` | Lista de lotes ativos do usuário; botão criar lote (precisa `can_publish_model`) |
@@ -55,6 +56,56 @@ Tema dark/light via `data-theme` no `<html>` + `tailwind.config.darkMode = 'clas
 | `/invite/<token>/` | `accounts/accept_invite.html` | **Público**: aceitar convite, criar conta |
 | `/dashboard/login/` | `login.html` | Patch + wordmark + telemetry strip + SOL counter |
 | 404/500/403/400 | `<code>.html` | Error pages temáticas com `error-code` gigante |
+
+## Página: Saúde do pipeline (`/dashboard/ingestao/saude/`)
+
+View: `ingestao_saude`. URL name: `dashboard:ingestao-saude`.
+
+### O que mostra
+
+**KPI strip (5 cards):**
+
+| KPI | Fonte | Cor alerta |
+|---|---|---|
+| `ultima_ingestao_djen` | MAX `janela_fim` de IngestionRun success | — |
+| `anomalias_24h` | células vermelhas de ontem/hoje no grid | text-danger se > 0 |
+| `datajud_lag_dias` | hoje − MAX `data_enriquecimento_datajud` | text-warning se > 3d |
+| `classif_lag_dias` | hoje − MAX `classificacao_em` | text-warning se > 3d |
+| `dias_ok` | células verdes dos últimos 30d (DJEN) | text-accent-fg |
+
+**Heatmap tribunal × fonte × dia** (`pipeline_saude_grid`):
+- Eixos: tribunal (linha) × dia (coluna), um painel por fonte (djen, datajud, pje, classif).
+- Cor de cada célula determinada por `_classificar_celula`.
+
+**Gráfico temporal por fonte** (`pipeline_volume_temporal`):
+- Stacked bar diário por fonte. Útil pra ver interrupções.
+
+### Regra de cor das células
+
+```
+baseline = mediana das últimas 4 ocorrências do mesmo tipo de dia (seg/ter/.../dom)
+
+verde    → contagem ≥ 0.60 × baseline
+amarelo  → 0.20 × baseline ≤ contagem < 0.60 × baseline
+vermelho → contagem < 0.20 × baseline  (em dia útil com baseline > 0)
+cinza    → fim de semana  OU  sem baseline (primeiras semanas de dados)
+```
+
+### Fontes dos dados
+
+| Fonte | Como é lido |
+|---|---|
+| `djen` | Live de `IngestionRun` — `MAX(janela_fim)` por tribunal/dia; anti-double-count de overlap |
+| `datajud` | MV `mv_pipeline_diario` coluna `cnt_datajud` |
+| `pje` | MV `mv_pipeline_diario` coluna `cnt_pje` |
+| `classif` | MV `mv_pipeline_diario` coluna `cnt_classif` |
+
+### Limitação conhecida
+
+Feriado forense (Corpus Christi, feriado estadual, recesso) não está em nenhum
+calendário — qualquer dia útil com volume zero vira **vermelho** mesmo que seja
+esperado. Falso-positivo aceito (fora de escopo desta entrega). Ao ver vermelho
+num feriado conhecido, ignore ou filtre manualmente por tribunal.
 
 ## Componentes (`dashboard/templates/dashboard/_partials/`)
 

@@ -355,3 +355,42 @@ Falcon às 08:00 já encontre tudo classificado.
 **Consequência:** Zero perda / zero duplicata no reporte de consumo mesmo sob
 falha de rede ou restart de worker. Trade-off: cliente não recebe mais o
 resultado de gravação na hora (criados/duplicados ficam no resultado do job RQ).
+
+## ADR-025 — Dashboard de saúde do pipeline: camada de dados híbrida (DJEN live + MV)
+
+**Contexto:** Investigação de um alerta "Sem ingestão nas últimas 24h" revelou que era
+fim de semana — esperado, não falha. A investigação também expôs um bug latente em
+`_dia_coberto`: qualquer run com lista `success` vazia sombreava o dia como coberto
+mesmo sem movimentações. A dashboard existe para tornar esses cenários visíveis e
+distinguíveis (verde/amarelo/vermelho/cinza). O fix do bug `_dia_coberto` é tracking
+separado, fora do escopo desta entrega.
+
+**Fontes:**
+- `djen`: lido **live** de `IngestionRun` — `MAX(janela_fim)` por tribunal/dia.
+  Motivo: overlap idempotente de janelas faz `SUM` duplicar o mesmo dia; `MAX` dá
+  a data correta sem double-count. Não faz sentido pré-agregar na MV.
+- `datajud`, `pje`, `classif`: lidos da **MV `mv_pipeline_diario`** — `COUNT(Process)`
+  por `(tribunal, dia)` usando as colunas `data_enriquecimento_datajud`,
+  `enriquecido_em`, `classificacao_em` respectivamente. MV criada na migration `0029`.
+
+**Por que MV via migration (e não criada na mão):**
+MVs criadas manualmente em prod divergem do git — qualquer rebuild ou restore de dump
+perde a view. Criar via `RunSQL` na migration garante que o schema está sempre em sync
+com o código.
+
+**Regra de cor:** baseline = mediana das últimas 4 ocorrências do mesmo tipo de dia
+(seg/ter/.../dom) por tribunal/fonte. Verde ≥ 60%, amarelo ≥ 20%, vermelho < 20%
+(dia útil), cinza = fim de semana ou sem baseline.
+
+**Limitação aceita:** feriado forense vira falso-vermelho. Calendário de feriados está
+fora de escopo — impacto operacional baixo (poucos dias/ano, facilmente reconhecíveis
+quando todos os tribunais ficam vermelhos no mesmo dia).
+
+**Alternativas rejeitadas:**
+- *MV única pra DJEN também:* duplicaria contagem em janelas sobrepostas.
+- *Leitura live de Process pra tudo:* query pesada; MV é ~100× mais rápida pra séries históricas.
+- *MV criada fora do Django (script de deploy):* diverge de prod em restore/rebuild — o problema que a migration resolve.
+
+**Consequência:** Dashboard renderiza em <200ms. Schema sempre em sync com o código.
+Feriados geram falso-vermelho (aceito). Bug `_dia_coberto` fica visível no heatmap
+(tracking separado).

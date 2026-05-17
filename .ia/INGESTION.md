@@ -131,6 +131,38 @@ djen_status
     Snapshot CLI: tribunais, último run de cada, drift alerts abertos, status do pool.
 ```
 
+## Materialized View `mv_pipeline_diario`
+
+Criada na migration `0029`. Agrega contagens de Process por tribunal, dia e fonte de enriquecimento.
+
+```sql
+-- definição conceitual
+SELECT
+    tribunal_id,
+    DATE(data_enriquecimento_datajud) AS dia,   -- fonte datajud
+    COUNT(*)                                     AS cnt_datajud
+FROM tribunals_process
+WHERE data_enriquecimento_datajud IS NOT NULL
+GROUP BY tribunal_id, DATE(data_enriquecimento_datajud)
+
+-- colunas análogas para enriquecido_em (pje) e classificacao_em (classif)
+```
+
+Colunas: `tribunal_id`, `dia` (date), `cnt_datajud`, `cnt_pje`, `cnt_classif`.
+
+**Nota:** DJEN **não está** na MV. É lido live de `IngestionRun` com
+`MAX(janela_fim)` por tribunal/dia para não duplicar overlap de janelas
+(dois runs com janela sobreposta contam o mesmo dia duas vezes se somados).
+
+### Refresh
+
+| Job | Schedule | Como |
+|---|---|---|
+| `refresh_materialized_views` | cron 03:00 diário | `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_pipeline_diario` |
+| `warm_pipeline_diario` | a cada 1h (inline no scheduler) | re-aquece cache da MV após VACUUM |
+
+Ambos rodam inline no `ThreadPoolExecutor(20)` do scheduler (`.32`) — sem fila RQ. Ver ADR-017.
+
 ## Rate limiting / volume
 
 A DJEN aceita **paginação ilimitada** mas tem WAF. Observado:

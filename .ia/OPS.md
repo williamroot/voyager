@@ -494,6 +494,40 @@ print('rollback aplicado')
 
 Workers detectam em ≤ 60s. Re-classificar últimas 24h: `reclassificar_recentes.delay(dias=1, paralelizar=True)`.
 
+## Dashboard de saúde do pipeline — operação
+
+### Refresh manual da MV `mv_pipeline_diario`
+
+Se o heatmap estiver desatualizado (ou após restaurar dump):
+
+```bash
+docker compose -f docker-compose-prod.yml exec -T web python -c \
+  "from django.db import connection; c=connection.cursor(); c.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_pipeline_diario')"
+```
+
+O refresh automático roda às 03:00 via `refresh_materialized_views` (scheduler inline). Ver ADR-017.
+
+### Significado das cores
+
+| Cor | Significado | Threshold |
+|---|---|---|
+| Verde | Volume normal | ≥ 60% do baseline |
+| Amarelo | Volume abaixo da mediana | ≥ 20% e < 60% do baseline |
+| Vermelho | Anomalia / possível falha | < 20% do baseline (dia útil) |
+| Cinza | Sem atividade esperada | Fim de semana ou sem baseline ainda |
+
+Baseline = mediana das últimas 4 ocorrências do mesmo tipo de dia (seg/ter/.../dom) por tribunal/fonte.
+
+### Falso-vermelho em feriado forense
+
+Feriados forenses (Corpus Christi, feriados estaduais, recesso) **não estão** em calendário —
+o sistema não distingue "dia sem atividade esperada" de "dia com falha de ingestão".
+Resultado: dia de feriado com volume zero fica **vermelho**.
+
+Isso é um **falso-positivo aceito** (calendário de feriados está fora de escopo).
+Ao ver vermelho num feriado conhecido: ignore ou correlacione com o heatmap de outros tribunais
+(se todos ficaram vermelhos no mesmo dia → provável feriado).
+
 ## Adicionar tribunal novo (TJMG, TJSP, etc)
 
 1. Criar `Tribunal` (sigla, sigla_djen, data_inicio_disponivel, ativo=True)
