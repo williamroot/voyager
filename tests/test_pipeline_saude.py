@@ -62,6 +62,30 @@ def test_pipeline_volume_temporal_e_kpis():
 
 
 @pytest.mark.django_db
+def test_dia_util_djen_ausente_vira_vermelho():
+    from datetime import timedelta
+    t = Tribunal.objects.create(sigla='TGA', sigla_djen='TGA', nome='T',
+        ativo=True, backfill_concluido_em=datetime(2020,1,1,tzinfo=timezone.utc))
+    hoje = date.today()
+    uteis = []
+    d = hoje - timedelta(days=1)
+    while len(uteis) < 6:
+        if d.weekday() < 5:
+            uteis.append(d)
+        d -= timedelta(days=1)
+    uteis = sorted(uteis)
+    gap = uteis[-1]
+    for du in uteis[:-1]:
+        IngestionRun.objects.create(tribunal=t, status=IngestionRun.STATUS_SUCCESS,
+            janela_inicio=du, janela_fim=du, movimentacoes_novas=100,
+            movimentacoes_duplicadas=0, paginas_lidas=5,
+            finished_at=datetime(du.year,du.month,du.day,3,tzinfo=timezone.utc))
+    grid = pipeline_saude_grid(dias=30, tribunais=[t.pk])
+    cel = [c for c in grid if c['fonte']=='djen' and c['dia']==gap]
+    assert cel and cel[0]['volume'] == 0 and cel[0]['cor'] == 'vermelho'
+
+
+@pytest.mark.django_db
 def test_ingestao_saude_view_200(client, settings):
     settings.STORAGES = {
         'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},

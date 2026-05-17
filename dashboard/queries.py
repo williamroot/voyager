@@ -1230,6 +1230,23 @@ def pipeline_saude_grid(dias=30, tribunais=None):
                 'processos': proc,
             })
 
+    # Sintetiza dia útil DJEN esperado-mas-ausente (< hoje) -> baseline pinta vermelho
+    esp = Tribunal.objects.filter(ativo=True, backfill_concluido_em__isnull=False)
+    if tribunais:
+        esp = esp.filter(sigla__in=tribunais)
+    esp_siglas = list(esp.values_list('sigla', flat=True))
+    djen_dias = {(c['tribunal_id'], c['dia'])
+                 for c in cells if c['fonte'] == 'djen'}
+    d = inicio
+    while d < hoje:
+        if d.weekday() < 5:
+            for sig in esp_siglas:
+                if (sig, d) not in djen_dias:
+                    cells.append({'tribunal_id': sig, 'fonte': 'djen', 'dia': d,
+                                  'novas': 0, 'duplicadas': 0, 'paginas': 0,
+                                  'runs': 0, 'encontradas': 0, 'volume': 0})
+        d += timedelta(days=1)
+
     series = defaultdict(list)
     for c in sorted(cells, key=lambda x: x['dia']):
         series[(c['tribunal_id'], c['fonte'], c['dia'].weekday() < 5)].append(c)
