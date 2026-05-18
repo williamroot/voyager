@@ -42,8 +42,15 @@ Workers de ingestão e enrich pesados (TRF1/TRF3/DJEN/Datajud/TJMG) **não** rod
 no `.32`. Ficaram consolidados no `.36`.
 
 > **Nota:** `worker_warm` foi removido em 2026-05-06. Os jobs de warm de cache
-> (KPIs, charts, partes, estatísticas, filtros, MV refresh) passaram a rodar
-> inline no thread pool do `scheduler`, sem fila RQ. Ver ADR-017.
+> (KPIs, charts, partes, estatísticas, filtros, MV refresh, **leads charts**)
+> passaram a rodar inline no thread pool do `scheduler`, sem fila RQ. Ver ADR-017.
+
+> **Nota (2026-05-18):** adicionado `warm_leads_charts` (scheduler 30min) — pré-
+> aquece os widgets da `/dashboard/leads/`. Exige rebuild de `web`+`scheduler`
+> (mudou job/scheduler, não é hot-deploy só de dashboard). No mesmo dia: limpeza
+> one-time de 982 `LeadConsumption.resultado='VALIDADO'` → `'validado'` (path
+> legado pré-`lote_id`; valor canônico é lowercase). Path ativo já rejeita
+> casing inválido — sem recorrência esperada.
 
 **`.36` (host workers consolidado)** via `docker-compose-workers.yml`:
 ```

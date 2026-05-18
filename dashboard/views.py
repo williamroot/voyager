@@ -989,12 +989,26 @@ def _leads_filtros(request):
     return tribunal, nivel, dias, cliente_nome
 
 
-@login_required
-@require_GET
-def leads_chart_data(request, key):
-    """Endpoint genérico — cada `key` retorna JSON pro respectivo widget.
+# Keys de widget servidas por compute_leads_chart / pré-aquecidas pelo warm.
+LEADS_CHART_KEYS = (
+    'kpis', 'timeseries', 'calibration', 'funnel',
+    'by-tribunal', 'distribuicao-score',
+)
 
-    Cache 5min agressivo por key + (tribunal, nivel, dias, cliente).
+
+def leads_cache_key(key, tribunal, nivel, dias, cliente_nome):
+    """Chave de cache canônica de um widget de leads. Usada pelo endpoint
+    lazy e pelo warm job — TÊM que bater pra o warm popular o que a view lê.
+    """
+    return f'dashleads:{key}:t={tribunal or ""}:n={nivel or ""}:d={dias}:c={cliente_nome}'
+
+
+def compute_leads_chart(key, tribunal, nivel, dias, cliente_nome):
+    """Computa o payload JSON de um widget da dashboard de leads.
+
+    Pura: sem request, sem cache, sem HttpResponse — chamável tanto pelo
+    endpoint lazy quanto pelo warm job em background. `key` inválida levanta
+    ValueError.
 
     Caveats:
     - ClassificacaoLog é gravado apenas em TRANSIÇÃO de categoria
@@ -1004,16 +1018,9 @@ def leads_chart_data(request, key):
       por processo_id + último resultado.
     """
     from datetime import timedelta
-    from django.core.cache import cache
     from django.db.models import Count, Exists, OuterRef, Q
     from django.utils import timezone as djtz
     from tribunals.models import ApiClient, ClassificacaoLog, LeadConsumption
-
-    tribunal, nivel, dias, cliente_nome = _leads_filtros(request)
-    cache_key = f'dashleads:{key}:t={tribunal or ""}:n={nivel or ""}:d={dias}:c={cliente_nome}'
-    cached = _safe_cache_get(cache_key)
-    if cached is not None:
-        return JsonResponse({'data': cached}, json_dumps_params={'default': str})
 
     cliente = ApiClient.objects.filter(nome=cliente_nome, ativo=True).first()
 
@@ -1160,7 +1167,8 @@ def leads_chart_data(request, key):
                 # primeiro registro de cada processo == último consumido (DESC)
                 pid = c['processo_id']
                 if pid not in ultimo_resultado:
-                    ultimo_resultado[pid] = c['resultado']
+                    # lower() defensivo — ver nota no bucket do funil.
+                    ultimo_resultado[pid] = (c['resultado'] or '').lower()
 
             if not ultimo_resultado:
                 data = {'rows': [], 'sample_size': 0}
@@ -1225,7 +1233,9 @@ def leads_chart_data(request, key):
                          .iterator(chunk_size=5000)):
             pid = c['processo_id']
             if pid not in ultimo_por_proc:
-                ultimo_por_proc[pid] = c['resultado']
+                # Normaliza casing: histórico tinha 'VALIDADO' (path legado,
+                # já limpo) — lower() impede que um valor torto rache bucket.
+                ultimo_por_proc[pid] = (c['resultado'] or '').lower()
         from collections import Counter
         por_resultado = dict(Counter(ultimo_por_proc.values()))
         consumidos_total = len(ultimo_por_proc)
@@ -1267,7 +1277,31 @@ def leads_chart_data(request, key):
         data = {'bins': [{'lo': i*0.05, 'hi': (i+1)*0.05, 'n': bins[i]} for i in range(20)]}
 
     else:
-        return JsonResponse({'erro': f'key inválida: {key}'}, status=400)
+        raise ValueError(f'key inválida: {key}')
+
+    return data
+
+
+@login_required
+@require_GET
+def leads_chart_data(request, key):
+    """Endpoint lazy — JSON por widget, cache 5min por (key, filtros).
+
+    Computação delegada a `compute_leads_chart` (compartilhada com o warm
+    job `warm_leads_charts`, que pré-aquece o filtro default).
+    """
+    from django.core.cache import cache
+
+    tribunal, nivel, dias, cliente_nome = _leads_filtros(request)
+    cache_key = leads_cache_key(key, tribunal, nivel, dias, cliente_nome)
+    cached = _safe_cache_get(cache_key)
+    if cached is not None:
+        return JsonResponse({'data': cached}, json_dumps_params={'default': str})
+
+    try:
+        data = compute_leads_chart(key, tribunal, nivel, dias, cliente_nome)
+    except ValueError as e:
+        return JsonResponse({'erro': str(e)}, status=400)
 
     cache.set(cache_key, data, timeout=300)
     return JsonResponse({'data': data}, json_dumps_params={'default': str})

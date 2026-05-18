@@ -27,6 +27,7 @@ from dashboard.tasks import (
     warm_filtros_movimentacoes,
     warm_ingestao_por_hora,
     warm_kpis,
+    warm_leads_charts,
     warm_partes,
     warm_pipeline_diario,
     warm_workers_cache_inline,
@@ -146,6 +147,7 @@ def create_scheduler() -> BlockingScheduler:
         (warm_estatisticas_tribunal, 'warm_estatisticas_tribunal', {'minutes': 30}),
         (warm_filtros_movimentacoes, 'warm_filtros_movimentacoes', {'minutes': 30}),
         (warm_charts_pesados,        'warm_charts_pesados',        {'minutes': 30}),
+        (warm_leads_charts,          'warm_leads_charts',          {'minutes': 30}),
     ):
         scheduler.add_job(
             warm_fn,

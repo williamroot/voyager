@@ -150,6 +150,36 @@ def warm_charts_pesados():
     _with_lock('lock:warm_charts_pesados', 14700, _run)
 
 
+# Períodos do period-picker da /dashboard/leads/ (7d/30d/90d/1ano).
+_LEADS_PERIODOS = [7, 30, 90, 365]
+
+
+@job('warm', timeout=2400)
+def warm_leads_charts():
+    """Pré-aquece os widgets da /dashboard/leads/ no filtro default
+    (sem tribunal, cliente 'juriscope') × períodos do picker.
+
+    Antes só havia cache lazy de 5min sem warm: a cada expiração a
+    próxima visita pagava queries pesadas (Count em Process,
+    ClassificacaoLog, anti-join Exists de LeadConsumption) e a página
+    ficava presa em 'ACQUIRING SIGNAL'. Mesmo padrão de warm_charts_pesados.
+    """
+    def _run():
+        from .views import LEADS_CHART_KEYS, compute_leads_chart, leads_cache_key
+        for dias in _LEADS_PERIODOS:
+            for ck in LEADS_CHART_KEYS:
+                try:
+                    def _go(c=ck, d=dias):
+                        data = compute_leads_chart(c, None, None, d, 'juriscope')
+                        cache.set(leads_cache_key(c, None, None, d, 'juriscope'),
+                                  data, timeout=_WARM_TTL)
+                    _with_timeout(1800, _go)
+                except Exception as e:
+                    logger.warning('warm_leads_charts %s/d=%s: %s', ck, dias, e)
+                    _reset_connection()
+    _with_lock('lock:warm_leads_charts', 2700, _run)
+
+
 @job('warm', timeout=180)
 def warm_ingestao_por_hora():
     """Velocidade de ingestão (lê da MV mv_ingestion_rate_hora)."""

@@ -179,6 +179,23 @@ Pattern em cada chart:
 
 Em troca de tema: `initAllCharts()` re-renderiza tudo (palette adaptável).
 
+### Widgets da `/dashboard/leads/`
+
+`leads_chart_data` (endpoint lazy) delega a `compute_leads_chart(key, tribunal,
+nivel, dias, cliente)` — função pura, sem request/cache — compartilhada com o
+warm job. Keys: `kpis`, `timeseries`, `calibration`, `funnel`, `by-tribunal`,
+`distribuicao-score`.
+
+- **Pré-aquecido** por `warm_leads_charts` (`dashboard/tasks.py`, scheduler 30min)
+  no filtro default (`tribunal=None`, `cliente=juriscope`) × períodos
+  7/30/90/365d, TTL 7d. Antes era só cache lazy de 5min sem warm — a página
+  ficava presa em "ACQUIRING SIGNAL" a cada expiração. Filtros não-default
+  continuam lazy (cache 5min).
+- `funnel`/`calibration` normalizam `LeadConsumption.resultado` com `.lower()`
+  ao bucketizar — o único valor válido é `'validado'` (lowercase); houve 982
+  linhas legadas `'VALIDADO'` (path antigo pré-`lote_id`, já limpas em prod)
+  que rachavam o funil em dois buckets.
+
 ## Atalhos de teclado
 
 Globais (em `base.html`): `g h` → home, `g p` → processos, `g m` → movimentações, `g i` → ingestão, `/` → busca, `t` → toggle tema, `?` → modal de ajuda. Listener com flag `pendingG`.
