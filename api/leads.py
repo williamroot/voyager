@@ -68,7 +68,7 @@ def listar_leads(request):
         Process.objects.filter(classificacao=nivel,
                                classificacao_score__gte=min_score)
         .select_related('tribunal')
-        .order_by('-classificacao_score', '-id')
+        .order_by('-ultima_movimentacao_em', '-classificacao_score', '-id')
     )
     if tribunal:
         qs = qs.filter(tribunal_id=tribunal)

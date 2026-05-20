@@ -108,6 +108,8 @@ Documentação completa + casos de uso: ver [`CLASSIFICACAO.md`](CLASSIFICACAO.m
 
 Retorna processos classificados não-consumidos pelo cliente. Filtra `LeadConsumption` via `Exists(OuterRef)` (anti-join — escala com 100k+ consumos).
 
+**Ordenação**: `(-ultima_movimentacao_em, -classificacao_score, -id)` — mais recentes primeiro, score como tiebreaker. Vale pra todos os tribunais. Motivação: pra precatórios, a expedição de ofício mais recente implica ordem orçamentária mais distante (CF art. 100 §5º — expedição após 02/abril vai pro orçamento de ano+2), então recência da última mov é o sinal operacional mais útil pro consumidor.
+
 ```json
 {
   "count": 5000, "limit": 5000, "nivel": "PRECATORIO",
