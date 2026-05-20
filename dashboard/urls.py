@@ -37,6 +37,10 @@ urlpatterns = [
     path('wizard/export/', views.WizardExportView.as_view(), name='wizard-export'),
 
     # Validação humana / observabilidade de leads (T8)
+    # Página didática "como o robô classifica" — advogado-friendly + sandbox CNJ
+    path('leads/algoritmo/', views.algoritmo, name='algoritmo'),
+    path('leads/algoritmo/explicar/', views.algoritmo_explicar, name='algoritmo_explicar'),
+
     path('leads/visibilidade/', views.leads_visibilidade, name='leads_visibilidade'),
     path('leads/visibilidade/chart/histograma-score/',
          views.chart_histograma_score, name='chart_histograma_score'),

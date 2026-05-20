@@ -15,13 +15,13 @@
       <div class="flex items-center gap-2 mb-2 flex-wrap">
         <span class="badge bg-surface border-border text-fg-soft">{{ processo.tribunal_id }}</span>
         {% if processo.classificacao == 'PRECATORIO' %}
-          <span class="badge bg-fg-soft/10 border-fg-soft/40 text-fg" title="Lead confirmado · score {{ processo.classificacao_score|floatformat:2 }}">💎 PRECATÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
+          <span class="badge bg-fg-soft/10 border-fg-soft/40 text-fg inline-flex items-center gap-1.5" title="Lead confirmado · score {{ processo.classificacao_score|floatformat:2 }}">{% voy_icon "gem" "w-3.5 h-3.5 text-mission" %} PRECATÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
         {% elif processo.classificacao == 'PRE_PRECATORIO' %}
-          <span class="badge bg-fg-muted/10 border-fg-muted/40 text-fg-soft" title="Pré-precatório · score {{ processo.classificacao_score|floatformat:2 }}">⏳ PRÉ-PRECATÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
+          <span class="badge bg-fg-muted/10 border-fg-muted/40 text-fg-soft inline-flex items-center gap-1.5" title="Pré-precatório · score {{ processo.classificacao_score|floatformat:2 }}">{% voy_icon "hourglass" "w-3.5 h-3.5" %} PRÉ-PRECATÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
         {% elif processo.classificacao == 'DIREITO_CREDITORIO' %}
-          <span class="badge bg-fg-subtle/10 border-fg-subtle/40 text-fg-muted" title="Potencial · score {{ processo.classificacao_score|floatformat:2 }}">🌱 DIREITO CREDITÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
+          <span class="badge bg-fg-subtle/10 border-fg-subtle/40 text-fg-muted inline-flex items-center gap-1.5" title="Potencial · score {{ processo.classificacao_score|floatformat:2 }}">{% voy_icon "sprout" "w-3.5 h-3.5 text-accent-fg" %} DIREITO CREDITÓRIO · {{ processo.classificacao_score|floatformat:2 }}</span>
         {% elif processo.classificacao == 'NAO_LEAD' %}
-          <span class="badge bg-red-500/10 border-red-500/40 text-red-400" title="Classificado como NÃO-LEAD · score {{ processo.classificacao_score|floatformat:2 }}">🚫 NÃO É LEAD · {{ processo.classificacao_score|floatformat:2 }}</span>
+          <span class="badge bg-red-500/10 border-red-500/40 text-red-400 inline-flex items-center gap-1.5" title="Classificado como NÃO-LEAD · score {{ processo.classificacao_score|floatformat:2 }}">{% voy_icon "ban" "w-3.5 h-3.5" %} NÃO É LEAD · {{ processo.classificacao_score|floatformat:2 }}</span>
         {% elif processo.classificacao_em %}
           <span class="badge bg-yellow-500/10 border-yellow-500/40 text-yellow-400" title="Classificado mas sem categoria">classificação inconclusiva</span>
         {% else %}
@@ -178,11 +178,11 @@
       </div>
       <div>
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Categoria</div>
-        <div class="text-sm font-mono">
-          {% if processo.classificacao == 'PRECATORIO' %}<span class="text-fg">💎 PRECATÓRIO</span>
-          {% elif processo.classificacao == 'PRE_PRECATORIO' %}<span class="text-fg-soft">⏳ PRÉ-PRECATÓRIO</span>
-          {% elif processo.classificacao == 'DIREITO_CREDITORIO' %}<span class="text-fg-muted">🌱 DIREITO CREDITÓRIO</span>
-          {% elif processo.classificacao == 'NAO_LEAD' %}<span class="text-red-400">🚫 NÃO É LEAD</span>
+        <div class="text-sm font-mono inline-flex items-center gap-1.5">
+          {% if processo.classificacao == 'PRECATORIO' %}{% voy_icon "gem" "w-4 h-4 text-mission" %}<span class="text-fg">PRECATÓRIO</span>
+          {% elif processo.classificacao == 'PRE_PRECATORIO' %}{% voy_icon "hourglass" "w-4 h-4" %}<span class="text-fg-soft">PRÉ-PRECATÓRIO</span>
+          {% elif processo.classificacao == 'DIREITO_CREDITORIO' %}{% voy_icon "sprout" "w-4 h-4 text-accent-fg" %}<span class="text-fg-muted">DIREITO CREDITÓRIO</span>
+          {% elif processo.classificacao == 'NAO_LEAD' %}{% voy_icon "ban" "w-4 h-4 text-red-400" %}<span class="text-red-400">NÃO É LEAD</span>
           {% elif processo.classificacao_em %}<span class="text-yellow-400">inconclusiva</span>
           {% else %}<span class="text-fg-subtle">não classificado</span>{% endif %}
         </div>
@@ -193,17 +193,17 @@
 
   <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs mb-3">
     <div class="card-tight">
-      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">💎 Precatório</div>
+      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1 flex items-center gap-1">{% voy_icon "gem" "w-3 h-3 text-mission" %} Precatório</div>
       <div class="font-mono">≥ {{ classif_explicacao.thresholds.precatorio }}</div>
       <div class="text-[0.65rem] text-fg-subtle mt-0.5">+ tem F2 ou F11 (precatório/RPV explícito)</div>
     </div>
     <div class="card-tight">
-      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">⏳ Pré-precatório</div>
+      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1 flex items-center gap-1">{% voy_icon "hourglass" "w-3 h-3" %} Pré-precatório</div>
       <div class="font-mono">≥ {{ classif_explicacao.thresholds.pre }}</div>
       <div class="text-[0.65rem] text-fg-subtle mt-0.5">+ classe Cumprimento contra Fazenda</div>
     </div>
     <div class="card-tight">
-      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">🌱 Direito creditório</div>
+      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1 flex items-center gap-1">{% voy_icon "sprout" "w-3 h-3 text-accent-fg" %} Direito creditório</div>
       <div class="font-mono">≥ {{ classif_explicacao.thresholds.direito }}</div>
       <div class="text-[0.65rem] text-fg-subtle mt-0.5">+ classe Cumprimento</div>
     </div>
@@ -223,7 +223,7 @@
       {% for c in classif_explicacao.contribuicoes %}
       <details class="group border border-border/40 rounded-md hover:bg-muted/30 transition-colors">
         <summary class="cursor-pointer list-none px-3 py-2 flex items-center gap-2 text-sm" title="{{ c.desc }}">
-          <span class="text-base">{{ c.emoji }}</span>
+          <span class="text-fg-soft">{% voy_icon c.emoji "w-4 h-4" %}</span>
           <span class="flex-1 text-fg-soft">{{ c.label }}</span>
           <span class="text-fg-subtle text-[0.7rem] font-mono mr-2">{{ c.feature }}</span>
           <span class="kpi-num font-semibold {% if c.contribuicao < 0 %}text-fg-subtle{% else %}text-fg{% endif %} w-16 text-right">

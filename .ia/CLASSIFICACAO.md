@@ -185,6 +185,11 @@ Métricas agregadas para o cliente: pendentes por nível, consumidos hoje/total,
 
 ## UI no Voyager
 
+### `/dashboard/leads/algoritmo/` (didática, advogado-first)
+Página explicativa: hero + 4 níveis + 19 sinais agrupados em 5 famílias com `<details>` colapsáveis (didático + critério técnico) + bloco de combinação (sigmoide) + 4 exemplos curados + sandbox CNJ + tabela v6 vs v7 + métricas. Reusa `tribunals/explicacao.py` (FEATURE_META + builder). Sandbox: `POST /dashboard/leads/algoritmo/explicar/` retorna partial HTML com `compute_features + _categorizar` ao vivo.
+
+Exemplos curados via `settings.ALGORITMO_EXEMPLOS_CNJS` (dict rótulo→CNJ); fallback é top-1 por categoria no DB.
+
 ### `/dashboard/leads/`
 - 6 KPI cards lazy-loaded: backlog Precatório + runway, taxa validação 30d, descobertos/dia, consumidos/dia, totais N2/N3
 - 5 charts ECharts: time-series oferta vs consumo, distribuição por tribunal (grouped bars), calibração (decis), funil (descobertos→consumidos→resultado), histograma de score

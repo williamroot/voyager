@@ -18,6 +18,71 @@ Inspirada no programa espacial Voyager (NASA, 1977).
 
 Tema dark/light via `data-theme` no `<html>` + `tailwind.config.darkMode = 'class'`. Toggle persiste em `localStorage`. Tema claro inspirado no Falcon (slate-based, sombras sutis em vez de bordas fortes).
 
+**Ícones (`voy_icon` tag → sprite SVG):**
+
+Sprite em `dashboard/static/dashboard/voyager-icons.svg` — 21 símbolos `<symbol id="voy-{alias}">`, todos derivados do **Lucide v0.460.0** (ISC). Renderiza via `{% voy_icon "name" "tailwind-classes" %}` em qualquer template.
+
+Os aliases preservam o vocabulário espacial; o desenho vem do Lucide. Re-gerar com `python3 scripts/build_sprite.py` (atualiza versão pinada no topo do script).
+
+Mapping atual (40 símbolos):
+
+**Identidade espacial** (preserva vocabulário Voyager):
+| alias | lucide source | uso típico |
+|---|---|---|
+| `telescope` | telescope | hero / branding / favicon |
+| `moon` / `sun` | moon / sun | toggle tema |
+| `probe` | satellite | sonda / Voyager |
+| `pulsar` | radio-tower | leads (pipeline ativo) |
+| `constellation` | share-2 | partes / rede |
+| `trajectory` | route | navegação / rota |
+| `transmission` | radio | broadcasting / ondas |
+| `calibrate` | sliders-horizontal | ajustes / saúde |
+| `dossier` | file-text | processos |
+| `mission-tag` | tag | label mission-control |
+| `retrograde` | rotate-ccw | reverter / refazer |
+| `anomaly` | triangle-alert | erro / warning |
+| `signal-ok` / `signal-lost` | wifi / wifi-off | status conexão |
+| `uplink` / `downlink` | arrow-up-to-line / arrow-down-to-line | tráfego |
+| `eject` | log-out | sair |
+| `arrow` | arrow-right | reservado |
+| `clear` | x | fechar |
+| `radar` | radar | reservado (varredura) |
+
+**Badges dos 4 níveis de classificação** (substituíram emojis 💎/⏳/🌱/🚫):
+| alias | lucide source | uso |
+|---|---|---|
+| `gem` | gem | PRECATÓRIO (N1, com `text-mission`) |
+| `hourglass` | hourglass | PRÉ-PRECATÓRIO (N2) |
+| `sprout` | sprout | DIREITO CREDITÓRIO (N3, com `text-accent-fg`) |
+| `ban` | ban | NÃO LEAD (com `text-red-400`) |
+
+**Famílias de features** (`/algoritmo/`):
+| alias | lucide source | família |
+|---|---|---|
+| `scale` | scale | Classe e tipo de mov |
+| `scroll-text` | scroll-text | Texto |
+| `trending-up` | trending-up | Volume |
+| `history` | history | Recência |
+| `link-2` | link-2 | Combos |
+| `flask` | flask-conical | v7 |
+
+**Features individuais** (cards de explicação):
+| alias | lucide source | feature |
+|---|---|---|
+| `send` | send | F7 envTrib |
+| `search` | search | F11/F12 texto |
+| `tornado` | tornado | F16 variedade |
+| `target` | target | F17 N1count |
+| `calendar` | calendar | F18 ano |
+| `circle-x` | circle-x | F19 cancelado |
+| `circle-check` | circle-check | F20 juriscope |
+| `users` | users | F23 partes |
+| `sparkles` | sparkles | F24-F28 v7 novas |
+
+Estilo: stroke=currentColor, width=1.6px (Lucide default 2px reduzido pra harmonizar com tipografia), viewBox 24×24. Tailwind colore via `text-*` (`text-mission`/`text-accent-fg`/`text-red-400`), dimensiona via `w-*/h-*`.
+
+`tribunals/explicacao.py` é a fonte única de metadados (label, descrição, família, alias do ícone) — `dashboard/views.py:processo_detail` e `algoritmo()` consomem dela. Os campos `emoji` no `FEATURE_META` guardam o **alias do sprite** (ex.: `'emoji': 'scale'`), não o caractere unicode.
+
 **Elementos visuais:**
 - `.star-field` (10 layers de estrelas com deriva 220s)
 - `.grain` (ruído fractal SVG sutil em overlay)

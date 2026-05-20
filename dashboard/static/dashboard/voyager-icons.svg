@@ -1,168 +1,95 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  voyager-icons.svg — sprite gerado a partir do Lucide v0.460.0 (ISC).
+  Cada <symbol id="voy-{alias}"> mapeia 1 ícone do Voyager pra 1 ícone do Lucide.
+  Gerado por scripts/build_sprite.py. NÃO editar à mão — re-rodar o script.
+
+  Estilo base: stroke=currentColor, stroke-width=2, fill=none, linecap/join=round, viewBox=24×24.
+  Tailwind: cor via text-* (currentColor), tamanho via w-*/h-*.
+
+  Mapping alias → Lucide:
+    voy-telescope      = lucide:telescope
+    voy-moon           = lucide:moon
+    voy-sun            = lucide:sun
+    voy-radar          = lucide:radar
+    voy-probe          = lucide:satellite
+    voy-pulsar         = lucide:radio-tower
+    voy-constellation  = lucide:share-2
+    voy-trajectory     = lucide:route
+    voy-transmission   = lucide:radio
+    voy-calibrate      = lucide:sliders-horizontal
+    voy-dossier        = lucide:file-text
+    voy-mission-tag    = lucide:tag
+    voy-retrograde     = lucide:rotate-ccw
+    voy-anomaly        = lucide:triangle-alert
+    voy-signal-ok      = lucide:wifi
+    voy-signal-lost    = lucide:wifi-off
+    voy-uplink         = lucide:arrow-up-to-line
+    voy-downlink       = lucide:arrow-down-to-line
+    voy-eject          = lucide:log-out
+    voy-arrow          = lucide:arrow-right
+    voy-clear          = lucide:x
+    voy-gem            = lucide:gem
+    voy-hourglass      = lucide:hourglass
+    voy-sprout         = lucide:sprout
+    voy-ban            = lucide:ban
+    voy-scale          = lucide:scale
+    voy-scroll-text    = lucide:scroll-text
+    voy-trending-up    = lucide:trending-up
+    voy-history        = lucide:history
+    voy-link-2         = lucide:link-2
+    voy-flask          = lucide:flask-conical
+    voy-send           = lucide:send
+    voy-search         = lucide:search
+    voy-tornado        = lucide:tornado
+    voy-target         = lucide:target
+    voy-calendar       = lucide:calendar
+    voy-circle-x       = lucide:circle-x
+    voy-circle-check   = lucide:circle-check
+    voy-users          = lucide:users
+    voy-sparkles       = lucide:sparkles
+-->
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
   <defs>
-    <!-- Estilo base: stroke=currentColor, stroke-width=1.6, fill=none, linecap/join=round.
-         viewBox=24×24. Hairlines decorativas usam stroke-width=1 com opacity .55. -->
-
-    <!-- probe: Voyager probe — dish à esquerda, bus, boom de antena -->
-    <symbol id="voy-probe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="7" cy="12" r="3.6"/>
-      <path d="M5.2 13.4 L8.8 10.6"/>
-      <rect x="11" y="10" width="5" height="4" rx="0.6"/>
-      <path d="M16 12 H21"/>
-      <circle cx="21" cy="12" r="0.8" fill="currentColor"/>
-      <path d="M7 8.4 V5.5" stroke-width="1"/>
-    </symbol>
-
-    <!-- dossier: pasta-dossiê com aba e linhas de classificação -->
-    <symbol id="voy-dossier" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 7 L9 7 L11 5 L20 5 V19 H4 Z"/>
-      <path d="M7 11 H17 M7 14 H14" stroke-width="1.2" opacity=".7"/>
-    </symbol>
-
-    <!-- transmission: 3 arcos pulsantes saindo de um ponto -->
-    <symbol id="voy-transmission" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="1.6" fill="currentColor"/>
-      <path d="M8.5 8.5 a5 5 0 0 1 7 0"/>
-      <path d="M5.5 5.5 a9 9 0 0 1 13 0" opacity=".7"/>
-      <path d="M8.5 15.5 a5 5 0 0 0 7 0"/>
-      <path d="M5.5 18.5 a9 9 0 0 0 13 0" opacity=".7"/>
-    </symbol>
-
-    <!-- constellation: 5 estrelas conectadas formando rede -->
-    <symbol id="voy-constellation" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 6 L12 9 L19 5 M12 9 L9 16 L17 14 L12 9" stroke-width="1" opacity=".55"/>
-      <circle cx="5" cy="6" r="1.4" fill="currentColor"/>
-      <circle cx="19" cy="5" r="1.4" fill="currentColor"/>
-      <circle cx="12" cy="9" r="1.7" fill="currentColor"/>
-      <circle cx="9" cy="16" r="1.4" fill="currentColor"/>
-      <circle cx="17" cy="14" r="1.4" fill="currentColor"/>
-    </symbol>
-
-    <!-- uplink: antena disco + raios subindo + base -->
-    <symbol id="voy-uplink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 14 L12 5 L19 14"/>
-      <path d="M5 14 H19"/>
-      <path d="M12 14 V20 M9 20 H15"/>
-      <path d="M12 8 V3" stroke-width="1.2"/>
-      <path d="M9 5.5 L12 3 L15 5.5" stroke-width="1.2" opacity=".7"/>
-    </symbol>
-
-    <!-- telescope: tubo angulado em tripé -->
-    <symbol id="voy-telescope" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 16 L17 4"/>
-      <path d="M5.5 12.5 L9 16 L12 13 L8.5 9.5 Z" transform="rotate(-45 9 13)"/>
-      <path d="M11 13 L20 4 L17 1 L8 10" transform="translate(0 0)" opacity=".0"/>
-      <path d="M15 6 L19 10" stroke-width="1" opacity=".6"/>
-      <path d="M11 16 V21 M8 21 H14"/>
-    </symbol>
-
-    <!-- retrograde: seta retornando (curva pra esquerda) -->
-    <symbol id="voy-retrograde" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M19 7 a8 8 0 1 0 0 10"/>
-      <path d="M9 7 L4 7 L4 12" stroke-linejoin="miter"/>
-    </symbol>
-
-    <!-- trajectory: seta com starburst -->
-    <symbol id="voy-trajectory" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 18 Q11 11 18 7"/>
-      <path d="M14 6 L19 6 L19 11" stroke-linejoin="miter"/>
-      <path d="M3.5 18 L4.5 18 M4 17.5 L4 18.5" stroke-width="1" opacity=".7"/>
-      <path d="M2.5 16.5 L3 17 M5 19 L5.5 19.5" stroke-width="1" opacity=".5"/>
-    </symbol>
-
-    <!-- mission-tag: identificação com canto chanfrado e código -->
-    <symbol id="voy-mission-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 6 L17 6 L20 9 L20 18 L5 18 Z"/>
-      <path d="M17 6 L17 9 L20 9" stroke-width="1.2"/>
-      <path d="M8 12 H15 M8 14.5 H13" stroke-width="1.2" opacity=".7"/>
-    </symbol>
-
-    <!-- calibrate: gear com ticks radiais (atualizar dados públicos) -->
-    <symbol id="voy-calibrate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="4"/>
-      <circle cx="12" cy="12" r="1.5"/>
-      <path d="M12 4 V6 M12 18 V20 M4 12 H6 M18 12 H20" stroke-width="1.4"/>
-      <path d="M6.3 6.3 L7.7 7.7 M16.3 16.3 L17.7 17.7 M6.3 17.7 L7.7 16.3 M16.3 7.7 L17.7 6.3" stroke-width="1" opacity=".7"/>
-    </symbol>
-
-    <!-- downlink: antena recebendo (raios descendo) -->
-    <symbol id="voy-downlink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 10 L12 19 L19 10"/>
-      <path d="M5 10 H19"/>
-      <path d="M12 10 V4 M9 4 H15"/>
-      <path d="M12 16 V21" stroke-width="1.2"/>
-      <path d="M9 18.5 L12 21 L15 18.5" stroke-width="1.2" opacity=".7"/>
-    </symbol>
-
-    <!-- radar: lupa com sweep (busca) -->
-    <symbol id="voy-radar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="11" cy="11" r="6"/>
-      <path d="M11 11 L11 5" stroke-width="1.4"/>
-      <path d="M11 11 L15.5 7.5" stroke-width="1" opacity=".7"/>
-      <path d="M11 11 H17" stroke-width="1" opacity=".4"/>
-      <path d="M16 16 L21 21" stroke-linejoin="miter"/>
-      <circle cx="11" cy="11" r="2.5" stroke-width="1" opacity=".4"/>
-    </symbol>
-
-    <!-- clear: órbita com cancel slash -->
-    <symbol id="voy-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(-25 12 12)"/>
-      <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
-      <path d="M6 6 L18 18" stroke-width="1.6"/>
-    </symbol>
-
-    <!-- eject: capsule indo pra cima (sair) -->
-    <symbol id="voy-eject" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 3 L19 11 L15 11 L15 17 L9 17 L9 11 L5 11 Z"/>
-      <path d="M9 20 L15 20" stroke-width="1.4"/>
-    </symbol>
-
-    <!-- anomaly: alerta com radar cross -->
-    <symbol id="voy-anomaly" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 3 L21 19 L3 19 Z"/>
-      <path d="M12 10 V14" stroke-width="2"/>
-      <circle cx="12" cy="16.5" r="0.9" fill="currentColor"/>
-    </symbol>
-
-    <!-- signal-ok: pulse arc com check -->
-    <symbol id="voy-signal-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 14 a7 7 0 0 1 14 0" opacity=".55" stroke-width="1.2"/>
-      <path d="M7 14 a5 5 0 0 1 10 0"/>
-      <circle cx="12" cy="14" r="1.6" fill="currentColor"/>
-      <path d="M9 17 L11 19 L15 14" stroke-width="1.6" stroke-linejoin="miter"/>
-    </symbol>
-
-    <!-- signal-lost: pulse quebrado -->
-    <symbol id="voy-signal-lost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 14 a7 7 0 0 1 4-6.3" opacity=".55" stroke-width="1.2"/>
-      <path d="M14 7.7 a7 7 0 0 1 5 6.3" opacity=".55" stroke-width="1.2"/>
-      <path d="M7 14 a5 5 0 0 1 2.4-4.3"/>
-      <path d="M14.6 9.7 a5 5 0 0 1 2.4 4.3"/>
-      <circle cx="12" cy="14" r="1.6" fill="currentColor"/>
-      <path d="M5 5 L19 19" stroke-width="1.6"/>
-    </symbol>
-
-    <!-- pulsar: ponto pulsante (animado) — usado em "running" -->
-    <symbol id="voy-pulsar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="2.4" fill="currentColor"/>
-      <circle cx="12" cy="12" r="6" opacity=".5"/>
-      <circle cx="12" cy="12" r="9.5" opacity=".25"/>
-    </symbol>
-
-    <!-- sun (theme light) e moon (dark) — variantes do toggle de tema -->
-    <symbol id="voy-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="3.5"/>
-      <path d="M12 3 V5 M12 19 V21 M3 12 H5 M19 12 H21 M5.6 5.6 L7 7 M17 17 L18.4 18.4 M5.6 18.4 L7 17 M17 7 L18.4 5.6"/>
-    </symbol>
-
-    <symbol id="voy-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20.5 14.5 A8.5 8.5 0 1 1 9.5 3.5 a6.5 6.5 0 0 0 11 11 z"/>
-    </symbol>
-
-    <!-- mini-arrow (substitui o → solto) -->
-    <symbol id="voy-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 12 H19 M14 7 L19 12 L14 17"/>
-    </symbol>
+    <symbol id="voy-telescope" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m10.065 12.493-6.18 1.318a.934.934 0 0 1-1.108-.702l-.537-2.15a1.07 1.07 0 0 1 .691-1.265l13.504-4.44" /><path d="m13.56 11.747 4.332-.924" /><path d="m16 21-3.105-6.21" /><path d="M16.485 5.94a2 2 0 0 1 1.455-2.425l1.09-.272a1 1 0 0 1 1.212.727l1.515 6.06a1 1 0 0 1-.727 1.213l-1.09.272a2 2 0 0 1-2.425-1.455z" /><path d="m6.158 8.633 1.114 4.456" /><path d="m8 21 3.105-6.21" /><circle cx="12" cy="13" r="2" /></symbol>
+    <symbol id="voy-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></symbol>
+    <symbol id="voy-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></symbol>
+    <symbol id="voy-radar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34" /><path d="M4 6h.01" /><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35" /><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67" /><path d="M12 18h.01" /><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67" /><circle cx="12" cy="12" r="2" /><path d="m13.41 10.59 5.66-5.66" /></symbol>
+    <symbol id="voy-probe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7 9 3 5 7l4 4" /><path d="m17 11 4 4-4 4-4-4" /><path d="m8 12 4 4 6-6-4-4Z" /><path d="m16 8 3-3" /><path d="M9 21a6 6 0 0 0-6-6" /></symbol>
+    <symbol id="voy-pulsar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9" /><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5" /><circle cx="12" cy="9" r="2" /><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47" /><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1" /><path d="M9.5 18h5" /><path d="m8 22 4-11 4 11" /></symbol>
+    <symbol id="voy-constellation" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" x2="15.42" y1="13.51" y2="17.49" /><line x1="15.41" x2="8.59" y1="6.51" y2="10.49" /></symbol>
+    <symbol id="voy-trajectory" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3" /><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /><circle cx="18" cy="5" r="3" /></symbol>
+    <symbol id="voy-transmission" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" /><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5" /><circle cx="12" cy="12" r="2" /><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5" /><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19" /></symbol>
+    <symbol id="voy-calibrate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4" /><line x1="10" x2="3" y1="4" y2="4" /><line x1="21" x2="12" y1="12" y2="12" /><line x1="8" x2="3" y1="12" y2="12" /><line x1="21" x2="16" y1="20" y2="20" /><line x1="12" x2="3" y1="20" y2="20" /><line x1="14" x2="14" y1="2" y2="6" /><line x1="8" x2="8" y1="10" y2="14" /><line x1="16" x2="16" y1="18" y2="22" /></symbol>
+    <symbol id="voy-dossier" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></symbol>
+    <symbol id="voy-mission-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" /><circle cx="7.5" cy="7.5" r=".5" fill="currentColor" /></symbol>
+    <symbol id="voy-retrograde" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></symbol>
+    <symbol id="voy-anomaly" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></symbol>
+    <symbol id="voy-signal-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></symbol>
+    <symbol id="voy-signal-lost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /><path d="M5 12.859a10 10 0 0 1 5.17-2.69" /><path d="M19 12.859a10 10 0 0 0-2.007-1.523" /><path d="M2 8.82a15 15 0 0 1 4.177-2.643" /><path d="M22 8.82a15 15 0 0 0-11.288-3.764" /><path d="m2 2 20 20" /></symbol>
+    <symbol id="voy-uplink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14" /><path d="m18 13-6-6-6 6" /><path d="M12 7v14" /></symbol>
+    <symbol id="voy-downlink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3" /><path d="m6 11 6 6 6-6" /><path d="M19 21H5" /></symbol>
+    <symbol id="voy-eject" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" x2="9" y1="12" y2="12" /></symbol>
+    <symbol id="voy-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></symbol>
+    <symbol id="voy-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></symbol>
+    <symbol id="voy-gem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z" /><path d="M11 3 8 9l4 13 4-13-3-6" /><path d="M2 9h20" /></symbol>
+    <symbol id="voy-hourglass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14" /><path d="M5 2h14" /><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" /><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" /></symbol>
+    <symbol id="voy-sprout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 20h10" /><path d="M10 20c5.5-2.5.8-6.4 3-10" /><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" /><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" /></symbol>
+    <symbol id="voy-ban" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="m4.9 4.9 14.2 14.2" /></symbol>
+    <symbol id="voy-scale" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" /><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" /><path d="M7 21h10" /><path d="M12 3v18" /><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" /></symbol>
+    <symbol id="voy-scroll-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5" /><path d="M15 8h-5" /><path d="M19 17V5a2 2 0 0 0-2-2H4" /><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" /></symbol>
+    <symbol id="voy-trending-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></symbol>
+    <symbol id="voy-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></symbol>
+    <symbol id="voy-link-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2" /><path d="M15 7h2a5 5 0 1 1 0 10h-2" /><line x1="8" x2="16" y1="12" y2="12" /></symbol>
+    <symbol id="voy-flask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2" /><path d="M8.5 2h7" /><path d="M7 16h10" /></symbol>
+    <symbol id="voy-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" /><path d="m21.854 2.147-10.94 10.939" /></symbol>
+    <symbol id="voy-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></symbol>
+    <symbol id="voy-tornado" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H3" /><path d="M18 8H6" /><path d="M19 12H9" /><path d="M16 16h-6" /><path d="M11 20H9" /></symbol>
+    <symbol id="voy-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></symbol>
+    <symbol id="voy-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M3 10h18" /></symbol>
+    <symbol id="voy-circle-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" /></symbol>
+    <symbol id="voy-circle-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></symbol>
+    <symbol id="voy-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
+    <symbol id="voy-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /><path d="M20 3v4" /><path d="M22 5h-4" /><path d="M4 17v2" /><path d="M5 18H3" /></symbol>
   </defs>
 </svg>

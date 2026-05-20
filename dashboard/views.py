@@ -364,91 +364,13 @@ def processo_detail(request, pk):
         polos.setdefault(pp.polo, []).append(pp)
 
     # Explicação da classificação: pega último ClassificacaoLog + computa
-    # contribuições por feature (peso × valor) pra explainability.
+    # contribuições por feature (peso × valor) pra explainability. Metadados
+    # human-friendly vêm de `tribunals.explicacao.FEATURE_META` (fonte única).
     classif_explicacao = None
     if proc.classificacao_em:
         from tribunals.classificador import WEIGHTS, THRESHOLD_PRECATORIO, THRESHOLD_PRE_PRECATORIO, THRESHOLD_DIREITO_CREDITORIO
+        from tribunals.explicacao import FEATURE_META, resumir_decisao
         from tribunals.models import ClassificacaoLog
-
-        # Catálogo human-friendly de cada feature (emoji + label curto + descrição)
-        FEATURE_META = {
-            'F1_cumprim': {
-                'emoji': '⚖️', 'label': 'Classe Cumprimento contra Fazenda',
-                'desc': 'Processo está classificado como uma das variantes de "Cumprimento de Sentença contra a Fazenda Pública" (códigos CNJ 12078, 156, 15160, 15215). É o caminho processual padrão pra emissão de precatório/RPV.',
-            },
-            'F10_juizado_ANTI': {
-                'emoji': '🚫', 'label': 'Juizado Especial / Recurso (anti)',
-                'desc': 'Processo é de Juizado Especial, Recurso Inominado ou Procedimento Comum — esses NUNCA terminam em precatório. Sinal forte de que NÃO é lead.',
-            },
-            'F2_precat_tc': {
-                'emoji': '📜', 'label': 'Expedição de precatório/RPV (tipo_comunicacao)',
-                'desc': 'Existe movimentação com tipo de comunicação "Expedição de precatório/rpv" ou "Precatório" — sinal direto e estruturado.',
-            },
-            'F7_envTrib_tc': {
-                'emoji': '📤', 'label': 'Enviado ao Tribunal',
-                'desc': 'Tem movimentação de "Enviada ao Tribunal" ou "Preparada para Envio" — geralmente o ofício/precatório sendo encaminhado pro TRF.',
-            },
-            'F11_precat_text': {
-                'emoji': '🔎', 'label': 'Texto contém "precatório"',
-                'desc': 'Alguma movimentação tem a palavra "precatório" no texto. Captura sinais que não estão nos campos estruturados.',
-            },
-            'F12_rpv_text': {
-                'emoji': '🔎', 'label': 'Texto contém "rpv"',
-                'desc': 'Alguma movimentação menciona "RPV" (Requisição de Pequeno Valor) no texto.',
-            },
-            'F13_reqPag_text': {
-                'emoji': '⚠️', 'label': '"Requisição de pagamento" no texto (anti)',
-                'desc': 'Aparece muito em processos NÃO-leads (ex: requerimento administrativo). Teve peso negativo no treino.',
-            },
-            'F14_oficio_text': {
-                'emoji': '⚠️', 'label': '"Ofício requisitório" no texto (anti)',
-                'desc': 'Apareceu mais em não-leads que em leads no treino. Quando ele aparece sozinho (sem outros sinais), tende a empurrar pra fora.',
-            },
-            'F15_logMovs': {
-                'emoji': '📈', 'label': 'Volume de movimentações (log)',
-                'desc': 'log(total movs + 1) normalizado. Leads tipicamente acumulam histórico longo — quanto mais movs, mais provável.',
-            },
-            'F16_logTipos': {
-                'emoji': '🌀', 'label': 'Variedade de tipos de mov (log, anti)',
-                'desc': 'Processos "diversificados" (muitos tipos diferentes de mov) tendem a NÃO ser leads — é mais sinal de processo de conhecimento ativo do que cumprimento focado.',
-            },
-            'F17_logN1count': {
-                'emoji': '🎯', 'label': 'Quantidade de palavras N1 no texto',
-                'desc': 'Soma das ocorrências de precatório+rpv+req. pagamento+ofício no texto, em log. Muitas menções = sinal forte.',
-            },
-            'F18_anoZ': {
-                'emoji': '📅', 'label': 'Ano do CNJ (z-score)',
-                'desc': 'Ano de autuação do processo, normalizado. Modelo tem leve preferência por processos mais recentes.',
-            },
-            'F19_cancelado_ANTI': {
-                'emoji': '❌', 'label': 'Cancelamento/revogação (anti)',
-                'desc': 'Tem movimentação de cancelamento ou revogação de precatório/RPV. Anula o lead. Peso treinado próximo de zero porque é raro nas movs públicas (vive nos autos).',
-            },
-            'F20_exp_juriscope': {
-                'emoji': '✅', 'label': 'Termos exatos do filtro Juriscope',
-                'desc': 'Texto contém os termos exatos que o Juriscope usa pra confirmar precatório expedido (ex: "precatório expedido", "rpv expedida"). Raro nas movs DJEN/Datajud.',
-            },
-            'F21_diasUltMovZ': {
-                'emoji': '🕰️', 'label': 'Dias desde última mov (z-score)',
-                'desc': 'Quantos dias atrás foi a última mov, normalizado. Leads tendem a ter histórico longo, então mov antiga (z>0) ainda contribui positivo (já completou o ciclo).',
-            },
-            'F23_logPartes': {
-                'emoji': '👥', 'label': 'Número de partes (log, anti)',
-                'desc': 'Processos com muitas partes (ações coletivas) tendem a NÃO ser leads de precatório individual.',
-            },
-            'F1xF11': {
-                'emoji': '🔗', 'label': 'Cumprimento × precatório no texto',
-                'desc': 'Interação: ajusta peso quando ambos F1 e F11 estão ativos juntos (evita dupla contagem).',
-            },
-            'F1xF15': {
-                'emoji': '🔗', 'label': 'Cumprimento × volume movs',
-                'desc': 'Sinergia forte: muitas movs DENTRO de classe Cumprimento é sinal extra de lead avançado.',
-            },
-            'F1xF20': {
-                'emoji': '🔗', 'label': 'Cumprimento × termos Juriscope',
-                'desc': 'Ajuste fino quando termos Juriscope aparecem em processo de Cumprimento.',
-            },
-        }
 
         ultimo_log = ClassificacaoLog.objects.filter(processo=proc).order_by('-criada_em').first()
         feats = (ultimo_log.features_snapshot if ultimo_log else None) or {}
@@ -458,7 +380,7 @@ def processo_detail(request, pk):
                 w = WEIGHTS.get(fname, 0.0)
                 contrib = w * val
                 if abs(contrib) > 0.001:
-                    meta = FEATURE_META.get(fname, {'emoji': '•', 'label': fname, 'desc': ''})
+                    meta = FEATURE_META.get(fname, {'emoji': 'mission-tag', 'label': fname, 'desc': ''})
                     contribs.append({
                         'feature': fname, 'peso': round(w, 3),
                         'valor': round(val, 3), 'contribuicao': round(contrib, 3),
@@ -466,38 +388,21 @@ def processo_detail(request, pk):
                     })
             contribs.sort(key=lambda x: -abs(x['contribuicao']))
 
-            # Para o "porque dessa categoria" — sumário humano
-            classif_resumo = None
-            cat = proc.classificacao
-            score = proc.classificacao_score or 0
-            if cat == 'PRECATORIO':
-                classif_resumo = (
-                    f'Score {score:.2f} ≥ {THRESHOLD_PRECATORIO} '
-                    f'E tem precatório/RPV explícito (F2 ou F11) → 💎 PRECATÓRIO.'
-                )
-            elif cat == 'PRE_PRECATORIO':
-                classif_resumo = (
-                    f'Score {score:.2f} ≥ {THRESHOLD_PRE_PRECATORIO} '
-                    f'E classe é Cumprimento contra Fazenda, mas SEM expedição explícita → ⏳ PRÉ-PRECATÓRIO.'
-                )
-            elif cat == 'DIREITO_CREDITORIO':
-                classif_resumo = (
-                    f'Score {score:.2f} ≥ {THRESHOLD_DIREITO_CREDITORIO} '
-                    f'E classe é Cumprimento → 🌱 DIREITO CREDITÓRIO.'
-                )
-            else:
-                classif_resumo = f'Score {score:.2f} abaixo do threshold mínimo OU não bate critério de classe → não-lead.'
-
+            thresholds = {
+                'precatorio': THRESHOLD_PRECATORIO,
+                'pre': THRESHOLD_PRE_PRECATORIO,
+                'direito': THRESHOLD_DIREITO_CREDITORIO,
+            }
             classif_explicacao = {
                 'log': ultimo_log,
                 'features': feats,
                 'contribuicoes': contribs[:12],
-                'resumo': classif_resumo,
-                'thresholds': {
-                    'precatorio': THRESHOLD_PRECATORIO,
-                    'pre': THRESHOLD_PRE_PRECATORIO,
-                    'direito': THRESHOLD_DIREITO_CREDITORIO,
-                },
+                'resumo': resumir_decisao(
+                    proc.classificacao or 'NAO_LEAD',
+                    proc.classificacao_score or 0,
+                    thresholds,
+                ),
+                'thresholds': thresholds,
             }
 
     return render(request, 'dashboard/processo_detail.html', {
@@ -877,6 +782,161 @@ def root(request):
 
 
 # ---------- Consulta rápida (debug Datajud/DJEN, sem persistir) ----------
+
+@login_required
+@require_GET
+def algoritmo(request):
+    """Página didática explicando o classificador (advogado-first).
+
+    Renderiza:
+      - As 19 features agrupadas em 5 famílias, com peso v6 e v7 (se disponível)
+      - 4 exemplos curados (PROCESSO/CNJ por categoria)
+      - Sandbox: input pra colar qualquer CNJ que já esteja no Voyager
+
+    Lê `settings.ALGORITMO_EXEMPLOS_CNJS` (dict {N1, N2, N3, NL} -> CNJ).
+    Se ausente, tenta top-1 por categoria no DB. Sem dependência hard.
+    """
+    from django.conf import settings as _settings
+
+    from tribunals.classificador import (
+        HARDCODED_WEIGHTS,
+        METRICAS,
+        THRESHOLD_DIREITO_CREDITORIO,
+        THRESHOLD_PRE_PRECATORIO,
+        THRESHOLD_PRECATORIO,
+        _current_weights,
+        get_versao_ativa,
+    )
+    from tribunals.explicacao import FEATURE_META, FAMILIAS, explicar_processo, features_por_familia
+    from tribunals.models import ClassificadorVersao
+
+    pesos_v6 = dict(_current_weights() or HARDCODED_WEIGHTS)
+    pesos_v7: dict = {}
+    v7_status = 'não treinada ainda'
+    try:
+        v7 = ClassificadorVersao.objects.filter(versao='v7').only('pesos', 'ativa', 'shadow', 'criada_em').first()
+        if v7 and isinstance(v7.pesos, dict):
+            pesos_v7 = v7.pesos
+            if v7.ativa:
+                v7_status = 'ativa em produção'
+            elif v7.shadow:
+                v7_status = 'em shadow (sendo comparada com v6)'
+            else:
+                v7_status = 'treinada, ainda não promovida'
+    except Exception:
+        pass
+
+    # Constroi catálogo agrupado, com pesos v6+v7 anexados
+    familias_view = []
+    for key, icone, titulo, descricao, feature_names in features_por_familia():
+        items = []
+        for fname in feature_names:
+            meta = FEATURE_META[fname]
+            items.append({
+                'feature': fname,
+                'emoji': meta['emoji'],
+                'label': meta['label'],
+                'desc': meta['desc'],
+                'criterio': meta['criterio'],
+                'peso_v6': round(pesos_v6.get(fname, 0.0), 3) if fname in pesos_v6 else None,
+                'peso_v7': round(pesos_v7.get(fname, 0.0), 3) if fname in pesos_v7 else None,
+            })
+        familias_view.append({
+            'key': key, 'icone': icone, 'titulo': titulo, 'descricao': descricao, 'features': items,
+        })
+
+    # Exemplos curados — pode vir de settings ou ser auto-resolvido
+    exemplos_cfg = getattr(_settings, 'ALGORITMO_EXEMPLOS_CNJS', None) or {}
+    exemplos = []
+    if exemplos_cfg:
+        for rotulo, cnj in exemplos_cfg.items():
+            proc = Process.objects.filter(numero_cnj=cnj).first()
+            if proc:
+                try:
+                    exemplos.append({
+                        'rotulo': rotulo,
+                        'explicacao': explicar_processo(proc, top_n=8),
+                    })
+                except Exception:
+                    continue
+    else:
+        # Fallback: top-1 por categoria
+        for rotulo, icone, categoria in [
+            ('Lead N1 típico (PRECATÓRIO)',                  'gem',       'PRECATORIO'),
+            ('Pré-precatório (cumprimento sem expedição)',   'hourglass', 'PRE_PRECATORIO'),
+            ('Direito creditório (sinal fraco)',             'sprout',    'DIREITO_CREDITORIO'),
+            ('Não-lead clássico',                            'ban',       'NAO_LEAD'),
+        ]:
+            proc = (
+                Process.objects.filter(classificacao=categoria)
+                .order_by('-classificacao_score' if categoria != 'NAO_LEAD' else 'classificacao_score', '-id')
+                .first()
+            )
+            if proc:
+                try:
+                    exemplos.append({
+                        'rotulo': rotulo,
+                        'icone': icone,
+                        'explicacao': explicar_processo(proc, top_n=8),
+                    })
+                except Exception:
+                    continue
+
+    return render(request, 'dashboard/algoritmo.html', {
+        'familias': familias_view,
+        'familias_meta': FAMILIAS,
+        'pesos_v6': pesos_v6,
+        'pesos_v7': pesos_v7,
+        'v7_status': v7_status,
+        'versao_ativa': get_versao_ativa(),
+        'metricas_v6': METRICAS,
+        'thresholds': {
+            'precatorio': THRESHOLD_PRECATORIO,
+            'pre': THRESHOLD_PRE_PRECATORIO,
+            'direito': THRESHOLD_DIREITO_CREDITORIO,
+        },
+        'exemplos': exemplos,
+        'intercept_v6': round(pesos_v6.get('_intercept_', 0.0), 3),
+    })
+
+
+@login_required
+@require_POST
+def algoritmo_explicar(request):
+    """Sandbox: recebe CNJ, devolve partial HTML com a explicação completa.
+
+    Limitação: só processos já presentes no Voyager. Se não achar, retorna
+    partial com mensagem amigável (200) — UX htmx-friendly, sem 404.
+    """
+    from tribunals.explicacao import explicar_processo
+
+    cnj = (request.POST.get('cnj') or '').strip()
+    cnj_normalizado = ''.join(ch for ch in cnj if ch.isdigit() or ch in '.-')
+
+    if not cnj_normalizado:
+        return render(request, 'dashboard/_partials/_algoritmo_explicacao.html', {
+            'erro': 'Informe um CNJ.',
+        })
+
+    proc = Process.objects.filter(numero_cnj=cnj_normalizado).first()
+    if proc is None:
+        return render(request, 'dashboard/_partials/_algoritmo_explicacao.html', {
+            'erro': f'Processo {cnj_normalizado} ainda não está no Voyager.',
+            'erro_dica': 'O robô só consegue explicar processos que já foram ingeridos pelo DJEN/Datajud.',
+        })
+
+    try:
+        explicacao = explicar_processo(proc, top_n=12)
+    except Exception as e:  # noqa: BLE001
+        return render(request, 'dashboard/_partials/_algoritmo_explicacao.html', {
+            'erro': f'Erro inesperado: {e}',
+        })
+
+    return render(request, 'dashboard/_partials/_algoritmo_explicacao.html', {
+        'explicacao': explicacao,
+        'sandbox': True,
+    })
+
 
 @login_required
 @require_GET

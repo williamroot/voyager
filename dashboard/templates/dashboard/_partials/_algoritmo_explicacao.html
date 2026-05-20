@@ -1,0 +1,109 @@
+{% comment %}
+Partial: explicação completa da classificação de UM processo.
+
+Reusado em 2 contextos:
+  1. Página /dashboard/leads/algoritmo/  — pré-renderizado pros 4 exemplos curados
+  2. Sandbox POST /dashboard/leads/algoritmo/explicar/  — devolvido via fetch
+
+Contexto esperado:
+  explicacao  dict (de tribunals.explicacao.explicar_processo)
+              { processo, score, categoria, versao, thresholds, resumo, contribuicoes }
+  sandbox     bool — se True, mostra header "Resultado do sandbox"
+  erro        str  — se presente, ignora 'explicacao' e mostra mensagem amigável
+  erro_dica   str  — dica complementar ao erro (opcional)
+{% endcomment %}
+{% load voyager_extras %}
+
+{% if erro %}
+  <div class="card-tight border-red-500/40 bg-red-500/5">
+    <div class="text-sm text-red-300 mb-1">⚠ {{ erro }}</div>
+    {% if erro_dica %}<div class="text-xs text-fg-muted">{{ erro_dica }}</div>{% endif %}
+  </div>
+{% elif explicacao %}
+  {% with proc=explicacao.processo cat=explicacao.categoria score=explicacao.score t=explicacao.thresholds %}
+  <article class="card-tight border-border/60">
+    {% if sandbox %}
+    <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle mb-2">Resultado</div>
+    {% endif %}
+
+    {# ── Cabeçalho: CNJ + badge + score ────────────────────────────────── #}
+    <div class="flex items-baseline justify-between flex-wrap gap-2 mb-2">
+      <div class="flex items-baseline gap-2 flex-wrap">
+        <a href="{% url 'dashboard:processo-detail' proc.pk %}"
+           class="font-mono text-sm text-fg hover:text-mission">{{ proc.numero_cnj }}</a>
+        <span class="text-xs text-fg-subtle">{{ proc.tribunal.sigla }}</span>
+        {% if proc.classe_nome %}
+          <span class="text-xs text-fg-muted">· {{ proc.classe_nome|truncatechars:60 }}</span>
+        {% endif %}
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span class="text-2xl font-semibold kpi-num">{{ score|floatformat:2 }}</span>
+        <span class="text-[0.65rem] text-fg-subtle uppercase">confiança</span>
+      </div>
+    </div>
+
+    {# ── Categoria + frase do "por que" ──────────────────────────────────── #}
+    <div class="mb-3">
+      <div class="text-sm font-mono mb-1 inline-flex items-center gap-1.5">
+        {% if cat == 'PRECATORIO' %}{% voy_icon "gem" "w-4 h-4 text-mission" %}<span class="text-fg">PRECATÓRIO</span>
+        {% elif cat == 'PRE_PRECATORIO' %}{% voy_icon "hourglass" "w-4 h-4 text-fg-soft" %}<span class="text-fg-soft">PRÉ-PRECATÓRIO</span>
+        {% elif cat == 'DIREITO_CREDITORIO' %}{% voy_icon "sprout" "w-4 h-4 text-accent-fg" %}<span class="text-fg-muted">DIREITO CREDITÓRIO</span>
+        {% else %}{% voy_icon "ban" "w-4 h-4 text-red-400" %}<span class="text-red-400">NÃO É LEAD</span>{% endif %}
+      </div>
+      <p class="text-xs text-fg-muted leading-relaxed">{{ explicacao.resumo }}</p>
+    </div>
+
+    {# ── Top features que pesaram ────────────────────────────────────────── #}
+    <div class="text-xs">
+      <div class="text-fg-subtle uppercase tracking-wider mb-2 text-[0.6rem]">
+        Sinais que mais pesaram nessa decisão
+      </div>
+      <div class="space-y-1.5">
+        {% for c in explicacao.contribuicoes %}
+        <details class="group border border-border/40 rounded-md hover:bg-muted/30 transition-colors">
+          <summary class="cursor-pointer list-none px-3 py-2 flex items-center gap-2" title="clique pra detalhes">
+            <span class="text-fg-soft">{% voy_icon c.emoji "w-4 h-4" %}</span>
+            <span class="flex-1 text-fg-soft">{{ c.label }}</span>
+            <span class="text-fg-subtle text-[0.65rem] font-mono mr-1">{{ c.feature }}</span>
+            <span class="kpi-num font-semibold {% if c.contribuicao < 0 %}text-fg-subtle{% else %}text-fg{% endif %} w-14 text-right">
+              {% if c.contribuicao >= 0 %}+{% endif %}{{ c.contribuicao }}
+            </span>
+            <span class="text-fg-subtle text-[0.6rem] group-open:rotate-90 transition-transform">▸</span>
+          </summary>
+          <div class="px-3 pb-3 pt-1 text-fg-muted leading-relaxed">
+            <p class="mb-2">{{ c.desc }}</p>
+            <div class="grid grid-cols-3 gap-2 text-[0.7rem] pt-2 border-t border-border/40">
+              <div>
+                <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Peso v6</span>
+                <div class="kpi-num">{{ c.peso }}</div>
+              </div>
+              <div>
+                <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Valor</span>
+                <div class="kpi-num">{{ c.valor }}</div>
+              </div>
+              <div>
+                <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Contribuição</span>
+                <div class="kpi-num font-semibold">{% if c.contribuicao >= 0 %}+{% endif %}{{ c.contribuicao }}</div>
+              </div>
+            </div>
+            {% if c.criterio %}
+            <div class="mt-2 pt-2 border-t border-border/40">
+              <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Critério técnico</span>
+              <div class="font-mono text-[0.7rem] mt-0.5 break-all">{{ c.criterio }}</div>
+            </div>
+            {% endif %}
+          </div>
+        </details>
+        {% empty %}
+        <div class="text-fg-subtle text-[0.7rem]">Nenhuma feature com contribuição significativa.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="mt-3 pt-3 border-t border-border/40 text-[0.65rem] text-fg-subtle flex items-baseline justify-between">
+      <span>Modelo <code class="font-mono">{{ explicacao.versao }}</code></span>
+      <a class="hover:text-fg" href="{% url 'dashboard:processo-detail' proc.pk %}">ver processo completo ↗</a>
+    </div>
+  </article>
+  {% endwith %}
+{% endif %}

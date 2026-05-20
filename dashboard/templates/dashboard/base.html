@@ -367,6 +367,11 @@
         {% voy_icon "pulsar" "w-4 h-4" %}
         Leads
       </a>
+      {% url 'dashboard:algoritmo' as algoritmo_url %}
+      <a href="{{ algoritmo_url }}" class="nav-item nav-sub {% if request.path == algoritmo_url %}active{% endif %}">
+        {% voy_icon "calibrate" "w-4 h-4" %}
+        <span class="opacity-70">↳</span> Algoritmo
+      </a>
       {% if perms.tribunals.can_view_validacao_dashboard %}
       {% url 'dashboard:leads_visibilidade' as leads_visib_url %}
       <a href="{{ leads_visib_url }}" class="nav-item nav-sub {% if request.path == leads_visib_url %}active{% endif %}">

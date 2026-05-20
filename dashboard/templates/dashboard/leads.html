@@ -48,11 +48,11 @@
 
   <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
-      💎 Precatório
+      {% voy_icon "gem" "w-3.5 h-3.5 text-mission" %} Precatório
       <div class="relative inline-flex" x-data="{t:false}">
         <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
         <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
-          <strong class="text-fg-soft block mb-1">💎 Precatório · N1</strong>
+          <strong class="text-fg-soft block mb-1 inline-flex items-center gap-1.5">{% voy_icon "gem" "w-3.5 h-3.5 text-mission" %} Precatório · N1</strong>
           Score ≥ 0,70 + expedição confirmada (ofício ou texto). Fila imediata — baixar autos agora. Estoque não consumido pelo Juriscope.
         </div>
       </div>
@@ -70,11 +70,11 @@
 
   <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
-      ⏳ Pré-precatório
+      {% voy_icon "hourglass" "w-3.5 h-3.5" %} Pré-precatório
       <div class="relative inline-flex" x-data="{t:false}">
         <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
         <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
-          <strong class="text-fg-soft block mb-1">⏳ Pré-precatório · N2</strong>
+          <strong class="text-fg-soft block mb-1 inline-flex items-center gap-1.5">{% voy_icon "hourglass" "w-3.5 h-3.5" %} Pré-precatório · N2</strong>
           Score ≥ 0,40 + classe Cumprimento contra Fazenda. Em homologação dos cálculos — re-checar mensalmente.
         </div>
       </div>
@@ -85,11 +85,11 @@
 
   <div class="card-tight">
     <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider flex items-center gap-1">
-      🌱 Direito creditório
+      {% voy_icon "sprout" "w-3.5 h-3.5 text-accent-fg" %} Direito creditório
       <div class="relative inline-flex" x-data="{t:false}">
         <span @mouseenter="t=true" @mouseleave="t=false" class="cursor-help text-fg-subtle/60">ⓘ</span>
         <div x-show="t" x-cloak style="display:none" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 z-50 text-xs bg-card border border-border rounded-lg p-2.5 shadow-xl text-fg-muted leading-relaxed pointer-events-none normal-case tracking-normal">
-          <strong class="text-fg-soft block mb-1">🌱 Direito Creditório · N3</strong>
+          <strong class="text-fg-soft block mb-1 inline-flex items-center gap-1.5">{% voy_icon "sprout" "w-3.5 h-3.5 text-accent-fg" %} Direito Creditório · N3</strong>
           Score ≥ 0,20 + classe Cumprimento. Potencial em fase de conhecimento — watch-list trimestral.
         </div>
       </div>
@@ -299,19 +299,19 @@ function buildLeadsByTribunal(rows) {
     yAxis: {type: 'category', data: cats, axisLabel: {color: c.axisLabel, fontWeight: 600}, axisLine: {lineStyle: {color: c.axisLine}}},
     series: [
       {
-        name: '💎 Precatório', type: 'bar', data: rows.map(r => r.n1),
+        name: 'Precatório', type: 'bar', data: rows.map(r => r.n1),
         itemStyle: {color: colors.n1, borderRadius: [0, 4, 4, 0]}, barGap: '20%', barCategoryGap: '30%',
         label: {show: true, position: 'right', formatter: p => p.value > 0 ? fmt(p.value) : '',
                 color: c.axisLabel, fontSize: 11, fontWeight: 'bold'},
       },
       {
-        name: '⏳ Pré-precatório', type: 'bar', data: rows.map(r => r.n2),
+        name: 'Pré-precatório', type: 'bar', data: rows.map(r => r.n2),
         itemStyle: {color: colors.n2, borderRadius: [0, 4, 4, 0]},
         label: {show: true, position: 'right', formatter: p => p.value > 0 ? fmt(p.value) : '',
                 color: c.axisLabel, fontSize: 11},
       },
       {
-        name: '🌱 Direito Creditório', type: 'bar', data: rows.map(r => r.n3),
+        name: 'Direito Creditório', type: 'bar', data: rows.map(r => r.n3),
         itemStyle: {color: colors.n3, borderRadius: [0, 4, 4, 0]},
         label: {show: true, position: 'right', formatter: p => p.value > 0 ? fmt(p.value) : '',
                 color: c.axisLabel, fontSize: 11},

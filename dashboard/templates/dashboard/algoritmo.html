@@ -1,0 +1,418 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Como o robô classifica{% endblock %}
+{% block content %}
+
+<div class="max-w-4xl">
+
+  {# ───────────────────────────────── HERO ───────────────────────────── #}
+  <header class="mb-8">
+    <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Documentação técnica</div>
+    <h1 class="text-3xl font-semibold text-fg-soft mb-3">Como o robô classifica os processos</h1>
+    <p class="text-fg-muted leading-relaxed max-w-3xl">
+      O Juriscope tem capacidade de baixar autos de cerca de <strong class="text-fg-soft">5.000 processos por dia</strong>.
+      A pergunta natural: <em>dos milhões de processos visíveis no DJEN e Datajud, quais vale a pena baixar primeiro?</em>
+      Esse é o trabalho do classificador automático: olha cada processo, lê movimentações públicas, e separa
+      em quatro caixas — do mais promissor (já tem precatório expedido) ao definitivamente fora.
+    </p>
+    <p class="text-fg-muted leading-relaxed max-w-3xl mt-3">
+      Esta página explica, em linguagem jurídica, <strong class="text-fg-soft">como ele decide</strong> — quais
+      sinais ele olha, como combina, e o que tudo isso significa na prática. No final tem um sandbox onde você
+      pode colar qualquer CNJ e ver o robô explicando a decisão dele.
+    </p>
+    <div class="mt-4 flex items-baseline gap-3 text-xs text-fg-subtle">
+      <span>Versão ativa em produção: <code class="font-mono text-fg">{{ versao_ativa }}</code></span>
+      <span>·</span>
+      <span>Próxima versão (v7): {{ v7_status }}</span>
+    </div>
+  </header>
+
+  {# ───────────────────────── ÍNDICE LATERAL ────────────────────────── #}
+  <nav class="card-tight mb-8 text-xs">
+    <div class="text-fg-subtle uppercase tracking-wider mb-2 text-[0.6rem]">Nesta página</div>
+    <ul class="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5">
+      <li><a href="#niveis" class="text-fg-muted hover:text-fg">① Os 4 níveis</a></li>
+      <li><a href="#sinais" class="text-fg-muted hover:text-fg">② Os sinais que o robô usa</a></li>
+      <li><a href="#combinacao" class="text-fg-muted hover:text-fg">③ Como ele combina</a></li>
+      <li><a href="#exemplos" class="text-fg-muted hover:text-fg">④ Exemplos reais</a></li>
+      <li><a href="#sandbox" class="text-fg-muted hover:text-fg">⑤ Sandbox: cole um CNJ</a></li>
+      <li><a href="#v6v7" class="text-fg-muted hover:text-fg">⑥ v6 vs v7</a></li>
+      <li><a href="#metricas" class="text-fg-muted hover:text-fg">⑦ Como sei se acerta?</a></li>
+    </ul>
+  </nav>
+
+  {# ─────────────────── ① OS 4 NÍVEIS ─────────────────────────────────── #}
+  <section id="niveis" class="mb-10">
+    <h2 class="text-xl font-semibold text-fg-soft mb-3">① Os 4 níveis de classificação</h2>
+    <p class="text-sm text-fg-muted mb-4 leading-relaxed">
+      Cada processo recebe um <strong>número entre 0 e 1</strong> que é a <em>confiança</em> do robô de que ali
+      existe um precatório (ou está a caminho). A partir desse número, junto com a classe processual e a presença
+      de movimentações-chave, ele decide a caixa.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div class="card-tight border-border/60">
+        <div class="flex items-center gap-2 mb-1">
+          {% voy_icon "gem" "w-5 h-5 text-mission" %}
+          <strong class="text-fg">Precatório (N1)</strong>
+        </div>
+        <div class="text-xs text-fg-subtle mb-2">Confiança ≥ {{ thresholds.precatorio }} <strong>+</strong> vê expedição explícita</div>
+        <p class="text-xs text-fg-muted leading-relaxed">
+          Robô tem muita certeza E achou nas movimentações algo como "expedição de precatório" ou "RPV".
+          <strong class="text-fg-soft">Fila imediata</strong> — esses são os 5.000/dia do Juriscope.
+        </p>
+      </div>
+      <div class="card-tight border-border/60">
+        <div class="flex items-center gap-2 mb-1">
+          {% voy_icon "hourglass" "w-5 h-5 text-fg-soft" %}
+          <strong class="text-fg-soft">Pré-precatório (N2)</strong>
+        </div>
+        <div class="text-xs text-fg-subtle mb-2">Confiança ≥ {{ thresholds.pre }} <strong>+</strong> classe Cumprimento contra Fazenda</div>
+        <p class="text-xs text-fg-muted leading-relaxed">
+          É uma ação de Cumprimento de Sentença contra a Fazenda, mas o robô ainda não viu a palavra
+          precatório/RPV. Provavelmente <strong>vai virar precatório nos próximos meses</strong>. Re-checar.
+        </p>
+      </div>
+      <div class="card-tight border-border/60">
+        <div class="flex items-center gap-2 mb-1">
+          {% voy_icon "sprout" "w-5 h-5 text-accent-fg" %}
+          <strong class="text-fg-muted">Direito creditório (N3)</strong>
+        </div>
+        <div class="text-xs text-fg-subtle mb-2">Confiança ≥ {{ thresholds.direito }} <strong>+</strong> indícios de Cumprimento</div>
+        <p class="text-xs text-fg-muted leading-relaxed">
+          Sinais fracos mas existentes. Vale entrar numa <strong>watch-list trimestral</strong> — pode amadurecer
+          ou pode ser descartado depois.
+        </p>
+      </div>
+      <div class="card-tight border-border/60">
+        <div class="flex items-center gap-2 mb-1">
+          {% voy_icon "ban" "w-5 h-5 text-red-400" %}
+          <strong class="text-red-400">Não é lead</strong>
+        </div>
+        <div class="text-xs text-fg-subtle mb-2">Resto</div>
+        <p class="text-xs text-fg-muted leading-relaxed">
+          Não bate nenhum dos critérios anteriores. Ex.: juizado especial, recurso inominado, ação coletiva
+          com 200 partes. <strong>Ignorar</strong> — economiza capacidade da fila.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  {# ─────────────────── ② OS SINAIS (FEATURES POR FAMÍLIA) ─────────────── #}
+  <section id="sinais" class="mb-10">
+    <h2 class="text-xl font-semibold text-fg-soft mb-3">② Os sinais que o robô olha</h2>
+    <p class="text-sm text-fg-muted mb-5 leading-relaxed">
+      O robô não olha um sinal só — ele combina <strong>19 sinais diferentes</strong> (no v6) que dividimos em 5
+      famílias. Cada sinal tem um <em>peso</em>: positivo (empurra pra ser lead) ou negativo (empurra contra).
+      Os pesos vieram do treino do modelo em mais de <strong>1 milhão de processos do TRF1</strong>.
+    </p>
+
+    {% for fam in familias %}
+    <details class="mb-3 border border-border/40 rounded-lg" {% if forloop.first %}open{% endif %}>
+      <summary class="cursor-pointer list-none px-4 py-3 hover:bg-muted/30 transition-colors">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <span class="text-fg-soft">{% voy_icon fam.icone "w-5 h-5" %}</span>
+            <div>
+              <div class="text-base font-semibold text-fg-soft">{{ fam.titulo }}</div>
+              <div class="text-xs text-fg-muted mt-0.5">{{ fam.descricao }}</div>
+            </div>
+          </div>
+          <div class="text-xs text-fg-subtle">{{ fam.features|length }} sinais</div>
+        </div>
+      </summary>
+      <div class="px-4 pb-4 pt-1 space-y-2">
+        {% for f in fam.features %}
+          <details class="border border-border/30 rounded-md group">
+            <summary class="cursor-pointer list-none px-3 py-2 flex items-center gap-2 text-sm hover:bg-muted/30">
+              <span class="text-fg-soft">{% voy_icon f.emoji "w-4 h-4" %}</span>
+              <span class="flex-1 text-fg-soft">{{ f.label }}</span>
+              <span class="text-fg-subtle text-[0.65rem] font-mono">{{ f.feature }}</span>
+              {% if f.peso_v6 is not None %}
+                <span class="kpi-num font-mono text-xs w-12 text-right {% if f.peso_v6 < 0 %}text-fg-subtle{% else %}text-fg{% endif %}"
+                      title="peso no v6">
+                  {% if f.peso_v6 >= 0 %}+{% endif %}{{ f.peso_v6 }}
+                </span>
+              {% else %}
+                <span class="kpi-num font-mono text-xs w-12 text-right text-fg-subtle" title="só no v7">—</span>
+              {% endif %}
+              <span class="text-fg-subtle text-[0.6rem] group-open:rotate-90 transition-transform">▸</span>
+            </summary>
+            <div class="px-3 pb-3 pt-1 text-xs text-fg-muted leading-relaxed">
+              <p class="mb-2">{{ f.desc }}</p>
+              <div class="grid grid-cols-3 gap-3 mt-2 pt-2 border-t border-border/40 text-[0.7rem]">
+                <div>
+                  <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Peso v6</span>
+                  <div class="kpi-num font-mono">
+                    {% if f.peso_v6 is not None %}{% if f.peso_v6 >= 0 %}+{% endif %}{{ f.peso_v6 }}{% else %}—{% endif %}
+                  </div>
+                </div>
+                <div>
+                  <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Peso v7</span>
+                  <div class="kpi-num font-mono">
+                    {% if f.peso_v7 is not None %}{% if f.peso_v7 >= 0 %}+{% endif %}{{ f.peso_v7 }}{% else %}—{% endif %}
+                  </div>
+                </div>
+                <div>
+                  <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Família</span>
+                  <div class="text-fg-soft">{{ fam.titulo }}</div>
+                </div>
+              </div>
+              {% if f.criterio %}
+              <div class="mt-2 pt-2 border-t border-border/40">
+                <span class="text-fg-subtle uppercase tracking-wider text-[0.6rem]">Critério técnico</span>
+                <div class="font-mono text-[0.7rem] mt-0.5 break-all">{{ f.criterio }}</div>
+              </div>
+              {% endif %}
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </section>
+
+  {# ─────────────────── ③ COMO COMBINA ─────────────────────────────────── #}
+  <section id="combinacao" class="mb-10">
+    <h2 class="text-xl font-semibold text-fg-soft mb-3">③ Como o robô combina os sinais</h2>
+    <div class="card-tight border-border/60 mb-4">
+      <p class="text-sm text-fg-muted leading-relaxed mb-3">
+        Imagine uma <strong class="text-fg-soft">balança ponderada</strong>: cada sinal tem um peso (positivo ou
+        negativo). O robô olha cada sinal no processo, multiplica pelo peso correspondente, e soma tudo.
+      </p>
+      <p class="text-sm text-fg-muted leading-relaxed mb-3">
+        O resultado dessa soma é um número qualquer (pode ser bem negativo ou bem positivo). Aí o robô passa
+        esse número por uma função matemática chamada <em>sigmoide</em> que <strong class="text-fg-soft">
+        comprime o valor pra ficar entre 0 e 1</strong>. Esse 0–1 é a "confiança" final.
+      </p>
+      <p class="text-sm text-fg-muted leading-relaxed">
+        Em cima da confiança, o robô aplica as regras dos níveis (vistas no ① acima) e decide a caixa final.
+      </p>
+    </div>
+
+    <details class="border border-border/40 rounded-lg">
+      <summary class="cursor-pointer list-none px-4 py-3 text-sm text-fg-soft hover:bg-muted/30">
+        🧮 Detalhes técnicos <span class="text-fg-subtle text-xs">(matemática + código)</span>
+      </summary>
+      <div class="px-4 pb-4 pt-1 text-xs text-fg-muted leading-relaxed space-y-3">
+        <p>
+          O modelo é uma <strong>regressão logística</strong>: <code class="font-mono">score = σ(b + Σᵢ wᵢ · xᵢ)</code>,
+          onde <code>b</code> é o intercepto (constante de viés, {{ intercept_v6 }} no v6), <code>wᵢ</code> é o peso
+          da feature <code>i</code>, e <code>xᵢ</code> é o valor dela no processo. <code>σ(z) = 1 / (1 + e<sup>−z</sup>)</code>
+          é a sigmoide.
+        </p>
+        <p>
+          O treino do v6 usou <strong>1.050.791 processos do TRF1</strong> (split 80/20 estratificado, seed=42)
+          e otimização gradiente em lote com regularização L2 — numpy puro, sem sklearn.
+        </p>
+        <p>
+          Os pesos vivem na tabela <code class="font-mono">ClassificadorVersao(ativa=True)</code>; cache em
+          memória recarrega a cada 60 segundos (hot reload, sem restart). Código em
+          <code class="font-mono">tribunals/classificador.py</code>.
+        </p>
+        <p>
+          <strong class="text-fg-soft">Combos</strong>: além dos 16 sinais individuais, o modelo aprendeu 3
+          interações importantes (Cumprimento × precatório, Cumprimento × volume, Cumprimento × termos
+          Juriscope). O mais forte é Cumprimento × Volume — peso de combo <code>+1.63</code> no v6.
+        </p>
+      </div>
+    </details>
+  </section>
+
+  {# ─────────────────── ④ EXEMPLOS CURADOS ─────────────────────────────── #}
+  <section id="exemplos" class="mb-10">
+    <h2 class="text-xl font-semibold text-fg-soft mb-3">④ Exemplos reais</h2>
+    <p class="text-sm text-fg-muted mb-4 leading-relaxed">
+      Quatro processos do banco — escolhidos pra ilustrar cada categoria. Clique em cada sinal pra ler a
+      explicação completa.
+    </p>
+
+    {% if exemplos %}
+      <div class="space-y-4">
+        {% for ex in exemplos %}
+          <div>
+            <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+              {% if ex.icone %}{% voy_icon ex.icone "w-3.5 h-3.5" %}{% endif %}{{ ex.rotulo }}
+            </div>
+            {% include 'dashboard/_partials/_algoritmo_explicacao.html' with explicacao=ex.explicacao sandbox=False %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="card-tight text-xs text-fg-muted">
+        Nenhum exemplo disponível ainda. Configure <code class="font-mono">ALGORITMO_EXEMPLOS_CNJS</code> em
+        settings ou aguarde a base ter processos em cada categoria.
+      </div>
+    {% endif %}
+  </section>
+
+  {# ─────────────────── ⑤ SANDBOX ──────────────────────────────────────── #}
+  <section id="sandbox" class="mb-10">
+    <h2 class="text-xl font-semibold text-fg-soft mb-3">⑤ Sandbox: cole um CNJ</h2>
+    <p class="text-sm text-fg-muted mb-4 leading-relaxed">
+      Cole qualquer número CNJ que já esteja no Voyager e veja o robô explicando como ele classificou esse
+      processo específico. <strong class="text-fg-subtle">Limitação:</strong> só funciona pra processos já
+      ingeridos pelo DJEN/Datajud.
+    </p>
+
+    <div class="card-tight border-border/60" x-data="algoritmoSandbox()">
+      <form @submit.prevent="explicar()" class="flex gap-2 flex-wrap">
+        {% csrf_token %}
+        <input type="text"
+               x-model="cnj"
+               placeholder="0001234-56.2020.4.01.3800"
+               class="flex-1 min-w-[280px] px-3 py-2 bg-muted/30 border border-border rounded-md text-sm font-mono focus:border-mission focus:outline-none"
+               aria-label="CNJ do processo">
+        <button type="submit"
+                :disabled="loading"
+                class="chip"
+                :class="{ 'opacity-50 cursor-wait': loading }">
+          <span x-show="!loading">🔍 Explicar</span>
+          <span x-show="loading" x-cloak>processando…</span>
+        </button>
+      </form>
+
+      <div class="mt-4" x-html="resultado" x-cloak></div>
+    </div>
+  </section>
+
+  <script>
+  function algoritmoSandbox() {
+    return {
+      cnj: '',
+      loading: false,
+      resultado: '',
+      async explicar() {
+        if (!this.cnj.trim()) return;
+        this.loading = true;
+        this.resultado = '';
+        try {
+          const fd = new FormData();
+          fd.append('cnj', this.cnj.trim());
+          fd.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+          const resp = await fetch('{% url "dashboard:algoritmo_explicar" %}', {
+            method: 'POST', body: fd, credentials: 'same-origin',
+          });
+          this.resultado = await resp.text();
+        } catch (e) {
+          this.resultado = '<div class="card-tight border-red-500/40 text-red-300 text-sm">Erro: ' + e.message + '</div>';
+        } finally {
+          this.loading = false;
+        }
+      },
+    };
+  }
+  </script>
+
+  {# ─────────────────── ⑥ v6 vs v7 ─────────────────────────────────────── #}
+  <section id="v6v7" class="mb-10">
+    <h2 class="text-xl font-semibold text-fg-soft mb-3">⑥ v6 vs v7 — o que muda</h2>
+    <p class="text-sm text-fg-muted mb-4 leading-relaxed">
+      O v6 é o modelo rodando hoje em produção. O v7 está em <strong>shadow mode</strong> — roda em paralelo
+      sem afetar a decisão oficial, só pra comparar. Status atual: <strong class="text-fg-soft">{{ v7_status }}</strong>.
+    </p>
+
+    <div class="card-tight border-border/60 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">
+          <tr class="border-b border-border/40">
+            <th class="text-left py-2 px-2 font-medium">Dimensão</th>
+            <th class="text-left py-2 px-2 font-medium">v6 (em produção)</th>
+            <th class="text-left py-2 px-2 font-medium">v7 (em testes)</th>
+          </tr>
+        </thead>
+        <tbody class="text-xs text-fg-muted">
+          <tr class="border-b border-border/20">
+            <td class="py-2 px-2 text-fg-soft">Sinais usados</td>
+            <td class="py-2 px-2">19</td>
+            <td class="py-2 px-2"><strong class="text-fg-soft">24</strong> (+5: RPV expedida, pagamento administrativo, ordem cronológica, trânsito em julgado, líquido e certo)</td>
+          </tr>
+          <tr class="border-b border-border/20">
+            <td class="py-2 px-2 text-fg-soft">Como aprende com exemplos</td>
+            <td class="py-2 px-2">Todos exemplos pesam igual</td>
+            <td class="py-2 px-2">Exemplos <strong>validados por humano valem 3×</strong> mais que CSVs</td>
+          </tr>
+          <tr class="border-b border-border/20">
+            <td class="py-2 px-2 text-fg-soft">Limites (thresholds)</td>
+            <td class="py-2 px-2">Iguais pra todos tribunais</td>
+            <td class="py-2 px-2">Customizados por tribunal</td>
+          </tr>
+          <tr class="border-b border-border/20">
+            <td class="py-2 px-2 text-fg-soft">Incerteza</td>
+            <td class="py-2 px-2">Só o número de confiança</td>
+            <td class="py-2 px-2">Confiança + <strong>margem de erro</strong> (predição conformal)</td>
+          </tr>
+          <tr class="border-b border-border/20">
+            <td class="py-2 px-2 text-fg-soft">Gates de promoção</td>
+            <td class="py-2 px-2">—</td>
+            <td class="py-2 px-2">6 testes formais (PASS/WARN/BLOCK) antes de ir pra produção</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-2 text-fg-soft">Status hoje</td>
+            <td class="py-2 px-2 text-fg">ativa</td>
+            <td class="py-2 px-2">{{ v7_status }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-xs text-fg-subtle mt-3">
+      Quando o v7 for promovido, o flip é uma linha no banco — todos os workers detectam em até 60 segundos
+      sem precisar de restart. Rollback é igual.
+    </p>
+  </section>
+
+  {# ─────────────────── ⑦ MÉTRICAS ────────────────────────────────────── #}
+  <section id="metricas" class="mb-10">
+    <h2 class="text-xl font-semibold text-fg-soft mb-3">⑦ Como sei se o robô está acertando?</h2>
+    <p class="text-sm text-fg-muted mb-4 leading-relaxed">
+      Quando treinamos o v6, separamos 20% dos processos (cerca de <strong>{{ metricas_v6.test_size }}</strong>) só pra
+      testar — o modelo nunca viu eles no treino. Aí medimos a taxa de acerto. Os números abaixo são desse teste.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+      <div class="card-tight">
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle mb-1">AUC global</div>
+        <div class="text-2xl font-semibold kpi-num">{{ metricas_v6.auc|floatformat:3 }}</div>
+        <p class="text-[0.7rem] text-fg-muted mt-1 leading-relaxed">
+          Entre dois processos aleatórios — um lead e um não-lead — o robô coloca o lead na frente em
+          <strong>{{ metricas_v6.auc|floatformat:3 }}</strong> dos casos.
+        </p>
+      </div>
+      <div class="card-tight">
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle mb-1">Precision @ 5.000</div>
+        <div class="text-2xl font-semibold kpi-num">{{ metricas_v6.precision_at_5000|floatformat:3 }}</div>
+        <p class="text-[0.7rem] text-fg-muted mt-1 leading-relaxed">
+          Dos 5.000 processos que o robô mais confia que são leads,
+          <strong>{{ metricas_v6.precision_at_5000|floatformat:3 }}</strong> de fato são. É a capacidade diária do Juriscope.
+        </p>
+      </div>
+      <div class="card-tight">
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle mb-1">Precision @ 10.000</div>
+        <div class="text-2xl font-semibold kpi-num">{{ metricas_v6.precision_at_10000|floatformat:3 }}</div>
+        <p class="text-[0.7rem] text-fg-muted mt-1 leading-relaxed">
+          Mesmo dobrando a fila, a taxa de acerto cai pouco —
+          <strong>{{ metricas_v6.precision_at_10000|floatformat:3 }}</strong>. Modelo aguenta o estoque.
+        </p>
+      </div>
+    </div>
+
+    <div class="text-xs text-fg-subtle">
+      Métricas detalhadas (calibração, heatmap por tribunal, histograma) em
+      <a href="{% url 'dashboard:leads_visibilidade' %}" class="text-fg-muted hover:text-fg">/leads/visibilidade ↗</a>.
+    </div>
+  </section>
+
+  <footer class="text-xs text-fg-subtle border-t border-border/40 pt-4 mt-8">
+    <p>
+      Documentação técnica completa do classificador:
+      <code class="font-mono">.ia/CLASSIFICACAO.md</code> · código:
+      <code class="font-mono">tribunals/classificador.py</code> · metadados das features:
+      <code class="font-mono">tribunals/explicacao.py</code>.
+    </p>
+  </footer>
+
+</div>
+
+{% endblock %}
