@@ -15,6 +15,8 @@ ignore_conflicts.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from django.db import transaction
@@ -29,6 +31,56 @@ from .parser import parse_movimentos
 logger = logging.getLogger('voyager.datajud.ingestion')
 
 BATCH_SIZE = 500
+
+
+def _meta_updates_from_source(processo: Process, source: dict) -> dict:
+    """Extrai metadados do `_source` do Datajud e devolve dict de updates
+    para `Process`, respeitando dados já populados (PJe enricher é fonte
+    de verdade quando presente — Datajud só preenche lacunas).
+    """
+    upd: dict = {}
+
+    classe_obj = source.get('classe') or {}
+    classe_codigo = str(classe_obj.get('codigo') or '').strip()
+    classe_nome = (classe_obj.get('nome') or '').strip()[:255]
+    if classe_codigo and not processo.classe_codigo:
+        upd['classe_codigo'] = classe_codigo
+        upd['classe_nome'] = classe_nome
+
+    assuntos = source.get('assuntos') or []
+    if assuntos and not processo.assunto_codigo:
+        a0 = assuntos[0] or {}
+        a_cod = str(a0.get('codigo') or '').strip()
+        a_nome = (a0.get('nome') or '').strip()[:255]
+        if a_cod:
+            upd['assunto_codigo'] = a_cod
+            upd['assunto_nome'] = a_nome
+
+    orgao = source.get('orgaoJulgador') or {}
+    o_cod = str(orgao.get('codigo') or '').strip()
+    o_nome = (orgao.get('nome') or '').strip()[:255]
+    if o_cod and not processo.orgao_julgador_codigo:
+        upd['orgao_julgador_codigo'] = o_cod
+    if o_nome and not processo.orgao_julgador_nome:
+        upd['orgao_julgador_nome'] = o_nome
+
+    # Datajud entrega dataAjuizamento como "YYYYMMDDhhmmss"
+    dt_ajuiz = source.get('dataAjuizamento')
+    if dt_ajuiz and not processo.data_autuacao:
+        try:
+            upd['data_autuacao'] = datetime.strptime(str(dt_ajuiz)[:8], '%Y%m%d').date()
+        except ValueError:
+            pass
+
+    # valorCausa pode vir como número ou string; tolera ausência
+    vc = source.get('valorCausa')
+    if vc is not None and processo.valor_causa is None:
+        try:
+            upd['valor_causa'] = Decimal(str(vc))
+        except (InvalidOperation, ValueError, TypeError):
+            pass
+
+    return upd
 
 
 def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> dict:
@@ -54,20 +106,12 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
                 'fonte': 'datajud', 'encontrado': False}
 
     items = parse_movimentos(source)
-
-    # Datajud retorna metadata do processo (classe + assunto) — popula
-    # Process.classe_codigo/nome quando o tribunal não tem PJe enricher
-    # próprio (ex: TJMG/TJSP onde DJEN também não traz classe).
-    classe_obj = source.get('classe') or {}
-    classe_codigo_src = str(classe_obj.get('codigo') or '').strip()
-    classe_nome_src = (classe_obj.get('nome') or '').strip()[:255]
+    meta_updates = _meta_updates_from_source(processo, source)
 
     if not items:
         now_ts = timezone.now()
         update_kwargs = dict(ultima_sinc_djen_em=now_ts, data_enriquecimento_datajud=now_ts)
-        if classe_codigo_src and not processo.classe_codigo:
-            update_kwargs['classe_codigo'] = classe_codigo_src
-            update_kwargs['classe_nome'] = classe_nome_src
+        update_kwargs.update(meta_updates)
         Process.objects.filter(pk=processo.pk).update(**update_kwargs)
         return {'cnj': processo.numero_cnj, 'novos': 0, 'duplicados': 0,
                 'fonte': 'datajud', 'encontrado': True}
@@ -127,9 +171,7 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
             # atualizado pra UI/queries antigas continuarem funcionando.
             ultima_sinc_djen_em=now_ts,
         )
-        if classe_codigo_src and not processo.classe_codigo:
-            update_kwargs['classe_codigo'] = classe_codigo_src
-            update_kwargs['classe_nome'] = classe_nome_src
+        update_kwargs.update(meta_updates)
         Process.objects.filter(pk=processo.pk).update(**update_kwargs)
 
     novos = len(movs_to_create)
