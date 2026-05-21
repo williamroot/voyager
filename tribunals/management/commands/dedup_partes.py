@@ -2,8 +2,10 @@
 ficaram INVÁLIDOS (CREATE UNIQUE INDEX CONCURRENTLY que falhou — ver
 migration 0017).
 
-Set-based em SQL: Python loop em ~80M linhas é inviável. Idempotente e
-resumível — re-rodar após interrupção recalcula e continua.
+Set-based em SQL: Python loop em ~80M linhas é inviável. Resumível por
+grupo: cada grupo recalcula o mapa de duplicatas a partir do estado atual
+da tabela, então re-rodar após interrupção refaz grupos concluídos como
+no-op e continua de onde parou.
 
 Anti-homônimo: colapso só por chave EXATA; absorção masc_to_real só com 1
 candidato. Survivor = MIN(id) / sempre a Parte de doc real.
@@ -49,9 +51,11 @@ class Command(BaseCommand):
                 self._dedup_grupo(g, dry_run=opts['dry_run'], batch=opts['batch_size'])
 
     def _apply_dedup_map(self, *, label, dry_run, batch):
-        """Consome a TEMP TABLE _dedup_map(loser_id, survivor_id) já criada
-        e indexada por loser_id. Repointa ProcessoParte (à prova de colisão
-        com uniq_processo_parte_polo_papel_principal) e deleta as Partes-loser.
+        """Consome a TEMP TABLE _dedup_map(loser_id, survivor_id) já criada e
+        indexada. Por lote (faixa de loser_id): remove ProcessoParte que ficaria
+        redundante pós-repoint (mantém o de menor id por slot), nulla
+        representa_id que apontaria pra PP deletada, repointa o restante e
+        deleta as Partes-loser.
         """
         with connection.cursor() as cur:
             cur.execute('SELECT count(*), min(loser_id), max(loser_id) FROM _dedup_map')
@@ -66,19 +70,45 @@ class Command(BaseCommand):
             fim = cursor_id + batch
             with transaction.atomic():
                 with connection.cursor() as c2:
-                    # 1) Apaga ProcessoParte-loser que colidiria com uma
-                    #    ProcessoParte-survivor já existente no mesmo processo.
+                    # PP-loser deste lote + a parte que terão pós-repoint.
                     c2.execute("""
-                        DELETE FROM tribunals_processoparte ppl
-                        USING _dedup_map m, tribunals_processoparte pps
-                        WHERE ppl.parte_id = m.loser_id
-                          AND m.loser_id >= %s AND m.loser_id < %s
-                          AND pps.processo_id = ppl.processo_id
-                          AND pps.parte_id = m.survivor_id
-                          AND pps.polo = ppl.polo AND pps.papel = ppl.papel
-                          AND pps.representa_id IS NOT DISTINCT FROM ppl.representa_id
+                        CREATE TEMP TABLE _pp_lote ON COMMIT DROP AS
+                        SELECT ppl.id AS pp_id, ppl.processo_id, ppl.polo,
+                               ppl.papel, ppl.representa_id,
+                               m.survivor_id AS post_parte
+                        FROM tribunals_processoparte ppl
+                        JOIN _dedup_map m ON m.loser_id = ppl.parte_id
+                        WHERE m.loser_id >= %s AND m.loser_id < %s
                     """, [cursor_id, fim])
-                    # 2) Repointa o restante.
+                    # Redundante: já há outra PP no mesmo slot cuja parte
+                    # pós-repoint é igual, com id menor (survivor PP existente
+                    # OU outra PP-loser de id menor). Mantém só o menor id.
+                    c2.execute("""
+                        CREATE TEMP TABLE _pp_del ON COMMIT DROP AS
+                        SELECT l.pp_id FROM _pp_lote l
+                        WHERE EXISTS (
+                            SELECT 1 FROM tribunals_processoparte o
+                            LEFT JOIN _dedup_map mo ON mo.loser_id = o.parte_id
+                            WHERE o.processo_id = l.processo_id
+                              AND o.polo = l.polo AND o.papel = l.papel
+                              AND o.representa_id IS NOT DISTINCT FROM l.representa_id
+                              AND COALESCE(mo.survivor_id, o.parte_id) = l.post_parte
+                              AND o.id < l.pp_id
+                        )
+                    """)
+                    # representa_id é FK self; nulla quem aponta pras PP que
+                    # serão deletadas (raw DELETE não dispara on_delete=SET_NULL).
+                    c2.execute("""
+                        UPDATE tribunals_processoparte
+                        SET representa_id = NULL
+                        WHERE representa_id IN (SELECT pp_id FROM _pp_del)
+                    """)
+                    # Deleta as PP redundantes.
+                    c2.execute("""
+                        DELETE FROM tribunals_processoparte
+                        WHERE id IN (SELECT pp_id FROM _pp_del)
+                    """)
+                    # Repointa as PP-loser restantes pro survivor.
                     c2.execute("""
                         UPDATE tribunals_processoparte ppl
                         SET parte_id = m.survivor_id
@@ -86,7 +116,7 @@ class Command(BaseCommand):
                         WHERE ppl.parte_id = m.loser_id
                           AND m.loser_id >= %s AND m.loser_id < %s
                     """, [cursor_id, fim])
-                    # 3) Deleta as Partes-loser do lote.
+                    # Deleta as Partes-loser do lote.
                     c2.execute("""
                         DELETE FROM tribunals_parte p
                         USING _dedup_map m
@@ -94,7 +124,7 @@ class Command(BaseCommand):
                           AND m.loser_id >= %s AND m.loser_id < %s
                     """, [cursor_id, fim])
             self.stdout.write(f'[{label}] lote {cursor_id:,}–{fim:,} ok '
-                              f'({time.time() - t0:.0f}s)')
+                              f'({time.time() - t0:.0f}s acum.)')
             cursor_id = fim
         self.stdout.write(self.style.SUCCESS(f'[{label}] concluído'))
 

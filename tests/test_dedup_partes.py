@@ -80,3 +80,37 @@ def test_doc_masc_nao_funde_nomes_diferentes_mesma_mascara():
     Parte.objects.create(nome='MARIA SANTOS', documento='639.XXX.XXX-XX', tipo='pf')
     call_command('dedup_partes', '--group', 'doc_masc')
     assert Parte.objects.filter(documento='639.XXX.XXX-XX').count() == 2
+
+
+def test_dedup_dois_losers_sem_survivor_pp_nao_duplica():
+    """C1: 2 loser Partes no mesmo slot, survivor SEM PP pré-existente →
+    repoint deve resultar em UMA ProcessoParte, não duas."""
+    proc = _proc(n='300')
+    p1 = Parte.objects.create(nome='ADV', oab='RS7', tipo='advogado')  # survivor (min id)
+    p2 = Parte.objects.create(nome='ADV', oab='RS7', tipo='advogado')  # loser
+    p3 = Parte.objects.create(nome='ADV', oab='RS7', tipo='advogado')  # loser
+    ProcessoParte.objects.create(processo=proc, parte=p2, polo='ativo', papel='advogado')
+    ProcessoParte.objects.create(processo=proc, parte=p3, polo='ativo', papel='advogado')
+    call_command('dedup_partes', '--group', 'oab')
+    assert ProcessoParte.objects.filter(processo=proc).count() == 1
+    assert ProcessoParte.objects.get(processo=proc).parte_id == p1.id
+
+
+def test_dedup_representa_nao_viola_fk():
+    """I1: quando uma PP que é alvo de representa_id é deletada na
+    consolidação, o repoint não pode quebrar a FK self de representa."""
+    proc = _proc(n='400')
+    adv1 = Parte.objects.create(nome='ADVOGADO', oab='SP500', tipo='advogado')  # survivor
+    adv2 = Parte.objects.create(nome='ADVOGADO', oab='SP500', tipo='advogado')  # loser
+    autor = Parte.objects.create(nome='AUTOR', tipo='pf')
+    pp_autor = ProcessoParte.objects.create(processo=proc, parte=autor, polo='ativo', papel='autor')
+    # 2 PP de advogado no mesmo slot (uma por Parte duplicada), ambas
+    # representam o autor — uma será deletada na consolidação.
+    ProcessoParte.objects.create(processo=proc, parte=adv1, polo='ativo',
+                                 papel='advogado', representa=pp_autor)
+    ProcessoParte.objects.create(processo=proc, parte=adv2, polo='ativo',
+                                 papel='advogado', representa=pp_autor)
+    call_command('dedup_partes', '--group', 'oab')  # não deve levantar FK error
+    # advogado consolidado: sobra 1 PP de advogado apontando pro survivor
+    advs = ProcessoParte.objects.filter(processo=proc, papel='advogado')
+    assert advs.count() == 1 and advs.first().parte_id == adv1.id
