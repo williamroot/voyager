@@ -227,6 +227,18 @@ def warm_estatisticas_tribunal():
     _with_lock('lock:warm_estatisticas_tribunal', 7500, _run)
 
 
+@job('warm', timeout=3600)
+def warm_tribunal_status():
+    """Status/linha do tempo por tribunal (/dashboard/tribunais/status/).
+
+    GROUP BY TruncMonth em ~30M+ movs + split_part(numero_cnj) em Process,
+    cobrindo todos os tribunais ativos numa passada. Roda só no warm.
+    """
+    def _run():
+        _with_timeout(1800, queries.compute_tribunal_status)
+    _with_lock('lock:warm_tribunal_status', 3900, _run)
+
+
 @job('warm', timeout=7200)
 def warm_filtros_movimentacoes():
     """Top tipos/meios/classes pra facetas de /movimentacoes/."""

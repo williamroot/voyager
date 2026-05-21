@@ -106,6 +106,7 @@ Estilo: stroke=currentColor, width=1.6px (Lucide default 2px reduzido pra harmon
 | `/dashboard/partes/` | `partes.html` | Tabela com filter chips (tipo) + busca |
 | `/dashboard/partes/<pk>/` | `parte_detail.html` | Perfil + 3 charts (tribunal/papel/polo) + lista filtrada |
 | `/dashboard/tribunais/` | `tribunais.html` | Cards por tribunal: processos, movs, cobertura, status backfill, contagens de enriquecimento |
+| `/dashboard/tribunais/status/` | `tribunal_status.html` | Status / linha do tempo: visão geral de todos + detalhe (cobertura temporal, volume mensal, processos por ano CNJ, lags) |
 | `/dashboard/tribunais/<sigla>/` | `tribunal_detail.html` | Detalhe de um tribunal (KPIs + charts) |
 | `/dashboard/workers/` | `workers.html` | Filas RQ + workers conectados, auto-refresh HTMX 5s |
 | `/dashboard/ingestao/` | `ingestao.html` | Saúde operacional (proxies, drift, runs) |
@@ -250,6 +251,19 @@ Em troca de tema: `initAllCharts()` re-renderiza tudo (palette adaptável).
 nivel, dias, cliente)` — função pura, sem request/cache — compartilhada com o
 warm job. Keys: `kpis`, `timeseries`, `calibration`, `funnel`, `by-tribunal`,
 `distribuicao-score`.
+
+### Página: Status por tribunal (`/dashboard/tribunais/status/`)
+
+View `tribunal_status`. Dois níveis numa página só: **visão geral** (tabela de
+todos os tribunais ativos, cada linha com mini-timeline de cobertura, clicável
+pra `?tribunal=X`) + **detalhe** do tribunal selecionado (KPI strip de saúde,
+faixa de cobertura temporal, volume mensal de movs, processos por ano do CNJ).
+
+Dados 100% do warm cache — chave `tribunal_status:v1`, job `warm_tribunal_status`
+(`dashboard/tasks.py`, scheduler inline 15min). `compute_tribunal_status` computa
+todos os tribunais numa passada (GROUP BY `tribunal_id`); hot path
+(`tribunal_status_data`) só lê. Cache miss → placeholders `pending` +
+"acquiring signal". Sem lazy-load: tudo cabe numa `cache.get()`.
 
 - **Pré-aquecido** por `warm_leads_charts` (`dashboard/tasks.py`, scheduler 30min)
   no filtro default (`tribunal=None`, `cliente=juriscope`) × períodos

@@ -45,6 +45,12 @@ no `.32`. Ficaram consolidados no `.36`.
 > (KPIs, charts, partes, estatísticas, filtros, MV refresh, **leads charts**)
 > passaram a rodar inline no thread pool do `scheduler`, sem fila RQ. Ver ADR-017.
 
+> **Nota (2026-05-20):** adicionado `warm_tribunal_status` (scheduler inline
+> 15min) — pré-aquece a página `/dashboard/tribunais/status/` (status / linha do
+> tempo por tribunal). Computa todos os tribunais numa passada; chave de cache
+> `tribunal_status:v1`. Exige rebuild de `web`+`scheduler` (mudou view/queries/
+> scheduler — não é hot-deploy só de dashboard).
+
 > **Nota (2026-05-18):** adicionado `warm_leads_charts` (scheduler 30min) — pré-
 > aquece os widgets da `/dashboard/leads/`. Exige rebuild de `web`+`scheduler`
 > (mudou job/scheduler, não é hot-deploy só de dashboard). No mesmo dia: limpeza

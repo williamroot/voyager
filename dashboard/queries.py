@@ -1024,6 +1024,128 @@ def compute_estatisticas_por_tribunal():
     return payload
 
 
+# ===========================================================================
+# Status / linha do tempo por tribunal (/dashboard/tribunais/status/)
+# ===========================================================================
+
+_TRIBUNAL_STATUS_CACHE_KEY = 'tribunal_status:v1'
+_TRIBUNAL_STATUS_TTL = 7200  # 2h — warm a cada 15min; TTL longo sobrevive a falha
+
+
+def compute_tribunal_status():
+    """Computa status/linha do tempo de TODOS os tribunais ativos numa passada.
+
+    Chamado APENAS pelo warm (`warm_tribunal_status`). GROUP BY tribunal_id
+    evita N queries. Grava uma chave de cache; hot path só lê via
+    `tribunal_status_data`.
+    """
+    from django.core.cache import cache
+    from django.db.models import CharField, Func, Max, Min, Value
+    from redis.exceptions import RedisError
+
+    hoje = timezone.now().date()
+
+    mov_range = {
+        r['tribunal_id']: (r['primeira'], r['ultima'])
+        for r in Movimentacao.objects.values('tribunal_id')
+        .annotate(primeira=Min('data_disponibilizacao'), ultima=Max('data_disponibilizacao'))
+    }
+    datajud_max = dict(
+        Process.objects.exclude(data_enriquecimento_datajud__isnull=True)
+        .values('tribunal_id').annotate(m=Max('data_enriquecimento_datajud'))
+        .values_list('tribunal_id', 'm')
+    )
+    classif_max = dict(
+        Process.objects.exclude(classificacao_em__isnull=True)
+        .values('tribunal_id').annotate(m=Max('classificacao_em'))
+        .values_list('tribunal_id', 'm')
+    )
+
+    volume_por_trib: dict[str, list] = {}
+    for r in (
+        Movimentacao.objects.annotate(mes=TruncMonth('data_disponibilizacao'))
+        .values('tribunal_id', 'mes').annotate(n=Count('id')).order_by('tribunal_id', 'mes')
+    ):
+        if r['mes'] is None:
+            continue
+        volume_por_trib.setdefault(r['tribunal_id'], []).append(
+            [r['mes'].strftime('%Y-%m'), r['n']]
+        )
+
+    # Ano-safra: 2º campo separado por ponto no CNJ (NNNNNNN-DD.AAAA.J.TR.OOOO).
+    ano_min, ano_max = 1998, hoje.year + 1
+    ano_por_trib: dict[str, list] = {}
+    for r in (
+        Process.objects.annotate(ano=Func(
+            F('numero_cnj'), Value('.'), Value(2),
+            function='split_part', output_field=CharField()))
+        .values('tribunal_id', 'ano').annotate(n=Count('id'))
+    ):
+        ano = (r['ano'] or '').strip()
+        if not ano.isdigit():
+            continue
+        if not (ano_min <= int(ano) <= ano_max):
+            continue
+        ano_por_trib.setdefault(r['tribunal_id'], []).append([ano, r['n']])
+    for lst in ano_por_trib.values():
+        lst.sort()
+
+    payload: dict[str, dict] = {}
+    for t in Tribunal.objects.filter(ativo=True).order_by('sigla'):
+        primeira, ultima = mov_range.get(t.sigla, (None, None))
+        dj = datajud_max.get(t.sigla)
+        cl = classif_max.get(t.sigla)
+        payload[t.sigla] = {
+            'sigla': t.sigla,
+            'nome': t.nome,
+            'data_inicio': t.data_inicio_disponivel,
+            'backfill_concluido_em': t.backfill_concluido_em,
+            'primeira_mov': primeira,
+            'ultima_mov': ultima,
+            'lag_datajud': (hoje - dj.date()).days if dj else None,
+            'lag_classificacao': (hoje - cl.date()).days if cl else None,
+            'volume_mensal': volume_por_trib.get(t.sigla, []),
+            'ano_cnj': ano_por_trib.get(t.sigla, []),
+        }
+    try:
+        cache.set(_TRIBUNAL_STATUS_CACHE_KEY, payload, timeout=_TRIBUNAL_STATUS_TTL)
+    except RedisError:
+        pass
+    return payload
+
+
+def tribunal_status_data(sigla=None):
+    """Lê o cache do warm. Devolve `(overview, detalhe, pending)`.
+
+    - `overview`: lista de dicts (resumo de todos os tribunais ativos).
+    - `detalhe`: dict completo do tribunal selecionado (ou None).
+    - `pending`: True se o cache ainda não foi aquecido.
+
+    Hot path — nunca computa. Cache miss → placeholders `pending`.
+    """
+    from django.core.cache import cache
+    from redis.exceptions import RedisError
+    try:
+        cached = cache.get(_TRIBUNAL_STATUS_CACHE_KEY)
+    except RedisError:
+        cached = None
+
+    siglas = list(
+        Tribunal.objects.filter(ativo=True).order_by('sigla').values_list('sigla', flat=True)
+    )
+    if not siglas:
+        return [], None, False
+
+    if not cached:
+        overview = [{'sigla': s, 'pending': True} for s in siglas]
+        return overview, {'sigla': sigla or siglas[0], 'pending': True}, True
+
+    if sigla not in cached:
+        sigla = siglas[0] if siglas[0] in cached else next(iter(cached))
+    overview = [cached[s] for s in siglas if s in cached]
+    return overview, cached.get(sigla), False
+
+
 def ingestao_por_dia(dias=None, tribunal=None):
     """Agrega IngestionRuns por janela_inicio: status, throughput e duração.
 

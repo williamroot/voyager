@@ -386,9 +386,14 @@
         <span class="opacity-70">↳</span> Validação
       </a>
       {% endif %}
-      <a href="{{ tribunais_url }}" class="nav-item {% if tribunais_url in request.path %}active{% endif %}">
+      {% url 'dashboard:tribunal-status' as tribunal_status_url %}
+      <a href="{{ tribunais_url }}" class="nav-item {% if request.path == tribunais_url %}active{% endif %}">
         {% voy_icon "trajectory" "w-4 h-4" %}
         Tribunais
+      </a>
+      <a href="{{ tribunal_status_url }}" class="nav-item nav-sub {% if request.path == tribunal_status_url %}active{% endif %}">
+        {% voy_icon "history" "w-4 h-4" %}
+        <span class="opacity-70">↳</span> Status / linha do tempo
       </a>
       <a href="{{ processos_url }}" class="nav-item {% if processos_url in request.path %}active{% endif %}">
         {% voy_icon "dossier" "w-4 h-4" %}

@@ -291,6 +291,89 @@ def tribunal_detail(request, sigla):
     return render(request, 'dashboard/tribunal_detail.html', ctx)
 
 
+def _timeline_geometry(d):
+    """Posições % dos marcos da linha do tempo de cobertura de um tribunal.
+
+    Eixo: de min(início disponível, 1ª mov) até hoje. Retorna None se o
+    tribunal ainda não tem movimentação mapeada.
+    """
+    from datetime import date as _date
+
+    def _as_date(x):
+        if x is None:
+            return None
+        return x.date() if hasattr(x, 'date') else x
+
+    inicio = _as_date(d.get('data_inicio'))
+    primeira = _as_date(d.get('primeira_mov'))
+    ultima = _as_date(d.get('ultima_mov'))
+    if not primeira or not ultima:
+        return None
+    hoje = _date.today()
+    t0 = min(x for x in (inicio, primeira) if x)
+    span = max((hoje - t0).days, 1)
+
+    def pct(x):
+        return round(100 * (x - t0).days / span, 2)
+
+    inicio_pct = pct(inicio) if inicio else 0.0
+    primeira_pct = pct(primeira)
+    ultima_pct = pct(ultima)
+    return {
+        'inicio': inicio, 'primeira': primeira, 'ultima': ultima, 'hoje': hoje,
+        'inicio_pct': inicio_pct,
+        'primeira_pct': primeira_pct,
+        'ultima_pct': ultima_pct,
+        'gap_w': round(max(primeira_pct - inicio_pct, 0), 2),   # gap início→1ª mov
+        'fill_w': round(max(ultima_pct - primeira_pct, 0), 2),  # janela coberta
+        'lag_w': round(max(100 - ultima_pct, 0), 2),            # lag última mov→hoje
+        'dias_desde_ultima': (hoje - ultima).days,
+    }
+
+
+@login_required
+@require_GET
+def tribunal_status(request):
+    """Status / linha do tempo por tribunal: visão geral de todos +
+    detalhe (drill-down) do tribunal selecionado. Lê só do warm cache."""
+    sigla = request.GET.get('tribunal') or None
+    overview, detalhe, pending = queries.tribunal_status_data(sigla)
+
+    for row in overview:
+        if row.get('pending'):
+            row['mini'] = None
+            row['lag_max'] = None
+            continue
+        row['mini'] = _timeline_geometry(row)
+        lags = [v for v in (row.get('lag_datajud'), row.get('lag_classificacao'))
+                if v is not None]
+        row['lag_max'] = max(lags) if lags else None
+
+    timeline = None
+    volume_rows: list = []
+    ano_rows: list = []
+    if detalhe and not detalhe.get('pending'):
+        timeline = _timeline_geometry(detalhe)
+        sig = detalhe['sigla']
+        volume_rows = [
+            {'dia': f'{mes}-01', 'tribunal': sig, 'total': n}
+            for mes, n in detalhe.get('volume_mensal', [])
+        ]
+        ano_rows = [
+            {'ano': ano, 'total': n} for ano, n in detalhe.get('ano_cnj', [])
+        ]
+
+    return render(request, 'dashboard/tribunal_status.html', {
+        'overview': overview,
+        'detalhe': detalhe,
+        'timeline': timeline,
+        'volume_rows': volume_rows,
+        'ano_rows': ano_rows,
+        'pending': pending,
+        'sigla_sel': detalhe.get('sigla') if detalhe else sigla,
+    })
+
+
 @login_required
 @require_GET
 def processos(request):
