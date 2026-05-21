@@ -12,13 +12,13 @@ INDICES = [
     ('uniq_parte_documento_real',
      "CREATE UNIQUE INDEX CONCURRENTLY uniq_parte_documento_real "
      "ON tribunals_parte (documento) "
-     "WHERE documento <> '' AND documento NOT LIKE '%%X%%' "
-     "AND documento NOT LIKE '%%x%%' AND documento NOT LIKE '%%*%%'"),
+     "WHERE documento <> '' AND documento NOT LIKE '%X%' "
+     "AND documento NOT LIKE '%x%' AND documento NOT LIKE '%*%'"),
     ('uniq_parte_documento_mascarado',
      "CREATE UNIQUE INDEX CONCURRENTLY uniq_parte_documento_mascarado "
      "ON tribunals_parte (nome, documento) "
-     "WHERE documento LIKE '%%X%%' OR documento LIKE '%%x%%' "
-     "OR documento LIKE '%%*%%'"),
+     "WHERE documento LIKE '%X%' OR documento LIKE '%x%' "
+     "OR documento LIKE '%*%'"),
     ('uniq_parte_oab',
      "CREATE UNIQUE INDEX CONCURRENTLY uniq_parte_oab "
      "ON tribunals_parte (oab) WHERE oab <> ''"),
