@@ -237,6 +237,29 @@ docker compose -f docker-compose-prod.yml exec web python manage.py \
   enriquecer_pendentes --tribunal TRF1 --status erro --limit 0
 ```
 
+## Deduplicação de Partes / índices únicos inválidos
+
+`tribunals_parte` pode inflar se um índice único parcial virar inválido
+(`indisvalid=false`) — o upsert do drainer deixa de deduplicar. Diagnóstico:
+
+```bash
+docker compose -f docker-compose-prod.yml exec -T web python manage.py check_parte_indexes
+```
+
+Exit 1 + linhas `INVÁLIDO:` → rodar a remediação (janela de manutenção):
+
+1. `pg_dump` de `tribunals_parte` + `tribunals_processoparte` (backup).
+2. Parar os drainers: `docker compose -f docker-compose-prod.yml stop enrichment_drainer enrichment_drainer_p0 enrichment_drainer_p1 enrichment_drainer_p2 enrichment_drainer_p3`.
+3. `python manage.py dedup_partes --group all --dry-run` (conferir contagens), depois sem `--dry-run` (leva horas; resumível por grupo).
+4. `python manage.py migrate tribunals` — recria os índices únicos e verifica `indisvalid`.
+5. `python manage.py check_parte_indexes` → deve dar `OK`.
+6. Recalcular `Parte.total_processos` (UPDATE agregando `tribunals_processoparte`).
+7. Religar os drainers (`up -d` dos mesmos serviços).
+
+Causa raiz conhecida: `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS` que
+falha na validação deixa um husk inválido e o `IF NOT EXISTS` faz retries
+pularem — ver `.ia/ENRICHMENT.md`.
+
 ## Schema drift detectado
 
 Sintomas: drift alert vermelho no `/dashboard/ingestao/` ou em `djen_status`.

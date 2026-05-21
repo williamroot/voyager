@@ -102,6 +102,22 @@ UniqueConstraint(nome, documento) WHERE doc LIKE '%X%' OR LIKE '%*%'
 UniqueConstraint(oab) WHERE oab != ''
 ```
 
+### Armadilha: CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS
+
+Os 3 índices únicos parciais de `Parte` ficaram **inválidos** em 2026
+(migration 0017): `CREATE UNIQUE INDEX CONCURRENTLY` falha na validação se
+a tabela já tem duplicatas, deixando o índice `indisvalid=false`; o
+`IF NOT EXISTS` fez re-execuções pularem o husk morto. Índice inválido não
+enforça unicidade — o `bulk_create(ignore_conflicts)` do drainer parou de
+deduplicar e a tabela inflou de ~4M pra ~84M linhas.
+
+Corrigido pelo command `dedup_partes` (colapso por chave exata: oab /
+documento real / `(nome,documento)` mascarado — anti-homônimo — mais
+absorção masked→real com trava de candidato único) seguido da migration
+`0030_recriar_indices_unicos_parte`, que **dropa** o husk e **verifica
+`indisvalid`** após recriar. Monitorar com `manage.py check_parte_indexes`
+(exit 1 se algum índice único estiver inválido).
+
 ## Catálogo de classes/assuntos
 
 `tribunals.ClasseJudicial` e `tribunals.Assunto` (PK = código TPU/CNJ). FKs em `Process.classe`, `Process.assunto`, `Movimentacao.classe`. Habilita filtros de dropdown sem `DISTINCT` em milhões de linhas e resolve discrepância de capitalização entre PJe (UPPERCASE) e DJEN (CamelCase quebrado).
