@@ -1,7 +1,10 @@
 {% extends 'dashboard/base.html' %}
-{% load voyager_extras %}
+{% load voyager_extras l10n %}
 {% block title %}Status por tribunal{% endblock %}
 {% block content %}
+{# localize off: as posições % da timeline vão em CSS inline — vírgula decimal
+   (pt-BR) quebra o style. Mantém ponto decimal. #}
+{% localize off %}
 
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -216,6 +219,7 @@
 </div>
 {% endif %}
 
+{% endlocalize %}
 <style>
   .tl-gap  { background:repeating-linear-gradient(45deg,rgb(var(--c-border)/.5),rgb(var(--c-border)/.5) 4px,transparent 4px,transparent 8px); }
   .tl-fill { background:linear-gradient(90deg,rgb(var(--c-info)/.5),rgb(var(--c-accent)/.5)); }
