@@ -51,8 +51,11 @@ class Command(BaseCommand):
                 self._dedup_grupo(g, dry_run=opts['dry_run'], batch=opts['batch_size'])
 
     def _apply_dedup_map(self, *, label, dry_run, batch):
-        """Consome a TEMP TABLE _dedup_map(loser_id, survivor_id) já criada e
-        indexada. Por lote (faixa de loser_id): remove ProcessoParte que ficaria
+        """Consome a tabela _dedup_map(loser_id, survivor_id) já criada e
+        indexada. É UNLOGGED real (não TEMP): sob pgbouncer transaction-mode
+        cada transação cai num backend diferente, e uma TEMP de sessão não
+        sobreviveria entre os lotes.
+        Por lote (faixa de loser_id): remove ProcessoParte que ficaria
         redundante pós-repoint (mantém o de menor id por slot), nulla
         representa_id que apontaria pra PP deletada, repointa o restante e
         deleta as Partes-loser.
@@ -133,7 +136,7 @@ class Command(BaseCommand):
         with connection.cursor() as cur:
             cur.execute('DROP TABLE IF EXISTS _dedup_map')
             cur.execute(f"""
-                CREATE TEMP TABLE _dedup_map AS
+                CREATE UNLOGGED TABLE _dedup_map AS
                 SELECT id AS loser_id,
                        min(id) OVER (PARTITION BY {partition}) AS survivor_id
                 FROM tribunals_parte WHERE {where}
@@ -153,7 +156,7 @@ class Command(BaseCommand):
         with connection.cursor() as cur:
             cur.execute('DROP TABLE IF EXISTS _dedup_map')
             cur.execute("""
-                CREATE TEMP TABLE _dedup_map AS
+                CREATE UNLOGGED TABLE _dedup_map AS
                 SELECT masc_id AS loser_id, real_id AS survivor_id FROM (
                     SELECT m.id AS masc_id, min(r.id) AS real_id, count(*) AS n
                     FROM tribunals_parte m
