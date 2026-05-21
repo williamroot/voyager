@@ -59,7 +59,7 @@ worker_default         2   fila 'default' (catch-all)
 worker_djen_audit     10   fila 'djen_audit'
 worker_trf1          120   fila 'enrich_trf1'   (scale-up 2026-05-14)
 worker_trf3          120   fila 'enrich_trf3'   (scale-up 2026-05-14)
-worker_trf5           10   fila 'enrich_trf5'   (ramp inicial 2026-05-20)
+worker_trf5           60   fila 'enrich_trf5'   (ramp 10→60 em 2026-05-20)
 worker_tjmg          120   fila 'enrich_tjmg'   (scale-up 2026-05-14)
 worker_datajud        20   fila 'datajud'       (reduzido 90→20: fila ociosa, RAM cedida pros enrich)
 worker_classificacao   8   fila 'classificacao'

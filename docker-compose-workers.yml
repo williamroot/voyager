@@ -58,9 +58,9 @@ services:
     volumes:
       - .:/app
     deploy:
-      # Ramp-up: começa em 10. Escalar pra 60+ após validar enriquecimento ok
-      # em prod (bottleneck upstream é PJe TRF5 — desconhecida na ramp inicial).
-      replicas: 10
+      # Ramp 10 → 60 em 2026-05-20 após validar enriquecimento OK em prod
+      # (1.7k ok / 4 errors com 10 workers a 100% utilização → safe escalar).
+      replicas: 60
     restart: unless-stopped
 
   worker_tjmg:
