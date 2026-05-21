@@ -51,6 +51,18 @@ services:
       replicas: 160
     restart: unless-stopped
 
+  worker_trf5:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_trf5
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:
+      # Ramp-up: começa em 10. Escalar pra 60+ após validar enriquecimento ok
+      # em prod (bottleneck upstream é PJe TRF5 — desconhecida na ramp inicial).
+      replicas: 10
+    restart: unless-stopped
+
   worker_tjmg:
     image: voyager-web:prod
     command: python manage.py rqworker enrich_tjmg
