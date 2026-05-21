@@ -8,6 +8,7 @@ from tribunals.models import Process
 from .tjmg import TjmgEnricher
 from .trf1 import Trf1Enricher
 from .trf3 import Trf3Enricher
+from .trf5 import Trf5Enricher
 
 logger = logging.getLogger('voyager.enrichers.jobs')
 
@@ -15,6 +16,7 @@ logger = logging.getLogger('voyager.enrichers.jobs')
 _ENRICHERS = {
     'TRF1': Trf1Enricher,
     'TRF3': Trf3Enricher,
+    'TRF5': Trf5Enricher,
     'TJMG': TjmgEnricher,
 }
 
