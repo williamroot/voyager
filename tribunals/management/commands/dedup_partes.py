@@ -145,4 +145,32 @@ class Command(BaseCommand):
             cur.execute('DROP TABLE IF EXISTS _dedup_map')
 
     def _merge_masc_to_real(self, *, dry_run, batch):
-        raise CommandError('[masc_to_real] não implementado — ver Task 4')
+        """Absorve Parte de doc mascarado na Parte de doc real correspondente.
+        Só funde com nome byte-idêntico + máscara casando + EXATAMENTE 1
+        candidato real. `translate(doc,'Xx*','___')` vira o pattern LIKE.
+        Roda depois de doc_real/doc_masc (compara contra dados já colapsados).
+        """
+        with connection.cursor() as cur:
+            cur.execute('DROP TABLE IF EXISTS _dedup_map')
+            cur.execute("""
+                CREATE TEMP TABLE _dedup_map AS
+                SELECT masc_id AS loser_id, real_id AS survivor_id FROM (
+                    SELECT m.id AS masc_id, min(r.id) AS real_id, count(*) AS n
+                    FROM tribunals_parte m
+                    JOIN tribunals_parte r
+                      ON r.nome = m.nome
+                     AND r.id <> m.id
+                     AND r.documento <> ''
+                     AND r.documento NOT LIKE '%X%' AND r.documento NOT LIKE '%x%'
+                     AND r.documento NOT LIKE '%*%'
+                     AND r.documento LIKE translate(m.documento, 'Xx*', '___')
+                    WHERE m.documento LIKE '%X%' OR m.documento LIKE '%x%'
+                       OR m.documento LIKE '%*%'
+                    GROUP BY m.id
+                ) cand
+                WHERE n = 1
+            """)
+            cur.execute('CREATE INDEX ON _dedup_map (loser_id)')
+        self._apply_dedup_map(label='masc_to_real', dry_run=dry_run, batch=batch)
+        with connection.cursor() as cur:
+            cur.execute('DROP TABLE IF EXISTS _dedup_map')

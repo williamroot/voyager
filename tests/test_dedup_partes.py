@@ -114,3 +114,30 @@ def test_dedup_representa_nao_viola_fk():
     # advogado consolidado: sobra 1 PP de advogado apontando pro survivor
     advs = ProcessoParte.objects.filter(processo=proc, papel='advogado')
     assert advs.count() == 1 and advs.first().parte_id == adv1.id
+
+
+def test_masc_to_real_funde_quando_um_candidato():
+    real = Parte.objects.create(nome='ANA LIMA', documento='639.979.036-40', tipo='pf')
+    masc = Parte.objects.create(nome='ANA LIMA', documento='639.XXX.XXX-XX', tipo='pf')
+    proc = _proc(n='500')
+    pp = ProcessoParte.objects.create(processo=proc, parte=masc, polo='ativo', papel='autor')
+    call_command('dedup_partes', '--group', 'masc_to_real')
+    pp.refresh_from_db()
+    assert pp.parte_id == real.id
+    assert not Parte.objects.filter(id=masc.id).exists()
+
+
+def test_masc_to_real_nao_funde_com_dois_candidatos():
+    Parte.objects.create(nome='JOSE SILVA', documento='639.111.222-33', tipo='pf')
+    Parte.objects.create(nome='JOSE SILVA', documento='639.444.555-66', tipo='pf')
+    masc = Parte.objects.create(nome='JOSE SILVA', documento='639.XXX.XXX-XX', tipo='pf')
+    call_command('dedup_partes', '--group', 'masc_to_real')
+    assert Parte.objects.filter(id=masc.id).exists()           # mascarada intacta
+    assert Parte.objects.filter(nome='JOSE SILVA').count() == 3
+
+
+def test_masc_to_real_nao_funde_digitos_divergentes():
+    Parte.objects.create(nome='PEDRO ROCHA', documento='100.111.222-33', tipo='pf')
+    masc = Parte.objects.create(nome='PEDRO ROCHA', documento='639.XXX.XXX-XX', tipo='pf')
+    call_command('dedup_partes', '--group', 'masc_to_real')
+    assert Parte.objects.filter(id=masc.id).exists()
