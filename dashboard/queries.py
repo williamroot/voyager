@@ -1031,6 +1031,11 @@ def compute_estatisticas_por_tribunal():
 _TRIBUNAL_STATUS_CACHE_KEY = 'tribunal_status:v1'
 _TRIBUNAL_STATUS_TTL = 7200  # 2h — warm a cada 15min; TTL longo sobrevive a falha
 
+# Datas anteriores a isto são lixo: o Datajud devolve movimentações com
+# `data_disponibilizacao` corrompida (observado ano 222, 224, 1920). Sem o
+# floor, um único registro lixo sequestra o MIN() e detona a linha do tempo.
+_DATA_FLOOR = date(1990, 1, 1)
+
 
 def compute_tribunal_status():
     """Computa status/linha do tempo de TODOS os tribunais ativos numa passada.
@@ -1045,9 +1050,11 @@ def compute_tribunal_status():
 
     hoje = timezone.now().date()
 
+    # Floor descarta datas corrompidas do Datajud (ano 222/1920/etc).
+    movs_validas = Movimentacao.objects.filter(data_disponibilizacao__gte=_DATA_FLOOR)
     mov_range = {
         r['tribunal_id']: (r['primeira'], r['ultima'])
-        for r in Movimentacao.objects.values('tribunal_id')
+        for r in movs_validas.values('tribunal_id')
         .annotate(primeira=Min('data_disponibilizacao'), ultima=Max('data_disponibilizacao'))
     }
     datajud_max = dict(
@@ -1063,7 +1070,7 @@ def compute_tribunal_status():
 
     volume_por_trib: dict[str, list] = {}
     for r in (
-        Movimentacao.objects.annotate(mes=TruncMonth('data_disponibilizacao'))
+        movs_validas.annotate(mes=TruncMonth('data_disponibilizacao'))
         .values('tribunal_id', 'mes').annotate(n=Count('id')).order_by('tribunal_id', 'mes')
     ):
         if r['mes'] is None:
