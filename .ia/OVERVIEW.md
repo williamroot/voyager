@@ -30,7 +30,8 @@ A DJEN (Diário de Justiça Eletrônico Nacional) publica diariamente milhares d
 |---|---|---|
 | TRF1 | Tribunal Regional Federal da 1ª Região | **Ativo** |
 | TRF3 | Tribunal Regional Federal da 3ª Região | **Ativo** |
-| TRF2/4/5/6 | TRFs 2/4/5/6 | Cadastrados, inativos |
+| TRF5 | Tribunal Regional Federal da 5ª Região | **Ativo** |
+| TRF2/4/6 | TRFs 2/4/6 | Cadastrados, inativos |
 | TJSP | Tribunal de Justiça de SP | Cadastrado, inativo (~5x volume — exige planejamento) |
 
 ## Terminologia
