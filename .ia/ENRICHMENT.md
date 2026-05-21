@@ -9,8 +9,7 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TRF1 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf1.py` (subclasse) |
 | TRF3 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf3.py` (subclasse) |
 | TRF5 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf5.py` (subclasse) — path `/pjeconsulta/` |
-| TRF2/6 | PJe (versões variadas) | Não | Mesmo motor JSF — adicionar subclasse |
-| TRF4 | eproc | Não | Backend diferente, parser próprio |
+| TRF2/4/6 | E-PROC | Não | Backend PHP (eproc) — não cabe na `BasePjeEnricher`, exige enricher próprio |
 | TJSP | e-SAJ | Não | Backend diferente, parser próprio |
 
 ## Arquitetura
