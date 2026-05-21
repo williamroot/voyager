@@ -1031,9 +1031,10 @@ def compute_estatisticas_por_tribunal():
 _TRIBUNAL_STATUS_CACHE_KEY = 'tribunal_status:v1'
 _TRIBUNAL_STATUS_TTL = 7200  # 2h — warm a cada 15min; TTL longo sobrevive a falha
 
-# Datas anteriores a isto são lixo: o Datajud devolve movimentações com
-# `data_disponibilizacao` corrompida (observado ano 222, 224, 1920). Sem o
-# floor, um único registro lixo sequestra o MIN() e detona a linha do tempo.
+# Datas fora desta janela são lixo: o Datajud devolve movimentações com
+# `data_disponibilizacao` corrompida nos dois extremos (observado ano 222,
+# 1840, 1920 no piso; 2400 no teto). Sem os limites, um único registro lixo
+# sequestra o MIN()/MAX() e detona a linha do tempo.
 _DATA_FLOOR = date(1990, 1, 1)
 
 
@@ -1050,8 +1051,12 @@ def compute_tribunal_status():
 
     hoje = timezone.now().date()
 
-    # Floor descarta datas corrompidas do Datajud (ano 222/1920/etc).
-    movs_validas = Movimentacao.objects.filter(data_disponibilizacao__gte=_DATA_FLOOR)
+    # Janela [1990, agora] descarta datas corrompidas do Datajud nos dois
+    # extremos (ano 222/1840/1920 no piso; 2400 no teto).
+    movs_validas = Movimentacao.objects.filter(
+        data_disponibilizacao__gte=_DATA_FLOOR,
+        data_disponibilizacao__lte=timezone.now(),
+    )
     mov_range = {
         r['tribunal_id']: (r['primeira'], r['ultima'])
         for r in movs_validas.values('tribunal_id')
