@@ -129,8 +129,11 @@ for label,sql in [('parte_total','SELECT count(*) FROM tribunals_parte'),
 
 Anotar abaixo (baseline pra validar o resultado):
 ```
-baseline parte_total: ___
-baseline processoparte_total: ___
+baseline parte_total: 84.394.677  (medido 2026-05-21)
+baseline processoparte_total: 30.788.566  (medido 2026-05-21)
+nota: uniq_processo_parte_polo_papel_principal TAMBÉM está inválido —
+      repoint da Task 3 é collision-safe; recriar esse índice fica como
+      follow-up separado (ProcessoParte auto-cura via wipe do drainer).
 ```
 
 ---
