@@ -500,7 +500,9 @@ def job_status(request, job_id):
     """
     import django_rq
     job = None
-    for qname in ('manual', 'enrich_trf1', 'enrich_trf3', 'default'):
+    from enrichers.jobs import _ENRICHERS, queue_for
+    qnames = ('manual', *(queue_for(s) for s in _ENRICHERS), 'default')
+    for qname in qnames:
         q = django_rq.get_queue(qname)
         job = q.fetch_job(job_id)
         if job is not None:

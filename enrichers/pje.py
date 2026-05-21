@@ -97,6 +97,7 @@ class BasePjeEnricher:
     DETALHE_PATH: str = ''           # ex.: '/consultapublica/ConsultaPublica/DetalheProcessoConsultaPublica'
     TRIBUNAL_SIGLA: str = ''
     LOG_NAME: str = 'voyager.enrichers.pje'
+    USER_AGENT: Optional[str] = None  # Subclasse pode sobrescrever (ex: tribunais atrás de WAF que rejeita UA identificador)
 
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         if not (self.BASE_URL and self.LIST_URL and self.DETALHE_PATH and self.TRIBUNAL_SIGLA):
@@ -104,6 +105,8 @@ class BasePjeEnricher:
         self.pool = pool or ProxyScrapePool.singleton()
         self.session = requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
+        if self.USER_AGENT:
+            self.session.headers['User-Agent'] = self.USER_AGENT
         self.timeout = (10, 60)
         self.logger = logging.getLogger(self.LOG_NAME)
         # Quando True (cliques manuais via fila `manual`), tenta Cortex
