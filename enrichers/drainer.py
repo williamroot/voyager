@@ -732,6 +732,19 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
                         ))
 
         if principal_rows:
+            # Dedup intra-batch por (processo,parte,polo,papel): o scrape às
+            # vezes lista a mesma parte 2× no mesmo polo/papel; a unique
+            # constraint uniq_processo_parte_polo_papel_principal (válida pós
+            # dedup) rejeitaria o 2º. Mantém o 1º.
+            _vistos: set = set()
+            _uniq_rows = []
+            for _pp in principal_rows:
+                _k = (_pp.processo_id, _pp.parte_id, _pp.polo, _pp.papel)
+                if _k in _vistos:
+                    continue
+                _vistos.add(_k)
+                _uniq_rows.append(_pp)
+            principal_rows = _uniq_rows
             created_principals = ProcessoParte.objects.bulk_create(principal_rows)
             principal_pp_id = {
                 (pp.processo_id, pp.parte_id, pp.polo, pp.papel): pp.pk
