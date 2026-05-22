@@ -745,10 +745,18 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
                 _vistos.add(_k)
                 _uniq_rows.append(_pp)
             principal_rows = _uniq_rows
-            created_principals = ProcessoParte.objects.bulk_create(principal_rows)
+            # ignore_conflicts: tolera linha pré-existente criada por
+            # transação concorrente entre o DELETE e este INSERT (a unique
+            # constraint uniq_processo_parte_polo_papel_principal é válida
+            # pós-dedup). Idempotente.
+            ProcessoParte.objects.bulk_create(principal_rows, ignore_conflicts=True)
+            # principal_pp_id resolvido por SELECT — bulk_create(ignore_conflicts)
+            # não devolve pk confiável das linhas.
             principal_pp_id = {
-                (pp.processo_id, pp.parte_id, pp.polo, pp.papel): pp.pk
-                for pp in created_principals
+                (pp['processo_id'], pp['parte_id'], pp['polo'], pp['papel']): pp['id']
+                for pp in ProcessoParte.objects.filter(
+                    processo_id__in=ok_pids, representa_id__isnull=True
+                ).values('id', 'processo_id', 'parte_id', 'polo', 'papel')
             }
             if rep_pending:
                 rep_rows = []
