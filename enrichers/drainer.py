@@ -16,7 +16,7 @@ import signal
 import socket
 import time
 
-from django.db import IntegrityError, OperationalError, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -700,10 +700,20 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
         # Partes (4 caminhos)
         spec_to_id = _bulk_upsert_partes(valid)
 
-        # Wipe ProcessoParte de todos os ok-events em 1 DELETE
+        # Wipe ProcessoParte de todos os ok-events. DELETE cru (não o
+        # .delete() do ORM): o cascade SET_NULL do self-FK `representa`
+        # emite UPDATE representa_id=NULL, que joga linhas de advogado pro
+        # escopo do índice parcial uniq_processo_parte_polo_papel_principal
+        # e colide com a linha principal de mesma chave. Apagamos o processo
+        # inteiro de uma vez — os representa_id apontam dentro do próprio
+        # processo (também apagado), sem dangling; e não há FK no DB.
         ok_pids = [pid for pid, ev in valid.items() if ev['status'] == STATUS_OK]
         if ok_pids:
-            ProcessoParte.objects.filter(processo_id__in=ok_pids).delete()
+            with connection.cursor() as _cur:
+                _cur.execute(
+                    'DELETE FROM tribunals_processoparte WHERE processo_id = ANY(%s)',
+                    [ok_pids],
+                )
 
         # Bulk INSERT ProcessoParte — 2 fases (principais → reps com representa_id)
         principal_rows = []
