@@ -16,7 +16,7 @@ import signal
 import socket
 import time
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -426,7 +426,7 @@ def _bulk_upsert_partes(events_by_pid: dict) -> dict:
                     tipo_documento=paths['doc_masc'][k].get('tipo_documento') or '',
                     tipo=paths['doc_masc'][k].get('tipo') or 'desconhecido',
                     oab='',
-                ) for k in not_matched_keys
+                ) for k in sorted(not_matched_keys)
             ], ignore_conflicts=True, batch_size=500)
 
     # sem_id: tenta primeiro casar com 1 Parte existente do mesmo nome com
@@ -455,7 +455,7 @@ def _bulk_upsert_partes(events_by_pid: dict) -> dict:
                 Parte(
                     nome=k[0], tipo=k[1], documento='', oab='',
                     tipo_documento=paths['sem_id'][k].get('tipo_documento') or '',
-                ) for k in not_matched_keys
+                ) for k in sorted(not_matched_keys)
             ], ignore_conflicts=True, batch_size=500)
 
     # oab: bulk_create simples — partial unique constraint dedup
@@ -466,7 +466,7 @@ def _bulk_upsert_partes(events_by_pid: dict) -> dict:
                 documento=s.get('documento') or '',
                 tipo_documento=s.get('tipo_documento') or '',
                 tipo=s.get('tipo') or 'desconhecido',
-            ) for oab, s in paths['oab'].items()
+            ) for oab, s in sorted(paths['oab'].items())
         ], ignore_conflicts=True, batch_size=500)
 
     # doc_real: bulk_create simples
@@ -476,7 +476,7 @@ def _bulk_upsert_partes(events_by_pid: dict) -> dict:
                 documento=doc, nome=(s.get('nome') or '')[:255],
                 tipo_documento=s.get('tipo_documento') or '',
                 tipo=s.get('tipo') or 'desconhecido', oab='',
-            ) for doc, s in paths['doc_real'].items()
+            ) for doc, s in sorted(paths['doc_real'].items())
         ], ignore_conflicts=True, batch_size=500)
 
     # SELECTs em bulk pra mapear chaves → IDs
@@ -957,13 +957,26 @@ def _process_one_stream(r, stream_key, consumer, batch_size, block_ms, idle_ms,
             continue
         events.append(payload)
 
-    try:
-        applied, skipped = apply_batch(events)
-    except Exception:
-        logger.exception('apply_batch lançou exception não capturada — entries não serão acked',
-                         extra={'stream': stream_key})
-        time.sleep(1)
-        return
+    applied = skipped = 0
+    for tentativa in range(1, 4):
+        try:
+            applied, skipped = apply_batch(events)
+            break
+        except OperationalError as exc:
+            # Deadlock/serialization é transitório — apply_batch faz rollback
+            # total. Retry com backoff curto. Se esgotar, entries não são
+            # ackados e voltam no próximo ciclo.
+            if tentativa >= 3:
+                logger.warning('apply_batch: %s após 3 tentativas — entries não acked',
+                               exc.__class__.__name__, extra={'stream': stream_key})
+                time.sleep(1)
+                return
+            time.sleep(0.5 * tentativa)
+        except Exception:
+            logger.exception('apply_batch lançou exception não capturada — entries não serão acked',
+                             extra={'stream': stream_key})
+            time.sleep(1)
+            return
 
     if ackable_ids:
         try:
