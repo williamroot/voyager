@@ -6,7 +6,11 @@ from djen.client import DJENClient
 from tribunals.models import Tribunal
 
 PROBE_DAYS = 7
-DEFAULT_FLOOR = date(2022, 1, 1)
+# DJEN Nacional foi inaugurado em 2017 (CNJ Resolução 234/2016). Tribunais que
+# aderiram tarde têm primeira publicação posterior; o piso só limita o range
+# da busca binária. Floor inicial era 2022-01-01 e mascarou ~1 ano de TRF4
+# (real: 2021-01-18) e ~2 anos de TJMG (real: 2022-XX) em 2026-05-24.
+DEFAULT_FLOOR = date(2017, 1, 1)
 
 
 class Command(BaseCommand):
