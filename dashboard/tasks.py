@@ -257,7 +257,7 @@ def refresh_materialized_views():
     187M+ rows; 600s matava o job antes de terminar, deixando o MV stale.
     """
     def _run():
-        for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora', 'mv_pipeline_diario'):
+        for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora', 'mv_pipeline_diario', 'mv_tribunal_kpis'):
             try:
                 with connection.cursor() as cur:
                     cur.execute("SET lock_timeout = '5s'")

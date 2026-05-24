@@ -267,22 +267,30 @@ def tribunais(request):
 def tribunal_detail(request, sigla):
     t = get_object_or_404(Tribunal, sigla=sigla)
     dias = _periodo_dias(request)
-    # KPIs server-side. Charts via lazy load (chart_data).
-    # Cacheia por 5min — 5 counts em Movimentacao com filtro só por tribunal
-    # faz seq scan em ~10M-30M rows (2-5s a frio).
-    kpi_key = f'tribunal_kpis:{t.sigla}'
-    kpis_t = _safe_cache_get(kpi_key)
-    if kpis_t is None:
+    # KPIs lidos da MV `mv_tribunal_kpis` (refresh diário CONCURRENTLY no cron
+    # `refresh_materialized_views`). Inline morria por timeout em tribunais
+    # grandes — TJMG tem 212M movs e DISTINCT órgão/classe leva ~225s cada
+    # (>> 30s gunicorn). Ver migration tribunals/0031.
+    from django.db import connection
+    with connection.cursor() as cur:
+        cur.execute(
+            'SELECT total_processos, total_movs, cancelados, orgaos_unicos, classes_unicas '
+            'FROM mv_tribunal_kpis WHERE sigla = %s', [t.sigla])
+        row = cur.fetchone()
+    if row:
         kpis_t = {
-            'total_processos': Process.objects.filter(tribunal=t).count(),
-            'total_movs': Movimentacao.objects.filter(tribunal=t).count(),
-            'cancelados': Movimentacao.objects.filter(tribunal=t, ativo=False).count(),
-            'orgaos_unicos': Movimentacao.objects.filter(tribunal=t).exclude(nome_orgao='')
-                              .values('nome_orgao').distinct().count(),
-            'classes_unicas': Movimentacao.objects.filter(tribunal=t).exclude(nome_classe='')
-                               .values('nome_classe').distinct().count(),
+            'total_processos': row[0],
+            'total_movs':      row[1],
+            'cancelados':      row[2],
+            'orgaos_unicos':   row[3],
+            'classes_unicas':  row[4],
         }
-        cache.set(kpi_key, kpis_t, timeout=300)
+    else:
+        # MV ainda sem dados (pré-primeiro refresh) ou tribunal novo sem rows.
+        kpis_t = {
+            'total_processos': None, 'total_movs': None, 'cancelados': None,
+            'orgaos_unicos': None, 'classes_unicas': None, 'pending': True,
+        }
     ctx = {
         'tribunal': t,
         **kpis_t,
