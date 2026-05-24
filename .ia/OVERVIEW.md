@@ -28,10 +28,12 @@ A DJEN (Diário de Justiça Eletrônico Nacional) publica diariamente milhares d
 
 | Sigla | Nome | Status |
 |---|---|---|
-| TRF1 | Tribunal Regional Federal da 1ª Região | **Ativo** |
-| TRF3 | Tribunal Regional Federal da 3ª Região | **Ativo** |
-| TRF5 | Tribunal Regional Federal da 5ª Região | **Ativo** |
-| TRF2/4/6 | TRFs 2/4/6 | Cadastrados, inativos |
+| TRF1 | Tribunal Regional Federal da 1ª Região | **Ativo** (DJEN+Datajud+PJe) |
+| TRF3 | Tribunal Regional Federal da 3ª Região | **Ativo** (DJEN+Datajud+PJe) |
+| TRF5 | Tribunal Regional Federal da 5ª Região | **Ativo** (DJEN+Datajud+PJe) |
+| TJMG | Tribunal de Justiça de MG | **Ativo** (DJEN+Datajud+PJe) |
+| TRF2 | Tribunal Regional Federal da 2ª Região | **Ativo** (DJEN+Datajud, sem enricher — E-PROC requer login/2FA) |
+| TRF4/6 | TRFs 4/6 | Cadastrados, inativos |
 | TJSP | Tribunal de Justiça de SP | Cadastrado, inativo (~5x volume — exige planejamento) |
 
 ## Terminologia
