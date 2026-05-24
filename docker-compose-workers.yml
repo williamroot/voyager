@@ -98,7 +98,8 @@ services:
         soft: 65536
         hard: 65536
     deploy:
-      replicas: 4
+      # 2026-05-24: 4 → 8 — backfill simultâneo de 3 tribunais novos (TRF2/4/6).
+      replicas: 8
     restart: unless-stopped
 
   worker_datajud:
@@ -109,10 +110,10 @@ services:
       - .:/app
     deploy:
       # Datajud é leve (1 request HTTP por processo).
-      # 2026-05-14: 90 → 20 — fila zerada, RAM cedida pros enrich.
-      # Reescalar via `docker compose up --scale worker_datajud=90` antes
-      # de qualquer reclassificação grande.
-      replicas: 20
+      # 2026-05-14: 90 → 20 (fila zerada, RAM cedida pros enrich).
+      # 2026-05-24: 20 → 60 — 3 tribunais novos em backfill (TRF2/4/6) puxam
+      # auto-enqueue Datajud por cada mov ingerida; pool dimensionado pra fluxo.
+      replicas: 60
     restart: unless-stopped
 
   worker_classificacao:
