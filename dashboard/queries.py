@@ -1057,9 +1057,14 @@ def compute_tribunal_status():
         data_disponibilizacao__gte=_DATA_FLOOR,
         data_disponibilizacao__lte=timezone.now(),
     )
+    # Cobertura DJEN: filtrar movs com data_disponibilizacao >= início DJEN
+    # do tribunal. Movs anteriores vêm de enrichment PJe legado (Mar/1993 em
+    # TJMG, por exemplo) — não representam o que o DJEN cobre.
     mov_range = {
         r['tribunal_id']: (r['primeira'], r['ultima'])
-        for r in movs_validas.values('tribunal_id')
+        for r in movs_validas
+        .filter(data_disponibilizacao__gte=F('tribunal__data_inicio_disponivel'))
+        .values('tribunal_id')
         .annotate(primeira=Min('data_disponibilizacao'), ultima=Max('data_disponibilizacao'))
     }
     datajud_max = dict(

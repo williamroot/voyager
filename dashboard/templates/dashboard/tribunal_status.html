@@ -152,9 +152,17 @@
   </div>
 </div>
 
-{# BLOCO 2 · Cobertura temporal #}
+{% comment %}BLOCO 2 · Cobertura temporal (DJEN){% endcomment %}
 <div class="card mb-5">
-  <div class="text-sm font-medium text-fg-soft mb-4">Cobertura temporal</div>
+  <div class="flex items-baseline justify-between mb-1">
+    <div class="text-sm font-medium text-fg-soft">Cobertura temporal</div>
+    <div class="text-[0.65rem] text-fg-subtle">publicações DJEN</div>
+  </div>
+  <div class="text-xs text-fg-subtle mb-4">
+    Janela de publicações ingeridas via DJEN — do início da disponibilidade no diário
+    até a última publicação capturada. Movimentações trazidas por enrichment PJe legado
+    (retroativas a anos anteriores ao DJEN) não entram aqui.
+  </div>
   {% if timeline %}
   <div class="relative h-9 rounded-lg bg-surface border border-border overflow-hidden">
     {% if timeline.gap_w %}
