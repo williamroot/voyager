@@ -11,22 +11,27 @@ Runbooks específicos por situação. Para troubleshooting geral, comece por `dj
 
 Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflared` (token em `CLOUDFLARE_TUNNEL_TOKEN` no `.env`). `web → ALLOWED_HOSTS` e `CSRF_TRUSTED_ORIGINS` precisam incluir o domínio público.
 
-## Inventário de máquinas (LAN prod)
+## Inventário de máquinas (prod)
 
-| IP | Papel | Compose |
-|---|---|---|
-| `192.168.1.32` | Servidor principal — web, nginx, cloudflared, scheduler, workers de ingestion | `docker-compose-prod.yml` |
-| `192.168.1.28` | Postgres dedicado (sem container do projeto) | — |
-| `192.168.1.30` | Redis dedicado (sem container do projeto) | — |
-| `192.168.1.36` | Máquina auxiliar de workers (consolidação dos antigos `.177`/`.184`/`.115`) | `docker-compose-workers.yml` |
+| Hostname TS | IP LAN | Subnet | Papel | Compose |
+|---|---|---|---|---|
+| `voyager` | `192.168.30.103` | nova | Servidor principal — web, nginx, cloudflared, scheduler, drainers, worker_manual/classificacao/leads_consumo | `docker-compose-prod.yml` |
+| `voyager-db` | `192.168.30.101` | nova | Postgres 16 nativo + pgbouncer (`:6432`) | — |
+| `voyager-redis` | `192.168.30.100` | nova | Redis 7 nativo | — |
+| `voyager-workers` | `192.168.30.102` | nova | Workers RQ — conecta em DB/Redis via **LAN** | `docker-compose-workers.yml` |
+| `voyager-workers-aux` | `192.168.1.24` | antiga (pve antigo) | Workers RQ auxiliares — conecta em DB/Redis via **Tailscale** | `docker-compose-workers.yml` |
 
-**Histórico (2026-05-12)**: topologia anterior usava `.30` (web), `.82` (db), `.219` (redis), `.177`/`.184`/`.115` (3 hosts de workers). Atual usa 4 hosts dedicados (web, db, redis, 1 host workers). Comandos antigos com IPs `.30`/`.82`/`.219`/`.177`/`.184`/`.115` precisam ser remapeados.
+`voyager-workers-aux` é a VM antiga (VMID 100 no pve antigo, ainda viva pós-migração) ressurrecionada em 2026-05-24 pra somar capacidade de workers (dobra throughput). Como está em outra subnet física, comunica com DB/Redis novos pelos IPs Tailscale: `DATABASE_URL=postgres://...@100.68.5.114:6432/voyager`, `REDIS_URL=redis://100.98.86.54:6379/0`. Drainer do stream **não roda aqui** — só no `voyager` (.103).
 
-Máquina auxiliar (`.36`) roda só workers — sem web/db/redis próprios. Conecta no Postgres (`.28`) e Redis (`.30`) via LAN. O drainer do stream de enrichment roda **somente no `.32`**; a auxiliar só publica resultados.
+**Histórico**:
+- **2026-05-24** — migração de subnet `192.168.1.x` → `192.168.30.x` (mesmos hosts lógicos, IPs novos). Tailscale dos 4 hosts novos inalterado. VM antiga `voyager-workers` (VMID 100, pve antigo) ficou viva como auxiliar `voyager-workers-aux` — re-keyed no Tailscale (era `voyager-workers` 100.115.193.26 → renomeado pra `voyager-workers-aux`, mesmo IP 100.115.193.26; a **nova** voyager-workers `.102` perdeu sua identidade Tailscale no processo e precisa reauth manual).
+- **2026-05-12** — topologia anterior usava `.30` (web all-in-one), `.82` (db), `.219` (redis), `.177`/`.184`/`.115` (3 hosts de workers). Consolidou em 4 hosts dedicados.
+
+> **Nota**: `voyager-workers-aux` LAN `192.168.1.24` **não é alcançável direto** do laptop em `192.168.1.x` (subnet física diferente, mesmo CIDR). Acessar via Tailscale (`ssh ubuntu@voyager-workers-aux`) ou jump pelo pve antigo (`ssh -J root@pve ubuntu@192.168.1.24`).
 
 ## Workers em prod (configuração atual — 2026-05-14)
 
-**`.32` (host web)** via `docker-compose-prod.yml`:
+**`.103` (host web)** via `docker-compose-prod.yml`:
 ```
 web                       1   Django + Gunicorn
 scheduler                 1   APScheduler + ThreadPoolExecutor(20). Warm jobs inline.
@@ -39,7 +44,7 @@ cloudflared               1   tunnel pra voyager.was.dev.br
 ```
 
 Workers de ingestão e enrich pesados (TRF1/TRF3/DJEN/Datajud/TJMG) **não** rodam
-no `.32`. Ficaram consolidados no `.36`.
+no `.103`. Ficaram consolidados no `.102`.
 
 > **Nota:** `worker_warm` foi removido em 2026-05-06. Os jobs de warm de cache
 > (KPIs, charts, partes, estatísticas, filtros, MV refresh, **leads charts**)
@@ -58,7 +63,7 @@ no `.32`. Ficaram consolidados no `.36`.
 > legado pré-`lote_id`; valor canônico é lowercase). Path ativo já rejeita
 > casing inválido — sem recorrência esperada.
 
-**`.36` (host workers consolidado)** via `docker-compose-workers.yml`:
+**`.102` (host workers principal) e `voyager-workers-aux` (auxiliar somando capacidade)** — ambos via `docker-compose-workers.yml`:
 ```
 worker_ingestion       4   fila 'djen_ingestion' + 'djen_backfill'
 worker_default         2   fila 'default' (catch-all)
@@ -88,7 +93,7 @@ qm set 100 -numa0 cpus=0-11,hostnodes=1,memory=28672,policy=preferred
 qm set 100 -numa1 cpus=12-23,hostnodes=1,memory=28672,policy=preferred
 qm start 100
 # após boot:
-ssh ubuntu@192.168.1.36 'cd ~/voyager && docker compose -f docker-compose-workers.yml up -d'
+ssh ubuntu@192.168.30.102 'cd ~/voyager && docker compose -f docker-compose-workers.yml up -d'
 ```
 
 ⚠️ Hotplug CPU/memory **não habilitado** nessa VM — reboot é obrigatório
@@ -99,7 +104,7 @@ pra resize. Pra futuro: `qm set 100 -hotplug disk,network,usb,memory,cpu`.
 Antes de rodar reclassificação em massa (`reclassificar_recentes` ou
 `reclassificar_trf1_bulk`), volte o pool pra 90 réplicas:
 ```bash
-ssh ubuntu@192.168.1.36 'cd ~/voyager && \
+ssh ubuntu@192.168.30.102 'cd ~/voyager && \
   docker compose -f docker-compose-workers.yml up -d --scale worker_datajud=90 worker_datajud'
 ```
 Isso vai puxar ~7GB de RAM — só faça quando o backlog de enrich estiver
@@ -406,7 +411,7 @@ Pipeline ML que classifica processos como Precatório/Pré/Direito Creditório. 
 ### Disparar batch manual (re-classificar tudo)
 
 ```bash
-ssh ubuntu@192.168.1.32 "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web python manage.py shell -c \"
+ssh ubuntu@192.168.30.103 "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web python manage.py shell -c \"
 from tribunals.jobs import reclassificar_recentes
 job = reclassificar_recentes.delay(dias=7, paralelizar=True)
 print(f'job: {job.id}')
@@ -517,7 +522,7 @@ Detalhes em [`V7_DEPLOY_DECISION.md`](V7_DEPLOY_DECISION.md). Visão de alto ní
 ### Rollback v7
 
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 from tribunals.models import ClassificadorVersao

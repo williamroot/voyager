@@ -73,7 +73,7 @@ quando executado, vai produzir o sign-off final.
       tests.test_export_labels tests.test_minerar_fn`.
 - [ ] Backup do `tribunals_classificadorversao`:
   ```bash
-  ssh ubuntu@192.168.1.32 \
+  ssh ubuntu@192.168.30.103 \
     "docker compose -f ~/voyager/docker-compose-prod.yml exec -T postgres \
        pg_dump -U voyager -t tribunals_classificadorversao \
        -t tribunals_thresholdtribunal voyager \
@@ -102,12 +102,12 @@ Roda em prod no host principal. ~30-60min por tribunal com 5000
 candidatos cada (depende do volume de NAO_LEAD presente).
 
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py minerar_fn --tribunal TRF1 --limit 5000 \
      --output /app/data/fn_candidatos_TRF1_v22.csv"
 
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py minerar_fn --tribunal TRF3 --limit 5000 \
      --output /app/data/fn_candidatos_TRF3_v22.csv"
@@ -125,7 +125,7 @@ Validar:
 
 **Consolidar em um único CSV (input do v7):**
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    bash -c 'cat /app/data/fn_candidatos_TRF1_v22.csv > /app/data/fn_candidatos_v22.csv && \
             tail -n +2 /app/data/fn_candidatos_TRF3_v22.csv >> /app/data/fn_candidatos_v22.csv'"
@@ -134,7 +134,7 @@ ssh ubuntu@192.168.1.32 \
 ### Passo 2: Export labels consolidado
 
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py exportar_labels_retreino \
      --min-data 2024-01-01 \
@@ -159,7 +159,7 @@ Validar:
 Treino completo: ~30-60min em prod com 400-800k procs.
 
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py treinar_classificador_v7 \
      --ground-truth-csv /app/data/labels_retreino_v22.csv \
@@ -224,17 +224,17 @@ v7 já está como `shadow=True` (Passo 3). Configurar prod:
 ```bash
 # settings já tem default SHADOW_SAMPLE_RATE=0.10. Para acelerar
 # coleta nos primeiros 7 dias, subir pra 0.30:
-ssh ubuntu@192.168.1.32 "cd ~/voyager && \
+ssh ubuntu@192.168.30.103 "cd ~/voyager && \
   grep -q '^SHADOW_SAMPLE_RATE' .env || echo 'SHADOW_SAMPLE_RATE=0.30' >> .env"
 
 # Reiniciar workers (apenas para pickar nova env).
-ssh ubuntu@192.168.1.32 "docker compose -f ~/voyager/docker-compose-prod.yml \
+ssh ubuntu@192.168.30.103 "docker compose -f ~/voyager/docker-compose-prod.yml \
    up -d --force-recreate worker_classificacao"
 ```
 
 **Confirmar que shadow está rodando:**
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 from tribunals.models import ClassificacaoShadowLog
@@ -253,7 +253,7 @@ escreve `.ia/SHADOW_COMPARISON_<data>.md` automaticamente. Para rodar
 manualmente antes de 7 dias completos:
 
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 from tribunals.jobs import comparar_shadow
@@ -286,7 +286,7 @@ report), enviar para anotação por revisor sênior:
 
 ```bash
 # 1. Extrair top 50 CNJs do SHADOW_COMPARISON em CSV.
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 import json
@@ -300,7 +300,7 @@ stats = comparar_shadow('v6', 'v7', dias=7)
 # 2. Criar lote on_demand via UI ou comando.
 #    Estratégia 'on_demand' aceita lista de CNJs vinda de
 #    parametros.cnj_list (T11 já suporta).
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py gerar_amostra_validacao \
      --estrategia on_demand --tribunal TRF1 --tamanho 50 \
@@ -360,7 +360,7 @@ Salvar este documento atualizado em git + popular
 Após sign-off, **com a v7 já persistida como shadow**, o flip é:
 
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py treinar_classificador_v7 \
      --ground-truth-csv /app/data/labels_retreino_v22.csv \
@@ -389,7 +389,7 @@ Notas:
 **Validar pós-deploy (primeiras 24h):**
 ```bash
 # 1. Confirma versão ativa
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 from tribunals.models import ClassificadorVersao
@@ -398,7 +398,7 @@ for cv in ClassificadorVersao.objects.all().order_by('-criada_em'):
 \""
 
 # 2. Sanity: amostra de processos classificados nos últimos 10min.
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 from tribunals.models import ClassificacaoLog
@@ -421,7 +421,7 @@ print(f'versao distinta: {set(qs.values_list(\\\"versao_modelo\\\", flat=True))}
 ## Rollback (se algo der errado em até 24h)
 
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 from tribunals.models import ClassificadorVersao
@@ -438,7 +438,7 @@ Workers detectam em ≤ 60s (hot reload) e voltam a usar v6.
 **Re-classificar processos atingidos pelo v7 nas últimas 24h:**
 
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 from tribunals.jobs import reclassificar_recentes
@@ -449,7 +449,7 @@ print(f'job: {job.id}')
 
 Acompanhar drenagem:
 ```bash
-ssh ubuntu@192.168.1.32 \
+ssh ubuntu@192.168.30.103 \
   "docker compose -f ~/voyager/docker-compose-prod.yml exec -T web \
    python manage.py shell -c \"
 import django_rq
