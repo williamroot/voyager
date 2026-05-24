@@ -35,7 +35,7 @@ A DJEN (Diário de Justiça Eletrônico Nacional) publica diariamente milhares d
 | TRF2 | Tribunal Regional Federal da 2ª Região | **Ativo** (DJEN+Datajud, sem enricher — E-PROC requer login/2FA) |
 | TRF4 | Tribunal Regional Federal da 4ª Região | **Ativo** (DJEN+Datajud, sem enricher — E-PROC) |
 | TRF6 | Tribunal Regional Federal da 6ª Região | **Ativo** (DJEN+Datajud, sem enricher — E-PROC) |
-| TJSP | Tribunal de Justiça de SP | Cadastrado, inativo (~5x volume — exige planejamento) |
+| TJSP | Tribunal de Justiça de SP | **Ativo** (DJEN+Datajud desde 2026-05-24, floor=2023-08-14, ~5x volume dos TRFs); sem enricher — e-SAJ tem consulta pública por instância, parser ainda não portado |
 
 ## Terminologia
 

@@ -6,8 +6,8 @@ Sistema de ingestão e consulta do **Diário de Justiça Eletrônico Nacional (D
 
 ## Status atual
 
-- **Tribunais ativos:** TRF1/TRF3/TRF5/TJMG com enricher PJe; TRF2/TRF4/TRF6 só DJEN+Datajud (E-PROC requer login/2FA); TJSP cadastrado
-- **Cobertura DJEN:** **dez/2020** (TRF1), **jan/2021** (TRF3 e TRF4), **abr/2021** (TRF5), **fev/2022** (TRF2), **mai/2022** (TJMG), **set/2022** (TRF6) — backfill rodando até essas datas em 2026-05-24 após corrigir floor (estava cortando 1-2 anos em alguns)
+- **Tribunais ativos (8):** TRF1/TRF3/TRF5/TJMG com enricher PJe; TRF2/TRF4/TRF6 só DJEN+Datajud (E-PROC); TJSP só DJEN+Datajud (e-SAJ)
+- **Cobertura DJEN:** **dez/2020** (TRF1), **jan/2021** (TRF3 e TRF4), **abr/2021** (TRF5), **fev/2022** (TRF2), **mai/2022** (TJMG), **set/2022** (TRF6), **ago/2023** (TJSP) — backfill rodando em 2026-05-24 após auditoria que corrigiu floors antigos cortando 1-2 anos de histórico
 - **Volume típico:** ~1.2M movimentações, ~900k processos, ~10 GB Postgres
 - **Em prod:** https://voyager.was.dev.br via Cloudflare Tunnel
 - **Auto-heal:** watchdog a cada 5min mata zumbis e re-enfileira backfill/daily se sumiu da fila

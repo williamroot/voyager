@@ -55,7 +55,7 @@ Itens pendentes ou planejados, organizados por prioridade.
 
 - [x] **Enricher TRF5** (2026-05-20) — herda `BasePjeEnricher` com path `/pjeconsulta/` e UA Firefox (Akamai gate).
 - [ ] **Enrichers TRF2/4/6** — todos E-PROC (requer login + 2FA + proxy). Não cabem em `BasePjeEnricher`. Caminhos: (a) port do parser autenticado do JURISCOPE (`falcon/datamodel/processors/trf2.py` como referência), (b) consulta pública com solver de captcha. **DJEN+Datajud dos 3 já ativos** desde 2026-05-24.
-- [ ] **Enricher TJSP** — e-SAJ (sistema diferente, parser próprio)
+- [ ] **Enricher TJSP** — e-SAJ. Consulta pública por instância (`esaj.tjsp.jus.br/cpopg/`); parser próprio (não é PJe nem E-PROC). DJEN+Datajud já ativos desde 2026-05-24.
 - [ ] **Webhooks** — clientes registram CNJs ou termos e recebem callback HTTP em movimentações novas
 - [ ] **Export CSV** — botão na busca de movimentações + endpoint API. Job na fila `default`, link em `/dashboard/exports/`
 - [ ] **Saved filters** no dashboard (favoritos do usuário)
