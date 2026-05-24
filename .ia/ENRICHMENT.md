@@ -9,7 +9,8 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TRF1 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf1.py` (subclasse) |
 | TRF3 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf3.py` (subclasse) |
 | TRF5 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf5.py` (subclasse) — path `/pjeconsulta/` |
-| TRF2/4/6 | E-PROC | Não | Backend PHP (eproc) — não cabe na `BasePjeEnricher`, exige enricher próprio |
+| TRF2 | E-PROC | **Não (só DJEN+Datajud ativos)** | Subdomain público `eproc-consulta.trf2.jus.br` existe mas exige captcha (`#divInfraCaptcha`) e tem IDs randomizados por sessão. Sistema interno tem login + 2FA. Parser autenticado de referência em `~/projetos/JURISCOPE/falcon/datamodel/processors/trf2.py` (965 linhas). |
+| TRF4/6 | E-PROC | Não | Mesmo cenário do TRF2 — backend PHP eproc, sem PJe. |
 | TJSP | e-SAJ | Não | Backend diferente, parser próprio |
 
 ## Arquitetura
