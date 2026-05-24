@@ -74,6 +74,20 @@ services:
       replicas: 160
     restart: unless-stopped
 
+  worker_tjsp:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjsp
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:
+      # 2026-05-24: criado com 60 réplicas. e-SAJ é HTTP puro (sem Selenium);
+      # cada job faz 2 requests (open.do + search.do→show.do). Sem proxy pool
+      # configurado: e-SAJ tolera taxa moderada de IP único; subir réplicas se
+      # rate-limit aparecer e considerar adicionar ProxyScrapePool no enricher.
+      replicas: 60
+    restart: unless-stopped
+
   worker_default:
     image: voyager-web:prod
     command: python manage.py rqworker default

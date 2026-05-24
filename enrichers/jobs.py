@@ -5,6 +5,7 @@ from django_rq import job
 
 from tribunals.models import Process
 
+from .esaj import TjspEnricher
 from .tjmg import TjmgEnricher
 from .trf1 import Trf1Enricher
 from .trf3 import Trf3Enricher
@@ -18,6 +19,7 @@ _ENRICHERS = {
     'TRF3': Trf3Enricher,
     'TRF5': Trf5Enricher,
     'TJMG': TjmgEnricher,
+    'TJSP': TjspEnricher,
 }
 
 ENRICH_TIMEOUT = 300
