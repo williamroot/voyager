@@ -2,8 +2,8 @@
 {% load voyager_extras l10n %}
 {% block title %}Status por tribunal{% endblock %}
 {% block content %}
-{# localize off: as posições % da timeline vão em CSS inline — vírgula decimal
-   (pt-BR) quebra o style. Mantém ponto decimal. #}
+{% comment %}localize off: as posições % da timeline vão em CSS inline — vírgula decimal
+   (pt-BR) quebra o style. Mantém ponto decimal.{% endcomment %}
 {% localize off %}
 
 <div class="flex items-center justify-between mb-6">
