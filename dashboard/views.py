@@ -417,6 +417,8 @@ def processos(request):
 
     # Sem filtro: 500k+ rows. Reusa total_processos do kpis_globais (cache).
     # Se cache frio, usa estimativa reltuples — evita seq-scan no COUNT(*).
+    # Com filtro (1 tribunal +/- status): consome cache `estatisticas_por_tribunal`
+    # (warm 30min) — sem ele, COUNT(*) em TJSP+ok leva ~14s e a página trava.
     count_override = None
     if not has_filter:
         kpis = queries.kpis_globais()
@@ -427,6 +429,18 @@ def processos(request):
                 cur.execute("SELECT reltuples::bigint FROM pg_class WHERE relname='tribunals_process'")
                 row = cur.fetchone()
                 count_override = int(row[0]) if row and row[0] else 0
+    elif len(tribunais_filtro) == 1:
+        stats = {
+            s['tribunal'].sigla: s
+            for s in queries.estatisticas_por_tribunal()
+            if s.get('tribunal')
+        }
+        entry = stats.get(tribunais_filtro[0])
+        if entry and not entry.get('pending'):
+            if enriq in ('ok', 'pendente', 'nao_encontrado', 'erro'):
+                count_override = entry.get('enriquecimento', {}).get(enriq, 0)
+            else:
+                count_override = entry.get('processos')
 
     page = _paginar(qs, request, default_size=50, count_override=count_override)
     return render(request, 'dashboard/_partials/_processos_list.html', {
