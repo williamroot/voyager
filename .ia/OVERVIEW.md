@@ -36,6 +36,7 @@ A DJEN (Diário de Justiça Eletrônico Nacional) publica diariamente milhares d
 | TRF4 | Tribunal Regional Federal da 4ª Região | **Ativo** (DJEN+Datajud, sem enricher — E-PROC) |
 | TRF6 | Tribunal Regional Federal da 6ª Região | **Ativo** (DJEN+Datajud, sem enricher — E-PROC) |
 | TJSP | Tribunal de Justiça de SP | **Ativo** (DJEN+Datajud+enricher e-SAJ desde 2026-05-24, floor=2023-08-14, ~5x volume dos TRFs) |
+| TJMA | Tribunal de Justiça do MA | **Enricher pronto** (PJe `pje.tjma.jus.br/pje/...`, 2026-05-26) — falta `djen_descobrir_inicio` e flip `ativo=True` |
 
 ## Terminologia
 

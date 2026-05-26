@@ -74,6 +74,19 @@ services:
       replicas: 160
     restart: unless-stopped
 
+  worker_tjma:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjma
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:
+      # Ramp inicial 10 réplicas (mesmo critério do TRF5 no 1º deploy:
+      # 10 a 100% → safe escalar). TJMA é PJe padrão, mesmo bottleneck
+      # upstream do TJMG; volume DJEN observado ≈ 11k itens/dia.
+      replicas: 10
+    restart: unless-stopped
+
   worker_tjsp:
     image: voyager-web:prod
     command: python manage.py rqworker enrich_tjsp
