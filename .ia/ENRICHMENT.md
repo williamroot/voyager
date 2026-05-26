@@ -14,6 +14,9 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TRF4 | E-PROC | **Não (só DJEN+Datajud ativos desde 2026-05-24)** | Mesmo cenário do TRF2. |
 | TRF6 | E-PROC | **Não (só DJEN+Datajud ativos desde 2026-05-24)** | Mesmo cenário do TRF2. |
 | TJSP | e-SAJ | **Sim** (2026-05-24) | `enrichers/esaj.py` (classe própria, não herda BasePjeEnricher). HTTP puro (sem Selenium): `open.do` → `search.do?NUMPROC` (302) → `show.do` → parse. Selectors portados de `ESAJSPProcessDataProcessor` do JURISCOPE. Limitação: e-SAJ público mascara CPF/CNPJ, então `documento` fica vazio (OAB e nome são preservados). |
+| TJMG | PJe consulta pública (sem login) | **Sim** | `enrichers/tjmg.py` (subclasse) — `pje.tjmg.jus.br/pje/...` |
+| TJDFT | PJe SPA Angular + REST API (sem login) | **Sim** (2026-05-26) | `enrichers/tjdft.py` (classe própria, não herda BasePjeEnricher). API REST Spring Boot em `pje-consultapublica-api.tjdft.jus.br/v1/`. CPF/CNPJ sem máscara. Limitação: rota `/dados` não expõe `valor_causa`. |
+| **TJs com PJe pendentes** | PJe consulta pública | Não (planejado) | Meta: cobertura total. 17 restantes: TJAC, TJAM, TJAP, TJBA, TJCE, TJES, TJMT, TJPA, TJPB, TJPE, TJPI, TJRJ, TJRN, TJRO, TJRR, TJSE, TJTO. Verificar antes se ainda usam PJe clássico (JSF/Seam) ou migraram pra SPA+REST como TJDFT — clássico = subclasse de `BasePjeEnricher` (passos em "Como adicionar enricher pra outro PJe" abaixo); SPA+REST = classe própria nos moldes de `enrichers/tjdft.py`. Estaduais fora desta lista (não-PJe): TJAL/TJMS (e-SAJ), TJGO/TJPR (PROJUDI), TJRS/TJSC (eproc). |
 
 ## Arquitetura
 
@@ -162,6 +165,60 @@ docker compose exec web python manage.py consolidar_partes_mascaradas
 
 # Via dashboard: botão "↻ Atualizar dados públicos" no detalhe do processo
 ```
+
+## PJe novo (SPA + REST) — caso TJDFT
+
+Alguns tribunais já migraram do PJe clássico (JSF/Seam, form `fPP`,
+`javax.faces.ViewState`) pra uma SPA Angular consumindo REST API Spring
+Boot. **`BasePjeEnricher` não funciona nesse caso** — não há HTML form
+pra parsear. Detecção: GET na URL `listView.seam` redireciona pra um
+domínio `pje-consultapublica*.tjxxx.jus.br` cujo body é um shell Angular
+(`<title>Consulta pública · Processo Judicial Eletrônico</title>`,
+bundles `main-*.js`).
+
+Padrão das rotas (caso TJDFT, validado 2026-05-26):
+
+```
+GET /v1/processos?page=0&numeroProcesso=<CNJ_FORMATADO>
+    → result[0].idProcesso (token opaco URL-safe ~70 chars)
+
+GET /v1/processos/{idProcesso}/dados
+    → { classeJudicial, assunto (hierárquico), orgaoJulgador,
+        dataDistribuicao (ISO8601), jurisdicao, endereco, ... }
+
+GET /v1/processos/{idProcesso}/poloAtivo?page=N
+GET /v1/processos/{idProcesso}/poloPassivo?page=N
+GET /v1/processos/{idProcesso}/outrosInteressados?page=N
+    → result: [ { participante (texto), nome, tipo, procuradoria, ... } ]
+      pageInfo: { current, last, size, count }
+```
+
+Wrapper de resposta é uniforme:
+`{ "status":"ok", "code":"200", "messages":[...], "result":..., "pageInfo":? }`.
+Quando `status != "ok"`, levante erro — sem fallback.
+
+Implementação fica em `enrichers/tjdft.py` (referência). Pontos-chave:
+- Headers `Referer` + `Origin` apontando pra SPA oficial — sem isso o ALB
+  pode devolver 403 em alguns endpoints.
+- `participante` é o texto cru `"NOME - OAB UF<num> - CPF: ... (TIPO)"`.
+  Reutilize `parse_documento` / `parse_oab` dos parsers compartilhados.
+- O `tipo` da API (AUTOR/REU/ADVOGADO/FISCAL DA LEI/INTERESSADO/...)
+  determina se a entrada é principal ou advogado. Agrupe advogados
+  subsequentes como `representantes` do principal anterior — mesmo
+  contrato que `BasePjeEnricher._parse_polo`.
+- Assunto vem hierárquico (`"RAIZ (cod) - FILHO (cod) - ... - FOLHA (codFolha)"`);
+  pegar **só o último segmento** pra entrar no catálogo `Assunto`.
+- `dataDistribuicao` é ISO; converter pra `DD/MM/YYYY` antes de publicar
+  (drainer usa `parse_data_br`).
+- `valor_causa` **não** vem na API pública do TJDFT (limitação aceita).
+
+Como mapear endpoints de um TJ novo nesse formato:
+1. Abra a SPA, faça uma busca real (Playwright ou DevTools).
+2. Capture os XHRs com `browser_network_requests` filtrando pelo
+   subdomínio `*-api.*`.
+3. Compare os campos do JSON com a tabela do `Process` (classe,
+   assunto, orgao_julgador, data_autuacao) — costuma ser 1:1 com o caso
+   TJDFT mas mudam nomes de campos.
 
 ## Como adicionar enricher pra outro PJe
 

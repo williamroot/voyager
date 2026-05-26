@@ -101,6 +101,22 @@ services:
       replicas: 60
     restart: unless-stopped
 
+  worker_tjdft:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjdft
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:
+      # Ramp inicial 10 réplicas (mesmo critério do TJMA/TRF5 1º deploy).
+      # TJDFT é REST API (Spring Boot atrás de AWS ALB), cada job faz 4 GETs
+      # JSON (lista + dados + 3 polos) — bem mais barato que PJe JSF clássico
+      # mas com round-trip TLS adicional por polo. Sem ProxyScrapePool: API
+      # pública tolera taxa moderada de IP único; observar rate-limit antes
+      # de escalar.
+      replicas: 10
+    restart: unless-stopped
+
   worker_default:
     image: voyager-web:prod
     command: python manage.py rqworker default
