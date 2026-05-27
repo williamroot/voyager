@@ -120,7 +120,7 @@ Estilo: stroke=currentColor, width=1.6px (Lucide default 2px reduzido pra harmon
 | `/dashboard/consulta-rapida/` | `consulta_rapida.html` | Debug em tempo real: consulta CNJ no DJEN+Datajud, mostra raw + parsed sem persistir |
 | `/dashboard/invites/` | `accounts/invites_list.html` | **Superuser**: gerar/revogar convites de cadastro |
 | `/invite/<token>/` | `accounts/accept_invite.html` | **Público**: aceitar convite, criar conta |
-| `/dashboard/login/` | `login.html` | Patch + wordmark + telemetry strip + SOL counter |
+| `/dashboard/login/` | `login.html` | Patch + wordmark + telemetry strip + SOL counter. **Autocontida**: usa só `dashboard/login.css` (sem Tailwind CDN, sem `voyager-identity.css`, sem Google Fonts) — página pública precisa ser leve em mobile |
 | 404/500/403/400 | `<code>.html` | Error pages temáticas com `error-code` gigante |
 
 ## Página: Saúde do pipeline (`/dashboard/ingestao/saude/`)

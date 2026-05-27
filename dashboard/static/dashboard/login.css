@@ -1,0 +1,293 @@
+/* Voyager login — self-contained, no Tailwind JIT, no backdrop-filter, no heavy animation. */
+
+:root{
+  color-scheme: light dark;
+  --c-base:9 9 11;
+  --c-surface:24 24 27;
+  --c-card:24 24 27;
+  --c-muted:39 39 42;
+  --c-border:39 39 42;
+  --c-fg:244 244 245;
+  --c-fg-muted:161 161 170;
+  --c-fg-subtle:113 113 122;
+  --c-accent:16 185 129;
+  --c-danger:244 63 94;
+  --c-mission:234 88 12;
+  --c-pulsar:16 185 129;
+  --c-pale-blue:147 197 253;
+}
+html:not(.dark){
+  --c-base:250 250 250;
+  --c-surface:255 255 255;
+  --c-card:255 255 255;
+  --c-muted:244 244 245;
+  --c-border:228 228 231;
+  --c-fg:24 24 27;
+  --c-fg-muted:82 82 91;
+  --c-fg-subtle:113 113 122;
+  --c-danger:225 29 72;
+}
+
+*,*::before,*::after{box-sizing:border-box;}
+html,body{height:100%;margin:0;}
+body{
+  background:rgb(var(--c-base));
+  color:rgb(var(--c-fg));
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;}
+
+/* ===== Layout ===== */
+.page{
+  position:relative;
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:1rem;
+}
+.shell{
+  position:relative;
+  z-index:10;
+  width:100%;
+  max-width:28rem;
+}
+
+/* ===== Background (estático, sem animação) ===== */
+.bg{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background-color:transparent;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, white, transparent 50%),
+    radial-gradient(1.5px 1.5px at 73% 22%, rgba(255,255,255,0.85), transparent 60%),
+    radial-gradient(1px 1px at 41% 73%, white, transparent 50%),
+    radial-gradient(1px 1px at 88% 64%, rgba(147,197,253,0.9), transparent 50%),
+    radial-gradient(2px 2px at 18% 88%, rgba(255,255,255,0.7), transparent 60%),
+    radial-gradient(1px 1px at 62% 11%, rgba(250,204,21,0.6), transparent 50%),
+    radial-gradient(1px 1px at 5% 51%, white, transparent 50%),
+    radial-gradient(1.5px 1.5px at 95% 38%, white, transparent 60%);
+  background-size:600px 600px,800px 800px,700px 700px,900px 900px,
+                  500px 500px,750px 750px,850px 850px,650px 650px;
+  opacity:0.75;
+}
+html:not(.dark) .bg{opacity:0.18;filter:invert(1);}
+
+.bg-overlay{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:
+    radial-gradient(ellipse at top right,    rgb(var(--c-mission) / 0.10), transparent 55%),
+    radial-gradient(ellipse at bottom left,  rgb(var(--c-pale-blue) / 0.06), transparent 55%);
+}
+
+/* ===== Telemetry strip topo ===== */
+.tlm-strip{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:1.25rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:0.65rem;
+  text-transform:uppercase;
+  letter-spacing:0.18em;
+  color:rgb(var(--c-fg-subtle));
+  margin-bottom:1.5rem;
+}
+.tlm-strip .label{color:rgb(var(--c-fg-subtle) / 0.7);}
+.tlm-strip .value{color:rgb(var(--c-fg));}
+.tlm-strip .accent{color:rgb(var(--c-mission));}
+.tlm-strip .group{display:flex;align-items:center;gap:0.4rem;}
+
+.pulsar-dot{
+  width:0.4rem;height:0.4rem;
+  border-radius:9999px;
+  background:rgb(var(--c-pulsar));
+  display:inline-block;
+}
+
+/* ===== Card ===== */
+.card{
+  position:relative;
+  background:rgb(var(--c-card));
+  border:1px solid rgb(var(--c-mission) / 0.25);
+  border-radius:0.75rem;
+  padding:1.5rem 1.5rem 1.25rem;
+}
+html.dark .card{
+  background:rgb(var(--c-card) / 0.92);
+}
+
+/* Brackets de canto */
+.card::before,.card::after{
+  content:'';
+  position:absolute;
+  width:14px;height:14px;
+  border-color:rgb(var(--c-mission) / 0.6);
+  border-style:solid;
+}
+.card::before{top:-2px;left:-2px;border-width:1px 0 0 1px;}
+.card::after{bottom:-2px;right:-2px;border-width:0 1px 1px 0;}
+
+/* ===== Header ===== */
+.hdr{
+  display:flex;
+  align-items:flex-start;
+  gap:1rem;
+  margin-bottom:1.25rem;
+}
+.patch{width:4rem;height:4rem;flex-shrink:0;}
+.brand{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:1.875rem;
+  font-weight:700;
+  line-height:1;
+  letter-spacing:0.02em;
+  color:rgb(var(--c-fg));
+  text-shadow:0 0 24px rgb(var(--c-mission) / 0.35);
+}
+html:not(.dark) .brand{text-shadow:none;color:rgb(var(--c-mission));}
+.brand-sub{
+  margin-top:0.25rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:0.62rem;
+  text-transform:uppercase;
+  letter-spacing:0.18em;
+  color:rgb(var(--c-fg-subtle));
+}
+.brand-tag{
+  margin-top:0.5rem;
+  font-size:0.75rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:rgb(var(--c-fg-subtle));
+}
+
+/* ===== Separator (estático, sem animação) ===== */
+.divider{
+  width:100%;
+  height:1px;
+  background:linear-gradient(90deg, transparent, rgb(var(--c-mission) / 0.4), transparent);
+  margin:1rem 0;
+}
+
+/* ===== Mission tag ===== */
+.mission-tag{
+  display:inline-flex;
+  align-items:center;
+  gap:0.35rem;
+  padding:0.15rem 0.5rem 0.18rem;
+  border:1px solid rgb(var(--c-mission) / 0.4);
+  background:rgb(var(--c-mission) / 0.08);
+  color:rgb(var(--c-mission));
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:0.62rem;
+  text-transform:uppercase;
+  letter-spacing:0.18em;
+  border-radius:0.3rem;
+  margin-bottom:0.75rem;
+}
+
+/* ===== Form ===== */
+form{display:flex;flex-direction:column;gap:0.75rem;}
+.field{display:flex;flex-direction:column;gap:0.35rem;}
+.field-label{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:0.65rem;
+  text-transform:uppercase;
+  letter-spacing:0.18em;
+  color:rgb(var(--c-fg-subtle));
+}
+.input{
+  appearance:none;
+  width:100%;
+  background:rgb(var(--c-base) / 0.6);
+  border:1px solid rgb(var(--c-border));
+  border-radius:0.375rem;
+  padding:0.625rem 0.75rem;
+  color:rgb(var(--c-fg));
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:0.875rem;
+  outline:none;
+  transition:border-color .15s, box-shadow .15s;
+}
+.input:focus{
+  border-color:rgb(var(--c-mission));
+  box-shadow:0 0 0 3px rgb(var(--c-mission) / 0.15);
+}
+.input::placeholder{color:rgb(var(--c-fg-subtle));}
+
+.error{
+  display:flex;
+  align-items:center;
+  gap:0.5rem;
+  margin:0.25rem 0 0;
+  padding:0 0.25rem;
+  color:rgb(var(--c-danger));
+  font-size:0.75rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+}
+.error svg{width:0.85rem;height:0.85rem;flex-shrink:0;}
+
+.btn{
+  margin-top:0.75rem;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:0.5rem;
+  background:linear-gradient(180deg, rgb(var(--c-mission)), rgb(194 65 12));
+  color:#fff;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-weight:700;
+  letter-spacing:0.18em;
+  text-transform:uppercase;
+  font-size:0.78rem;
+  padding:0.72rem 1rem;
+  border-radius:0.5rem;
+  border:1px solid rgb(var(--c-mission) / 0.6);
+  box-shadow:0 8px 24px -8px rgb(var(--c-mission) / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.18);
+  cursor:pointer;
+  transition:filter .15s, transform .15s;
+}
+.btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+.btn:active{transform:translateY(0);}
+.btn svg{width:0.85rem;height:0.85rem;}
+
+/* ===== Footer strip ===== */
+.foot{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-top:0.25rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:0.65rem;
+  text-transform:uppercase;
+  letter-spacing:0.18em;
+  color:rgb(var(--c-fg-subtle));
+}
+.foot .val{color:rgb(var(--c-fg-muted));}
+.foot .group{display:flex;align-items:center;gap:0.35rem;}
+
+.tagline{
+  text-align:center;
+  margin-top:1.5rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:0.65rem;
+  text-transform:uppercase;
+  letter-spacing:0.18em;
+  color:rgb(var(--c-fg-subtle));
+}
+
+/* ===== Reduce motion: nada anima aqui de qualquer jeito, mas mantém respeito ===== */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:0.01ms !important;
+    transition-duration:0.01ms !important;
+  }
+}
