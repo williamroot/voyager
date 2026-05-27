@@ -62,11 +62,17 @@ def reabastecer_fila_datajud() -> dict:
 
     capacidade = DATAJUD_REFILL_HIGH_WATER - len(queue)
     a_enfileirar = min(capacidade, DATAJUD_REFILL_BATCH)
+    # `order_by('-inserido_em')`: sem ordenação, o Postgres devolve por
+    # heap order — que clustera por tribunal_id e faz cada refill enfileirar
+    # 10k do MESMO tribunal. Resultado: drenagem por blocos (TRF5 dias,
+    # depois TJMG dias, etc.) e tribunais menores como TRF3 ficam esperando
+    # seu "lote" ser sorteado. Ordenando por inserido_em DESC, refills
+    # naturalmente intercalam tribunais (DJEN diária toca todos).
     pids = list(
         Process.objects.filter(
             tribunal__ativo=True,
             data_enriquecimento_datajud__isnull=True,
-        ).values_list('pk', flat=True)[:a_enfileirar]
+        ).order_by('-inserido_em').values_list('pk', flat=True)[:a_enfileirar]
     )
     # Enqueue explícito na queue 'datajud' (não usa .delay()) — mesmo padrão
     # do reabastecer_filas_enriquecimento, defensivo contra alguém mudar o

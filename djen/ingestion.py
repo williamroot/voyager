@@ -439,11 +439,17 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
                 logger.warning('falha enfileirar enrichment', extra={'pid': pid, 'erro': str(exc)})
 
     # Datajud roda pra QUALQUER tribunal (CNJ tem index pra todos).
+    # `at_front=True`: fluxo diário (processos recém-vistos no DJEN) fura
+    # o backlog histórico drenado por `reabastecer_fila_datajud`. Sem
+    # isso, ~3k novos/dia ficam atrás de milhões de jobs antigos e o
+    # `data_enriquecimento_datajud` do tribunal atrasa dias.
     if datajud_eligiveis:
+        import django_rq
         from datajud.jobs import datajud_sync_bulk
+        queue = django_rq.get_queue('datajud')
         for pid in datajud_eligiveis:
             try:
-                datajud_sync_bulk.delay(pid)
+                queue.enqueue(datajud_sync_bulk, pid, job_timeout=600, at_front=True)
             except Exception as exc:
                 logger.warning('falha enfileirar datajud', extra={'pid': pid, 'erro': str(exc)})
 
