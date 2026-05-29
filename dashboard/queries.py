@@ -1194,16 +1194,23 @@ def compute_tribunal_status():
         data_disponibilizacao__gte=_DATA_FLOOR,
         data_disponibilizacao__lte=timezone.now(),
     )
-    # Cobertura DJEN: filtrar movs com data_disponibilizacao >= início DJEN
-    # do tribunal. Movs anteriores vêm de enrichment PJe legado (Mar/1993 em
-    # TJMG, por exemplo) — não representam o que o DJEN cobre.
-    mov_range = {
-        r['tribunal_id']: (r['primeira'], r['ultima'])
-        for r in movs_validas
-        .filter(data_disponibilizacao__gte=F('tribunal__data_inicio_disponivel'))
-        .values('tribunal_id')
-        .annotate(primeira=Min('data_disponibilizacao'), ultima=Max('data_disponibilizacao'))
-    }
+    # Cobertura DJEN: primeira/última mov por tribunal (>= início DJEN do
+    # tribunal). Antes era um GROUP BY com Min/Max + filtro F() que varria
+    # ~todo o índice (~1400s — fazia o job rodar quase contínuo). Agora são
+    # seeks no índice (tribunal_id, data_disponibilizacao): ORDER BY ... LIMIT 1
+    # por tribunal (≤10 ativos × 2) → ~ms. `<= now()` corta datas-lixo futuras.
+    agora = timezone.now()
+    mov_range = {}
+    for t in Tribunal.objects.filter(ativo=True).only('sigla', 'data_inicio_disponivel'):
+        base = Movimentacao.objects.filter(
+            tribunal_id=t.sigla,
+            data_disponibilizacao__gte=(t.data_inicio_disponivel or _DATA_FLOOR),
+            data_disponibilizacao__lte=agora,
+        ).values_list('data_disponibilizacao', flat=True)
+        primeira = base.order_by('data_disponibilizacao').first()
+        ultima = base.order_by('-data_disponibilizacao').first()
+        if primeira or ultima:
+            mov_range[t.sigla] = (primeira, ultima)
     datajud_max = dict(
         Process.objects.exclude(data_enriquecimento_datajud__isnull=True)
         .values('tribunal_id').annotate(m=Max('data_enriquecimento_datajud'))
