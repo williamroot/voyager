@@ -425,8 +425,13 @@ def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibili
     default — evita que tribunais desativados apareçam fantasma em donuts/tops.
     """
     if dias:
-        cutoff = date.today() - timedelta(days=dias)
-        qs = qs.filter(**{f'{date_field}__date__gte': cutoff})
+        # Bound de TIMESTAMP (sargável) em vez de CAST(...AS date) >= : o cast
+        # impedia o uso do índice btree em data_disponibilizacao e forçava
+        # scan/filtro de ~200M rows — causa do storm de statement_timeout nos
+        # warm jobs (2026-05-29). Janela rolante de N dias (em vez de meia-
+        # noite de N dias atrás); diferença irrelevante pra agregados.
+        cutoff = timezone.now() - timedelta(days=dias)
+        qs = qs.filter(**{f'{date_field}__gte': cutoff})
     if tribunais:
         qs = qs.filter(tribunal_id__in=tribunais)
     else:
@@ -490,14 +495,6 @@ def compute_kpis_globais(dias=None, tribunais=None):
         procs = procs.filter(tribunal_id__in=tribunais)
     else:
         procs = procs.filter(tribunal__ativo=True)
-    if dias:
-        # Quando há filtro de período, "Processos" passa a significar
-        # "processos com pelo menos 1 mov no período" — semântica
-        # consistente com total_movimentacoes que já filtra.
-        cutoff = date.today() - timedelta(days=dias)
-        procs = procs.filter(
-            movimentacoes__data_disponibilizacao__date__gte=cutoff,
-        ).distinct()
 
     # Usa data_disponibilizacao (publicação real) e NÃO inserido_em — durante
     # backfill, inserido_em explode com movs antigas reingeridas, distorcendo
@@ -530,8 +527,18 @@ def compute_kpis_globais(dias=None, tribunais=None):
         total=Count('id'),
         cancelados=Count('id', filter=Q(ativo=False)),
     )
+    if dias:
+        # "Processos" com filtro de período = processos com >=1 mov no período.
+        # COUNT(DISTINCT processo_id) sobre os movs já filtrados (HashAggregate
+        # + index range sargável). Substitui o DISTINCT da linha INTEIRA de
+        # Process via join (width 273, Sort de 32 colunas) que custava 18-30min
+        # e estourava o statement_timeout, segurando 4 parallel workers e
+        # estrangulando os outros warm jobs (2026-05-29).
+        total_processos = movs.values('processo_id').distinct().count()
+    else:
+        total_processos = procs.count()
     result = {
-        'total_processos': procs.count(),
+        'total_processos': total_processos,
         'total_movimentacoes': movs_agg['total'],
         'movs_24h': movs_24h,
         'movs_24h_delta_pct': delta_pct,
