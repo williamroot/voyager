@@ -410,3 +410,28 @@ de ruído. Apenas o horizonte recente exige dados reais pra fechar o bug latente
 ingestão (`< hoje`, tribunal ativo com backfill concluído) agora é gerado como célula
 `volume=0, cor=vermelho` em vez de ficar ausente (que aparecia como cinza / invisível).
 Isso fecha o gap onde "ausente == cinza" escondia lacunas reais de ingestão no heatmap.
+
+## ADR-026 — Charts/KPIs do dashboard: sargabilidade + MV-backing dos agregados pesados (2026-05-29)
+
+**Contexto:** Storm de `statement_timeout` no scheduler — `warm_kpis`, `warm_charts_*`
+e `warm_tribunal_status` cancelando. Causa não era falta de recurso, e sim queries de
+agregação que não terminavam (1 fazia `SELECT DISTINCT process.*` + Merge Join 6M×204M
+por 18-30min, segurando 4 parallel workers e estrangulando as outras). Agravado pela
+tabela `movimentacao` ter crescido pra ~614M com o backfill.
+
+**Decisão:**
+- KPIs com período: `COUNT(DISTINCT processo_id)` sobre movs filtrados (não `DISTINCT`
+  da linha inteira de Process); filtros de data **sargáveis** (`__gte=<timestamp>` em vez
+  de `__date__gte=<date>`, que cancelava o índice btree); headline counts de `dias=None`
+  via `pg_class.reltuples` (O(1)) em vez de `COUNT(*)` exato em ~614M.
+- Agregados de série temporal saem de cálculo ao vivo pra MV: `volume_temporal` diário
+  ← `mv_volume_diario` (já existia, mas **não era lida por ninguém**); `volume_temporal`
+  mensal/None **e** `compute_tribunal_status` ← nova `mv_volume_mensal`. Ambas refreshadas
+  no `refresh_materialized_views` diário; readers têm fallback live enquanto a MV não foi
+  populada (`relispopulated`).
+
+**Consequência:** `compute_kpis_globais(7)` 18-30min→~14s; `dias=None` 479s→~40s;
+`volume_temporal(≤365d)` 407s→~0.03s; some o TruncMonth recorrente em 614M do ciclo de
+warm. Trade-off: gráficos de volume ficam com staleness de até ~1 dia (refresh diário) e
+counts de overview viram estimativa reltuples — aceitável pra headline/tendência; números
+exatos por período continuam via query filtrada (barata e sargável).

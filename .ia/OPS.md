@@ -587,6 +587,42 @@ print('inserido_em última 1h:', Movimentacao.objects.filter(inserido_em__gte=ti
 "
 ```
 
+### Storm de `statement_timeout` nos warm jobs (queries pesadas)
+
+Sintoma: logs do `scheduler` cheios de `canceling statement due to statement
+timeout` em vários warm jobs (`warm_kpis`, `warm_charts_*`, `warm_tribunal_status`),
+páginas com cache frio/pending. **Não é DB sem recurso** — em geral são poucas
+queries de agregação carésimas que não terminam e estrangulam as outras (poucas
+conexões ativas, muitas idle).
+
+Diagnóstico (achar a query que segura o DB):
+```bash
+docker compose -f docker-compose-prod.yml exec -T web python -c "
+import django,os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','core.settings'); django.setup()
+from django.db import connection
+with connection.cursor() as c:
+    c.execute(\"SELECT now()-query_start dur, wait_event_type, left(regexp_replace(query,E'\\\\s+',' ','g'),80) FROM pg_stat_activity WHERE state='active' AND datname='voyager' AND pid<>pg_backend_pid() ORDER BY query_start LIMIT 20\")
+    [print(r) for r in c.fetchall()]
+"
+```
+Várias linhas com a MESMA query + `IPC/MessageQueueSend` = 1 query com parallel
+workers (leader + N). Use `EXPLAIN` (sem ANALYZE) da query suspeita pra ver o plano.
+
+Causas-raiz já corrigidas (2026-05-29) — padrão a evitar em queries de dashboard:
+1. **`DISTINCT` da linha inteira**: `Process.filter(...).distinct().count()` virava
+   `SELECT DISTINCT process.*` (32 colunas) + Sort gigante. Use
+   `COUNT(DISTINCT processo_id)` sobre a tabela já filtrada.
+2. **Filtro não-sargável**: `data_disponibilizacao__date__gte=<date>` faz
+   `CAST(... AS date) >=` e **ignora o índice btree** → scan de ~600M. Use
+   `data_disponibilizacao__gte=<datetime>` (sargável).
+3. **`COUNT(*)` exato em tabelão**: headline KPI usa `pg_class.reltuples`
+   (`queries._reltuples`), não COUNT exato em ~600M.
+4. **`TruncMonth`/`TruncDate` ao vivo em ~600M**: servir de MV. Hoje:
+   - diário (`volume_temporal` <=365d) ← `mv_volume_diario`
+   - mensal (`volume_temporal` None + `compute_tribunal_status`) ← `mv_volume_mensal`
+   Ambas no `refresh_materialized_views` diário. 1º refresh pós-migration é
+   não-concorrente (MV `WITH NO DATA`); os readers caem pra live até popular.
+
 ### Significado das cores
 
 | Cor | Significado | Threshold |
