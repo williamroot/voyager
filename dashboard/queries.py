@@ -668,6 +668,38 @@ def sparkline_24h(tribunais=None):
 _VOLUME_TEMPORAL_MIN_DATE = date(2020, 1, 1)
 
 
+def _mv_volume_mensal(tribunais=None, desde=None):
+    """Lê mv_volume_mensal (volume mensal por tribunal, todo histórico).
+
+    Retorna `(rows, populada)` onde rows = [(mes:date, tribunal_id, total)].
+    `populada=False` se a MV ainda não foi populada (logo após a migration
+    WITH NO DATA) — o caller cai pro cálculo live. `mes <= CURRENT_DATE`
+    descarta meses-lixo futuros do Datajud.
+    """
+    from django.db import connection
+    with connection.cursor() as cur:
+        cur.execute("SELECT relispopulated FROM pg_class WHERE relname = 'mv_volume_mensal'")
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return [], False
+        where = ['mes <= CURRENT_DATE']
+        params: list = []
+        if desde is not None:
+            where.append('mes >= %s')
+            params.append(desde)
+        if tribunais:
+            where.append('tribunal_id = ANY(%s)')
+            params.append(list(tribunais))
+        else:
+            ativos = list(Tribunal.objects.filter(ativo=True).values_list('sigla', flat=True))
+            where.append('tribunal_id = ANY(%s)')
+            params.append(ativos)
+        cur.execute(
+            'SELECT mes, tribunal_id, total FROM mv_volume_mensal '
+            f'WHERE {" AND ".join(where)} ORDER BY mes, tribunal_id', params)
+        return cur.fetchall(), True
+
+
 def volume_temporal(dias=None, tribunais=None):
     """Série temporal por tribunal. Auto-bucket: dia se janela <=365d, mês caso contrário.
 
@@ -715,9 +747,19 @@ def volume_temporal(dias=None, tribunais=None):
             for d, trib, total in rows_mv if d
         ]
 
-    # Caso mensal (None ou >365d): a MV só cobre 400d, então agrega ao vivo
-    # desde o floor 2020. Filtro de TIMESTAMP (sargável) em vez de
-    # CAST(...AS date) — usa o índice btree de data_disponibilizacao.
+    # Caso mensal (None ou >365d): lê mv_volume_mensal (mês/tribunal desde
+    # 2020, refresh diário). Antes agregava ao vivo (TruncMonth em ~614M ->
+    # ~407s a cada warm). Fallback live (sargável) só enquanto a MV não foi
+    # populada (logo após migration WITH NO DATA).
+    bucket_corrente = hoje.replace(day=1)
+    desde = (hoje - timedelta(days=dias)) if dias else _VOLUME_TEMPORAL_MIN_DATE
+    rows_mv, populada = _mv_volume_mensal(tribunais=tribunais, desde=desde)
+    if populada:
+        return [
+            {'dia': m.isoformat(), 'tribunal': t, 'total': n, 'parcial': m == bucket_corrente}
+            for m, t, n in rows_mv if m
+        ]
+
     floor_dt = timezone.make_aware(datetime(_VOLUME_TEMPORAL_MIN_DATE.year, 1, 1))
     qs = Movimentacao.objects.filter(data_disponibilizacao__gte=floor_dt)
     if dias:  # janela explícita (>365d cai aqui; <=365 já foi via MV acima)
@@ -733,7 +775,6 @@ def volume_temporal(dias=None, tribunais=None):
         .annotate(total=Count('id'))
         .order_by('periodo', 'tribunal_id')
     )
-    bucket_corrente = hoje.replace(day=1)
 
     # Serializa só `YYYY-MM-DD` (sem hora) — eixo X do chart precisa só
     # da data, e `datetime.isoformat()` mete `T00:00:00-03:00` que polui.
@@ -1174,16 +1215,27 @@ def compute_tribunal_status():
         .values_list('tribunal_id', 'm')
     )
 
+    # Volume mensal por tribunal: lê mv_volume_mensal (refresh diário). Era o
+    # passe mais caro daqui — TruncMonth em ~614M (custo de plano ~48M, ~400s+)
+    # e idêntico ao de volume_temporal(None). Fallback live só enquanto a MV
+    # não foi populada (logo após migration WITH NO DATA).
     volume_por_trib: dict[str, list] = {}
-    for r in (
-        movs_validas.annotate(mes=TruncMonth('data_disponibilizacao'))
-        .values('tribunal_id', 'mes').annotate(n=Count('id')).order_by('tribunal_id', 'mes')
-    ):
-        if r['mes'] is None:
-            continue
-        volume_por_trib.setdefault(r['tribunal_id'], []).append(
-            [r['mes'].strftime('%Y-%m'), r['n']]
-        )
+    rows_mv, populada = _mv_volume_mensal(tribunais=None, desde=_VOLUME_TEMPORAL_MIN_DATE)
+    if populada:
+        for mes, tid, n in rows_mv:
+            if mes is None:
+                continue
+            volume_por_trib.setdefault(tid, []).append([mes.strftime('%Y-%m'), n])
+    else:
+        for r in (
+            movs_validas.annotate(mes=TruncMonth('data_disponibilizacao'))
+            .values('tribunal_id', 'mes').annotate(n=Count('id')).order_by('tribunal_id', 'mes')
+        ):
+            if r['mes'] is None:
+                continue
+            volume_por_trib.setdefault(r['tribunal_id'], []).append(
+                [r['mes'].strftime('%Y-%m'), r['n']]
+            )
 
     # Ano-safra: 2º campo separado por ponto no CNJ (NNNNNNN-DD.AAAA.J.TR.OOOO).
     ano_min, ano_max = 1998, hoje.year + 1

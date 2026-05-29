@@ -298,7 +298,7 @@ def refresh_materialized_views():
     não pode depender de refresh diário.
     """
     def _run():
-        for mv in ('mv_volume_diario', 'mv_pipeline_diario', 'mv_tribunal_kpis'):
+        for mv in ('mv_volume_diario', 'mv_volume_mensal', 'mv_pipeline_diario', 'mv_tribunal_kpis'):
             try:
                 with connection.cursor() as cur:
                     cur.execute("SET lock_timeout = '5s'")
