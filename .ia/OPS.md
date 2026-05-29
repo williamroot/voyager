@@ -550,6 +550,43 @@ docker compose -f docker-compose-prod.yml exec -T web python -c \
 
 O refresh automático roda às 03:00 via `refresh_materialized_views` (scheduler inline). Ver ADR-017.
 
+### MV `mv_ingestion_rate_hora` (gráfico "Velocidade de ingestão")
+
+Alimenta o gráfico de movs inseridas/hora da overview. **Não** entra no
+`refresh_materialized_views` diário — tem refresh dedicado
+`refresh_ingestion_rate_hora` (scheduler inline, ~30min, janela de 4d). Um
+gráfico rolante de 24-72h não pode depender de refresh 1x/dia.
+
+> **Incidente 2026-05-28**: a MV ficou 41h velha (estava no refresh diário de
+> 7d, que estourava o `statement_timeout` de 3600s sob carga). Resultado: o
+> gráfico mostrou "Sem ingestão nas últimas 24h" enquanto a ingestão rodava
+> normal (11M+ movs inseridas/24h). Não era parada de ingestão — era MV stale.
+> Correção: refresh dedicado 30min + janela 7d→4d (migration 0034) + read
+> resiliente (mostra "métrica defasada", não falso "sem ingestão").
+
+Refresh manual (a MV é tabela pequena; o custo é o scan de 4d, ~min):
+
+```bash
+docker compose -f docker-compose-prod.yml exec -T web python -c \
+  "from django.db import connection; c=connection.cursor(); c.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_ingestion_rate_hora')"
+```
+
+Diagnóstico de staleness (compara MV vs inserts ao vivo):
+
+```bash
+docker compose -f docker-compose-prod.yml exec -T web python -c "
+import django,os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','core.settings'); django.setup()
+from django.db import connection
+from django.utils import timezone
+from datetime import timedelta
+from tribunals.models import Movimentacao
+with connection.cursor() as c:
+    c.execute('SELECT max(hora) FROM mv_ingestion_rate_hora'); mx=c.fetchone()[0]
+print('MV max(hora):', mx, '| idade(h):', (timezone.now()-mx).total_seconds()/3600 if mx else None)
+print('inserido_em última 1h:', Movimentacao.objects.filter(inserido_em__gte=timezone.now()-timedelta(hours=1)).count())
+"
+```
+
 ### Significado das cores
 
 | Cor | Significado | Threshold |

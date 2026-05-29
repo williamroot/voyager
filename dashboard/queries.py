@@ -552,10 +552,20 @@ def compute_kpis_globais(dias=None, tribunais=None):
 def ingestion_rate_por_hora(horas=24, tribunais=None):
     """Movimentações inseridas por hora nas últimas N horas, por tribunal.
 
-    Lê de `mv_ingestion_rate_hora` (refresh por cron 5min). Sem MV a query
-    direta com TruncHour em ~30M+ rows leva >60s e estoura o warm.
+    Lê da MV `mv_ingestion_rate_hora`, refreshada por cron dedicado
+    (`refresh_ingestion_rate_hora`, ~30min). Computar ao vivo é inviável:
+    agregar a janela de 24h custa ~6min (o backfill insere ~11M movs/dia e
+    o GROUP BY toca todas), por isso a MV amortiza o scan.
+
+    Retorna dict `{rows, mv_max_hora, idade_horas, stale}`. `stale=True`
+    sinaliza que a MV está defasada (refresh atrasou) — o frontend usa pra
+    mostrar "métrica defasada" em vez do enganoso "Sem ingestão", que
+    disparou falso alarme de parada de ingestão em 2026-05-28 (a MV ficou
+    41h velha porque o refresh diário de 7d estourava o statement_timeout).
     """
     from django.db import connection
+
+    _vazio_stale = {'rows': [], 'mv_max_hora': None, 'idade_horas': None, 'stale': True}
 
     cutoff_sql = f"NOW() - INTERVAL '{int(horas)} hours'"
     where = ['hora >= ' + cutoff_sql]
@@ -568,12 +578,34 @@ def ingestion_rate_por_hora(horas=24, tribunais=None):
         f'WHERE {" AND ".join(where)} ORDER BY hora, tribunal_id'
     )
     with connection.cursor() as cur:
+        # Ler MV não-populada (logo após migration WITH NO DATA, antes do 1º
+        # REFRESH) levanta erro no PG. Trata como "stale" em vez de estourar.
+        cur.execute(
+            "SELECT relispopulated FROM pg_class WHERE relname = 'mv_ingestion_rate_hora'")
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return _vazio_stale
         cur.execute(sql, params)
         rows = cur.fetchall()
-    return [
-        {'hora': hora.isoformat(), 'tribunal': trib, 'total': total}
-        for hora, trib, total in rows if hora
-    ]
+        cur.execute('SELECT max(hora) FROM mv_ingestion_rate_hora')
+        mv_max = cur.fetchone()[0]
+
+    idade_horas = None
+    stale = mv_max is None
+    if mv_max is not None:
+        idade_horas = round((timezone.now() - mv_max).total_seconds() / 3600, 1)
+        # Inserts são contínuos; a MV deveria ter um bucket da última hora.
+        # >2h sem bucket novo = refresh atrasou (não é "sem ingestão").
+        stale = idade_horas > 2.0
+    return {
+        'rows': [
+            {'hora': hora.isoformat(), 'tribunal': trib, 'total': total}
+            for hora, trib, total in rows if hora
+        ],
+        'mv_max_hora': mv_max.isoformat() if mv_max is not None else None,
+        'idade_horas': idade_horas,
+        'stale': stale,
+    }
 
 
 def sparkline_24h(tribunais=None):

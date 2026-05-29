@@ -223,13 +223,28 @@ def chart_data(request, key):
             horas = 24
         if use_cache:
             cached = _safe_cache_get(f'chart:ingestao-por-hora:h={horas}')
-            return JsonResponse(
-                {'data': cached if cached is not None else [], 'pending': cached is None},
-                json_dumps_params={'default': str},
-            )
+            if cached is None:
+                return JsonResponse({'data': [], 'pending': True},
+                                    json_dumps_params={'default': str})
+            # Payload legado (lista pura) pode estar no cache logo após deploy.
+            if isinstance(cached, list):
+                return JsonResponse({'data': cached, 'pending': False},
+                                    json_dumps_params={'default': str})
+            return JsonResponse({
+                'data': cached.get('rows', []),
+                'stale': cached.get('stale', False),
+                'mv_max_hora': cached.get('mv_max_hora'),
+                'idade_horas': cached.get('idade_horas'),
+                'pending': False,
+            }, json_dumps_params={'default': str})
         # Filtro custom (por sigla/tribunal): computa on-demand — não pré-aquecido.
-        data = queries.ingestion_rate_por_hora(horas=horas, tribunais=[sigla] if sigla else tribunais_filtro or None)
-        return JsonResponse({'data': data}, json_dumps_params={'default': str})
+        payload = queries.ingestion_rate_por_hora(horas=horas, tribunais=[sigla] if sigla else tribunais_filtro or None)
+        return JsonResponse({
+            'data': payload['rows'],
+            'stale': payload['stale'],
+            'mv_max_hora': payload['mv_max_hora'],
+            'idade_horas': payload['idade_horas'],
+        }, json_dumps_params={'default': str})
 
     if use_cache:
         cached = _safe_cache_get(_chart_cache_key(key, dias, tribunais_filtro))

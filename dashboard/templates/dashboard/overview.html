@@ -82,7 +82,7 @@
   </div>
   <div class="h-52 chart-cell">
     <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
-    <div data-echart='{}' x-effect="lazyChart($el, baseUrl + '&horas=' + horas, d => buildIngestaoRateChart(d, horas))" class="absolute inset-0"></div>
+    <div data-echart='{}' x-effect="lazyChart($el, baseUrl + '&horas=' + horas, (d, json) => buildIngestaoRateChart(d, horas, json))" class="absolute inset-0"></div>
   </div>
 </div>
 

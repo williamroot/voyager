@@ -182,7 +182,11 @@ def warm_leads_charts():
 
 @job('warm', timeout=180)
 def warm_ingestao_por_hora():
-    """Velocidade de ingestão (lê da MV mv_ingestion_rate_hora)."""
+    """Velocidade de ingestão (lê da MV mv_ingestion_rate_hora pro cache).
+
+    Só LÊ a MV (rápido — tabela de ~poucas centenas de linhas) e cacheia por
+    janela. Quem dá REFRESH na MV é `refresh_ingestion_rate_hora` (dedicado).
+    """
     def _run():
         for horas in _HORAS:
             try:
@@ -194,6 +198,41 @@ def warm_ingestao_por_hora():
                 logger.warning('warm_ingestao_por_hora h=%s: %s', horas, e)
                 _reset_connection()
     _with_lock('lock:warm_ingestao_por_hora', 300, _run)
+
+
+@job('warm', timeout=2400)
+def refresh_ingestion_rate_hora():
+    """REFRESH dedicado da MV mv_ingestion_rate_hora (janela 4d).
+
+    Separado do `refresh_materialized_views` diário: o gráfico "Velocidade de
+    ingestão" é janela rolante de 24-72h, então a MV precisa de refresh
+    frequente (~30min), não 1x/dia — senão fica vazia perto do horário do
+    refresh e some por dias quando o scan estoura o timeout (incidente
+    2026-05-28). Roda com lock próprio pra não competir com os 3 MVs pesados
+    do job diário.
+
+    CONCURRENTLY exige MV já populada; logo após o DROP/CREATE WITH NO DATA
+    da migration 0034 o 1º refresh cai pro modo não-concorrente (toma
+    ACCESS EXCLUSIVE só nessa primeira vez).
+    """
+    def _run():
+        try:
+            with connection.cursor() as cur:
+                cur.execute("SET lock_timeout = '10s'")
+                cur.execute("SET statement_timeout = '1800s'")
+                cur.execute(
+                    "SELECT relispopulated FROM pg_class "
+                    "WHERE relname = 'mv_ingestion_rate_hora'")
+                row = cur.fetchone()
+                populated = bool(row[0]) if row else False
+                concurrently = 'CONCURRENTLY ' if populated else ''
+                cur.execute(
+                    f'REFRESH MATERIALIZED VIEW {concurrently}mv_ingestion_rate_hora')
+            logger.info('refresh MV mv_ingestion_rate_hora ok (concurrently=%s)', populated)
+        except Exception as e:
+            logger.warning('refresh_ingestion_rate_hora: %s', e)
+            _reset_connection()
+    _with_lock('lock:refresh_ingestion_rate_hora', 1800, _run)
 
 
 @job('warm', timeout=900)
@@ -253,11 +292,13 @@ def refresh_materialized_views():
 
     `lock_timeout` PG aborta se outro REFRESH segura lock — evita empilhar
     (observado 11 REFRESH bloqueados crashou o postmaster).
-    timeout=7200: mv_ingestion_rate_hora leva 30-60min num scan de 7d em
-    187M+ rows; 600s matava o job antes de terminar, deixando o MV stale.
+
+    `mv_ingestion_rate_hora` saiu daqui (2026-05-28): tem refresh dedicado e
+    frequente em `refresh_ingestion_rate_hora` — um gráfico rolante de 24h
+    não pode depender de refresh diário.
     """
     def _run():
-        for mv in ('mv_volume_diario', 'mv_ingestion_rate_hora', 'mv_pipeline_diario', 'mv_tribunal_kpis'):
+        for mv in ('mv_volume_diario', 'mv_pipeline_diario', 'mv_tribunal_kpis'):
             try:
                 with connection.cursor() as cur:
                     cur.execute("SET lock_timeout = '5s'")
