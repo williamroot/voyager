@@ -418,6 +418,18 @@ def compute_score_breakdown(processo, top_n=5):
     return contribs[:top_n]
 
 
+def _reltuples(relname):
+    """Estimativa de linhas via pg_class.reltuples (O(1), atualizada por
+    autovacuum/ANALYZE). Pra headline KPIs em tabelões onde COUNT(*) exato é
+    proibitivo. Retorna None se a estimativa não for confiável (<=0)."""
+    from django.db import connection
+    with connection.cursor() as cur:
+        cur.execute("SELECT reltuples::bigint FROM pg_class WHERE relname = %s", [relname])
+        row = cur.fetchone()
+    n = int(row[0]) if row and row[0] is not None else 0
+    return n if n > 0 else None
+
+
 def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibilizacao'):
     """Aplica filtros de período e tribunais comuns em qualquer queryset de Movimentacao/Process.
 
@@ -523,27 +535,40 @@ def compute_kpis_globais(dias=None, tribunais=None):
     if tribunais:
         drift_qs = drift_qs.filter(tribunal_id__in=tribunais)
 
-    movs_agg = movs.aggregate(
-        total=Count('id'),
-        cancelados=Count('id', filter=Q(ativo=False)),
-    )
     if dias:
-        # "Processos" com filtro de período = processos com >=1 mov no período.
-        # COUNT(DISTINCT processo_id) sobre os movs já filtrados (HashAggregate
-        # + index range sargável). Substitui o DISTINCT da linha INTEIRA de
-        # Process via join (width 273, Sort de 32 colunas) que custava 18-30min
-        # e estourava o statement_timeout, segurando 4 parallel workers e
-        # estrangulando os outros warm jobs (2026-05-29).
+        # Com filtro de período os counts são sobre a janela (sargável, barato).
+        # "Processos" = COUNT(DISTINCT processo_id) sobre os movs já filtrados
+        # (HashAggregate + index range). Substitui o DISTINCT da linha INTEIRA
+        # de Process via join (width 273, Sort de 32 colunas) que custava
+        # 18-30min e estourava o statement_timeout, segurando 4 parallel
+        # workers e estrangulando os outros warm jobs (2026-05-29).
+        movs_agg = movs.aggregate(
+            total=Count('id'),
+            cancelados=Count('id', filter=Q(ativo=False)),
+        )
+        total_movimentacoes = movs_agg['total']
+        cancelados = movs_agg['cancelados']
         total_processos = movs.values('processo_id').distinct().count()
     else:
-        total_processos = procs.count()
+        # dias=None (homepage): contar as tabelas inteiras é caríssimo
+        # (movimentacao ~614M -> COUNT(*) exato ~8min, a cada 30min). Headline
+        # KPI não precisa de exatidão: usa estimativa reltuples (O(1)) — mesmo
+        # fallback de views.py. `cancelados` não é exibido na overview.
+        # tribunais específico (raro no warm) cai pro count real, menor.
+        cancelados = None
+        if tribunais:
+            total_movimentacoes = movs.count()
+            total_processos = procs.count()
+        else:
+            total_movimentacoes = _reltuples('tribunals_movimentacao') or movs.count()
+            total_processos = _reltuples('tribunals_process') or procs.count()
     result = {
         'total_processos': total_processos,
-        'total_movimentacoes': movs_agg['total'],
+        'total_movimentacoes': total_movimentacoes,
         'movs_24h': movs_24h,
         'movs_24h_delta_pct': delta_pct,
         'ins_24h': ins_24h,
-        'cancelados': movs_agg['cancelados'],
+        'cancelados': cancelados,
         'ultima_atualizacao': IngestionRun.objects
             .filter(status=IngestionRun.STATUS_SUCCESS).order_by('-finished_at')
             .values_list('finished_at', flat=True).first(),
