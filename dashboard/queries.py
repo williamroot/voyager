@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from statistics import median
 
 from django.db.models import Avg, Count, ExpressionWrapper, DurationField, F, Q, Sum
-from django.db.models.functions import TruncDate, TruncMonth
+from django.db.models.functions import TruncMonth
 from django.utils import timezone
 
 from tribunals.models import IngestionRun, Movimentacao, Process, SchemaDriftAlert, Tribunal
@@ -680,28 +680,60 @@ def volume_temporal(dias=None, tribunais=None):
     publicados décadas atrás) e distorcem visualmente o eixo X — a curva
     real começa em 2020+.
     """
-    qs = Movimentacao.objects.filter(data_disponibilizacao__date__gte=_VOLUME_TEMPORAL_MIN_DATE)
-    if dias:
-        qs = qs.filter(data_disponibilizacao__date__gte=date.today() - timedelta(days=dias))
+    from datetime import datetime
+
+    hoje = date.today()
+    is_daily = dias and dias <= 365
+
+    if is_daily:
+        # Caso diário (<=365d): lê da MV mv_volume_diario (volume/dia/tribunal,
+        # últimos 400d, refresh diário) — antes essa MV não era lida por
+        # ninguém. A query live com TruncDate custava ~7min porque o filtro
+        # CAST(data_disponibilizacao AS date) >= não é sargável; a MV resolve
+        # em ~ms (poucos milhares de linhas). `dia <= hoje` descarta datas-lixo
+        # futuras do Datajud (ano 2400).
+        from django.db import connection
+        inicio = hoje - timedelta(days=dias)
+        where = ['dia >= %s', 'dia <= %s']
+        params: list = [inicio, hoje]
+        if tribunais:
+            where.append('tribunal_id = ANY(%s)')
+            params.append(list(tribunais))
+        else:
+            ativos = list(Tribunal.objects.filter(ativo=True).values_list('sigla', flat=True))
+            where.append('tribunal_id = ANY(%s)')
+            params.append(ativos)
+        sql = (
+            'SELECT dia, tribunal_id, total FROM mv_volume_diario '
+            f'WHERE {" AND ".join(where)} ORDER BY dia, tribunal_id'
+        )
+        with connection.cursor() as cur:
+            cur.execute(sql, params)
+            rows_mv = cur.fetchall()
+        return [
+            {'dia': d.isoformat(), 'tribunal': trib, 'total': total, 'parcial': d == hoje}
+            for d, trib, total in rows_mv if d
+        ]
+
+    # Caso mensal (None ou >365d): a MV só cobre 400d, então agrega ao vivo
+    # desde o floor 2020. Filtro de TIMESTAMP (sargável) em vez de
+    # CAST(...AS date) — usa o índice btree de data_disponibilizacao.
+    floor_dt = timezone.make_aware(datetime(_VOLUME_TEMPORAL_MIN_DATE.year, 1, 1))
+    qs = Movimentacao.objects.filter(data_disponibilizacao__gte=floor_dt)
+    if dias:  # janela explícita (>365d cai aqui; <=365 já foi via MV acima)
+        qs = qs.filter(data_disponibilizacao__gte=timezone.now() - timedelta(days=dias))
     if tribunais:
         qs = qs.filter(tribunal_id__in=tribunais)
     else:
         qs = qs.filter(tribunal__ativo=True)
 
-    is_daily = dias and dias <= 365
-    bucket_func = TruncDate if is_daily else TruncMonth
     rows = (
-        qs.annotate(periodo=bucket_func('data_disponibilizacao'))
+        qs.annotate(periodo=TruncMonth('data_disponibilizacao'))
         .values('periodo', 'tribunal_id')
         .annotate(total=Count('id'))
         .order_by('periodo', 'tribunal_id')
     )
-
-    hoje = date.today()
-    if is_daily:
-        bucket_corrente = hoje
-    else:
-        bucket_corrente = hoje.replace(day=1)
+    bucket_corrente = hoje.replace(day=1)
 
     # Serializa só `YYYY-MM-DD` (sem hora) — eixo X do chart precisa só
     # da data, e `datetime.isoformat()` mete `T00:00:00-03:00` que polui.
