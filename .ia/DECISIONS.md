@@ -151,10 +151,13 @@ Decisões arquiteturais relevantes com motivação. Estilo ADR enxuto.
 
 **Intervalos:**
 - KPIs, charts leves/pesados, partes, estatísticas, filtros: a cada 30 min
-- Velocidade de ingestão (`warm_ingestao_por_hora`): a cada 4h (lê da MV, muda pouco)
-- MV refresh (`refresh_materialized_views`): cron diário 03:00
+- Velocidade de ingestão (`warm_ingestao_por_hora`): a cada 15 min (só **lê** a MV pro cache)
+- Refresh da MV `mv_ingestion_rate_hora` (`refresh_ingestion_rate_hora`): a cada 30 min — **dedicado**, fora do refresh diário (ver abaixo)
+- Demais MVs (`refresh_materialized_views`: `mv_volume_diario`, `mv_pipeline_diario`, `mv_tribunal_kpis`): cron diário 03:00
 
 **Consequência:** Zero acúmulo de jobs na fila. Sem dependência de worker externo pra dashboard funcionar. Falha de 1 warm job não afeta os outros (thread pool isolado). Trade-off: warm jobs pesados (charts_pesados, estatisticas) ocupam threads do scheduler por até 30-60min — mitigado pelo pool de 20 threads.
+
+**Adendo (2026-05-28):** `mv_ingestion_rate_hora` saiu do refresh diário. Ela alimenta o gráfico "Velocidade de ingestão" (janela rolante de 24-72h), então refresh 1x/dia a deixava stale perto do horário e — quando o scan de 7d estourava o `statement_timeout` de 3600s sob carga — stale por dias, mostrando falso "Sem ingestão" com a ingestão rodando normal (incidente: MV 41h velha vs 11M+ movs inseridas/24h). Correção: refresh dedicado a cada 30min + janela encolhida 7d→4d (migration 0034) + read resiliente que distingue "MV defasada" de "sem ingestão".
 
 ## ADR-016 — Re-consumo permitido em LeadConsumption (sem unique constraint)
 
