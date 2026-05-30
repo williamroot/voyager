@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!--
+  Fixture SINTETIZADA da resposta de "não encontrado" do e-SAJ TJAL: quando a
+  busca por NUMPROC não acha resultado (CNJ inexistente / segredo de justiça),
+  o search.do NÃO redireciona — devolve a própria página de busca, que contém
+  o <form name="formConsulta"> e nenhum dos campos do detalhe
+  (#classeProcesso / #numeroProcesso). O enricher distingue por isso.
+-->
+<html lang="pt-br">
+<head><title>e-SAJ TJAL · Consulta de Processos de 1º Grau</title></head>
+<body>
+  <form name="formConsulta" id="formConsulta" action="/cpopg/search.do" method="post">
+    <fieldset>
+      <label for="numeroDigitoAnoUnificado">Número do processo unificado</label>
+      <input type="text" name="numeroDigitoAnoUnificado" id="numeroDigitoAnoUnificado" />
+      <input type="submit" value="Consultar" />
+    </fieldset>
+    <div class="mensagemRetorno">Não existem informações disponíveis para os parâmetros informados.</div>
+  </form>
+</body>
+</html>

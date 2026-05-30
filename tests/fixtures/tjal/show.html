@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<!--
+  Fixture SINTETIZADA do detalhe e-SAJ (cpopg/show.do) do TJAL.
+  Estrutura/seletores fiéis ao e-SAJ real (mesmos que o TjspEnricher já
+  consome em prod): #classeProcesso, #assuntoProcesso, #foroProcesso,
+  #varaProcesso, #dataHoraDistribuicaoProcesso, #valorAcaoProcesso e a
+  tabela #tablePartesPrincipais com .tipoDeParticipacao / .nomeParteEAdvogado.
+  Dados são plausíveis para TJAL (CNJ .8.02, Foro de Maceió). e-SAJ público
+  NÃO expõe CPF/CNPJ na lista de partes (só nome) — por isso nenhum doc aqui.
+-->
+<html lang="pt-br">
+<head><title>e-SAJ TJAL · Consulta de Processos</title></head>
+<body>
+  <div id="containerDadosPrincipaisProcesso">
+    <span id="numeroProcesso">0700123-45.2024.8.02.0001</span>
+    <span id="classeProcesso">Procedimento Comum Cível</span>
+    <span id="assuntoProcesso">Indenização por Dano Moral</span>
+    <span id="foroProcesso">Foro de Maceió</span>
+    <span id="varaProcesso">3ª Vara Cível da Capital</span>
+    <span id="dataHoraDistribuicaoProcesso">12/03/2024 às 14:32 - Livre Distribuição</span>
+    <span id="valorAcaoProcesso">R$ 30.000,00</span>
+  </div>
+
+  <table id="tablePartesPrincipais">
+    <tbody>
+      <tr class="fundoClaro">
+        <td class="label"><span class="tipoDeParticipacao">Reqte</span></td>
+        <td class="nomeParteEAdvogado">
+          <span class="nomeAlinhado">MARIA DA SILVA SANTOS</span>
+          <span class="mensagemExibindo">Advogado:</span>
+          <span class="nomeAlinhado">João Carlos Pereira OAB AL 12345</span>
+        </td>
+      </tr>
+      <tr class="fundoEscuro">
+        <td class="label"><span class="tipoDeParticipacao">Reqdo</span></td>
+        <td class="nomeParteEAdvogado">
+          <span class="nomeAlinhado">BANCO XPTO S/A</span>
+          <span class="mensagemExibindo">Advogado:</span>
+          <span class="nomeAlinhado">Ana Beatriz Lima OAB AL 67890</span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>

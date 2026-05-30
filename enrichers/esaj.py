@@ -1,6 +1,12 @@
-"""Enricher TJSP via e-SAJ consulta pública (sem login).
+"""Enrichers e-SAJ consulta pública (sem login) — TJSP, TJAL, ...
 
-Endpoint: https://esaj.tjsp.jus.br/cpopg/...
+e-SAJ é o sistema da Softplan usado por vários TJs (SP, AL, ...). O fluxo de
+consulta pública é idêntico entre eles — só muda o host. `BaseEsajEnricher`
+concentra toda a lógica; cada subclasse configura só `BASE_URL`,
+`TRIBUNAL_SIGLA` e `LOG_NAME` (mesmo padrão de `BasePjeEnricher`).
+
+Endpoint (ex. TJSP): https://esaj.tjsp.jus.br/cpopg/...
+Endpoint (ex. TJAL): https://www2.tjal.jus.br/cpopg/...
 
 Fluxo (HTTP puro, sem Selenium nem captcha):
   GET  /cpopg/open.do                                          → estabelece JSESSIONID
@@ -54,14 +60,19 @@ def _format_cnj(raw: str) -> str:
     return f'{raw[:7]}-{raw[7:9]}.{raw[9:13]}.{raw[13]}.{raw[14:16]}.{raw[16:]}'
 
 
-class TjspEnricher:
-    BASE_URL = 'https://esaj.tjsp.jus.br'
-    OPEN_URL = f'{BASE_URL}/cpopg/open.do'
-    SEARCH_URL = f'{BASE_URL}/cpopg/search.do'
-    TRIBUNAL_SIGLA = 'TJSP'
-    LOG_NAME = 'voyager.enrichers.tjsp'
+class BaseEsajEnricher:
+    # Subclasse OBRIGATÓRIA: host do e-SAJ do tribunal + sigla CNJ.
+    BASE_URL: Optional[str] = None
+    TRIBUNAL_SIGLA: Optional[str] = None
+    LOG_NAME = 'voyager.enrichers.esaj'
 
     def __init__(self, prefer_cortex: bool = False):
+        if not self.BASE_URL or not self.TRIBUNAL_SIGLA:
+            raise NotImplementedError(
+                f'{self.__class__.__name__} precisa definir BASE_URL e TRIBUNAL_SIGLA.'
+            )
+        self.OPEN_URL = f'{self.BASE_URL}/cpopg/open.do'
+        self.SEARCH_URL = f'{self.BASE_URL}/cpopg/search.do'
         self.session = requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
         self.timeout = (10, 60)
@@ -133,6 +144,27 @@ class TjspEnricher:
         self.session.get(self.OPEN_URL, timeout=self.timeout)
         self._session_inited = True
 
+    @staticmethod
+    def _build_search_params(cnj_fmt: str) -> dict:
+        """Monta os params do search.do a partir do CNJ formatado.
+
+        `numeroDigitoAnoUnificado` = NNNNNNN-DD.AAAA e `foroNumeroUnificado` =
+        OOOO. Derivado por segmento (split em '.') — independente de tribunal.
+        O código antigo cravava `.split('.8.26')` (J.TR do TJSP); a versão por
+        segmento dá o mesmo resultado pro TJSP e funciona pra TJAL (.8.02) e
+        qualquer outro e-SAJ.
+        """
+        parts = cnj_fmt.split('.')  # ['NNNNNNN-DD','AAAA','J','TR','OOOO']
+        return {
+            'conversationId': '',
+            'cbPesquisa': 'NUMPROC',
+            'dadosConsulta.localPesquisa.cdLocal': '-1',
+            'numeroDigitoAnoUnificado': f'{parts[0]}.{parts[1]}',
+            'foroNumeroUnificado': parts[4],
+            'dadosConsulta.valorConsultaNuUnificado': cnj_fmt,
+            'dadosConsulta.tipoNuProcesso': 'UNIFICADO',
+        }
+
     def _fetch_processo(self, cnj_raw: str) -> Optional[str]:
         """Retorna o HTML do detalhe ou None se o processo não foi encontrado.
 
@@ -141,20 +173,10 @@ class TjspEnricher:
         redirect). Usamos `response.history` pra distinguir.
         """
         cnj_fmt = _format_cnj(cnj_raw)
-        ndo = cnj_fmt.split('.8.26')[0]
-        foro = cnj_fmt.split('.')[-1]
+        params = self._build_search_params(cnj_fmt)
 
         self._ensure_session()
 
-        params = {
-            'conversationId': '',
-            'cbPesquisa': 'NUMPROC',
-            'dadosConsulta.localPesquisa.cdLocal': '-1',
-            'numeroDigitoAnoUnificado': ndo,
-            'foroNumeroUnificado': foro,
-            'dadosConsulta.valorConsultaNuUnificado': cnj_fmt,
-            'dadosConsulta.tipoNuProcesso': 'UNIFICADO',
-        }
         resp = self.session.get(self.SEARCH_URL, params=params,
                                 timeout=self.timeout, allow_redirects=True)
         resp.raise_for_status()
@@ -250,3 +272,15 @@ class TjspEnricher:
         if any(t.startswith(p) for p in self._PAPEIS_PASSIVO):
             return 'passivo'
         return 'outros'
+
+
+class TjspEnricher(BaseEsajEnricher):
+    BASE_URL = 'https://esaj.tjsp.jus.br'
+    TRIBUNAL_SIGLA = 'TJSP'
+    LOG_NAME = 'voyager.enrichers.tjsp'
+
+
+class TjalEnricher(BaseEsajEnricher):
+    BASE_URL = 'https://www2.tjal.jus.br'
+    TRIBUNAL_SIGLA = 'TJAL'
+    LOG_NAME = 'voyager.enrichers.tjal'

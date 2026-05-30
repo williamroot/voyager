@@ -13,10 +13,11 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TRF2 | E-PROC | **Não (só DJEN+Datajud ativos)** | Subdomain público `eproc-consulta.trf2.jus.br` existe mas exige captcha (`#divInfraCaptcha`) e tem IDs randomizados por sessão. Sistema interno tem login + 2FA. Parser autenticado de referência em `~/projetos/JURISCOPE/falcon/datamodel/processors/trf2.py` (965 linhas). |
 | TRF4 | E-PROC | **Não (só DJEN+Datajud ativos desde 2026-05-24)** | Mesmo cenário do TRF2. |
 | TRF6 | E-PROC | **Não (só DJEN+Datajud ativos desde 2026-05-24)** | Mesmo cenário do TRF2. |
-| TJSP | e-SAJ | **Sim** (2026-05-24) | `enrichers/esaj.py` (classe própria, não herda BasePjeEnricher). HTTP puro (sem Selenium): `open.do` → `search.do?NUMPROC` (302) → `show.do` → parse. Selectors portados de `ESAJSPProcessDataProcessor` do JURISCOPE. Limitação: e-SAJ público mascara CPF/CNPJ, então `documento` fica vazio (OAB e nome são preservados). |
+| TJSP | e-SAJ | **Sim** (2026-05-24) | `enrichers/esaj.py::TjspEnricher` (subclasse de `BaseEsajEnricher`, não herda BasePjeEnricher). HTTP puro (sem Selenium): `open.do` → `search.do?NUMPROC` (302) → `show.do` → parse. Selectors portados de `ESAJSPProcessDataProcessor` do JURISCOPE. Limitação: e-SAJ público mascara CPF/CNPJ, então `documento` fica vazio (OAB e nome são preservados). |
+| TJAL | e-SAJ | **Sim** (2026-05-30) | `enrichers/esaj.py::TjalEnricher` (subclasse de `BaseEsajEnricher`). Mesmo software/fluxo do TJSP, host `www2.tjal.jus.br`. Seed `0036` sobe `ativo=False` — falta `djen_descobrir_inicio TJAL` + flip `ativo=True`. Teste e2e em `tests/test_enricher_tjal.py`. |
 | TJMG | PJe consulta pública (sem login) | **Sim** | `enrichers/tjmg.py` (subclasse) — `pje.tjmg.jus.br/pje/...` |
 | TJDFT | PJe SPA Angular + REST API (sem login) | **Sim** (2026-05-26) | `enrichers/tjdft.py` (classe própria, não herda BasePjeEnricher). API REST Spring Boot em `pje-consultapublica-api.tjdft.jus.br/v1/`. CPF/CNPJ sem máscara. Limitação: rota `/dados` não expõe `valor_causa`. |
-| **TJs com PJe pendentes** | PJe consulta pública | Não (planejado) | Meta: cobertura total. 17 restantes: TJAC, TJAM, TJAP, TJBA, TJCE, TJES, TJMT, TJPA, TJPB, TJPE, TJPI, TJRJ, TJRN, TJRO, TJRR, TJSE, TJTO. Verificar antes se ainda usam PJe clássico (JSF/Seam) ou migraram pra SPA+REST como TJDFT — clássico = subclasse de `BasePjeEnricher` (passos em "Como adicionar enricher pra outro PJe" abaixo); SPA+REST = classe própria nos moldes de `enrichers/tjdft.py`. Estaduais fora desta lista (não-PJe): TJAL/TJMS (e-SAJ), TJGO/TJPR (PROJUDI), TJRS/TJSC (eproc). |
+| **TJs com PJe pendentes** | PJe consulta pública | Não (planejado) | Meta: cobertura total. 17 restantes: TJAC, TJAM, TJAP, TJBA, TJCE, TJES, TJMT, TJPA, TJPB, TJPE, TJPI, TJRJ, TJRN, TJRO, TJRR, TJSE, TJTO. Verificar antes se ainda usam PJe clássico (JSF/Seam) ou migraram pra SPA+REST como TJDFT — clássico = subclasse de `BasePjeEnricher` (passos em "Como adicionar enricher pra outro PJe" abaixo); SPA+REST = classe própria nos moldes de `enrichers/tjdft.py`. Estaduais fora desta lista (não-PJe): TJMS (e-SAJ — adicionar como subclasse de `BaseEsajEnricher`, ver TJAL), TJGO/TJPR (PROJUDI), TJRS/TJSC (eproc). |
 
 ## Arquitetura
 
@@ -237,6 +238,35 @@ Como mapear endpoints de um TJ novo nesse formato:
 4. Adicionar fila `enrich_trfN` em `core/settings.py::RQ_QUEUES`.
 5. Adicionar serviço `worker_trfN` em `docker-compose-prod.yml` com `replicas: 4`.
 6. Restart scheduler pra registrar daily cron.
+
+## Como adicionar enricher pra outro e-SAJ (TJSP, TJAL, ...)
+
+e-SAJ é idêntico entre tribunais — só muda o host. `BaseEsajEnricher`
+(`enrichers/esaj.py`) tem toda a lógica; o split do CNJ é por segmento
+(independente de tribunal). Caso de referência: **TJAL** (2026-05-30).
+
+1. Subclasse em `enrichers/esaj.py` (3 linhas):
+   ```python
+   class TjalEnricher(BaseEsajEnricher):
+       BASE_URL = 'https://www2.tjal.jus.br'   # host do e-SAJ do TJ
+       TRIBUNAL_SIGLA = 'TJAL'
+       LOG_NAME = 'voyager.enrichers.tjal'
+   ```
+2. `enrichers/jobs.py::_ENRICHERS` + import.
+3. `djen/ingestion.py::TRIBUNAIS_COM_ENRICHER` (auto-enqueue). Dimensione a fila
+   antes pra tribunal de volume alto — TJSP entrou aqui em 2026-05-30 já com
+   `worker_tjsp` em 60 réplicas (auto-enqueue só pega Process novos por janela
+   diária; o backlog drena via `reabastecer_filas_enriquecimento`, capado em
+   `QUEUE_HIGH_WATER`).
+4. Fila `enrich_<sigla>` em `core/settings.py::RQ_QUEUES`.
+5. Serviço `worker_<sigla>` em `docker-compose-workers.yml` (ramp 10 réplicas).
+6. Seed migration `update_or_create` o `Tribunal` com `ativo=False`.
+7. Ativação em prod: `djen_descobrir_inicio <sigla>` → flip `ativo=True` →
+   backfill (ver .ia/OPS.md). Botão de enrich manual: condição no template
+   `dashboard/templates/dashboard/processo_detail.html`.
+
+Limitação herdada do TJSP: e-SAJ público mascara CPF/CNPJ → `documento` vazio
+(OAB e nome preservados).
 
 ## Stream sharded (drainer × N)
 

@@ -529,6 +529,10 @@ def processo_detail(request, pk):
         'processo': proc,
         'polos': polos,
         'classif_explicacao': classif_explicacao,
+        # Botão "Atualizar dados públicos" aparece sse há enricher pro tribunal.
+        # Fonte única = registry _ENRICHERS (mesmo guard de processo_enriquecer),
+        # evita o or-chain hardcoded que desincronizava do registry.
+        'pode_enriquecer': proc.tribunal_id in _ENRICHERS,
     })
 
 

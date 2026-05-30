@@ -117,6 +117,20 @@ services:
       replicas: 10
     restart: unless-stopped
 
+  worker_tjal:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjal
+    env_file: .env
+    volumes:
+      - .:/app
+    deploy:
+      # TJAL roda o MESMO e-SAJ do TJSP (HTTP puro, 2 requests/job: open.do +
+      # search.do→show.do). Volume muito menor que TJSP — ramp inicial 10
+      # réplicas (critério do 1º deploy de tribunal novo). Sem ProxyScrapePool:
+      # e-SAJ tolera taxa moderada de IP único; subir se rate-limit aparecer.
+      replicas: 10
+    restart: unless-stopped
+
   worker_default:
     image: voyager-web:prod
     command: python manage.py rqworker default

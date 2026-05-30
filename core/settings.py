@@ -182,6 +182,7 @@ RQ_QUEUES = {
     'enrich_tjmg':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     'enrich_tjma':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     'enrich_tjsp':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
+    'enrich_tjal':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     'enrich_tjdft':    {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     # Fila prioritária pra requests on-demand do dashboard (botões de
     # 'Atualizar dados públicos' / 'Sincronizar movimentações'). Workers

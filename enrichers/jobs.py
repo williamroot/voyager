@@ -5,7 +5,7 @@ from django_rq import job
 
 from tribunals.models import Process
 
-from .esaj import TjspEnricher
+from .esaj import TjalEnricher, TjspEnricher
 from .tjdft import TjdftEnricher
 from .tjma import TjmaEnricher
 from .tjmg import TjmgEnricher
@@ -23,6 +23,7 @@ _ENRICHERS = {
     'TJMG': TjmgEnricher,
     'TJMA': TjmaEnricher,
     'TJSP': TjspEnricher,
+    'TJAL': TjalEnricher,
     'TJDFT': TjdftEnricher,
 }
 

@@ -85,12 +85,18 @@ def test_auto_enqueue_na_ingestao_djen():
     assert 'TJMA' in TRIBUNAIS_COM_ENRICHER
 
 
-def test_botao_enriquecer_disponivel_no_dashboard():
-    """A condição do template é manualmente sincronizada — proteger contra
-    esquecer de adicionar TJMA quando alguém refatorar."""
+def test_botao_enriquecer_e_registry_driven():
+    """O botão de enrich é derivado de `_ENRICHERS` (via context
+    `pode_enriquecer`), não de um or-chain hardcoded no template — então
+    qualquer tribunal com enricher registrado ganha o botão. TJMA está no
+    registry (test_registry_em_enrichers_jobs)."""
+    from enrichers.jobs import _ENRICHERS
+    assert 'TJMA' in _ENRICHERS
     tpl = (Path(__file__).resolve().parents[1]
            / 'dashboard' / 'templates' / 'dashboard' / 'processo_detail.html')
-    assert "tribunal_id == 'TJMA'" in tpl.read_text()
+    body = tpl.read_text()
+    assert '{% if pode_enriquecer %}' in body
+    assert "tribunal_id == 'TJMA'" not in body
 
 
 # --------------------------- 3. Parsing do listView ---------------------------
