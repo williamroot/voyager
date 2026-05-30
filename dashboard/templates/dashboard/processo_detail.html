@@ -28,7 +28,7 @@
           <span class="badge bg-surface border-border/50 text-fg-subtle" title="Ainda não classificado">não classificado</span>
         {% endif %}
         {% if processo.enriquecimento_status == 'nao_encontrado' %}
-          {% include 'dashboard/_partials/badge.html' with text='não encontrado no PJe' variant='warning' %}
+          {% include 'dashboard/_partials/badge.html' with text='não encontrado na consulta pública' variant='warning' %}
         {% elif processo.enriquecimento_status == 'erro' %}
           {% include 'dashboard/_partials/badge.html' with text='falha na consulta pública' variant='danger' %}
         {% elif processo.enriquecimento_status == 'pendente' %}
@@ -95,7 +95,7 @@
         <div class="text-sm">
           <div class="text-warning font-medium mb-1">Processo não encontrado na consulta pública do {{ processo.tribunal_id }}</div>
           <div class="text-fg-muted text-xs leading-relaxed">
-            O DJEN registra movimentações deste processo, mas o sistema PJe do {{ processo.tribunal_id }} não retorna detalhes pelo número CNJ. Causas comuns: processo pré-PJe (físico, tramita em sistema legado), em segredo de justiça, ou recém-distribuído sem indexação. Os dados de partes/classe/órgão julgador ficam indisponíveis até o tribunal expor essa informação.
+            O DJEN registra movimentações deste processo, mas o sistema de consulta pública do {{ processo.tribunal_id }} não retorna detalhes pelo número CNJ. Causas comuns: processo pré-digital (físico, tramita em sistema legado), em segredo de justiça, ou recém-distribuído sem indexação. Os dados de partes/classe/órgão julgador ficam indisponíveis até o tribunal expor essa informação.
           </div>
         </div>
       </div>
