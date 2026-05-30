@@ -21,7 +21,7 @@ CI) mas espelham os seletores reais do e-SAJ já validados no TjspEnricher.
 """
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
@@ -47,8 +47,23 @@ def _resp(text: str, status: int = 200, history=None, url: str = '') -> requests
     return r
 
 
-def _make_enricher() -> TjalEnricher:
-    return TjalEnricher()
+def _mock_pool() -> MagicMock:
+    """Pool fake: cada .get() devolve um IP distinto (pra rotação funcionar);
+    mark_bad é um MagicMock pra checar quantos proxies foram queimados."""
+    pool = MagicMock()
+    counter = {'n': 0}
+
+    def _get():
+        counter['n'] += 1
+        return f'http://10.0.0.{counter["n"]}:8080'
+
+    pool.get.side_effect = _get
+    return pool
+
+
+def _make_enricher(pool: MagicMock = None) -> TjalEnricher:
+    # Pool sempre mockado nos testes — nunca toca Redis/ProxyScrape real.
+    return TjalEnricher(pool=pool or _mock_pool())
 
 
 # --------------------------- 1. Config ---------------------------
@@ -119,9 +134,8 @@ def test_format_cnj():
 
 def test_search_params_tjal_deriva_foro_e_ndo():
     """TJAL: .8.02. `foro` = OOOO, `ndo` = NNNNNNN-DD.AAAA."""
-    e = _make_enricher()
     cnj = _format_cnj('07001234520248020001')  # 0700123-45.2024.8.02.0001
-    params = e._build_search_params(cnj)
+    params = BaseEsajEnricher._build_search_params(cnj)
     assert params['numeroDigitoAnoUnificado'] == '0700123-45.2024'
     assert params['foroNumeroUnificado'] == '0001'
     assert params['dadosConsulta.valorConsultaNuUnificado'] == cnj
@@ -131,9 +145,8 @@ def test_search_params_tjal_deriva_foro_e_ndo():
 def test_search_params_regressao_tjsp_8_26():
     """Regressão: o split generalizado tem que dar EXATAMENTE o que o antigo
     `.split('.8.26')` dava pro TJSP."""
-    e = TjspEnricher()
     cnj = _format_cnj('10000005020238260100')  # 1000000-50.2023.8.26.0100
-    params = e._build_search_params(cnj)
+    params = TjspEnricher._build_search_params(cnj)
     assert params['numeroDigitoAnoUnificado'] == '1000000-50.2023'
     assert params['foroNumeroUnificado'] == '0100'
 
@@ -148,15 +161,22 @@ def processo():
     )
 
 
-def _patch_session(enricher, *responses):
-    """Substitui `enricher.session.get` por uma fila de respostas em ordem.
-    1ª chamada = open.do (sessão); 2ª = search.do."""
+def _seq_responses(*responses):
+    """(queue, fake_get) — fake_get pop a fila de respostas em ordem,
+    ignorando url/kwargs. Cada tentativa consome 2: open.do + search.do."""
     queue = list(responses)
 
     def fake_get(url, **kw):  # noqa: ARG001
         assert queue, 'enricher fez mais GETs do que o esperado'
         return queue.pop(0)
 
+    return queue, fake_get
+
+
+def _patch_session(enricher, *responses):
+    """Substitui `enricher.session.get` por uma fila de respostas em ordem.
+    Cada tentativa = open.do (sessão) + search.do."""
+    _, fake_get = _seq_responses(*responses)
     return patch.object(enricher.session, 'get', side_effect=fake_get)
 
 
@@ -244,3 +264,84 @@ def test_enriquecer_rejeita_tribunal_diferente():
     proc = SimpleNamespace(pk=1, tribunal_id='TRF1', numero_cnj='x')
     with pytest.raises(EsajEnricherError):
         _make_enricher().enriquecer(proc)
+
+
+# ----------------- 5. Pool ProxyScrape (2500+ IPs) -----------------
+
+def test_usa_pool_e_sai_por_proxy(processo):
+    """Toda request do e-SAJ tem que sair por um IP do pool — não pelo IP do
+    worker. Captura o kwarg `proxies` das duas chamadas (open.do + search.do)."""
+    pool = _mock_pool()
+    e = _make_enricher(pool=pool)
+    open_pg = _resp('<html>ok</html>')
+    show = _resp((FIXTURES / 'show.html').read_text(), history=[_resp('', status=302)])
+
+    proxies_vistos = []
+    queue = [open_pg, show]
+
+    def fake_get(url, **kw):
+        proxies_vistos.append(kw.get('proxies'))
+        return queue.pop(0)
+
+    _, cm_pub = _patch_publish()
+    with patch.object(e.session, 'get', side_effect=fake_get), cm_pub:
+        result = e.enriquecer(processo)
+
+    assert result['status'] == 'ok'
+    assert pool.get.called, 'enricher não consultou o pool'
+    # As 2 requests saíram por proxy (dict http/https), e pelo MESMO IP do pool.
+    assert len(proxies_vistos) == 2
+    assert all(p and p.get('http', '').startswith('http://10.0.0.') for p in proxies_vistos)
+    assert proxies_vistos[0] == proxies_vistos[1], 'open.do e search.do têm que usar o mesmo IP'
+
+
+def test_rotaciona_e_marca_bad_em_429(processo):
+    """Bloqueio 429 → marca o IP como bad e tenta outro IP; sucesso no 2º."""
+    pool = _mock_pool()
+    e = _make_enricher(pool=pool)
+    show = (FIXTURES / 'show.html').read_text()
+    # attempt1: open(200) + search(429); attempt2: open(200) + search(show)
+    _, fake = _seq_responses(
+        _resp('<html>ok</html>'), _resp('blocked', status=429),
+        _resp('<html>ok</html>'), _resp(show, history=[_resp('', status=302)]),
+    )
+    _, cm_pub = _patch_publish()
+    with patch.object(e.session, 'get', side_effect=fake), cm_pub:
+        result = e.enriquecer(processo)
+
+    assert result['status'] == 'ok'
+    assert pool.mark_bad.call_count == 1, 'IP do 429 deveria ser marcado bad'
+
+
+def test_rotaciona_em_500_sem_marcar_bad(processo):
+    """e-SAJ 500 (throttle do servidor) → rotaciona pra outro IP MAS não queima
+    o proxy (a culpa é do servidor, não do IP)."""
+    pool = _mock_pool()
+    e = _make_enricher(pool=pool)
+    show = (FIXTURES / 'show.html').read_text()
+    _, fake = _seq_responses(
+        _resp('<html>ok</html>'), _resp('overloaded', status=500),
+        _resp('<html>ok</html>'), _resp(show, history=[_resp('', status=302)]),
+    )
+    _, cm_pub = _patch_publish()
+    with patch.object(e.session, 'get', side_effect=fake), cm_pub:
+        result = e.enriquecer(processo)
+
+    assert result['status'] == 'ok'
+    assert pool.mark_bad.call_count == 0, '500 é culpa do e-SAJ — não marcar o IP bad'
+
+
+def test_pool_exausto_vira_erro(processo):
+    """Todos os IPs tentados deram 500 → estoura MAX_PROXY_ROTATIONS e emite erro
+    (não vira falso 'nao_encontrado')."""
+    pool = _mock_pool()
+    e = _make_enricher(pool=pool)
+    # sempre 500: cada tentativa = open(200) + search(500)
+    def fake(url, **kw):
+        return _resp('<html>ok</html>') if url.endswith('open.do') else _resp('x', status=500)
+    captured, cm_pub = _patch_publish()
+    with patch.object(e.session, 'get', side_effect=fake), cm_pub:
+        result = e.enriquecer(processo)
+
+    assert result['status'] == 'erro'
+    assert len(captured) == 1 and captured[0]['status'] == 'erro'

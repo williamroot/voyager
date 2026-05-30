@@ -31,6 +31,7 @@ import requests
 from bs4 import BeautifulSoup
 from django.utils import timezone
 
+from djen.proxies import ProxyScrapePool, cortex_proxy_url
 from tribunals.models import Process
 
 from . import stream
@@ -66,7 +67,10 @@ class BaseEsajEnricher:
     TRIBUNAL_SIGLA: Optional[str] = None
     LOG_NAME = 'voyager.enrichers.esaj'
 
-    def __init__(self, prefer_cortex: bool = False):
+    # Limite de IPs distintos tentados por processo antes de desistir.
+    MAX_PROXY_ROTATIONS = 8
+
+    def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         if not self.BASE_URL or not self.TRIBUNAL_SIGLA:
             raise NotImplementedError(
                 f'{self.__class__.__name__} precisa definir BASE_URL e TRIBUNAL_SIGLA.'
@@ -77,8 +81,11 @@ class BaseEsajEnricher:
         self.session.headers.update(DEFAULT_HEADERS)
         self.timeout = (10, 60)
         self.logger = logging.getLogger(self.LOG_NAME)
+        # Pool ProxyScrape (2500+ IPs) — sem ele, 60 workers saíam todos do
+        # IP do worker e o e-SAJ throttlava (500 / Max retries). Cada processo
+        # roda por 1 IP do pool; rotaciona pra outro IP em bloqueio/erro.
+        self.pool = pool or ProxyScrapePool.singleton()
         self.prefer_cortex = prefer_cortex
-        self._session_inited = False
 
     def enriquecer(self, processo: Process, direct_apply: bool = False) -> dict:
         if processo.tribunal_id != self.TRIBUNAL_SIGLA:
@@ -136,13 +143,22 @@ class BaseEsajEnricher:
 
     # ---------- HTTP ----------
 
-    def _ensure_session(self) -> None:
-        """e-SAJ exige JSESSIONID válido antes do search.do; sem isso o
-        search retorna a página de busca em vez do redirect pro detalhe."""
-        if self._session_inited:
-            return
-        self.session.get(self.OPEN_URL, timeout=self.timeout)
-        self._session_inited = True
+    def _next_proxy(self, exclude: set) -> Optional[str]:
+        """Próximo IP. Default: pool ProxyScrape primeiro, Cortex residencial
+        como fallback. prefer_cortex=True (clique manual) inverte a ordem."""
+        if self.prefer_cortex:
+            cortex = cortex_proxy_url(self.pool)
+            if cortex and cortex not in exclude:
+                return cortex
+        for _ in range(40):
+            url = self.pool.get()
+            if url and url not in exclude:
+                return url
+        if not self.prefer_cortex:
+            cortex = cortex_proxy_url(self.pool)
+            if cortex and cortex not in exclude:
+                return cortex
+        return None
 
     @staticmethod
     def _build_search_params(cnj_fmt: str) -> dict:
@@ -168,6 +184,12 @@ class BaseEsajEnricher:
     def _fetch_processo(self, cnj_raw: str) -> Optional[str]:
         """Retorna o HTML do detalhe ou None se o processo não foi encontrado.
 
+        Roda por 1 IP do pool ProxyScrape. e-SAJ atrela o JSESSIONID ao IP, então
+        open.do + search.do saem pelo MESMO proxy; em bloqueio (403/429), erro de
+        transporte ou 5xx (e-SAJ throttlando), rotaciona pra outro IP e refaz a
+        sequência inteira (limite MAX_PROXY_ROTATIONS). 403/429/transporte marcam
+        o proxy como bad; 5xx é culpa do servidor — rotaciona sem queimar o IP.
+
         Detecção de "não encontrado": busca por NUMPROC com 1 resultado redireciona
         (302) pra show.do. Sem resultado, retorna a própria página de busca (sem
         redirect). Usamos `response.history` pra distinguir.
@@ -175,21 +197,55 @@ class BaseEsajEnricher:
         cnj_fmt = _format_cnj(cnj_raw)
         params = self._build_search_params(cnj_fmt)
 
-        self._ensure_session()
+        tentados: set = set()
+        last_erro: Optional[str] = None
+        for tentativa in range(1, self.MAX_PROXY_ROTATIONS + 1):
+            proxy = self._next_proxy(tentados)
+            if not proxy:
+                self.logger.warning('pool exausto sem proxy disponível',
+                                    extra={'cnj': cnj_fmt, 'tentativa': tentativa})
+                break
+            tentados.add(proxy)
+            proxies = {'http': proxy, 'https': proxy}
+            # Sessão limpa por IP: JSESSIONID novo atado ao proxy desta tentativa.
+            self.session.cookies.clear()
+            try:
+                # open.do estabelece o JSESSIONID; sem ele search.do volta o form.
+                self.session.get(self.OPEN_URL, proxies=proxies, timeout=self.timeout)
+                resp = self.session.get(self.SEARCH_URL, params=params, proxies=proxies,
+                                        timeout=self.timeout, allow_redirects=True)
+            except (requests.ConnectionError, requests.Timeout,
+                    requests.exceptions.ChunkedEncodingError) as exc:
+                last_erro = f'transporte: {str(exc)[:120]}'
+                if proxy != cortex_proxy_url():
+                    self.pool.mark_bad(proxy)
+                continue
 
-        resp = self.session.get(self.SEARCH_URL, params=params,
-                                timeout=self.timeout, allow_redirects=True)
-        resp.raise_for_status()
+            if resp.status_code in (403, 429):
+                last_erro = f'bloqueado {resp.status_code}'
+                if proxy != cortex_proxy_url():
+                    self.pool.mark_bad(proxy)
+                continue
+            if resp.status_code >= 500:
+                # e-SAJ sobrecarregado — outro IP pode não estar throttled.
+                # Não marca bad: a falha é do servidor, não do proxy.
+                last_erro = f'e-SAJ {resp.status_code}'
+                continue
+            resp.raise_for_status()
 
-        # Sem redirect → não encontrou (search.do voltou a própria página de busca).
-        # Resposta com `formConsulta` é o form de pesquisa (sem resultado).
-        if not resp.history and 'formConsulta' in resp.text:
-            return None
-        # Página de detalhe tem campos como #numeroProcesso ou #classeProcesso.
-        # Se não tem nem o redirect nem campos do detalhe, trata como não encontrado.
-        if 'numeroProcesso' not in resp.text and 'classeProcesso' not in resp.text:
-            return None
-        return resp.text
+            # Sem redirect → não encontrou (search.do voltou a própria página de busca).
+            # Resposta com `formConsulta` é o form de pesquisa (sem resultado).
+            if not resp.history and 'formConsulta' in resp.text:
+                return None
+            # Página de detalhe tem #numeroProcesso ou #classeProcesso. Sem
+            # redirect nem campos do detalhe → trata como não encontrado.
+            if 'numeroProcesso' not in resp.text and 'classeProcesso' not in resp.text:
+                return None
+            return resp.text
+
+        raise EsajEnricherError(
+            f'{len(tentados)} proxies tentados sem sucesso'
+            + (f' (último: {last_erro})' if last_erro else ''))
 
     # ---------- Parsing ----------
 
