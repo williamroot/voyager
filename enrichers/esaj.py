@@ -375,11 +375,18 @@ class BaseEsajEnricher:
                 })
         return polos
 
-    # Mapeamento de papéis comuns no e-SAJ → polo.
-    # Exeqte/Reqte/Autor/Apte/Embte/Impte → ativo
-    # Exectdo/Reqdo/Réu/Apdo/Embdo/Impdo  → passivo
-    _PAPEIS_ATIVO = ('exeqte', 'reqte', 'autor', 'apte', 'embte', 'impte', 'agvte', 'rclte')
-    _PAPEIS_PASSIVO = ('exectdo', 'reqdo', 'réu', 'reu', 'apdo', 'embdo', 'impdo', 'agvdo', 'rcldo')
+    # Mapeamento de papéis comuns no e-SAJ → polo. Abreviados (1º grau) e por
+    # extenso (2º grau usa 'Agravante'/'Agravado', 'Apelante'/'Apelado', etc).
+    _PAPEIS_ATIVO = (
+        'exeqte', 'reqte', 'requerente', 'autor', 'apte', 'apelante',
+        'embte', 'embargante', 'impte', 'impetrante', 'agvte', 'agravante',
+        'rclte', 'reclamante', 'recte', 'recorrente',
+    )
+    _PAPEIS_PASSIVO = (
+        'exectdo', 'reqdo', 'requerido', 'réu', 'reu', 'apdo', 'apelado',
+        'embdo', 'embargado', 'impdo', 'impetrado', 'agvdo', 'agravado',
+        'rcldo', 'reclamado', 'recdo', 'recorrido',
+    )
 
     def _polo_para_tipo(self, tipo: str) -> str:
         t = (tipo or '').strip().lower()
