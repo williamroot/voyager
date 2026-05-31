@@ -331,6 +331,88 @@ def test_rotaciona_em_500_sem_marcar_bad(processo):
     assert pool.mark_bad.call_count == 0, '500 é culpa do e-SAJ — não marcar o IP bad'
 
 
+# ----------------- 6. Roteamento 1º/2º grau (cposg) -----------------
+
+def test_grau_detecta_2g_por_foro_0000():
+    # foro OOOO == 0000 → 2º grau; senão 1º grau.
+    assert BaseEsajEnricher._grau('05002409020268020000') == '2g'
+    assert BaseEsajEnricher._grau('0500240-90.2026.8.02.0000') == '2g'
+    assert BaseEsajEnricher._grau('0700123-45.2024.8.02.0001') == '1g'
+
+
+def test_cposg_path_por_tribunal():
+    """2º grau: TJSP usa /cposg/, TJAL usa /cposg5/."""
+    assert TjspEnricher.CPOSG_PATH == 'cposg'
+    assert TjalEnricher.CPOSG_PATH == 'cposg5'
+
+
+def test_search_params_2g_usa_dePesquisa():
+    """2º grau manda o CNJ em `dePesquisaNuUnificado` (não no campo do 1g)."""
+    cnj = _format_cnj('05002409020268020000')
+    p = BaseEsajEnricher._build_search_params(cnj, '2g')
+    assert p['dePesquisaNuUnificado'] == cnj
+    assert p['foroNumeroUnificado'] == '0000'
+    assert 'dadosConsulta.valorConsultaNuUnificado' not in p
+
+
+def test_enriquecer_2g_roteia_cposg5_e_extrai(processo):
+    """Processo 2º grau do TJAL (foro 0000): tem que bater no /cposg5/ e
+    extrair seção/órgão/relator + partes."""
+    proc2g = SimpleNamespace(pk=99, tribunal_id='TJAL',
+                             numero_cnj='05002409020268020000')  # foro 0000
+    pool = _mock_pool()
+    e = _make_enricher(pool=pool)
+    open_pg = _resp('<html>ok</html>')
+    show = _resp((FIXTURES / 'show_2g.html').read_text(), history=[_resp('', status=302)])
+
+    urls = []
+    queue = [open_pg, show]
+
+    def fake_get(url, **kw):
+        urls.append(url)
+        return queue.pop(0)
+
+    captured, cm_pub = _patch_publish()
+    with patch.object(e.session, 'get', side_effect=fake_get), cm_pub:
+        result = e.enriquecer(proc2g)
+
+    # roteou pro 2º grau do TJAL (cposg5), não cpopg
+    assert all('/cposg5/' in u for u in urls), urls
+    assert result['status'] == 'ok'
+    dados = captured[0]['dados']
+    assert dados['classe'] == 'Agravo de Execução Penal'
+    assert dados['orgao_julgador'] == 'Tribunal de Justiça — Presidência'
+    assert dados['juizo'] == 'PRESIDENTE DO TRIBUNAL DE JUSTIÇA DE ALAGOAS'
+    assert dados['data_autuacao'] is None and dados['valor_causa'] is None
+    # partes: Agvte→ativo, Agvdo→passivo
+    ativo = captured[0]['partes']['ativo']
+    passivo = captured[0]['partes']['passivo']
+    assert any('Billy Vital' in p['nome'] for p in ativo)
+    assert any('Ministério Público' in p['nome'] for p in passivo)
+    advs = [p for polo in captured[0]['partes'].values() for p in polo if p['oab']]
+    assert any(a['oab'] == 'AL9999' for a in advs)
+
+
+def test_enriquecer_1g_continua_cpopg(processo):
+    """Regressão: processo 1º grau (foro != 0000) continua no /cpopg/."""
+    pool = _mock_pool()
+    e = _make_enricher(pool=pool)  # processo fixture = foro 0001 (1g)
+    open_pg = _resp('<html>ok</html>')
+    show = _resp((FIXTURES / 'show.html').read_text(), history=[_resp('', status=302)])
+    urls = []
+    queue = [open_pg, show]
+
+    def fake_get(url, **kw):
+        urls.append(url)
+        return queue.pop(0)
+
+    _, cm_pub = _patch_publish()
+    with patch.object(e.session, 'get', side_effect=fake_get), cm_pub:
+        result = e.enriquecer(processo)
+    assert result['status'] == 'ok'
+    assert all('/cpopg/' in u for u in urls), urls
+
+
 def test_pool_exausto_vira_erro(processo):
     """Todos os IPs tentados deram 500 → estoura MAX_PROXY_ROTATIONS e emite erro
     (não vira falso 'nao_encontrado')."""

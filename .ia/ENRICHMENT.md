@@ -268,6 +268,20 @@ e-SAJ é idêntico entre tribunais — só muda o host. `BaseEsajEnricher`
 Limitação herdada do TJSP: e-SAJ público mascara CPF/CNPJ → `documento` vazio
 (OAB e nome preservados).
 
+### 1º vs 2º grau (cpopg / cposg)
+
+`BaseEsajEnricher` roteia por grau automaticamente: **foro de origem `OOOO == '0000'`
+⇒ 2º grau** (processo originário do tribunal — agravos, recursos na Presidência,
+competência originária). 1º grau usa `/cpopg/`; 2º grau usa `/{CPOSG_PATH}/`
+(**TJSP = `cposg`**, **TJAL = `cposg5`** — varia por tribunal, override na subclasse).
+
+Sem isso, todo processo de 2º grau caía em falso "não encontrado" (o cpopg só
+tem 1º grau). Os dois grais são e-SAJ clássico (mesmo HTML); diferem só em:
+- search param do CNJ: 1g `dadosConsulta.valorConsultaNuUnificado`, 2g `dePesquisaNuUnificado`;
+- selectors do detalhe: 1g `foroProcesso`/`varaProcesso`/`dataHoraDistribuicao`/`valorAcao`;
+  2g `secaoProcesso`/`orgaoJulgadorProcesso`/`relatorProcesso` (sem data/valor).
+Partes (`#tablePartesPrincipais`) são idênticas nos dois.
+
 ## Stream sharded (drainer × N)
 
 ### Por que shard

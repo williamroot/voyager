@@ -66,6 +66,9 @@ class BaseEsajEnricher:
     BASE_URL: Optional[str] = None
     TRIBUNAL_SIGLA: Optional[str] = None
     LOG_NAME = 'voyager.enrichers.esaj'
+    # Path do módulo de 2º grau (foro OOOO == '0000'). 1º grau é sempre 'cpopg';
+    # 2º grau varia: TJSP = 'cposg', TJAL = 'cposg5' (override na subclasse).
+    CPOSG_PATH = 'cposg'
 
     # Limite de IPs distintos tentados por processo antes de desistir.
     MAX_PROXY_ROTATIONS = 8
@@ -100,8 +103,12 @@ class BaseEsajEnricher:
             'scraped_at': timezone.now().astimezone(_dt.timezone.utc).isoformat(),
         }
 
+        # foro OOOO == '0000' ⇒ processo de 2º grau (tribunal): consulta o cposg,
+        # não o cpopg (1º grau). Senão é falso "não encontrado" — o cpopg só tem 1g.
+        grau = self._grau(processo.numero_cnj)
+
         try:
-            html = self._fetch_processo(processo.numero_cnj)
+            html = self._fetch_processo(processo.numero_cnj, grau)
         except Exception as exc:
             self._emit(stream.build_erro_payload(**base, erro=f'busca: {exc}'), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
@@ -112,7 +119,7 @@ class BaseEsajEnricher:
 
         try:
             soup = BeautifulSoup(html, 'html.parser')
-            dados = self._extrair_dados(soup)
+            dados = self._extrair_dados(soup, grau)
             partes = self._extrair_partes(soup)
         except Exception as exc:
             self.logger.exception('falha ao parsear detalhe', extra={'cnj': processo.numero_cnj})
@@ -161,7 +168,13 @@ class BaseEsajEnricher:
         return None
 
     @staticmethod
-    def _build_search_params(cnj_fmt: str) -> dict:
+    def _grau(cnj: str) -> str:
+        """'2g' se o processo é de 2º grau (foro de origem OOOO == '0000',
+        i.e. originário do tribunal), senão '1g'. Independente de tribunal."""
+        return '2g' if re.sub(r'\D', '', cnj or '')[-4:] == '0000' else '1g'
+
+    @staticmethod
+    def _build_search_params(cnj_fmt: str, grau: str = '1g') -> dict:
         """Monta os params do search.do a partir do CNJ formatado.
 
         `numeroDigitoAnoUnificado` = NNNNNNN-DD.AAAA e `foroNumeroUnificado` =
@@ -169,20 +182,38 @@ class BaseEsajEnricher:
         O código antigo cravava `.split('.8.26')` (J.TR do TJSP); a versão por
         segmento dá o mesmo resultado pro TJSP e funciona pra TJAL (.8.02) e
         qualquer outro e-SAJ.
+
+        1º grau (cpopg) e 2º grau (cposg) usam nomes de campo DIFERENTES pro CNJ:
+        cpopg = `dadosConsulta.valorConsultaNuUnificado`; cposg = `dePesquisaNuUnificado`.
         """
         parts = cnj_fmt.split('.')  # ['NNNNNNN-DD','AAAA','J','TR','OOOO']
-        return {
+        params = {
             'conversationId': '',
             'cbPesquisa': 'NUMPROC',
-            'dadosConsulta.localPesquisa.cdLocal': '-1',
             'numeroDigitoAnoUnificado': f'{parts[0]}.{parts[1]}',
             'foroNumeroUnificado': parts[4],
-            'dadosConsulta.valorConsultaNuUnificado': cnj_fmt,
-            'dadosConsulta.tipoNuProcesso': 'UNIFICADO',
         }
+        if grau == '2g':
+            params.update({
+                'paginaConsulta': '1',
+                'dePesquisaNuUnificado': cnj_fmt,
+                'dePesquisa': '',
+                'tipoNuProcesso': 'UNIFICADO',
+            })
+        else:
+            params.update({
+                'dadosConsulta.localPesquisa.cdLocal': '-1',
+                'dadosConsulta.valorConsultaNuUnificado': cnj_fmt,
+                'dadosConsulta.tipoNuProcesso': 'UNIFICADO',
+            })
+        return params
 
-    def _fetch_processo(self, cnj_raw: str) -> Optional[str]:
+    def _fetch_processo(self, cnj_raw: str, grau: str = '1g') -> Optional[str]:
         """Retorna o HTML do detalhe ou None se o processo não foi encontrado.
+
+        Roteia por grau: 1º grau → `/cpopg/`; 2º grau → `/{CPOSG_PATH}/` (cposg
+        no TJSP, cposg5 no TJAL). O detalhe dos dois tem a MESMA estrutura de
+        seletores (`_extrair_dados` ramifica por grau).
 
         Roda por 1 IP do pool ProxyScrape. e-SAJ atrela o JSESSIONID ao IP, então
         open.do + search.do saem pelo MESMO proxy; em bloqueio (403/429), erro de
@@ -190,12 +221,14 @@ class BaseEsajEnricher:
         sequência inteira (limite MAX_PROXY_ROTATIONS). 403/429/transporte marcam
         o proxy como bad; 5xx é culpa do servidor — rotaciona sem queimar o IP.
 
-        Detecção de "não encontrado": busca por NUMPROC com 1 resultado redireciona
-        (302) pra show.do. Sem resultado, retorna a própria página de busca (sem
-        redirect). Usamos `response.history` pra distinguir.
+        Detecção de "não encontrado": sem resultado, search.do retorna a própria
+        página de busca (`formConsulta`) sem os campos do detalhe.
         """
         cnj_fmt = _format_cnj(cnj_raw)
-        params = self._build_search_params(cnj_fmt)
+        params = self._build_search_params(cnj_fmt, grau)
+        path = self.CPOSG_PATH if grau == '2g' else 'cpopg'
+        open_url = f'{self.BASE_URL}/{path}/open.do'
+        search_url = f'{self.BASE_URL}/{path}/search.do'
 
         tentados: set = set()
         last_erro: Optional[str] = None
@@ -211,8 +244,8 @@ class BaseEsajEnricher:
             self.session.cookies.clear()
             try:
                 # open.do estabelece o JSESSIONID; sem ele search.do volta o form.
-                self.session.get(self.OPEN_URL, proxies=proxies, timeout=self.timeout)
-                resp = self.session.get(self.SEARCH_URL, params=params, proxies=proxies,
+                self.session.get(open_url, proxies=proxies, timeout=self.timeout)
+                resp = self.session.get(search_url, params=params, proxies=proxies,
                                         timeout=self.timeout, allow_redirects=True)
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError) as exc:
@@ -249,10 +282,26 @@ class BaseEsajEnricher:
 
     # ---------- Parsing ----------
 
-    def _extrair_dados(self, soup: BeautifulSoup) -> dict:
+    def _extrair_dados(self, soup: BeautifulSoup, grau: str = '1g') -> dict:
         def t(sel: str) -> str:
             el = soup.select_one(sel)
             return el.get_text(strip=True) if el else ''
+
+        if grau == '2g':
+            # 2º grau (cposg): seção + órgão julgador (câmara/turma/presidência) e
+            # relator no lugar de foro/vara. Sem data de distribuição/valor nos
+            # mesmos campos do 1g. Partes usam a MESMA #tablePartesPrincipais.
+            secao = t('#secaoProcesso')
+            orgao_jul = t('#orgaoJulgadorProcesso')
+            orgao = ' — '.join(x for x in (secao, orgao_jul) if x) or None
+            return {
+                'classe':         t('#classeProcesso') or None,
+                'assunto':        t('#assuntoProcesso') or None,
+                'orgao_julgador': orgao,
+                'juizo':          t('#relatorProcesso') or None,
+                'data_autuacao':  None,
+                'valor_causa':    None,
+            }
 
         # `varaProcesso` é o juízo específico; `foroProcesso` é a unidade física.
         # Drainer espera `orgao_julgador` como nome único — concatena os dois.
@@ -340,3 +389,4 @@ class TjalEnricher(BaseEsajEnricher):
     BASE_URL = 'https://www2.tjal.jus.br'
     TRIBUNAL_SIGLA = 'TJAL'
     LOG_NAME = 'voyager.enrichers.tjal'
+    CPOSG_PATH = 'cposg5'  # TJAL: 2º grau é /cposg5/ (TJSP usa /cposg/)
