@@ -427,3 +427,37 @@ def test_pool_exausto_vira_erro(processo):
 
     assert result['status'] == 'erro'
     assert len(captured) == 1 and captured[0]['status'] == 'erro'
+
+
+# ----------------- 7. TJAL via Cortex (host bloqueia pool datacenter) -----------------
+
+def test_tjal_prefere_cortex_tjsp_nao():
+    """www2.tjal.jus.br bloqueia o pool datacenter → TJAL roteia por Cortex
+    residencial. esaj.tjsp.jus.br aceita o pool → TJSP segue no pool."""
+    assert TjalEnricher.PREFER_CORTEX is True
+    assert TjspEnricher.PREFER_CORTEX is False
+    assert _make_enricher().prefer_cortex is True
+
+
+def test_tjal_sai_por_cortex_nao_pool(processo):
+    """Com Cortex configurado, TJAL manda as requests pelo gateway residencial
+    e NÃO consulta o pool datacenter (que o host do TJAL rejeita)."""
+    pool = _mock_pool()
+    e = _make_enricher(pool=pool)
+    open_pg = _resp('<html>ok</html>')
+    show = _resp((FIXTURES / 'show.html').read_text(), history=[_resp('', status=302)])
+    seen = []
+    queue = [open_pg, show]
+
+    def fake_get(url, **kw):
+        seen.append(kw.get('proxies'))
+        return queue.pop(0)
+
+    _, cm_pub = _patch_publish()
+    with patch('enrichers.esaj.cortex_proxy_url', return_value='http://cortex.gw:8800'), \
+         patch.object(e.session, 'get', side_effect=fake_get), cm_pub:
+        result = e.enriquecer(processo)
+
+    assert result['status'] == 'ok'
+    assert all(p and p.get('http') == 'http://cortex.gw:8800' for p in seen), seen
+    pool.get.assert_not_called()  # não tocou no pool datacenter

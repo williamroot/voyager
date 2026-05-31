@@ -73,6 +73,12 @@ class BaseEsajEnricher:
     # Limite de IPs distintos tentados por processo antes de desistir.
     MAX_PROXY_ROTATIONS = 8
 
+    # Alguns hosts e-SAJ bloqueiam IPs datacenter (o pool ProxyScrape) mas
+    # aceitam residencial. Ex.: www2.tjal.jus.br dá ReadTimeout em 100% do pool
+    # mas responde via Cortex (residencial). Subclasse seta True pra rotear pelo
+    # Cortex em vez do pool. esaj.tjsp.jus.br aceita o pool → fica False.
+    PREFER_CORTEX = False
+
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         if not self.BASE_URL or not self.TRIBUNAL_SIGLA:
             raise NotImplementedError(
@@ -88,7 +94,8 @@ class BaseEsajEnricher:
         # IP do worker e o e-SAJ throttlava (500 / Max retries). Cada processo
         # roda por 1 IP do pool; rotaciona pra outro IP em bloqueio/erro.
         self.pool = pool or ProxyScrapePool.singleton()
-        self.prefer_cortex = prefer_cortex
+        # prefer_cortex: clique manual (rápido) OU host que bloqueia o pool (TJAL).
+        self.prefer_cortex = prefer_cortex or self.PREFER_CORTEX
 
     def enriquecer(self, processo: Process, direct_apply: bool = False) -> dict:
         if processo.tribunal_id != self.TRIBUNAL_SIGLA:
@@ -238,7 +245,11 @@ class BaseEsajEnricher:
                 self.logger.warning('pool exausto sem proxy disponível',
                                     extra={'cnj': cnj_fmt, 'tentativa': tentativa})
                 break
-            tentados.add(proxy)
+            # Cortex é um gateway que rotaciona IP residencial a cada request —
+            # não excluir, pra poder reusar em rotações (vira IP novo toda vez).
+            # Proxies do pool são IP fixo: excluir pra não repetir o mesmo.
+            if proxy != cortex_proxy_url(self.pool):
+                tentados.add(proxy)
             proxies = {'http': proxy, 'https': proxy}
             # Sessão limpa por IP: JSESSIONID novo atado ao proxy desta tentativa.
             self.session.cookies.clear()
@@ -390,3 +401,6 @@ class TjalEnricher(BaseEsajEnricher):
     TRIBUNAL_SIGLA = 'TJAL'
     LOG_NAME = 'voyager.enrichers.tjal'
     CPOSG_PATH = 'cposg5'  # TJAL: 2º grau é /cposg5/ (TJSP usa /cposg/)
+    # www2.tjal.jus.br dá ReadTimeout em 100% do pool datacenter — só responde
+    # via Cortex residencial (validado 2026-05-30). Roteia por Cortex.
+    PREFER_CORTEX = True
