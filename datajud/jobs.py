@@ -3,6 +3,7 @@ import logging
 
 import django_rq
 from django_rq import job
+from rq import Retry
 
 from tribunals.models import Process
 
@@ -10,6 +11,10 @@ from .client import DatajudClient
 from .ingestion import sync_processo
 
 logger = logging.getLogger('voyager.datajud.jobs')
+
+# Auto-retry imediato de falhas transientes (Redis/PG drop) — idempotente
+# (bulk_create ignore_conflicts). Sem interval: não exige --with-scheduler.
+DATAJUD_RETRY = Retry(max=3)
 
 # Análogo ao reabastecer_filas_enriquecimento (PJe). Drena backlog histórico
 # de Process com data_enriquecimento_datajud IS NULL.
@@ -80,7 +85,7 @@ def reabastecer_fila_datajud() -> dict:
     enfileirados = 0
     for pid in pids:
         try:
-            queue.enqueue(datajud_sync_bulk, pid, job_timeout=600)
+            queue.enqueue(datajud_sync_bulk, pid, job_timeout=600, retry=DATAJUD_RETRY)
             enfileirados += 1
         except Exception as exc:
             logger.warning('falha ao enfileirar datajud bulk pid=%d: %s', pid, exc)

@@ -445,11 +445,12 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
     # `data_enriquecimento_datajud` do tribunal atrasa dias.
     if datajud_eligiveis:
         import django_rq
-        from datajud.jobs import datajud_sync_bulk
+        from datajud.jobs import DATAJUD_RETRY, datajud_sync_bulk
         queue = django_rq.get_queue('datajud')
         for pid in datajud_eligiveis:
             try:
-                queue.enqueue(datajud_sync_bulk, pid, job_timeout=600, at_front=True)
+                queue.enqueue(datajud_sync_bulk, pid, job_timeout=600, at_front=True,
+                              retry=DATAJUD_RETRY)
             except Exception as exc:
                 logger.warning('falha enfileirar datajud', extra={'pid': pid, 'erro': str(exc)})
 

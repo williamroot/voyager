@@ -2,6 +2,7 @@ import logging
 
 import django_rq
 from django_rq import job
+from rq import Retry
 
 from tribunals.models import Process
 
@@ -29,6 +30,13 @@ _ENRICHERS = {
 
 ENRICH_TIMEOUT = 300
 
+# Auto-retry de falhas TRANSIENTES (Redis/PG connection drop, timeout). Sem
+# interval = retry imediato (não exige rqworker --with-scheduler). Jobs são
+# idempotentes (drainer dedupe por scraped_at; upsert ignore_conflicts), então
+# re-tentar é seguro. nao_encontrado/erro de scrape NÃO são exceção → não
+# disparam retry; só os erros de infra (que viravam failed à toa) re-tentam.
+ENRICH_RETRY = Retry(max=3)
+
 
 def queue_for(tribunal_sigla: str) -> str:
     """Mapeia sigla → nome da fila por tribunal (enrich_trf1, enrich_trf3...)."""
@@ -54,7 +62,8 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool = False,
 def enqueue_enriquecimento(process_id: int, tribunal_sigla: str):
     """Enfileira na queue do tribunal — paraleliza coletas sem misturar pools."""
     queue = django_rq.get_queue(queue_for(tribunal_sigla))
-    return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT)
+    return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT,
+                         retry=ENRICH_RETRY)
 
 
 def enqueue_enriquecimento_manual(process_id: int):
@@ -71,6 +80,7 @@ def enqueue_enriquecimento_manual(process_id: int):
         args=(process_id,),
         kwargs={'prefer_cortex': True, 'direct_apply': True},
         job_timeout=ENRICH_TIMEOUT,
+        retry=ENRICH_RETRY,
     )
 
 
@@ -109,7 +119,8 @@ def reabastecer_filas_enriquecimento() -> dict:
         )
         for pid in ids:
             try:
-                queue.enqueue(enriquecer_processo, pid, job_timeout=ENRICH_TIMEOUT)
+                queue.enqueue(enriquecer_processo, pid, job_timeout=ENRICH_TIMEOUT,
+                              retry=ENRICH_RETRY)
             except Exception as exc:
                 logger.warning('falha ao enfileirar', extra={'pid': pid, 'erro': str(exc)})
         relatorio[sigla] = len(ids)
