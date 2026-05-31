@@ -33,6 +33,18 @@ logger = logging.getLogger('voyager.datajud.ingestion')
 BATCH_SIZE = 500
 
 
+def _as_dict(x) -> dict:
+    """Normaliza um campo do `_source` do Datajud que deveria ser dict mas às
+    vezes vem aninhado como lista (lista-de-dict ou lista-de-lista). Desce até
+    o primeiro dict; devolve {} se não houver. Evita `AttributeError: 'list'
+    object has no attribute 'get'` (visto em ~23% dos failed da fila datajud)."""
+    seen = 0
+    while isinstance(x, list) and x and seen < 5:
+        x = x[0]
+        seen += 1
+    return x if isinstance(x, dict) else {}
+
+
 def _meta_updates_from_source(processo: Process, source: dict) -> dict:
     """Extrai metadados do `_source` do Datajud e devolve dict de updates
     para `Process`, respeitando dados já populados (PJe enricher é fonte
@@ -40,7 +52,7 @@ def _meta_updates_from_source(processo: Process, source: dict) -> dict:
     """
     upd: dict = {}
 
-    classe_obj = source.get('classe') or {}
+    classe_obj = _as_dict(source.get('classe'))
     classe_codigo = str(classe_obj.get('codigo') or '').strip()
     classe_nome = (classe_obj.get('nome') or '').strip()[:255]
     if classe_codigo and not processo.classe_codigo:
@@ -49,14 +61,14 @@ def _meta_updates_from_source(processo: Process, source: dict) -> dict:
 
     assuntos = source.get('assuntos') or []
     if assuntos and not processo.assunto_codigo:
-        a0 = assuntos[0] or {}
+        a0 = _as_dict(assuntos[0])
         a_cod = str(a0.get('codigo') or '').strip()
         a_nome = (a0.get('nome') or '').strip()[:255]
         if a_cod:
             upd['assunto_codigo'] = a_cod
             upd['assunto_nome'] = a_nome
 
-    orgao = source.get('orgaoJulgador') or {}
+    orgao = _as_dict(source.get('orgaoJulgador'))
     o_cod = str(orgao.get('codigo') or '').strip()
     o_nome = (orgao.get('nome') or '').strip()[:255]
     if o_cod and not processo.orgao_julgador_codigo:
