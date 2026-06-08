@@ -10,6 +10,17 @@
 # IMPORTANTE: o drainer do stream de enrichment roda APENAS no host web .32
 # (docker-compose-prod.yml). Workers daqui só publicam — nenhum deles
 # consome o stream de resultados.
+#
+# RAM / scale (revisado 2026-06-08 pós-OOM):
+#   Incidente: a VM .102 (56GB) travou por OOM — o config pedia ~608 réplicas
+#   SEM mem_limit, então 1 worker que inchava (BS4 em página PJe grande) derrubava
+#   o HOST inteiro em vez de só o container. Correções:
+#     1. mem_limit POR serviço — Docker mata o worker que estoura (RQ re-enfileira),
+#        nunca o host. Teto por perfil de carga (PJe/BS4 pesado=768m, e-SAJ=640m,
+#        REST/leve=512m, ingestion/ML=1g).
+#     2. scale cortado ~608 → ~304 réplicas (densidade ~200MB/worker em 62GB de RAM,
+#        deixando headroom pros picos). Re-escalar gargalo (trf3/tjmg/tjsp) conforme
+#        backlog, monitorando `free -h` na VM.
 services:
   worker_trf1:
     build:
@@ -20,10 +31,12 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 768m
     deploy:
       # 2026-05-14: 60 → 90 → 120 → 40 (realocação: TRF3/TJMG são bottleneck,
       # TRF1 com 40 workers já drena em ~12h, libera CPU/RAM pros outros).
-      replicas: 40
+      # 2026-06-08: 40 → 24 (pós-OOM da VM — ver header do arquivo).
+      replicas: 24
     restart: unless-stopped
 
   worker_djen_audit:
@@ -35,8 +48,10 @@ services:
     env_file: .env
     volumes:
       - .:/app
-    deploy:    
-      replicas: 10
+    mem_limit: 512m
+    deploy:
+      # 2026-06-08: 10 → 6 (pós-OOM).
+      replicas: 6
     restart: unless-stopped
     
 
@@ -46,9 +61,11 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 768m
     deploy:
       # 2026-05-14: 50 → 90 → 120 → 160 → 180 (pós-resize 32→56GB VM).
-      replicas: 160
+      # 2026-06-08: 160 → 72 (pós-OOM — gargalo principal, mantém prioridade).
+      replicas: 72
     restart: unless-stopped
 
   worker_trf5:
@@ -57,10 +74,12 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 768m
     deploy:
       # Ramp 10 → 60 em 2026-05-20 após validar enriquecimento OK em prod
       # (1.7k ok / 4 errors com 10 workers a 100% utilização → safe escalar).
-      replicas: 60
+      # 2026-06-08: 60 → 24 (pós-OOM).
+      replicas: 24
     restart: unless-stopped
 
   worker_tjmg:
@@ -69,9 +88,11 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 768m
     deploy:
       # 2026-05-14: 50 → 90 → 120 → 160 → 180. Bottleneck upstream PJe.
-      replicas: 160
+      # 2026-06-08: 160 → 72 (pós-OOM — gargalo principal, mantém prioridade).
+      replicas: 72
     restart: unless-stopped
 
   worker_tjma:
@@ -80,11 +101,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 768m
     deploy:
       # Ramp inicial 10 réplicas (mesmo critério do TRF5 no 1º deploy:
       # 10 a 100% → safe escalar). TJMA é PJe padrão, mesmo bottleneck
       # upstream do TJMG; volume DJEN observado ≈ 11k itens/dia.
-      replicas: 10
+      # 2026-06-08: 10 → 8 (pós-OOM).
+      replicas: 8
     restart: unless-stopped
 
   worker_tjsp:
@@ -93,12 +116,14 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 640m
     deploy:
       # 2026-05-24: criado com 60 réplicas. e-SAJ é HTTP puro (sem Selenium);
       # cada job faz 2 requests (open.do + search.do→show.do). Sem proxy pool
       # configurado: e-SAJ tolera taxa moderada de IP único; subir réplicas se
       # rate-limit aparecer e considerar adicionar ProxyScrapePool no enricher.
-      replicas: 60
+      # 2026-06-08: 60 → 40 (pós-OOM — maior volume, mantém pool relevante).
+      replicas: 40
     restart: unless-stopped
 
   worker_tjdft:
@@ -107,6 +132,7 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 512m
     deploy:
       # Ramp inicial 10 réplicas (mesmo critério do TJMA/TRF5 1º deploy).
       # TJDFT é REST API (Spring Boot atrás de AWS ALB), cada job faz 4 GETs
@@ -114,7 +140,8 @@ services:
       # mas com round-trip TLS adicional por polo. Sem ProxyScrapePool: API
       # pública tolera taxa moderada de IP único; observar rate-limit antes
       # de escalar.
-      replicas: 10
+      # 2026-06-08: 10 → 8 (pós-OOM).
+      replicas: 8
     restart: unless-stopped
 
   worker_tjal:
@@ -123,12 +150,14 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 640m
     deploy:
       # TJAL roda o MESMO e-SAJ do TJSP (HTTP puro, 2 requests/job: open.do +
       # search.do→show.do). Volume muito menor que TJSP — ramp inicial 10
       # réplicas (critério do 1º deploy de tribunal novo). Sem ProxyScrapePool:
       # e-SAJ tolera taxa moderada de IP único; subir se rate-limit aparecer.
-      replicas: 10
+      # 2026-06-08: 10 → 8 (pós-OOM).
+      replicas: 8
     restart: unless-stopped
 
   worker_default:
@@ -137,6 +166,7 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 512m
     deploy:
       replicas: 2
     restart: unless-stopped
@@ -154,6 +184,7 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    mem_limit: 1g
     deploy:
       # 2026-05-24: 4 → 8 — backfill simultâneo de 3 tribunais novos (TRF2/4/6).
       replicas: 8
@@ -165,12 +196,14 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    mem_limit: 512m
     deploy:
       # Datajud é leve (1 request HTTP por processo).
       # 2026-05-14: 90 → 20 (fila zerada, RAM cedida pros enrich).
       # 2026-05-24: 20 → 60 — 3 tribunais novos em backfill (TRF2/4/6) puxam
       # auto-enqueue Datajud por cada mov ingerida; pool dimensionado pra fluxo.
-      replicas: 60
+      # 2026-06-08: 60 → 24 (pós-OOM — fila leve, re-escalar se backlog subir).
+      replicas: 24
     restart: unless-stopped
 
   worker_classificacao:
@@ -179,6 +212,8 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # Carrega o modelo ML (ClassificadorVersao ativa) na memória do processo.
+    mem_limit: 1g
     deploy:
       replicas: 8
     restart: unless-stopped
