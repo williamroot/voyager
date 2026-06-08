@@ -63,21 +63,39 @@ no `.103`. Ficaram consolidados no `.102`.
 > legado pré-`lote_id`; valor canônico é lowercase). Path ativo já rejeita
 > casing inválido — sem recorrência esperada.
 
-**`.102` (host workers principal) e `voyager-workers-aux` (auxiliar somando capacidade)** — ambos via `docker-compose-workers.yml`:
+**`.102` (host workers principal) e `voyager-workers-aux` (auxiliar somando capacidade)** — ambos via `docker-compose-workers.yml` (config **idêntica** nos dois hosts; cada um roda 304 réplicas, fleet ≈ 608):
 ```
-worker_ingestion       8   fila 'djen_ingestion' + 'djen_backfill' (scale-up 4→8 em 2026-05-24, backfill TRF2/4/6)
-worker_default         2   fila 'default' (catch-all)
-worker_djen_audit     10   fila 'djen_audit'
-worker_trf1          120   fila 'enrich_trf1'   (scale-up 2026-05-14)
-worker_trf3          120   fila 'enrich_trf3'   (scale-up 2026-05-14)
-worker_trf5           60   fila 'enrich_trf5'   (ramp 10→60 em 2026-05-20)
-worker_tjmg          120   fila 'enrich_tjmg'   (scale-up 2026-05-14)
-worker_datajud        60   fila 'datajud'       (20→60 em 2026-05-24, auto-enqueue dos backfills de TRF2/4/6)
-worker_classificacao   8   fila 'classificacao'
+                     réplicas  mem_limit  fila
+worker_trf1            24       768m      enrich_trf1
+worker_trf3            72       768m      enrich_trf3    (gargalo — prioridade)
+worker_trf5            24       768m      enrich_trf5
+worker_tjmg            72       768m      enrich_tjmg    (gargalo — prioridade)
+worker_tjma             8       768m      enrich_tjma
+worker_tjsp            40       640m      enrich_tjsp    (maior volume — e-SAJ)
+worker_tjdft            8       512m      enrich_tjdft
+worker_tjal             8       640m      enrich_tjal
+worker_djen_audit       6       512m      djen_audit
+worker_datajud         24       512m      datajud
+worker_ingestion        8       1g        djen_ingestion + djen_backfill
+worker_default          2       512m      default
+worker_classificacao    8       1g        classificacao  (carrega modelo ML)
 ```
 
-Total observado pós-resize+scale 2026-05-14 23:25: ~404 containers vivos.
-Com voyager-workers-aux + scale 2026-05-24, total esperado >1000 workers RQ.
+Total por host: **304 containers**. Com aux: ~608 workers RQ.
+
+> **Incidente OOM 2026-06-08** (commit `6c3a784`): a `.102` (56GB) **travou por
+> OOM** — o config pedia ~608 réplicas **sem `mem_limit`**, então 1 worker que
+> inchava (BS4 em página PJe grande) derrubava o **host inteiro** em vez de só o
+> container. No dashboard `/dashboard/workers/` isso aparece como filas sumindo
+> (trf1 zerou) e contagens despencando, conforme o RQ expira o heartbeat dos
+> workers da VM travada. Correções: (1) `mem_limit` por serviço — Docker mata só
+> o worker que estoura, RQ re-enfileira, host nunca congela; (2) scale ~608→304
+> por host (densidade ~200MB/worker, headroom pros picos); (3) `.102` +8GB RAM
+> (56→62GB, **reboot obrigatório** — sem hotplug). A `aux` (55GB) rodava o mesmo
+> config antigo e código stale (`f271830`) — re-deployada no mesmo commit.
+> **Lição**: nunca rodar workers sem `mem_limit`; o teto transforma OOM-de-host
+> em OOM-de-container (recuperável). Re-escalar gargalo (trf3/tjmg/tjsp) conforme
+> backlog, monitorando `free -h` na VM antes de subir réplicas.
 
 ### Resize da VM voyager-workers (VMID 100) — 2026-05-14
 
