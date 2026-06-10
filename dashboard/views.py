@@ -703,20 +703,20 @@ def partes(request):
     })
 
 
+# Acima deste nº de participações, a página de detalhe da parte omite as
+# agregações GROUP BY (donuts/counts/chips). Partes mega-agregadas (INSS,
+# União, Fazenda, bancos) aparecem em milhões de processos; o GROUP BY faz
+# full-scan de tribunals_processoparte (10-26s p/ o INSS, 3.4M linhas) e
+# estoura o `--timeout 60` do gunicorn → worker morto (SystemExit) → 500.
+PARTE_DETAIL_AGG_LIMIT = 50_000
+
+
 @login_required
 @require_GET
 def parte_detail(request, pk):
     parte = get_object_or_404(Parte, pk=pk)
 
     base_qs = ProcessoParte.objects.filter(parte=parte)
-    # Conta por polo (sempre, independente do filtro — pra exibir nos chips).
-    # Normaliza polo='' → 'outros' pra bater com chart_polo (mesma chave nos
-    # dois caminhos; senão template `counts.outros` ficava 0 enquanto donut
-    # mostrava N).
-    counts = {}
-    for row in base_qs.values('polo').annotate(n=Count('id')):
-        key = row['polo'] or 'outros'
-        counts[key] = counts.get(key, 0) + row['n']
 
     polo_filtro = request.GET.get('polo', '')
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
@@ -729,30 +729,56 @@ def parte_detail(request, pk):
         qs = qs.filter(processo__tribunal_id__in=tribunais_filtro)
     if papel_filtro:
         qs = qs.filter(papel__iexact=papel_filtro)
-    qs = qs.order_by('-processo__ultima_movimentacao_em')
 
-    # Papéis disponíveis pra chip bar (somente os que essa parte tem)
-    papeis_disponiveis = list(
-        base_qs.exclude(papel='').values_list('papel', flat=True).distinct()[:10]
-    )
-    tribunais_da_parte = list(
-        base_qs.values_list('processo__tribunal_id', flat=True).distinct()[:50]
-    )
+    # Mega-partes: pula agregações e ordena por PK (instantâneo via índice).
+    # ORDER BY processo__ultima_movimentacao_em faz join-sort de milhões de
+    # linhas (~11s) — só vale pras partes de cardinalidade normal.
+    agregacoes_omitidas = (parte.total_processos or 0) > PARTE_DETAIL_AGG_LIMIT
 
-    # Distribuições pros 3 donuts (Tribunal / Papel / Polo). Sempre
-    # baseadas em base_qs — independem dos filtros aplicados na lista.
-    chart_tribunal = [
-        {'name': r['processo__tribunal_id'], 'value': r['n']}
-        for r in base_qs.values('processo__tribunal_id').annotate(n=Count('id')).order_by('-n')
-    ]
-    chart_papel = [
-        {'name': r['papel'] or '(sem papel)', 'value': r['n']}
-        for r in base_qs.values('papel').annotate(n=Count('id')).order_by('-n')[:10]
-    ]
-    chart_polo = [
-        {'name': r['polo'] or 'outros', 'value': r['n']}
-        for r in base_qs.values('polo').annotate(n=Count('id')).order_by('-n')
-    ]
+    if agregacoes_omitidas:
+        qs = qs.order_by('-id')
+        counts = {}
+        papeis_disponiveis = []
+        tribunais_da_parte = []
+        chart_tribunal = chart_papel = chart_polo = []
+        total_filtrado = None
+    else:
+        qs = qs.order_by('-processo__ultima_movimentacao_em')
+
+        # Conta por polo (sempre, independente do filtro — pra exibir nos chips).
+        # Normaliza polo='' → 'outros' pra bater com chart_polo (mesma chave nos
+        # dois caminhos; senão template `counts.outros` ficava 0 enquanto donut
+        # mostrava N).
+        counts = {}
+        for row in base_qs.values('polo').annotate(n=Count('id')):
+            key = row['polo'] or 'outros'
+            counts[key] = counts.get(key, 0) + row['n']
+
+        # Papéis disponíveis pra chip bar (somente os que essa parte tem)
+        papeis_disponiveis = list(
+            base_qs.exclude(papel='').values_list('papel', flat=True).distinct()[:10]
+        )
+        tribunais_da_parte = list(
+            base_qs.values_list('processo__tribunal_id', flat=True).distinct()[:50]
+        )
+
+        # Distribuições pros 3 donuts (Tribunal / Papel / Polo). Sempre
+        # baseadas em base_qs — independem dos filtros aplicados na lista.
+        chart_tribunal = [
+            {'name': r['processo__tribunal_id'], 'value': r['n']}
+            for r in base_qs.values('processo__tribunal_id').annotate(n=Count('id')).order_by('-n')
+        ]
+        chart_papel = [
+            {'name': r['papel'] or '(sem papel)', 'value': r['n']}
+            for r in base_qs.values('papel').annotate(n=Count('id')).order_by('-n')[:10]
+        ]
+        chart_polo = [
+            {'name': r['polo'] or 'outros', 'value': r['n']}
+            for r in base_qs.values('polo').annotate(n=Count('id')).order_by('-n')
+        ]
+        total_filtrado = (
+            qs.order_by().count() if (polo_filtro or tribunais_filtro or papel_filtro) else None
+        )
 
     return render(request, 'dashboard/parte_detail.html', {
         'parte': parte,
@@ -763,10 +789,11 @@ def parte_detail(request, pk):
         'papel_filtro': papel_filtro,
         'papeis_disponiveis': papeis_disponiveis,
         'tribunais_da_parte': tribunais_da_parte,
-        'total_filtrado': qs.order_by().count() if (polo_filtro or tribunais_filtro or papel_filtro) else None,
+        'total_filtrado': total_filtrado,
         'chart_tribunal': chart_tribunal,
         'chart_papel': chart_papel,
         'chart_polo': chart_polo,
+        'agregacoes_omitidas': agregacoes_omitidas,
     })
 
 

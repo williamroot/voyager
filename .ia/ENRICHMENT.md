@@ -268,6 +268,18 @@ e-SAJ é idêntico entre tribunais — só muda o host. `BaseEsajEnricher`
 Limitação herdada do TJSP: e-SAJ público mascara CPF/CNPJ → `documento` vazio
 (OAB e nome preservados).
 
+> **Gotcha `tipo` vs `papel` (corrigido 2026-06-10):** a tabela e-SAJ
+> `#tablePartesPrincipais` traz o **papel** processual (Exeqte/Reqdo/Agravante/
+> Apelado/...). Esse valor vai pra `ProcessoParte.papel` (uppercased) — **nunca**
+> pra `Parte.tipo`. `Parte.tipo` é a categoria canônica
+> (`pf`/`pj`/`advogado`/`desconhecido`), derivada de doc/oab via
+> `classificar_tipo_parte`. Bug original: `esaj._extrair_partes` gravava o papel
+> cru em `tipo`, poluindo o donut "Distribuição por tipo" da `/dashboard/partes/`
+> com centenas de papéis e fragmentando Partes sem-doc por papel (o lookup de
+> dedupe usa `tipo` na chave). Como o e-SAJ mascara doc, quase toda pessoa vira
+> `desconhecido` (sem doc não dá pra distinguir pf/pj) — correto. Limpeza dos
+> dados históricos: `manage.py recategorizar_tipo_partes` (ver .ia/OPS.md).
+
 ### 1º vs 2º grau (cpopg / cposg)
 
 `BaseEsajEnricher` roteia por grau automaticamente: **foro de origem `OOOO == '0000'`

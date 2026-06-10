@@ -284,6 +284,49 @@ Causa raiz conhecida: `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS` que
 falha na validação deixa um husk inválido e o `IF NOT EXISTS` faz retries
 pularem — ver `.ia/ENRICHMENT.md`.
 
+## Donut "Distribuição por tipo" das Partes com rótulos sem sentido
+
+Sintoma: `/dashboard/partes/` mostra dezenas/centenas de fatias no donut
+"Distribuição por tipo" com nomes de papel processual (`agvdo/agvte`,
+`apelda/apelte`, `rqte/qlte`, `procuradoria`, ...) em vez das 4 categorias
+canônicas (Advogado / Pessoa Jurídica / Pessoa Física / Sem Identificação).
+
+Causa raiz (corrigida 2026-06-10): `enrichers/esaj.py` (TJSP/TJAL) gravava o
+**papel** processual cru em `Parte.tipo`. O código já emite `papel` separado +
+`tipo` canônico. Limpeza dos dados históricos (idempotente, em lotes):
+
+```bash
+# Confere o estrago sem alterar nada (lista os tipos não-canônicos + contagem)
+docker compose -f docker-compose-prod.yml exec -T web \
+  python manage.py recategorizar_tipo_partes --dry-run
+
+# Aplica (UPDATE em faixas de id; só toca linhas com tipo fora do canônico)
+docker compose -f docker-compose-prod.yml exec -T web \
+  python manage.py recategorizar_tipo_partes
+
+# Reaquece o cache do donut na hora (senão espera o warm_partes de 5min)
+docker compose -f docker-compose-prod.yml exec -T web python -c \
+  "import django,os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','core.settings'); django.setup(); \
+   from dashboard import queries; print(queries.compute_distribuicao_tipos_partes())"
+```
+
+Validação: `SELECT tipo, count(*) FROM tribunals_parte GROUP BY tipo` deve
+voltar **só** `pf`/`pj`/`advogado`/`desconhecido`.
+
+## 500 na página de detalhe de parte mega-agregada (INSS, União, Fazenda)
+
+Sintoma: `/dashboard/partes/<id>/` retorna `Internal Server Error` pra partes
+gigantes (ex: pk 47 = INSS, 3.4M `ProcessoParte`). No log do `web`:
+`SystemExit: 1` via `gunicorn handle_abort` (timeout 60s) numa query
+`GROUP BY` sobre `tribunals_processoparte`.
+
+Causa: `parte_detail` fazia 4 agregações `GROUP BY` full-scan (10-26s cada p/
+o INSS) + lista ordenada por join (`-processo__ultima_movimentacao_em`, ~11s)
+sincronamente no worker. Corrigido (2026-06-10): guard
+`PARTE_DETAIL_AGG_LIMIT` (50k) em `dashboard/views.py` — acima do teto, omite
+donuts/counts/chips e ordena a lista por `-id` (instantâneo via índice).
+Hot-deploy só de `web` (view + template, sem migration).
+
 ## Schema drift detectado
 
 Sintomas: drift alert vermelho no `/dashboard/ingestao/` ou em `djen_status`.

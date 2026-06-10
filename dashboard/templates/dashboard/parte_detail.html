@@ -45,6 +45,14 @@
   </div>
 </div>
 
+{% if agregacoes_omitidas %}
+  <div class="card mb-6 text-sm text-fg-subtle flex items-start gap-2">
+    {% voy_icon "telescope" "w-4 h-4 mt-0.5 shrink-0" %}
+    <span>Parte com {{ parte.total_processos|format_int }} participações — gráficos de
+    distribuição e filtros por polo/tribunal/papel foram omitidos para manter a
+    página responsiva. A lista abaixo mostra as participações mais recentes.</span>
+  </div>
+{% else %}
 {% include 'dashboard/_partials/section_header.html' with title='Distribuição' subtitle='Por tribunal, papel e polo (todas as participações)' %}
 
 {{ chart_tribunal|json_script:"data-chart-tribunal" }}
@@ -93,6 +101,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 {% include 'dashboard/_partials/section_header.html' with title='Processos relacionados' subtitle=parte.total_processos|format_int|add:' participações no total' %}
 

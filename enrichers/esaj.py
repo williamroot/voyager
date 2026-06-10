@@ -35,7 +35,7 @@ from djen.proxies import ProxyScrapePool, cortex_proxy_url
 from tribunals.models import Process
 
 from . import stream
-from .parsers import parse_documento, parse_oab
+from .parsers import classificar_tipo_parte, parse_documento, parse_oab
 
 DEFAULT_HEADERS = {
     # e-SAJ rejeita UAs identificadores (ex: 'voyager-ops') com 403. Chrome vanilla passa.
@@ -361,17 +361,25 @@ class BaseEsajEnricher:
                     # Tudo depois desse marker até o próximo nome é advogado.
                     is_advogado = True
                     continue
-                doc, _doc_tipo = parse_documento(s)
+                doc, doc_tipo = parse_documento(s)
                 oab = parse_oab(s) if is_advogado else ''
                 # Limpa nome: remove possível doc inline (CPF/CNPJ ou OAB sufixo).
                 nome = re.sub(r'\s*(?:CPF|CNPJ|OAB)\s*[:#]?\s*[\dXx*./-]+', '', s).strip()
                 if not nome:
                     continue
+                # `tipo` da tabela (Exeqte/Reqdo/Agravante/...) é o PAPEL
+                # processual → vai pra ProcessoParte.papel. `Parte.tipo` é a
+                # categoria canônica (pf/pj/advogado/desconhecido), derivada de
+                # doc/oab — NUNCA o papel cru (bug histórico: poluía o donut
+                # "Distribuição por tipo" com centenas de papéis).
+                papel = ('ADVOGADO' if is_advogado else tipo).upper()
                 polos[polo].append({
                     'nome': nome,
                     'documento': doc or '',
+                    'tipo_documento': doc_tipo or '',
                     'oab': oab or '',
-                    'tipo': 'advogado' if is_advogado else (tipo.lower() or 'desconhecido'),
+                    'papel': papel[:120],
+                    'tipo': classificar_tipo_parte(doc or '', doc_tipo or '', oab or '', papel),
                 })
         return polos
 
