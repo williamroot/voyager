@@ -699,6 +699,20 @@ with connection.cursor() as c:
 Várias linhas com a MESMA query + `IPC/MessageQueueSend` = 1 query com parallel
 workers (leader + N). Use `EXPLAIN` (sem ANALYZE) da query suspeita pra ver o plano.
 
+> **Recorrência 2026-06-10** (commit 5e98dd4): `compute_estatisticas_por_tribunal`
+> (warm `warm_estatisticas_tribunal`) ficou pra trás do fix de 2026-05-29 — ainda
+> fazia `COUNT` e `MIN/MAX(data) GROUP BY tribunal_id` em ~614M (full scan
+> paralelo ~20min, EXPLAIN cost 16M). Rodando a cada ciclo de warm, saturava o
+> IO e fazia o **login** (POST grava sessão) estourar o timeout do gateway —
+> sintoma "timeout ao acessar/logar" sem nada errado no health. Fix: lê totais da
+> `mv_tribunal_kpis`, movs 30d da `mv_volume_diario` (`dia<=hoje` corta data-lixo
+> do Datajud ano 2913), e primeira/última via seek no índice
+> `(tribunal_id, data_disponibilizacao)` — espelha o `compute_tribunal_status`.
+> Resultado: 20min → 4s. (Resta o COUNT de `meio_completo` sem filtro em ~614M,
+> menor — otimizar igual se o storm voltar.) Diagnóstico do hog: ver query
+> `MIN(...tribunal_movimentacao` longa em `pg_stat_activity`; mate o leader
+> client-backend com `pg_terminate_backend` pra alívio imediato.
+
 Causas-raiz já corrigidas (2026-05-29) — padrão a evitar em queries de dashboard:
 1. **`DISTINCT` da linha inteira**: `Process.filter(...).distinct().count()` virava
    `SELECT DISTINCT process.*` (32 colunas) + Sort gigante. Use
