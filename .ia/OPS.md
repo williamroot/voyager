@@ -293,25 +293,55 @@ canônicas (Advogado / Pessoa Jurídica / Pessoa Física / Sem Identificação).
 
 Causa raiz (corrigida 2026-06-10): `enrichers/esaj.py` (TJSP/TJAL) gravava o
 **papel** processual cru em `Parte.tipo`. O código já emite `papel` separado +
-`tipo` canônico. Limpeza dos dados históricos (idempotente, em lotes):
+`tipo` canônico. A limpeza histórica **não é um UPDATE simples**: como o e-SAJ
+mascara doc, o lookup de dedupe sem-doc usava `tipo` na chave → a mesma entidade
+(INSS, Fazenda) virou N Partes (uma por papel). Recategorizar pra `desconhecido`
+colide na `uniq_parte_sem_doc_nem_oab (nome,tipo)`. Por isso o command
+`recategorizar_tipo_partes` faz um **dedup-merge** (FASE 1: funde por nome,
+repointa ProcessoParte; FASE 2: normaliza tipo; FASE 3: recalcula
+total_processos) — é **operação de janela de manutenção** (1ª execução
+2026-06-10: 1,53M → 0 não-canônico, ~265k Partes fundidas).
 
 ```bash
-# Confere o estrago sem alterar nada (lista os tipos não-canônicos + contagem)
-docker compose -f docker-compose-prod.yml exec -T web \
-  python manage.py recategorizar_tipo_partes --dry-run
+# 1) JANELA: pare os drainers e o scheduler (warm jobs pesados saturam IO e
+#    arrastam o merge; drainers escrevendo PP durante o merge = race).
+docker compose -f docker-compose-prod.yml stop scheduler \
+  enrichment_drainer enrichment_drainer_p0 enrichment_drainer_p1 \
+  enrichment_drainer_p2 enrichment_drainer_p3
+#    Mate warm jobs longos órfãos (pgbouncer mantém a query mesmo após stop):
+#    pg_terminate_backend dos client backends com query 'WITH ativo'/'MIN(...tribunal_movimentacao'.
 
-# Aplica (UPDATE em faixas de id; só toca linhas com tipo fora do canônico)
-docker compose -f docker-compose-prod.yml exec -T web \
-  python manage.py recategorizar_tipo_partes
+# 2) BACKUP DIRECIONADO (reversível, barato — não precisa pg_dump de 36GB):
+#    bkp_retipo_losers_parte / _survivors / _losers_pp / _withdoc (ver histórico do commit).
 
-# Reaquece o cache do donut na hora (senão espera o warm_partes de 5min)
+# 3) Dry-run e run (DETACHED — exec -d; senão ssh-timeout orfaniza a query
+#    server-side via pgbouncer):
+docker compose -f docker-compose-prod.yml exec -T web python manage.py recategorizar_tipo_partes --dry-run
+docker compose -f docker-compose-prod.yml exec -d web sh -c \
+  'python manage.py recategorizar_tipo_partes > /tmp/retipo.log 2>&1'
+#    Acompanhe: docker compose exec -T web sh -c 'tail -f /tmp/retipo.log'
+
+# 4) Religue scheduler + drainers; reaqueça o donut:
+docker compose -f docker-compose-prod.yml start scheduler enrichment_drainer \
+  enrichment_drainer_p0 enrichment_drainer_p1 enrichment_drainer_p2 enrichment_drainer_p3
 docker compose -f docker-compose-prod.yml exec -T web python -c \
   "import django,os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','core.settings'); django.setup(); \
    from dashboard import queries; print(queries.compute_distribuicao_tipos_partes())"
 ```
 
+Gotchas aprendidos (já tratados dentro do command):
+- **`statement_timeout=20s`** default da conexão (pgbouncer) cancela os statements
+  pesados → o command usa `SET LOCAL statement_timeout` alto em `transaction.atomic`
+  (único que cola sob transaction-pooling).
+- **`ANALYZE _retipo_map`** após criar o índice — sem stats o planner seq-scaneia
+  os ~19GB de `tribunals_processoparte` por batch (horas).
+- **`_pp_del`** deleta também o loser que colidiria com o PP do próprio survivor
+  (mesmo bug latente existe no `dedup_partes`).
+
 Validação: `SELECT tipo, count(*) FROM tribunals_parte GROUP BY tipo` deve
-voltar **só** `pf`/`pj`/`advogado`/`desconhecido`.
+voltar **só** `pf`/`pj`/`advogado`/`desconhecido`. Backlog do stream cresce na
+janela (drainers parados) e drena depois (~4k/min). Tabelas `bkp_retipo_*`
+podem ser dropadas após confirmar o resultado.
 
 ## 500 na página de detalhe de parte mega-agregada (INSS, União, Fazenda)
 
