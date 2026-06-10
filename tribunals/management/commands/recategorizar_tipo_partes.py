@@ -153,6 +153,11 @@ class Command(BaseCommand):
             """)
             cur.execute('DELETE FROM _retipo_map WHERE loser_id = survivor_id')
             cur.execute('CREATE INDEX ON _retipo_map (loser_id)')
+            # ANALYZE é essencial: sem estatísticas na UNLOGGED, o planner
+            # seq-scaneia os ~19GB de tribunals_processoparte a CADA batch
+            # (horas). Com stats, escolhe nested-loop usando o índice
+            # (parte_id,polo) → lookups pontuais (segundos no total).
+            cur.execute('ANALYZE _retipo_map')
 
     def _drop_map(self):
         with connection.cursor() as cur:
