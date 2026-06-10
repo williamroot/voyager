@@ -1101,31 +1101,42 @@ def estatisticas_por_tribunal():
 
 
 def compute_estatisticas_por_tribunal():
-    """Computa e grava no cache (TTL 30min). Chamado pelo cron, NUNCA pela view.
+    """Computa e grava no cache. Chamado pelo cron warm, NUNCA pela view.
 
-    Query única por métrica usando GROUP BY tribunal_id em vez de N queries
-    por tribunal. Total ~5 queries pesadas em tabelas grandes.
+    NÃO escaneia ~614M de movimentação: contagens totais vêm da
+    `mv_tribunal_kpis` (refresh diário), volume 30d da `mv_volume_diario`, e
+    primeira/última via seek no índice (tribunal_id, data_disponibilizacao).
+    Antes fazia COUNT e MIN/MAX `GROUP BY tribunal_id` em ~614M (full scan
+    paralelo, ~20min) — saturava o IO e fazia o login estourar timeout.
     """
     from django.core.cache import cache
-    from django.db.models import Max, Min
+    from django.db import connection
     from redis.exceptions import RedisError
     agora = timezone.now()
-    cutoff_30d = agora - timedelta(days=30)
+    hoje = agora.date()
+    cutoff_30d = hoje - timedelta(days=30)
 
-    procs_por_trib = dict(
-        Process.objects.values('tribunal_id').annotate(n=Count('id'))
-        .values_list('tribunal_id', 'n')
-    )
-    movs_por_trib = dict(
-        Movimentacao.objects.values('tribunal_id').annotate(n=Count('id'))
-        .values_list('tribunal_id', 'n')
-    )
-    movs_30d_por_trib = dict(
-        Movimentacao.objects.filter(data_disponibilizacao__gte=cutoff_30d)
-        .values('tribunal_id').annotate(n=Count('id'))
-        .values_list('tribunal_id', 'n')
-    )
+    # Totais por tribunal: mv_tribunal_kpis (refresh diário CONCURRENTLY) — 11
+    # linhas, em vez de COUNT GROUP BY em Process (~13M) e Movimentacao (~614M).
+    procs_por_trib: dict[str, int] = {}
+    movs_por_trib: dict[str, int] = {}
+    with connection.cursor() as cur:
+        cur.execute('SELECT sigla, total_processos, total_movs FROM mv_tribunal_kpis')
+        for sigla, n_proc, n_mov in cur.fetchall():
+            procs_por_trib[sigla] = n_proc or 0
+            movs_por_trib[sigla] = n_mov or 0
 
+    # Movs nos últimos 30d: soma da mv_volume_diario (pequena). `dia <= hoje`
+    # corta datas-lixo futuras do Datajud (a MV chega a ter dia ano 2913).
+    movs_30d_por_trib: dict[str, int] = {}
+    with connection.cursor() as cur:
+        cur.execute(
+            'SELECT tribunal_id, COALESCE(SUM(total), 0) FROM mv_volume_diario '
+            'WHERE dia >= %s AND dia <= %s GROUP BY tribunal_id', [cutoff_30d, hoje]
+        )
+        movs_30d_por_trib = {tid: n for tid, n in cur.fetchall()}
+
+    # Enriquecimento por status: Process (~13M, bem menor que movimentacao). Live.
     enriq_status: dict[str, dict] = {}
     rows = (
         Process.objects.values('tribunal_id', 'enriquecimento_status')
@@ -1134,11 +1145,19 @@ def compute_estatisticas_por_tribunal():
     for r in rows:
         enriq_status.setdefault(r['tribunal_id'], {})[r['enriquecimento_status']] = r['n']
 
-    range_trib = {
-        r['tribunal_id']: (r['primeira'], r['ultima'])
-        for r in Movimentacao.objects.values('tribunal_id')
-        .annotate(primeira=Min('data_disponibilizacao'), ultima=Max('data_disponibilizacao'))
-    }
+    # Primeira/última movimentação por tribunal: seek no índice
+    # (tribunal_id, data_disponibilizacao) — ≤11 ativos × 2 → ~ms. Janela
+    # [data_inicio|floor, agora] corta datas-lixo do Datajud nos dois extremos.
+    range_trib: dict[str, tuple] = {}
+    for t in Tribunal.objects.filter(ativo=True).only('sigla', 'data_inicio_disponivel'):
+        base = Movimentacao.objects.filter(
+            tribunal_id=t.sigla,
+            data_disponibilizacao__gte=(t.data_inicio_disponivel or _DATA_FLOOR),
+            data_disponibilizacao__lte=agora,
+        ).values_list('data_disponibilizacao', flat=True)
+        primeira = base.order_by('data_disponibilizacao').first()
+        ultima = base.order_by('-data_disponibilizacao').first()
+        range_trib[t.sigla] = (primeira, ultima)
 
     payload = []
     for t in Tribunal.objects.filter(ativo=True).order_by('sigla'):
