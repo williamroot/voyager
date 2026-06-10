@@ -187,6 +187,16 @@ class Command(BaseCommand):
                         JOIN _retipo_map m ON m.loser_id = ppl.parte_id
                         WHERE m.loser_id >= %s AND m.loser_id < %s
                     """, [cursor_id, fim])
+                    # Mantém exatamente 1 PP por slot (processo,polo,papel,
+                    # representa) que pós-repoint aponta pro survivor; deleta os
+                    # losers redundantes. Diferença vs dedup_partes (que tem este
+                    # bug latente): o PP do PRÓPRIO survivor nunca está em
+                    # _pp_lote (survivor não é loser), então se o PP do survivor
+                    # tem id MAIOR que um PP loser no mesmo slot, `o.id<l.pp_id`
+                    # não dispararia e o loser seria repointado → colisão na
+                    # unique uniq_processo_parte_polo_papel_principal. O 2º ramo
+                    # (`mo.survivor_id IS NULL` ⇒ o é PP de não-loser = do próprio
+                    # survivor) deleta o loser independente do id.
                     c2.execute("""
                         CREATE TEMP TABLE _pp_del ON COMMIT DROP AS
                         SELECT l.pp_id FROM _pp_lote l
@@ -197,7 +207,8 @@ class Command(BaseCommand):
                               AND o.polo = l.polo AND o.papel = l.papel
                               AND o.representa_id IS NOT DISTINCT FROM l.representa_id
                               AND COALESCE(mo.survivor_id, o.parte_id) = l.post_parte
-                              AND o.id < l.pp_id
+                              AND o.id <> l.pp_id
+                              AND (o.id < l.pp_id OR mo.survivor_id IS NULL)
                         )
                     """)
                     c2.execute("""
