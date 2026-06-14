@@ -103,6 +103,18 @@ CLASSES_CUMPRIMENTO = {
     '12079',  # Execução de Título Extrajudicial contra a Fazenda Pública (estadual)
 }
 
+# Subconjunto que indica DEVEDOR PÚBLICO (Fazenda) — onde precatório/RPV nascem.
+# A classe 156 ("Cumprimento de Sentença" genérico) é execução PRIVADA e domina o
+# DIREITO_CREDITORIO do TJSP (~94%), nunca virando precatório. Filtrar por estas
+# classes na origem evita gastar o cap de pull/scrape do Falcon com lixo privado.
+# A 15160 (Ações Coletivas) fica de fora do código fixo por ser ambígua — é
+# capturada pelo match textual 'fazenda públ' quando o réu é ente público.
+CLASSES_FAZENDA_PUBLICA = {
+    '12078',  # Cumprimento de Sentença contra a Fazenda Pública (federal/estadual)
+    '12079',  # Execução de Título Extrajudicial contra a Fazenda Pública
+    '15215',  # Cumprimento contra Fazenda Mediante Execução Invertida
+}
+
 CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 
 # Agrega todos os counts de movimentações em uma única passagem pela tabela,

@@ -24,6 +24,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from tribunals.classificador import CLASSES_FAZENDA_PUBLICA
 from tribunals.jobs import registrar_consumo_leads
 from tribunals.models import (
     ApiClient, ClassificadorVersao, LeadConsumption, Process,
@@ -60,6 +61,13 @@ def listar_leads(request):
     except (TypeError, ValueError):
         min_score = 0.0
     incluir_consumidos = (request.query_params.get('incluir_consumidos') or '').lower() in ('1', 'true', 'sim')
+    # devedor_publico=true → só leads cujo devedor é a Fazenda (classe de
+    # Cumprimento/Execução contra Fazenda Pública, ou nome com 'fazenda públ').
+    # Pensado pro DIREITO_CREDITORIO do TJSP, onde ~94% são execuções privadas
+    # (classe 156) que nunca viram precatório — sem isto o cliente gasta o cap
+    # de pull/scrape com lixo. Aplicável a qualquer nível (no-op se já é só
+    # Fazenda, ex.: PRECATORIO).
+    devedor_publico = (request.query_params.get('devedor_publico') or '').lower() in ('1', 'true', 'sim')
 
     if nivel not in dict(Process.CLASSIF_CHOICES):
         return Response({'erro': f'nivel inválido: {nivel}'}, status=400)
@@ -72,6 +80,12 @@ def listar_leads(request):
     )
     if tribunal:
         qs = qs.filter(tribunal_id=tribunal)
+    if devedor_publico:
+        qs = qs.filter(
+            Q(classe_codigo__in=CLASSES_FAZENDA_PUBLICA)
+            | Q(classe_nome__icontains='fazenda públ')
+            | Q(classe_nome__icontains='fazenda pub')
+        )
     if not incluir_consumidos:
         # Exclui processos que esse cliente já consumiu — qualquer registro
         # em LeadConsumption pra esse cliente x processo conta.
