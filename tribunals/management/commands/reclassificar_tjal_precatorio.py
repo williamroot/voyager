@@ -12,12 +12,13 @@ from __future__ import annotations
 import django_rq
 from django.core.management.base import BaseCommand, CommandError
 
+from tribunals.classificador import CLASSES_CUMPRIMENTO
 from tribunals.jobs import reclassificar_batch
 from tribunals.models import Process
 
 TRIBUNAL = 'TJAL'
-# Mesmas classes de CLASSES_CUMPRIMENTO do classificador.
-CLASSES = ['156', '12078', '12079', '15215', '15160']
+# Fonte única: as classes de Cumprimento do classificador (evita divergência).
+CLASSES = sorted(CLASSES_CUMPRIMENTO)
 
 
 class Command(BaseCommand):
