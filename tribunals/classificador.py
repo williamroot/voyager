@@ -115,6 +115,17 @@ CLASSES_FAZENDA_PUBLICA = {
     '15215',  # Cumprimento contra Fazenda Mediante Execução Invertida
 }
 
+# Tribunais onde a "regra de sinal" promove Cumprimento→PRECATORIO direto
+# (rollout controlado; começa só no TJAL). O LR v6 trava o score do eSAJ em
+# ≤0,582 (sinais de expedição do eSAJ não batem com o treino PJe/DataJud), então
+# um Cumprimento com ofício requisitório/expedição NOS MOVIMENTOS — que é
+# precatório de fato e o Falcon baixa+parseia (1º grau) — nunca chegaria a N1.
+PRECATORIO_SINAL_TRIBUNAIS = {'TJAL'}
+
+# Score gravado na promoção por regra de sinal. Precisa passar o
+# VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
+SCORE_PROMOCAO_SINAL = 1.0
+
 CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 
 # Agrega todos os counts de movimentações em uma única passagem pela tabela,
@@ -423,6 +434,17 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
       else                                    → NAO_LEAD
     """
     from .models import Process
+
+    # Regra de sinal (eSAJ): Cumprimento (F1) com ofício requisitório (F14) ou
+    # expedição (F20) nos movimentos é precatório de fato. Promove a N1 com
+    # score alto, bypassando o LR (que trava o eSAJ <0.70). Escopado por tribunal.
+    if processo.tribunal_id in PRECATORIO_SINAL_TRIBUNAIS:
+        if features is None:
+            features = compute_features(processo)
+        if (features.get('F1_cumprim') == 1
+                and (features.get('F14_oficio_text') == 1
+                     or features.get('F20_exp_juriscope') == 1)):
+            return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, features
 
     # Garante que estamos usando os pesos mais recentes (com TTL).
     pesos = _current_weights()
