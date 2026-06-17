@@ -416,6 +416,11 @@ class TjalEnricher(BaseEsajEnricher):
     TRIBUNAL_SIGLA = 'TJAL'
     LOG_NAME = 'voyager.enrichers.tjal'
     CPOSG_PATH = 'cposg5'  # TJAL: 2º grau é /cposg5/ (TJSP usa /cposg/)
-    # www2.tjal.jus.br dá ReadTimeout em 100% do pool datacenter — só responde
-    # via Cortex residencial (validado 2026-05-30). Roteia por Cortex.
-    PREFER_CORTEX = True
+    # 2026-05-30: www2.tjal.jus.br dava ReadTimeout em 100% do pool datacenter,
+    # só respondendo via Cortex → PREFER_CORTEX=True.
+    # 2026-06-17: reavaliado em prod — o pool ProxyScrape agora responde a ~37%
+    # dos IPs (página e-SAJ válida em ~1s; ReadTimeouts são IPs mortos do pool,
+    # não bloqueio do TJAL) e o gateway Cortex caiu (ProxyError em 100%). Com
+    # MAX_PROXY_ROTATIONS=8, 37%/IP ⇒ ~99,8% de sucesso por processo. Volta pro
+    # pool (default) pra paralelizar pelos 2500+ IPs e não depender do Cortex.
+    PREFER_CORTEX = False
