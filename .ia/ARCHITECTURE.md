@@ -65,7 +65,7 @@ nginx             Reverse proxy + cache de /static/ + resolver dinâmico do Dock
     ├── janela = (hoje - overlap_dias, hoje)
     └── ingest_window(tribunal, inicio, fim):
          ├── cria IngestionRun(status=running)
-         ├── for items in DJENClient.iter_pages(...):  ← Cortex 80% / ProxyScrape 20%
+         ├── for items in DJENClient.iter_pages(...):  ← Cortex-only (pool ~0% na DJEN: WAF 403; ver ADR-006)
          │   └── _process_page(items, tribunal, run, cnjs):
          │       ├── parse_item → ParsedItem (+ drift alert se chaves novas)
          │       ├── upsert Process (bulk_create ignore_conflicts)
