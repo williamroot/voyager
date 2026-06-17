@@ -73,7 +73,7 @@ worker_tjmg            72       768m      enrich_tjmg    (gargalo — prioridade
 worker_tjma             8       768m      enrich_tjma
 worker_tjsp            40       640m      enrich_tjsp    (maior volume — e-SAJ)
 worker_tjdft            8       512m      enrich_tjdft
-worker_tjal             8       640m      enrich_tjal
+worker_tjal            24       640m      enrich_tjal    (e-SAJ via pool ProxyScrape — ADR-021, 2026-06-17)
 worker_djen_audit       6       512m      djen_audit
 worker_datajud         24       512m      datajud
 worker_ingestion        8       1g        djen_ingestion + djen_backfill
@@ -81,7 +81,7 @@ worker_default          2       512m      default
 worker_classificacao    8       1g        classificacao  (carrega modelo ML)
 ```
 
-Total por host: **304 containers**. Com aux: ~608 workers RQ.
+Total por host: **320 containers** (304 + tjal 8→24 em 2026-06-17). Com aux: ~640 workers RQ.
 
 > **Incidente OOM 2026-06-08** (commit `6c3a784`): a `.102` (56GB) **travou por
 > OOM** — o config pedia ~608 réplicas **sem `mem_limit`**, então 1 worker que
@@ -200,6 +200,24 @@ Quando `backfill_concluido_em` ficar setado, o cron diário começa a rodar auto
 ## DJEN está fora do ar (504 em massa)
 
 Sintomas: `djen_status` mostra muitos `failed`, logs cheios de `DJEN 504 após N tentativas`.
+
+> **A DJEN é Cortex-only — o pool NÃO substitui.** O WAF da DJEN bloqueia ~100%
+> dos IPs datacenter do ProxyScrape (medido 2026-06-17: 0/29, HTTP 403). Se os
+> `failed` vierem de `403`/`ProxyError` e não de `504`, suspeite do **gateway
+> Cortex** (`cortex-http.was.dev.br:44383`), não da DJEN nem do pool — ele
+> **flapa** (caiu 100% por ~15min em 2026-06-17 e voltou). Teste rápido:
+> ```bash
+> docker compose -f docker-compose-prod.yml exec -T web python -c "
+> import django,os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','core.settings'); django.setup()
+> import requests; from djen.proxies import ProxyScrapePool, cortex_proxy_url
+> cx=cortex_proxy_url(ProxyScrapePool.singleton())
+> r=requests.get('https://comunicaapi.pje.jus.br/api/v1/comunicacao',
+>   params={'siglaTribunal':'TRF1','pagina':1,'itensPorPagina':5,'dataDisponibilizacaoInicio':'2024-01-02','dataDisponibilizacaoFim':'2024-01-03'},
+>   proxies={'http':cx,'https':cx}, headers={'User-Agent':'voyager-ingestion/0.1'}, timeout=(8,30))
+> print('cortex->DJEN', r.status_code)"
+> ```
+> `200` = Cortex ok (o problema é a DJEN mesmo). `ProxyError` = Cortex caído →
+> a ingestão DJEN fica parada até o gateway voltar (o pool não cobre).
 
 Diagnóstico (1 comando):
 ```bash

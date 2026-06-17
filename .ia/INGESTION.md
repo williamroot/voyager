@@ -196,8 +196,14 @@ Ambos rodam inline no `ThreadPoolExecutor(20)` do scheduler (`.32`) — sem fila
 ## Rate limiting / volume
 
 A DJEN aceita **paginação ilimitada** mas tem WAF. Observado:
-- Datacenter proxies (ProxyScrape) bloqueados pelo WAF em ~80% dos IPs
-- Cortex (residencial fixo) sempre aceito
+- Datacenter proxies (ProxyScrape) bloqueados pelo WAF em ~**100%** dos IPs
+  (medido 2026-06-17: 0/29 IPs do pool, 28× HTTP 403 + 1× 500). A ingestão DJEN
+  é, na prática, **Cortex-only** — o pool **não** serve de fallback (devolve 403).
+- Cortex (residencial fixo) sempre aceito → **SPOF**: se o gateway Cortex cair, a
+  ingestão DJEN para (o pool não cobre). Ele **flapa** (caiu 100% por ~15min em
+  2026-06-17 e voltou). Num incidente de ingestão, priorize a saúde do Cortex —
+  o pool não resolve. (e-SAJ TJSP/TJAL é o caso oposto: responde pelo pool. Ver
+  `.ia/DECISIONS.md` ADR-006/ADR-021.)
 - 504 Gateway Timeout aparece em ondas — backoff longo + esperar é a única coisa a fazer
 
 Volume típico:

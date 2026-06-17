@@ -54,6 +54,31 @@ Decisões arquiteturais relevantes com motivação. Estilo ADR enxuto.
 
 **Consequência:** Backfill estável mesmo quando WAF aperta. Cortex não é queimado por sobreuso.
 
+> **Correção (2026-06-17, medido em prod):** o bloqueio do pool na **DJEN** é
+> ~**100%**, não ~80% — amostra de 29 IPs do pool em `comunicaapi.pje.jus.br`
+> deu **0 sucessos** (28× HTTP 403 + 1× 500). Na prática a ingestão DJEN é
+> **Cortex-only**: o "20% pool" não substitui o Cortex, e o fallback pro pool
+> (`prefer_other_than` + `mark_cortex_bad`) cai em 403. **Implicação: a ingestão
+> DJEN é SPOF no gateway Cortex** — se ele cair, a ingestão para (o pool não
+> cobre). O Cortex também **flapa**: em 2026-06-17 falhou 100% por ~15-20min
+> (ProxyError em qualquer host) e se recuperou sozinho. Isso vale **só pra DJEN**;
+> e-SAJ (TJSP/TJAL) responde pelo pool — ver ADR-021.
+
+## ADR-021 — e-SAJ TJAL roteia pelo pool ProxyScrape (não pelo Cortex)
+
+**Contexto:** `TjalEnricher` nasceu com `PREFER_CORTEX=True` (2026-05-30) sob a
+premissa de que `www2.tjal.jus.br` dava ReadTimeout em 100% do pool datacenter.
+Reavaliação em prod (2026-06-17): o pool responde ~**37%** dos IPs (página e-SAJ
+válida em ~1s; os ReadTimeouts são IPs mortos do pool, não bloqueio do TJAL), e
+com `MAX_PROXY_ROTATIONS=8` isso dá ~99,8% de sucesso por processo.
+
+**Decisão:** `PREFER_CORTEX=False` no `TjalEnricher` (usa o pool) + `worker_tjal`
+8→24 réplicas. Diferente da DJEN, o e-SAJ **funciona pelo pool**.
+
+**Consequência:** o TJAL deixa de competir pelo gateway Cortex escasso — que a
+**DJEN precisa com exclusividade** (ADR-006) — e ganha resiliência paralelizando
+pelos 2500+ IPs do pool. Padrão: **DJEN → Cortex; e-SAJ → pool**.
+
 ## ADR-007 — Resilient run_backfill (1 chunk falha ≠ job morre)
 
 **Contexto:** ChunkedEncodingError fazia o job RQ inteiro morrer. Chunks seguintes ficavam orfãos.
