@@ -154,10 +154,12 @@ services:
     deploy:
       # TJAL roda o MESMO e-SAJ do TJSP (HTTP puro, 2 requests/job: open.do +
       # search.do→show.do). Volume muito menor que TJSP — ramp inicial 10
-      # réplicas (critério do 1º deploy de tribunal novo). Sem ProxyScrapePool:
-      # e-SAJ tolera taxa moderada de IP único; subir se rate-limit aparecer.
+      # réplicas (critério do 1º deploy de tribunal novo).
       # 2026-06-08: 10 → 8 (pós-OOM).
-      replicas: 8
+      # 2026-06-17: 8 → 24. Passou a usar o pool ProxyScrape (PREFER_CORTEX=False,
+      # ver enrichers/esaj.py) → paraleliza pelos 2500+ IPs; sobe pra drenar o
+      # backlog acumulado enquanto o enrich falhava no Cortex. mem_limit protege.
+      replicas: 24
     restart: unless-stopped
 
   worker_default:
