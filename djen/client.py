@@ -16,12 +16,25 @@ class DjenClientError(Exception):
     pass
 
 
+class DjenServerError(DjenClientError):
+    """Erro 5xx da DJEN após esgotar retries. Distinto de DjenClientError pra
+    que a paginação possa reagir (reduzir page size) — a DJEN devolve 500
+    ('sistema muito ocupado') em queries pesadas, sobretudo na 1ª página de
+    janelas grandes a itensPorPagina=1000; o mesmo offset a page size menor
+    responde 200."""
+    pass
+
+
 class DJENClient:
     """Cliente HTTP da DJEN com paginação, retry exponencial e rotação de proxies."""
 
     # Cap interno máximo da API DJEN — 1000 itens por página.
     # itensPorPagina>1000 retorna 1000 silenciosamente.
     PAGE_SIZE = 1000
+    # Piso pra redução adaptativa de page size quando a DJEN 5xx em página
+    # pesada (ver iter_pages). 100 responde 200 de forma confiável onde 1000
+    # 500a (medido em TJDFT/TJ* de alto volume, 2026-06-27).
+    MIN_PAGE_SIZE = 100
 
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         self.base_url = settings.DJEN_BASE_URL
@@ -54,16 +67,46 @@ class DJENClient:
         return int(payload.get('count') or 0)
 
     def iter_pages(self, sigla_djen: str, data_inicio: date, data_fim: date) -> Iterator[list[dict]]:
-        """Itera páginas até esgotar a janela. Usa itensPorPagina=1000 (cap
-        máximo da DJEN). Para quando última página retorna < 1000 itens."""
+        """Itera páginas até esgotar a janela. Começa em itensPorPagina=1000
+        (cap máximo da DJEN) e **reduz adaptativamente** o page size quando a
+        DJEN devolve 5xx — a API 500a ('sistema muito ocupado') em páginas
+        pesadas, sobretudo a 1ª página de janelas grandes a 1000 itens, mas o
+        mesmo offset a page size menor responde 200. Sem isso, dias de alto
+        volume nunca eram ingeridos (500 eterno na página 1).
+
+        Ao reduzir, retoma do mesmo offset de itens (não do mesmo número de
+        página): re-busca a partir de `floor(itens_lidos / novo_size)`, então
+        nunca pula itens; no máximo re-entrega alguns já vistos, que o ingest
+        deduplica por id (bulk_create ignore_conflicts)."""
         pagina = 1
         page_size = self.PAGE_SIZE
+        itens_lidos = 0
         while True:
-            payload = self._fetch(sigla_djen, data_inicio, data_fim, pagina, itens_por_pagina=page_size)
+            try:
+                # Em page size grande, desiste cedo do 5xx (max_5xx=2) pra
+                # reduzir rápido em vez de insistir minutos no offset pesado.
+                # No piso, usa o budget normal de retries.
+                payload = self._fetch(
+                    sigla_djen, data_inicio, data_fim, pagina,
+                    itens_por_pagina=page_size,
+                    max_5xx=(2 if page_size > self.MIN_PAGE_SIZE else None),
+                )
+            except DjenServerError:
+                if page_size > self.MIN_PAGE_SIZE:
+                    novo = max(self.MIN_PAGE_SIZE, page_size // 5)
+                    logger.warning(
+                        'DJEN 5xx em %s page_size=%d (offset~%d) → reduzindo p/ %d e retomando',
+                        sigla_djen, page_size, itens_lidos, novo,
+                    )
+                    page_size = novo
+                    pagina = itens_lidos // page_size + 1
+                    continue
+                raise
             items = payload.get('items') or []
             if not items:
                 return
             yield items
+            itens_lidos += len(items)
             # Última página tem menos que page_size: chegou ao fim da janela.
             if len(items) < page_size:
                 return
@@ -71,7 +114,12 @@ class DJENClient:
             time.sleep(self.page_sleep)
 
     def _fetch(self, sigla_djen: str, data_inicio: date, data_fim: date, pagina: int,
-               itens_por_pagina: int = 1000, extra_params: Optional[dict] = None) -> dict:
+               itens_por_pagina: int = 1000, extra_params: Optional[dict] = None,
+               max_5xx: Optional[int] = None) -> dict:
+        # max_5xx limita só os retries de 5xx (servidor). iter_pages passa um
+        # valor baixo pra "desistir cedo" e reduzir o page size em vez de
+        # insistir minutos no mesmo offset pesado. None = usa self.max_retries.
+        limite_5xx = max_5xx if max_5xx is not None else self.max_retries
         params = {
             'pagina': pagina,
             'itensPorPagina': itens_por_pagina,
@@ -87,6 +135,7 @@ class DJENClient:
         last_failed_source: Optional[str] = None
         proxy_rotations = 0
         transport_retries = 0
+        server_5xx_retries = 0
 
         while True:
             proxy_url, using = self._pick_proxy(prefer_other_than=last_failed_source)
@@ -127,17 +176,17 @@ class DJENClient:
                         )
                         time.sleep(wait)
                     continue
-                # 5xx: erro do servidor → backoff longo, limite de retries de transporte.
+                # 5xx: erro do servidor → backoff longo, limite próprio de retries.
                 if 500 <= resp.status_code < 600:
-                    transport_retries += 1
-                    if transport_retries >= self.max_retries:
-                        raise DjenClientError(
-                            f'DJEN {resp.status_code} após {self.max_retries} tentativas: {resp.text[:200]}'
+                    server_5xx_retries += 1
+                    if server_5xx_retries >= limite_5xx:
+                        raise DjenServerError(
+                            f'DJEN {resp.status_code} após {server_5xx_retries} tentativas: {resp.text[:200]}'
                         )
                     logger.warning(
-                        '⏳ %s servidor via %s → retry #%d', resp.status_code, proxy_label, transport_retries,
+                        '⏳ %s servidor via %s → retry #%d', resp.status_code, proxy_label, server_5xx_retries,
                     )
-                    self._sleep_backoff(transport_retries, factor=3.0, max_wait=180.0)
+                    self._sleep_backoff(server_5xx_retries, factor=3.0, max_wait=180.0)
                     continue
                 if 400 <= resp.status_code < 500:
                     raise DjenClientError(f'DJEN {resp.status_code}: {resp.text[:200]}')
