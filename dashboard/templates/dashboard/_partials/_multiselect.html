@@ -1,0 +1,41 @@
+{% comment %}
+Autocomplete multi-select (Alpine). Mantém um hidden input CSV `name={{ field }}`
+sincronizado com a seleção — compatível com `_split_csv` na view.
+
+Params:
+  field        — nome do form field (ex: 'tribunal')
+  label        — rótulo curto
+  placeholder  — texto do input vazio
+  options_id   — id de um {{ x|json_script:"id" }} com [[value,label]] ou [value]
+  selected_id  — id de um {{ x|json_script:"id" }} com [value, ...] selecionados
+
+Depende da função global `multiselect()` (definida uma vez em partes.html).
+{% endcomment %}
+<div class="flex flex-col gap-1 min-w-[210px]" x-data="multiselect('{{ options_id }}','{{ selected_id }}')" @click.outside="open=false">
+  <label class="text-xs text-fg-subtle">{{ label }}</label>
+  <input type="hidden" name="{{ field }}" :value="selected.join(',')">
+  <div class="relative">
+    <div class="flex flex-wrap gap-1 items-center bg-base border border-border rounded px-2 py-1 min-h-[34px] cursor-text"
+         @click="open=true; $nextTick(()=>$refs.inp.focus())">
+      <template x-for="v in selected" :key="v">
+        <span class="chip active !py-0.5 text-xs flex items-center gap-1">
+          <span x-text="labelFor(v)"></span>
+          <button type="button" @click.stop="remove(v)" class="hover:text-danger leading-none">&times;</button>
+        </span>
+      </template>
+      <input x-ref="inp" x-model="query" @focus="open=true" @keydown.escape="open=false"
+             :placeholder="selected.length ? '' : '{{ placeholder }}'"
+             class="bg-transparent outline-none text-sm flex-1 min-w-[90px] py-0.5">
+    </div>
+    <div x-show="open && filtered.length" x-cloak
+         class="absolute z-30 mt-1 w-full max-h-60 overflow-auto bg-card border border-border rounded shadow-lg">
+      <template x-for="o in filtered" :key="o.value">
+        <button type="button" @click="toggle(o.value)"
+                class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface flex items-center justify-between gap-2">
+          <span x-text="o.label" class="truncate"></span>
+          <span x-show="selected.includes(o.value)" class="text-accent-fg shrink-0">✓</span>
+        </button>
+      </template>
+    </div>
+  </div>
+</div>

@@ -30,19 +30,48 @@
   </div>
 </div>
 
+{# Opções + seleção atual dos 3 multi-selects (lidas pelo Alpine via json_script) #}
+{{ tipos_opcoes|json_script:"ms-tipo-opts" }}
+{{ tipos_filtro|json_script:"ms-tipo-sel" }}
+{{ tribunais_opcoes|json_script:"ms-trib-opts" }}
+{{ tribunais_filtro|json_script:"ms-trib-sel" }}
+{{ papeis_opcoes|json_script:"ms-papel-opts" }}
+{{ papeis_filtro|json_script:"ms-papel-sel" }}
+<script>
+  // Componente Alpine de autocomplete multi-select. Normaliza opções no formato
+  // [[value,label]] (tuplas) ou [value] (strings) → {value,label}. Mantém o
+  // hidden input CSV via :value="selected.join(',')".
+  window.multiselect = window.multiselect || function (optsId, selId) {
+    const parse = (id) => { try { return JSON.parse(document.getElementById(id).textContent) || []; } catch (e) { return []; } };
+    const norm = (arr) => arr.map((x) => Array.isArray(x)
+      ? { value: String(x[0]), label: String(x[1]) }
+      : { value: String(x), label: String(x) });
+    return {
+      open: false,
+      query: '',
+      options: norm(parse(optsId)),
+      selected: parse(selId).map(String),
+      get filtered() {
+        const q = this.query.trim().toLowerCase();
+        return this.options.filter((o) => o.label.toLowerCase().includes(q)).slice(0, 60);
+      },
+      labelFor(v) { const o = this.options.find((o) => o.value === v); return o ? o.label : v; },
+      toggle(v) { this.selected.includes(v) ? this.remove(v) : this.selected.push(v); this.query = ''; },
+      remove(v) { this.selected = this.selected.filter((x) => x !== v); },
+    };
+  };
+</script>
+
 <form method="get" class="card mb-5 flex flex-col gap-4">
   <div class="flex gap-3 items-center flex-wrap">
     {% include 'dashboard/_partials/search_box.html' with name='q' value=q placeholder='Buscar por nome, CPF/CNPJ ou OAB (mín. 2 chars)' %}
     <button class="btn-primary">Filtrar</button>
     <a href="{% url 'dashboard:partes' %}" class="text-fg-subtle hover:text-fg-soft text-sm px-2">limpar</a>
   </div>
-  <div class="flex flex-wrap gap-2 items-center">
-    <span class="text-xs text-fg-subtle mr-1">Tipo:</span>
-    <a href="?{% query_string request tipo='' %}" class="chip {% if not tipo_filtro %}active{% endif %}">Todos</a>
-    <a href="?{% query_string request tipo='advogado' %}" class="chip {% if tipo_filtro == 'advogado' %}active{% endif %}">Advogados</a>
-    <a href="?{% query_string request tipo='pf' %}" class="chip {% if tipo_filtro == 'pf' %}active{% endif %}">Pessoas físicas</a>
-    <a href="?{% query_string request tipo='pj' %}" class="chip {% if tipo_filtro == 'pj' %}active{% endif %}">Pessoas jurídicas</a>
-    <a href="?{% query_string request tipo='desconhecido' %}" class="chip {% if tipo_filtro == 'desconhecido' %}active{% endif %}">Sem identificação</a>
+  <div class="flex flex-wrap gap-4 items-start">
+    {% include 'dashboard/_partials/_multiselect.html' with field='tipo' label='Tipo' placeholder='Todos os tipos' options_id='ms-tipo-opts' selected_id='ms-tipo-sel' %}
+    {% include 'dashboard/_partials/_multiselect.html' with field='tribunal' label='Tribunal' placeholder='Todos os tribunais' options_id='ms-trib-opts' selected_id='ms-trib-sel' %}
+    {% include 'dashboard/_partials/_multiselect.html' with field='papel' label='Papel processual' placeholder='Todos os papéis' options_id='ms-papel-opts' selected_id='ms-papel-sel' %}
   </div>
   <div class="flex flex-wrap gap-3 items-center">
     <label class="text-xs text-fg-subtle">Mín. processos:</label>
@@ -58,9 +87,6 @@
       <option value="nome"                {% if sort == 'nome' %}selected{% endif %}>Nome A→Z</option>
       <option value="-nome"               {% if sort == '-nome' %}selected{% endif %}>Nome Z→A</option>
     </select>
-    {# Carrega filtros via submit normal (mantém compat com lazy shell) #}
-    <input type="hidden" name="tipo" value="{{ tipo_filtro }}">
-    <input type="hidden" name="q" value="{{ q }}">
   </div>
 </form>
 

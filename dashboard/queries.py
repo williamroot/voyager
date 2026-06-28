@@ -970,6 +970,36 @@ def compute_distribuicao_tipos_partes():
     return result
 
 
+TRIBUNAIS_OPCOES_CACHE_KEY = 'partes:tribunais_opcoes'
+PAPEIS_OPCOES_CACHE_KEY = 'partes:papeis_opcoes'
+
+
+def tribunais_opcoes():
+    """[(sigla, nome)] dos tribunais ativos pro autocomplete do filtro de Partes.
+    Cache 1h — muda raramente (ativação de tribunal)."""
+    from django.core.cache import cache
+    cached = cache.get(TRIBUNAIS_OPCOES_CACHE_KEY)
+    if cached is not None:
+        return cached
+    rows = list(Tribunal.objects.filter(ativo=True).order_by('sigla').values_list('sigla', 'nome'))
+    cache.set(TRIBUNAIS_OPCOES_CACHE_KEY, rows, timeout=3600)
+    return rows
+
+
+def papeis_opcoes():
+    """Papéis processuais distintos (da ponte PartePapel) pro autocomplete.
+    Cache 1h. Vazio até `rebuild_parte_bridges` popular a ponte. O DISTINCT usa
+    o índice `idx_pp_papel_total` (poucas centenas de valores)."""
+    from django.core.cache import cache
+    from tribunals.models import PartePapel
+    cached = cache.get(PAPEIS_OPCOES_CACHE_KEY)
+    if cached is not None:
+        return cached
+    rows = list(PartePapel.objects.order_by('papel').values_list('papel', flat=True).distinct())
+    cache.set(PAPEIS_OPCOES_CACHE_KEY, rows, timeout=3600)
+    return rows
+
+
 def status_workers():
     """Lê o snapshot de filas/workers do cache Redis.
 

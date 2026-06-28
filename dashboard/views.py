@@ -10,7 +10,10 @@ from django.views.decorators.http import require_GET, require_POST
 from djen.jobs import sincronizar_movimentacoes
 from djen.proxies import ProxyScrapePool
 from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento, enqueue_enriquecimento_manual
-from tribunals.models import IngestionRun, Movimentacao, Parte, Process, ProcessoParte, SchemaDriftAlert, Tribunal
+from tribunals.models import (
+    IngestionRun, Movimentacao, Parte, PartePapel, ParteTribunal, Process,
+    ProcessoParte, SchemaDriftAlert, Tribunal,
+)
 
 from . import queries
 
@@ -652,7 +655,13 @@ def job_status(request, job_id):
 @login_required
 @require_GET
 def partes(request):
-    tipo = request.GET.get('tipo', '').strip()
+    # Filtros multi-valor (CSV): tipo/tribunal/papel. Tribunal e papel filtram
+    # via pontes denormalizadas (ParteTribunal/PartePapel) — EXISTS sobre a
+    # tribunals_processoparte (bilhões) custaria ~43s; a ponte (índice por
+    # tribunal/papel) é instantânea. Pontes populadas por `rebuild_parte_bridges`.
+    tipos = _split_csv(request.GET.get('tipo'))
+    tribunais_sel = _split_csv(request.GET.get('tribunal'))
+    papeis_sel = _split_csv(request.GET.get('papel'))
     q = (request.GET.get('q') or '').strip()
     min_procs = request.GET.get('min_procs', '').strip()
     sort = request.GET.get('sort', '-total_processos').strip()
@@ -670,11 +679,16 @@ def partes(request):
 
     distribuicao = queries.distribuicao_tipos_partes()
     base_ctx = {
-        'tipo_filtro': tipo, 'q': q, 'min_procs': min_procs, 'sort': sort,
+        'tipos_filtro': tipos, 'tribunais_filtro': tribunais_sel, 'papeis_filtro': papeis_sel,
+        'q': q, 'min_procs': min_procs, 'sort': sort,
         'distribuicao_tipos': distribuicao,
         # `total_partes` é a soma dos buckets por tipo (já consulta GROUP BY
         # tipo) — evita um count() global extra.
         'total_partes': sum(d.get('value', 0) for d in distribuicao),
+        # Opções pros autocompletes multi-select.
+        'tribunais_opcoes': queries.tribunais_opcoes(),
+        'papeis_opcoes': queries.papeis_opcoes(),
+        'tipos_opcoes': Parte.TIPO_CHOICES,
     }
 
     if not _is_htmx(request):
@@ -682,8 +696,16 @@ def partes(request):
 
     qs = Parte.objects.all().order_by(*order_by)
     has_filter = False
-    if tipo:
-        qs = qs.filter(tipo=tipo)
+    if tipos:
+        qs = qs.filter(tipo__in=tipos)
+        has_filter = True
+    if tribunais_sel:
+        qs = qs.filter(Exists(ParteTribunal.objects.filter(
+            parte_id=OuterRef('pk'), tribunal_id__in=tribunais_sel)))
+        has_filter = True
+    if papeis_sel:
+        qs = qs.filter(Exists(PartePapel.objects.filter(
+            parte_id=OuterRef('pk'), papel__in=papeis_sel)))
         has_filter = True
     if q and len(q) >= 2:
         qs = qs.filter(Q(nome__icontains=q) | Q(documento__icontains=q) | Q(oab__icontains=q))

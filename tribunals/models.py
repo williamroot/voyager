@@ -275,6 +275,50 @@ class ProcessoParte(models.Model):
         return f'{self.processo.numero_cnj} · {self.parte.nome} ({self.polo}/{self.papel})'
 
 
+class ParteTribunal(models.Model):
+    """Ponte denormalizada parte↔tribunal pra filtro rápido na lista de Partes.
+
+    `Parte` não tem tribunal — ele vive em `ProcessoParte → Process → tribunal`.
+    Filtrar a lista por tribunal via EXISTS sobre `tribunals_processoparte`
+    (bilhões de linhas) custa ~43s (medido 2026-06-27). Esta ponte (~15-25M
+    linhas) com índice por tribunal torna o filtro instantâneo. `total_processos`
+    espelha `Parte.total_processos` pra ordenar sem join de volta.
+
+    Eventual-consistente: reconstruída por `manage.py rebuild_parte_bridges`
+    (cron diário). Lag de 1 dia é aceitável pra um filtro. Ver dashboard
+    `partes` e .ia/DASHBOARD.md."""
+
+    parte = models.ForeignKey(Parte, on_delete=models.CASCADE, related_name='tribunais_ponte')
+    tribunal = models.ForeignKey(Tribunal, on_delete=models.CASCADE, related_name='+')
+    total_processos = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=['parte', 'tribunal'], name='uniq_parte_tribunal'),
+        ]
+        indexes = [
+            models.Index(fields=['tribunal', '-total_processos'], name='idx_pt_trib_total'),
+        ]
+
+
+class PartePapel(models.Model):
+    """Ponte denormalizada parte↔papel processual pra filtro rápido na lista de
+    Partes. Mesmo motivo de `ParteTribunal` (papel vive em `ProcessoParte`).
+    Reconstruída por `rebuild_parte_bridges`."""
+
+    parte = models.ForeignKey(Parte, on_delete=models.CASCADE, related_name='papeis_ponte')
+    papel = models.CharField(max_length=120)
+    total_processos = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=['parte', 'papel'], name='uniq_parte_papel'),
+        ]
+        indexes = [
+            models.Index(fields=['papel', '-total_processos'], name='idx_pp_papel_total'),
+        ]
+
+
 class Movimentacao(models.Model):
     processo = models.ForeignKey(Process, on_delete=models.CASCADE, related_name='movimentacoes')
     tribunal = models.ForeignKey(Tribunal, on_delete=models.PROTECT, related_name='movimentacoes')
