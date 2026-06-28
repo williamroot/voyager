@@ -125,16 +125,61 @@ def overview_kpis(request):
 # Mapa de chaves de chart → callable que retorna lista/dict serializável.
 # Cada callable recebe (dias, tribunais, sigla_tribunal_unica). Endpoints são read-only,
 # leem filtros do request, retornam JSON.
+# Com 27 TJs + 6 TRFs ativos, o donut/stacked "por tribunal" viram espaguete
+# (33 séries, labels sobrepostos). Mantém os top-N por volume e agrega o resto
+# em "Outros" — legível sem perder o total. Não colapsa quando há filtro de
+# tribunal explícito (o usuário escolheu o recorte) nem na visão de 1 tribunal.
+TOP_N_TRIBUNAIS = 12
+OUTROS_LABEL = 'Outros'
+
+
+def _colapsar_donut(rows, n=TOP_N_TRIBUNAIS):
+    """rows: [{'tribunal','total'}] já ordenado por -total."""
+    if len(rows) <= n + 1:
+        return rows
+    outros = sum(r['total'] for r in rows[n:])
+    top = list(rows[:n])
+    if outros:
+        top.append({'tribunal': OUTROS_LABEL, 'total': outros})
+    return top
+
+
+def _colapsar_temporal(rows, n=TOP_N_TRIBUNAIS):
+    """rows: [{'dia','tribunal','total','parcial'}]. Mantém os top-N tribunais
+    por volume total no período; soma o resto em 'Outros' por dia."""
+    from collections import defaultdict
+    totais = defaultdict(int)
+    for r in rows:
+        totais[r['tribunal']] += r['total']
+    if len(totais) <= n + 1:
+        return rows
+    top = {t for t, _ in sorted(totais.items(), key=lambda kv: -kv[1])[:n]}
+    out = []
+    outros = defaultdict(lambda: [0, False])  # dia -> [total, parcial]
+    for r in rows:
+        if r['tribunal'] in top:
+            out.append(r)
+        else:
+            acc = outros[r['dia']]
+            acc[0] += r['total']
+            acc[1] = acc[1] or r.get('parcial', False)
+    for dia, (total, parcial) in outros.items():
+        out.append({'dia': dia, 'tribunal': OUTROS_LABEL, 'total': total, 'parcial': parcial})
+    return out
+
+
 def _chart_volume_temporal(dias, tribunais, sigla):
     if sigla:
         return queries.volume_temporal(dias=dias, tribunais=[sigla])
-    return queries.volume_temporal(dias=dias, tribunais=tribunais)
+    rows = queries.volume_temporal(dias=dias, tribunais=tribunais)
+    return rows if tribunais else _colapsar_temporal(rows)
 
 
 def _chart_distribuicao(dias, tribunais, sigla):
     if sigla:
         return queries.distribuicao_por_tribunal(dias=dias, tribunais=[sigla])
-    return queries.distribuicao_por_tribunal(dias=dias, tribunais=tribunais)
+    rows = queries.distribuicao_por_tribunal(dias=dias, tribunais=tribunais)
+    return rows if tribunais else _colapsar_donut(rows)
 
 
 def _chart_tipos(dias, tribunais, sigla):
