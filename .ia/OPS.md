@@ -19,15 +19,23 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 | `voyager-db` | `192.168.30.101` | nova | Postgres 16 nativo + pgbouncer (`:6432`) | — |
 | `voyager-redis` | `192.168.30.100` | nova | Redis 7 nativo | — |
 | `voyager-workers` | `192.168.30.102` | nova | Workers RQ — conecta em DB/Redis via **LAN** | `docker-compose-workers.yml` |
-| `voyager-workers-aux` | `192.168.1.24` | antiga (pve antigo) | Workers RQ auxiliares — conecta em DB/Redis via **Tailscale** | `docker-compose-workers.yml` |
+| `voyager-workers-2` | `192.168.30.104` | nova | 2º host de workers RQ (subnet nova) — conecta em DB/Redis via **LAN**. Sucedeu o `voyager-workers-aux`. | `docker-compose-workers.yml` |
+| `voyager-workers-aux` | `192.168.1.24` | antiga (pve antigo) | **Desativado** (offline desde ~2026-06-09) — era worker auxiliar na subnet antiga via Tailscale. | `docker-compose-workers.yml` |
 
-`voyager-workers-aux` é a VM antiga (VMID 100 no pve antigo, ainda viva pós-migração) ressurrecionada em 2026-05-24 pra somar capacidade de workers (dobra throughput). Como está em outra subnet física, comunica com DB/Redis novos pelos IPs Tailscale: `DATABASE_URL=postgres://...@100.68.5.114:6432/voyager`, `REDIS_URL=redis://100.98.86.54:6379/0`. Drainer do stream **não roda aqui** — só no `voyager` (.103).
+**Fleet de app são 3 hosts**: `voyager` (.103, web) + `voyager-workers` (.102) + `voyager-workers-2` (.104). Os dois de workers ficam na subnet nova e conectam DB/Redis via **LAN**. O drainer do stream **só roda no `voyager`** (.103), não nos hosts de workers.
+
+`voyager-workers-2` (.104) entrou em 2026-06 pra somar capacidade na subnet nova, no lugar do `voyager-workers-aux` — a VM antiga (VMID 100, pve antigo, subnet `192.168.1.x`) que somava workers via Tailscale (`DATABASE_URL=postgres://...@100.68.5.114:6432/voyager`, `REDIS_URL=redis://100.98.86.54:6379/0`) e está offline desde ~2026-06-09.
 
 **Histórico**:
 - **2026-05-24** — migração de subnet `192.168.1.x` → `192.168.30.x` (mesmos hosts lógicos, IPs novos). Tailscale dos 4 hosts novos inalterado. VM antiga `voyager-workers` (VMID 100, pve antigo) ficou viva como auxiliar `voyager-workers-aux` — re-keyed no Tailscale (era `voyager-workers` 100.115.193.26 → renomeado pra `voyager-workers-aux`, mesmo IP 100.115.193.26; a **nova** voyager-workers `.102` perdeu sua identidade Tailscale no processo e precisa reauth manual).
 - **2026-05-12** — topologia anterior usava `.30` (web all-in-one), `.82` (db), `.219` (redis), `.177`/`.184`/`.115` (3 hosts de workers). Consolidou em 4 hosts dedicados.
 
-> **Nota**: `voyager-workers-aux` LAN `192.168.1.24` **não é alcançável direto** do laptop em `192.168.1.x` (subnet física diferente, mesmo CIDR). Acessar via Tailscale (`ssh ubuntu@voyager-workers-aux`) ou jump pelo pve antigo (`ssh -J root@pve ubuntu@192.168.1.24`).
+> **Nota (histórica — `voyager-workers-aux` desativado ~2026-06-09):** quando ainda
+> estava vivo, o aux na LAN `192.168.1.24` **não era alcançável direto** do laptop em
+> `192.168.1.x` (subnet física diferente, mesmo CIDR) — acessava via Tailscale
+> (`ssh ubuntu@voyager-workers-aux`) ou jump pelo pve antigo (`ssh -J root@pve ubuntu@192.168.1.24`).
+> O sucessor `voyager-workers-2` (.104) está na subnet nova e é acessível como os demais
+> (`ssh ubuntu@voyager-workers-2`).
 
 ## Workers em prod (configuração atual — 2026-05-14)
 
@@ -63,7 +71,7 @@ no `.103`. Ficaram consolidados no `.102`.
 > legado pré-`lote_id`; valor canônico é lowercase). Path ativo já rejeita
 > casing inválido — sem recorrência esperada.
 
-**`.102` (host workers principal) e `voyager-workers-aux` (auxiliar somando capacidade)** — ambos via `docker-compose-workers.yml` (config **idêntica** nos dois hosts; cada um roda 304 réplicas, fleet ≈ 608):
+**`.102` (`voyager-workers`) e `.104` (`voyager-workers-2`)** — ambos via `docker-compose-workers.yml` (config **idêntica** nos dois hosts; cada um roda ~320 réplicas). Substituíram o par `.102` + `voyager-workers-aux` (subnet antiga, desativado ~2026-06-09):
 ```
                      réplicas  mem_limit  fila
 worker_trf1            24       768m      enrich_trf1
@@ -81,7 +89,7 @@ worker_default          2       512m      default
 worker_classificacao    8       1g        classificacao  (carrega modelo ML)
 ```
 
-Total por host: **320 containers** (304 + tjal 8→24 em 2026-06-17). Com aux: ~640 workers RQ.
+Total por host: **320 containers** (304 + tjal 8→24 em 2026-06-17). Com os 2 hosts (`.102` + `.104`): ~640 workers RQ.
 
 > **Incidente OOM 2026-06-08** (commit `6c3a784`): a `.102` (56GB) **travou por
 > OOM** — o config pedia ~608 réplicas **sem `mem_limit`**, então 1 worker que
@@ -150,13 +158,29 @@ leads_consumo    — consumo Juriscope async (POST /leads/consumed/, idempotente
 
 ## Deploy em prod
 
+> Quick-start abreviado em [`DEPLOY.md`](../DEPLOY.md) (raiz) — host table + comandos prontos.
+
+Fleet de app = **3 hosts**: `voyager` (web) + `voyager-workers` + `voyager-workers-2`.
+Acesso via hostname Tailscale (`ssh ubuntu@voyager` etc.). Sempre `git pull --ff-only`
+nos três; o rebuild depende do que mudou.
+
 ```bash
-ssh ubuntu@<server>
-cd ~/voyager
-git pull --ff-only
-docker compose -f docker-compose-prod.yml build web
-docker compose -f docker-compose-prod.yml up -d
+# web (.103) — rebuild da imagem web
+ssh ubuntu@voyager 'cd ~/voyager && git pull --ff-only && \
+  docker compose -f docker-compose-prod.yml build web && \
+  docker compose -f docker-compose-prod.yml up -d'
+
+# workers (.102 e .104) — rebuild só se código de worker/model/migration mudou
+for H in voyager-workers voyager-workers-2; do
+  ssh ubuntu@$H "cd ~/voyager && git pull --ff-only && \
+    docker compose -f docker-compose-workers.yml build && \
+    docker compose -f docker-compose-workers.yml up -d --force-recreate"
+done
 ```
+
+**Mudança só de dashboard (template/CSS/JS/view):** afeta apenas o `web`. Rebuilde só o
+`voyager` (ou use o "Light hot-deploy" abaixo) e faça apenas `git pull --ff-only` nos
+hosts de workers — não rebuilde ~320 containers à toa (risco de OOM, ver incidente 2026-06-08).
 
 `web` roda `migrate --noinput` + `collectstatic` no entrypoint. Migrations grandes (10+ min) tornam o `healthcheck` `unhealthy` temporariamente — workers ficam em `dependency failed to start` até o web ficar healthy. Não é problema, basta aguardar.
 
