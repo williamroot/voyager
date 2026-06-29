@@ -294,6 +294,10 @@ CSRF_TRUSTED_ORIGINS = env.list('DJANGO_CSRF_TRUSTED_ORIGINS', default=[])
 # Classificação de IP para auditoria de cadastro (Invite). Vazio = usa
 # endpoint free do ip-api.com (rate limit ~45req/min, sem HTTPS).
 IP_API_KEY = env('IP_API_KEY', default='')
+
+# Gordon — serviço de busca semântica de autos
+GORDON_URL = env('GORDON_URL', default='http://localhost:8011')
+GORDON_API_KEY = env('GORDON_API_KEY', default='')
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'

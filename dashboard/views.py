@@ -2510,3 +2510,38 @@ def leads_validacao_criar_lote(request):
         'tamanho_real': lote.itens.count(),
         'redirect_url': reverse('dashboard:leads_validacao_lote', kwargs={'lote_id': lote.pk}),
     })
+
+
+# ---------------------------------------------------------------------------
+# Acervo — busca semântica (Gordon)
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_GET
+def acervo_busca(request):
+    """Página de busca semântica no acervo de autos via Gordon.
+
+    GET sem HX-Request → shell completo (caixa de busca + estado vazio).
+    GET com HX-Request → apenas o partial de resultados (swap HTMX).
+    """
+    from .gordon_client import buscar as gordon_buscar
+
+    q = request.GET.get('q', '').strip()
+
+    if not _is_htmx(request):
+        return render(request, 'dashboard/acervo_busca.html', {'q': q})
+
+    # HTMX: retorna apenas o partial de resultados
+    if not q:
+        return render(request, 'dashboard/_partials/_acervo_resultados.html', {
+            'q': '',
+            'resultados': None,
+            'erro': None,
+        })
+
+    dados = gordon_buscar(q)
+    return render(request, 'dashboard/_partials/_acervo_resultados.html', {
+        'q': q,
+        'resultados': dados.get('results', []),
+        'erro': dados.get('erro'),
+    })

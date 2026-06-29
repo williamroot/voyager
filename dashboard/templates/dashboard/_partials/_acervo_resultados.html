@@ -1,0 +1,93 @@
+{% load voyager_extras %}
+{#
+  Partial de resultados da busca semântica (Gordon).
+
+  Variáveis de contexto:
+    q          — string da query (pode ser vazia)
+    resultados — lista de dicts ou None (sem query ainda)
+    erro       — string de erro ou None
+
+  Estrutura de cada item em `resultados`:
+    doc_tipo    — tipo do documento (ex.: "movimentacao", "processo")
+    numero_cnj  — número CNJ formatado
+    score       — float 0..1
+    snippet     — trecho relevante
+#}
+<div id="acervo-resultados">
+
+  {% if erro %}
+  {# ---- Estado de erro (Gordon offline / falha de rede) ---- #}
+  <div class="card border-danger/40 bg-danger/5">
+    <div class="flex items-start gap-3">
+      <div class="flex-shrink-0 mt-0.5 text-danger">
+        {% voy_icon "anomaly" "w-5 h-5" %}
+      </div>
+      <div>
+        <div class="text-sm font-medium text-fg">Falha ao consultar o acervo</div>
+        <div class="text-xs text-fg-muted mt-1">{{ erro }}</div>
+      </div>
+    </div>
+  </div>
+
+  {% elif resultados is None %}
+  {# ---- Estado inicial: sem query ---- #}
+  {% include 'dashboard/_partials/empty_state.html' with title='Digite uma consulta para buscar' subtitle='A busca semântica encontra autos por significado, não só por palavras-chave exactas.' %}
+
+  {% elif not resultados %}
+  {# ---- Sem resultados para a query ---- #}
+  {% include 'dashboard/_partials/empty_state.html' with title='Nenhum resultado encontrado' subtitle='Tente reformular a consulta ou usar termos mais amplos.' %}
+
+  {% else %}
+  {# ---- Lista de resultados ---- #}
+  <div class="space-y-2">
+    <div class="text-xs text-fg-subtle mb-3">
+      {{ resultados|length }} resultado{% if resultados|length != 1 %}s{% endif %}
+      para <span class="font-mono text-fg-muted">"{{ q }}"</span>
+    </div>
+
+    {% for item in resultados %}
+    <div class="card-tight hover:border-accent/40 transition-colors">
+      <div class="flex items-start justify-between gap-3">
+
+        {# Tipo + CNJ #}
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 mb-1 flex-wrap">
+            {# Badge de tipo #}
+            <span class="mission-tag text-[0.6rem] tracking-widest">
+              {{ item.doc_tipo|default:'—' }}
+            </span>
+
+            {# Número CNJ como link para o processo se existir #}
+            {% if item.numero_cnj %}
+              <a
+                href="{% url 'dashboard:processos' %}?q={{ item.numero_cnj|urlencode }}"
+                class="font-mono text-xs text-accent-fg hover:underline"
+              >{{ item.numero_cnj }}</a>
+            {% endif %}
+          </div>
+
+          {# Snippet #}
+          {% if item.snippet %}
+          <p class="text-sm text-fg-muted line-clamp-3">{{ item.snippet }}</p>
+          {% endif %}
+        </div>
+
+        {# Score de relevância #}
+        {% if item.score is not None %}
+        <div class="flex-shrink-0 text-right">
+          <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider mb-0.5">score</div>
+          <div class="font-mono text-sm font-semibold
+            {% if item.score >= 0.8 %}text-accent-fg
+            {% elif item.score >= 0.5 %}text-fg-muted
+            {% else %}text-fg-subtle{% endif %}
+          ">{{ item.score|floatformat:2 }}</div>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>

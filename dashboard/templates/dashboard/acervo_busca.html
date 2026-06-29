@@ -1,0 +1,59 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Busca no Acervo{% endblock %}
+
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Busca no Acervo' subtitle='Busca semântica sobre autos processuais — powered by Gordon' %}
+
+<div class="space-y-4">
+
+  {# ---- Formulário de busca ---- #}
+  <div class="card">
+    <form
+      hx-get="{% url 'dashboard:acervo-busca' %}"
+      hx-target="#acervo-resultados"
+      hx-swap="outerHTML"
+      hx-trigger="submit"
+      hx-indicator="#busca-indicator"
+      class="flex gap-3 items-end"
+    >
+      <div class="flex-1">
+        <label for="gordon-q" class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">
+          Consulta
+        </label>
+        <div class="relative">
+          <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-fg-subtle">
+            {% voy_icon "search" "w-4 h-4" %}
+          </div>
+          <input
+            id="gordon-q"
+            name="q"
+            type="search"
+            value="{{ q }}"
+            placeholder="ex.: precatório federal INSS aposentadoria"
+            autofocus
+            class="w-full pl-9 pr-3 py-2 bg-muted border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
+          >
+        </div>
+      </div>
+      <button
+        type="submit"
+        class="btn-mission px-5 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+      >
+        Buscar
+      </button>
+    </form>
+
+    {# Indicador de carregamento HTMX #}
+    <div id="busca-indicator" class="htmx-indicator mt-3 flex items-center gap-2 text-xs text-fg-subtle">
+      <span class="pulsar w-2 h-2 rounded-full bg-accent inline-block"></span>
+      Consultando acervo…
+    </div>
+  </div>
+
+  {# ---- Área de resultados (swap HTMX) ---- #}
+  {% include 'dashboard/_partials/_acervo_resultados.html' with resultados=None erro=None q=q %}
+
+</div>
+{% endblock %}

@@ -69,4 +69,7 @@ urlpatterns = [
          name='leads_validacao_lote_concluido'),
     path('leads/validacao/<int:lote_id>/item/<int:posicao>/',
          views.leads_validacao_item, name='leads_validacao_item'),
+
+    # Acervo — busca semântica (Gordon)
+    path('acervo/busca/', views.acervo_busca, name='acervo-busca'),
 ]
