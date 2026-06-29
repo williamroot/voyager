@@ -72,4 +72,5 @@ urlpatterns = [
 
     # Acervo — busca semântica (Gordon)
     path('acervo/busca/', views.acervo_busca, name='acervo-busca'),
+    path('acervo/teor/<str:cnj>/', views.acervo_teor, name='acervo-teor'),
 ]

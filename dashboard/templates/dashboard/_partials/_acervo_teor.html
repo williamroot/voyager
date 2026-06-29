@@ -1,0 +1,146 @@
+{% load voyager_extras %}
+{#
+  Partial — Teor (Gordon): campos estruturados extraídos + chunks do auto.
+
+  Variáveis de contexto:
+    cnj          — número CNJ do processo
+    extracao     — dict com os campos extraídos, ou None em caso de erro
+    sem_contexto — True quando o processo não está indexado no Gordon
+    erro         — string de erro genérico, ou None
+    chunks       — lista de dicts com fragmentos do auto (pode ser vazia)
+
+  Campos esperados em `extracao` (todos opcionais):
+    natureza, valor_principal, valor_juros_mora, data_oficio,
+    numero_parcelas_rra, fundamento_resumo, confianca
+#}
+<div id="gordon-teor">
+
+  {% if sem_contexto %}
+  {# ---- Processo não indexado no Gordon ---- #}
+  <div class="card border-warning/30 bg-warning/5">
+    <div class="flex items-start gap-3">
+      <div class="flex-shrink-0 mt-0.5 text-warning">
+        {% voy_icon "anomaly" "w-5 h-5" %}
+      </div>
+      <div>
+        <div class="text-sm font-medium text-fg">Processo não indexado no Gordon</div>
+        <div class="text-xs text-fg-muted mt-1 leading-relaxed">
+          O Gordon ainda não processou os autos deste processo. A extração de
+          campos (valores, natureza, fundamento) requer que os documentos
+          estejam indexados no acervo semântico.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% elif erro %}
+  {# ---- Erro de rede / Gordon offline ---- #}
+  <div class="card border-danger/40 bg-danger/5">
+    <div class="flex items-start gap-3">
+      <div class="flex-shrink-0 mt-0.5 text-danger">
+        {% voy_icon "anomaly" "w-5 h-5" %}
+      </div>
+      <div>
+        <div class="text-sm font-medium text-fg">Serviço Gordon indisponível</div>
+        <div class="text-xs text-fg-muted mt-1">{{ erro }}</div>
+      </div>
+    </div>
+  </div>
+
+  {% elif extracao %}
+  {# ---- Campos extraídos com sucesso ---- #}
+  <div class="space-y-4">
+
+    {# Confiança da extração #}
+    {% if extracao.confianca is not None %}
+    <div class="flex items-center gap-2 text-xs text-fg-subtle">
+      <span class="uppercase tracking-wider">Confiança da extração</span>
+      <span class="font-mono font-semibold
+        {% if extracao.confianca >= 0.8 %}text-accent-fg
+        {% elif extracao.confianca >= 0.5 %}text-fg-muted
+        {% else %}text-warning{% endif %}
+      ">{{ extracao.confianca|floatformat:2 }}</span>
+      <span class="mission-tag text-[0.55rem] tracking-widest">LLM</span>
+    </div>
+    {% endif %}
+
+    {# Grid de campos estruturados #}
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+
+      {% if extracao.natureza %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Natureza</div>
+        <div class="text-sm text-fg-soft">{{ extracao.natureza }}</div>
+      </div>
+      {% endif %}
+
+      {% if extracao.valor_principal is not None %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Valor principal</div>
+        <div class="text-sm font-mono text-fg-soft">R$ {{ extracao.valor_principal|floatformat:2 }}</div>
+      </div>
+      {% endif %}
+
+      {% if extracao.valor_juros_mora is not None %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Juros e mora</div>
+        <div class="text-sm font-mono text-fg-soft">R$ {{ extracao.valor_juros_mora|floatformat:2 }}</div>
+      </div>
+      {% endif %}
+
+      {% if extracao.data_oficio %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Data do ofício</div>
+        <div class="text-sm text-fg-soft">{{ extracao.data_oficio }}</div>
+      </div>
+      {% endif %}
+
+      {% if extracao.numero_parcelas_rra is not None %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Parcelas RRA</div>
+        <div class="text-sm font-mono text-fg-soft">{{ extracao.numero_parcelas_rra }}</div>
+      </div>
+      {% endif %}
+
+    </div>
+
+    {# Fundamento resumido #}
+    {% if extracao.fundamento_resumo %}
+    <div class="card-tight">
+      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-2">Fundamento (resumo)</div>
+      <p class="text-sm text-fg-muted leading-relaxed">{{ extracao.fundamento_resumo }}</p>
+    </div>
+    {% endif %}
+
+    {# Chunks do auto (lista colapsável) #}
+    {% if chunks %}
+    <details class="group">
+      <summary class="cursor-pointer list-none flex items-center gap-2 text-xs text-fg-subtle hover:text-fg-soft transition-colors py-1">
+        <span class="group-open:rotate-90 transition-transform">▸</span>
+        <span class="uppercase tracking-wider">Fragmentos do auto</span>
+        <span class="text-fg-subtle font-mono">({{ chunks|length }})</span>
+      </summary>
+      <div class="mt-2 space-y-2">
+        {% for chunk in chunks %}
+        <div class="card-tight text-xs">
+          {% if chunk.pagina is not None %}
+          <div class="text-fg-subtle text-[0.6rem] uppercase tracking-wider mb-1">
+            p. {{ chunk.pagina }}{% if chunk.id %} · <span class="font-mono">{{ chunk.id }}</span>{% endif %}
+          </div>
+          {% endif %}
+          <p class="text-fg-muted leading-relaxed line-clamp-4">{{ chunk.texto }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+  </div>
+
+  {% else %}
+  {# ---- Fallback: sem dados e sem erro específico ---- #}
+  {% include 'dashboard/_partials/empty_state.html' with title='Sem dados de extração' subtitle='O Gordon não retornou campos estruturados para este processo.' %}
+
+  {% endif %}
+
+</div>

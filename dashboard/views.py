@@ -2545,3 +2545,36 @@ def acervo_busca(request):
         'resultados': dados.get('results', []),
         'erro': dados.get('erro'),
     })
+
+
+@login_required
+@require_GET
+def acervo_teor(request, cnj):
+    """Partial HTMX com campos extraídos pelo Gordon para um processo específico.
+
+    Carregado lazily no detalhe do processo (hx-trigger="revealed").
+    Chama gordon_client.extrair(cnj) para obter os campos estruturados e
+    gordon_client.chunks(cnj) para os fragmentos do auto (opcional).
+
+    Casos de resposta:
+    - Extração OK → tabela de campos + (se disponível) chunks
+    - erro="sem_contexto" → aviso "processo não indexado no Gordon"
+    - Qualquer outro erro → mensagem amigável (Gordon offline / falha de rede)
+    """
+    from .gordon_client import extrair as gordon_extrair, chunks as gordon_chunks
+
+    dados_extracao = gordon_extrair(cnj)
+    sem_contexto = dados_extracao.get('erro') == 'sem_contexto'
+    erro_generico = dados_extracao.get('erro') if not sem_contexto else None
+
+    dados_chunks = None
+    if not dados_extracao.get('erro'):
+        dados_chunks = gordon_chunks(cnj)
+
+    return render(request, 'dashboard/_partials/_acervo_teor.html', {
+        'cnj': cnj,
+        'extracao': dados_extracao if not dados_extracao.get('erro') else None,
+        'sem_contexto': sem_contexto,
+        'erro': erro_generico,
+        'chunks': dados_chunks.get('chunks', []) if dados_chunks else [],
+    })
