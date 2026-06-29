@@ -988,14 +988,25 @@ def tribunais_opcoes():
 
 def papeis_opcoes():
     """Papéis processuais distintos (da ponte PartePapel) pro autocomplete.
-    Cache 1h. Vazio até `rebuild_parte_bridges` popular a ponte. O DISTINCT usa
-    o índice `idx_pp_papel_total` (poucas centenas de valores)."""
+    Cache 1h. Vazio até `rebuild_parte_bridges` popular a ponte.
+
+    Ordena por FREQUÊNCIA (papel mais comum primeiro) e corta no top-80: o
+    campo `ProcessoParte.papel` tem uma cauda longa de lixo (nome+papel
+    concatenado, fragmentos truncados — ex: 'ABENPREV (RÉU/RÉ'); os ~30 papéis
+    reais (AUTOR/EXEQUENTE/RÉU-RÉ/ADVOGADO/...) cobrem 95%+. Alfabético jogava o
+    lixo pro topo do autocomplete."""
     from django.core.cache import cache
     from tribunals.models import PartePapel
     cached = cache.get(PAPEIS_OPCOES_CACHE_KEY)
     if cached is not None:
         return cached
-    rows = list(PartePapel.objects.order_by('papel').values_list('papel', flat=True).distinct())
+    rows = list(
+        PartePapel.objects
+        .values('papel')
+        .annotate(n=Count('id'))
+        .order_by('-n')
+        .values_list('papel', flat=True)[:80]
+    )
     cache.set(PAPEIS_OPCOES_CACHE_KEY, rows, timeout=3600)
     return rows
 
