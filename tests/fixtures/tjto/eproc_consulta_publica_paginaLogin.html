@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="pt-br" >
+<head >
+<link rel="shortcut icon" href="/imagens/icons/favicons/favicon.ico" /><meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"><input id="url_log_erro_javascript" name="url_log_erro_javascript" type="hidden" value="controlador_ajax.php?acao_ajax=log_erro_javascript&acao_origem=tjto%40md_tjto_consulta_publica%2FpaginaLogin" />
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"/>
+<meta name="robots" content="noindex"/>
+                <link rel='stylesheet' charset="utf-8" href='css/dist/bundle-bs4.css?9.20.0-2.49.0'>
+                <link rel='stylesheet' charset="utf-8" href='css/dist/bundle-bs4-contrast.css?9.20.0-2.49.0'>
+                <link rel='stylesheet' charset="utf-8" href='css/dist/bundle-global.css?9.20.0-2.49.0'>
+                <link rel='stylesheet' charset="utf-8" href='css/dist/bundle-infra.css?9.20.0-2.49.0'>
+                <link rel='stylesheet' charset="utf-8" href='css/dist/bundle-infra-contrast.css?9.20.0-2.49.0'><link href="infra_js/multiple-select/multiple-select.css?9.20.0-2.49.0" rel="stylesheet" type="text/css" media="all" />
+<link href="modulos/tjto/view/consulta_publica/css/consulta_publica.css?9.20.0-2.49.0" rel="stylesheet" type="text/css" media="all"/>
+<script>var INFRA_PATH_CSS = "infra_css",
+    INFRA_PATH_IMAGENS = "infra_css\/imagens",
+    INFRA_PATH_JS = "infra_js",
+    INFRA_PATH_SVG = "infra_css\/svg",
+    INFRA_LUPA_TIPO_JANELA = 1,
+    INFRA_BARRA_TIPO_JANELA = 1,
+    INFRA_TIPO_ALERTA = 1,
+    ENV = "prod",
+    LOGAR_ERROS_JS = false;</script>				<script charset="utf-8" src="js/dist/runtime.b87aeba8a8b2697731d3.js"></script><script charset="utf-8" src="js/dist/npm.js-cookie.373820c77a5378631226.js"></script><script charset="utf-8" src="js/dist/npm.jquery-ui.060a56d5e148353dd373.js"></script><script charset="utf-8" src="js/dist/npm.jquery.3c44defafd9c4037af4f.js"></script><script charset="utf-8" src="js/dist/npm.jquery-contextmenu.b1474dbd3e10b35dd0a8.js"></script><script charset="utf-8" src="js/dist/npm.expose-loader.94c6da112a9cdacb63ce.js"></script><script charset="utf-8" src="js/dist/shared.bc7775c34636b81da50f.js"></script><script charset="utf-8" src="js/dist/4883.9870a30b8e0aafe8e94e.js"></script><script charset="utf-8" src="js/dist/websocket.26243422798af912e33f.js"></script><script charset="utf-8" src="js/dist/npm.lodash.42d8f16fbdaca87c5521.js"></script><script charset="utf-8" src="js/dist/npm.unorm.b1e3aba4eeff43a138de.js"></script><script charset="utf-8" src="js/dist/npm.imask.41ed2d3f2653f2f82676.js"></script><script charset="utf-8" src="js/dist/npm.lodash.debounce.d4b58f3f15c866a85e51.js"></script><script charset="utf-8" src="js/dist/npm.core-js.f209d195686c8c058362.js"></script><script charset="utf-8" src="js/dist/npm.moment.4243198d32923e016e1f.js"></script><script charset="utf-8" src="js/dist/npm.bootstrap-fileinput.7508a6b038d947bd5c66.js"></script><script charset="utf-8" src="js/dist/npm.local-storage-fallback.9a91fc04c350f3929a71.js"></script><script charset="utf-8" src="js/dist/npm.bootstrap-select.1ba0413e4b1f6752969e.js"></script><script charset="utf-8" src="js/dist/npm.yaireo.ea97bbdb04d08aed4751.js"></script><script charset="utf-8" src="js/dist/npm.axios.0b7a56882c9885a44c8e.js"></script><script charset="utf-8" src="js/dist/npm.regenerator-runtime.b6115704394684f63db8.js"></script><script charset="utf-8" src="js/dist/npm.popper.js.9b167ddd58a48cfc5591.js"></script><script charset="utf-8" src="js/dist/npm.lodash.throttle.d7dc3c3463ccee59a228.js"></script><script charset="utf-8" src="js/dist/npm.jstree.2ea0656145357f4e5543.js"></script><script charset="utf-8" src="js/dist/npm.cookie.52c75d6a6749890fd1d9.js"></script><script charset="utf-8" src="js/dist/npm.bs-custom-file-input.5a642b0bd9ce987edead.js"></script><script charset="utf-8" src="js/dist/npm.abortcontroller-polyfill.0e1b48cbfe0dabf03270.js"></script><script charset="utf-8" src="js/dist/npm.tempusdominus-bootstrap-4.c4056884c48580dc8870.js"></script><script charset="utf-8" src="js/dist/npm.bootstrap.27f56e184a7cf414e6e5.js"></script><script charset="utf-8" src="js/dist/9168.0d56c9a7867919016a97.js"></script><script charset="utf-8" src="js/dist/6852.1ab49c25499d6f98bd89.js"></script><script charset="utf-8" src="js/dist/4009.6709a92236dbacbe504a.js"></script><script charset="utf-8" src="js/dist/main.bcbbfb563812a5ce34ae.js"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraUtil.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraCookie.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraUpload.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraMenu.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraBotaoMenu.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraAcaoMenu.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraTabelaDinamica.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraLupas.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraSelectEditavel.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraAjax.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraTooltip.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraPagina.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/calendario/v1/InfraCalendario.js?9.20.0-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/arvore/InfraArvore.js?9.20.0-2.49.0"></script>
+                <script type="text/javascript" charset="utf-8" src="js/exibir-aviso.js?9.20.0-2.49.0"></script><script type="text/javascript" charset="iso-8859-1" src="infra_js/infra_pagina_renderer/bs4/main.js?9.20.0-2.49.0"></script></head>
+<body class="bootstrap-styles instancia-1g" onload="infraProcessarMouseDown();" class=&quot;bg-light&quot;>
+
+    
+
+    <div id="divInfraAreaGlobal">
+        
+                    <div class="bootstrap-styles navbar-wrapper">
+                
+<nav id="navbar-accessibility" class="accessibility-bar bg-instancia collapse" data-id="69"
+     data-ativo="S">
+    <a href="#divInfraBarraLocalizacao" id="ancora-conteudo" tabindex="0" title="Conteúdo principal da página (Alt+1 e ENTER)" class="item-acessibilidade">Ir para conteúdo</a>
+    <a href="#sidebar-searchbox" id="ancora-menu" tabindex="0" title="(Alt+M)" class="item-acessibilidade">Ir para menu</a>
+
+    
+            <a href="#/" id="btn-aumentar-fonte" tabindex="0" title="Aumentar fonte" class="item-acessibilidade" data-id="70"
+           data-ativo="N" data-numvalor="">
+            <i class="material-icons icon-aligned-sm" aria-hidden="true">text_increase</i>
+        </a>
+        <a href="#/" id="btn-diminuir-fonte" tabindex="0" title="Dimiuir fonte" class="item-acessibilidade" data-id="70"
+           data-ativo="N" data-numvalor="">
+            <i class="material-icons icon-aligned-sm" aria-hidden="true">text_decrease</i>
+        </a>
+        <a href="#/" id="btn-theme-contrast" tabindex="0" title="Alto contraste" data-id="68" data-ativo="N"
+       class="item-acessibilidade">
+        <i class="material-icons icon-aligned-sm" aria-hidden="true">contrast</i>
+    </a>
+    <a href="#/" id="btn-vlibras" tabindex="0" title="Habilitar o tradutor para libras" class="item-acessibilidade">
+        <img src="imagens/icons/maos_libras.png" aria-hidden="true"/> Libras
+    </a>
+    <input type="hidden" id="link-usuario-configuracao-personalizacao" value="controlador_ajax.php?acao_ajax=usuario_configuracao_personalizacao&amp;acao_origem=tjto%40md_tjto_consulta_publica%2FpaginaLogin"/>
+    <a href="externo_controlador.php?acao=tutorial_acessibilidade&amp;acao_origem=tjto%40md_tjto_consulta_publica%2FpaginaLogin" id="btn-pagina-acessibilidade" tabindex="0" title="Acessibilidade (Alt+F1)" class="item-acessibilidade">Acessibilidade</a>
+
+    </nav>                <nav id='navbar' class="navbar text-white d-xl-flex bg-instancia ">
+                    <div class="d-flex w-100 justify-content-between" style="font-size: 14px;">
+    <div class="d-flex align-items-center">
+                    <div style="padding: 8px">
+                <a href="#" id="menu-btn" aria-label="Abrir menu" title="Abrir menu" class="">
+                    <i class="material-icons navbar-icons">menu</i>
+                </a>
+            </div>
+        
+        <div><a href='http://www.tjto.jus.br' title='http://www.tjto.jus.br'>
+						<span class='pr-3 d-none text-white d-sm-block'>Tribunal de Justiça do Estado do Tocantins</span>
+						<span class='navbar-span pr-3 d-block d-sm-none'>TO</span>
+					</a>
+				</div>
+    </div>
+    <div class="d-none d-flex align-items-center">
+        
+            </div>
+</div>
+                </nav>
+            </div>
+            <!-- Modal -->
+            <div class="bootstrap-styles">
+                <div class="modal fade" id="modal-pesquisar-processo" tabindex="-1" aria-labelledby="pesquisaProcessoModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="pesquisaProcessoModalLabel">Pesquisar processo</h5>
+                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
+                            <div class="modal-body">
+                                
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="infraButton" data-dismiss="modal">Cancelar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        
+                    <div id='wrapper' class="abre-automaticamente">
+        
+                    <div class="bootstrap-styles">
+                <div id="sidebar-wrapper" class="menu-dark">
+                    <div class="menu-searchbox input-group input-group-sm">
+                        <input id="sidebar-searchbox" type="text" class="form-control menu-search-box" style="margin: 5px;" title="Pesquisar no menu (Alt + m)" placeholder="Pesquisar no Menu (Alt + m)">
+                    </div>
+                    <ul id="main-menu" class="sidebar-nav search-list">
+                        
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=principal"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-1"
+           aria-label="Entrar no Sistema"
+         >
+            <span class="menu-item-text">Entrar no Sistema</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=tutorial_acessibilidade"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-35"
+           aria-label="Acessibilidade"
+         >
+            <span class="menu-item-text">Acessibilidade</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class='has-submenu'>
+
+        <a href="#"
+           class="collapsed"
+           tabindex="0"
+           data-toggle="collapse"
+           data-target="#menu-ul-4"
+           aria-label="Cadastre-se AQUI!"
+         >
+            <span class="menu-item-text">Cadastre-se AQUI!</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-4">
+                
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=tjto@md_tjto_perito_externo/atualizacao"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-41"
+           aria-label="Atualização Perito"
+         >
+            <span class="menu-item-text">Atualização Perito</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=selecionar_tipo_advogado_cadastrar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-5"
+           aria-label="Cadastrar Advogado"
+         >
+            <span class="menu-item-text">Cadastrar Advogado</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=selecionar_tipo_conciliador_cadastrar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-7"
+           aria-label="Cadastrar Conciliador"
+         >
+            <span class="menu-item-text">Cadastrar Conciliador</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=mod_cadastro_perito"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-36"
+           aria-label="Cadastrar Perito"
+         >
+            <span class="menu-item-text">Cadastrar Perito</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=selecionar_tipo_representante_legal_pj_cadastrar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-22"
+           aria-label="Cadastrar Representante Legal de PJ"
+         >
+            <span class="menu-item-text">Cadastrar Representante Legal de PJ</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=selecionar_tipo_jus_postulandi_cadastrar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-6"
+           aria-label="Cadastrar Usuário Externo"
+         >
+            <span class="menu-item-text">Cadastrar Usuário Externo</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+
+    <li class='has-submenu'>
+
+        <a href="#"
+           class="collapsed"
+           tabindex="0"
+           data-toggle="collapse"
+           data-target="#menu-ul-12"
+           aria-label="Consulta Pública"
+         >
+            <span class="menu-item-text">Consulta Pública</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-12">
+                
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=cj_online"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-23"
+           aria-label="Certidão Judicial"
+         >
+            <span class="menu-item-text">Certidão Judicial</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=consulta_autenticidade_certidao_narratoria"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-27"
+           aria-label="Consulta Certidão Narratória"
+         >
+            <span class="menu-item-text">Consulta Certidão Narratória</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=processo_consulta_publica_chave/consultar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-15"
+           aria-label="Consulta Documento pela Chave"
+         >
+            <span class="menu-item-text">Consulta Documento pela Chave</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=tjto@md_tjto_consulta_publica/listar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-13"
+           aria-label="Consulta Processo"
+         >
+            <span class="menu-item-text">Consulta Processo</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=processo_consulta_publica_chave/consultar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-28"
+           aria-label="Consulta de Documento por Chave"
+         >
+            <span class="menu-item-text">Consulta de Documento por Chave</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=fale"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-16"
+           aria-label="Fale Conosco"
+         >
+            <span class="menu-item-text">Fale Conosco</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class='has-submenu'>
+
+        <a href="#"
+           class="collapsed"
+           tabindex="0"
+           data-toggle="collapse"
+           data-target="#menu-ul-37"
+           aria-label="Juizados Especiais - Jus Postulandi"
+         >
+            <span class="menu-item-text">Juizados Especiais - Jus Postulandi</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-37">
+                
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=tjto@md_tjto_jus_postulandi_cadastro/consultar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-38"
+           aria-label="Cadastrar Jus Postulandi"
+         >
+            <span class="menu-item-text">Cadastrar Jus Postulandi</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=tjto@md_tjto_jus_postulandi_cadastro/ajuda"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-39"
+           aria-label="Formulários e Manuais"
+         >
+            <span class="menu-item-text">Formulários e Manuais</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=tjto@md_tjto_perito_externo/lista_publica_perito"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-40"
+           aria-label="Lista Pública de Peritos"
+         >
+            <span class="menu-item-text">Lista Pública de Peritos</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class='has-submenu'>
+
+        <a href="#"
+           class="collapsed"
+           tabindex="0"
+           data-toggle="collapse"
+           data-target="#menu-ul-29"
+           aria-label="Log Tabelas Básicas"
+         >
+            <span class="menu-item-text">Log Tabelas Básicas</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-29">
+                
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=mod_log_assunto_judicial_externo"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-31"
+           aria-label="Log Assunto Judicial"
+         >
+            <span class="menu-item-text">Log Assunto Judicial</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=mod_log_classe_competencia_judicial_externo"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-33"
+           aria-label="Log Classe Competência Judicial"
+         >
+            <span class="menu-item-text">Log Classe Competência Judicial</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=mod_log_classe_judicial_externo"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-30"
+           aria-label="Log Classe Judicial"
+         >
+            <span class="menu-item-text">Log Classe Judicial</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=mod_log_evento_judicial_externo"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-32"
+           aria-label="Log Movimento Judicial"
+         >
+            <span class="menu-item-text">Log Movimento Judicial</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=mod_log_evento_judicial_complemento_tabelado_externo"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-34"
+           aria-label="Log Movimento Judicial Complemento Tabelado"
+         >
+            <span class="menu-item-text">Log Movimento Judicial Complemento Tabelado</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=consulta_publica/sessao_julgamento/index"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-20"
+           aria-label="Sessões de Julgamento"
+         >
+            <span class="menu-item-text">Sessões de Julgamento</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class='has-submenu'>
+
+        <a href="#"
+           class="collapsed"
+           tabindex="0"
+           data-toggle="collapse"
+           data-target="#menu-ul-24"
+           aria-label="Validação de Documentos"
+         >
+            <span class="menu-item-text">Validação de Documentos</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-24">
+                
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=tjto@md_tjto_validar_doc_pre_analise/consultar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-25"
+           aria-label="Eproc Antigo"
+         >
+            <span class="menu-item-text">Eproc Antigo</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class=''>
+
+        <a href="externo_controlador.php?acao=tjto@md_tjto_validar_doc/consultar"
+           class="collapsed"
+           tabindex="0"
+           data-toggle=""
+           data-target="#menu-ul-26"
+           aria-label="Eproc Nacional"
+         >
+            <span class="menu-item-text">Eproc Nacional</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+                                            </ul>
+                    <div id="empty-space" style="height: 200px"></div>
+                </div>
+                <div id="sidebar-wrapper-background"></div>
+            </div>
+                            <div id='page-content-wrapper' class="bootstrap-styles">
+                <div id='divInfraAreaTela' class='infraAreaTela mt-2'>
+                    <div id='divInfraAreaTelaD' class="container-fluid">
+                        <section id="login_consulta_publica">
+    <div class="card card_consulta_publica">
+        <div class="card-body">
+            <h6 class="card-title">Login para a Consulta Pública Processual</h6>
+            <div class="alert alert-info" role="alert"  style="text-align: justify;margin-top: 10px;">
+                <div>
+                    Caro usuário, bem-vindo à nova consulta pública.
+                    A partir de agora você será autenticado via <a href="https://www.gov.br/pt-br" style="color:#006599;font-weight: bold;">Gov.Br</a>,
+                    uma forma tranquila e transparente de <i style="font-weight: bold;font-style:italic;">login</i>.
+                    Buscamos com isso tornar o acesso mais rápido e prático.
+                </div>
+            </div>
+            <div class="md-form">
+                <a id="sbmEntrar" href="https://idp.tjto.jus.br/connect/authorize?acr_values=idp:acesso.gov.br&amp;state=cb3a1fa5d3a2efc1e39e6364625fd6a0&amp;scope=openid%20profile%20email%20offline_access&amp;response_type=code&amp;approval_prompt=auto&amp;redirect_uri=https%3A%2F%2Feproc1.tjto.jus.br%2FeprocV2_prod_1grau%2Fexterno_controlador.php%3Facao%3Dtjto%40md_tjto_consulta_publica%2Flistar&amp;client_id=22763"
+                   class="infraCorBarraTribunal btn text-white bg-instancia form-control">
+                    ENTRAR
+                </a>
+            </div>
+        </div>
+    </div>
+</section>    <link rel="stylesheet" href="/css/dist/dynamic/tjto/consulta_publica/consulta_publica_login.css">    <div id="vlibras-container" vw>
+        <div id="vlibras-access-button" vw-access-button class="active"></div>
+        <div vw-plugin-wrapper>
+            <div class="vw-plugin-top-wrapper"></div>
+        </div>
+    </div>
+    <script defer="defer"
+        src="https://cdn.jsdelivr.net/gh/spbgovbr-vlibras/vlibras-portal@dev/app/vlibras-plugin.js" charset="UTF-8"
+        onload="new window.VLibras.Widget('https://vlibras.gov.br/app');">
+    </script>                <link rel='stylesheet' href='css/dist/bundle-jquery-ui.css?9.20.0-2.49.0'>
+                <script charset="utf-8" src="js/dist/npm.lodash.42d8f16fbdaca87c5521.js"></script><script charset="utf-8" src="js/dist/npm.marked.cb48db0a5a9e79035488.js"></script><script charset="utf-8" src="js/dist/npm.unorm.b1e3aba4eeff43a138de.js"></script><script charset="utf-8" src="js/dist/npm.lodash.debounce.d4b58f3f15c866a85e51.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-buttons.68c8160037952d43ac51.js"></script><script charset="utf-8" src="js/dist/npm.pdfmake.ad467404f9ca7dbb2c82.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-select.fccc288487d55ca3af28.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-select-bs4.8dcfbaf6e34159ab367d.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-rowgroup.e2007214500a7970b921.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-rowgroup-bs4.3e915cdc6064151e486c.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-responsive.fd063cfe8081bcc02162.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-responsive-bs4.9f73fbac5a63bdc796e3.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net.64f0663cf81fee0ef47a.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-buttons-bs4.f2d8455bc62ad42dd7a9.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-bs4.3a6ebfc3e19d6d52c370.js"></script><script charset="utf-8" src="js/dist/npm.plupload.35ae4c75e0695f9f06a9.js"></script><script charset="utf-8" src="js/dist/npm.jszip.3366a050ca5c2ac42da5.js"></script><script charset="utf-8" src="js/dist/npm.focus-within-polyfill.da405601dab6e656664e.js"></script><script charset="utf-8" src="js/dist/9168.0d56c9a7867919016a97.js"></script><script charset="utf-8" src="js/dist/6852.1ab49c25499d6f98bd89.js"></script><script charset="utf-8" src="js/dist/4009.6709a92236dbacbe504a.js"></script><script charset="utf-8" src="js/dist/20.7e12f2557c448c5fd981.js"></script><script charset="utf-8" src="js/dist/main-pos.6b944f81d36b152add97.js"></script>                
+			<link href="infra_css/infra-barra-progresso.css?9.20.0-2.49.0" rel="stylesheet" type="text/css" media="all" /><link href="infra_css/infra-impressao-global.css?9.20.0-2.49.0" rel="stylesheet" type="text/css" media="print" />
+	<link href="infra_css/infra-ajax.css?9.20.0-2.49.0" rel="stylesheet" type="text/css" media="all" />
+				<link href="infra_js/calendario/v1/infra-calendario.css?9.20.0-2.49.0" rel="stylesheet" type="text/css" media="all" />
+				<link href="infra_js/mapa/infra-mapa.css?9.20.0-2.49.0" rel="stylesheet" type="text/css" media="all" />
+		                        <div class="bootstrap-styles">
+                            
+                        </div>
+                    </div>
+                </div>
+                            </div>
+        </div>
+    </div>
+
+                        <div class="bootstrap-styles ">
+                <button id="backTop" type="button" class="btn btn-light shadow-sm" style="display:none;" aria-label="Navegar para início" tabindex="-1">
+                    <i class="material-icons p-0">keyboard_arrow_up</i>
+                </button>
+                <button id="backBottom" type="button" class="btn btn-light shadow-sm" style="display:none;" aria-label="Navegar para fim" tabindex="-1">
+                    <i class="material-icons p-0">keyboard_arrow_down</i>
+                </button>
+            </div>
+            
+    <input type="hidden" id="hdnInfraPrefixoCookie" name="hdnInfraPrefixoCookie" value="TJTO_Eproc_"/>
+
+            <script>
+            $(function() {
+                if(window.ClienteWebsocket) {
+                    delete window.ClienteWebsocket;
+                }
+                var currentScript;
+                currentScript = document.currentScript || document.scripts[document.scripts.length - 1];
+                currentScript.parentNode.removeChild(currentScript);
+            })
+        </script>
+    
+    <div id="infraDivImpressao" class="infraImpressao"></div>
+    
+
+    <div class='bootstrap-styles' aria-live="polite">
+        <div id="toasts-container" class="d-block flex-column-reverse w-100 p-2 align-content-end h-100 w-100 fixed-bottom pe-none" style="pointer-events: none"></div>
+    </div>
+
+    <script src="js/siscom_desktop_icone.js"></script>
+</body>
+
+
+
+</html>

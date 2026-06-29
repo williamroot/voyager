@@ -1,0 +1,1230 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+
+
+
+
+
+
+
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="pt" lang="BR">
+	<head>
+		
+<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"/>
+<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="-1"/>
+
+<link rel="icon" href="favicon.ico"/>
+		
+
+
+
+
+
+
+
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/select2/select2.css?updateIdx=197"/>
+
+
+
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/layout.css?updateIdx=197_2_7"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/typo.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/menu.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/ajaxtags.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/assinatura_servidor.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/themes/olive.css?updateIdx=197g"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/opentip.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/contextHelp.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/postLogon/perfisAtivos.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/postLogon/assessorado.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/postLogon/areaAtuacao.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/metasCNJ.css?updateIdx=197"/>
+
+
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/window/default.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" href="/projudi_consulta/css/window/tjpr.css?updateIdx=197"/>
+<link rel="stylesheet" type="text/css" media="print" href="/projudi_consulta/css/print.css?updateIdx=197"/>
+
+
+ 
+
+
+		
+
+
+
+
+
+
+
+
+
+	<script type="text/javascript" src="/projudi_consulta/js/prototype.js?updateIdx=261"></script>	
+
+
+
+<script type="text/javascript" src="/projudi_consulta/js/window/window.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/window/effects.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/opentip-native.min.js?updateIdx=261"></script>
+
+
+<script type="text/javascript" src="/projudi_consulta/js/jquery/jquery-3.2.1.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/select2/select2-4.0.13.js?updateIdx=261"></script>
+<script type="text/javascript">
+var $jq = jQuery.noConflict(true);
+$jq(document).ready(function($){
+	$('.projudi_select2').select2();
+
+	//Código para bloquear o acesso caso o select esteja com o atributo readOnly setado
+	$('select[data-select2-id]').on('select2:opening', function (e) {
+		if( this.readOnly ) {
+			e.preventDefault();
+			$(this).select2('close');
+			return false;
+		}
+	});
+});
+
+
+</script>
+
+
+<script type="text/javascript" src="/projudi_consulta/js/overlibmws/overlibmws.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/overlibmws/overlibmws_crossframe.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/overlibmws/overlibmws_iframe.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/overlibmws/overlibmws_hide.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/overlibmws/overlibmws_shadow.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/scriptaculous/scriptaculous.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/scriptaculous/dragdrop.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/ajax/ajaxtags.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/ajax/ajaxtags_controls.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/ajax/ajaxtags_parser.js?updateIdx=261"></script>
+
+
+<script type="text/javascript" src="/projudi_consulta/js/calendarpopup/CalendarPopup.js?updateIdx=261"></script>
+
+
+
+	<script type="text/javascript" src="/projudi_consulta/js/html-form-input-mask.js?updateIdx=261"></script>
+
+
+
+<script type="text/javascript" src="/projudi_consulta/js/tjpr.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/projudi.js?updateIdx=261_01"></script>
+<script type="text/javascript" src="/projudi_consulta/js/uploader.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/contextHelp.js?updateIdx=261"></script>
+<script type="text/javascript" src="/projudi_consulta/js/userManager.js?updateIdx=261a"></script>
+<script type="text/javascript" src="/projudi_consulta/js/userPreferences.js?updateIdx=261"></script>
+<script type="text/javascript" src='/projudi_consulta/js/postLogon/postLogon.js?updateIdx=261'></script>
+<script type="text/javascript" src='/projudi_consulta/js/postLogon/autocompleteJS.js?updateIdx=261'></script>
+<script type="text/javascript" src='/projudi_consulta/js/postLogon/perfil.js?updateIdx=261'></script>
+<script type="text/javascript" src='/projudi_consulta/js/postLogon/areaAtuacao.js?updateIdx=261'></script>
+<script type="text/javascript" src='/projudi_consulta/js/postLogon/assessorado.js?updateIdx=261'></script>
+<script type="text/javascript" src="/projudi_consulta/js/backURLManager.js?updateIdx=261"></script>
+<script type="text/javascript" charset="utf-8" src="/projudi_consulta/js/control-layout.js?updateIdx=261_o6"></script>
+<script type="text/javascript" src="/projudi_consulta/js/metasCNJ.js?updateIdx=261"></script>
+<script type="text/javascript" charset="utf-8" src="/projudi_consulta/js/criminal/criminal.js?updateIdx=261_d"></script>
+
+
+
+<script type="text/javascript">
+//   var $jq = jQuery.noConflict();
+  
+  diech9ohTie3(); 
+
+  // Application root path for JavaScript functions
+  var appRootPath = "/projudi_consulta/";
+
+  // Multiple onload function created by: Simon Willison
+  // http://simonwillison.net/2004/May/26/addLoadEvent/
+  function addLoadEvent(func) {
+    var oldonload = window.onload;
+    if (typeof window.onload != 'function') {
+      window.onload = func;
+    } else {
+      window.onload = function() {
+        if (oldonload) {
+          oldonload();
+        }
+        func();
+      }
+    }
+  }
+  
+  addLoadEvent(function() {
+	// adds fields masks javascript listener
+	if(typeof Xaprb != 'undefined')
+		Xaprb.InputMask.setupElementMasks();
+
+    // adiciona contador de tempo para expirar a sessão
+    if( typeof(functionDisplaySessionTimeout) != 'undefined' )
+    	functionDisplaySessionTimeout();
+  });
+  
+  addLoadEvent(function(){
+	  var openTipInputs =  $$('.openTip');	  
+	  openTipInputs.each(function(input){
+			new Opentip(input, input.alt,{target: input, targetJoint: "bottom-right", fixed: true});
+		});	
+  });
+  
+  //teste
+  
+  var ie=document.all;
+      var ns6=document.getElementById&&!document.all;
+
+var horizontal_offset="9px" ;
+      var vertical_offset="0";
+
+function buscarPosicaoOffset(what, offsettype)
+      {
+        var totaloffset=(offsettype=="left")? what.offsetLeft : what.offsetTop;
+        var parentEl=what.offsetParent;
+        while (parentEl!=null)
+        {
+          totaloffset=(offsettype=="left")? totaloffset+parentEl.offsetLeft : totaloffset+parentEl.offsetTop;
+          parentEl=parentEl.offsetParent;
+        }
+        return totaloffset;
+      }
+
+function limparCantoBrowser(obj, whichedge)
+{
+        var edgeoffset=(whichedge=="rightedge")? parseInt(horizontal_offset)*-1 : parseInt(vertical_offset)*-1;
+        if (whichedge=="rightedge")
+        {
+               var windowedge=ie && !window.opera? ehCompativelIE().scrollLeft+ehCompativelIE().clientWidth-30 : window.pageXOffset+window.innerWidth-40;
+                dropmenuobj.contentmeasure=dropmenuobj.offsetWidth;
+               if (windowedge-dropmenuobj.x < dropmenuobj.contentmeasure)
+                       edgeoffset=dropmenuobj.contentmeasure+obj.offsetWidth+parseInt(horizontal_offset);
+        }
+        else
+        {
+               var windowedge=ie && !window.opera? ehCompativelIE().scrollTop+ehCompativelIE().clientHeight-15 : window.pageYOffset+window.innerHeight-18;
+                dropmenuobj.contentmeasure=dropmenuobj.offsetHeight;
+               if (windowedge-dropmenuobj.y < dropmenuobj.contentmeasure)
+                       edgeoffset=dropmenuobj.contentmeasure-obj.offsetHeight;
+        }
+        return edgeoffset;
+}
+
+function ehCompativelIE()
+      {
+        return (document.compatMode && document.compatMode!="BackCompat")? document.documentElement : document.body;
+      }
+
+  function mostrarHint(menucontents, obj, e, tipwidth)
+	{
+	if ((ie||ns6) && document.getElementById("caixaAjuda"))
+	{
+	dropmenuobj=document.getElementById("caixaAjuda");
+	dropmenuobj.innerHTML=menucontents;
+	dropmenuobj.style.left=dropmenuobj.style.top=-500;
+	if (tipwidth!="")
+	{
+	dropmenuobj.widthobj=dropmenuobj.style;
+	dropmenuobj.widthobj.width=tipwidth;
+	}
+	dropmenuobj.x=buscarPosicaoOffset(obj, "left");
+	dropmenuobj.y=buscarPosicaoOffset(obj, "top");
+	dropmenuobj.style.left=dropmenuobj.x-limparCantoBrowser(obj, "rightedge")+obj.offsetWidth+"px";
+	dropmenuobj.style.top=dropmenuobj.y-limparCantoBrowser(obj, "bottomedge")+"px";
+	dropmenuobj.style.visibility="visible";
+	obj.onmouseout=esconderDica;
+	}
+	}
+
+function esconderDica(e)
+	{
+	dropmenuobj.style.visibility="hidden";
+	dropmenuobj.style.left="-500px";
+	}
+	
+	function criarCaixaDica()
+	{
+		var divblock=document.createElement("div");
+		divblock.setAttribute("id", "caixaAjuda");
+		document.body.appendChild(divblock);
+		
+	}
+	
+	function criarDivGrafico(){
+		var divblock=document.createElement("div");
+		divblock.setAttribute("id", "divAjaxGraficoProjudi");
+		document.body.appendChild(divblock);
+	}
+	
+	if (window.addEventListener)
+	window.addEventListener("load", criarCaixaDica, false);
+	else if (window.attachEvent)
+	window.attachEvent("onload", criarCaixaDica);
+	else if (document.getElementById)
+	window.onload=criarCaixaDica;
+
+	//Cria link menu - acessibilidade permitindo retornar ao menu através da tecla Alt 2
+	var linkMenuCriado = false;
+	window.addEventListener('load', function() {
+		if(!linkMenuCriado) {
+			linkMenuCriado = true;
+			var link = document.createElement('A');
+			link.href="#";
+			link.onclick = function() { if(window.parent && window.parent.focusMenu) {window.parent.focusMenu();} return false; };
+			link.accessKey="2";
+			document.body.appendChild(link);
+		}
+	});
+</script>
+
+		<title>
+			
+				
+				
+				
+					Projudi - Processo Eletrônico do Judiciário do Paraná
+				
+					
+		</title>
+	</head>
+	
+	
+	<body onmousemove="onBodyMouseMove()" onkeydown="onBodyKeyDown()">
+		<div id="container">
+			
+			
+								
+				
+				 
+					
+				
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+<body>
+</body>
+</html>
+			
+			<hr/>
+			
+			<div id="content">
+				<div id="idCalPadrao" style="position:absolute;z-index:1000;float:right;visibility:hidden;background-color:white;layer-background-color:white;">
+				</div>
+				
+					
+						
+
+
+
+
+
+
+
+
+
+<input type="hidden" id="keycloakAuthServerUrl" value="https://sso.tjpr.jus.br/auth">
+<input type="hidden" id="keycloakTjprRealm" value="production">
+<input type="hidden" id="keycloakClientId" value="projudi-ui">
+
+<script type="text/javascript" src="https://sso.tjpr.jus.br/auth/js/keycloak.js"></script>
+<script type="text/javascript" src="/projudi_consulta/js/toastnotify/src/js/toastnotify.js?updateIdx=5"></script>
+<link rel="stylesheet" href="/projudi_consulta/js/toastnotify/src/css/toastnotify.css" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
+	
+	
+	
+	
+	
+
+	
+
+
+	
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script type="text/javascript">
+	/**
+	 * Função para limpar o conteúdo das mensagens
+	 */
+	function clearMessages(){
+		var successMsgs = document.getElementById('successMessages');
+		if(successMsgs != null && "" + successMsgs != "undefined"){
+			successMsgs.style.display="none";
+		}
+	}
+	
+	function getToastWindow() {
+		if(window.name == 'mainFrame') return window;
+		
+		var result = window;
+		while(result && result != result.parent) {
+			result = result.parent;
+			if(result && result.name == 'mainFrame') {
+				return result;
+			}
+		}
+		return window;
+	}
+	
+	addLoadEvent(function(){
+		var toastMessage = '';
+		if (toastMessage != null && toastMessage != "") {
+			
+			getToastWindow().MensagemAlerta(toastMessage);
+		}
+		
+		toastMessage = '';
+		if (toastMessage != null && toastMessage != "") {
+			
+			getToastWindow().MensagemEvento(toastMessage);
+		}
+		
+		toastMessage = '';
+		if (toastMessage != null && toastMessage != "") {
+			
+			getToastWindow().MensagemErro(toastMessage);
+		}
+		
+	});
+	
+	// chama a função após 4 segundos
+	var flagfixedSuccessMessage = "";
+	if( (flagfixedSuccessMessage == "") || !flagfixedSuccessMessage ) {
+		window.setTimeout("clearMessages()", 4000);
+	}
+</script>
+						
+
+
+
+
+
+
+
+
+
+
+
+
+<script type="text/javascript">
+	/**
+	 * Atualiza o número único do campo hidden
+	 * (valor utilizado no "ajax:autocomplete")
+	 */
+	function updateFlagNumeroUnicoHidden(valor) {
+		document.getElementById('flagNumeroUnicoHidden').value = valor;
+	}
+	 
+	function submitForm(){
+		document.getElementById('codVaraEscolhida').value=document.getElementById('codVara').value;
+		return true;
+	}
+
+	function atualizaOpcaoConsulta(valorOpcaoConsulta){
+		document.getElementById('opcaoConsultaPublicaHidden').value = valorOpcaoConsulta;
+		if(valorOpcaoConsulta == '1'){
+			document.getElementById('divFiltroNumeroProcesso').style.display='';
+			document.getElementById('divFiltroComarcaJuizo').style.display='';
+			document.getElementById('divFiltroTurmaRecursal').style.display='none';
+			document.getElementById('divFiltroBasico').style.display='';
+		}else if(valorOpcaoConsulta == '2'){
+			document.getElementById('divFiltroNumeroProcesso').style.display='';
+			document.getElementById('divFiltroComarcaJuizo').style.display='none';
+			document.getElementById('divFiltroTurmaRecursal').style.display='';		
+			document.getElementById('divFiltroBasico').style.display='';
+		}
+	}
+
+	function verificaVaraEscolhida(){
+		//Setando vara escolhida anteriormente após um Voltar
+		//alert(document.getElementById('codVaraEscolhida').value);
+		if(document.getElementById('codVaraEscolhida').value != ""){
+			var c=document.getElementById('codVara');
+			for(var i=0; i<c.options.length; i++){
+				if( c.options[i].value == document.getElementById('codVaraEscolhida').value){
+					c.selectedIndex=i;
+					break;
+				}//if
+			}//for
+		}//if
+	} 
+	function testeFx(){
+		if(!ajaxVaras.jaExecutou){
+			ajaxVaras.jaExecutou=true;
+			if(document.getElementById('codVara').options.length <= 1)
+				document.getElementById('codVara').disabled=true;
+			else
+				verificaVaraEscolhida();
+		}else{
+			if(document.getElementById('codVara').options.length <= 1)
+				document.getElementById('codVara').disabled=true;
+
+		}
+	}
+</script>
+<form name="processoBuscaForm" id="buscaProcessoForm" method="POST" action="/projudi_consulta/processo/consultaPublica.do?actionType=pesquisar" onsubmit="onSubmit();"> 
+<head>
+<script>
+    function onSubmit(token) {
+    	var retorno = submitForm();
+		disableScreen();
+		document.getElementById('indicatorFinalizar').style.display="";
+    	document.getElementById("buscaProcessoForm").processoPageNumber.value=1;
+ 		document.getElementById("buscaProcessoForm").action = '/projudi_consulta/processo/consultaPublica.do?_tj=8a6c53f8698c7ff76952a94c6099d0b4f7dc925667d013fb9e7278ec43293bdc';
+  	    document.getElementById("buscaProcessoForm").submit();
+    }
+</script>
+
+	<script>
+		function refreshCaptcha() {
+		    document.getElementById('refresh-button').disabled = true;
+		    document.getElementById('audio-button').disabled = true;
+		    document.getElementById('captcha-buttons').style.opacity = '0.5';
+	
+		    document.getElementById('captchaImage').onload = function() {
+		        document.getElementById('refresh-button').disabled = false;
+		        document.getElementById('audio-button').disabled = false;
+		        document.getElementById('captcha-buttons').style.opacity = '1.0';
+		    }
+	
+		    document.getElementById('captchaImage').src = '/projudi_consulta/captcha?'+ new Date().getTime();
+		}
+		
+		function playAudioCaptcha() {
+		    var audio = new Audio('/projudi_consulta/audio?'+ new Date().getTime());
+		    audio.play();
+		}
+		
+		
+	</script>
+
+</head>
+<h3>Consulta Pública de Processos</h3>
+<fieldset>
+<table class="form" >
+	
+	
+	<input type="hidden" name="processoPageSize" value="20">
+	
+	<input type="hidden" name="processoPageNumber" value="1">
+	
+	<input type="hidden" name="processoSortColumn" value="p.numeroUnico">
+	
+	<input type="hidden" name="processoSortOrder" value="asc">
+
+	
+	<input type="hidden" name="codVaraEscolhida" value="" id="codVaraEscolhida">
+	
+	
+	
+	
+	<tr>
+		<td class="label" style="min-width: 150px">&nbsp;</td>
+		<td><em>* Informações obrigatórias (Obs: Consultas por 'Número do Processo', 'CPF' ou 'CNPJ' não exigem complementação de Comarca, Juízo, Tipo de Competência e Orgão Julgador)</em></td>
+	</tr>
+	<tr>
+		<td class="label" style="min-width: 150px">&nbsp;</td>
+		<td>
+			<em><a href="https://projudi.tjpr.jus.br/projudi/processo/validacaoDocumentos.do?_tj=8a6c53f8698c7ff7826b4c776d71316d3a6b758b3d398283" target="_parent" class="attentionBold"><em class="attentionBold">Clique aqui</em></a>&nbsp;para realizar a consulta pela Chave do Processo/Recurso.</em>
+			
+				<em><a href="https://projudi.tjpr.jus.br/projudi_consulta/processo/consultaPublica.do?actionType=listarPjeProjudi" class="attentionBold"><em class="attentionBold">Clique aqui</em></a>&nbsp;para listar os processos importados do Sistema PJe.</em>
+			
+		</td>
+	</tr>
+	
+	
+	<tr>    		
+		<td class="label"><label for="opcaoConsultaPublica"><em>*</em>Tipo de Consulta:</label></td>
+   		<td>
+   			<table>
+   			<tr>
+   			<td nowrap="nowrap">
+   			<input type="radio" name="opcaoConsultaPublica" value="1" checked="checked" onchange="atualizaOpcaoConsulta(this.value);" id="opcaoConsultaPublica">
+   			Primeira Instância&nbsp;&nbsp;&nbsp;&nbsp;
+   			</td>
+   			<td nowrap="nowrap">
+   			<input type="radio" name="opcaoConsultaPublica" value="2" onchange="atualizaOpcaoConsulta(this.value);" id="opcaoConsultaPublica">
+   			Segunda Instância
+   			</td>
+   			</tr>
+   			</table>
+   			<input type="hidden" id="opcaoConsultaPublicaHidden" >
+   		</td>
+ 	</tr>  	
+	</table>
+	
+	<div id="divFiltroNumeroProcesso">
+	<table class="form">
+		
+		<tr>
+			<td class="label" style="min-width: 150px"><label for="flagNumeroUnico"><em>*</em>Tipo do Número:</label></td>
+			<td>
+				<table width="50%">
+				<tr>
+				<td width="20%">
+				<input type="radio" name="flagNumeroUnico" value="true" checked="checked" onchange="updateFlagNumeroUnicoHidden(this.value);" id="flagNumeracaoUnica">
+				Número Único
+				</td>
+				<td>
+				<input type="radio" name="flagNumeroUnico" value="false" onchange="updateFlagNumeroUnicoHidden(this.value);">
+				Número Antigo	
+				</td>
+				</tr>
+				</table>
+				<input id="flagNumeroUnicoHidden" type="hidden" value="true">
+				
+			</td>
+		</tr>
+		<tr>
+			<td class="label">
+				<label for="numeroProcesso">Número do Processo:</label>
+			</td>
+			<td>
+				
+				<input type="text" name="numeroProcesso" size="30" value="" id="numeroProcesso">
+	
+		    	
+		    	<span id="indicatorProcessoOff" style="display:inline;">
+					<img src="/projudi_consulta/img/indicatorOff.gif" align="top" class="indicatorOff" title="Campo autocompletar: ao digitar, escolha uma das opções sugeridas">
+		    	</span>
+		    	<span id="indicatorProcesso" style="display:none; margin-left:-20px;">
+					<img src="/projudi_consulta/img/indicator.gif" align="top" class="indicatorOn">
+		    	</span>
+		    	
+				<script type="text/javascript">
+new AjaxJspTag.Autocomplete(
+"/projudi_consulta/processo/consultaPublica.do?_tj=8a6c53f8698c7ff7d58024e351cad6cc95127f5c8f2d0c890c4c4654dc0394fec32a965a26d88df1b8376d5e3637b4961418d21738334fc6", {
+indicator: "indicatorProcesso",
+minimumCharacters: "4",
+className: "autocomplete",
+source: "numeroProcesso",
+parameters: "numeroProcesso={numeroProcesso},flagNumeroUnico={flagNumeroUnicoHidden},opcaoConsulta={opcaoConsultaPublicaHidden}",
+target: "numeroProcesso"
+});
+</script>
+
+
+
+				
+				
+				&nbsp;&nbsp;&nbsp;
+				<a id="ajaxCalloutHelp" href="#" class="ajaxCalloutHelpClass" title='Clique para exibir mais informações'></a>
+				
+				     				
+				     				
+				<script type="text/javascript">
+new AjaxJspTag.Callout(
+"/projudi_consulta/processo/consultaPublica.do?_tj=8a6c53f8698c7ff7d58024e351cad6cc95127f5c8f2d0c890c4c4654dc0394fec32a965a26d88df1b8376d5e3637b49618725656a3364053", {
+overlib: "STICKY,CLOSECLICK,DELAY,0,VAUTO,HAUTO,CLOSETEXT,'X',CLOSETITLE,'Clique para fechar',BGCLASS,'ajaxCalloutLayout',FGCLASS,'ajaxCalloutTextLayout',TEXTFONTCLASS,'ajaxCalloutTextFont',CGCLASS,'ajaxCalloutCaptionLayout',CAPTIONFONTCLASS,'ajaxCalloutCaptionFont',CLOSEFONTCLASS,'ajaxCalloutCloseFont'",
+sourceClass: "ajaxCalloutHelpClass",
+title: "Ajuda",
+parameters: "flagNumeroUnico={flagNumeroUnicoHidden},opcaoConsulta={opcaoConsultaPublicaHidden}",
+openEvent: "click",
+doPost: false
+});
+</script>
+
+
+
+			</td>
+		</tr>
+		
+		
+		<tr>
+			<td>&nbsp;</td>
+			<td>
+				<i>A consulta de processos criminais ocorre apenas através do número do processo. Não são apresentados  processos criminais arquivados.</i>
+			</td>
+		</tr>
+	</table>
+	</div>
+	
+	
+	<div id="divFiltroComarcaJuizo">
+		<table class="form">
+		
+		<tr>
+			<td class="labelRadio"><label for="codTribunalPesq"><b>Tribunal:</b></label></td>
+		<td>
+			<select name="codTribunal" disabled="disabled" id="codTribunal"><option value="1" selected="selected">Tribunal de Justiça do Estado do Paraná</option></select>
+		 			<script type="text/javascript">
+var ajaxComarcas = new AjaxJspTag.Select(
+"/projudi_consulta/processo/consultaPublica.do?actionType=ajaxListaComarcasAtivas", {
+source: "codTribunal",
+parameters: "codTribunal={codTribunal}",
+target: "codComarca"
+});
+</script>
+
+
+
+			</td>
+		</tr>		
+		
+		<tr>
+			<td class="label" style="min-width: 150px"><em>*</em><label for="codComarca">Comarca:</label></td>
+			<td>
+				<select name="codComarca" id="codComarca"><option value="-1">Selecione Para Busca</option>						
+					<option value="1">Almirante Tamandaré</option>
+<option value="4">Altônia</option>
+<option value="2">Alto Paraná</option>
+<option value="3">Alto Piquiri</option>
+<option value="159">Ampére</option>
+<option value="5">Andirá</option>
+<option value="6">Antonina</option>
+<option value="7">Apucarana</option>
+<option value="8">Arapongas</option>
+<option value="9">Arapoti</option>
+<option value="10">Araucária</option>
+<option value="11">Assaí</option>
+<option value="12">Assis Chateaubriand</option>
+<option value="13">Astorga</option>
+<option value="14">Bandeirantes</option>
+<option value="15">Barbosa Ferraz</option>
+<option value="16">Barracão</option>
+<option value="17">Bela Vista do Paraíso</option>
+<option value="18">Bocaiúva do Sul</option>
+<option value="19">Cambará</option>
+<option value="20">Cambé</option>
+<option value="21">Campina da Lagoa</option>
+<option value="22">Campina Grande do Sul</option>
+<option value="23">Campo Largo</option>
+<option value="24">Campo Mourão</option>
+<option value="25">Cândido de Abreu</option>
+<option value="26">Cantagalo</option>
+<option value="27">Capanema</option>
+<option value="28">Capitão Leônidas Marques</option>
+<option value="29">Carlópolis</option>
+<option value="30">Cascavel</option>
+<option value="31">Castro</option>
+<option value="32">Catanduvas</option>
+<option value="33">Centenário do Sul</option>
+<option value="34">Cerro Azul</option>
+<option value="35">Chopinzinho</option>
+<option value="36">Cianorte</option>
+<option value="37">Cidade Gaúcha</option>
+<option value="38">Clevelândia</option>
+<option value="39">Colombo</option>
+<option value="40">Colorado</option>
+<option value="41">Congonhinhas</option>
+<option value="42">Corbélia</option>
+<option value="43">Cornélio Procópio</option>
+<option value="44">Coronel Vivida</option>
+<option value="45">Cruzeiro do Oeste</option>
+<option value="46">Curitiba</option>
+<option value="47">Curiúva</option>
+<option value="48">Dois Vizinhos</option>
+<option value="49">Engenheiro Beltrão</option>
+<option value="50">Faxinal</option>
+<option value="51">Fazenda Rio Grande</option>
+<option value="52">Formosa do Oeste</option>
+<option value="53">Foz do Iguaçu</option>
+<option value="54">Francisco Beltrão</option>
+<option value="55">Goioerê</option>
+<option value="56">Grandes Rios</option>
+<option value="60">Guaíra</option>
+<option value="57">Guaraniaçu</option>
+<option value="58">Guarapuava</option>
+<option value="59">Guaratuba</option>
+<option value="61">Ibaiti</option>
+<option value="62">Ibiporã</option>
+<option value="63">Icaraíma</option>
+<option value="64">Imbituva</option>
+<option value="65">Ipiranga</option>
+<option value="66">Iporã</option>
+<option value="67">Irati</option>
+<option value="68">Iretama</option>
+<option value="69">Ivaiporã</option>
+<option value="70">Jacarezinho</option>
+<option value="71">Jaguapitã</option>
+<option value="72">Jaguariaíva</option>
+<option value="73">Jandaia do Sul</option>
+<option value="74">Joaquim Távora</option>
+<option value="75">Lapa</option>
+<option value="76">Laranjeiras do Sul</option>
+<option value="77">Loanda</option>
+<option value="78">Londrina</option>
+<option value="79">Mallet</option>
+<option value="80">Mamborê</option>
+<option value="82">Mandaguaçu</option>
+<option value="81">Mandaguari</option>
+<option value="83">Mangueirinha</option>
+<option value="84">Manoel Ribas</option>
+<option value="85">Marechal Cândido Rondon</option>
+<option value="86">Marialva</option>
+<option value="87">Marilândia do Sul</option>
+<option value="88">Maringá</option>
+<option value="157">Marmeleiro</option>
+<option value="89">Matelândia</option>
+<option value="90">Matinhos</option>
+<option value="91">Medianeira</option>
+<option value="92">Morretes</option>
+<option value="161">Nova Aurora</option>
+<option value="93">Nova Esperança</option>
+<option value="94">Nova Fátima</option>
+<option value="95">Nova Londrina</option>
+<option value="96">Ortigueira</option>
+<option value="162">Paiçandu</option>
+<option value="97">Palmas</option>
+<option value="98">Palmeira</option>
+<option value="99">Palmital</option>
+<option value="100">Palotina</option>
+<option value="104">Paraíso do Norte</option>
+<option value="101">Paranacity</option>
+<option value="102">Paranaguá</option>
+<option value="103">Paranavaí</option>
+<option value="105">Pato Branco</option>
+<option value="106">Peabiru</option>
+<option value="116">Pérola</option>
+<option value="107">Pinhais</option>
+<option value="108">Pinhão</option>
+<option value="110">Piraí do Sul</option>
+<option value="109">Piraquara</option>
+<option value="111">Pitanga</option>
+<option value="112">Ponta Grossa</option>
+<option value="160">Pontal do Paraná</option>
+<option value="113">Porecatu</option>
+<option value="114">Primeiro de Maio</option>
+<option value="115">Prudentópolis</option>
+<option value="163">Quatro Barras</option>
+<option value="117">Quedas do Iguaçu</option>
+<option value="118">Realeza</option>
+<option value="119">Rebouças</option>
+<option value="120">Reserva</option>
+<option value="121">Ribeirão Claro</option>
+<option value="122">Ribeirão do Pinhal</option>
+<option value="123">Rio Branco do Sul</option>
+<option value="124">Rio Negro</option>
+<option value="125">Rolândia</option>
+<option value="126">Salto do Lontra</option>
+<option value="156">Santa Fé</option>
+<option value="127">Santa Helena</option>
+<option value="128">Santa Isabel do Ivaí</option>
+<option value="129">Santa Mariana</option>
+<option value="130">Santo Antônio da Platina</option>
+<option value="131">Santo Antônio do Sudoeste</option>
+<option value="136">São Jerônimo da Serra</option>
+<option value="158">São João</option>
+<option value="138">São João do Ivaí</option>
+<option value="139">São João do Triunfo</option>
+<option value="137">São José dos Pinhais</option>
+<option value="140">São Mateus do Sul</option>
+<option value="141">São Miguel do Iguaçu</option>
+<option value="132">Sarandi</option>
+<option value="133">Sengés</option>
+<option value="134">Sertanópolis</option>
+<option value="135">Siqueira Campos</option>
+<option value="142">Teixeira Soares</option>
+<option value="143">Telêmaco Borba</option>
+<option value="144">Terra Boa</option>
+<option value="145">Terra Rica</option>
+<option value="146">Terra Roxa</option>
+<option value="147">Tibagi</option>
+<option value="148">Toledo</option>
+<option value="149">Tomazina</option>
+<option value="150">Ubiratã</option>
+<option value="151">Umuarama</option>
+<option value="152">União da Vitória</option>
+<option value="153">Uraí</option>
+<option value="154">Wenceslau Braz</option>
+<option value="155">Xambrê</option></select>
+				
+				
+				
+				<script type="text/javascript">
+var ajaxVaras = new AjaxJspTag.Select(
+"/projudi_consulta/processo/consultaPublica.do?_tj=8a6c53f8698c7ff7ff7834bb067e46fe585ab8bcf60da8466d748ad4b96490b4", {
+postFunction: testeFx,
+emptyOptionValue: "0",
+emptyOptionName: "Selecione um juízo",
+executeOnLoad: "true",
+source: "codComarca",
+parameters: "codComarca={codComarca}",
+target: "codVara"
+});
+</script>
+
+
+
+			</td>
+		</tr>	
+		<tr>
+			<td class="label"><em>*</em><label for="codVara">
+			Juízo:</label></td>
+			<td>
+				<select name="codVara" id="codVara" style="width:400px"><option value=""></option></select>
+			</td>
+		</tr>
+		</table>
+	</div>
+
+	
+	<div id="divFiltroTurmaRecursal">
+		<table class="form">
+			<tr>
+		 		<td class="label" style="min-width: 150px"><label for="turma">Tipo de Competência:</label></td>
+		 		<td>
+		 			<select name="tipoCompetencia" id="tipoCompetencia"><option value="">Selecione Para Busca</option>			 	
+						<option value="6">Turma Recursal</option>
+<option value="15">Tribunal de Justiça</option></select>
+
+					
+					
+					<script type="text/javascript">
+var ajaxTurmas = new AjaxJspTag.Select(
+"/projudi_consulta/processo/consultaPublica.do?_tj=8a6c53f8698c7ff7ff7834bb067e46fe585ab8bcf60da84609c99585c00f2156e9dd0b0b975d50f7", {
+emptyOptionValue: "0",
+emptyOptionName: "Selecione Para Busca",
+source: "tipoCompetencia",
+parameters: "tipoCompetencia={tipoCompetencia}",
+target: "turma"
+});
+</script>
+
+
+
+		 		</td>
+		 	</tr>
+		 	<tr>
+		 		<td class="label"><label for="turma">Órgão Julgador:</label></td>
+		 		<td>
+		 			<select name="turma" id="turma"><option value="">Selecione Para Busca</option>			 	
+						<option value="20">10ª Câmara Cível</option>
+<option value="7">11ª Câmara Cível</option>
+<option value="8">12ª Câmara Cível</option>
+<option value="21">13ª Câmara Cível</option>
+<option value="22">14ª Câmara Cível</option>
+<option value="23">15ª Câmara Cível</option>
+<option value="24">16ª Câmara Cível</option>
+<option value="25">17ª Câmara Cível</option>
+<option value="26">18ª Câmara Cível</option>
+<option value="166">19ª Câmara Cível</option>
+<option value="11">1ª Câmara Cível</option>
+<option value="28">1ª Câmara Criminal</option>
+<option value="175">1ª Câmara Criminal - Núcleo de Atuação (Lei Maria da Penha)</option>
+<option value="150">1ª Seção Cível</option>
+<option value="171">1ª Turma de Uniformização de Jurisprudência</option>
+<option value="2">1ª Turma Recursal</option>
+<option value="77">1ª Turma Recursal dos Juizados Especiais</option>
+<option value="113">1ª Turma Recursal dos Juizados Especiais Desativada</option>
+<option value="162">1ª Turma Recursal Suplementar dos Juizados Especiais </option>
+<option value="10">1ª Vice-Presidência</option>
+<option value="167">20ª Câmara Cível</option>
+<option value="12">2ª Câmara Cível</option>
+<option value="29">2ª Câmara Criminal</option>
+<option value="151">2ª Seção Cível</option>
+<option value="172">2ª Turma de Uniformização de Jurisprudência</option>
+<option value="3">2ª Turma Recursal</option>
+<option value="78">2ª Turma Recursal dos Juizados Especiais</option>
+<option value="114">2ª Turma Recursal dos Juizados Especiais Desativada</option>
+<option value="163">2ª Turma Recursal Suplementar dos Juizados Especiais</option>
+<option value="146">2ª Vice-Presidência</option>
+<option value="13">3ª Câmara Cível</option>
+<option value="30">3ª Câmara Criminal</option>
+<option value="152">3ª Seção Cível</option>
+<option value="79">3ª Turma Recursal dos Juizados Especiais</option>
+<option value="115">3ª Turma Recursal dos Juizados Especiais Desativada</option>
+<option value="33">3ª Turma Recursal em Regime de Exceção</option>
+<option value="164">3ª Turma Recursal Suplementar dos Juizados Especiais</option>
+<option value="14">4ª Câmara Cível</option>
+<option value="31">4ª Câmara Criminal</option>
+<option value="153">4ª Seção Cível</option>
+<option value="80">4ª Turma Recursal dos Juizados Especiais</option>
+<option value="116">4ª Turma Recursal dos Juizados Especiais Desativada</option>
+<option value="44">4ª Turma Recursal em Regime de Exceção</option>
+<option value="165">4ª Turma Recursal Suplementar dos Juizados Especiais</option>
+<option value="15">5ª Câmara Cível</option>
+<option value="32">5ª Câmara Criminal</option>
+<option value="154">5ª Seção Cível</option>
+<option value="157">5ª Turma Recursal dos Juizados Especiais</option>
+<option value="16">6ª Câmara Cível</option>
+<option value="176">6ª Câmara Criminal</option>
+<option value="177">6ª Câmara Criminal - Núcleo de Atuação</option>
+<option value="155">6ª Seção Cível</option>
+<option value="169">6ª Turma Recursal dos Juizados Especiais</option>
+<option value="17">7ª Câmara Cível</option>
+<option value="156">7ª Seção Cível</option>
+<option value="18">8ª Câmara Cível</option>
+<option value="168">8ª Seção Cível </option>
+<option value="19">9ª Câmara Cível</option>
+<option value="81">CEJUSC FUNDIÁRIO - TJPR 2º Grau</option>
+<option value="160">Conselho da Magistratura</option>
+<option value="9">Núcleo de Conciliação - TJPR 2º Grau</option>
+<option value="4">Núcleo de Conciliação - Turmas Recursais</option>
+<option value="161">NUGEP - Núcleo de Gerenciamento de Precedentes</option>
+<option value="5">Órgão Especial</option>
+<option value="159">Órgão Especial Administrativo</option>
+<option value="149">PLANTÃO JUDICIÁRIO - 2º GRAU</option>
+<option value="158">PLANTÃO JUDICIÁRIO - TURMAS RECURSAIS</option>
+<option value="147">Presidência</option>
+<option value="6">Seção Cível</option>
+<option value="27">Seção Criminal</option>
+<option value="170">Tribunal Pleno - Proc. Administrativo</option>
+<option value="173">Turma de Uniformização de Jurisprudência</option>
+<option value="110">Turma Recursal Reunida dos Juizados Especiais</option>
+<option value="1">Turma Recursal Única</option>
+<option value="100">Turmas Recursais Reunidas</option></select>
+		 		</td>
+			</tr>
+		</table>
+	</div>
+
+	<div id="divFiltroBasico">
+	 	<table class="form">	
+			<tr>
+				<td class="label" style="min-width: 150px"><label for="nomeParte">Nome da Parte:</label></td>
+				<td><input type="text" name="nomeParte" size="40" value="" id="nomeParte"></td>
+			</tr>
+			<tr>
+				<td class="label"><label for="cpfCnpj">CPF/CNPJ:</label></td>
+				<td><input type="text" name="cpfCnpj" size="25" value="" id="cpfCnpj"> </td>
+			</tr>
+			
+			<tr>
+				<td class="label">
+					<label for="nomeAdvogado">Nome do Advogado:</label>
+				</td>
+				<td>
+			    	<input type="hidden" name="loginAdvogado" value="" id="loginAdvogado">
+			    	<input type="text" name="nomeAdvogado" size="93" value="" onblur="ajaxAutoCompleteOnBlurInput('loginAdvogado','nomeAdvogado')" id="nomeAdvogado">
+		
+					
+			    	<span id="indicatorAdvogadoOff" style="display:inline;">
+						<img src="/projudi_consulta/img/indicatorOff.gif" align="top" class="indicatorOff" title="Campo autocompletar: ao digitar, escolha uma das opções sugeridas">
+		    		</span>
+			    	<span id="indicatorAdvogado" style="display:none; margin-left:-20px;">
+						<img src="/projudi_consulta/img/indicator.gif" align="top" class="indicatorOn">
+		    		</span>
+			    	
+					<script type="text/javascript">
+new AjaxJspTag.Autocomplete(
+"/projudi_consulta/ajaxUtils.do?_tj=8a6c53f8698c7ff7a5b39add9b5ccc56255d4b0a7de5b9f3e743fbd46e1e66a9", {
+indicator: "indicatorAdvogado",
+minimumCharacters: "3",
+preFunction: ajaxAutoCompleteClearInputAdvogado,
+className: "autocomplete",
+source: "nomeAdvogado",
+parameters: "nomeAdvogado={nomeAdvogado}",
+target: "loginAdvogado"
+});
+</script>
+
+
+
+				</td>
+			</tr>
+			
+			<tr>
+				<td class="label"><label for="oab">OAB:</label></td>
+				<td>
+					<input type="text" name="oab" maxlength="8" size="8" value="" id="oab">
+					<select name="oabComplemento" style="width:40px"><option value="N" selected="selected">N</option>
+						<option value="A">A</option>
+						<option value="B">B</option></select>
+					<select name="oabUF" style="width:45px"><option value="AC">AC</option>
+<option value="AL">AL</option>
+<option value="AM">AM</option>
+<option value="AP">AP</option>
+<option value="BA">BA</option>
+<option value="CE">CE</option>
+<option value="DF">DF</option>
+<option value="ES">ES</option>
+<option value="GO">GO</option>
+<option value="MA">MA</option>
+<option value="MG">MG</option>
+<option value="MS">MS</option>
+<option value="MT">MT</option>
+<option value="PA">PA</option>
+<option value="PB">PB</option>
+<option value="PE">PE</option>
+<option value="PI">PI</option>
+<option value="PR" selected="selected">PR</option>
+<option value="RJ">RJ</option>
+<option value="RO">RO</option>
+<option value="RN">RN</option>
+<option value="RR">RR</option>
+<option value="RS">RS</option>
+<option value="SC">SC</option>
+<option value="SE">SE</option>
+<option value="SP">SP</option>
+<option value="TO">TO</option></select>
+				</td>
+			</tr>
+			<tr>
+				<td>&nbsp;</td>
+				<td><i>
+					OAB não utilizada na pesquisa quando consulta-se advogado pelo nome
+				</i></td>
+			</tr>   
+		</table>
+		<br/>
+		 
+			<table >
+				<tr>
+					 <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+				     <td>
+				         <img id="captchaImage" src="/projudi_consulta/captcha" />
+				     </td>
+				     <td>
+				        <div id="captcha-buttons">
+                        	<input id="refresh-button" type="image" onclick="refreshCaptcha(); return false;" src="/projudi_consulta/imagens/refresh.gif"  alt="Atualizar desafio"/><br/>
+                        	<input id="audio-button" type="image" onclick="playAudioCaptcha(); return false;" src="/projudi_consulta/imagens/audio.gif" alt="Áudio"/>
+                    	</div>
+				     </td>
+			   </tr>
+			    <tr>
+			      <td></td>
+			      <td><input name="answer"/></td>
+			</table>
+		
+	</div>
+</fieldset>
+<br>	
+
+<table class="buttonBar" cellpadding="0" cellspacing="0">
+	<tr>
+		<td>&nbsp;</td>
+		<td class="buttons" width="1%" nowrap="nowrap">
+	       	
+			<!--<input type="submit" name="searchButton" value="Pesquisar" onclick="$('processoBuscaForm').processoPageNumber.value=1;" id="pesquisar" class="button">-->
+    		<!--  <button type="submit" id="submit" name="submit" style="button">Pesquisar</button>-->
+			<!--  <button class="g-recaptcha" data-sitekey="6LcPUCoUAAAAAA49inAjWPAJg_0y6MeG-cyukcAI" data-callback="submitAction();" name="submit" id="submit" >Submit</button>-->
+			<span id="indicatorFinalizar" style="display:none; margin-left:-20px;">
+				&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<img src='/projudi_consulta/img/indicator.gif' hspace="0" vspace="0"><em style='color:#F56527;font-weight:bold'>&nbsp;Realizando pesquisa, por favor aguarde.</em>
+			</span>	
+			
+				 
+					<!--  <button class="g-recaptcha" data-sitekey="" data-callback="onSubmit" style="height: 23px;width: 120px;">Pesquisar</button>-->
+			        <input type="submit" value="Pesquisar" style="height: 23px;width: 120px;">
+					<input type="button" name="backButton" value="Voltar" onclick="submitPage('',$('buscaProcessoForm'));" id="backButton" style="width: 120px; height: 23px; vertical-align: top;font-size: 11px; font-family: Verdana, Arial, Helvetica, Sans-Serif;" class="button">
+				
+				
+			
+		</td>
+	</tr>			        	
+</table>
+
+<br>
+
+	
+	
+	
+		
+		
+
+		
+		<table class="resultTable" cellpadding="0" cellspacing="0" width="100%">
+			
+			<colgroup>
+				<col width="14%" />
+				<col width="40%" />
+				<col width="12%" />
+				<col width="34%" />
+			</colgroup>
+
+			
+			<thead>
+				<tr>
+					
+					
+						
+					
+					
+					
+					<th><a class="orderOff" title="Ordenar Ascendente" href="#">Processo</a></th>
+					<th>Partes</th>
+					<th><a class="orderOff" title="Ordenar Ascendente" href="#">Distribuição</a></th>
+					<th><a class="orderOff" title="Ordenar Ascendente" href="#">Classe Processual<br>(Assunto Principal)</a></th>
+				</tr>
+			</thead>
+
+			
+			<tbody>
+				
+				
+	       			<tr><td colspan="5">Nenhum registro encontrado</td></tr> 
+	       		 
+	       		
+				
+				
+			</tbody>		
+		</table>
+	
+</form>
+<div style="float:right;padding-top:10px;font-family:Helvetica,Verdana;font-size:11px;">
+
+
+
+<b>PROJUDI v25.0.28</b> (release 25.0.28.23)
+</div>
+<script type="text/javascript" language="javascript">
+	atualizaOpcaoConsulta(getRadioObjectSelected($('buscaProcessoForm').opcaoConsultaPublica).value);
+</script>  
+
+					
+				
+      
+				
+			</div>
+			<!DOCTYPE HTML>
+<!-- popup arrastável para exibição de ajuda de contexto. Ver contextHelp.js  -->
+<div id="draggablePopupHelp" class="draggablePopupHelp" style="display: none;">
+	<div id="popupHelpTitleBar" class="titleBar"></div>
+	<div id="popupHelpContainer" class="popupHelpContainer"></div>
+	<input id="draggablePopupHelp_internalID" type="hidden" value=""/>
+</div>
+<script type="text/javascript">
+	//cria o draggable aqui para evitar conflito com iframes (popup, etc).
+	new Draggable('draggablePopupHelp',{ handle: 'titleBar', onEnd: function(draggable, event){updatePopupPosition(draggable.element);} });
+	reOpenContextHelp();//verifica se o popup estava aberto antes de recarregar a página.
+</script>
+			
+			<hr/>
+		</div>
+		<a href='/projudi_consulta//include_common.html' style="text-decoration:none; cursor:default; position:fixed; bottom:-20px;">&nbsp;&nbsp;</a>
+		
+		<script type="text/javascript">
+			if(typeof isDesabilitarLinksNovaAba != 'undefined' && isDesabilitarLinksNovaAba()){
+				var menu= parent.document;				
+				desabilitarLinksNovaAba(menu);
+			}
+		</script>		
+	</body>
+</html>

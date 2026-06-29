@@ -411,6 +411,13 @@ class TjspEnricher(BaseEsajEnricher):
     LOG_NAME = 'voyager.enrichers.tjsp'
 
 
+class TjacEnricher(BaseEsajEnricher):
+    BASE_URL = 'https://esaj.tjac.jus.br'
+    TRIBUNAL_SIGLA = 'TJAC'
+    LOG_NAME = 'voyager.enrichers.tjac'
+    CPOSG_PATH = 'cposg5'  # TJAC: 2º grau é /cposg5/
+
+
 class TjalEnricher(BaseEsajEnricher):
     BASE_URL = 'https://www2.tjal.jus.br'
     TRIBUNAL_SIGLA = 'TJAL'

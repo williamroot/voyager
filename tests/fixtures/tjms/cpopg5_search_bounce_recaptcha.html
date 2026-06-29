@@ -1,0 +1,1193 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    
+        
+    
+
+
+
+<html>
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">	
+
+	
+
+
+
+
+
+
+
+
+    <script language="javascript" type="text/JavaScript"
+            src="https://esaj.tjms.jus.br/sajcas/verificarLogin.js?script=1782749635644"></script>
+
+    <script language="javascript">
+        if (window.sajcas && window.sajcas.usuarioLogadoNoCasServer) {
+            var GATEWAY_TRUE = 'gateway=true', GATEWAY_FALSE = 'gateway=false';
+            var urlRetornoSistema = '';
+            if (urlRetornoSistema === '') {
+                urlRetornoSistema = window.location.href;
+            }
+
+            if (urlRetornoSistema.indexOf(GATEWAY_FALSE) !== -1) {
+                urlRetornoSistema = urlRetornoSistema.replace(GATEWAY_FALSE, GATEWAY_TRUE);
+            } else {
+                urlRetornoSistema.lastIndexOf('?') !== -1 ? urlRetornoSistema += '&' : urlRetornoSistema += '?';
+                urlRetornoSistema += GATEWAY_TRUE;
+            }
+
+            window.location.href = urlRetornoSistema;
+        }
+    </script>
+
+
+	<title>Portal de Serviços e-SAJ</title>
+
+	
+	<link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" />
+	<link rel="stylesheet" href="/cpopg5/softheme/src/css/app.css?v=2.8.34-30">
+	<link rel="stylesheet" href="/cpopg5/softheme/src/fonts/saj/styles.css?v=2.8.34-30">
+	<link rel="stylesheet" href="/cpopg5/css/formulario.css?v=2.8.34-30" type="text/css"/>
+	
+
+	<link rel="stylesheet" href="/cpopg5/webjars/select2/3.5.4/select2.css?v=2.8.34-30" type="text/css" >
+	<link rel="stylesheet" href="/cpopg5/webjars/select2/3.5.4/select2-bootstrap.css?v=2.8.34-30" type="text/css">
+	<link rel="stylesheet" href="/cpopg5/css/saj/select2/saj-select2.css">
+
+	
+ 
+<script>
+	window.saj = window.saj || {};
+	window.saj.env = window.saj.env || {};
+	window.saj.env.root = '/cpopg5';
+	window.saj.env.css = '/cpopg5/css';
+	window.saj.env.js = '/cpopg5/js';
+	window.saj.env.imagens = '/cpopg5/imagens';
+	window.saj.env.queryString = 'conversationId=&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=0824517-84.2023&foroNumeroUnificado=0110&dadosConsulta.localPesquisa.cdLocal=-1&dadosConsulta.valorConsultaNuUnificado=0824517-84.2023.8.12.0110&dadosConsulta.tipoNuProcesso=UNIFICADO';	
+
+	window.saj.cpo = window.saj.cpo || {};
+
+	// transfere variavel se cpo esta rodando para totem
+	window.saj.cpo.totem = 'false' == 'true';
+</script>
+
+	
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/jquery/jquery.min.js?n=1620728708"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/jquery/jquery.func_toggle.js?n=92bb3661-8948-4eff-98ed-7addf20b078d"></script>
+	<script language="javascript" type="text/javascript" src="/cpopg5/js/jquery/jquery.blockUI.min.js?n=bded10bd-23a3-4f83-b9d4-ca17da5c5d49"></script>
+	<script language="javascript" type="text/javascript" src="/cpopg5/js/jquery/jquery.browser.min.js?n=b301ab5c-ee6d-47c3-b4b3-e9fad6879a57"></script>
+
+	<script language="javascript" type="text/javascript" src="/cpopg5/webjars/lodash/4.17.21/lodash.js?n=7b90fedd-8a8a-462d-97a5-75cdc6635d5c"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/select2/select2.js?n=3c1ac3ab-c713-4dc8-a12c-c78082831778"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/webjars/select2/3.5.4/select2_locale_pt-BR.js?n=4c133e26-6437-47e2-afe2-c0ed28c91db5"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj/saj-select2.js?n=832fad26-12b8-4aab-a02a-f1e60c138014"></script>
+
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj/saj-web-2.2.41-4.js?n=3b3ae5aa-4a94-454f-8808-49e1b58d984a"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj/saj-tooltip.js?n=0626e76f-af36-4f89-a3e6-3b650406e01d"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj/saj-popup-modal-1.0.0-1.js?n=701dc352-a10d-42e6-86ec-f16a69bbee0b"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj/saj-browser.js?n=9b7b0589-56c3-4986-a442-dd03153fca3a"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj/saj-mascara-input.js?n=08407433-f2e0-4105-9793-868f2ca17849"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj/saj-numeroProcesso.js?n=40ce07f5-fbb8-406b-bb03-ea36aba6d610"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj-cpo-cbpesquisa.js?n=295666404"></script>
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/saj/acessibilidade/acessibilidade.js?n=a754d57a-406a-4de0-a408-c63c5646dbb5"></script>
+	
+	<script language="javascript" type="text/JavaScript" src="/cpopg5/softheme/src/js/app.js?n=789536343"></script>   
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.3/umd/popper.min.js?n=25012f33-a740-44d5-89c8-5d6459487465" integrity="sha384-vFJXuSJphROIrBnz7yo7oB41mKfc8JzQZiCq4NCceLEaO4IHwicKwpJf9c9IpFgh" crossorigin="anonymous"></script>
+	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/js/bootstrap.min.js?n=1791337263" integrity="sha384-alpBpkh1PFOepccYVYDB4do5UnbKysX5WZXm3XxPqe5iKTfUKjNkCk9SaVuEZflJ" crossorigin="anonymous"></script>
+	
+	
+
+
+
+
+<script>
+	(function($){
+		$(function(){
+			var intervalo = 1795000;
+			$.saj.manterSessao('/cpopg5/manterSessao.do', intervalo);
+		});
+				
+	})(jQuery);
+</script>
+
+
+
+
+	
+    	<link rel="stylesheet" href="/cpopg5/css/saj/saj-paginacao.css?v=2.8.34-30" type="text/css"/>
+    	<script language="javascript" type="text/JavaScript" src="/cpopg5/js/formulario.js?n=667373380"></script>
+		<script language="javascript" type="text/JavaScript" src="/cpopg5/jsp/list.js?n=3440463874"></script>
+	
+	<script type="text/javascript">
+		(function($) {
+			$(function(){
+				// Correção temporária do alinhamento do divisor de seção de formulário do SPW 
+				$('td[background$="spw/fundo_subtitulo2.gif"]').attr('valign', 'top');
+				
+			})
+		})(jQuery);
+	</script>
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+</head>
+
+    <body>
+    <input type="hidden" name="_csrf" value="8c926bc6-6192-4438-b319-1491d85db51b" />
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
+		
+
+
+
+
+    
+
+
+
+<aside class="aside-nav aside-nav--left ">
+    <div class="aside-nav__inner">
+        <header class="aside-nav__main-menu__header"><span
+                class="aside-nav__main-menu__header__text">  Menu e-SAJ</span>
+            <a href="#" class="aside-nav__user__close-button close-offcanvas">
+                <img src="https://esaj.tjms.jus.br/esaj-layout/img/icons/icon-close--light.png" alt="">
+            </a>
+        </header>
+        <nav class="aside-nav__main-menu">
+            <ul class="aside-nav__main-menu__list" id="conteudoMenuEsaj">
+            </ul>
+        </nav>
+        <div id="esaj-beta-switcher-placeholder"></div>
+    </div>
+</aside>
+<aside class="aside-nav aside-nav--right aside-nav__user ">
+    <div class="aside-nav__inner">
+        <div class="aside-nav__user__sign">
+            <div class="aside-nav__user__sign__brand">
+                <img src="https://esaj.tjms.jus.br/esaj-layout/img/aside/brasoes/br-tjms.jpg" alt="">
+            </div>
+            <ul class="aside-nav__user__sign__list">
+                <li><span class="aside-nav__user__sign__place">Tribunal de Justiça do Estado do Mato Grosso do Sul</span></li>
+            </ul>
+            <a href="#" class="aside-nav__user__close-button close-offcanvas">
+                <img src="https://esaj.tjms.jus.br/esaj-layout/img/icons/icon-close--dark.png" alt="">
+            </a>
+        </div>
+        <hr>
+        <div class="aside-nav__user__info">
+            <h4 class="aside-nav__user__title">Minha conta</h4>
+            <ul class="aside-nav__user__info__list">
+                <li class="aside-nav__user__info__list__item"><span class="aside-nav__user__info__name" id="menuNmUsuarioLogado"></span></li>
+                <li class="aside-nav__user__info__list__item"><span class="aside-nav__user__info__oab" id="menuUsuarioOabs">OAB: </span></li>
+            </ul>
+            <ul class="aside-nav__user__info__list-access">
+                <li class="aside-nav__user__info__list-access__item"><a class="aside-nav__user__info__list-access__item__link" href="https://esaj.tjms.jus.br/esaj/cadastro.do">Meu perfil</a></li>
+                
+                    <li class="aside-nav__user__info__list-access__item"><a class="aside-nav__user__info__list-access__item__link" href="https://esaj.tjms.jus.br/caixapostal">Caixa Postal</a></li>
+                
+                <li class="aside-nav__user__info__list-access__item"><a class="aside-nav__user__info__list-access__item__link" id="logoutLink" href="#">Sair</a></li>
+            </ul>
+        </div>
+    </div>
+</aside>
+<header>
+    <link rel="shortcut icon" href="https://esaj.tjms.jus.br/esaj-layout/tema/padrao/clientes/MS/imagens/favicon.ico" type="image/x-icon"/>
+    <link href="https://esaj.tjms.jus.br/esaj-layout/app.css" rel="stylesheet" type="text/css"/>
+    <nav class="header__navbar--normal">
+        
+        <a class="header__navbar__menu-hamburger open__aside-nav--left navbar-menu-hamburger__item__link">
+            <span class="menu-hamburger__alert" style="display:none;"></span>
+            <span class="glyph glyph-hamburger"></span>
+        </a>
+
+        <h1 class="header__navbar__title" href=""><a class="linkLogo" href="https://esaj.tjms.jus.br/esaj-layout/redirecionarNovoEsaj.do"><strong>e-SAJ</strong></a> | Consulta de Processos de 1º Grau</h1>
+
+        <ul class="header__navbar__menu header__navbar__menu--right">
+            <li class="header__navbar__menu__item header__navbar__menu__item--initials">
+                <a class="header__navbar__brand__initials" href="https://www.tjms.jus.br"> TJMS </a>
+            </li>
+            <li class="header__navbar__menu__item header__navbar__menu__item--user">
+               <span class="header__navbar__name open__aside-nav--right">
+                     <span id="headerNmUsuarioLogado" class="header__navbar__name__text"></span>
+                     <span class="glyph glyph-contact header__navbar__name__icon"></span>
+               </span>
+            </li>
+        </ul>
+    </nav>
+</header>
+<div class="offcanvas-backdrop"></div>
+
+
+<script>
+    var dict = {
+        'certificado.tituloCertificadoDigital': 'Certificado digital',
+        'certificado.msgCarregandoCertificado': 'Carregando certificados...',
+        'certificado.msgNenhumCertificadoEncontrado': 'Nenhum certificado encontrado',
+        'certificado.msgErroCarregarCertificado': 'Erro ao carregar certificados',
+        'certificado.msgCertificadoExpirado': '[Expirado]',
+        'certificado.msgCertificadoNaoValido': '[Ainda não válido]',
+        'certificado.msgCertificadoNaoIcpBrasil': '[Não ICP-Brasil]',
+        'certificado.tituloProblemasAoAssinar': 'Falha de comunicação com o dispositivo de assinatura digital',
+
+        'label.contato': 'Contato',
+        'label.identificarSe': 'Identificar-se ',
+
+        'mensagem.aguarde': 'Por favor, aguarde.',
+        'mensagem.paginaNaoCarregada': 'Não foi possível carregar a página.',
+        'mensagem.marcarLido': 'Marcar como lido',
+        'mensagem.registrosSelecionados': 'Registros selecionados',
+        'mensagem.registroJaSelecionado': 'Este registro já está selecionado',
+
+        'mensagem.data.invalida': 'A data digitada é inválida.',
+        'mensagem.data.anoInvalido': 'O ano informado deve ser maior que',
+        'mensagem.data.mesInvalido': 'O mês não pode ser maior que 12.',
+        'mensagem.data.mes': 'O mês',
+        'mensagem.data.mesMaior29dias': 'não pode ter mais que 29 dias.',
+        'mensagem.data.mesMaior28dias': 'não pode ter mais que 28 dias.',
+        'mensagem.data.mesMaior31dias': 'não pode ter mais que 31 dias.',
+        'mensagem.data.mesMaior30dias': 'não pode ter mais que 30 dias.',
+
+        'mensagem.email.invalido': 'O formato do endereço de e-mail não é válido. Verifique se ele tem o formato "usuario@dominio".',
+        'mensagem.email.caracteresInvalidos': 'O endereço de e-mail possui caracteres inválidos',
+        'mensagem.email.usuarioInvalido': 'O formato do usuário informado no endereço de e-mail não é válido.',
+        'mensagem.email.ipInvalido': 'O endereço IP informado no endereço de e-mail não é válido.',
+        'mensagem.email.dominioInvalido': 'O formato do domínio informado no endereço de e-mail não é válido.',
+        'mensagem.email.dominioIncompleto': 'O domínio informado no endereço de e-mail deve possuir pelo menos duas partes. Por exemplo: "usuario@empresa.com.br".',
+
+        'mensagem.texto.tamanhoInvalido': 'O tamanho do texto digitado é maior do que o tamanho permitido. Tamanho permitido:',
+        'mensagem.texto.caracter': 'O caracter',
+        'mensagem.texto.caracterPosicaoInvalida': 'não está permitido na posição',
+
+        'mensagem.numero.numeroInvalido': 'O valor digitado não é um número válido.',
+        'mensagem.numero.numeroNaoPodeCasasDecimais': 'O número não pode conter casas decimais',
+        'mensagem.numero.numeroCasaDecimaisInvalidas': 'O número de casas decimais é inválido. O número pode conter apenas',
+        'mensagem.numero.casaDecimais': 'casas decimais',
+        'mensagem.numero.numeroInteiroInvalido': 'O número de dígitos inteiros é inválido. O número pode conter apenas',
+        'mensagem.numero.digitosInteiros': 'dígitos inteiros',
+        'mensagem.numero.numeroTamanhoInvalido': 'O número digitado não pode ser maior que',
+        'mensagem.numero.numeroZeroInvalido': 'O número digitado deve ser diferente de zero.'
+    }
+</script>
+
+
+
+<script>
+    var appEsajLayout = appEsajLayout || {};
+    appEsajLayout.urlNovoMenuHtml = 'https://esaj.tjms.jus.br/esaj-layout/menuPortalV2Html.do?servico=190101';
+
+    var appEsajCas = appEsajCas || {};
+    appEsajCas.urlServicoConteudoIdentificacao = 'https://esaj.tjms.jus.br/sajcas/conteudoIdentificacaoJson?script=1782720030173&retorno=' + encodeURIComponent(location.href);
+</script>
+<script src="https://esaj.tjms.jus.br/esaj-layout/js/portalV2-bundle.js?n=806192629"></script>
+<script src="https://esaj.tjms.jus.br/esaj-layout/js/saj-certificado.js?n=47741893"></script>
+<script src="https://esaj.tjms.jus.br/esaj-layout/js/softplan-websigner-2.5.1.js?n=736057767"></script>
+
+<script src="https://esaj.tjms.jus.br/sajcas/seletorVersaoBeta.js?n=8f39744b-482b-4289-98af-0bbec4c48220&versao=2"></script>
+<script>
+    function exibirLibras() {
+        document.getElementById("gifLibras").style.display = 'block';
+        var cel1 = document.getElementsByClassName('esajCelulaIdentificacao');
+        var cel2 = document.getElementsByClassName('esajCelulaIdentificacaoServico');
+        mudarPosicao(cel1, 'static');
+        mudarPosicao(cel2, 'static');
+    }
+    function ocultarLibras() {
+        document.getElementById("gifLibras").style.display = 'none';
+        var cel1 = document.getElementsByClassName('esajCelulaIdentificacao');
+        var cel2 = document.getElementsByClassName('esajCelulaIdentificacaoServico');
+        mudarPosicao(cel1, 'relative');
+        mudarPosicao(cel2, 'relative');
+    }
+
+    function mudarPosicao(coll, posicao) {
+        if (!coll) {
+            return;
+        }
+        for (var i = 0, len = coll.length; i < len; i++) {
+            coll[i].style["position"] = posicao;
+        }
+    }
+</script>
+
+	
+
+
+
+
+    <div class="container" style="padding-top: 0px">
+    
+    
+            
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script type="application/javascript" language="JavaScript">
+    (function ($) {
+        $.saj = $.saj || {};
+        $.saj.cpopg = $.saj.cpopg || {};
+        $.saj.cpopg.locaisDePesquisa = JSON.parse('[{"id":-1,"text":"Todas comarcas"},{"id":111,"text":"1ª Vara Juizado Especial de Campo Grande"},{"id":104,"text":"4ª Vara Juizado Especial de Campo Grande"},{"id":105,"text":"5ª Vara Juizado Especial de Campo Grande"},{"id":115,"text":"7ª Vara Juizado Especial de Campo Grande"},{"id":108,"text":"8ª Vara Juizado Especial de Campo Grande"},{"id":109,"text":"9ª Vara Juizado Especial de Campo Grande"},{"id":68,"text":"Administrativo"},{"id":49,"text":"Agua Clara"},{"id":4,"text":"Amambai"},{"id":52,"text":"Anastácio"},{"id":22,"text":"Anaurilândia"},{"id":23,"text":"Angélica"},{"id":24,"text":"Aparecida do Taboado"},{"id":5,"text":"Aquidauana"},{"id":25,"text":"Bandeirantes"},{"id":26,"text":"Bataguassu"},{"id":27,"text":"Batayporã"},{"id":3,"text":"Bela Vista"},{"id":28,"text":"Bonito"},{"id":30,"text":"Brasilândia"},{"id":31,"text":"Caarapó"},{"id":6,"text":"Camapuã"},{"id":1,"text":"Campo Grande"},{"id":50,"text":"Capital"},{"id":7,"text":"Cassilândia"},{"id":62,"text":"CEJUSC - JUIZADOS"},{"id":113,"text":"Chamado"},{"id":46,"text":"Chapadão do Sul"},{"id":58,"text":"Coronel Sapucaia"},{"id":8,"text":"Corumbá"},{"id":9,"text":"Costa Rica"},{"id":11,"text":"Coxim"},{"id":32,"text":"Deodápolis"},{"id":53,"text":"Dois Irmãos do Buriti"},{"id":2,"text":"Dourados"},{"id":33,"text":"Eldorado"},{"id":10,"text":"Fátima do Sul"},{"id":34,"text":"Glória de Dourados"},{"id":35,"text":"Iguatemi"},{"id":36,"text":"Inocência"},{"id":37,"text":"Itaporã"},{"id":51,"text":"Itaquiraí"},{"id":12,"text":"Ivinhema"},{"id":13,"text":"Jardim"},{"id":110,"text":"Juizado Especial Central de Campo Grande"},{"id":101,"text":"Juizado Especial de Dourados"},{"id":114,"text":"Juizado Especial de Três Lagoas"},{"id":600,"text":"Justiça Itinerante do Estado de MS"},{"id":14,"text":"Maracaju"},{"id":15,"text":"Miranda"},{"id":16,"text":"Mundo Novo"},{"id":29,"text":"Naviraí"},{"id":38,"text":"Nioaque"},{"id":54,"text":"Nova Alvorada do Sul"},{"id":17,"text":"Nova Andradina"},{"id":56,"text":"Outros Tribunais"},{"id":18,"text":"Paranaíba"},{"id":39,"text":"Pedro Gomes"},{"id":800,"text":"Plantão"},{"id":19,"text":"Ponta Porã"},{"id":40,"text":"Porto Murtinho"},{"id":57,"text":"Pré-processual"},{"id":41,"text":"Ribas do Rio Pardo"},{"id":20,"text":"Rio Brilhante"},{"id":48,"text":"Rio Negro"},{"id":42,"text":"Rio Verde de Mato Grosso"},{"id":43,"text":"São Gabriel do Oeste"},{"id":44,"text":"Sete Quedas"},{"id":45,"text":"Sidrolândia"},{"id":500,"text":"Sistema SEEU"},{"id":55,"text":"Sonora"},{"id":60,"text":"TEMP"},{"id":47,"text":"Terenos"},{"id":997,"text":"TESTE-Tribunal de Justiça - NÃO UTILIZAR"},{"id":21,"text":"Três Lagoas"},{"id":900,"text":"Tribunal de Justiça"},{"id":901,"text":"Turmas Recursais"},{"id":102,"text":"Unid. 102 Juizado Especial - Dourados"},{"id":103,"text":"Unid. 103 Juizado Esp. - Mata do Jacinto"},{"id":106,"text":"Unid. 106 Juizado Esp. - MicroEmpresas"},{"id":107,"text":"Unid. 107 Juizado Esp. - Consumidor"},{"id":120,"text":"Unid. 120 - Desativado não utilizar"},{"id":999,"text":"Unidade de Teste DAJ - USO EXCLUSIVO TJ"}]');
+    })(jQuery)
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+<form name="consultarProcessoForm" method="GET" action="/cpopg5/search.do" autocomplete="off" enctype="" onsubmit="return applySubmit(this, eval('function spwSubmit(t, e){decodificaInputMulSelOnSubmit();if (!IS_enableSubmit) return false; return BENV_isCamposValidos(t); } spwSubmit(this, event);'));" id="formConsulta" target="">
+	<input type="hidden" name="conversationId" value="">
+
+<section class="form__consultar-processos">
+
+
+                    
+                
+
+
+
+
+
+                <div class="form__consultar-processos__item form__consultar-processos__item--consultar">
+                    <div class="form-group">
+                        
+                        <label for="cbPesquisa" class="unj-label unj-label--required">Consultar por</label>
+                        
+
+
+
+
+
+
+
+
+
+	<select name="cbPesquisa" class="form-control" id="cbPesquisa"><option value="NUMPROC" selected="selected">Número do Processo</option>	
+		
+	 		<option value="NMPARTE">Nome da parte</option>	
+		
+	 		<option value="DOCPARTE">Documento da Parte</option>	
+		
+	 		<option value="NMADVOGADO">Nome do Advogado</option>	
+		
+	 		<option value="NUMOAB">OAB</option>	
+		
+	 		<option value="PRECATORIA">Nº da Carta Precatória na Origem</option>	
+		
+	 		<option value="DOCDELEG">Nº do Documento na Delegacia</option>	
+		
+	 		<option value="NUMCDA">CDA</option></select>
+
+
+                    </div>
+                </div>
+
+
+
+
+                     
+                    <div class="form__consultar-processos__item form__consultar-processos__item--tipo-de-consulta">
+                        <div class="form-group">
+                         
+                            
+                                
+                                
+                                    <div id="NUMPROC">
+                                        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+		
+	
+	
+		
+	
+	
+		
+	
+
+	
+
+	
+	
+		<script>$.saj.numeroProcesso.desabilitarNumeroOculto = false;</script>
+	
+	
+		
+	
+	<script type="text/javascript">
+		(function($){
+			$(function() {
+                //remove comportamento de exibir mensagem de erro típica do html5
+                $('form:visible').attr('novalidate', '');
+
+                var camposNumeroProcesso = $('[name="numeroDigitoAnoUnificado"], [name="foroNumeroUnificado"], [id^="JTRNumeroUnificado"], [id^="nuProcessoUnificado"], [id^="nuProcessoAntigoFormatado"]');
+                camposNumeroProcesso.addClass('form-control-nuProcesso');
+                camposNumeroProcesso.removeAttr('onkeypress onblur onkeydown onmousemove onmouseout onmouseover onfocus');
+
+				if($.browser.msie){
+					$('.grupoRadio').find('input:radio:visible:enabled').attr('aria-required','');
+					return;
+				}
+				$('.grupoRadio').attr('aria-required','').attr('required','');
+			});
+		})(jQuery);
+	</script>
+
+	<style>
+
+		/* remove borda vermelha de elementos required */
+		input:invalid {
+			box-shadow: none;
+		}
+		[name="numeroDigitoAnoUnificado"] {
+			width: 130px;
+		}
+		#JTRNumeroUnificado {
+			width: 50px;
+		}
+		[name="foroNumeroUnificado"] {
+			
+				
+				
+					width: 60px;
+				
+			
+		}
+		[id^='nuProcessoAntigoFormatado'] {
+			width: 247px;
+		}
+	</style>
+
+
+<div id="interna_NUMPROC" style="float:left">
+	<span id="linhaProcessoUnificado">
+        
+            
+                
+
+
+
+
+
+
+
+
+	
+
+
+	
+	
+	
+	
+	
+	
+
+
+
+
+
+
+ 
+<input type="text" name="numeroDigitoAnoUnificado" maxlength="25" size="20" value="0824517-84.2023" formatType="TEXT" onkeypress="CT_KPS(this, event);" onblur="CT_BLR(this);" onkeydown="CT_KDN(this, event);" onmousemove="CT_MMOV(this, event);" onmouseout="CT_MOUT(this, event);" onmouseover="CT_MOV(this, event);" onfocus="C_OFC(this, event);" id="numeroDigitoAnoUnificado">
+<input type="text" id="JTRNumeroUnificado" size="3" disabled="disabled" value="8.12"/>
+<input type="text" name="foroNumeroUnificado" maxlength="4" size="3" value="0110" formatType="TEXT" onkeypress="CT_KPS(this, event);" onblur="CT_BLR(this);" onkeydown="CT_KDN(this, event);" onmousemove="CT_MMOV(this, event);" onmouseout="CT_MOUT(this, event);" onmouseover="CT_MOV(this, event);" onfocus="C_OFC(this, event);" id="foroNumeroUnificado">
+<input type="hidden" name="dadosConsulta.valorConsultaNuUnificado" value="0824517-84.2023.8.12.0110" id="nuProcessoUnificadoFormatado">
+
+	<input type="hidden" name="dadosConsulta.valorConsultaNuUnificado" value="UNIFICADO" id="tipoNumero">
+
+
+<script>
+	(function($){
+		$(function() {
+			var saj = $.saj;
+			var mascaraNumeroUnificado = saj.mascaraNumeroUnificado;
+			var $campoNumeroDigitoAnoUnificado = $('#numeroDigitoAnoUnificado');
+			var $campoForoNumeroUnificado = $('#foroNumeroUnificado');
+			
+				
+				
+					saj.configurarMascaraInput($campoForoNumeroUnificado, '0000');
+				
+			
+			saj.configurarMascaraInput($campoNumeroDigitoAnoUnificado, mascaraNumeroUnificado, $campoForoNumeroUnificado,{
+				afterPaste: afterPaste			
+			});
+			saj.bindCamposNumeroProcesso('');
+			
+		});		
+		
+		var afterPaste = function(textoOriginal) {
+			var texto = getDigits(textoOriginal);
+			if (!texto || texto.length < 16) {
+				return;
+			}
+			
+			var jtr = $('#JTRNumeroUnificado').val();
+			jtr = getDigits(jtr);
+			var jtrDigitado = texto.substring(13,16);
+			var foroUnificado;
+			//pega os 4 ultimos digitos, e caso o jtr colado for o mesmo, coloca os 4 no campo de foro unificado
+			//se o jtr for diferente nao coloca nada no campo de foro unificado
+			if (jtr == jtrDigitado) {
+				foroUnificado = texto.substring(16,texto.length);
+			} else {
+				foroUnificado = '';
+			}
+			
+			var numeroDigitoAno = texto.substring(0,13);
+			var $numeroDigitoAno = $('#numeroDigitoAnoUnificado');
+			$numeroDigitoAno.val(numeroDigitoAno);
+			
+			var $foroNumeroUnificado = $('#foroNumeroUnificado');
+			$foroNumeroUnificado.val(foroUnificado);
+			$foroNumeroUnificado.trigger('blur');
+			$foroNumeroUnificado.focus();
+		};
+		
+		var getDigits = function(texto) {
+			return texto.replace(/[^0-9]/g, '');
+		};
+		$('#numeroDigitoAnoUnificado').attr('aria-label','Número do processo. Informe os treze primeiros dígitos do número do processo.');
+		$('#foroNumeroUnificado').attr('aria-label','Informe os quatro últimos dígitos do número do processo.');
+	})(jQuery);
+	
+</script>
+
+            
+            
+        
+	</span>
+	
+		
+		
+			<span id="linhaProcessoAntigo">
+				
+					
+						<input type="text" name="dadosConsulta.valorConsulta" maxlength="25" value="" formatType="TEXT" onkeypress="CT_KPS(this, event);" onblur="CT_BLR(this);" onkeydown="CT_KDN(this, event);" onmousemove="CT_MMOV(this, event);" onmouseout="CT_MOUT(this, event);" onmouseover="CT_MOV(this, event);" onfocus="C_OFC(this, event);" disabled="disabled" id="nuProcessoAntigoFormatado">
+					
+					
+				
+			</span>
+		
+	
+	<div>
+		
+		<fieldset class="grupoRadio" style="margin:0;padding:0;border:none;text-align:right">
+			<legend style="display:block;font-size:0;">
+				
+			</legend>
+			<input type="radio" id="radioNumeroUnificado" name="dadosConsulta.tipoNuProcesso" value="UNIFICADO" style="vertical-align:text-bottom;"/>
+			<label for="radioNumeroUnificado">Unificado</label>
+			<input type="radio" id="radioNumeroAntigo" name="dadosConsulta.tipoNuProcesso" value="SAJ" style="vertical-align:text-bottom;"/>
+			<label for="radioNumeroAntigo">Outros</label>
+		</fieldset>
+		
+	</div>
+</div>
+
+                                        
+
+
+
+
+
+<div class="unj-form-control-group__icon">
+    <div class="dropdown show">
+        <a href="javascript:;" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="glyph glyph-info" aria-hidden="true"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right  tooltip-campos" aria-labelledby="dropdownMenuLink">
+            <div><b>Número de Processo Unificado</b></div><div>O sistema disponibiliza facilidades no preenchimento do número unificado, seu formato é NNNNNNN-DD.AAAA.J.TR.OOOO:</div><div style="padding-top: 3px;"><b>NNNNNNN</b>: Caso o número possua zeros à esquerda o sistema preenche-os automaticamente, basta informar o número e o dígito "-" ou ".". Exemplo: ao informar "310-" o sistema irá preencher "0000310-".</div><div><b>DD</b>     : Deve ser preenchido pelo usuário.</div><div><b>AAAA</b>   : Ao informar dois dígitos para o ano o sistema completa o mesmo, basta pressionar a tecla Tab. Exemplo: ao informar "08" e "Tab" o sistema irá preencher "2008".</div><div><b>J.TR</b>    : São números fixos preenchidos pelo sistema.Exemplo: 8.99.</div><div><b>OOOO</b>   : Caso o número possua zeros à esquerda o sistema preenche-os automaticamente, basta informar o número pressionar a tecla Tab. Exemplo: ao informar "10" e "Tab" o sistema irá preencher "0010".</div>
+        </div>
+    </div>
+</div>
+
+                                    </div>
+                                
+                                
+                                
+                                
+                            
+                        
+                            
+                                
+                                
+                                
+                                
+                                    <div id="NMPARTE">
+                                        <div style="float:left; width: calc(100% - 30px);">
+                                            <input type="text" id="campo_NMPARTE" class="form-control" name="dadosConsulta.valorConsulta" value="" disabled="disabled"></div>
+                                        
+
+
+
+
+
+<div class="unj-form-control-group__icon">
+    <div class="dropdown show">
+        <a href="javascript:;" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="glyph glyph-info" aria-hidden="true"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right  tooltip-campos" aria-labelledby="dropdownMenuLink">
+            <b>Nome da parte</b><br/>Digite nomes e sobrenomes de qualquer parte do processo, não se preocupe com letras maiúsculas ou acentuação.<br/>Com a pesquisa fonética é possível buscar por nomes que não tenham sido digitados corretamente.<br/>Se você digitar "caio Silva", por exemplo, o sistema buscará as partes que tiverem estas palavras no nome, ou seja, "<b>caio</b> da <b>silva</b>", "<b>Kaio silva</b>", entre outros.
+        </div>
+    </div>
+</div>
+
+                                        <label class="unj-choice unj-mt-4">
+                                            <input type="checkbox" name="chNmCompleto" value="true">
+                                            <span id="pesquisarPorNomeCompleto" class="unj-choice__icon glyph glyph-checkmark"></span>
+                                            Pesquisar por nome completo
+                                        </label>
+                                    </div>
+                                
+                                
+                            
+                        
+                            
+                                
+                                
+                                
+                                
+                                
+                                    <div id="DOCPARTE">
+                                        <div style="float:left;width: calc(100% - 30px);"><input type="text" id="campo_DOCPARTE" class="form-control" name="dadosConsulta.valorConsulta" value="" disabled="disabled"></div>
+                                        
+
+
+
+
+
+<div class="unj-form-control-group__icon">
+    <div class="dropdown show">
+        <a href="javascript:;" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="glyph glyph-info" aria-hidden="true"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right  tooltip-campos" aria-labelledby="dropdownMenuLink">
+            <b>Documento da parte</b><br/>Digite o número completo de algum documento de qualquer parte do processo, por exemplo 012345678 (RG), 12345678901 (CPF) etc.<br/>Se o número do documento possuir letras, digite-as também, por exemplo 012345678X.<br/>Não é necessário informar pontos, traços e barras.
+        </div>
+    </div>
+</div>
+
+                                    </div>
+                                
+                            
+                        
+                            
+                                
+                                
+                                
+                                
+                                    <div id="NMADVOGADO">
+                                        <div style="float:left; width: calc(100% - 30px);">
+                                            <input type="text" id="campo_NMADVOGADO" class="form-control" name="dadosConsulta.valorConsulta" value="" disabled="disabled"></div>
+                                        
+
+
+
+
+
+<div class="unj-form-control-group__icon">
+    <div class="dropdown show">
+        <a href="javascript:;" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="glyph glyph-info" aria-hidden="true"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right  tooltip-campos" aria-labelledby="dropdownMenuLink">
+            <b>Nome do advogado</b><br/>Digite nomes e sobrenomes de qualquer advogado, não se preocupe com letras maiúsculas ou acentuação.<br/>Com a pesquisa fonética é possível buscar por nomes que não tenham sido digitados corretamente.<br/>Se você digitar "caio Silva", por exemplo, o sistema buscará as partes que tiverem estas palavras no nome, ou seja, "caio da silva", "Kaio silva", entre outros.
+        </div>
+    </div>
+</div>
+
+                                        <label class="unj-choice unj-mt-4">
+                                            <input type="checkbox" name="chNmCompleto" value="true">
+                                            <span id="pesquisarPorNomeCompleto" class="unj-choice__icon glyph glyph-checkmark"></span>
+                                            Pesquisar por nome completo
+                                        </label>
+                                    </div>
+                                
+                                
+                            
+                        
+                            
+                                
+                                
+                                
+                                
+                                
+                                    <div id="NUMOAB">
+                                        <div style="float:left;width: calc(100% - 30px);"><input type="text" id="campo_NUMOAB" class="form-control" name="dadosConsulta.valorConsulta" value="" disabled="disabled"></div>
+                                        
+
+
+
+
+
+<div class="unj-form-control-group__icon">
+    <div class="dropdown show">
+        <a href="javascript:;" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="glyph glyph-info" aria-hidden="true"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right  tooltip-campos" aria-labelledby="dropdownMenuLink">
+            <b>OAB</b><br/>Digite o número completo da OAB do advogado, incluindo letras e a sigla do estado de origem, por exemplo 654321SP.<br/>Quando você for preencher este campo, não se preocupe em digitar barras e letras maiúsculas.
+        </div>
+    </div>
+</div>
+
+                                    </div>
+                                
+                            
+                        
+                            
+                                
+                                
+                                
+                                
+                                
+                                    <div id="PRECATORIA">
+                                        <div style="float:left;width: calc(100% - 30px);"><input type="text" id="campo_PRECATORIA" class="form-control" name="dadosConsulta.valorConsulta" value="" disabled="disabled"></div>
+                                        
+
+
+
+
+
+<div class="unj-form-control-group__icon">
+    <div class="dropdown show">
+        <a href="javascript:;" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="glyph glyph-info" aria-hidden="true"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right  tooltip-campos" aria-labelledby="dropdownMenuLink">
+            <b>Nº da carta precatória na origem</b><br/>Digite o número completo de origem da carta precatória, desconsiderando barras, traços e pontos, por exemplo 01234, 1234/07 (2007-0001234-1).<br/>Eles possuem formatos diferentes, por isso não é necessário digitar traços, pontos, barras ou parênteses.
+        </div>
+    </div>
+</div>
+
+                                    </div>
+                                
+                            
+                        
+                            
+                                
+                                
+                                
+                                
+                                
+                                    <div id="DOCDELEG">
+                                        <div style="float:left;width: calc(100% - 30px);"><input type="text" id="campo_DOCDELEG" class="form-control" name="dadosConsulta.valorConsulta" value="" disabled="disabled"></div>
+                                        
+
+
+
+
+
+<div class="unj-form-control-group__icon">
+    <div class="dropdown show">
+        <a href="javascript:;" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="glyph glyph-info" aria-hidden="true"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right  tooltip-campos" aria-labelledby="dropdownMenuLink">
+            <b>Nº do documento na delegacia</b><br/>Digite o número completo do documento emitido na delegacia, por exemplo 01/2005, 100/2007.<br/>Não é necessário informar barras, traços ou pontos.
+        </div>
+    </div>
+</div>
+
+                                    </div>
+                                
+                            
+                        
+                            
+                                
+                                
+                                
+                                
+                                
+                                    <div id="NUMCDA">
+                                        <div style="float:left;width: calc(100% - 30px);"><input type="text" id="campo_NUMCDA" class="form-control" name="dadosConsulta.valorConsulta" value="" disabled="disabled"></div>
+                                        
+
+
+
+
+
+<div class="unj-form-control-group__icon">
+    <div class="dropdown show">
+        <a href="javascript:;" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="glyph glyph-info" aria-hidden="true"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right  tooltip-campos" aria-labelledby="dropdownMenuLink">
+            <b>CDA</b><br/>Digite o número completo da CDA (Certidão de Dívida Ativa), referente ao processo que deseja consultar.
+        </div>
+    </div>
+</div>
+
+                                    </div>
+                                
+                            
+                        
+                        </div>
+                    </div>
+
+
+
+        
+                 <div class="form__consultar-processos__item form__consultar-processos__item--foro">
+                     <div class="form-group">
+                        <label for="comboForo" class="unj-label" style="display: inline-block; width: 100%">
+                            
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
+					
+
+
+
+Comarca
+
+</label>
+
+                         
+                        <input type="text" id="comboForo" name="cdForo" class="form-control" value="-1">
+
+                        
+                     </div>
+                </div>
+        
+
+        
+
+
+
+
+
+
+
+
+
+
+
+    <div style="padding-bottom: 5px;">
+        <script src="https://www.google.com/recaptcha/api.js?render=6Ld7VI4aAAAAAFv5gK5ePhA9j1sXMdAjV3_WX4Gg"></script>
+        <input type="hidden" name="recaptcha_response_token" id="id_recaptcha_response_token">
+        <input id="uuidCaptcha" type="hidden" name="uuidCaptcha" value=""/>
+    </div>
+
+
+<script type="text/javascript">
+
+    const oldReduce = Array.prototype.reduce;
+
+    function loadCaptcha() {
+        grecaptcha.ready(function () {
+            grecaptcha.execute('6Ld7VI4aAAAAAFv5gK5ePhA9j1sXMdAjV3_WX4Gg', {action: 'consulta'}).then(function (token) {
+                document.getElementById('id_recaptcha_response_token').value = token;
+            });
+        });
+    }
+
+    function restoreReduce() {
+        Array.prototype.reduce = function(callback, initialVal) {
+            var accumulator = initialVal;
+            for (var i = 0; i < this.length; i++) {
+                if (accumulator)
+                    accumulator = callback.call(undefined, accumulator, this[i], i, this);
+                else
+                    accumulator = this[i];
+            }
+            return accumulator;
+        };
+    }
+
+    setInterval(function () {
+        loadCaptcha();
+    }, 90000);
+
+    loadCaptcha();
+
+    (function ($) {
+        $.saj = $.saj || {};
+
+        $.saj.obterIdentificadorDoCaptcha = function () {
+            $.ajax({
+                type: "POST",
+                url: '/cpopg5/captchaControleAcesso.do',
+                data: {
+                    uuidCaptcha: $('#uuidCaptcha').val()
+                },
+                success: function (conteudoCaptcha) {
+                    restoreReduce();
+                    if (conteudoCaptcha.uuidCaptcha) {
+                        $('#uuidCaptcha').val(conteudoCaptcha.uuidCaptcha);
+                    } else {
+                        let data = JSON.parse(conteudoCaptcha);
+                        $('#uuidCaptcha').val(data.uuidCaptcha);
+                    }
+                },
+                error: function (error) {
+                    console.log(error);
+                }
+            });
+        };
+
+        $(function () {
+            $.saj.obterIdentificadorDoCaptcha();
+            Array.prototype.reduce = oldReduce;
+        });
+    })(jQuery);
+</script>
+
+        
+        
+
+        <div class="form__consultar-processos__item form__consultar-processos__item--btn-consultar">
+            <div class=" form-group">
+                 <input id="botaoConsultarProcessos" type="submit" class="btn btn-primary" value="Consultar">
+            </div>
+        </div>
+
+    </section>
+
+</form>
+
+
+            
+                
+            
+            <div id="divOpcaoVisualizarMobile" style="margin-top: 35px; margin-left: 175px; display: none">
+                Visualizando em modo
+                <strong>&nbsp;clássico | </strong>
+                <a id="linkPaginaMobile" style="cursor: pointer; color: blue; font: bold;" href="/cpopg5/open.do?mobile=S">
+                    celular
+                </a>
+            </div>
+    
+    </div>
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
+		
+
+
+
+<footer>
+    <nav class="navbar__footer">
+        <div class="navbar__footer__container">
+
+            <ul class="navbar__footer__list-brand">
+                <li class="navbar__footer__list-brand__item">
+                    <a href="https://www.softplan.com.br/solucoes/saj-tribunais/" class="navbar__footer__list-brand__item__link link_softplan_tribunais">
+                        <img src="https://esaj.tjms.jus.br/esaj-layout/img/brand/icon-saj.png" alt="SAJ">
+                    </a>
+                </li>
+                <li class="navbar__footer__list-brand__item">
+                    <a href="https://www.softplan.com.br/" class="navbar__footer__list-brand__item__link link_softplan">
+                        <img src="https://esaj.tjms.jus.br/esaj-layout/img/brand/icon-softplan.png" alt="Softplan">
+                    </a>
+                </li>
+            </ul>
+
+            <ul class="navbar__footer__list-actions">
+            </ul>
+        </div>
+    </nav>
+</footer>
+
+	
+
+
+
+
+    </body>
+    
+</html>
+

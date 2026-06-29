@@ -144,6 +144,80 @@ services:
       replicas: 8
     restart: unless-stopped
 
+  # ---- Adicionados no recon 2026-06-29 (consulta pública aberta) ----
+  # Ramp inicial conservador (pós-OOM 2026-06-08); escalar conforme backlog.
+  worker_tjce:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjce
+    env_file: .env
+    volumes: [".:/app"]
+    mem_limit: 768m
+    deploy: {replicas: 6}   # PJe clássico, ~1M processos
+    restart: unless-stopped
+
+  worker_tjap:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjap
+    env_file: .env
+    volumes: [".:/app"]
+    mem_limit: 768m
+    deploy: {replicas: 4}   # PJe clássico, ~200k
+    restart: unless-stopped
+
+  worker_tjpe:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjpe
+    env_file: .env
+    volumes: [".:/app"]
+    mem_limit: 768m
+    deploy: {replicas: 2}   # PJe clássico, volume baixo
+    restart: unless-stopped
+
+  worker_tjrj:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjrj
+    env_file: .env
+    volumes: [".:/app"]
+    mem_limit: 768m
+    deploy: {replicas: 2}   # PJe clássico (sem processos ingeridos ainda)
+    restart: unless-stopped
+
+  worker_tjro:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjro
+    env_file: .env
+    volumes: [".:/app"]
+    mem_limit: 768m
+    deploy: {replicas: 2}   # PJe clássico (host pode bloquear datacenter IPs)
+    restart: unless-stopped
+
+  worker_tjac:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjac
+    env_file: .env
+    volumes: [".:/app"]
+    mem_limit: 640m
+    deploy: {replicas: 4}   # e-SAJ, ~142k
+    restart: unless-stopped
+
+  worker_tjmt:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjmt
+    env_file: .env
+    volumes: [".:/app"]
+    mem_limit: 512m
+    deploy: {replicas: 6}   # REST (SPA Angular), ~558k
+    restart: unless-stopped
+
+  worker_tjpa:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjpa
+    env_file: .env
+    volumes: [".:/app"]
+    mem_limit: 512m
+    deploy: {replicas: 4}   # REST (consilium), ~324k — throttle 429
+    restart: unless-stopped
+
   worker_tjal:
     image: voyager-web:prod
     command: python manage.py rqworker enrich_tjal

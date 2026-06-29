@@ -1,0 +1,2060 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+
+
+
+
+
+
+
+<html>
+        <head>
+        	
+        	<!--TAG para verificar se o browser a rodar o sistema possui JavaScript habilitado.  -->
+			<noscript>
+				<meta http-equiv="Refresh" content="0;URL=/projudi/duvidas/instrucaoJS/habilitarJS.jsp" />
+			</noscript>
+			
+			<title>
+				Sistema CNJ (Processo Judicial Digital - PROJUDI)				
+			</title>
+			<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7" >
+	   		<link href="/projudi/css/superfish.css" rel="stylesheet" media="screen" type="text/css"></link>
+	   		<link type="text/css" rel="stylesheet" href="/projudi/scripts/calendar/dhtmlgoodies_calendar.css" media="screen"></link>
+			<link href="/projudi/css/estilo.css" rel="stylesheet" type="text/css"></link>
+			<link rel="stylesheet" type="text/css" media="all" href="/projudi/scripts/calendar/css/calendar-win2k-cold-1.css"/>
+			<link rel="stylesheet" type="text/css" href="/projudi/css/jquery.countdown.css"/>
+			<link rel="stylesheet" type="text/css" href="/projudi/css/displaytag.css"/>
+			
+			<style type="text/css">
+			html, body, #geral {height: 96%;padding:0px; margin:0px;}
+			body > #geral {height: auto; min-height: 100%; margin: 30px 5px 10px 5px;}
+			#corpo {
+				padding-bottom: 90px;
+				padding-top: 166px;
+				margin-top: 40px;
+				
+			}  /* deve ser a mesma altura do rodapé */
+			#rodape {
+				position: relative;
+				margin-top: -20px; /* A mesma altura do rodapé, o valor deve ser negativo */
+				height: 20px;
+				clear:both;
+			}
+			#topo { 
+			   position: fixed;
+			   margin: 0px;
+ 			   padding: 0px;			   
+			   top:0px; 
+			   left:0px; 
+			   width: 100%; 
+			   height:120px;
+			   background-color: #FFF; 
+			   color: #ffcc88; 
+			   border-color:#000;
+			   border: 1px; 
+			}
+      
+            #titulo-sistema {
+              background-image:url(/projudi/imagens/logoTopoProjudi.jpg);
+              background-repeat:no-repeat;
+              background-position:center;
+              width:796px;
+              height:72px;
+              text-indent: -9999px;
+              margin:0;
+            }rodape
+			</style>
+			<script language="JavaScript" src="/projudi/scripts/assinador.js"></script>
+			<script type="text/javascript" src="/projudi/imagens/chainedselects.js"></script>
+        	<script type="text/javascript" src="/projudi/scripts/ajaxPopulate.js"></script>
+			<script type="text/javascript" src="/projudi/imagens/MostraOculta.js"></script>
+			<script type="text/javascript" src="/projudi/imagens/ajudas/ajudas.js"></script>
+			<script type="text/javascript" src="/projudi/scripts/calendar/dhtmlgoodies_calendar.js"></script>
+			<script type="text/javascript" src="/projudi/scripts/mascara.js"></script>
+			<script type="text/javascript" src="/projudi/scripts/jquery-131.js"></script>
+			<script type="text/javascript" src="/projudi/scripts/default.js"></script>
+			<script type="text/javascript" src="/projudi/scripts/subModal/subModal.js"></script>					
+			<script type="text/javascript" src="/projudi/scripts/menu/superfish.js"></script>						
+			<script type="text/javascript" src="/projudi/scripts/jquery.meioMask.js"></script>					
+			<script type="text/javascript" src="/projudi/scripts/calendar/jquery.dynDateTime.js"></script>		
+			<script type="text/javascript" src="/projudi/scripts/calendar/lang/calendar-pt.js"></script>
+			<script type="text/javascript" src="/projudi/scripts/listaMovimentacoes.js"></script>
+			<script type="text/javascript" src="/projudi/scripts/jquery.countdown.js"></script>
+			<script type="text/javascript" src="/projudi/scripts/jquery.countdown-pt-BR.js"></script>
+	   	    <script type="text/javascript" src="/projudi/scripts/jquery.validate.js" ></script>					
+			
+			<script type="text/javascript">
+			
+				$(function () {
+					var minutos = 30;
+					jQuery('#tempo').countdown({until: '+0h +' + minutos + 'm +00s', significant: 2, onExpiry: mostarExpirou,
+				    	layout: '{d<}{dn} {dl} {d>}{h<}{hn} {hl} {h>}{m<}{mn} {ml} {m>}{s<}{sn} {sl}{s>}'});
+				});
+				
+				var contadorSubmit = 0;
+				function getContSubmit()
+				{					
+					contadorSubmit = contadorSubmit+1;
+					return contadorSubmit;
+				}
+
+				function mostarExpirou()
+				{					
+					jQuery('#mensagemTempo').empty();
+					jQuery('#tempo').remove();
+					jQuery('#mensagemTempo').append('Sessão Expirada.');
+				}
+				
+				function move_cabecalho(){ 
+				   xMoveTo("topo",0,xScrollTop());
+				}			
+			
+				$(document).ready(function(){
+					jQuery("ul.sf-menu").superfish();
+					interacaoMenu("#menuProjudi ul");
+					jQuery("#login").focus();
+				////////			
+					jQuery("input[numeroProcesso=true]").focus(function(){
+						//$(this).val("foco");
+						jQuery(this).attr("alt","somenteNumero");
+						jQuery(this).setMask();
+						jQuery(this).css("border-style","solid").css("border-width","1px").css("border-color","#BBBBBB");
+						return;
+					});
+				
+					jQuery("input[numeroProcesso=true]").blur(function(){
+							formatarNumeroProcesso(this);
+					});
+					
+					
+					jQuery("form").submit(function(){
+						jQuery(this).find("input[type='image'],input[type='submit']").click(function(){
+							return false;
+						});
+					});
+					
+					
+					
+				////////
+				});
+				
+				function formatarNumeroProcesso(este)
+				{					
+					//$(this).val("blur ");
+					jQuery(este).val(jQuery(este).val().replace(/\./g, "").replace(/\-/g, ""));
+					var processo = jQuery(este).val();
+					var valorProcessoComZeros = "";							    
+					if(processo.length >= 12 && !isNaN(processo)) 
+					{						
+						valorProcessoComZeros = preencheZeros(processo, 20)			
+						var seq =  valorProcessoComZeros.substring(0,7);						
+						var dv = valorProcessoComZeros.substring(7,9);
+						var ano = valorProcessoComZeros.substring(9,13);
+						var orgao = valorProcessoComZeros.substring(13,16);
+						var origem = valorProcessoComZeros.substring(16,20);												
+					
+						if(valida_mod97(seq, dv, ano, orgao, origem))
+						{
+							jQuery(este).val(valorProcessoComZeros);
+							jQuery(este).attr("alt","numeracaoUnica");
+							jQuery('input:text').setMask();
+						}
+						else
+						{
+							//Retirar os zeros da esquerda.
+							/*$.each(valorProcessoComZeros, function(key, value) {
+							   if(value=="0"){
+								valorProcessoComZeros = valorProcessoComZeros.replace("0","");
+							   }else{
+								return false;
+							   }
+							});*/		
+							valorProcessoComZeros = valorProcessoComZeros.replace(/^(0+)/, '');
+							if(valorProcessoComZeros.length >= 12 && valorProcessoComZeros.length <= 14)
+							{
+								valorProcessoComZeros = preencheZeros(valorProcessoComZeros, 14);
+								jQuery(este).val(valorProcessoComZeros);
+								jQuery(este).attr("alt","processo");
+								jQuery('input:text').setMask();
+							}
+							else	
+							{
+							    retiraFormatacao(jQuery(este));
+							    jQuery(este).css("border-style","solid").css("border-width","1px").css("border-color","#ff6666");
+							}	
+
+						}																							
+					}
+					else
+					    retiraFormatacao(jQuery(este));
+					return;
+				}
+			
+				function interacaoMenu(item)
+				{		
+									
+					jQuery(item).each(function(){
+						//alert("PAI: "+$(this).text());
+						
+						var limiteMaximo = 0;
+						//alert('PAI: '+$(this).html());
+						//descobrir o tamanho maximo do texto menu	
+						jQuery(this).children("li").each(function(){
+							//alert($(this).children("a").text());	
+							var limiteAtual = jQuery(this).children("a").text().length;
+							
+							if(limiteMaximo < limiteAtual)
+							  	 limiteMaximo = limiteAtual; 	
+							
+							if(limiteMaximo <= 25)
+								 limiteMaximo = 25;
+		
+						});
+						
+						//aplicar o tamanho maximo em cada item de menu				
+						jQuery(this).children("li").each(function(){
+	
+							if(limiteMaximo > 34){
+								limiteMaximo = 34;												
+							}else if(limiteMaximo <= 25)
+								limiteMaximo = 25;
+								
+							jQuery(this).attr("style","width:"+(limiteMaximo) * 8.0 +"px;");
+						});	
+					});
+		
+				}
+				//window.onscroll=move_cabecalho
+			</script>
+			
+			
+			<link rel="stylesheet" type="text/css" media="all" href="/projudi/scripts/calendar/css/calendar-win2k-cold-1.css"  />
+			<link href="/projudi/css/estilo.css" rel="stylesheet" type="text/css">
+			<style type="text/css">
+				.enfase {
+					background:transparent;
+				}
+			</style>
+			
+			<script type="text/javascript" src="/projudi/scripts/criminal/cadastroDadosProcessoCriminal.js"></script>
+			<script type="text/javascript">
+				function VerificaEnter()
+				{
+				if (event.keyCode == 13)
+					validarFormulario();
+				}
+				function removerEspacos(nome_parte)
+	        	{
+	        		 while (nome_parte.indexOf("  ") >= 0){
+	        			 nome_parte = nome_parte.replace("  ", " ");
+	        		 }
+	        		 jQuery('#id_nome_parte').val(nome_parte);
+	        		 return nome_parte;
+	        	}
+	        	
+		        function contemDoisNomes(nome_parte)  
+		        {        	
+	            	var reTipo = /[A-zàèìòùáéíóúýâêîôûäëïöüÿÀÈÌÒÙÁÉÍÓÚÝÂÊÎÔÛÄËÏÖÜ][ ][A-z]/;  
+	            	return reTipo.test(nome_parte);	        	
+		        }
+			
+				function validarFormulario(){
+					nome_parte = jQuery('#id_nome_parte').val();
+	            	nome_parte = jQuery.trim(nome_parte);
+	            	nome_parte = removerEspacos(nome_parte);
+		        	if(nome_parte != '') {
+		            	if(contemDoisNomes(nome_parte)) {
+		            		jQuery('#id_botao_escondido').click();
+		            	}
+						else{
+		        			alert('Para consultar pelo nome da parte é necessario informar no minimo dois nomes.');
+		        			jQuery('#id_nome_parte').focus();
+						}
+		        	}
+		            else {
+		            	jQuery('#id_botao_escondido').click();
+		            }
+				}
+				
+				function testaOabComplemento()
+				{
+					
+					if(document.busca.oab.value == "")
+					{
+						alert("Deve ser indicado o numero da OAB para completar a pesquisa.");
+						document.busca.complementoOAB.options[0].selected = true;			
+					}
+				}
+
+				//recarrega a imagem captcha da pagina, adicionando um parametro dinamico qualquer
+				//fazendo com js basico porque essa versao do jQuery possui problemas no IE
+				function recarregar_imagem() {
+					var imagem = document.getElementById("captchaimg");
+					var src=imagem.src;
+					var idx = src.indexOf('?');
+					if(idx > -1) {
+						src = src.substr(0, src.indexOf('?'));
+					}
+					imagem.src = src + "?d=" + new Date().getTime();
+				}
+				
+			</script>
+			
+
+<script src="/projudi/dwr/engine.js"></script>
+<script src="/projudi/dwr/util.js"></script>
+			
+
+<script type="text/javascript" src="/projudi/scripts/subModal/subModal.js"></script> 
+<script type="text/javascript" src="/projudi/dwr/interface/Pesquisa.js"></script>
+<script type="text/javascript" src="/projudi/scripts/tabelasProcessuais/tabelasProcessuais.js"></script>
+
+			
+		
+	   		
+        </head>
+
+<body  >
+<div id="topo">
+	<table width="90%" border="0" align="left" cellpadding="0" cellspacing="0" style="padding-top: 0px; margin-top: 0px;">
+		<tr>
+			<td align="center">
+              <h1 id="titulo-sistema">Projudi - Processo Judicial Digital</h1>
+			</td>
+		</tr>
+					
+	</table>
+</div>
+<div id="geral">
+	<div id="corpo">		
+		
+    
+    
+                <div align="center" class="tituloPagina">BUSCA POR PROCESSOS</div>
+        <form method="post" name="busca">
+
+            <p>
+
+
+
+
+
+<div id="idAvisos">
+	
+    
+    
+    
+    
+
+</div><p>
+            <table width="97%" border="0" align="center" cellspacing="0" bordercolor="#000000">
+                <tr class="primeiraLinha" height="35">
+                    <td colspan="2">&nbsp; * Para realizar a consulta, deve ser informado, além das letras da imagem a seguir, pelo menos um campo.</td>
+                </tr>
+                
+                <tr>
+                	<td>
+                		<strong>Digite as letras da imagem <span class="primeiraLinha enfase">*</span></strong>
+                	</td>
+                	<td>
+                		<input type="text" name="captcha" value="" />
+                		<img id="captchaimg" src="/projudi/captcha?d=1782749432625" />
+                		<a href="javascript:recarregar_imagem()">(clique aqui para carregar outra imagem)</a>
+                	</td> 
+                </tr>
+                
+                <tr class="tCinza">
+                    <td><strong>N&uacute;mero Processo</strong></td>
+                    <td><input name="numeroProcesso" value="" type="text" id="numeroProcesso" size="27" alt="somenteNumero"  numeroProcesso="true" onkeypress="VerificaEnter();">  </td>
+                </tr>
+
+                
+                <tr class="tBranca">
+                    <td><strong>Nome da Parte</strong></td>
+                    <td>
+                        <input name="nome" id="id_nome_parte" type="text"  size="50" maxlength="200"  onkeypress="VerificaEnter();">
+                        <input name="sentencaInteira" type="checkbox" id="sentencaInteira" value="true" >
+                        <font size="-1">Busca pelo Nome Completo</font>
+                    </td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>CPF/CNPJ</strong></td>
+                    <td><input name="cpfCnpj" type="text" id="cpfCnpj" size="20" maxlength="14" onkeypress='return SomenteNumero(event);VerificaEnter();'></td>
+                </tr>
+                
+                
+                <tr class="tBranca">
+                    <td><strong>Nome do Advogado</strong></td>
+                    <td>
+                        <input name="nomeAdvogado" type="text"  size="50" maxlength="200" value="">
+                        <input name="sentencaInteiraAdv" type="checkbox" id="sentencaInteiraAdv" value="true" >
+                        <font size="-1">Busca pelo Nome Completo</font>
+                    </td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>OAB</strong></td>
+                    <td>
+                    <input name="oab" value="" type="text" id="oab" size="7">
+			        <select name="complementoOAB" id="complementoOAB" onchange="testaOabComplemento()">
+			          <option value="-1">Selecione Para Busca</option>        
+			            
+			                <option value="B" 
+			                >B</option>
+			            
+			                <option value="D" 
+			                >D</option>
+			            
+			                <option value="E" 
+			                >E</option>
+			            
+			                <option value="N" 
+			                >N</option>
+			            
+			                <option value="P" 
+			                >P</option>
+			            
+			        </select> 
+                    </td>
+                </tr>
+                <tr class="tBranca">
+                    <td><strong>Tipo de Parte</strong></td>
+                    <td>
+                        <select name="tipoParteProcesso" id="tipoParteProcesso">
+                            <option value="-1">Selecione Para Busca</option>
+                            
+                                <option value="5">
+                                    Acusado
+                                </option>
+                            
+                                <option value="7">
+                                    Adolescente
+                                </option>
+                            
+                                <option value="8">
+                                    Agravado
+                                </option>
+                            
+                                <option value="9">
+                                    Agravante
+                                </option>
+                            
+                                <option value="10">
+                                    Apelado
+                                </option>
+                            
+                                <option value="11">
+                                    Apelante
+                                </option>
+                            
+                                <option value="12">
+                                    Arguído
+                                </option>
+                            
+                                <option value="13">
+                                    Argüente
+                                </option>
+                            
+                                <option value="14">
+                                    Autor
+                                </option>
+                            
+                                <option value="16">
+                                    Autor do Fato
+                                </option>
+                            
+                                <option value="17">
+                                    Autoridade
+                                </option>
+                            
+                                <option value="19">
+                                    Comunicado
+                                </option>
+                            
+                                <option value="20">
+                                    Comunicante
+                                </option>
+                            
+                                <option value="21">
+                                    Corrigente
+                                </option>
+                            
+                                <option value="22">
+                                    Corrigido
+                                </option>
+                            
+                                <option value="23">
+                                    De Cujus
+                                </option>
+                            
+                                <option value="24">
+                                    Denunciado
+                                </option>
+                            
+                                <option value="25">
+                                    Embargado
+                                </option>
+                            
+                                <option value="26">
+                                    Embargante
+                                </option>
+                            
+                                <option value="27">
+                                    Excepto
+                                </option>
+                            
+                                <option value="28">
+                                    Excipiente
+                                </option>
+                            
+                                <option value="29">
+                                    Executado
+                                </option>
+                            
+                                <option value="30">
+                                    Exeqüente
+                                </option>
+                            
+                                <option value="31">
+                                    Expropriado
+                                </option>
+                            
+                                <option value="32">
+                                    Expropriante
+                                </option>
+                            
+                                <option value="33">
+                                    Impetrado
+                                </option>
+                            
+                                <option value="34">
+                                    Impetrante
+                                </option>
+                            
+                                <option value="35">
+                                    Impugnado
+                                </option>
+                            
+                                <option value="36">
+                                    Impugnante
+                                </option>
+                            
+                                <option value="37">
+                                    Indiciado
+                                </option>
+                            
+                                <option value="38">
+                                    Infrator
+                                </option>
+                            
+                                <option value="39">
+                                    Interessado
+                                </option>
+                            
+                                <option value="41">
+                                    Interpelado
+                                </option>
+                            
+                                <option value="42">
+                                    Interpelante
+                                </option>
+                            
+                                <option value="43">
+                                    Investigado
+                                </option>
+                            
+                                <option value="45">
+                                    Juízo
+                                </option>
+                            
+                                <option value="44">
+                                    Jusrogante
+                                </option>
+                            
+                                <option value="52">
+                                    Não Consta
+                                </option>
+                            
+                                <option value="46">
+                                    Noticiado
+                                </option>
+                            
+                                <option value="47">
+                                    Noticiante
+                                </option>
+                            
+                                <option value="48">
+                                    Notificado
+                                </option>
+                            
+                                <option value="49">
+                                    Notificante
+                                </option>
+                            
+                                <option value="50">
+                                    Nunciado
+                                </option>
+                            
+                                <option value="51">
+                                    Nunciante
+                                </option>
+                            
+                                <option value="53">
+                                    Opoente
+                                </option>
+                            
+                                <option value="54">
+                                    Oposto
+                                </option>
+                            
+                                <option value="1">
+                                    Promovente
+                                </option>
+                            
+                                <option value="0">
+                                    Promovido
+                                </option>
+                            
+                                <option value="55">
+                                    Querelado
+                                </option>
+                            
+                                <option value="56">
+                                    Querelante
+                                </option>
+                            
+                                <option value="57">
+                                    Reclamado
+                                </option>
+                            
+                                <option value="58">
+                                    Reclamante
+                                </option>
+                            
+                                <option value="59">
+                                    Recorrente
+                                </option>
+                            
+                                <option value="60">
+                                    Recorrido
+                                </option>
+                            
+                                <option value="61">
+                                    Representado
+                                </option>
+                            
+                                <option value="62">
+                                    Representante
+                                </option>
+                            
+                                <option value="63">
+                                    Requerente
+                                </option>
+                            
+                                <option value="65">
+                                    Requerido
+                                </option>
+                            
+                                <option value="66">
+                                    Requisitante
+                                </option>
+                            
+                                <option value="67">
+                                    Réu
+                                </option>
+                            
+                                <option value="68">
+                                    Suscitado
+                                </option>
+                            
+                                <option value="69">
+                                    Suscitante
+                                </option>
+                            
+                                <option value="2">
+                                    Terceiro
+                                </option>
+                            
+                                <option value="3">
+                                    Testemunha
+                                </option>
+                            
+                                <option value="4">
+                                    Vítima
+                                </option>
+                            
+                        </select>
+                    </td>
+                </tr>
+                
+                <input id="codTipoJustica" name="codTipoJustica" type="hidden" value="" />
+
+                <tr class="tCinza">
+                    <td><strong>Vara</strong></td>
+                    <td>
+                        <select name="codVara" id="codVara">
+                            <option value="-1">Selecione Para Busca</option>
+                            <option value="335"  >J.E. Cível e Criminal de Teresina Zona Norte I - Unidade IV - Anexo II - Faculdade CET</option>
+                            
+                            <option value="225"  >J.E. Civel FLORIANO Anexo I</option>
+                            
+                            <option value="326"  >J.E. Cível Parnaiba - Anexo II (NASSAU)</option>
+                            
+                            <option value="226"  >J.E. Civel Parnaiba Anexo I UESPI</option>
+                            
+                            <option value="229"  >J.E. Civel Picos Anexo I</option>
+                            
+                            <option value="330"  >J.E. Civel Picos Anexo II - R.Sá</option>
+                            
+                            <option value="5"  >J.E. Civel Piripiri - Anexo 1 CHRISFAPI</option>
+                            
+                            <option value="6"  >J.E. Cível Teresina Zona Centro 1 - Anexo I FAP - Vila da Paz</option>
+                            
+                            <option value="11"  >J.E. Cível Teresina Zona Centro 1 - UNIDADE I - Anexo I - FSA</option>
+                            
+                            <option value="331"  >J.E. Civel Teresina Zona Centro 1 - UNIDADE I - Anexo II (Unidade Móvel de Trânsito)</option>
+                            
+                            <option value="10"  >J.E. Cível Teresina Zona Centro 2 - UNIDADE II </option>
+                            
+                            <option value="9"  >J.E. Civel Teresina Zona Leste 1  - Anexo II</option>
+                            
+                            <option value="1"  >J.E. Civel Teresina Zona Leste 1 - Bairro do Uruguai - Anexo I - NOVAFAPI(Teresina)</option>
+                            
+                            <option value="22"  >J.E. Civel Teresina Zona Leste 2 - Anexo I - AESPI</option>
+                            
+                            <option value="23"  >J.E. Civel Teresina Zona Leste 2 - Anexo II-CAMILO FILHO</option>
+                            
+                            <option value="3"  >J.E. Cível Teresina Zona Norte 1 - Marquês - Anexo I FATEPI(Teresina)</option>
+                            
+                            <option value="18"  >J.E. Cível Teresina Zona Norte 2 - Anexo I Santa Maria</option>
+                            
+                            <option value="4"  >J.E. Cível Teresina Zona Norte 2 - Anexo II FACID - Pedra Mole</option>
+                            
+                            <option value="2"  >J.E. Cível Teresina Zona Sudeste - Bairro Recanto das Palmeiras - Anexo 1 CEUT(Teresina)</option>
+                            
+                            <option value="24"  >J.E. Civel Teresina Zona Sul 1 - Bela Vista - Anexo I - Des. Nildomar da Silveira Soares</option>
+                            
+                            <option value="332"  >J.E. Civel Teresina Zona Sul 1 - Bela Vista - ANEXO II - Des. Vicente Ribeiro Gonçalves</option>
+                            
+                            <option value="15"  >J.E. Cível Teresina Zona Sul 2-Anexo I Des. Vicente</option>
+                            
+                            <option value="25"  >J.Especial de Teresina Fazenda Publica </option>
+                            
+                            <option value="120"  >JECC de Altos</option>
+                            
+                            <option value="121"  >JECC de Barras</option>
+                            
+                            <option value="122"  >JECC de Batalha</option>
+                            
+                            <option value="123"  >JECC de Bom Jesus</option>
+                            
+                            <option value="124"  >JECC de Campo Maior</option>
+                            
+                            <option value="141"  >JECC de Corrente</option>
+                            
+                            <option value="125"  >JECC de Floriano Sede</option>
+                            
+                            <option value="140"  >JECC de José de Freitas </option>
+                            
+                            <option value="134"  >JECC de Oeiras</option>
+                            
+                            <option value="126"  >JECC de Parnaiba Sede</option>
+                            
+                            <option value="127"  >JECC de Paulistana</option>
+                            
+                            <option value="128"  >JECC de Pedro II</option>
+                            
+                            <option value="129"  >JECC de Picos Sede</option>
+                            
+                            <option value="139"  >JECC de Piracuruca</option>
+                            
+                            <option value="131"  >JECC de Piripiri Sede</option>
+                            
+                            <option value="333"  >JECC de São João do Piauí</option>
+                            
+                            <option value="132"  >JECC de São Rdo Nonato</option>
+                            
+                            <option value="16"  >JECC de Teresina Zona Centro 1 - UNIDADE I - SEDE</option>
+                            
+                            <option value="8"  >JECC de Teresina Zona Leste 1 - Bairro Horto Florestal - Sede(Teresina)</option>
+                            
+                            <option value="21"  >JECC de Teresina Zona Leste 2 - Ininga Sede(UFPI)</option>
+                            
+                            <option value="12"  >JECC de Teresina Zona Norte 1 - UESPI - Pirajá(Teresina)</option>
+                            
+                            <option value="17"  >JECC de Teresina Zona Norte 2 - Sede Buenos Aires</option>
+                            
+                            <option value="13"  >JECC de Teresina Zona Sudeste - Sede Redonda</option>
+                            
+                            <option value="7"  >JECC de Teresina Zona Sul 1-Sede Bela Vista(Teresina)</option>
+                            
+                            <option value="14"  >JECC de Teresina Zona Sul 2-Sede Parque Piauí</option>
+                            
+                            <option value="334"  >JECC de União</option>
+                            
+                            <option value="133"  >JECC de Valença</option>
+                            
+                        </select>
+                    </td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>Fase Processual</strong></td>
+                    <td>
+                        <select name="codFaseProcessual" id="codFaseProcessual">
+                            <option value="-1">Selecione Para Busca</option>
+                            
+                            <option value="1">CONHECIMENTO</option>
+                            
+                            <option value="2">EXECUÇÃO</option>
+                            
+                        </select>
+                    </td>
+                </tr>
+                <tr class="tBranca">
+                    <td><strong>Classe (anterior à resolução 46)</strong></td>
+                    <td>
+                        <select name="tipoAcao" id="tipoAcao" style="width:250px;">
+                            <option value="-1">Selecione Para Busca</option>
+                            
+                            <option value="102139">AÇÃO DE COBRANÇA</option>
+                            
+                            <option value="105439">AÇÃO INIBITÓRIA</option>
+                            
+                            <option value="100015">AÇÃO INOMINADA</option>
+                            
+                            <option value="100014">AÇÃO MONITÓRIA</option>
+                            
+                            <option value="101099">ADJUDICAÇÃO</option>
+                            
+                            <option value="104226">ADJUDICAÇÃO COMPULSÓRIA</option>
+                            
+                            <option value="102253">ANULAÇÃO DE CONTRATO</option>
+                            
+                            <option value="102931">ANULATÓRIA</option>
+                            
+                            <option value="100018">ARBITRAMENTO DE FIANÇA</option>
+                            
+                            <option value="100802">ARBITRAMENTO DE HONORARIOS</option>
+                            
+                            <option value="100653">ATENTADO</option>
+                            
+                            <option value="100604">CANCELAMENTO DE PROTESTO</option>
+                            
+                            <option value="102089">CARTA DE ORDEM</option>
+                            
+                            <option value="100992">CARTA DE SENTENÇA</option>
+                            
+                            <option value="100109">CARTA PRECATÓRIA</option>
+                            
+                            <option value="100117">CARTA ROGATÓRIA</option>
+                            
+                            <option value="100019">CAUTELAR</option>
+                            
+                            <option value="103293">COBRANCA DE ALUGUEL</option>
+                            
+                            <option value="105132">COBRANCA DE HONORÁRIOS</option>
+                            
+                            <option value="102980">COMINATÓRIA</option>
+                            
+                            <option value="102170">CONTRA-PROTESTO</option>
+                            
+                            <option value="100020">CONTRAVENÇÃO PENAL</option>
+                            
+                            <option value="100021">COREIÇÃO PARCIAL</option>
+                            
+                            <option value="100022">CRIME CONTRA A ADMINISTRAÇÃO PÚBLICA</option>
+                            
+                            <option value="100024">CRIME CONTRA A ECONOMIA POPULAR</option>
+                            
+                            <option value="100025">CRIME CONTRA A FAMÍLIA</option>
+                            
+                            <option value="100026">CRIME CONTRA A FÉ PÚBLICA</option>
+                            
+                            <option value="100027">CRIME CONTRA A INCOLUMIDADE PÚBLICA</option>
+                            
+                            <option value="100031">CRIME CONTRA A PAZ PÚBLICA</option>
+                            
+                            <option value="100032">CRIME CONTRA A PESSOA</option>
+                            
+                            <option value="100029">CRIME CONTRA AS ORGANIZAÇÕES DO TRABALHO</option>
+                            
+                            <option value="100028">CRIME CONTRA O MEIO AMBIENTE</option>
+                            
+                            <option value="100030">CRIME CONTRA O PATRIMÔNIO</option>
+                            
+                            <option value="100034">CRIME CONTRA O SENTIMENTO RELIGIOSO</option>
+                            
+                            <option value="100023">CRIME CONTRA OS COSTUMES</option>
+                            
+                            <option value="100033">CRIME CONTRA PROPRIEDADE IMATERIAL</option>
+                            
+                            <option value="100035">CRIME DA LEGISLAÇÃO COMPLEMENTAR</option>
+                            
+                            <option value="100038">CRIME DE TÓXICO</option>
+                            
+                            <option value="100036">CRIME DE TÓXICO</option>
+                            
+                            <option value="100037">CRIME DE TRÂNSITO - CTB</option>
+                            
+                            <option value="100039">CRIME PORTE ILEGAL DE ARMA</option>
+                            
+                            <option value="100040">CRIME RELAÇÃO DE CONSUMO</option>
+                            
+                            <option value="101339">DECLARATORIA</option>
+                            
+                            <option value="104671">DESCONSTITUIÇÃO DE TÍTULOS</option>
+                            
+                            <option value="101222">DESPEJO</option>
+                            
+                            <option value="101180">EMBARGOS - DEVEDOR</option>
+                            
+                            <option value="103426">EMBARGOS À ADJUDICAÇÃO</option>
+                            
+                            <option value="103459">EMBARGOS À PENHORA</option>
+                            
+                            <option value="105769">EMBARGOS ARREMATAÇÃO</option>
+                            
+                            <option value="100661">EMBARGOS DE RETENÇÃO</option>
+                            
+                            <option value="101172">EMBARGOS DE TERCEIRO</option>
+                            
+                            <option value="104259">ENRIQUECIMENTO ILÍCITO</option>
+                            
+                            <option value="102386">EVICÇÃO</option>
+                            
+                            <option value="101206">EXECUÇÃO</option>
+                            
+                            <option value="101727">EXECUÇÃO DE ACORDO</option>
+                            
+                            <option value="101636">EXECUÇÃO DE ALIMENTOS</option>
+                            
+                            <option value="106205">EXECUÇÃO DE SENTENÇA</option>
+                            
+                            <option value="100011">EXECUÇÃO DE TÍTULO EXTRAJUDICIAL</option>
+                            
+                            <option value="100646">EXECUÇÃO FORÇADA</option>
+                            
+                            <option value="105371">EXECUCAO PENA MULTA</option>
+                            
+                            <option value="101958">EXECUCAO PROVISORIA</option>
+                            
+                            <option value="101719">EXIBIÇÃO</option>
+                            
+                            <option value="100844">EXIBIÇÃO DE DOCUMENTOS</option>
+                            
+                            <option value="104739">EXIBIÇÃO DE LIVROS</option>
+                            
+                            <option value="101214">EXTINÇÃO DE OBRIGAÇÕES</option>
+                            
+                            <option value="100497">HOMOLOGAÇÃO DE ACORDO</option>
+                            
+                            <option value="102584">IMISSÃO NA POSSE</option>
+                            
+                            <option value="101065">IMPUGNAÇÃO</option>
+                            
+                            <option value="100041">INCIDENTE PROCESSUAL</option>
+                            
+                            <option value="103566">INCLUSÃO DE CLÁUSULA CONTRATUAL</option>
+                            
+                            <option value="100307">INDENIZAÇÃO POR DANOS MATERIAIS</option>
+                            
+                            <option value="103269">INDENIZAÇÃO POR DANOS MORAIS</option>
+                            
+                            <option value="101271">INDENIZAÇÃO POR DANOS MORAIS E MATERIAIS</option>
+                            
+                            <option value="104283">INEXEGIBILIDADE DE OBRIGAÇÃO</option>
+                            
+                            <option value="105546">LOCUPLETAMENTO ILÍCITO</option>
+                            
+                            <option value="100016">MANDADO DE SEGURANÇA</option>
+                            
+                            <option value="105751">MANUTENÇÃO DE POSSE</option>
+                            
+                            <option value="104663">NULIDADE</option>
+                            
+                            <option value="102774">NULIDADE DE CLÁUSULA CONTRATUAL</option>
+                            
+                            <option value="102469">OBRIGAÇÃO DE FAZER</option>
+                            
+                            <option value="106023">OBRIGAÇÃO DE NÃO FAZER</option>
+                            
+                            <option value="104275">PASSAGEM FORÇADA</option>
+                            
+                            <option value="100919">PAULIANA</option>
+                            
+                            <option value="101446">POSSESSÓRIA</option>
+                            
+                            <option value="100042">PRECATÓRIA CRIME</option>
+                            
+                            <option value="100043">QUEIXA CRIME</option>
+                            
+                            <option value="103871">REABILITAÇÃO</option>
+                            
+                            <option value="100012">RECURSO CONTRA DECISÃO DE TUTELA (MANDADO DE SEGURANÇA)</option>
+                            
+                            <option value="100013">RECURSO INTERPOSTO</option>
+                            
+                            <option value="103152">REDIBITÓRIA</option>
+                            
+                            <option value="104572">REGRESSIVA</option>
+                            
+                            <option value="101453">REIVINDICATÓRIA</option>
+                            
+                            <option value="100044">RELAXAMENTO DE PRISÃO</option>
+                            
+                            <option value="105496">REMOÇÃO</option>
+                            
+                            <option value="104705">RENAVATÓRIA DE LOCAÇÃO</option>
+                            
+                            <option value="103020">RENOVATÓRIA</option>
+                            
+                            <option value="102956">REPETIÇÃO DE INDÉBITO</option>
+                            
+                            <option value="100017">REQUERIMENTO JUDICIAL</option>
+                            
+                            <option value="100828">RESCISÃO DE CONTRATO</option>
+                            
+                            <option value="105595">RESSARCIMENTO</option>
+                            
+                            <option value="101131">RESTITUIÇÃO</option>
+                            
+                            <option value="100045">RESTITUIÇÃO DE COISA APREENDIDA</option>
+                            
+                            <option value="103483">REVISÃO DE CLÁUSULA CONTRATUAL</option>
+                            
+                            <option value="102444">REVISÃO DE CONTRATO</option>
+                            
+                            <option value="104747">SERVIDÃO</option>
+                            
+                            <option value="100679">SUB-ROGAÇÃO</option>
+                            
+                            <option value="100968">SUSTAÇÃO DE PROTESTO</option>
+                            
+                        </select>
+                    </td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>Assunto</strong></td>
+                    <td>
+                        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script>
+    
+        dwr.engine.setErrorHandler(errorHandler);
+
+        function errorHandler(msg) {
+            alert("Erro:\n" + msg);                
+        }
+       
+
+    
+        function validaCamposFormularioTabelaCNJ(codTipoJustica,codArea) {    
+            var erros = '';
+            if (codTipoJustica!=null &&(codTipoJustica == "-1" || codTipoJustica=="")){
+                erros = erros + "- Selecione um tipo de justica.\n";
+            }
+            if (codArea!=null &&(codArea == "-1" || codArea=="")){
+                erros = erros + "- Selecione uma competência.\n";
+            }
+            return erros;
+        }
+            
+        function validaPesquisa(idCodigoCategoria, nomeCategoria){
+            var seqCategoria = document.getElementById(idCodigoCategoria).value;
+            var erros = '';                
+            if (seqCategoria == null || seqCategoria == ""){
+                erros = erros + "- Digite o código do(a) " + nomeCategoria + " para realizar a busca.\n";
+            }
+            return erros;
+        }       
+    
+    
+    
+        function getParametrosPesquisa(idCodigoCategoria, nomeCategoria, compExternos){
+            var codTipoJustica = null;
+            var codArea = null;
+            var codNatureza = null;
+            var codVara = null;
+            var indicadorCompetenciaTurma = null;
+            
+            if(compExternos.length>0){
+                if(compExternos[0]!=null && compExternos[0]!='')
+                    codTipoJustica = document.getElementById(compExternos[0]).value;
+                
+                if(compExternos.length>1){
+                    if(compExternos[1]!=null && compExternos[1]!='')
+                        codArea = document.getElementById(compExternos[1]).value;
+                }  
+                if(compExternos.length>2){
+                    if(compExternos[2]!=null && compExternos[2]!='')
+                        codNatureza = document.getElementById(compExternos[2]).value;
+                }  
+                if(compExternos.length>3){
+                    if(compExternos[3]!=null && compExternos[3]!='')
+                        codVara = document.getElementById(compExternos[3]).value;
+                }
+                if(compExternos.length>4){
+                    if(compExternos[4]!=null && compExternos[4]!='')
+                        indicadorCompetenciaTurma = document.getElementById(compExternos[4]).value;
+                }
+            }
+            
+            var erros = '';                
+                         
+            //variáveis para validação dos campos necessários
+            
+            erros = erros + validaPesquisa(idCodigoCategoria, nomeCategoria); 
+
+            if (erros!=''){
+                erros = "Verifique os seguintes erros:\n\n"+erros;
+                alert(erros);
+                return false;
+            }
+
+            params = new Array();
+            if(codTipoJustica!=null || codArea!=null || codNatureza!=null || codVara!=null || indicadorCompetenciaTurma!=null){
+                params[0] = codTipoJustica;
+                params[1] = codArea;
+                params[2] = codNatureza;
+                params[3] = codVara;
+                params[4] = indicadorCompetenciaTurma;
+            }
+                
+            return params;
+        } 
+           
+        
+        /**
+         * Método utilizado para pesquisa genérica com DWR.
+         * 
+         * @param idCodigoCategoria id do objeto html que será utilizado para digitação do código
+         * @param idDescricaoCategoria id do objeto html que será preenchido com a descrição buscada
+         * @param tipoTabela nome da categoria para exibição na mensagem de erro
+         * @param classePesquisaJava classe de pesquisa em java (com o nome do pacote)
+         * @param funcaoPreenchimento função utilizada para o preenchimento do campo de descrição após a busca
+         * @param funcaoGetParametros função utilizada para recuperar e validar os parâmetros que serão utilizados pela pesquisa
+         */
+        function pesquisa(idCodigoCategoria, idDescricaoCategoria, tipoTabela, classePesquisaJava, funcaoPreenchimento, funcaoGetParametros){
+            var seqCategoria = document.getElementById(idCodigoCategoria).value;
+                
+            //valida os campos necessários antes de realizar a pesquisa, retornando os parâmetros de busca
+            var params = funcaoGetParametros(idCodigoCategoria, tipoTabela, ['codTipoJustica',null,null,'codVara']);
+            if (!params) {
+                return false;
+            }
+             
+            Pesquisa.pesquisaCodigoPK(classePesquisaJava, seqCategoria, "VALIDACAO_PESQUISA", params, funcaoPreenchimento);
+            
+            
+        }
+        
+        function preencheAssunto(categoria){
+        dwr.util.setValue("seqCategoriaAssunto", categoria.codigo);
+        dwr.util.setValue("descCategoriaAssunto", categoria.descricao);
+        
+    }
+            
+        function acionarBuscaAssunto(event, idBotaoBusca, idDescricaoCategoria){
+            var botaoBusca = document.getElementById(idBotaoBusca);
+            var keyCode = event.keyCode ? event.keyCode : event.which ? event.which : event.charCode;
+           
+            if (keyCode == 13) {//Enter                       
+                if(dwr.util.getValue(idDescricaoCategoria)=='')
+                    fireMouseEvent(botaoBusca,'click');
+                
+                    else{
+                        adicionarAssunto();                        
+                    }
+                
+                return false;
+            }
+            else if(keyCode != 9) {//Tab
+                //limpa a categoria
+                dwr.util.setValue(idDescricaoCategoria, null);
+                return true;
+            }
+        }  
+
+        function fireMouseEvent(element,event){
+            if (document.createEventObject){
+                // dispatch for IE
+                var evt = document.createEventObject();
+                return element.fireEvent('on'+event,evt)
+            }
+            else{        
+                // dispatch for firefox + others
+                var evt = document.createEvent("MouseEvents");
+                evt.initEvent(event, true, true ); // event type,bubbling,cancelable 
+                return !element.dispatchEvent(evt);
+            }
+        }
+            
+    
+    
+    //determina se algum item já foi definido como Principal uma primeira vez.
+    var primeiroAssuntoPrincipalDefinido = false;
+
+    /**
+     * Método utilizado para adicionar(selecionar) um novo item à tabela de
+     * seleção.
+     */
+    function adicionarAssunto(){                
+        var codAssunto = document.getElementById('seqCategoriaAssunto').value;
+        var descAssunto = document.getElementById('descCategoriaAssunto').value;
+
+        //se o código e a descrição estiverem definidos
+        //e ainda não foram inseridos na tabela de seleção
+        if(!AssuntoJaAdicionado(codAssunto)){
+            if(codAssunto!='' && descAssunto!='' && !AssuntoJaAdicionado(codAssunto)){                
+            //recupera informações do item e executa a função que efetivamente irá adicioná-lo
+                Pesquisa.pesquisaProcedimento('Assunto', codAssunto,adicionarAssuntoTabela);                    
+            } 
+        }else{
+            alert('Código informado para Assunto já inserido.');
+        }
+    }
+
+    /**
+    * Método utilizado para efetivamente adicionar um novo item à tabela de
+    * seleção.
+    * proc Objeto PesquisaProcedimentoDTO com informações complementares
+    */
+    function adicionarAssuntoTabela(proc){            
+        var codAssunto = document.getElementById('seqCategoriaAssunto');
+        var descAssunto = document.getElementById('descCategoriaAssunto');
+
+        //se o código e a descrição estiverem definidos
+        //e ainda não foram inseridos na tabela de seleção
+        if(!AssuntoJaAdicionado(codAssunto.value)){
+            if(codAssunto.value!='' && descAssunto.value!=''){
+
+                var tbAssunto = document.getElementById('tbAssunto');
+                //configuração da linha inserida
+                novotr = tbAssunto.insertRow(tbAssunto.rows.length-1);
+                novotr.id = 'trTbAssunto'+codAssunto.value;
+                if(novotr.rowIndex % 2 == 0){
+                    novotr.className = 'tCinza';
+                }
+                else{
+                    novotr.className = 'tBranca';
+                }
+                //configuração das células inseridas
+                novotd0 = novotr.insertCell(0);
+                novotd0.style.paddingLeft = '5px';
+                novotd0.innerHTML = codAssunto.value+'&nbsp;-&nbsp;'+descAssunto.value;
+                novotd0.innerHTML = novotd0.innerHTML.concat(' <input id="inputCodAssunto'+codAssunto.value+'" name="codAssunto" type="hidden" value="'+codAssunto.value+'" /> ');
+                novotd0.innerHTML = novotd0.innerHTML.concat(' <input id="inputDescAssunto'+codAssunto.value+'" name="descAssunto" type="hidden" value="'+descAssunto.value+'" /> ');
+                novotd0.innerHTML = novotd0.innerHTML.concat(' <input id="inputSecundAssunto'+codAssunto.value+'" name="secundAssunto" type="hidden" value="'+proc.secundario+'" /> ');
+                novotd1 = novotr.insertCell(1);
+                novotd1.style.textAlign = 'center';   
+                //se algum item ainda não foi definido como Principal uma primeira vez
+                //e o item inserido puder ser definido como Principal
+                if(!primeiroAssuntoPrincipalDefinido && proc.secundario=='N'){
+                    //define o item como Principal
+                    novotd1.innerHTML = '<input id="radioAssunto'+codAssunto.value+'" name="codAssuntoPrincipal" style="border-style:none;" type="radio" checked value="'+codAssunto.value+'" />';
+                    primeiroAssuntoPrincipalDefinido = true;
+                    document.getElementById('inputAssuntoPrincipalDef').value = true;
+                }
+                else{
+                    if(proc.secundario=='N')//se o item puder ser definido como Principal
+                    //possibilita que o item seja definido como Principal
+                        novotd1.innerHTML = '<input id="radioAssunto'+codAssunto.value+'" name="codAssuntoPrincipal" style="border-style:none;" type="radio" value="'+codAssunto.value+'" />';
+                    else
+                    //impossibilita que o item seja definido como Principal
+                        novotd1.innerHTML = '<input id="radioAssunto'+codAssunto.value+'" name="codAssuntoPrincipal" style="border-style:none;" type="radio" disabled value="'+codAssunto.value+'" />';
+                }
+
+                novotd2 = novotr.insertCell(2);
+                novotd2.style.textAlign = 'center';
+                novotd2.innerHTML = '<input id="chkAssunto'+codAssunto.value+'" name="chkAssunto" type="checkbox" style="border-style:none;" value="'+codAssunto.value+'" />'; 
+
+                //limpa os textboxes de código e descrição
+                codAssunto.value = '';
+                descAssunto.value = '';
+            }
+        }else{
+            alert('Código informado para Assunto já inserido.');
+        }
+    }
+        
+    /**
+    * Método utilizado para verificar se um determinado código já foi
+    * adicionado à tabela de seleção.
+    */
+    function AssuntoJaAdicionado(codAssunto){
+    //tenta recuperar um hidden com o id formado a partir do código.
+        var input = document.getElementById('inputCodAssunto'+codAssunto);
+        if(input!=null)
+            return true;
+        return false;
+    }
+           
+    /**
+    * Método utilizado para marcar ou desmarcar todos os itens da tabela
+    * de seleção.
+    */
+    function marcarTodosAssunto(chkMestre){                
+        var chks = document.getElementsByName('chkAssunto');
+        for(var i=0;i<chks.length;i++){
+            chks[i].checked = chkMestre.checked;
+        }
+    }
+         
+    /**
+    * Método utilizado para excluir os itens da tabela de seleção que 
+    * estão marcados
+    */
+    function excluirAssuntoSelecionados(){
+        var tbAssunto = document.getElementById('tbAssunto');
+        var chks = document.getElementsByName('chkAssunto');
+        var codExcluidos = new Array();
+        var j=0;
+
+        //recupera os códigos dos itens a serem excluídos
+        for(var i=0;i<chks.length;i++){                    
+            if(chks[i].checked){
+                codExcluidos[j] = chks[i].value;
+                j++;
+            }                    
+        } 
+        //exclui os itens efetivamente
+        for(var i=0;i<codExcluidos.length;i++){                    
+            var tr = document.getElementById('trTbAssunto'+codExcluidos[i])
+            if(tr!=null)
+                tbAssunto.deleteRow(tr.rowIndex);                    
+        }
+        //se todos os itens da tabela de seleção forem excluídos,
+        //desmarca o checkbox "marcar todos"
+        if(tbAssunto.rows.length<3){
+            var chk = document.getElementById('chkMarcaTodosAssunto');
+            chk.checked = false;
+        }
+        
+    }
+            
+</script>
+
+
+<table border="0" cellpadding="0" cellspacing="0" width="100%">
+<tr>
+    <td>
+        <input name="seqCategoriaAssunto" id="seqCategoriaAssunto" type="text" onkeypress="return acionarBuscaAssunto(event, 'buscaCategoriaAssunto', 'descCategoriaAssunto');" value="" size="10" maxlength="8">
+        <a id="buscaCategoriaAssunto" href="javascript:;" onclick="pesquisa('seqCategoriaAssunto', 'descCategoriaAssunto', 'Assunto', 'projudi.beans.CnjAssuntoCategoriaPeer', preencheAssunto , getParametrosPesquisa);"><img id="btnBuscaAssunto" style="vertical-align:middle;"  border="0" src="/projudi/imagens/botoes/bot-busca.gif" /></a>                        
+        <input name="descCategoriaAssunto" id="descCategoriaAssunto" readonly type="text" value="" size="50" maxlength="255">        
+        
+            
+                <a href="javascript: exibePopup('/projudi/tabelaprocessual/BuscaArvore', 'Assunto', true,  700, 430, preencheAssunto, false, ['codTipoJustica',null,null,'codVara']); ">Buscar na &Aacute;rvore</a>
+            
+            
+                
+        
+            &nbsp;                                               
+            <a href="javascript: adicionarAssunto();"><img id="btnAddAssunto" style="vertical-align:middle;"  border="0" alt="Adicionar Assunto" src="/projudi/imagens/botoes/bot-adicionar.gif" /></a>
+            <img id="imgHelpAssunto" style="vertical-align:middle;" width="16px;" height="16px;" border="0" src="/projudi/imagens/botoes/pro-botao1.gif" />
+            
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="ToolTip"></div>
+    <script type="text/javascript" src="/projudi/scripts/toolTip.js"></script>    
+
+
+<script type="text/javascript">
+    var objeto = document.getElementById("imgHelpAssunto");
+    objeto.onmouseover = function() {
+        tip("Adição de Assuntos", "Após selecionar um(a) Assunto (pela <strong>Árvore de Assuntos</strong> ou buscando pelo código), clique no botão ao lado para adicioná-lo(a) à tabela abaixo.", "300", "");
+        return false;
+    }
+    objeto.onmouseout = function() {
+        notip();
+        return false;
+    }    
+</script>
+
+
+        
+        
+            &nbsp;
+
+            
+            <input type="checkbox" id="chkRecursivoAssunto" name="pesquisaRecursivaAssunto" value="true"  /><span style="vertical-align:middle;">Recursivo</span>
+        
+    </td>
+</tr>    
+
+
+    <tr>
+        <td style="padding-top:5px;">
+            <table id="tbAssunto" width="100%" class="tabelaLista">
+            
+            <tr class="primeiraLinha">
+                <td style="padding-left:5px;padding-right:5px;">Descri&ccedil;&atilde;o</td>
+                <td width="1%" style="padding-left:5px;padding-right:5px;">Principal</td>
+                <td width="1%" style="padding-left:5px;padding-right:5px;text-align:center;">
+                    <input type="checkbox" id="chkMarcaTodosAssunto" onchange="marcarTodosAssunto(this);" >
+                    <input id="inputAssuntoPrincipalDef" name="AssuntoPrincipalDef" type="hidden" value="" />
+                </td>
+            </tr>           
+            
+            
+            
+    
+    
+    
+    
+    <tr class="ultimaLinha">
+        <td colspan="3" style="padding:3px;padding-left:5px;padding-right:5px;">                                    
+            <span style="float: right;"><a href="javascript:excluirAssuntoSelecionados();">Excluir Selecionados</a></span>
+        </td>
+    </tr>  
+    
+    </table>
+    </td>
+    </tr>
+    
+
+
+</table>
+
+
+
+
+
+
+                    </td>
+                </tr>
+                <tr class="tBranca">
+                    <td><strong>Classe</strong></td>
+                    <td>
+                        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script>
+    
+        dwr.engine.setErrorHandler(errorHandler);
+
+        function errorHandler(msg) {
+            alert("Erro:\n" + msg);                
+        }
+       
+
+    
+        function validaCamposFormularioTabelaCNJ(codTipoJustica,codArea) {    
+            var erros = '';
+            if (codTipoJustica!=null &&(codTipoJustica == "-1" || codTipoJustica=="")){
+                erros = erros + "- Selecione um tipo de justica.\n";
+            }
+            if (codArea!=null &&(codArea == "-1" || codArea=="")){
+                erros = erros + "- Selecione uma competência.\n";
+            }
+            return erros;
+        }
+            
+        function validaPesquisa(idCodigoCategoria, nomeCategoria){
+            var seqCategoria = document.getElementById(idCodigoCategoria).value;
+            var erros = '';                
+            if (seqCategoria == null || seqCategoria == ""){
+                erros = erros + "- Digite o código do(a) " + nomeCategoria + " para realizar a busca.\n";
+            }
+            return erros;
+        }       
+    
+    
+    
+        function getParametrosPesquisa(idCodigoCategoria, nomeCategoria, compExternos){
+            var codTipoJustica = null;
+            var codArea = null;
+            var codNatureza = null;
+            var codVara = null;
+            var indicadorCompetenciaTurma = null;
+            
+            if(compExternos.length>0){
+                if(compExternos[0]!=null && compExternos[0]!='')
+                    codTipoJustica = document.getElementById(compExternos[0]).value;
+                
+                if(compExternos.length>1){
+                    if(compExternos[1]!=null && compExternos[1]!='')
+                        codArea = document.getElementById(compExternos[1]).value;
+                }  
+                if(compExternos.length>2){
+                    if(compExternos[2]!=null && compExternos[2]!='')
+                        codNatureza = document.getElementById(compExternos[2]).value;
+                }  
+                if(compExternos.length>3){
+                    if(compExternos[3]!=null && compExternos[3]!='')
+                        codVara = document.getElementById(compExternos[3]).value;
+                }
+                if(compExternos.length>4){
+                    if(compExternos[4]!=null && compExternos[4]!='')
+                        indicadorCompetenciaTurma = document.getElementById(compExternos[4]).value;
+                }
+            }
+            
+            var erros = '';                
+                         
+            //variáveis para validação dos campos necessários
+            
+            erros = erros + validaPesquisa(idCodigoCategoria, nomeCategoria); 
+
+            if (erros!=''){
+                erros = "Verifique os seguintes erros:\n\n"+erros;
+                alert(erros);
+                return false;
+            }
+
+            params = new Array();
+            if(codTipoJustica!=null || codArea!=null || codNatureza!=null || codVara!=null || indicadorCompetenciaTurma!=null){
+                params[0] = codTipoJustica;
+                params[1] = codArea;
+                params[2] = codNatureza;
+                params[3] = codVara;
+                params[4] = indicadorCompetenciaTurma;
+            }
+                
+            return params;
+        } 
+           
+        
+        /**
+         * Método utilizado para pesquisa genérica com DWR.
+         * 
+         * @param idCodigoCategoria id do objeto html que será utilizado para digitação do código
+         * @param idDescricaoCategoria id do objeto html que será preenchido com a descrição buscada
+         * @param tipoTabela nome da categoria para exibição na mensagem de erro
+         * @param classePesquisaJava classe de pesquisa em java (com o nome do pacote)
+         * @param funcaoPreenchimento função utilizada para o preenchimento do campo de descrição após a busca
+         * @param funcaoGetParametros função utilizada para recuperar e validar os parâmetros que serão utilizados pela pesquisa
+         */
+        function pesquisa(idCodigoCategoria, idDescricaoCategoria, tipoTabela, classePesquisaJava, funcaoPreenchimento, funcaoGetParametros){
+            var seqCategoria = document.getElementById(idCodigoCategoria).value;
+                
+            //valida os campos necessários antes de realizar a pesquisa, retornando os parâmetros de busca
+            var params = funcaoGetParametros(idCodigoCategoria, tipoTabela, ['codTipoJustica',null,null,'codVara']);
+            if (!params) {
+                return false;
+            }
+             
+            Pesquisa.pesquisaCodigoPK(classePesquisaJava, seqCategoria, "VALIDACAO_PESQUISA", params, funcaoPreenchimento);
+            
+            
+        }
+        
+        function preencheClasse(categoria){
+        dwr.util.setValue("seqCategoriaClasse", categoria.codigo);
+        dwr.util.setValue("descCategoriaClasse", categoria.descricao);
+        
+    }
+            
+        function acionarBuscaClasse(event, idBotaoBusca, idDescricaoCategoria){
+            var botaoBusca = document.getElementById(idBotaoBusca);
+            var keyCode = event.keyCode ? event.keyCode : event.which ? event.which : event.charCode;
+           
+            if (keyCode == 13) {//Enter                       
+                if(dwr.util.getValue(idDescricaoCategoria)=='')
+                    fireMouseEvent(botaoBusca,'click');
+                
+                    else{
+                        adicionarClasse();                        
+                    }
+                
+                return false;
+            }
+            else if(keyCode != 9) {//Tab
+                //limpa a categoria
+                dwr.util.setValue(idDescricaoCategoria, null);
+                return true;
+            }
+        }  
+
+        function fireMouseEvent(element,event){
+            if (document.createEventObject){
+                // dispatch for IE
+                var evt = document.createEventObject();
+                return element.fireEvent('on'+event,evt)
+            }
+            else{        
+                // dispatch for firefox + others
+                var evt = document.createEvent("MouseEvents");
+                evt.initEvent(event, true, true ); // event type,bubbling,cancelable 
+                return !element.dispatchEvent(evt);
+            }
+        }
+            
+    
+    
+    //determina se algum item já foi definido como Principal uma primeira vez.
+    var primeiroClassePrincipalDefinido = false;
+
+    /**
+     * Método utilizado para adicionar(selecionar) um novo item à tabela de
+     * seleção.
+     */
+    function adicionarClasse(){                
+        var codClasse = document.getElementById('seqCategoriaClasse').value;
+        var descClasse = document.getElementById('descCategoriaClasse').value;
+
+        //se o código e a descrição estiverem definidos
+        //e ainda não foram inseridos na tabela de seleção
+        if(!ClasseJaAdicionado(codClasse)){
+            if(codClasse!='' && descClasse!='' && !ClasseJaAdicionado(codClasse)){                
+            //recupera informações do item e executa a função que efetivamente irá adicioná-lo
+                Pesquisa.pesquisaProcedimento('Classe', codClasse,adicionarClasseTabela);                    
+            } 
+        }else{
+            alert('Código informado para Classe já inserido.');
+        }
+    }
+
+    /**
+    * Método utilizado para efetivamente adicionar um novo item à tabela de
+    * seleção.
+    * proc Objeto PesquisaProcedimentoDTO com informações complementares
+    */
+    function adicionarClasseTabela(proc){            
+        var codClasse = document.getElementById('seqCategoriaClasse');
+        var descClasse = document.getElementById('descCategoriaClasse');
+
+        //se o código e a descrição estiverem definidos
+        //e ainda não foram inseridos na tabela de seleção
+        if(!ClasseJaAdicionado(codClasse.value)){
+            if(codClasse.value!='' && descClasse.value!=''){
+
+                var tbClasse = document.getElementById('tbClasse');
+                //configuração da linha inserida
+                novotr = tbClasse.insertRow(tbClasse.rows.length-1);
+                novotr.id = 'trTbClasse'+codClasse.value;
+                if(novotr.rowIndex % 2 == 0){
+                    novotr.className = 'tCinza';
+                }
+                else{
+                    novotr.className = 'tBranca';
+                }
+                //configuração das células inseridas
+                novotd0 = novotr.insertCell(0);
+                novotd0.style.paddingLeft = '5px';
+                novotd0.innerHTML = codClasse.value+'&nbsp;-&nbsp;'+descClasse.value;
+                novotd0.innerHTML = novotd0.innerHTML.concat(' <input id="inputCodClasse'+codClasse.value+'" name="codClasse" type="hidden" value="'+codClasse.value+'" /> ');
+                novotd0.innerHTML = novotd0.innerHTML.concat(' <input id="inputDescClasse'+codClasse.value+'" name="descClasse" type="hidden" value="'+descClasse.value+'" /> ');
+                novotd0.innerHTML = novotd0.innerHTML.concat(' <input id="inputSecundClasse'+codClasse.value+'" name="secundClasse" type="hidden" value="'+proc.secundario+'" /> ');
+                novotd1 = novotr.insertCell(1);
+                novotd1.style.textAlign = 'center';   
+                //se algum item ainda não foi definido como Principal uma primeira vez
+                //e o item inserido puder ser definido como Principal
+                if(!primeiroClassePrincipalDefinido && proc.secundario=='N'){
+                    //define o item como Principal
+                    novotd1.innerHTML = '<input id="radioClasse'+codClasse.value+'" name="codClassePrincipal" style="border-style:none;" type="radio" checked value="'+codClasse.value+'" />';
+                    primeiroClassePrincipalDefinido = true;
+                    document.getElementById('inputClassePrincipalDef').value = true;
+                }
+                else{
+                    if(proc.secundario=='N')//se o item puder ser definido como Principal
+                    //possibilita que o item seja definido como Principal
+                        novotd1.innerHTML = '<input id="radioClasse'+codClasse.value+'" name="codClassePrincipal" style="border-style:none;" type="radio" value="'+codClasse.value+'" />';
+                    else
+                    //impossibilita que o item seja definido como Principal
+                        novotd1.innerHTML = '<input id="radioClasse'+codClasse.value+'" name="codClassePrincipal" style="border-style:none;" type="radio" disabled value="'+codClasse.value+'" />';
+                }
+
+                novotd2 = novotr.insertCell(2);
+                novotd2.style.textAlign = 'center';
+                novotd2.innerHTML = '<input id="chkClasse'+codClasse.value+'" name="chkClasse" type="checkbox" style="border-style:none;" value="'+codClasse.value+'" />'; 
+
+                //limpa os textboxes de código e descrição
+                codClasse.value = '';
+                descClasse.value = '';
+            }
+        }else{
+            alert('Código informado para Classe já inserido.');
+        }
+    }
+        
+    /**
+    * Método utilizado para verificar se um determinado código já foi
+    * adicionado à tabela de seleção.
+    */
+    function ClasseJaAdicionado(codClasse){
+    //tenta recuperar um hidden com o id formado a partir do código.
+        var input = document.getElementById('inputCodClasse'+codClasse);
+        if(input!=null)
+            return true;
+        return false;
+    }
+           
+    /**
+    * Método utilizado para marcar ou desmarcar todos os itens da tabela
+    * de seleção.
+    */
+    function marcarTodosClasse(chkMestre){                
+        var chks = document.getElementsByName('chkClasse');
+        for(var i=0;i<chks.length;i++){
+            chks[i].checked = chkMestre.checked;
+        }
+    }
+         
+    /**
+    * Método utilizado para excluir os itens da tabela de seleção que 
+    * estão marcados
+    */
+    function excluirClasseSelecionados(){
+        var tbClasse = document.getElementById('tbClasse');
+        var chks = document.getElementsByName('chkClasse');
+        var codExcluidos = new Array();
+        var j=0;
+
+        //recupera os códigos dos itens a serem excluídos
+        for(var i=0;i<chks.length;i++){                    
+            if(chks[i].checked){
+                codExcluidos[j] = chks[i].value;
+                j++;
+            }                    
+        } 
+        //exclui os itens efetivamente
+        for(var i=0;i<codExcluidos.length;i++){                    
+            var tr = document.getElementById('trTbClasse'+codExcluidos[i])
+            if(tr!=null)
+                tbClasse.deleteRow(tr.rowIndex);                    
+        }
+        //se todos os itens da tabela de seleção forem excluídos,
+        //desmarca o checkbox "marcar todos"
+        if(tbClasse.rows.length<3){
+            var chk = document.getElementById('chkMarcaTodosClasse');
+            chk.checked = false;
+        }
+        
+    }
+            
+</script>
+
+
+<table border="0" cellpadding="0" cellspacing="0" width="100%">
+<tr>
+    <td>
+        <input name="seqCategoriaClasse" id="seqCategoriaClasse" type="text" onkeypress="return acionarBuscaClasse(event, 'buscaCategoriaClasse', 'descCategoriaClasse');" value="" size="10" maxlength="8">
+        <a id="buscaCategoriaClasse" href="javascript:;" onclick="pesquisa('seqCategoriaClasse', 'descCategoriaClasse', 'Classe', 'projudi.beans.CnjClasseCategoriaPeer', preencheClasse , getParametrosPesquisa);"><img id="btnBuscaClasse" style="vertical-align:middle;"  border="0" src="/projudi/imagens/botoes/bot-busca.gif" /></a>                        
+        <input name="descCategoriaClasse" id="descCategoriaClasse" readonly type="text" value="" size="50" maxlength="255">        
+        
+            
+                <a href="javascript: exibePopup('/projudi/tabelaprocessual/BuscaArvore', 'Classe', true,  700, 430, preencheClasse, false, ['codTipoJustica',null,null,'codVara']); ">Buscar na &Aacute;rvore</a>
+            
+            
+                
+        
+            &nbsp;                                               
+            <a href="javascript: adicionarClasse();"><img id="btnAddClasse" style="vertical-align:middle;"  border="0" alt="Adicionar Classe" src="/projudi/imagens/botoes/bot-adicionar.gif" /></a>
+            <img id="imgHelpClasse" style="vertical-align:middle;" width="16px;" height="16px;" border="0" src="/projudi/imagens/botoes/pro-botao1.gif" />
+            
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="ToolTip"></div>
+    <script type="text/javascript" src="/projudi/scripts/toolTip.js"></script>    
+
+
+<script type="text/javascript">
+    var objeto = document.getElementById("imgHelpClasse");
+    objeto.onmouseover = function() {
+        tip("Adição de Classes", "Após selecionar um(a) Classe (pela <strong>Árvore de Classes</strong> ou buscando pelo código), clique no botão ao lado para adicioná-lo(a) à tabela abaixo.", "300", "");
+        return false;
+    }
+    objeto.onmouseout = function() {
+        notip();
+        return false;
+    }    
+</script>
+
+
+        
+        
+            &nbsp;
+
+            
+            <input type="checkbox" id="chkRecursivoClasse" name="pesquisaRecursivaClasse" value="true"  /><span style="vertical-align:middle;">Recursivo</span>
+        
+    </td>
+</tr>    
+
+
+    <tr>
+        <td style="padding-top:5px;">
+            <table id="tbClasse" width="100%" class="tabelaLista">
+            
+            <tr class="primeiraLinha">
+                <td style="padding-left:5px;padding-right:5px;">Descri&ccedil;&atilde;o</td>
+                <td width="1%" style="padding-left:5px;padding-right:5px;">Principal</td>
+                <td width="1%" style="padding-left:5px;padding-right:5px;text-align:center;">
+                    <input type="checkbox" id="chkMarcaTodosClasse" onchange="marcarTodosClasse(this);" >
+                    <input id="inputClassePrincipalDef" name="ClassePrincipalDef" type="hidden" value="" />
+                </td>
+            </tr>           
+            
+            
+            
+    
+    
+    
+    
+    <tr class="ultimaLinha">
+        <td colspan="3" style="padding:3px;padding-left:5px;padding-right:5px;">                                    
+            <span style="float: right;"><a href="javascript:excluirClasseSelecionados();">Excluir Selecionados</a></span>
+        </td>
+    </tr>  
+    
+    </table>
+    </td>
+    </tr>
+    
+
+
+</table>
+
+
+
+
+
+
+                    </td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>Prioridade Processual</strong></td>
+                    <td>
+                        <select name="codPrioridadeProcessual" id="codPrioridadeProcessual">
+                            <option value="-1">Selecione Para Busca</option>
+                            
+                            <option value="0">NORMAL</option>
+                            
+                            <option value="5">LEI 12.008, DE 29 DE JULHO DE 2009</option>
+                            
+                        </select>
+                    </td>
+                </tr>
+                
+	                <tr class="tBranca">
+	                    <td><strong>Status Processual</strong></td>
+	                    <td>
+	                        <select name="codStatusProcesso" id="codStatusProcesso">
+	                            <option value="-1">Selecione Para Busca</option>
+	                            
+	                            <option value="0">ATIVO</option>
+	                            
+	                            <option value="1">ARQUIVADO</option>
+	                            
+	                            <option value="2">SUSPENSO</option>
+	                            
+	                        </select>
+	                    </td>
+	                </tr>
+                
+                
+                <tr class="tCinza">
+                    <td><strong>Situação do Processo</strong></td>
+                    <td>
+                        <select name="codSituacao" id="codSituacao">
+                            <option value="-1">Selecione Para Busca</option>
+                            
+                            <option value="3">AGUARDANDO AUDIÊNCIA</option>
+                            
+                            <option value="2">AUTOS CONCLUSOS</option>
+                            
+                            <option value="4">PROCESSO ARQUIVADO</option>
+                            
+                            <option value="1">PROCESSO DISTRIBUÍDO</option>
+                            
+                        </select>
+                    </td>
+                </tr>
+                <tr class="tBranca">
+                    <td><strong>Data Inicial de Distribui&ccedil;&atilde;o</strong></td>
+                    <td>
+                        <input name="dataInicio" id="data" type="text" alt="data" >
+                        <img style="vertical-align:bottom; cursor:pointer;" 
+                        src="/projudi/scripts/calendar/images/bot-calendario.png" 
+                        alt="Selecionar data e hora a partir de um calendário" 
+                        width="18" height="18" border="0" align="bottom"/>
+                    </td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>Data Final de Distribui&ccedil;&atilde;o</strong></td>
+                    <td>
+                        <input name="dataFim" id="data" type="text" style="width: 96pt;" alt="data"  >
+                        <img style="vertical-align:bottom; cursor:pointer;" 
+                        	 src="/projudi/scripts/calendar/images/bot-calendario.png" 
+                        	 alt="Selecionar data e hora a partir de um calendário" 
+                        	 width="18" height="18" border="0" align="bottom"/>
+                    </td>
+                </tr>
+                
+                
+                
+                <tr class="tCinza">
+                    <td><strong>Protocolo Juntada</strong></td>
+                    <td>
+                        <input name="protocoloJuntada" type="text" size="50" maxlength="200" >
+                    </td>
+                </tr>                
+                <tr class="primeiraLinha">
+                    <td colspan="2">Dados de Delegacia</td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>Data do Fato</strong></td>
+                    <td>
+                    <!--Max - TJMT -->
+                        <input name="dataFato" 
+                        	id="data" 
+                        	alt="data"
+                        	type="text"  
+                        	style="width: 96pt;" >
+                        <img style="vertical-align:bottom; cursor:pointer;" 
+                             src="/projudi/scripts/calendar/images/bot-calendario.png" 
+                             alt="Selecionar data e hora a partir de um calendário" width="18" height="18" border="0" 
+                             align="bottom" />
+                    </td>
+                </tr>
+                <tr class="tBranca">
+                    <td><strong>Delegacia de Origem</strong></td>
+                    <td>
+                        <select name="delegaciaOrigem" id="delegaciaOrigem">
+                            <option value="-1">Selecione Para Busca</option>
+                            
+                        </select>
+                    </td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>N&uacute;mero do TCO</strong></td>
+                    <td><input name="numeroProcessoTCO" value="" type="text" id="numeroProcessoTCO" size="25" maxlength="20"></td>
+                </tr>
+                <tr class="tBranca">
+                    <td><strong>Data do TCO</strong></td>
+                    <td>
+
+                        <input name="dataTCO" 
+                        	id="data"
+                        	alt="data" 
+                        	type="text" 
+                        	style="width: 96pt;" >
+                        	                        	
+                        <img style="vertical-align:bottom; cursor:pointer;" src="/projudi/scripts/calendar/images/bot-calendario.png" 
+                        	 alt="Selecionar data e hora a partir de um calendário" width="18" height="18" border="0" align="bottom"/>
+
+                    </td>
+                </tr>
+                <tr class="tCinza">
+                    <td><strong>Registro de Ocorr&ecirc;ncia</strong></td>
+                    <td>
+                        <select name="codTipoRegistroOcorrencia" id="codTipoRegistroOcorrencia" onclick="verificaTipoRegistroOutros()">
+                            <option value="-1">Selecione Para Busca</option>
+                            
+                                
+                                    <option value="1"> Outros</option>
+                                
+                                    <option value="2"> Boletim Ocorrncia</option>
+                                
+                                    <option value="3"> Nmero do REDS</option>
+                                
+                            
+                        </select>
+                        &nbsp; <strong>Desc. Outros</strong> <input id="tipoRegistroOutros" name="tipoRegistroOutros" disabled type="text" class="textField" style="width:150px;" maxlength="40"/>
+                        &nbsp; <strong>Nº</strong><input id="numeroRegistro" name="numeroRegistro" type="text" class="textField" style="width:150px;" maxlength="20" size="20" onkeypress="mascara(this,numeros)"/>
+                    </td>
+                </tr>
+                <tr align="center" valign="middle" class="ultimaLinha">
+                 <td colspan="2">
+ 						<!-- Foi criado esta tabela para alinhar os botões abaixo (uma vez que este nao ficavam alinhados por ser um botao e uma tag 'a' um do lado do outro -->
+ 						<table border="0">
+ 							<tr>
+ 								<td> 								
+ 									<input name="Buscar" id="id_botao_escondido" value="Buscar" type="image" src="/projudi/imagens/botoes/bot-submeter.gif" width="60" height="21" border="0" style="display: none;">
+ 									<a href="javascript:void(0);"> 										
+ 										<img alt="Submeter" src="/projudi/imagens/botoes/bot-submeter.gif" width="60" height="21" border="0" onclick="javascript: (getContSubmit()==1)? validarFormulario():getContSubmit();">
+ 									</a> 								 							
+ 								
+ 								<td>
+ 									<a href="/projudi/PaginaPrincipal.jsp" >
+			                    		<img alt="" src="/projudi/imagens/botoes/bot-voltar.gif" border="0" width="60" height="21" border="0">
+			                    	</a>
+ 								</td>
+ 								
+ 							</tr>
+ 						</table>                    	
+                 	   
+                 </td>
+                </tr>
+            </table>
+            <div align="center"></div>
+        </form>
+        <script type="text/javascript">
+        //colocar foco no primeiro Campo
+        jQuery('#numeroProcesso').focus();
+        </script>
+     
+	</div>						
+</div>
+<div id="rodape">
+	<center>			
+		<img src="/projudi/imagens/fundo_rodape.png" alt="" border="0" hspace="0"  style=" padding-top: 0px; margin-bottom: 0px; height : 20px; width: 100%; "/>
+	</center>
+</div>		
+</body>
+</html>

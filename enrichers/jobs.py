@@ -6,10 +6,17 @@ from rq import Retry
 
 from tribunals.models import Process
 
-from .esaj import TjalEnricher, TjspEnricher
+from .esaj import TjacEnricher, TjalEnricher, TjspEnricher
+from .tjap import TjapEnricher
+from .tjce import TjceEnricher
 from .tjdft import TjdftEnricher
 from .tjma import TjmaEnricher
 from .tjmg import TjmgEnricher
+from .tjmt import TjmtEnricher
+from .tjpa import TjpaEnricher
+from .tjpe import TjpeEnricher
+from .tjrj import TjrjEnricher
+from .tjro import TjroEnricher
 from .trf1 import Trf1Enricher
 from .trf3 import Trf3Enricher
 from .trf5 import Trf5Enricher
@@ -26,6 +33,15 @@ _ENRICHERS = {
     'TJSP': TjspEnricher,
     'TJAL': TjalEnricher,
     'TJDFT': TjdftEnricher,
+    # Viáveis (recon 2026-06-29): PJe clássico sem captcha + e-SAJ.
+    'TJCE': TjceEnricher,
+    'TJAP': TjapEnricher,
+    'TJPE': TjpeEnricher,
+    'TJRJ': TjrjEnricher,
+    'TJRO': TjroEnricher,
+    'TJAC': TjacEnricher,
+    'TJPA': TjpaEnricher,
+    'TJMT': TjmtEnricher,
 }
 
 ENRICH_TIMEOUT = 300

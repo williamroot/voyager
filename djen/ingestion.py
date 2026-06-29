@@ -24,7 +24,9 @@ UF_OABS = [
 
 # Tribunais com enricher implementado. Process novo nesses tribunais é
 # auto-enfileirado pra enriquecimento via consulta pública.
-TRIBUNAIS_COM_ENRICHER = {'TRF1', 'TRF3', 'TRF5', 'TJMG', 'TJMA', 'TJSP', 'TJAL', 'TJDFT'}
+TRIBUNAIS_COM_ENRICHER = {'TRF1', 'TRF3', 'TRF5', 'TJMG', 'TJMA', 'TJSP', 'TJAL', 'TJDFT',
+                          # recon 2026-06-29: consulta pública aberta (sem captcha/login)
+                          'TJCE', 'TJAP', 'TJPE', 'TJRJ', 'TJRO', 'TJAC', 'TJMT', 'TJPA'}
 
 
 def ingest_processo(processo, client: DJENClient | None = None) -> dict:

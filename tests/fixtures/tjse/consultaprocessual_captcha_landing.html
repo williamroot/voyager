@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<!DOCTYPE html>
+<head id="j_idt2">
+        <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE10" />
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <title></title>
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta http-equiv="Pragma" content="no-cache" />
+        <meta http-equiv="Expires" content="0" /><link type="text/css" rel="stylesheet" href="/consultaprocessual/javax.faces.resource/theme.css.xhtml;jsessionid=qHebTnolZgMU1TesjRIDbj1IWbfh1C640STyHOXE.vplwildflycp?ln=primefaces-saga&amp;v=13.0.10" /><link type="text/css" rel="stylesheet" href="/consultaprocessual/javax.faces.resource/primeicons/primeicons.css.xhtml;jsessionid=qHebTnolZgMU1TesjRIDbj1IWbfh1C640STyHOXE.vplwildflycp?ln=primefaces&amp;v=13.0.10" /><script type="text/javascript" src="/consultaprocessual/javax.faces.resource/jquery/jquery.js.xhtml;jsessionid=qHebTnolZgMU1TesjRIDbj1IWbfh1C640STyHOXE.vplwildflycp?ln=primefaces&amp;v=13.0.10"></script><script type="text/javascript" src="/consultaprocessual/javax.faces.resource/jquery/jquery-plugins.js.xhtml;jsessionid=qHebTnolZgMU1TesjRIDbj1IWbfh1C640STyHOXE.vplwildflycp?ln=primefaces&amp;v=13.0.10"></script><script type="text/javascript" src="/consultaprocessual/javax.faces.resource/core.js.xhtml;jsessionid=qHebTnolZgMU1TesjRIDbj1IWbfh1C640STyHOXE.vplwildflycp?ln=primefaces&amp;v=13.0.10"></script><script type="text/javascript">if(window.PrimeFaces){PrimeFaces.settings.locale='pt_BR';PrimeFaces.settings.viewId='/paginas/consulta/captcha.xhtml';PrimeFaces.settings.contextPath='/consultaprocessual';PrimeFaces.settings.cookiesSecure=false;}</script>
+        <!-- Script do Turnstile -->
+        <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback" async="true" defer="true"></script>
+        <link rel="stylesheet" type="text/css" href="/consultaprocessual/resources/css/estilo.css" /></head><body>
+<form id="formCaptcha" name="formCaptcha" method="post" action="/consultaprocessual/paginas/consulta/captcha.xhtml;jsessionid=qHebTnolZgMU1TesjRIDbj1IWbfh1C640STyHOXE.vplwildflycp" enctype="application/x-www-form-urlencoded">
+<input type="hidden" name="formCaptcha" value="formCaptcha" />
+
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center">
+            <!-- Div onde o captcha ser&aacute; renderizado -->
+            <div class="cf-turnstile" id="turnstile-div" data-theme="light"></div>
+            
+            <div>Para sua segurança, estamos realizando uma verificação para confirmar que você não é um robô.</div>
+
+            <!-- Bot&atilde;o e campo hidden --><div class="p_like buttonPosition"><script id="j_idt10" type="text/javascript">redireciona = function() {return PrimeFaces.ab({s:"j_idt10",f:"formCaptcha",pa:arguments[0]});}</script><input id="turnstile-hidden" type="hidden" name="turnstile-hidden" /></div>
+        </div><input type="hidden" name="javax.faces.ViewState" id="j_id1:javax.faces.ViewState:0" value="3904433098113449293:-2400624185285506705" autocomplete="off" />
+</form>
+
+    <!-- Script para carregar o captcha e preencher o inputHidden -->
+    <script type="text/javascript">
+        addEventListener('load', function () {
+            if (typeof turnstile === 'undefined') {
+                console.error('Turnstile script not loaded');
+            } else {
+                carregarCaptcha();
+            }
+        });
+
+        var turnstileCaptchaId = null;
+        function carregarCaptcha() {
+            const divCaptcha = document.getElementById('turnstile-div');
+            divCaptcha.innerHTML = '';
+            turnstileCaptchaId = turnstile.render(divCaptcha, {
+                sitekey: "0x4AAAAAAB77FdVHbbPXHiNX",
+                callback: function (token) {
+                    document.getElementById('turnstile-hidden').value = token;
+                    redireciona();
+                }
+            });
+        }
+    </script></body>

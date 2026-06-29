@@ -293,14 +293,25 @@ def apply_event(event: dict) -> None:
 
         # Partes — wipe + reinsert mantém ordem do enricher original
         ProcessoParte.objects.filter(processo_id=pid).delete()
+        # Dedupe por chave da constraint uniq_processo_parte_polo_papel_principal
+        # (processo, parte, polo, papel WHERE representa IS NULL): duas entradas
+        # principais que resolvem pra MESMA Parte no mesmo polo/papel (ex.: réus
+        # homônimos sem doc em usucapião) colidiriam no INSERT. Reusa a 1ª pp pros
+        # representantes da 2ª em vez de estourar IntegrityError.
+        seen_principais: dict = {}
         for polo, lista in (event.get('partes') or {}).items():
             for principal in lista:
                 p_principal = upsert_parte(principal)
-                pp_principal = ProcessoParte.objects.create(
-                    processo=processo, parte=p_principal,
-                    polo=polo, papel=principal.get('papel') or '',
-                    representa=None,
-                )
+                papel_principal = principal.get('papel') or ''
+                chave = (p_principal.pk, polo, papel_principal)
+                pp_principal = seen_principais.get(chave)
+                if pp_principal is None:
+                    pp_principal = ProcessoParte.objects.create(
+                        processo=processo, parte=p_principal,
+                        polo=polo, papel=papel_principal,
+                        representa=None,
+                    )
+                    seen_principais[chave] = pp_principal
                 for rep in principal.get('representantes') or []:
                     p_rep = upsert_parte(rep)
                     if p_rep.pk == p_principal.pk:
