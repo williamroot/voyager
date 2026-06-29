@@ -95,6 +95,16 @@ class BasePjeEnricher:
     BASE_URL: str = ''
     LIST_URL: str = ''
     DETALHE_PATH: str = ''           # ex.: '/consultapublica/ConsultaPublica/DetalheProcessoConsultaPublica'
+    # 2º grau (opt-in). Tribunais cujo PJe expõe a consulta pública de 2º grau
+    # num host/path próprio (ex.: TJMA → pje2.tjma.jus.br/pje2g) definem estes.
+    # Vazios ⇒ tribunal só tem 1º grau público; processos de 2g caem nas URLs
+    # de 1g (comportamento legado, inalterado). O HTML do PJe consulta pública
+    # é idêntico nos dois grais — só as URLs mudam, então o parsing de
+    # detalhe/partes é reaproveitado integralmente. Mesmo padrão do
+    # `BaseEsajEnricher` (cpopg/cposg), aqui roteado por host/path.
+    BASE_URL_2G: str = ''
+    LIST_URL_2G: str = ''
+    DETALHE_PATH_2G: str = ''
     TRIBUNAL_SIGLA: str = ''
     LOG_NAME: str = 'voyager.enrichers.pje'
     USER_AGENT: Optional[str] = None  # Subclasse pode sobrescrever (ex: tribunais atrás de WAF que rejeita UA identificador)
@@ -336,8 +346,49 @@ class BasePjeEnricher:
                 return sid
         return None
 
+    @staticmethod
+    def _grau(cnj: str) -> str:
+        """'2g' se o processo é de 2º grau (foro de origem OOOO == '0000',
+        i.e. originário do tribunal), senão '1g'. Independente de tribunal —
+        mesma regra do `BaseEsajEnricher._grau`."""
+        return '2g' if re.sub(r'\D', '', cnj or '')[-4:] == '0000' else '1g'
+
+    def _urls_for_grau(self, grau: str) -> tuple[str, str, str]:
+        """`(BASE_URL, LIST_URL, DETALHE_PATH)` do grau pedido. Cai pro 1º grau
+        quando o tribunal não configurou 2º grau (`LIST_URL_2G` vazio) — então
+        um CNJ de 2g num tribunal só-1g segue o caminho legado."""
+        if grau == '2g' and self.LIST_URL_2G:
+            return self.BASE_URL_2G, self.LIST_URL_2G, self.DETALHE_PATH_2G
+        return self.BASE_URL, self.LIST_URL, self.DETALHE_PATH
+
     def _buscar_processo(self, numero_cnj: str) -> Optional[str]:
-        resp = self._get(self.LIST_URL)
+        """Acha o link de detalhe, roteando por grau com fallback.
+
+        O grau não vem nos metadados do Voyager (Process não tem campo `grau`)
+        e NÃO dá pra inferir do CNJ com segurança: só os processos de
+        competência originária do tribunal trazem o código do próprio tribunal
+        no segmento OOOO; uma Apelação mantém o OOOO da comarca de origem
+        (no TJMA, p.ex., G2 termina em `0001`, não `0000`). Por isso o `_grau`
+        é só um palpite barato pra escolher por qual instância começar — se ela
+        não acha o processo e o tribunal tem 2º grau configurado, tenta a outra
+        instância antes de desistir. 1g e 2g são instâncias PJe separadas
+        (hosts distintos), então um número só existe em uma delas: o fallback
+        é determinístico, não ambíguo. Tribunais só-1g (sem `LIST_URL_2G`)
+        fazem uma única busca — comportamento legado inalterado.
+        """
+        palpite = self._grau(numero_cnj)
+        link = self._buscar_em_grau(numero_cnj, palpite)
+        if link is None and self.LIST_URL_2G:
+            outro = '1g' if palpite == '2g' else '2g'
+            self.logger.info('grau fallback', extra={
+                'cnj': numero_cnj, 'de': palpite, 'para': outro,
+            })
+            link = self._buscar_em_grau(numero_cnj, outro)
+        return link
+
+    def _buscar_em_grau(self, numero_cnj: str, grau: str) -> Optional[str]:
+        base_url, list_url, detalhe_path = self._urls_for_grau(grau)
+        resp = self._get(list_url)
         soup = BeautifulSoup(resp.text, 'html.parser')
         vs = soup.find('input', {'name': 'javax.faces.ViewState'})
         if not vs or not vs.get('value'):
@@ -345,7 +396,7 @@ class BasePjeEnricher:
 
         fields = self._extract_form_fields(soup)
         search_id = self._find_search_script_id(soup) or 'fPP:j_id268'
-        self.logger.info('search button id', extra={'id': search_id})
+        self.logger.info('search button id', extra={'id': search_id, 'grau': grau})
 
         payload = dict(fields)
         payload[CAMPO_NUM] = numero_cnj
@@ -355,21 +406,21 @@ class BasePjeEnricher:
         payload[search_id] = search_id
         payload['AJAX:EVENTS_COUNT'] = '1'
 
-        resp = self._post(self.LIST_URL, payload)
+        resp = self._post(list_url, payload)
         # Match do link de detalhe — DETALHE_PATH varia por tribunal (TRF1 usa
-        # /consultapublica/..., TRF3 usa /pje/...).
-        path_re = re.escape(self.DETALHE_PATH) + r"/[^\"'<>\s]+"
+        # /consultapublica/..., TRF3/TJMA usam /pje/...; TJMA 2g usa /pje2g/).
+        path_re = re.escape(detalhe_path) + r"/[^\"'<>\s]+"
         m = re.search(f"({path_re})", resp.text)
         if m:
-            return self.BASE_URL + m.group(1).replace('&amp;', '&')
+            return base_url + m.group(1).replace('&amp;', '&')
         m_id = re.search(r"idProcessoTrf['\"]?\s*[:=]\s*['\"]?(\d+)", resp.text)
         if m_id:
-            return f'{self.BASE_URL}{self.DETALHE_PATH}/listView.seam?ca={m_id.group(1)}'
+            return f'{base_url}{detalhe_path}/listView.seam?ca={m_id.group(1)}'
         # Não logamos `resp.text` porque a página de resposta do PJe pode
         # conter PII (nome de outras partes, advogados) — só o cnj e tamanho
         # bastam pra triagem operacional.
         self.logger.warning('detalhe não encontrado', extra={
-            'cnj': numero_cnj, 'resp_len': len(resp.text),
+            'cnj': numero_cnj, 'resp_len': len(resp.text), 'grau': grau,
         })
         return None
 
