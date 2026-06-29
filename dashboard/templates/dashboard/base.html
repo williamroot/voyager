@@ -668,6 +668,20 @@
       TRF1: '#10b981', TRF3: '#3b82f6', TRF2: '#f59e0b', TRF4: '#ef4444',
       TRF5: '#8b5cf6', TRF6: '#ec4899', TJSP: '#06b6d4', TJMG: '#a3e635',
     };
+    // Cor estável por sigla de tribunal. Usa a cor curada do VOYAGER_COLORS se
+    // houver; senão deriva uma cor via hash da sigla (HSL com S/L fixos pra
+    // harmonizar com os charts). Determinístico: mesma sigla → sempre a mesma
+    // cor, consistente entre todos os charts. Evita que dezenas de TJs fora do
+    // mapa caíssem no cinza único (antes: VOYAGER_COLORS[t] com fallback cinza).
+    function tribunalColor(sigla) {
+      if (!sigla) return '#71717a';
+      if (VOYAGER_COLORS[sigla]) return VOYAGER_COLORS[sigla];
+      let h = 0;
+      const s = String(sigla);
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+      return `hsl(${h}, 62%, 60%)`;
+    }
+    window.tribunalColor = tribunalColor;
     function fmt(n) { return Number(n).toLocaleString('pt-BR'); }
     // Versão compacta pra eixos Y — evita "1.000.000" cortando margem esquerda
     function fmtCompact(n) {
@@ -719,7 +733,7 @@
         series: tribunais.map(t => ({
           name: t, type: 'line', stack: 'total', smooth: 0.3, symbol: 'none',
           areaStyle: {opacity: 0.18}, lineStyle: {width: 1.5},
-          color: VOYAGER_COLORS[t] || '#71717a',
+          color: tribunalColor(t),
           data: dias.map(d => lookup[t + '|' + d] || 0),
         })),
       };
@@ -748,7 +762,8 @@
           data: rows.map(r => ({
             name: r[key],
             value: r[valueKey],
-            itemStyle: VOYAGER_COLORS[r[key]] ? {color: VOYAGER_COLORS[r[key]]} : {},
+            itemStyle: key === 'tribunal' ? {color: tribunalColor(r[key])}
+              : (VOYAGER_COLORS[r[key]] ? {color: VOYAGER_COLORS[r[key]]} : {}),
           })),
         }],
       };
@@ -886,7 +901,7 @@
         },
         series: tribunais.map(t => ({
           name: t, type: 'bar', stack: 'total',
-          color: VOYAGER_COLORS[t] || '#71717a',
+          color: tribunalColor(t),
           data: horas.map(h => lookup[t + '|' + h] || 0),
           itemStyle: {borderRadius: tribunais.indexOf(t) === tribunais.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]},
           emphasis: {focus: 'series'},
@@ -916,7 +931,7 @@
 
       const series = [];
       tribunais.forEach(t => {
-        const col = VOYAGER_COLORS[t] || '#71717a';
+        const col = tribunalColor(t);
         series.push({
           name: t + ' · ok', type:'bar', stack: t,
           data: allMonths.map(m => (byKey[m+'|'+t] || {ok:0}).ok),
@@ -972,8 +987,8 @@
           const x = byKey[w+'|'+t];
           return x ? [w, Math.round(x.sum / x.n)] : null;
         }).filter(Boolean),
-        itemStyle: {color: VOYAGER_COLORS[t] || '#71717a'},
-        lineStyle: {color: VOYAGER_COLORS[t] || '#71717a', width:2},
+        itemStyle: {color: tribunalColor(t)},
+        lineStyle: {color: tribunalColor(t), width:2},
         showSymbol: false,
         emphasis: {focus:'series'},
       }));
@@ -1027,7 +1042,7 @@
       const series = tribunais.map(t => ({
         name: t, type:'bar', stack:'total',
         data: allMonths.map(m => byKey[m+'|'+t] || 0),
-        itemStyle: {color: VOYAGER_COLORS[t] || '#71717a'},
+        itemStyle: {color: tribunalColor(t)},
         emphasis: {focus:'series'}, barMaxWidth: 36,
       }));
 

@@ -565,7 +565,7 @@ window.buildHistScoreTribunal = function(d) {
                     left: 'center', top: 'center'}};
   }
   const tribs = d.tribunais || d.series.map(s => s.tribunal);
-  const palette = window.VOYAGER_COLORS || {};
+  const tcolor = window.tribunalColor || (() => undefined);
   const bins = (d.bins || []).slice(0, -1); // edges → centers
   return {
     tooltip: {trigger: 'axis', valueFormatter: fmt},
@@ -589,9 +589,9 @@ window.buildHistScoreTribunal = function(d) {
       name: s.tribunal,
       type: 'line', smooth: 0.3, symbol: 'none',
       data: s.dados,
-      lineStyle: {width: 2, color: palette[s.tribunal] || undefined},
+      lineStyle: {width: 2, color: tcolor(s.tribunal)},
       areaStyle: {opacity: 0.08},
-      color: palette[s.tribunal] || undefined,
+      color: tcolor(s.tribunal),
       emphasis: {focus: 'series'},
     })),
   };
@@ -606,7 +606,7 @@ window.buildCalibracaoTribunal = function(d) {
                     textStyle: {color: c.legend, fontSize: 12},
                     left: 'center', top: 'center'}};
   }
-  const palette = window.VOYAGER_COLORS || {};
+  const tcolor = window.tribunalColor || (() => undefined);
   const decis_x = ['D1','D2','D3','D4','D5','D6','D7','D8','D9','D10'];
   const series = [
     {
@@ -624,8 +624,8 @@ window.buildCalibracaoTribunal = function(d) {
       name: t.tribunal,
       type: 'line', smooth: 0.2, symbol: 'circle', symbolSize: 5,
       data: t.decis.map(r => r.taxa_real),
-      lineStyle: {width: 2.5, color: palette[t.tribunal] || undefined},
-      color: palette[t.tribunal] || undefined,
+      lineStyle: {width: 2.5, color: tcolor(t.tribunal)},
+      color: tcolor(t.tribunal),
     });
   });
   return {
