@@ -447,18 +447,31 @@ def processos(request):
                 cur.execute("SELECT reltuples::bigint FROM pg_class WHERE relname='tribunals_process'")
                 row = cur.fetchone()
                 count_override = int(row[0]) if row and row[0] else 0
-    elif len(tribunais_filtro) == 1:
+    else:
+        # Com filtro (tribunal e/ou enriq): deriva o total do cache
+        # `estatisticas_por_tribunal` (warm 30min) somando o bucket relevante
+        # por tribunal — NUNCA um COUNT(*). Crítico: `enriq=ok` sem tribunal
+        # fazia COUNT(*) sobre ~11M (medido 59s, 2026-06-28) → estourava o
+        # timeout do gunicorn e a /processos/?enriq=ok nunca carregava.
         stats = {
             s['tribunal'].sigla: s
             for s in queries.estatisticas_por_tribunal()
             if s.get('tribunal')
         }
-        entry = stats.get(tribunais_filtro[0])
-        if entry and not entry.get('pending'):
+        siglas = tribunais_filtro or list(stats.keys())
+        total = 0
+        completo = bool(stats)
+        for sg in siglas:
+            entry = stats.get(sg)
+            if not entry or entry.get('pending'):
+                completo = False
+                break
             if enriq in ('ok', 'pendente', 'nao_encontrado', 'erro'):
-                count_override = entry.get('enriquecimento', {}).get(enriq, 0)
+                total += entry.get('enriquecimento', {}).get(enriq, 0)
             else:
-                count_override = entry.get('processos')
+                total += entry.get('processos') or 0
+        if completo:
+            count_override = total
 
     page = _paginar(qs, request, default_size=50, count_override=count_override)
     return render(request, 'dashboard/_partials/_processos_list.html', {
