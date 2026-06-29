@@ -309,4 +309,33 @@ Placeholder com spinner enquanto carrega.
     Carregando movimentações…
   </div>
 </div>
+
+{% comment %}
+Teor (Gordon) — lazy-load via HTMX. hx-trigger="revealed" dispara somente
+quando o elemento entra na viewport, evitando bloquear o first paint com a
+chamada LLM que pode levar vários segundos.
+{% endcomment %}
+<details class="card mb-5 group" id="gordon-teor-section">
+  <summary class="cursor-pointer list-none flex items-center justify-between gap-2">
+    <div class="flex items-center gap-2">
+      <span class="text-fg-subtle text-[0.65rem] group-open:rotate-90 transition-transform">▸</span>
+      <div class="text-sm font-medium text-fg-soft">Teor (Gordon)</div>
+      <span class="mission-tag text-[0.55rem] tracking-widest">LLM</span>
+    </div>
+    <div class="text-[0.65rem] text-fg-subtle font-normal">clique pra expandir · extração por IA</div>
+  </summary>
+  <div class="mt-4 pt-4 border-t border-border/40"
+       id="gordon-teor-content"
+       hx-get="{% url 'dashboard:acervo-teor' processo.numero_cnj %}"
+       hx-trigger="revealed"
+       hx-swap="innerHTML">
+    <div class="flex items-center gap-2 text-fg-subtle text-sm">
+      <svg class="w-4 h-4 animate-spin text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" stroke-width="3" class="opacity-25"/>
+        <path d="M4 12a8 8 0 018-8" stroke-width="3" class="opacity-75"/>
+      </svg>
+      Consultando Gordon…
+    </div>
+  </div>
+</details>
 {% endblock %}
