@@ -229,6 +229,9 @@ DATAJUD_PROXYSCRAPE_API_KEY = env('DATAJUD_PROXYSCRAPE_API_KEY', default='')
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)
+# CapSolver — resolução de CAPTCHA p/ consultas públicas gated (Turnstile,
+# imagem, reCAPTCHA, hCaptcha). Ver enrichers/captcha.py.
+CAPSOLVER_API_KEY = env('CAPSOLVER_API_KEY', default='')
 # IPs datacenter reciclam rápido — 10 min de quarentena queimava o pool
 # inteiro durante ondas de WAF (1490/1500 bad observados). 2 min permite
 # rotação saudável sem voltar imediatamente pro mesmo IP queimado.
