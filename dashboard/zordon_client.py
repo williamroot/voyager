@@ -1,14 +1,14 @@
-"""Cliente HTTP fino para a API de busca semântica do Gordon.
+"""Cliente HTTP fino para a API de busca semântica do Zordon.
 
 Uso:
-    from dashboard.gordon_client import buscar
+    from dashboard.zordon_client import buscar
 
     resultado = buscar("precatório federal INSS", limit=10)
     # {"results": [...], "erro": None}
 
 Configuração (via .env / settings):
-    GORDON_URL      URL base do serviço Gordon  (ex.: http://localhost:8011)
-    GORDON_API_KEY  Api-Key para o header Authorization
+    ZORDON_URL      URL base do serviço Zordon  (ex.: http://localhost:8011)
+    ZORDON_API_KEY  Api-Key para o header Authorization
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import logging
 import requests
 from django.conf import settings
 
-logger = logging.getLogger('voyager.gordon_client')
+logger = logging.getLogger('voyager.zordon_client')
 
 _TIMEOUT = (5, 20)  # (connect, read) em segundos
 
@@ -29,7 +29,7 @@ def buscar(
     cnj: str | None = None,
     rerank: bool = True,
 ) -> dict:
-    """Chama GET {GORDON_URL}/api/search e retorna o payload normalizado.
+    """Chama GET {ZORDON_URL}/api/search e retorna o payload normalizado.
 
     Retorno em caso de sucesso::
 
@@ -52,11 +52,11 @@ def buscar(
 
     A função nunca propaga exceções — degrada graciosamente.
     """
-    base_url = getattr(settings, 'GORDON_URL', '').rstrip('/')
-    api_key = getattr(settings, 'GORDON_API_KEY', '')
+    base_url = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    api_key = getattr(settings, 'ZORDON_API_KEY', '')
 
     if not base_url:
-        return {'results': [], 'erro': 'GORDON_URL não configurado'}
+        return {'results': [], 'erro': 'ZORDON_URL não configurado'}
 
     params: dict = {'q': query, 'limit': limit, 'rerank': str(rerank).lower()}
     if cnj:
@@ -80,21 +80,21 @@ def buscar(
             'erro': None,
         }
     except requests.exceptions.ConnectionError:
-        logger.warning('gordon: falha de conexão em %s', base_url)
+        logger.warning('zordon: falha de conexão em %s', base_url)
         return {'results': [], 'erro': 'Serviço de busca indisponível (falha de conexão)'}
     except requests.exceptions.Timeout:
-        logger.warning('gordon: timeout em %s', base_url)
+        logger.warning('zordon: timeout em %s', base_url)
         return {'results': [], 'erro': 'Serviço de busca não respondeu a tempo'}
     except requests.exceptions.HTTPError as exc:
-        logger.warning('gordon: HTTP %s em %s', exc.response.status_code, base_url)
+        logger.warning('zordon: HTTP %s em %s', exc.response.status_code, base_url)
         return {'results': [], 'erro': f'Serviço de busca retornou erro HTTP {exc.response.status_code}'}
     except Exception as exc:  # pragma: no cover — catch-all defensivo
-        logger.exception('gordon: erro inesperado: %s', exc)
+        logger.exception('zordon: erro inesperado: %s', exc)
         return {'results': [], 'erro': 'Erro inesperado ao contatar o serviço de busca'}
 
 
 def extrair(cnj: str) -> dict:
-    """Chama GET {GORDON_URL}/api/extract/<cnj> e retorna os campos estruturados.
+    """Chama GET {ZORDON_URL}/api/extract/<cnj> e retorna os campos estruturados.
 
     Retorno em caso de sucesso::
 
@@ -109,7 +109,7 @@ def extrair(cnj: str) -> dict:
             "erro":                 None,
         }
 
-    Quando o processo não está indexado no Gordon retorna::
+    Quando o processo não está indexado no Zordon retorna::
 
         {"erro": "sem_contexto"}
 
@@ -119,11 +119,11 @@ def extrair(cnj: str) -> dict:
 
     A função nunca propaga exceções — degrada graciosamente.
     """
-    base_url = getattr(settings, 'GORDON_URL', '').rstrip('/')
-    api_key = getattr(settings, 'GORDON_API_KEY', '')
+    base_url = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    api_key = getattr(settings, 'ZORDON_API_KEY', '')
 
     if not base_url:
-        return {'erro': 'GORDON_URL não configurado'}
+        return {'erro': 'ZORDON_URL não configurado'}
 
     headers = {}
     if api_key:
@@ -142,24 +142,24 @@ def extrair(cnj: str) -> dict:
             return {'erro': 'sem_contexto'}
         return {**data, 'erro': None}
     except requests.exceptions.ConnectionError:
-        logger.warning('gordon: falha de conexão em %s (extrair %s)', base_url, cnj)
-        return {'erro': 'Serviço Gordon indisponível (falha de conexão)'}
+        logger.warning('zordon: falha de conexão em %s (extrair %s)', base_url, cnj)
+        return {'erro': 'Serviço Zordon indisponível (falha de conexão)'}
     except requests.exceptions.Timeout:
-        logger.warning('gordon: timeout em %s (extrair %s)', base_url, cnj)
-        return {'erro': 'Serviço Gordon não respondeu a tempo'}
+        logger.warning('zordon: timeout em %s (extrair %s)', base_url, cnj)
+        return {'erro': 'Serviço Zordon não respondeu a tempo'}
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code
-        logger.warning('gordon: HTTP %s em %s (extrair %s)', status, base_url, cnj)
+        logger.warning('zordon: HTTP %s em %s (extrair %s)', status, base_url, cnj)
         if status == 404:
             return {'erro': 'sem_contexto'}
-        return {'erro': f'Serviço Gordon retornou erro HTTP {status}'}
+        return {'erro': f'Serviço Zordon retornou erro HTTP {status}'}
     except Exception as exc:  # pragma: no cover — catch-all defensivo
-        logger.exception('gordon: erro inesperado (extrair %s): %s', cnj, exc)
-        return {'erro': 'Erro inesperado ao contatar o serviço Gordon'}
+        logger.exception('zordon: erro inesperado (extrair %s): %s', cnj, exc)
+        return {'erro': 'Erro inesperado ao contatar o serviço Zordon'}
 
 
 def chunks(cnj: str) -> dict:
-    """Chama GET {GORDON_URL}/api/chunks/<cnj> e retorna os chunks do auto.
+    """Chama GET {ZORDON_URL}/api/chunks/<cnj> e retorna os chunks do auto.
 
     Retorno em caso de sucesso::
 
@@ -181,11 +181,11 @@ def chunks(cnj: str) -> dict:
 
     A função nunca propaga exceções — degrada graciosamente.
     """
-    base_url = getattr(settings, 'GORDON_URL', '').rstrip('/')
-    api_key = getattr(settings, 'GORDON_API_KEY', '')
+    base_url = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    api_key = getattr(settings, 'ZORDON_API_KEY', '')
 
     if not base_url:
-        return {'chunks': [], 'erro': 'GORDON_URL não configurado'}
+        return {'chunks': [], 'erro': 'ZORDON_URL não configurado'}
 
     headers = {}
     if api_key:
@@ -204,15 +204,15 @@ def chunks(cnj: str) -> dict:
             'erro': None,
         }
     except requests.exceptions.ConnectionError:
-        logger.warning('gordon: falha de conexão em %s (chunks %s)', base_url, cnj)
-        return {'chunks': [], 'erro': 'Serviço Gordon indisponível (falha de conexão)'}
+        logger.warning('zordon: falha de conexão em %s (chunks %s)', base_url, cnj)
+        return {'chunks': [], 'erro': 'Serviço Zordon indisponível (falha de conexão)'}
     except requests.exceptions.Timeout:
-        logger.warning('gordon: timeout em %s (chunks %s)', base_url, cnj)
-        return {'chunks': [], 'erro': 'Serviço Gordon não respondeu a tempo'}
+        logger.warning('zordon: timeout em %s (chunks %s)', base_url, cnj)
+        return {'chunks': [], 'erro': 'Serviço Zordon não respondeu a tempo'}
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code
-        logger.warning('gordon: HTTP %s em %s (chunks %s)', status, base_url, cnj)
-        return {'chunks': [], 'erro': f'Serviço Gordon retornou erro HTTP {status}'}
+        logger.warning('zordon: HTTP %s em %s (chunks %s)', status, base_url, cnj)
+        return {'chunks': [], 'erro': f'Serviço Zordon retornou erro HTTP {status}'}
     except Exception as exc:  # pragma: no cover — catch-all defensivo
-        logger.exception('gordon: erro inesperado (chunks %s): %s', cnj, exc)
-        return {'chunks': [], 'erro': 'Erro inesperado ao contatar o serviço Gordon'}
+        logger.exception('zordon: erro inesperado (chunks %s): %s', cnj, exc)
+        return {'chunks': [], 'erro': 'Erro inesperado ao contatar o serviço Zordon'}

@@ -1,21 +1,21 @@
-"""Testes da view acervo_teor e das funções gordon_client.extrair/chunks.
+"""Testes da view acervo_teor e das funções zordon_client.extrair/chunks.
 
 Cobertura:
 - acervo_teor: renderiza campos quando extração OK
 - acervo_teor: exibe aviso "não indexado" quando erro="sem_contexto"
-- acervo_teor: exibe erro amigável quando Gordon offline (erro genérico)
+- acervo_teor: exibe erro amigável quando Zordon offline (erro genérico)
 - acervo_teor: redireciona para login se não autenticado
 - acervo_teor: não chama chunks quando extração falha
-- gordon_client.extrair: retorna campos em sucesso
-- gordon_client.extrair: degrada em ConnectionError
-- gordon_client.extrair: mapeia 404 HTTP para sem_contexto
-- gordon_client.extrair: degrada em Timeout
-- gordon_client.extrair: retorna erro quando GORDON_URL vazio
-- gordon_client.chunks: retorna lista em sucesso
-- gordon_client.chunks: degrada em ConnectionError
+- zordon_client.extrair: retorna campos em sucesso
+- zordon_client.extrair: degrada em ConnectionError
+- zordon_client.extrair: mapeia 404 HTTP para sem_contexto
+- zordon_client.extrair: degrada em Timeout
+- zordon_client.extrair: retorna erro quando ZORDON_URL vazio
+- zordon_client.chunks: retorna lista em sucesso
+- zordon_client.chunks: degrada em ConnectionError
 
-gordon_client.extrair e gordon_client.chunks são mockados nos testes de view
-— não precisa do Gordon no ar.
+zordon_client.extrair e zordon_client.chunks são mockados nos testes de view
+— não precisa do Zordon no ar.
 """
 from __future__ import annotations
 
@@ -104,14 +104,14 @@ class TestAcervoTeorView:
     def test_renderiza_campos_quando_extracao_ok(self, client_logado):
         extr = dict(_EXTRACAO_MOCK)
         with (
-            patch('dashboard.gordon_client.extrair', return_value=extr),
-            patch('dashboard.gordon_client.chunks', return_value=_CHUNKS_MOCK),
+            patch('dashboard.zordon_client.extrair', return_value=extr),
+            patch('dashboard.zordon_client.chunks', return_value=_CHUNKS_MOCK),
         ):
             resp = client_logado.get(_teor_url())
 
         assert resp.status_code == 200
         content = resp.content.decode()
-        assert 'gordon-teor' in content
+        assert 'zordon-teor' in content
         assert 'Precatório' in content
         assert '150000' in content or '150,000' in content or '150.000' in content
         assert '0.91' in content
@@ -121,8 +121,8 @@ class TestAcervoTeorView:
     def test_exibe_chunks_quando_presentes(self, client_logado):
         extr = dict(_EXTRACAO_MOCK)
         with (
-            patch('dashboard.gordon_client.extrair', return_value=extr),
-            patch('dashboard.gordon_client.chunks', return_value=_CHUNKS_MOCK),
+            patch('dashboard.zordon_client.extrair', return_value=extr),
+            patch('dashboard.zordon_client.chunks', return_value=_CHUNKS_MOCK),
         ):
             resp = client_logado.get(_teor_url())
 
@@ -132,44 +132,44 @@ class TestAcervoTeorView:
 
     def test_sem_contexto_exibe_aviso_nao_indexado(self, client_logado):
         with (
-            patch('dashboard.gordon_client.extrair', return_value={'erro': 'sem_contexto'}),
+            patch('dashboard.zordon_client.extrair', return_value={'erro': 'sem_contexto'}),
         ):
             resp = client_logado.get(_teor_url())
 
         assert resp.status_code == 200
         content = resp.content.decode()
         assert 'não indexado' in content.lower()
-        assert 'gordon-teor' in content
+        assert 'zordon-teor' in content
         # Não deve mostrar campos de extração
         assert 'Precatório' not in content
 
     def test_erro_generico_exibe_mensagem_amigavel(self, client_logado):
-        payload = {'erro': 'Serviço Gordon indisponível (falha de conexão)'}
+        payload = {'erro': 'Serviço Zordon indisponível (falha de conexão)'}
         with (
-            patch('dashboard.gordon_client.extrair', return_value=payload),
+            patch('dashboard.zordon_client.extrair', return_value=payload),
         ):
             resp = client_logado.get(_teor_url())
 
         assert resp.status_code == 200
         content = resp.content.decode()
-        assert 'Gordon indisponível' in content or 'falha de conexão' in content.lower()
-        assert 'gordon-teor' in content
+        assert 'Zordon indisponível' in content or 'falha de conexão' in content.lower()
+        assert 'zordon-teor' in content
 
     def test_chunks_nao_e_chamado_quando_extracao_falha(self, client_logado):
         payload = {'erro': 'sem_contexto'}
         with (
-            patch('dashboard.gordon_client.extrair', return_value=payload),
-            patch('dashboard.gordon_client.chunks') as mock_chunks,
+            patch('dashboard.zordon_client.extrair', return_value=payload),
+            patch('dashboard.zordon_client.chunks') as mock_chunks,
         ):
             client_logado.get(_teor_url())
 
         mock_chunks.assert_not_called()
 
-    def test_chunks_nao_e_chamado_quando_gordon_offline(self, client_logado):
-        payload = {'erro': 'Serviço Gordon indisponível (falha de conexão)'}
+    def test_chunks_nao_e_chamado_quando_zordon_offline(self, client_logado):
+        payload = {'erro': 'Serviço Zordon indisponível (falha de conexão)'}
         with (
-            patch('dashboard.gordon_client.extrair', return_value=payload),
-            patch('dashboard.gordon_client.chunks') as mock_chunks,
+            patch('dashboard.zordon_client.extrair', return_value=payload),
+            patch('dashboard.zordon_client.chunks') as mock_chunks,
         ):
             client_logado.get(_teor_url())
 
@@ -178,8 +178,8 @@ class TestAcervoTeorView:
     def test_usa_template_partial_correto(self, client_logado):
         extr = dict(_EXTRACAO_MOCK)
         with (
-            patch('dashboard.gordon_client.extrair', return_value=extr),
-            patch('dashboard.gordon_client.chunks', return_value=_CHUNKS_MOCK),
+            patch('dashboard.zordon_client.extrair', return_value=extr),
+            patch('dashboard.zordon_client.chunks', return_value=_CHUNKS_MOCK),
         ):
             resp = client_logado.get(_teor_url())
 
@@ -192,8 +192,8 @@ class TestAcervoTeorView:
         extr = dict(_EXTRACAO_MOCK)
         chunks_vazio = {'chunks': [], 'erro': None}
         with (
-            patch('dashboard.gordon_client.extrair', return_value=extr),
-            patch('dashboard.gordon_client.chunks', return_value=chunks_vazio),
+            patch('dashboard.zordon_client.extrair', return_value=extr),
+            patch('dashboard.zordon_client.chunks', return_value=chunks_vazio),
         ):
             resp = client_logado.get(_teor_url())
 
@@ -204,16 +204,16 @@ class TestAcervoTeorView:
         assert 'Fragmentos do auto' not in content
 
 
-# ---------- testes unitários do gordon_client ----------
+# ---------- testes unitários do zordon_client ----------
 
-class TestGordonClientExtrair:
-    """Testes unitários de gordon_client.extrair."""
+class TestZordonClientExtrair:
+    """Testes unitários de zordon_client.extrair."""
 
     def test_extrair_retorna_campos_em_sucesso(self, settings):
-        from dashboard.gordon_client import extrair
+        from dashboard.zordon_client import extrair
 
-        settings.GORDON_URL = 'http://gordon:8011'
-        settings.GORDON_API_KEY = ''
+        settings.ZORDON_URL = 'http://zordon:8011'
+        settings.ZORDON_API_KEY = ''
 
         mock_resp = req_lib.Response()
         mock_resp.status_code = 200
@@ -223,7 +223,7 @@ class TestGordonClientExtrair:
         ).encode('utf-8')
         mock_resp.encoding = 'utf-8'
 
-        with patch('dashboard.gordon_client.requests.get', return_value=mock_resp):
+        with patch('dashboard.zordon_client.requests.get', return_value=mock_resp):
             resultado = extrair(CNJ_MOCK)
 
         assert resultado['erro'] is None
@@ -231,11 +231,11 @@ class TestGordonClientExtrair:
         assert resultado['confianca'] == 0.91
 
     def test_extrair_degrada_em_connection_error(self, settings):
-        from dashboard.gordon_client import extrair
+        from dashboard.zordon_client import extrair
 
-        settings.GORDON_URL = 'http://gordon:8011'
+        settings.ZORDON_URL = 'http://zordon:8011'
 
-        with patch('dashboard.gordon_client.requests.get',
+        with patch('dashboard.zordon_client.requests.get',
                    side_effect=req_lib.exceptions.ConnectionError('refused')):
             resultado = extrair(CNJ_MOCK)
 
@@ -243,81 +243,81 @@ class TestGordonClientExtrair:
         assert 'conexão' in resultado['erro'].lower() or 'indisponível' in resultado['erro'].lower()
 
     def test_extrair_mapeia_404_para_sem_contexto(self, settings):
-        from dashboard.gordon_client import extrair
+        from dashboard.zordon_client import extrair
 
-        settings.GORDON_URL = 'http://gordon:8011'
+        settings.ZORDON_URL = 'http://zordon:8011'
 
         mock_resp = req_lib.Response()
         mock_resp.status_code = 404
         mock_resp._content = b'{"detail": "not found"}'
         mock_resp.encoding = 'utf-8'
 
-        with patch('dashboard.gordon_client.requests.get', return_value=mock_resp):
+        with patch('dashboard.zordon_client.requests.get', return_value=mock_resp):
             resultado = extrair(CNJ_MOCK)
 
         assert resultado['erro'] == 'sem_contexto'
 
     def test_extrair_propaga_sem_contexto_do_payload(self, settings):
-        from dashboard.gordon_client import extrair
+        from dashboard.zordon_client import extrair
 
-        settings.GORDON_URL = 'http://gordon:8011'
+        settings.ZORDON_URL = 'http://zordon:8011'
 
         mock_resp = req_lib.Response()
         mock_resp.status_code = 200
         mock_resp._content = b'{"erro": "sem_contexto"}'
         mock_resp.encoding = 'utf-8'
 
-        with patch('dashboard.gordon_client.requests.get', return_value=mock_resp):
+        with patch('dashboard.zordon_client.requests.get', return_value=mock_resp):
             resultado = extrair(CNJ_MOCK)
 
         assert resultado['erro'] == 'sem_contexto'
 
     def test_extrair_degrada_em_timeout(self, settings):
-        from dashboard.gordon_client import extrair
+        from dashboard.zordon_client import extrair
 
-        settings.GORDON_URL = 'http://gordon:8011'
+        settings.ZORDON_URL = 'http://zordon:8011'
 
-        with patch('dashboard.gordon_client.requests.get',
+        with patch('dashboard.zordon_client.requests.get',
                    side_effect=req_lib.exceptions.Timeout('timed out')):
             resultado = extrair(CNJ_MOCK)
 
         assert resultado.get('erro') is not None
         assert 'tempo' in resultado['erro'].lower() or 'timeout' in resultado['erro'].lower()
 
-    def test_extrair_retorna_erro_quando_gordon_url_vazio(self, settings):
-        from dashboard.gordon_client import extrair
+    def test_extrair_retorna_erro_quando_zordon_url_vazio(self, settings):
+        from dashboard.zordon_client import extrair
 
-        settings.GORDON_URL = ''
+        settings.ZORDON_URL = ''
         resultado = extrair(CNJ_MOCK)
 
-        assert 'GORDON_URL' in resultado['erro']
+        assert 'ZORDON_URL' in resultado['erro']
 
     def test_extrair_passa_api_key_no_header(self, settings):
-        from dashboard.gordon_client import extrair
+        from dashboard.zordon_client import extrair
 
-        settings.GORDON_URL = 'http://gordon:8011'
-        settings.GORDON_API_KEY = 'chave-secreta'
+        settings.ZORDON_URL = 'http://zordon:8011'
+        settings.ZORDON_API_KEY = 'chave-secreta'
 
         mock_resp = req_lib.Response()
         mock_resp.status_code = 200
         mock_resp._content = '{"natureza": "Precatório"}'.encode('utf-8')
         mock_resp.encoding = 'utf-8'
 
-        with patch('dashboard.gordon_client.requests.get', return_value=mock_resp) as mock_get:
+        with patch('dashboard.zordon_client.requests.get', return_value=mock_resp) as mock_get:
             extrair(CNJ_MOCK)
 
         call_kwargs = mock_get.call_args[1]
         assert call_kwargs['headers']['Authorization'] == 'Api-Key chave-secreta'
 
 
-class TestGordonClientChunks:
-    """Testes unitários de gordon_client.chunks."""
+class TestZordonClientChunks:
+    """Testes unitários de zordon_client.chunks."""
 
     def test_chunks_retorna_lista_em_sucesso(self, settings):
-        from dashboard.gordon_client import chunks
+        from dashboard.zordon_client import chunks
 
-        settings.GORDON_URL = 'http://gordon:8011'
-        settings.GORDON_API_KEY = ''
+        settings.ZORDON_URL = 'http://zordon:8011'
+        settings.ZORDON_API_KEY = ''
 
         mock_resp = req_lib.Response()
         mock_resp.status_code = 200
@@ -326,7 +326,7 @@ class TestGordonClientChunks:
         )
         mock_resp.encoding = 'utf-8'
 
-        with patch('dashboard.gordon_client.requests.get', return_value=mock_resp):
+        with patch('dashboard.zordon_client.requests.get', return_value=mock_resp):
             resultado = chunks(CNJ_MOCK)
 
         assert resultado['erro'] is None
@@ -334,22 +334,22 @@ class TestGordonClientChunks:
         assert resultado['chunks'][0]['id'] == 'c1'
 
     def test_chunks_degrada_em_connection_error(self, settings):
-        from dashboard.gordon_client import chunks
+        from dashboard.zordon_client import chunks
 
-        settings.GORDON_URL = 'http://gordon:8011'
+        settings.ZORDON_URL = 'http://zordon:8011'
 
-        with patch('dashboard.gordon_client.requests.get',
+        with patch('dashboard.zordon_client.requests.get',
                    side_effect=req_lib.exceptions.ConnectionError('refused')):
             resultado = chunks(CNJ_MOCK)
 
         assert resultado['chunks'] == []
         assert resultado.get('erro') is not None
 
-    def test_chunks_retorna_erro_quando_gordon_url_vazio(self, settings):
-        from dashboard.gordon_client import chunks
+    def test_chunks_retorna_erro_quando_zordon_url_vazio(self, settings):
+        from dashboard.zordon_client import chunks
 
-        settings.GORDON_URL = ''
+        settings.ZORDON_URL = ''
         resultado = chunks(CNJ_MOCK)
 
         assert resultado['chunks'] == []
-        assert 'GORDON_URL' in resultado['erro']
+        assert 'ZORDON_URL' in resultado['erro']

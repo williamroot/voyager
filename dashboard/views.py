@@ -2513,18 +2513,18 @@ def leads_validacao_criar_lote(request):
 
 
 # ---------------------------------------------------------------------------
-# Acervo — busca semântica (Gordon)
+# Acervo — busca semântica (Zordon)
 # ---------------------------------------------------------------------------
 
 @login_required
 @require_GET
 def acervo_busca(request):
-    """Página de busca semântica no acervo de autos via Gordon.
+    """Página de busca semântica no acervo de autos via Zordon.
 
     GET sem HX-Request → shell completo (caixa de busca + estado vazio).
     GET com HX-Request → apenas o partial de resultados (swap HTMX).
     """
-    from .gordon_client import buscar as gordon_buscar
+    from .zordon_client import buscar as zordon_buscar
 
     q = request.GET.get('q', '').strip()
 
@@ -2539,7 +2539,7 @@ def acervo_busca(request):
             'erro': None,
         })
 
-    dados = gordon_buscar(q)
+    dados = zordon_buscar(q)
     return render(request, 'dashboard/_partials/_acervo_resultados.html', {
         'q': q,
         'resultados': dados.get('results', []),
@@ -2550,26 +2550,26 @@ def acervo_busca(request):
 @login_required
 @require_GET
 def acervo_teor(request, cnj):
-    """Partial HTMX com campos extraídos pelo Gordon para um processo específico.
+    """Partial HTMX com campos extraídos pelo Zordon para um processo específico.
 
     Carregado lazily no detalhe do processo (hx-trigger="revealed").
-    Chama gordon_client.extrair(cnj) para obter os campos estruturados e
-    gordon_client.chunks(cnj) para os fragmentos do auto (opcional).
+    Chama zordon_client.extrair(cnj) para obter os campos estruturados e
+    zordon_client.chunks(cnj) para os fragmentos do auto (opcional).
 
     Casos de resposta:
     - Extração OK → tabela de campos + (se disponível) chunks
-    - erro="sem_contexto" → aviso "processo não indexado no Gordon"
-    - Qualquer outro erro → mensagem amigável (Gordon offline / falha de rede)
+    - erro="sem_contexto" → aviso "processo não indexado no Zordon"
+    - Qualquer outro erro → mensagem amigável (Zordon offline / falha de rede)
     """
-    from .gordon_client import extrair as gordon_extrair, chunks as gordon_chunks
+    from .zordon_client import extrair as zordon_extrair, chunks as zordon_chunks
 
-    dados_extracao = gordon_extrair(cnj)
+    dados_extracao = zordon_extrair(cnj)
     sem_contexto = dados_extracao.get('erro') == 'sem_contexto'
     erro_generico = dados_extracao.get('erro') if not sem_contexto else None
 
     dados_chunks = None
     if not dados_extracao.get('erro'):
-        dados_chunks = gordon_chunks(cnj)
+        dados_chunks = zordon_chunks(cnj)
 
     return render(request, 'dashboard/_partials/_acervo_teor.html', {
         'cnj': cnj,

@@ -1,11 +1,11 @@
 {% load voyager_extras %}
 {#
-  Partial — Teor (Gordon): campos estruturados extraídos + chunks do auto.
+  Partial — Teor (Zordon): campos estruturados extraídos + chunks do auto.
 
   Variáveis de contexto:
     cnj          — número CNJ do processo
     extracao     — dict com os campos extraídos, ou None em caso de erro
-    sem_contexto — True quando o processo não está indexado no Gordon
+    sem_contexto — True quando o processo não está indexado no Zordon
     erro         — string de erro genérico, ou None
     chunks       — lista de dicts com fragmentos do auto (pode ser vazia)
 
@@ -13,19 +13,19 @@
     natureza, valor_principal, valor_juros_mora, data_oficio,
     numero_parcelas_rra, fundamento_resumo, confianca
 #}
-<div id="gordon-teor">
+<div id="zordon-teor">
 
   {% if sem_contexto %}
-  {# ---- Processo não indexado no Gordon ---- #}
+  {# ---- Processo não indexado no Zordon ---- #}
   <div class="card border-warning/30 bg-warning/5">
     <div class="flex items-start gap-3">
       <div class="flex-shrink-0 mt-0.5 text-warning">
         {% voy_icon "anomaly" "w-5 h-5" %}
       </div>
       <div>
-        <div class="text-sm font-medium text-fg">Processo não indexado no Gordon</div>
+        <div class="text-sm font-medium text-fg">Processo não indexado no Zordon</div>
         <div class="text-xs text-fg-muted mt-1 leading-relaxed">
-          O Gordon ainda não processou os autos deste processo. A extração de
+          O Zordon ainda não processou os autos deste processo. A extração de
           campos (valores, natureza, fundamento) requer que os documentos
           estejam indexados no acervo semântico.
         </div>
@@ -34,14 +34,14 @@
   </div>
 
   {% elif erro %}
-  {# ---- Erro de rede / Gordon offline ---- #}
+  {# ---- Erro de rede / Zordon offline ---- #}
   <div class="card border-danger/40 bg-danger/5">
     <div class="flex items-start gap-3">
       <div class="flex-shrink-0 mt-0.5 text-danger">
         {% voy_icon "anomaly" "w-5 h-5" %}
       </div>
       <div>
-        <div class="text-sm font-medium text-fg">Serviço Gordon indisponível</div>
+        <div class="text-sm font-medium text-fg">Serviço Zordon indisponível</div>
         <div class="text-xs text-fg-muted mt-1">{{ erro }}</div>
       </div>
     </div>
@@ -139,7 +139,7 @@
 
   {% else %}
   {# ---- Fallback: sem dados e sem erro específico ---- #}
-  {% include 'dashboard/_partials/empty_state.html' with title='Sem dados de extração' subtitle='O Gordon não retornou campos estruturados para este processo.' %}
+  {% include 'dashboard/_partials/empty_state.html' with title='Sem dados de extração' subtitle='O Zordon não retornou campos estruturados para este processo.' %}
 
   {% endif %}
 
