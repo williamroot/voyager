@@ -706,9 +706,18 @@
       // sem isso o gráfico sugeria queda artificial todo dia/mês.
       rows = rows.filter(r => !r.parcial);
       const dias = [...new Set(rows.map(r => r.dia))].sort();
-      const tribunais = [...new Set(rows.map(r => r.tribunal))].sort();
       const lookup = {};
-      rows.forEach(r => { lookup[r.tribunal + '|' + r.dia] = r.total; });
+      const totais = {};
+      rows.forEach(r => {
+        lookup[r.tribunal + '|' + r.dia] = r.total;
+        totais[r.tribunal] = (totais[r.tribunal] || 0) + (r.total || 0);
+      });
+      // Top-N por volume + "Outros": com ~30 tribunais ingerindo, uma série por
+      // tribunal vira um stack ilegível. Mantém os 12 maiores e soma o resto.
+      const TOPN_VOL = 12;
+      const ordenados = Object.keys(totais).sort((a, b) => totais[b] - totais[a]);
+      const principais = ordenados.slice(0, TOPN_VOL);
+      const resto = ordenados.slice(TOPN_VOL);
       const c = chartGridColors();
       // Auto-detect bucket: ISO completo (T...) = dia; só YYYY-MM-DD = mensal.
       // Formata o eixo X compacto (mês/ano ou dia/mês conforme bucket).
@@ -730,12 +739,20 @@
           axisLine: {lineStyle: {color: c.axisLine}},
         },
         yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmtCompact}, splitLine: {lineStyle: {color: c.splitLine}}},
-        series: tribunais.map(t => ({
-          name: t, type: 'line', stack: 'total', smooth: 0.3, symbol: 'none',
-          areaStyle: {opacity: 0.18}, lineStyle: {width: 1.5},
-          color: tribunalColor(t),
-          data: dias.map(d => lookup[t + '|' + d] || 0),
-        })),
+        series: [
+          ...principais.map(t => ({
+            name: t, type: 'line', stack: 'total', smooth: 0.3, symbol: 'none',
+            areaStyle: {opacity: 0.18}, lineStyle: {width: 1.5},
+            color: tribunalColor(t),
+            data: dias.map(d => lookup[t + '|' + d] || 0),
+          })),
+          ...(resto.length ? [{
+            name: 'Outros', type: 'line', stack: 'total', smooth: 0.3, symbol: 'none',
+            areaStyle: {opacity: 0.18}, lineStyle: {width: 1.5},
+            color: '#71717a',
+            data: dias.map(d => resto.reduce((s, t) => s + (lookup[t + '|' + d] || 0), 0)),
+          }] : []),
+        ],
       };
     }
     function buildDonut(rows, key, valueKey) {
