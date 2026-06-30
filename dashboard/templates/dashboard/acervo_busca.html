@@ -4,7 +4,7 @@
 {% block title %}Busca no Acervo{% endblock %}
 
 {% block content %}
-{% include 'dashboard/_partials/page_header.html' with title='Busca no Acervo' subtitle='Busca semântica sobre autos processuais — powered by Gordon' %}
+{% include 'dashboard/_partials/page_header.html' with title='Busca no Acervo' subtitle='Busca semântica sobre autos processuais — powered by Zordon' %}
 
 <div class="space-y-4">
 
@@ -19,7 +19,7 @@
       class="flex gap-3 items-end"
     >
       <div class="flex-1">
-        <label for="gordon-q" class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">
+        <label for="zordon-q" class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">
           Consulta
         </label>
         <div class="relative">
@@ -27,7 +27,7 @@
             {% voy_icon "search" "w-4 h-4" %}
           </div>
           <input
-            id="gordon-q"
+            id="zordon-q"
             name="q"
             type="search"
             value="{{ q }}"

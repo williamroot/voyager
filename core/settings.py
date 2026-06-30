@@ -295,9 +295,9 @@ CSRF_TRUSTED_ORIGINS = env.list('DJANGO_CSRF_TRUSTED_ORIGINS', default=[])
 # endpoint free do ip-api.com (rate limit ~45req/min, sem HTTPS).
 IP_API_KEY = env('IP_API_KEY', default='')
 
-# Gordon — serviço de busca semântica de autos
-GORDON_URL = env('GORDON_URL', default='http://localhost:8011')
-GORDON_API_KEY = env('GORDON_API_KEY', default='')
+# Zordon — serviço de busca semântica de autos
+ZORDON_URL = env('ZORDON_URL', default='http://localhost:8011')
+ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'

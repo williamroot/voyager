@@ -70,7 +70,7 @@ urlpatterns = [
     path('leads/validacao/<int:lote_id>/item/<int:posicao>/',
          views.leads_validacao_item, name='leads_validacao_item'),
 
-    # Acervo — busca semântica (Gordon)
+    # Acervo — busca semântica (Zordon)
     path('acervo/busca/', views.acervo_busca, name='acervo-busca'),
     path('acervo/teor/<str:cnj>/', views.acervo_teor, name='acervo-teor'),
 ]

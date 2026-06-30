@@ -1,14 +1,14 @@
-"""Testes da view de busca semântica no acervo (Gordon).
+"""Testes da view de busca semântica no acervo (Zordon).
 
 Cobertura:
 - GET shell sem HX-Request → renderiza a página com caixa de busca
-- GET com HX-Request + q → chama gordon_client.buscar e renderiza cards
+- GET com HX-Request + q → chama zordon_client.buscar e renderiza cards
 - GET com HX-Request + q vazia → renderiza estado vazio (sem query)
 - GET com HX-Request + q + lista vazia → estado "nenhum resultado"
 - GET com HX-Request + q + erro → renderiza mensagem amigável de falha
 - Redireciona para login se não autenticado
 
-gordon_client.buscar é mockado em todos os casos — não precisa do Gordon
+zordon_client.buscar é mockado em todos os casos — não precisa do Zordon
 no ar.
 """
 from __future__ import annotations
@@ -36,13 +36,13 @@ _RESULTADO_MOCK = {
 
 @pytest.fixture
 def usuario(db):
-    return User.objects.create_user(username='tester_gordon', password='senha123')
+    return User.objects.create_user(username='tester_zordon', password='senha123')
 
 
 @pytest.fixture
 def client_logado(usuario):
     c = Client()
-    c.login(username='tester_gordon', password='senha123')
+    c.login(username='tester_zordon', password='senha123')
     return c
 
 
@@ -81,8 +81,8 @@ class TestAcervoBuscaShell:
         assert 'dashboard/acervo_busca.html' in templates
         assert 'dashboard/base.html' in templates
 
-    def test_shell_sem_htmx_nao_chama_gordon(self, client_logado):
-        with patch('dashboard.gordon_client.buscar') as mock_buscar:
+    def test_shell_sem_htmx_nao_chama_zordon(self, client_logado):
+        with patch('dashboard.zordon_client.buscar') as mock_buscar:
             client_logado.get(BUSCA_URL, {'q': 'precatório'})
             mock_buscar.assert_not_called()
 
@@ -102,7 +102,7 @@ class TestAcervoBuscaHTMX:
 
     def test_resultados_renderiza_cards(self, client_logado):
         payload = {'results': [_RESULTADO_MOCK], 'erro': None}
-        with patch('dashboard.gordon_client.buscar', return_value=payload):
+        with patch('dashboard.zordon_client.buscar', return_value=payload):
             resp = _htmx(client_logado, BUSCA_URL, q='precatório federal')
 
         assert resp.status_code == 200
@@ -114,7 +114,7 @@ class TestAcervoBuscaHTMX:
     def test_multiplos_resultados(self, client_logado):
         r2 = dict(_RESULTADO_MOCK, numero_cnj='0009999-99.2024.5.00.0000', score=0.75)
         payload = {'results': [_RESULTADO_MOCK, r2], 'erro': None}
-        with patch('dashboard.gordon_client.buscar', return_value=payload):
+        with patch('dashboard.zordon_client.buscar', return_value=payload):
             resp = _htmx(client_logado, BUSCA_URL, q='precatório')
 
         content = resp.content.decode()
@@ -124,16 +124,16 @@ class TestAcervoBuscaHTMX:
 
     def test_lista_vazia_exibe_estado_sem_resultado(self, client_logado):
         payload = {'results': [], 'erro': None}
-        with patch('dashboard.gordon_client.buscar', return_value=payload):
+        with patch('dashboard.zordon_client.buscar', return_value=payload):
             resp = _htmx(client_logado, BUSCA_URL, q='xyzzy irrelevante')
 
         assert resp.status_code == 200
         content = resp.content.decode()
         assert 'Nenhum resultado encontrado' in content
 
-    def test_erro_gordon_exibe_mensagem_amigavel(self, client_logado):
+    def test_erro_zordon_exibe_mensagem_amigavel(self, client_logado):
         payload = {'results': [], 'erro': 'Serviço de busca indisponível (falha de conexão)'}
-        with patch('dashboard.gordon_client.buscar', return_value=payload):
+        with patch('dashboard.zordon_client.buscar', return_value=payload):
             resp = _htmx(client_logado, BUSCA_URL, q='precatório')
 
         assert resp.status_code == 200
@@ -143,7 +143,7 @@ class TestAcervoBuscaHTMX:
 
     def test_partial_usa_template_correto(self, client_logado):
         payload = {'results': [], 'erro': None}
-        with patch('dashboard.gordon_client.buscar', return_value=payload):
+        with patch('dashboard.zordon_client.buscar', return_value=payload):
             resp = _htmx(client_logado, BUSCA_URL, q='teste')
 
         templates = [t.name for t in resp.templates]
@@ -152,15 +152,15 @@ class TestAcervoBuscaHTMX:
         assert 'dashboard/base.html' not in templates
 
 
-class TestGordonClient:
-    """Testes unitários do gordon_client (sem Django DB necessário)."""
+class TestZordonClient:
+    """Testes unitários do zordon_client (sem Django DB necessário)."""
 
     def test_buscar_retorna_resultados_em_sucesso(self, settings):
         import requests as req_lib
-        from dashboard.gordon_client import buscar
+        from dashboard.zordon_client import buscar
 
-        settings.GORDON_URL = 'http://gordon:8011'
-        settings.GORDON_API_KEY = ''
+        settings.ZORDON_URL = 'http://zordon:8011'
+        settings.ZORDON_API_KEY = ''
 
         mock_resp = req_lib.Response()
         mock_resp.status_code = 200
@@ -171,7 +171,7 @@ class TestGordonClient:
         )
         mock_resp.encoding = 'utf-8'
 
-        with patch('dashboard.gordon_client.requests.get', return_value=mock_resp):
+        with patch('dashboard.zordon_client.requests.get', return_value=mock_resp):
             resultado = buscar('precatório')
 
         assert resultado['erro'] is None
@@ -180,11 +180,11 @@ class TestGordonClient:
 
     def test_buscar_degrada_em_connection_error(self, settings):
         import requests as req_lib
-        from dashboard.gordon_client import buscar
+        from dashboard.zordon_client import buscar
 
-        settings.GORDON_URL = 'http://gordon:8011'
+        settings.ZORDON_URL = 'http://zordon:8011'
 
-        with patch('dashboard.gordon_client.requests.get',
+        with patch('dashboard.zordon_client.requests.get',
                    side_effect=req_lib.exceptions.ConnectionError('refused')):
             resultado = buscar('qualquer coisa')
 
@@ -194,39 +194,39 @@ class TestGordonClient:
 
     def test_buscar_degrada_em_timeout(self, settings):
         import requests as req_lib
-        from dashboard.gordon_client import buscar
+        from dashboard.zordon_client import buscar
 
-        settings.GORDON_URL = 'http://gordon:8011'
+        settings.ZORDON_URL = 'http://zordon:8011'
 
-        with patch('dashboard.gordon_client.requests.get',
+        with patch('dashboard.zordon_client.requests.get',
                    side_effect=req_lib.exceptions.Timeout('timed out')):
             resultado = buscar('qualquer coisa')
 
         assert resultado['results'] == []
         assert 'tempo' in resultado['erro'].lower() or 'timeout' in resultado['erro'].lower()
 
-    def test_buscar_retorna_erro_quando_gordon_url_vazio(self, settings):
-        from dashboard.gordon_client import buscar
+    def test_buscar_retorna_erro_quando_zordon_url_vazio(self, settings):
+        from dashboard.zordon_client import buscar
 
-        settings.GORDON_URL = ''
+        settings.ZORDON_URL = ''
         resultado = buscar('qualquer coisa')
 
         assert resultado['results'] == []
-        assert 'GORDON_URL' in resultado['erro']
+        assert 'ZORDON_URL' in resultado['erro']
 
     def test_buscar_passa_api_key_no_header(self, settings):
         import requests as req_lib
-        from dashboard.gordon_client import buscar
+        from dashboard.zordon_client import buscar
 
-        settings.GORDON_URL = 'http://gordon:8011'
-        settings.GORDON_API_KEY = 'minha-chave-secreta'
+        settings.ZORDON_URL = 'http://zordon:8011'
+        settings.ZORDON_API_KEY = 'minha-chave-secreta'
 
         mock_resp = req_lib.Response()
         mock_resp.status_code = 200
         mock_resp._content = b'{"results": []}'
         mock_resp.encoding = 'utf-8'
 
-        with patch('dashboard.gordon_client.requests.get', return_value=mock_resp) as mock_get:
+        with patch('dashboard.zordon_client.requests.get', return_value=mock_resp) as mock_get:
             buscar('teste')
 
         call_kwargs = mock_get.call_args[1]
@@ -234,17 +234,17 @@ class TestGordonClient:
 
     def test_buscar_sem_api_key_nao_envia_header(self, settings):
         import requests as req_lib
-        from dashboard.gordon_client import buscar
+        from dashboard.zordon_client import buscar
 
-        settings.GORDON_URL = 'http://gordon:8011'
-        settings.GORDON_API_KEY = ''
+        settings.ZORDON_URL = 'http://zordon:8011'
+        settings.ZORDON_API_KEY = ''
 
         mock_resp = req_lib.Response()
         mock_resp.status_code = 200
         mock_resp._content = b'{"results": []}'
         mock_resp.encoding = 'utf-8'
 
-        with patch('dashboard.gordon_client.requests.get', return_value=mock_resp) as mock_get:
+        with patch('dashboard.zordon_client.requests.get', return_value=mock_resp) as mock_get:
             buscar('teste')
 
         call_kwargs = mock_get.call_args[1]
