@@ -17,6 +17,7 @@ Esta pasta concentra a documentação **destilada** do projeto — o que um enge
 | [`API.md`](API.md) | Antes de criar/alterar endpoints REST |
 | [`PATTERNS.md`](PATTERNS.md) | Sempre: padrões de código, anti-padrões, decisões idiomáticas |
 | [`OPS.md`](OPS.md) | Quando rodar/operar o sistema, runbooks, troubleshooting |
+| [`DEPLOY.md`](DEPLOY.md) | Antes de deployar em prod — passo a passo destilado (hot / rebuild web / rebuild full) + prompt pronto |
 | [`DECISIONS.md`](DECISIONS.md) | ADRs — por que escolhemos cada caminho |
 | [`ROADMAP.md`](ROADMAP.md) | O que está pendente, escopo futuro |
 
