@@ -289,6 +289,32 @@ print(watchdog_ingestao())
 
 Output: `{'zumbis_matados': N, 're_backfill': [...], 're_daily': [...]}`.
 
+## Incidente: reabastecer saturou o DB (2026-07-01)
+
+Sintoma: web em timeout (gunicorn travado em queries), `pg_stat_activity` com
+dezenas de queries de 60–3000s empilhadas. Gatilho: ao adicionar 8 tribunais
+novos (backlog de milhões cada), o `reabastecer_filas_enriquecimento`:
+1. **rodava concorrente** — o pending-scan era lento e os runs do scheduler (2min)
+   se sobrepunham; cada um passava o teste `len(queue) < high_water` → estouro
+   (`enrich_tjmt` chegou a **387k** jobs p/ teto 100k);
+2. **re-enfileirava PENDENTE já-em-fila** — o status só vira OK quando o drainer
+   (async) aplica, então re-selecionava os mesmos a cada ciclo;
+3. **pending-scan sem índice** — `WHERE tribunal_id=X AND status=PENDENTE` pegava o
+   índice de status (milhões) e filtrava tribunal → **388s** por scan.
+
+Fix (commits 2a81d3a + 0038):
+- **lock Redis** no reabastecer (`cache.add('lock:reabastecer_enriquecimento')`) — 1 run por vez;
+- query **sargável** (sem `ORDER BY pk`, que varria o espaço global de pk);
+- **índice composto** `proc_trib_enriq_idx (tribunal, enriquecimento_status)` (migration 0038, `AddIndexConcurrently`) → pending-scan **388s → 0,09s**.
+
+Alívio imediato (se recorrer): matar zumbis/queries longas + esvaziar filas —
+`pg_terminate_backend` das ativas > 90s; `django_rq.get_queue('enrich_<sigla>').empty()`.
+Diagnóstico do hog: seção "Storm de statement_timeout" acima.
+
+Monitorar backfill: `pg_stat_activity` (nenhuma query deve passar de ~30s) +
+profundidade das filas `enrich_*` (bounded pelo `QUEUE_HIGH_WATER=100k`). Escalar
+os `worker_<sigla>` novos conforme o DB aguentar.
+
 ## Backfill de partes em batch
 
 Re-enfileira processos pendentes/erro pra fila do tribunal:
