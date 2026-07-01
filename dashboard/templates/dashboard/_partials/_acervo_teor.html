@@ -1,5 +1,5 @@
 {% load voyager_extras %}
-{#
+{% comment %}
   Partial — Teor (Zordon): campos estruturados extraídos + chunks do auto.
 
   Variáveis de contexto:
@@ -12,7 +12,7 @@
   Campos esperados em `extracao` (todos opcionais):
     natureza, valor_principal, valor_juros_mora, data_oficio,
     numero_parcelas_rra, fundamento_resumo, confianca
-#}
+{% endcomment %}
 <div id="zordon-teor">
 
   {% if sem_contexto %}

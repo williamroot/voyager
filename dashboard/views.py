@@ -2539,11 +2539,47 @@ def acervo_busca(request):
             'erro': None,
         })
 
-    dados = zordon_buscar(q)
+    # Pede mais que o teto de exibição: o Zordon indexa por documento
+    # (petição/movimentação/...), então vários hits caem no mesmo processo —
+    # deduplicamos por CNJ pra listar PROCESSOS, não documentos.
+    dados = zordon_buscar(q, limit=40)
+    erro = dados.get('erro')
+
+    melhor_por_cnj = {}
+    for it in (dados.get('results') or []):
+        cnj = (it.get('numero_cnj') or '').strip()
+        if not cnj:
+            continue
+        atual = melhor_por_cnj.get(cnj)
+        if atual is None or (it.get('score') or 0) > (atual.get('score') or 0):
+            melhor_por_cnj[cnj] = it
+
+    # Resolve CNJ -> Process do nosso acervo (só processos que existem aqui, pra
+    # o clique sempre abrir a página do processo).
+    pk_por_cnj = dict(
+        Process.objects.filter(numero_cnj__in=list(melhor_por_cnj))
+        .values_list('numero_cnj', 'pk')
+    )
+
+    resultados = []
+    for cnj, it in sorted(melhor_por_cnj.items(),
+                          key=lambda kv: -(kv[1].get('score') or 0)):
+        pk = pk_por_cnj.get(cnj)
+        if not pk:
+            continue  # só processos do acervo
+        resultados.append({
+            'numero_cnj': cnj,
+            'process_id': pk,
+            'score': it.get('score'),
+            'snippet': it.get('snippet'),
+        })
+        if len(resultados) >= 15:
+            break
+
     return render(request, 'dashboard/_partials/_acervo_resultados.html', {
         'q': q,
-        'resultados': dados.get('results', []),
-        'erro': dados.get('erro'),
+        'resultados': resultados,
+        'erro': erro,
     })
 
 
