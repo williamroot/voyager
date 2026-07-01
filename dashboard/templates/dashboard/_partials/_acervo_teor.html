@@ -1,146 +1,258 @@
 {% load voyager_extras %}
 {% comment %}
-  Partial — Teor (Zordon): campos estruturados extraídos + chunks do auto.
-
-  Variáveis de contexto:
-    cnj          — número CNJ do processo
-    extracao     — dict com os campos extraídos, ou None em caso de erro
-    sem_contexto — True quando o processo não está indexado no Zordon
-    erro         — string de erro genérico, ou None
-    chunks       — lista de dicts com fragmentos do auto (pode ser vazia)
-
-  Campos esperados em `extracao` (todos opcionais):
-    natureza, valor_principal, valor_juros_mora, data_oficio,
-    numero_parcelas_rra, fundamento_resumo, confianca
+  Showcase do processo (aba Teor). Combina:
+    - enrichment do nosso acervo (processo, polo_ativo/passivo/outros, advogados)
+    - extração do Zordon dos autos (extracao: natureza/valores/pagamento/fundamento)
+  Contexto: cnj, processo, polo_ativo, polo_passivo, polo_outros, advogados,
+            extracao, sem_contexto, erro, chunks
 {% endcomment %}
-<div id="zordon-teor">
+<div id="zordon-teor" class="space-y-4">
 
-  {% if sem_contexto %}
-  {# ---- Processo não indexado no Zordon ---- #}
-  <div class="card border-warning/30 bg-warning/5">
-    <div class="flex items-start gap-3">
-      <div class="flex-shrink-0 mt-0.5 text-warning">
-        {% voy_icon "anomaly" "w-5 h-5" %}
+  {% if processo %}
+  {# ============ SITUAÇÃO ============ #}
+  <div class="card">
+    <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+      <div class="text-sm font-semibold text-fg-soft flex items-center gap-2">
+        {% voy_icon "dossier" "w-4 h-4 text-accent-fg" %} Situação do processo
       </div>
-      <div>
-        <div class="text-sm font-medium text-fg">Processo não indexado no Zordon</div>
-        <div class="text-xs text-fg-muted mt-1 leading-relaxed">
-          O Zordon ainda não processou os autos deste processo. A extração de
-          campos (valores, natureza, fundamento) requer que os documentos
-          estejam indexados no acervo semântico.
+      <div class="flex items-center gap-2">
+        {% if processo.enriquecimento_status == 'ok' %}
+          {% include 'dashboard/_partials/badge.html' with variant='accent' text='Dados públicos OK' %}
+        {% elif processo.enriquecimento_status == 'nao_encontrado' %}
+          {% include 'dashboard/_partials/badge.html' with variant='neutral' text='Não encontrado na consulta' %}
+        {% elif processo.enriquecimento_status == 'erro' %}
+          {% include 'dashboard/_partials/badge.html' with variant='warning' text='Erro no enriquecimento' %}
+        {% else %}
+          {% include 'dashboard/_partials/badge.html' with variant='neutral' text='Enriquecimento pendente' %}
+        {% endif %}
+        {% if processo.segredo_justica %}{% include 'dashboard/_partials/badge.html' with variant='danger' text='Segredo de justiça' %}{% endif %}
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Tribunal</div>
+        <div class="text-sm text-fg-soft">{{ processo.tribunal_id }}</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Classe</div>
+        <div class="text-sm text-fg-soft">{{ processo.classe_nome|default:'—' }}</div>
+      </div>
+      <div class="card-tight col-span-2">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Assunto</div>
+        <div class="text-sm text-fg-soft">{{ processo.assunto_nome|default:'—' }}</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Autuação</div>
+        <div class="text-sm text-fg-soft">{{ processo.data_autuacao|date:'d/m/Y'|default:'—' }}</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Última movimentação</div>
+        <div class="text-sm text-fg-soft">{{ processo.ultima_movimentacao_em|date:'d/m/Y'|default:'—' }}</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Ano CNJ</div>
+        <div class="text-sm font-mono text-fg-soft">{{ processo.ano_cnj|default:'—' }}</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">CNJ</div>
+        <div class="text-xs font-mono text-fg-soft">{{ cnj }}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ============ JUÍZO + VALORES/PAGAMENTO ============ #}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    {# ---- Juízo / Vara / Comarca ---- #}
+    <div class="card">
+      <div class="text-sm font-semibold text-fg-soft flex items-center gap-2 mb-3">
+        {% voy_icon "scale" "w-4 h-4 text-accent-fg" %} Juízo
+      </div>
+      <div class="space-y-3">
+        <div>
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Órgão julgador · Vara / Comarca</div>
+          <div class="text-sm text-fg-soft">{{ processo.orgao_julgador_nome|default:'—' }}</div>
+        </div>
+        <div>
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Juízo / Relator</div>
+          <div class="text-sm text-fg-soft">{{ processo.juizo|default:'—' }}</div>
         </div>
       </div>
     </div>
-  </div>
 
-  {% elif erro %}
-  {# ---- Erro de rede / Zordon offline ---- #}
-  <div class="card border-danger/40 bg-danger/5">
-    <div class="flex items-start gap-3">
-      <div class="flex-shrink-0 mt-0.5 text-danger">
-        {% voy_icon "anomaly" "w-5 h-5" %}
+    {# ---- Valores & Pagamento (acervo + Zordon) ---- #}
+    <div class="card">
+      <div class="text-sm font-semibold text-fg-soft flex items-center gap-2 mb-3">
+        {% voy_icon "gem" "w-4 h-4 text-mission" %} Valores &amp; pagamento
       </div>
-      <div>
-        <div class="text-sm font-medium text-fg">Serviço Zordon indisponível</div>
-        <div class="text-xs text-fg-muted mt-1">{{ erro }}</div>
-      </div>
-    </div>
-  </div>
-
-  {% elif extracao %}
-  {# ---- Campos extraídos com sucesso ---- #}
-  <div class="space-y-4">
-
-    {# Confiança da extração #}
-    {% if extracao.confianca is not None %}
-    <div class="flex items-center gap-2 text-xs text-fg-subtle">
-      <span class="uppercase tracking-wider">Confiança da extração</span>
-      <span class="font-mono font-semibold
-        {% if extracao.confianca >= 0.8 %}text-accent-fg
-        {% elif extracao.confianca >= 0.5 %}text-fg-muted
-        {% else %}text-warning{% endif %}
-      ">{{ extracao.confianca|floatformat:2 }}</span>
-      <span class="mission-tag text-[0.55rem] tracking-widest">LLM</span>
-    </div>
-    {% endif %}
-
-    {# Grid de campos estruturados #}
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-
-      {% if extracao.natureza %}
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Natureza</div>
-        <div class="text-sm text-fg-soft">{{ extracao.natureza }}</div>
-      </div>
-      {% endif %}
-
-      {% if extracao.valor_principal is not None %}
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Valor principal</div>
-        <div class="text-sm font-mono text-fg-soft">R$ {{ extracao.valor_principal|floatformat:2 }}</div>
-      </div>
-      {% endif %}
-
-      {% if extracao.valor_juros_mora is not None %}
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Juros e mora</div>
-        <div class="text-sm font-mono text-fg-soft">R$ {{ extracao.valor_juros_mora|floatformat:2 }}</div>
-      </div>
-      {% endif %}
-
-      {% if extracao.data_oficio %}
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Data do ofício</div>
-        <div class="text-sm text-fg-soft">{{ extracao.data_oficio }}</div>
-      </div>
-      {% endif %}
-
-      {% if extracao.numero_parcelas_rra is not None %}
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Parcelas RRA</div>
-        <div class="text-sm font-mono text-fg-soft">{{ extracao.numero_parcelas_rra }}</div>
-      </div>
-      {% endif %}
-
-    </div>
-
-    {# Fundamento resumido #}
-    {% if extracao.fundamento_resumo %}
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-2">Fundamento (resumo)</div>
-      <p class="text-sm text-fg-muted leading-relaxed">{{ extracao.fundamento_resumo }}</p>
-    </div>
-    {% endif %}
-
-    {# Chunks do auto (lista colapsável) #}
-    {% if chunks %}
-    <details class="group">
-      <summary class="cursor-pointer list-none flex items-center gap-2 text-xs text-fg-subtle hover:text-fg-soft transition-colors py-1">
-        <span class="group-open:rotate-90 transition-transform">▸</span>
-        <span class="uppercase tracking-wider">Fragmentos do auto</span>
-        <span class="text-fg-subtle font-mono">({{ chunks|length }})</span>
-      </summary>
-      <div class="mt-2 space-y-2">
-        {% for chunk in chunks %}
-        <div class="card-tight text-xs">
-          {% if chunk.pagina is not None %}
-          <div class="text-fg-subtle text-[0.6rem] uppercase tracking-wider mb-1">
-            p. {{ chunk.pagina }}{% if chunk.id %} · <span class="font-mono">{{ chunk.id }}</span>{% endif %}
+      <div class="grid grid-cols-2 gap-3">
+        <div class="card-tight">
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Valor da causa</div>
+          <div class="text-sm font-mono text-fg-soft">{% if processo.valor_causa is not None %}R$ {{ processo.valor_causa|floatformat:2 }}{% else %}—{% endif %}</div>
+        </div>
+        {% if extracao %}
+          {% if extracao.natureza %}
+          <div class="card-tight">
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Natureza</div>
+            <div class="text-sm text-fg-soft">{{ extracao.natureza }}</div>
           </div>
           {% endif %}
-          <p class="text-fg-muted leading-relaxed line-clamp-4">{{ chunk.texto }}</p>
-        </div>
-        {% endfor %}
+          {% if extracao.valor_principal is not None %}
+          <div class="card-tight">
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Valor principal</div>
+            <div class="text-sm font-mono text-fg-soft">R$ {{ extracao.valor_principal|floatformat:2 }}</div>
+          </div>
+          {% endif %}
+          {% if extracao.valor_juros_mora is not None %}
+          <div class="card-tight">
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Juros e mora</div>
+            <div class="text-sm font-mono text-fg-soft">R$ {{ extracao.valor_juros_mora|floatformat:2 }}</div>
+          </div>
+          {% endif %}
+          {% if extracao.pss is not None %}
+          <div class="card-tight">
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">PSS</div>
+            <div class="text-sm font-mono text-fg-soft">R$ {{ extracao.pss|floatformat:2 }}</div>
+          </div>
+          {% endif %}
+          {% if extracao.data_oficio %}
+          <div class="card-tight">
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Data do ofício</div>
+            <div class="text-sm text-fg-soft">{{ extracao.data_oficio }}</div>
+          </div>
+          {% endif %}
+          {% if extracao.numero_parcelas_rra is not None %}
+          <div class="card-tight">
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Parcelas RRA</div>
+            <div class="text-sm font-mono text-fg-soft">{{ extracao.numero_parcelas_rra }}</div>
+          </div>
+          {% endif %}
+        {% endif %}
       </div>
-    </details>
-    {% endif %}
+      {% if extracao.fundamento_resumo %}
+      <div class="mt-3 pt-3 border-t border-border">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Fundamento (resumo · Zordon)</div>
+        <p class="text-sm text-fg-muted leading-relaxed">{{ extracao.fundamento_resumo }}</p>
+      </div>
+      {% endif %}
+      <div class="mt-2 flex items-center gap-2 text-[0.6rem] text-fg-subtle">
+        {% if extracao %}
+          <span class="mission-tag tracking-widest">Zordon · LLM</span>
+          {% if extracao.confianca %}<span>confiança: <span class="text-fg-muted">{{ extracao.confianca }}</span></span>{% endif %}
+        {% elif sem_contexto %}
+          <span>Autos ainda não indexados no Zordon — valores extraídos indisponíveis.</span>
+        {% elif erro %}
+          <span class="text-warning">Zordon indisponível ({{ erro }}).</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 
+  {# ============ PARTES ============ #}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="card">
+      <div class="text-sm font-semibold text-fg-soft flex items-center gap-2 mb-3">
+        {% voy_icon "constellation" "w-4 h-4 text-accent-fg" %} Polo ativo
+        <span class="text-fg-subtle font-mono text-xs">({{ polo_ativo|length }})</span>
+      </div>
+      {% for pp in polo_ativo %}
+      <div class="py-1.5 {% if not forloop.last %}border-b border-border/60{% endif %}">
+        <div class="text-sm text-fg-soft">{{ pp.parte.nome }}</div>
+        <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider mt-0.5">
+          {{ pp.papel|default:'parte' }}{% if pp.parte.documento %} · <span class="font-mono normal-case">{{ pp.parte.documento }}</span>{% endif %}
+        </div>
+      </div>
+      {% empty %}<div class="text-xs text-fg-subtle">Sem partes no polo ativo.</div>{% endfor %}
+    </div>
+
+    <div class="card">
+      <div class="text-sm font-semibold text-fg-soft flex items-center gap-2 mb-3">
+        {% voy_icon "constellation" "w-4 h-4 text-danger" %} Polo passivo
+        <span class="text-fg-subtle font-mono text-xs">({{ polo_passivo|length }})</span>
+      </div>
+      {% for pp in polo_passivo %}
+      <div class="py-1.5 {% if not forloop.last %}border-b border-border/60{% endif %}">
+        <div class="text-sm text-fg-soft">{{ pp.parte.nome }}</div>
+        <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider mt-0.5">
+          {{ pp.papel|default:'parte' }}{% if pp.parte.documento %} · <span class="font-mono normal-case">{{ pp.parte.documento }}</span>{% endif %}
+        </div>
+      </div>
+      {% empty %}<div class="text-xs text-fg-subtle">Sem partes no polo passivo.</div>{% endfor %}
+    </div>
+  </div>
+
+  {% if polo_outros %}
+  <div class="card">
+    <div class="text-sm font-semibold text-fg-soft flex items-center gap-2 mb-3">
+      {% voy_icon "constellation" "w-4 h-4 text-fg-muted" %} Outros interessados
+      <span class="text-fg-subtle font-mono text-xs">({{ polo_outros|length }})</span>
+    </div>
+    {% for pp in polo_outros %}
+    <div class="py-1.5 {% if not forloop.last %}border-b border-border/60{% endif %}">
+      <div class="text-sm text-fg-soft">{{ pp.parte.nome }}</div>
+      <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider mt-0.5">{{ pp.papel|default:'—' }}{% if pp.parte.documento %} · <span class="font-mono normal-case">{{ pp.parte.documento }}</span>{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ============ ADVOGADOS ============ #}
+  <div class="card">
+    <div class="text-sm font-semibold text-fg-soft flex items-center gap-2 mb-3">
+      {% voy_icon "users" "w-4 h-4 text-accent-fg" %} Advogados
+      <span class="text-fg-subtle font-mono text-xs">({{ advogados|length }})</span>
+    </div>
+    {% if advogados %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+      {% for pp in advogados %}
+      <div class="py-1.5 border-b border-border/60">
+        <div class="text-sm text-fg-soft">{{ pp.parte.nome }}</div>
+        <div class="text-[0.65rem] text-fg-subtle uppercase tracking-wider mt-0.5">
+          {% if pp.parte.oab %}<span class="font-mono normal-case">OAB {{ pp.parte.oab }}</span>{% endif %}
+          {% if pp.representa %} · representa {{ pp.representa.parte.nome }}{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}<div class="text-xs text-fg-subtle">Nenhum advogado identificado no enriquecimento.</div>{% endif %}
   </div>
 
   {% else %}
-  {# ---- Fallback: sem dados e sem erro específico ---- #}
-  {% include 'dashboard/_partials/empty_state.html' with title='Sem dados de extração' subtitle='O Zordon não retornou campos estruturados para este processo.' %}
+  {# ---- Processo não está no nosso acervo ---- #}
+  {% if sem_contexto %}
+  <div class="card border-warning/30 bg-warning/5">
+    <div class="text-sm font-medium text-fg">Processo não indexado no Zordon</div>
+    <div class="text-xs text-fg-muted mt-1">O Zordon ainda não processou os autos e o processo não está no acervo enriquecido.</div>
+  </div>
+  {% elif erro %}
+  <div class="card border-danger/40 bg-danger/5">
+    <div class="text-sm font-medium text-fg">Serviço Zordon indisponível</div>
+    <div class="text-xs text-fg-muted mt-1">{{ erro }}</div>
+  </div>
+  {% else %}
+  {% include 'dashboard/_partials/empty_state.html' with title='Sem dados para exibir' subtitle='Processo fora do acervo enriquecido e sem extração do Zordon.' %}
+  {% endif %}
+  {% endif %}
 
+  {# ============ FRAGMENTOS DO AUTO (Zordon) ============ #}
+  {% if chunks %}
+  <details class="group">
+    <summary class="cursor-pointer list-none flex items-center gap-2 text-xs text-fg-subtle hover:text-fg-soft transition-colors py-1">
+      <span class="group-open:rotate-90 transition-transform">▸</span>
+      <span class="uppercase tracking-wider">Fragmentos dos autos</span>
+      <span class="font-mono">({{ chunks|length }})</span>
+    </summary>
+    <div class="mt-2 space-y-2">
+      {% for chunk in chunks %}
+      <div class="card-tight text-xs">
+        {% if chunk.pagina is not None %}
+        <div class="text-fg-subtle text-[0.6rem] uppercase tracking-wider mb-1">p. {{ chunk.pagina }}{% if chunk.id %} · <span class="font-mono">{{ chunk.id }}</span>{% endif %}</div>
+        {% endif %}
+        <p class="text-fg-muted leading-relaxed line-clamp-4">{{ chunk.texto }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
   {% endif %}
 
 </div>

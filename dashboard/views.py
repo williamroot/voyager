@@ -2607,10 +2607,34 @@ def acervo_teor(request, cnj):
     if not dados_extracao.get('erro'):
         dados_chunks = zordon_chunks(cnj)
 
+    # Showcase: junta o extract do Zordon (natureza/valores/pagamento dos autos)
+    # com o enrichment do nosso acervo (juízo, partes, advogados, valor da causa,
+    # situação) — cards ricos mesmo quando o Zordon ainda não indexou.
+    proc = (Process.objects.select_related('tribunal')
+            .filter(numero_cnj=cnj).order_by('-enriquecido_em').first())
+    polos = {'ativo': [], 'passivo': [], 'outros': []}
+    advogados = []
+    if proc:
+        for pp in (ProcessoParte.objects.filter(processo=proc)
+                   .select_related('parte', 'representa__parte')
+                   .order_by('polo', 'papel')):
+            eh_adv = (pp.representa_id is not None
+                      or (pp.parte.oab or '')
+                      or (pp.parte.tipo == 'advogado'))
+            if eh_adv:
+                advogados.append(pp)
+            else:
+                polos.setdefault(pp.polo, []).append(pp)
+
     return render(request, 'dashboard/_partials/_acervo_teor.html', {
         'cnj': cnj,
         'extracao': dados_extracao if not dados_extracao.get('erro') else None,
         'sem_contexto': sem_contexto,
         'erro': erro_generico,
         'chunks': dados_chunks.get('chunks', []) if dados_chunks else [],
+        'processo': proc,
+        'polo_ativo': polos['ativo'],
+        'polo_passivo': polos['passivo'],
+        'polo_outros': polos['outros'],
+        'advogados': advogados,
     })
