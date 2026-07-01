@@ -107,38 +107,65 @@ ENQUEUE_BATCH_SIZE = 10_000
 QUEUE_HIGH_WATER = 100_000  # se já tem isso na fila, não re-enfileira
 
 
-@job('default', timeout=300)
+@job('default', timeout=600)
 def reabastecer_filas_enriquecimento() -> dict:
-    """Cron: pra cada tribunal com enricher, enfileira até ENQUEUE_BATCH_SIZE
-    Process pendentes — desde que a fila não esteja já cheia.
+    """Cron: enfileira Process pendentes por tribunal, sem duplicar in-flight.
 
-    Resolve o problema de o `enriquecer_pendentes` ficar dependente de
-    sessão/tty (morre em restart). Aqui é stateless: roda, enfileira o
-    que cabe, termina. Se o scheduler restart, na próxima invocação
-    retoma. Idempotente — sempre filtra `status=pendente`.
+    Idempotente e seguro contra os dois modos de falha que derrubaram o DB em
+    2026-07-01 (enrich_tjmt chegou a 387k jobs p/ high-water 100k):
+    - **concorrência**: lock Redis. O scan de pendentes é lento em tribunal com
+      milhões pendentes; sem lock, runs do scheduler (2min) sobrepunham e cada um
+      passava o teste `len(queue) < high_water` → estouro.
+    - **re-enfileiramento**: o `enriquecimento_status` só vira OK quando o drainer
+      (async) aplica; filtrar `status=pendente` sem mais nada re-selecionava os
+      MESMOS processos a cada ciclo. Agora paginamos por pk via cursor Redis
+      (`enr:cursor:<sigla>`): cada processo é enfileirado uma vez por passada;
+      ao esgotar o backlog o cursor volta a 0 (pega os que falharam/voltaram a
+      pendente e os novos da ingestão diária).
     """
+    from django.core.cache import cache
+    lock = 'lock:reabastecer_enriquecimento'
+    if not cache.add(lock, '1', timeout=600):
+        logger.info('reabastecer: skip (lock held)')
+        return {'skip': 'lock held'}
+    try:
+        return _reabastecer_impl()
+    finally:
+        cache.delete(lock)
+
+
+def _reabastecer_impl() -> dict:
     from tribunals.models import Process
 
+    conn = django_rq.get_connection()
     relatorio = {}
     for sigla in _ENRICHERS.keys():
         queue = django_rq.get_queue(queue_for(sigla))
-        if len(queue) >= QUEUE_HIGH_WATER:
-            relatorio[sigla] = f'skip (fila com {len(queue):,} jobs ≥ {QUEUE_HIGH_WATER})'
+        qlen = len(queue)
+        if qlen >= QUEUE_HIGH_WATER:
+            relatorio[sigla] = f'skip (fila {qlen:,} ≥ {QUEUE_HIGH_WATER})'
             continue
-        capacidade = QUEUE_HIGH_WATER - len(queue)
-        a_enfileirar = min(capacidade, ENQUEUE_BATCH_SIZE)
+        capacidade = min(QUEUE_HIGH_WATER - qlen, ENQUEUE_BATCH_SIZE)
+        ckey = f'enr:cursor:{sigla}'
+        cursor = int(conn.get(ckey) or 0)
         ids = list(
             Process.objects.filter(
                 tribunal_id=sigla,
                 enriquecimento_status=Process.ENRIQ_PENDENTE,
-            ).values_list('pk', flat=True)[:a_enfileirar]
+                pk__gt=cursor,
+            ).order_by('pk').values_list('pk', flat=True)[:capacidade]
         )
+        if not ids:
+            conn.set(ckey, 0)  # fim do backlog → volta pro começo
+            relatorio[sigla] = f'wrap (cursor {cursor}->0, fila {qlen})'
+            continue
         for pid in ids:
             try:
                 queue.enqueue(enriquecer_processo, pid, job_timeout=ENRICH_TIMEOUT,
                               retry=ENRICH_RETRY)
             except Exception as exc:
                 logger.warning('falha ao enfileirar', extra={'pid': pid, 'erro': str(exc)})
-        relatorio[sigla] = len(ids)
-    logger.info('reabastecer_filas_enriquecimento', extra=relatorio)
+        conn.set(ckey, ids[-1])
+        relatorio[sigla] = f'+{len(ids)} (cursor->{ids[-1]}, fila {qlen})'
+    logger.info('reabastecer_filas_enriquecimento', extra={'r': relatorio})
     return relatorio
