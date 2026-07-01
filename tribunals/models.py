@@ -154,6 +154,11 @@ class Process(models.Model):
             # — evitam bitmap heap scan + sort quando resultado esperado é pequeno.
             models.Index(fields=['tribunal', '-id'], name='proc_tribunal_id_idx'),
             models.Index(fields=['enriquecimento_status', '-id'], name='proc_enriq_id_idx'),
+            # Pending-scan do reabastecer: WHERE tribunal_id=X AND status=PENDENTE.
+            # Sem o composto, o planner pegava o índice de status (milhões) e
+            # filtrava tribunal → scan de minutos (incidente 2026-07-01).
+            models.Index(fields=['tribunal', 'enriquecimento_status'],
+                         name='proc_trib_enriq_idx'),
             models.Index(fields=['data_enriquecimento_datajud'], name='proc_datajud_em_idx'),
         ]
 
