@@ -145,19 +145,17 @@ services:
     restart: unless-stopped
 
   # ---- Adicionados no recon 2026-06-29 (consulta pública aberta) ----
-  # PAUSADOS (replicas: 0) pós-incidente 2026-07-01: o backfill em massa desses
-  # tribunais + agregações de warm-job sobre tribunals_processo (que cresceu)
-  # saturaram o DB e derrubaram o web. Reativar SÓ após: (1) índice pro
-  # pending-scan do reabastecer, (2) MV-backing das agregações de dashboard,
-  # (3) fix do over-enqueue do reabastecer (enrich_tjpe tinha 1,77M jobs p/ 834
-  # processos). Enrichers validados e prontos; ramp controlado/off-peak depois.
+  # Religados 2026-07-01 após o fix do incidente: reabastecer com lock+query
+  # sargável (2a81d3a) e índice composto (tribunal, enriquecimento_status)
+  # (migration 0038) — pending-scan caiu de 388s p/ 0,09s. Réplicas dimensionadas
+  # por backlog; escalar conforme o DB aguentar (os antigos rodam 320/host).
   worker_tjce:
     image: voyager-web:prod
     command: python manage.py rqworker enrich_tjce
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 0}   # PJe clássico, ~1M processos
+    deploy: {replicas: 4}   # PJe clássico, ~1,5M pendentes
     restart: unless-stopped
 
   worker_tjap:
@@ -166,7 +164,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 0}   # PJe clássico, ~200k
+    deploy: {replicas: 2}   # PJe clássico, ~223k pendentes
     restart: unless-stopped
 
   worker_tjpe:
@@ -175,7 +173,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 0}   # PJe clássico, volume baixo
+    deploy: {replicas: 3}   # PJe clássico, ~937k pendentes
     restart: unless-stopped
 
   worker_tjrj:
@@ -184,7 +182,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 0}   # PJe clássico (sem processos ingeridos ainda)
+    deploy: {replicas: 2}   # PJe clássico, ~294k pendentes
     restart: unless-stopped
 
   worker_tjro:
@@ -193,7 +191,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 0}   # PJe clássico (host pode bloquear datacenter IPs)
+    deploy: {replicas: 1}   # PJe clássico (0 processos; host pode bloquear datacenter IP)
     restart: unless-stopped
 
   worker_tjac:
@@ -202,7 +200,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 640m
-    deploy: {replicas: 0}   # e-SAJ, ~142k
+    deploy: {replicas: 2}   # e-SAJ, ~131k pendentes
     restart: unless-stopped
 
   worker_tjmt:
@@ -211,7 +209,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 512m
-    deploy: {replicas: 0}   # REST (SPA Angular), ~558k
+    deploy: {replicas: 4}   # REST (SPA), ~1,9M pendentes
     restart: unless-stopped
 
   worker_tjpa:
@@ -220,7 +218,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 512m
-    deploy: {replicas: 0}   # REST (consilium), ~324k — throttle 429
+    deploy: {replicas: 4}   # REST (consilium), ~1,7M pendentes — throttle 429
     restart: unless-stopped
 
   worker_tjal:
