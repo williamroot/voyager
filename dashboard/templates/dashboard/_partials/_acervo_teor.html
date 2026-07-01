@@ -148,6 +148,60 @@
     </div>
   </div>
 
+  {# ============ PRECATÓRIO / REQUISIÇÃO (Zordon) ============ #}
+  {% if extracao.numero_precatorio or extracao.ente_devedor or extracao.beneficiario or extracao.situacao or extracao.exercicio or extracao.data_base %}
+  <div class="card border-mission/30">
+    <div class="text-sm font-semibold text-fg-soft flex items-center gap-2 mb-3">
+      {% voy_icon "gem" "w-4 h-4 text-mission" %} Precatório / requisição
+      <span class="mission-tag text-[0.55rem] tracking-widest">extraído dos autos</span>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {% if extracao.numero_precatorio %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Nº do precatório/ofício</div>
+        <div class="text-sm font-mono text-fg-soft">{{ extracao.numero_precatorio }}</div>
+      </div>
+      {% endif %}
+      {% if extracao.situacao %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Situação</div>
+        <div class="text-sm text-fg-soft capitalize">{{ extracao.situacao }}</div>
+      </div>
+      {% endif %}
+      {% if extracao.exercicio %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Exercício</div>
+        <div class="text-sm font-mono text-fg-soft">{{ extracao.exercicio }}</div>
+      </div>
+      {% endif %}
+      {% if extracao.ente_devedor %}
+      <div class="card-tight col-span-2">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Ente devedor</div>
+        <div class="text-sm text-fg-soft">{{ extracao.ente_devedor }}</div>
+      </div>
+      {% endif %}
+      {% if extracao.beneficiario %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Beneficiário</div>
+        <div class="text-sm text-fg-soft">{{ extracao.beneficiario }}</div>
+      </div>
+      {% endif %}
+      {% if extracao.valor_total is not None %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Valor total requisitado</div>
+        <div class="text-sm font-mono text-mission font-semibold">R$ {{ extracao.valor_total|floatformat:2 }}</div>
+      </div>
+      {% endif %}
+      {% if extracao.data_base %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Data-base do cálculo</div>
+        <div class="text-sm text-fg-soft">{{ extracao.data_base }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   {# ============ PARTES ============ #}
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     <div class="card">
