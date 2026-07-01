@@ -298,12 +298,16 @@
     </summary>
     <div class="mt-2 space-y-2">
       {% for chunk in chunks %}
+      {% if chunk.text %}
       <div class="card-tight text-xs">
-        {% if chunk.pagina is not None %}
-        <div class="text-fg-subtle text-[0.6rem] uppercase tracking-wider mb-1">p. {{ chunk.pagina }}{% if chunk.id %} · <span class="font-mono">{{ chunk.id }}</span>{% endif %}</div>
+        {% if chunk.doc_tipo or chunk.nome_arquivo %}
+        <div class="text-fg-subtle text-[0.6rem] uppercase tracking-wider mb-1">
+          {{ chunk.doc_tipo|default:'auto' }}{% if chunk.nome_arquivo %} · <span class="font-mono normal-case">{{ chunk.nome_arquivo }}</span>{% endif %}{% if chunk.ordinal is not None %} · #{{ chunk.ordinal }}{% endif %}
+        </div>
         {% endif %}
-        <p class="text-fg-muted leading-relaxed line-clamp-4">{{ chunk.texto }}</p>
+        <p class="text-fg-muted leading-relaxed line-clamp-4">{{ chunk.text }}</p>
       </div>
+      {% endif %}
       {% endfor %}
     </div>
   </details>
