@@ -2597,9 +2597,17 @@ def acervo_teor(request, cnj):
     - erro="sem_contexto" → aviso "processo não indexado no Zordon"
     - Qualquer outro erro → mensagem amigável (Zordon offline / falha de rede)
     """
+    from django.core.cache import cache
     from .zordon_client import extrair as zordon_extrair, chunks as zordon_chunks
 
-    dados_extracao = zordon_extrair(cnj)
+    # Extração é cara (RAG + LLM 20b, ~dezenas de s): cacheia por processo.
+    # Só estados estáveis (sucesso / sem_contexto); erro transitório re-tenta.
+    ck = f'zordon_extract:{cnj}'
+    dados_extracao = cache.get(ck)
+    if dados_extracao is None:
+        dados_extracao = zordon_extrair(cnj)
+        if dados_extracao.get('erro') in (None, 'sem_contexto'):
+            cache.set(ck, dados_extracao, 6 * 3600)
     sem_contexto = dados_extracao.get('erro') == 'sem_contexto'
     erro_generico = dados_extracao.get('erro') if not sem_contexto else None
 

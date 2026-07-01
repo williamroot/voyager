@@ -19,7 +19,10 @@ from django.conf import settings
 
 logger = logging.getLogger('voyager.zordon_client')
 
-_TIMEOUT = (5, 20)  # (connect, read) em segundos
+_TIMEOUT = (5, 20)  # (connect, read) em segundos — busca/chunks
+# Extração é RAG + LLM local (gpt-oss:20b) — bem mais lenta. Read maior, porém
+# < timeout do gunicorn do web (60s) pra degradar com nota em vez de derrubar o worker.
+_EXTRACT_TIMEOUT = (5, 50)
 
 
 def buscar(
@@ -133,7 +136,7 @@ def extrair(cnj: str) -> dict:
         resp = requests.get(
             f'{base_url}/api/extract/{cnj}',
             headers=headers,
-            timeout=_TIMEOUT,
+            timeout=_EXTRACT_TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()
