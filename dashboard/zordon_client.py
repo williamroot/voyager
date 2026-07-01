@@ -219,3 +219,31 @@ def chunks(cnj: str) -> dict:
     except Exception as exc:  # pragma: no cover — catch-all defensivo
         logger.exception('zordon: erro inesperado (chunks %s): %s', cnj, exc)
         return {'chunks': [], 'erro': 'Erro inesperado ao contatar o serviço Zordon'}
+
+
+# Cache da extração (autos são imutáveis → TTL longo; o warm reescreve).
+EXTRACT_CACHE_TTL = 30 * 24 * 3600
+
+
+def extract_cache_key(cnj: str) -> str:
+    return f'zordon_extract:{cnj}'
+
+
+def listar_processos() -> dict:
+    """GET {ZORDON_URL}/api/processos — CNJs no acervo (pré-aquecimento).
+
+    Retorno: {"processos": [{"numero_cnj":..., "chunks":N}], "erro": None}.
+    Degrada como as demais: nunca propaga exceção.
+    """
+    base_url = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    api_key = getattr(settings, 'ZORDON_API_KEY', '')
+    if not base_url:
+        return {'processos': [], 'erro': 'ZORDON_URL não configurado'}
+    headers = {'Authorization': f'Api-Key {api_key}'} if api_key else {}
+    try:
+        resp = requests.get(f'{base_url}/api/processos', headers=headers, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        return {'processos': resp.json().get('processos', []), 'erro': None}
+    except Exception as exc:  # noqa: BLE001 — degrada graciosamente
+        logger.warning('zordon: falha em /api/processos: %s', exc)
+        return {'processos': [], 'erro': str(exc)[:120]}

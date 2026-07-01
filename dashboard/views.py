@@ -2611,16 +2611,17 @@ def acervo_teor(request, cnj):
     - Qualquer outro erro → mensagem amigável (Zordon offline / falha de rede)
     """
     from django.core.cache import cache
+    from . import zordon_client
     from .zordon_client import extrair as zordon_extrair, chunks as zordon_chunks
 
-    # Extração é cara (RAG + LLM 20b, ~dezenas de s): cacheia por processo.
-    # Só estados estáveis (sucesso / sem_contexto); erro transitório re-tenta.
-    ck = f'zordon_extract:{cnj}'
+    # Extração é cara (RAG + LLM 20b, ~dezenas de s): cacheia por processo (autos
+    # imutáveis → TTL longo; o warm reescreve). Só estados estáveis; erro re-tenta.
+    ck = zordon_client.extract_cache_key(cnj)
     dados_extracao = cache.get(ck)
     if dados_extracao is None:
         dados_extracao = zordon_extrair(cnj)
         if dados_extracao.get('erro') in (None, 'sem_contexto'):
-            cache.set(ck, dados_extracao, 6 * 3600)
+            cache.set(ck, dados_extracao, zordon_client.EXTRACT_CACHE_TTL)
     sem_contexto = dados_extracao.get('erro') == 'sem_contexto'
     erro_generico = dados_extracao.get('erro') if not sem_contexto else None
 
