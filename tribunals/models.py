@@ -159,6 +159,11 @@ class Process(models.Model):
             # filtrava tribunal → scan de minutos (incidente 2026-07-01).
             models.Index(fields=['tribunal', 'enriquecimento_status'],
                          name='proc_trib_enriq_idx'),
+            # Lookup por CNJ SEM tribunal (busca do acervo Zordon resolve CNJ→pk).
+            # O índice único é (tribunal, numero_cnj) — líder tribunal — então
+            # filtrar só numero_cnj varria o índice inteiro (cost ~893k, travava
+            # a busca semântica). Índice standalone resolve.
+            models.Index(fields=['numero_cnj'], name='proc_numero_cnj_idx'),
             models.Index(fields=['data_enriquecimento_datajud'], name='proc_datajud_em_idx'),
         ]
 

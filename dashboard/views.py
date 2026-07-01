@@ -2555,11 +2555,24 @@ def acervo_busca(request):
             melhor_por_cnj[cnj] = it
 
     # Resolve CNJ -> Process do nosso acervo (só processos que existem aqui, pra
-    # o clique sempre abrir a página do processo).
-    pk_por_cnj = dict(
-        Process.objects.filter(numero_cnj__in=list(melhor_por_cnj))
-        .values_list('numero_cnj', 'pk')
-    )
+    # o clique sempre abrir a página do processo). Guard de statement_timeout:
+    # nunca travar o worker (proteção extra além do índice proc_numero_cnj_idx).
+    from django.db import transaction, connection
+    pk_por_cnj = {}
+    if melhor_por_cnj:
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cur:
+                    cur.execute("SET LOCAL statement_timeout = '5000'")
+                pk_por_cnj = dict(
+                    Process.objects.filter(numero_cnj__in=list(melhor_por_cnj))
+                    .values_list('numero_cnj', 'pk')
+                )
+        except Exception:
+            import logging
+            logging.getLogger('voyager.dashboard').warning(
+                'acervo_busca: lookup CNJ->pk degradado (timeout/erro)')
+            pk_por_cnj = {}
 
     resultados = []
     for cnj, it in sorted(melhor_por_cnj.items(),
