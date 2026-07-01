@@ -137,7 +137,6 @@ def reabastecer_filas_enriquecimento() -> dict:
 def _reabastecer_impl() -> dict:
     from tribunals.models import Process
 
-    conn = django_rq.get_connection()
     relatorio = {}
     for sigla in _ENRICHERS.keys():
         queue = django_rq.get_queue(queue_for(sigla))
@@ -146,26 +145,24 @@ def _reabastecer_impl() -> dict:
             relatorio[sigla] = f'skip (fila {qlen:,} ≥ {QUEUE_HIGH_WATER})'
             continue
         capacidade = min(QUEUE_HIGH_WATER - qlen, ENQUEUE_BATCH_SIZE)
-        ckey = f'enr:cursor:{sigla}'
-        cursor = int(conn.get(ckey) or 0)
+        # Query simples e sargável (usa índice de tribunal_id / status); NÃO
+        # ordena por pk (ORDER BY pk varre o espaço GLOBAL de pk filtrando
+        # tribunal_id → scan de minutos, incidente 2026-07-01). Re-seleção de
+        # PENDENTE já-em-fila é tolerada: o teto QUEUE_HIGH_WATER + o lock
+        # bounded a duplicação (workers drenam, drainer marca OK, some do filtro);
+        # o out-of-order guard do drainer descarta re-scrapes de processo já OK.
         ids = list(
             Process.objects.filter(
                 tribunal_id=sigla,
                 enriquecimento_status=Process.ENRIQ_PENDENTE,
-                pk__gt=cursor,
-            ).order_by('pk').values_list('pk', flat=True)[:capacidade]
+            ).values_list('pk', flat=True)[:capacidade]
         )
-        if not ids:
-            conn.set(ckey, 0)  # fim do backlog → volta pro começo
-            relatorio[sigla] = f'wrap (cursor {cursor}->0, fila {qlen})'
-            continue
         for pid in ids:
             try:
                 queue.enqueue(enriquecer_processo, pid, job_timeout=ENRICH_TIMEOUT,
                               retry=ENRICH_RETRY)
             except Exception as exc:
                 logger.warning('falha ao enfileirar', extra={'pid': pid, 'erro': str(exc)})
-        conn.set(ckey, ids[-1])
-        relatorio[sigla] = f'+{len(ids)} (cursor->{ids[-1]}, fila {qlen})'
+        relatorio[sigla] = f'+{len(ids)} (fila {qlen}->{qlen+len(ids)})'
     logger.info('reabastecer_filas_enriquecimento', extra={'r': relatorio})
     return relatorio
