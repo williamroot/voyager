@@ -96,7 +96,7 @@ def buscar(
         return {'results': [], 'erro': 'Erro inesperado ao contatar o serviço de busca'}
 
 
-def extrair(cnj: str) -> dict:
+def extrair(cnj: str, *, timeout: tuple | None = None) -> dict:
     """Chama GET {ZORDON_URL}/api/extract/<cnj> e retorna os campos estruturados.
 
     Retorno em caso de sucesso::
@@ -136,7 +136,7 @@ def extrair(cnj: str) -> dict:
         resp = requests.get(
             f'{base_url}/api/extract/{cnj}',
             headers=headers,
-            timeout=_EXTRACT_TIMEOUT,
+            timeout=timeout or _EXTRACT_TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()

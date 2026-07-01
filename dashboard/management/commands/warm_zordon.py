@@ -22,8 +22,9 @@ class Command(BaseCommand):
     help = 'Pré-aquece o cache de extração do Zordon para os processos do acervo.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--concurrency', type=int, default=2,
-                            help='Extrações em paralelo (Ollama serializa na GPU; 2-3 é o útil).')
+        parser.add_argument('--concurrency', type=int, default=1,
+                            help='Extrações em paralelo. Ollama é GPU única e serializa — '
+                                 'concurrency>1 só faz cada request esperar na fila e estourar timeout. Deixe 1.')
         parser.add_argument('--cnj', action='append', default=[],
                             help='CNJ específico (repetível). Sem isso, usa todo o acervo.')
 
@@ -42,7 +43,8 @@ class Command(BaseCommand):
         t0 = time.time()
 
         def _warm(cnj):
-            r = zordon_client.extrair(cnj)
+            # Offline: timeout generoso (alguns autos grandes passam de 50s).
+            r = zordon_client.extrair(cnj, timeout=(5, 120))
             erro = r.get('erro')
             if erro in (None, 'sem_contexto'):
                 cache.set(zordon_client.extract_cache_key(cnj), r, zordon_client.EXTRACT_CACHE_TTL)
