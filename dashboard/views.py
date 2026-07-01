@@ -2542,7 +2542,7 @@ def acervo_busca(request):
     # Pede mais que o teto de exibição: o Zordon indexa por documento
     # (petição/movimentação/...), então vários hits caem no mesmo processo —
     # deduplicamos por CNJ pra listar PROCESSOS, não documentos.
-    dados = zordon_buscar(q, limit=40)
+    dados = zordon_buscar(q, limit=20)
     erro = dados.get('erro')
 
     melhor_por_cnj = {}
