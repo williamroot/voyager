@@ -315,6 +315,29 @@ Monitorar backfill: `pg_stat_activity` (nenhuma query deve passar de ~30s) +
 profundidade das filas `enrich_*` (bounded pelo `QUEUE_HIGH_WATER=100k`). Escalar
 os `worker_<sigla>` novos conforme o DB aguentar.
 
+## Migration com AddIndexConcurrently — NÃO deixe o entrypoint do web rodar junto
+
+**Incidente 2026-07-01:** rodei `migrate` (com `AddIndexConcurrently`) detached
+DENTRO do container `web` e, logo depois, `restart web`. O restart matou o processo
+do migrate → `CREATE INDEX CONCURRENTLY` abortou → deixou **índice inválido**
+(`indisvalid=false`). Aí o **entrypoint do web roda `migrate --noinput` a cada
+start** → tentou recriar o índice → `relation "..." already exists` → migrate falha
+→ **web em crash-loop → site 502**.
+
+Regras pra índice concurrent em tabela grande/quente (`tribunals_process` ~600M):
+- **Nunca** rode o build via `exec -d web` e depois reinicie o `web` (mata o build).
+- Rode o `CREATE/REINDEX INDEX CONCURRENTLY` num **container separado**
+  (`docker compose run -d --rm --entrypoint python web ...`) que sobrevive a restarts,
+  OU aplique a migration como `--fake` e construa o índice manualmente.
+- `DROP INDEX` (ACCESS EXCLUSIVE) é **starvado** pelas leituras dos ~640 workers de
+  enrichment (ACCESS SHARE). Prefira **`REINDEX INDEX CONCURRENTLY`** (SHARE UPDATE
+  EXCLUSIVE, compatível com leituras) pra consertar husk inválido — e pause
+  `scheduler`+drainers e mate transações longas (`xact_start` > ~10s) enquanto roda,
+  senão o CONCURRENTLY espera indefinidamente por snapshots.
+- Recuperar do crash-loop: `migrate --fake tribunals <NNNN>` (num container one-off
+  `run --rm --entrypoint python`) → `restart web` (sobe limpo) → conserta o índice
+  com REINDEX CONCURRENTLY.
+
 ## Backfill de partes em batch
 
 Re-enfileira processos pendentes/erro pra fila do tribunal:
