@@ -36,7 +36,8 @@ services:
       # 2026-05-14: 60 → 90 → 120 → 40 (realocação: TRF3/TJMG são bottleneck,
       # TRF1 com 40 workers já drena em ~12h, libera CPU/RAM pros outros).
       # 2026-06-08: 40 → 24 (pós-OOM da VM — ver header do arquivo).
-      replicas: 24
+      # 2026-07-02: 24 → 6 (rebalance — TRF1 99% enriquecido, libera p/ famintos).
+      replicas: 6
     restart: unless-stopped
 
   worker_djen_audit:
@@ -65,7 +66,8 @@ services:
     deploy:
       # 2026-05-14: 50 → 90 → 120 → 160 → 180 (pós-resize 32→56GB VM).
       # 2026-06-08: 160 → 72 (pós-OOM — gargalo principal, mantém prioridade).
-      replicas: 72
+      # 2026-07-02: 72 → 4 (rebalance — TRF3 100% enriquecido, 0 fila).
+      replicas: 4
     restart: unless-stopped
 
   worker_trf5:
@@ -79,7 +81,8 @@ services:
       # Ramp 10 → 60 em 2026-05-20 após validar enriquecimento OK em prod
       # (1.7k ok / 4 errors com 10 workers a 100% utilização → safe escalar).
       # 2026-06-08: 60 → 24 (pós-OOM).
-      replicas: 24
+      # 2026-07-02: 24 → 4 (rebalance — TRF5 100% enriquecido, 0 fila).
+      replicas: 4
     restart: unless-stopped
 
   worker_tjmg:
@@ -92,7 +95,8 @@ services:
     deploy:
       # 2026-05-14: 50 → 90 → 120 → 160 → 180. Bottleneck upstream PJe.
       # 2026-06-08: 160 → 72 (pós-OOM — gargalo principal, mantém prioridade).
-      replicas: 72
+      # 2026-07-02: 72 → 6 (rebalance — TJMG 100% enriquecido, 0 fila).
+      replicas: 6
     restart: unless-stopped
 
   worker_tjma:
@@ -107,7 +111,8 @@ services:
       # 10 a 100% → safe escalar). TJMA é PJe padrão, mesmo bottleneck
       # upstream do TJMG; volume DJEN observado ≈ 11k itens/dia.
       # 2026-06-08: 10 → 8 (pós-OOM).
-      replicas: 8
+      # 2026-07-02: 8 → 12 (rebalance — TJMA 14%, progredindo).
+      replicas: 12
     restart: unless-stopped
 
   worker_tjsp:
@@ -123,7 +128,8 @@ services:
       # configurado: e-SAJ tolera taxa moderada de IP único; subir réplicas se
       # rate-limit aparecer e considerar adicionar ProxyScrapePool no enricher.
       # 2026-06-08: 60 → 40 (pós-OOM — maior volume, mantém pool relevante).
-      replicas: 40
+      # 2026-07-02: 40 → 6 (rebalance — TJSP 100% enriquecido, 0 fila).
+      replicas: 6
     restart: unless-stopped
 
   worker_tjdft:
@@ -141,7 +147,8 @@ services:
       # pública tolera taxa moderada de IP único; observar rate-limit antes
       # de escalar.
       # 2026-06-08: 10 → 8 (pós-OOM).
-      replicas: 8
+      # 2026-07-02: 8 → 2 (rebalance — TJDFT 100% enriquecido, 0 fila).
+      replicas: 2
     restart: unless-stopped
 
   # ---- Adicionados no recon 2026-06-29 (consulta pública aberta) ----
@@ -155,7 +162,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 4}   # PJe clássico, ~1,5M pendentes
+    deploy: {replicas: 16}  # PJe clássico, ~1,5M @ 3% (rebalance 2026-07-02: 4→16)
     restart: unless-stopped
 
   worker_tjap:
@@ -164,7 +171,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 2}   # PJe clássico, ~223k pendentes
+    deploy: {replicas: 8}   # PJe clássico, ~235k @ 13% (rebalance 2026-07-02: 2→8)
     restart: unless-stopped
 
   worker_tjpe:
@@ -173,7 +180,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 3}   # PJe clássico, ~937k pendentes
+    deploy: {replicas: 14}  # PJe clássico, ~1,47M @ 8% (rebalance 2026-07-02: 3→14)
     restart: unless-stopped
 
   worker_tjrj:
@@ -182,7 +189,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 2}   # PJe clássico, ~294k pendentes
+    deploy: {replicas: 24}  # PJe clássico, 3,3M @ 1% / 6,86M na fila (rebalance 2026-07-02: 2→24 — maior backlog)
     restart: unless-stopped
 
   worker_tjro:
@@ -191,7 +198,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 768m
-    deploy: {replicas: 1}   # PJe clássico (0 processos; host pode bloquear datacenter IP)
+    deploy: {replicas: 5}   # PJe clássico, ~327k @ 5% — host 403 a datacenter IP, cap baixo (rebalance 2026-07-02: 1→5)
     restart: unless-stopped
 
   worker_tjac:
@@ -200,7 +207,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 640m
-    deploy: {replicas: 2}   # e-SAJ, ~131k pendentes
+    deploy: {replicas: 5}   # e-SAJ, ~111k @ 22% (rebalance 2026-07-02: 2→5)
     restart: unless-stopped
 
   worker_tjmt:
@@ -209,7 +216,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 512m
-    deploy: {replicas: 4}   # REST (SPA), ~1,9M pendentes
+    deploy: {replicas: 14}  # REST (SPA), ~2,1M @ 17% (rebalance 2026-07-02: 4→14)
     restart: unless-stopped
 
   worker_tjpa:
@@ -218,7 +225,7 @@ services:
     env_file: .env
     volumes: [".:/app"]
     mem_limit: 512m
-    deploy: {replicas: 4}   # REST (consilium), ~1,7M pendentes — throttle 429
+    deploy: {replicas: 8}   # REST (consilium), ~2,1M @ 1% — throttle 429, cap baixo (rebalance 2026-07-02: 4→8)
     restart: unless-stopped
 
   worker_tjal:
@@ -236,7 +243,8 @@ services:
       # 2026-06-17: 8 → 24. Passou a usar o pool ProxyScrape (PREFER_CORTEX=False,
       # ver enrichers/esaj.py) → paraleliza pelos 2500+ IPs; sobe pra drenar o
       # backlog acumulado enquanto o enrich falhava no Cortex. mem_limit protege.
-      replicas: 24
+      # 2026-07-02: 24 → 12 (rebalance — TJAL 90%, trim p/ os famintos).
+      replicas: 12
     restart: unless-stopped
 
   worker_default:
