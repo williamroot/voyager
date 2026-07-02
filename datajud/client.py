@@ -107,6 +107,11 @@ class DatajudClient:
 
     def _post(self, sigla_tribunal: str, body: dict) -> dict:
         """POST no índice do tribunal com rotação automática de proxies."""
+        # Rate-limit GLOBAL por chave (a APIKey pública é compartilhada; sem pacing
+        # os workers estouram a quota do CNJ e o _search passa a pendurar).
+        from datajud.ratelimit import acquire
+        if not acquire(max_wait=30.0):
+            raise DatajudClientError('rate-limit local do Datajud (sem token em 30s)')
         url = f'{self.BASE_URL}/{index_for(sigla_tribunal)}/_search'
         tentados: set = set()
         proxy_rotations = 0

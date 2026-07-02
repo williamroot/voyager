@@ -77,10 +77,15 @@ def reabastecer_fila_datajud() -> dict:
     # depois TJMG dias, etc.) e tribunais menores como TRF3 ficam esperando
     # seu "lote" ser sorteado. Ordenando por inserido_em DESC, refills
     # naturalmente intercalam tribunais (DJEN diária toca todos).
+    # Escopo: só tribunais SEM enricher (onde há enricher, classe/assunto vem dele
+    # → Datajud redundante). Evita reafogar a API pública compartilhada do CNJ.
+    from djen.ingestion import TRIBUNAIS_COM_ENRICHER
     pids = list(
         Process.objects.filter(
             tribunal__ativo=True,
             data_enriquecimento_datajud__isnull=True,
+        ).exclude(
+            tribunal__sigla__in=TRIBUNAIS_COM_ENRICHER,
         ).order_by('-inserido_em').values_list('pk', flat=True)[:a_enfileirar]
     )
     # Enqueue explícito na queue 'datajud' (não usa .delay()) — mesmo padrão

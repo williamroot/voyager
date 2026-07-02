@@ -230,6 +230,9 @@ DATAJUD_PROXYSCRAPE_API_KEY = env('DATAJUD_PROXYSCRAPE_API_KEY', default='')
 # reabastecer_fila_datajud). Desligado em 2026-07-02: a API pública do CNJ
 # ficou com o _search pendurado e a fila explodiu (63M jobs / Redis 39GB de 48).
 DATAJUD_ENQUEUE_ENABLED = env.bool('DATAJUD_ENQUEUE_ENABLED', default=True)
+# Teto GLOBAL de requisições/min ao Datajud (token-bucket Redis em datajud.ratelimit).
+# A APIKey pública é compartilhada e tem rate limit global; <=0 desliga o limite.
+DATAJUD_RATE_LIMIT_RPM = env.int('DATAJUD_RATE_LIMIT_RPM', default=100)
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)

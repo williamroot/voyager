@@ -440,13 +440,15 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
             except Exception as exc:
                 logger.warning('falha enfileirar enrichment', extra={'pid': pid, 'erro': str(exc)})
 
-    # Datajud roda pra QUALQUER tribunal (CNJ tem index pra todos).
-    # `at_front=True`: fluxo diário (processos recém-vistos no DJEN) fura
-    # o backlog histórico drenado por `reabastecer_fila_datajud`. Sem
-    # isso, ~3k novos/dia ficam atrás de milhões de jobs antigos e o
-    # `data_enriquecimento_datajud` do tribunal atrasa dias.
+    # Datajud SÓ pra tribunais SEM enricher: onde há enricher (PJe/e-SAJ), a
+    # classe/assunto já vem dele → Datajud é redundante. Escopo evita afogar a
+    # API pública compartilhada do CNJ (incidente 2026-07-02: 46M+ jobs).
+    # `at_front=True`: fluxo diário fura o backlog histórico.
     from django.conf import settings as _settings
-    if datajud_eligiveis and getattr(_settings, 'DATAJUD_ENQUEUE_ENABLED', True):
+    datajud_on = (getattr(_settings, 'DATAJUD_ENQUEUE_ENABLED', True)
+                  and tribunal.sigla not in TRIBUNAIS_COM_ENRICHER)
+    datajud_enq = 0
+    if datajud_eligiveis and datajud_on:
         import django_rq
         from datajud.jobs import DATAJUD_RETRY, datajud_sync_bulk
         queue = django_rq.get_queue('datajud')
@@ -454,11 +456,12 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
             try:
                 queue.enqueue(datajud_sync_bulk, pid, job_timeout=600, at_front=True,
                               retry=DATAJUD_RETRY)
+                datajud_enq += 1
             except Exception as exc:
                 logger.warning('falha enfileirar datajud', extra={'pid': pid, 'erro': str(exc)})
 
     logger.info(
         'auto-enqueue %s → pje=%d datajud=%d (de %d tocados)',
         tribunal.sigla, len(enriq_eligiveis) if tribunal.sigla in TRIBUNAIS_COM_ENRICHER else 0,
-        len(datajud_eligiveis), len(procs),
+        datajud_enq, len(procs),
     )
