@@ -139,6 +139,37 @@ drenado, senão estoura RAM (.36 fica em 90% pós-rebalanceamento).
 
 Page `/dashboard/workers/` mostra estado em tempo real (auto-refresh 5s).
 
+### Incidente Datajud: API pública throttled + fila explode (2026-07-02)
+
+**Sintoma:** fila `datajud` cresce sem drenar (chegou a 63M jobs, Redis 39G/48G
+`noeviction` → risco de apagão geral). `_search`/`_count` da API pública do CNJ
+**penduram** (timeout, http=000) — mesmo direto, via Cortex e via pool (todos os
+IPs). Endpoints admin dão 403 rápido (chave é válida). Diagnóstico: a **APIKey é
+pública/compartilhada, com rate limit GLOBAL por chave**; 640 workers sem pacing
+estouraram a quota. **Trocar proxy NÃO resolve** (limite é por chave, não por IP).
+
+**Contenção (nesta ordem):**
+```bash
+# 1) pausar o enfileiramento (auto-enqueue + reabastecer)
+#    setar no .env de TODOS os hosts + force-recreate (restart NÃO relê .env):
+echo 'DATAJUD_ENQUEUE_ENABLED=false' >> ~/voyager/.env
+docker compose -f docker-compose-prod.yml up -d --force-recreate web scheduler          # .103
+docker compose -f docker-compose-workers.yml up -d --force-recreate worker_ingestion worker_default  # .102/.104
+# 2) recuar workers (não adianta martelar a chave morta)
+docker compose -f docker-compose-workers.yml up -d --scale worker_datajud=4 worker_datajud
+# 3) purgar a fila SEM bloquear o Redis (NÃO usar q.empty() — Lua gigante trava tudo):
+#    loop LPOP count=10000 + UNLINK (async), com sleep. Ver scripts/_purge2.py do incidente.
+```
+
+**Mitigação estrutural (já no código, `DATAJUD_ENQUEUE_ENABLED=false` até a API voltar):**
+- **Rate-limiter global** `datajud/ratelimit.py` (token-bucket Redis) no `_post` do
+  client, sob `DATAJUD_RATE_LIMIT_RPM` (default 100). `<=0` desliga.
+- **Escopo:** auto-enqueue e `reabastecer_fila_datajud` só pra tribunais SEM
+  enricher (os 16 de `TRIBUNAIS_COM_ENRICHER` pegam classe/assunto do enricher).
+
+**Religar quando a API recuperar** (testar `_count` direto; se responder 200):
+`DATAJUD_ENQUEUE_ENABLED=true` no .env + force-recreate. O rate-limiter mantém sob quota.
+
 ### Filas RQ (`core/settings.py::RQ_QUEUES`)
 ```
 default          — catch-all
