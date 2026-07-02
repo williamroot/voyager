@@ -136,6 +136,18 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Health-check da API pública do Datajud (incidente 2026-07-02: chave
+    # throttled, _search pendura). Registra estado em cache datajud:api_health
+    # e loga WARNING na transição down→up pra sinalizar que dá pra religar.
+    from datajud.jobs import datajud_api_healthcheck
+    scheduler.add_job(
+        datajud_api_healthcheck.delay,
+        'interval',
+        minutes=15,
+        id='datajud_api_healthcheck',
+        replace_existing=True,
+    )
+
     # Aquecimento do dashboard — inline no thread pool do scheduler.
     # Sem fila RQ: sem acúmulo de duplicatas, sem dependência de workers externos.
     # _with_lock em cada função é a proteção primária contra sobreposição;

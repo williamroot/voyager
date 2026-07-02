@@ -100,3 +100,45 @@ def reabastecer_fila_datajud() -> dict:
             logger.warning('falha ao enfileirar datajud bulk pid=%d: %s', pid, exc)
     logger.info('reabastecer_fila_datajud: %d enfileirados', enfileirados)
     return {'enfileirados': enfileirados}
+
+
+@job('default', timeout=60)
+def datajud_api_healthcheck() -> dict:
+    """Sonda a API pública do Datajud (_count direto, sem proxy/rate-limit) e
+    registra o estado em cache (`datajud:api_health`). Loga WARNING na transição
+    down→up pra sinalizar que dá pra religar (DATAJUD_ENQUEUE_ENABLED=true).
+
+    1 req a cada 15min é desprezível pra quota — é só um probe.
+    """
+    import time
+
+    import requests
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    from .client import DEFAULT_API_KEY, index_for
+
+    url = f'https://api-publica.datajud.cnj.jus.br/{index_for("TJSP")}/_count'
+    hdr = {'Authorization': DEFAULT_API_KEY, 'Content-Type': 'application/json'}
+    prev = cache.get('datajud:api_health') or {}
+    t0 = time.monotonic()
+    try:
+        r = requests.post(url, json={'query': {'match_all': {}}}, headers=hdr, timeout=15)
+        ok = r.status_code == 200
+        status = r.status_code
+    except Exception as exc:  # noqa: BLE001
+        ok = False
+        status = type(exc).__name__
+    latency = round(time.monotonic() - t0, 2)
+    state = {'ok': ok, 'status': status, 'latency': latency,
+             'checked_at': timezone.now().isoformat()}
+    cache.set('datajud:api_health', state, 3600)
+    if ok and not prev.get('ok'):
+        logger.warning(
+            '🟢 Datajud API RECUPEROU (_count HTTP %s em %ss). '
+            'Dá pra religar: DATAJUD_ENQUEUE_ENABLED=true + force-recreate.',
+            status, latency,
+        )
+    elif not ok:
+        logger.info('Datajud API ainda fora (%s, %ss)', status, latency)
+    return state
