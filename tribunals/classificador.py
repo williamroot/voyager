@@ -126,6 +126,16 @@ PRECATORIO_SINAL_TRIBUNAIS = {'TJAL'}
 # VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
 SCORE_PROMOCAO_SINAL = 1.0
 
+# Regra de sinal NEGATIVA (rollout controlado; começa no TJMA): comunicação
+# DJEN com marcador de PAGAMENTO (alvará de levantamento, sequestro deferido,
+# extinção) POSTERIOR ao último sinal de expedição = crédito em levantamento —
+# não é lead comprável (decisão de negócio 2026-07-01; auditoria dos autos
+# reais do 1º lote TJMA: N1 0.70-0.77 dominado por RPV municipal já paga via
+# BacenJud/alvará). Rebaixa N1/N2 → NAO_LEAD e derruba o score abaixo de
+# todos os cortes.
+PAGAMENTO_SINAL_TRIBUNAIS = {'TJMA'}
+SCORE_REBAIXAMENTO_SINAL = 0.10
+
 CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 
 # Agrega todos os counts de movimentações em uma única passagem pela tabela,
@@ -146,6 +156,10 @@ _MOVS_AGG_SQL = """
                           THEN 1 ELSE 0 END), 0) AS f19_n,
         COALESCE(SUM(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
                           THEN 1 ELSE 0 END), 0) AS f20_n,
+        MAX(CASE WHEN texto ~* 'alvar[áa]\\s+(judicial|de\\s+levantamento)|expe[çc]am?-se\\s+(o\\s+)?alvar[áa]|autorizo[^.]{0,150}sequestro|defiro[^.]{0,100}sequestro|sequestro\\s+do\\s+numer[áa]rio|julgo\\s+extint[oa]|mandado\\s+de\\s+levantamento'
+                 THEN data_disponibilizacao END) AS pago_max_dt,
+        MAX(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
+                 THEN data_disponibilizacao END) AS exped_max_dt,
         MAX(data_disponibilizacao) AS ult_mov_dt
     FROM tribunals_movimentacao
     WHERE processo_id = %s
@@ -348,7 +362,7 @@ def compute_features(processo) -> dict:
         row = cur.fetchone()
 
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
-     f13_n, f14_n, f19_n, f20_n, ult_mov_dt) = row
+     f13_n, f14_n, f19_n, f20_n, pago_max_dt, exped_max_dt, ult_mov_dt) = row
 
     if not total_movs:
         return _empty_features(ano, f1, f10)
@@ -364,6 +378,9 @@ def compute_features(processo) -> dict:
     f18 = (ano - ANO_MEAN) / ANO_STD if ano > 0 else 0.0
     f21 = (dias_ult - DIAS_ULT_MOV_MEAN) / DIAS_ULT_MOV_STD
     f23 = math.log1p(n_partes) / math.log(50)
+
+    f24 = int(bool(pago_max_dt)
+              and (exped_max_dt is None or pago_max_dt >= exped_max_dt))
 
     f2 = int(f2_n > 0); f7 = int(f7_n > 0)
     f11 = int(f11_n > 0); f12 = int(f12_n > 0); f13 = int(f13_n > 0); f14 = int(f14_n > 0)
@@ -389,6 +406,8 @@ def compute_features(processo) -> dict:
         'F1xF11':             f1 * f11,
         'F1xF15':             f1 * f15,
         'F1xF20':             f1 * f20,
+        # Sinal-anti de pagamento (peso LR 0: atua só como regra, como F19).
+        'F24_pago_pos_exped_ANTI': f24,
     }
 
 
@@ -405,6 +424,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F18_anoZ': f18, 'F19_cancelado_ANTI': 0, 'F20_exp_juriscope': 0,
         'F21_diasUltMovZ': f21, 'F23_logPartes': 0.0,
         'F1xF11': 0, 'F1xF15': 0.0, 'F1xF20': 0,
+        'F24_pago_pos_exped_ANTI': 0,
     }
 
 
@@ -456,6 +476,17 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     # Categorização DB-driven (review T20): mesma lógica do path shadow,
     # garante que A/B compara só o score — não a política de threshold.
     cat = _categorizar(score, features, tribunal_id=processo.tribunal_id)
+
+    # Regra de sinal NEGATIVA (TJMA): pagamento publicado no DJEN posterior ao
+    # último sinal de expedição → crédito em levantamento; não vira lead.
+    # Espelha (inverte) a regra de sinal do TJAL; JURISCOPE tem a checagem
+    # fina equivalente nos autos (datas dos documentos).
+    if (processo.tribunal_id in PAGAMENTO_SINAL_TRIBUNAIS
+            and features.get('F24_pago_pos_exped_ANTI') == 1
+            and cat in (Process.CLASSIF_PRECATORIO,
+                        Process.CLASSIF_PRE_PRECATORIO)):
+        return (Process.CLASSIF_NAO_LEAD,
+                min(score, SCORE_REBAIXAMENTO_SINAL), features)
 
     return cat, score, features
 
