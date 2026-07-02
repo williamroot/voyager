@@ -59,6 +59,10 @@ def reabastecer_fila_datajud() -> dict:
     Datajud, deixando processos antigos sem features Datajud na
     classificação.
     """
+    from django.conf import settings
+    if not getattr(settings, 'DATAJUD_ENQUEUE_ENABLED', True):
+        logger.info('reabastecer_fila_datajud: desativado (DATAJUD_ENQUEUE_ENABLED=False)')
+        return {'skipped': 'disabled'}
     queue = django_rq.get_queue('datajud')
     if len(queue) >= DATAJUD_REFILL_HIGH_WATER:
         msg = f'skip (fila com {len(queue):,} jobs ≥ {DATAJUD_REFILL_HIGH_WATER:,})'

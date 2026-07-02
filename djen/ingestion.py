@@ -445,7 +445,8 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
     # o backlog histórico drenado por `reabastecer_fila_datajud`. Sem
     # isso, ~3k novos/dia ficam atrás de milhões de jobs antigos e o
     # `data_enriquecimento_datajud` do tribunal atrasa dias.
-    if datajud_eligiveis:
+    from django.conf import settings as _settings
+    if datajud_eligiveis and getattr(_settings, 'DATAJUD_ENQUEUE_ENABLED', True):
         import django_rq
         from datajud.jobs import DATAJUD_RETRY, datajud_sync_bulk
         queue = django_rq.get_queue('datajud')

@@ -226,6 +226,10 @@ PROXYSCRAPE_API_KEY = env('PROXYSCRAPE_API_KEY', default='')
 # Quando definida, DatajudClient usa pool isolada (Redis: voyager:proxies:datajud:*)
 # sem interferir na pool padrão das outras máquinas.
 DATAJUD_PROXYSCRAPE_API_KEY = env('DATAJUD_PROXYSCRAPE_API_KEY', default='')
+# Liga/desliga o enfileiramento de sync Datajud (auto-enqueue na ingestão +
+# reabastecer_fila_datajud). Desligado em 2026-07-02: a API pública do CNJ
+# ficou com o _search pendurado e a fila explodiu (63M jobs / Redis 39GB de 48).
+DATAJUD_ENQUEUE_ENABLED = env.bool('DATAJUD_ENQUEUE_ENABLED', default=True)
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)
