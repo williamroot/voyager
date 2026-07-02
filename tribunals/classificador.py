@@ -120,7 +120,12 @@ CLASSES_FAZENDA_PUBLICA = {
 # ≤0,582 (sinais de expedição do eSAJ não batem com o treino PJe/DataJud), então
 # um Cumprimento com ofício requisitório/expedição NOS MOVIMENTOS — que é
 # precatório de fato e o Falcon baixa+parseia (1º grau) — nunca chegaria a N1.
-PRECATORIO_SINAL_TRIBUNAIS = {'TJAL'}
+# TJMA (2026-07-02): mesmo problema com outro sintoma — os CumSenFaz com
+# "Expedição de precatório/RPV" publicada ficam diluídos como N2/NAO_LEAD e o
+# pull diário (80/dia) baixa pré-precatório genérico no lugar deles. Nos
+# tribunais que TAMBÉM têm a regra negativa (PAGAMENTO_SINAL_TRIBUNAIS), o F24
+# veta a promoção: expedido e já pago não sobe.
+PRECATORIO_SINAL_TRIBUNAIS = {'TJAL', 'TJMA'}
 
 # Score gravado na promoção por regra de sinal. Precisa passar o
 # VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
@@ -461,7 +466,15 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     if processo.tribunal_id in PRECATORIO_SINAL_TRIBUNAIS:
         if features is None:
             features = compute_features(processo)
-        if (features.get('F1_cumprim') == 1
+        # Guard F24 (só onde a regra negativa está ativa, ex.: TJMA): a
+        # promoção NÃO pode passar na frente do rebaixamento por pagamento —
+        # expedido mas já pago (alvará/sequestro/extinção posterior) cai pro
+        # fluxo normal, onde a regra negativa abaixo rebaixa a NAO_LEAD.
+        pago_pos_exped = (
+            processo.tribunal_id in PAGAMENTO_SINAL_TRIBUNAIS
+            and features.get('F24_pago_pos_exped_ANTI') == 1)
+        if (not pago_pos_exped
+                and features.get('F1_cumprim') == 1
                 and (features.get('F14_oficio_text') == 1
                      or features.get('F20_exp_juriscope') == 1)):
             return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, features
