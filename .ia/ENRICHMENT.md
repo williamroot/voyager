@@ -229,6 +229,25 @@ Como mapear endpoints de um TJ novo nesse formato:
    assunto, orgao_julgador, data_autuacao) — costuma ser 1:1 com o caso
    TJDFT mas mudam nomes de campos.
 
+## Justiça do Trabalho (TST + 24 TRTs) — `consultaprocessual` (recon 2026-07-04)
+
+Registrados (migration `0040_seed_trts`) e **ativos** (ingestão DJEN roda; DJEN
+carrega trabalhista via `sigla_djen='TRTn'/'TST'`). **Enrichment ainda NÃO ligado.**
+
+Recon da consulta pública (SPA Angular `pje.trt<N>.jus.br/consultaprocessual/`,
+API `/pje-consulta-api/api`):
+
+| Tier | Endpoint | Dados | Captcha |
+|---|---|---|---|
+| **A** | `GET /processos/dadosbasicos/{cnj20dig}` + header `X-Grau-Instancia: 1\|2` | `[{id, numero, classe(abbrev), codigoOrgaoJulgador, segredoJustica}]` | ❌ aberto |
+| **B** | `GET /processos/{id}` | partes/valor/movimentos | ✅ **captcha de imagem** (`tokenDesafio`+`imagem` JPEG) |
+
+- **Grau**: OOOO do CNJ = `0000` → 2º grau (TRT), senão 1º grau (vara). Empty (204) → tentar o outro.
+- **Alcance direto** (probe dummy-CNJ): 🟢 400/aberto: TRT 2,4,6,8,10,11,14,16,17,18,19,20,21,24 · 🟡 403 datacenter (precisa pool/Cortex): TRT 1,5,7,9,12,13,15,22,23 · ⚠️ TRT3=405 (checar path).
+- **Tier B exige CapSolver** (ImageToText). Estratégia econômica: enrich rico só nos **leads classificados** (não nos ~40M). Sem saldo CapSolver → adiado.
+- **classe vem do DJEN** também (`preencher_classe_via_djen`) — Tier A é redundante p/ classe; só agrega `codigoOrgaoJulgador`.
+- ⚠️ **Scheduler**: ativar muitos tribunais estourava `hour = 4 + idx//2` (>23). Corrigido p/ janela madrugada com módulo (`djen/scheduler.py`, fix 2026-07-04).
+
 ## Como adicionar enricher pra outro PJe
 
 1. Criar `enrichers/<sigla>.py` (15 linhas):
