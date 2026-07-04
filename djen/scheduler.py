@@ -64,14 +64,19 @@ def create_scheduler() -> BlockingScheduler:
         EVENT_JOB_SUBMITTED | EVENT_JOB_EXECUTED | EVENT_JOB_ERROR,
     )
 
-    # Ingestão diária — escalonado de 30 em 30 min a partir das 04:00
+    # Ingestão diária — espalhada na madrugada (00:00–05:59) por índice.
+    # Robusto a QUALQUER número de tribunais: usa módulo numa janela de 6h
+    # (antes era `hour = 4 + idx//2`, que estourava a hora 23 com >40 ativos —
+    # quebrou o scheduler ao ativar os 25 TRTs em 2026-07-04).
     EARLY = {'TRF1': (2, 0), 'TRF3': (2, 30)}
+    _WINDOW_MIN = 6 * 60   # 00:00–05:59
+    _STEP_MIN = 7          # espaçamento entre tribunais
     for idx, t in enumerate(ativos):
         if t.sigla in EARLY:
             hour, minute = EARLY[t.sigla]
         else:
-            hour = 4 + (idx // 2)
-            minute = 0 if idx % 2 == 0 else 30
+            off = (idx * _STEP_MIN) % _WINDOW_MIN
+            hour, minute = off // 60, off % 60
         scheduler.add_job(
             run_daily_ingestion.delay,
             'cron',
