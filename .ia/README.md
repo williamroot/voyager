@@ -12,6 +12,7 @@ Esta pasta concentra a documentação **destilada** do projeto — o que um enge
 | [`INGESTION.md`](INGESTION.md) | Antes de mexer em DJEN, jobs, scheduler, proxies |
 | [`ENRICHMENT.md`](ENRICHMENT.md) | Antes de adicionar enricher de tribunal novo (PJe ou outro sistema) |
 | [`CLASSIFICACAO.md`](CLASSIFICACAO.md) | Antes de mexer em classificação ML de leads, modelo, features, API Juriscope |
+| [`JURIMETRIA.md`](JURIMETRIA.md) | Plano/arquitetura de jurimetria (tracks processual, resultado, precatório) + estado dos dados |
 | [`ACCOUNTS.md`](ACCOUNTS.md) | Antes de mexer em convites, sistema de cadastro, captura de IP |
 | [`DASHBOARD.md`](DASHBOARD.md) | Antes de criar páginas, alterar tema, adicionar componentes |
 | [`API.md`](API.md) | Antes de criar/alterar endpoints REST |
