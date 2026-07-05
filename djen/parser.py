@@ -28,6 +28,9 @@ EXPECTED_KEYS = frozenset({
 # items. Não dispara drift quando ausente OU presente.
 OPTIONAL_KEYS = frozenset({
     'dataenvio',
+    # Trabalhista (TRTs) devolve a data também em camelCase, além da snake
+    # que já capturamos → chave extra benigna (drift 2026-07-05).
+    'dataDisponibilizacao',
 })
 
 CNJ_REGEX = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
@@ -195,7 +198,8 @@ def parse_item(item: dict, tribunal: Tribunal, run: IngestionRun) -> Optional[Pa
         })
         return None
 
-    dt = parse_dt(item.get('data_disponibilizacao') or item.get('datadisponibilizacao'))
+    dt = parse_dt(item.get('data_disponibilizacao') or item.get('datadisponibilizacao')
+                  or item.get('dataDisponibilizacao'))
     if dt is None:
         run.erros.append({
             'pagina': run.paginas_lidas,
