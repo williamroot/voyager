@@ -286,7 +286,11 @@ def _coletar_args(queue) -> set[str]:
     return {str(j.args[0]) for j in jobs if j and j.args}
 
 
-BACKFILL_WATERMARK = 200   # não enfileira mais se djen_backfill já tem isso
+BACKFILL_WATERMARK = 4000  # não enfileira mais se djen_backfill já tem isso.
+# 2026-07-05: 200 → 4000. Com 200 e a fila compartilhada por ~60 tribunais, o tick
+# dos TRTs via SEMPRE fila>=200 e PULAVA — backfill trabalhista ficou starved
+# (só 4 runs em ~1 dia). 4000 cabe o batch de todos os ativos (jobs curtos,
+# ~poucos MB no Redis); worker_ingestion drena com FIFO justo.
 BACKFILL_BATCH = 100       # dias por tick
 
 
