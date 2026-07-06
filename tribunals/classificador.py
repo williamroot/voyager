@@ -125,7 +125,7 @@ CLASSES_FAZENDA_PUBLICA = {
 # pull diário (80/dia) baixa pré-precatório genérico no lugar deles. Nos
 # tribunais que TAMBÉM têm a regra negativa (PAGAMENTO_SINAL_TRIBUNAIS), o F24
 # veta a promoção: expedido e já pago não sobe.
-PRECATORIO_SINAL_TRIBUNAIS = {'TJAL', 'TJMA'}
+PRECATORIO_SINAL_TRIBUNAIS = {'TJAL', 'TJMA', 'TJSP'}
 
 # Score gravado na promoção por regra de sinal. Precisa passar o
 # VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
@@ -138,7 +138,7 @@ SCORE_PROMOCAO_SINAL = 1.0
 # reais do 1º lote TJMA: N1 0.70-0.77 dominado por RPV municipal já paga via
 # BacenJud/alvará). Rebaixa N1/N2 → NAO_LEAD e derruba o score abaixo de
 # todos os cortes.
-PAGAMENTO_SINAL_TRIBUNAIS = {'TJMA'}
+PAGAMENTO_SINAL_TRIBUNAIS = {'TJMA', 'TJSP'}
 SCORE_REBAIXAMENTO_SINAL = 0.10
 
 CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
