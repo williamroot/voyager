@@ -1,0 +1,106 @@
+{
+ "_overall": {
+  "n": 1806677,
+  "eventos": 914872,
+  "chance_12m": 15.2,
+  "chance_24m": 29.4,
+  "chance_36m": 39.9,
+  "tempo_mediano_dias": 1556
+ },
+ "estadual|ALIMENTAR": {
+  "n": 9122,
+  "eventos": 8897,
+  "chance_12m": 16.4,
+  "chance_24m": 44.7,
+  "chance_36m": 62.1,
+  "tempo_mediano_dias": 821
+ },
+ "estadual|COMUM": {
+  "n": 2364,
+  "eventos": 2273,
+  "chance_12m": 38.8,
+  "chance_24m": 65.4,
+  "chance_36m": 75.3,
+  "tempo_mediano_dias": 504
+ },
+ "estadual|DESCONHECIDA": {
+  "n": 907414,
+  "eventos": 310698,
+  "chance_12m": 5.5,
+  "chance_24m": 15.9,
+  "chance_36m": 24.7,
+  "tempo_mediano_dias": 2494
+ },
+ "federal|ALIMENTAR": {
+  "n": 317934,
+  "eventos": 313352,
+  "chance_12m": 53.2,
+  "chance_24m": 73.7,
+  "chance_36m": 82.4,
+  "tempo_mediano_dias": 336
+ },
+ "federal|COMUM": {
+  "n": 1661,
+  "eventos": 1569,
+  "chance_12m": 14.9,
+  "chance_24m": 34.6,
+  "chance_36m": 54.8,
+  "tempo_mediano_dias": 1009
+ },
+ "federal|DESCONHECIDA": {
+  "n": 565056,
+  "eventos": 275046,
+  "chance_12m": 8.5,
+  "chance_24m": 23.4,
+  "chance_36m": 36.4,
+  "tempo_mediano_dias": 1657
+ },
+ "municipal|ALIMENTAR": {
+  "n": 1911,
+  "eventos": 1869,
+  "chance_12m": 24.5,
+  "chance_24m": 54.2,
+  "chance_36m": 71.2,
+  "tempo_mediano_dias": 682
+ },
+ "municipal|COMUM": {
+  "n": 690,
+  "eventos": 644,
+  "chance_12m": 41.3,
+  "chance_24m": 59.1,
+  "chance_36m": 69.0,
+  "tempo_mediano_dias": 519
+ },
+ "municipal|DESCONHECIDA": {
+  "n": 525,
+  "eventos": 524,
+  "chance_12m": 15.6,
+  "chance_24m": 40.6,
+  "chance_36m": 61.9,
+  "tempo_mediano_dias": 878
+ },
+ "estadual|*": {
+  "n": 918900,
+  "eventos": 321868,
+  "chance_12m": 5.7,
+  "chance_24m": 16.4,
+  "chance_36m": 25.3,
+  "tempo_mediano_dias": 2425
+ },
+ "federal|*": {
+  "n": 884651,
+  "eventos": 589967,
+  "chance_12m": 24.9,
+  "chance_24m": 42.3,
+  "chance_36m": 53.9,
+  "tempo_mediano_dias": 957
+ },
+ "municipal|*": {
+  "n": 3126,
+  "eventos": 3037,
+  "chance_12m": 26.7,
+  "chance_24m": 53.0,
+  "chance_36m": 69.2,
+  "tempo_mediano_dias": 692
+ }
+}
