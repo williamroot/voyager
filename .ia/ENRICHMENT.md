@@ -27,6 +27,18 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TJPA | Portal próprio "Consulta Unificada" (SPA + REST) | **Sim** (2026-06-29) | `enrichers/tjpa.py` (classe própria). `GET consulta-processual-unificada-prd.tjpa.jus.br/consilium-rest/processobycnj/{cnj}` (UA de browser, throttle p/ 429). reCAPTCHA só no front, não enforced. `cpfcnpj` vazio na consulta pública (tipo pf/pj por `tppessoa`). |
 | **Bloqueados (recon 2026-06-29)** | vários | **Não — captcha/login/anti-bot** | Consulta pública gated, inviável headless sem captcha-solver ou credenciais: **captcha** (hCaptcha/reCaptcha/Tencent) — TJBA, TJPB, TJRR, TJSE, TJMS (e-SAJ virou SPA Next.js c/ captcha), TJGO+TJPR (PROJUDI), TJAM (PROJUDI atrás de F5 anti-bot); **login obrigatório** — TJES, TJPI, TJTO; **indeterminado** (sem amostra/host estável) — TJRN. eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA (ver linhas TRF acima). Desbloqueio exige decisão: serviço de captcha-solving (2captcha etc.) ou credenciais/OTP. Veredictos completos do recon no histórico do commit. |
 
+## Roteamento de proxy: Cortex quando datacenter morre (2026-07-06)
+O pool datacenter (ProxyScrape) degrada em ondas: WAF dos tribunais bloqueia os IPs
+(403) e a API do proxyscrape rate-limita a conta (429 → não repõe a lista). Isso
+trava backfill DJEN + enriquecimento. Roteamento (config por env):
+- **DJEN** (`djen/client.py`): pool degradado → `DJEN_CORTEX_RATIO_DEGRADED` (default
+  **1.0** = 100% Cortex; era 0.9 hardcoded). Normal: `DJEN_CORTEX_RATIO` (0.5).
+- **Enrichment** (`enrichers/jobs.py::enriquecer_processo`): `prefer_cortex` resolve de
+  `ENRICH_PREFER_CORTEX` (default **True** = Cortex-first em TODOS os enqueues, inclusive
+  o reabastecer em massa). Residencial (Cortex) passa o WAF; datacenter vira fallback.
+- Cortex tem cooldown próprio (`cortex_is_bad`) se rate-limitar. O 429 do proxyscrape
+  costuma resetar sozinho (janela da conta).
+
 ## Correções e-SAJ / classe (2026-07-06)
 
 Dois bugs que faziam leads de precatório do TJSP sumirem — achados a partir de um
