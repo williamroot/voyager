@@ -100,16 +100,17 @@ def enqueue_enriquecimento_manual(process_id: int):
     """Enfileira na queue 'manual' — prioritária pra cliques na UI.
 
     Bypassa as filas per-tribunal (que podem ter centenas de milhares de
-    jobs). Passa `prefer_cortex=True` pro enricher tentar o proxy
-    residencial primeiro — click do user retorna em ~1-3s em vez de
-    rotacionar proxies queimados por 30s+.
+    jobs). `prefer_cortex=False`: pool-first (ProxyScrape). O e-SAJ (TJSP/TJAL/
+    TJAC) funciona bem com o pool datacenter, e o Cortex tem resetado conexão
+    (Connection reset) — Cortex-first fazia o enrich manual FALHAR e o dossiê
+    vir vazio. Com pool-first, o Cortex vira fallback no _next_proxy. (2026-07-06)
     """
     from django.conf import settings
     queue = django_rq.get_queue('manual')
     return queue.enqueue(
         enriquecer_processo,
         args=(process_id,),
-        kwargs={'prefer_cortex': True, 'direct_apply': True,
+        kwargs={'prefer_cortex': False, 'direct_apply': True,
                 'seguir_incidentes': getattr(settings, 'ESAJ_SEGUIR_INCIDENTES', False)},
         job_timeout=ENRICH_TIMEOUT,
         retry=ENRICH_RETRY,
