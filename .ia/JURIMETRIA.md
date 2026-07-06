@@ -43,6 +43,23 @@ Jurimetria de PRECATÓRIO (edge)  ─ tempo-até-pagamento T + risco de ente + l
 - **Grafo de citações** (`jurisprudencia_citada`/`referencias_legislativas`) → PageRank/HITS.
 - Expandir corpus: súmulas TST + RG/Súmulas Vinculantes STF (recon feito).
 
+### ⭐ Fonte de dados de precatório JÁ EXISTE: Juriscope/Falcon (2026-07-06)
+O banco do **Juriscope/Falcon** (`10.10.0.51/falcon`, DSN read-only em
+`JURISCOPE_DB_DSN`) já tem o Track 3 estruturado — **não reconstruir, integrar**:
+- **2,31M processos** de precatório (`datamodel_process`), join por `numero_autos` (=CNJ)
+  ↔ Voyager `numero_cnj`. Ponte existente: `datamodel_voyagerleadreport` (867k).
+- **natureza 63%** (1,3M ALIMENTAR + 159k COMUM), **valor 70%**, **ente devedor 67%**
+  (`entity_id`→`datamodel_entity`), **ordem cronológica 67%** (`ordem_orcamentaria` =
+  posição na fila), **data_oficio 45%** → inputs diretos do modelo de T.
+- **45k requisições de pagamento** (`datamodel_requisicaopagamento`: natureza, valor,
+  situação). **1,12M autos baixados** (TRF1 572k + TJSP 504k) — PDFs em `processfile.file`.
+- **Integração feita**: `dashboard/juriscope_client.dados_precatorio(cnj)` (read-only) +
+  bloco precatório do dossiê (`dashboard/jurimetria_dossie.py`). API do Juriscope existe
+  (`/datamodel/api/process/?numero_autos=`) mas exige `IsAuthenticated` sem token de
+  serviço → DB read-only é o caminho pragmático.
+- Próximo: modelo de **T** (ordem+data_oficio→quando paga), **rating de ente** (62k
+  entidades + histórico), autos→Zordon (RAG/outcome/sinais finos).
+
 ### Track 3 — Precatório ⭐ (vantagem competitiva)
 Alpha = **precificar T (tempo-até-pagamento) e risco por ente devedor melhor que o mercado**.
 - **Scraper de ordens cronológicas** dos TJs/TRFs/TRTs (TRF1 ordemcronologica, TJSP
