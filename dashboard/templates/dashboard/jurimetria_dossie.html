@@ -80,7 +80,10 @@
     <div class="flex items-center gap-2 mb-1">
       <span class="text-xs uppercase tracking-wider text-fg-subtle">Análise Jurimétrica</span>
       <span class="chip text-[0.6rem] bg-accent/20 text-accent-fg">🧠 IA</span>
-      <span id="narr-status" class="text-xs text-fg-subtle ml-auto"></span>
+      <span id="narr-loader" class="ml-auto inline-flex items-center gap-2 text-xs text-fg-subtle">
+        <span class="inline-block w-3.5 h-3.5 border-2 border-accent/40 border-t-accent rounded-full animate-spin"></span>
+        <span id="narr-status">iniciando…</span>
+      </span>
     </div>
     {# painel de raciocínio (pensando) — colapsa quando termina #}
     <details id="narr-think-wrap" class="mb-2 hidden">
@@ -101,18 +104,20 @@
     var thinkWrap = document.getElementById('narr-think-wrap');
     var content = document.getElementById('narr-content');
     var status = document.getElementById('narr-status');
+    var loader = document.getElementById('narr-loader');
     var spin = document.getElementById('narr-spin');
     var raw = '';
+    function stop() { if (loader) loader.style.display = 'none'; if (spin) spin.style.display = 'none'; }
     es.onmessage = function(e) {
       var d; try { d = JSON.parse(e.data); } catch (_) { return; }
       if (d.type === 'status') { status.textContent = d.text; }
-      else if (d.type === 'reasoning') { thinkWrap.classList.remove('hidden'); think.textContent += d.text; think.scrollTop = think.scrollHeight; }
-      else if (d.type === 'content') { spin.style.display = 'none'; raw += d.text; content.innerHTML = raw; }
-      else if (d.type === 'done') { if (d.html) content.innerHTML = d.html; spin.style.display = 'none'; status.textContent = ''; thinkWrap.open = false; es.close(); }
-      else if (d.type === 'error') { spin.textContent = d.text; status.textContent = ''; es.close(); }
+      else if (d.type === 'reasoning') { status.textContent = 'pensando…'; thinkWrap.classList.remove('hidden'); think.textContent += d.text; think.scrollTop = think.scrollHeight; }
+      else if (d.type === 'content') { if (spin) spin.style.display = 'none'; status.textContent = 'escrevendo…'; raw += d.text; content.innerHTML = raw; }
+      else if (d.type === 'done') { if (d.html) content.innerHTML = d.html; stop(); thinkWrap.open = false; es.close(); }
+      else if (d.type === 'error') { stop(); if (spin) { spin.style.display = ''; spin.textContent = d.text; } es.close(); }
     };
-    es.addEventListener('end', function() { spin.style.display = 'none'; status.textContent = ''; es.close(); });
-    es.onerror = function() { spin.textContent = 'Análise indisponível no momento.'; es.close(); };
+    es.addEventListener('end', function() { stop(); es.close(); });
+    es.onerror = function() { stop(); if (spin) { spin.style.display = ''; spin.textContent = 'Análise indisponível no momento.'; } es.close(); };
   })();
   </script>
   {% endif %}
