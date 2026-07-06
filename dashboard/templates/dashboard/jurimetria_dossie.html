@@ -176,7 +176,11 @@
           <div><span class="text-lg font-medium kpi-num">{{ sb.chance_24m }}%</span> <span class="text-xs text-fg-subtle">em 24m</span></div>
           {% if sb.tempo_mediano_meses %}<div><span class="text-lg font-medium kpi-num">~{{ sb.tempo_mediano_meses }}</span> <span class="text-xs text-fg-subtle">meses (mediana)</span></div>{% endif %}
         </div>
-        <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ Kaplan-Meier · estrato {{ sb.estrato }} · n={{ sb.n|format_int }} · eventos={{ sb.eventos|format_int }} · C-index 0,69</div>
+        <div class="h-1.5 bg-muted rounded-full mt-2 overflow-hidden" title="probabilidade de virar precatório em 24 meses">
+          <div class="h-full bg-emerald-500 rounded-full" style="width: {{ sb.chance_24m }}%"></div>
+        </div>
+        {% if sb.n < 30 %}<div class="text-[0.6rem] text-amber-500 mt-1">⚠ amostra pequena (n={{ sb.n }}) — estimativa indicativa, não conclusiva</div>{% endif %}
+        <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ Kaplan-Meier · estrato {{ sb.estrato }} · n={{ sb.n|format_int }} · eventos={{ sb.eventos|format_int }} · C-index {{ sb.c_index|default:'0,69' }}</div>
       </div>
       {% endwith %}{% endif %}
 
@@ -197,7 +201,8 @@
     <div class="card">
       {% include 'dashboard/_partials/section_header.html' with title='Jurimetria do tipo' subtitle='processos da mesma classe no tribunal' %}
       {% if jt.disponivel %}
-      <div class="text-3xl font-semibold kpi-num">{{ jt.taxa_precatorio }}%</div>
+      <div class="text-3xl font-semibold kpi-num text-fg">{{ jt.taxa_precatorio }}%</div>
+      <div class="h-1.5 bg-muted rounded-full my-1 overflow-hidden max-w-[240px]"><div class="h-full bg-sky-500 rounded-full" style="width: {{ jt.taxa_precatorio }}%"></div></div>
       <div class="text-fg-subtle text-sm">viram precatório ({{ jt.precatorio|format_int }} PRECATORIO + {{ jt.pre_precatorio|format_int }} PRE) de {{ jt.total|format_int }} do tipo</div>
       <div class="text-[0.65rem] text-fg-subtle mt-2">ⓘ n={{ jt.meta.n|format_int }} · {{ jt.meta.fonte }} · {{ jt.meta.tipo }}</div>
       {% else %}<div class="text-sm text-fg-subtle">{{ jt.motivo }}</div>{% endif %}
