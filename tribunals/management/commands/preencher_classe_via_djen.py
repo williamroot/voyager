@@ -48,9 +48,12 @@ class Command(BaseCommand):
                     total += n
                     continue
                 t0 = time.time()
-                # LATERAL LIMIT 1: probe indexado (processo_id) por processo sem
-                # classe — SEM sort. Qualquer classe do processo serve (classe não
-                # muda ao longo da vida). Evita o DISTINCT-ON-sort sobre 1,1B movs.
+                # LATERAL + ORDER BY data DESC LIMIT 1: pega a classe da movimentação
+                # MAIS RECENTE (representativa da classe atual do processo), não uma
+                # arbitrária. Corrige o caso de processos com movs de classes mistas
+                # (ex.: Cumprimento 12078 + publicação de precatório 1265) — a arbitrária
+                # pegava a errada e quebrava o F1 do classificador (2026-07-06).
+                # Sort por-processo (poucos movs), usa o índice processo_id.
                 cur.execute("""
                     UPDATE tribunals_process p
                     SET classe_codigo=x.codigo_classe, classe_nome=x.nome_classe, classe_id=x.classe_id
@@ -59,6 +62,7 @@ class Command(BaseCommand):
                         SELECT codigo_classe, nome_classe, classe_id
                         FROM tribunals_movimentacao m
                         WHERE m.processo_id=p2.id AND m.codigo_classe<>''
+                        ORDER BY m.data_disponibilizacao DESC
                         LIMIT 1
                     ) x ON true
                     WHERE p.id=p2.id AND p2.tribunal_id=%s AND p2.classe_codigo=''
