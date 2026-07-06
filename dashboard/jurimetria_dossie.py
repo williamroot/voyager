@@ -65,11 +65,19 @@ def _bloco_precatorio(proc: Process) -> dict:
     Voyager dá a classificação (é lead?); o Juriscope dá o conteúdo real do
     precatório (natureza, valor corrigido, ente devedor, posição na fila, datas).
     """
-    from . import juriscope_client
+    from . import juriscope_client, survival_precatorio
     is_lead = proc.classificacao in ('PRECATORIO', 'PRE_PRECATORIO')
     tem_exped = Movimentacao.objects.filter(processo_id=proc.pk).filter(
         texto__iregex=r'precat|requisit|expedi').exists()
     js = juriscope_client.dados_precatorio(proc.numero_cnj)
+    # Sobrevivência DC→precatório (só faz sentido pra quem ainda NÃO virou).
+    sobrevivencia = None
+    if proc.classificacao == 'DIREITO_CREDITORIO':
+        sobrevivencia = survival_precatorio.prever(
+            proc.tribunal_id,
+            (js or {}).get('natureza'),
+            (js or {}).get('ente_nome') or (js or {}).get('devedora'),
+        )
     return {
         'is_lead': is_lead,
         'classificacao': proc.classificacao,
@@ -78,6 +86,7 @@ def _bloco_precatorio(proc: Process) -> dict:
         'valor_causa': proc.valor_causa,
         'tem_sinal_expedicao': tem_exped,
         'juriscope': js,  # natureza/valor/ente/ordem/datas (ou {} se indisponível)
+        'sobrevivencia': sobrevivencia,  # chance/tempo de virar precatório (DC)
         'meta': {'fonte': 'classificacao v6 + movimentações DJEN + juriscope/falcon',
                  'tipo': 'modelo + estruturado'},
     }
