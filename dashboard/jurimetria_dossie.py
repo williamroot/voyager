@@ -57,6 +57,106 @@ def normalizar_cnj(raw: str) -> str | None:
     return f'{d[0:7]}-{d[7:9]}.{d[9:13]}.{d[13]}.{d[14:16]}.{d[16:20]}'
 
 
+# Heurísticas do diagnóstico — quando a classificação ML não disparou (ex.: 0 movs
+# DJEN), os dados enriquecidos (ente, órgão, assunto, partes) ainda concluem o estágio.
+_ENTE_PUB_RE = re.compile(
+    r'fazenda|estado d|munic[íi]pio|\buni[ãa]o\b|\bINSS\b|instituto de previd|autarqui|'
+    r'prefeitura|governo d|distrito federal|departamento de|companhia de|caixa econ', re.I)
+_ORGAO_FAZ_RE = re.compile(
+    r'execu[çc][õo]es?\s+(?:contra|fisca|.*fazend)|fazenda\s+p[úu]blica|precat[óo]ri|'
+    r'UPEFAZ|requisit[óo]ri|juizo auxiliar', re.I)
+_ALIMENTAR_RE = re.compile(
+    r'benef[íi]cio|previdenci|aposentad|pens[ãa]o|sal[áa]ri|vencimento|remunera|servidor|'
+    r'trabalhist|ferrovi[áa]ri|alimentar|honor[áa]ri|indeniza', re.I)
+
+
+def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> dict:
+    """Camada analítica: sintetiza os sinais (classificação + Juriscope + dados
+    enriquecidos: ente, órgão, assunto, partes) num VEREDITO + indicadores +
+    recomendação. Funciona mesmo sem classificação ML (0 movs DJEN)."""
+    from . import survival_precatorio
+    js = precatorio.get('juriscope') or {}
+    orgao = proc.orgao_julgador_nome or ''
+    assunto = proc.assunto_nome or ''
+    passivo_txt = ' '.join(p.get('nome', '') for p in polos.get('passivo', []))
+    n_exequentes = sum(1 for p in polos.get('ativo', [])
+                       if re.search(r'exeqte|reqte|requer|exequen', (p.get('papel') or ''), re.I))
+
+    ente = js.get('ente_nome') or js.get('devedora')
+    if not ente:  # tenta achar o ente público no polo passivo
+        for p in polos.get('passivo', []):
+            if _ENTE_PUB_RE.search(p.get('nome', '')):
+                ente = p.get('nome'); break
+    contra_fazenda = bool(ente) or bool(_ORGAO_FAZ_RE.search(orgao)) or bool(_ENTE_PUB_RE.search(passivo_txt))
+    natureza = js.get('natureza') or ('ALIMENTAR' if _ALIMENTAR_RE.search(assunto) else None)
+
+    ja_precatorio = bool(js.get('encontrado')) or proc.classificacao == 'PRECATORIO' \
+        or bool(_ORGAO_FAZ_RE.search(orgao) and re.search(r'precat', orgao, re.I)) \
+        or precatorio.get('tem_sinal_expedicao')
+
+    sinais, indicadores = [], []
+    if ente: sinais.append(f'Ente devedor: {ente}')
+    if _ORGAO_FAZ_RE.search(orgao): sinais.append(f'Órgão de execução contra a Fazenda ({orgao[:60]})')
+    if natureza == 'ALIMENTAR' or _ALIMENTAR_RE.search(assunto):
+        sinais.append(f'Natureza alimentar (assunto: {assunto[:50]})')
+    if n_exequentes >= 2: sinais.append(f'{n_exequentes} exequentes/requerentes (execução coletiva)')
+
+    # --- estágio + veredito + recomendação ---
+    chance = survival_precatorio.prever(proc.tribunal_id, natureza, ente) if (contra_fazenda and not ja_precatorio) else None
+    if ja_precatorio:
+        estagio, tom = 'PRECATÓRIO', 'ok'
+        pag = precatorio.get('pagamento') or _cronograma_pagamento(js.get('ano_ordem_orcamentaria'))
+        veredito = f'Precatório {("de natureza " + natureza.lower()) if natureza else ""} — requisição já no fluxo de pagamento.'
+        recomendacao = {'label': '💰 Precatório expedido — ativo pronto', 'tom': 'ok'}
+        if pag and pag.get('ano_orcamento'):
+            indicadores.append({'label': 'Pagamento previsto', 'valor': pag['ano_orcamento'],
+                                'sub': 'orçamento (até 31/dez)' if not pag.get('em_atraso') else 'em atraso'})
+    elif contra_fazenda:
+        estagio, tom = 'PRÉ-PRECATÓRIO', 'accent'
+        veredito = (f'Execução contra a Fazenda Pública{" (" + ente + ")" if ente else ""} — '
+                    f'caminho direto para precatório/RPV. Ainda não expedido.')
+        recomendacao = {'label': '🔥 Lead quente — execução contra Fazenda', 'tom': 'accent'} \
+            if (natureza == 'ALIMENTAR' or n_exequentes >= 2) else \
+            {'label': '📌 Acompanhar — pré-precatório', 'tom': 'accent'}
+    elif proc.classificacao == 'DIREITO_CREDITORIO':
+        estagio, tom = 'DIREITO CREDITÓRIO', 'muted'
+        veredito = 'Direito creditório em formação — ainda distante do precatório.'
+        recomendacao = {'label': '🌱 Monitorar formação do crédito', 'tom': 'muted'}
+    else:
+        estagio, tom = 'INDEFINIDO', 'muted'
+        veredito = ('Sem sinais suficientes de execução contra a Fazenda neste processo. '
+                    'Pode não ser um caminho de precatório.')
+        recomendacao = {'label': '⚪ Sem indício de precatório', 'tom': 'muted'}
+
+    # --- indicadores da jurimetria (números) ---
+    if chance:
+        indicadores.insert(0, {'label': 'Chance de virar precatório',
+                               'valor': f'{chance["chance_24m"]}%', 'sub': 'em 24 meses (Kaplan-Meier)'})
+        if chance.get('tempo_mediano_meses'):
+            indicadores.append({'label': 'Tempo estimado', 'valor': f'~{chance["tempo_mediano_meses"]}',
+                                'sub': 'meses (mediana)'})
+    if natureza:
+        indicadores.append({'label': 'Natureza', 'valor': ('🟢 ' if natureza == 'ALIMENTAR' else '') + natureza,
+                            'sub': 'prioridade alimentar' if natureza == 'ALIMENTAR' else 'comum'})
+    val = js.get('valor_acao_corrigido') or js.get('valor_acao') or proc.valor_causa
+    if val:
+        indicadores.append({'label': 'Valor', 'valor': f'R$ {val:,.0f}'.replace(',', '.'), 'sub': 'da ação/precatório'})
+    if n_exequentes >= 2:
+        indicadores.append({'label': 'Beneficiários', 'valor': n_exequentes, 'sub': 'exequentes (execução coletiva)'})
+    if tipo.get('disponivel'):
+        indicadores.append({'label': 'Taxa do tipo', 'valor': f'{tipo["taxa_precatorio"]}%',
+                            'sub': f'viram precatório (n={tipo["total"]:,})'.replace(',', '.')})
+
+    return {
+        'estagio': estagio, 'tom': tom, 'veredito': veredito,
+        'recomendacao': recomendacao, 'indicadores': indicadores,
+        'sinais': sinais, 'chance': chance,
+        'contra_fazenda': contra_fazenda, 'ja_precatorio': ja_precatorio,
+        'meta': {'fonte': 'síntese jurimetria (classificação + Juriscope + enriquecido) + Kaplan-Meier',
+                 'tipo': 'conclusivo'},
+    }
+
+
 def _jurimetria_do_tipo(proc: Process) -> dict:
     """Conta processos do mesmo TIPO (classe+tribunal) e a taxa de precatório.
 
@@ -291,6 +391,8 @@ def montar_dossie(cnj_raw: str) -> dict:
         polos.setdefault(pp.polo, []).append(
             {'nome': pp.parte.nome, 'papel': pp.papel, 'polo': pp.polo})
 
+    precatorio = _bloco_precatorio(proc)
+    tipo = _jurimetria_do_tipo(proc)
     return {
         'cnj': cnj,
         'cabecalho': {
@@ -305,8 +407,9 @@ def montar_dossie(cnj_raw: str) -> dict:
             'total_movimentacoes': proc.total_movimentacoes,
             'pk': proc.pk,
         },
+        'diagnostico': _diagnostico(proc, precatorio, tipo, polos),
         'polos': polos,
-        'precatorio': _bloco_precatorio(proc),
-        'jurimetria_tipo': _jurimetria_do_tipo(proc),
+        'precatorio': precatorio,
+        'jurimetria_tipo': tipo,
         'precedentes': _precedentes(proc),
     }

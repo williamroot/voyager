@@ -37,6 +37,43 @@
     {% else %}<span class="text-xs text-fg-subtle">dados via Juriscope (processo fora do acervo Voyager)</span>{% endif %}
   </div>
 
+  {# DIAGNÓSTICO — conclusão da jurimetria (topo, o que importa) #}
+  {% with dg=dossie.diagnostico %}
+  {% if dg %}
+  <div class="card mb-4 border-l-4 {% if dg.tom == 'accent' %}border-l-accent{% elif dg.tom == 'ok' %}border-l-emerald-500{% else %}border-l-border{% endif %}">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+      <div class="flex-1 min-w-[60%]">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-xs uppercase tracking-wider text-fg-subtle">Diagnóstico</span>
+          <span class="chip text-[0.6rem] {% if dg.tom == 'accent' %}bg-accent/20 text-accent-fg{% elif dg.tom == 'ok' %}bg-emerald-500/20 text-emerald-400{% endif %}">{{ dg.estagio }}</span>
+        </div>
+        <div class="text-base font-medium leading-snug">{{ dg.veredito }}</div>
+      </div>
+      <div class="chip {% if dg.recomendacao.tom == 'accent' %}bg-accent/20 text-accent-fg{% elif dg.recomendacao.tom == 'ok' %}bg-emerald-500/20 text-emerald-400{% endif %} text-sm py-1.5 px-3">{{ dg.recomendacao.label }}</div>
+    </div>
+
+    {% if dg.indicadores %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+      {% for ind in dg.indicadores %}
+      <div class="bg-bg/40 rounded p-2">
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">{{ ind.label }}</div>
+        <div class="text-xl font-semibold kpi-num leading-tight">{{ ind.valor }}</div>
+        <div class="text-[0.6rem] text-fg-subtle">{{ ind.sub }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if dg.sinais %}
+    <div class="mt-3 flex flex-wrap gap-1.5">
+      {% for s in dg.sinais %}<span class="chip text-[0.6rem]">✓ {{ s }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="text-[0.6rem] text-fg-subtle mt-2">ⓘ {{ dg.meta.fonte }} · {{ dg.meta.tipo }}</div>
+  </div>
+  {% endif %}
+  {% endwith %}
+
   <div class="grid md:grid-cols-2 gap-4">
     {# PRECATÓRIO (Voyager classificação + Juriscope estruturado) #}
     <div class="card">
