@@ -36,7 +36,8 @@ def _load(nome: str) -> dict:
 
 
 def _strata() -> dict:
-    return _load('surv_strata.json')
+    # Runtime (re-treino semanal) primeiro; senão o seed versionado.
+    return _load('surv_strata.live.json') or _load('surv_strata.json')
 
 
 def ente_tipo(tribunal: str | None, ente_nome: str | None) -> str:

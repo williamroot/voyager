@@ -163,8 +163,9 @@ class Command(BaseCommand):
             'metodo': 'kaplan-meier estratificado (numpy)',
         }
 
-        # --- grava artefato ---
-        path = os.path.join(settings.BASE_DIR, 'dashboard', 'data', 'surv_strata.json')
+        # --- grava artefato RUNTIME (.live.json, gitignored) — não suja o seed
+        # versionado (senão git pull do deploy quebra). Serving lê live→seed.
+        path = os.path.join(settings.BASE_DIR, 'dashboard', 'data', 'surv_strata.live.json')
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:

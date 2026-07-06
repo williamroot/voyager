@@ -41,3 +41,4 @@ proxyscrape_*.txt
 
 # brainstorming visual companion
 .superpowers/
+dashboard/data/*.live.json
