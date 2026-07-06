@@ -9,7 +9,7 @@ services:
              python manage.py migrate --noinput &&
              gunicorn core.wsgi:application -b 0.0.0.0:8000
                      -w 12 -k gthread --threads 6
-                     --timeout 60 --graceful-timeout 30
+                     --timeout 300 --graceful-timeout 30
                      --access-logfile - --error-logfile -"
     env_file: .env
     volumes:

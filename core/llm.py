@@ -95,6 +95,7 @@ def chat_stream(messages: list[dict], *, max_tokens: int = 9000, temperature: fl
                            headers={'Authorization': f'Bearer {api_key}'},
                            json=payload, stream=True, timeout=timeout) as resp:
             resp.raise_for_status()
+            resp.encoding = 'utf-8'  # requests default seria ISO-8859-1 → mojibake
             for line in resp.iter_lines(decode_unicode=True):
                 if not line or not line.startswith('data:'):
                     continue

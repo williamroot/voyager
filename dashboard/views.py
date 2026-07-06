@@ -409,7 +409,7 @@ def jurimetria_dossie_narrativa_stream(request):
                 return
             yield f'data: {json.dumps(ev, ensure_ascii=False)}\n\n'
 
-    resp = StreamingHttpResponse(_sse(), content_type='text/event-stream')
+    resp = StreamingHttpResponse(_sse(), content_type='text/event-stream; charset=utf-8')
     resp['Cache-Control'] = 'no-cache'
     resp['X-Accel-Buffering'] = 'no'  # desliga buffering do nginx
     return resp
