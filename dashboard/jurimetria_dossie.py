@@ -140,6 +140,50 @@ def _precedentes(proc: Process, limite: int = 4) -> dict:
             'meta': {'fonte': 'zordon hybrid_search (bge-m3+rerank)', 'tipo': 'RAG'}}
 
 
+def _dossie_juriscope(cnj: str) -> dict | None:
+    """Monta o dossiê a partir do Juriscope quando o processo NÃO está no acervo
+    Voyager (busca live por CNJ, sem proxy). None se também não está no Juriscope."""
+    from . import juriscope_client, survival_precatorio
+    js = juriscope_client.dados_precatorio(cnj)
+    if not js or not js.get('encontrado'):
+        return None
+    ente = js.get('ente_nome') or js.get('devedora')
+    valor = js.get('valor_acao_corrigido') or js.get('valor_acao')
+    return {
+        'cnj': cnj,
+        'fonte_dados': 'juriscope',
+        'cabecalho': {
+            'tribunal': js.get('tribunal') or '—',
+            'classe_codigo': '', 'classe_nome': 'Precatório (via Juriscope)',
+            'assunto_nome': (js.get('natureza') or '—'),
+            'orgao_julgador': '—',
+            'valor_causa': valor,
+            'data_autuacao': js.get('data_oficio'),
+            'enriquecimento_status': 'via Juriscope (fora do acervo Voyager)',
+            'total_movimentacoes': 0, 'pk': None,
+        },
+        'polos': {'ativo': [], 'passivo': ([{'nome': ente, 'papel': 'ente devedor', 'polo': 'passivo'}] if ente else []), 'outros': []},
+        'precatorio': {
+            'is_lead': True, 'classificacao': 'PRECATORIO', 'score': None, 'versao': None,
+            'valor_causa': valor, 'tem_sinal_expedicao': True,
+            'juriscope': js,
+            'sobrevivencia': None,
+            'homologacao': None,
+            'pagamento': _cronograma_pagamento(js.get('ano_ordem_orcamentaria')),
+            'meta': {'fonte': 'juriscope/falcon (live)', 'tipo': 'estruturado'},
+        },
+        'jurimetria_tipo': {'disponivel': False, 'motivo': 'processo fora do acervo Voyager (dados via Juriscope)'},
+        'precedentes': _precedentes_termos(js.get('natureza') or 'precatório'),
+    }
+
+
+def _precedentes_termos(termos: str, limite: int = 4) -> dict:
+    from . import zordon_client
+    res = zordon_client.buscar(query=(termos or '')[:200], limit=limite)
+    return {'itens': (res or {}).get('results') or [], 'query': termos, 'erro': (res or {}).get('erro'),
+            'meta': {'fonte': 'zordon hybrid_search', 'tipo': 'RAG'}}
+
+
 def montar_dossie(cnj_raw: str) -> dict:
     """Orquestra o dossiê completo por CNJ. Nunca levanta — devolve erro no dict."""
     cnj = normalizar_cnj(cnj_raw)
@@ -148,7 +192,14 @@ def montar_dossie(cnj_raw: str) -> dict:
     proc = (Process.objects.select_related('tribunal')
             .filter(numero_cnj=cnj).order_by('-ultima_movimentacao_em').first())
     if not proc:
-        return {'erro': f'Processo {cnj} não encontrado no acervo.', 'cnj': cnj}
+        # Fallback em tempo real: não está no acervo Voyager → tenta o Juriscope
+        # (query live, sem proxy). Se estiver lá, monta o dossiê de precatório dali.
+        jd = _dossie_juriscope(cnj)
+        if jd:
+            return jd
+        return {'erro': (f'Processo {cnj} não encontrado no acervo Voyager nem no '
+                         f'Juriscope. Busca em tempo real nas fontes do tribunal '
+                         f'(DJEN/enricher) depende do pipeline de ingestão.'), 'cnj': cnj}
 
     participacoes = (ProcessoParte.objects.filter(processo=proc)
                      .select_related('parte').order_by('polo', 'papel'))

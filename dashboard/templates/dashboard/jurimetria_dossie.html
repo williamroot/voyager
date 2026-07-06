@@ -28,7 +28,8 @@
         {% else %}<span class="chip">{{ p.classificacao|default:'sem classificação' }}</span>{% endif %}
       </div>
     </div>
-    <a href="{% url 'dashboard:processo-detail' c.pk %}" class="text-xs text-accent hover:underline">ver processo completo ↗</a>
+    {% if c.pk %}<a href="{% url 'dashboard:processo-detail' c.pk %}" class="text-xs text-accent hover:underline">ver processo completo ↗</a>
+    {% else %}<span class="text-xs text-fg-subtle">dados via Juriscope (processo fora do acervo Voyager)</span>{% endif %}
   </div>
 
   <div class="grid md:grid-cols-2 gap-4">
