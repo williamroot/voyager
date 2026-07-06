@@ -160,10 +160,14 @@ def _sigla_de_cnj(cnj: str) -> str | None:
     return _CNJ_SIGLA.get(f'{d[13]}.{d[14:16]}')
 
 
+def _processando(cnj: str, sigla: str, pk, msg: str) -> dict:
+    return {'cnj': cnj, 'processando': True, 'tribunal': sigla, 'pk': pk, 'msg': msg}
+
+
 def _buscar_tempo_real(cnj: str) -> dict:
     """Processo fora do acervo e sem dados no Juriscope → busca em tempo real na
-    fonte do tribunal: cria o Process (entra no acervo) + enfileira o enricher
-    (via Cortex). Os dados aparecem no reload."""
+    fonte do tribunal: cria o Process (entra no acervo) + enfileira o enricher.
+    Os dados aparecem no reload."""
     from tribunals.models import Tribunal
     from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento_manual
     sigla = _sigla_de_cnj(cnj)
@@ -177,9 +181,34 @@ def _buscar_tempo_real(cnj: str) -> dict:
         tribunal=trib, numero_cnj=cnj,
         defaults={'enriquecimento_status': 'pendente'})
     enqueue_enriquecimento_manual(proc.pk)
-    return {'cnj': cnj, 'processando': True, 'tribunal': sigla, 'pk': proc.pk,
-            'msg': (f'Processo não estava no acervo — adicionado e buscando dados em tempo '
-                    f'real na fonte ({sigla}, via Cortex). Recarregue em ~15s.')}
+    return _processando(cnj, sigla, proc.pk,
+                        (f'Processo não estava no acervo — adicionado e buscando dados em tempo '
+                         f'real na fonte ({sigla}). Recarregue em ~15s.'))
+
+
+def _reenriquecer_se_vazio(proc, cnj: str):
+    """Blindagem contra dossiê vazio: se o Process existe mas NÃO tem partes e o
+    status indica tentativa incompleta/falha (pendente/erro), re-dispara o enrich
+    e devolve 'processando' — em vez de mostrar um dossiê vazio. Se já concluiu
+    como nao_encontrado, devolve mensagem clara (não uma tela vazia). None quando
+    o processo tem dados e o dossiê normal deve seguir."""
+    from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento_manual
+    n_partes = ProcessoParte.objects.filter(processo=proc).count()
+    if n_partes > 0:
+        return None  # tem dados → dossiê normal
+    sigla = proc.tribunal_id
+    status = proc.enriquecimento_status
+    if status in ('pendente', 'processando', 'erro') and sigla in _ENRICHERS:
+        enqueue_enriquecimento_manual(proc.pk)
+        return _processando(cnj, sigla, proc.pk,
+                            (f'Buscando dados em tempo real na fonte ({sigla}). '
+                             f'Recarregue em ~15s.'))
+    if status == 'nao_encontrado':
+        return {'cnj': cnj, 'pk': proc.pk, 'erro': (
+            f'Processo {cnj} não encontrado na consulta pública do {sigla} '
+            f'(pode não existir lá, estar em segredo de justiça, ou a fonte estar '
+            f'instável). O re-enriquecimento automático tentará de novo.')}
+    return None  # ok mas sem partes (ex.: processo sem partes públicas) → dossiê normal
 
 
 def _dossie_juriscope(cnj: str) -> dict | None:
@@ -246,8 +275,14 @@ def montar_dossie(cnj_raw: str) -> dict:
         if jd:
             return jd
         # Nem no acervo, nem dados no Juriscope → busca em tempo real na fonte do
-        # tribunal (cria Process + enfileira enricher via Cortex).
+        # tribunal (cria Process + enfileira enricher).
         return _buscar_tempo_real(cnj)
+
+    # Process existe mas pode estar vazio por uma tentativa anterior falha (ex.:
+    # proxy que resetou). Nunca mostrar vazio: re-dispara o enrich / mensagem clara.
+    blindagem = _reenriquecer_se_vazio(proc, cnj)
+    if blindagem is not None:
+        return blindagem
 
     participacoes = (ProcessoParte.objects.filter(processo=proc)
                      .select_related('parte').order_by('polo', 'papel'))
