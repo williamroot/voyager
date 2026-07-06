@@ -38,7 +38,10 @@ Cumprimento contra Fazenda com "expedição de precatório" marcado `nao_encontr
    **terminal** (nunca re-tenta) → **3,25M TJSP presos** como falso-negativo. Agora:
    detalhe = `classeProcesso`/redirect; not-found = **só** com marcador "Não existem
    informações"; **200 ambíguo → rotaciona/`erro` (re-tentável)**. Recuperação dos presos:
-   resetar `nao_encontrado`→`pendente` em lotes (sweep).
+   tick agendado `enrichers.jobs.tick_reenrich_esaj_legacy` (scheduler, id `reenrich_esaj_legacy`,
+   cada 5min) devolve `nao_encontrado` com `enriquecido_em < 2026-07-06` a `pendente`,
+   **auto-limitante** (só quando `pendente < 20k`, 50k/tribunal/tick) — sobrevive a restart,
+   sem loop (re-enriquecidos pós-fix ganham timestamp recente e saem do alvo). Cobre TJSP/TJAL/TJAC.
 2. **Blanking de classe no drainer** (`enrichers/drainer.py::normalize_dados`, `bcf809e`):
    gravava `classe_codigo=''` quando o e-SAJ traz a classe só com **nome** (sem código TPU),
    apagando o código herdado do DJEN → F1=0 → lead revertia a NAO_LEAD **a cada
