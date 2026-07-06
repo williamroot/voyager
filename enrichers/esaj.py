@@ -143,9 +143,9 @@ class BaseEsajEnricher:
         # AGREGA as partes (+ o maior valor). Espelha o Juriscope (esajsp.py).
         n_inc = 0
         if seguir_incidentes:
-            for cod, foro in self._extrair_incidentes(soup)[:self.MAX_INCIDENTES]:
+            for href in self._extrair_incidentes(soup)[:self.MAX_INCIDENTES]:
                 try:
-                    ihtml = self._fetch_show_codigo(cod, foro)
+                    ihtml = self._fetch_incidente(href)
                 except Exception:
                     continue
                 if not ihtml:
@@ -184,20 +184,19 @@ class BaseEsajEnricher:
                     dest[polo].append(p)
 
     def _extrair_incidentes(self, soup) -> list:
-        """(codigo, foro) de cada incidente da seção incidentesRecursos_ / links
-        .incidente. Cada parte/beneficiário tem seu incidente (precatório)."""
+        """hrefs dos links de incidente (.incidente / seção incidentesRecursos_).
+        Cada parte/beneficiário tem seu incidente (precatório). Usa o href real
+        (traz cdLocal+codigo+foro), dedup por processo.codigo."""
         out, seen = [], set()
-        anchors = []
+        anchors = list(soup.select('a.incidente[href], a.linkleituraincidente[href]'))
         for sec in soup.select('[id^="incidentesRecursos_"]'):
             anchors += sec.find_all('a', href=True)
-        anchors += soup.select('a.incidente[href], a.linkleituraincidente[href]')
         for a in anchors:
             href = a.get('href', '')
             m = re.search(r'processo\.codigo=([A-Za-z0-9]+)', href)
-            f = re.search(r'(?:processo\.foro|cdLocal)=(\d+)', href)
-            if m and m.group(1) not in seen:
+            if m and m.group(1) not in seen and 'show.do' in href:
                 seen.add(m.group(1))
-                out.append((m.group(1), f.group(1) if f else ''))
+                out.append(href)
         return out
 
     def _emit(self, payload: dict, direct_apply: bool) -> None:
@@ -354,15 +353,16 @@ class BaseEsajEnricher:
             f'{len(tentados)} proxies tentados sem sucesso'
             + (f' (último: {last_erro})' if last_erro else ''))
 
-    def _fetch_show_codigo(self, codigo: str, foro: str) -> Optional[str]:
-        """Detalhe de um incidente por processo.codigo (show.do direto +
-        consultaDeRequisitorios). Rotaciona proxy como _fetch_processo. None se
-        não obteve o detalhe."""
+    def _fetch_incidente(self, href: str) -> Optional[str]:
+        """Detalhe de um incidente pelo href real do link `.incidente` (que já
+        traz cdLocal+codigo+foro). Rotaciona proxy. None se não obteve detalhe.
+
+        NÃO usa `consultaDeRequisitorios=true`: esse param (fluxo autenticado do
+        Juriscope) dispara CAPTCHA na consulta pública. O show.do do incidente
+        abre SEM login/captcha (2026-07-06). Checagem tolerante: a página do
+        incidente pode não ter `classeProcesso` — aceita `numeroProcesso`/detalhe."""
         open_url = f'{self.BASE_URL}/cpopg/open.do'
-        show_url = f'{self.BASE_URL}/cpopg/show.do'
-        params = {'processo.codigo': codigo, 'consultaDeRequisitorios': 'true'}
-        if foro:
-            params['processo.foro'] = foro
+        url = href if href.startswith('http') else f'{self.BASE_URL}{href}'
         tentados: set = set()
         for _ in range(1, self.MAX_PROXY_ROTATIONS + 1):
             proxy = self._next_proxy(tentados)
@@ -374,8 +374,8 @@ class BaseEsajEnricher:
             self.session.cookies.clear()
             try:
                 self.session.get(open_url, proxies=proxies, timeout=self.timeout)
-                resp = self.session.get(show_url, params=params, proxies=proxies,
-                                        timeout=self.timeout, allow_redirects=True)
+                resp = self.session.get(url, proxies=proxies, timeout=self.timeout,
+                                        allow_redirects=True)
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError):
                 if proxy != cortex_proxy_url():
@@ -388,7 +388,9 @@ class BaseEsajEnricher:
             if resp.status_code >= 500:
                 continue
             resp.raise_for_status()
-            if 'classeProcesso' in resp.text or resp.history:
+            if 'captcha' in resp.text.lower() and 'classeProcesso' not in resp.text:
+                return None  # incidente gated por captcha (não deveria, mas guarda)
+            if any(m in resp.text for m in ('classeProcesso', 'numeroProcesso', 'nomeParteEAdvogado')):
                 return resp.text
             return None
         return None
