@@ -71,6 +71,19 @@ com **chance** (prob.) + **tempo** (curva). Multi-estado.
 - **Serving**: artefato leve (joblib), inferência por CNJ no dossiê → "chance X%,
   tempo mediano Y meses; próximo marco: homologação Z% em W meses".
 
+**RESULTADO v1 (2026-07-06) — DC→precatório treinado e SERVIDO:**
+- Dataset 1,81M (Voyager DC/PRE/PRECAT + Juriscope eventos), evento 50,6%, coortes 2019-2026.
+- **Cox C-index = 0,688** (split temporal treino≤2024/teste>2024, n=387k) — discrimina bem.
+- Artefato servable: **KM estratificado {ente_tipo×natureza}**, `dashboard/data/surv_strata.json`
+  (13 estratos), servido por `dashboard/survival_precatorio.prever()` (sem lib ML) no dossiê.
+- Estratos (chance 12m / mediana): federal|ALIMENTAR **53% / ~11m**; estadual|COMUM 39% / 17m;
+  municipal|ALIMENTAR 25% / 22m; federal|DESCONHECIDA 8,5% / 55m; estadual|DESCONHECIDA 5,5% / 82m.
+- Re-treino: `scripts/_build_dataset.py` (extrai) → `scripts/_train_survival.py` (KM+Cox) no container
+  (pandas/lifelines). t0=autuação (jsonb pt + Voyager), evento=data_oficio∨classificação,
+  is_extinto=competing→censura, features SEM vazamento (não usar valor_corrigido/ordem).
+- **Pendente**: features extras (tribunal/valor/classe → melhora C-index), marco homologação
+  (via mov-text), modelo T (precatório→pagamento, 36k PAGO).
+
 ### ⭐ Fonte de dados de precatório JÁ EXISTE: Juriscope/Falcon (2026-07-06)
 O banco do **Juriscope/Falcon** (`10.10.0.51/falcon`, DSN read-only em
 `JURISCOPE_DB_DSN`) já tem o Track 3 estruturado — **não reconstruir, integrar**:
