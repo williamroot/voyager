@@ -97,7 +97,10 @@ class BaseEsajEnricher:
         # prefer_cortex: clique manual (rápido) OU host que bloqueia o pool (TJAL).
         self.prefer_cortex = prefer_cortex or self.PREFER_CORTEX
 
-    def enriquecer(self, processo: Process, direct_apply: bool = False) -> dict:
+    MAX_INCIDENTES = 12  # teto de incidentes seguidos por processo (custo de proxy)
+
+    def enriquecer(self, processo: Process, direct_apply: bool = False,
+                   seguir_incidentes: bool = False) -> dict:
         if processo.tribunal_id != self.TRIBUNAL_SIGLA:
             raise EsajEnricherError(
                 f'Tribunal {processo.tribunal_id} não suportado por {self.__class__.__name__}.'
@@ -133,13 +136,69 @@ class BaseEsajEnricher:
             self._emit(stream.build_erro_payload(**base, erro=f'parse: {exc}'), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
+        # Incidente-following (só no fetch manual/dossiê): no e-SAJ cada parte/
+        # beneficiário costuma ter um incidente próprio (o precatório/requisição
+        # dela). A página principal mostra o processo-pai; os dados por parte
+        # estão nos incidentes. Segue os links de incidente, parseia cada um e
+        # AGREGA as partes (+ o maior valor). Espelha o Juriscope (esajsp.py).
+        n_inc = 0
+        if seguir_incidentes:
+            for cod, foro in self._extrair_incidentes(soup)[:self.MAX_INCIDENTES]:
+                try:
+                    ihtml = self._fetch_show_codigo(cod, foro)
+                except Exception:
+                    continue
+                if not ihtml:
+                    continue
+                try:
+                    isoup = BeautifulSoup(ihtml, 'html.parser')
+                    self._merge_partes(partes, self._extrair_partes(isoup))
+                    idados = self._extrair_dados(isoup, grau)
+                    if idados.get('valor_causa') and not dados.get('valor_causa'):
+                        dados['valor_causa'] = idados['valor_causa']
+                    if idados.get('classe') and 'precat' in (idados['classe'] or '').lower():
+                        dados['classe'] = idados['classe']
+                    n_inc += 1
+                except Exception:
+                    continue
+
         self._emit(stream.build_ok_payload(**base, dados=dados, partes=partes), direct_apply)
         return {
             'cnj': processo.numero_cnj,
             'status': 'ok',
             'classe_raw': dados.get('classe'),
             'partes_total': sum(len(v) for v in partes.values()),
+            'incidentes_seguidos': n_inc,
         }
+
+    @staticmethod
+    def _merge_partes(dest: dict, novo: dict) -> None:
+        """Agrega partes de um incidente em dest, dedup por (polo, nome)."""
+        vistos = {(polo, p.get('nome', '')) for polo, lst in dest.items() for p in lst}
+        for polo, lst in (novo or {}).items():
+            dest.setdefault(polo, [])
+            for p in lst:
+                chave = (polo, p.get('nome', ''))
+                if chave not in vistos:
+                    vistos.add(chave)
+                    dest[polo].append(p)
+
+    def _extrair_incidentes(self, soup) -> list:
+        """(codigo, foro) de cada incidente da seção incidentesRecursos_ / links
+        .incidente. Cada parte/beneficiário tem seu incidente (precatório)."""
+        out, seen = [], set()
+        anchors = []
+        for sec in soup.select('[id^="incidentesRecursos_"]'):
+            anchors += sec.find_all('a', href=True)
+        anchors += soup.select('a.incidente[href], a.linkleituraincidente[href]')
+        for a in anchors:
+            href = a.get('href', '')
+            m = re.search(r'processo\.codigo=([A-Za-z0-9]+)', href)
+            f = re.search(r'(?:processo\.foro|cdLocal)=(\d+)', href)
+            if m and m.group(1) not in seen:
+                seen.add(m.group(1))
+                out.append((m.group(1), f.group(1) if f else ''))
+        return out
 
     def _emit(self, payload: dict, direct_apply: bool) -> None:
         if direct_apply:
@@ -294,6 +353,45 @@ class BaseEsajEnricher:
         raise EsajEnricherError(
             f'{len(tentados)} proxies tentados sem sucesso'
             + (f' (último: {last_erro})' if last_erro else ''))
+
+    def _fetch_show_codigo(self, codigo: str, foro: str) -> Optional[str]:
+        """Detalhe de um incidente por processo.codigo (show.do direto +
+        consultaDeRequisitorios). Rotaciona proxy como _fetch_processo. None se
+        não obteve o detalhe."""
+        open_url = f'{self.BASE_URL}/cpopg/open.do'
+        show_url = f'{self.BASE_URL}/cpopg/show.do'
+        params = {'processo.codigo': codigo, 'consultaDeRequisitorios': 'true'}
+        if foro:
+            params['processo.foro'] = foro
+        tentados: set = set()
+        for _ in range(1, self.MAX_PROXY_ROTATIONS + 1):
+            proxy = self._next_proxy(tentados)
+            if not proxy:
+                break
+            if proxy != cortex_proxy_url(self.pool):
+                tentados.add(proxy)
+            proxies = {'http': proxy, 'https': proxy}
+            self.session.cookies.clear()
+            try:
+                self.session.get(open_url, proxies=proxies, timeout=self.timeout)
+                resp = self.session.get(show_url, params=params, proxies=proxies,
+                                        timeout=self.timeout, allow_redirects=True)
+            except (requests.ConnectionError, requests.Timeout,
+                    requests.exceptions.ChunkedEncodingError):
+                if proxy != cortex_proxy_url():
+                    self.pool.mark_bad(proxy)
+                continue
+            if resp.status_code in (403, 429):
+                if proxy != cortex_proxy_url():
+                    self.pool.mark_bad(proxy)
+                continue
+            if resp.status_code >= 500:
+                continue
+            resp.raise_for_status()
+            if 'classeProcesso' in resp.text or resp.history:
+                return resp.text
+            return None
+        return None
 
     # ---------- Parsing ----------
 

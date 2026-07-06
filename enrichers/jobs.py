@@ -63,7 +63,7 @@ def queue_for(tribunal_sigla: str) -> str:
 # direto via .delay() sem passar pela queue per-tribunal.
 @job('default', timeout=ENRICH_TIMEOUT)
 def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
-                         direct_apply: bool = False) -> dict:
+                         direct_apply: bool = False, seguir_incidentes: bool = False) -> dict:
     # prefer_cortex=None → resolve do setting (default True: Cortex-first pra
     # passar o WAF; datacenter fica de fallback). Cobre TODOS os paths de enqueue.
     if prefer_cortex is None:
@@ -75,7 +75,12 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
         raise ValueError(f'Sem enricher cadastrado para tribunal {p.tribunal_id}')
     logger.info('enriquecer_processo inicio %s %s', p.tribunal_id, p.numero_cnj)
     enricher = cls(prefer_cortex=prefer_cortex)
-    result = enricher.enriquecer(p, direct_apply=direct_apply)
+    # seguir_incidentes só faz sentido no e-SAJ (cada parte tem um incidente).
+    from enrichers.esaj import BaseEsajEnricher
+    if seguir_incidentes and isinstance(enricher, BaseEsajEnricher):
+        result = enricher.enriquecer(p, direct_apply=direct_apply, seguir_incidentes=True)
+    else:
+        result = enricher.enriquecer(p, direct_apply=direct_apply)
     logger.info('enriquecer_processo fim %s %s status=%s', p.tribunal_id, p.numero_cnj, result.get('status', 'ok'))
     return result
 
@@ -99,11 +104,13 @@ def enqueue_enriquecimento_manual(process_id: int):
     residencial primeiro — click do user retorna em ~1-3s em vez de
     rotacionar proxies queimados por 30s+.
     """
+    from django.conf import settings
     queue = django_rq.get_queue('manual')
     return queue.enqueue(
         enriquecer_processo,
         args=(process_id,),
-        kwargs={'prefer_cortex': True, 'direct_apply': True},
+        kwargs={'prefer_cortex': True, 'direct_apply': True,
+                'seguir_incidentes': getattr(settings, 'ESAJ_SEGUIR_INCIDENTES', False)},
         job_timeout=ENRICH_TIMEOUT,
         retry=ENRICH_RETRY,
     )

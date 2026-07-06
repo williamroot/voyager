@@ -260,6 +260,12 @@ DJEN_CORTEX_RATIO_DEGRADED = env.float('DJEN_CORTEX_RATIO_DEGRADED', default=1.0
 # Enriquecimento em massa (bulk) tenta o Cortex PRIMEIRO (residencial passa o WAF
 # dos tribunais; datacenter é bloqueado). True = Cortex-first no worker.
 ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=True)
+# Seguir incidentes no e-SAJ (cada parte tem um incidente/precatório). O DETALHE
+# do incidente exige captcha (uuidCaptcha) na consulta pública → só funciona com
+# captcha-solver OU sessão e-SAJ autenticada (como o Juriscope). Default OFF até
+# essa decisão de infra; o código está pronto (enrichers/esaj.py) e degrada pro
+# processo-pai. (2026-07-06)
+ESAJ_SEGUIR_INCIDENTES = env.bool('ESAJ_SEGUIR_INCIDENTES', default=False)
 # Em ondas pesadas de WAF (todas as fontes bloqueando), o cliente faz pausas
 # escalonadas entre rotações pra dar tempo do WAF "abrir" — evita queimar
 # 51 rotações em <30s e morrer.
