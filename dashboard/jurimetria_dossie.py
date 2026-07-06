@@ -140,7 +140,12 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
                             'sub': 'prioridade alimentar' if natureza == 'ALIMENTAR' else 'comum'})
     val = js.get('valor_acao_corrigido') or js.get('valor_acao') or proc.valor_causa
     if val:
-        indicadores.append({'label': 'Valor', 'valor': f'R$ {val:,.0f}'.replace(',', '.'), 'sub': 'da ação/precatório'})
+        try:
+            val_num = float(str(val).replace('.', '').replace(',', '.')) if isinstance(val, str) else float(val)
+            indicadores.append({'label': 'Valor', 'valor': f'R$ {val_num:,.0f}'.replace(',', '.'),
+                                'sub': 'da ação/precatório'})
+        except (ValueError, TypeError):
+            pass
     if n_exequentes >= 2:
         indicadores.append({'label': 'Beneficiários', 'valor': n_exequentes, 'sub': 'exequentes (execução coletiva)'})
     if tipo.get('disponivel'):
@@ -155,6 +160,17 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
         'meta': {'fonte': 'síntese jurimetria (classificação + Juriscope + enriquecido) + Kaplan-Meier',
                  'tipo': 'conclusivo'},
     }
+
+
+def _diagnostico_safe(proc, precatorio, tipo, polos):
+    """Blindagem: um bug no diagnóstico NUNCA pode derrubar o dossiê (500). Em falha,
+    devolve None (o card some) e loga."""
+    try:
+        return _diagnostico(proc, precatorio, tipo, polos)
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).exception('diagnostico falhou p/ %s', proc.numero_cnj)
+        return None
 
 
 def _jurimetria_do_tipo(proc: Process) -> dict:
@@ -407,7 +423,7 @@ def montar_dossie(cnj_raw: str) -> dict:
             'total_movimentacoes': proc.total_movimentacoes,
             'pk': proc.pk,
         },
-        'diagnostico': _diagnostico(proc, precatorio, tipo, polos),
+        'diagnostico': _diagnostico_safe(proc, precatorio, tipo, polos),
         'polos': polos,
         'precatorio': precatorio,
         'jurimetria_tipo': tipo,
