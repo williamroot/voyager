@@ -94,6 +94,46 @@ Alpha = **precificar T (tempo-até-pagamento) e risco por ente devedor melhor qu
 
 Começar por **Fase 0 + Track 3 (precatório)** — Fase 0 destrava tudo; precatório é o maior ROI.
 
+## Modelo de ciclo de vida do ativo (sobrevivência multi-estado)
+
+Objetivo: prever, pra cada ativo, a **chance** e o **tempo** de avançar em cada
+etapa até o pagamento. É a jurimetria de precatório de ponta-a-ponta.
+
+```
+DIREITO_CREDITÓRIO ─▶ [homologação de cálculos] ─▶ [expedição ofício = PRECATÓRIO] ─▶ PAGAMENTO
+  1,19M (Voyager)        calculos_homologados NOT NULL     data_oficio (P50 ~594d          36k PAGO +
+  população em risco     (arquivo de cálculo existe)       protocolo→ofício)              data_conta_liquidacao
+```
+
+Cada seta = transição de **sobrevivência** (time-to-event com **censura à direita**
+pros que ainda não avançaram). "Chance" e "tempo" são leituras da mesma curva.
+
+### Fontes (join Juriscope.numero_autos ↔ Voyager.numero_cnj)
+- **População/censura**: Voyager `Process` (classificacao DIREITO_CREDITORIO / PRE_PRECATORIO / PRECATORIO + timestamps).
+- **Eventos + datas + features**: Juriscope/Falcon `datamodel_process` (natureza, valor_acao,
+  entity_id→ente, ordem_orcamentaria, data_oficio, calculos_homologados) + `datamodel_requisicaopagamento`
+  (situacao "PAGO TOTAL" 36k, data_conta_liquidacao) — via `JURISCOPE_DB_DSN` read-only.
+
+### Modelos (3 transições + serving)
+1. **DC → precatório** (chance + tempo): sobrevivência sobre 1,19M DC; evento = expedição (`data_oficio`);
+   features = tribunal, órgão, classe, ente (federal/estadual/municipal), valor, natureza, tempo decorrido.
+2. **Marco homologação**: evento intermediário (`calculos_homologados` NOT NULL / mov "homologo os cálculos").
+3. **Precatório → pagamento (modelo T)**: sobrevivência sobre precatórios; evento = pagamento (36k PAGO);
+   T = data_oficio → data_conta_liquidacao. Features + posição na fila (`ordem_orcamentaria`) + regime do ente.
+
+### Método
+Baseline Kaplan-Meier estratificado (interpretável) + modelo principal (Cox/Gradient-Boosted
+Survival). Avaliação C-index + calibração + **split temporal** (treino em coortes antigas, teste
+recentes) contra vazamento. Desenho amostral cuida do viés (negativos vêm do Voyager, não só do
+Juriscope que só tem os que já viraram). Serving leve (joblib) no dossiê por CNJ.
+
+### Saída no dossiê (por CNJ)
+```
+DIREITO_CREDITÓRIO → chance de virar precatório 68% · tempo mediano ~18 meses
+  próximo marco: homologação de cálculos — 45% em 6 meses
+PRECATÓRIO → T (tempo-até-pagamento) ~2,1 anos · ente rating 78/100
+```
+
 ## Modos de uso, papel do LLM e interface
 
 **Princípio:** o LLM **não calcula** — os números vêm de **agregação SQL + modelos
