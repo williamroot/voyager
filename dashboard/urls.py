@@ -19,6 +19,7 @@ urlpatterns = [
     path('processos/<int:pk>/enriquecer/', views.processo_enriquecer, name='processo-enriquecer'),
     path('processos/<int:pk>/sincronizar/', views.processo_sincronizar, name='processo-sincronizar'),
     path('jurimetria/', views.jurimetria, name='jurimetria'),
+    path('jurimetria/dossie/', views.jurimetria_dossie, name='jurimetria-dossie'),
     path('movimentacoes/', views.movimentacoes, name='movimentacoes'),
     path('partes/', views.partes, name='partes'),
     path('partes/<int:pk>/', views.parte_detail, name='parte-detail'),

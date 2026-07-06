@@ -404,6 +404,11 @@
         {% voy_icon "trajectory" "w-4 h-4" %}
         Jurimetria
       </a>
+      {% url 'dashboard:jurimetria-dossie' as jurimetria_dossie_url %}
+      <a href="{{ jurimetria_dossie_url }}" class="nav-item nav-sub {% if request.path == jurimetria_dossie_url %}active{% endif %}">
+        {% voy_icon "dossier" "w-4 h-4" %}
+        <span class="opacity-70">↳</span> Dossiê por CNJ
+      </a>
       {% url 'dashboard:acervo-busca' as acervo_busca_url %}
       <a href="{{ acervo_busca_url }}" class="nav-item nav-sub {% if request.path == acervo_busca_url %}active{% endif %}">
         {% voy_icon "search" "w-4 h-4" %}

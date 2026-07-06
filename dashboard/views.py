@@ -338,6 +338,16 @@ def jurimetria(request):
 
 
 @login_required
+def jurimetria_dossie(request):
+    """Dossiê de jurimetria por CNJ (M3): Voyager + Juriscope + Zordon numa página."""
+    from .jurimetria_dossie import montar_dossie
+    cnj = (request.GET.get('cnj') or '').strip()
+    dossie = montar_dossie(cnj) if cnj else None
+    return render(request, 'dashboard/jurimetria_dossie.html',
+                  {'cnj_input': cnj, 'dossie': dossie})
+
+
+@login_required
 @require_GET
 def tribunais(request):
     """Lista tribunais ativos com KPIs agregados (cards). Lê só do cache;
