@@ -247,3 +247,24 @@ def listar_processos() -> dict:
     except Exception as exc:  # noqa: BLE001 — degrada graciosamente
         logger.warning('zordon: falha em /api/processos: %s', exc)
         return {'processos': [], 'erro': str(exc)[:120]}
+
+
+def jurimetria(metrica: str, **params) -> dict:
+    """GET {ZORDON_URL}/api/jurimetria/<metrica> — agregações sobre acórdãos.
+
+    metrica: resumo|relatores|orgaos|classes|temas|serie.
+    Degrada como as demais (nunca propaga exceção).
+    """
+    base_url = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    api_key = getattr(settings, 'ZORDON_API_KEY', '')
+    if not base_url:
+        return {'erro': 'ZORDON_URL não configurado', 'itens': []}
+    headers = {'Authorization': f'Api-Key {api_key}'} if api_key else {}
+    try:
+        resp = requests.get(f'{base_url}/api/jurimetria/{metrica}', params=params,
+                            headers=headers, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:  # noqa: BLE001 — degrada
+        logger.warning('zordon: falha em /api/jurimetria/%s: %s', metrica, exc)
+        return {'erro': str(exc)[:120], 'itens': []}

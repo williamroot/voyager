@@ -314,6 +314,30 @@ def workers(request):
 
 
 @login_required
+def jurimetria(request):
+    """Jurimetria de acórdãos — consome a API de agregação do Zordon (M2).
+
+    Determinístico: os números vêm do SQL do Zordon; a página só apresenta +
+    mostra a proveniência (_meta). Fonte selecionável (STJ por ora).
+    """
+    from . import zordon_client
+    fonte = (request.GET.get('fonte') or 'STJ').upper()
+    ctx = {
+        'fonte': fonte,
+        'resumo': zordon_client.jurimetria('resumo', fonte=fonte),
+        'orgaos': zordon_client.jurimetria('orgaos', fonte=fonte),
+        'relatores': zordon_client.jurimetria('relatores', fonte=fonte, limit=15),
+        'temas': zordon_client.jurimetria('temas', fonte=fonte, limit=15),
+    }
+    # Templates do Django não acessam chaves com underscore → remapeia _meta→meta.
+    for k in ('resumo', 'orgaos', 'relatores', 'temas'):
+        d = ctx[k]
+        if isinstance(d, dict) and '_meta' in d:
+            d['meta'] = d['_meta']
+    return render(request, 'dashboard/jurimetria.html', ctx)
+
+
+@login_required
 @require_GET
 def tribunais(request):
     """Lista tribunais ativos com KPIs agregados (cards). Lê só do cache;

@@ -399,6 +399,11 @@
         {% voy_icon "dossier" "w-4 h-4" %}
         Processos
       </a>
+      {% url 'dashboard:jurimetria' as jurimetria_url %}
+      <a href="{{ jurimetria_url }}" class="nav-item {% if request.path == jurimetria_url %}active{% endif %}">
+        {% voy_icon "trajectory" "w-4 h-4" %}
+        Jurimetria
+      </a>
       {% url 'dashboard:acervo-busca' as acervo_busca_url %}
       <a href="{{ acervo_busca_url }}" class="nav-item nav-sub {% if request.path == acervo_busca_url %}active{% endif %}">
         {% voy_icon "search" "w-4 h-4" %}

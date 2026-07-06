@@ -1,0 +1,62 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Jurimetria{% endblock %}
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Jurimetria — Acórdãos' subtitle='Agregações determinísticas sobre o corpus de jurisprudência (Zordon)' %}
+
+{% if resumo.erro %}
+  <div class="card text-danger text-sm">Zordon indisponível: {{ resumo.erro }}</div>
+{% else %}
+
+<div class="flex items-center gap-3 mb-4 text-sm">
+  <span class="text-fg-subtle">Fonte:</span>
+  <a href="?fonte=STJ" class="chip {% if fonte == 'STJ' %}bg-accent/20 text-accent-fg{% endif %}">STJ</a>
+  <a href="?fonte=STF" class="chip {% if fonte == 'STF' %}bg-accent/20 text-accent-fg{% endif %}">STF</a>
+  <a href="?fonte=TST" class="chip {% if fonte == 'TST' %}bg-accent/20 text-accent-fg{% endif %}">TST</a>
+  <span class="ml-auto chip" title="proveniência">fonte: jurisprudencia_acordao · descritivo</span>
+</div>
+
+{# KPIs #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <div class="card-tight"><div class="text-fg-subtle text-xs uppercase tracking-wider">Acórdãos</div><div class="text-2xl font-semibold kpi-num">{{ resumo.total_acordaos|format_int }}</div></div>
+  <div class="card-tight"><div class="text-fg-subtle text-xs uppercase tracking-wider">Órgãos</div><div class="text-2xl font-semibold kpi-num">{{ resumo.orgaos|format_int }}</div></div>
+  <div class="card-tight"><div class="text-fg-subtle text-xs uppercase tracking-wider">Relatores</div><div class="text-2xl font-semibold kpi-num">{{ resumo.relatores|format_int }}</div></div>
+  <div class="card-tight"><div class="text-fg-subtle text-xs uppercase tracking-wider">Temas repetitivos</div><div class="text-2xl font-semibold kpi-num">{{ resumo.temas_repetitivos|format_int }}</div></div>
+</div>
+
+<div class="grid md:grid-cols-2 gap-6">
+  {# Órgãos #}
+  <div>
+    {% include 'dashboard/_partials/section_header.html' with title='Volume por órgão julgador' subtitle='acórdãos publicados' %}
+    <div class="card p-0 overflow-x-auto">
+      <table class="w-full text-sm dense">
+        <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border"><tr><th class="text-left">Órgão</th><th class="text-right">Acórdãos</th></tr></thead>
+        <tbody class="divide-y divide-border/80">
+          {% for i in orgaos.itens %}<tr class="hover:bg-card/40"><td class="text-left">{{ i.orgao_julgador }}</td><td class="text-right kpi-num">{{ i.n|format_int }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ n={{ orgaos.meta.n|format_int }} · {{ orgaos.meta.metrica }} · {{ orgaos.meta.tipo }}</div>
+  </div>
+
+  {# Relatores #}
+  <div>
+    {% include 'dashboard/_partials/section_header.html' with title='Top relatores' subtitle='por volume de acórdãos' %}
+    <div class="card p-0 overflow-x-auto">
+      <table class="w-full text-sm dense">
+        <thead class="bg-base/70 text-fg-subtle text-[0.7rem] uppercase tracking-wider border-b border-border"><tr><th class="text-left">Relator(a)</th><th class="text-right">Acórdãos</th></tr></thead>
+        <tbody class="divide-y divide-border/80">
+          {% for i in relatores.itens %}<tr class="hover:bg-card/40"><td class="text-left">{{ i.relator }}</td><td class="text-right kpi-num">{{ i.n|format_int }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ n={{ relatores.meta.n|format_int }} · {{ relatores.meta.metrica }} · {{ relatores.meta.tipo }}</div>
+  </div>
+</div>
+
+<div class="mt-6 text-xs text-fg-subtle">
+  🧠 Os números são agregações SQL (auditáveis). Resultado (provido/negado) e narrativa por IA entram nos próximos módulos.
+</div>
+
+{% endif %}
+{% endblock %}
