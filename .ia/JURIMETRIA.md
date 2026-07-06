@@ -81,8 +81,24 @@ com **chance** (prob.) + **tempo** (curva). Multi-estado.
 - Re-treino: `scripts/_build_dataset.py` (extrai) → `scripts/_train_survival.py` (KM+Cox) no container
   (pandas/lifelines). t0=autuação (jsonb pt + Voyager), evento=data_oficio∨classificação,
   is_extinto=competing→censura, features SEM vazamento (não usar valor_corrigido/ordem).
-- **Pendente**: features extras (tribunal/valor/classe → melhora C-index), marco homologação
-  (via mov-text), modelo T (precatório→pagamento, 36k PAGO).
+- **Marco homologação**: sinal on-demand no dossiê (mov-text DJEN "homolog…cálculos") —
+  coluna Juriscope é esparsa (2026-07-06).
+- **Modelo T (pagamento)**: alvo de ML **não existe** estruturado (data_conta_liquidacao é
+  liquidação, não pagamento; situacao PAGO sem data) → servido como **cronograma
+  constitucional** (`ano_ordem_orcamentaria`, pago até 31/dez/Y, EC 114/2021). Determinístico,
+  100% coberto, não-ML. Ressalva de regime especial explícita no card.
+
+### Freshness (dados sempre atualizados) — 2026-07-06
+- **Dados Juriscope no dossiê**: **live** por CNJ (`juriscope_client` read-only a cada
+  view, sem cache) → sempre o estado atual do falcon.
+- **Modelo de sobrevivência**: **re-treino semanal** (`retreinar_jurimetria`, domingo 03:17,
+  job no scheduler) — KM em **numpy puro** (sem pandas/lifelines → roda no cluster sem novas
+  deps). Grava `dashboard/data/surv_strata.live.json` (runtime, gitignored) atomicamente; o
+  serving recarrega por **mtime** (sem restart). Seed versionado `surv_strata.json` = fallback
+  p/ deploy limpo.
+- **#25 Cox multi-feature**: explorado; decidido **manter KM** (ente_tipo já deriva do
+  tribunal → Cox com mesmas features deu 0,688; só log_valor era novo, ganho incerto). Não
+  subir complexidade (Cox→numpy no serving) sem C-index confirmado. v2 futuro se justificar.
 
 ### ⭐ Fonte de dados de precatório JÁ EXISTE: Juriscope/Falcon (2026-07-06)
 O banco do **Juriscope/Falcon** (`10.10.0.51/falcon`, DSN read-only em
