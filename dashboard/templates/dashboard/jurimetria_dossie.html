@@ -76,7 +76,10 @@
   <div class="card mt-4">
     {% include 'dashboard/_partials/section_header.html' with title='Precedentes relevantes' subtitle='busca semântica no corpus de acórdãos (Zordon)' %}
     {% for pr in dossie.precedentes.itens %}
-      <div class="py-1 text-sm border-b border-border/60 last:border-0">{{ pr.numero_processo|default:pr.cnj|default:'acórdão' }} — {{ pr.ementa|default:pr.texto|default:''|truncatechars:120 }}</div>
+      <div class="py-1 text-sm border-b border-border/60 last:border-0">
+        <span class="font-mono text-xs text-fg-subtle">{{ pr.numero_cnj|default:'—' }}</span>
+        {% if pr.doc_tipo %}<span class="chip text-[0.6rem]">{{ pr.doc_tipo }}</span>{% endif %}
+        {{ pr.snippet|default:''|truncatechars:140 }}</div>
     {% empty %}<div class="text-sm text-fg-subtle">{% if dossie.precedentes.erro %}Zordon: {{ dossie.precedentes.erro }}{% else %}Sem precedentes.{% endif %}</div>{% endfor %}
     <div class="text-[0.65rem] text-fg-subtle mt-2">ⓘ {{ dossie.precedentes.meta.fonte }}</div>
   </div>
