@@ -265,7 +265,7 @@ ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=True)
 # captcha-solver OU sessão e-SAJ autenticada (como o Juriscope). Default OFF até
 # essa decisão de infra; o código está pronto (enrichers/esaj.py) e degrada pro
 # processo-pai. (2026-07-06)
-ESAJ_SEGUIR_INCIDENTES = env.bool('ESAJ_SEGUIR_INCIDENTES', default=False)
+ESAJ_SEGUIR_INCIDENTES = env.bool('ESAJ_SEGUIR_INCIDENTES', default=True)
 # Em ondas pesadas de WAF (todas as fontes bloqueando), o cliente faz pausas
 # escalonadas entre rotações pra dar tempo do WAF "abrir" — evita queimar
 # 51 rotações em <30s e morrer.

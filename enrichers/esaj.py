@@ -388,9 +388,12 @@ class BaseEsajEnricher:
             if resp.status_code >= 500:
                 continue
             resp.raise_for_status()
-            if 'captcha' in resp.text.lower() and 'classeProcesso' not in resp.text:
-                return None  # incidente gated por captcha (não deveria, mas guarda)
-            if any(m in resp.text for m in ('classeProcesso', 'numeroProcesso', 'nomeParteEAdvogado')):
+            # NÃO rejeitar por 'captcha' no texto: TODA página e-SAJ tem captcha no
+            # JS do header. Confiar nos markers de dado — a página do incidente tem
+            # nomeParteEAdvogado mesmo sem classeProcesso; a página-desafio de captcha
+            # não tem nenhum desses.
+            if any(m in resp.text for m in ('classeProcesso', 'numeroProcesso',
+                                            'nomeParteEAdvogado', 'classAttorney')):
                 return resp.text
             return None
         return None
