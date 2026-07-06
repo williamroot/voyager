@@ -106,6 +106,44 @@ def enqueue_enriquecimento_manual(process_id: int):
 ENQUEUE_BATCH_SIZE = 10_000
 QUEUE_HIGH_WATER = 100_000  # se já tem isso na fila, não re-enfileira
 
+# --- Recuperação de falsos-negativos e-SAJ (nao_encontrado legado) -----------
+# Os enrichers e-SAJ marcavam nao_encontrado TERMINAL em falha transitória (200
+# ambíguo) — corrigido em 2026-07-06 (esaj 8bfd9f7). Os ~3,25M presos são legado.
+# Este tick os devolve a 'pendente' pra re-enriquecer com a lógica nova, de forma
+# AUTO-LIMITANTE (só quando a pipeline tem folga) e SEM loop: reseta apenas
+# nao_encontrado com enriquecido_em ANTES do fix; os re-enriquecidos pós-fix
+# (genuínos) ganham timestamp recente e nunca mais são resetados.
+import datetime as _dt  # noqa: E402
+from django.utils import timezone as _tz  # noqa: E402
+
+REENRICH_ESAJ_TRIBUNAIS = ('TJSP', 'TJAL', 'TJAC')
+REENRICH_LEGACY_CUTOFF = _tz.make_aware(_dt.datetime(2026, 7, 6))
+REENRICH_PENDENTE_FLOOR = 20_000   # só reabastece nao_encontrado se pendente < isso
+REENRICH_RESET_BATCH = 50_000      # quantos nao_encontrado→pendente por tribunal/tick
+
+
+@job('default', timeout=600)
+def tick_reenrich_esaj_legacy() -> dict:
+    """Devolve nao_encontrado LEGADO (pré-fix) a 'pendente', auto-limitante."""
+    relatorio: dict = {}
+    for sig in REENRICH_ESAJ_TRIBUNAIS:
+        pend = Process.objects.filter(
+            tribunal_id=sig, enriquecimento_status='pendente').count()
+        if pend >= REENRICH_PENDENTE_FLOOR:
+            relatorio[sig] = f'skip (pendente {pend:,} ≥ {REENRICH_PENDENTE_FLOOR:,})'
+            continue
+        ids = list(Process.objects.filter(
+            tribunal_id=sig, enriquecimento_status='nao_encontrado',
+            enriquecido_em__lt=REENRICH_LEGACY_CUTOFF,
+        ).values_list('pk', flat=True)[:REENRICH_RESET_BATCH])
+        if not ids:
+            relatorio[sig] = 'sem legado restante'
+            continue
+        n = Process.objects.filter(pk__in=ids).update(enriquecimento_status='pendente')
+        relatorio[sig] = f'reset {n:,}'
+        logger.info('tick_reenrich_esaj_legacy %s: reset %d', sig, n)
+    return relatorio
+
 
 @job('default', timeout=600)
 def reabastecer_filas_enriquecimento() -> dict:

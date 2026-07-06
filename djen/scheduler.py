@@ -128,6 +128,18 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Recupera falsos-negativos e-SAJ (nao_encontrado legado pré-fix 2026-07-06):
+    # devolve a 'pendente' de forma auto-limitante (só quando pendente baixo).
+    # Cauda longa (~3,25M TJSP); a cada 5 min alimenta o reabastecer acima.
+    from enrichers.jobs import tick_reenrich_esaj_legacy
+    scheduler.add_job(
+        tick_reenrich_esaj_legacy.delay,
+        'interval',
+        minutes=5,
+        id='reenrich_esaj_legacy',
+        replace_existing=True,
+    )
+
     # Reabastece fila Datajud: análogo ao PJe — drena backlog histórico
     # de Process com data_enriquecimento_datajud=NULL. Sem este job,
     # processos antigos ficavam pra sempre sem Datajud (observado 96%
