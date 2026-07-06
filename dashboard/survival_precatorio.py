@@ -7,21 +7,32 @@ com fallback {ente_tipo|*} → _overall. Determinístico e auditável (traz n/ev
 """
 from __future__ import annotations
 
-import functools
 import json
 import os
 
 from django.conf import settings
 
+# Cache por mtime: o re-treino semanal reescreve o artefato → mtime muda → recarrega
+# automaticamente (sem restart). Freshness dos modelos sem intervenção.
+_cache: dict = {}
 
-@functools.lru_cache(maxsize=2)
+
 def _load(nome: str) -> dict:
     path = os.path.join(settings.BASE_DIR, 'dashboard', 'data', nome)
     try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return {}
+    hit = _cache.get(nome)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    try:
         with open(path, encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
     except Exception:  # noqa: BLE001 — sem artefato = feature off
         return {}
+    _cache[nome] = (mtime, data)
+    return data
 
 
 def _strata() -> dict:

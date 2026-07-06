@@ -473,3 +473,13 @@ def audit_cobertura_dia(tribunal_sigla: str, dia_iso: str) -> dict:
         'gap': gap,
         'cobertura_pct': round(cobertura_pct, 1),
     }
+
+
+@job('default', timeout=5400)
+def retreinar_jurimetria_job():
+    """Re-treino semanal do modelo de sobrevivência DC→precatório (freshness).
+    Roda o command retreinar_jurimetria (KM numpy, sem pandas/lifelines) → reescreve
+    o artefato surv_strata.json, que o serving recarrega por mtime."""
+    from django.core.management import call_command
+    call_command('retreinar_jurimetria')
+    return {'ok': True}

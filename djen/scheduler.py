@@ -140,6 +140,20 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Re-treino semanal do modelo de sobrevivência DC→precatório (freshness):
+    # KM numpy sobre dados frescos → reescreve surv_strata.json (serving recarrega
+    # por mtime). Domingo 03:17 (off-hours), fila default.
+    from djen.jobs import retreinar_jurimetria_job
+    scheduler.add_job(
+        retreinar_jurimetria_job.delay,
+        'cron',
+        day_of_week='sun',
+        hour=3,
+        minute=17,
+        id='retreinar_jurimetria',
+        replace_existing=True,
+    )
+
     # Reabastece fila Datajud: análogo ao PJe — drena backlog histórico
     # de Process com data_enriquecimento_datajud=NULL. Sem este job,
     # processos antigos ficavam pra sempre sem Datajud (observado 96%
