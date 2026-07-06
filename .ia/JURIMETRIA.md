@@ -77,6 +77,39 @@ Alpha = **precificar T (tempo-até-pagamento) e risco por ente devedor melhor qu
 
 Começar por **Fase 0 + Track 3 (precatório)** — Fase 0 destrava tudo; precatório é o maior ROI.
 
+## Modos de uso, papel do LLM e interface
+
+**Princípio:** o LLM **não calcula** — os números vêm de **agregação SQL + modelos
+determinísticos** (auditáveis). O LLM (gpt-oss:20b local do Zordon, fail-closed) faz:
+(1) **lê** texto (extrai natureza/valor/ente; classifica resultado do acórdão),
+(2) **traduz** pergunta NL → consulta estruturada, (3) **narra/explica com citações**,
+(4) **nunca inventa número** (preso aos dados computados).
+
+```
+Pergunta(PT) ─► LLM planner (NL→consulta+retrieval)
+                   │
+      SQL agregação · RAG acórdãos(bge-m3+rerank) · Modelo(T,deságio,risco,score)
+                   │  (tudo determinístico/auditável)
+                   ▼
+             LLM synthesizer (narra + CITA; nº vêm de cima)
+```
+
+**3 modos:**
+1. **Painéis** (descritivo, sem LLM) — input: filtros TPU (tribunal/classe/assunto/
+   relator/órgão/período/ente); output: taxa de êxito, tempo mediano, congestionamento,
+   top teses, T por ente, backlog de precatório.
+2. **Card por entidade** (determinístico + LLM narra) — input: CNJ/lead/ente; output:
+   card com natureza, valor, rating do ente (0-100), T estimado, deságio justo vs pedido,
+   score de lead + 1 parágrafo do LLM. Pluga no funil Juriscope.
+3. **Pergunta em linguagem natural** (LLM planner+synthesizer) — input: pergunta livre;
+   output: números computados + precedentes citados + ressalvas (n, quebra legal).
+
+### Interface — princípios de AUDITABILIDADE (first-class)
+Toda métrica exibe: **n amostral · período · fonte (MV/query) · data de atualização** +
+affordance **"ver dados/query"** (drill-down até os processos/acórdãos). Badges
+**Descritivo vs Preditivo**. A narrativa do LLM sempre **linka as fontes**. Nº nunca
+sem procedência. Reusa HTMX/ECharts (padrão dashboard) + API de agregação do Zordon.
+
 ## Fontes de referência
 - CNJ Justiça em Números / Glossário de Indicadores; DataJud API (Elasticsearch);
   TPU (Res. CNJ 46/2007) / SGT.
