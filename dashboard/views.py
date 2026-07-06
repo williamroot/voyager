@@ -346,7 +346,16 @@ def jurimetria_dossie(request):
     """Dossiê de jurimetria por CNJ (M3): Voyager + Juriscope + Zordon numa página."""
     from .jurimetria_dossie import montar_dossie
     cnj = (request.GET.get('cnj') or '').strip()
-    dossie = montar_dossie(cnj) if cnj else None
+    dossie = None
+    if cnj:
+        # Guard definitivo: qualquer falha (survival, Juriscope, Zordon, template)
+        # vira um card de erro — o dossiê NUNCA responde 500.
+        try:
+            dossie = montar_dossie(cnj)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception('montar_dossie 500 p/ %s', cnj)
+            dossie = {'cnj': cnj, 'erro': f'Falha ao montar o dossiê ({type(exc).__name__}). '
+                      f'O time foi notificado; tente novamente em instantes.'}
     return render(request, 'dashboard/jurimetria_dossie.html',
                   {'cnj_input': cnj, 'dossie': dossie})
 
