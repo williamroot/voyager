@@ -137,6 +137,47 @@ de virar precatório se aplicável, previsão de pagamento do cronograma, valor)
 Não repita o CNJ no título de cada seção. Comece direto no <h3> da seção 1."""
 
 
+def _limpa_fences(html: str) -> str:
+    html = (html or '').strip()
+    if html.startswith('```'):
+        html = html.split('\n', 1)[-1]
+        if html.rstrip().endswith('```'):
+            html = html.rsplit('```', 1)[0]
+    return html.strip()
+
+
+def gerar_stream(cnj: str):
+    """Gera eventos {type,...} pro SSE: status | reasoning | content | done | error.
+    Pré-coleta determinística + stream da síntese LLM (mostra o 'pensando')."""
+    from core import llm
+    from .jurimetria_dossie import montar_dossie
+    if not llm.disponivel():
+        yield {'type': 'error', 'text': 'Análise por IA indisponível (LLM não configurado).'}
+        return
+    yield {'type': 'status', 'text': 'Coletando dados do processo…'}
+    dossie = montar_dossie(cnj)
+    if dossie.get('erro') or dossie.get('processando') or not dossie.get('cabecalho'):
+        yield {'type': 'error', 'text': 'Processo ainda sem dados suficientes para a análise.'}
+        return
+    yield {'type': 'status', 'text': 'Buscando precedentes, juízes e casos similares…'}
+    proc = Process.objects.filter(numero_cnj=dossie['cnj']).first()
+    ritmo = _ritmo_processual(proc) if proc else {'n': 0, 'itens': []}
+    contexto = _contexto(dossie, ritmo)
+    yield {'type': 'status', 'text': 'Gerando análise jurimétrica…'}
+    buf = []
+    for chunk in llm.chat_stream(
+            [{'role': 'system', 'content': _SYSTEM},
+             {'role': 'user', 'content': f'Faça a análise jurimétrica com estes dados:\n\n{contexto}'}],
+            max_tokens=9000, temperature=0.3):
+        if chunk['type'] == 'reasoning':
+            yield {'type': 'reasoning', 'text': chunk['text']}
+        else:
+            buf.append(chunk['text'])
+            yield {'type': 'content', 'text': chunk['text']}
+    html = _limpa_fences(''.join(buf))
+    yield {'type': 'done', 'html': html}
+
+
 def gerar_html(cnj: str) -> str | None:
     """Gera o HTML da narrativa pro CNJ. None se LLM indisponível ou dossiê inválido."""
     from core import llm

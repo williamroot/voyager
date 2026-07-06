@@ -74,14 +74,47 @@
   {% endif %}
   {% endwith %}
 
-  {# ANÁLISE POR IA — carrega assíncrono (não trava o dossiê determinístico) #}
+  {# ANÁLISE POR IA — streaming SSE: mostra o 'pensando' e preenche conforme gera #}
   {% if c.pk %}
-  <div hx-get="{% url 'dashboard:jurimetria-dossie-narrativa' %}?cnj={{ dossie.cnj }}"
-       hx-trigger="load" hx-swap="outerHTML">
-    <div class="card mt-4 text-sm text-fg-subtle flex items-center gap-2">
-      <span class="animate-pulse">🧠</span> Gerando análise jurimétrica por IA…
+  <div class="card mt-4" id="narr-card">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-xs uppercase tracking-wider text-fg-subtle">Análise Jurimétrica</span>
+      <span class="chip text-[0.6rem] bg-accent/20 text-accent-fg">🧠 IA</span>
+      <span id="narr-status" class="text-xs text-fg-subtle ml-auto"></span>
+    </div>
+    {# painel de raciocínio (pensando) — colapsa quando termina #}
+    <details id="narr-think-wrap" class="mb-2 hidden">
+      <summary class="text-xs text-fg-subtle cursor-pointer select-none">💭 raciocínio do modelo</summary>
+      <pre id="narr-think" class="text-[0.7rem] text-fg-subtle whitespace-pre-wrap max-h-40 overflow-y-auto mt-1 opacity-70"></pre>
+    </details>
+    <div id="narr-content" class="jurimetria-narrativa text-sm text-fg-subtle"></div>
+    <div id="narr-spin" class="text-sm text-fg-subtle flex items-center gap-2"><span class="animate-pulse">🧠</span> iniciando análise…</div>
+    <div class="text-[0.6rem] text-fg-subtle mt-3 pt-2 border-t border-border/60">
+      ⓘ IA (Ollama) sobre os números determinísticos do dossiê + precedentes (Zordon) — interpreta, não calcula.
     </div>
   </div>
+  <script>
+  (function() {
+    var url = "{% url 'dashboard:jurimetria-dossie-narrativa-stream' %}?cnj={{ dossie.cnj }}";
+    var es = new EventSource(url);
+    var think = document.getElementById('narr-think');
+    var thinkWrap = document.getElementById('narr-think-wrap');
+    var content = document.getElementById('narr-content');
+    var status = document.getElementById('narr-status');
+    var spin = document.getElementById('narr-spin');
+    var raw = '';
+    es.onmessage = function(e) {
+      var d; try { d = JSON.parse(e.data); } catch (_) { return; }
+      if (d.type === 'status') { status.textContent = d.text; }
+      else if (d.type === 'reasoning') { thinkWrap.classList.remove('hidden'); think.textContent += d.text; think.scrollTop = think.scrollHeight; }
+      else if (d.type === 'content') { spin.style.display = 'none'; raw += d.text; content.innerHTML = raw; }
+      else if (d.type === 'done') { if (d.html) content.innerHTML = d.html; spin.style.display = 'none'; status.textContent = ''; thinkWrap.open = false; es.close(); }
+      else if (d.type === 'error') { spin.textContent = d.text; status.textContent = ''; es.close(); }
+    };
+    es.addEventListener('end', function() { spin.style.display = 'none'; status.textContent = ''; es.close(); });
+    es.onerror = function() { spin.textContent = 'Análise indisponível no momento.'; es.close(); };
+  })();
+  </script>
   {% endif %}
 
   <div class="grid md:grid-cols-2 gap-4">

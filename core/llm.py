@@ -75,6 +75,47 @@ def _post(payload: dict, *, max_tokens: int, tools: list | None = None,
     return None
 
 
+def chat_stream(messages: list[dict], *, max_tokens: int = 9000, temperature: float = 0.3,
+                model: str | None = None, timeout: float = 240.0):
+    """Gera chunks {type, text} do stream OpenAI da Ollama. type ∈ {'reasoning','content'}.
+    Não levanta pro caller: em erro/indisponível, apenas encerra o gerador."""
+    import json
+    api_key = getattr(settings, 'OLLAMA_API_KEY', '')
+    if not api_key:
+        return
+    base_url = getattr(settings, 'OLLAMA_BASE_URL', 'https://ollama.com/v1').rstrip('/')
+    payload = {
+        'model': model or getattr(settings, 'OLLAMA_MODEL', 'kimi-k2.6'),
+        'messages': messages, 'max_tokens': max(max_tokens, _MIN_TOKENS),
+        'temperature': temperature, 'stream': True,
+        'reasoning_effort': getattr(settings, 'OLLAMA_REASONING_EFFORT', 'low'),
+    }
+    try:
+        with requests.post(f'{base_url}/chat/completions',
+                           headers={'Authorization': f'Bearer {api_key}'},
+                           json=payload, stream=True, timeout=timeout) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line or not line.startswith('data:'):
+                    continue
+                data = line[len('data:'):].strip()
+                if data == '[DONE]':
+                    return
+                try:
+                    obj = json.loads(data)
+                except (ValueError, TypeError):
+                    continue
+                delta = (obj.get('choices') or [{}])[0].get('delta') or {}
+                rz = delta.get('reasoning') or delta.get('reasoning_content')
+                if rz:
+                    yield {'type': 'reasoning', 'text': rz}
+                if delta.get('content'):
+                    yield {'type': 'content', 'text': delta['content']}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('llm.chat_stream: %s', exc)
+        return
+
+
 def chat_agent(system: str, user: str, *, tools_specs: list, dispatch, on_step=None,
                max_rounds: int = 8, max_tokens: int = 9000, temperature: float = 0.3,
                timeout: float = 240.0) -> str | None:

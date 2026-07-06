@@ -357,13 +357,53 @@ def jurimetria_dossie_narrativa(request):
     cnj = (request.GET.get('cnj') or '').strip()
     html = None
     if cnj:
-        # Narrativa = pré-coleta determinística via tools + 1 síntese LLM (rápida, rica).
-        # O loop agêntico multi-round (jurimetria_agente) é lento demais pra HTMX — fica
-        # exposto via MCP (mcp_jurimetria) pra uso interativo/externo.
         from .jurimetria_narrativa import gerar_html as gerar_narrativa
         html = gerar_narrativa(cnj)
     return render(request, 'dashboard/_partials/jurimetria_narrativa.html',
                   {'narrativa': html, 'cnj': cnj})
+
+
+def jurimetria_dossie_narrativa_stream(request):
+    """SSE: streaming da análise jurimétrica — mostra o 'pensando' (reasoning) e vai
+    preenchendo o HTML conforme gera. Heartbeat via thread+queue pra não estourar o
+    timeout do gunicorn durante a latência do modelo de reasoning."""
+    import json
+    import queue
+    import threading
+    from django.http import StreamingHttpResponse
+    from .jurimetria_narrativa import gerar_stream
+
+    cnj = (request.GET.get('cnj') or '').strip()
+    q: queue.Queue = queue.Queue()
+    _SENTINEL = object()
+
+    def _produce():
+        try:
+            for ev in gerar_stream(cnj):
+                q.put(ev)
+        except Exception:  # noqa: BLE001
+            logger.exception('gerar_stream falhou')
+            q.put({'type': 'error', 'text': 'Falha ao gerar a análise.'})
+        finally:
+            q.put(_SENTINEL)
+
+    def _sse():
+        threading.Thread(target=_produce, daemon=True).start()
+        while True:
+            try:
+                ev = q.get(timeout=15)
+            except queue.Empty:
+                yield ': keepalive\n\n'  # comentário SSE — mantém a conexão viva
+                continue
+            if ev is _SENTINEL:
+                yield 'event: end\ndata: {}\n\n'
+                return
+            yield f'data: {json.dumps(ev, ensure_ascii=False)}\n\n'
+
+    resp = StreamingHttpResponse(_sse(), content_type='text/event-stream')
+    resp['Cache-Control'] = 'no-cache'
+    resp['X-Accel-Buffering'] = 'no'  # desliga buffering do nginx
+    return resp
 
 
 @login_required
