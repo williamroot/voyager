@@ -27,6 +27,27 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TJPA | Portal próprio "Consulta Unificada" (SPA + REST) | **Sim** (2026-06-29) | `enrichers/tjpa.py` (classe própria). `GET consulta-processual-unificada-prd.tjpa.jus.br/consilium-rest/processobycnj/{cnj}` (UA de browser, throttle p/ 429). reCAPTCHA só no front, não enforced. `cpfcnpj` vazio na consulta pública (tipo pf/pj por `tppessoa`). |
 | **Bloqueados (recon 2026-06-29)** | vários | **Não — captcha/login/anti-bot** | Consulta pública gated, inviável headless sem captcha-solver ou credenciais: **captcha** (hCaptcha/reCaptcha/Tencent) — TJBA, TJPB, TJRR, TJSE, TJMS (e-SAJ virou SPA Next.js c/ captcha), TJGO+TJPR (PROJUDI), TJAM (PROJUDI atrás de F5 anti-bot); **login obrigatório** — TJES, TJPI, TJTO; **indeterminado** (sem amostra/host estável) — TJRN. eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA (ver linhas TRF acima). Desbloqueio exige decisão: serviço de captcha-solving (2captcha etc.) ou credenciais/OTP. Veredictos completos do recon no histórico do commit. |
 
+## Correções e-SAJ / classe (2026-07-06)
+
+Dois bugs que faziam leads de precatório do TJSP sumirem — achados a partir de um
+Cumprimento contra Fazenda com "expedição de precatório" marcado `nao_encontrado`+NAO_LEAD:
+
+1. **`nao_encontrado` de falha transitória** (`enrichers/esaj.py`, `8bfd9f7`): o e-SAJ
+   às vezes devolve **HTTP 200 com página que não é detalhe nem not-found** (soft-error/
+   throttle). O código tratava qualquer 200 sem campos do detalhe como `nao_encontrado`
+   **terminal** (nunca re-tenta) → **3,25M TJSP presos** como falso-negativo. Agora:
+   detalhe = `classeProcesso`/redirect; not-found = **só** com marcador "Não existem
+   informações"; **200 ambíguo → rotaciona/`erro` (re-tentável)**. Recuperação dos presos:
+   resetar `nao_encontrado`→`pendente` em lotes (sweep).
+2. **Blanking de classe no drainer** (`enrichers/drainer.py::normalize_dados`, `bcf809e`):
+   gravava `classe_codigo=''` quando o e-SAJ traz a classe só com **nome** (sem código TPU),
+   apagando o código herdado do DJEN → F1=0 → lead revertia a NAO_LEAD **a cada
+   re-enriquecimento** (afetava 87% dos TJSP enriquecidos). Agora só sobrescreve o código
+   se vier código; senão atualiza só o nome e **preserva** o código. Idem `assunto`.
+
+Fonte de classe pra e-SAJ (nome-only) = **backfill DJEN** (`preencher_classe_via_djen`,
+mov mais recente). Ver `.ia/CLASSIFICACAO.md` §2 (regra de sinal TJSP + esses fixes).
+
 ## Arquitetura
 
 `enrichers/pje.py::BasePjeEnricher` concentra **toda** a lógica de PJe consulta pública (form JSF, parsing do detalhe, polos, partes). Subclasses configuram só:
