@@ -73,10 +73,16 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
     cls = _ENRICHERS.get(p.tribunal_id)
     if not cls:
         raise ValueError(f'Sem enricher cadastrado para tribunal {p.tribunal_id}')
+    # e-SAJ (TJSP/TJAL/TJAC) funciona com o pool ProxyScrape; o Cortex tem resetado
+    # conexão e faz o enrich falhar (dossiê vazio). Força pool-first pro e-SAJ,
+    # independente do que o enqueue passou (garante o fix mesmo se o web ainda não
+    # atualizou). Cortex vira fallback no _next_proxy. (2026-07-06)
+    from enrichers.esaj import BaseEsajEnricher
+    if issubclass(cls, BaseEsajEnricher):
+        prefer_cortex = False
     logger.info('enriquecer_processo inicio %s %s', p.tribunal_id, p.numero_cnj)
     enricher = cls(prefer_cortex=prefer_cortex)
     # seguir_incidentes só faz sentido no e-SAJ (cada parte tem um incidente).
-    from enrichers.esaj import BaseEsajEnricher
     if seguir_incidentes and isinstance(enricher, BaseEsajEnricher):
         result = enricher.enriquecer(p, direct_apply=direct_apply, seguir_incidentes=True)
     else:
