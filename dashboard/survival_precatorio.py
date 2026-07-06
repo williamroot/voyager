@@ -14,14 +14,18 @@ import os
 from django.conf import settings
 
 
-@functools.lru_cache(maxsize=1)
-def _strata() -> dict:
-    path = os.path.join(settings.BASE_DIR, 'dashboard', 'data', 'surv_strata.json')
+@functools.lru_cache(maxsize=2)
+def _load(nome: str) -> dict:
+    path = os.path.join(settings.BASE_DIR, 'dashboard', 'data', nome)
     try:
         with open(path, encoding='utf-8') as f:
             return json.load(f)
     except Exception:  # noqa: BLE001 — sem artefato = feature off
         return {}
+
+
+def _strata() -> dict:
+    return _load('surv_strata.json')
 
 
 def ente_tipo(tribunal: str | None, ente_nome: str | None) -> str:
@@ -47,17 +51,17 @@ def prever(tribunal: str | None, natureza: str | None, ente_nome: str | None = N
         return None
     et = ente_tipo(tribunal, ente_nome)
     nat = (natureza or 'DESCONHECIDA').upper() or 'DESCONHECIDA'
+    return _lookup(s, et, nat)
+
+
+def _lookup(s: dict, et: str, nat: str) -> dict | None:
     for key in (f'{et}|{nat}', f'{et}|*', '_overall'):
         st = s.get(key)
         if st:
-            return {
-                'chance_12m': st.get('chance_12m'),
-                'chance_24m': st.get('chance_24m'),
-                'chance_36m': st.get('chance_36m'),
-                'tempo_mediano_meses': _meses(st.get('tempo_mediano_dias')),
-                'estrato': key,
-                'ente_tipo': et,
-                'n': st.get('n'),
-                'eventos': st.get('eventos'),
-            }
+            out = {'estrato': key, 'ente_tipo': et, 'n': st.get('n'), 'eventos': st.get('eventos'),
+                   'tempo_mediano_meses': _meses(st.get('tempo_mediano_dias'))}
+            for h in ('12m', '24m', '36m', '60m'):
+                if f'chance_{h}' in st:
+                    out[f'chance_{h}'] = st[f'chance_{h}']
+            return out
     return None

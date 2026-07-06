@@ -60,6 +60,18 @@
         <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ Kaplan-Meier · estrato {{ sb.estrato }} · n={{ sb.n|format_int }} · eventos={{ sb.eventos|format_int }} · C-index 0,69</div>
       </div>
       {% endwith %}{% endif %}
+
+      {% if p.pagamento %}{% with pg=p.pagamento %}
+      <div class="mt-3 pt-3 border-t border-border/60">
+        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1">Previsão de pagamento (T) <span class="chip text-[0.55rem]">cronograma</span></div>
+        <div class="flex items-baseline gap-4 flex-wrap">
+          <div><span class="text-2xl font-semibold kpi-num">{{ pg.ano_orcamento }}</span> <span class="text-xs text-fg-subtle">orçamento (pago até 31/dez)</span></div>
+          {% if pg.em_atraso %}<div><span class="chip bg-danger/20 text-danger">em atraso</span></div>
+          {% else %}<div><span class="text-lg font-medium kpi-num">~{{ pg.meses_ate_prazo }}</span> <span class="text-xs text-fg-subtle">meses até o prazo</span></div>{% endif %}
+        </div>
+        <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ {{ pg.fonte }} · ressalva: entes em regime especial pagam com atraso</div>
+      </div>
+      {% endwith %}{% endif %}
     </div>
 
     {# JURIMETRIA DO TIPO #}

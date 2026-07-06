@@ -21,6 +21,31 @@ _CNJ_RE = re.compile(r'\d{7}-?\d{2}\.?\d{4}\.?\d\.?\d{2}\.?\d{4}')
 _EXPED_RE = re.compile(r'precat[óo]rio|ofício requisit[óo]rio|expedi', re.IGNORECASE)
 
 
+def _cronograma_pagamento(ano_ordem) -> dict | None:
+    """Modelo T = cronograma constitucional (determinístico, NÃO ML): precatório
+    inscrito no orçamento do ano Y é pago até 31/dez/Y (EC 114/2021). A data de
+    pagamento observada não existe estruturada no Juriscope, então a estimativa
+    honesta é o prazo orçamentário. Ressalva: entes em regime especial pagam com
+    atraso (modelagem de atraso exige histórico de pagamento não disponível)."""
+    import datetime as _dt
+    from django.utils import timezone
+    try:
+        ano = int(str(ano_ordem)[:4])
+    except (TypeError, ValueError):
+        return None
+    if ano < 2000 or ano > 2100:
+        return None
+    hoje = timezone.now().date()
+    prazo = _dt.date(ano, 12, 31)
+    return {
+        'ano_orcamento': ano,
+        'prazo_constitucional': prazo,
+        'meses_ate_prazo': round((prazo - hoje).days / 30.44),
+        'em_atraso': prazo < hoje,
+        'fonte': 'cronograma constitucional (ano_ordem_orcamentaria · EC 114/2021)',
+    }
+
+
 def normalizar_cnj(raw: str) -> str | None:
     s = (raw or '').strip()
     m = _CNJ_RE.search(s)
@@ -70,14 +95,16 @@ def _bloco_precatorio(proc: Process) -> dict:
     tem_exped = Movimentacao.objects.filter(processo_id=proc.pk).filter(
         texto__iregex=r'precat|requisit|expedi').exists()
     js = juriscope_client.dados_precatorio(proc.numero_cnj)
-    # Sobrevivência DC→precatório (só faz sentido pra quem ainda NÃO virou).
+    # Sobrevivência DC→precatório (só faz sentido pra quem ainda NÃO virou);
+    # modelo T (→pagamento) pra quem JÁ é precatório.
+    _nat = (js or {}).get('natureza')
+    _ente = (js or {}).get('ente_nome') or (js or {}).get('devedora')
     sobrevivencia = None
+    pagamento = None
     if proc.classificacao == 'DIREITO_CREDITORIO':
-        sobrevivencia = survival_precatorio.prever(
-            proc.tribunal_id,
-            (js or {}).get('natureza'),
-            (js or {}).get('ente_nome') or (js or {}).get('devedora'),
-        )
+        sobrevivencia = survival_precatorio.prever(proc.tribunal_id, _nat, _ente)
+    if proc.classificacao in ('PRECATORIO', 'PRE_PRECATORIO'):
+        pagamento = _cronograma_pagamento((js or {}).get('ano_ordem_orcamentaria'))
     return {
         'is_lead': is_lead,
         'classificacao': proc.classificacao,
@@ -87,6 +114,7 @@ def _bloco_precatorio(proc: Process) -> dict:
         'tem_sinal_expedicao': tem_exped,
         'juriscope': js,  # natureza/valor/ente/ordem/datas (ou {} se indisponível)
         'sobrevivencia': sobrevivencia,  # chance/tempo de virar precatório (DC)
+        'pagamento': pagamento,          # modelo T: chance/tempo de pagamento (precatório)
         'meta': {'fonte': 'classificacao v6 + movimentações DJEN + juriscope/falcon',
                  'tipo': 'modelo + estruturado'},
     }
