@@ -4,10 +4,29 @@
 {% block content %}
 {% include 'dashboard/_partials/page_header.html' with title='Dossiê de Jurimetria por CNJ' subtitle='Voyager + Juriscope (precatório) + Zordon (precedentes) — auditável' %}
 
+<style media="print">
+  .app-sidebar, .sidebar-backdrop, .no-print, form, #narr-think-wrap, #narr-loader, #narr-spin,
+  [x-show], .page-header-actions { display: none !important; }
+  body, main, .card { background: #fff !important; color: #111 !important; box-shadow: none !important; }
+  .card { break-inside: avoid; border: 1px solid #ddd !important; border-left-width: 4px !important; margin-bottom: 10px !important; }
+  main { max-width: 100% !important; padding: 0 !important; }
+  a { color: #1a4b8c !important; text-decoration: underline; }
+  .text-fg-subtle, .text-fg-muted, .text-fg-soft, td, .chip { color: #333 !important; }
+  .kpi-num, .text-fg, h3, strong { color: #0a0a0a !important; }
+  .chip { border: 1px solid #ccc !important; background: #f4f4f4 !important; }
+  #pdf-print-header { display: block !important; }
+</style>
+<div id="pdf-print-header" class="hidden mb-3" style="display:none">
+  <div style="font-weight:700;font-size:18px;letter-spacing:2px">▽○▽△⑀⌇ VOYAGER</div>
+  <div style="font-size:11px;color:#555">Dossiê de Jurimetria · voyager.was.dev.br{% if dossie.cnj %} · {{ dossie.cnj }}{% endif %} · gerado em {% now "d/m/Y H:i" %}</div>
+  <hr style="margin:6px 0;border:none;border-top:1px solid #ccc">
+</div>
+
 <form method="get" class="flex items-center gap-2 mb-6 max-w-2xl">
   <input type="text" name="cnj" value="{{ cnj_input }}" placeholder="0000000-00.0000.0.00.0000"
          class="flex-1 bg-card border border-border rounded px-3 py-2 text-sm font-mono" autofocus>
   <button class="btn-primary px-4 py-2 text-sm rounded">Analisar</button>
+  {% if dossie.cabecalho %}<button type="button" onclick="window.print()" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Salvar como PDF">📄 PDF</button>{% endif %}
 </form>
 
 {% if dossie.erro %}
@@ -47,7 +66,7 @@
           <span class="text-xs uppercase tracking-wider text-fg-subtle">Diagnóstico</span>
           <span class="chip text-[0.6rem] {% if dg.tom == 'accent' %}bg-accent/20 text-accent-fg{% elif dg.tom == 'ok' %}bg-emerald-500/20 text-emerald-400{% endif %}">{{ dg.estagio }}</span>
         </div>
-        <div class="text-base font-medium leading-snug">{{ dg.veredito }}</div>
+        <div class="text-lg md:text-xl font-semibold text-fg leading-snug">{{ dg.veredito }}</div>
       </div>
       <div class="chip {% if dg.recomendacao.tom == 'accent' %}bg-accent/20 text-accent-fg{% elif dg.recomendacao.tom == 'ok' %}bg-emerald-500/20 text-emerald-400{% endif %} text-sm py-1.5 px-3">{{ dg.recomendacao.label }}</div>
     </div>
@@ -55,9 +74,9 @@
     {% if dg.indicadores %}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
       {% for ind in dg.indicadores %}
-      <div class="bg-bg/40 rounded p-2">
-        <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">{{ ind.label }}</div>
-        <div class="text-xl font-semibold kpi-num leading-tight">{{ ind.valor }}</div>
+      <div class="bg-base/50 border border-border/50 rounded p-2">
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-muted">{{ ind.label }}</div>
+        <div class="text-xl font-semibold kpi-num leading-tight text-fg">{{ ind.valor }}</div>
         <div class="text-[0.6rem] text-fg-subtle">{{ ind.sub }}</div>
       </div>
       {% endfor %}
@@ -90,7 +109,7 @@
       <summary class="text-xs text-fg-subtle cursor-pointer select-none">💭 raciocínio do modelo</summary>
       <pre id="narr-think" class="text-[0.7rem] text-fg-subtle whitespace-pre-wrap max-h-40 overflow-y-auto mt-1 opacity-70"></pre>
     </details>
-    <div id="narr-content" class="jurimetria-narrativa text-sm text-fg-subtle"></div>
+    <div id="narr-content" class="jurimetria-narrativa text-sm text-fg-soft leading-relaxed"></div>
     <div id="narr-spin" class="text-sm text-fg-subtle flex items-center gap-2"><span class="animate-pulse">🧠</span> iniciando análise…</div>
     <div class="text-[0.6rem] text-fg-subtle mt-3 pt-2 border-t border-border/60">
       ⓘ IA (Ollama) sobre os números determinísticos do dossiê + precedentes (Zordon) — interpreta, não calcula.
@@ -200,15 +219,24 @@
   <div class="card mt-4">
     {% include 'dashboard/_partials/section_header.html' with title='Precedentes relevantes' subtitle='busca semântica no corpus de acórdãos (Zordon)' %}
     {% for pr in dossie.precedentes.itens %}
-      <div class="py-1 text-sm border-b border-border/60 last:border-0">
-        <span class="font-mono text-xs text-fg-subtle">{{ pr.numero_cnj|default:'—' }}</span>
-        {% if pr.doc_tipo %}<span class="chip text-[0.6rem]">{{ pr.doc_tipo }}</span>{% endif %}
-        {{ pr.snippet|default:''|truncatechars:140 }}</div>
+      <div class="py-1.5 text-sm border-b border-border/60 last:border-0 flex items-start gap-2 group">
+        <div class="flex-1">
+          {% if pr.numero_cnj %}
+            <a href="?cnj={{ pr.numero_cnj }}" class="font-mono text-xs text-accent hover:underline" title="Abrir dossiê de {{ pr.numero_cnj }}">{{ pr.numero_cnj }} ↗</a>
+          {% else %}<span class="font-mono text-xs text-fg-subtle">—</span>{% endif %}
+          {% if pr.doc_tipo %}<span class="chip text-[0.6rem]">{{ pr.doc_tipo }}</span>{% endif %}
+          {% if pr.relator %}<span class="text-[0.65rem] text-fg-subtle">rel. {{ pr.relator }}</span>{% endif %}
+          <span class="text-fg-subtle">{{ pr.snippet|default:''|truncatechars:140 }}</span>
+        </div>
+      </div>
     {% empty %}<div class="text-sm text-fg-subtle">{% if dossie.precedentes.erro %}Zordon: {{ dossie.precedentes.erro }}{% else %}Sem precedentes.{% endif %}</div>{% endfor %}
     <div class="text-[0.65rem] text-fg-subtle mt-2">ⓘ {{ dossie.precedentes.meta.fonte }}</div>
   </div>
 
-  <div class="mt-4 text-xs text-fg-subtle">🧠 Números determinísticos (SQL/Juriscope). Narrativa por IA e modelo de T (tempo-até-pagamento) entram nos próximos módulos.</div>
+  <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.65rem] text-fg-subtle border-t border-border/60 pt-2">
+    <span class="inline-flex items-center gap-1"><span class="font-semibold text-fg">∑</span> número determinístico — SQL · Kaplan-Meier · cronograma EC 114/2021 (auditável)</span>
+    <span class="inline-flex items-center gap-1"><span class="chip text-[0.55rem] bg-accent/20 text-accent-fg">🧠 IA</span> interpretação (não calcula nem cita fonte nova) · precedentes: Zordon (busca semântica)</span>
+  </div>
   {% endwith %}
 {% else %}
   <div class="card text-sm text-fg-subtle">Digite um número de processo (CNJ) para gerar o dossiê de jurimetria.</div>

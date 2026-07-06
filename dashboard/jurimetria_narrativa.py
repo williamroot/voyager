@@ -137,13 +137,40 @@ de virar precatório se aplicável, previsão de pagamento do cronograma, valor)
 Não repita o CNJ no título de cada seção. Comece direto no <h3> da seção 1."""
 
 
+import re as _re
+
+# CNJ NNNNNNN-DD.AAAA.J.TR.OOOO — pra linkificar citações na narrativa.
+_CNJ_PAT = _re.compile(r'(?<![\w>./=-])(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})(?![\w<])')
+
+
+def _linkify_cnj(html: str) -> str:
+    """Torna todo CNJ citado na narrativa clicável → abre o dossiê daquele processo
+    (que por sua vez leva ao original na fonte). Não mexe em CNJs já dentro de <a>."""
+    def _sub(m):
+        cnj = m.group(1)
+        return (f'<a href="?cnj={cnj}" class="text-accent hover:underline font-mono" '
+                f'title="Abrir dossiê de {cnj}">{cnj}</a>')
+    # evita reprocessar dentro de tags <a ...>...</a>: split grosseiro por <a>
+    partes = _re.split(r'(<a\b[^>]*>.*?</a>)', html, flags=_re.S)
+    return ''.join(p if p.startswith('<a') else _CNJ_PAT.sub(_sub, p) for p in partes)
+
+
+def _sanitiza(html: str) -> str:
+    """Defesa contra XSS-via-LLM: remove <script>/<style>/<iframe>, handlers on*=,
+    e URLs javascript:. O modelo é nosso, mas HTML cru vai pro innerHTML — não confiar."""
+    html = _re.sub(r'(?is)<\s*(script|style|iframe|object|embed|link|meta)\b.*?(</\s*\1\s*>|$)', '', html)
+    html = _re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html)
+    html = _re.sub(r'(?i)(href|src)\s*=\s*(["\']?)\s*javascript:[^"\'>]*\2', r'\1=\2#\2', html)
+    return html
+
+
 def _limpa_fences(html: str) -> str:
     html = (html or '').strip()
     if html.startswith('```'):
         html = html.split('\n', 1)[-1]
         if html.rstrip().endswith('```'):
             html = html.rsplit('```', 1)[0]
-    return html.strip()
+    return _linkify_cnj(_sanitiza(html.strip()))
 
 
 def gerar_stream(cnj: str):
@@ -196,10 +223,4 @@ def gerar_html(cnj: str) -> str | None:
         max_tokens=9000, temperature=0.3, timeout=240)
     if not resposta:
         return None
-    # sanitiza cercas de código que o modelo às vezes emite
-    html = resposta.strip()
-    if html.startswith('```'):
-        html = html.split('\n', 1)[-1]
-        if html.rstrip().endswith('```'):
-            html = html.rsplit('```', 1)[0]
-    return html.strip()
+    return _limpa_fences(resposta)
