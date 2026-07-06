@@ -140,12 +140,60 @@ def _precedentes(proc: Process, limite: int = 4) -> dict:
             'meta': {'fonte': 'zordon hybrid_search (bge-m3+rerank)', 'tipo': 'RAG'}}
 
 
+# CNJ NNNNNNN-DD.AAAA.J.TR.OOOO → sigla, pros tribunais que têm enricher (fetch
+# em tempo real). J=8 estadual, J=4 federal. TR = número do tribunal.
+_CNJ_SIGLA = {
+    '8.01': 'TJAC', '8.02': 'TJAL', '8.03': 'TJAP', '8.04': 'TJAM', '8.05': 'TJBA',
+    '8.06': 'TJCE', '8.07': 'TJDFT', '8.08': 'TJES', '8.09': 'TJGO', '8.10': 'TJMA',
+    '8.11': 'TJMT', '8.12': 'TJMS', '8.13': 'TJMG', '8.14': 'TJPA', '8.15': 'TJPB',
+    '8.16': 'TJPR', '8.17': 'TJPE', '8.18': 'TJPI', '8.19': 'TJRJ', '8.20': 'TJRN',
+    '8.21': 'TJRS', '8.22': 'TJRO', '8.23': 'TJRR', '8.24': 'TJSC', '8.25': 'TJSE',
+    '8.26': 'TJSP', '8.27': 'TJTO',
+    '4.01': 'TRF1', '4.02': 'TRF2', '4.03': 'TRF3', '4.04': 'TRF4', '4.05': 'TRF5', '4.06': 'TRF6',
+}
+
+
+def _sigla_de_cnj(cnj: str) -> str | None:
+    d = re.sub(r'\D', '', cnj or '')
+    if len(d) < 16:
+        return None
+    return _CNJ_SIGLA.get(f'{d[13]}.{d[14:16]}')
+
+
+def _buscar_tempo_real(cnj: str) -> dict:
+    """Processo fora do acervo e sem dados no Juriscope → busca em tempo real na
+    fonte do tribunal: cria o Process (entra no acervo) + enfileira o enricher
+    (via Cortex). Os dados aparecem no reload."""
+    from tribunals.models import Tribunal
+    from enrichers.jobs import _ENRICHERS, enqueue_enriquecimento_manual
+    sigla = _sigla_de_cnj(cnj)
+    if not sigla or sigla not in _ENRICHERS:
+        return {'erro': (f'Processo {cnj} não está no acervo nem no Juriscope, e não há '
+                         f'enricher em tempo real para {sigla or "esse tribunal"}.'), 'cnj': cnj}
+    trib = Tribunal.objects.filter(sigla=sigla).first()
+    if not trib:
+        return {'erro': f'Tribunal {sigla} não cadastrado.', 'cnj': cnj}
+    proc, _ = Process.objects.get_or_create(
+        tribunal=trib, numero_cnj=cnj,
+        defaults={'enriquecimento_status': 'pendente'})
+    enqueue_enriquecimento_manual(proc.pk)
+    return {'cnj': cnj, 'processando': True, 'tribunal': sigla, 'pk': proc.pk,
+            'msg': (f'Processo não estava no acervo — adicionado e buscando dados em tempo '
+                    f'real na fonte ({sigla}, via Cortex). Recarregue em ~15s.')}
+
+
 def _dossie_juriscope(cnj: str) -> dict | None:
     """Monta o dossiê a partir do Juriscope quando o processo NÃO está no acervo
     Voyager (busca live por CNJ, sem proxy). None se também não está no Juriscope."""
     from . import juriscope_client, survival_precatorio
     js = juriscope_client.dados_precatorio(cnj)
     if not js or not js.get('encontrado'):
+        return None
+    # Registro "casca" (CNJ existe mas sem NENHUM dado estruturado) → trata como
+    # não-encontrado pra cair na busca em tempo real na fonte do tribunal.
+    if not any([js.get('natureza'), js.get('valor_acao'), js.get('valor_acao_corrigido'),
+                js.get('entity_id'), js.get('ordem_orcamentaria'), js.get('data_oficio'),
+                js.get('files_downloaded')]):
         return None
     ente = js.get('ente_nome') or js.get('devedora')
     valor = js.get('valor_acao_corrigido') or js.get('valor_acao')
@@ -197,9 +245,9 @@ def montar_dossie(cnj_raw: str) -> dict:
         jd = _dossie_juriscope(cnj)
         if jd:
             return jd
-        return {'erro': (f'Processo {cnj} não encontrado no acervo Voyager nem no '
-                         f'Juriscope. Busca em tempo real nas fontes do tribunal '
-                         f'(DJEN/enricher) depende do pipeline de ingestão.'), 'cnj': cnj}
+        # Nem no acervo, nem dados no Juriscope → busca em tempo real na fonte do
+        # tribunal (cria Process + enfileira enricher via Cortex).
+        return _buscar_tempo_real(cnj)
 
     participacoes = (ProcessoParte.objects.filter(processo=proc)
                      .select_related('parte').order_by('polo', 'papel'))

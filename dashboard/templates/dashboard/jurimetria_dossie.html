@@ -12,6 +12,11 @@
 
 {% if dossie.erro %}
   <div class="card text-danger text-sm">{{ dossie.erro }}</div>
+{% elif dossie.processando %}
+  <div class="card text-sm" hx-get="?cnj={{ dossie.cnj }}" hx-trigger="every 12s" hx-swap="outerHTML">
+    <div class="text-accent">⏳ {{ dossie.msg }}</div>
+    <div class="text-xs text-fg-subtle mt-1">Tribunal {{ dossie.tribunal }} · buscando na fonte (e-SAJ/PJe via Cortex). Esta página recarrega sozinha.</div>
+  </div>
 {% elif dossie %}
   {% with c=dossie.cabecalho p=dossie.precatorio j=dossie.precatorio.juriscope jt=dossie.jurimetria_tipo %}
 
