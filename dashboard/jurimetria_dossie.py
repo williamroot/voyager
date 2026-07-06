@@ -180,13 +180,24 @@ def _jurimetria_do_tipo(proc: Process) -> dict:
     """
     if not proc.classe_codigo:
         return {'disponivel': False, 'motivo': 'processo sem classe estruturada'}
+    from django.db import transaction
+    from django.db.models import Count, Q
     base = Process.objects.filter(tribunal_id=proc.tribunal_id,
                                   classe_codigo=proc.classe_codigo)
-    with connection.cursor() as cur:
-        cur.execute("SET LOCAL statement_timeout='15000'")
-    total = base.count()
-    precat = base.filter(classificacao='PRECATORIO').count()
-    pre = base.filter(classificacao='PRE_PRECATORIO').count()
+    # UMA query com contagens condicionais, sob statement_timeout REAL (atomic — o
+    # SET LOCAL só vale dentro de transação; fora, autocommit ignorava e classes
+    # federais com milhões de linhas TRAVAVAM o dossiê → timeout 500).
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout='6000'")
+            agg = base.aggregate(
+                total=Count('id'),
+                precat=Count('id', filter=Q(classificacao='PRECATORIO')),
+                pre=Count('id', filter=Q(classificacao='PRE_PRECATORIO')))
+    except Exception:  # noqa: BLE001 — timeout/erro: tipo amplo demais
+        return {'disponivel': False, 'motivo': 'tipo muito amplo para agregar em tempo hábil'}
+    total, precat, pre = agg['total'], agg['precat'], agg['pre']
     return {
         'disponivel': True,
         'classe_codigo': proc.classe_codigo,
