@@ -95,6 +95,13 @@ def _bloco_precatorio(proc: Process) -> dict:
     tem_exped = Movimentacao.objects.filter(processo_id=proc.pk).filter(
         texto__iregex=r'precat|requisit|expedi').exists()
     js = juriscope_client.dados_precatorio(proc.numero_cnj)
+    # Marco homologação de cálculos — sinal on-demand no texto dos movs DJEN
+    # (a coluna calculos_homologados do Juriscope é esparsa). Bounded ao processo.
+    homolog_mov = (Movimentacao.objects.filter(processo_id=proc.pk)
+                   .filter(texto__iregex=r'homolog').filter(texto__iregex=r'c[aá]lculo')
+                   .order_by('-data_disponibilizacao')
+                   .values_list('data_disponibilizacao', flat=True).first())
+    homologacao = {'ocorreu': bool(homolog_mov), 'data': homolog_mov}
     # Sobrevivência DC→precatório (só faz sentido pra quem ainda NÃO virou);
     # modelo T (→pagamento) pra quem JÁ é precatório.
     _nat = (js or {}).get('natureza')
@@ -114,7 +121,8 @@ def _bloco_precatorio(proc: Process) -> dict:
         'tem_sinal_expedicao': tem_exped,
         'juriscope': js,  # natureza/valor/ente/ordem/datas (ou {} se indisponível)
         'sobrevivencia': sobrevivencia,  # chance/tempo de virar precatório (DC)
-        'pagamento': pagamento,          # modelo T: chance/tempo de pagamento (precatório)
+        'homologacao': homologacao,      # marco: cálculos homologados (mov-text)
+        'pagamento': pagamento,          # modelo T: cronograma de pagamento (precatório)
         'meta': {'fonte': 'classificacao v6 + movimentações DJEN + juriscope/falcon',
                  'tipo': 'modelo + estruturado'},
     }

@@ -49,6 +49,15 @@
       {% elif j.erro %}<div class="text-xs text-danger">Juriscope indisponível: {{ j.erro }}</div>
       {% else %}<div class="text-sm text-fg-subtle">Sem registro de precatório no Juriscope para este CNJ.<br><span class="text-xs">Classificação Voyager: {{ p.classificacao|default:'—' }} · score {{ p.score }}</span></div>{% endif %}
 
+      {% if p.homologacao %}
+      <div class="mt-2 text-sm flex items-center gap-2">
+        <span class="text-fg-subtle">Homologação de cálculos:</span>
+        {% if p.homologacao.ocorreu %}<span class="chip bg-accent/20 text-accent-fg">✓ homologados</span><span class="text-xs text-fg-subtle">{{ p.homologacao.data|date:'d/m/Y'|default:'' }}</span>
+        {% else %}<span class="chip">não detectada nos movimentos</span>{% endif %}
+        <span class="text-[0.6rem] text-fg-subtle">ⓘ mov DJEN</span>
+      </div>
+      {% endif %}
+
       {% if p.sobrevivencia %}{% with sb=p.sobrevivencia %}
       <div class="mt-3 pt-3 border-t border-border/60">
         <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1">Previsão de virar precatório <span class="chip text-[0.55rem]">preditivo</span></div>
