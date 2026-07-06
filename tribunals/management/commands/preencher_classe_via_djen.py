@@ -48,17 +48,21 @@ class Command(BaseCommand):
                     total += n
                     continue
                 t0 = time.time()
+                # LATERAL LIMIT 1: probe indexado (processo_id) por processo sem
+                # classe — SEM sort. Qualquer classe do processo serve (classe não
+                # muda ao longo da vida). Evita o DISTINCT-ON-sort sobre 1,1B movs.
                 cur.execute("""
                     UPDATE tribunals_process p
-                    SET classe_codigo=m.codigo_classe, classe_nome=m.nome_classe, classe_id=m.classe_id
-                    FROM (
-                        SELECT DISTINCT ON (processo_id) processo_id, codigo_classe, nome_classe, classe_id
-                        FROM tribunals_movimentacao
-                        WHERE codigo_classe<>'' AND tribunal_id=%s
-                        ORDER BY processo_id, data_disponibilizacao DESC
-                    ) m
-                    WHERE p.id=m.processo_id AND p.classe_codigo='' AND p.tribunal_id=%s
-                """, [sig, sig])
+                    SET classe_codigo=x.codigo_classe, classe_nome=x.nome_classe, classe_id=x.classe_id
+                    FROM tribunals_process p2
+                    JOIN LATERAL (
+                        SELECT codigo_classe, nome_classe, classe_id
+                        FROM tribunals_movimentacao m
+                        WHERE m.processo_id=p2.id AND m.codigo_classe<>''
+                        LIMIT 1
+                    ) x ON true
+                    WHERE p.id=p2.id AND p2.tribunal_id=%s AND p2.classe_codigo=''
+                """, [sig])
                 total += cur.rowcount
                 self.stdout.write(f'{sig}: {cur.rowcount:,} atualizados ({time.time()-t0:.0f}s)', ending='\n')
                 self.stdout.flush()
