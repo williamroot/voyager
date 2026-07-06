@@ -277,15 +277,19 @@ class BaseEsajEnricher:
                 continue
             resp.raise_for_status()
 
-            # Sem redirect → não encontrou (search.do voltou a própria página de busca).
-            # Resposta com `formConsulta` é o form de pesquisa (sem resultado).
-            if not resp.history and 'formConsulta' in resp.text:
+            # ENCONTRADO: redirect pro detalhe OU campos do detalhe presentes.
+            # (`classeProcesso` só aparece na página de detalhe, nunca no form.)
+            if resp.history or 'classeProcesso' in resp.text:
+                return resp.text
+            # NÃO ENCONTRADO explícito do e-SAJ — só ISSO marca terminal.
+            if 'Não existem informações' in resp.text or 'ao existem informa' in resp.text:
                 return None
-            # Página de detalhe tem #numeroProcesso ou #classeProcesso. Sem
-            # redirect nem campos do detalhe → trata como não encontrado.
-            if 'numeroProcesso' not in resp.text and 'classeProcesso' not in resp.text:
-                return None
-            return resp.text
+            # 200 AMBÍGUO (nem detalhe nem not-found explícito) = provável soft-error/
+            # throttle do e-SAJ vindo com 200. Tratar como TRANSITÓRIO: rotaciona.
+            # Se esgotar rotações, vira 'erro' (re-tentável) — nunca falso-negativo
+            # terminal (era o bug: 3,25M TJSP presos em nao_encontrado — 2026-07-06).
+            last_erro = 'resposta 200 ambígua (sem detalhe nem not-found explícito)'
+            continue
 
         raise EsajEnricherError(
             f'{len(tentados)} proxies tentados sem sucesso'
