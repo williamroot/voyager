@@ -347,6 +347,16 @@ def jurimetria_dossie(request):
                   {'cnj_input': cnj, 'dossie': dossie})
 
 
+def jurimetria_dossie_narrativa(request):
+    """Fragmento HTMX: análise jurimétrica por IA (Ollama). Carrega assíncrono pra
+    não travar o dossiê. Devolve vazio se LLM indisponível/falha (card some)."""
+    from .jurimetria_narrativa import gerar_html
+    cnj = (request.GET.get('cnj') or '').strip()
+    html = gerar_html(cnj) if cnj else None
+    return render(request, 'dashboard/_partials/jurimetria_narrativa.html',
+                  {'narrativa': html, 'cnj': cnj})
+
+
 @login_required
 @require_GET
 def tribunais(request):

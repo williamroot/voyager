@@ -266,6 +266,14 @@ ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=True)
 # essa decisão de infra; o código está pronto (enrichers/esaj.py) e degrada pro
 # processo-pai. (2026-07-06)
 ESAJ_SEGUIR_INCIDENTES = env.bool('ESAJ_SEGUIR_INCIDENTES', default=True)
+
+# LLM (Ollama OpenAI-compat) — narrativa de jurimetria. Fail-closed: sem key, a
+# narrativa fica desativada e o dossiê determinístico segue normal. Espelha o Horizon.
+OLLAMA_BASE_URL = env('OLLAMA_BASE_URL', default='https://ollama.com/v1')
+OLLAMA_MODEL = env('OLLAMA_MODEL', default='kimi-k2.6')
+OLLAMA_API_KEY = env('OLLAMA_API_KEY', default='')
+OLLAMA_REASONING_EFFORT = env('OLLAMA_REASONING_EFFORT', default='low')
+
 # Em ondas pesadas de WAF (todas as fontes bloqueando), o cliente faz pausas
 # escalonadas entre rotações pra dar tempo do WAF "abrir" — evita queimar
 # 51 rotações em <30s e morrer.

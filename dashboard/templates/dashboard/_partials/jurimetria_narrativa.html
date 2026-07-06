@@ -1,0 +1,14 @@
+{% if narrativa %}
+<div class="card mt-4">
+  <div class="flex items-center gap-2 mb-1">
+    <span class="text-xs uppercase tracking-wider text-fg-subtle">Análise Jurimétrica</span>
+    <span class="chip text-[0.6rem] bg-accent/20 text-accent-fg">🧠 IA</span>
+  </div>
+  <div class="jurimetria-narrativa">{{ narrativa|safe }}</div>
+  <div class="text-[0.6rem] text-fg-subtle mt-3 pt-2 border-t border-border/60">
+    ⓘ Narrativa gerada por IA (Ollama) a partir dos números determinísticos do dossiê — o modelo interpreta, não calcula. Confira sempre os dados de origem.
+  </div>
+</div>
+{% else %}
+<!-- narrativa indisponível (LLM off ou falha) — silencioso -->
+{% endif %}

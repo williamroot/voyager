@@ -74,6 +74,16 @@
   {% endif %}
   {% endwith %}
 
+  {# ANÁLISE POR IA — carrega assíncrono (não trava o dossiê determinístico) #}
+  {% if c.pk %}
+  <div hx-get="{% url 'dashboard:jurimetria-dossie-narrativa' %}?cnj={{ dossie.cnj }}"
+       hx-trigger="load" hx-swap="outerHTML">
+    <div class="card mt-4 text-sm text-fg-subtle flex items-center gap-2">
+      <span class="animate-pulse">🧠</span> Gerando análise jurimétrica por IA…
+    </div>
+  </div>
+  {% endif %}
+
   <div class="grid md:grid-cols-2 gap-4">
     {# PRECATÓRIO (Voyager classificação + Juriscope estruturado) #}
     <div class="card">
