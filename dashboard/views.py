@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -16,6 +18,8 @@ from tribunals.models import (
 )
 
 from . import queries
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_cache_get(key, default=None):
@@ -350,9 +354,14 @@ def jurimetria_dossie(request):
 def jurimetria_dossie_narrativa(request):
     """Fragmento HTMX: análise jurimétrica por IA (Ollama). Carrega assíncrono pra
     não travar o dossiê. Devolve vazio se LLM indisponível/falha (card some)."""
-    from .jurimetria_narrativa import gerar_html
     cnj = (request.GET.get('cnj') or '').strip()
-    html = gerar_html(cnj) if cnj else None
+    html = None
+    if cnj:
+        # Narrativa = pré-coleta determinística via tools + 1 síntese LLM (rápida, rica).
+        # O loop agêntico multi-round (jurimetria_agente) é lento demais pra HTMX — fica
+        # exposto via MCP (mcp_jurimetria) pra uso interativo/externo.
+        from .jurimetria_narrativa import gerar_html as gerar_narrativa
+        html = gerar_narrativa(cnj)
     return render(request, 'dashboard/_partials/jurimetria_narrativa.html',
                   {'narrativa': html, 'cnj': cnj})
 

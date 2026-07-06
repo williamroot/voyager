@@ -86,6 +86,17 @@ def _contexto(dossie: dict, ritmo: dict) -> str:
                                 'trecho': (it.get('snippet') or '')[:200]}
                                for it in (prec.get('itens') or [])][:6],
     }
+    # Enriquecimento via tools (pré-coleta determinística): casos similares
+    # (venceu/perdeu), padrões de juízes/relatores e histórico da parte principal.
+    try:
+        from . import jurimetria_tools as jt
+        assunto = c.get('assunto_nome') or ''
+        trib = c.get('tribunal') or ''
+        if assunto and assunto != '—':
+            dados['casos_similares'] = jt.casos_similares(assunto, trib, limit=8)
+            dados['padroes_juizes'] = jt.jurimetria_agregada('relatores', tema=assunto, tribunal=trib)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('narrativa: enriquecimento por tools falhou: %s', exc)
     return json.dumps(dados, ensure_ascii=False, indent=1, default=str)
 
 
@@ -115,8 +126,10 @@ ESTRUTURA (6 seções, nesta ordem):
 1. Identificação do Processo (tabela)
 2. Linha do Tempo e Ritmo Processual (narrativa + ritmo; se poucas movs, diga que a \
 visão via DJEN é parcial)
-3. Natureza do Assunto (contexto jurídico do tema + o que os precedentes indicam)
-4. Padrão Comparativo (fluxo típico do tipo até o pagamento + fatores que impactam a duração)
+3. Natureza do Assunto e Precedentes (contexto jurídico do tema + o que os precedentes \
+e os padrões de juízes/relatores em 'padroes_juizes' indicam)
+4. Padrão Comparativo (fluxo típico até o pagamento + fatores de duração + desfechos de \
+'casos_similares' — quantos do mesmo tema viraram precatório no acervo e os precedentes)
 5. Diagnóstico e Prognóstico (tabela: fase atual, mérito, risco de reversão, chance/tempo \
 de virar precatório se aplicável, previsão de pagamento do cronograma, valor)
 6. Conclusão (bloco destacado)
