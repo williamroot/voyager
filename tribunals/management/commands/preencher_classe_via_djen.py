@@ -19,20 +19,24 @@ class Command(BaseCommand):
         parser.add_argument('--dry-run', action='store_true', dest='dry_run')
         parser.add_argument('--all-at-once', action='store_true',
                             help='UPDATE único global (PERIGOSO em 1B+ movs). Default: batelado por tribunal.')
+        parser.add_argument('--tribunal', default=None,
+                            help='Rodar só um tribunal (ex.: TJSP). Default: todos, alfabético.')
 
-    def handle(self, *args, dry_run, all_at_once=False, **opts):
+    def handle(self, *args, dry_run, all_at_once=False, tribunal=None, **opts):
         if not all_at_once:
-            return self._por_tribunal(dry_run)
+            return self._por_tribunal(dry_run, apenas=tribunal)
         return self._global(dry_run)
 
     # Batelado por tribunal: cada UPDATE limita o DISTINCT ON aos movs do
     # tribunal (sort menor, usa índice processo_id) e a transação aos processos
     # dele — 60 transações pequenas em vez de 1 monstro sobre 1,1B linhas.
-    def _por_tribunal(self, dry_run):
+    def _por_tribunal(self, dry_run, apenas=None):
         import time
         from tribunals.models import Tribunal
-        siglas = list(Tribunal.objects.filter(ativo=True).order_by('sigla')
-                      .values_list('sigla', flat=True))
+        qs = Tribunal.objects.filter(ativo=True)
+        if apenas:
+            qs = qs.filter(sigla=apenas)
+        siglas = list(qs.order_by('sigla').values_list('sigla', flat=True))
         total = 0
         for sig in siglas:
             with connection.cursor() as cur:
