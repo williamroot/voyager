@@ -62,8 +62,13 @@ def queue_for(tribunal_sigla: str) -> str:
 # @job('default') é mantido pra trabalhar como fallback se algo enfileirar
 # direto via .delay() sem passar pela queue per-tribunal.
 @job('default', timeout=ENRICH_TIMEOUT)
-def enriquecer_processo(process_id: int, prefer_cortex: bool = False,
+def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
                          direct_apply: bool = False) -> dict:
+    # prefer_cortex=None → resolve do setting (default True: Cortex-first pra
+    # passar o WAF; datacenter fica de fallback). Cobre TODOS os paths de enqueue.
+    if prefer_cortex is None:
+        from django.conf import settings
+        prefer_cortex = getattr(settings, 'ENRICH_PREFER_CORTEX', True)
     p = Process.objects.select_related('tribunal').get(pk=process_id)
     cls = _ENRICHERS.get(p.tribunal_id)
     if not cls:
@@ -76,7 +81,11 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool = False,
 
 
 def enqueue_enriquecimento(process_id: int, tribunal_sigla: str):
-    """Enfileira na queue do tribunal — paraleliza coletas sem misturar pools."""
+    """Enfileira na queue do tribunal — paraleliza coletas sem misturar pools.
+
+    prefer_cortex do setting (default True): residencial passa o WAF dos tribunais;
+    o pool datacenter fica só como fallback. Evita rotacionar 40 IPs queimados.
+    """
     queue = django_rq.get_queue(queue_for(tribunal_sigla))
     return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT,
                          retry=ENRICH_RETRY)

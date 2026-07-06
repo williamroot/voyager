@@ -254,6 +254,12 @@ CORTEX_BAD_TTL_SECONDS = env.int('CORTEX_BAD_TTL_SECONDS', default=15)
 # pool ProxyScrape (datacenter). Diversifica IPs por request — quando o WAF
 # bloqueia datacenter em onda, ainda passa metade via Cortex e vice-versa.
 DJEN_CORTEX_RATIO = env.float('DJEN_CORTEX_RATIO', default=0.5)
+# Ratio quando o pool datacenter está DEGRADADO (queimado/429): sem sentido
+# apostar no datacenter morto → 100% Cortex por padrão (2026-07-06).
+DJEN_CORTEX_RATIO_DEGRADED = env.float('DJEN_CORTEX_RATIO_DEGRADED', default=1.0)
+# Enriquecimento em massa (bulk) tenta o Cortex PRIMEIRO (residencial passa o WAF
+# dos tribunais; datacenter é bloqueado). True = Cortex-first no worker.
+ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=True)
 # Em ondas pesadas de WAF (todas as fontes bloqueando), o cliente faz pausas
 # escalonadas entre rotações pra dar tempo do WAF "abrir" — evita queimar
 # 51 rotações em <30s e morrer.

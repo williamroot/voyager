@@ -240,8 +240,11 @@ class DJENClient:
             quer_cortex = True
         else:
             # Quando pool degradado, joga 90% via Cortex — datacenter queimado
-            # não vale a aposta de 50/50.
-            ratio = 0.9 if self.pool.is_degraded() else self.cortex_ratio
+            # não vale a aposta de 50/50. Ratio degradado configurável (default
+            # 1.0 = 100% Cortex quando o datacenter está queimado).
+            from django.conf import settings as _s
+            ratio = (getattr(_s, 'DJEN_CORTEX_RATIO_DEGRADED', 1.0)
+                     if self.pool.is_degraded() else self.cortex_ratio)
             quer_cortex = random.random() < ratio
 
         if quer_cortex and cortex:
