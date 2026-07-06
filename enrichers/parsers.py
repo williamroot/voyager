@@ -10,7 +10,9 @@ CPF_RE = re.compile(r'(\d{3}\.[\dX*]{3}\.[\dX*]{3}-[\dX*]{2})')
 CNPJ_RE = re.compile(r'(\d{2}\.[\dX*]{3}\.[\dX*]{3}/[\dX*]{4}-[\dX*]{2})')
 OAB_RE = re.compile(r'OAB[\s/-]*([A-Z]{2})\s*([\d\.]+(?:-?[A-Z])?)', re.IGNORECASE)
 ROLE_RE = re.compile(r'\(([^)]+)\)\s*$')
-VALOR_RE = re.compile(r'R\$\s*([\d\.]+,\d{2})')
+# Aceita qualquer prefixo de moeda (R$, Cr$, US$…) — processos antigos usam
+# Cruzeiro (Cr$), que o 'R\$' maiúsculo não pegava (2026-07-06).
+VALOR_RE = re.compile(r'[A-Za-z]{0,3}\$\s*([\d\.]+,\d{2})')
 DATE_BR_RE = re.compile(r'(\d{2})/(\d{2})/(\d{4})')
 
 
