@@ -43,6 +43,34 @@ Jurimetria de PRECATÓRIO (edge)  ─ tempo-até-pagamento T + risco de ente + l
 - **Grafo de citações** (`jurisprudencia_citada`/`referencias_legislativas`) → PageRank/HITS.
 - Expandir corpus: súmulas TST + RG/Súmulas Vinculantes STF (recon feito).
 
+### ⭐ Modelo de ciclo de vida do ativo (sobrevivência) — 2026-07-06
+Objetivo: pra um **DIREITO_CREDITÓRIO**, prever a **chance** e o **tempo** de virar
+precatório (+ marco de homologação de cálculos); e, quando precatório, o **T**
+(tempo-até-pagamento). Jurimetria do ativo de ponta a ponta.
+
+```
+DIREITO_CREDITÓRIO ─▶ [homologação cálculos] ─▶ [expedição ofício = PRECATÓRIO] ─▶ PAGAMENTO
+  1,19M (Voyager)        marco intermediário         P50 ~594d protocolo→ofício      36k PAGO
+   população/censura     calculos_homologados≠∅       Juriscope data_oficio          data_conta_liquidacao
+```
+
+**Método**: sobrevivência (time-to-event, censura à direita). Cada seta = transição
+com **chance** (prob.) + **tempo** (curva). Multi-estado.
+- **Transição 1 (DC→precatório)**: evento = virou PRECATORIO / tem `data_oficio`;
+  duração = `data_autuacao`(cumprimento) → `data_oficio`; censura = DC sem expedição.
+- **Marco homologação**: evento = `calculos_homologados` ≠ ∅ (aponta p/ arquivos de
+  cálculo = homologou) OU mov DJEN "homologo os cálculos".
+- **Transição final (precatório→pagamento) = modelo T**: 36.642 `PAGO TOTAL` +
+  `data_conta_liquidacao` (100%). Início `data_oficio`/`data_protocolo_trf`.
+- **Features**: tribunal, órgão, classe/assunto (TPU), **ente devedor** (esfera
+  federal/estadual/municipal + rating), valor (corrigido), natureza (alimentar/comum),
+  tempo já decorrido, nº movs.
+- **Modelagem**: KM estratificado (baseline) + GBSA/Cox (principal). Split **temporal**
+  por coorte (treino antigo / teste recente) contra vazamento.
+- **Avaliação**: C-index, calibração, Brier, time-AUC.
+- **Serving**: artefato leve (joblib), inferência por CNJ no dossiê → "chance X%,
+  tempo mediano Y meses; próximo marco: homologação Z% em W meses".
+
 ### ⭐ Fonte de dados de precatório JÁ EXISTE: Juriscope/Falcon (2026-07-06)
 O banco do **Juriscope/Falcon** (`10.10.0.51/falcon`, DSN read-only em
 `JURISCOPE_DB_DSN`) já tem o Track 3 estruturado — **não reconstruir, integrar**:
