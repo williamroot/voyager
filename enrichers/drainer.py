@@ -68,10 +68,22 @@ def normalize_dados(dados: dict) -> dict:
     None ao aplicar com setattr).
     """
     out: dict = {}
+    # Só sobrescreve o CÓDIGO se o extrator trouxe um código de fato. O e-SAJ
+    # público dá só o NOME da classe (sem código TPU) → sem esse guard, o código
+    # ia a '' e apagava o classe_codigo herdado do DJEN, quebrando o F1 do
+    # classificador e revertendo leads a NAO_LEAD (bug 2026-07-06).
     if 'classe' in dados:
-        out['classe_nome'], out['classe_codigo'] = _split_nome_codigo(dados['classe'] or '')
+        nome, codigo = _split_nome_codigo(dados['classe'] or '')
+        if codigo:
+            out['classe_nome'], out['classe_codigo'] = nome, codigo
+        elif nome:
+            out['classe_nome'] = nome  # atualiza nome, preserva o código existente
     if 'assunto' in dados:
-        out['assunto_nome'], out['assunto_codigo'] = _split_nome_codigo(dados['assunto'] or '')
+        nome, codigo = _split_nome_codigo(dados['assunto'] or '')
+        if codigo:
+            out['assunto_nome'], out['assunto_codigo'] = nome, codigo
+        elif nome:
+            out['assunto_nome'] = nome
     if 'data_autuacao' in dados:
         dt = parse_data_br(dados['data_autuacao'])
         if dt is not None:
