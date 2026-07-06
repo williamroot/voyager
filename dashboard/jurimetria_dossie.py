@@ -60,10 +60,16 @@ def _jurimetria_do_tipo(proc: Process) -> dict:
 
 
 def _bloco_precatorio(proc: Process) -> dict:
-    """Sinais de precatório do próprio processo (determinístico)."""
+    """Sinais de precatório do processo + dados estruturados do Juriscope.
+
+    Voyager dá a classificação (é lead?); o Juriscope dá o conteúdo real do
+    precatório (natureza, valor corrigido, ente devedor, posição na fila, datas).
+    """
+    from . import juriscope_client
     is_lead = proc.classificacao in ('PRECATORIO', 'PRE_PRECATORIO')
     tem_exped = Movimentacao.objects.filter(processo_id=proc.pk).filter(
         texto__iregex=r'precat|requisit|expedi').exists()
+    js = juriscope_client.dados_precatorio(proc.numero_cnj)
     return {
         'is_lead': is_lead,
         'classificacao': proc.classificacao,
@@ -71,7 +77,9 @@ def _bloco_precatorio(proc: Process) -> dict:
         'versao': proc.classificacao_versao,
         'valor_causa': proc.valor_causa,
         'tem_sinal_expedicao': tem_exped,
-        'meta': {'fonte': 'classificacao v6 + movimentações DJEN', 'tipo': 'modelo'},
+        'juriscope': js,  # natureza/valor/ente/ordem/datas (ou {} se indisponível)
+        'meta': {'fonte': 'classificacao v6 + movimentações DJEN + juriscope/falcon',
+                 'tipo': 'modelo + estruturado'},
     }
 
 

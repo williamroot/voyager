@@ -214,6 +214,10 @@ RQ_QUEUES = {
 
 # DJEN
 DJEN_BASE_URL = env('DJEN_BASE_URL', default='https://comunicaapi.pje.jus.br/api/v1/comunicacao')
+# Juriscope/Falcon (precatórios) — leitura read-only por CNJ pro dossiê de
+# jurimetria. DSN completo (postgres://...); vazio = integração desligada.
+JURISCOPE_DB_DSN = env.str('JURISCOPE_DB_DSN', default='')
+
 DJEN_REQUEST_TIMEOUT_CONNECT = env.int('DJEN_REQUEST_TIMEOUT_CONNECT', default=10)
 DJEN_REQUEST_TIMEOUT_READ = env.int('DJEN_REQUEST_TIMEOUT_READ', default=60)
 DJEN_PAGE_SLEEP_SECONDS = env.float('DJEN_PAGE_SLEEP_SECONDS', default=1.0)
