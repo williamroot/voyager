@@ -37,6 +37,13 @@ _ESCALARES = ('natureza', 'devedora', 'ordem_orcamentaria', 'ano_ordem_orcamenta
               'codigo_requisitorio', 'ente_nome', 'ente_cnpj', 'ente_process_count')
 
 
+def _brl(v) -> str | None:
+    """Decimal/float → '1.234.567,89' (pt-BR). None passa direto."""
+    if v is None:
+        return None
+    return f'{v:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+
 def disponivel() -> bool:
     return bool(getattr(settings, 'JURISCOPE_DB_DSN', ''))
 
@@ -76,6 +83,10 @@ def dados_precatorio(cnj: str) -> dict:
     d['valor_acao_corrigido'] = _soma('valor_acao_corrigido')
     d['valores_individuais'] = [l['valor_acao'] for l in linhas if l.get('valor_acao') is not None]
     d['n_precatorios'] = len(d['valores_individuais'])
+    # strings prontas em pt-BR (o template não tem filtro de moeda)
+    d['valor_acao_fmt'] = _brl(d['valor_acao'])
+    d['valor_acao_corrigido_fmt'] = _brl(d['valor_acao_corrigido'])
+    d['valores_individuais_fmt'] = [_brl(v) for v in d['valores_individuais']]
     d['n_requisitorios'] = len(linhas)
     d['files_downloaded'] = any(l.get('files_downloaded') for l in linhas)
     d['cessao_credito'] = any(l.get('cessao_credito') for l in linhas)
