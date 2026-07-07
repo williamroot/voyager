@@ -107,8 +107,7 @@
   {% endif %}
   {% endwith %}
 
-  {# ANÁLISE POR IA — gera em background (thread do web) + POLL. Robusto: sem conexão
-     HTTP longa (o LLM leva ~60-90s e gunicorn/nginx/cloudflare cortavam). #}
+  {# ANALISE POR IA: gera em background (thread do web) + POLL, sem conexao HTTP longa #}
   {% if c.pk %}
   <div class="card mt-4" id="narr-card">
     <div class="flex items-center gap-2 mb-2">
