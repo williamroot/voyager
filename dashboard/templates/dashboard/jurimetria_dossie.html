@@ -32,10 +32,24 @@
 {% if dossie.erro %}
   <div class="card text-danger text-sm">{{ dossie.erro }}</div>
 {% elif dossie.processando %}
-  <div class="card text-sm" hx-get="?cnj={{ dossie.cnj }}" hx-trigger="every 12s" hx-swap="outerHTML">
-    <div class="text-accent">⏳ {{ dossie.msg }}</div>
-    <div class="text-xs text-fg-subtle mt-1">Tribunal {{ dossie.tribunal }} · buscando na fonte (e-SAJ/PJe via Cortex). Esta página recarrega sozinha.</div>
+  <div class="card text-sm">
+    <div class="flex items-center gap-2 text-accent">
+      <span class="inline-block w-4 h-4 border-2 border-accent/40 border-t-accent rounded-full animate-spin"></span>
+      <span>{{ dossie.msg }}</span>
+    </div>
+    <div class="text-xs text-fg-subtle mt-1">Tribunal {{ dossie.tribunal }} · buscando na fonte (e-SAJ/PJe) · <span id="narr-reload-count">a página atualiza sozinha…</span></div>
   </div>
+  <script>
+    (function(){
+      var n = 10;
+      var el = document.getElementById('narr-reload-count');
+      var t = setInterval(function(){
+        n -= 1;
+        if (el) el.textContent = 'atualizando em ' + n + 's…';
+        if (n <= 0) { clearInterval(t); window.location.reload(); }
+      }, 1000);
+    })();
+  </script>
 {% elif dossie %}
   {% with c=dossie.cabecalho p=dossie.precatorio j=dossie.precatorio.juriscope jt=dossie.jurimetria_tipo %}
 

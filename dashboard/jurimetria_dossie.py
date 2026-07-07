@@ -310,7 +310,7 @@ def _buscar_tempo_real(cnj: str) -> dict:
     enqueue_enriquecimento_manual(proc.pk)
     return _processando(cnj, sigla, proc.pk,
                         (f'Processo não estava no acervo — adicionado e buscando dados em tempo '
-                         f'real na fonte ({sigla}). Recarregue em ~15s.'))
+                         f'real na fonte ({sigla}).'))
 
 
 def _reenriquecer_se_vazio(proc, cnj: str):
@@ -328,8 +328,7 @@ def _reenriquecer_se_vazio(proc, cnj: str):
     if status in ('pendente', 'processando', 'erro') and sigla in _ENRICHERS:
         enqueue_enriquecimento_manual(proc.pk)
         return _processando(cnj, sigla, proc.pk,
-                            (f'Buscando dados em tempo real na fonte ({sigla}). '
-                             f'Recarregue em ~15s.'))
+                            f'Buscando dados em tempo real na fonte ({sigla}).')
     if status == 'nao_encontrado':
         return {'cnj': cnj, 'pk': proc.pk, 'erro': (
             f'Processo {cnj} não encontrado na consulta pública do {sigla} '
