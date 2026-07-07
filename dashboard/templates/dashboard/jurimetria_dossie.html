@@ -131,26 +131,41 @@
   </div>
   <script>
   (function() {
-    var url = "{% url 'dashboard:jurimetria-dossie-narrativa-stream' %}?cnj={{ dossie.cnj }}";
-    var es = new EventSource(url);
+    var streamUrl = "{% url 'dashboard:jurimetria-dossie-narrativa-stream' %}?cnj={{ dossie.cnj }}";
+    var fallbackUrl = "{% url 'dashboard:jurimetria-dossie-narrativa' %}?cnj={{ dossie.cnj }}";
     var think = document.getElementById('narr-think');
     var thinkWrap = document.getElementById('narr-think-wrap');
     var content = document.getElementById('narr-content');
     var status = document.getElementById('narr-status');
     var loader = document.getElementById('narr-loader');
     var spin = document.getElementById('narr-spin');
-    var raw = '';
+    var raw = '', gotContent = false, fellBack = false;
     function stop() { if (loader) loader.style.display = 'none'; if (spin) spin.style.display = 'none'; }
+    // Fallback: se o stream cair/vazio, busca a versão não-streaming (1 request, sem
+    // SSE longo) que sempre entrega o conteúdo. Só mostra "indisponível" se ambos falham.
+    function fallback() {
+      if (fellBack || gotContent) return; fellBack = true;
+      status.textContent = 'finalizando…';
+      if (spin) { spin.style.display = ''; spin.innerHTML = '<span class="inline-block w-3.5 h-3.5 border-2 border-accent/40 border-t-accent rounded-full animate-spin"></span> finalizando análise…'; }
+      fetch(fallbackUrl).then(function(r){ return r.text(); }).then(function(html){
+        var tmp = document.createElement('div'); tmp.innerHTML = html;
+        var el = tmp.querySelector('.jurimetria-narrativa');
+        if (el && el.innerHTML.trim()) { content.innerHTML = el.innerHTML; gotContent = true; }
+        else if (spin) { spin.textContent = 'Análise indisponível no momento.'; }
+        stop(); status.textContent = '';
+      }).catch(function(){ stop(); if (spin) spin.textContent = 'Análise indisponível no momento.'; });
+    }
+    var es = new EventSource(streamUrl);
     es.onmessage = function(e) {
       var d; try { d = JSON.parse(e.data); } catch (_) { return; }
       if (d.type === 'status') { status.textContent = d.text; }
       else if (d.type === 'reasoning') { status.textContent = 'pensando…'; thinkWrap.classList.remove('hidden'); think.textContent += d.text; think.scrollTop = think.scrollHeight; }
-      else if (d.type === 'content') { if (spin) spin.style.display = 'none'; status.textContent = 'escrevendo…'; raw += d.text; content.innerHTML = raw; }
-      else if (d.type === 'done') { if (d.html) content.innerHTML = d.html; stop(); thinkWrap.open = false; es.close(); }
-      else if (d.type === 'error') { stop(); if (spin) { spin.style.display = ''; spin.textContent = d.text; } es.close(); }
+      else if (d.type === 'content') { if (spin) spin.style.display = 'none'; status.textContent = 'escrevendo…'; raw += d.text; content.innerHTML = raw; gotContent = true; }
+      else if (d.type === 'done') { if (d.html) { content.innerHTML = d.html; gotContent = true; } stop(); thinkWrap.open = false; es.close(); if (!gotContent) fallback(); }
+      else if (d.type === 'error') { es.close(); fallback(); }
     };
-    es.addEventListener('end', function() { stop(); es.close(); });
-    es.onerror = function() { stop(); if (spin) { spin.style.display = ''; spin.textContent = 'Análise indisponível no momento.'; } es.close(); };
+    es.addEventListener('end', function() { es.close(); if (!gotContent) fallback(); else stop(); });
+    es.onerror = function() { es.close(); if (!gotContent) fallback(); };
   })();
   </script>
   {% endif %}

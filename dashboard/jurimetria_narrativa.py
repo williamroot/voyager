@@ -195,7 +195,7 @@ def gerar_stream(cnj: str):
     for chunk in llm.chat_stream(
             [{'role': 'system', 'content': _SYSTEM},
              {'role': 'user', 'content': f'Faça a análise jurimétrica com estes dados:\n\n{contexto}'}],
-            max_tokens=9000, temperature=0.3):
+            max_tokens=13000, temperature=0.3):
         if chunk['type'] == 'reasoning':
             yield {'type': 'reasoning', 'text': chunk['text']}
         else:
