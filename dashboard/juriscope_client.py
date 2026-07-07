@@ -26,9 +26,15 @@ _SQL = """
     FROM datamodel_process p
     LEFT JOIN datamodel_entity e ON e.id = p.entity_id
     WHERE p.numero_autos = %s
-    ORDER BY p.updated_at DESC NULLS LAST
-    LIMIT 1
+    ORDER BY p.valor_acao DESC NULLS LAST, p.updated_at DESC NULLS LAST
 """
+
+# Um mesmo numero_autos tem N linhas (1 por precatório/RPV do processo). Campos
+# escalares (natureza/ente/ordem) vêm da linha mais rica; VALORES são SOMADOS
+# (o processo tem vários ofícios). Pegar só 1 linha (LIMIT 1) pegava a casca vazia.
+_ESCALARES = ('natureza', 'devedora', 'ordem_orcamentaria', 'ano_ordem_orcamentaria',
+              'seq_ordem_orcamentaria', 'data_oficio', 'data_protocolo', 'tribunal',
+              'codigo_requisitorio', 'ente_nome', 'ente_cnpj', 'ente_process_count')
 
 
 def disponivel() -> bool:
@@ -47,15 +53,35 @@ def dados_precatorio(cnj: str) -> dict:
             with conn.cursor() as cur:
                 cur.execute("SET statement_timeout='8000'")
                 cur.execute(_SQL, [cnj])
-                row = cur.fetchone()
-                if not row:
+                rows = cur.fetchall()
+                if not rows:
                     return {'encontrado': False}
                 cols = [d[0] for d in cur.description]
-                d = dict(zip(cols, row))
+                linhas = [dict(zip(cols, r)) for r in rows]
     except Exception as exc:  # noqa: BLE001 — degrada
         logger.warning('juriscope: falha ao buscar %s: %s', cnj, str(exc)[:120])
         return {'erro': str(exc)[:120]}
 
+    # Agrega as N linhas (1 por precatório/RPV): SOMA os valores; escalares vêm da
+    # 1ª linha que os tiver (ordenadas por valor DESC → a mais rica primeiro).
+    def _soma(campo):
+        vs = [l.get(campo) for l in linhas if l.get(campo) is not None]
+        return sum(vs) if vs else None
+
+    def _primeiro(campo):
+        return next((l.get(campo) for l in linhas if l.get(campo) is not None), None)
+
+    d = {campo: _primeiro(campo) for campo in _ESCALARES}
+    d['valor_acao'] = _soma('valor_acao')
+    d['valor_acao_corrigido'] = _soma('valor_acao_corrigido')
+    d['valores_individuais'] = [l['valor_acao'] for l in linhas if l.get('valor_acao') is not None]
+    d['n_precatorios'] = len(d['valores_individuais'])
+    d['n_requisitorios'] = len(linhas)
+    d['files_downloaded'] = any(l.get('files_downloaded') for l in linhas)
+    d['cessao_credito'] = any(l.get('cessao_credito') for l in linhas)
+    d['is_extinto'] = all(l.get('is_extinto') for l in linhas)
+    d['sem_expedicao'] = all(l.get('sem_expedicao') for l in linhas)
+    d['not_found'] = all(l.get('not_found') for l in linhas)
     d['encontrado'] = True
-    d['fonte'] = 'juriscope/falcon (datamodel_process)'
+    d['fonte'] = 'juriscope/falcon (datamodel_process, agregado)'
     return d
