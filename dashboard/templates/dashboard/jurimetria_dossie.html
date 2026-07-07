@@ -160,7 +160,8 @@
         <tr><td class="text-fg-subtle py-1">Natureza</td><td class="text-right font-medium">
           {% if nat == 'ALIMENTAR' %}🟢 {% endif %}{{ nat|default:'—' }}</td></tr>
         <tr><td class="text-fg-subtle py-1">Ente devedor</td><td class="text-right">{{ ente|default:'—' }}</td></tr>
-        <tr><td class="text-fg-subtle py-1">Valor{% if not j.valor_acao_corrigido %} da ação{% else %} corrigido{% endif %}</td><td class="text-right">{% if j.valor_acao_corrigido %}R$ {{ j.valor_acao_corrigido|floatformat:2 }}{% elif j.valor_acao %}R$ {{ j.valor_acao|floatformat:2 }}{% elif c.valor_causa %}R$ {{ c.valor_causa|floatformat:2 }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-fg-subtle py-1 align-top">Valor{% if j.n_precatorios > 1 %} total{% elif not j.valor_acao_corrigido %} da ação{% else %} corrigido{% endif %}</td><td class="text-right font-medium">{% if j.valor_acao_corrigido %}R$ {{ j.valor_acao_corrigido|floatformat:2 }}{% elif j.valor_acao %}R$ {{ j.valor_acao|floatformat:2 }}{% elif c.valor_causa %}R$ {{ c.valor_causa|floatformat:2 }}{% else %}—{% endif %}
+          {% if j.n_precatorios > 1 %}<div class="text-[0.65rem] text-fg-subtle font-normal">{{ j.n_precatorios }} precatórios{% for v in j.valores_individuais %} · {{ v|floatformat:0 }}{% endfor %}</div>{% endif %}</td></tr>
         <tr><td class="text-fg-subtle py-1">Ordem cronológica</td><td class="text-right font-mono">{{ j.ordem_orcamentaria|default:'—' }}</td></tr>
         <tr><td class="text-fg-subtle py-1">Data do ofício</td><td class="text-right">{{ j.data_oficio|default:'—' }}</td></tr>
         <tr><td class="text-fg-subtle py-1">Autos baixados</td><td class="text-right">{{ j.files_downloaded|yesno:'sim,não' }}</td></tr>
