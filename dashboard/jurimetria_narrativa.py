@@ -106,6 +106,10 @@ calculados (classificação, modelo de sobrevivência Kaplan-Meier, cronograma \
 constitucional EC 114/2021, dados do Juriscope, partes, movimentações, precedentes) e \
 escreve uma ANÁLISE JURIMÉTRICA estruturada e acionável.
 
+⚠️ CRÍTICO: toda a substância da análise vai na sua RESPOSTA (o HTML das 6 seções). \
+NÃO deixe a análise apenas no raciocínio interno — raciocine o mínimo e ESCREVA a \
+resposta completa em HTML. A resposta NUNCA pode vir vazia.
+
 REGRAS DURAS:
 - Você NARRA e INTERPRETA — NUNCA calcula nem inventa números. Todo número (chance, \
 tempo, valor, ritmo, taxa) vem dos dados fornecidos. Se um dado não veio, diga \
@@ -202,6 +206,14 @@ def gerar_stream(cnj: str):
             buf.append(chunk['text'])
             yield {'type': 'content', 'text': chunk['text']}
     html = _limpa_fences(''.join(buf))
+    # Reasoning-models às vezes despejam TUDO no raciocínio e emitem content vazio.
+    # Garantia server-side: se o stream não produziu HTML útil, gera pela via
+    # não-streaming (força o conteúdo final) e entrega isso no done.
+    if len(_re.sub(r'<[^>]+>', '', html).strip()) < 120:
+        yield {'type': 'status', 'text': 'consolidando análise…'}
+        alt = gerar_html(cnj)
+        if alt and len(_re.sub(r'<[^>]+>', '', alt).strip()) >= 120:
+            html = alt
     yield {'type': 'done', 'html': html}
 
 

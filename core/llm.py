@@ -34,7 +34,11 @@ def chat(messages: list[dict], *, max_tokens: int = 4096,
     if reasoning_effort:
         payload['reasoning_effort'] = reasoning_effort
     msg = _post(payload, max_tokens=max_tokens, timeout=timeout)
-    return (msg or {}).get('content') or None
+    if not msg:
+        return None
+    # content é a resposta; se vier vazio (reasoning-model despejou tudo no
+    # raciocínio), cai pro reasoning como último recurso — melhor prosa útil que vazio.
+    return msg.get('content') or msg.get('reasoning') or msg.get('reasoning_content') or None
 
 
 def _post(payload: dict, *, max_tokens: int, tools: list | None = None,
