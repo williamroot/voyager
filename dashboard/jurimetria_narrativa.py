@@ -100,48 +100,89 @@ def _contexto(dossie: dict, ritmo: dict) -> str:
     return json.dumps(dados, ensure_ascii=False, indent=1, default=str)
 
 
-_SYSTEM = """Você é um analista de jurimetria sênior especializado em precatórios e \
-execuções contra a Fazenda Pública no Brasil. Recebe DADOS DETERMINÍSTICOS já \
-calculados (classificação, modelo de sobrevivência Kaplan-Meier, cronograma \
-constitucional EC 114/2021, dados do Juriscope, partes, movimentações, precedentes) e \
-escreve uma ANÁLISE JURIMÉTRICA estruturada e acionável.
+import json as _json
+import re as _re
 
-⚠️ CRÍTICO: toda a substância da análise vai na sua RESPOSTA (o HTML das 6 seções). \
-NÃO deixe a análise apenas no raciocínio interno — raciocine o mínimo e ESCREVA a \
-resposta completa em HTML. A resposta NUNCA pode vir vazia.
+# O modelo SÓ PROCESSA: retorna JSON com o TEXTO de cada seção. NÓS renderizamos o HTML
+# (confiável + sempre bonito). O LLM narra/interpreta, nunca calcula nem inventa.
+_SYSTEM = """Você é um analista de jurimetria sênior (precatórios e execuções contra a \
+Fazenda Pública no Brasil). Recebe DADOS DETERMINÍSTICOS já calculados (classificação, \
+Kaplan-Meier, cronograma EC 114/2021, Juriscope, partes, movimentações, precedentes, \
+padrões de juízes, casos similares) e produz uma análise jurimétrica.
+
+RESPONDA APENAS COM UM OBJETO JSON (sem markdown, sem ```), com EXATAMENTE estas chaves \
+(todas em texto corrido pt-BR, jurídico e específico ao caso — 1 a 3 frases cada):
+{
+ "sintese": "a conclusão principal em 1-2 frases (bottom line)",
+ "identificacao": "o que é este processo: classe, órgão, partes, natureza do crédito",
+ "ritmo": "análise do ritmo/tramitação e o que ele indica (se poucas movs, diga que a visão via DJEN é parcial)",
+ "natureza": "natureza jurídica do tema + o que os precedentes e os padrões de juízes indicam",
+ "comparativo": "casos similares (quantos do tema viram precatório / desfechos) + fluxo típico até o pagamento e fatores de duração",
+ "prognostico": "diagnóstico e prognóstico: fase atual, risco de reversão, chance e tempo de virar precatório (se houver), previsão de pagamento do cronograma, valor",
+ "conclusao": "conclusão acionável para o usuário (lead quente? acompanhar? ativo pronto?)"
+}
 
 REGRAS DURAS:
-- Você NARRA e INTERPRETA — NUNCA calcula nem inventa números. Todo número (chance, \
-tempo, valor, ritmo, taxa) vem dos dados fornecidos. Se um dado não veio, diga \
-"não disponível" — não estime por conta própria.
-- Não invente jurisprudência, leis ou números de processo que não estejam nos dados. \
-Você PODE trazer contexto jurídico geral conhecido (ex.: o que é a EC 114, art. 100 CF, \
-natureza alimentar) mas SEM inventar fatos específicos do caso.
-- Português jurídico claro e objetivo. Seja específico ao caso, não genérico.
-
-FORMATO DE SAÍDA — HTML puro (sem markdown, sem ```), usando SOMENTE estas classes:
-- Seções: <h3 class="text-base font-semibold mt-4 mb-2">N. Título</h3>
-- Parágrafos: <p class="text-sm text-fg-subtle mb-2">...</p> (use <strong> pra destacar)
-- Tabelas: <table class="w-full text-sm mb-2"><tr><td class="py-1 text-fg-subtle">Campo</td><td class="text-right">Valor</td></tr>...</table>
-- Listas: <ul class="text-sm text-fg-subtle list-disc pl-5 mb-2"><li>...</li></ul>
-- Destaque de conclusão: <div class="card bg-accent/10 text-sm mt-3"><strong>🔑 Conclusão:</strong> ...</div>
-
-ESTRUTURA (6 seções, nesta ordem):
-1. Identificação do Processo (tabela)
-2. Linha do Tempo e Ritmo Processual (narrativa + ritmo; se poucas movs, diga que a \
-visão via DJEN é parcial)
-3. Natureza do Assunto e Precedentes (contexto jurídico do tema + o que os precedentes \
-e os padrões de juízes/relatores em 'padroes_juizes' indicam)
-4. Padrão Comparativo (fluxo típico até o pagamento + fatores de duração + desfechos de \
-'casos_similares' — quantos do mesmo tema viraram precatório no acervo e os precedentes)
-5. Diagnóstico e Prognóstico (tabela: fase atual, mérito, risco de reversão, chance/tempo \
-de virar precatório se aplicável, previsão de pagamento do cronograma, valor)
-6. Conclusão (bloco destacado)
-
-Não repita o CNJ no título de cada seção. Comece direto no <h3> da seção 1."""
+- INTERPRETA, nunca calcula nem inventa. Todo número (chance, tempo, valor, taxa) vem dos \
+dados. Se um dado não veio, escreva "não disponível" — não estime.
+- Não invente jurisprudência/leis/números de processo fora dos dados. Pode citar contexto \
+jurídico geral conhecido (EC 114, art. 100 CF, natureza alimentar) sem inventar fatos do caso.
+- Cite CNJs de precedentes reais quando estiverem nos dados.
+- Objetivo e específico ao caso, não genérico. A RESPOSTA (o JSON) NUNCA pode vir vazia."""
 
 
-import re as _re
+_SECOES = [
+    ('identificacao', '1. Identificação do Processo'),
+    ('ritmo', '2. Linha do Tempo e Ritmo'),
+    ('natureza', '3. Natureza do Assunto e Precedentes'),
+    ('comparativo', '4. Padrão Comparativo'),
+    ('prognostico', '5. Diagnóstico e Prognóstico'),
+]
+
+
+def _fmt(texto: str) -> str:
+    """Texto puro do LLM → HTML seguro: escapa, linkifica CNJ, **negrito**, quebras."""
+    from django.utils.html import escape
+    t = escape((texto or '').strip())
+    t = _re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', t)
+    t = _linkify_cnj(t)
+    t = t.replace('\n\n', '</p><p class="text-sm text-fg-soft leading-relaxed mb-2">').replace('\n', '<br>')
+    return t
+
+
+def _render_analise(d: dict) -> str:
+    """Renderiza o JSON do LLM no NOSSO HTML (bonito + consistente)."""
+    parts = []
+    if d.get('sintese'):
+        parts.append(f'<p class="text-base text-fg font-medium leading-snug mb-3">{_fmt(d["sintese"])}</p>')
+    for chave, titulo in _SECOES:
+        if d.get(chave):
+            parts.append(f'<h3 class="text-sm font-semibold text-fg mt-4 mb-1">{titulo}</h3>'
+                         f'<p class="text-sm text-fg-soft leading-relaxed mb-2">{_fmt(d[chave])}</p>')
+    if d.get('conclusao'):
+        parts.append(f'<div class="card bg-accent/10 border border-accent/20 text-sm mt-4">'
+                     f'<strong class="text-accent-fg">🔑 Conclusão:</strong> '
+                     f'<span class="text-fg-soft">{_fmt(d["conclusao"])}</span></div>')
+    return ''.join(parts)
+
+
+def _extrair_json(texto: str) -> dict | None:
+    """Extrai o objeto JSON da resposta do LLM (tolera ``` e texto ao redor)."""
+    if not texto:
+        return None
+    t = texto.strip()
+    if '```' in t:
+        m = _re.search(r'```(?:json)?\s*(\{.*?\})\s*```', t, _re.S)
+        if m:
+            t = m.group(1)
+    i, j = t.find('{'), t.rfind('}')
+    if i < 0 or j <= i:
+        return None
+    try:
+        d = _json.loads(t[i:j + 1])
+        return d if isinstance(d, dict) else None
+    except (ValueError, TypeError):
+        return None
 
 # CNJ NNNNNNN-DD.AAAA.J.TR.OOOO — pra linkificar citações na narrativa.
 _CNJ_PAT = _re.compile(r'(?<![\w>./=-])(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})(?![\w<])')
@@ -195,44 +236,57 @@ def gerar_stream(cnj: str):
     ritmo = _ritmo_processual(proc) if proc else {'n': 0, 'itens': []}
     contexto = _contexto(dossie, ritmo)
     yield {'type': 'status', 'text': 'Gerando análise jurimétrica…'}
+    # O LLM retorna JSON (só o texto por seção); mostramos o 'pensando' (reasoning) ao
+    # vivo e acumulamos o content (JSON) sem exibir cru. No fim, NÓS renderizamos o HTML.
     buf = []
     for chunk in llm.chat_stream(
             [{'role': 'system', 'content': _SYSTEM},
-             {'role': 'user', 'content': f'Faça a análise jurimétrica com estes dados:\n\n{contexto}'}],
-            max_tokens=13000, temperature=0.3):
+             {'role': 'user', 'content': _user_msg(contexto)}],
+            max_tokens=13000, temperature=0.2):
         if chunk['type'] == 'reasoning':
             yield {'type': 'reasoning', 'text': chunk['text']}
         else:
             buf.append(chunk['text'])
-            yield {'type': 'content', 'text': chunk['text']}
-    html = _limpa_fences(''.join(buf))
-    # Reasoning-models às vezes despejam TUDO no raciocínio e emitem content vazio.
-    # Garantia server-side: se o stream não produziu HTML útil, gera pela via
-    # não-streaming (força o conteúdo final) e entrega isso no done.
-    if len(_re.sub(r'<[^>]+>', '', html).strip()) < 120:
+    dados = _extrair_json(''.join(buf))
+    if not dados or not _tem_conteudo(dados):
+        # stream não entregou JSON útil → não-streaming (força a resposta)
         yield {'type': 'status', 'text': 'consolidando análise…'}
-        alt = gerar_html(cnj)
-        if alt and len(_re.sub(r'<[^>]+>', '', alt).strip()) >= 120:
-            html = alt
+        dados = _analise_json(cnj, contexto)
+    html = _render_analise(dados) if dados else ''
     yield {'type': 'done', 'html': html}
 
 
-def gerar_html(cnj: str) -> str | None:
-    """Gera o HTML da narrativa pro CNJ. None se LLM indisponível ou dossiê inválido."""
+def _user_msg(contexto: str) -> str:
+    return ('Analise o processo com estes dados e responda APENAS com o objeto JSON '
+            f'especificado (chaves em pt-BR, texto corrido):\n\n{contexto}')
+
+
+def _tem_conteudo(d: dict) -> bool:
+    return bool(d) and sum(len(str(d.get(k) or '')) for k, _ in _SECOES) + len(str(d.get('conclusao') or '')) >= 120
+
+
+def _analise_json(cnj: str, contexto: str | None = None) -> dict | None:
+    """Chama o LLM (não-streaming) e devolve o dict JSON da análise. None se falhar."""
     from core import llm
     from .jurimetria_dossie import montar_dossie
     if not llm.disponivel():
         return None
-    dossie = montar_dossie(cnj)
-    if dossie.get('erro') or dossie.get('processando') or not dossie.get('cabecalho'):
-        return None
-    proc = Process.objects.filter(numero_cnj=dossie['cnj']).first()
-    ritmo = _ritmo_processual(proc) if proc else {'n': 0, 'itens': []}
-    contexto = _contexto(dossie, ritmo)
+    if contexto is None:
+        dossie = montar_dossie(cnj)
+        if dossie.get('erro') or dossie.get('processando') or not dossie.get('cabecalho'):
+            return None
+        proc = Process.objects.filter(numero_cnj=dossie['cnj']).first()
+        ritmo = _ritmo_processual(proc) if proc else {'n': 0, 'itens': []}
+        contexto = _contexto(dossie, ritmo)
     resposta = llm.chat(
-        [{'role': 'system', 'content': _SYSTEM},
-         {'role': 'user', 'content': f'Faça a análise jurimétrica com estes dados:\n\n{contexto}'}],
-        max_tokens=9000, temperature=0.3, timeout=240)
-    if not resposta:
+        [{'role': 'system', 'content': _SYSTEM}, {'role': 'user', 'content': _user_msg(contexto)}],
+        max_tokens=9000, temperature=0.2, timeout=240)
+    return _extrair_json(resposta)
+
+
+def gerar_html(cnj: str) -> str | None:
+    """HTML da narrativa (não-streaming). None se LLM indisponível/falha."""
+    dados = _analise_json(cnj)
+    if not dados or not _tem_conteudo(dados):
         return None
-    return _limpa_fences(resposta)
+    return _render_analise(dados)
