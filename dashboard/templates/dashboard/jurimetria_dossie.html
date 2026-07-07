@@ -153,19 +153,23 @@
     {# PRECATÓRIO (Voyager classificação + Juriscope estruturado) #}
     <div class="card">
       {% include 'dashboard/_partials/section_header.html' with title='Precatório' subtitle='classificação Voyager + dados Juriscope' %}
-      {% if j.encontrado %}
+      {% with dg=dossie.diagnostico %}
+      {% if j.encontrado or dg %}
+      {% with nat=j.natureza|default:dg.natureza ente=j.ente_nome|default:j.devedora|default:dg.ente %}
       <table class="w-full text-sm">
         <tr><td class="text-fg-subtle py-1">Natureza</td><td class="text-right font-medium">
-          {% if j.natureza == 'ALIMENTAR' %}🟢 {% endif %}{{ j.natureza|default:'—' }}</td></tr>
-        <tr><td class="text-fg-subtle py-1">Ente devedor</td><td class="text-right">{{ j.ente_nome|default:j.devedora|default:'—' }}</td></tr>
-        <tr><td class="text-fg-subtle py-1">Valor corrigido</td><td class="text-right">{% if j.valor_acao_corrigido %}R$ {{ j.valor_acao_corrigido|floatformat:2 }}{% elif j.valor_acao %}R$ {{ j.valor_acao|floatformat:2 }}{% else %}—{% endif %}</td></tr>
+          {% if nat == 'ALIMENTAR' %}🟢 {% endif %}{{ nat|default:'—' }}</td></tr>
+        <tr><td class="text-fg-subtle py-1">Ente devedor</td><td class="text-right">{{ ente|default:'—' }}</td></tr>
+        <tr><td class="text-fg-subtle py-1">Valor{% if not j.valor_acao_corrigido %} da ação{% else %} corrigido{% endif %}</td><td class="text-right">{% if j.valor_acao_corrigido %}R$ {{ j.valor_acao_corrigido|floatformat:2 }}{% elif j.valor_acao %}R$ {{ j.valor_acao|floatformat:2 }}{% elif c.valor_causa %}R$ {{ c.valor_causa|floatformat:2 }}{% else %}—{% endif %}</td></tr>
         <tr><td class="text-fg-subtle py-1">Ordem cronológica</td><td class="text-right font-mono">{{ j.ordem_orcamentaria|default:'—' }}</td></tr>
         <tr><td class="text-fg-subtle py-1">Data do ofício</td><td class="text-right">{{ j.data_oficio|default:'—' }}</td></tr>
         <tr><td class="text-fg-subtle py-1">Autos baixados</td><td class="text-right">{{ j.files_downloaded|yesno:'sim,não' }}</td></tr>
       </table>
-      <div class="text-[0.65rem] text-fg-subtle mt-2">ⓘ fonte: {{ p.meta.fonte }} · sinal expedição (movs): {{ p.tem_sinal_expedicao|yesno:'sim,não' }}</div>
+      <div class="text-[0.65rem] text-fg-subtle mt-2">ⓘ fonte: {% if j.encontrado %}{{ p.meta.fonte }}{% else %}classificação + enriquecido (e-SAJ/DJEN) — sem registro no Juriscope{% endif %} · sinal expedição (movs): {{ p.tem_sinal_expedicao|yesno:'sim,não' }}</div>
+      {% endwith %}
       {% elif j.erro %}<div class="text-xs text-danger">Juriscope indisponível: {{ j.erro }}</div>
-      {% else %}<div class="text-sm text-fg-subtle">Sem registro de precatório no Juriscope para este CNJ.<br><span class="text-xs">Classificação Voyager: {{ p.classificacao|default:'—' }} · score {{ p.score }}</span></div>{% endif %}
+      {% else %}<div class="text-sm text-fg-subtle">Sem dados estruturados para este CNJ.</div>{% endif %}
+      {% endwith %}
 
       {% if p.homologacao %}
       <div class="mt-2 text-sm flex items-center gap-2">

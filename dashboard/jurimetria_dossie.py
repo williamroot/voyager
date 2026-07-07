@@ -156,6 +156,7 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
         'estagio': estagio, 'tom': tom, 'veredito': veredito,
         'recomendacao': recomendacao, 'indicadores': indicadores,
         'sinais': sinais, 'chance': chance,
+        'ente': ente, 'natureza': natureza,  # pro bloco Precatório cair aqui quando Juriscope vazio
         'contra_fazenda': contra_fazenda, 'ja_precatorio': ja_precatorio,
         'meta': {'fonte': 'síntese jurimetria (classificação + Juriscope + enriquecido) + Kaplan-Meier',
                  'tipo': 'conclusivo'},
