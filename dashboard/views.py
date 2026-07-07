@@ -361,15 +361,21 @@ def jurimetria_dossie(request):
 
 
 def jurimetria_dossie_narrativa(request):
-    """Fragmento HTMX: análise jurimétrica por IA (Ollama). Carrega assíncrono pra
-    não travar o dossiê. Devolve vazio se LLM indisponível/falha (card some)."""
+    """Poll da análise jurimétrica por IA. Gera em background (thread do web, que tem
+    LLM+Zordon) e cacheia; o front faz poll até 'pronto'. Sem conexão HTTP longa (o LLM
+    leva ~60-90s e gunicorn/nginx/cloudflare cortavam → 500/'indisponível')."""
+    from django.http import JsonResponse
+    from django.core.cache import caches
     cnj = (request.GET.get('cnj') or '').strip()
-    html = None
-    if cnj:
-        from .jurimetria_narrativa import gerar_html as gerar_narrativa
-        html = gerar_narrativa(cnj)
-    return render(request, 'dashboard/_partials/jurimetria_narrativa.html',
-                  {'narrativa': html, 'cnj': cnj})
+    if not cnj:
+        return JsonResponse({'estado': 'erro', 'html': None})
+    from .jurimetria_narrativa import iniciar_ou_obter
+    try:
+        html, estado = iniciar_ou_obter(cnj)
+    except Exception:  # noqa: BLE001
+        logger.exception('narrativa poll falhou %s', cnj)
+        html, estado = None, 'erro'
+    return JsonResponse({'estado': estado, 'html': html})
 
 
 def jurimetria_dossie_narrativa_stream(request):

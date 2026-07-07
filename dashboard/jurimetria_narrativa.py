@@ -290,3 +290,33 @@ def gerar_html(cnj: str) -> str | None:
     if not dados or not _tem_conteudo(dados):
         return None
     return _render_analise(dados)
+
+
+# ---- geração assíncrona + poll (o LLM leva ~60-90s; NÃO cabe num request HTTP:
+# gunicorn/nginx/cloudflare cortam. Gera numa thread do web — que tem LLM+Zordon —
+# e cacheia; o front faz poll. Robusto, sem conexão longa). ----
+import threading as _threading
+
+_ERR = '__ERR__'
+
+
+def iniciar_ou_obter(cnj: str) -> tuple[str | None, str]:
+    """Poll da narrativa. Devolve (html, estado); estado ∈ 'pronto'|'gerando'|'erro'.
+    Na 1ª chamada dispara a geração em background (thread) e cacheia o resultado."""
+    from django.core.cache import cache
+    key, genkey = f'narrjur:v1:{cnj}', f'narrjur:gen:{cnj}'
+    val = cache.get(key)
+    if val is not None:
+        return (None, 'erro') if val == _ERR else (val, 'pronto')
+    if cache.add(genkey, '1', timeout=200):  # só a 1ª requisição dispara a thread
+        def _run():
+            try:
+                html = gerar_html(cnj)
+                cache.set(key, html or _ERR, timeout=3600)
+            except Exception:  # noqa: BLE001
+                logger.exception('narrativa async falhou %s', cnj)
+                cache.set(key, _ERR, timeout=300)
+            finally:
+                cache.delete(genkey)
+        _threading.Thread(target=_run, daemon=True).start()
+    return None, 'gerando'
