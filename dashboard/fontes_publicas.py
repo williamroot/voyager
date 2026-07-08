@@ -160,10 +160,11 @@ def stj_temas_repetitivos(assunto: str, limit: int = 8) -> dict:
     rows = _stj_temas_todos()
     if not rows:
         return {'erro': 'base STJ indisponível'}
+    palavras = [w for w in re.split(r'\W+', termo) if len(w) > 2]
     hits = []
     for row in rows:
         blob = ' '.join(str(v) for v in row.values() if v).lower()
-        if termo in blob:
+        if (palavras and all(w in blob for w in palavras)) or (not palavras and termo in blob):
             hits.append({
                 'numero': (row.get('numeroPrecedente') or '').strip(),
                 'tipo': (row.get('tipoPrecedente') or '').strip(),
