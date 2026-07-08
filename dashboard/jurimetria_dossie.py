@@ -289,6 +289,56 @@ def _bloco_precatorio(proc: Process) -> dict:
     }
 
 
+def fontes_e_pesos(dossie: dict) -> list[dict]:
+    """Transparência: todas as FONTES usadas no dossiê, com peso (papel no veredito) e o
+    VALOR que cada uma trouxe pra este CNJ. Alimenta a modal 'Fontes & pesos'."""
+    c = dossie.get('cabecalho') or {}
+    p = dossie.get('precatorio') or {}
+    js = p.get('juriscope') or {}
+    ef = p.get('ente_fiscal') or {}
+    cap = (ef or {}).get('capag') or {}
+    sb = p.get('sobrevivencia') or {}
+    tipo = dossie.get('jurimetria_tipo') or {}
+    prec = dossie.get('precedentes') or {}
+    polos = dossie.get('polos') or {}
+    n_partes = sum(len(v) for v in polos.values())
+    return [
+        {'fonte': 'Classificação ML (Voyager)', 'tipo': 'modelo próprio', 'peso': 'Alto',
+         'ok': bool(p.get('classificacao')),
+         'valor': f"{p.get('classificacao') or 'sem classe'} · score {p.get('score') or 0}"},
+        {'fonte': 'Juriscope / Falcon', 'tipo': 'precatório estruturado', 'peso': 'Alto',
+         'ok': bool(js.get('encontrado')),
+         'valor': (f"{js.get('n_precatorios') or 0} precatório(s) · "
+                   f"{js.get('valor_acao_corrigido_fmt') or js.get('valor_acao_fmt') or '—'} · "
+                   f"{js.get('natureza') or '—'}") if js.get('encontrado') else 'sem registro'},
+        {'fonte': 'SICONFI / Tesouro', 'tipo': 'fiscal do ente (público)', 'peso': 'Alto',
+         'ok': bool(ef.get('rcl')),
+         'valor': (f"RCL {ef.get('rcl_fmt')} · paga ~{ef.get('pagamento_anual_estimado_pct_rcl')}%/ano (EC 136)")
+                  if ef.get('rcl') else '—'},
+        {'fonte': 'CAPAG / Tesouro', 'tipo': 'rating do ente (público)', 'peso': 'Médio',
+         'ok': bool(cap.get('nota')),
+         'valor': f"nota {cap.get('nota')} ({cap.get('significado')})" if cap.get('nota') else '—'},
+        {'fonte': 'Kaplan-Meier', 'tipo': 'modelo preditivo', 'peso': 'Médio',
+         'ok': bool(sb),
+         'valor': f"{sb.get('chance_24m')}% em 24m · n={sb.get('n')}" if sb else 'n/a'},
+        {'fonte': 'Cronograma EC 114/136', 'tipo': 'determinístico', 'peso': 'Médio',
+         'ok': bool(p.get('pagamento')),
+         'valor': f"orçamento {(p.get('pagamento') or {}).get('ano_orcamento')}" if p.get('pagamento') else '—'},
+        {'fonte': 'Movimentações DJEN', 'tipo': 'ingestão nacional', 'peso': 'Médio',
+         'ok': bool(c.get('total_movimentacoes')),
+         'valor': f"{c.get('total_movimentacoes') or 0} movimentações"},
+        {'fonte': 'Jurimetria do tipo', 'tipo': 'agregado do acervo', 'peso': 'Baixo',
+         'ok': bool(tipo.get('disponivel')),
+         'valor': (f"{tipo.get('taxa_precatorio')}% viram precatório (n={tipo.get('total')})")
+                  if tipo.get('disponivel') else 'tipo muito amplo'},
+        {'fonte': 'Zordon (precedentes)', 'tipo': 'RAG semântico', 'peso': 'Médio',
+         'ok': bool(prec.get('itens')),
+         'valor': f"{len(prec.get('itens') or [])} precedentes (bge-m3 + rerank)"},
+        {'fonte': 'e-SAJ (partes/incidentes)', 'tipo': 'enricher público', 'peso': 'Baixo',
+         'ok': n_partes > 0, 'valor': f"{n_partes} partes"},
+    ]
+
+
 def _precedentes(proc: Process, limite: int = 4) -> dict:
     """Precedentes relevantes via RAG do Zordon (degrada se indisponível)."""
     from . import zordon_client

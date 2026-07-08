@@ -26,8 +26,83 @@
   <input type="text" name="cnj" value="{{ cnj_input }}" placeholder="0000000-00.0000.0.00.0000"
          class="flex-1 bg-card border border-border rounded px-3 py-2 text-sm font-mono" autofocus>
   <button class="btn-primary px-4 py-2 text-sm rounded">Analisar</button>
-  {% if dossie.cabecalho %}<button type="button" onclick="window.print()" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Salvar como PDF">📄 PDF</button>{% endif %}
+  {% if dossie.cabecalho %}
+  <button type="button" onclick="document.getElementById('modal-fontes').showModal()" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Fontes de dados, pesos e valores">🗂️ Fontes</button>
+  <button type="button" onclick="abrirPrompt()" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Ver/editar o prompt da IA">🧠 Prompt</button>
+  <button type="button" onclick="window.print()" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Salvar como PDF">📄 PDF</button>
+  {% endif %}
 </form>
+
+{# ─── Modal: Fontes & pesos ─── #}
+{% if fontes %}
+<dialog id="modal-fontes" class="rounded-xl p-0 bg-card text-fg border border-border max-w-3xl w-[92vw] backdrop:bg-black/50">
+  <div class="p-5">
+    <div class="flex items-center justify-between mb-3">
+      <div><h3 class="text-lg font-semibold">Fontes de dados · pesos & valores</h3>
+        <p class="text-xs text-fg-subtle">O que alimentou este dossiê e o papel de cada fonte no veredito.</p></div>
+      <button onclick="document.getElementById('modal-fontes').close()" class="text-fg-subtle hover:text-fg text-xl">✕</button>
+    </div>
+    <table class="w-full text-sm">
+      <thead><tr class="text-[0.65rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+        <th class="text-left py-1.5">Fonte</th><th class="text-left">Tipo</th><th class="text-left">Peso</th><th class="text-left">Valor neste caso</th></tr></thead>
+      <tbody>
+      {% for f in fontes %}
+        <tr class="border-b border-border/50">
+          <td class="py-2 pr-2">{% if f.ok %}<span class="text-emerald-500">●</span>{% else %}<span class="text-fg-subtle/40">○</span>{% endif %} <span class="font-medium">{{ f.fonte }}</span></td>
+          <td class="text-fg-subtle text-xs pr-2">{{ f.tipo }}</td>
+          <td class="pr-2"><span class="chip text-[0.6rem] {% if f.peso == 'Alto' %}bg-accent/20 text-accent-fg{% elif f.peso == 'Médio' %}bg-muted{% else %}text-fg-subtle{% endif %}">{{ f.peso }}</span></td>
+          <td class="{% if not f.ok %}text-fg-subtle/60{% endif %} text-xs">{{ f.valor }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="text-[0.65rem] text-fg-subtle mt-3 pt-2 border-t border-border/60">● = com dado neste CNJ · ○ = sem dado · Peso = influência no veredito determinístico. Todas as fontes externas são públicas (sem login).</div>
+  </div>
+</dialog>
+{% endif %}
+
+{# ─── Modal: Prompt da IA (ver/editar) ─── #}
+{% if dossie.cabecalho %}
+<dialog id="modal-prompt" class="rounded-xl p-0 bg-card text-fg border border-border max-w-3xl w-[92vw] backdrop:bg-black/50">
+  <div class="p-5">
+    <div class="flex items-center justify-between mb-3">
+      <div><h3 class="text-lg font-semibold">Prompt da IA · jurimetria <span id="prompt-badge" class="chip text-[0.55rem]"></span></h3>
+        <p class="text-xs text-fg-subtle">O prompt que instrui o modelo. Editável — a mudança vale pras próximas análises.</p></div>
+      <button onclick="document.getElementById('modal-prompt').close()" class="text-fg-subtle hover:text-fg text-xl">✕</button>
+    </div>
+    <textarea id="prompt-text" class="w-full h-80 bg-base border border-border rounded p-3 text-xs font-mono leading-relaxed" spellcheck="false"></textarea>
+    <div class="flex items-center gap-2 mt-3">
+      <button onclick="salvarPrompt()" class="btn-primary px-4 py-2 text-sm rounded">Salvar</button>
+      <button onclick="resetPrompt()" class="px-4 py-2 text-sm rounded border border-border text-fg-subtle hover:text-fg">Restaurar padrão</button>
+      <span id="prompt-status" class="text-xs text-fg-subtle"></span>
+    </div>
+  </div>
+</dialog>
+<script>
+  var PROMPT_URL = "{% url 'dashboard:jurimetria-prompt' %}";
+  function _csrf(){ var m=document.cookie.match(/csrftoken=([^;]+)/); return m?m[1]:''; }
+  function abrirPrompt(){
+    document.getElementById('modal-prompt').showModal();
+    fetch(PROMPT_URL).then(r=>r.json()).then(function(d){
+      document.getElementById('prompt-text').value = d.prompt;
+      var b=document.getElementById('prompt-badge'); b.textContent = d.is_override ? 'editado' : 'padrão';
+      b.className = 'chip text-[0.55rem] ' + (d.is_override ? 'bg-accent/20 text-accent-fg' : '');
+    });
+  }
+  function _post(prompt){
+    var fd=new FormData(); fd.append('prompt', prompt);
+    document.getElementById('prompt-status').textContent='salvando…';
+    fetch(PROMPT_URL, {method:'POST', headers:{'X-CSRFToken':_csrf()}, body:fd}).then(r=>r.json()).then(function(d){
+      document.getElementById('prompt-status').textContent='✓ salvo';
+      var b=document.getElementById('prompt-badge'); b.textContent = d.is_override ? 'editado' : 'padrão';
+      b.className='chip text-[0.55rem] '+(d.is_override?'bg-accent/20 text-accent-fg':'');
+      if(!prompt) abrirPrompt();
+    }).catch(function(){ document.getElementById('prompt-status').textContent='erro ao salvar'; });
+  }
+  function salvarPrompt(){ _post(document.getElementById('prompt-text').value); }
+  function resetPrompt(){ _post(''); }
+</script>
+{% endif %}
 
 {% if dossie.erro %}
   <div class="card text-danger text-sm">{{ dossie.erro }}</div>

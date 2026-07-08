@@ -344,20 +344,37 @@ def jurimetria(request):
 @login_required
 def jurimetria_dossie(request):
     """Dossiê de jurimetria por CNJ (M3): Voyager + Juriscope + Zordon numa página."""
-    from .jurimetria_dossie import montar_dossie
+    from .jurimetria_dossie import montar_dossie, fontes_e_pesos
     cnj = (request.GET.get('cnj') or '').strip()
     dossie = None
+    fontes = None
     if cnj:
         # Guard definitivo: qualquer falha (survival, Juriscope, Zordon, template)
         # vira um card de erro — o dossiê NUNCA responde 500.
         try:
             dossie = montar_dossie(cnj)
+            if dossie and dossie.get('cabecalho'):
+                fontes = fontes_e_pesos(dossie)
         except Exception as exc:  # noqa: BLE001
             logger.exception('montar_dossie 500 p/ %s', cnj)
             dossie = {'cnj': cnj, 'erro': f'Falha ao montar o dossiê ({type(exc).__name__}). '
                       f'O time foi notificado; tente novamente em instantes.'}
     return render(request, 'dashboard/jurimetria_dossie.html',
-                  {'cnj_input': cnj, 'dossie': dossie})
+                  {'cnj_input': cnj, 'dossie': dossie, 'fontes': fontes})
+
+
+@login_required
+def jurimetria_prompt(request):
+    """Ver/editar o prompt do sistema da narrativa de jurimetria (pra transparência/tuning).
+    GET → JSON {prompt, is_override}; POST (prompt) → salva override; POST vazio → reseta."""
+    from django.http import JsonResponse
+    from .jurimetria_narrativa import get_system_prompt, set_system_prompt, _SYSTEM_DEFAULT
+    if request.method == 'POST':
+        set_system_prompt(request.POST.get('prompt', ''))
+        return JsonResponse({'ok': True, 'prompt': get_system_prompt(),
+                             'is_override': get_system_prompt() != _SYSTEM_DEFAULT})
+    return JsonResponse({'prompt': get_system_prompt(), 'default': _SYSTEM_DEFAULT,
+                         'is_override': get_system_prompt() != _SYSTEM_DEFAULT})
 
 
 def jurimetria_dossie_narrativa(request):

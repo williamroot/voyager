@@ -21,6 +21,7 @@ urlpatterns = [
     path('jurimetria/', views.jurimetria, name='jurimetria'),
     path('jurimetria/dossie/', views.jurimetria_dossie, name='jurimetria-dossie'),
     path('jurimetria/dossie/narrativa/', views.jurimetria_dossie_narrativa, name='jurimetria-dossie-narrativa'),
+    path('jurimetria/prompt/', views.jurimetria_prompt, name='jurimetria-prompt'),
     path('jurimetria/dossie/narrativa/stream/', views.jurimetria_dossie_narrativa_stream, name='jurimetria-dossie-narrativa-stream'),
     path('movimentacoes/', views.movimentacoes, name='movimentacoes'),
     path('partes/', views.partes, name='partes'),

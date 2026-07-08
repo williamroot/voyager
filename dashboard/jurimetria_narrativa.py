@@ -105,7 +105,7 @@ import re as _re
 
 # O modelo SÓ PROCESSA: retorna JSON com o TEXTO de cada seção. NÓS renderizamos o HTML
 # (confiável + sempre bonito). O LLM narra/interpreta, nunca calcula nem inventa.
-_SYSTEM = """Você é um analista de jurimetria sênior (precatórios e execuções contra a \
+_SYSTEM_DEFAULT = """Você é um analista de jurimetria sênior (precatórios e execuções contra a \
 Fazenda Pública no Brasil). Recebe DADOS DETERMINÍSTICOS já calculados (classificação, \
 Kaplan-Meier, cronograma EC 114/2021, Juriscope, partes, movimentações, precedentes, \
 padrões de juízes, casos similares) e produz uma análise jurimétrica.
@@ -129,6 +129,23 @@ dados. Se um dado não veio, escreva "não disponível" — não estime.
 jurídico geral conhecido (EC 114, art. 100 CF, natureza alimentar) sem inventar fatos do caso.
 - Cite CNJs de precedentes reais quando estiverem nos dados.
 - Objetivo e específico ao caso, não genérico. A RESPOSTA (o JSON) NUNCA pode vir vazia."""
+
+_PROMPT_KEY = 'jurimetria:system_prompt'
+
+
+def get_system_prompt() -> str:
+    """Prompt do sistema em uso — override editável (cache) ou o default."""
+    from django.core.cache import cache
+    return cache.get(_PROMPT_KEY) or _SYSTEM_DEFAULT
+
+
+def set_system_prompt(texto: str | None) -> None:
+    """Salva um override do prompt (ou reseta pro default se vazio)."""
+    from django.core.cache import cache
+    if texto and texto.strip():
+        cache.set(_PROMPT_KEY, texto.strip(), timeout=None)
+    else:
+        cache.delete(_PROMPT_KEY)
 
 
 _SECOES = [
@@ -240,7 +257,7 @@ def gerar_stream(cnj: str):
     # vivo e acumulamos o content (JSON) sem exibir cru. No fim, NÓS renderizamos o HTML.
     buf = []
     for chunk in llm.chat_stream(
-            [{'role': 'system', 'content': _SYSTEM},
+            [{'role': 'system', 'content': get_system_prompt()},
              {'role': 'user', 'content': _user_msg(contexto)}],
             max_tokens=13000, temperature=0.2):
         if chunk['type'] == 'reasoning':
@@ -279,7 +296,7 @@ def _analise_json(cnj: str, contexto: str | None = None) -> dict | None:
         ritmo = _ritmo_processual(proc) if proc else {'n': 0, 'itens': []}
         contexto = _contexto(dossie, ritmo)
     resposta = llm.chat(
-        [{'role': 'system', 'content': _SYSTEM}, {'role': 'user', 'content': _user_msg(contexto)}],
+        [{'role': 'system', 'content': get_system_prompt()}, {'role': 'user', 'content': _user_msg(contexto)}],
         max_tokens=9000, temperature=0.2, timeout=240)
     return _extrair_json(resposta)
 
