@@ -101,6 +101,39 @@ _TIPS_PILAR = {
 }
 
 
+# Desfecho terminal lido do TEXTO das movimentações (o robô precisa saber se o processo
+# morreu). NEGATIVO: extinção sem mérito / improcedência / indeferimento / prescrição.
+# PAGO: extinção pela satisfação/pagamento (art. 924, II CPC).
+_DESF_NEG_RE = re.compile(
+    r'(?:julg\w+\s+)?extin\w+.{0,40}?sem\s+resolu[çc][ãa]o\s+do\s+m[ée]rito|'
+    r'improceden|indefer\w+\s+a\s+(?:peti[çc][ãa]o|inicial|exordial)|denego\s+seguimento|'
+    r'\bnego\s+provimento|\bprescri[çc][ãa]o\b|litisped[êe]ncia|reconhe[çc]o\s+a\s+prescri', re.I)
+_DESF_PAGO_RE = re.compile(
+    r'satisfa[çc][ãa]o\s+d[ao]\s+(?:obriga|cr[ée]dito|d[ée]bito)|extin\w+.{0,30}?pagamento|'
+    r'quita[çc][ãa]o\s+integral|cumprida\s+a\s+obriga[çc]|art\w*\.?\s*924,?\s*(?:II|inciso\s+II)', re.I)
+
+
+def _desfecho(proc: Process) -> dict | None:
+    """Lê as movimentações mais recentes e detecta desfecho terminal (o processo morreu
+    ou foi pago). Devolve {tipo: 'negativo'|'pago', data, trecho} ou None."""
+    movs = list(Movimentacao.objects.filter(processo_id=proc.pk)
+                .order_by('-data_disponibilizacao')
+                .values_list('data_disponibilizacao', 'texto')[:20])
+    for data, txt in movs:
+        t = txt or ''
+        if _DESF_PAGO_RE.search(t):
+            return {'tipo': 'pago', 'data': data, 'trecho': _trecho_desfecho(t, _DESF_PAGO_RE)}
+        if _DESF_NEG_RE.search(t):
+            return {'tipo': 'negativo', 'data': data, 'trecho': _trecho_desfecho(t, _DESF_NEG_RE)}
+    return None
+
+
+def _trecho_desfecho(texto: str, rx) -> str:
+    m = rx.search(texto)
+    i = max(m.start() - 60, 0)
+    return ' '.join(texto[i:m.end() + 80].split())[:180]
+
+
 def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> dict:
     """Camada analítica: sintetiza os sinais (classificação + Juriscope + dados
     enriquecidos: ente, órgão, assunto, partes) num VEREDITO + indicadores +
@@ -141,9 +174,23 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
         sinais.append(f'Natureza alimentar (assunto: {assunto[:50]})')
     if n_exequentes >= 2: sinais.append(f'{n_exequentes} exequentes/requerentes (execução coletiva)')
 
-    # --- estágio + veredito + recomendação ---
+    # --- DESFECHO TERMINAL (lido do texto): tem prioridade sobre tudo. Um processo
+    # extinto sem mérito / improcedente / prescrito NÃO é lead, por mais que a classe
+    # diga "cumprimento de sentença". ---
+    desfecho = _desfecho(proc)
     chance = survival_precatorio.prever(proc.tribunal_id, natureza, ente) if (contra_fazenda and not ja_precatorio) else None
-    if ja_precatorio:
+    if desfecho and desfecho['tipo'] == 'negativo' and not ja_precatorio:
+        estagio, tom = 'ENCERRADO', 'muted'
+        veredito = ('Processo encerrado sem crédito exequível — extinto sem resolução do '
+                    'mérito / improcedente / prescrito. NÃO é lead de precatório.')
+        recomendacao = {'label': '⛔ Descartar — processo extinto/improcedente', 'tom': 'muted'}
+        sinais.insert(0, f'Desfecho terminal: {desfecho["trecho"]}')
+    elif desfecho and desfecho['tipo'] == 'pago':
+        estagio, tom = 'PAGO', 'muted'
+        veredito = 'Execução extinta pela satisfação/pagamento do crédito — encerrado.'
+        recomendacao = {'label': '✅ Pago — crédito já satisfeito', 'tom': 'muted'}
+        sinais.insert(0, f'Desfecho: {desfecho["trecho"]}')
+    elif ja_precatorio:
         estagio, tom = 'PRECATÓRIO', 'ok'
         pag = precatorio.get('pagamento') or _cronograma_pagamento(js.get('ano_ordem_orcamentaria'))
         veredito = f'Precatório {("de natureza " + natureza.lower()) if natureza else ""} — requisição já no fluxo de pagamento.'
@@ -190,7 +237,7 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
             pass
     if n_exequentes >= 2:
         indicadores.append({'label': 'Beneficiários', 'valor': n_exequentes, 'sub': 'exequentes (execução coletiva)'})
-    if titulo_constituido:
+    if titulo_constituido and not (desfecho and desfecho['tipo'] == 'negativo'):
         indicadores.insert(0, {'label': 'Fase do mérito', 'valor': '✓ decidido',
                                'sub': 'cumprimento de sentença — crédito reconhecido'})
     if tipo.get('disponivel'):
@@ -205,7 +252,7 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
         'sinais': sinais, 'chance': chance,
         'ente': ente, 'natureza': natureza,  # pro bloco Precatório cair aqui quando Juriscope vazio
         'contra_fazenda': contra_fazenda, 'ja_precatorio': ja_precatorio,
-        'titulo_constituido': titulo_constituido, 'classe': classe,
+        'titulo_constituido': titulo_constituido, 'classe': classe, 'desfecho': desfecho,
         'meta': {'fonte': 'síntese jurimetria (classificação + Juriscope + enriquecido) + Kaplan-Meier',
                  'tipo': 'conclusivo'},
     }
@@ -369,8 +416,13 @@ def score_oportunidade(dossie: dict) -> dict | None:
     vj = p.get('valor_justo') or {}
     homolog = (p.get('homologacao') or {}).get('ocorreu')
 
-    # S_titulo — certeza de que o crédito existe
-    if dg.get('ja_precatorio'):
+    # S_titulo — certeza de que o crédito existe. Desfecho terminal negativo zera tudo.
+    desf = dg.get('desfecho') or {}
+    if desf.get('tipo') == 'negativo' and not dg.get('ja_precatorio'):
+        s_t = 0.02  # extinto/improcedente/prescrito: crédito não existe mais
+    elif desf.get('tipo') == 'pago':
+        s_t = 0.1   # já pago: não há mais o que adquirir
+    elif dg.get('ja_precatorio'):
         s_t = 1.0
     elif homolog:
         s_t = 0.85
