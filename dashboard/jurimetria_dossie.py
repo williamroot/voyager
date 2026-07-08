@@ -430,40 +430,44 @@ def fontes_e_pesos(dossie: dict) -> list[dict]:
     prec = dossie.get('precedentes') or {}
     polos = dossie.get('polos') or {}
     n_partes = sum(len(v) for v in polos.values())
+    vj = p.get('valor_justo') or {}
+    cnj_digits = (dossie.get('cnj') or '').replace('-', '').replace('.', '')
     return [
         {'fonte': 'Classificação ML (Voyager)', 'tipo': 'modelo próprio', 'peso': 'Alto',
-         'ok': bool(p.get('classificacao')),
+         'ok': bool(p.get('classificacao')), 'url': None,
          'valor': f"{p.get('classificacao') or 'sem classe'} · score {p.get('score') or 0}"},
         {'fonte': 'Juriscope / Falcon', 'tipo': 'precatório estruturado', 'peso': 'Alto',
          'ok': bool(js.get('encontrado')),
+         'url': f'https://esaj.tjsp.jus.br/cpopg/open.do' if js.get('encontrado') else None,
          'valor': (f"{js.get('n_precatorios') or 0} precatório(s) · "
                    f"{js.get('valor_acao_corrigido_fmt') or js.get('valor_acao_fmt') or '—'} · "
                    f"{js.get('natureza') or '—'}") if js.get('encontrado') else 'sem registro'},
         {'fonte': 'SICONFI / Tesouro', 'tipo': 'fiscal do ente (público)', 'peso': 'Alto',
-         'ok': bool(ef.get('rcl')),
+         'ok': bool(ef.get('rcl')), 'url': ef.get('fonte_url'),
          'valor': (f"RCL {ef.get('rcl_fmt')} · paga ~{ef.get('pagamento_anual_estimado_pct_rcl')}%/ano (EC 136)")
                   if ef.get('rcl') else '—'},
         {'fonte': 'CAPAG / Tesouro', 'tipo': 'rating do ente (público)', 'peso': 'Médio',
-         'ok': bool(cap.get('nota')),
+         'ok': bool(cap.get('nota')), 'url': cap.get('fonte_url'),
          'valor': f"nota {cap.get('nota')} ({cap.get('significado')})" if cap.get('nota') else '—'},
+        {'fonte': 'BCB / Selic (valor presente)', 'tipo': 'índice oficial (público)', 'peso': 'Médio',
+         'ok': bool(vj), 'url': vj.get('fonte_url'),
+         'valor': (f"deságio {vj.get('desagio_implicito_pct')}% · Selic {vj.get('selic_meta_aa_pct')}%") if vj else '—'},
         {'fonte': 'Kaplan-Meier', 'tipo': 'modelo preditivo', 'peso': 'Médio',
-         'ok': bool(sb),
+         'ok': bool(sb), 'url': None,
          'valor': f"{sb.get('chance_24m')}% em 24m · n={sb.get('n')}" if sb else 'n/a'},
         {'fonte': 'Cronograma EC 114/136', 'tipo': 'determinístico', 'peso': 'Médio',
          'ok': bool(p.get('pagamento')),
+         'url': 'https://www.planalto.gov.br/ccivil_03/constituicao/emendas/emc/emc136.htm',
          'valor': f"orçamento {(p.get('pagamento') or {}).get('ano_orcamento')}" if p.get('pagamento') else '—'},
         {'fonte': 'Movimentações DJEN', 'tipo': 'ingestão nacional', 'peso': 'Médio',
          'ok': bool(c.get('total_movimentacoes')),
+         'url': f'https://comunicaapi.pje.jus.br/api/v1/comunicacao?numeroProcesso={cnj_digits}' if cnj_digits else None,
          'valor': f"{c.get('total_movimentacoes') or 0} movimentações"},
-        {'fonte': 'Jurimetria do tipo', 'tipo': 'agregado do acervo', 'peso': 'Baixo',
-         'ok': bool(tipo.get('disponivel')),
-         'valor': (f"{tipo.get('taxa_precatorio')}% viram precatório (n={tipo.get('total')})")
-                  if tipo.get('disponivel') else 'tipo muito amplo'},
         {'fonte': 'Zordon (precedentes)', 'tipo': 'RAG semântico', 'peso': 'Médio',
-         'ok': bool(prec.get('itens')),
+         'ok': bool(prec.get('itens')), 'url': None,
          'valor': f"{len(prec.get('itens') or [])} precedentes (bge-m3 + rerank)"},
         {'fonte': 'e-SAJ (partes/incidentes)', 'tipo': 'enricher público', 'peso': 'Baixo',
-         'ok': n_partes > 0, 'valor': f"{n_partes} partes"},
+         'ok': n_partes > 0, 'url': 'https://esaj.tjsp.jus.br/cpopg/open.do', 'valor': f"{n_partes} partes"},
     ]
 
 

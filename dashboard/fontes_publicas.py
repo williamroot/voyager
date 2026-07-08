@@ -83,7 +83,8 @@ def ente_fiscal(id_ente: str | int | None = None, ano: int = 2023, *,
     rcl = next((i.get('valor') for i in itens
                 if 'RECEITA CORRENTE LÍQUIDA' in (i.get('conta') or '').upper()), None)
     out = {'id_ente': id_ente, 'ano': ano, 'estoque_precatorio_vencido': precat,
-           'divida_consolidada_liquida': dcl, 'rcl': rcl, 'fonte': 'SICONFI/Tesouro RGF-Anexo 02'}
+           'divida_consolidada_liquida': dcl, 'rcl': rcl, 'fonte': 'SICONFI/Tesouro RGF-Anexo 02',
+           'fonte_url': url}  # a própria query da API — prova o número (auditável)
     # banda de pagamento anual da EC 136/2025: estoque/RCL → % da RCL/ano
     if precat and rcl:
         raz = precat / rcl
@@ -150,7 +151,8 @@ def capag_rating(uf: str) -> dict:
                 out = {'uf': uf, 'ano': ano, 'nota': (nota or '').strip(),
                        'significado': _CAPAG_NOTA.get((nota or '').strip(), ''),
                        'endividamento': norm.get('indicador1'), 'poupanca': norm.get('indicador2'),
-                       'liquidez': norm.get('indicador3'), 'fonte': 'Tesouro/CAPAG'}
+                       'liquidez': norm.get('indicador3'), 'fonte': 'Tesouro/CAPAG',
+                       'fonte_url': csvs[0]['url']}  # CSV oficial (auditável)
                 cache.set(ck, out, timeout=30 * 86400)
                 return out
         return {'erro': f'UF {uf} não encontrada no CAPAG'}
@@ -229,8 +231,10 @@ def stj_temas_repetitivos(assunto: str, limit: int = 8) -> dict:
     for row in rows:
         blob = ' '.join(str(v) for v in row.values() if v).lower()
         if (palavras and all(w in blob for w in palavras)) or (not palavras and termo in blob):
+            _num = (row.get('numeroPrecedente') or '').strip()
+            _n = re.sub(r'\D', '', _num)
             hits.append({
-                'numero': (row.get('numeroPrecedente') or '').strip(),
+                'numero': _num,
                 'tipo': (row.get('tipoPrecedente') or '').strip(),
                 'tese': (row.get('teseFirmada') or '').strip()[:700],
                 'questao': (row.get('questaoSubmetidaAJulgamento') or '').strip()[:300],
@@ -238,6 +242,8 @@ def stj_temas_repetitivos(assunto: str, limit: int = 8) -> dict:
                 'sumula': (row.get('sumulaOriginada') or row.get('referenciaSumular') or '').strip()[:120],
                 'tema_stf': (row.get('numeroRepercussaoGeralSTF') or '').strip(),
                 'assuntos': (row.get('Assuntos') or '').strip()[:120],
+                'url': (f'https://processo.stj.jus.br/repetitivos/temas_repetitivos/pesquisa.jsp'
+                        f'?novaConsulta=true&tipo_pesquisa=T&cod_tema_inicial={_n}&cod_tema_final={_n}') if _n else None,
             })
     # teses firmadas primeiro (mais úteis que controvérsias pendentes)
     hits.sort(key=lambda h: (0 if h['tese'] else 1))
@@ -387,6 +393,7 @@ def valor_presente(valor_face: float, anos_ate_pagamento: float,
         'correcao_aa_pct': round(corr * 100, 2), 'taxa_desconto_aa_pct': round(taxa * 100, 2),
         'selic_meta_aa_pct': selic,
         'fonte': 'modelo determinístico (EC 136 + desconto Selic/BCB) — não é cotação de mercado',
+        'fonte_url': 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json',
     }
 
 

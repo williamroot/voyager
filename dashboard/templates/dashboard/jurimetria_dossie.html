@@ -48,7 +48,7 @@
       <tbody>
       {% for f in fontes %}
         <tr class="border-b border-border/50">
-          <td class="py-2 pr-2">{% if f.ok %}<span class="text-emerald-500">●</span>{% else %}<span class="text-fg-subtle/40">○</span>{% endif %} <span class="font-medium">{{ f.fonte }}</span></td>
+          <td class="py-2 pr-2">{% if f.ok %}<span class="text-emerald-500">●</span>{% else %}<span class="text-fg-subtle/40">○</span>{% endif %} {% if f.url and f.ok %}<a href="{{ f.url }}" target="_blank" rel="noopener" class="font-medium text-accent hover:underline">{{ f.fonte }} ↗</a>{% else %}<span class="font-medium">{{ f.fonte }}</span>{% endif %}</td>
           <td class="text-fg-subtle text-xs pr-2">{{ f.tipo }}</td>
           <td class="pr-2"><span class="chip text-[0.6rem] {% if f.peso == 'Alto' %}bg-accent/20 text-accent-fg{% elif f.peso == 'Médio' %}bg-muted{% else %}text-fg-subtle{% endif %}">{{ f.peso }}</span></td>
           <td class="{% if not f.ok %}text-fg-subtle/60{% endif %} text-xs">{{ f.valor }}</td>
@@ -256,7 +256,7 @@
         <div class="text-[0.65rem] text-fg-subtle">~{{ vj.anos_ate_pagamento }} anos até o pagamento</div>
       </div>
     </div>
-    <div class="text-[0.6rem] text-fg-subtle mt-3 pt-2 border-t border-border/60">ⓘ Valor presente: face projetada pela correção EC 136 (IPCA+2%, teto Selic {{ vj.selic_meta_aa_pct }}% a.a.) e descontada pela Selic. Âncora determinística — não é cotação de mercado (deságio de mercado ≥ este).</div>
+    <div class="text-[0.6rem] text-fg-subtle mt-3 pt-2 border-t border-border/60">ⓘ Valor presente: face projetada pela correção EC 136 (IPCA+2%, teto {% if vj.fonte_url %}<a href="{{ vj.fonte_url }}" target="_blank" rel="noopener" class="text-accent hover:underline">Selic {{ vj.selic_meta_aa_pct }}% a.a. ↗</a>{% else %}Selic {{ vj.selic_meta_aa_pct }}% a.a.{% endif %}) e descontada pela Selic. {% if vj.horizonte_estimado %}Prazo estimado pela sobrevivência (ainda pré-precatório). {% endif %}Âncora determinística — não é cotação de mercado.</div>
   </div>
   {% endif %}
   {% endwith %}
@@ -369,14 +369,14 @@
         <div class="flex items-baseline gap-4 flex-wrap">
           {% if ef.pagamento_anual_estimado_pct_rcl %}<div><span class="text-2xl font-semibold kpi-num">{{ ef.pagamento_anual_estimado_pct_rcl }}%</span> <span class="text-xs text-fg-subtle">da RCL/ano <span class="chip text-[0.5rem]">EC 136</span></span></div>{% endif %}
           {% if ef.pagamento_valor_fmt %}<div><span class="text-lg font-medium">{{ ef.pagamento_valor_fmt }}</span> <span class="text-xs text-fg-subtle">estimado/ano</span></div>{% endif %}
-          {% if ef.capag.nota %}<div title="Capacidade de Pagamento (Tesouro) {{ ef.capag.ano }}"><span class="chip {% if ef.capag.nota == 'A' or ef.capag.nota == 'B' %}bg-emerald-500/20 text-emerald-500{% else %}bg-danger/20 text-danger{% endif %}">CAPAG {{ ef.capag.nota }}</span> <span class="text-xs text-fg-subtle">{{ ef.capag.significado }}</span></div>{% endif %}
+          {% if ef.capag.nota %}<div title="Capacidade de Pagamento (Tesouro) {{ ef.capag.ano }}">{% if ef.capag.fonte_url %}<a href="{{ ef.capag.fonte_url }}" target="_blank" rel="noopener">{% endif %}<span class="chip {% if ef.capag.nota == 'A' or ef.capag.nota == 'B' %}bg-emerald-500/20 text-emerald-500{% else %}bg-danger/20 text-danger{% endif %}">CAPAG {{ ef.capag.nota }}{% if ef.capag.fonte_url %} ↗{% endif %}</span>{% if ef.capag.fonte_url %}</a>{% endif %} <span class="text-xs text-fg-subtle">{{ ef.capag.significado }}</span></div>{% endif %}
         </div>
         <table class="w-full text-xs mt-2">
           <tr><td class="text-fg-subtle py-0.5">Estoque de precatórios vencidos</td><td class="text-right">{{ ef.estoque_fmt|default:'—' }}</td></tr>
           <tr><td class="text-fg-subtle py-0.5">Receita Corrente Líquida (RCL)</td><td class="text-right">{{ ef.rcl_fmt|default:'—' }}</td></tr>
           {% if ef.razao_estoque_rcl %}<tr><td class="text-fg-subtle py-0.5">Estoque / RCL</td><td class="text-right font-mono">{{ ef.razao_estoque_rcl }}×</td></tr>{% endif %}
         </table>
-        <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ Tesouro/SICONFI · EC 136/2025: estoque ≤15% RCL→1%/ano, &gt;85%→5%/ano · quanto maior o estoque/RCL, mais lento o pagamento</div>
+        <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ fonte: {% if ef.fonte_url %}<a href="{{ ef.fonte_url }}" target="_blank" rel="noopener" class="text-accent hover:underline">Tesouro/SICONFI RGF-Anexo 02 ↗</a>{% else %}Tesouro/SICONFI{% endif %} · EC 136/2025: estoque ≤15% RCL→1%/ano, &gt;85%→5%/ano</div>
       </div>
       {% endwith %}{% endif %}
     </div>
@@ -411,7 +411,7 @@
     {% for t in teses_stj %}
     <div class="py-2 text-sm border-b border-border/60 last:border-0">
       <div class="flex items-center gap-2 flex-wrap mb-0.5">
-        <span class="chip text-[0.6rem] bg-accent/20 text-accent-fg">{{ t.tipo|default:'Tema' }} {{ t.numero }}</span>
+        {% if t.url %}<a href="{{ t.url }}" target="_blank" rel="noopener"><span class="chip text-[0.6rem] bg-accent/20 text-accent-fg">{{ t.tipo|default:'Tema' }} {{ t.numero }} ↗</span></a>{% else %}<span class="chip text-[0.6rem] bg-accent/20 text-accent-fg">{{ t.tipo|default:'Tema' }} {{ t.numero }}</span>{% endif %}
         {% if t.tema_stf %}<span class="chip text-[0.55rem]">RG/STF {{ t.tema_stf }}</span>{% endif %}
         {% if t.sumula %}<span class="chip text-[0.55rem]">Súmula {{ t.sumula }}</span>{% endif %}
         {% if t.situacao %}<span class="text-[0.6rem] text-fg-subtle">{{ t.situacao|truncatechars:40 }}</span>{% endif %}
