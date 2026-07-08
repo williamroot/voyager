@@ -148,6 +148,22 @@ def set_system_prompt(texto: str | None) -> None:
         cache.delete(_PROMPT_KEY)
 
 
+_HIST_KEY = 'jurimetria:prompt_history'
+
+
+def get_prompt_history() -> list:
+    """Histórico de auditoria das alterações do prompt (mais recentes primeiro)."""
+    from django.core.cache import cache
+    return cache.get(_HIST_KEY) or []
+
+
+def append_prompt_history(entry: dict) -> None:
+    from django.core.cache import cache
+    h = get_prompt_history()
+    h.insert(0, entry)
+    cache.set(_HIST_KEY, h[:30], timeout=None)  # guarda as últimas 30
+
+
 _SECOES = [
     ('identificacao', '1. Identificação do Processo'),
     ('ritmo', '2. Linha do Tempo e Ritmo'),

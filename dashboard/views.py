@@ -377,13 +377,25 @@ def jurimetria_prompt(request):
     """Ver/editar o prompt do sistema da narrativa de jurimetria (pra transparência/tuning).
     GET → JSON {prompt, is_override}; POST (prompt) → salva override; POST vazio → reseta."""
     from django.http import JsonResponse
-    from .jurimetria_narrativa import get_system_prompt, set_system_prompt, _SYSTEM_DEFAULT
+    from django.utils import timezone
+    from .jurimetria_narrativa import (get_system_prompt, set_system_prompt, _SYSTEM_DEFAULT,
+                                       get_prompt_history, append_prompt_history)
     if request.method == 'POST':
-        set_system_prompt(request.POST.get('prompt', ''))
-        return JsonResponse({'ok': True, 'prompt': get_system_prompt(),
-                             'is_override': get_system_prompt() != _SYSTEM_DEFAULT})
+        novo = request.POST.get('prompt', '')
+        antes = get_system_prompt()
+        set_system_prompt(novo)
+        depois = get_system_prompt()
+        if depois != antes:  # audita só mudanças reais
+            append_prompt_history({
+                'ts': timezone.now().strftime('%d/%m/%Y %H:%M'),
+                'user': request.user.get_username(),
+                'acao': 'restaurado o padrão' if depois == _SYSTEM_DEFAULT else 'editado',
+                'chars': len(depois), 'prompt': depois, 'preview': depois[:90]})
+        return JsonResponse({'ok': True, 'prompt': depois, 'is_override': depois != _SYSTEM_DEFAULT,
+                             'history': get_prompt_history()})
     return JsonResponse({'prompt': get_system_prompt(), 'default': _SYSTEM_DEFAULT,
-                         'is_override': get_system_prompt() != _SYSTEM_DEFAULT})
+                         'is_override': get_system_prompt() != _SYSTEM_DEFAULT,
+                         'history': get_prompt_history()})
 
 
 def jurimetria_dossie_narrativa(request):

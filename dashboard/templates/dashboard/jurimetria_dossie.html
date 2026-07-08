@@ -76,27 +76,50 @@
       <button onclick="resetPrompt()" class="px-4 py-2 text-sm rounded border border-border text-fg-subtle hover:text-fg">Restaurar padrão</button>
       <span id="prompt-status" class="text-xs text-fg-subtle"></span>
     </div>
+    <details class="mt-4">
+      <summary class="text-xs text-fg-subtle cursor-pointer select-none">🕘 Histórico de alterações <span id="hist-count"></span></summary>
+      <div id="prompt-hist" class="mt-2 max-h-44 overflow-y-auto text-xs divide-y divide-border/50"></div>
+    </details>
   </div>
 </dialog>
 <script>
   var PROMPT_URL = "{% url 'dashboard:jurimetria-prompt' %}";
   function _csrf(){ var m=document.cookie.match(/csrftoken=([^;]+)/); return m?m[1]:''; }
+  function _esc(s){ var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+  function _badge(isov){ var b=document.getElementById('prompt-badge'); b.textContent=isov?'editado':'padrão'; b.className='chip text-[0.55rem] '+(isov?'bg-accent/20 text-accent-fg':''); }
+  function _renderHist(hist){
+    hist = hist || [];
+    document.getElementById('hist-count').textContent = '('+hist.length+')';
+    var el=document.getElementById('prompt-hist');
+    if(!hist.length){ el.innerHTML='<div class="text-fg-subtle py-2">Sem alterações registradas — o prompt está no padrão.</div>'; return; }
+    el.innerHTML = hist.map(function(h,i){
+      return '<div class="py-2 flex items-start justify-between gap-2">'
+        + '<div><div class="text-fg">'+_esc(h.ts)+' · <span class="text-fg-subtle">'+_esc(h.user)+'</span> · '
+        + '<span class="chip text-[0.5rem]">'+_esc(h.acao)+'</span> <span class="text-fg-subtle">'+h.chars+' chars</span></div>'
+        + '<div class="text-fg-subtle mt-0.5 font-mono">'+_esc(h.preview)+'…</div></div>'
+        + '<button onclick="restaurarVersao('+i+')" class="text-accent hover:underline shrink-0 text-[0.7rem]">restaurar</button></div>';
+    }).join('');
+    window._hist = hist;
+  }
   function abrirPrompt(){
     document.getElementById('modal-prompt').showModal();
     fetch(PROMPT_URL).then(r=>r.json()).then(function(d){
       document.getElementById('prompt-text').value = d.prompt;
-      var b=document.getElementById('prompt-badge'); b.textContent = d.is_override ? 'editado' : 'padrão';
-      b.className = 'chip text-[0.55rem] ' + (d.is_override ? 'bg-accent/20 text-accent-fg' : '');
+      _badge(d.is_override); _renderHist(d.history);
     });
+  }
+  function restaurarVersao(i){
+    var h=(window._hist||[])[i]; if(!h) return;
+    document.getElementById('prompt-text').value = h.prompt;
+    document.getElementById('prompt-status').textContent='versão de '+h.ts+' carregada — clique em Salvar pra aplicar';
   }
   function _post(prompt){
     var fd=new FormData(); fd.append('prompt', prompt);
     document.getElementById('prompt-status').textContent='salvando…';
     fetch(PROMPT_URL, {method:'POST', headers:{'X-CSRFToken':_csrf()}, body:fd}).then(r=>r.json()).then(function(d){
       document.getElementById('prompt-status').textContent='✓ salvo';
-      var b=document.getElementById('prompt-badge'); b.textContent = d.is_override ? 'editado' : 'padrão';
-      b.className='chip text-[0.55rem] '+(d.is_override?'bg-accent/20 text-accent-fg':'');
-      if(!prompt) abrirPrompt();
+      _badge(d.is_override); _renderHist(d.history);
+      if(!prompt) document.getElementById('prompt-text').value = d.prompt;
     }).catch(function(){ document.getElementById('prompt-status').textContent='erro ao salvar'; });
   }
   function salvarPrompt(){ _post(document.getElementById('prompt-text').value); }
@@ -169,8 +192,8 @@
     {% if score %}
     <div class="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2">
       {% for pl in score.pilares %}
-      <div class="text-[0.6rem]" title="peso {{ pl.peso }}{% if pl.contrib %} · contribui {{ pl.contrib }} pts{% endif %}">
-        <div class="flex justify-between text-fg-subtle"><span>{{ pl.nome }}</span>{% if pl.pct is not None %}<span class="font-medium text-fg">{{ pl.pct }}</span>{% else %}<span class="text-fg-subtle/50">s/dado</span>{% endif %}</div>
+      <div class="text-[0.6rem] cursor-help" title="{{ pl.tip }} (peso {{ pl.peso }}{% if pl.contrib %} · contribui {{ pl.contrib }} pts{% endif %})">
+        <div class="flex justify-between text-fg-subtle"><span>{{ pl.nome }} ⓘ</span>{% if pl.pct is not None %}<span class="font-medium text-fg">{{ pl.pct }}</span>{% else %}<span class="text-fg-subtle/50">s/dado</span>{% endif %}</div>
         <div class="h-1.5 bg-muted rounded-full mt-0.5 overflow-hidden"><div class="h-full {% if score.tom == 'ok' %}bg-emerald-500{% elif score.tom == 'accent' %}bg-accent{% else %}bg-fg-subtle/40{% endif %} rounded-full" style="width: {{ pl.pct|default:0 }}%"></div></div>
       </div>
       {% endfor %}
@@ -194,8 +217,8 @@
     {% if dg.indicadores %}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
       {% for ind in dg.indicadores %}
-      <div class="bg-base/50 border border-border/50 rounded p-2">
-        <div class="text-[0.65rem] uppercase tracking-wider text-fg-muted">{{ ind.label }}</div>
+      <div class="bg-base/50 border border-border/50 rounded p-2 {% if ind.tip %}cursor-help{% endif %}"{% if ind.tip %} title="{{ ind.tip }}"{% endif %}>
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-muted flex items-center gap-1">{{ ind.label }}{% if ind.tip %}<span class="text-fg-subtle/50">ⓘ</span>{% endif %}</div>
         <div class="text-xl font-semibold kpi-num leading-tight text-fg">{{ ind.valor }}</div>
         <div class="text-[0.6rem] text-fg-subtle">{{ ind.sub }}</div>
       </div>

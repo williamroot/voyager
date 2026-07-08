@@ -73,6 +73,34 @@ _ALIMENTAR_RE = re.compile(
     r'proventos|reajuste|diferen[çc]a[s]?\s+salari|13[ºo\b]|f[ée]rias|insalubr|periculos|URV', re.I)
 
 
+# Tooltips (hover) explicando cada indicador — pra plateia que não conhece os termos.
+_TIPS = {
+    'Fase do mérito': 'Cumprimento de sentença/execução = o mérito já foi julgado e o '
+        'crédito reconhecido; resta executar. É o sinal mais forte de que o crédito existe.',
+    'Chance de virar precatório': 'Probabilidade estimada (modelo Kaplan-Meier) de o direito '
+        'creditório virar precatório em 24 meses, a partir do histórico de casos do mesmo estrato.',
+    'Tempo estimado': 'Tempo mediano (meses) até virar precatório, pelo mesmo modelo de sobrevivência.',
+    'Natureza': 'Natureza alimentar (salários, aposentadoria, verbas de servidor) tem prioridade '
+        'de pagamento sobre precatórios comuns (art. 100, §1º, CF).',
+    'Valor': 'Valor da ação/precatório — corrigido quando o Juriscope tem o dado, senão o valor da causa.',
+    'Taxa do tipo': '% dos processos do mesmo assunto no nosso acervo que já viraram precatório.',
+    'Beneficiários': 'Nº de exequentes/requerentes — execução coletiva costuma indicar verba de categoria.',
+    'Pagamento previsto': 'Ano orçamentário em que o precatório deve ser pago (cronograma constitucional EC 114/136).',
+}
+
+_TIPS_PILAR = {
+    'Certeza do crédito': 'Quão certo é que o crédito existe: precatório expedido > cálculos '
+        'homologados > título constituído (cumprimento de sentença) > execução contra Fazenda.',
+    'Prioridade (natureza)': 'Natureza alimentar fura a fila dos precatórios comuns (art. 100 CF). Peso 15%.',
+    'Solvência do ente': 'Capacidade do ente pagar: rating CAPAG (A/B/C/D) do Tesouro + estoque de '
+        'precatórios vs. RCL. Peso 25%.',
+    'Liquidez (prazo)': 'Quão rápido o crédito vira dinheiro: quanto menor o prazo até o pagamento, '
+        'maior. Peso 20%.',
+    'Margem (deságio)': 'Deságio justo disponível (desconto a valor presente) — margem de oportunidade '
+        'na aquisição. Peso 15%.',
+}
+
+
 def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> dict:
     """Camada analítica: sintetiza os sinais (classificação + Juriscope + dados
     enriquecidos: ente, órgão, assunto, partes) num VEREDITO + indicadores +
@@ -169,6 +197,8 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
         indicadores.append({'label': 'Taxa do tipo', 'valor': f'{tipo["taxa_precatorio"]}%',
                             'sub': f'viram precatório (n={tipo["total"]:,})'.replace(',', '.')})
 
+    for ind in indicadores:
+        ind['tip'] = _TIPS.get(ind['label'], '')
     return {
         'estagio': estagio, 'tom': tom, 'veredito': veredito,
         'recomendacao': recomendacao, 'indicadores': indicadores,
@@ -380,7 +410,7 @@ def score_oportunidade(dossie: dict) -> dict | None:
     score = 100 * sum(w * v for _, w, v in disp) / peso_tot
     pilares = [{'nome': n, 'peso': w, 'pct': round(v * 100) if v is not None else None,
                 'contrib': round(w * v / peso_tot * 100, 1) if v is not None else None,
-                'ok': v is not None} for n, w, v in defs]
+                'tip': _TIPS_PILAR.get(n, ''), 'ok': v is not None} for n, w, v in defs]
     faixa = 'forte' if score >= 70 else ('moderada' if score >= 40 else 'fraca')
     tom = 'ok' if score >= 70 else ('accent' if score >= 40 else 'muted')
     return {'score': round(score), 'faixa': faixa, 'tom': tom, 'pilares': pilares,
