@@ -160,28 +160,24 @@ def stj_temas_repetitivos(assunto: str, limit: int = 8) -> dict:
     rows = _stj_temas_todos()
     if not rows:
         return {'erro': 'base STJ indisponível'}
-
-    def _campo(row, *nomes):
-        for n in nomes:
-            for k in row:
-                if k and n in k.lower():
-                    return row[k]
-        return ''
     hits = []
     for row in rows:
         blob = ' '.join(str(v) for v in row.values() if v).lower()
         if termo in blob:
             hits.append({
-                'numero': _campo(row, 'numero'),
-                'tese': (_campo(row, 'tese') or '')[:600],
-                'questao': (_campo(row, 'questao', 'submetida') or '')[:300],
-                'situacao': _campo(row, 'situacao'),
-                'sumula': _campo(row, 'sumula'),
-                'tema_stf': _campo(row, 'repercussao', 'stf'),
+                'numero': (row.get('numeroPrecedente') or '').strip(),
+                'tipo': (row.get('tipoPrecedente') or '').strip(),
+                'tese': (row.get('teseFirmada') or '').strip()[:700],
+                'questao': (row.get('questaoSubmetidaAJulgamento') or '').strip()[:300],
+                'situacao': (row.get('situacao') or '').strip(),
+                'sumula': (row.get('sumulaOriginada') or row.get('referenciaSumular') or '').strip()[:120],
+                'tema_stf': (row.get('numeroRepercussaoGeralSTF') or '').strip(),
+                'assuntos': (row.get('Assuntos') or '').strip()[:120],
             })
-            if len(hits) >= limit:
-                break
-    return {'assunto': assunto, 'n': len(hits), 'temas': hits, 'fonte': 'STJ Dados Abertos (Precedentes Qualificados)'}
+    # teses firmadas primeiro (mais úteis que controvérsias pendentes)
+    hits.sort(key=lambda h: (0 if h['tese'] else 1))
+    return {'assunto': assunto, 'n': len(hits), 'temas': hits[:limit],
+            'fonte': 'STJ Dados Abertos (Precedentes Qualificados)'}
 
 
 # ───────────────────────── DJEN / Comunica (publicações on-demand) ─────────────────────────
