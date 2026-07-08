@@ -40,10 +40,22 @@ def _get(url: str, *, timeout: float = 25, headers: dict | None = None, **kw):
 _SICONFI = 'https://apidatalake.tesouro.gov.br/ords/siconfi/tt'
 
 
-def ente_fiscal(id_ente: str | int, ano: int, *, periodo: int = 3) -> dict:
+# UF → código IBGE (2 díg) — pra consultar precatório ESTADUAL pela sigla.
+_UF_IBGE = {'RO': 11, 'AC': 12, 'AM': 13, 'RR': 14, 'PA': 15, 'AP': 16, 'TO': 17,
+            'MA': 21, 'PI': 22, 'CE': 23, 'RN': 24, 'PB': 25, 'PE': 26, 'AL': 27,
+            'SE': 28, 'BA': 29, 'MG': 31, 'ES': 32, 'RJ': 33, 'SP': 35, 'PR': 41,
+            'SC': 42, 'RS': 43, 'MS': 50, 'MT': 51, 'GO': 52, 'DF': 53}
+
+
+def ente_fiscal(id_ente: str | int | None = None, ano: int = 2023, *,
+                uf: str | None = None, periodo: int = 3) -> dict:
     """Saúde fiscal do ente devedor via SICONFI (RGF-Anexo 02): estoque de precatórios
-    vencidos, Dívida Consolidada Líquida (DCL) e RCL. id_ente: IBGE (UF=2 díg, ex. SP=35;
-    município=7 díg). Devolve valores + a banda de pagamento anual da EC 136 (1–5% RCL)."""
+    vencidos, Dívida Consolidada Líquida (DCL) e RCL. Passe `uf` (ex. 'SP') pro estado, ou
+    `id_ente` IBGE (município=7 díg). Devolve valores + banda de pagamento anual EC 136 (1–5% RCL)."""
+    if id_ente is None and uf:
+        id_ente = _UF_IBGE.get(uf.strip().upper())
+    if id_ente is None:
+        return {'erro': 'informe uf (estado) ou id_ente (IBGE)'}
     ck = f'siconfi:rgf:{id_ente}:{ano}:{periodo}'
     cached = cache.get(ck)
     if cached is not None:
@@ -129,8 +141,9 @@ def _stj_temas_todos() -> list[dict]:
     try:
         r = _get(_STJ_TEMAS_CSV, timeout=40)
         r.encoding = 'utf-8'
-        rows = list(csv.DictReader(io.StringIO(r.text), delimiter=';')) or \
-            list(csv.DictReader(io.StringIO(r.text)))
+        head = r.text.split('\n', 1)[0]
+        delim = ';' if head.count(';') > head.count(',') else ','
+        rows = list(csv.DictReader(io.StringIO(r.text), delimiter=delim))
         cache.set('stj:temas:all', rows, timeout=7 * 86400)
         return rows
     except Exception as exc:  # noqa: BLE001

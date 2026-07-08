@@ -151,6 +151,15 @@ def casos_similares(assunto: str, tribunal: str = '', limit: int = 10) -> dict:
 
 # ---------------- registry ----------------
 
+def _fp(nome: str):
+    """Handler que aponta pra uma função de dashboard/fontes_publicas (lazy import)."""
+    def _handler(**kwargs):
+        from . import fontes_publicas
+        return getattr(fontes_publicas, nome)(**kwargs)
+    _handler.__name__ = nome
+    return _handler
+
+
 TOOLS: list[dict] = [
     {'name': 'dossie_jurimetrico',
      'description': 'Dossiê determinístico do processo por CNJ: estágio no ciclo de vida (direito creditório/pré-precatório/precatório), veredito, indicadores, previsão de virar precatório (Kaplan-Meier), cronograma de pagamento, dados do Juriscope. Comece SEMPRE por aqui.',
@@ -176,6 +185,31 @@ TOOLS: list[dict] = [
      'description': 'Casos do mesmo assunto/tema: distribuição de desfecho (classificação) no acervo Voyager + precedentes com resultado no Zordon. Use para "quantos venceram/perderam" no tema.',
      'parameters': {'type': 'object', 'properties': {'assunto': {'type': 'string'}, 'tribunal': {'type': 'string'}, 'limit': {'type': 'integer', 'default': 10}}, 'required': ['assunto']},
      'handler': casos_similares},
+    # ── Fontes PÚBLICAS externas (sem login) — dashboard/fontes_publicas.py ──
+    {'name': 'ente_fiscal',
+     'description': 'Saúde fiscal do ENTE DEVEDOR (SICONFI/Tesouro): estoque de precatórios vencidos, Dívida Consolidada Líquida e RCL. Estima a banda de pagamento anual da EC 136/2025 (1–5% da RCL conforme estoque/RCL). Use pra avaliar se/quando o ente paga. Passe uf (ex. "SP") pro estado.',
+     'parameters': {'type': 'object', 'properties': {'uf': {'type': 'string', 'description': 'sigla do estado devedor, ex. SP'}, 'id_ente': {'type': 'string', 'description': 'código IBGE (município=7 díg); alternativa a uf'}, 'ano': {'type': 'integer', 'default': 2023}}, 'required': []},
+     'handler': _fp('ente_fiscal')},
+    {'name': 'consultar_cnpj',
+     'description': 'Cadastro público (RFB) por CNPJ: razão social, situação, natureza jurídica, município. Use pro ente devedor ou partes pessoa-jurídica.',
+     'parameters': {'type': 'object', 'properties': {'cnpj': {'type': 'string'}}, 'required': ['cnpj']},
+     'handler': _fp('consultar_cnpj')},
+    {'name': 'stj_temas_repetitivos',
+     'description': 'Temas repetitivos e TESES FIRMADAS do STJ (Dados Abertos oficiais) por assunto. Traz precedentes qualificados REAIS (tese, questão, súmula, tema STF vinculado). Use pra fundamentar a análise com jurisprudência.',
+     'parameters': {'type': 'object', 'properties': {'assunto': {'type': 'string', 'description': 'termo/tema, ex. "precatório", "honorários", "juros fazenda"'}, 'limit': {'type': 'integer', 'default': 8}}, 'required': ['assunto']},
+     'handler': _fp('stj_temas_repetitivos')},
+    {'name': 'djen_publicacoes',
+     'description': 'Publicações oficiais (DJEN/Comunica) por CNJ, CPF/CNPJ da parte ou OAB — texto integral das intimações/despachos. Fonte pública nacional, on-demand.',
+     'parameters': {'type': 'object', 'properties': {'numero_processo': {'type': 'string'}, 'documento': {'type': 'string', 'description': 'CPF ou CNPJ da parte'}, 'numero_oab': {'type': 'string'}, 'uf_oab': {'type': 'string'}, 'limit': {'type': 'integer', 'default': 20}}, 'required': []},
+     'handler': _fp('djen_publicacoes')},
+    {'name': 'sgt_decodificar',
+     'description': 'Traduz um código do DataJud (classe/assunto/movimento/documento) para a descrição oficial via tabelas TPU do CNJ. tipo_tabela: C=classe, A=assunto, M=movimento, D=documento.',
+     'parameters': {'type': 'object', 'properties': {'tipo_tabela': {'type': 'string', 'enum': ['C', 'A', 'M', 'D']}, 'codigo': {'type': 'string'}}, 'required': ['tipo_tabela', 'codigo']},
+     'handler': _fp('sgt_decodificar')},
+    {'name': 'querido_diario',
+     'description': 'Busca em diários oficiais MUNICIPAIS (Querido Diário) por termo — útil pra editais/fila de precatório municipal. Traz trechos + link do texto integral.',
+     'parameters': {'type': 'object', 'properties': {'termo': {'type': 'string'}, 'municipio_ibge': {'type': 'string'}, 'limit': {'type': 'integer', 'default': 10}}, 'required': ['termo']},
+     'handler': _fp('querido_diario')},
 ]
 
 _BY_NAME = {t['name']: t for t in TOOLS}
