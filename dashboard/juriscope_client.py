@@ -48,11 +48,21 @@ def disponivel() -> bool:
     return bool(getattr(settings, 'JURISCOPE_DB_DSN', ''))
 
 
+# Shape canônico — o template acessa estas chaves em {% with %} (que LEVANTA se a chave
+# falta, ao contrário de {{ }}). Todo retorno parte daqui pra nunca dar 500.
+_VAZIO = {'encontrado': False, 'erro': None, 'natureza': None, 'ente_nome': None,
+          'devedora': None, 'valor_acao': None, 'valor_acao_corrigido': None,
+          'valor_acao_fmt': None, 'valor_acao_corrigido_fmt': None,
+          'valores_individuais': [], 'valores_individuais_fmt': [], 'n_precatorios': 0,
+          'ordem_orcamentaria': None, 'data_oficio': None, 'files_downloaded': False}
+
+
 def dados_precatorio(cnj: str) -> dict:
-    """Busca dados de precatório do Juriscope por CNJ. {} se indisponível/sem match."""
+    """Busca dados de precatório do Juriscope por CNJ. Shape sempre consistente
+    (_VAZIO) pra tela nunca quebrar; encontrado=False se indisponível/sem match."""
     dsn = getattr(settings, 'JURISCOPE_DB_DSN', '')
     if not dsn or not cnj:
-        return {}
+        return dict(_VAZIO)
     try:
         import psycopg
         with psycopg.connect(dsn, connect_timeout=8) as conn:
@@ -62,12 +72,12 @@ def dados_precatorio(cnj: str) -> dict:
                 cur.execute(_SQL, [cnj])
                 rows = cur.fetchall()
                 if not rows:
-                    return {'encontrado': False}
+                    return dict(_VAZIO)
                 cols = [d[0] for d in cur.description]
                 linhas = [dict(zip(cols, r)) for r in rows]
     except Exception as exc:  # noqa: BLE001 — degrada
         logger.warning('juriscope: falha ao buscar %s: %s', cnj, str(exc)[:120])
-        return {'erro': str(exc)[:120]}
+        return {**_VAZIO, 'erro': str(exc)[:120]}
 
     # Agrega as N linhas (1 por precatório/RPV): SOMA os valores; escalares vêm da
     # 1ª linha que os tiver (ordenadas por valor DESC → a mais rica primeiro).
@@ -78,7 +88,8 @@ def dados_precatorio(cnj: str) -> dict:
     def _primeiro(campo):
         return next((l.get(campo) for l in linhas if l.get(campo) is not None), None)
 
-    d = {campo: _primeiro(campo) for campo in _ESCALARES}
+    d = dict(_VAZIO)
+    d.update({campo: _primeiro(campo) for campo in _ESCALARES})
     d['valor_acao'] = _soma('valor_acao')
     d['valor_acao_corrigido'] = _soma('valor_acao_corrigido')
     d['valores_individuais'] = [l['valor_acao'] for l in linhas if l.get('valor_acao') is not None]
