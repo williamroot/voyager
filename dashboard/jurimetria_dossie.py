@@ -288,11 +288,16 @@ def _bloco_precatorio(proc: Process) -> dict:
     valor_justo = None
     _vface = (js or {}).get('valor_acao_corrigido') or (js or {}).get('valor_acao') or proc.valor_causa
     _anos = None
+    _anos_estimado = False
     if pagamento and pagamento.get('ano_orcamento'):
         from django.utils import timezone
         _anos = max(pagamento['ano_orcamento'] - timezone.now().year, 0.5)
     elif ente_fiscal and ente_fiscal.get('razao_estoque_rcl') and ente_fiscal.get('pagamento_anual_estimado_pct_rcl'):
         _anos = min(round(ente_fiscal['razao_estoque_rcl'] / (ente_fiscal['pagamento_anual_estimado_pct_rcl'] / 100), 1), 20)
+    elif sobrevivencia and sobrevivencia.get('tempo_mediano_meses'):
+        # pré-precatório sem cronograma: tempo até virar precatório (KM) + lag típico de pagamento
+        _anos = round(sobrevivencia['tempo_mediano_meses'] / 12 + 4, 1)
+        _anos_estimado = True
     if _vface and _anos:
         try:
             from . import fontes_publicas
@@ -300,6 +305,7 @@ def _bloco_precatorio(proc: Process) -> dict:
             if vp and not vp.get('erro'):
                 vp['valor_face_fmt'] = fontes_publicas._humano(vp.get('valor_face'))
                 vp['valor_presente_fmt'] = fontes_publicas._humano(vp.get('valor_presente'))
+                vp['horizonte_estimado'] = _anos_estimado
                 valor_justo = vp
         except Exception:  # noqa: BLE001
             pass
@@ -352,7 +358,7 @@ def score_oportunidade(dossie: dict) -> dict | None:
     # S_ente — solvência
     s_e = None
     if cap.get('nota'):
-        s_e = {'A': 1.0, 'B': 0.8, 'C': 0.4, 'D': 0.15}.get(cap['nota'], 0.5)
+        s_e = {'A': 1.0, 'B': 0.8, 'C': 0.4, 'D': 0.15}.get(cap['nota'][:1].upper(), 0.5)
     elif ef.get('rcl'):
         s_e = 0.6
     if s_e is not None and ef.get('razao_estoque_rcl'):
