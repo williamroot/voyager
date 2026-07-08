@@ -347,6 +347,47 @@ def atualizar_valor(valor: float, data_inicial: str, data_final: str,
         return {'erro': str(exc)[:120]}
 
 
+def _selic_meta_aa() -> float:
+    """Selic meta atual (% a.a.) via SGS 432. Cacheada; fallback 10.5 se indisponível."""
+    v = cache.get('bcb:selic_meta')
+    if v is not None:
+        return v
+    try:
+        d = _get('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json',
+                 timeout=15).json()
+        v = float(d[-1]['valor'])
+        cache.set('bcb:selic_meta', v, timeout=86400)
+        return v
+    except Exception:  # noqa: BLE001
+        return 10.5
+
+
+def valor_presente(valor_face: float, anos_ate_pagamento: float,
+                   taxa_desconto_aa: float | None = None, ipca_aa: float = 4.5) -> dict:
+    """Valor JUSTO hoje de um precatório (determinístico, 100% público). Projeta o valor
+    de face pela correção EC 136 — min(IPCA+2%, Selic) a.a. — até o pagamento e desconta
+    pela taxa de oportunidade (Selic por padrão). Devolve VP + deságio implícito. NÃO é
+    cotação de mercado; é âncora determinística (mercado costuma cotar deságio ≥ este)."""
+    try:
+        valor_face = float(valor_face)
+        anos = max(float(anos_ate_pagamento), 0.0)
+    except (TypeError, ValueError):
+        return {'erro': 'valor_face/anos inválidos'}
+    selic = _selic_meta_aa()
+    taxa = (taxa_desconto_aa if taxa_desconto_aa is not None else selic) / 100
+    corr = min(ipca_aa / 100 + 0.02, selic / 100)  # EC 136: IPCA+2% com teto Selic
+    fv = valor_face * (1 + corr) ** anos
+    vp = fv / (1 + taxa) ** anos if anos > 0 else valor_face
+    return {
+        'valor_face': round(valor_face, 2), 'anos_ate_pagamento': round(anos, 1),
+        'valor_projetado_pagamento': round(fv, 2), 'valor_presente': round(vp, 2),
+        'desagio_implicito_pct': round((1 - vp / valor_face) * 100, 1) if valor_face else None,
+        'correcao_aa_pct': round(corr * 100, 2), 'taxa_desconto_aa_pct': round(taxa * 100, 2),
+        'selic_meta_aa_pct': selic,
+        'fonte': 'modelo determinístico (EC 136 + desconto Selic/BCB) — não é cotação de mercado',
+    }
+
+
 # ───────────────────────── Querido Diário (municipal) ─────────────────────────
 def querido_diario(termo: str, *, municipio_ibge: str | None = None, limit: int = 10) -> dict:
     """Busca em diários oficiais MUNICIPAIS (Querido Diário). Útil pra fila/editais de
