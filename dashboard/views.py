@@ -344,10 +344,9 @@ def jurimetria(request):
 @login_required
 def jurimetria_dossie(request):
     """Dossiê de jurimetria por CNJ (M3): Voyager + Juriscope + Zordon numa página."""
-    from .jurimetria_dossie import montar_dossie, fontes_e_pesos
+    from .jurimetria_dossie import montar_dossie, fontes_e_pesos, score_oportunidade
     cnj = (request.GET.get('cnj') or '').strip()
-    dossie = None
-    fontes = None
+    dossie, fontes, score, teses = None, None, None, None
     if cnj:
         # Guard definitivo: qualquer falha (survival, Juriscope, Zordon, template)
         # vira um card de erro — o dossiê NUNCA responde 500.
@@ -355,12 +354,22 @@ def jurimetria_dossie(request):
             dossie = montar_dossie(cnj)
             if dossie and dossie.get('cabecalho'):
                 fontes = fontes_e_pesos(dossie)
+                score = score_oportunidade(dossie)
+                assunto = (dossie.get('cabecalho') or {}).get('assunto_nome') or ''
+                if assunto and assunto != '—':
+                    try:
+                        from . import fontes_publicas
+                        t = fontes_publicas.stj_temas_repetitivos(assunto, limit=3)
+                        teses = t.get('temas') if t and not t.get('erro') else None
+                    except Exception:  # noqa: BLE001
+                        teses = None
         except Exception as exc:  # noqa: BLE001
             logger.exception('montar_dossie 500 p/ %s', cnj)
             dossie = {'cnj': cnj, 'erro': f'Falha ao montar o dossiê ({type(exc).__name__}). '
                       f'O time foi notificado; tente novamente em instantes.'}
     return render(request, 'dashboard/jurimetria_dossie.html',
-                  {'cnj_input': cnj, 'dossie': dossie, 'fontes': fontes})
+                  {'cnj_input': cnj, 'dossie': dossie, 'fontes': fontes,
+                   'score': score, 'teses_stj': teses})
 
 
 @login_required

@@ -150,15 +150,46 @@
   {% if dg %}
   <div class="card mb-4 border-l-4 {% if dg.tom == 'accent' %}border-l-accent{% elif dg.tom == 'ok' %}border-l-emerald-500{% else %}border-l-border{% endif %}">
     <div class="flex items-start justify-between gap-4 flex-wrap">
-      <div class="flex-1 min-w-[60%]">
+      <div class="flex-1 min-w-[55%]">
         <div class="flex items-center gap-2 mb-1">
           <span class="text-xs uppercase tracking-wider text-fg-subtle">Diagnóstico</span>
           <span class="chip text-[0.6rem] {% if dg.tom == 'accent' %}bg-accent/20 text-accent-fg{% elif dg.tom == 'ok' %}bg-emerald-500/20 text-emerald-400{% endif %}">{{ dg.estagio }}</span>
         </div>
         <div class="text-lg md:text-xl font-semibold text-fg leading-snug">{{ dg.veredito }}</div>
+        <div class="mt-2"><span class="chip {% if dg.recomendacao.tom == 'accent' %}bg-accent/20 text-accent-fg{% elif dg.recomendacao.tom == 'ok' %}bg-emerald-500/20 text-emerald-400{% endif %} text-sm py-1.5 px-3">{{ dg.recomendacao.label }}</span></div>
       </div>
-      <div class="chip {% if dg.recomendacao.tom == 'accent' %}bg-accent/20 text-accent-fg{% elif dg.recomendacao.tom == 'ok' %}bg-emerald-500/20 text-emerald-400{% endif %} text-sm py-1.5 px-3">{{ dg.recomendacao.label }}</div>
+      {% if score %}
+      <div class="text-center shrink-0">
+        <div id="score-gauge" style="width:160px;height:110px" data-score="{{ score.score }}" data-tom="{{ score.tom }}"></div>
+        <div class="text-[0.7rem] text-fg-subtle -mt-3">Score de Oportunidade · <span class="font-semibold {% if score.tom == 'ok' %}text-emerald-400{% elif score.tom == 'accent' %}text-accent-fg{% endif %}">{{ score.faixa }}</span></div>
+      </div>
+      {% endif %}
     </div>
+
+    {% if score %}
+    <div class="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2">
+      {% for pl in score.pilares %}
+      <div class="text-[0.6rem]" title="peso {{ pl.peso }}{% if pl.contrib %} · contribui {{ pl.contrib }} pts{% endif %}">
+        <div class="flex justify-between text-fg-subtle"><span>{{ pl.nome }}</span>{% if pl.pct is not None %}<span class="font-medium text-fg">{{ pl.pct }}</span>{% else %}<span class="text-fg-subtle/50">s/dado</span>{% endif %}</div>
+        <div class="h-1.5 bg-muted rounded-full mt-0.5 overflow-hidden"><div class="h-full {% if score.tom == 'ok' %}bg-emerald-500{% elif score.tom == 'accent' %}bg-accent{% else %}bg-fg-subtle/40{% endif %} rounded-full" style="width: {{ pl.pct|default:0 }}%"></div></div>
+      </div>
+      {% endfor %}
+    </div>
+    <script>
+    (function(){
+      var el=document.getElementById('score-gauge'); if(!el||!window.echarts) return;
+      var sc={{ score.score }}, tom="{{ score.tom }}";
+      var cor = tom==='ok'?'#10b981':(tom==='accent'?'#6366f1':'#9ca3af');
+      var ch=echarts.init(el);
+      ch.setOption({series:[{type:'gauge',startAngle:200,endAngle:-20,min:0,max:100,radius:'100%',center:['50%','72%'],
+        progress:{show:true,width:12,itemStyle:{color:cor}},axisLine:{lineStyle:{width:12,color:[[1,'rgba(148,163,184,0.18)']]}},
+        pointer:{show:false},axisTick:{show:false},splitLine:{show:false},axisLabel:{show:false},
+        anchor:{show:false},title:{show:false},
+        detail:{valueAnimation:true,offsetCenter:[0,'-2%'],fontSize:30,fontWeight:'bold',color:cor,formatter:'{value}'},
+        data:[{value:sc}]}]});
+    })();
+    </script>
+    {% endif %}
 
     {% if dg.indicadores %}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
@@ -349,6 +380,25 @@
         {% for pp in dossie.polos.passivo %}<div>{{ pp.nome }} <span class="text-fg-subtle text-xs">{{ pp.papel }}</span></div>{% empty %}<div class="text-fg-subtle">—</div>{% endfor %}</div>
     </div>
   </div>
+
+  {# TESES FIRMADAS DO STJ (precedentes qualificados — dados abertos oficiais) #}
+  {% if teses_stj %}
+  <div class="card mt-4">
+    {% include 'dashboard/_partials/section_header.html' with title='Teses firmadas aplicáveis (STJ)' subtitle='temas repetitivos — precedentes qualificados vinculantes (STJ Dados Abertos)' %}
+    {% for t in teses_stj %}
+    <div class="py-2 text-sm border-b border-border/60 last:border-0">
+      <div class="flex items-center gap-2 flex-wrap mb-0.5">
+        <span class="chip text-[0.6rem] bg-accent/20 text-accent-fg">{{ t.tipo|default:'Tema' }} {{ t.numero }}</span>
+        {% if t.tema_stf %}<span class="chip text-[0.55rem]">RG/STF {{ t.tema_stf }}</span>{% endif %}
+        {% if t.sumula %}<span class="chip text-[0.55rem]">Súmula {{ t.sumula }}</span>{% endif %}
+        {% if t.situacao %}<span class="text-[0.6rem] text-fg-subtle">{{ t.situacao|truncatechars:40 }}</span>{% endif %}
+      </div>
+      <div class="text-fg-soft leading-relaxed">{{ t.tese|default:t.questao|truncatechars:340 }}</div>
+    </div>
+    {% endfor %}
+    <div class="text-[0.65rem] text-fg-subtle mt-2">ⓘ STJ Dados Abertos (Precedentes Qualificados) · casado por assunto: {{ dossie.cabecalho.assunto_nome }}</div>
+  </div>
+  {% endif %}
 
   {# PRECEDENTES (Zordon RAG) #}
   <div class="card mt-4">

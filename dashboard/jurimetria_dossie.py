@@ -313,6 +313,65 @@ def _bloco_precatorio(proc: Process) -> dict:
     }
 
 
+def score_oportunidade(dossie: dict) -> dict | None:
+    """Score de Oportunidade 0–100 do lead — 5 pilares ponderados, com breakdown
+    auditável. Re-normaliza sobre os pilares COM dado (não zera o que falta)."""
+    dg = dossie.get('diagnostico') or {}
+    p = dossie.get('precatorio') or {}
+    ef = p.get('ente_fiscal') or {}
+    cap = (ef or {}).get('capag') or {}
+    sb = p.get('sobrevivencia') or {}
+    vj = p.get('valor_justo') or {}
+    homolog = (p.get('homologacao') or {}).get('ocorreu')
+
+    # S_titulo — certeza de que o crédito existe
+    if dg.get('ja_precatorio'):
+        s_t = 1.0
+    elif homolog:
+        s_t = 0.85
+    elif dg.get('titulo_constituido'):
+        s_t = 0.70
+    elif dg.get('contra_fazenda'):
+        s_t = 0.40
+    elif sb.get('chance_24m') is not None:
+        s_t = sb['chance_24m'] / 100
+    else:
+        s_t = None
+    # S_natureza
+    nat = dg.get('natureza')
+    s_n = 1.0 if nat == 'ALIMENTAR' else (0.5 if nat else None)
+    # S_ente — solvência
+    s_e = None
+    if cap.get('nota'):
+        s_e = {'A': 1.0, 'B': 0.8, 'C': 0.4, 'D': 0.15}.get(cap['nota'], 0.5)
+    elif ef.get('rcl'):
+        s_e = 0.6
+    if s_e is not None and ef.get('razao_estoque_rcl'):
+        s_e *= max(min(1 - 0.4 * max(ef['razao_estoque_rcl'] - 1, 0), 1), 0.3)
+    # S_tempo — liquidez
+    anos = vj.get('anos_ate_pagamento')
+    s_tempo = max(min(1 - anos / 10, 1), 0) if anos is not None else None
+    # S_margem — deságio
+    des = vj.get('desagio_implicito_pct')
+    s_m = max(min(des / 50, 1), 0) if des is not None else None
+
+    defs = [('Certeza do crédito', 0.25, s_t), ('Prioridade (natureza)', 0.15, s_n),
+            ('Solvência do ente', 0.25, s_e), ('Liquidez (prazo)', 0.20, s_tempo),
+            ('Margem (deságio)', 0.15, s_m)]
+    disp = [(n, w, v) for n, w, v in defs if v is not None]
+    if not disp:
+        return None
+    peso_tot = sum(w for _, w, _ in disp)
+    score = 100 * sum(w * v for _, w, v in disp) / peso_tot
+    pilares = [{'nome': n, 'peso': w, 'pct': round(v * 100) if v is not None else None,
+                'contrib': round(w * v / peso_tot * 100, 1) if v is not None else None,
+                'ok': v is not None} for n, w, v in defs]
+    faixa = 'forte' if score >= 70 else ('moderada' if score >= 40 else 'fraca')
+    tom = 'ok' if score >= 70 else ('accent' if score >= 40 else 'muted')
+    return {'score': round(score), 'faixa': faixa, 'tom': tom, 'pilares': pilares,
+            'n_pilares': len(disp)}
+
+
 def fontes_e_pesos(dossie: dict) -> list[dict]:
     """Transparência: todas as FONTES usadas no dossiê, com peso (papel no veredito) e o
     VALOR que cada uma trouxe pra este CNJ. Alimenta a modal 'Fontes & pesos'."""
