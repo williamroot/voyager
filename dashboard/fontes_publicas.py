@@ -110,6 +110,53 @@ def _humano(v) -> str | None:
     return f'R$ {v:,.0f}'.replace(',', '.')
 
 
+# ───────────────────────── CAPAG (rating do ente) ─────────────────────────
+_CAPAG_PKG = 'https://www.tesourotransparente.gov.br/ckan/api/3/action/package_show?id=capag-estados'
+_CAPAG_NOTA = {'A': 'ótima', 'B': 'boa', 'C': 'insuficiente', 'D': 'crítica'}
+
+
+def capag_rating(uf: str) -> dict:
+    """Rating oficial de Capacidade de Pagamento (CAPAG) do ESTADO: nota A/B/C/D do
+    Tesouro (endividamento, poupança corrente, liquidez). C/D = solvência reprovada →
+    red flag pra pagar precatório. Fonte: Tesouro Transparente (CSV, ano mais recente)."""
+    uf = (uf or '').strip().upper()
+    if len(uf) != 2:
+        return {'erro': 'uf inválida'}
+    ck = f'capag:estados:{uf}'
+    cached = cache.get(ck)
+    if cached is not None:
+        return cached
+    try:
+        res = _get(_CAPAG_PKG, timeout=25).json().get('result', {}).get('resources', [])
+        csvs = [x for x in res if 'csv' in (x.get('format') or '').lower()]
+        # ano mais recente pelo nome/url
+        def _ano(x):
+            m = re.search(r'20\d\d', (x.get('name') or '') + (x.get('url') or ''))
+            return int(m.group()) if m else 0
+        csvs.sort(key=_ano, reverse=True)
+        if not csvs:
+            return {'erro': 'sem CSV CAPAG'}
+        ano = _ano(csvs[0])
+        r = _get(csvs[0]['url'], timeout=40)
+        r.encoding = 'utf-8-sig'
+        txt = r.text
+        delim = ';' if txt.split('\n', 1)[0].count(';') > txt.split('\n', 1)[0].count(',') else ','
+        for row in csv.DictReader(io.StringIO(txt), delimiter=delim):
+            norm = {re.sub(r'[^a-z0-9]', '', (k or '').lower()): v for k, v in row.items()}
+            if (norm.get('uf') or '').strip().upper() == uf:
+                nota = next((v for k, v in norm.items() if 'classifica' in k and v), None)
+                out = {'uf': uf, 'ano': ano, 'nota': (nota or '').strip(),
+                       'significado': _CAPAG_NOTA.get((nota or '').strip(), ''),
+                       'endividamento': norm.get('indicador1'), 'poupanca': norm.get('indicador2'),
+                       'liquidez': norm.get('indicador3'), 'fonte': 'Tesouro/CAPAG'}
+                cache.set(ck, out, timeout=30 * 86400)
+                return out
+        return {'erro': f'UF {uf} não encontrada no CAPAG'}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('capag %s: %s', uf, str(exc)[:120])
+        return {'erro': str(exc)[:120]}
+
+
 # ───────────────────────── CNPJ público ─────────────────────────
 def consultar_cnpj(cnpj: str) -> dict:
     """Cadastro RFB por CNPJ (razão social, situação, natureza jurídica, CNAE, porte,
@@ -267,6 +314,37 @@ def sgt_decodificar(tipo_tabela: str, codigo: int | str) -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.warning('sgt %s %s: %s', tt, codigo, str(exc)[:100])
         return {'erro': str(exc)[:100]}
+
+
+# ───────────────────────── Índices econômicos (BCB SGS) ─────────────────────────
+# Séries validadas ao vivo. Todas = variação % no mês. IPCA-E(7478)=Tema 810/EC 136;
+# Selic(4390)=EC 113 (correção+juros num índice); TR(7811)=EC 62/pré-2015.
+_SGS = {'IPCA-E': 7478, 'IPCA': 433, 'INPC': 188, 'SELIC': 4390, 'TR': 7811}
+
+
+def atualizar_valor(valor: float, data_inicial: str, data_final: str,
+                    indice: str = 'IPCA-E') -> dict:
+    """Corrige um valor entre duas datas (DD/MM/AAAA) pelo índice do BCB (SGS). Índices:
+    IPCA-E (Tema 810/EC 136), SELIC (EC 113, já com juros), TR (EC 62), IPCA, INPC.
+    Devolve valor corrigido + fator. NÃO soma juros de mora (exceto Selic, que já embute)."""
+    cod = _SGS.get((indice or 'IPCA-E').upper().replace('IPCAE', 'IPCA-E'))
+    if not cod:
+        return {'erro': f'índice desconhecido: {indice}'}
+    try:
+        valor = float(valor)
+        url = (f'https://api.bcb.gov.br/dados/serie/bcdata.sgs.{cod}/dados'
+               f'?formato=json&dataInicial={data_inicial}&dataFinal={data_final}')
+        serie = _get(url, timeout=30).json()
+        fator = 1.0
+        for m in serie:
+            fator *= 1 + float(m['valor']) / 100
+        return {'indice': indice, 'de': data_inicial, 'ate': data_final,
+                'fator': round(fator, 8), 'valor_original': valor,
+                'valor_corrigido': round(valor * fator, 2), 'variacao_pct': round((fator - 1) * 100, 2),
+                'meses': len(serie), 'fonte': f'BCB SGS {cod}'}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('atualizar_valor %s: %s', indice, str(exc)[:120])
+        return {'erro': str(exc)[:120]}
 
 
 # ───────────────────────── Querido Diário (municipal) ─────────────────────────

@@ -248,8 +248,12 @@ def _bloco_precatorio(proc: Process) -> dict:
     if eh_precatorio and (proc.tribunal_id or '').upper().startswith('TJ'):
         try:
             from . import fontes_publicas
-            ef = fontes_publicas.ente_fiscal(uf=proc.tribunal_id.upper()[2:4])
+            _uf = proc.tribunal_id.upper()[2:4]
+            ef = fontes_publicas.ente_fiscal(uf=_uf)
             if ef and not ef.get('erro') and ef.get('rcl'):
+                cap = fontes_publicas.capag_rating(_uf)
+                if cap and not cap.get('erro'):
+                    ef['capag'] = cap
                 ente_fiscal = ef
         except Exception:  # noqa: BLE001
             pass

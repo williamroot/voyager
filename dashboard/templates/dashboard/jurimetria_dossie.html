@@ -215,6 +215,7 @@
         <div class="flex items-baseline gap-4 flex-wrap">
           {% if ef.pagamento_anual_estimado_pct_rcl %}<div><span class="text-2xl font-semibold kpi-num">{{ ef.pagamento_anual_estimado_pct_rcl }}%</span> <span class="text-xs text-fg-subtle">da RCL/ano <span class="chip text-[0.5rem]">EC 136</span></span></div>{% endif %}
           {% if ef.pagamento_valor_fmt %}<div><span class="text-lg font-medium">{{ ef.pagamento_valor_fmt }}</span> <span class="text-xs text-fg-subtle">estimado/ano</span></div>{% endif %}
+          {% if ef.capag.nota %}<div title="Capacidade de Pagamento (Tesouro) {{ ef.capag.ano }}"><span class="chip {% if ef.capag.nota == 'A' or ef.capag.nota == 'B' %}bg-emerald-500/20 text-emerald-500{% else %}bg-danger/20 text-danger{% endif %}">CAPAG {{ ef.capag.nota }}</span> <span class="text-xs text-fg-subtle">{{ ef.capag.significado }}</span></div>{% endif %}
         </div>
         <table class="w-full text-xs mt-2">
           <tr><td class="text-fg-subtle py-0.5">Estoque de precatórios vencidos</td><td class="text-right">{{ ef.estoque_fmt|default:'—' }}</td></tr>
