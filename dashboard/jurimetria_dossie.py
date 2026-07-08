@@ -272,6 +272,29 @@ def _bloco_precatorio(proc: Process) -> dict:
                 ente_fiscal = ef
         except Exception:  # noqa: BLE001
             pass
+
+    # HERO: valor justo hoje + deságio implícito (valor_presente). Precisa de valor de
+    # face + horizonte até o pagamento. Horizonte: do cronograma (ano_orçamento) OU da
+    # banda de vazão do ente (estoque/RCL ÷ %/ano da EC 136). Determinístico, público.
+    valor_justo = None
+    _vface = (js or {}).get('valor_acao_corrigido') or (js or {}).get('valor_acao') or proc.valor_causa
+    _anos = None
+    if pagamento and pagamento.get('ano_orcamento'):
+        from django.utils import timezone
+        _anos = max(pagamento['ano_orcamento'] - timezone.now().year, 0.5)
+    elif ente_fiscal and ente_fiscal.get('razao_estoque_rcl') and ente_fiscal.get('pagamento_anual_estimado_pct_rcl'):
+        _anos = min(round(ente_fiscal['razao_estoque_rcl'] / (ente_fiscal['pagamento_anual_estimado_pct_rcl'] / 100), 1), 20)
+    if _vface and _anos:
+        try:
+            from . import fontes_publicas
+            vp = fontes_publicas.valor_presente(float(_vface), _anos)
+            if vp and not vp.get('erro'):
+                vp['valor_face_fmt'] = fontes_publicas._humano(vp.get('valor_face'))
+                vp['valor_presente_fmt'] = fontes_publicas._humano(vp.get('valor_presente'))
+                valor_justo = vp
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         'is_lead': is_lead,
         'classificacao': proc.classificacao,
@@ -284,6 +307,7 @@ def _bloco_precatorio(proc: Process) -> dict:
         'homologacao': homologacao,      # marco: cálculos homologados (mov-text)
         'pagamento': pagamento,          # modelo T: cronograma de pagamento (precatório)
         'ente_fiscal': ente_fiscal,      # SICONFI: capacidade de pagamento do ente (EC 136)
+        'valor_justo': valor_justo,      # valor_presente: valor justo hoje + deságio
         'meta': {'fonte': 'classificacao v6 + movimentações DJEN + juriscope/falcon',
                  'tipo': 'modelo + estruturado'},
     }

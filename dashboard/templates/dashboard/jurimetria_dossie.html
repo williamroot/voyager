@@ -182,6 +182,31 @@
   {% endif %}
   {% endwith %}
 
+  {# HERO: valor justo hoje + deságio (o número comercial) #}
+  {% with vj=dossie.precatorio.valor_justo %}
+  {% if vj %}
+  <div class="card mb-4 bg-gradient-to-br from-accent/10 to-transparent border border-accent/20">
+    <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Valuation do ativo <span class="chip text-[0.55rem]">determinístico · público</span></div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div>
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Valor de face (corrigido)</div>
+        <div class="text-xl font-semibold">{{ vj.valor_face_fmt|default:'—' }}</div>
+      </div>
+      <div class="sm:border-l sm:border-border/60 sm:pl-4">
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Valor justo hoje</div>
+        <div class="text-3xl font-bold text-accent-fg kpi-num">{{ vj.valor_presente_fmt|default:'—' }}</div>
+      </div>
+      <div class="sm:border-l sm:border-border/60 sm:pl-4">
+        <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Deságio justo</div>
+        <div class="text-3xl font-bold kpi-num">{{ vj.desagio_implicito_pct }}%</div>
+        <div class="text-[0.65rem] text-fg-subtle">~{{ vj.anos_ate_pagamento }} anos até o pagamento</div>
+      </div>
+    </div>
+    <div class="text-[0.6rem] text-fg-subtle mt-3 pt-2 border-t border-border/60">ⓘ Valor presente: face projetada pela correção EC 136 (IPCA+2%, teto Selic {{ vj.selic_meta_aa_pct }}% a.a.) e descontada pela Selic. Âncora determinística — não é cotação de mercado (deságio de mercado ≥ este).</div>
+  </div>
+  {% endif %}
+  {% endwith %}
+
   {# ANALISE POR IA: gera em background (thread do web) + POLL, sem conexao HTTP longa #}
   {% if c.pk %}
   <div class="card mt-4" id="narr-card">
