@@ -240,6 +240,17 @@ def _bloco_precatorio(proc: Process) -> dict:
         sobrevivencia = survival_precatorio.prever(proc.tribunal_id, _nat, _ente)
     if proc.classificacao in ('PRECATORIO', 'PRE_PRECATORIO'):
         pagamento = _cronograma_pagamento((js or {}).get('ano_ordem_orcamentaria'))
+    # Capacidade fiscal do ente devedor (SICONFI) — só p/ precatório ESTADUAL (TJ→UF).
+    # Fail-closed + cacheado; define a banda de pagamento anual da EC 136.
+    ente_fiscal = None
+    if is_lead and (proc.tribunal_id or '').upper().startswith('TJ'):
+        try:
+            from . import fontes_publicas
+            ef = fontes_publicas.ente_fiscal(uf=proc.tribunal_id.upper()[2:4])
+            if ef and not ef.get('erro') and ef.get('rcl'):
+                ente_fiscal = ef
+        except Exception:  # noqa: BLE001
+            pass
     return {
         'is_lead': is_lead,
         'classificacao': proc.classificacao,
@@ -251,6 +262,7 @@ def _bloco_precatorio(proc: Process) -> dict:
         'sobrevivencia': sobrevivencia,  # chance/tempo de virar precatório (DC)
         'homologacao': homologacao,      # marco: cálculos homologados (mov-text)
         'pagamento': pagamento,          # modelo T: cronograma de pagamento (precatório)
+        'ente_fiscal': ente_fiscal,      # SICONFI: capacidade de pagamento do ente (EC 136)
         'meta': {'fonte': 'classificacao v6 + movimentações DJEN + juriscope/falcon',
                  'tipo': 'modelo + estruturado'},
     }

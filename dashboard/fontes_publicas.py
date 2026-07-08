@@ -91,8 +91,23 @@ def ente_fiscal(id_ente: str | int | None = None, ano: int = 2023, *,
         out['razao_estoque_rcl'] = round(raz, 3)
         out['pagamento_anual_estimado_pct_rcl'] = pct
         out['pagamento_anual_estimado_valor'] = round(rcl * pct / 100, 2)
+    out['estoque_fmt'] = _humano(precat)
+    out['rcl_fmt'] = _humano(rcl)
+    out['pagamento_valor_fmt'] = _humano(out.get('pagamento_anual_estimado_valor'))
     cache.set(ck, out, timeout=86400)
     return out
+
+
+def _humano(v) -> str | None:
+    """Número grande → 'R$ 1,2 bi' / 'R$ 340 mi'."""
+    if not v:
+        return None
+    v = float(v)
+    if v >= 1e9:
+        return f'R$ {v / 1e9:.1f} bi'.replace('.', ',')
+    if v >= 1e6:
+        return f'R$ {v / 1e6:.0f} mi'
+    return f'R$ {v:,.0f}'.replace(',', '.')
 
 
 # ───────────────────────── CNPJ público ─────────────────────────

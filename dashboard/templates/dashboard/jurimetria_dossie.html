@@ -208,6 +208,22 @@
         <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ {{ pg.fonte }} · ressalva: entes em regime especial pagam com atraso</div>
       </div>
       {% endwith %}{% endif %}
+
+      {% if p.ente_fiscal %}{% with ef=p.ente_fiscal %}
+      <div class="mt-3 pt-3 border-t border-border/60">
+        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1">Capacidade do ente devedor <span class="chip text-[0.55rem]">SICONFI {{ ef.ano }}</span></div>
+        <div class="flex items-baseline gap-4 flex-wrap">
+          {% if ef.pagamento_anual_estimado_pct_rcl %}<div><span class="text-2xl font-semibold kpi-num">{{ ef.pagamento_anual_estimado_pct_rcl }}%</span> <span class="text-xs text-fg-subtle">da RCL/ano <span class="chip text-[0.5rem]">EC 136</span></span></div>{% endif %}
+          {% if ef.pagamento_valor_fmt %}<div><span class="text-lg font-medium">{{ ef.pagamento_valor_fmt }}</span> <span class="text-xs text-fg-subtle">estimado/ano</span></div>{% endif %}
+        </div>
+        <table class="w-full text-xs mt-2">
+          <tr><td class="text-fg-subtle py-0.5">Estoque de precatórios vencidos</td><td class="text-right">{{ ef.estoque_fmt|default:'—' }}</td></tr>
+          <tr><td class="text-fg-subtle py-0.5">Receita Corrente Líquida (RCL)</td><td class="text-right">{{ ef.rcl_fmt|default:'—' }}</td></tr>
+          {% if ef.razao_estoque_rcl %}<tr><td class="text-fg-subtle py-0.5">Estoque / RCL</td><td class="text-right font-mono">{{ ef.razao_estoque_rcl }}×</td></tr>{% endif %}
+        </table>
+        <div class="text-[0.65rem] text-fg-subtle mt-1">ⓘ Tesouro/SICONFI · EC 136/2025: estoque ≤15% RCL→1%/ano, &gt;85%→5%/ano · quanto maior o estoque/RCL, mais lento o pagamento</div>
+      </div>
+      {% endwith %}{% endif %}
     </div>
 
     {# JURIMETRIA DO TIPO #}
