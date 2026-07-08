@@ -68,6 +68,9 @@ def _contexto(dossie: dict, ritmo: dict) -> str:
             'sinais': dg.get('sinais'),
             'indicadores': dg.get('indicadores'),
             'chance_survival': dg.get('chance'),  # KM: chance_12m/24m, tempo_mediano_meses, estrato, n, eventos
+            # DESFECHO terminal: se negativo/pago, o processo está ENCERRADO — a análise
+            # DEVE refletir isso e NÃO chamar de lead quente.
+            'desfecho_terminal': dg.get('desfecho'),
         },
         'precatorio': {
             'classificacao': pc.get('classificacao'), 'valor_causa': str(pc.get('valor_causa') or ''),

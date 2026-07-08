@@ -165,6 +165,10 @@ _MOVS_AGG_SQL = """
                  THEN data_disponibilizacao END) AS pago_max_dt,
         MAX(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
                  THEN data_disponibilizacao END) AS exped_max_dt,
+        -- DESFECHO terminal NEGATIVO (crédito não existe): extinção sem mérito,
+        -- improcedência, indeferimento da inicial, prescrição decretada. NÃO é lead.
+        MAX(CASE WHEN texto ~* 'extin\\w+.{0,40}sem\\s+resolu[çc][ãa]o\\s+do\\s+m[ée]rito|improceden|indefer\\w+\\s+a\\s+(peti[çc][ãa]o|inicial|exordial)|denego\\s+seguimento|nego\\s+provimento|(decreto|reconhe[çc]o|pronuncio)\\s+a\\s+prescri'
+                 THEN data_disponibilizacao END) AS extneg_max_dt,
         MAX(data_disponibilizacao) AS ult_mov_dt
     FROM tribunals_movimentacao
     WHERE processo_id = %s
@@ -367,7 +371,7 @@ def compute_features(processo) -> dict:
         row = cur.fetchone()
 
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
-     f13_n, f14_n, f19_n, f20_n, pago_max_dt, exped_max_dt, ult_mov_dt) = row
+     f13_n, f14_n, f19_n, f20_n, pago_max_dt, exped_max_dt, extneg_max_dt, ult_mov_dt) = row
 
     if not total_movs:
         return _empty_features(ano, f1, f10)
@@ -386,6 +390,10 @@ def compute_features(processo) -> dict:
 
     f24 = int(bool(pago_max_dt)
               and (exped_max_dt is None or pago_max_dt >= exped_max_dt))
+    # F25: desfecho terminal NEGATIVO (extinção sem mérito/improcedência/prescrição) que
+    # é a última palavra — sem expedição posterior. Crédito não existe → NÃO é lead.
+    f25 = int(bool(extneg_max_dt)
+              and (exped_max_dt is None or extneg_max_dt >= exped_max_dt))
 
     f2 = int(f2_n > 0); f7 = int(f7_n > 0)
     f11 = int(f11_n > 0); f12 = int(f12_n > 0); f13 = int(f13_n > 0); f14 = int(f14_n > 0)
@@ -413,6 +421,8 @@ def compute_features(processo) -> dict:
         'F1xF20':             f1 * f20,
         # Sinal-anti de pagamento (peso LR 0: atua só como regra, como F19).
         'F24_pago_pos_exped_ANTI': f24,
+        # Sinal-anti de desfecho terminal negativo (override, todos os tribunais).
+        'F25_extinto_neg_ANTI': f25,
     }
 
 
@@ -429,7 +439,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F18_anoZ': f18, 'F19_cancelado_ANTI': 0, 'F20_exp_juriscope': 0,
         'F21_diasUltMovZ': f21, 'F23_logPartes': 0.0,
         'F1xF11': 0, 'F1xF15': 0.0, 'F1xF20': 0,
-        'F24_pago_pos_exped_ANTI': 0,
+        'F24_pago_pos_exped_ANTI': 0, 'F25_extinto_neg_ANTI': 0,
     }
 
 
@@ -498,6 +508,17 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
             and features.get('F24_pago_pos_exped_ANTI') == 1
             and cat in (Process.CLASSIF_PRECATORIO,
                         Process.CLASSIF_PRE_PRECATORIO)):
+        return (Process.CLASSIF_NAO_LEAD,
+                min(score, SCORE_REBAIXAMENTO_SINAL), features)
+
+    # Regra de sinal NEGATIVA universal (todos os tribunais): desfecho terminal
+    # negativo (extinção sem mérito / improcedência / prescrição) sem expedição
+    # posterior → o crédito não existe. Rebaixa qualquer lead a NAO_LEAD. O Juriscope
+    # tem a checagem fina nos autos; aqui evitamos gastar o cap baixando processo morto.
+    if (features.get('F25_extinto_neg_ANTI') == 1
+            and cat in (Process.CLASSIF_PRECATORIO,
+                        Process.CLASSIF_PRE_PRECATORIO,
+                        Process.CLASSIF_DIREITO_CREDITORIO)):
         return (Process.CLASSIF_NAO_LEAD,
                 min(score, SCORE_REBAIXAMENTO_SINAL), features)
 
