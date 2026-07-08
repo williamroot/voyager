@@ -303,7 +303,7 @@
   </script>
   {% endif %}
 
-  <div class="grid md:grid-cols-2 gap-4">
+  <div class="grid {% if jt.disponivel %}md:grid-cols-2{% endif %} gap-4">
     {# PRECATÓRIO (Voyager classificação + Juriscope estruturado) #}
     <div class="card">
       {% include 'dashboard/_partials/section_header.html' with title='Precatório' subtitle='classificação Voyager + dados Juriscope' %}
@@ -381,16 +381,16 @@
       {% endwith %}{% endif %}
     </div>
 
-    {# JURIMETRIA DO TIPO #}
+    {# JURIMETRIA DO TIPO — só aparece quando há base comparável (senão vira card vazio) #}
+    {% if jt.disponivel %}
     <div class="card">
-      {% include 'dashboard/_partials/section_header.html' with title='Jurimetria do tipo' subtitle='processos da mesma classe no tribunal' %}
-      {% if jt.disponivel %}
+      {% include 'dashboard/_partials/section_header.html' with title='Base comparável (mesmo tipo)' subtitle='processos da mesma classe no tribunal' %}
       <div class="text-3xl font-semibold kpi-num text-fg">{{ jt.taxa_precatorio }}%</div>
       <div class="h-1.5 bg-muted rounded-full my-1 overflow-hidden max-w-[240px]"><div class="h-full bg-sky-500 rounded-full" style="width: {{ jt.taxa_precatorio }}%"></div></div>
       <div class="text-fg-subtle text-sm">viram precatório ({{ jt.precatorio|format_int }} PRECATORIO + {{ jt.pre_precatorio|format_int }} PRE) de {{ jt.total|format_int }} do tipo</div>
       <div class="text-[0.65rem] text-fg-subtle mt-2">ⓘ n={{ jt.meta.n|format_int }} · {{ jt.meta.fonte }} · {{ jt.meta.tipo }}</div>
-      {% else %}<div class="text-sm text-fg-subtle">{{ jt.motivo }}</div>{% endif %}
     </div>
+    {% endif %}
   </div>
 
   {# PARTES #}
