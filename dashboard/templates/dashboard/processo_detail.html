@@ -27,7 +27,7 @@
         {% else %}
           <span class="badge bg-surface border-border/50 text-fg-subtle" title="Ainda não classificado">não classificado</span>
         {% endif %}
-        {% if processo.enriquecimento_status == 'nao_encontrado' %}
+        {% if processo.enriquecimento_status == 'nao_encontrado' and not processo.valor_causa and not processo.orgao_julgador_nome %}
           {% include 'dashboard/_partials/badge.html' with text='não encontrado na consulta pública' variant='warning' %}
         {% elif processo.enriquecimento_status == 'erro' %}
           {% include 'dashboard/_partials/badge.html' with text='falha na consulta pública' variant='danger' %}
@@ -88,7 +88,7 @@
       <div id="job-area" class="mt-1"></div>
     </div>
   </div>
-  {% if processo.enriquecimento_status == 'nao_encontrado' %}
+  {% if processo.enriquecimento_status == 'nao_encontrado' and not processo.valor_causa and not processo.orgao_julgador_nome %}
     <div class="mt-4 pt-4 border-t border-warning/30 bg-warning/5 -mx-5 -mb-5 px-5 pb-4 rounded-b-lg">
       <div class="flex items-start gap-3">
         <div class="text-warning text-lg leading-tight">⚠</div>
