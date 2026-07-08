@@ -460,6 +460,10 @@ def score_oportunidade(dossie: dict) -> dict | None:
         return None
     peso_tot = sum(w for _, w, _ in disp)
     score = 100 * sum(w * v for _, w, v in disp) / peso_tot
+    # Certeza do crédito é um GATE, não só um termo: se o crédito não existe (extinto/
+    # pago/improcedente), a oportunidade é ~nula por mais alto que sejam natureza/ente.
+    if s_t is not None and s_t < 0.15:
+        score = min(score, round(s_t * 100) + 5)
     pilares = [{'nome': n, 'peso': w, 'pct': round(v * 100) if v is not None else None,
                 'contrib': round(w * v / peso_tot * 100, 1) if v is not None else None,
                 'tip': _TIPS_PILAR.get(n, ''), 'ok': v is not None} for n, w, v in defs]
