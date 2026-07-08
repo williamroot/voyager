@@ -94,7 +94,16 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
         or bool(_ORGAO_FAZ_RE.search(orgao) and re.search(r'precat', orgao, re.I)) \
         or precatorio.get('tem_sinal_expedicao')
 
+    # Título judicial constituído: cumprimento de sentença / execução = mérito JÁ
+    # decidido e crédito reconhecido (o credor venceu e está executando). Sinal forte.
+    classe = proc.classe_nome or ''
+    titulo_constituido = bool(re.search(
+        r'cumprimento de senten|execu[çc][ãa]o de t[íi]tulo|execu[çc][ãa]o de senten|'
+        r'^execu[çc][ãa]o|liquida[çc][ãa]o de senten', classe, re.I))
+
     sinais, indicadores = [], []
+    if titulo_constituido:
+        sinais.append(f'Mérito já reconhecido — {classe.title()} (título judicial constituído, em execução)')
     if ente: sinais.append(f'Ente devedor: {ente}')
     if _ORGAO_FAZ_RE.search(orgao): sinais.append(f'Órgão de execução contra a Fazenda ({orgao[:60]})')
     if natureza == 'ALIMENTAR' or _ALIMENTAR_RE.search(assunto):
@@ -113,10 +122,12 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
                                 'sub': 'orçamento (até 31/dez)' if not pag.get('em_atraso') else 'em atraso'})
     elif contra_fazenda:
         estagio, tom = 'PRÉ-PRECATÓRIO', 'accent'
+        _merito = 'com mérito já reconhecido (cumprimento de sentença)' if titulo_constituido \
+            else 'ainda não expedido'
         veredito = (f'Execução contra a Fazenda Pública{" (" + ente + ")" if ente else ""} — '
-                    f'caminho direto para precatório/RPV. Ainda não expedido.')
+                    f'caminho direto para precatório/RPV, {_merito}.')
         recomendacao = {'label': '🔥 Lead quente — execução contra Fazenda', 'tom': 'accent'} \
-            if (natureza == 'ALIMENTAR' or n_exequentes >= 2) else \
+            if (natureza == 'ALIMENTAR' or n_exequentes >= 2 or titulo_constituido) else \
             {'label': '📌 Acompanhar — pré-precatório', 'tom': 'accent'}
     elif proc.classificacao == 'DIREITO_CREDITORIO':
         estagio, tom = 'DIREITO CREDITÓRIO', 'muted'
@@ -148,6 +159,9 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
             pass
     if n_exequentes >= 2:
         indicadores.append({'label': 'Beneficiários', 'valor': n_exequentes, 'sub': 'exequentes (execução coletiva)'})
+    if titulo_constituido:
+        indicadores.insert(0, {'label': 'Fase do mérito', 'valor': '✓ decidido',
+                               'sub': 'cumprimento de sentença — crédito reconhecido'})
     if tipo.get('disponivel'):
         indicadores.append({'label': 'Taxa do tipo', 'valor': f'{tipo["taxa_precatorio"]}%',
                             'sub': f'viram precatório (n={tipo["total"]:,})'.replace(',', '.')})
@@ -158,6 +172,7 @@ def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> di
         'sinais': sinais, 'chance': chance,
         'ente': ente, 'natureza': natureza,  # pro bloco Precatório cair aqui quando Juriscope vazio
         'contra_fazenda': contra_fazenda, 'ja_precatorio': ja_precatorio,
+        'titulo_constituido': titulo_constituido, 'classe': classe,
         'meta': {'fonte': 'síntese jurimetria (classificação + Juriscope + enriquecido) + Kaplan-Meier',
                  'tipo': 'conclusivo'},
     }
@@ -282,6 +297,14 @@ def _precedentes(proc: Process, limite: int = 4) -> dict:
         return {'itens': [], 'meta': {'fonte': 'zordon RAG', 'query': ''}}
     res = zordon_client.buscar(query=termos, limit=limite)
     itens = (res or {}).get('results') or []
+    # POR QUE é relevante: o tema casado (assunto/classe) + o score de similaridade.
+    assunto = proc.assunto_nome or ''
+    for it in itens:
+        sc = it.get('score')
+        it['relevancia'] = (f'mesmo assunto: {assunto}' if assunto
+                            else f'mesma classe: {proc.classe_nome or "tema similar"}')
+        it['score_pct'] = round(sc * 100) if isinstance(sc, (int, float)) and sc <= 1 else (
+            round(sc) if isinstance(sc, (int, float)) else None)
     return {'itens': itens[:limite], 'query': termos, 'erro': (res or {}).get('erro'),
             'meta': {'fonte': 'zordon hybrid_search (bge-m3+rerank)', 'tipo': 'RAG'}}
 

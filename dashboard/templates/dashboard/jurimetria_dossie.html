@@ -261,6 +261,7 @@
           {% else %}<span class="font-mono text-xs text-fg-subtle">—</span>{% endif %}
           {% if pr.doc_tipo %}<span class="chip text-[0.6rem]">{{ pr.doc_tipo }}</span>{% endif %}
           {% if pr.relator %}<span class="text-[0.65rem] text-fg-subtle">rel. {{ pr.relator }}</span>{% endif %}
+          {% if pr.relevancia %}<span class="chip text-[0.55rem] bg-accent/10 text-accent-fg" title="por que este precedente é relevante">↳ {{ pr.relevancia|truncatechars:48 }}{% if pr.score_pct %} · {{ pr.score_pct }}% similar{% endif %}</span>{% endif %}
           <span class="text-fg-subtle">{{ pr.snippet|default:''|truncatechars:140 }}</span>
         </div>
       </div>
