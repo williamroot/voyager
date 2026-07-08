@@ -242,8 +242,10 @@ def _bloco_precatorio(proc: Process) -> dict:
         pagamento = _cronograma_pagamento((js or {}).get('ano_ordem_orcamentaria'))
     # Capacidade fiscal do ente devedor (SICONFI) — só p/ precatório ESTADUAL (TJ→UF).
     # Fail-closed + cacheado; define a banda de pagamento anual da EC 136.
+    # dispara pra qualquer precatório: classificação OU Juriscope com registro/valor
+    eh_precatorio = is_lead or bool((js or {}).get('encontrado')) or bool((js or {}).get('valor_acao'))
     ente_fiscal = None
-    if is_lead and (proc.tribunal_id or '').upper().startswith('TJ'):
+    if eh_precatorio and (proc.tribunal_id or '').upper().startswith('TJ'):
         try:
             from . import fontes_publicas
             ef = fontes_publicas.ente_fiscal(uf=proc.tribunal_id.upper()[2:4])
