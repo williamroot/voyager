@@ -104,9 +104,11 @@ def _humano(v) -> str | None:
         return None
     v = float(v)
     if v >= 1e9:
-        return f'R$ {v / 1e9:.1f} bi'.replace('.', ',')
+        return f'R$ {v / 1e9:.2f} bi'.replace('.', ',')
     if v >= 1e6:
-        return f'R$ {v / 1e6:.0f} mi'
+        return f'R$ {v / 1e6:.2f} mi'.replace('.', ',')
+    if v >= 1e3:
+        return f'R$ {v / 1e3:.0f} mil'
     return f'R$ {v:,.0f}'.replace(',', '.')
 
 
