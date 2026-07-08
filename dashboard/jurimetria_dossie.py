@@ -67,7 +67,10 @@ _ORGAO_FAZ_RE = re.compile(
     r'UPEFAZ|requisit[óo]ri|juizo auxiliar', re.I)
 _ALIMENTAR_RE = re.compile(
     r'benef[íi]cio|previdenci|aposentad|pens[ãa]o|sal[áa]ri|vencimento|remunera|servidor|'
-    r'trabalhist|ferrovi[áa]ri|alimentar|honor[áa]ri|indeniza', re.I)
+    r'trabalhist|ferrovi[áa]ri|alimentar|honor[áa]ri|indeniza|'
+    # verbas salariais/funcionais (servidor público) — natureza alimentar:
+    r'adicional|gratifica|hora[s]?\s+extra|verba|qu[íi]nqu[êe]ni|abono|aux[íi]lio|'
+    r'proventos|reajuste|diferen[çc]a[s]?\s+salari|13[ºo\b]|f[ée]rias|insalubr|periculos|URV', re.I)
 
 
 def _diagnostico(proc: Process, precatorio: dict, tipo: dict, polos: dict) -> dict:
@@ -257,8 +260,14 @@ def _bloco_precatorio(proc: Process) -> dict:
         pagamento = _cronograma_pagamento((js or {}).get('ano_ordem_orcamentaria'))
     # Capacidade fiscal do ente devedor (SICONFI) — só p/ precatório ESTADUAL (TJ→UF).
     # Fail-closed + cacheado; define a banda de pagamento anual da EC 136.
-    # dispara pra qualquer precatório: classificação OU Juriscope com registro/valor
-    eh_precatorio = is_lead or bool((js or {}).get('encontrado')) or bool((js or {}).get('valor_acao'))
+    # dispara pra qualquer precatório OU execução contra a Fazenda: classificação, Juriscope,
+    # ou o órgão/classe indicando Fazenda/execução (ex.: TJAL não está no Juriscope mas é
+    # execução contra o Estado). O ente_fiscal é cacheado (barato).
+    _faz_txt = f"{proc.orgao_julgador_nome or ''} {proc.classe_nome or ''}".lower()
+    parece_fazenda = ('fazenda' in _faz_txt or bool(_ORGAO_FAZ_RE.search(_faz_txt))
+                      or bool(re.search(r'cumprimento de senten|execu[çc][ãa]o', _faz_txt)))
+    eh_precatorio = (is_lead or bool((js or {}).get('encontrado'))
+                     or bool((js or {}).get('valor_acao')) or parece_fazenda)
     ente_fiscal = None
     if eh_precatorio and (proc.tribunal_id or '').upper().startswith('TJ'):
         try:
