@@ -390,7 +390,7 @@ def compute_features(processo) -> dict:
 
     f24 = int(bool(pago_max_dt)
               and (exped_max_dt is None or pago_max_dt >= exped_max_dt))
-    # F25: desfecho terminal NEGATIVO (extinção sem mérito/improcedência/prescrição) que
+    # F30: desfecho terminal NEGATIVO (extinção sem mérito/improcedência/prescrição) que
     # é a última palavra — sem expedição posterior. Crédito não existe → NÃO é lead.
     f25 = int(bool(extneg_max_dt)
               and (exped_max_dt is None or extneg_max_dt >= exped_max_dt))
@@ -422,7 +422,7 @@ def compute_features(processo) -> dict:
         # Sinal-anti de pagamento (peso LR 0: atua só como regra, como F19).
         'F24_pago_pos_exped_ANTI': f24,
         # Sinal-anti de desfecho terminal negativo (override, todos os tribunais).
-        'F25_extinto_neg_ANTI': f25,
+        'F30_extinto_neg_ANTI': f25,
     }
 
 
@@ -439,7 +439,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F18_anoZ': f18, 'F19_cancelado_ANTI': 0, 'F20_exp_juriscope': 0,
         'F21_diasUltMovZ': f21, 'F23_logPartes': 0.0,
         'F1xF11': 0, 'F1xF15': 0.0, 'F1xF20': 0,
-        'F24_pago_pos_exped_ANTI': 0, 'F25_extinto_neg_ANTI': 0,
+        'F24_pago_pos_exped_ANTI': 0, 'F30_extinto_neg_ANTI': 0,
     }
 
 
@@ -515,7 +515,7 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     # negativo (extinção sem mérito / improcedência / prescrição) sem expedição
     # posterior → o crédito não existe. Rebaixa qualquer lead a NAO_LEAD. O Juriscope
     # tem a checagem fina nos autos; aqui evitamos gastar o cap baixando processo morto.
-    if (features.get('F25_extinto_neg_ANTI') == 1
+    if (features.get('F30_extinto_neg_ANTI') == 1
             and cat in (Process.CLASSIF_PRECATORIO,
                         Process.CLASSIF_PRE_PRECATORIO,
                         Process.CLASSIF_DIREITO_CREDITORIO)):
