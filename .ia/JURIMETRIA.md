@@ -224,6 +224,35 @@ affordance **"ver dados/query"** (drill-down até os processos/acórdãos). Badg
 **Descritivo vs Preditivo**. A narrativa do LLM sempre **linka as fontes**. Nº nunca
 sem procedência. Reusa HTMX/ECharts (padrão dashboard) + API de agregação do Zordon.
 
+## Chat de jurimetria (modo 3 implementado — jul/2026)
+
+`/dashboard/jurimetria/chat/` — agente conversacional multi-turno (padrão
+Horizon/smart-mail), UI vanilla JS no template, sessões por usuário em Postgres
+(`dashboard.ChatSession/ChatMessage`, content_json em blocks).
+
+```
+UI (SSE fetch-reader) ─► view jurimetria_chat_stream (Queue+thread+heartbeat 15s,
+                          lock por sessão)
+                            │
+                  dashboard/jurimetria_chat.py::responder_stream
+                  (system SANDUICHADO: segurança + prompt editável + CNJ + segurança)
+                            │
+                  core/llm.py::chat_agent_stream  (loop tools + streaming,
+                  acumula delta.tool_calls fragmentados; max 8 rodadas)
+                            │
+                  dashboard/jurimetria_tools.py  — registry ÚNICO (18 tools)
+                  compartilhado com narrativa do dossiê e MCP
+```
+
+- Tools RAG do agente usam **timeout tolerante (5,75s)** no Zordon (turno é
+  assíncrono); páginas seguem no default (5,20s). A API `/api/chunks` devolve
+  campo **`text`** (não `texto`).
+- Tools de introspecção: `explicar_modelos` (dashboard/jurimetria_modelos.py) —
+  pesos VIVOS do classificador (F1–F30), estratos do survival, pilares do score.
+- Prompt do chat: editável/auditável (chaves `jurimetria:chat_prompt*`), modal 🧠
+  na página. Botão "💬 Conversar" no dossiê abre o chat com o CNJ no contexto.
+- nginx: location dedicado `/dashboard/jurimetria/chat/` (600s, sem buffer).
+
 ## Fontes de referência
 - CNJ Justiça em Números / Glossário de Indicadores; DataJud API (Elasticsearch);
   TPU (Res. CNJ 46/2007) / SGT.
