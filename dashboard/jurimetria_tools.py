@@ -177,19 +177,25 @@ def ler_chunks(cnj: str, offset: int = 0, max_chars: int = 6000) -> dict:
     todos = (res or {}).get('chunks') or []
     max_chars = min(max(int(max_chars or 6000), 500), 12000)
     offset = max(int(offset or 0), 0)
-    itens, usado = [], 0
+    itens, usado, vistos = [], 0, 0
     for ch in todos[offset:]:
-        txt = (ch.get('texto') or '').strip()
+        vistos += 1
+        # a API devolve 'text' (não 'texto'); docstring antigo do client mentia
+        txt = (ch.get('text') or ch.get('texto') or '').strip()
+        if not txt:
+            continue
         if usado + len(txt) > max_chars and itens:
+            vistos -= 1  # este não entrou — o próximo offset recomeça nele
             break
-        itens.append({'i': offset + len(itens), 'pagina': ch.get('pagina'),
+        itens.append({'i': offset + vistos - 1, 'doc': ch.get('nome_arquivo') or ch.get('doc_tipo'),
                       'texto': txt[:max_chars - usado]})
         usado += len(txt)
         if usado >= max_chars:
             break
+    prox = offset + vistos
     return {'cnj': cnj, 'total_chunks': len(todos), 'offset': offset,
-            'devolvidos': len(itens), 'proximo_offset': offset + len(itens)
-            if offset + len(itens) < len(todos) else None, 'chunks': itens}
+            'devolvidos': len(itens),
+            'proximo_offset': prox if prox < len(todos) else None, 'chunks': itens}
 
 
 def explicar_modelos(topico: str = 'todos') -> dict:
