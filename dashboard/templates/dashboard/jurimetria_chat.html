@@ -74,7 +74,8 @@
   'use strict';
   const CNJ_INICIAL = "{{ cnj_input|escapejs }}";
   const URLS = {
-    stream:  "{% url 'dashboard:jurimetria-chat-stream' %}",
+    enviar:  "{% url 'dashboard:jurimetria-chat-enviar' %}",
+    eventos: "{% url 'dashboard:jurimetria-chat-eventos' %}",
     sessoes: "{% url 'dashboard:jurimetria-chat-sessoes' %}",
     prompt:  "{% url 'dashboard:jurimetria-chat-prompt' %}",
     upload:  "{% url 'dashboard:jurimetria-chat-upload' %}",
@@ -195,9 +196,14 @@
   }
   $('pill-fim').onclick = () => { scroll.scrollTo({ top: scroll.scrollHeight, behavior: 'smooth' }); };
 
-  // ───────── SSE via fetch reader ─────────
+  // ───────── transporte: POST curto + POLL de eventos (Redis) ─────────
+  // Nada de conexão HTTP longa: gunicorn/nginx/cloudflare matam SSE longo nesta
+  // infra (mesma cicatriz que levou a narrativa do dossiê pro padrão poll).
+  // O POST dispara o turno e devolve {turno}; os eventos ficam numa lista Redis
+  // e o poll (1,2s) drena incrementalmente — sobrevive a worker kill e a rede ruim.
+  function dorme(ms) { return new Promise((res) => setTimeout(res, ms)); }
   async function streamPost(body, onEvent) {
-    const r = await fetch(URLS.stream, {
+    const r = await fetch(URLS.enviar, {
       method: 'POST', signal: aborter.signal,
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
       body: JSON.stringify(body),
@@ -205,22 +211,36 @@
     if (!r.ok) {
       let msg = 'HTTP ' + r.status;
       try { msg = (await r.json()).erro || msg; } catch (e) {}
+      if (msg === 'turno_em_andamento') { onEvent({ type: 'error', code: 'turno_em_andamento', text: 'Já há uma resposta sendo gerada nesta conversa.' }); return; }
       throw new Error(msg);
     }
-    const reader = r.body.getReader(), dec = new TextDecoder();
-    let buf = '';
+    const d = await r.json();
+    if (d.session && d.session !== sessao) onEvent({ type: 'session', session: d.session, title: d.title });
+    let desde = 0, falhasSeguidas = 0;
+    const inicio = Date.now();
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const frames = buf.split('\n\n'); buf = frames.pop() || '';
-      for (const f of frames) {
-        const dl = f.split('\n').find(l => l.startsWith('data:'));
-        if (!dl) continue;
-        let ev; try { ev = JSON.parse(dl.slice(5)); } catch (e) { continue; }
-        onEvent(ev);
-        if (ev.type === 'done' || ev.type === 'error') { reader.cancel(); return; }
+      if (aborter.signal.aborted) { const e = new Error('abort'); e.name = 'AbortError'; throw e; }
+      if (Date.now() - inicio > 15 * 60 * 1000) throw new Error('turno excedeu 15min');
+      let dd;
+      try {
+        const rr = await fetch(URLS.eventos + '?turno=' + encodeURIComponent(d.turno) + '&desde=' + desde,
+                               { signal: aborter.signal });
+        if (!rr.ok) throw new Error('HTTP ' + rr.status);
+        dd = await rr.json();
+        falhasSeguidas = 0;
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        falhasSeguidas += 1;               // blips de rede não matam o turno:
+        if (falhasSeguidas > 8) throw err; // só desiste após ~10s de falha contínua
+        await dorme(1200); continue;
       }
+      desde = dd.proximo;
+      for (const ev of dd.eventos || []) {
+        onEvent(ev);
+        if (ev.type === 'done' || ev.type === 'error') return;
+      }
+      if (dd.fim) return;
+      await dorme(1200);
     }
   }
 

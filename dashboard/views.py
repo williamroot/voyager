@@ -607,6 +607,98 @@ def jurimetria_chat_sessao(request, sess_uuid):
                          'cnj': session.cnj_contexto, 'mensagens': msgs})
 
 
+def _chat_redis():
+    import django_rq
+    return django_rq.get_connection('classificacao')  # qualquer fila → mesmo REDIS_URL
+
+
+@login_required
+@require_POST
+def jurimetria_chat_enviar(request):
+    """Dispara um turno do chat SEM conexão longa (o padrão que sobrevive a
+    gunicorn/nginx/cloudflare nesta infra — igual à narrativa do dossiê):
+    valida, inicia a thread produtora que grava os eventos numa lista Redis e
+    retorna NA HORA {turno, session}. A UI consome via jurimetria_chat_eventos."""
+    import json
+    import threading
+    import uuid as _uuid
+    from . import jurimetria_chat as jc
+    from .models import ChatSession
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except (ValueError, TypeError):
+        return JsonResponse({'erro': 'JSON inválido'}, status=400)
+    message = (body.get('message') or '').strip()
+    regenerate = bool(body.get('regenerate'))
+    cnj = (body.get('cnj') or '').strip()[:30]
+    sess_uuid = (body.get('session') or '').strip() or None
+
+    if sess_uuid:
+        try:
+            session = ChatSession.objects.get(uuid=sess_uuid, user=request.user)
+        except Exception:  # noqa: BLE001
+            return JsonResponse({'erro': 'sessão não encontrada'}, status=404)
+    else:
+        if not message:
+            return JsonResponse({'erro': 'mensagem vazia'}, status=400)
+        session = ChatSession.objects.create(user=request.user, cnj_contexto=cnj)
+
+    lock_key = f'jurchat:lock:{session.uuid}'
+    if not cache.add(lock_key, '1', timeout=600):
+        return JsonResponse({'erro': 'turno_em_andamento'}, status=409)
+
+    turno = str(_uuid.uuid4())
+    ev_key = f'jurchat:ev:{turno}'
+
+    def _produce():
+        import json as _json
+        r = _chat_redis()
+        try:
+            for ev in jc.responder_stream(session, message, regenerate=regenerate):
+                r.rpush(ev_key, _json.dumps(ev, ensure_ascii=False, default=str))
+                r.expire(ev_key, 900)
+        except Exception:  # noqa: BLE001
+            logger.exception('chat turno falhou (sessao %s)', session.uuid)
+            r.rpush(ev_key, _json.dumps({'type': 'error', 'code': 'interno',
+                    'text': 'Falha interna ao gerar a resposta.'}))
+            r.expire(ev_key, 900)
+        finally:
+            cache.delete(lock_key)
+
+    threading.Thread(target=_produce, daemon=True).start()
+    return JsonResponse({'turno': turno, 'session': str(session.uuid),
+                         'title': session.title})
+
+
+@login_required
+@require_GET
+def jurimetria_chat_eventos(request):
+    """Poll dos eventos de um turno: ?turno=<uuid>&desde=<n> → {eventos, proximo,
+    fim}. Requisições curtas — imunes a timeout de worker/proxy."""
+    import json
+    turno = (request.GET.get('turno') or '').strip()
+    try:
+        desde = max(int(request.GET.get('desde') or 0), 0)
+    except ValueError:
+        desde = 0
+    if not turno or len(turno) > 40:
+        return JsonResponse({'erro': 'turno inválido'}, status=400)
+    r = _chat_redis()
+    raw = r.lrange(f'jurchat:ev:{turno}', desde, desde + 199)
+    eventos = []
+    fim = False
+    for item in raw:
+        try:
+            ev = json.loads(item)
+        except (ValueError, TypeError):
+            continue
+        eventos.append(ev)
+        if ev.get('type') in ('done', 'error'):
+            fim = True
+    return JsonResponse({'eventos': eventos, 'proximo': desde + len(raw), 'fim': fim})
+
+
 @login_required
 @require_POST
 def jurimetria_chat_upload(request):
