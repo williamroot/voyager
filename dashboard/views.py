@@ -7,6 +7,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count, Exists, Max, OuterRef, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from djen.jobs import sincronizar_movimentacoes
@@ -462,9 +463,11 @@ def jurimetria_dossie_narrativa_stream(request):
 # ---------------- Chat de jurimetria (agente conversacional) ----------------
 
 @login_required
+@never_cache
 def jurimetria_chat(request):
     """Página do chat de jurimetria — sidebar de conversas + pane. ?cnj= abre uma
-    conversa nova ancorada no processo; ?sessao=<uuid> reabre uma existente."""
+    conversa nova ancorada no processo; ?sessao=<uuid> reabre uma existente.
+    never_cache: página com JS inline que evolui — browser não pode reusar HTML velho."""
     return render(request, 'dashboard/jurimetria_chat.html', {
         'cnj_input': (request.GET.get('cnj') or '').strip(),
         'sessao_input': (request.GET.get('sessao') or '').strip(),
