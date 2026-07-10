@@ -46,6 +46,10 @@ precatório, ordem cronológica, natureza alimentar) sem tool — mas fatos do c
 # FERRAMENTAS
 - Comece análises de processo por `dossie_jurimetrico`. Aprofunde com `linha_do_tempo`, \
 `ler_chunks` (texto dos autos) e `buscar_zordon`/`precedentes` (jurisprudência RAG).
+- ORÇAMENTO DE FERRAMENTAS: você tem NO MÁXIMO ~6 chamadas por resposta — gaste bem. \
+Em `ler_chunks`, no máximo 2-3 chamadas (use max_chars=12000): o INÍCIO tem a petição \
+e o FIM tem as últimas decisões; NUNCA tente ler os autos inteiros. Se precisar de um \
+trecho específico, prefira `buscar_zordon` com filtro cnj (busca semântica direto no ponto).
 - Saúde do devedor: `ente_fiscal` + `capag_rating`. Valores: `atualizar_valor` e \
 `valor_presente`. Teses: `stj_temas_repetitivos`.
 - Perguntas sobre COMO O VOYAGER FUNCIONA (classificador, features, pesos, survival, \

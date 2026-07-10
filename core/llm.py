@@ -159,7 +159,13 @@ def chat_agent_stream(messages: list[dict], *, tools_specs: list, dispatch,
         }
         if tools_specs and not ultima:  # última rodada fecha sem tools (força conclusão)
             payload['tools'] = tools_specs
+        else:
+            msgs = msgs + [{'role': 'user', 'content':
+                            'Conclua AGORA a resposta final ao usuário com o que já reuniu. '
+                            'Não peça mais dados.'}]
+            payload['messages'] = msgs
         content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         # tool_calls fragmentados: index -> {'id', 'function': {'name', 'arguments'}}
         tc_acc: dict[int, dict] = {}
         try:
@@ -181,6 +187,7 @@ def chat_agent_stream(messages: list[dict], *, tools_specs: list, dispatch,
                     delta = (obj.get('choices') or [{}])[0].get('delta') or {}
                     rz = delta.get('reasoning') or delta.get('reasoning_content')
                     if rz:
+                        reasoning_parts.append(rz)
                         yield {'type': 'reasoning', 'text': rz}
                     if delta.get('content'):
                         content_parts.append(delta['content'])
@@ -203,7 +210,10 @@ def chat_agent_stream(messages: list[dict], *, tools_specs: list, dispatch,
 
         content = ''.join(content_parts)
         if not tc_acc:  # sem tools nesta rodada → resposta final
-            yield {'type': 'done', 'content': content}
+            # reasoning-model pode despejar tudo no canal de raciocínio e deixar
+            # content vazio — melhor prosa útil que turno perdido (mesmo fallback
+            # do chat()). O texto já foi mostrado ao usuário como 'reasoning'.
+            yield {'type': 'done', 'content': content or ''.join(reasoning_parts)}
             return
 
         # ecoa a mensagem do assistente (com os tool_calls) e responde cada uma

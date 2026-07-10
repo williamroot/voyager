@@ -193,9 +193,14 @@ def ler_chunks(cnj: str, offset: int = 0, max_chars: int = 6000) -> dict:
         if usado >= max_chars:
             break
     prox = offset + vistos
-    return {'cnj': cnj, 'total_chunks': len(todos), 'offset': offset,
-            'devolvidos': len(itens),
-            'proximo_offset': prox if prox < len(todos) else None, 'chunks': itens}
+    out = {'cnj': cnj, 'total_chunks': len(todos), 'offset': offset,
+           'devolvidos': len(itens),
+           'proximo_offset': prox if prox < len(todos) else None, 'chunks': itens}
+    if len(todos) > 30 and offset == 0:
+        out['dica'] = (f'autos LONGOS ({len(todos)} chunks) — NÃO leia tudo. O fim tem as '
+                       f'últimas decisões (use offset={max(len(todos) - 8, 0)}); para um tema '
+                       f'específico use buscar_zordon com o cnj como filtro.')
+    return out
 
 
 def explicar_modelos(topico: str = 'todos') -> dict:
