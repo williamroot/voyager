@@ -30,6 +30,7 @@
   <button type="button" onclick="document.getElementById('modal-fontes').showModal()" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Fontes de dados, pesos e valores">🗂️ Fontes</button>
   <button type="button" onclick="abrirPrompt()" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Ver/editar o prompt da IA">🧠 Prompt</button>
   <button type="button" onclick="window.print()" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Salvar como PDF">📄 PDF</button>
+  <a href="{% url 'dashboard:jurimetria-chat' %}?cnj={{ dossie.cnj|urlencode }}" class="px-4 py-2 text-sm rounded border border-border hover:border-accent text-fg-subtle hover:text-accent no-print" title="Conversar com o agente sobre este processo">💬 Conversar</a>
   {% endif %}
 </form>
 

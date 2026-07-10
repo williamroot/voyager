@@ -1,0 +1,330 @@
+{% extends 'dashboard/base.html' %}
+{% block title %}Chat de Jurimetria{% endblock %}
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Chat de Jurimetria' subtitle='Converse com o agente — ele consulta o dossiê, os autos (RAG Zordon), fontes públicas e explica os modelos' %}
+
+<div class="flex gap-4" style="height: calc(100vh - 12rem); min-height: 420px">
+  {# ─── Sidebar de conversas ─── #}
+  <aside class="w-64 shrink-0 card p-0 flex flex-col overflow-hidden">
+    <div class="p-3 border-b border-border flex items-center justify-between">
+      <span class="text-sm font-semibold">Conversas</span>
+      <div class="flex gap-1">
+        <button id="btn-prompt" class="text-xs px-2 py-1 rounded border border-border hover:border-accent text-fg-subtle" title="Ver/editar o prompt do agente">🧠</button>
+        <button id="btn-nova" class="btn-primary text-xs px-2 py-1 rounded">+ Nova</button>
+      </div>
+    </div>
+    <div id="sessoes" class="flex-1 overflow-y-auto text-sm"></div>
+  </aside>
+
+  {# ─── Pane do chat ─── #}
+  <section class="flex-1 card p-0 flex flex-col overflow-hidden relative min-w-0">
+    <div id="chat-scroll" class="flex-1 overflow-y-auto p-4">
+      <div id="msgs" class="space-y-3 max-w-3xl mx-auto"></div>
+      <div id="vazio" class="text-center text-fg-subtle text-sm mt-16">
+        <div class="text-3xl mb-2">⚖️</div>
+        <p class="font-medium text-fg-soft mb-1">Analista de jurimetria do Voyager</p>
+        <p>Pergunte sobre um processo (CNJ), precedentes, saúde fiscal de entes,<br>ou como os modelos do Voyager funcionam.</p>
+      </div>
+    </div>
+    <button id="pill-fim" class="hidden absolute bottom-28 left-1/2 -translate-x-1/2 text-xs rounded-full px-3 py-1.5 bg-accent text-white shadow-lg z-10">↓ ir para o fim</button>
+    <div class="p-3 border-t border-border">
+      <form id="composer" class="flex items-end gap-2 max-w-3xl mx-auto w-full">
+        <textarea id="input" rows="1" placeholder="Pergunte sobre um processo, precedentes, os modelos…"
+          class="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm resize-none focus:border-accent focus:outline-none" style="max-height:10rem"></textarea>
+        <button id="btn-enviar" type="submit" class="btn-primary px-4 py-2 rounded-lg text-sm">Enviar</button>
+        <button id="btn-parar" type="button" class="hidden px-4 py-2 rounded-lg text-sm border border-border hover:border-red-400 text-fg-subtle">■ Parar</button>
+      </form>
+    </div>
+  </section>
+</div>
+
+{# ─── Modal: prompt do agente ─── #}
+<dialog id="modal-prompt" class="rounded-xl p-0 bg-card text-fg border border-border max-w-3xl w-[92vw] backdrop:bg-black/50">
+  <div class="p-5">
+    <div class="flex items-center justify-between mb-3">
+      <div><h3 class="text-lg font-semibold">Prompt do agente de chat</h3>
+        <p class="text-xs text-fg-subtle">Editável e auditável — <span id="prompt-status"></span></p></div>
+      <button onclick="document.getElementById('modal-prompt').close()" class="text-fg-subtle hover:text-fg text-xl">✕</button>
+    </div>
+    <textarea id="prompt-text" rows="16" class="w-full bg-bg border border-border rounded p-3 text-xs font-mono"></textarea>
+    <div class="flex items-center gap-2 mt-3">
+      <button id="prompt-salvar" class="btn-primary px-4 py-2 text-sm rounded">Salvar</button>
+      <button id="prompt-default" class="px-4 py-2 text-sm rounded border border-border hover:border-accent">Restaurar padrão</button>
+      <span id="prompt-msg" class="text-xs text-fg-subtle"></span>
+    </div>
+    <details class="mt-3"><summary class="text-xs text-fg-subtle cursor-pointer">Histórico de alterações</summary>
+      <div id="prompt-hist" class="mt-2 space-y-1 text-xs max-h-40 overflow-y-auto"></div>
+    </details>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  'use strict';
+  const CNJ_INICIAL = "{{ cnj_input|escapejs }}";
+  const URLS = {
+    stream:  "{% url 'dashboard:jurimetria-chat-stream' %}",
+    sessoes: "{% url 'dashboard:jurimetria-chat-sessoes' %}",
+    prompt:  "{% url 'dashboard:jurimetria-chat-prompt' %}",
+  };
+  let sessao = "{{ sessao_input|escapejs }}" || null;
+  let cnjCtx = CNJ_INICIAL;
+  let aborter = null, busy = false;
+
+  const $ = (id) => document.getElementById(id);
+  const scroll = $('chat-scroll'), msgs = $('msgs'), input = $('input');
+
+  function csrf() { return (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || ''; }
+  function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+  // ───────── render ─────────
+  function bolhaUser(texto) {
+    $('vazio').style.display = 'none';
+    const el = document.createElement('div');
+    el.className = 'flex justify-end';
+    el.innerHTML = '<div class="max-w-[80%] rounded-2xl rounded-tr-sm bg-accent/15 px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"></div>';
+    el.firstChild.textContent = texto;
+    msgs.appendChild(el); autoscroll(true);
+  }
+  function bolhaAssistant() {
+    $('vazio').style.display = 'none';
+    const el = document.createElement('div');
+    el.className = 'flex justify-start';
+    el.innerHTML =
+      '<div class="max-w-[92%] min-w-0 w-full">' +
+      '<div class="chips flex flex-wrap gap-1 mb-1.5"></div>' +
+      '<details class="think hidden mb-1.5"><summary class="text-[11px] text-fg-subtle cursor-pointer">🧠 raciocínio</summary><div class="think-txt text-[11px] text-fg-subtle whitespace-pre-wrap max-h-32 overflow-y-auto"></div></details>' +
+      '<div class="rounded-2xl rounded-tl-sm border border-border bg-bg px-4 py-2.5">' +
+      '<div class="txt text-sm text-fg-soft leading-relaxed"></div>' +
+      '<span class="cursor text-accent animate-pulse">▍</span></div>' +
+      '<div class="acoes hidden mt-1 flex gap-2 text-[11px] text-fg-subtle"></div></div>';
+    msgs.appendChild(el); autoscroll(true);
+    return el;
+  }
+  function chipTool(node, name, label) {
+    const c = document.createElement('span');
+    c.className = 'inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[10px] font-medium text-fg-subtle';
+    c.dataset.tool = name;
+    c.innerHTML = '🔧 ' + esc(label || name);
+    node.querySelector('.chips').appendChild(c); autoscroll();
+    return c;
+  }
+  function fechaChip(node, name, ok) {
+    const chips = node.querySelectorAll('.chips [data-tool="' + CSS.escape(name) + '"]');
+    const c = chips[chips.length - 1];
+    if (c && c.innerHTML.startsWith('🔧')) c.innerHTML = (ok ? '✓ ' : '⚠ ') + c.innerHTML.slice(c.innerHTML.indexOf(' ') + 1);
+  }
+  function addAcoes(node, textoFinal) {
+    const a = node.querySelector('.acoes');
+    a.classList.remove('hidden');
+    a.innerHTML = '';
+    const btnCopy = document.createElement('button');
+    btnCopy.className = 'hover:text-fg'; btnCopy.textContent = '📋 copiar';
+    btnCopy.onclick = () => { navigator.clipboard.writeText(textoFinal); btnCopy.textContent = '✓ copiado'; setTimeout(() => btnCopy.textContent = '📋 copiar', 1500); };
+    const btnRegen = document.createElement('button');
+    btnRegen.className = 'hover:text-fg'; btnRegen.textContent = '↻ regenerar';
+    btnRegen.onclick = () => { if (!busy) { node.remove(); enviar('', true); } };
+    a.append(btnCopy, btnRegen);
+  }
+  const ERR_HINTS = {
+    llm_indisponivel: 'O LLM não está configurado no servidor.',
+    llm_falha: 'Falha ao consultar o modelo — tente de novo.',
+    turno_em_andamento: 'Aguarde a resposta atual terminar.',
+    sessao_invalida: 'Recarregue a página.',
+    interno: 'Erro interno — o time foi notificado.',
+    rede: 'Verifique a conexão.',
+  };
+  function mostrarErro(node, code, texto, retry) {
+    const box = document.createElement('div');
+    box.className = 'mt-1.5 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs';
+    box.innerHTML = '<p class="text-red-300">' + esc(texto || 'Algo deu errado.') + '</p>' +
+      (ERR_HINTS[code] ? '<p class="text-fg-subtle mt-0.5">' + esc(ERR_HINTS[code]) + '</p>' : '');
+    if (retry && code !== 'turno_em_andamento') {
+      const b = document.createElement('button');
+      b.className = 'mt-1 rounded border border-border px-2 py-0.5 text-fg-soft hover:border-accent';
+      b.textContent = '↻ Tentar novamente'; b.onclick = () => { box.remove(); retry(); };
+      box.appendChild(b);
+    }
+    (node || msgs).appendChild(box); autoscroll();
+  }
+
+  // ───────── autoscroll ─────────
+  let noFim = true;
+  scroll.addEventListener('scroll', () => {
+    noFim = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
+    $('pill-fim').classList.toggle('hidden', noFim);
+  });
+  function autoscroll(force) {
+    if (force || noFim) scroll.scrollTop = scroll.scrollHeight;
+  }
+  $('pill-fim').onclick = () => { scroll.scrollTo({ top: scroll.scrollHeight, behavior: 'smooth' }); };
+
+  // ───────── SSE via fetch reader ─────────
+  async function streamPost(body, onEvent) {
+    const r = await fetch(URLS.stream, {
+      method: 'POST', signal: aborter.signal,
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try { msg = (await r.json()).erro || msg; } catch (e) {}
+      throw new Error(msg);
+    }
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const frames = buf.split('\n\n'); buf = frames.pop() || '';
+      for (const f of frames) {
+        const dl = f.split('\n').find(l => l.startsWith('data:'));
+        if (!dl) continue;
+        let ev; try { ev = JSON.parse(dl.slice(5)); } catch (e) { continue; }
+        onEvent(ev);
+        if (ev.type === 'done' || ev.type === 'error') { reader.cancel(); return; }
+      }
+    }
+  }
+
+  // ───────── turno ─────────
+  async function enviar(texto, regenerate) {
+    if (busy) return;
+    texto = (texto || '').trim();
+    if (!texto && !regenerate) return;
+    busy = true; aborter = new AbortController();
+    $('btn-enviar').classList.add('hidden'); $('btn-parar').classList.remove('hidden');
+    if (!regenerate) { bolhaUser(texto); input.value = ''; input.style.height = 'auto'; }
+    const node = bolhaAssistant();
+    const txtEl = node.querySelector('.txt'), curEl = node.querySelector('.cursor');
+    let acc = '', reasoning = '';
+    try {
+      await streamPost({ session: sessao, message: texto, cnj: cnjCtx, regenerate: !!regenerate }, (ev) => {
+        if (ev.type === 'session') {
+          sessao = ev.session;
+          history.replaceState(null, '', '?sessao=' + sessao + (cnjCtx ? '&cnj=' + encodeURIComponent(cnjCtx) : ''));
+          carregarSessoes();
+        } else if (ev.type === 'reasoning') {
+          reasoning += ev.text;
+          const th = node.querySelector('.think'); th.classList.remove('hidden');
+          th.querySelector('.think-txt').textContent = reasoning; autoscroll();
+        } else if (ev.type === 'tool_call') {
+          chipTool(node, ev.name, ev.label);
+        } else if (ev.type === 'tool_result') {
+          fechaChip(node, ev.name, ev.ok !== false);
+        } else if (ev.type === 'content') {
+          acc += ev.text; txtEl.textContent = acc; autoscroll();
+        } else if (ev.type === 'done') {
+          txtEl.innerHTML = ev.html || esc(acc); curEl.remove();
+          addAcoes(node, acc); carregarSessoes(); autoscroll();
+        } else if (ev.type === 'error') {
+          curEl.remove();
+          mostrarErro(node, ev.code, ev.text, () => { node.remove(); enviar(texto, regenerate); });
+        }
+      });
+    } catch (err) {
+      curEl.remove();
+      if (err.name !== 'AbortError') {
+        mostrarErro(node, 'rede', String(err.message || 'Falha de conexão.'), () => { node.remove(); enviar(texto, regenerate); });
+      } else {
+        txtEl.innerHTML = esc(acc); // parcial fica; o servidor persiste o turno completo
+        const i = document.createElement('div');
+        i.className = 'text-[10px] text-fg-subtle mt-1'; i.textContent = '■ interrompido (a resposta completa fica salva na conversa)';
+        node.querySelector('.txt').parentElement.appendChild(i);
+      }
+    } finally {
+      busy = false;
+      $('btn-enviar').classList.remove('hidden'); $('btn-parar').classList.add('hidden');
+    }
+  }
+
+  $('composer').addEventListener('submit', (e) => { e.preventDefault(); enviar(input.value, false); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!busy) enviar(input.value, false); }
+  });
+  input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; });
+  $('btn-parar').onclick = () => { if (aborter) aborter.abort(); };
+
+  // ───────── sessões ─────────
+  async function carregarSessoes() {
+    try {
+      const r = await fetch(URLS.sessoes); const d = await r.json();
+      const box = $('sessoes'); box.innerHTML = '';
+      (d.sessoes || []).forEach((s) => {
+        const it = document.createElement('div');
+        it.className = 'px-3 py-2 border-b border-border/50 cursor-pointer hover:bg-accent/5 group flex items-start justify-between gap-1' +
+          (s.uuid === sessao ? ' bg-accent/10' : '');
+        it.innerHTML = '<div class="min-w-0"><div class="truncate text-fg-soft">' + esc(s.title) + '</div>' +
+          '<div class="text-[10px] text-fg-subtle">' + esc(s.ultima) + (s.cnj ? ' · ' + esc(s.cnj) : '') + '</div></div>' +
+          '<button class="del opacity-0 group-hover:opacity-100 text-fg-subtle hover:text-red-400 text-xs shrink-0" title="Apagar">✕</button>';
+        it.onclick = (e) => { if (!e.target.classList.contains('del')) abrirSessao(s.uuid); };
+        it.querySelector('.del').onclick = async (e) => {
+          e.stopPropagation();
+          if (!confirm('Apagar esta conversa?')) return;
+          await fetch(URLS.sessoes + s.uuid + '/', { method: 'DELETE', headers: { 'X-CSRFToken': csrf() } });
+          if (s.uuid === sessao) { sessao = null; msgs.innerHTML = ''; $('vazio').style.display = ''; history.replaceState(null, '', location.pathname); }
+          carregarSessoes();
+        };
+        box.appendChild(it);
+      });
+    } catch (e) { /* sidebar é best-effort */ }
+  }
+
+  async function abrirSessao(uuid) {
+    if (busy) return;
+    const r = await fetch(URLS.sessoes + uuid + '/');
+    if (!r.ok) return;
+    const d = await r.json();
+    sessao = uuid; cnjCtx = d.cnj || '';
+    history.replaceState(null, '', '?sessao=' + uuid + (cnjCtx ? '&cnj=' + encodeURIComponent(cnjCtx) : ''));
+    msgs.innerHTML = ''; $('vazio').style.display = 'none';
+    (d.mensagens || []).forEach((m) => {
+      if (m.role === 'user') { bolhaUser(m.texto); return; }
+      const node = bolhaAssistant();
+      node.querySelector('.cursor').remove();
+      (m.blocks || []).forEach((b) => {
+        if (b.type === 'tool_use') chipTool(node, b.name, null);
+        if (b.type === 'tool_result') fechaChip(node, b.name, b.ok !== false);
+      });
+      node.querySelector('.txt').innerHTML = m.html || esc(m.texto);
+      addAcoes(node, m.texto);
+    });
+    carregarSessoes(); autoscroll(true);
+  }
+
+  $('btn-nova').onclick = () => {
+    if (busy) return;
+    sessao = null; cnjCtx = ''; msgs.innerHTML = ''; $('vazio').style.display = '';
+    history.replaceState(null, '', location.pathname); carregarSessoes(); input.focus();
+  };
+
+  // ───────── prompt (ver/editar) ─────────
+  async function abrirPrompt() {
+    const r = await fetch(URLS.prompt); const d = await r.json();
+    $('prompt-text').value = d.prompt || '';
+    $('prompt-status').textContent = d.is_override ? 'usando prompt CUSTOMIZADO' : 'usando o padrão';
+    $('prompt-hist').innerHTML = (d.history || []).map((h) =>
+      '<div class="border-b border-border/40 pb-1">' + esc(h.ts) + ' · ' + esc(h.user) + ' · ' + esc(h.acao) + ' (' + h.chars + ' chars)</div>').join('') || '<span class="text-fg-subtle">sem alterações</span>';
+    document.getElementById('modal-prompt').showModal();
+  }
+  async function salvarPrompt(texto) {
+    const fd = new FormData(); fd.append('prompt', texto);
+    const r = await fetch(URLS.prompt, { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd });
+    const d = await r.json();
+    $('prompt-msg').textContent = d.ok ? '✓ salvo' : 'falhou';
+    $('prompt-status').textContent = d.is_override ? 'usando prompt CUSTOMIZADO' : 'usando o padrão';
+    setTimeout(() => $('prompt-msg').textContent = '', 2000);
+  }
+  $('btn-prompt').onclick = abrirPrompt;
+  $('prompt-salvar').onclick = () => salvarPrompt($('prompt-text').value);
+  $('prompt-default').onclick = () => salvarPrompt('');
+
+  // ───────── init ─────────
+  carregarSessoes();
+  if (sessao) { abrirSessao(sessao); }
+  else if (CNJ_INICIAL) { input.value = 'Analise o processo ' + CNJ_INICIAL; input.focus(); }
+  else { input.focus(); }
+})();
+</script>
+{% endblock %}

@@ -459,6 +459,174 @@ def jurimetria_dossie_narrativa_stream(request):
     return resp
 
 
+# ---------------- Chat de jurimetria (agente conversacional) ----------------
+
+@login_required
+def jurimetria_chat(request):
+    """Página do chat de jurimetria — sidebar de conversas + pane. ?cnj= abre uma
+    conversa nova ancorada no processo; ?sessao=<uuid> reabre uma existente."""
+    return render(request, 'dashboard/jurimetria_chat.html', {
+        'cnj_input': (request.GET.get('cnj') or '').strip(),
+        'sessao_input': (request.GET.get('sessao') or '').strip(),
+    })
+
+
+@login_required
+@require_POST
+def jurimetria_chat_stream(request):
+    """SSE do turno do chat. POST JSON {session|null, message, cnj?, regenerate?}.
+    session=null cria a sessão on-the-fly (1º evento devolve o uuid). Lock por
+    sessão contra turnos concorrentes. Mesmo esqueleto Queue+thread+heartbeat da
+    narrativa (o turno de agente com tools passa fácil de 90s)."""
+    import json
+    import queue
+    import threading
+    from django.http import StreamingHttpResponse
+    from . import jurimetria_chat as jc
+    from .models import ChatSession
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except (ValueError, TypeError):
+        return JsonResponse({'erro': 'JSON inválido'}, status=400)
+    message = (body.get('message') or '').strip()
+    regenerate = bool(body.get('regenerate'))
+    cnj = (body.get('cnj') or '').strip()[:30]
+    sess_uuid = (body.get('session') or '').strip() or None
+
+    nova_sessao = False
+    if sess_uuid:
+        try:
+            session = ChatSession.objects.get(uuid=sess_uuid, user=request.user)
+        except Exception:  # noqa: BLE001 — uuid inválido ou inexistente
+            return JsonResponse({'erro': 'sessão não encontrada'}, status=404)
+    else:
+        if not message:
+            return JsonResponse({'erro': 'mensagem vazia'}, status=400)
+        session = ChatSession.objects.create(user=request.user, cnj_contexto=cnj)
+        nova_sessao = True
+
+    lock_key = f'jurchat:lock:{session.uuid}'
+    if not cache.add(lock_key, '1', timeout=300):
+        def _busy():
+            yield ('data: ' + json.dumps({'type': 'error', 'code': 'turno_em_andamento',
+                   'text': 'Já há uma resposta sendo gerada nesta conversa.'}) + '\n\n')
+            yield 'event: end\ndata: {}\n\n'
+        resp = StreamingHttpResponse(_busy(), content_type='text/event-stream; charset=utf-8')
+        resp['Cache-Control'] = 'no-cache'
+        resp['X-Accel-Buffering'] = 'no'
+        return resp
+
+    q: queue.Queue = queue.Queue()
+    _SENTINEL = object()
+
+    def _produce():
+        try:
+            for ev in jc.responder_stream(session, message, regenerate=regenerate):
+                q.put(ev)
+        except Exception:  # noqa: BLE001
+            logger.exception('chat responder_stream falhou (sessao %s)', session.uuid)
+            q.put({'type': 'error', 'code': 'interno',
+                   'text': 'Falha interna ao gerar a resposta.'})
+        finally:
+            cache.delete(lock_key)
+            q.put(_SENTINEL)
+
+    def _sse():
+        if nova_sessao:
+            yield ('data: ' + json.dumps({'type': 'session', 'session': str(session.uuid),
+                   'title': session.title}, ensure_ascii=False) + '\n\n')
+        threading.Thread(target=_produce, daemon=True).start()
+        while True:
+            try:
+                ev = q.get(timeout=15)
+            except queue.Empty:
+                yield ': keepalive\n\n'
+                continue
+            if ev is _SENTINEL:
+                yield 'event: end\ndata: {}\n\n'
+                return
+            yield f'data: {json.dumps(ev, ensure_ascii=False, default=str)}\n\n'
+
+    resp = StreamingHttpResponse(_sse(), content_type='text/event-stream; charset=utf-8')
+    resp['Cache-Control'] = 'no-cache'
+    resp['X-Accel-Buffering'] = 'no'
+    return resp
+
+
+@login_required
+def jurimetria_chat_sessoes(request):
+    """GET → lista de conversas do usuário. POST → cria conversa vazia."""
+    from .models import ChatSession
+    if request.method == 'POST':
+        cnj = (request.POST.get('cnj') or '').strip()[:30]
+        s = ChatSession.objects.create(user=request.user, cnj_contexto=cnj)
+        return JsonResponse({'session': str(s.uuid), 'title': s.title})
+    sessoes = ChatSession.objects.filter(user=request.user)[:50]
+    return JsonResponse({'sessoes': [
+        {'uuid': str(s.uuid), 'title': s.title, 'cnj': s.cnj_contexto,
+         'ultima': s.last_message_at.strftime('%d/%m %H:%M') if s.last_message_at else ''}
+        for s in sessoes]})
+
+
+@login_required
+def jurimetria_chat_sessao(request, sess_uuid):
+    """GET → mensagens da conversa (blocks p/ reidratar a UI). PATCH → renomeia.
+    DELETE → apaga. Sempre restrito ao dono."""
+    import json
+    from .models import ChatSession
+    session = get_object_or_404(ChatSession, uuid=sess_uuid, user=request.user)
+    if request.method == 'DELETE':
+        session.delete()
+        return JsonResponse({'ok': True})
+    if request.method == 'PATCH':
+        try:
+            title = (json.loads(request.body or b'{}').get('title') or '').strip()[:255]
+        except (ValueError, TypeError):
+            title = ''
+        if title:
+            session.title = title
+            session.save(update_fields=['title'])
+        return JsonResponse({'ok': True, 'title': session.title})
+    from .jurimetria_narrativa import _fmt
+    msgs = []
+    for m in session.messages.all():
+        blocks = (m.content_json or {}).get('blocks') or []
+        html = ''
+        if m.role == 'assistant':
+            txt = m.texto()
+            if txt:
+                html = ('<p class="text-sm text-fg-soft leading-relaxed mb-2">'
+                        + _fmt(txt) + '</p>')
+        msgs.append({'id': m.pk, 'role': m.role, 'blocks': blocks, 'html': html,
+                     'texto': m.texto(), 'model': m.model})
+    return JsonResponse({'uuid': str(session.uuid), 'title': session.title,
+                         'cnj': session.cnj_contexto, 'mensagens': msgs})
+
+
+@login_required
+def jurimetria_chat_prompt(request):
+    """Ver/editar o prompt do sistema do CHAT (transparência/tuning) — espelho do
+    jurimetria_prompt da narrativa, com chaves próprias."""
+    from django.utils import timezone
+    from . import jurimetria_chat as jc
+    if request.method == 'POST':
+        novo = request.POST.get('prompt', '')
+        antes = jc.get_system_prompt()
+        jc.set_system_prompt(novo)
+        depois = jc.get_system_prompt()
+        if depois != antes:
+            jc.append_prompt_history({
+                'ts': timezone.now().strftime('%d/%m/%Y %H:%M'),
+                'user': request.user.get_username(),
+                'acao': 'editado' if jc.is_override() else 'restaurado o padrão',
+                'chars': len(depois), 'prompt': depois, 'preview': depois[:90]})
+        return JsonResponse({'ok': True, 'prompt': depois, 'is_override': jc.is_override(),
+                             'history': jc.get_prompt_history()})
+    return JsonResponse({'prompt': jc.get_system_prompt(), 'default': jc.get_default_prompt(),
+                         'is_override': jc.is_override(), 'history': jc.get_prompt_history()})
+
+
 @login_required
 @require_GET
 def tribunais(request):

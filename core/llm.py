@@ -121,6 +121,117 @@ def chat_stream(messages: list[dict], *, max_tokens: int = 9000, temperature: fl
         return
 
 
+def chat_agent_stream(messages: list[dict], *, tools_specs: list, dispatch,
+                      max_rounds: int = 8, max_tokens: int = 9000,
+                      temperature: float = 0.3, timeout: float = 240.0):
+    """Loop de agente com tool-calling E streaming, multi-turno (chat de jurimetria).
+
+    `messages` é o histórico completo (system + turnos user/assistant). A cada rodada
+    faz POST stream=True com `tools`; os deltas de texto saem na hora e os
+    `delta.tool_calls` (que chegam FRAGMENTADOS por index — id/name numa parte,
+    arguments em pedaços) são acumulados. Rodada com tool_calls → executa via
+    `dispatch(name, args)` e volta ao loop; sem tool_calls → resposta final.
+
+    Yields (nunca levanta; em falha emite 'error' e encerra):
+      {'type': 'reasoning', 'text': ...}
+      {'type': 'content',   'text': ...}                    # token-a-token
+      {'type': 'tool_call', 'name': ..., 'args': {...}}
+      {'type': 'tool_result', 'name': ..., 'ok': bool, 'resumo': str}
+      {'type': 'done',  'content': texto_final}
+      {'type': 'error', 'code': 'llm_indisponivel'|'llm_falha', 'text': ...}
+    """
+    import json
+    if not disponivel():
+        yield {'type': 'error', 'code': 'llm_indisponivel',
+               'text': 'LLM não configurado (OLLAMA_API_KEY ausente).'}
+        return
+    api_key = getattr(settings, 'OLLAMA_API_KEY', '')
+    base_url = getattr(settings, 'OLLAMA_BASE_URL', 'https://ollama.com/v1').rstrip('/')
+    msgs = [dict(m) for m in messages]  # cópia local — o caller persiste só user/assistant
+
+    for rodada in range(max_rounds):
+        ultima = rodada == max_rounds - 1
+        payload = {
+            'model': getattr(settings, 'OLLAMA_MODEL', 'kimi-k2.6'),
+            'messages': msgs, 'max_tokens': max(max_tokens, _MIN_TOKENS),
+            'temperature': temperature, 'stream': True,
+            'reasoning_effort': getattr(settings, 'OLLAMA_REASONING_EFFORT', 'low'),
+        }
+        if tools_specs and not ultima:  # última rodada fecha sem tools (força conclusão)
+            payload['tools'] = tools_specs
+        content_parts: list[str] = []
+        # tool_calls fragmentados: index -> {'id', 'function': {'name', 'arguments'}}
+        tc_acc: dict[int, dict] = {}
+        try:
+            with requests.post(f'{base_url}/chat/completions',
+                               headers={'Authorization': f'Bearer {api_key}'},
+                               json=payload, stream=True, timeout=timeout) as resp:
+                resp.raise_for_status()
+                resp.encoding = 'utf-8'  # requests default seria ISO-8859-1 → mojibake
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line or not line.startswith('data:'):
+                        continue
+                    data = line[len('data:'):].strip()
+                    if data == '[DONE]':
+                        break
+                    try:
+                        obj = json.loads(data)
+                    except (ValueError, TypeError):
+                        continue
+                    delta = (obj.get('choices') or [{}])[0].get('delta') or {}
+                    rz = delta.get('reasoning') or delta.get('reasoning_content')
+                    if rz:
+                        yield {'type': 'reasoning', 'text': rz}
+                    if delta.get('content'):
+                        content_parts.append(delta['content'])
+                        yield {'type': 'content', 'text': delta['content']}
+                    for frag in delta.get('tool_calls') or []:
+                        idx = frag.get('index', 0)
+                        acc = tc_acc.setdefault(idx, {'id': '', 'function': {'name': '', 'arguments': ''}})
+                        if frag.get('id'):
+                            acc['id'] = frag['id']
+                        fn = frag.get('function') or {}
+                        if fn.get('name'):
+                            acc['function']['name'] += fn['name']
+                        if fn.get('arguments'):
+                            acc['function']['arguments'] += fn['arguments']
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('llm.chat_agent_stream: %s', exc)
+            yield {'type': 'error', 'code': 'llm_falha',
+                   'text': 'Falha ao consultar o modelo. Tente novamente.'}
+            return
+
+        content = ''.join(content_parts)
+        if not tc_acc:  # sem tools nesta rodada → resposta final
+            yield {'type': 'done', 'content': content}
+            return
+
+        # ecoa a mensagem do assistente (com os tool_calls) e responde cada uma
+        tool_calls = [{'id': acc['id'] or f'call_{i}', 'type': 'function',
+                       'function': acc['function']} for i, acc in sorted(tc_acc.items())]
+        msgs.append({'role': 'assistant', 'content': content, 'tool_calls': tool_calls})
+        for tc in tool_calls:
+            name = tc['function'].get('name') or ''
+            try:
+                args = json.loads(tc['function'].get('arguments') or '{}')
+            except (ValueError, TypeError):
+                args = {}
+            yield {'type': 'tool_call', 'name': name, 'args': args}
+            resultado = dispatch(name, args)
+            ok = not (isinstance(resultado, dict) and resultado.get('erro'))
+            resumo = ''
+            if isinstance(resultado, dict):
+                resumo = str(resultado.get('erro') or '')[:160] if not ok else \
+                    ', '.join(f'{k}' for k in list(resultado)[:6])
+            yield {'type': 'tool_result', 'name': name, 'ok': ok, 'resumo': resumo}
+            msgs.append({'role': 'tool', 'tool_call_id': tc['id'],
+                         'content': json.dumps(resultado, ensure_ascii=False, default=str)[:8000]})
+
+    # max_rounds esgotado com a última rodada ainda pedindo tools (não deveria — a
+    # última vai sem specs), mas por segurança fecha com o que acumulou
+    yield {'type': 'done', 'content': ''}
+
+
 def chat_agent(system: str, user: str, *, tools_specs: list, dispatch, on_step=None,
                max_rounds: int = 8, max_tokens: int = 9000, temperature: float = 0.3,
                timeout: float = 240.0) -> str | None:

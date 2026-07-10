@@ -414,6 +414,11 @@
         {% voy_icon "search" "w-4 h-4" %}
         <span class="opacity-70">↳</span> Busca semântica
       </a>
+      {% url 'dashboard:jurimetria-chat' as jurimetria_chat_url %}
+      <a href="{{ jurimetria_chat_url }}" class="nav-item nav-sub {% if request.path == jurimetria_chat_url %}active{% endif %}">
+        {% voy_icon "transmission" "w-4 h-4" %}
+        <span class="opacity-70">↳</span> Chat IA
+      </a>
       <a href="{{ movs_url }}" class="nav-item {% if movs_url in request.path %}active{% endif %}">
         {% voy_icon "transmission" "w-4 h-4" %}
         Movimentações

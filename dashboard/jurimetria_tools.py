@@ -149,6 +149,49 @@ def casos_similares(assunto: str, tribunal: str = '', limit: int = 10) -> dict:
             'distribuicao_classificacao': distrib, 'precedentes_com_desfecho': prec.get('itens', [])}
 
 
+def buscar_zordon(query: str, cnj: str = '', limit: int = 8) -> dict:
+    """Busca semântica LIVRE no corpus Zordon (acórdãos/autos), com rerank."""
+    from . import zordon_client
+    res = zordon_client.buscar(query=(query or '')[:300], limit=min(limit, 12),
+                               cnj=cnj or None, rerank=True)
+    itens = (res or {}).get('results') or []
+    return {'query': query, 'cnj_filtro': cnj or None, 'total': len(itens),
+            'itens': [{'cnj': it.get('numero_cnj'), 'tipo': it.get('doc_tipo'),
+                       'score': it.get('score'),
+                       'trecho': (it.get('snippet') or '')[:400]} for it in itens],
+            'erro': (res or {}).get('erro')}
+
+
+def ler_chunks(cnj: str, offset: int = 0, max_chars: int = 6000) -> dict:
+    """Texto dos autos de um CNJ (chunks indexados no Zordon), paginado por offset."""
+    from . import zordon_client
+    res = zordon_client.chunks(cnj)
+    if (res or {}).get('erro'):
+        return {'cnj': cnj, 'erro': res['erro']}
+    todos = (res or {}).get('chunks') or []
+    max_chars = min(max(int(max_chars or 6000), 500), 12000)
+    offset = max(int(offset or 0), 0)
+    itens, usado = [], 0
+    for ch in todos[offset:]:
+        txt = (ch.get('texto') or '').strip()
+        if usado + len(txt) > max_chars and itens:
+            break
+        itens.append({'i': offset + len(itens), 'pagina': ch.get('pagina'),
+                      'texto': txt[:max_chars - usado]})
+        usado += len(txt)
+        if usado >= max_chars:
+            break
+    return {'cnj': cnj, 'total_chunks': len(todos), 'offset': offset,
+            'devolvidos': len(itens), 'proximo_offset': offset + len(itens)
+            if offset + len(itens) < len(todos) else None, 'chunks': itens}
+
+
+def explicar_modelos(topico: str = 'todos') -> dict:
+    """Explica os modelos do Voyager (pesos/fórmulas vivos do código)."""
+    from . import jurimetria_modelos
+    return jurimetria_modelos.explicar(topico)
+
+
 # ---------------- registry ----------------
 
 def _fp(nome: str):
@@ -185,6 +228,18 @@ TOOLS: list[dict] = [
      'description': 'Casos do mesmo assunto/tema: distribuição de desfecho (classificação) no acervo Voyager + precedentes com resultado no Zordon. Use para "quantos venceram/perderam" no tema.',
      'parameters': {'type': 'object', 'properties': {'assunto': {'type': 'string'}, 'tribunal': {'type': 'string'}, 'limit': {'type': 'integer', 'default': 10}}, 'required': ['assunto']},
      'handler': casos_similares},
+    {'name': 'buscar_zordon',
+     'description': 'Busca semântica LIVRE no corpus Zordon (acórdãos e autos vetorizados), com rerank. Use quando precisar de trechos além dos precedentes resumidos — pesquisa por tese, fundamento, situação fática. Opcionalmente filtra por CNJ.',
+     'parameters': {'type': 'object', 'properties': {'query': {'type': 'string', 'description': 'o que buscar (tese, fundamento, situação)'}, 'cnj': {'type': 'string', 'description': 'filtrar por um processo específico'}, 'limit': {'type': 'integer', 'default': 8}}, 'required': ['query']},
+     'handler': buscar_zordon},
+    {'name': 'ler_chunks',
+     'description': 'Lê o TEXTO dos autos de um CNJ (chunks indexados no Zordon), paginado. Use pra citar o que está escrito no processo (sentença, ofício, cálculos). Se total_chunks > devolvidos, chame de novo com proximo_offset.',
+     'parameters': {'type': 'object', 'properties': {'cnj': {'type': 'string'}, 'offset': {'type': 'integer', 'default': 0}, 'max_chars': {'type': 'integer', 'default': 6000}}, 'required': ['cnj']},
+     'handler': ler_chunks},
+    {'name': 'explicar_modelos',
+     'description': 'Explica os MODELOS do Voyager com pesos/fórmulas REAIS do código: classificador de leads (regressão logística, features F1–F30, pesos e overrides), survival Kaplan-Meier (chance 12/24m de virar precatório), score de oportunidade (5 pilares) e catálogo de fontes. Use SEMPRE que perguntarem "como o Voyager calcula/classifica X".',
+     'parameters': {'type': 'object', 'properties': {'topico': {'type': 'string', 'enum': ['classificador', 'survival', 'score_oportunidade', 'fontes_e_pesos', 'todos'], 'default': 'todos'}}, 'required': []},
+     'handler': explicar_modelos},
     # ── Fontes PÚBLICAS externas (sem login) — dashboard/fontes_publicas.py ──
     {'name': 'ente_fiscal',
      'description': 'Saúde fiscal do ENTE DEVEDOR (SICONFI/Tesouro): estoque de precatórios vencidos, Dívida Consolidada Líquida e RCL. Estima a banda de pagamento anual da EC 136/2025 (1–5% da RCL conforme estoque/RCL). Use pra avaliar se/quando o ente paga. Passe uf (ex. "SP") pro estado.',
