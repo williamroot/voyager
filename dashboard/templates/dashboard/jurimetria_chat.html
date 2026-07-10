@@ -96,14 +96,24 @@
   function ajustaAltura() {
     const w = $('chat-wrap');
     const topDoc = w.getBoundingClientRect().top + window.scrollY;
-    const padB = mainEl ? parseFloat(getComputedStyle(mainEl).paddingBottom) : 28;
+    const padB = mainEl ? parseFloat(getComputedStyle(mainEl).paddingBottom) || 28 : 28;
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     const min = window.innerWidth < 768 ? 280 : 420;
-    w.style.height = Math.max(vh - topDoc - padB, min) + 'px';
+    let h = Math.max(vh - topDoc - padB, min);
+    w.style.height = h + 'px';
+    // auto-correção: o Tailwind CDN gera estilos em runtime e fontes trocam depois —
+    // qualquer px não contabilizado vira scroll do body. Mede a sobra REAL e desconta.
+    const sobra = document.documentElement.scrollHeight - window.innerHeight;
+    if (sobra > 0) {
+      h = Math.max(h - sobra, min);
+      w.style.height = h + 'px';
+    }
   }
   if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   window.scrollTo(0, 0);
   ajustaAltura();
+  // re-assenta conforme CSS runtime/fontes/imagens chegam
+  [50, 250, 750, 1500, 3000].forEach((t) => setTimeout(ajustaAltura, t));
   window.addEventListener('resize', ajustaAltura);
   window.addEventListener('load', ajustaAltura);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(ajustaAltura);
