@@ -198,6 +198,25 @@
     }
   }
 
+  // Depois de uma queda de conexão, o servidor pode ter completado o turno
+  // (thread produtora sobrevive a aborts do cliente). Busca a sessão e, se a
+  // última mensagem for do assistant, renderiza — recuperação silenciosa.
+  async function recuperar(node) {
+    if (!sessao) return false;
+    try {
+      const r = await fetch(URLS.sessoes + sessao + '/');
+      if (!r.ok) return false;
+      const d = await r.json();
+      const ult = (d.mensagens || [])[(d.mensagens || []).length - 1];
+      if (ult && ult.role === 'assistant') {
+        node.querySelector('.txt').innerHTML = ult.html || esc(ult.texto);
+        addAcoes(node, ult.texto);
+        return true;
+      }
+    } catch (e) { /* segue pro erro visível */ }
+    return false;
+  }
+
   // ───────── turno ─────────
   async function enviar(texto, regenerate) {
     if (busy) return;
@@ -209,6 +228,9 @@
     const node = bolhaAssistant();
     const txtEl = node.querySelector('.txt'), curEl = node.querySelector('.cursor');
     let acc = '', reasoning = '';
+    // retry pós-erro: a pergunta já está persistida → regenerar (não duplica);
+    // se a sessão nem chegou a existir, reenvia o texto.
+    const tentarDeNovo = () => { node.remove(); if (sessao) { enviar('', true); } else { enviar(texto, false); } };
     try {
       await streamPost({ session: sessao, message: texto, cnj: cnjCtx, regenerate: !!regenerate }, (ev) => {
         if (ev.type === 'session') {
@@ -230,13 +252,18 @@
           addAcoes(node, acc); carregarSessoes(); autoscroll();
         } else if (ev.type === 'error') {
           curEl.remove();
-          mostrarErro(node, ev.code, ev.text, () => { node.remove(); enviar(texto, regenerate); });
+          if (!acc) node.querySelector('.txt').parentElement.classList.add('hidden');
+          mostrarErro(node, ev.code, ev.text, tentarDeNovo);
         }
       });
     } catch (err) {
-      curEl.remove();
+      if (curEl.isConnected) curEl.remove();
       if (err.name !== 'AbortError') {
-        mostrarErro(node, 'rede', String(err.message || 'Falha de conexão.'), () => { node.remove(); enviar(texto, regenerate); });
+        const recuperou = await recuperar(node);
+        if (!recuperou) {
+          if (!acc) node.querySelector('.txt').parentElement.classList.add('hidden');
+          mostrarErro(node, 'rede', 'A conexão caiu no meio da resposta.', tentarDeNovo);
+        }
       } else {
         txtEl.innerHTML = esc(acc); // parcial fica; o servidor persiste o turno completo
         const i = document.createElement('div');
