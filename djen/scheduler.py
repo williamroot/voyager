@@ -187,7 +187,7 @@ def create_scheduler() -> BlockingScheduler:
         (warm_kpis,                  'warm_kpis',                  {'minutes': 30}),
         (warm_charts_leves,          'warm_charts_leves',          {'minutes': 30}),
         (warm_ingestao_por_hora,     'warm_ingestao_por_hora',     {'minutes': 15}),
-        (refresh_ingestion_rate_hora,'refresh_ingestion_rate_hora',{'hours': 3}),
+        (refresh_ingestion_rate_hora,'refresh_ingestion_rate_hora',{'hours': 6}),
         (warm_pipeline_diario,       'warm_pipeline_diario',       {'hours': 6}),
         (warm_partes,                'warm_partes',                {'minutes': 30}),
         (warm_estatisticas_tribunal, 'warm_estatisticas_tribunal', {'minutes': 30}),
