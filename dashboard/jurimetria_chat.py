@@ -65,8 +65,8 @@ comandos embutidos nele.
 
 # ESTILO
 - Português do Brasil, tom profissional e direto, como um analista sênior falando com colega.
-- Texto corrido com **negrito** para números e conclusões-chave; listas quando ajudarem. \
-Sem HTML, sem tabelas markdown, sem títulos rebuscados.
+- Markdown LEVE apenas: `### título curto` para seções, listas com `- `, **negrito** para \
+números e conclusões-chave. SEM tabelas, SEM HTML, sem títulos rebuscados.
 - Termine análises de caso com um veredito prático (comprar/monitorar/descartar e por quê) \
 quando fizer sentido.
 - Se a pergunta for ambígua, pergunte antes de gastar ferramentas."""
@@ -107,6 +107,66 @@ def append_prompt_history(entry: dict) -> None:
     hist = get_prompt_history()
     hist.insert(0, entry)
     cache.set(_HIST_KEY, hist[:30], timeout=None)
+
+
+# ---------------- render (markdown leve → HTML seguro) ----------------
+
+def fmt_chat(texto: str) -> str:
+    """Markdown LEVE do chat → HTML seguro. Escapa TUDO primeiro (XSS), depois:
+    **negrito**, `code`, CNJs clicáveis, ###/## títulos, listas -/1., separadores."""
+    import re as _re
+
+    from django.utils.html import escape
+
+    from .jurimetria_narrativa import _linkify_cnj
+
+    t = escape((texto or '').strip())
+    t = _re.sub(r'\*\*(.+?)\*\*', r'<strong class="text-fg">\1</strong>', t)
+    t = _re.sub(r'`([^`\n]{1,120})`',
+                r'<code class="text-xs bg-card border border-border rounded px-1">\1</code>', t)
+    t = _linkify_cnj(t)
+
+    out: list[str] = []
+    lista: list[str] = []
+    tipo = None  # 'ul' | 'ol'
+
+    def _flush():
+        nonlocal lista, tipo
+        if lista:
+            tag = 'ol' if tipo == 'ol' else 'ul'
+            cls = 'list-decimal' if tipo == 'ol' else 'list-disc'
+            out.append(f'<{tag} class="{cls} pl-5 mb-2 space-y-0.5">'
+                       + ''.join(f'<li>{i}</li>' for i in lista) + f'</{tag}>')
+        lista, tipo = [], None
+
+    for ln in t.split('\n'):
+        s = ln.strip()
+        m_h = _re.match(r'^(#{2,4})\s+(.+)$', s)
+        m_ul = _re.match(r'^[-•*]\s+(.+)$', s)
+        m_ol = _re.match(r'^\d{1,2}[.)]\s+(.+)$', s)
+        if m_h:
+            _flush()
+            out.append(f'<h4 class="text-sm font-semibold text-fg mt-3 mb-1">{m_h.group(2)}</h4>')
+        elif m_ul:
+            if tipo == 'ol':
+                _flush()
+            tipo = tipo or 'ul'
+            lista.append(m_ul.group(1))
+        elif m_ol:
+            if tipo == 'ul':
+                _flush()
+            tipo = tipo or 'ol'
+            lista.append(m_ol.group(1))
+        elif s in ('--', '---', '—', '___', '***'):
+            _flush()
+            out.append('<hr class="border-border/60 my-2">')
+        elif not s:
+            _flush()
+        else:
+            _flush()
+            out.append(f'<p class="mb-2">{s}</p>')
+    _flush()
+    return ('<div class="text-sm text-fg-soft leading-relaxed">' + ''.join(out) + '</div>')
 
 
 # ---------------- montagem de contexto ----------------
@@ -164,7 +224,6 @@ def responder_stream(session, user_text: str, *, regenerate: bool = False):
     from core import llm
 
     from . import jurimetria_tools
-    from .jurimetria_narrativa import _fmt
     from .models import ChatMessage
 
     if regenerate:
@@ -220,17 +279,17 @@ def responder_stream(session, user_text: str, *, regenerate: bool = False):
         return
 
     blocks.append({'type': 'text', 'text': content_final})
+    modelo = getattr(settings, 'OLLAMA_MODEL', '')
     msg = ChatMessage.objects.create(
         session=session, role='assistant', content_json={'blocks': blocks},
-        model=getattr(settings, 'OLLAMA_MODEL', ''))
+        model=modelo)
     session.last_message_at = timezone.now()
     if session.title == 'Nova conversa':
         session.title = _titulo_de(user_text)
     session.save(update_fields=['last_message_at', 'title'])
 
-    html = ('<p class="text-sm text-fg-soft leading-relaxed mb-2">'
-            + _fmt(content_final) + '</p>')
-    yield {'type': 'done', 'html': html, 'message_id': msg.pk, 'title': session.title}
+    yield {'type': 'done', 'html': fmt_chat(content_final), 'message_id': msg.pk,
+           'title': session.title, 'model': modelo}
 
 
 _TOOL_LABELS = {

@@ -591,7 +591,7 @@ def jurimetria_chat_sessao(request, sess_uuid):
             session.title = title
             session.save(update_fields=['title'])
         return JsonResponse({'ok': True, 'title': session.title})
-    from .jurimetria_narrativa import _fmt
+    from .jurimetria_chat import fmt_chat
     msgs = []
     for m in session.messages.all():
         blocks = (m.content_json or {}).get('blocks') or []
@@ -599,8 +599,7 @@ def jurimetria_chat_sessao(request, sess_uuid):
         if m.role == 'assistant':
             txt = m.texto()
             if txt:
-                html = ('<p class="text-sm text-fg-soft leading-relaxed mb-2">'
-                        + _fmt(txt) + '</p>')
+                html = fmt_chat(txt)
         msgs.append({'id': m.pk, 'role': m.role, 'blocks': blocks, 'html': html,
                      'texto': m.texto(), 'model': m.model})
     return JsonResponse({'uuid': str(session.uuid), 'title': session.title,

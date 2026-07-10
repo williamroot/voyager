@@ -138,7 +138,7 @@
     el.innerHTML =
       '<div class="max-w-[92%] min-w-0 w-full">' +
       '<div class="chips flex flex-wrap gap-1 mb-1.5"></div>' +
-      '<details class="think hidden mb-1.5"><summary class="text-[11px] text-fg-subtle cursor-pointer">🧠 raciocínio</summary><div class="think-txt text-[11px] text-fg-subtle whitespace-pre-wrap break-words max-h-32 overflow-y-auto"></div></details>' +
+      '<details class="think hidden mb-1.5 rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5"><summary class="text-[11px] text-fg-subtle cursor-pointer select-none">🧠 raciocínio</summary><div class="think-txt text-[11px] text-fg-subtle whitespace-pre-wrap break-words max-h-36 overflow-y-auto mt-1"></div></details>' +
       '<div class="rounded-2xl rounded-tl-sm border border-border bg-bg px-4 py-2.5">' +
       '<div class="txt text-sm text-fg-soft leading-relaxed break-words"></div>' +
       '<span class="cursor text-accent animate-pulse">▍</span></div>' +
@@ -160,7 +160,7 @@
     const c = chips[chips.length - 1];
     if (c && c.innerHTML.startsWith('🔧')) c.innerHTML = (ok ? '✓ ' : '⚠ ') + c.innerHTML.slice(c.innerHTML.indexOf(' ') + 1);
   }
-  function addAcoes(node, textoFinal) {
+  function addAcoes(node, textoFinal, modelo) {
     const a = node.querySelector('.acoes');
     a.classList.remove('hidden');
     a.innerHTML = '';
@@ -171,6 +171,16 @@
     btnRegen.className = 'hover:text-fg'; btnRegen.textContent = '↻ regenerar';
     btnRegen.onclick = () => { if (!busy) { node.remove(); enviar('', true); } };
     a.append(btnCopy, btnRegen);
+    if (modelo) {
+      const m = document.createElement('span');
+      m.className = 'inline-flex items-center rounded-full border border-border bg-card px-2 py-0.5 text-[10px] text-fg-subtle';
+      m.title = 'Modelo que gerou esta resposta';
+      m.textContent = modelo;
+      a.appendChild(m);
+    }
+    // raciocínio: fecha ao concluir (fica disponível, mas recolhido)
+    const th = node.querySelector('.think');
+    if (th && !th.classList.contains('hidden')) th.open = false;
   }
   const ERR_HINTS = {
     llm_indisponivel: 'O LLM não está configurado no servidor.',
@@ -266,7 +276,7 @@
       const ult = (d.mensagens || [])[(d.mensagens || []).length - 1];
       if (ult && ult.role === 'assistant') {
         node.querySelector('.txt').innerHTML = ult.html || esc(ult.texto);
-        addAcoes(node, ult.texto);
+        addAcoes(node, ult.texto, ult.model);
         return true;
       }
     } catch (e) { /* segue pro erro visível */ }
@@ -305,8 +315,13 @@
           carregarSessoes();
         } else if (ev.type === 'reasoning') {
           reasoning += ev.text;
-          const th = node.querySelector('.think'); th.classList.remove('hidden');
-          th.querySelector('.think-txt').textContent = reasoning; autoscroll();
+          const th = node.querySelector('.think');
+          th.classList.remove('hidden');
+          th.open = true; // raciocínio AO VIVO (como o Horizon); colapsa no done
+          const tt = th.querySelector('.think-txt');
+          tt.textContent = reasoning;
+          tt.scrollTop = tt.scrollHeight; // acompanha o pensamento
+          autoscroll();
         } else if (ev.type === 'tool_call') {
           chipTool(node, ev.name, ev.label);
         } else if (ev.type === 'tool_result') {
@@ -315,7 +330,7 @@
           acc += ev.text; txtEl.textContent = acc; autoscroll();
         } else if (ev.type === 'done') {
           txtEl.innerHTML = ev.html || esc(acc); curEl.remove();
-          addAcoes(node, acc); carregarSessoes(); autoscroll();
+          addAcoes(node, acc, ev.model); carregarSessoes(); autoscroll();
         } else if (ev.type === 'error') {
           curEl.remove();
           if (!acc) node.querySelector('.txt').parentElement.classList.add('hidden');
@@ -446,7 +461,7 @@
       const corpo = m.html || esc(m.texto);
       if (corpo) node.querySelector('.txt').innerHTML = corpo;
       else node.querySelector('.txt').parentElement.classList.add('hidden');
-      if (m.texto) addAcoes(node, m.texto);
+      if (m.texto) addAcoes(node, m.texto, m.model);
     });
     if (window.innerWidth < 768) $('chat-sessoes-pane').classList.add('hidden');
     carregarSessoes(); autoscroll(true);
