@@ -37,8 +37,14 @@ def run_daily_ingestion(tribunal_sigla: str) -> dict:
     inicio = fim - timedelta(days=t.overlap_dias)
     dias = []
     d = inicio
+    # at_front: o daily NUNCA disputa FIFO com o backfill histórico (fila com
+    # dezenas de milhares de jobs) — senão a edição do dia entra com dias de
+    # atraso (visto 08-10/07: home presa em "indexado até 08/07").
+    import django_rq
+    q = django_rq.get_queue('djen_backfill')
     while d <= fim:
-        backfill_dia.delay(tribunal_sigla, str(d))
+        q.enqueue(backfill_dia, tribunal_sigla, str(d), at_front=True,
+                  job_timeout=86400)
         dias.append(str(d))
         d += timedelta(days=1)
     logger.info('daily fan-out %s %s→%s: %d backfill_dia enfileirados',
