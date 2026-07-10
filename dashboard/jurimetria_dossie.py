@@ -645,6 +645,21 @@ def _dossie_juriscope(cnj: str) -> dict | None:
             'enriquecimento_status': 'via Juriscope (fora do acervo Voyager)',
             'total_movimentacoes': 0, 'pk': None,
         },
+        # Shape COMPLETO que o template toca via {% with %} (que LEVANTA em chave
+        # ausente) — sem isso o dossiê via-Juriscope dava 500 (dg.natureza em '').
+        'diagnostico': {
+            'estagio': 'PRECATÓRIO',
+            'tom': 'ok',
+            'veredito': 'Precatório registrado no Juriscope (processo fora do acervo DJEN do Voyager).',
+            'recomendacao': {'label': 'Analisar para compra', 'tom': 'accent'},
+            'sinais': ['registro estruturado no Juriscope (natureza/valor/ente)'],
+            'indicadores': [],
+            'chance': None,
+            'desfecho': None,
+            'natureza': js.get('natureza'),
+            'ente': ente,
+            'meta': {'fonte': 'juriscope/falcon (live)', 'tipo': 'estruturado'},
+        },
         'polos': {'ativo': [], 'passivo': ([{'nome': ente, 'papel': 'ente devedor', 'polo': 'passivo'}] if ente else []), 'outros': []},
         'precatorio': {
             'is_lead': True, 'classificacao': 'PRECATORIO', 'score': None, 'versao': None,
