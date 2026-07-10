@@ -1,11 +1,13 @@
 {% extends 'dashboard/base.html' %}
 {% block title %}Chat de Jurimetria{% endblock %}
 {% block content %}
-{% include 'dashboard/_partials/page_header.html' with title='Chat de Jurimetria' subtitle='Converse com o agente — ele consulta o dossiê, os autos (RAG Zordon), fontes públicas e explica os modelos' %}
+{% include 'dashboard/_partials/page_header.html' with title='Chat de Jurimetria' subtitle='<span class="hidden md:inline">Converse com o agente — ele consulta o dossiê, os autos (RAG Zordon), fontes públicas e explica os modelos</span>' %}
 
-<div id="chat-wrap" class="flex gap-4" style="min-height: 420px">
-  {# ─── Sidebar de conversas ─── #}
-  <aside class="w-64 shrink-0 card p-0 flex flex-col overflow-hidden">
+<div id="chat-wrap" class="flex gap-2 md:gap-4 relative" style="min-height: 280px">
+  {# ─── Sidebar de conversas (overlay no mobile) ─── #}
+  <aside id="chat-sessoes-pane"
+         class="hidden md:flex w-64 shrink-0 card p-0 flex-col overflow-hidden
+                max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-20 max-md:w-72 max-md:shadow-xl">
     <div class="p-3 border-b border-border flex items-center justify-between">
       <span class="text-sm font-semibold">Conversas</span>
       <div class="flex gap-1">
@@ -17,16 +19,19 @@
   </aside>
 
   {# ─── Pane do chat ─── #}
-  <section class="flex-1 card p-0 flex flex-col overflow-hidden relative min-w-0">
-    <div id="chat-scroll" class="flex-1 overflow-y-auto p-4 pb-8">
-      <div id="msgs" class="space-y-3 max-w-3xl mx-auto"></div>
-      <div id="vazio" class="text-center text-fg-subtle text-sm mt-16">
-        <div class="text-3xl mb-2">⚖️</div>
-        <p class="font-medium text-fg-soft mb-1">Analista de jurimetria do Voyager</p>
-        <p>Pergunte sobre um processo (CNJ), precedentes, saúde fiscal de entes,<br>ou como os modelos do Voyager funcionam.</p>
+  <section class="flex-1 card p-0 flex flex-col overflow-hidden min-w-0">
+    <button id="btn-sessoes" class="md:hidden absolute top-2 left-2 z-10 text-xs px-2 py-1 rounded border border-border bg-card text-fg-subtle">☰ conversas</button>
+    <div class="relative flex-1 min-h-0 flex flex-col">
+      <div id="chat-scroll" class="flex-1 overflow-y-auto p-4 pb-8">
+        <div id="msgs" class="space-y-3 max-w-3xl mx-auto"></div>
+        <div id="vazio" class="text-center text-fg-subtle text-sm mt-16">
+          <div class="text-3xl mb-2">⚖️</div>
+          <p class="font-medium text-fg-soft mb-1">Analista de jurimetria do Voyager</p>
+          <p>Pergunte sobre um processo (CNJ), precedentes, saúde fiscal de entes,<br>ou como os modelos do Voyager funcionam.</p>
+        </div>
       </div>
+      <button id="pill-fim" class="hidden absolute bottom-3 left-1/2 -translate-x-1/2 text-xs rounded-full px-3 py-1.5 bg-accent text-white shadow-lg z-10">↓ ir para o fim</button>
     </div>
-    <button id="pill-fim" class="hidden absolute bottom-28 left-1/2 -translate-x-1/2 text-xs rounded-full px-3 py-1.5 bg-accent text-white shadow-lg z-10">↓ ir para o fim</button>
     <div class="p-3 border-t border-border">
       <form id="composer" class="flex items-end gap-2 max-w-3xl mx-auto w-full">
         <textarea id="input" rows="1" placeholder="Pergunte sobre um processo, precedentes, os modelos…"
@@ -74,15 +79,27 @@
   const $ = (id) => document.getElementById(id);
   const scroll = $('chat-scroll'), msgs = $('msgs'), input = $('input');
 
-  // Altura exata do viewport restante (nada de calc mágico: mede o topo real do
-  // wrapper — funciona com qualquer header/banner e elimina o scroll da página).
+  // Altura exata do viewport restante. Mede a posição do wrapper no DOCUMENTO
+  // (rect.top + scrollY) — imune a scroll restaurado no reload — e desconta o
+  // padding-bottom REAL do <main> (py-5/py-7), não uma constante. Recalcula em
+  // resize, load, fonts.ready (a Manrope muda a altura do header) e no
+  // visualViewport (teclado virtual do celular).
+  const mainEl = document.querySelector('main');
   function ajustaAltura() {
     const w = $('chat-wrap');
-    const top = w.getBoundingClientRect().top;
-    w.style.height = Math.max(window.innerHeight - top - 16, 420) + 'px';
+    const topDoc = w.getBoundingClientRect().top + window.scrollY;
+    const padB = mainEl ? parseFloat(getComputedStyle(mainEl).paddingBottom) : 28;
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const min = window.innerWidth < 768 ? 280 : 420;
+    w.style.height = Math.max(vh - topDoc - padB, min) + 'px';
   }
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  window.scrollTo(0, 0);
   ajustaAltura();
   window.addEventListener('resize', ajustaAltura);
+  window.addEventListener('load', ajustaAltura);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(ajustaAltura);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', ajustaAltura);
 
   function csrf() { return (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || ''; }
   function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
@@ -92,7 +109,7 @@
     $('vazio').style.display = 'none';
     const el = document.createElement('div');
     el.className = 'flex justify-end';
-    el.innerHTML = '<div class="max-w-[80%] rounded-2xl rounded-tr-sm bg-accent/15 px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"></div>';
+    el.innerHTML = '<div class="max-w-[80%] rounded-2xl rounded-tr-sm bg-accent/15 px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words"></div>';
     el.firstChild.textContent = texto;
     msgs.appendChild(el); autoscroll(true);
   }
@@ -103,9 +120,9 @@
     el.innerHTML =
       '<div class="max-w-[92%] min-w-0 w-full">' +
       '<div class="chips flex flex-wrap gap-1 mb-1.5"></div>' +
-      '<details class="think hidden mb-1.5"><summary class="text-[11px] text-fg-subtle cursor-pointer">🧠 raciocínio</summary><div class="think-txt text-[11px] text-fg-subtle whitespace-pre-wrap max-h-32 overflow-y-auto"></div></details>' +
+      '<details class="think hidden mb-1.5"><summary class="text-[11px] text-fg-subtle cursor-pointer">🧠 raciocínio</summary><div class="think-txt text-[11px] text-fg-subtle whitespace-pre-wrap break-words max-h-32 overflow-y-auto"></div></details>' +
       '<div class="rounded-2xl rounded-tl-sm border border-border bg-bg px-4 py-2.5">' +
-      '<div class="txt text-sm text-fg-soft leading-relaxed"></div>' +
+      '<div class="txt text-sm text-fg-soft leading-relaxed break-words"></div>' +
       '<span class="cursor text-accent animate-pulse">▍</span></div>' +
       '<div class="acoes hidden mt-1 flex gap-2 text-[11px] text-fg-subtle"></div></div>';
     msgs.appendChild(el); autoscroll(true);
@@ -120,7 +137,8 @@
     return c;
   }
   function fechaChip(node, name, ok) {
-    const chips = node.querySelectorAll('.chips [data-tool="' + CSS.escape(name) + '"]');
+    const sel = (window.CSS && CSS.escape) ? CSS.escape(name) : name.replace(/"/g, '\\"');
+    const chips = node.querySelectorAll('.chips [data-tool="' + sel + '"]');
     const c = chips[chips.length - 1];
     if (c && c.innerHTML.startsWith('🔧')) c.innerHTML = (ok ? '✓ ' : '⚠ ') + c.innerHTML.slice(c.innerHTML.indexOf(' ') + 1);
   }
@@ -155,7 +173,8 @@
       b.textContent = '↻ Tentar novamente'; b.onclick = () => { box.remove(); retry(); };
       box.appendChild(b);
     }
-    (node || msgs).appendChild(box); autoscroll();
+    // dentro da coluna da bolha (node > div), não como irmão na row flex
+    ((node && node.firstChild) || msgs).appendChild(box); autoscroll();
   }
 
   // ───────── autoscroll ─────────
@@ -256,6 +275,17 @@
           mostrarErro(node, ev.code, ev.text, tentarDeNovo);
         }
       });
+      if (curEl.isConnected) {           // stream fechou sem 'done' (proxy/worker caiu)
+        curEl.remove();
+        const recuperou = await recuperar(node);
+        if (!recuperou) {
+          if (acc) { txtEl.innerHTML = esc(acc); addAcoes(node, acc); }
+          else {
+            node.querySelector('.txt').parentElement.classList.add('hidden');
+            mostrarErro(node, 'rede', 'A resposta terminou de forma inesperada.', tentarDeNovo);
+          }
+        }
+      }
     } catch (err) {
       if (curEl.isConnected) curEl.remove();
       if (err.name !== 'AbortError') {
@@ -265,9 +295,9 @@
           mostrarErro(node, 'rede', 'A conexão caiu no meio da resposta.', tentarDeNovo);
         }
       } else {
-        txtEl.innerHTML = esc(acc); // parcial fica; o servidor persiste o turno completo
+        txtEl.innerHTML = esc(acc);
         const i = document.createElement('div');
-        i.className = 'text-[10px] text-fg-subtle mt-1'; i.textContent = '■ interrompido (a resposta completa fica salva na conversa)';
+        i.className = 'text-[10px] text-fg-subtle mt-1'; i.textContent = '■ interrompido';
         node.querySelector('.txt').parentElement.appendChild(i);
       }
     } finally {
@@ -282,6 +312,7 @@
   });
   input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; });
   $('btn-parar').onclick = () => { if (aborter) aborter.abort(); };
+  $('btn-sessoes').onclick = () => $('chat-sessoes-pane').classList.toggle('hidden');
 
   // ───────── sessões ─────────
   async function carregarSessoes() {
@@ -324,9 +355,12 @@
         if (b.type === 'tool_use') chipTool(node, b.name, null);
         if (b.type === 'tool_result') fechaChip(node, b.name, b.ok !== false);
       });
-      node.querySelector('.txt').innerHTML = m.html || esc(m.texto);
-      addAcoes(node, m.texto);
+      const corpo = m.html || esc(m.texto);
+      if (corpo) node.querySelector('.txt').innerHTML = corpo;
+      else node.querySelector('.txt').parentElement.classList.add('hidden');
+      if (m.texto) addAcoes(node, m.texto);
     });
+    if (window.innerWidth < 768) $('chat-sessoes-pane').classList.add('hidden');
     carregarSessoes(); autoscroll(true);
   }
 
