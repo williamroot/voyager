@@ -31,6 +31,7 @@ def buscar(
     limit: int = 10,
     cnj: str | None = None,
     rerank: bool = True,
+    timeout: tuple | None = None,
 ) -> dict:
     """Chama GET {ZORDON_URL}/api/search e retorna o payload normalizado.
 
@@ -74,7 +75,7 @@ def buscar(
             f'{base_url}/api/search',
             params=params,
             headers=headers,
-            timeout=_TIMEOUT,
+            timeout=timeout or _TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -161,7 +162,7 @@ def extrair(cnj: str, *, timeout: tuple | None = None) -> dict:
         return {'erro': 'Erro inesperado ao contatar o serviço Zordon'}
 
 
-def chunks(cnj: str) -> dict:
+def chunks(cnj: str, *, timeout: tuple | None = None) -> dict:
     """Chama GET {ZORDON_URL}/api/chunks/<cnj> e retorna os chunks do auto.
 
     Retorno em caso de sucesso::
@@ -198,7 +199,7 @@ def chunks(cnj: str) -> dict:
         resp = requests.get(
             f'{base_url}/api/chunks/{cnj}',
             headers=headers,
-            timeout=_TIMEOUT,
+            timeout=timeout or _TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()

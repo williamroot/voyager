@@ -73,9 +73,11 @@ def linha_do_tempo(cnj: str) -> dict:
 
 
 def precedentes(query: str, limit: int = 6) -> dict:
-    """Busca semântica de acórdãos/precedentes no Zordon (com desfecho quando houver)."""
+    """Busca semântica de acórdãos/precedentes no Zordon (com desfecho quando houver).
+    Timeout tolerante: chamada por agente (turno assíncrono), aguenta Zordon sob carga."""
     from . import zordon_client
-    res = zordon_client.buscar(query=(query or '')[:300], limit=min(limit, 12))
+    res = zordon_client.buscar(query=(query or '')[:300], limit=min(limit, 12),
+                               timeout=(5, 75))
     itens = (res or {}).get('results') or []
     return {'query': query, 'total': len(itens),
             'itens': [{'cnj': it.get('numero_cnj'), 'tipo': it.get('doc_tipo'),
@@ -150,10 +152,14 @@ def casos_similares(assunto: str, tribunal: str = '', limit: int = 10) -> dict:
 
 
 def buscar_zordon(query: str, cnj: str = '', limit: int = 8) -> dict:
-    """Busca semântica LIVRE no corpus Zordon (acórdãos/autos), com rerank."""
+    """Busca semântica LIVRE no corpus Zordon (acórdãos/autos), com rerank.
+
+    Timeout tolerante (75s): o turno do agente é assíncrono (SSE com heartbeat),
+    então dá pra esperar o Zordon mesmo sob carga de backfill — diferente das
+    páginas do dashboard, que precisam do default curto."""
     from . import zordon_client
     res = zordon_client.buscar(query=(query or '')[:300], limit=min(limit, 12),
-                               cnj=cnj or None, rerank=True)
+                               cnj=cnj or None, rerank=True, timeout=(5, 75))
     itens = (res or {}).get('results') or []
     return {'query': query, 'cnj_filtro': cnj or None, 'total': len(itens),
             'itens': [{'cnj': it.get('numero_cnj'), 'tipo': it.get('doc_tipo'),
@@ -165,7 +171,7 @@ def buscar_zordon(query: str, cnj: str = '', limit: int = 8) -> dict:
 def ler_chunks(cnj: str, offset: int = 0, max_chars: int = 6000) -> dict:
     """Texto dos autos de um CNJ (chunks indexados no Zordon), paginado por offset."""
     from . import zordon_client
-    res = zordon_client.chunks(cnj)
+    res = zordon_client.chunks(cnj, timeout=(5, 75))
     if (res or {}).get('erro'):
         return {'cnj': cnj, 'erro': res['erro']}
     todos = (res or {}).get('chunks') or []
