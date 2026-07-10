@@ -32,6 +32,23 @@ class ChatSession(models.Model):
         return f'{self.title} ({self.user_id})'
 
 
+class ChatFile(models.Model):
+    """Arquivo anexado numa conversa do chat. Guardamos o TEXTO extraído (é o que
+    o agente lê via tool `ler_arquivo`) — o binário original não é persistido."""
+
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='chat_files')
+    filename = models.CharField(max_length=255)
+    mime = models.CharField(max_length=100, blank=True, default='')
+    texto = models.TextField(blank=True, default='')
+    chars = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f'{self.filename} ({self.chars} chars)'
+
+
 class ChatMessage(models.Model):
     """Uma mensagem da conversa. content_json = {'blocks': [...]} — blocks de tipo
     'text' (sempre) e, na assistant, 'tool_use'/'tool_result' intercalados."""

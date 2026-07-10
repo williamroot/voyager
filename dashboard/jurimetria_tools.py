@@ -204,6 +204,12 @@ def explicar_modelos(topico: str = 'todos') -> dict:
     return jurimetria_modelos.explicar(topico)
 
 
+def ler_arquivo(file_id: str, offset: int = 0, max_chars: int = 8000) -> dict:
+    """Texto de um arquivo anexado pelo usuário na conversa (paginado)."""
+    from . import chat_arquivos
+    return chat_arquivos.ler_arquivo(file_id, offset=offset, max_chars=max_chars)
+
+
 # ---------------- registry ----------------
 
 def _fp(nome: str):
@@ -252,6 +258,10 @@ TOOLS: list[dict] = [
      'description': 'Explica os MODELOS do Voyager com pesos/fórmulas REAIS do código: classificador de leads (regressão logística, features F1–F30, pesos e overrides), survival Kaplan-Meier (chance 12/24m de virar precatório), score de oportunidade (5 pilares) e catálogo de fontes. Use SEMPRE que perguntarem "como o Voyager calcula/classifica X".',
      'parameters': {'type': 'object', 'properties': {'topico': {'type': 'string', 'enum': ['classificador', 'survival', 'score_oportunidade', 'fontes_e_pesos', 'todos'], 'default': 'todos'}}, 'required': []},
      'handler': explicar_modelos},
+    {'name': 'ler_arquivo',
+     'description': 'Lê o TEXTO de um arquivo que o usuário ANEXOU na conversa (marcador [arquivo: nome #id] na mensagem — o id vai em file_id). Paginado: se proximo_offset vier preenchido, chame de novo pra continuar lendo.',
+     'parameters': {'type': 'object', 'properties': {'file_id': {'type': 'string', 'description': 'o id do marcador [arquivo: ... #id]'}, 'offset': {'type': 'integer', 'default': 0}, 'max_chars': {'type': 'integer', 'default': 8000}}, 'required': ['file_id']},
+     'handler': ler_arquivo},
     # ── Fontes PÚBLICAS externas (sem login) — dashboard/fontes_publicas.py ──
     {'name': 'ente_fiscal',
      'description': 'Saúde fiscal do ENTE DEVEDOR (SICONFI/Tesouro): estoque de precatórios vencidos, Dívida Consolidada Líquida e RCL. Estima a banda de pagamento anual da EC 136/2025 (1–5% da RCL conforme estoque/RCL). Use pra avaliar se/quando o ente paga. Passe uf (ex. "SP") pro estado.',

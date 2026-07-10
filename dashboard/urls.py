@@ -28,6 +28,7 @@ urlpatterns = [
     path('jurimetria/chat/sessoes/', views.jurimetria_chat_sessoes, name='jurimetria-chat-sessoes'),
     path('jurimetria/chat/sessoes/<uuid:sess_uuid>/', views.jurimetria_chat_sessao, name='jurimetria-chat-sessao'),
     path('jurimetria/chat/prompt/', views.jurimetria_chat_prompt, name='jurimetria-chat-prompt'),
+    path('jurimetria/chat/upload/', views.jurimetria_chat_upload, name='jurimetria-chat-upload'),
     path('movimentacoes/', views.movimentacoes, name='movimentacoes'),
     path('partes/', views.partes, name='partes'),
     path('partes/<int:pk>/', views.parte_detail, name='parte-detail'),

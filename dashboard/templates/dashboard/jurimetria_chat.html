@@ -33,12 +33,18 @@
       <button id="pill-fim" class="hidden absolute bottom-3 left-1/2 -translate-x-1/2 text-xs rounded-full px-3 py-1.5 bg-accent text-white shadow-lg z-10">↓ ir para o fim</button>
     </div>
     <div class="p-3 border-t border-border">
-      <form id="composer" class="flex items-end gap-2 max-w-3xl mx-auto w-full">
-        <textarea id="input" rows="1" placeholder="Pergunte sobre um processo, precedentes, os modelos…"
-          class="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm resize-none focus:border-accent focus:outline-none" style="max-height:10rem"></textarea>
-        <button id="btn-enviar" type="submit" class="btn-primary px-4 py-2 rounded-lg text-sm">Enviar</button>
-        <button id="btn-parar" type="button" class="hidden px-4 py-2 rounded-lg text-sm border border-border hover:border-red-400 text-fg-subtle">■ Parar</button>
-      </form>
+      <div class="max-w-3xl mx-auto w-full">
+        <div id="anexos" class="hidden flex flex-wrap gap-1.5 mb-2"></div>
+        <form id="composer" class="flex items-end gap-2 w-full">
+          <input type="file" id="file-input" class="hidden" multiple accept=".pdf,.xlsx,.txt,.csv,.md,.json,.xml,.html,.log">
+          <button id="btn-anexo" type="button" title="Anexar arquivo (pdf, xlsx, txt…)"
+            class="px-3 py-2 rounded-lg text-sm border border-border hover:border-accent text-fg-subtle shrink-0">📎</button>
+          <textarea id="input" rows="1" placeholder="Pergunte sobre um processo, precedentes, os modelos…"
+            class="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm resize-none focus:border-accent focus:outline-none" style="max-height:10rem"></textarea>
+          <button id="btn-enviar" type="submit" class="btn-primary px-4 py-2 rounded-lg text-sm">Enviar</button>
+          <button id="btn-parar" type="button" class="hidden px-4 py-2 rounded-lg text-sm border border-border hover:border-red-400 text-fg-subtle">■ Parar</button>
+        </form>
+      </div>
     </div>
   </section>
 </div>
@@ -71,6 +77,7 @@
     stream:  "{% url 'dashboard:jurimetria-chat-stream' %}",
     sessoes: "{% url 'dashboard:jurimetria-chat-sessoes' %}",
     prompt:  "{% url 'dashboard:jurimetria-chat-prompt' %}",
+    upload:  "{% url 'dashboard:jurimetria-chat-upload' %}",
   };
   let sessao = "{{ sessao_input|escapejs }}" || null;
   let cnjCtx = CNJ_INICIAL;
@@ -240,6 +247,16 @@
   async function enviar(texto, regenerate) {
     if (busy) return;
     texto = (texto || '').trim();
+    if (!regenerate) {
+      if (anexos.some((a) => a.status === 'uploading')) return; // espera uploads
+      const prontos = anexos.filter((a) => a.status === 'ready' && a.fileId);
+      if (!texto && prontos.length === 0) return;
+      if (prontos.length) {
+        // marcador padrão Horizon: [arquivo: <nome> #<id>] — o agente lê via ler_arquivo
+        texto = (texto + prontos.map((a) => '\n[arquivo: ' + a.name + ' #' + a.fileId + ']').join('')).trim();
+        anexos = []; renderAnexos();
+      }
+    }
     if (!texto && !regenerate) return;
     busy = true; aborter = new AbortController();
     $('btn-enviar').classList.add('hidden'); $('btn-parar').classList.remove('hidden');
@@ -305,6 +322,47 @@
       $('btn-enviar').classList.remove('hidden'); $('btn-parar').classList.add('hidden');
     }
   }
+
+  // ───────── anexos (📎 como no Horizon) ─────────
+  // {name, fileId|null, status: 'uploading'|'ready'|'erro', chars}
+  let anexos = [];
+  function renderAnexos() {
+    const box = $('anexos');
+    box.classList.toggle('hidden', anexos.length === 0);
+    box.innerHTML = '';
+    anexos.forEach((a, i) => {
+      const c = document.createElement('span');
+      c.className = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ' +
+        (a.status === 'erro' ? 'border-red-400/40 bg-red-500/10 text-red-300'
+         : a.status === 'ready' ? 'border-border bg-card text-fg-soft'
+         : 'border-border bg-card text-fg-subtle animate-pulse');
+      c.innerHTML = (a.status === 'uploading' ? '⏳ ' : a.status === 'erro' ? '⚠ ' : '📄 ')
+        + esc(a.name) + (a.status === 'ready' ? ' <span class="text-fg-subtle">(' + Math.round(a.chars / 1000) + 'k)</span>' : '')
+        + (a.erro ? ' — ' + esc(a.erro) : '');
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'hover:text-red-400'; x.textContent = '✕';
+      x.onclick = () => { anexos.splice(i, 1); renderAnexos(); };
+      c.appendChild(x);
+      box.appendChild(c);
+    });
+  }
+  async function subirArquivo(file) {
+    const a = { name: file.name, fileId: null, status: 'uploading', chars: 0, erro: '' };
+    anexos.push(a); renderAnexos();
+    try {
+      const fd = new FormData(); fd.append('arquivo', file);
+      const r = await fetch(URLS.upload, { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd });
+      const d = await r.json();
+      if (!r.ok || d.erro) { a.status = 'erro'; a.erro = d.erro || ('HTTP ' + r.status); }
+      else { a.status = 'ready'; a.fileId = d.file_id; a.chars = d.chars; }
+    } catch (e) { a.status = 'erro'; a.erro = 'falha no envio'; }
+    renderAnexos();
+  }
+  $('btn-anexo').onclick = () => $('file-input').click();
+  $('file-input').addEventListener('change', (e) => {
+    [...e.target.files].forEach(subirArquivo);
+    e.target.value = '';
+  });
 
   $('composer').addEventListener('submit', (e) => { e.preventDefault(); enviar(input.value, false); });
   input.addEventListener('keydown', (e) => {

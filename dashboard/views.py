@@ -608,6 +608,28 @@ def jurimetria_chat_sessao(request, sess_uuid):
 
 
 @login_required
+@require_POST
+def jurimetria_chat_upload(request):
+    """Upload de anexo do chat (multipart, campo 'arquivo'). Extrai o texto na hora
+    (pdf/xlsx/txt...) e devolve {file_id, filename, chars} — a UI insere o marcador
+    [arquivo: nome #id] na mensagem e o agente lê via tool `ler_arquivo`."""
+    from . import chat_arquivos
+    from .models import ChatFile
+    f = request.FILES.get('arquivo')
+    if not f:
+        return JsonResponse({'erro': 'nenhum arquivo enviado'}, status=400)
+    if f.size > chat_arquivos.MAX_UPLOAD_MB * 1024 * 1024:
+        return JsonResponse({'erro': f'arquivo maior que {chat_arquivos.MAX_UPLOAD_MB}MB'}, status=400)
+    texto, erro = chat_arquivos.extrair_texto(f.name, f.read())
+    if erro:
+        return JsonResponse({'erro': erro}, status=422)
+    cf = ChatFile.objects.create(user=request.user, filename=f.name[:255],
+                                 mime=(f.content_type or '')[:100],
+                                 texto=texto, chars=len(texto))
+    return JsonResponse({'file_id': str(cf.uuid), 'filename': cf.filename, 'chars': cf.chars})
+
+
+@login_required
 def jurimetria_chat_prompt(request):
     """Ver/editar o prompt do sistema do CHAT (transparência/tuning) — espelho do
     jurimetria_prompt da narrativa, com chaves próprias."""
