@@ -257,9 +257,13 @@ DJEN_CORTEX_RATIO = env.float('DJEN_CORTEX_RATIO', default=0.5)
 # Ratio quando o pool datacenter está DEGRADADO (queimado/429): sem sentido
 # apostar no datacenter morto → 100% Cortex por padrão (2026-07-06).
 DJEN_CORTEX_RATIO_DEGRADED = env.float('DJEN_CORTEX_RATIO_DEGRADED', default=1.0)
-# Enriquecimento em massa (bulk) tenta o Cortex PRIMEIRO (residencial passa o WAF
-# dos tribunais; datacenter é bloqueado). True = Cortex-first no worker.
-ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=True)
+# Ordem dos proxies no enriquecimento em massa. DATACENTER-FIRST (default False):
+# o pool ProxyScrape é barato/abundante e resolve a maioria dos tribunais; o
+# Cortex (residencial) fica como FALLBACK, acionado só quando o pool falha —
+# poupa a banda/cota do Cortex e não paga o custo dele em cada job. Tribunais com
+# WAF que exigem residencial caem no Cortex via _next_proxy quando o pool é
+# bloqueado. True volta a Cortex-first (2026-07-12: invertido a pedido).
+ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=False)
 # Seguir incidentes no e-SAJ (cada parte tem um incidente/precatório). O DETALHE
 # do incidente exige captcha (uuidCaptcha) na consulta pública → só funciona com
 # captcha-solver OU sessão e-SAJ autenticada (como o Juriscope). Default OFF até
