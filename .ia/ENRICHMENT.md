@@ -476,3 +476,48 @@ contra:
 
 Dentro do mesmo batch, dedupe por `process_id` mantém o event de
 `scraped_at` mais recente (drainer.py:662).
+
+## Kill-switch por tribunal (pausa)
+
+Quando um tribunal bloqueia o método de acesso (ex.: **TJRO/TJAP** devolvendo
+`403` pra todos os proxies em 2026-07 — WAF/bloqueio total), continuar tentando
+só queima proxy/CPU e enche `enriquecimento_erro`. Pausa via cache Redis
+(`enrich:pausados`, sem TTL — sobrevive a restart), honrada em 3 pontos:
+refill (`_reabastecer_impl` loga `pausado`), `enqueue_enriquecimento` (no-op) e
+o job `enriquecer_processo` (retorna `{skip: pausado}` SEM tocar no status → a
+fila residual drena sem bater na fonte; o processo segue `pendente`).
+
+```bash
+python manage.py enrich_pausa TJRO TJAP    # pausa
+python manage.py enrich_pausa --off TJRO   # despausa (refill repõe sozinho)
+python manage.py enrich_pausa --list       # mostra pausados
+```
+
+## Watermark no auto-enqueue (não inflar fila)
+
+O `reabastecer_filas_enriquecimento` respeita `QUEUE_HIGH_WATER=100_000`, mas o
+**auto-enqueue da ingestão** (`djen/ingestion.py`, quando cria processo novo)
+NÃO respeitava — sob backfill isso inflou filas a MILHÕES (TJRO 3,6M, TJRJ 2,6M
+em 2026-07-11). Agora o auto-enqueue checa `len(queue) < QUEUE_HIGH_WATER`
+(gate cacheado 30s por sigla); acima do teto deixa pro refill (o processo já
+fica `pendente`, nada se perde).
+
+## Runbook: fila de enrichment inflada
+
+1. `enrich_pausa <SIGLA>` se o tribunal está bloqueado (403/WAF total).
+2. Esvaziar a fila (não perde nada — pendentes seguem no DB, refill repõe):
+   ```python
+   # manage.py shell
+   import django_rq; django_rq.get_queue('enrich_tjro').empty()
+   ```
+3. Re-tentar erros após corrigir a causa:
+   `manage.py enriquecer_pendentes --tribunal <SIGLA> --status erro --max-tentativas 3 --limit 0`
+
+## AWS WAF challenge (PJe)
+
+Alguns PJe (ex.: **TJPE**) ficam atrás de AWS WAF: retornam `HTTP 202` + página
+`awsWafCookie`/`challenge.js` no lugar do form JSF — **intermitente** (~40% dos
+proxies passam). `enrichers/pje.py::_request_with_rotation` detecta
+(`202/405/403/429` + `awswaf` no corpo) e **rotaciona o proxy** como um 403, até
+achar um IP que o WAF libera (não é bug de parser — não pausar). Bloqueio TOTAL
+(TJRO/TJAP: 0 proxies passam) → pausar.
