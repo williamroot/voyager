@@ -431,14 +431,33 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
         if p['ultima_sinc_djen_em'] is None or p['ultima_sinc_djen_em'] < cutoff:
             datajud_eligiveis.append(p['pk'])
 
-    # PJe enricher só pra tribunais com scraper implementado.
+    # PJe enricher só pra tribunais com scraper implementado. Honra o watermark:
+    # sob backfill, este auto-enqueue (sem teto) inflava filas a MILHÕES (TJRO
+    # 3,6M / TJRJ 2,6M vistos em 2026-07-11) — acima do teto, deixa pro refill
+    # (o processo já fica 'pendente'; nada se perde). LLEN é O(1), e ainda
+    # cacheamos a decisão por 30s pra não consultar o Redis a cada processo.
     if enriq_eligiveis and tribunal.sigla in TRIBUNAIS_COM_ENRICHER:
-        from enrichers.jobs import enqueue_enriquecimento
-        for pid in enriq_eligiveis:
+        from django.core.cache import cache as _cache
+
+        import django_rq as _drq
+
+        from enrichers.jobs import QUEUE_HIGH_WATER, enqueue_enriquecimento, queue_for
+        gate_key = f'enrich:gate:{tribunal.sigla}'
+        gate = _cache.get(gate_key)
+        if gate is None:
             try:
-                enqueue_enriquecimento(pid, tribunal.sigla)
-            except Exception as exc:
-                logger.warning('falha enfileirar enrichment', extra={'pid': pid, 'erro': str(exc)})
+                gate = len(_drq.get_queue(queue_for(tribunal.sigla))) < QUEUE_HIGH_WATER
+            except Exception:  # noqa: BLE001 — Redis indisponível: não bloqueia ingestão
+                gate = True
+            _cache.set(gate_key, gate, timeout=30)
+        if gate:
+            for pid in enriq_eligiveis:
+                try:
+                    enqueue_enriquecimento(pid, tribunal.sigla)
+                except Exception as exc:
+                    logger.warning('falha enfileirar enrichment', extra={'pid': pid, 'erro': str(exc)})
+        else:
+            logger.info('auto-enqueue enrichment skip: fila %s ≥ watermark', tribunal.sigla)
 
     # Datajud SÓ pra tribunais SEM enricher: onde há enricher (PJe/e-SAJ), a
     # classe/assunto já vem dele → Datajud é redundante. Escopo evita afogar a

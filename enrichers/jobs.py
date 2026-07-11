@@ -59,6 +59,29 @@ def queue_for(tribunal_sigla: str) -> str:
     return f'enrich_{tribunal_sigla.lower()}'
 
 
+# --- Kill-switch de enrichment por tribunal ---------------------------------
+# Quando um tribunal bloqueia o método de acesso (ex.: TJRO/TJAP devolvendo 403
+# pra todos os proxies em 2026-07), continuar tentando só queima proxy/CPU e
+# enche o Process.enriquecimento_erro. A pausa vive num set no cache Redis
+# (sem TTL — sobrevive a restart) e é honrada em TRÊS pontos: refill, enqueue
+# da ingestão e o próprio job (drena fila residual sem tocar a fonte).
+_PAUSA_KEY = 'enrich:pausados'
+
+
+def enrich_pausados() -> set[str]:
+    from django.core.cache import cache
+    return set(cache.get(_PAUSA_KEY) or [])
+
+
+def enrich_pausado(sigla: str) -> bool:
+    return (sigla or '').upper() in enrich_pausados()
+
+
+def set_enrich_pausados(siglas: set[str]) -> None:
+    from django.core.cache import cache
+    cache.set(_PAUSA_KEY, sorted(s.upper() for s in siglas), timeout=None)
+
+
 # @job('default') é mantido pra trabalhar como fallback se algo enfileirar
 # direto via .delay() sem passar pela queue per-tribunal.
 @job('default', timeout=ENRICH_TIMEOUT)
@@ -70,6 +93,10 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
         from django.conf import settings
         prefer_cortex = getattr(settings, 'ENRICH_PREFER_CORTEX', True)
     p = Process.objects.select_related('tribunal').get(pk=process_id)
+    # Pausado: no-op SEM tocar no status (continua pendente) — a fila residual
+    # drena rápido sem queimar proxy; ao despausar, o refill repõe e processa.
+    if enrich_pausado(p.tribunal_id):
+        return {'skip': 'pausado', 'tribunal': p.tribunal_id}
     cls = _ENRICHERS.get(p.tribunal_id)
     if not cls:
         raise ValueError(f'Sem enricher cadastrado para tribunal {p.tribunal_id}')
@@ -97,6 +124,8 @@ def enqueue_enriquecimento(process_id: int, tribunal_sigla: str):
     prefer_cortex do setting (default True): residencial passa o WAF dos tribunais;
     o pool datacenter fica só como fallback. Evita rotacionar 40 IPs queimados.
     """
+    if enrich_pausado(tribunal_sigla):
+        return None
     queue = django_rq.get_queue(queue_for(tribunal_sigla))
     return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT,
                          retry=ENRICH_RETRY)
@@ -199,7 +228,11 @@ def _reabastecer_impl() -> dict:
     from tribunals.models import Process
 
     relatorio = {}
+    pausados = enrich_pausados()
     for sigla in _ENRICHERS.keys():
+        if sigla in pausados:
+            relatorio[sigla] = 'pausado'
+            continue
         queue = django_rq.get_queue(queue_for(sigla))
         qlen = len(queue)
         if qlen >= QUEUE_HIGH_WATER:
