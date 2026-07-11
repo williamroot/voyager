@@ -271,10 +271,15 @@ class BasePjeEnricher:
                 if proxy_url != cortex_proxy_url():
                     self.pool.mark_bad(proxy_url)
                 continue
-            if resp.status_code in (403, 429):
-                self.logger.warning('proxy bloqueado pelo PJe, rotacionando', extra={
+            # AWS WAF challenge (TJPE 2026-07): HTTP 202/405 + página awsWafCookie
+            # em vez do conteúdo. É bloqueio POR PROXY (intermitente) — rotaciona
+            # como 403 até achar um IP que o WAF deixa passar.
+            _waf = resp.status_code in (202, 405, 403, 429) and (
+                'awswaf' in (resp.text or '')[:2048].lower())
+            if resp.status_code in (403, 429) or _waf:
+                self.logger.warning('proxy bloqueado pelo PJe/WAF, rotacionando', extra={
                     'proxy': proxy_url, 'status': resp.status_code,
-                    'tentativa': tentativa,
+                    'waf': _waf, 'tentativa': tentativa,
                 })
                 if proxy_url != cortex_proxy_url():
                     self.pool.mark_bad(proxy_url)
@@ -389,10 +394,19 @@ class BasePjeEnricher:
     def _buscar_em_grau(self, numero_cnj: str, grau: str) -> Optional[str]:
         base_url, list_url, detalhe_path = self._urls_for_grau(grau)
         resp = self._get(list_url)
+        # AWS WAF challenge (ex.: TJPE, 2026-07): HTTP 202 + página com o script
+        # awsWafCookie/challenge.js em vez do form JSF. Não adianta parsear —
+        # é bloqueio de WAF. Erro específico (não "ViewState não encontrado")
+        # pra distinguir de mudança de layout e alimentar a decisão de pausa.
+        low = (resp.text or '')[:2048].lower()
+        if 'awswaf' in low or 'challenge.js' in low or 'token.awswaf.com' in low:
+            raise PjeServerError(f'aws_waf_challenge (HTTP {resp.status_code})')
         soup = BeautifulSoup(resp.text, 'html.parser')
         vs = soup.find('input', {'name': 'javax.faces.ViewState'})
         if not vs or not vs.get('value'):
-            raise PjeEnricherError('javax.faces.ViewState não encontrado.')
+            amostra = ' '.join((resp.text or '')[:200].split())
+            raise PjeEnricherError(f'javax.faces.ViewState não encontrado (HTTP '
+                                   f'{resp.status_code}): {amostra}')
 
         fields = self._extract_form_fields(soup)
         search_id = self._find_search_script_id(soup) or 'fPP:j_id268'
