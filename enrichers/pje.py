@@ -124,6 +124,13 @@ class BasePjeEnricher:
         # maior que pool ProxyScrape rotativo. Click do user vira ~1-3s
         # em vez de 30s+ rotacionando proxies queimados.
         self.prefer_cortex = prefer_cortex
+        # cortex_only (granular por tribunal, cache Redis): tribunais que
+        # bloqueiam datacenter por completo (TJRO/TJAP) usam SÓ residencial.
+        try:
+            from .jobs import is_cortex_only
+            self.cortex_only = is_cortex_only(self.TRIBUNAL_SIGLA)
+        except Exception:  # noqa: BLE001 — cache indisponível: comportamento normal
+            self.cortex_only = False
 
     def enriquecer(self, processo: Process, direct_apply: bool = False) -> dict:
         """Faz scraping no PJe e publica o resultado no stream.
@@ -220,11 +227,21 @@ class BasePjeEnricher:
 
     MAX_PROXY_ROTATIONS = 10
 
-    def _next_proxy(self, exclude: set) -> Optional[str]:
-        """Próximo proxy. Por default: pool ProxyScrape primeiro, Cortex
-        como fallback. Com prefer_cortex=True (cliques manuais): Cortex
-        primeiro, pool como fallback."""
-        if self.prefer_cortex:
+    def _next_proxy(self, exclude: set, force_cortex: bool = False) -> Optional[str]:
+        """Próximo proxy. Por default: pool ProxyScrape (datacenter) primeiro,
+        Cortex (residencial) como fallback. Com prefer_cortex=True (ou
+        force_cortex — datacenter bloqueado por WAF): Cortex primeiro.
+
+        force_cortex é o escalonamento: com um pool grande (centenas de IPs),
+        as MAX_PROXY_ROTATIONS nunca esgotam o datacenter, então o Cortex
+        (fallback natural) jamais era alcançado quando o tribunal bloqueia
+        datacenter (403). Ao acumular 403/WAF, o rotation liga force_cortex e
+        aí o residencial — que fura o WAF — entra."""
+        if getattr(self, 'cortex_only', False):
+            # SÓ residencial (datacenter 100% bloqueado neste tribunal).
+            cortex = cortex_proxy_url(self.pool)
+            return cortex if (cortex and cortex not in exclude) else None
+        if self.prefer_cortex or force_cortex:
             cortex = cortex_proxy_url(self.pool)
             if cortex and cortex not in exclude:
                 return cortex
@@ -246,8 +263,12 @@ class BasePjeEnricher:
         """
         tentados: set = set()
         last_status = None
+        bloqueios_dc = 0  # 403/WAF vindos do datacenter → após N, escala pro Cortex
         for tentativa in range(1, self.MAX_PROXY_ROTATIONS + 1):
-            proxy_url = self._next_proxy(tentados)
+            # Datacenter bloqueado por WAF (TJRO/TJAP dão 403 em TODO IP do pool):
+            # gastar as 10 rotações no datacenter nunca alcança o Cortex. Após 3
+            # bloqueios, força o residencial — que fura o WAF.
+            proxy_url = self._next_proxy(tentados, force_cortex=bloqueios_dc >= 3)
             if not proxy_url:
                 self.logger.warning('pool exausto sem proxy disponível', extra={
                     'tentativa': tentativa, 'url': url,

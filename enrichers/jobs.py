@@ -68,6 +68,26 @@ def queue_for(tribunal_sigla: str) -> str:
 _PAUSA_KEY = 'enrich:pausados'
 
 
+# Tribunais que bloqueiam datacenter POR COMPLETO (403 em todo IP do pool —
+# ex.: TJRO/TJAP em 2026-07). Pra esses, tentar datacenter é desperdício: vão
+# DIRETO e SÓ pro Cortex (residencial). Granular por tribunal, em cache Redis.
+_CORTEX_ONLY_KEY = 'enrich:cortex_only'
+
+
+def enrich_cortex_only() -> set[str]:
+    from django.core.cache import cache
+    return set(cache.get(_CORTEX_ONLY_KEY) or [])
+
+
+def is_cortex_only(sigla: str) -> bool:
+    return (sigla or '').upper() in enrich_cortex_only()
+
+
+def set_cortex_only(siglas: set[str]) -> None:
+    from django.core.cache import cache
+    cache.set(_CORTEX_ONLY_KEY, sorted(s.upper() for s in siglas), timeout=None)
+
+
 def enrich_pausados() -> set[str]:
     from django.core.cache import cache
     return set(cache.get(_PAUSA_KEY) or [])
