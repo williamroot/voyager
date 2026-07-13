@@ -3090,3 +3090,50 @@ def acervo_teor(request, cnj):
         'polo_outros': polos['outros'],
         'advogados': advogados,
     })
+
+
+def processo_metadados(request, pk):
+    """Partial HTMX: metadados EXTRAÍDOS dos autos pelo Zordon.
+
+    Lista de documentos (por classe, sem conteúdo), partes classificadas por papel,
+    eventos do ciclo de vida, e campos com proveniência/abstenção. Lazy-load
+    (hx-trigger="revealed"). Degrada: sem acervo / extração pendente / Zordon offline.
+    """
+    from . import zordon_client
+
+    processo = get_object_or_404(Process, pk=pk)
+    dados = zordon_client.metadados(processo.numero_cnj)
+    erro = dados.get('erro')
+
+    # Partes agrupadas por papel (ordem de relevância no precatório).
+    _ORDEM_PAPEL = ['EXEQUENTE', 'BENEFICIARIO', 'HERDEIRO', 'ESPOLIO', 'INVENTARIANTE',
+                    'CESSIONARIO', 'REPRESENTANTE', 'ADVOGADO', 'EXECUTADO', 'TERCEIRO',
+                    'DESCONHECIDO']
+    grupos = {}
+    for p in (dados.get('partes') or []):
+        grupos.setdefault(p.get('papel') or 'DESCONHECIDO', []).append(p)
+    partes_por_papel = [(papel, grupos[papel]) for papel in _ORDEM_PAPEL if papel in grupos]
+
+    # Documentos agrupados por classe (ordena classes por contagem desc).
+    docs = dados.get('documentos') or []
+    docs_por_classe = {}
+    for d in docs:
+        docs_por_classe.setdefault(d.get('doc_classe') or '?', []).append(d)
+    docs_por_classe = sorted(docs_por_classe.items(), key=lambda kv: -len(kv[1]))
+
+    # Campos-chave em ordem de leitura, com seu MetaField (valor + proveniência).
+    _CAMPOS = [('Natureza', 'natureza'), ('Valor total', 'valor_total'),
+               ('Ente devedor', 'ente_devedor'), ('Beneficiário', 'beneficiario'),
+               ('Nº precatório', 'numero_precatorio'), ('Exercício', 'exercicio'),
+               ('Data do ofício', 'data_oficio'), ('Estágio', 'estagio_sinal')]
+    campos = dados.get('campos') or {}
+    campos_exib = [(label, campos[k]) for label, k in _CAMPOS if k in campos]
+
+    return render(request, 'dashboard/_partials/_processo_metadados.html', {
+        'processo': processo,
+        'dados': dados if not erro else None,
+        'erro': erro,
+        'partes_por_papel': partes_por_papel,
+        'docs_por_classe': docs_por_classe,
+        'campos_exib': campos_exib,
+    })

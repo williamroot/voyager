@@ -1,0 +1,142 @@
+{% load voyager_extras %}
+{% comment %}
+  Metadados EXTRAÍDOS dos autos pelo pipeline do Zordon (MetadadoExtraido).
+  Contexto: processo, dados, erro, partes_por_papel (list of (papel, [partes])),
+            docs_por_classe (list of (classe, [docs])).
+  Sem conteúdo dos autos — só lista de documentos, partes, eventos e campos.
+{% endcomment %}
+<div id="zordon-metadados" class="space-y-4">
+
+  {% if erro == 'sem_acervo' %}
+    <div class="card text-sm text-fg-subtle">
+      {% voy_icon "dossier" "w-4 h-4 inline" %} Este processo ainda não está no acervo do Zordon (autos não baixados/vetorizados).
+    </div>
+  {% elif erro %}
+    <div class="card text-sm text-fg-subtle">Não foi possível carregar os metadados: {{ erro }}</div>
+  {% elif not dados.tem_metadados %}
+    {# Sem extração ainda, mas mostramos a lista de documentos já classificada #}
+    <div class="card">
+      <div class="text-sm font-semibold text-fg-soft mb-1">Extração de metadados pendente</div>
+      <div class="text-xs text-fg-subtle">Os {{ dados.n_documentos }} documentos já estão classificados; a extração de partes/eventos ainda não rodou para este processo.</div>
+    </div>
+  {% else %}
+    {# ============ CABEÇALHO / CONFIANÇA ============ #}
+    <div class="card">
+      <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div class="text-sm font-semibold text-fg-soft flex items-center gap-2">
+          {% voy_icon "dossier" "w-4 h-4 text-accent-fg" %} Metadados extraídos dos autos
+        </div>
+        <div class="flex items-center gap-2">
+          {% if dados.confianca_global == 'alta' %}{% include 'dashboard/_partials/badge.html' with variant='accent' text='Confiança alta' %}
+          {% elif dados.confianca_global == 'media' %}{% include 'dashboard/_partials/badge.html' with variant='neutral' text='Confiança média' %}
+          {% else %}{% include 'dashboard/_partials/badge.html' with variant='warning' text='Confiança baixa' %}{% endif %}
+          {% if dados.n_abstencoes %}{% include 'dashboard/_partials/badge.html' with variant='warning' text=dados.n_abstencoes|stringformat:'s'|add:' abstenções' %}{% endif %}
+        </div>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card-tight">
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Documentos</div>
+          <div class="text-sm text-fg-soft">{{ dados.n_documentos }}</div>
+        </div>
+        <div class="card-tight">
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Partes</div>
+          <div class="text-sm text-fg-soft">{{ dados.n_partes }}</div>
+        </div>
+        <div class="card-tight">
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Eventos</div>
+          <div class="text-sm text-fg-soft">{{ dados.n_eventos }}</div>
+        </div>
+        <div class="card-tight">
+          <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">Modelo</div>
+          <div class="text-xs font-mono text-fg-soft truncate" title="{{ dados.modelo_llm }}">{{ dados.modelo_llm|default:'—' }}</div>
+        </div>
+      </div>
+    </div>
+
+    {# ============ CAMPOS (com proveniência/abstenção) ============ #}
+    <div class="card">
+      <div class="text-sm font-semibold text-fg-soft mb-3">Campos</div>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {% for label, campo in campos_exib %}
+          <div class="card-tight">
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1 flex items-center justify-between gap-1">
+              <span>{{ label }}</span>
+              {% if campo.abstido %}{% include 'dashboard/_partials/badge.html' with variant='warning' text='não sei' %}
+              {% elif campo.metodo == 'join_falcon' %}{% include 'dashboard/_partials/badge.html' with variant='neutral' text='Falcon' %}
+              {% elif campo.metodo == 'regra' or campo.metodo == 'doc_classe' %}{% include 'dashboard/_partials/badge.html' with variant='neutral' text='regra' %}
+              {% elif campo.metodo == 'llm' %}{% include 'dashboard/_partials/badge.html' with variant='neutral' text='IA' %}{% endif %}
+            </div>
+            <div class="text-sm text-fg-soft break-words">
+              {% if campo.abstido %}<span class="text-fg-subtle italic">conflito/sem base — revisar</span>
+              {% else %}{{ campo.valor|default:'—' }}{% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ============ PARTES (por papel) ============ #}
+    {% if partes_por_papel %}
+    <div class="card">
+      <div class="text-sm font-semibold text-fg-soft mb-3">Partes identificadas ({{ dados.n_partes }})</div>
+      <div class="space-y-3">
+        {% for papel, lista in partes_por_papel %}
+          <div>
+            <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider mb-1">{{ papel }} · {{ lista|length }}</div>
+            <div class="flex flex-wrap gap-2">
+              {% for p in lista %}
+                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-surface-2 text-xs text-fg-soft border border-border">
+                  {{ p.nome }}
+                  {% if p.cpf_cnpj %}<span class="font-mono text-fg-subtle">{{ p.cpf_cnpj }}</span>{% endif %}
+                </span>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# ============ EVENTOS (timeline) ============ #}
+    {% if dados.eventos %}
+    <div class="card">
+      <div class="text-sm font-semibold text-fg-soft mb-3">Eventos do ciclo de vida</div>
+      <div class="space-y-2">
+        {% for e in dados.eventos %}
+          <div class="flex items-center gap-3 text-sm">
+            <span class="font-mono text-xs text-fg-subtle w-24 shrink-0">{{ e.data|default:'sem data' }}</span>
+            {% include 'dashboard/_partials/badge.html' with variant='accent' text=e.tipo %}
+            {% if e.parte %}<span class="text-fg-soft">{{ e.parte }}</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  {% endif %}
+
+  {# ============ DOCUMENTOS (lista, sem conteúdo) — sempre que houver acervo ============ #}
+  {% if docs_por_classe %}
+  <div class="card">
+    <div class="text-sm font-semibold text-fg-soft mb-3">Documentos dos autos ({{ dados.n_documentos }}) — por classe</div>
+    <div class="space-y-3">
+      {% for classe, lista in docs_por_classe %}
+        <details class="group">
+          <summary class="cursor-pointer text-xs text-fg-soft flex items-center gap-2 py-1">
+            {% include 'dashboard/_partials/badge.html' with variant='neutral' text=classe %}
+            <span class="text-fg-subtle">{{ lista|length }} doc{{ lista|length|pluralize }}</span>
+          </summary>
+          <ul class="mt-1 ml-2 space-y-1">
+            {% for d in lista %}
+              <li class="text-xs text-fg-subtle flex items-center gap-2">
+                <span class="text-fg-soft">{{ d.nome_arquivo }}</span>
+                {% if d.n_chunks %}<span class="font-mono">· {{ d.n_chunks }} trechos</span>{% endif %}
+                {% if d.doc_classe_fonte == 'conteudo' %}<span class="text-accent-fg" title="classe achada por conteúdo">◆</span>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>

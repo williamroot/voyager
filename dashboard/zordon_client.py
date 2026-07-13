@@ -222,6 +222,47 @@ def chunks(cnj: str, *, timeout: tuple | None = None) -> dict:
         return {'chunks': [], 'erro': 'Erro inesperado ao contatar o serviço Zordon'}
 
 
+def metadados(cnj: str, *, timeout: tuple | None = None) -> dict:
+    """GET {ZORDON_URL}/api/metadados/<cnj> — metadados extraídos + lista de docs.
+
+    Sem conteúdo dos autos. Retorno em sucesso::
+
+        {
+            "n_documentos": 24,
+            "documentos": [{"nome_arquivo","doc_classe","doc_classe_conf",...}],
+            "documentos_por_classe": {"OFICIO_REQUISITORIO": 3, ...},
+            "tem_metadados": True,
+            "campos": {...}, "partes": [...], "eventos": [...],
+            "confianca_global": "media", "modelo_llm": "...",
+            "erro": None,
+        }
+
+    Processo fora do acervo → ``{"erro": "sem_acervo"}``. Falha → ``{"erro": ...}``.
+    Nunca propaga exceção — degrada graciosamente.
+    """
+    base_url = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    api_key = getattr(settings, 'ZORDON_API_KEY', '')
+    if not base_url:
+        return {'erro': 'ZORDON_URL não configurado'}
+    headers = {'Authorization': f'Api-Key {api_key}'} if api_key else {}
+    try:
+        resp = requests.get(f'{base_url}/api/metadados/{cnj}', headers=headers,
+                            timeout=timeout or _TIMEOUT)
+        if resp.status_code == 404:
+            return {'erro': 'sem_acervo'}
+        resp.raise_for_status()
+        return {**resp.json(), 'erro': None}
+    except requests.exceptions.ConnectionError:
+        logger.warning('zordon: falha de conexão (metadados %s)', cnj)
+        return {'erro': 'Serviço Zordon indisponível (falha de conexão)'}
+    except requests.exceptions.Timeout:
+        logger.warning('zordon: timeout (metadados %s)', cnj)
+        return {'erro': 'Serviço Zordon não respondeu a tempo'}
+    except Exception as exc:  # noqa: BLE001 — degrada graciosamente
+        logger.warning('zordon: erro em metadados %s: %s', cnj, exc)
+        return {'erro': f'Erro ao contatar Zordon: {str(exc)[:80]}'}
+
+
 # Cache da extração (autos são imutáveis → TTL longo; o warm reescreve).
 EXTRACT_CACHE_TTL = 30 * 24 * 3600
 
