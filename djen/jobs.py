@@ -312,7 +312,14 @@ def backfill_dia(tribunal_sigla: str, dia_iso: str) -> dict:
         logger.debug('backfill_dia skip %s %s (já coberto)', tribunal_sigla, dia_iso)
         return {'skip': True, 'dia': dia_iso}
     logger.info('backfill_dia inicio %s %s', tribunal_sigla, dia_iso)
-    run = ingest_window(t, dia, dia)
+    from .client import DjenBusyError
+    try:
+        run = ingest_window(t, dia, dia)
+    except DjenBusyError:
+        # DJEN sobrecarregado (circuito aberto): ADIA sem falhar — não empilha no
+        # FailedRegistry nem martela o servidor. O tick re-enfileira quando voltar.
+        logger.warning('backfill_dia adiado %s %s (DJEN circuito aberto)', tribunal_sigla, dia_iso)
+        return {'skip': 'circuito_aberto', 'dia': dia_iso}
     return {'run_id': run.pk, 'novas': run.movimentacoes_novas, 'dia': dia_iso}
 
 
@@ -324,6 +331,11 @@ def tick_backfill_retroativo(tribunal_sigla: str) -> dict:
     jobs pendentes. Tanto TRF1 quanto TRF3 têm seu próprio tick independente.
     """
     import django_rq
+
+    # DJEN sobrecarregado (circuito aberto) → NÃO alimenta a fila (para de martelar).
+    from .client import circuit_is_open
+    if circuit_is_open():
+        return {'skip': 'djen circuito aberto (sobrecarregado)'}
 
     t = Tribunal.objects.filter(sigla=tribunal_sigla, ativo=True).first()
     if not t or not t.data_inicio_disponivel:

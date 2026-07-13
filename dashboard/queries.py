@@ -622,6 +622,22 @@ def ingestion_rate_por_hora(horas=24, tribunais=None):
         cur.execute('SELECT max(hora) FROM mv_ingestion_rate_hora')
         mv_max = cur.fetchone()[0]
 
+        # Fallback: se a janela relativa a NOW veio vazia mas a MV tem dados
+        # (defasada), mostra as últimas N horas de dados DISPONÍVEIS — um gráfico
+        # defasado (com selo) é mais útil que "indisponível". Janela ancorada no
+        # mv_max, não no NOW.
+        if not rows and mv_max is not None:
+            fb_where = ["hora > (SELECT max(hora) FROM mv_ingestion_rate_hora) "
+                        f"- INTERVAL '{int(horas)} hours'"]
+            fb_params: list = []
+            if tribunais:
+                fb_where.append('tribunal_id = ANY(%s)')
+                fb_params.append(list(tribunais))
+            cur.execute(
+                'SELECT hora, tribunal_id, total FROM mv_ingestion_rate_hora '
+                f'WHERE {" AND ".join(fb_where)} ORDER BY hora, tribunal_id', fb_params)
+            rows = cur.fetchall()
+
     idade_horas = None
     stale = mv_max is None
     if mv_max is not None:

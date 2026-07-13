@@ -25,6 +25,71 @@ class DjenServerError(DjenClientError):
     pass
 
 
+class DjenBusyError(DjenServerError):
+    """Circuito ABERTO: o DJEN vinha respondendo 5xx em massa ('muito ocupado')
+    e as buscas estão pausadas por um cooldown pra não martelar o servidor
+    (evita o círculo vicioso). Fast-fail sem tocar no DJEN. Os jobs devem tratar
+    como 'adiar', não como erro fatal."""
+    pass
+
+
+# ─────────────────────────── Circuit breaker (fleet-wide, via Redis/cache) ──────────
+# Quando o DJEN responde 5xx repetidamente ('O sistema está muito ocupado'), abrir
+# o circuito e pausar TODAS as buscas por um cooldown — em vez de 40k jobs × 8 retries
+# martelarem o servidor e agravarem a sobrecarga (incidente 2026-07-10).
+_CIRCUIT_KEY = 'djen:circuit_open'
+_5XX_KEY = 'djen:5xx_recent'
+
+
+def _cb_threshold() -> int:
+    return int(getattr(settings, 'DJEN_CIRCUIT_5XX_THRESHOLD', 15))
+
+
+def _cb_cooldown() -> int:
+    return int(getattr(settings, 'DJEN_CIRCUIT_COOLDOWN', 300))
+
+
+def _cb_window() -> int:
+    return int(getattr(settings, 'DJEN_CIRCUIT_5XX_WINDOW', 120))
+
+
+def circuit_is_open() -> bool:
+    from django.core.cache import cache
+    try:
+        return bool(cache.get(_CIRCUIT_KEY))
+    except Exception:  # noqa: BLE001 — cache indisponível → não bloqueia
+        return False
+
+
+def _record_5xx() -> None:
+    """Conta um 5xx na janela; ao atingir o limiar, ABRE o circuito."""
+    from django.core.cache import cache
+    try:
+        try:
+            n = cache.incr(_5XX_KEY)
+        except ValueError:
+            cache.set(_5XX_KEY, 1, timeout=_cb_window())
+            n = 1
+        if n >= _cb_threshold() and not cache.get(_CIRCUIT_KEY):
+            cache.set(_CIRCUIT_KEY, True, timeout=_cb_cooldown())
+            logger.error(
+                'DJEN circuit ABERTO — %d respostas 5xx na janela; pausando buscas por %ds',
+                n, _cb_cooldown(),
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _record_success() -> None:
+    """Sucesso → zera o contador de 5xx e fecha o circuito (DJEN recuperou)."""
+    from django.core.cache import cache
+    try:
+        cache.delete(_5XX_KEY)
+        cache.delete(_CIRCUIT_KEY)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class DJENClient:
     """Cliente HTTP da DJEN com paginação, retry exponencial e rotação de proxies."""
 
@@ -138,6 +203,11 @@ class DJENClient:
         server_5xx_retries = 0
 
         while True:
+            # Circuito aberto (DJEN sobrecarregado) → fast-fail sem tocar no servidor.
+            if circuit_is_open():
+                raise DjenBusyError(
+                    'DJEN circuito aberto (sobrecarregado) — busca pausada pra não martelar'
+                )
             proxy_url, using = self._pick_proxy(prefer_other_than=last_failed_source)
             proxies = {'http': proxy_url, 'https': proxy_url} if proxy_url else None
 
@@ -178,6 +248,7 @@ class DJENClient:
                     continue
                 # 5xx: erro do servidor → backoff longo, limite próprio de retries.
                 if 500 <= resp.status_code < 600:
+                    _record_5xx()  # alimenta o circuit-breaker (abre em massa)
                     server_5xx_retries += 1
                     if server_5xx_retries >= limite_5xx:
                         raise DjenServerError(
@@ -196,6 +267,7 @@ class DJENClient:
                     sigla_djen, pagina, resp.status_code, proxy_label,
                     latency_ms, proxy_rotations, transport_retries,
                 )
+                _record_success()  # DJEN respondeu 200 → fecha o circuito
                 return resp.json()
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError,

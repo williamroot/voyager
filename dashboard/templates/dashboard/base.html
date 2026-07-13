@@ -943,6 +943,13 @@
           itemStyle: {borderRadius: tribunais.indexOf(t) === tribunais.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]},
           emphasis: {focus: 'series'},
         })),
+        // Selo quando os dados são o último snapshot conhecido (MV defasada):
+        // mostra o gráfico (melhor que "indisponível") + avisa que está velho.
+        graphic: (meta && meta.stale) ? [{
+          type: 'text', right: 12, top: 6, z: 100,
+          style: {text: '⚠ defasado há ' + (meta.idade_horas != null ? meta.idade_horas + 'h' : '?'),
+                  fill: '#f59e0b', fontSize: 11, fontWeight: 'bold'},
+        }] : [],
       };
     }
 
