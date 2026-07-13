@@ -263,6 +263,29 @@ def metadados(cnj: str, *, timeout: tuple | None = None) -> dict:
         return {'erro': f'Erro ao contatar Zordon: {str(exc)[:80]}'}
 
 
+def metadados_extraidos(*, versao: str = 'v1', timeout: tuple | None = None) -> dict:
+    """GET {ZORDON_URL}/api/metadados-extraidos — CNJs com metadados extraídos.
+
+    Retorno: ``{"count": N, "cnjs": [...], "erro": None}``. Usado pra filtrar a
+    lista de processos ("só extraídos"). Degrada: nunca propaga exceção.
+    """
+    base_url = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    api_key = getattr(settings, 'ZORDON_API_KEY', '')
+    if not base_url:
+        return {'cnjs': [], 'count': 0, 'erro': 'ZORDON_URL não configurado'}
+    headers = {'Authorization': f'Api-Key {api_key}'} if api_key else {}
+    try:
+        resp = requests.get(f'{base_url}/api/metadados-extraidos',
+                            params={'versao': versao}, headers=headers,
+                            timeout=timeout or _TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        return {'cnjs': data.get('cnjs', []), 'count': data.get('count', 0), 'erro': None}
+    except Exception as exc:  # noqa: BLE001 — degrada graciosamente
+        logger.warning('zordon: falha em metadados-extraidos: %s', exc)
+        return {'cnjs': [], 'count': 0, 'erro': str(exc)[:120]}
+
+
 # Cache da extração (autos são imutáveis → TTL longo; o warm reescreve).
 EXTRACT_CACHE_TTL = 30 * 24 * 3600
 

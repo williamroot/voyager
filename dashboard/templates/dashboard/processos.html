@@ -26,6 +26,12 @@
     <a href="?{% query_string request enriq='nao_encontrado' %}" class="chip {% if enriq_filtro == 'nao_encontrado' %}active{% endif %}">Não encontrados</a>
     <a href="?{% query_string request enriq='erro' %}" class="chip {% if enriq_filtro == 'erro' %}active{% endif %}">Com erro</a>
   </div>
+
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="text-xs text-fg-subtle mr-1">Metadados:</span>
+    <a href="?{% query_string request extraido='' %}" class="chip {% if not extraido_filtro %}active{% endif %}">Todos</a>
+    <a href="?{% query_string request extraido='1' %}" class="chip {% if extraido_filtro %}active{% endif %}">✦ Extraídos</a>
+  </div>
 </form>
 
 {% include 'dashboard/_partials/_list_shell.html' with id='processos-list' %}

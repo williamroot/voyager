@@ -880,11 +880,13 @@ def tribunal_status(request):
 def processos(request):
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
     enriq = request.GET.get('enriq')
+    extraido = request.GET.get('extraido') == '1'
 
     base_ctx = {
         'tribunais': Tribunal.objects.all(),
         'tribunal_filtro': ','.join(tribunais_filtro),
         'enriq_filtro': enriq or '',
+        'extraido_filtro': extraido,
     }
 
     # Shell-only quando NÃO é HTMX — sem queryset, página renderiza instantâneo
@@ -907,13 +909,27 @@ def processos(request):
     if enriq in ('ok', 'pendente', 'nao_encontrado', 'erro'):
         qs = qs.filter(enriquecimento_status=enriq)
         has_filter = True
+    if extraido:
+        # Filtra pelos CNJs com metadados extraídos (lista vem do Zordon, cache 60s
+        # pois cresce durante o backfill). Conjunto pequeno → IN em numero_cnj (index).
+        from django.core.cache import cache
+
+        from . import zordon_client
+        cnjs = cache.get('metadados_extraidos_cnjs')
+        if cnjs is None:
+            cnjs = zordon_client.metadados_extraidos().get('cnjs', [])
+            cache.set('metadados_extraidos_cnjs', cnjs, 60)
+        qs = qs.filter(numero_cnj__in=cnjs)
+        has_filter = True
 
     # Sem filtro: 500k+ rows. Reusa total_processos do kpis_globais (cache).
     # Se cache frio, usa estimativa reltuples — evita seq-scan no COUNT(*).
     # Com filtro (1 tribunal +/- status): consome cache `estatisticas_por_tribunal`
     # (warm 30min) — sem ele, COUNT(*) em TJSP+ok leva ~14s e a página trava.
     count_override = None
-    if not has_filter:
+    if extraido:
+        pass  # conjunto pequeno (só extraídos) → paginator conta direto (index numero_cnj)
+    elif not has_filter:
         kpis = queries.kpis_globais()
         count_override = kpis.get('total_processos')
         if count_override is None:
