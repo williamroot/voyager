@@ -36,6 +36,32 @@ Sem auth. Resposta JSON com `count`, `items[]`. Cada item = 1 movimentação.
 - Backoff: `min(60s, 3 × 2^attempt + jitter)` para 403/429; `min(180s, 3×factor × 2^attempt + jitter)` para 5xx
 - Máx 8 retries (`DJEN_MAX_RETRIES`)
 
+### Circuit-breaker (5xx em massa) — incidente 2026-07-10
+
+O DJEN (governo) devolve `500 {"message":"O sistema está muito ocupado"}` sob carga.
+Em **2026-07-10** ele passou a 500ar de forma persistente; com **40k jobs `backfill_dia`
+× 8 retries** martelando, viramos parte do problema (congestão auto-infligida) — a
+ingestão parou ~59h e a MV `mv_ingestion_rate_hora` ficou defasada.
+
+Fix (`djen/client.py`): **circuit-breaker fleet-wide via cache/Redis**.
+- Cada `5xx` → `_record_5xx()` conta na janela (`DJEN_CIRCUIT_5XX_WINDOW=120s`).
+  Ao atingir `DJEN_CIRCUIT_5XX_THRESHOLD=15` → **abre** o circuito (`djen:circuit_open`)
+  por `DJEN_CIRCUIT_COOLDOWN=300s`.
+- Com o circuito aberto, `_fetch` **fast-fail** com `DjenBusyError` (subclasse de
+  `DjenServerError`) **sem tocar no DJEN**. Um `200` fecha o circuito (`_record_success`).
+- `backfill_dia` trata `DjenBusyError` como **adiar** (return `{'skip':'circuito_aberto'}`,
+  não empilha no FailedRegistry); `tick_backfill_retroativo` **não alimenta** a fila com
+  o circuito aberto. Resultado: a fila drena como skips, o DJEN respira, e a ingestão
+  **retoma sozinha** quando ele volta.
+- Runbook: fila `djen_backfill` inflada + 5xx em massa = DJEN sobrecarregado. Não é
+  nosso bug. Opcional acelerar: esvaziar `djen_backfill` + limpar FailedRegistry
+  (`q.empty()` + `FailedJobRegistry.remove(..., delete_job=True)`) — os dias são
+  re-enfileirados pelo tick quando o DJEN normaliza.
+
+**Frontend correlato** (`base.html::buildIngestaoRateChart` + `queries.ingestion_rate_por_hora`):
+quando a MV está defasada, mostra o **último snapshot conhecido** (janela ancorada em
+`max(hora)`, não em `NOW`) com selo **"⚠ defasado há Xh"** — em vez de esconder o gráfico.
+
 ## Parser (`djen/parser.py`)
 
 `parse_item(item, tribunal, run) → ParsedItem | None`
