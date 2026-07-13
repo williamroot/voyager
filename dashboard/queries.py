@@ -430,6 +430,34 @@ def _reltuples(relname):
     return n if n > 0 else None
 
 
+def _count_exato_cacheado(relname, ttl=1800):
+    """COUNT(*) exato com cache próprio (TTL 30min) — número ESTÁVEL e monotônico
+    para o headline KPI, sem a oscilação ±1-2M do reltuples (que a amostragem do
+    ANALYZE distorce quando há muitas dead-tuples de UPDATE). Como processos só
+    crescem (nunca deletados), o exato só sobe.
+
+    Roda no warm (5min) mas o COUNT(*) real só a cada `ttl` (o cache amortiza) —
+    ~10-40s numa tabela de dezenas de M, fora do hot-path. Só p/ tabelas onde
+    COUNT(*) é viável (processos ~63M sim; movimentacao ~614M NÃO — use reltuples).
+    Fallback None se estourar o timeout (o chamador cai pro reltuples)."""
+    from django.core.cache import cache
+
+    key = f'kpi:count_exato:{relname}'
+    val = cache.get(key)
+    if val is not None:
+        return val
+    from django.db import connection
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SET LOCAL statement_timeout = '120000'")  # 120s
+            cur.execute(f'SELECT count(*) FROM {relname}')  # noqa: S608 — relname interno fixo
+            val = int(cur.fetchone()[0])
+        cache.set(key, val, ttl)
+        return val
+    except Exception:  # noqa: BLE001 — timeout/erro → chamador usa reltuples
+        return None
+
+
 def _aplicar_filtros(qs, dias=None, tribunais=None, date_field='data_disponibilizacao'):
     """Aplica filtros de período e tribunais comuns em qualquer queryset de Movimentacao/Process.
 
@@ -561,7 +589,10 @@ def compute_kpis_globais(dias=None, tribunais=None):
             total_processos = procs.count()
         else:
             total_movimentacoes = _reltuples('tribunals_movimentacao') or movs.count()
-            total_processos = _reltuples('tribunals_process') or procs.count()
+            # Processos: COUNT(*) exato cacheado (30min) em vez de reltuples — número
+            # estável/monotônico, sem o "sobe-e-desce" da estimativa. Fallback reltuples.
+            total_processos = (_count_exato_cacheado('tribunals_process')
+                               or _reltuples('tribunals_process') or procs.count())
     result = {
         'total_processos': total_processos,
         'total_movimentacoes': total_movimentacoes,
