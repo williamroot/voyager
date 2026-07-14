@@ -419,6 +419,11 @@
         {% voy_icon "transmission" "w-4 h-4" %}
         <span class="opacity-70">↳</span> Chat IA
       </a>
+      {% url 'extrair-autos' as extrair_autos_url %}
+      <a href="{{ extrair_autos_url }}" class="nav-item nav-sub {% if '/extrair' in request.path %}active{% endif %}">
+        {% voy_icon "uplink" "w-4 h-4" %}
+        <span class="opacity-70">↳</span> Extrair autos
+      </a>
       <a href="{{ movs_url }}" class="nav-item {% if movs_url in request.path %}active{% endif %}">
         {% voy_icon "transmission" "w-4 h-4" %}
         Movimentações

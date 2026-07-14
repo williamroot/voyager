@@ -1,0 +1,96 @@
+"""Proxy fino da tela de extração de autos (Zordon) para dentro do Voyager.
+
+A UI e o pipeline vivem no Zordon (GPU, modelos, doc_classificador). O navegador
+do usuário nunca fala direto com o Zordon — todas as telas passam por aqui. Os
+paths são espelhados 1:1 (``/extrair``, ``/api/extrair/...``) para que os links
+absolutos do HTML servido pelo Zordon resolvam na origem do Voyager.
+
+Somente autenticado. POST é ``csrf_exempt`` porque o form vem do Zordon (sem token
+Django) — a proteção efetiva é o ``login_required`` + rede interna ao Zordon.
+"""
+from __future__ import annotations
+
+import requests
+from django.conf import settings
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse, HttpResponseRedirect
+from django.views.decorators.csrf import csrf_exempt
+
+
+def _base() -> str:
+    return getattr(settings, "ZORDON_URL", "").rstrip("/")
+
+
+def _resp(r: requests.Response, default_ct: str) -> HttpResponse:
+    return HttpResponse(r.content, status=r.status_code,
+                        content_type=r.headers.get("content-type", default_ct))
+
+
+def _sem_zordon() -> HttpResponse:
+    return HttpResponse("<h2>Extração indisponível</h2><p>ZORDON_URL não configurado.</p>",
+                        status=503, content_type="text/html; charset=utf-8")
+
+
+@csrf_exempt
+@login_required
+def extrair(request):
+    base = _base()
+    if not base:
+        return _sem_zordon()
+    if request.method == "POST" and request.FILES.get("arquivo"):
+        up = request.FILES["arquivo"]
+        files = {"arquivo": (up.name, up.file, up.content_type or "application/octet-stream")}
+        data = {k: v for k, v in request.POST.items()}
+        try:
+            r = requests.post(f"{base}/extrair", data=data, files=files,
+                              timeout=1200, allow_redirects=False)
+        except requests.RequestException:
+            return HttpResponse("<h2>Falha ao enviar ao Zordon</h2>", status=502)
+        if r.status_code in (301, 302, 303):
+            return HttpResponseRedirect(r.headers.get("location", "/extrair"))
+        return _resp(r, "text/html; charset=utf-8")
+    try:
+        r = requests.get(f"{base}/extrair", timeout=30)
+    except requests.RequestException:
+        return _sem_zordon()
+    return _resp(r, "text/html; charset=utf-8")
+
+
+@login_required
+def status(request, job_id):
+    base = _base()
+    if not base:
+        return _sem_zordon()
+    try:
+        r = requests.get(f"{base}/extrair/{job_id}", timeout=30)
+    except requests.RequestException:
+        return _sem_zordon()
+    return _resp(r, "text/html; charset=utf-8")
+
+
+@login_required
+def api_status(request, job_id):
+    try:
+        r = requests.get(f"{_base()}/api/extrair/{job_id}", timeout=30)
+    except requests.RequestException:
+        return HttpResponse('{"erro":"zordon_off"}', status=502, content_type="application/json")
+    return _resp(r, "application/json")
+
+
+@login_required
+def api_modelos(request):
+    try:
+        r = requests.get(f"{_base()}/api/extrair/modelos", timeout=30)
+    except requests.RequestException:
+        return HttpResponse('{"local":[],"cloud":[]}', status=200, content_type="application/json")
+    return _resp(r, "application/json")
+
+
+@csrf_exempt
+@login_required
+def reprocessar(request, job_id):
+    try:
+        r = requests.post(f"{_base()}/extrair/{job_id}/reprocessar", timeout=30, allow_redirects=False)
+    except requests.RequestException:
+        return HttpResponseRedirect(f"/extrair/{job_id}")
+    return HttpResponseRedirect(r.headers.get("location", f"/extrair/{job_id}"))
