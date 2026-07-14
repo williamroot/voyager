@@ -86,6 +86,21 @@ def api_modelos(request):
     return _resp(r, "application/json")
 
 
+@login_required
+def arquivo(request, job_id):
+    """Stream do arquivo original (ZIP/PDF) que veio do Zordon."""
+    try:
+        r = requests.get(f"{_base()}/extrair/{job_id}/arquivo", timeout=300, stream=True)
+    except requests.RequestException:
+        return HttpResponse("arquivo indisponível", status=502)
+    resp = HttpResponse(r.raw.read() if r.status_code == 200 else r.content,
+                        status=r.status_code,
+                        content_type=r.headers.get("content-type", "application/octet-stream"))
+    if r.headers.get("content-disposition"):
+        resp["Content-Disposition"] = r.headers["content-disposition"]
+    return resp
+
+
 @csrf_exempt
 @login_required
 def reprocessar(request, job_id):

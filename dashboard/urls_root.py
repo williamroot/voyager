@@ -9,5 +9,6 @@ urlpatterns = [
     path('api/extrair/modelos', extrair_proxy.api_modelos, name='extrair-modelos'),
     path('extrair/<uuid:job_id>', extrair_proxy.status, name='extrair-status'),
     path('extrair/<uuid:job_id>/reprocessar', extrair_proxy.reprocessar, name='extrair-reprocessar'),
+    path('extrair/<uuid:job_id>/arquivo', extrair_proxy.arquivo, name='extrair-arquivo'),
     path('api/extrair/<uuid:job_id>', extrair_proxy.api_status, name='extrair-api'),
 ]
