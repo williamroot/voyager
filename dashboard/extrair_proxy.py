@@ -13,8 +13,14 @@ from __future__ import annotations
 import requests
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+
+_ESTAGIO = {
+    "PRECATORIO": ("Precatório expedido", "#22c55e"),
+    "PRE_PRECATORIO": ("Pré-precatório (aguardando ofício)", "#f59e0b"),
+    "DIREITO_CREDITORIO": ("Direito creditório (em formação)", "#3b82f6"),
+}
 
 
 def _base() -> str:
@@ -125,6 +131,29 @@ def chat(request, job_id):
     resp["Cache-Control"] = "no-cache"
     resp["X-Accel-Buffering"] = "no"
     return resp
+
+
+@login_required
+def jurimetria(request, job_id):
+    """Projeção jurimétrica do processo: lê o estágio+features extraídos (Zordon) e,
+    se ainda NÃO é precatório, estima via modelo de sobrevivência DC→precatório
+    (KM estratificado, `survival_precatorio.prever`) quando/se sai o ofício."""
+    try:
+        r = requests.get(f"{_base()}/api/extrair/{job_id}", timeout=30).json()
+    except (requests.RequestException, ValueError):
+        return JsonResponse({"erro": "zordon_off"}, status=502)
+    estagio = r.get("estagio")
+    jm = r.get("jm") or {}
+    lab, cor = _ESTAGIO.get(estagio, (estagio or "—", "#64748b"))
+    est = None
+    if estagio and estagio != "PRECATORIO":
+        try:
+            from dashboard.survival_precatorio import prever
+            est = prever(jm.get("tribunal"), jm.get("natureza"), jm.get("ente_devedor"))
+        except Exception:  # noqa: BLE001 — serving indisponível não quebra a tela
+            est = None
+    return JsonResponse({"estagio": estagio, "estagio_label": lab, "estagio_cor": cor,
+                         "features": jm, "estimativa": est})
 
 
 @csrf_exempt
