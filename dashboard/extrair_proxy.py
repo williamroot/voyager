@@ -103,6 +103,32 @@ def arquivo(request, job_id):
 
 @csrf_exempt
 @login_required
+def chat(request, job_id):
+    """Proxy SSE do chat: repassa o POST e faz STREAM do text/event-stream do Zordon
+    token-a-token (sem bufferizar) → o navegador recebe ao vivo."""
+    from django.http import StreamingHttpResponse
+    base = _base()
+    if not base:
+        return HttpResponse("indisponível", status=503)
+
+    def gen():
+        try:
+            with requests.post(f"{base}/extrair/{job_id}/chat", data=request.body,
+                               headers={"Content-Type": "application/json"},
+                               stream=True, timeout=300) as r:
+                for chunk in r.iter_content(chunk_size=None):
+                    if chunk:
+                        yield chunk
+        except requests.RequestException:
+            yield b'data: {"tipo": "erro", "erro": "conexao"}\n\n'
+    resp = StreamingHttpResponse(gen(), content_type="text/event-stream")
+    resp["Cache-Control"] = "no-cache"
+    resp["X-Accel-Buffering"] = "no"
+    return resp
+
+
+@csrf_exempt
+@login_required
 def reprocessar(request, job_id):
     try:
         r = requests.post(f"{_base()}/extrair/{job_id}/reprocessar", timeout=30, allow_redirects=False)
