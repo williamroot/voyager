@@ -275,6 +275,28 @@ todos os tribunais numa passada (GROUP BY `tribunal_id`); hot path
   linhas legadas `'VALIDADO'` (path antigo pré-`lote_id`, já limpas em prod)
   que rachavam o funil em dois buckets.
 
+### Página: Velocidade da vetorização (`/dashboard/vetorizacao/`)
+
+View `vetorizacao` (`dashboard/views.py`). Telemetria **ao vivo da frota de
+vetorização do Zordon** (workers RQ que embedam autos no `acervo_processo`):
+KPIs (workers busy/total, fila, acervo, proc/min e proc/h), cards por máquina
+com **GPU** (util % + VRAM), gráfico ECharts de proc/min (últimos 60 min) e
+breakdown por tribunal. Auto-refresh HTMX `every 300s` (partial
+`_partials/_vetorizacao_data.html`).
+
+Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyager):
+- Job `warm_vetorizacao_fleet` (`dashboard/tasks.py`, scheduler inline **5min**
+  em `djen/scheduler.py`) faz 1 GET em `ZORDON_URL/api/vetorizacao/fleet` e grava
+  `cache.set('vetor:fleet:v1', ..., 660s)`.
+- A view lê do cache (`_vetor_fleet_data`, fast path; fallback: warm inline 1x se
+  frio). `_vetor_maquinas` funde workers+GPUs num conjunto de máquinas.
+- Endpoint no Zordon (`acervo/vetorizacao_fleet_view.py`): conta só workers que
+  escutam a fila `vetorizar` (`w.queue_names()` — senão conta ingest/extract),
+  velocidade via buckets de `acervo_processo.criado_em`, GPU via hash Redis DB3
+  `vetor:gpu` publicado por reporters (`vet_gpu_report.py`) nas máquinas da frota.
+- Sem migration (só RedisCache). A 3090 do embed (host `llmsv2`) não é SSH-ável →
+  card de GPU "indisponível" pra ela.
+
 ## Atalhos de teclado
 
 Globais (em `base.html`): `g h` → home, `g p` → processos, `g m` → movimentações, `g i` → ingestão, `/` → busca, `t` → toggle tema, `?` → modal de ajuda. Listener com flag `pendingG`.
