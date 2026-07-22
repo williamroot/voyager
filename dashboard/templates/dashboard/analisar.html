@@ -1,0 +1,78 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Analisar do acervo{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="mb-4">
+    <h1 class="text-2xl font-semibold text-fg-soft">Analisar processo vetorizado</h1>
+    <p class="text-xs text-fg-subtle mt-1 leading-relaxed max-w-xl">
+      A mesma análise da tela <b>Extrair autos</b>, mas a partir de um processo <b>já vetorizado</b> no acervo —
+      sem re-upload nem re-download. O texto vem dos vetores; roda só a extração (rápida) e mostra o
+      <b>tempo de processamento</b>.
+    </p>
+  </div>
+
+  <form method="post" action="{% url 'analisar-autos' %}" class="card" id="form">
+    {% csrf_token %}
+    <div class="mb-4">
+      <label class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">CNJ do processo (vetorizado)</label>
+      <input name="cnj" id="cnj" autocomplete="off" required placeholder="0000000-00.0000.0.00.0000"
+             class="w-full bg-input border border-border rounded-lg px-3 py-2.5 text-sm text-fg
+                    focus:outline-none focus:border-accent font-mono">
+      <p class="text-[0.7rem] text-fg-subtle mt-1">Digite pra buscar, ou escolha um da lista abaixo.</p>
+    </div>
+
+    <div class="mb-4">
+      <label class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">Modelo</label>
+      <select name="modelo" id="modelo"
+              class="w-full bg-input border border-border rounded-lg px-3 py-2.5 text-sm text-fg focus:outline-none focus:border-accent">
+        <option value="auto">auto (local: qwen + gemma — 3090)</option>
+      </select>
+    </div>
+
+    <div id="sugs" class="flex flex-col gap-1.5 mb-2 max-h-64 overflow-auto"></div>
+
+    <button type="submit" id="go" disabled
+            class="w-full mt-2 rounded-lg py-3 text-sm font-semibold text-white
+                   bg-gradient-to-r from-blue-600 to-blue-500 disabled:opacity-50 disabled:cursor-default">
+      Analisar processo
+    </button>
+    <p class="text-xs text-fg-subtle mt-3 text-center" id="tot">carregando candidatos…</p>
+  </form>
+
+  <p class="mt-5 text-xs"><a href="{% url 'extrair-autos' %}" class="text-fg-subtle hover:text-fg">← Extrair autos (upload)</a></p>
+</div>
+
+<script>
+(function(){
+  const cnj=document.getElementById('cnj'),sugs=document.getElementById('sugs'),go=document.getElementById('go'),
+        tot=document.getElementById('tot'),modelo=document.getElementById('modelo');
+  const RE=/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/;
+  function chk(){go.disabled=!RE.test(cnj.value);}
+  let tmr;
+  cnj.addEventListener('input',()=>{chk();clearTimeout(tmr);tmr=setTimeout(()=>load(cnj.value.trim()),250);});
+  async function load(q){
+    try{
+      const j=await(await fetch('{% url "analisar-vetorizados" %}?limit=30'+(q?('&q='+encodeURIComponent(q)):''))).json();
+      tot.textContent=(j.total||0).toLocaleString('pt-BR')+' processos vetorizados no acervo';
+      sugs.innerHTML=(j.itens||[]).map(it=>`
+        <button type="button" data-cnj="${it.cnj}"
+          class="sug flex justify-between items-center gap-3 bg-card/60 border border-border rounded-lg px-3 py-2 text-left hover:border-accent transition">
+          <span class="font-mono text-xs text-fg">${it.cnj}</span>
+          <span class="text-[0.68rem] text-fg-subtle whitespace-nowrap"><b class="text-accent">${it.n_docs} docs</b> · ${it.natureza||'—'} · ${it.ano||''} ${it.tribunal||''}</span>
+        </button>`).join('') || '<p class="text-[0.7rem] text-fg-subtle">nenhum candidato encontrado</p>';
+      sugs.querySelectorAll('.sug').forEach(el=>el.onclick=()=>{cnj.value=el.dataset.cnj;chk();sugs.innerHTML='';});
+    }catch(e){tot.textContent='falha ao listar candidatos';}
+  }
+  async function loadModelos(){
+    try{const m=await(await fetch('{% url "extrair-modelos" %}')).json();
+      const o=['<option value="auto">auto (local: qwen + gemma — 3090)</option>'];
+      (m.local||[]).forEach(x=>o.push(`<option value="local:${x}">local: ${x}</option>`));
+      (m.cloud||[]).forEach(x=>o.push(`<option value="cloud:${x}">☁ cloud: ${x} (envia p/ fora)</option>`));
+      modelo.innerHTML=o.join('');}catch(e){}
+  }
+  load('');loadModelos();
+})();
+</script>
+{% endblock %}

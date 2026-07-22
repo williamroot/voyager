@@ -17,6 +17,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 _ESTAGIO = {
     "PRECATORIO": ("Precatório expedido", "#22c55e"),
@@ -57,15 +58,92 @@ def extrair(request):
         if r.status_code in (301, 302, 303):
             return HttpResponseRedirect(r.headers.get("location", "/extrair"))
         return _resp(r, "text/html; charset=utf-8")
-    try:
-        r = requests.get(f"{base}/extrair", timeout=30)
-    except requests.RequestException:
+    # GET → página NATIVA do Voyager (chrome: topo+sidebar) com o form de upload
+    from django.shortcuts import render
+    return render(request, "dashboard/extrair.html")
+
+
+@login_required
+def analisar(request):
+    """Análise a partir de um processo JÁ vetorizado no acervo (mesma engine do
+    /extrair, sem upload). GET → página Voyager (chrome: topo+sidebar) com o form;
+    POST → cria o job no Zordon → 302 p/ a tela de status/timeline.
+
+    O form é renderizado PELO Voyager (template com {% csrf_token %}), então o POST
+    passa pela proteção CSRF normal (sem csrf_exempt)."""
+    base = _base()
+    if not base:
         return _sem_zordon()
-    return _resp(r, "text/html; charset=utf-8")
+    if request.method == "POST":
+        data = {k: v for k, v in request.POST.items() if k != "csrfmiddlewaretoken"}
+        try:
+            r = requests.post(f"{base}/analisar", data=data, timeout=60, allow_redirects=False)
+        except requests.RequestException:
+            return HttpResponse("<h2>Falha ao enviar ao Zordon</h2>", status=502)
+        if r.status_code in (301, 302, 303):
+            return HttpResponseRedirect(r.headers.get("location", "/analisar"))
+        return _resp(r, "text/html; charset=utf-8")
+    from django.shortcuts import render
+    return render(request, "dashboard/analisar.html")
+
+
+@login_required
+def analises(request):
+    """Vitrine das análises já feitas (tabela + gráficos de tempo médio e docs/hora).
+    Página NATIVA do Voyager (chrome: topo+sidebar) — dados via /api/analises (proxy)."""
+    if not _base():
+        return _sem_zordon()
+    from django.shortcuts import render
+    return render(request, "dashboard/analises.html")
+
+
+@login_required
+def analises_api(request):
+    try:
+        r = requests.get(f"{_base()}/api/analises", params=request.GET.dict(), timeout=30)
+    except requests.RequestException:
+        return HttpResponse('{"itens":[],"agg":{}}', status=200, content_type="application/json")
+    return _resp(r, "application/json")
+
+
+@login_required
+def analisar_vetorizados(request):
+    try:
+        r = requests.get(f"{_base()}/api/analisar/vetorizados", params=request.GET.dict(), timeout=30)
+    except requests.RequestException:
+        return HttpResponse('{"total":0,"itens":[]}', status=200, content_type="application/json")
+    return _resp(r, "application/json")
 
 
 @login_required
 def status(request, job_id):
+    """Tela de resultado/timeline COM chrome (topo+sidebar): base.html + um iframe
+    same-origin que carrega a página rica do Zordon (`/extrair/<id>/raw`). O iframe
+    preserva todo o JS (timeline ao vivo, raciocínio, chat SSE, jurimetria, dossiê)
+    e é auto-ajustado à altura do conteúdo (sem scroll interno)."""
+    if not _base():
+        return _sem_zordon()
+    from django.shortcuts import render
+    from django.utils.cache import add_never_cache_headers
+    resp = render(request, "dashboard/extrair_status.html", {"job_id": str(job_id)})
+    # A borda (Cloudflare) força X-Frame-Options: DENY em tudo. A página usa srcdoc
+    # (fetch+inject) p/ contornar isso; mas se o navegador servir uma versão ANTIGA
+    # em cache (que usava <iframe src=/raw>), o src bate no DENY → "refused to connect".
+    # no-store garante que o browser SEMPRE pegue a versão srcdoc atual.
+    add_never_cache_headers(resp)
+    # CSP frame-ancestors tem PRECEDÊNCIA sobre X-Frame-Options nos navegadores modernos
+    # → anula o DENY injetado pela Cloudflare p/ framing same-origin (blindagem definitiva,
+    # funciona mesmo p/ páginas antigas em cache que usavam <iframe src>).
+    resp["Content-Security-Policy"] = "frame-ancestors 'self'"
+    return resp
+
+
+@xframe_options_sameorigin
+@login_required
+def status_raw(request, job_id):
+    """HTML cru da tela de status do Zordon (conteúdo do iframe). Injeta
+    `<base target="_top">` p/ links/forms (nova extração, reprocessar) saírem do
+    iframe e navegarem a janela toda (mantendo o chrome)."""
     base = _base()
     if not base:
         return _sem_zordon()
@@ -73,7 +151,12 @@ def status(request, job_id):
         r = requests.get(f"{base}/extrair/{job_id}", timeout=30)
     except requests.RequestException:
         return _sem_zordon()
-    return _resp(r, "text/html; charset=utf-8")
+    html = r.text.replace("<head>", '<head><base target="_top">', 1)
+    resp = HttpResponse(html, status=r.status_code, content_type="text/html; charset=utf-8")
+    # CSP frame-ancestors > X-Frame-Options: permite framing same-origin mesmo com o
+    # DENY que a Cloudflare injeta → o iframe (src OU srcdoc) carrega o /raw sem bloqueio.
+    resp["Content-Security-Policy"] = "frame-ancestors 'self'"
+    return resp
 
 
 @login_required

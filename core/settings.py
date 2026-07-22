@@ -337,7 +337,7 @@ ZORDON_URL = env('ZORDON_URL', default='http://100.116.189.18:8011')
 ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
-X_FRAME_OPTIONS = 'DENY'
+X_FRAME_OPTIONS = 'SAMEORIGIN'  # a tela de extração embute o HTML rico do Zordon num iframe same-origin
 
 # Optional dependencies — guarded with try/except por serem features opcionais
 # (PEP 8 §3.1 admite imports condicionais para features opcionais).

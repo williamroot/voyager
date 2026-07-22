@@ -1,0 +1,63 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Extrair autos{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="mb-4">
+    <h1 class="text-2xl font-semibold text-fg-soft">Extrair autos</h1>
+    <p class="text-xs text-fg-subtle mt-1 leading-relaxed max-w-xl">
+      Suba um <b>ZIP</b> (autos separados) ou <b>PDF</b> e extraia natureza, valor, ente, partes,
+      cessão, estágio e linha do tempo — <b>sem consultar o Falcon</b>, direto dos autos. Processamento
+      assíncrono: sobrevive a fechar a janela e é reprocessável.
+    </p>
+  </div>
+
+  <form method="post" action="{% url 'extrair-autos' %}" enctype="multipart/form-data" class="card" id="form">
+    {% csrf_token %}
+    <label id="drop" for="file"
+      class="flex flex-col items-center justify-center gap-2 text-center border-2 border-dashed border-border
+             rounded-xl py-10 px-4 cursor-pointer hover:border-accent transition">
+      <span class="text-3xl opacity-60">⬆</span>
+      <span class="text-sm text-fg"><b>Arraste</b> o arquivo aqui ou clique para escolher</span>
+      <span class="text-[0.7rem] text-fg-subtle" id="fn">ZIP ou PDF · até ~700 MB</span>
+    </label>
+    <input type="file" name="arquivo" id="file" accept=".zip,.pdf" hidden required>
+
+    <div class="mt-4">
+      <label class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">Modelo</label>
+      <select name="modelo" id="modelo"
+              class="w-full bg-input border border-border rounded-lg px-3 py-2.5 text-sm text-fg focus:outline-none focus:border-accent">
+        <option value="auto">auto (local: qwen + gemma — 3090)</option>
+      </select>
+    </div>
+
+    <button type="submit" id="go" disabled
+            class="w-full mt-4 rounded-lg py-3 text-sm font-semibold text-white
+                   bg-gradient-to-r from-blue-600 to-blue-500 disabled:opacity-50 disabled:cursor-default">
+      Extrair metadados
+    </button>
+  </form>
+
+  <p class="mt-5 text-xs"><a href="{% url 'analisar-autos' %}" class="text-fg-subtle hover:text-fg">↳ ou analisar um processo já vetorizado do acervo</a></p>
+</div>
+
+<script>
+(function(){
+  const file=document.getElementById('file'),fn=document.getElementById('fn'),go=document.getElementById('go'),
+        drop=document.getElementById('drop'),form=document.getElementById('form'),modelo=document.getElementById('modelo');
+  function pick(){ if(file.files.length){ const f=file.files[0];
+    fn.textContent='✓ '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)'; go.disabled=false; } }
+  file.addEventListener('change',pick);
+  ['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('border-accent');}));
+  ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('border-accent');}));
+  drop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length){ file.files=ev.dataTransfer.files; pick(); }});
+  form.addEventListener('submit',()=>{ go.disabled=true; go.textContent='Enviando…'; });
+  (async function(){ try{const m=await(await fetch('{% url "extrair-modelos" %}')).json();
+    const o=['<option value="auto">auto (local: qwen + gemma — 3090)</option>'];
+    (m.local||[]).forEach(x=>o.push(`<option value="local:${x}">local: ${x}</option>`));
+    (m.cloud||[]).forEach(x=>o.push(`<option value="cloud:${x}">☁ cloud: ${x} (envia p/ fora)</option>`));
+    modelo.innerHTML=o.join('');}catch(e){} })();
+})();
+</script>
+{% endblock %}

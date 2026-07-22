@@ -1,0 +1,27 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Extração · resultado{% endblock %}
+
+{% block content %}
+<iframe id="zf" title="Resultado da extração"
+        style="width:100%;border:0;min-height:82vh;display:block" scrolling="no"></iframe>
+<div id="zf_err" style="display:none;padding:24px;color:#f87171;font-family:monospace">
+  Falha ao carregar o resultado. <a href="#" onclick="location.reload();return false" style="color:#22c55e">tentar de novo</a>
+</div>
+<script>
+(function(){
+  const f=document.getElementById('zf');
+  const raw="{% url 'extrair-status' job_id %}/raw";
+  function fit(){ try{ const h=f.contentDocument.documentElement.scrollHeight;
+    if(h>120) f.style.height=(h+32)+'px'; }catch(e){} }
+  // Carrega o HTML rico do Zordon e injeta como srcdoc — conteúdo inline de iframe
+  // NÃO passa por X-Frame-Options (o header bloqueia só framing via src=HTTP). Assim
+  // funciona atrás da Cloudflare/proxy que força X-Frame-Options: DENY. Roda same-origin
+  // → o JS do Zordon (timeline SSE, chat, jurimetria, dossiê) e os fetches /api/... funcionam.
+  fetch(raw,{credentials:'same-origin'})
+    .then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); })
+    .then(html=>{ f.srcdoc=html; f.addEventListener('load',fit); setInterval(fit,600); })
+    .catch(e=>{ f.style.display='none'; document.getElementById('zf_err').style.display='block'; });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,131 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Análises de autos · VOYAGER{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-xl md:text-2xl font-semibold tracking-tight">Análises de autos</h1>
+  <p class="text-fg-subtle text-sm mt-1">
+    Processos analisados pela IA a partir dos autos completos — extração de partes,
+    valores, estágio do crédito e linha do tempo. Métricas de throughput ao vivo.
+  </p>
+</div>
+
+{# ── KPIs ── #}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6" id="kpis">
+  <div class="rounded-xl border border-border bg-surface p-4">
+    <div class="text-[0.65rem] uppercase tracking-widest text-fg-subtle font-mono">Análises</div>
+    <div class="text-2xl font-semibold mt-1" id="kpi-n">—</div>
+  </div>
+  <div class="rounded-xl border border-border bg-surface p-4">
+    <div class="text-[0.65rem] uppercase tracking-widest text-fg-subtle font-mono">Documentos processados</div>
+    <div class="text-2xl font-semibold mt-1" id="kpi-docs">—</div>
+  </div>
+  <div class="rounded-xl border border-border bg-surface p-4">
+    <div class="text-[0.65rem] uppercase tracking-widest text-fg-subtle font-mono">Tempo médio</div>
+    <div class="text-2xl font-semibold mt-1" id="kpi-tempo">—</div>
+  </div>
+  <div class="rounded-xl border border-border bg-surface p-4">
+    <div class="text-[0.65rem] uppercase tracking-widest text-fg-subtle font-mono">Documentos / hora</div>
+    <div class="text-2xl font-semibold mt-1 text-accent-fg" id="kpi-dph">—</div>
+  </div>
+</div>
+
+{# ── Gráficos ── #}
+<div class="grid lg:grid-cols-2 gap-3 mb-6">
+  <div class="rounded-xl border border-border bg-surface p-4">
+    <div class="text-sm font-medium mb-2">Tempo por análise <span class="text-fg-subtle">(segundos)</span></div>
+    <div id="chart-tempo" style="height:280px"></div>
+  </div>
+  <div class="rounded-xl border border-border bg-surface p-4">
+    <div class="text-sm font-medium mb-2">Documentos por hora <span class="text-fg-subtle">(throughput)</span></div>
+    <div id="chart-dph" style="height:280px"></div>
+  </div>
+</div>
+
+{# ── Tabela ── #}
+<div class="rounded-xl border border-border bg-surface overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-[0.65rem] uppercase tracking-widest text-fg-subtle font-mono border-b border-border">
+          <th class="px-4 py-3">Processo</th>
+          <th class="px-4 py-3">Tribunal / natureza</th>
+          <th class="px-4 py-3 text-right">Documentos</th>
+          <th class="px-4 py-3 text-right">Partes</th>
+          <th class="px-4 py-3 text-right">Duração</th>
+          <th class="px-4 py-3 text-right">Docs/hora</th>
+          <th class="px-4 py-3">Quando</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="8" class="px-4 py-8 text-center text-fg-subtle">carregando…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+  const fmt = n => n==null ? '—' : n.toLocaleString('pt-BR');
+  function dur(s){ if(s==null) return '—'; if(s<60) return s.toFixed(0)+'s';
+    const m=Math.floor(s/60), r=Math.round(s%60); return m+'m'+(r?(' '+r+'s'):''); }
+  function quando(iso){ try{ const d=new Date(iso);
+    return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  }catch(e){ return '—'; } }
+  const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const cor = document.documentElement.classList.contains('dark') ? '#e5e7eb' : '#334155';
+
+  fetch("{% url 'analises-api' %}", {credentials:'same-origin', headers:{'Accept':'application/json'}})
+    .then(r=>r.json())
+    .then(({itens, agg})=>{
+      // KPIs
+      document.getElementById('kpi-n').textContent   = fmt(agg.n_analises);
+      document.getElementById('kpi-docs').textContent= fmt(agg.total_documentos);
+      document.getElementById('kpi-tempo').textContent = dur(agg.tempo_medio_s);
+      document.getElementById('kpi-dph').textContent = agg.docs_por_hora_medio==null?'—':fmt(Math.round(agg.docs_por_hora_medio));
+
+      // Tabela
+      const tb = document.getElementById('tbody');
+      if(!itens.length){ tb.innerHTML='<tr><td colspan="8" class="px-4 py-8 text-center text-fg-subtle">nenhuma análise ainda</td></tr>'; }
+      else tb.innerHTML = itens.map(it=>`
+        <tr class="border-b border-border/60 hover:bg-white/[.02]">
+          <td class="px-4 py-3 font-mono text-[0.8rem]">${esc(it.cnj||it.nome)}
+            ${it.estagio?`<div class="text-[0.65rem] text-fg-subtle mt-0.5">${esc(it.estagio)}</div>`:''}</td>
+          <td class="px-4 py-3">${esc(it.tribunal||'—')}
+            <div class="text-[0.65rem] text-fg-subtle">${esc(it.natureza||'')} ${it.origem==='acervo'?'· acervo':''}</div></td>
+          <td class="px-4 py-3 text-right tabular-nums">${fmt(it.n_documentos)}</td>
+          <td class="px-4 py-3 text-right tabular-nums">${fmt(it.n_partes)}</td>
+          <td class="px-4 py-3 text-right tabular-nums">${dur(it.duracao_s)}</td>
+          <td class="px-4 py-3 text-right tabular-nums text-accent-fg font-medium">${it.docs_por_hora==null?'—':fmt(Math.round(it.docs_por_hora))}</td>
+          <td class="px-4 py-3 text-fg-subtle text-[0.75rem]">${quando(it.criado_em)}</td>
+          <td class="px-4 py-3 text-right"><a href="/extrair/${it.id}" class="text-accent-fg hover:underline text-[0.8rem]">detalhe →</a></td>
+        </tr>`).join('');
+
+      // Gráficos: ordem cronológica (mais antiga → recente) p/ ler como série
+      const ord = itens.slice().reverse();
+      const labels = ord.map(it=> (it.cnj||it.nome||'').slice(0,20) );
+      const barBase = (name, data, color, mediaLabel, media) => ({
+        grid:{left:8,right:16,top:16,bottom:24,containLabel:true},
+        tooltip:{trigger:'axis'},
+        xAxis:{type:'category', data:labels, axisLabel:{show:false}, axisLine:{lineStyle:{color:cor}}},
+        yAxis:{type:'value', name:name, nameTextStyle:{color:cor}, axisLabel:{color:cor},
+               splitLine:{lineStyle:{opacity:.12}}},
+        series:[{type:'bar', data:data, itemStyle:{color:color, borderRadius:[3,3,0,0]},
+          markLine: media!=null?{silent:true, symbol:'none', lineStyle:{color:color,type:'dashed',opacity:.7},
+            data:[{yAxis:media, label:{formatter:mediaLabel+': '+Math.round(media), color:cor, position:'insideEndTop'}}]}:undefined
+        }]
+      });
+      setupChart(document.getElementById('chart-tempo'),
+        barBase('s', ord.map(it=>it.duracao_s), '#38bdf8', 'média', agg.tempo_medio_s));
+      setupChart(document.getElementById('chart-dph'),
+        barBase('docs/h', ord.map(it=>it.docs_por_hora), '#22c55e', 'média', agg.docs_por_hora_medio));
+    })
+    .catch(e=>{
+      document.getElementById('tbody').innerHTML =
+        '<tr><td colspan="8" class="px-4 py-8 text-center text-danger">falha ao carregar as análises</td></tr>';
+    });
+})();
+</script>
+{% endblock %}
