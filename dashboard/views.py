@@ -3153,3 +3153,68 @@ def processo_metadados(request, pk):
         'docs_por_classe': docs_por_classe,
         'campos_exib': campos_exib,
     })
+
+
+# ---------------------------------------------------------------------------
+# Vetorização — velocidade de processamento da frota (Zordon)
+# ---------------------------------------------------------------------------
+
+def _vetor_fleet_data():
+    """Lê a telemetria da frota do cache; se vazio, chama o warm inline 1x.
+
+    Nunca propaga exceção. Retorna (data, stale_cache) — data pode ser None.
+    """
+    from .tasks import VETOR_FLEET_CACHE_KEY, warm_vetorizacao_fleet
+    data = _safe_cache_get(VETOR_FLEET_CACHE_KEY)
+    if data:
+        return data
+    # Cache frio (1ª visita / após restart): busca inline uma vez.
+    try:
+        return warm_vetorizacao_fleet()
+    except Exception:
+        logger.warning('vetorizacao: warm inline falhou', exc_info=True)
+        return None
+
+
+@login_required
+@require_GET
+def vetorizacao(request):
+    """Dashboard de velocidade de processamento da vetorização (acervo Zordon).
+
+    GET sem HX-Request → shell + dados iniciais (do cache).
+    GET com HX-Request → apenas o partial de dados (auto-refresh 5min).
+    """
+    data = _vetor_fleet_data()
+    ctx = {'fleet': data, 'maquinas': _vetor_maquinas(data)}
+    if _is_htmx(request):
+        return render(request, 'dashboard/_partials/_vetorizacao_data.html', ctx)
+    return render(request, 'dashboard/vetorizacao.html', ctx)
+
+
+def _vetor_maquinas(data):
+    """Funde workers + GPUs numa lista de máquinas (união dos hosts).
+
+    Uma máquina pode ter só workers (ex.: zordon — 3090 no llmsv2, GPU não
+    reportável), só GPU (host ocioso sem worker no momento) ou ambos.
+    """
+    if not data:
+        return []
+    gpu_por_host = {g.get('host'): g for g in (data.get('gpus') or []) if g.get('host')}
+    maquinas = []
+    vistos = set()
+    for w in (data.get('workers') or []):
+        host = w.get('host')
+        vistos.add(host)
+        maquinas.append({
+            'host': host,
+            'total': w.get('total', 0),
+            'busy': w.get('busy', 0),
+            'idle': w.get('idle', 0),
+            'gpu': gpu_por_host.get(host),
+        })
+    # Hosts com GPU reportando mas sem worker conectado agora
+    for host, g in gpu_por_host.items():
+        if host not in vistos:
+            maquinas.append({'host': host, 'total': 0, 'busy': 0, 'idle': 0, 'gpu': g})
+    maquinas.sort(key=lambda m: (-m['total'], m['host'] or ''))
+    return maquinas

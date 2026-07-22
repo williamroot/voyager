@@ -7,6 +7,8 @@ os outros, e queries pesadas cancelam ao invés de travar o pipeline.
 import logging
 import time
 
+import requests
+from django.conf import settings
 from django.core.cache import cache
 from django.db import close_old_connections, connection, connections, transaction
 from django_rq import job
@@ -14,6 +16,11 @@ from django_rq import job
 from . import queries
 
 logger = logging.getLogger('voyager.dashboard.tasks')
+
+# Cache da telemetria da frota de vetorização (Zordon). TTL 11min: sobrevive a
+# 1 falha do warm de 5min sem cair pra MISS na página.
+VETOR_FLEET_CACHE_KEY = 'vetor:fleet:v1'
+_VETOR_FLEET_TTL = 660
 
 # Períodos pré-aquecidos. Apenas [None, 7] na home — outros computam on-demand.
 _PERIODOS = [None, 7]
@@ -309,3 +316,33 @@ def refresh_materialized_views():
                 logger.warning('refresh MV %s: %s', mv, e)
                 _reset_connection()
     _with_lock('lock:refresh_mv', 7200, _run)
+
+
+def warm_vetorizacao_fleet():
+    """Busca a telemetria da frota de vetorização no Zordon e grava no cache.
+
+    Roda INLINE no thread pool do scheduler (a cada 5min) — só faz 1 GET HTTP
+    e 1 cache.set, leve. A página /dashboard/vetorizacao/ lê do cache (fast
+    path). TTL 11min sobrevive a 1 falha do warm. Nunca propaga exceção:
+    numa falha, mantém o valor stale anterior no cache.
+
+    Retorna o dict gravado (ou None em falha) — usado pelo fallback inline da
+    view quando o cache está frio.
+    """
+    base = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    if not base:
+        logger.warning('warm_vetorizacao_fleet: ZORDON_URL não configurado')
+        return None
+    try:
+        resp = requests.get(
+            f'{base}/api/vetorizacao/fleet',
+            timeout=(5, 20),
+            headers={'User-Agent': 'voyager-dashboard/vetor-fleet'},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        cache.set(VETOR_FLEET_CACHE_KEY, data, timeout=_VETOR_FLEET_TTL)
+        return data
+    except Exception as e:
+        logger.warning('warm_vetorizacao_fleet: %s: %s', type(e).__name__, e)
+        return None

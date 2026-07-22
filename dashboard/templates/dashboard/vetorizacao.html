@@ -1,0 +1,48 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Vetorização{% endblock %}
+
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Velocidade de vetorização' subtitle='Frota distribuída ingerindo o acervo (Zordon) — workers, GPU, velocidade e fila' %}
+
+{# Builder do gráfico de velocidade por minuto — definido no shell (persiste
+   entre swaps HTMX). Linha/área com destaque no ponto atual. #}
+<script>
+  window.buildVetorSpeed = function (rows) {
+    rows = rows || [];
+    const c = chartGridColors();
+    const cats = rows.map(r => r.min);
+    const vals = rows.map(r => r.n);
+    return {
+      tooltip: {trigger: 'axis', valueFormatter: v => fmt(v) + ' proc/min'},
+      grid: {left: 44, right: 18, top: 18, bottom: 30},
+      xAxis: {
+        type: 'category', data: cats, boundaryGap: false,
+        axisLabel: {color: c.axisLabel, fontSize: 10, interval: 9},
+        axisLine: {lineStyle: {color: c.axisLine}},
+      },
+      yAxis: {
+        type: 'value', minInterval: 1,
+        axisLabel: {color: c.axisLabel, formatter: fmtCompact},
+        splitLine: {lineStyle: {color: c.splitLine}},
+      },
+      series: [{
+        type: 'line', data: vals, smooth: 0.3, symbol: 'none',
+        lineStyle: {width: 2, color: 'rgb(16,185,129)'},
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              {offset: 0, color: 'rgba(16,185,129,0.28)'},
+              {offset: 1, color: 'rgba(16,185,129,0.02)'},
+            ],
+          },
+        },
+      }],
+    };
+  };
+</script>
+
+{% include 'dashboard/_partials/_vetorizacao_data.html' %}
+{% endblock %}

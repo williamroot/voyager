@@ -455,6 +455,11 @@
         {% voy_icon "calibrate" "w-4 h-4" %}
         Workers
       </a>
+      {% url 'dashboard:vetorizacao' as vetorizacao_url %}
+      <a href="{{ vetorizacao_url }}" class="nav-item {% if request.path == vetorizacao_url %}active{% endif %}">
+        {% voy_icon "probe" "w-4 h-4" %}
+        Vetorização
+      </a>
       {% url 'dashboard:wizard' as wizard_url %}
       <a href="{{ wizard_url }}" class="nav-item {% if wizard_url in request.path %}active{% endif %}">
         {% voy_icon "eject" "w-4 h-4" %}

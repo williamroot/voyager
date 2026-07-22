@@ -84,6 +84,9 @@ urlpatterns = [
     path('leads/validacao/<int:lote_id>/item/<int:posicao>/',
          views.leads_validacao_item, name='leads_validacao_item'),
 
+    # Vetorização — velocidade de processamento da frota (Zordon)
+    path('vetorizacao/', views.vetorizacao, name='vetorizacao'),
+
     # Acervo — busca semântica (Zordon)
     path('acervo/busca/', views.acervo_busca, name='acervo-busca'),
     path('acervo/teor/<str:cnj>/', views.acervo_teor, name='acervo-teor'),

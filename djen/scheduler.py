@@ -32,6 +32,7 @@ from dashboard.tasks import (
     warm_partes,
     warm_pipeline_diario,
     warm_tribunal_status,
+    warm_vetorizacao_fleet,
     warm_workers_cache_inline,
 )
 
@@ -227,6 +228,20 @@ def create_scheduler() -> BlockingScheduler:
         'interval',
         seconds=30,
         id='warm_workers_cache',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # Telemetria da frota de vetorização (Zordon) — INLINE, a cada 5 min.
+    # Só faz 1 GET HTTP ao endpoint /api/vetorizacao/fleet do Zordon e grava
+    # no cache (chave vetor:fleet:v1). A página /dashboard/vetorizacao/ lê do
+    # cache (fast path). Nunca propaga exceção — degrade gracioso.
+    scheduler.add_job(
+        warm_vetorizacao_fleet,
+        'interval',
+        minutes=5,
+        id='warm_vetorizacao_fleet',
         replace_existing=True,
         max_instances=1,
         coalesce=True,
