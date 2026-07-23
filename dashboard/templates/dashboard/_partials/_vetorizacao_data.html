@@ -52,53 +52,7 @@ USE_L10N mete vírgula decimal e quebra o parse do Alpine).
   {% endwith %}
 
   {# ============================================================= #}
-  {#  2 · THROUGHPUT AO VIVO — KPI strip                            #}
-  {# ============================================================= #}
-  <section>
-    <div class="flex items-center gap-2 mb-3">
-      {% voy_icon "transmission" "w-4 h-4 text-fg-muted" %}
-      <h2 class="text-xs font-semibold uppercase tracking-[0.15em] text-fg-muted">Throughput ao vivo</h2>
-    </div>
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Workers ativos</div>
-        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">
-          {{ fleet.busy_total|default:0 }}<span class="text-fg-subtle text-lg">/{{ fleet.workers_total|default:0 }}</span>
-        </div>
-        <div class="text-[0.7rem] text-fg-subtle mt-1">ocupados / conectados</div>
-      </div>
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Fila</div>
-        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.queue_len|default:0|format_int }}</div>
-        <div class="text-[0.7rem] text-fg-subtle mt-1">CNJs aguardando</div>
-      </div>
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Acervo total</div>
-        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.acervo_total|default:0|format_int }}</div>
-        <div class="text-[0.7rem] text-fg-subtle mt-1">processos vetorizados</div>
-      </div>
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Velocidade</div>
-        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-accent-fg">{{ fleet.rate_10min|default:0 }}<span class="text-fg-subtle text-base">/min</span></div>
-        <div class="text-[0.7rem] text-fg-subtle mt-1">média últimos 10 min</div>
-      </div>
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Throughput</div>
-        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.rate_1h|default:0|format_int }}<span class="text-fg-subtle text-base">/h</span></div>
-        <div class="text-[0.7rem] text-fg-subtle mt-1">vetorização · última hora</div>
-      </div>
-      {% with ex=fleet.extracao %}
-      <div class="card-tight">
-        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Extração</div>
-        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-mission">{{ ex.rate_h|default:0|format_int }}<span class="text-fg-subtle text-base">/h</span></div>
-        <div class="text-[0.7rem] text-fg-subtle mt-1">metadados · última hora</div>
-      </div>
-      {% endwith %}
-    </div>
-  </section>
-
-  {# ============================================================= #}
-  {#  3 · FROTA — tabela unificada filtrável por papel              #}
+  {#  2 · FROTA — tabela unificada filtrável por papel              #}
   {# ============================================================= #}
   {% with maq=fleet.maquinas ex=fleet.extracao %}
   <section x-data="{
@@ -246,14 +200,60 @@ USE_L10N mete vírgula decimal e quebra o parse do Alpine).
   {% endwith %}
 
   {# ============================================================= #}
+  {#  3 · THROUGHPUT AO VIVO — KPI strip (antes dos gráficos)       #}
+  {# ============================================================= #}
+  <section>
+    <div class="flex items-center gap-2 mb-3">
+      {% voy_icon "transmission" "w-4 h-4 text-fg-muted" %}
+      <h2 class="text-xs font-semibold uppercase tracking-[0.15em] text-fg-muted">Throughput ao vivo</h2>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Workers ativos</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">
+          {{ fleet.busy_total|default:0 }}<span class="text-fg-subtle text-lg">/{{ fleet.workers_total|default:0 }}</span>
+        </div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">ocupados / conectados</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Fila</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.queue_len|default:0|format_int }}</div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">CNJs aguardando</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Acervo total</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.acervo_total|default:0|format_int }}</div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">processos vetorizados</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Velocidade</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-accent-fg">{{ fleet.rate_10min|default:0 }}<span class="text-fg-subtle text-base">/min</span></div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">proc. vetorizados · 10 min</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Throughput</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.rate_1h|default:0|format_int }}<span class="text-fg-subtle text-base">/h</span></div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">docs embedados · última hora</div>
+      </div>
+      {% with ex=fleet.extracao %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Extração</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-mission">{{ ex.rate_h|default:0|format_int }}<span class="text-fg-subtle text-base">/h</span></div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">metadados · última hora</div>
+      </div>
+      {% endwith %}
+    </div>
+  </section>
+
+  {# ============================================================= #}
   {#  4 · GRÁFICOS — velocidade/min + por tribunal                 #}
   {# ============================================================= #}
   <section class="grid gap-5 lg:grid-cols-3">
     {# ---- Gráfico de velocidade por minuto ---- #}
     <div class="card lg:col-span-2">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-semibold text-fg">Velocidade de vetorização</h2>
-        <span class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">últimos 60 min · proc/min</span>
+        <h2 class="text-sm font-semibold text-fg">Velocidade de embedding</h2>
+        <span class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">últimos 60 min · docs/min</span>
       </div>
       {{ fleet.speed_per_min|default_if_none:''|json_script:"vetor-speed" }}
       <div class="h-64 chart-cell relative">

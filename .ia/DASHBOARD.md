@@ -286,9 +286,7 @@ partial `_partials/_vetorizacao_data.html` (grid consistente, `space-y-8`):
    grande, **faltam X · Y% restante** (Y = `100 − pct`, `|unlocalize` p/ não
    quebrar o Alpine), **velocidade X/min (últimos 10 min)** e **ETA** (`format_eta`
    → `~2d 4h` / `concluído` / `—`). Badge `(parcial)` no cold-start.
-2. **Throughput ao vivo** — KPI strip de 6: workers busy/total, fila, acervo,
-   velocidade vetor/min, throughput vetor/h, extração/h.
-3. **Frota — tabela unificada filtrável** (substitui os antigos cards soltos de
+2. **Frota — tabela unificada filtrável** (substitui os antigos cards soltos de
    "Máquinas da frota" + "Extração — frota"). Uma linha por host, colunas
    **Máquina · GPU · Util (barra) · VRAM · Workers · Papel (chips) · Status**.
    Chips de papel: Vetorização (accent/emerald) e/ou Extração (mission/orange) —
@@ -296,7 +294,13 @@ partial `_partials/_vetorizacao_data.html` (grid consistente, `space-y-8`):
    Todas/Vetorização/Extração, `x-show` por tag, sem reload). Fresh/stale com
    badge. Dados do bloco `maquinas` do endpoint. Linha compacta abaixo com
    backlog + ETA da extração.
-4. **Gráficos** — velocidade/min (ECharts, 60 min) + breakdown por tribunal.
+3. **Throughput ao vivo** — KPI strip de 6 (**antes dos gráficos**): workers
+   busy/total, fila, acervo (proc. vetorizados), velocidade (proc-vetorizados/min),
+   throughput (docs embedados/h), extração/h.
+4. **Gráficos** — velocidade de embedding (docs/min, ECharts, 60 min) + breakdown
+   por tribunal.
+
+Ordem final: **esteiras (herói) → frota (tabela) → throughput (KPIs) → gráficos.**
 
 Banner **"Como o documento fica útil"** (no shell `vetorizacao.html`) agora é
 **colapsável** (Alpine, fechado por default, resumo inline) pra não empurrar o
@@ -328,15 +332,31 @@ Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyag
   reportados** (o embed 3090 se reporta como `zordon` em `vetor:gpu` por herança;
   a mesma máquina física aparece como `llmsv2` em `extracao:gpu`) — NÃO fundimos
   `zordon`→`llmsv2` pra não mascarar a origem de cada telemetria; ficam 2 linhas.
-- **Bloco `pipelines`** (3 esteiras): counts atuais por esteira (vetor =
-  `Processo.count()` / total = manifest **1.149.509**; classif =
-  `Documento.exclude(doc_classe='')` / `Documento.count()`; extração =
-  `MetadadoExtraido.count()` / processos com doc de classe LLM-relevante). A
-  **taxa dos últimos 10min** é uniforme via snapshots num sorted-set Redis DB3
-  `vetor:pipe:snap` (score=epoch, value=JSON `{ts,vet,clas,ext}`): a cada chamada
-  grava snapshot + compara com o mais próximo de `now-600s` (dt<120s é ignorado
-  p/ não inflar; poda >2h). Resolve a Classificação (Documento **não** tem
-  timestamp de update de `doc_classe`). ETA = faltando/taxa.
+- **Bloco `pipelines`** (3 esteiras): counts atuais por esteira. **Sinais REAIS**
+  (o `acervo_processo` é ESTÁTICO — a vetorização adiciona Documento/Chunk a
+  processos que já existem, não cria processo novo; medir `Processo.count()`/
+  `.criado_em` dava ~0 com a frota a todo vapor):
+  - **vetor**: done = `Processo(vetorizado=True)` ("autos embedados"); total =
+    **manifest 1.149.509 − s3_404 conhecidos** (`acervo_missingautos`, ~12.6k autos
+    que sumiram na origem, invetorizáveis) = **processos "com autos"**. É
+    ESTIMATIVA (mais s3_404 podem surgir) → a esteira expõe `manifest_total`,
+    `missing`, `total_estimado=True` p/ o front rotular ("de N com autos", "−X
+    sem autos (s3_404)"). Velocidade = **processos-vetorizados/min** (snapshot).
+  - **classif**: `Documento.exclude(doc_classe='')` / `Documento.count()`.
+  - **extração**: `MetadadoExtraido.count()` / processos com doc de classe
+    LLM-relevante.
+  - **Top-level KPIs**: `rate_10min` = proc-vetorizados/min (= vet esteira
+    rate_min, coerente c/ o numerador); `rate_1h` = **docs embedados/h**
+    (`acervo_documento status='ready' criado_em ≥ 1h`, throughput real);
+    `speed_per_min` (gráfico) = docs `status='ready'` por minuto; `acervo_total` =
+    `Processo(vetorizado=True)`.
+  - A **taxa dos últimos 10min** é uniforme via snapshots num sorted-set Redis DB3
+    `vetor:pipe:snap` (score=epoch, value=JSON `{ts,vet,clas,ext}`): a cada chamada
+    grava snapshot + compara com o mais próximo de `now-600s` (dt<120s é ignorado
+    p/ não inflar; poda >2h). Resolve a Classificação (Documento **não** tem
+    timestamp de update de `doc_classe`). ETA = faltando/taxa. **Ao trocar a
+    definição de um sinal (ex.: vet_done), flushar `vetor:pipe:snap`** senão o
+    delta contra snapshots do sinal antigo dá negativo → clampa a 0 por ~10min.
 - Sem migration (só RedisCache). A 3090 do embed (host `llmsv2`) não é SSH-ável →
   card de GPU "indisponível" pra ela.
 - **Bloco `extracao`** (frota de 2× 3090): `gpus` (hash Redis DB3 **`extracao:gpu`**

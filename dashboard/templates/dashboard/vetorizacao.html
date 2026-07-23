@@ -44,7 +44,7 @@
     const cats = rows.map(r => r.min);
     const vals = rows.map(r => r.n);
     return {
-      tooltip: {trigger: 'axis', valueFormatter: v => fmt(v) + ' proc/min'},
+      tooltip: {trigger: 'axis', valueFormatter: v => fmt(v) + ' docs/min'},
       grid: {left: 44, right: 18, top: 18, bottom: 30},
       xAxis: {
         type: 'category', data: cats, boundaryGap: false,
