@@ -73,5 +73,71 @@
   };
 </script>
 
+{# ==== FLUXO: como o documento fica útil (estático, explica a pipeline) ==== #}
+<div class="card mb-6">
+  <div class="flex items-center gap-2 mb-4">
+    {% voy_icon "trajectory" "w-4 h-4 text-fg-muted" %}
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg-muted">Como o documento fica útil</h2>
+  </div>
+
+  <div class="flex flex-col md:flex-row md:items-stretch gap-2">
+
+    {# 1 · Vetorização #}
+    <div class="flex-1 rounded-lg border border-border bg-accent-fg/5 p-4">
+      <div class="flex items-center gap-2 mb-2">
+        {% voy_icon "probe" "w-4 h-4 text-accent-fg" %}
+        <span class="font-semibold text-fg">1 · Vetorização</span>
+      </div>
+      <p class="text-xs text-fg-muted leading-relaxed">Baixa os autos, extrai o texto, quebra em <em>chunks</em> e gera os <em>embeddings</em>.</p>
+      <div class="mt-3 inline-flex items-center gap-1.5 rounded-full bg-accent-fg/15 px-2.5 py-1 text-[11px] font-medium text-accent-fg">
+        {% voy_icon "search" "w-3 h-3" %} já entra na BUSCA semântica
+      </div>
+    </div>
+
+    {# seta #}
+    <div class="flex items-center justify-center text-fg-subtle md:px-1">
+      {% voy_icon "arrow" "w-5 h-5 rotate-90 md:rotate-0" %}
+    </div>
+
+    {# 2 · Classificação #}
+    <div class="flex-1 rounded-lg border border-border bg-info/5 p-4">
+      <div class="flex items-center gap-2 mb-2">
+        {% voy_icon "scale" "w-4 h-4 text-info" %}
+        <span class="font-semibold text-fg">2 · Classificação</span>
+      </div>
+      <p class="text-xs text-fg-muted leading-relaxed">Identifica o <em>tipo</em> de cada documento (ofício, procuração, óbito, sentença…) — organiza e roteia.</p>
+      <div class="mt-3 inline-flex items-center gap-1.5 rounded-full bg-info/15 px-2.5 py-1 text-[11px] font-medium text-info">
+        {% voy_icon "constellation" "w-3 h-3" %} roteável p/ extração
+      </div>
+    </div>
+
+    {# seta #}
+    <div class="flex items-center justify-center text-fg-subtle md:px-1">
+      {% voy_icon "arrow" "w-5 h-5 rotate-90 md:rotate-0" %}
+    </div>
+
+    {# 3 · Extração #}
+    <div class="flex-1 rounded-lg border border-border bg-mission/5 p-4">
+      <div class="flex items-center gap-2 mb-2">
+        {% voy_icon "sparkles" "w-4 h-4 text-mission" %}
+        <span class="font-semibold text-fg">3 · Extração</span>
+      </div>
+      <p class="text-xs text-fg-muted leading-relaxed">LLM lê os docs e extrai <em>metadados estruturados</em>: natureza, valor, partes, eventos, desfecho.</p>
+      <div class="mt-3 inline-flex items-center gap-1.5 rounded-full bg-mission/15 px-2.5 py-1 text-[11px] font-medium text-mission">
+        {% voy_icon "flask" "w-3 h-3" %} 100% útil p/ TREINAMENTO
+      </div>
+    </div>
+
+  </div>
+
+  <p class="text-xs text-fg-subtle mt-4 leading-relaxed">
+    <span class="text-accent-fg font-medium">Logo após a vetorização</span> o documento já é <b>pesquisável</b> (busca semântica / RAG).
+    A classificação e a extração <b>não bloqueiam a busca</b> — elas enriquecem: só depois da
+    <span class="text-mission font-medium">extração</span> o documento fica <b>totalmente útil para o treinamento</b> dos modelos de jurimetria.
+    <br>
+    <span class="text-fg-muted">Obs.: as 3 rodam em paralelo. O total da classificação/extração <b>cresce conforme a vetorização avança</b> — por isso elas nunca "terminam", ficam sempre alcançando os documentos novos.</span>
+  </p>
+</div>
+
 {% include 'dashboard/_partials/_vetorizacao_data.html' %}
 {% endblock %}
