@@ -1,12 +1,12 @@
 {% load voyager_extras %}
 {% comment %}
 Dados/cards da dashboard de vetorização. Renderizado no load da página e
-recarregado via HTMX a cada 5min (hx-trigger no container pai). Tudo vem do
+recarregado via HTMX a cada 10min (hx-trigger no container pai). Tudo vem do
 dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
 {% endcomment %}
 <div id="vetorizacao-data"
      hx-get="{% url 'dashboard:vetorizacao' %}"
-     hx-trigger="every 300s"
+     hx-trigger="every 600s"
      hx-swap="outerHTML"
      class="space-y-6">
 
@@ -16,11 +16,138 @@ dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
         {% voy_icon "signal-lost" "w-5 h-5 text-amber-400" %}
         <div>
           <div class="font-medium text-fg">Sem telemetria da frota</div>
-          <div class="text-sm">O serviço Zordon não respondeu (cache frio ou fora do ar). Recarrega automaticamente em 5 min.</div>
+          <div class="text-sm">O serviço Zordon não respondeu (cache frio ou fora do ar). Recarrega automaticamente em 10 min.</div>
         </div>
       </div>
     </div>
   {% else %}
+
+  {# ==== 3 ESTEIRAS (Vetorização · Classificação · Extração) ==== #}
+  {% with pipe=fleet.pipelines %}
+  {% if pipe %}
+  <div class="grid gap-4 lg:grid-cols-3">
+
+    {% comment %}Cada esteira: gauge de progresso + números grandes + velocidade
+       (últimos 10min) + ETA formatado. Cores estáveis: vetor=pulsar,
+       classif=info/sky, extração=mission/orange.{% endcomment %}
+
+    {# ---- Vetorização ---- #}
+    {% with e=pipe.vetorizacao %}
+    <div class="card relative overflow-hidden">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "probe" "w-4 h-4 text-accent-fg" %}
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Vetorização</h2>
+      </div>
+      <div class="text-xs text-fg-subtle mb-3">autos embedados no acervo</div>
+      <div class="flex items-center gap-4">
+        <div class="w-24 h-24 shrink-0 chart-cell relative">
+          {{ e.pct|default:0|json_script:"vet-prog-pct" }}
+          <div data-echart='{}'
+               x-init="setupChart($el, buildVetorProgress({pct: jsonData('vet-prog-pct'), color: 'rgb(16,185,129)'}))"
+               class="absolute inset-0"></div>
+        </div>
+        <div class="min-w-0">
+          <div class="text-2xl font-semibold kpi-num text-fg leading-tight">{{ e.done|default:0|format_int }}</div>
+          <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
+          <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span></div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border">
+        <div>
+          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Velocidade</div>
+          <div class="text-lg font-semibold kpi-num text-accent-fg">{{ e.rate_min|default:0 }}<span class="text-xs text-fg-subtle">/min</span></div>
+          <div class="text-[0.65rem] text-fg-subtle">últimos 10 min{% if e.parcial %} <span class="text-amber-400">(parcial)</span>{% endif %}</div>
+        </div>
+        <div>
+          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">ETA</div>
+          <div class="text-lg font-semibold kpi-num text-fg">{{ e.eta_seg|format_eta }}</div>
+          <div class="text-[0.65rem] text-fg-subtle">para concluir</div>
+        </div>
+      </div>
+    </div>
+    {% endwith %}
+
+    {# ---- Classificação ---- #}
+    {% with e=pipe.classificacao %}
+    <div class="card relative overflow-hidden">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "scale" "w-4 h-4 text-sky-400" %}
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Classificação</h2>
+      </div>
+      <div class="text-xs text-fg-subtle mb-3">documentos com doc_classe</div>
+      <div class="flex items-center gap-4">
+        <div class="w-24 h-24 shrink-0 chart-cell relative">
+          {{ e.pct|default:0|json_script:"clas-prog-pct" }}
+          <div data-echart='{}'
+               x-init="setupChart($el, buildVetorProgress({pct: jsonData('clas-prog-pct'), color: 'rgb(56,189,248)'}))"
+               class="absolute inset-0"></div>
+        </div>
+        <div class="min-w-0">
+          <div class="text-2xl font-semibold kpi-num text-fg leading-tight">{{ e.done|default:0|format_int }}</div>
+          <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
+          <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span></div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border">
+        <div>
+          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Velocidade</div>
+          <div class="text-lg font-semibold kpi-num text-sky-400">{{ e.rate_min|default:0 }}<span class="text-xs text-fg-subtle">/min</span></div>
+          <div class="text-[0.65rem] text-fg-subtle">últimos 10 min{% if e.parcial %} <span class="text-amber-400">(parcial)</span>{% endif %}</div>
+        </div>
+        <div>
+          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">ETA</div>
+          <div class="text-lg font-semibold kpi-num text-fg">{{ e.eta_seg|format_eta }}</div>
+          <div class="text-[0.65rem] text-fg-subtle">para concluir</div>
+        </div>
+      </div>
+    </div>
+    {% endwith %}
+
+    {# ---- Extração ---- #}
+    {% with e=pipe.extracao %}
+    <div class="card relative overflow-hidden">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "dossier" "w-4 h-4 text-mission" %}
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Extração</h2>
+      </div>
+      <div class="text-xs text-fg-subtle mb-3">metadados extraídos dos autos</div>
+      <div class="flex items-center gap-4">
+        <div class="w-24 h-24 shrink-0 chart-cell relative">
+          {{ e.pct|default:0|json_script:"ext-prog-pct" }}
+          <div data-echart='{}'
+               x-init="setupChart($el, buildVetorProgress({pct: jsonData('ext-prog-pct'), color: 'rgb(255,140,66)'}))"
+               class="absolute inset-0"></div>
+        </div>
+        <div class="min-w-0">
+          <div class="text-2xl font-semibold kpi-num text-fg leading-tight">{{ e.done|default:0|format_int }}</div>
+          <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
+          <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span></div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border">
+        <div>
+          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Velocidade</div>
+          <div class="text-lg font-semibold kpi-num text-mission">{{ e.rate_min|default:0 }}<span class="text-xs text-fg-subtle">/min</span></div>
+          <div class="text-[0.65rem] text-fg-subtle">últimos 10 min{% if e.parcial %} <span class="text-amber-400">(parcial)</span>{% endif %}</div>
+        </div>
+        <div>
+          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">ETA</div>
+          <div class="text-lg font-semibold kpi-num text-fg">{{ e.eta_seg|format_eta }}</div>
+          <div class="text-[0.65rem] text-fg-subtle">para concluir</div>
+        </div>
+      </div>
+    </div>
+    {% endwith %}
+
+  </div>
+  {% endif %}
+  {% endwith %}
+
+  {# ---- Frota ao vivo (workers, fila, GPU) ---- #}
+  <div class="flex items-center gap-2 pt-2">
+    {% voy_icon "transmission" "w-4 h-4 text-fg-muted" %}
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg-muted">Frota de vetorização — ao vivo</h2>
+  </div>
 
   {# ---- KPIs ---- #}
   <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -163,7 +290,7 @@ dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
     {% voy_icon "transmission" "w-3.5 h-3.5" %}
     <span x-text="ts ? ('atualizado há ' + Math.max(0, Math.round((Date.now()/1000 - ts)/60)) + ' min') : ''"></span>
     <span class="opacity-50">·</span>
-    <span>auto-refresh 5 min</span>
+    <span>auto-refresh 10 min</span>
   </div>
 
   {% endif %}

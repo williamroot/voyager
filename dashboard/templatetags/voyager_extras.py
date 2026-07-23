@@ -58,6 +58,34 @@ def format_int(value):
         return str(value)
 
 
+@register.filter
+def format_eta(value):
+    """Segundos -> ETA humano: '~22min', '~2d 4h', '~3h 10min'.
+
+    None → '—' (taxa ≤ 0 / desconhecida). 0 → 'concluído'. Sempre 2 unidades
+    no máximo, da maior pra menor não-zero. Usado no bloco de esteiras da
+    dashboard de vetorização (eta_seg vindo do endpoint Zordon).
+    """
+    if value is None or value == '':
+        return '—'
+    try:
+        s = int(value)
+    except (TypeError, ValueError):
+        return '—'
+    if s <= 0:
+        return 'concluído'
+    d, r = divmod(s, 86400)
+    h, r = divmod(r, 3600)
+    m = r // 60
+    if d:
+        return f'~{d}d {h}h' if h else f'~{d}d'
+    if h:
+        return f'~{h}h {m}min' if m else f'~{h}h'
+    if m:
+        return f'~{m}min'
+    return '<1min'
+
+
 # Cores estáveis por tipo. Cada combo dark-aware (light + dark).
 _TYPE_COLORS = {
     'Intimação':   ('bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-800/60', 'sky'),

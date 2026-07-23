@@ -4,7 +4,36 @@
 {% block title %}Vetorização{% endblock %}
 
 {% block content %}
-{% include 'dashboard/_partials/page_header.html' with title='Velocidade de vetorização' subtitle='Frota distribuída ingerindo o acervo (Zordon) — workers, GPU, velocidade e fila' %}
+{% include 'dashboard/_partials/page_header.html' with title='Esteiras de processamento' subtitle='Vetorização · Classificação · Extração — frota distribuída do acervo (Zordon). Velocidade e ETA baseados nos últimos 10 min.' %}
+
+{% comment %}Builders ECharts definidos no shell (persistem entre swaps HTMX).{% endcomment %}
+<script>
+  // Gauge de progresso premium por esteira (donut com % no centro).
+  window.buildVetorProgress = function (cfg) {
+    cfg = cfg || {};
+    const pct = Math.max(0, Math.min(100, +cfg.pct || 0));
+    const color = cfg.color || 'rgb(16,185,129)';
+    return {
+      series: [{
+        type: 'pie', radius: ['74%', '92%'], center: ['50%', '50%'],
+        avoidLabelOverlap: false, silent: true,
+        label: {show: false}, labelLine: {show: false},
+        data: [
+          {value: pct, itemStyle: {color: color, borderRadius: 8}},
+          {value: 100 - pct, itemStyle: {color: 'rgba(148,163,184,0.16)'}},
+        ],
+      }],
+      graphic: {
+        type: 'text', left: 'center', top: 'center',
+        style: {
+          text: pct.toFixed(1) + '%',
+          fill: color, fontSize: 22, fontWeight: 600,
+          fontFamily: 'JetBrains Mono, monospace',
+        },
+      },
+    };
+  };
+</script>
 
 {% comment %}Builder do gráfico de velocidade por minuto — definido no shell (persiste
    entre swaps HTMX). Linha/área com destaque no ponto atual.{% endcomment %}

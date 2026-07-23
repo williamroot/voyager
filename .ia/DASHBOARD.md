@@ -275,25 +275,41 @@ todos os tribunais numa passada (GROUP BY `tribunal_id`); hot path
   linhas legadas `'VALIDADO'` (path antigo pré-`lote_id`, já limpas em prod)
   que rachavam o funil em dois buckets.
 
-### Página: Velocidade da vetorização (`/dashboard/vetorizacao/`)
+### Página: Esteiras de processamento (`/dashboard/vetorizacao/`)
 
-View `vetorizacao` (`dashboard/views.py`). Telemetria **ao vivo da frota de
-vetorização do Zordon** (workers RQ que embedam autos no `acervo_processo`):
-KPIs (workers busy/total, fila, acervo, proc/min e proc/h), cards por máquina
-com **GPU** (util % + VRAM), gráfico ECharts de proc/min (últimos 60 min) e
-breakdown por tribunal. Auto-refresh HTMX `every 300s` (partial
-`_partials/_vetorizacao_data.html`).
+View `vetorizacao` (`dashboard/views.py`). Duas partes numa página só:
+
+1. **3 esteiras** (topo) — **Vetorização · Classificação · Extração**, cada uma
+   um card premium com: gauge ECharts de progresso (`buildVetorProgress`, donut
+   com % no centro), done/total/faltando (números grandes), **velocidade X/min
+   (últimos 10 min)** e **ETA formatado** (`format_eta` → `~2d 4h` / `~22min` /
+   `concluído` / `—`). Badge `(parcial)` no cold-start (sem snapshot de ~10min).
+2. **Frota ao vivo** (embaixo) — telemetria da frota de vetorização do Zordon:
+   KPIs (workers busy/total, fila, acervo, proc/min e proc/h), cards por máquina
+   com **GPU** (util % + VRAM), gráfico ECharts de proc/min (últimos 60 min) e
+   breakdown por tribunal.
+
+Auto-refresh HTMX `every 600s` (partial `_partials/_vetorizacao_data.html`).
 
 Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyager):
-- Job `warm_vetorizacao_fleet` (`dashboard/tasks.py`, scheduler inline **5min**
+- Job `warm_vetorizacao_fleet` (`dashboard/tasks.py`, scheduler inline **10min**
   em `djen/scheduler.py`) faz 1 GET em `ZORDON_URL/api/vetorizacao/fleet` e grava
-  `cache.set('vetor:fleet:v1', ..., 660s)`.
+  `cache.set('vetor:fleet:v1', ..., 1300s)`.
 - A view lê do cache (`_vetor_fleet_data`, fast path; fallback: warm inline 1x se
   frio). `_vetor_maquinas` funde workers+GPUs num conjunto de máquinas.
 - Endpoint no Zordon (`acervo/vetorizacao_fleet_view.py`): conta só workers que
   escutam a fila `vetorizar` (`w.queue_names()` — senão conta ingest/extract),
   velocidade via buckets de `acervo_processo.criado_em`, GPU via hash Redis DB3
   `vetor:gpu` publicado por reporters (`vet_gpu_report.py`) nas máquinas da frota.
+- **Bloco `pipelines`** (3 esteiras): counts atuais por esteira (vetor =
+  `Processo.count()` / total = manifest **1.149.509**; classif =
+  `Documento.exclude(doc_classe='')` / `Documento.count()`; extração =
+  `MetadadoExtraido.count()` / processos com doc de classe LLM-relevante). A
+  **taxa dos últimos 10min** é uniforme via snapshots num sorted-set Redis DB3
+  `vetor:pipe:snap` (score=epoch, value=JSON `{ts,vet,clas,ext}`): a cada chamada
+  grava snapshot + compara com o mais próximo de `now-600s` (dt<120s é ignorado
+  p/ não inflar; poda >2h). Resolve a Classificação (Documento **não** tem
+  timestamp de update de `doc_classe`). ETA = faltando/taxa.
 - Sem migration (só RedisCache). A 3090 do embed (host `llmsv2`) não é SSH-ável →
   card de GPU "indisponível" pra ela.
 
@@ -326,6 +342,7 @@ Além dos já existentes (`type_classes`, `format_cnj`, etc), as Waves 0-5 adici
 | `nivel_suspeita` | filter | Mapeia `suspeita_score` → label/cor (baixa/média/alta) pra badge no card de validação |
 | `absval` | filter | `abs(value)` — usado em barras de contribuição negativa |
 | `bar_pct` | simple_tag | `{% bar_pct contrib max_abs as pct %}` — produz % de largura relativa pra barra de feature breakdown |
+| `format_eta` | filter | Segundos → ETA humano (`~2d 4h` / `~22min` / `concluído` / `—`). Usado nas esteiras da `/dashboard/vetorizacao/` |
 
 ## Mobile
 

@@ -17,10 +17,10 @@ from . import queries
 
 logger = logging.getLogger('voyager.dashboard.tasks')
 
-# Cache da telemetria da frota de vetorização (Zordon). TTL 11min: sobrevive a
-# 1 falha do warm de 5min sem cair pra MISS na página.
+# Cache da telemetria da frota de vetorização (Zordon). TTL ~22min: sobrevive a
+# 1 falha do warm de 10min sem cair pra MISS na página.
 VETOR_FLEET_CACHE_KEY = 'vetor:fleet:v1'
-_VETOR_FLEET_TTL = 660
+_VETOR_FLEET_TTL = 1300
 
 # Períodos pré-aquecidos. Apenas [None, 7] na home — outros computam on-demand.
 _PERIODOS = [None, 7]

@@ -233,14 +233,15 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
-    # Telemetria da frota de vetorização (Zordon) — INLINE, a cada 5 min.
+    # Telemetria da frota de vetorização (Zordon) — INLINE, a cada 10 min.
     # Só faz 1 GET HTTP ao endpoint /api/vetorizacao/fleet do Zordon e grava
     # no cache (chave vetor:fleet:v1). A página /dashboard/vetorizacao/ lê do
     # cache (fast path). Nunca propaga exceção — degrade gracioso.
+    # Cadência 10min casa com o snapshot de taxa (últimos 10min) do endpoint.
     scheduler.add_job(
         warm_vetorizacao_fleet,
         'interval',
-        minutes=5,
+        minutes=10,
         id='warm_vetorizacao_fleet',
         replace_existing=True,
         max_instances=1,
