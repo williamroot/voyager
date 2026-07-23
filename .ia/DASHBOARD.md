@@ -277,24 +277,34 @@ todos os tribunais numa passada (GROUP BY `tribunal_id`); hot path
 
 ### Página: Esteiras de processamento (`/dashboard/vetorizacao/`)
 
-View `vetorizacao` (`dashboard/views.py`). Três partes numa página só:
+View `vetorizacao` (`dashboard/views.py`). Layout premium herói→detalhe, tudo no
+partial `_partials/_vetorizacao_data.html` (grid consistente, `space-y-8`):
 
-1. **3 esteiras** (topo) — **Vetorização · Classificação · Extração**, cada uma
-   um card premium com: gauge ECharts de progresso (`buildVetorProgress`, donut
-   com % no centro), done/total/faltando (números grandes), **velocidade X/min
-   (últimos 10 min)** e **ETA formatado** (`format_eta` → `~2d 4h` / `~22min` /
-   `concluído` / `—`). Badge `(parcial)` no cold-start (sem snapshot de ~10min).
-1b. **Extração — frota** (meio) — telemetria das **2× RTX 3090** (`llmsv2` +
-   `GipsyDanger`): KPIs (extrações/h e /min dos últimos 10 min, backlog, ETA via
-   `format_eta`) + cards das 2 GPUs (util % + VRAM, mesmo componente das máquinas
-   de vetorização, pulsar quando `util>0`, badge amber quando stale). Dados no
-   bloco `extracao` do endpoint. Degrade elegante: some se `fleet.extracao` vazio.
-2. **Frota ao vivo** (embaixo) — telemetria da frota de vetorização do Zordon:
-   KPIs (workers busy/total, fila, acervo, proc/min e proc/h), cards por máquina
-   com **GPU** (util % + VRAM), gráfico ECharts de proc/min (últimos 60 min) e
-   breakdown por tribunal.
+1. **3 esteiras** (HERÓI) — **Vetorização · Classificação · Extração**, cada uma
+   um card via include parametrizado `_partials/_vetor_esteira.html` (consistência
+   total): donut ECharts maior (`buildVetorProgress`, % no centro), done/total
+   grande, **faltam X · Y% restante** (Y = `100 − pct`, `|unlocalize` p/ não
+   quebrar o Alpine), **velocidade X/min (últimos 10 min)** e **ETA** (`format_eta`
+   → `~2d 4h` / `concluído` / `—`). Badge `(parcial)` no cold-start.
+2. **Throughput ao vivo** — KPI strip de 6: workers busy/total, fila, acervo,
+   velocidade vetor/min, throughput vetor/h, extração/h.
+3. **Frota — tabela unificada filtrável** (substitui os antigos cards soltos de
+   "Máquinas da frota" + "Extração — frota"). Uma linha por host, colunas
+   **Máquina · GPU · Util (barra) · VRAM · Workers · Papel (chips) · Status**.
+   Chips de papel: Vetorização (accent/emerald) e/ou Extração (mission/orange) —
+   máquina pode ter os dois. **Filtro client-side** (Alpine `x-data`, chips
+   Todas/Vetorização/Extração, `x-show` por tag, sem reload). Fresh/stale com
+   badge. Dados do bloco `maquinas` do endpoint. Linha compacta abaixo com
+   backlog + ETA da extração.
+4. **Gráficos** — velocidade/min (ECharts, 60 min) + breakdown por tribunal.
+
+Banner **"Como o documento fica útil"** (no shell `vetorizacao.html`) agora é
+**colapsável** (Alpine, fechado por default, resumo inline) pra não empurrar o
+herói pra baixo.
 
 Auto-refresh HTMX `every 600s` (partial `_partials/_vetorizacao_data.html`).
+Builders ECharts (`buildVetorProgress`/`buildVetorSpeed`) persistem no shell
+(sobrevivem aos swaps HTMX).
 
 Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyager):
 - Job `warm_vetorizacao_fleet` (`dashboard/tasks.py`, scheduler inline **10min**
@@ -306,6 +316,18 @@ Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyag
   escutam a fila `vetorizar` (`w.queue_names()` — senão conta ingest/extract),
   velocidade via buckets de `acervo_processo.criado_em`, GPU via hash Redis DB3
   `vetor:gpu` publicado por reporters (`vet_gpu_report.py`) nas máquinas da frota.
+- **Enumeração de workers robusta** (`_iter_workers`): `Worker.all()` lê o set
+  global `rq:workers`, que nesta topologia fica **VAZIO** (idem os per-fila
+  `rq:workers:*`), causando "0 workers" com a frota rodando. Fallback: varre as
+  chaves de estado `rq:worker:*` via `Worker.find_by_key`. Mantém o filtro
+  `"vetorizar" in queue_names()`.
+- **Bloco `maquinas`** (tabela unificada): 1 dict por host `{host, gpu_name, util,
+  mem_used, mem_total, workers, workers_busy, tags[], stale}`. Funde `vetor:gpu` +
+  `extracao:gpu` + workers. Tag `vetorizacao` se está em `vetor:gpu` OU tem worker
+  vetorizar; `extracao` se está em `extracao:gpu`. Rótulos **mantidos como
+  reportados** (o embed 3090 se reporta como `zordon` em `vetor:gpu` por herança;
+  a mesma máquina física aparece como `llmsv2` em `extracao:gpu`) — NÃO fundimos
+  `zordon`→`llmsv2` pra não mascarar a origem de cada telemetria; ficam 2 linhas.
 - **Bloco `pipelines`** (3 esteiras): counts atuais por esteira (vetor =
   `Processo.count()` / total = manifest **1.149.509**; classif =
   `Documento.exclude(doc_classe='')` / `Documento.count()`; extração =

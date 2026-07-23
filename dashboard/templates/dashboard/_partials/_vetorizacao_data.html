@@ -1,14 +1,24 @@
 {% load voyager_extras l10n %}
 {% comment %}
-Dados/cards da dashboard de vetorização. Renderizado no load da página e
-recarregado via HTMX a cada 10min (hx-trigger no container pai). Tudo vem do
-dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
+Dados da dashboard de Esteiras de processamento. Renderizado no load da página e
+recarregado via HTMX a cada 10min (hx-trigger no container). Tudo vem do dict
+`fleet` (cache vetor:fleet:v1, payload do endpoint Zordon). Degrade gracioso
+quando fleet é None.
+
+Layout (herói → detalhe):
+  1. 3 esteiras (Vetorização/Classificação/Extração) — HERÓI.
+  2. Throughput ao vivo — KPI strip (workers/fila/acervo/velocidade/throughput).
+  3. Frota — tabela unificada filtrável por papel (fleet.maquinas).
+  4. Gráficos — velocidade/min + por tribunal.
+
+Bug de localização: números injetados em x-data precisam de |unlocalize (senão
+USE_L10N mete vírgula decimal e quebra o parse do Alpine).
 {% endcomment %}
 <div id="vetorizacao-data"
      hx-get="{% url 'dashboard:vetorizacao' %}"
      hx-trigger="every 600s"
      hx-swap="outerHTML"
-     class="space-y-6">
+     class="space-y-8">
 
   {% if not fleet %}
     <div class="card">
@@ -22,273 +32,225 @@ dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
     </div>
   {% else %}
 
-  {# ==== 3 ESTEIRAS (Vetorização · Classificação · Extração) ==== #}
+  {# ============================================================= #}
+  {#  1 · ESTEIRAS (herói) — Vetorização · Classificação · Extração #}
+  {# ============================================================= #}
   {% with pipe=fleet.pipelines %}
   {% if pipe %}
-  <div class="grid gap-4 lg:grid-cols-3">
+  <section class="grid gap-5 lg:grid-cols-3">
 
-    {% comment %}Cada esteira: gauge de progresso + números grandes + velocidade
-       (últimos 10min) + ETA formatado. Cores estáveis: vetor=pulsar,
+    {% comment %}Macro visual de esteira via include parametrizado — garante
+       consistência total entre as 3. Cores estáveis: vetor=accent/emerald,
        classif=info/sky, extração=mission/orange.{% endcomment %}
 
-    {# ---- Vetorização ---- #}
-    {% with e=pipe.vetorizacao %}
-    <div class="card relative overflow-hidden">
-      <div class="flex items-center gap-2 mb-1">
-        {% voy_icon "probe" "w-4 h-4 text-accent-fg" %}
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Vetorização</h2>
-      </div>
-      <div class="text-xs text-fg-subtle mb-3">autos embedados no acervo</div>
-      <div class="flex items-center gap-4">
-        <div class="w-24 h-24 shrink-0 chart-cell relative">
-          {{ e.pct|default:0|json_script:"vet-prog-pct" }}
-          <div data-echart='{}'
-               x-init="setupChart($el, buildVetorProgress({pct: jsonData('vet-prog-pct'), color: 'rgb(16,185,129)'}))"
-               class="absolute inset-0"></div>
-        </div>
-        <div class="min-w-0">
-          <div class="text-2xl font-semibold kpi-num text-fg leading-tight">{{ e.done|default:0|format_int }}</div>
-          <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
-          <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span>
-            {# % restante do total (= faltam/total*100 = 100 - pct concluído). #}
-            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0|unlocalize }} }"
-                  x-text="'· ' + (100 - p).toFixed(1).replace('.', ',') + '% restante'"></span>
-          </div>
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border">
-        <div>
-          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Velocidade</div>
-          <div class="text-lg font-semibold kpi-num text-accent-fg">{{ e.rate_min|default:0 }}<span class="text-xs text-fg-subtle">/min</span></div>
-          <div class="text-[0.65rem] text-fg-subtle">últimos 10 min{% if e.parcial %} <span class="text-amber-400">(parcial)</span>{% endif %}</div>
-        </div>
-        <div>
-          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">ETA</div>
-          <div class="text-lg font-semibold kpi-num text-fg">{{ e.eta_seg|format_eta }}</div>
-          <div class="text-[0.65rem] text-fg-subtle">para concluir</div>
-        </div>
-      </div>
-    </div>
-    {% endwith %}
+    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.vetorizacao icon="probe" titulo="Vetorização" legenda="autos embedados no acervo" slug="vet" rgb="16,185,129" accent="text-accent-fg" %}
+    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.classificacao icon="scale" titulo="Classificação" legenda="documentos com doc_classe" slug="clas" rgb="56,189,248" accent="text-sky-400" %}
+    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.extracao icon="dossier" titulo="Extração" legenda="metadados extraídos dos autos" slug="ext" rgb="255,140,66" accent="text-mission" %}
 
-    {# ---- Classificação ---- #}
-    {% with e=pipe.classificacao %}
-    <div class="card relative overflow-hidden">
-      <div class="flex items-center gap-2 mb-1">
-        {% voy_icon "scale" "w-4 h-4 text-sky-400" %}
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Classificação</h2>
-      </div>
-      <div class="text-xs text-fg-subtle mb-3">documentos com doc_classe</div>
-      <div class="flex items-center gap-4">
-        <div class="w-24 h-24 shrink-0 chart-cell relative">
-          {{ e.pct|default:0|json_script:"clas-prog-pct" }}
-          <div data-echart='{}'
-               x-init="setupChart($el, buildVetorProgress({pct: jsonData('clas-prog-pct'), color: 'rgb(56,189,248)'}))"
-               class="absolute inset-0"></div>
-        </div>
-        <div class="min-w-0">
-          <div class="text-2xl font-semibold kpi-num text-fg leading-tight">{{ e.done|default:0|format_int }}</div>
-          <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
-          <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span>
-            {# % restante do total (= faltam/total*100 = 100 - pct concluído). #}
-            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0|unlocalize }} }"
-                  x-text="'· ' + (100 - p).toFixed(1).replace('.', ',') + '% restante'"></span>
-          </div>
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border">
-        <div>
-          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Velocidade</div>
-          <div class="text-lg font-semibold kpi-num text-sky-400">{{ e.rate_min|default:0 }}<span class="text-xs text-fg-subtle">/min</span></div>
-          <div class="text-[0.65rem] text-fg-subtle">últimos 10 min{% if e.parcial %} <span class="text-amber-400">(parcial)</span>{% endif %}</div>
-        </div>
-        <div>
-          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">ETA</div>
-          <div class="text-lg font-semibold kpi-num text-fg">{{ e.eta_seg|format_eta }}</div>
-          <div class="text-[0.65rem] text-fg-subtle">para concluir</div>
-        </div>
-      </div>
-    </div>
-    {% endwith %}
-
-    {# ---- Extração ---- #}
-    {% with e=pipe.extracao %}
-    <div class="card relative overflow-hidden">
-      <div class="flex items-center gap-2 mb-1">
-        {% voy_icon "dossier" "w-4 h-4 text-mission" %}
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">Extração</h2>
-      </div>
-      <div class="text-xs text-fg-subtle mb-3">metadados extraídos dos autos</div>
-      <div class="flex items-center gap-4">
-        <div class="w-24 h-24 shrink-0 chart-cell relative">
-          {{ e.pct|default:0|json_script:"ext-prog-pct" }}
-          <div data-echart='{}'
-               x-init="setupChart($el, buildVetorProgress({pct: jsonData('ext-prog-pct'), color: 'rgb(255,140,66)'}))"
-               class="absolute inset-0"></div>
-        </div>
-        <div class="min-w-0">
-          <div class="text-2xl font-semibold kpi-num text-fg leading-tight">{{ e.done|default:0|format_int }}</div>
-          <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
-          <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span>
-            {# % restante do total (= faltam/total*100 = 100 - pct concluído). #}
-            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0|unlocalize }} }"
-                  x-text="'· ' + (100 - p).toFixed(1).replace('.', ',') + '% restante'"></span>
-          </div>
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border">
-        <div>
-          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">Velocidade</div>
-          <div class="text-lg font-semibold kpi-num text-mission">{{ e.rate_min|default:0 }}<span class="text-xs text-fg-subtle">/min</span></div>
-          <div class="text-[0.65rem] text-fg-subtle">últimos 10 min{% if e.parcial %} <span class="text-amber-400">(parcial)</span>{% endif %}</div>
-        </div>
-        <div>
-          <div class="text-[0.65rem] uppercase tracking-wider text-fg-subtle">ETA</div>
-          <div class="text-lg font-semibold kpi-num text-fg">{{ e.eta_seg|format_eta }}</div>
-          <div class="text-[0.65rem] text-fg-subtle">para concluir</div>
-        </div>
-      </div>
-    </div>
-    {% endwith %}
-
-  </div>
+  </section>
   {% endif %}
   {% endwith %}
 
-  {# ==== EXTRAÇÃO — frota (2× RTX 3090: llmsv2 + GipsyDanger) ==== #}
-  {% with ex=fleet.extracao %}
-  {% if ex %}
-  <div class="flex items-center gap-2 pt-2">
-    {% voy_icon "sparkles" "w-4 h-4 text-mission" %}
-    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg-muted">Extração — frota</h2>
-    <span class="text-xs text-fg-subtle">2× RTX 3090 · LLM lê docs e extrai metadados</span>
-  </div>
+  {# ============================================================= #}
+  {#  2 · THROUGHPUT AO VIVO — KPI strip                            #}
+  {# ============================================================= #}
+  <section>
+    <div class="flex items-center gap-2 mb-3">
+      {% voy_icon "transmission" "w-4 h-4 text-fg-muted" %}
+      <h2 class="text-xs font-semibold uppercase tracking-[0.15em] text-fg-muted">Throughput ao vivo</h2>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Workers ativos</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">
+          {{ fleet.busy_total|default:0 }}<span class="text-fg-subtle text-lg">/{{ fleet.workers_total|default:0 }}</span>
+        </div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">ocupados / conectados</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Fila</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.queue_len|default:0|format_int }}</div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">CNJs aguardando</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Acervo total</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.acervo_total|default:0|format_int }}</div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">processos vetorizados</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Velocidade</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-accent-fg">{{ fleet.rate_10min|default:0 }}<span class="text-fg-subtle text-base">/min</span></div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">média últimos 10 min</div>
+      </div>
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Throughput</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.rate_1h|default:0|format_int }}<span class="text-fg-subtle text-base">/h</span></div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">vetorização · última hora</div>
+      </div>
+      {% with ex=fleet.extracao %}
+      <div class="card-tight">
+        <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Extração</div>
+        <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-mission">{{ ex.rate_h|default:0|format_int }}<span class="text-fg-subtle text-base">/h</span></div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1">metadados · última hora</div>
+      </div>
+      {% endwith %}
+    </div>
+  </section>
 
-  {# ---- KPIs de extração (velocidade/h · backlog · ETA) ---- #}
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Velocidade</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-mission">{{ ex.rate_h|default:0|format_int }}<span class="text-fg-subtle text-lg">/h</span></div>
-      <div class="text-xs text-fg-subtle mt-1">extrações · últimos 10 min</div>
+  {# ============================================================= #}
+  {#  3 · FROTA — tabela unificada filtrável por papel              #}
+  {# ============================================================= #}
+  {% with maq=fleet.maquinas ex=fleet.extracao %}
+  <section x-data="{ filtro: 'todas' }">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+      <div class="flex items-center gap-2">
+        {% voy_icon "constellation" "w-4 h-4 text-fg-muted" %}
+        <h2 class="text-xs font-semibold uppercase tracking-[0.15em] text-fg-muted">Frota — máquinas</h2>
+        <span class="text-xs text-fg-subtle" x-text="'· ' + $refs.tbody.querySelectorAll('tr[data-tags]:not(.hidden)').length + ' visíveis'"></span>
+      </div>
+      {# ---- Chips de filtro (client-side, sem reload) ---- #}
+      <div class="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs" role="tablist">
+        <button type="button" @click="filtro='todas'"
+                :class="filtro==='todas' ? 'bg-muted/60 text-fg' : 'text-fg-subtle hover:text-fg'"
+                class="px-3 py-1.5 rounded-md font-medium transition-colors">Todas</button>
+        <button type="button" @click="filtro='vetorizacao'"
+                :class="filtro==='vetorizacao' ? 'bg-accent-fg/15 text-accent-fg' : 'text-fg-subtle hover:text-fg'"
+                class="px-3 py-1.5 rounded-md font-medium transition-colors">Vetorização</button>
+        <button type="button" @click="filtro='extracao'"
+                :class="filtro==='extracao' ? 'bg-mission/15 text-mission' : 'text-fg-subtle hover:text-fg'"
+                class="px-3 py-1.5 rounded-md font-medium transition-colors">Extração</button>
+      </div>
     </div>
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Velocidade</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ ex.rate_10min|default:0 }}<span class="text-fg-subtle text-lg">/min</span></div>
-      <div class="text-xs text-fg-subtle mt-1">média últimos 10 min</div>
-    </div>
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Backlog</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ ex.backlog|default:0|format_int }}</div>
-      <div class="text-xs text-fg-subtle mt-1">autos aguardando extração</div>
-    </div>
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">ETA</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ ex.eta_seg|format_eta }}</div>
-      <div class="text-xs text-fg-subtle mt-1">para zerar o backlog</div>
-    </div>
-  </div>
 
-  {# ---- Cards das GPUs de extração (mesmo componente das máquinas de vetorização) ---- #}
-  {% if ex.gpus %}
-    <div class="grid gap-4 md:grid-cols-2">
-      {% for g in ex.gpus %}
-        <div class="card-tight">
-          <div class="flex items-start justify-between">
-            <div class="min-w-0">
-              <div class="font-mono text-sm font-semibold text-fg truncate">{{ g.host }}</div>
-              <div class="text-xs text-fg-subtle mt-0.5">{{ g.name|default:"GPU" }}</div>
-            </div>
-            {% if g.stale %}
-              <span class="w-2.5 h-2.5 rounded-full bg-amber-400/70 shrink-0 mt-1.5" title="telemetria defasada"></span>
-            {% elif g.util %}
-              <span class="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style="background: rgb(var(--c-pulsar)); box-shadow: 0 0 8px rgb(var(--c-pulsar) / 0.8); animation: pulsar 1.6s ease-in-out infinite;" title="processando"></span>
-            {% else %}
-              <span class="w-2.5 h-2.5 rounded-full bg-fg-subtle/40 shrink-0 mt-1.5" title="ociosa"></span>
-            {% endif %}
-          </div>
-
-          <div class="mt-3 pt-3 border-t border-border">
-            {% if g.stale %}
-              <div class="text-xs text-amber-400">telemetria defasada (&gt;3 min sem reportar)</div>
-            {% else %}
-              <div class="flex items-center justify-between text-xs">
-                <span class="text-fg-muted">utilização</span>
-                {% if g.util is not None %}
-                  <span class="text-fg font-mono">{{ g.util }}% util</span>
+    {% if maq %}
+    <div class="card p-0 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-[0.65rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+              <th class="font-medium py-2.5 px-4">Máquina</th>
+              <th class="font-medium py-2.5 px-4 hidden md:table-cell">GPU</th>
+              <th class="font-medium py-2.5 px-4 w-40">Util</th>
+              <th class="font-medium py-2.5 px-4 hidden lg:table-cell w-44">VRAM</th>
+              <th class="font-medium py-2.5 px-4 text-right">Workers</th>
+              <th class="font-medium py-2.5 px-4">Papel</th>
+              <th class="font-medium py-2.5 px-4 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody x-ref="tbody" class="divide-y divide-border/60">
+            {% for m in maq %}
+            <tr data-tags="{% for t in m.tags %}{{ t }} {% endfor %}"
+                x-show="filtro==='todas' || '{% for t in m.tags %}{{ t }} {% endfor %}'.includes(filtro)"
+                class="hover:bg-muted/30 transition-colors">
+              {# Máquina #}
+              <td class="py-2.5 px-4">
+                <div class="flex items-center gap-2">
+                  {% if m.stale %}
+                    <span class="w-2 h-2 rounded-full bg-amber-400/70 shrink-0" title="telemetria defasada"></span>
+                  {% elif m.util %}
+                    <span class="w-2 h-2 rounded-full shrink-0" style="background: rgb(var(--c-pulsar)); box-shadow: 0 0 6px rgb(var(--c-pulsar) / 0.8); animation: pulsar 1.6s ease-in-out infinite;" title="ativa"></span>
+                  {% else %}
+                    <span class="w-2 h-2 rounded-full bg-fg-subtle/40 shrink-0" title="ociosa"></span>
+                  {% endif %}
+                  <span class="font-mono font-medium text-fg">{{ m.host }}</span>
+                </div>
+              </td>
+              {# GPU #}
+              <td class="py-2.5 px-4 hidden md:table-cell text-xs text-fg-muted truncate max-w-[16rem]">{{ m.gpu_name|default:"—" }}</td>
+              {# Util barra #}
+              <td class="py-2.5 px-4">
+                {% if m.util is not None %}
+                  <div class="flex items-center gap-2">
+                    <div class="flex-1 h-2 rounded-full bg-muted/40 overflow-hidden min-w-[3rem]">
+                      <div class="h-full rounded-full transition-[width] duration-700 ease-out"
+                           style="width: {{ m.util }}%; background: {% if 'extracao' in m.tags and 'vetorizacao' not in m.tags %}rgb(var(--c-mission)){% else %}rgb(var(--c-accent)){% endif %};"></div>
+                    </div>
+                    <span class="font-mono text-xs text-fg w-9 text-right">{{ m.util }}%</span>
+                  </div>
                 {% else %}
-                  <span class="text-fg-subtle">util indisponível</span>
+                  <span class="text-xs text-fg-subtle">—</span>
                 {% endif %}
-              </div>
-              {% if g.util is not None %}
-                <div class="h-2 rounded bg-muted/40 overflow-hidden mt-1.5">
-                  <div class="h-full rounded" style="width: {{ g.util }}%; background: rgb(var(--c-mission));"></div>
+              </td>
+              {# VRAM #}
+              <td class="py-2.5 px-4 hidden lg:table-cell">
+                {% if m.mem_used is not None and m.mem_total %}
+                  <div class="flex items-center gap-2">
+                    <div class="flex-1 h-1.5 rounded-full bg-muted/40 overflow-hidden min-w-[3rem]">
+                      <div class="h-full rounded-full transition-[width] duration-700 ease-out" style="width: {% widthratio m.mem_used m.mem_total 100 %}%; background: rgb(var(--c-info));"></div>
+                    </div>
+                    <span class="font-mono text-[0.7rem] text-fg-subtle whitespace-nowrap">{{ m.mem_used }}/{{ m.mem_total }}</span>
+                  </div>
+                {% else %}
+                  <span class="text-xs text-fg-subtle">—</span>
+                {% endif %}
+              </td>
+              {# Workers #}
+              <td class="py-2.5 px-4 text-right">
+                {% if m.workers %}
+                  <span class="font-mono text-fg"><span class="text-accent-fg">{{ m.workers_busy }}</span>/{{ m.workers }}</span>
+                {% else %}
+                  <span class="text-fg-subtle">—</span>
+                {% endif %}
+              </td>
+              {# Papel — chips #}
+              <td class="py-2.5 px-4">
+                <div class="flex flex-wrap gap-1">
+                  {% for t in m.tags %}
+                    {% if t == 'vetorizacao' %}
+                      <span class="inline-flex items-center gap-1 rounded-full bg-accent-fg/12 text-accent-fg px-2 py-0.5 text-[0.65rem] font-medium">{% voy_icon "probe" "w-3 h-3" %} Vetorização</span>
+                    {% elif t == 'extracao' %}
+                      <span class="inline-flex items-center gap-1 rounded-full bg-mission/12 text-mission px-2 py-0.5 text-[0.65rem] font-medium">{% voy_icon "sparkles" "w-3 h-3" %} Extração</span>
+                    {% endif %}
+                  {% endfor %}
                 </div>
-              {% endif %}
-              {% if g.mem_used is not None and g.mem_total %}
-                <div class="text-[0.7rem] text-fg-subtle mt-2 font-mono">
-                  VRAM {{ g.mem_used }} / {{ g.mem_total }} MB
-                </div>
-                <div class="h-1.5 rounded bg-muted/40 overflow-hidden mt-0.5">
-                  <div class="h-full rounded" style="width: {% widthratio g.mem_used g.mem_total 100 %}%; background: rgb(var(--c-info));"></div>
-                </div>
-              {% endif %}
-            {% endif %}
-          </div>
-        </div>
-      {% endfor %}
+              </td>
+              {# Status #}
+              <td class="py-2.5 px-4 text-right">
+                {% if m.stale %}
+                  <span class="inline-flex items-center gap-1 text-[0.65rem] text-amber-400"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> defasada</span>
+                {% else %}
+                  <span class="inline-flex items-center gap-1 text-[0.65rem] text-fg-subtle"><span class="w-1.5 h-1.5 rounded-full bg-accent-fg"></span> ok</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {# Estado vazio do filtro #}
+      <div x-show="$refs.tbody.querySelectorAll('tr[data-tags]:not([style*=\'display: none\'])').length === 0"
+           class="px-4 py-6 text-sm text-fg-subtle text-center" style="display:none">
+        Nenhuma máquina neste papel.
+      </div>
     </div>
-  {% else %}
-    <div class="card text-sm text-fg-subtle">Nenhuma GPU de extração reportando telemetria.</div>
-  {% endif %}
-  {% endif %}
+
+    {# Nota de extração: backlog + ETA (linha compacta abaixo da tabela) #}
+    {% if ex %}
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-1 mt-3 text-xs text-fg-subtle">
+      {% voy_icon "sparkles" "w-3.5 h-3.5 text-mission" %}
+      <span>Extração: <span class="font-mono text-fg">{{ ex.rate_10min|default:0 }}</span>/min</span>
+      <span>backlog <span class="font-mono text-fg">{{ ex.backlog|default:0|format_int }}</span></span>
+      <span>ETA p/ zerar <span class="font-mono text-fg">{{ ex.eta_seg|format_eta }}</span></span>
+    </div>
+    {% endif %}
+    {% else %}
+      <div class="card text-sm text-fg-subtle">Nenhuma máquina reportando telemetria.</div>
+    {% endif %}
+  </section>
   {% endwith %}
 
-  {# ---- Frota ao vivo (workers, fila, GPU) ---- #}
-  <div class="flex items-center gap-2 pt-2">
-    {% voy_icon "transmission" "w-4 h-4 text-fg-muted" %}
-    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg-muted">Frota de vetorização — ao vivo</h2>
-  </div>
-
-  {# ---- KPIs ---- #}
-  <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Workers ativos</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">
-        {{ fleet.busy_total|default:0 }}<span class="text-fg-subtle text-xl">/{{ fleet.workers_total|default:0 }}</span>
-      </div>
-      <div class="text-xs text-fg-subtle mt-1">ocupados / conectados</div>
-    </div>
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Fila</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.queue_len|default:0|format_int }}</div>
-      <div class="text-xs text-fg-subtle mt-1">CNJs aguardando</div>
-    </div>
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Acervo total</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.acervo_total|default:0|format_int }}</div>
-      <div class="text-xs text-fg-subtle mt-1">processos vetorizados</div>
-    </div>
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Velocidade</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-accent-fg">{{ fleet.rate_10min|default:0 }}<span class="text-fg-subtle text-lg">/min</span></div>
-      <div class="text-xs text-fg-subtle mt-1">média últimos 10 min</div>
-    </div>
-    <div class="card-tight">
-      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Throughput</div>
-      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.rate_1h|default:0|format_int }}<span class="text-fg-subtle text-lg">/h</span></div>
-      <div class="text-xs text-fg-subtle mt-1">última hora</div>
-    </div>
-  </div>
-
-  <div class="grid gap-6 lg:grid-cols-3">
+  {# ============================================================= #}
+  {#  4 · GRÁFICOS — velocidade/min + por tribunal                 #}
+  {# ============================================================= #}
+  <section class="grid gap-5 lg:grid-cols-3">
     {# ---- Gráfico de velocidade por minuto ---- #}
     <div class="card lg:col-span-2">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold text-fg">Velocidade por minuto</h2>
-        <span class="text-xs text-fg-subtle uppercase tracking-wider">últimos 60 min</span>
+        <h2 class="text-sm font-semibold text-fg">Velocidade de vetorização</h2>
+        <span class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">últimos 60 min · proc/min</span>
       </div>
       {{ fleet.speed_per_min|default_if_none:''|json_script:"vetor-speed" }}
-      <div class="h-72 chart-cell relative">
+      <div class="h-64 chart-cell relative">
         <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
         <div data-echart='{}' x-init="setupChart($el, buildVetorSpeed(jsonData('vetor-speed')))" class="absolute inset-0"></div>
       </div>
@@ -297,96 +259,29 @@ dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
     {# ---- Breakdown por tribunal (processos recentes) ---- #}
     <div class="card">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold text-fg">Por tribunal</h2>
-        <span class="text-xs text-fg-subtle uppercase tracking-wider">~200 recentes</span>
+        <h2 class="text-sm font-semibold text-fg">Por tribunal</h2>
+        <span class="text-[0.65rem] text-fg-subtle uppercase tracking-wider">~200 recentes</span>
       </div>
       {% if fleet.tribunais_recent %}
         <div class="space-y-2">
           {% for t in fleet.tribunais_recent %}
-            {% with pct=t.n %}
             <div class="flex items-center gap-2">
               <span class="text-xs font-mono w-16 shrink-0 text-fg-muted">{{ t.tribunal }}</span>
               <div class="flex-1 h-4 rounded bg-muted/40 overflow-hidden">
-                <div class="h-full rounded" style="width: {% widthratio t.n fleet.tribunais_recent.0.n 100 %}%; background: rgb(var(--c-accent));"></div>
+                <div class="h-full rounded transition-[width] duration-700 ease-out" style="width: {% widthratio t.n fleet.tribunais_recent.0.n 100 %}%; background: rgb(var(--c-accent));"></div>
               </div>
               <span class="text-xs font-mono w-8 text-right text-fg">{{ t.n }}</span>
             </div>
-            {% endwith %}
           {% endfor %}
         </div>
       {% else %}
         <div class="text-sm text-fg-subtle">Sem dados recentes.</div>
       {% endif %}
     </div>
-  </div>
-
-  {# ---- Cards por máquina (união de hosts com worker e/ou GPU) ---- #}
-  <div>
-    <h2 class="text-lg font-semibold text-fg mb-3">Máquinas da frota</h2>
-    {% if maquinas %}
-      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {% for m in maquinas %}
-          <div class="card-tight">
-            <div class="flex items-start justify-between">
-              <div class="min-w-0">
-                <div class="font-mono text-sm font-semibold text-fg truncate">{{ m.host }}</div>
-                <div class="text-xs text-fg-subtle mt-0.5">
-                  {% if m.total %}
-                    <span class="text-accent-fg">{{ m.busy }}</span> busy · {{ m.idle }} idle · {{ m.total }} workers
-                  {% else %}
-                    sem worker conectado
-                  {% endif %}
-                </div>
-              </div>
-              {% if m.busy %}
-                <span class="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style="background: rgb(var(--c-pulsar)); box-shadow: 0 0 8px rgb(var(--c-pulsar) / 0.8); animation: pulsar 1.6s ease-in-out infinite;" title="processando"></span>
-              {% else %}
-                <span class="w-2.5 h-2.5 rounded-full bg-fg-subtle/40 shrink-0 mt-1.5" title="ocioso"></span>
-              {% endif %}
-            </div>
-
-            {# GPU deste host, degrade elegante quando ausente/stale #}
-            {% with g=m.gpu %}
-            <div class="mt-3 pt-3 border-t border-border">
-              {% if not g %}
-                <div class="text-xs text-fg-subtle">GPU — telemetria indisponível</div>
-              {% else %}
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-fg-muted truncate">{{ g.name|default:"GPU" }}</span>
-                  {% if g.stale %}
-                    <span class="text-amber-400">telemetria defasada</span>
-                  {% elif g.util is not None %}
-                    <span class="text-fg font-mono">{{ g.util }}% util</span>
-                  {% else %}
-                    <span class="text-fg-subtle">util indisponível</span>
-                  {% endif %}
-                </div>
-                {% if g.util is not None and not g.stale %}
-                  <div class="h-2 rounded bg-muted/40 overflow-hidden mt-1.5">
-                    <div class="h-full rounded" style="width: {{ g.util }}%; background: rgb(var(--c-mission));"></div>
-                  </div>
-                {% endif %}
-                {% if g.mem_used is not None and g.mem_total %}
-                  <div class="text-[0.7rem] text-fg-subtle mt-1 font-mono">
-                    VRAM {{ g.mem_used }} / {{ g.mem_total }} MB
-                  </div>
-                  <div class="h-1.5 rounded bg-muted/40 overflow-hidden mt-0.5">
-                    <div class="h-full rounded" style="width: {% widthratio g.mem_used g.mem_total 100 %}%; background: rgb(var(--c-info));"></div>
-                  </div>
-                {% endif %}
-              {% endif %}
-            </div>
-            {% endwith %}
-          </div>
-        {% endfor %}
-      </div>
-    {% else %}
-      <div class="card text-sm text-fg-subtle">Nenhuma máquina reportando.</div>
-    {% endif %}
-  </div>
+  </section>
 
   {# ---- Rodapé: atualizado há X ---- #}
-  <div class="text-xs text-fg-subtle flex items-center gap-2" x-data="{ ts: {{ fleet.ts|default:0 }} }">
+  <div class="text-xs text-fg-subtle flex items-center gap-2" x-data="{ ts: {{ fleet.ts|default:0|unlocalize }} }">
     {% voy_icon "transmission" "w-3.5 h-3.5" %}
     <span x-text="ts ? ('atualizado há ' + Math.max(0, Math.round((Date.now()/1000 - ts)/60)) + ' min') : ''"></span>
     <span class="opacity-50">·</span>

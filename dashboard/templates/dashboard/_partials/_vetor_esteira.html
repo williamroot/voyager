@@ -1,0 +1,54 @@
+{% load voyager_extras l10n %}
+{% comment %}
+Card de esteira (herói) da /dashboard/vetorizacao/. Parametrizado p/ garantir
+consistência total entre Vetorização/Classificação/Extração.
+
+Params:
+  e       — dict da esteira (done/total/faltando/pct/rate_min/eta_seg/parcial)
+  icon    — alias voy_icon
+  titulo  — nome da esteira
+  legenda — subtítulo curto
+  slug    — prefixo id do json_script (vet/clas/ext)
+  rgb     — "r,g,b" da cor de destaque
+  accent  — classe Tailwind de cor do texto de destaque
+
+Bug de localização: pct vai pra x-data e pro builder ECharts → |unlocalize.
+{% endcomment %}
+<div class="card relative overflow-hidden flex flex-col">
+  <div class="flex items-center gap-2 mb-0.5">
+    {% voy_icon icon "w-4 h-4" %}
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">{{ titulo }}</h2>
+  </div>
+  <div class="text-xs text-fg-subtle mb-4">{{ legenda }}</div>
+
+  <div class="flex items-center gap-5">
+    {# Donut maior e limpo — % concluído no centro #}
+    <div class="w-28 h-28 shrink-0 chart-cell relative">
+      <div data-echart='{}'
+           x-init="setupChart($el, buildVetorProgress({pct: {{ e.pct|default:0|unlocalize }}, color: 'rgb({{ rgb }})'}))"
+           class="absolute inset-0"></div>
+    </div>
+    <div class="min-w-0">
+      <div class="text-3xl font-semibold kpi-num text-fg leading-none">{{ e.done|default:0|format_int }}</div>
+      <div class="text-xs text-fg-subtle mt-1">de {{ e.total|default:0|format_int }}</div>
+      <div class="text-xs text-fg-muted mt-2 leading-snug">
+        faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span><br>
+        <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0|unlocalize }} }"
+              x-text="(100 - p).toFixed(1).replace('.', ',') + '% restante'"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 mt-5 pt-4 border-t border-border">
+    <div>
+      <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">Velocidade</div>
+      <div class="text-xl font-semibold kpi-num {{ accent }}">{{ e.rate_min|default:0 }}<span class="text-xs text-fg-subtle">/min</span></div>
+      <div class="text-[0.6rem] text-fg-subtle">últimos 10 min{% if e.parcial %} <span class="text-amber-400">(parcial)</span>{% endif %}</div>
+    </div>
+    <div>
+      <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">ETA</div>
+      <div class="text-xl font-semibold kpi-num text-fg">{{ e.eta_seg|format_eta }}</div>
+      <div class="text-[0.6rem] text-fg-subtle">para concluir</div>
+    </div>
+  </div>
+</div>
