@@ -353,6 +353,15 @@ Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyag
     **extrapola**: `clas_total_est` = (`docs_atuais` / `processos_vetorizados`) ×
     com-autos ≈ **85M** → ~2,3%. É ESTIMATIVA (front rotula "de ~N docs
     estimados", expõe `docs_atuais`).
+    - **Display "em dia" (batch):** a classificação roda em **BATCH**
+      (`zordon-classif.timer` ~10-30min) e fica caught up (~1-2k docs sem classe).
+      A janela de 10min cai entre rodadas → 0/min (parecia travada). Fix de
+      display: `_rate_wide` mede a taxa numa janela **larga (1h)** do snapshot
+      (suaviza os bursts); `rate_min` faz fallback pra ela quando a curta dá 0.
+      Flag **`em_dia`** (backlog operacional = docs sem classe < 2%) + `cadencia`
+      → o front mostra pill **"Em dia · batch a cada ~10-30 min"** com a média/1h,
+      em vez de "0/min · ETA —". `eta_seg` = None quando em dia (sem backlog
+      crescente); só há ETA operacional se houver docs sem classe acumulando.
   - Todas as esteiras carregam `total_estimado=True` + `universo` p/ o front.
     ETA de classif/extração é recalculada contra o novo denominador (dias/semanas,
     honesto) — `faltando` e `rate_min` ficam na mesma unidade (docs p/ classif,

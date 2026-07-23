@@ -53,6 +53,21 @@ Bug de localização: pct vai pra x-data e pro builder ECharts → |unlocalize.
     </div>
   </div>
 
+  {% if e.em_dia %}
+  {# Esteira caught up rodando em BATCH (ex.: classificação): mostrar "em dia"
+     em vez de "0/min · ETA —" (que parece travado). #}
+  <div class="mt-5 pt-4 border-t border-border">
+    <div class="flex items-center gap-2">
+      <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-fg/12 text-accent-fg px-2.5 py-1 text-xs font-medium">
+        {% voy_icon "circle-check" "w-3.5 h-3.5" %} Em dia
+      </span>
+      <span class="text-[0.65rem] text-fg-subtle">{{ e.cadencia|default:"processa em lote" }}</span>
+    </div>
+    <div class="text-[0.65rem] text-fg-subtle mt-1.5">
+      acompanha o embed · média <span class="font-mono text-fg-muted">{{ e.rate_wide_min|default:e.rate_min|default:0 }}</span>/min (1h){% if e.backlog_op %} · <span class="font-mono text-fg-muted">{{ e.backlog_op|format_int }}</span> na fila{% endif %}
+    </div>
+  </div>
+  {% else %}
   <div class="grid grid-cols-2 gap-3 mt-5 pt-4 border-t border-border">
     <div>
       <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">Velocidade</div>
@@ -65,4 +80,5 @@ Bug de localização: pct vai pra x-data e pro builder ECharts → |unlocalize.
       <div class="text-[0.6rem] text-fg-subtle">para concluir</div>
     </div>
   </div>
+  {% endif %}
 </div>
