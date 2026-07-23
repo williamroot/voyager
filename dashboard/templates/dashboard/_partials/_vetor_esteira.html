@@ -54,8 +54,7 @@ Bug de localização: pct vai pra x-data e pro builder ECharts → |unlocalize.
   </div>
 
   {% if e.em_dia %}
-  {# Esteira caught up rodando em BATCH (ex.: classificação): mostrar "em dia"
-     em vez de "0/min · ETA —" (que parece travado). #}
+  {# Esteira em BATCH (ex.: classificação): "em dia" em vez de "0/min · ETA —" (Django só aceita {# #} de 1 linha). #}
   <div class="mt-5 pt-4 border-t border-border">
     <div class="flex items-center gap-2">
       <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-fg/12 text-accent-fg px-2.5 py-1 text-xs font-medium">
