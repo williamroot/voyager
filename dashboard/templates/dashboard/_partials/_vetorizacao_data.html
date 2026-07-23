@@ -1,4 +1,4 @@
-{% load voyager_extras %}
+{% load voyager_extras l10n %}
 {% comment %}
 Dados/cards da dashboard de vetorização. Renderizado no load da página e
 recarregado via HTMX a cada 10min (hx-trigger no container pai). Tudo vem do
@@ -51,7 +51,7 @@ dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
           <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
           <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span>
             {# % restante do total (= faltam/total*100 = 100 - pct concluído). #}
-            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0 }} }"
+            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0|unlocalize }} }"
                   x-text="'· ' + (100 - p).toFixed(1).replace('.', ',') + '% restante'"></span>
           </div>
         </div>
@@ -91,7 +91,7 @@ dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
           <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
           <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span>
             {# % restante do total (= faltam/total*100 = 100 - pct concluído). #}
-            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0 }} }"
+            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0|unlocalize }} }"
                   x-text="'· ' + (100 - p).toFixed(1).replace('.', ',') + '% restante'"></span>
           </div>
         </div>
@@ -131,7 +131,7 @@ dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
           <div class="text-xs text-fg-subtle">de {{ e.total|default:0|format_int }}</div>
           <div class="text-xs text-fg-muted mt-1">faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span>
             {# % restante do total (= faltam/total*100 = 100 - pct concluído). #}
-            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0 }} }"
+            <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0|unlocalize }} }"
                   x-text="'· ' + (100 - p).toFixed(1).replace('.', ',') + '% restante'"></span>
           </div>
         </div>
