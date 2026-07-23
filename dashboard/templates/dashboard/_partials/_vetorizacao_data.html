@@ -101,12 +101,17 @@ USE_L10N mete vírgula decimal e quebra o parse do Alpine).
   {#  3 · FROTA — tabela unificada filtrável por papel              #}
   {# ============================================================= #}
   {% with maq=fleet.maquinas ex=fleet.extracao %}
-  <section x-data="{ filtro: 'todas' }">
+  <section x-data="{
+    filtro: 'todas',
+    tags: [{% for m in maq %}'{% for t in m.tags %}{{ t }} {% endfor %}',{% endfor %}],
+    visivel(t) { return this.filtro === 'todas' || t.includes(this.filtro); },
+    get nVisiveis() { return this.tags.filter(t => this.visivel(t)).length; },
+  }">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
       <div class="flex items-center gap-2">
         {% voy_icon "constellation" "w-4 h-4 text-fg-muted" %}
         <h2 class="text-xs font-semibold uppercase tracking-[0.15em] text-fg-muted">Frota — máquinas</h2>
-        <span class="text-xs text-fg-subtle" x-text="'· ' + $refs.tbody.querySelectorAll('tr[data-tags]:not(.hidden)').length + ' visíveis'"></span>
+        <span class="text-xs text-fg-subtle" x-text="'· ' + nVisiveis + ' visíveis'"></span>
       </div>
       {# ---- Chips de filtro (client-side, sem reload) ---- #}
       <div class="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs" role="tablist">
@@ -139,24 +144,23 @@ USE_L10N mete vírgula decimal e quebra o parse do Alpine).
           </thead>
           <tbody x-ref="tbody" class="divide-y divide-border/60">
             {% for m in maq %}
-            <tr data-tags="{% for t in m.tags %}{{ t }} {% endfor %}"
-                x-show="filtro==='todas' || '{% for t in m.tags %}{{ t }} {% endfor %}'.includes(filtro)"
+            <tr x-show="visivel('{% for t in m.tags %}{{ t }} {% endfor %}')"
                 class="hover:bg-muted/30 transition-colors">
               {# Máquina #}
               <td class="py-2.5 px-4">
                 <div class="flex items-center gap-2">
                   {% if m.stale %}
                     <span class="w-2 h-2 rounded-full bg-amber-400/70 shrink-0" title="telemetria defasada"></span>
-                  {% elif m.util %}
+                  {% elif m.workers_busy or m.util %}
                     <span class="w-2 h-2 rounded-full shrink-0" style="background: rgb(var(--c-pulsar)); box-shadow: 0 0 6px rgb(var(--c-pulsar) / 0.8); animation: pulsar 1.6s ease-in-out infinite;" title="ativa"></span>
                   {% else %}
                     <span class="w-2 h-2 rounded-full bg-fg-subtle/40 shrink-0" title="ociosa"></span>
                   {% endif %}
-                  <span class="font-mono font-medium text-fg">{{ m.host }}</span>
+                  <span class="font-mono font-medium text-fg">{% if not m.has_gpu and m.workers %}pod·{{ m.host|slice:":8" }}{% else %}{{ m.host }}{% endif %}</span>
                 </div>
               </td>
               {# GPU #}
-              <td class="py-2.5 px-4 hidden md:table-cell text-xs text-fg-muted truncate max-w-[16rem]">{{ m.gpu_name|default:"—" }}</td>
+              <td class="py-2.5 px-4 hidden md:table-cell text-xs text-fg-muted truncate max-w-[16rem]">{% if m.gpu_name %}{{ m.gpu_name }}{% elif m.workers %}<span class="text-fg-subtle">pod cloud · sem GPU local</span>{% else %}—{% endif %}</td>
               {# Util barra #}
               <td class="py-2.5 px-4">
                 {% if m.util is not None %}
@@ -208,6 +212,8 @@ USE_L10N mete vírgula decimal e quebra o parse do Alpine).
               <td class="py-2.5 px-4 text-right">
                 {% if m.stale %}
                   <span class="inline-flex items-center gap-1 text-[0.65rem] text-amber-400"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> defasada</span>
+                {% elif not m.has_gpu %}
+                  <span class="inline-flex items-center gap-1 text-[0.65rem] text-fg-subtle"><span class="w-1.5 h-1.5 rounded-full bg-info"></span> worker</span>
                 {% else %}
                   <span class="inline-flex items-center gap-1 text-[0.65rem] text-fg-subtle"><span class="w-1.5 h-1.5 rounded-full bg-accent-fg"></span> ok</span>
                 {% endif %}
@@ -218,8 +224,8 @@ USE_L10N mete vírgula decimal e quebra o parse do Alpine).
         </table>
       </div>
       {# Estado vazio do filtro #}
-      <div x-show="$refs.tbody.querySelectorAll('tr[data-tags]:not([style*=\'display: none\'])').length === 0"
-           class="px-4 py-6 text-sm text-fg-subtle text-center" style="display:none">
+      <div x-show="nVisiveis === 0" x-cloak
+           class="px-4 py-6 text-sm text-fg-subtle text-center">
         Nenhuma máquina neste papel.
       </div>
     </div>
