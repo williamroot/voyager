@@ -30,15 +30,24 @@ Bug de localização: pct vai pra x-data e pro builder ECharts → |unlocalize.
     </div>
     <div class="min-w-0">
       <div class="text-3xl font-semibold kpi-num text-fg leading-none">{{ e.done|default:0|format_int }}</div>
-      <div class="text-xs text-fg-subtle mt-1">de {{ e.total|default:0|format_int }}{% if e.total_estimado %} <span class="text-fg-subtle/80">com autos</span>{% endif %}</div>
+      <div class="text-xs text-fg-subtle mt-1">de {% if e.docs_atuais %}~{% endif %}{{ e.total|default:0|format_int }}{% if e.universo %} <span class="text-fg-subtle/80">{{ e.universo }}</span>{% endif %}</div>
       <div class="text-xs text-fg-muted mt-2 leading-snug">
         faltam <span class="font-mono text-fg">{{ e.faltando|default:0|format_int }}</span><br>
         <span class="text-fg-subtle" x-data="{ p: {{ e.pct|default:0|unlocalize }} }"
               x-text="(100 - p).toFixed(1).replace('.', ',') + '% restante'"></span>
       </div>
-      {% if e.total_estimado and e.missing %}
+      {# Sub-rótulos por esteira (universo com-autos honesto) #}
+      {% if e.missing %}
       <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Manifest {{ e.manifest_total|format_int }} − {{ e.missing|format_int }} autos que sumiram na origem (s3_404, invetorizáveis). Estimativa: mais podem surgir.">
         −{{ e.missing|format_int }} sem autos (s3_404)
+      </div>
+      {% elif e.docs_atuais %}
+      <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Total de docs estimado = docs atuais ({{ e.docs_atuais|format_int }}) ÷ processos vetorizados × processos com autos. Cresce conforme a vetorização avança.">
+        {{ e.docs_atuais|format_int }} docs já ingeridos · total estimado
+      </div>
+      {% elif e.disponiveis %}
+      <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Processos já vetorizados com doc de classe LLM-relevante — prontos p/ extrair agora. Cresce conforme a vetorização avança.">
+        {{ e.disponiveis|format_int }} disponíveis p/ extrair agora
       </div>
       {% endif %}
     </div>

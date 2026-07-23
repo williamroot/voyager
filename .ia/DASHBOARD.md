@@ -335,16 +335,28 @@ Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyag
 - **Bloco `pipelines`** (3 esteiras): counts atuais por esteira. **Sinais REAIS**
   (o `acervo_processo` é ESTÁTICO — a vetorização adiciona Documento/Chunk a
   processos que já existem, não cria processo novo; medir `Processo.count()`/
-  `.criado_em` dava ~0 com a frota a todo vapor):
+  `.criado_em` dava ~0 com a frota a todo vapor).
+  - **REGRA DO DENOMINADOR-UNIVERSO** (crítico): os 3 gauges medem o quanto do
+    trabalho **TOTAL** foi feito, contra o **MESMO universo de processos COM
+    AUTOS** (`vet_total` = manifest **1.149.509** − s3_404 `acervo_missingautos`
+    ~12.6k ≈ **1.136.881**). Classif/extração só operam sobre o que a vetorização
+    já produziu (~2%) — medir contra o subconjunto já-processado dava a ilusão de
+    "99,9% classificado / 36% extraído". Todos convergem p/ **~2%** (honesto).
   - **vetor**: done = `Processo(vetorizado=True)` ("autos embedados"); total =
-    **manifest 1.149.509 − s3_404 conhecidos** (`acervo_missingautos`, ~12.6k autos
-    que sumiram na origem, invetorizáveis) = **processos "com autos"**. É
-    ESTIMATIVA (mais s3_404 podem surgir) → a esteira expõe `manifest_total`,
-    `missing`, `total_estimado=True` p/ o front rotular ("de N com autos", "−X
-    sem autos (s3_404)"). Velocidade = **processos-vetorizados/min** (snapshot).
-  - **classif**: `Documento.exclude(doc_classe='')` / `Documento.count()`.
-  - **extração**: `MetadadoExtraido.count()` / processos com doc de classe
-    LLM-relevante.
+    com-autos → ~2,3%. Expõe `manifest_total`, `missing`, `universo`.
+  - **extração** (processo-level): done = `MetadadoExtraido.count()`; total =
+    **com-autos** → ~1,9%. `ext_disponiveis` (processos vetorizados c/ doc
+    LLM-relevante) é só sub-rótulo "disponíveis p/ extrair agora" **e** o backlog
+    OPERACIONAL da frota (`extracao.backlog` = disponíveis − done), NÃO o
+    denominador do gauge.
+  - **classif** (doc-level): o total de docs só existe após vetorizar, então
+    **extrapola**: `clas_total_est` = (`docs_atuais` / `processos_vetorizados`) ×
+    com-autos ≈ **85M** → ~2,3%. É ESTIMATIVA (front rotula "de ~N docs
+    estimados", expõe `docs_atuais`).
+  - Todas as esteiras carregam `total_estimado=True` + `universo` p/ o front.
+    ETA de classif/extração é recalculada contra o novo denominador (dias/semanas,
+    honesto) — `faltando` e `rate_min` ficam na mesma unidade (docs p/ classif,
+    processos p/ extração).
   - **Top-level KPIs**: `rate_10min` = proc-vetorizados/min (= vet esteira
     rate_min, coerente c/ o numerador); `rate_1h` = **docs embedados/h**
     (`acervo_documento status='ready' criado_em ≥ 1h`, throughput real);
