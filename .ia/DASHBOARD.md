@@ -277,13 +277,18 @@ todos os tribunais numa passada (GROUP BY `tribunal_id`); hot path
 
 ### Página: Esteiras de processamento (`/dashboard/vetorizacao/`)
 
-View `vetorizacao` (`dashboard/views.py`). Duas partes numa página só:
+View `vetorizacao` (`dashboard/views.py`). Três partes numa página só:
 
 1. **3 esteiras** (topo) — **Vetorização · Classificação · Extração**, cada uma
    um card premium com: gauge ECharts de progresso (`buildVetorProgress`, donut
    com % no centro), done/total/faltando (números grandes), **velocidade X/min
    (últimos 10 min)** e **ETA formatado** (`format_eta` → `~2d 4h` / `~22min` /
    `concluído` / `—`). Badge `(parcial)` no cold-start (sem snapshot de ~10min).
+1b. **Extração — frota** (meio) — telemetria das **2× RTX 3090** (`llmsv2` +
+   `GipsyDanger`): KPIs (extrações/h e /min dos últimos 10 min, backlog, ETA via
+   `format_eta`) + cards das 2 GPUs (util % + VRAM, mesmo componente das máquinas
+   de vetorização, pulsar quando `util>0`, badge amber quando stale). Dados no
+   bloco `extracao` do endpoint. Degrade elegante: some se `fleet.extracao` vazio.
 2. **Frota ao vivo** (embaixo) — telemetria da frota de vetorização do Zordon:
    KPIs (workers busy/total, fila, acervo, proc/min e proc/h), cards por máquina
    com **GPU** (util % + VRAM), gráfico ECharts de proc/min (últimos 60 min) e
@@ -312,6 +317,16 @@ Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyag
   timestamp de update de `doc_classe`). ETA = faltando/taxa.
 - Sem migration (só RedisCache). A 3090 do embed (host `llmsv2`) não é SSH-ável →
   card de GPU "indisponível" pra ela.
+- **Bloco `extracao`** (frota de 2× 3090): `gpus` (hash Redis DB3 **`extracao:gpu`**
+  — separado do `vetor:gpu`; labels `llmsv2` e `GipsyDanger`, stale >180s),
+  `rate_10min`/`rate_h` (contagem de `MetadadoExtraido.criado_em` nos últimos
+  10min → /min e /h; timestamp real, sem snapshot), `backlog` (=
+  `pipelines.extracao.faltando`, reusa os counts) e `eta_seg` (backlog/taxa).
+  Reporters: `vet_gpu_report.py` (agora aceita `VET_GPU_REDIS_HASH`) via cron
+  `*/1min` nas 2 máquinas (`VET_GPU_HOST=GipsyDanger|llmsv2`,
+  `VET_GPU_REDIS_HASH=extracao:gpu`, Redis tailscale `100.98.86.54`). O
+  `warm_vetorizacao_fleet` do Voyager cacheia o payload inteiro — o bloco
+  `extracao` flui sem mudança em `tasks.py`.
 
 ## Atalhos de teclado
 

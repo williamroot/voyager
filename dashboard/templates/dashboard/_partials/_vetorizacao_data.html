@@ -143,6 +143,94 @@ dict `fleet` (cache vetor:fleet:v1). Degrade gracioso quando fleet é None.
   {% endif %}
   {% endwith %}
 
+  {# ==== EXTRAÇÃO — frota (2× RTX 3090: llmsv2 + GipsyDanger) ==== #}
+  {% with ex=fleet.extracao %}
+  {% if ex %}
+  <div class="flex items-center gap-2 pt-2">
+    {% voy_icon "sparkles" "w-4 h-4 text-mission" %}
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg-muted">Extração — frota</h2>
+    <span class="text-xs text-fg-subtle">2× RTX 3090 · LLM lê docs e extrai metadados</span>
+  </div>
+
+  {# ---- KPIs de extração (velocidade/h · backlog · ETA) ---- #}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="card-tight">
+      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Velocidade</div>
+      <div class="text-3xl font-semibold mt-1 kpi-num text-mission">{{ ex.rate_h|default:0|format_int }}<span class="text-fg-subtle text-lg">/h</span></div>
+      <div class="text-xs text-fg-subtle mt-1">extrações · últimos 10 min</div>
+    </div>
+    <div class="card-tight">
+      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Velocidade</div>
+      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ ex.rate_10min|default:0 }}<span class="text-fg-subtle text-lg">/min</span></div>
+      <div class="text-xs text-fg-subtle mt-1">média últimos 10 min</div>
+    </div>
+    <div class="card-tight">
+      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">Backlog</div>
+      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ ex.backlog|default:0|format_int }}</div>
+      <div class="text-xs text-fg-subtle mt-1">autos aguardando extração</div>
+    </div>
+    <div class="card-tight">
+      <div class="text-fg-subtle text-[0.7rem] uppercase tracking-wider">ETA</div>
+      <div class="text-3xl font-semibold mt-1 kpi-num text-fg">{{ ex.eta_seg|format_eta }}</div>
+      <div class="text-xs text-fg-subtle mt-1">para zerar o backlog</div>
+    </div>
+  </div>
+
+  {# ---- Cards das GPUs de extração (mesmo componente das máquinas de vetorização) ---- #}
+  {% if ex.gpus %}
+    <div class="grid gap-4 md:grid-cols-2">
+      {% for g in ex.gpus %}
+        <div class="card-tight">
+          <div class="flex items-start justify-between">
+            <div class="min-w-0">
+              <div class="font-mono text-sm font-semibold text-fg truncate">{{ g.host }}</div>
+              <div class="text-xs text-fg-subtle mt-0.5">{{ g.name|default:"GPU" }}</div>
+            </div>
+            {% if g.stale %}
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400/70 shrink-0 mt-1.5" title="telemetria defasada"></span>
+            {% elif g.util %}
+              <span class="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style="background: rgb(var(--c-pulsar)); box-shadow: 0 0 8px rgb(var(--c-pulsar) / 0.8); animation: pulsar 1.6s ease-in-out infinite;" title="processando"></span>
+            {% else %}
+              <span class="w-2.5 h-2.5 rounded-full bg-fg-subtle/40 shrink-0 mt-1.5" title="ociosa"></span>
+            {% endif %}
+          </div>
+
+          <div class="mt-3 pt-3 border-t border-border">
+            {% if g.stale %}
+              <div class="text-xs text-amber-400">telemetria defasada (&gt;3 min sem reportar)</div>
+            {% else %}
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-fg-muted">utilização</span>
+                {% if g.util is not None %}
+                  <span class="text-fg font-mono">{{ g.util }}% util</span>
+                {% else %}
+                  <span class="text-fg-subtle">util indisponível</span>
+                {% endif %}
+              </div>
+              {% if g.util is not None %}
+                <div class="h-2 rounded bg-muted/40 overflow-hidden mt-1.5">
+                  <div class="h-full rounded" style="width: {{ g.util }}%; background: rgb(var(--c-mission));"></div>
+                </div>
+              {% endif %}
+              {% if g.mem_used is not None and g.mem_total %}
+                <div class="text-[0.7rem] text-fg-subtle mt-2 font-mono">
+                  VRAM {{ g.mem_used }} / {{ g.mem_total }} MB
+                </div>
+                <div class="h-1.5 rounded bg-muted/40 overflow-hidden mt-0.5">
+                  <div class="h-full rounded" style="width: {% widthratio g.mem_used g.mem_total 100 %}%; background: rgb(var(--c-info));"></div>
+                </div>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="card text-sm text-fg-subtle">Nenhuma GPU de extração reportando telemetria.</div>
+  {% endif %}
+  {% endif %}
+  {% endwith %}
+
   {# ---- Frota ao vivo (workers, fila, GPU) ---- #}
   <div class="flex items-center gap-2 pt-2">
     {% voy_icon "transmission" "w-4 h-4 text-fg-muted" %}
