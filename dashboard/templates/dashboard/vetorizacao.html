@@ -6,8 +6,8 @@
 {% block content %}
 {% include 'dashboard/_partials/page_header.html' with title='Velocidade de vetorização' subtitle='Frota distribuída ingerindo o acervo (Zordon) — workers, GPU, velocidade e fila' %}
 
-{# Builder do gráfico de velocidade por minuto — definido no shell (persiste
-   entre swaps HTMX). Linha/área com destaque no ponto atual. #}
+{% comment %}Builder do gráfico de velocidade por minuto — definido no shell (persiste
+   entre swaps HTMX). Linha/área com destaque no ponto atual.{% endcomment %}
 <script>
   window.buildVetorSpeed = function (rows) {
     rows = rows || [];
