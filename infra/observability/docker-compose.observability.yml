@@ -1,0 +1,114 @@
+# Voyager observability stack (Fase B do RAG_EVAL_OBS.md).
+# ISOLADO: project name próprio, rede própria, portas não-conflitantes. NÃO tocar
+# nos compose de prod. Sobe num host de BAIXO RISCO (zordon 192.168.30.117), NÃO no
+# host do DB nem no web. Todos os acessos ao acervo DB são READ-ONLY (voyager_exporter).
+#
+# Deploy:  docker compose -p voyager-obs -f docker-compose.observability.yml up -d --build
+# Requer .env ao lado com:
+#   PG_EXPORTER_PASSWORD=...        (senha do role read-only voyager_exporter)
+#   GRAFANA_ADMIN_PASSWORD=...      (senha do admin do Grafana)
+#   GPU_BRIDGE_REDIS_PASSWORD=      (vazio se o Redis não tem auth)
+
+name: voyager-obs
+
+networks:
+  obs:
+    name: voyager-obs
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9490:9090"   # host 9490 -> prometheus 9090 (evita colidir com qualquer 9090)
+    networks: [obs]
+    depends_on: [postgres-exporter, gpu-bridge, alertmanager]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "9493:9093"
+    networks: [obs]
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "9491:3000"
+    networks: [obs]
+    depends_on: [prometheus]
+
+  # postgres_exporter apontando pro acervo DB (zordon @ 192.168.30.114) como
+  # voyager_exporter (pg_monitor, READ-ONLY). sslmode=disable = LAN confiável.
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://voyager_exporter:${PG_EXPORTER_PASSWORD:?set PG_EXPORTER_PASSWORD in .env}@192.168.30.114:5432/zordon?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/pg-exporter/queries.yaml
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
+    command:
+      - --collector.stat_user_tables
+      - --collector.statio_user_indexes
+      - --collector.stat_activity_autovacuum
+      - --collector.database
+      - --no-collector.stat_bgwriter   # PG18 renomeou colunas; built-in incompatível (ruído)
+    volumes:
+      - ./postgres-exporter/queries.yaml:/etc/pg-exporter/queries.yaml:ro
+    networks: [obs]
+    # sem ports: só a rede interna; Prometheus scrapeia por DNS de serviço.
+
+  gpu-bridge:
+    build: ./gpu-bridge
+    restart: unless-stopped
+    environment:
+      GPU_BRIDGE_REDIS_HOST: "192.168.30.100"
+      GPU_BRIDGE_REDIS_PORT: "6379"
+      GPU_BRIDGE_REDIS_DB: "3"
+      GPU_BRIDGE_RQ_REDIS_DB: "3"
+      GPU_BRIDGE_REDIS_PASSWORD: "${GPU_BRIDGE_REDIS_PASSWORD:-}"
+      GPU_BRIDGE_STALE_S: "180"
+      GPU_BRIDGE_RQ_QUEUES: "vetorizar_write,vetorizar,extract,ingest"
+    networks: [obs]
+
+  # node_exporter opcional — telemetria do host onde o stack roda (zordon).
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.8.2
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks: [obs]

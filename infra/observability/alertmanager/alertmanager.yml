@@ -1,0 +1,26 @@
+global:
+  resolve_timeout: 5m
+
+# Sem integração externa por padrão (soberania + evita spam). Rota tudo pro receiver
+# nulo; pra ligar Slack/webhook interno, preencher slack_configs/webhook_configs e
+# apontar a rota. NUNCA mandar conteúdo de autos daqui (só nomes de alerta/labels).
+route:
+  receiver: default
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="critical"]
+      receiver: default
+      repeat_interval: 1h
+
+receivers:
+  - name: default
+    # webhook_configs:
+    #   - url: "http://voyager-internal/alerts"   # preencher com endpoint interno
+
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: ["alertname"]

@@ -1,0 +1,150 @@
+# Custom queries for the acervo (zordon) DB — cobre §2.2 do RAG_EVAL_OBS.md.
+# Rodam como voyager_exporter (pg_monitor, read-only). Nada aqui escreve.
+# NB: pg_stat_statements NÃO está habilitado (shared_preload vazio) => p95 de
+# busca vetorial fica PENDENTE de janela de prod. Não incluído aqui de propósito.
+
+# ---- cache-hit ratio dos índices HNSW (leading indicator do disk-cliff) ----
+# hit ratio = idx_blks_hit / (idx_blks_hit + idx_blks_read) por índice HNSW.
+hnsw_index_io:
+  query: >
+    SELECT
+      s.indexrelname AS index_name,
+      s.relname       AS table_name,
+      s.idx_blks_hit  AS blks_hit,
+      s.idx_blks_read AS blks_read,
+      pg_relation_size(s.indexrelid) AS size_bytes,
+      COALESCE(su.idx_scan, 0) AS idx_scan
+    FROM pg_statio_user_indexes s
+    JOIN pg_stat_user_indexes su ON su.indexrelid = s.indexrelid
+    JOIN pg_class ci    ON ci.oid = s.indexrelid
+    JOIN pg_am am       ON am.oid = ci.relam
+    WHERE am.amname = 'hnsw'
+  master: true
+  metrics:
+    - index_name:
+        usage: LABEL
+        description: "HNSW index name"
+    - table_name:
+        usage: LABEL
+        description: "Table the HNSW index belongs to"
+    - blks_hit:
+        usage: COUNTER
+        description: "Index blocks found in buffer cache"
+    - blks_read:
+        usage: COUNTER
+        description: "Index blocks read from disk"
+    - size_bytes:
+        usage: GAUGE
+        description: "HNSW index size in bytes"
+    - idx_scan:
+        usage: COUNTER
+        description: "Number of scans on this HNSW index"
+
+# ---- autovacuum em andamento (regra composta com fila_write) ----
+autovacuum_progress:
+  query: >
+    SELECT
+      p.pid,
+      c.relname AS table_name,
+      p.phase,
+      p.heap_blks_total,
+      p.heap_blks_scanned,
+      p.heap_blks_vacuumed,
+      EXTRACT(EPOCH FROM (now() - a.xact_start))::float AS running_seconds
+    FROM pg_stat_progress_vacuum p
+    JOIN pg_class c   ON c.oid = p.relid
+    JOIN pg_stat_activity a ON a.pid = p.pid
+  master: true
+  metrics:
+    - pid:
+        usage: LABEL
+        description: "Vacuum worker pid"
+    - table_name:
+        usage: LABEL
+        description: "Table being vacuumed"
+    - phase:
+        usage: LABEL
+        description: "Vacuum phase"
+    - heap_blks_total:
+        usage: GAUGE
+        description: "Total heap blocks to vacuum"
+    - heap_blks_scanned:
+        usage: GAUGE
+        description: "Heap blocks scanned so far"
+    - heap_blks_vacuumed:
+        usage: GAUGE
+        description: "Heap blocks vacuumed so far"
+    - running_seconds:
+        usage: GAUGE
+        description: "Seconds this vacuum has been running"
+
+# ---- dead tuples / last autovacuum das tabelas do acervo ----
+acervo_table_bloat:
+  query: >
+    SELECT
+      relname AS table_name,
+      n_live_tup,
+      n_dead_tup,
+      COALESCE(EXTRACT(EPOCH FROM (now() - last_autovacuum)), -1)::float AS last_autovacuum_age_s,
+      COALESCE(EXTRACT(EPOCH FROM (now() - last_autoanalyze)), -1)::float AS last_autoanalyze_age_s
+    FROM pg_stat_user_tables
+    WHERE relname IN ('acervo_chunk','acervo_documento','acervo_processo',
+                      'acervo_metadadoextraido','jurisprudencia_acordaochunk')
+  master: true
+  metrics:
+    - table_name:
+        usage: LABEL
+        description: "Acervo table"
+    - n_live_tup:
+        usage: GAUGE
+        description: "Estimated live tuples"
+    - n_dead_tup:
+        usage: GAUGE
+        description: "Estimated dead tuples (bloat proxy)"
+    - last_autovacuum_age_s:
+        usage: GAUGE
+        description: "Seconds since last autovacuum (-1 if never)"
+    - last_autoanalyze_age_s:
+        usage: GAUGE
+        description: "Seconds since last autoanalyze (-1 if never)"
+
+# ---- memória de shared_buffers em bytes (pra comparar com o tamanho do índice) ----
+db_shared_buffers:
+  query: >
+    SELECT (setting::bigint * (SELECT setting::bigint FROM pg_settings WHERE name='block_size'))
+             AS shared_buffers_bytes
+    FROM pg_settings WHERE name='shared_buffers'
+  master: true
+  metrics:
+    - shared_buffers_bytes:
+        usage: GAUGE
+        description: "shared_buffers in bytes"
+
+# ---- conexões / long-running xact (DB saturado) ----
+connections_summary:
+  query: >
+    SELECT
+      COUNT(*) FILTER (WHERE state IS NOT NULL) AS total,
+      COUNT(*) FILTER (WHERE state = 'active') AS active,
+      COUNT(*) FILTER (WHERE state = 'idle in transaction') AS idle_in_txn,
+      COALESCE(MAX(EXTRACT(EPOCH FROM (now() - xact_start))) FILTER (WHERE xact_start IS NOT NULL), 0)::float AS max_xact_seconds,
+      (SELECT setting::int FROM pg_settings WHERE name='max_connections') AS max_connections
+    FROM pg_stat_activity
+    WHERE datname = current_database() AND pid <> pg_backend_pid()
+  master: true
+  metrics:
+    - total:
+        usage: GAUGE
+        description: "Backends connected to this DB"
+    - active:
+        usage: GAUGE
+        description: "Backends in state active"
+    - idle_in_txn:
+        usage: GAUGE
+        description: "Backends idle in transaction"
+    - max_xact_seconds:
+        usage: GAUGE
+        description: "Longest running transaction, seconds"
+    - max_connections:
+        usage: GAUGE
+        description: "max_connections setting"

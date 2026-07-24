@@ -1,0 +1,107 @@
+groups:
+  # ============================================================
+  # Alertas VIVOS — calculáveis com postgres_exporter + gpu-bridge
+  # ============================================================
+  - name: voyager-infra-live
+    rules:
+      # (1) COMPOSTO: fila de write disparando E autovacuum rodando na acervo_chunk.
+      # Sozinho, fila alta pode ser só backlog; autovacuum sozinho é normal. Juntos
+      # = o vacuum na tabela quente está estrangulando o writer (o cenário que morde).
+      - alert: FilaWriteRunawayComAutovacuum
+        expr: |
+          (voyager_rq_queue_depth{queue="vetorizar_write"} > 20000)
+          and on()
+          (max(autovacuum_progress_running_seconds{table_name="acervo_chunk"}) > 120)
+        for: 10m
+        labels:
+          severity: critical
+          phase: B
+        annotations:
+          summary: "fila_write runaway ({{ $value }}) COM autovacuum ativo em acervo_chunk"
+          description: >
+            vetorizar_write acumulou >20k jobs enquanto um autovacuum roda há >2min em
+            acervo_chunk. Provável contenção I/O writer vs vacuum. Runbook: OPS.md
+            "Observability stack (Fase B)" > alerta FilaWriteRunawayComAutovacuum.
+
+      # (2) cache-hit ratio do índice HNSW caindo — leading indicator de disk-cliff.
+      # Ratio sobre a janela de 15min (delta de hit/read). Só avalia índices com tráfego.
+      - alert: HNSWCacheHitCaindo
+        expr: |
+          (
+            rate(hnsw_index_io_blks_hit[15m])
+            / clamp_min(rate(hnsw_index_io_blks_hit[15m]) + rate(hnsw_index_io_blks_read[15m]), 1)
+          ) < 0.90
+          and
+          (rate(hnsw_index_io_blks_read[15m]) > 0)
+        for: 15m
+        labels:
+          severity: warning
+          phase: B
+        annotations:
+          summary: "cache-hit do índice HNSW {{ $labels.index_name }} < 90%"
+          description: >
+            O índice HNSW está servindo <90% dos blocos do cache (lendo do disco). É o
+            leading indicator do disk-cliff (índice > RAM). Runbook: OPS.md alerta
+            HNSWCacheHitCaindo (subir RAM / index-last / halfvec / pgvectorscale).
+
+      # (4) DB saturado — conexões perto do teto OU transação longa presa.
+      - alert: DBSaturado
+        expr: |
+          (connections_summary_active > 40)
+          or (connections_summary_max_xact_seconds > 90)
+          or (connections_summary_idle_in_txn > 10)
+        for: 5m
+        labels:
+          severity: critical
+          phase: B
+        annotations:
+          summary: "acervo DB saturado (active={{ $value }})"
+          description: >
+            Muitos backends ativos, transação longa (>90s) ou idle-in-transaction. Ver
+            OPS.md "Storm de statement_timeout" / "reabastecer saturou o DB". Mate xact
+            longas com pg_terminate_backend se preciso.
+
+      # (5) GPU hang — telemetria parada (stale) num host que deveria reportar.
+      - alert: GPUHang
+        expr: max by (host, role) (voyager_gpu_stale) == 1
+        for: 5m
+        labels:
+          severity: warning
+          phase: B
+        annotations:
+          summary: "GPU host {{ $labels.host }} ({{ $labels.role }}) sem telemetria"
+          description: >
+            O reporter (vet_gpu_report) não atualiza o hash Redis há > limiar de stale.
+            GPU travada, pod morto ou reporter caído. Runbook: OPS.md alerta GPUHang.
+
+      # Saúde do próprio pipeline de métricas.
+      - alert: GPUBridgeDown
+        expr: voyager_gpu_bridge_up == 0
+        for: 5m
+        labels: {severity: warning, phase: B}
+        annotations:
+          summary: "gpu-bridge não consegue ler o Redis"
+
+      - alert: PostgresExporterDown
+        expr: up{job="postgres_acervo"} == 0
+        for: 5m
+        labels: {severity: critical, phase: B}
+        annotations:
+          summary: "postgres_exporter do acervo caiu (sem métricas de DB)"
+
+  # ============================================================
+  # Alertas PENDENTES de outra fase — documentados, desativados por ora.
+  # ============================================================
+  # (3) p95 busca vetorial > SLO
+  #     BLOQUEADO: pg_stat_statements NÃO está habilitado no acervo DB
+  #     (shared_preload_libraries vazio -> exige restart = janela de prod).
+  #     Quando habilitado, adicionar postgres_exporter statements collector e:
+  #       histogram/quantile sobre pg_stat_statements p/ as queries de search.py.
+  #
+  # (6) custo/h pod > teto
+  #     PENDENTE: exige QuickPod cost exporter (API -> pushgateway), Fase B item futuro.
+  #       expr sugerido: sum(voyager_quickpod_pod_cost_hour) > <teto>
+  #
+  # (7) recall drift
+  #     PENDENTE: depende da Fase C (eval harness / EvalRun). Placeholder:
+  #       expr sugerido: voyager_eval_recall_at8 < (voyager_eval_recall_at8_baseline - 0.02)

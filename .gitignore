@@ -42,3 +42,6 @@ proxyscrape_*.txt
 # brainstorming visual companion
 .superpowers/
 dashboard/data/*.live.json
+
+# observability stack secrets (Fase B)
+infra/observability/.env

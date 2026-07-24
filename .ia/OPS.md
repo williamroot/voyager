@@ -2,6 +2,8 @@
 
 Runbooks específicos por situação. Para troubleshooting geral, comece por `djen_status` (CLI) ou `/dashboard/workers/` (UI).
 
+Observabilidade de infra (Prometheus/Grafana/GPU): ver [Observability stack (Fase B)](#observability-stack-fase-b) no fim deste doc.
+
 ## Stacks
 
 | Ambiente | Compose | Hostname | Tunnel |
@@ -882,3 +884,146 @@ Ao ver vermelho num feriado conhecido: ignore ou correlacione com o heatmap de o
 7. Sem ground truth do tribunal novo, modelo TRF1 é aplicado mas precision real é desconhecida — calibration plot na `/dashboard/leads/` revela depois que Juriscope começar a consumir + marcar `validado/sem_expedicao`
 
 **Caveat estaduais**: o patch de `datajud.sync_processo` agora popula `Process.classe_codigo` quando vazio — necessário pra TJ* funcionarem. Se o tribunal novo não estiver no Datajud, classe fica vazia e classificador retorna NAO_LEAD em todos.
+
+## Observability stack (Fase B)
+
+Prometheus + postgres_exporter + Grafana + Alertmanager + gpu-bridge pro ambiente
+de milhões de embeddings (vector store do **acervo Zordon**). Cobre o §2.2 do
+`.ia/RAG_EVAL_OBS.md`. Stack **isolado** (project name `voyager-obs`, rede/volumes
+próprios, portas não-conflitantes) — **não toca** os compose de prod.
+
+Fonte versionada: `infra/observability/` (compose, prometheus, grafana, alertmanager,
+gpu-bridge, postgres-exporter/queries.yaml). Secrets ficam num `.env` **não versionado**
+(gitignored) no host de deploy.
+
+### Onde roda / topologia
+
+| Peça | Host | Porta (host) | Observação |
+|---|---|---|---|
+| Prometheus | `zordon` (192.168.30.117) | **9490** → :9090 | TSDB, retention 15d, `--web.enable-lifecycle` (reload sem restart) |
+| Grafana | `zordon` | **9491** → :3000 | dashboard "Infra / Vector Store" (uid `voyager-infra-vs`), datasource provisionada |
+| Alertmanager | `zordon` | **9493** → :9093 | receiver default vazio (preencher webhook interno pra notificar) |
+| postgres-exporter | `zordon` | interno (:9187) | aponta pro **acervo DB** `192.168.30.114:5432/zordon` como `voyager_exporter` (READ-ONLY) |
+| gpu-bridge | `zordon` | interno (:9835) | lê hash Redis `192.168.30.100/3` `vetor:gpu`+`extracao:gpu` → `/metrics` |
+| node-exporter | `zordon` | interno (:9100) | telemetria do próprio host do stack |
+
+**Por que `zordon`**: host coordenador de baixo risco (NÃO é o DB, NÃO é o web, NÃO
+está no hot-path de enrichment). Alcança o acervo DB e o Redis pela LAN. Foi o único
+host-change: **Docker foi instalado nele** (não tinha). Regra de segurança respeitada
+— nada roda no host do DB.
+
+> ⚠️ O **acervo DB** que morde (embeddings/HNSW) é o **zordon** (`192.168.30.114:5432`,
+> **PostgreSQL 18.4**), NÃO o `voyager-db` (.101, PG16 do DJEN/leads). São bancos
+> diferentes. O postgres_exporter aponta só pro acervo.
+
+### URL do Prometheus pro Command Center
+
+O Command Center (camada Voyager) consulta via `/api/v1/query`:
+
+```
+http://zordon:9490            (Tailscale, recomendado)
+http://192.168.30.117:9490    (LAN)
+```
+
+Verificado alcançável do host web (`voyager` .103). Grafana em `http://zordon:9491`
+(admin / senha no `.env`). Query de exemplo pros ~8 números-chave:
+`GET http://zordon:9490/api/v1/query?query=voyager_gpu_bridge_up`
+
+### Métricas-chave (PromQL) — o que já está VIVO
+
+| # | O que | PromQL |
+|---|---|---|
+| 1 | cache-hit HNSW (leading indicator disk-cliff) | `rate(hnsw_index_io_blks_hit[15m]) / clamp_min(rate(hnsw_index_io_blks_hit[15m]) + rate(hnsw_index_io_blks_read[15m]), 1)` |
+| 2 | tamanho índice HNSW vs shared_buffers | `hnsw_index_io_size_bytes` · `db_shared_buffers_shared_buffers_bytes` |
+| 3 | dead tuples (bloat) acervo_chunk | `acervo_table_bloat_n_dead_tup{table_name="acervo_chunk"}` |
+| 4 | autovacuum ativo + duração | `autovacuum_progress_running_seconds` |
+| 5 | conexões / xact longa | `connections_summary_active` · `connections_summary_max_xact_seconds` · `connections_summary_idle_in_txn` |
+| 6 | fila vetorizar_write | `voyager_rq_queue_depth{queue="vetorizar_write"}` |
+| 7 | GPU util/vram/stale por host | `voyager_gpu_util` · `voyager_gpu_mem_used_bytes` · `voyager_gpu_stale` |
+| 8 | saúde do pipeline de métricas | `voyager_gpu_bridge_up` · `up{job="postgres_acervo"}` |
+
+> **Nota naming**: as métricas de query custom do postgres_exporter v0.16 (via
+> `queries.yaml` deprecado) saem **SEM** o prefixo `pg_` (ex: `hnsw_index_io_*`,
+> `connections_summary_*`). As built-in do exporter mantêm `pg_`.
+
+Estado ao subir (2026-07-24): `chunk_emb_hnsw_half` = **38 GB** de índice vs
+`shared_buffers` = **24 GB** → índice já **maior que a RAM de buffer** (o disk-cliff
+que o `.ia/RAG_EVAL_OBS.md` §10 e a memória preveem). O painel de cache-hit é o
+alarme antecipado disso.
+
+### Métricas PENDENTES (outra fase / janela)
+
+- **p95/p99 busca vetorial** — BLOQUEADO: `pg_stat_statements` **não** está habilitado
+  no acervo DB (`shared_preload_libraries` vazio). Ligar exige `shared_preload_libraries`
+  + **restart do Postgres = janela de prod**. Não feito de propósito (regra dura). Quando
+  agendar a janela: adicionar `pg_stat_statements` ao preload, `CREATE EXTENSION`, e ligar
+  o collector do exporter.
+- **custo/h por pod** — PENDENTE: exige QuickPod cost exporter (API → pushgateway).
+  Item futuro da Fase B.
+- **recall drift** — PENDENTE: depende da **Fase C** (eval harness / `EvalRun`).
+  Placeholder documentado em `alerts.yml`.
+
+### Alertas (Alertmanager) — os 7 do §6
+
+Regras em `infra/observability/prometheus/alerts.yml`. Vivos (calculáveis já):
+
+1. **FilaWriteRunawayComAutovacuum** (COMPOSTO) — `vetorizar_write > 20k` **E**
+   autovacuum rodando >120s em `acervo_chunk`. Isolados não alertam; juntos = vacuum
+   estrangulando o writer. Ação: pausar/segurar o writer ou deixar o vacuum terminar;
+   ver "reabastecer saturou o DB" pra padrão de contenção.
+2. **HNSWCacheHitCaindo** — cache-hit do índice HNSW < 90% por 15min (só quando há
+   leitura de disco). Leading indicator do disk-cliff. Ação: subir RAM/shared_buffers,
+   index-last, halfvec, pgvectorscale/VectorChord (ver RAG_EVAL_OBS §10 + memória).
+3. **DBSaturado** — active>40 OU xact>90s OU idle-in-txn>10. Ação: `pg_terminate_backend`
+   das xact longas; ver "Storm de statement_timeout".
+4. **GPUHang** — `voyager_gpu_stale==1` (telemetria > 180s parada) por 5min. GPU travada,
+   pod morto ou reporter caído. Ação: checar o pod/host e o `vet_gpu_report`.
+5. **GPUBridgeDown** / **PostgresExporterDown** — saúde do próprio pipeline de métricas.
+
+Pendentes (documentados/comentados em `alerts.yml`): **p95 SLO** (dep. pg_stat_statements),
+**custo/h pod** (dep. QuickPod exporter), **recall drift** (dep. Fase C).
+
+Notificação: `alertmanager.yml` tem receiver `default` **vazio** (sem SaaS US, soberania).
+Pra ligar avisos, preencher `webhook_configs`/`slack_configs` apontando pra endpoint
+interno. **Nunca** mandar conteúdo de autos por aqui (só nomes de alerta/labels).
+
+### Usuário read-only do Postgres
+
+Criado no acervo DB (`zordon` @ .114) via `sudo -u postgres psql` (path sancionado):
+
+```sql
+CREATE ROLE voyager_exporter WITH LOGIN PASSWORD '***' CONNECTION LIMIT 5;
+GRANT pg_monitor TO voyager_exporter;      -- só lê pg_stat_*; nenhum acesso a dados
+GRANT CONNECT ON DATABASE zordon TO voyager_exporter;
+```
+
+- NÃO é superuser, NÃO tem createrole, só `pg_monitor`. O exporter **nunca** usa superuser.
+- (`pg_exporter` é nome reservado no PG18 → por isso `voyager_exporter`.)
+- Senha vive só no `.env` do host (`infra/observability/.env`, gitignored).
+
+### Operar (deploy / reload / reverter)
+
+```bash
+# ---- deploy (no host zordon) ----
+ssh ubuntu@zordon
+cd ~/voyager-obs                       # dir sincronizado de infra/observability/
+# .env precisa existir com PG_EXPORTER_PASSWORD / GRAFANA_ADMIN_PASSWORD / GPU_BRIDGE_REDIS_PASSWORD
+sudo docker compose -p voyager-obs -f docker-compose.observability.yml up -d --build
+
+# ---- status ----
+sudo docker compose -p voyager-obs -f docker-compose.observability.yml ps
+
+# ---- reload de alerts/scrape (hot, sem restart) ----
+sudo docker exec voyager-obs-prometheus-1 wget -qO- --post-data="" http://localhost:9090/-/reload
+
+# ---- reverter (derruba tudo; NÃO afeta prod, é stack isolado) ----
+sudo docker compose -p voyager-obs -f docker-compose.observability.yml down          # mantém volumes
+sudo docker compose -p voyager-obs -f docker-compose.observability.yml down -v        # + apaga TSDB/grafana
+# opcional: dropar o role read-only
+ssh ubuntu@192.168.30.114 "sudo -u postgres psql -d zordon -c 'DROP ROLE IF EXISTS voyager_exporter;'"
+```
+
+Atualizar config: editar em `infra/observability/` no repo → `rsync` pra `~/voyager-obs`
+no zordon → `up -d` (ou reload pro que é hot). Trocar senha do exporter: `ALTER ROLE
+voyager_exporter WITH PASSWORD '...'` + atualizar `.env` + `up -d --force-recreate
+postgres-exporter`.

@@ -1,0 +1,138 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "Infra / Vector Store",
+  "uid": "voyager-infra-vs",
+  "tags": ["voyager", "acervo", "vector"],
+  "timezone": "browser",
+  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "templating": {"list": []},
+  "panels": [
+    {
+      "type": "row", "title": "Vector store (HNSW / acervo_chunk)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries", "title": "Cache-hit ratio índice HNSW (leading indicator disk-cliff)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 1},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "yellow", "value": 0.9}, {"color": "green", "value": 0.98}]}}},
+      "targets": [{
+        "expr": "rate(hnsw_index_io_blks_hit[15m]) / clamp_min(rate(hnsw_index_io_blks_hit[15m]) + rate(hnsw_index_io_blks_read[15m]), 1)",
+        "legendFormat": "{{index_name}}"}]
+    },
+    {
+      "type": "timeseries", "title": "Tamanho índice HNSW vs shared_buffers (bytes)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 1},
+      "fieldConfig": {"defaults": {"unit": "bytes"}},
+      "targets": [
+        {"expr": "hnsw_index_io_size_bytes", "legendFormat": "{{index_name}}"},
+        {"expr": "db_shared_buffers_shared_buffers_bytes", "legendFormat": "shared_buffers"}
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Dead tuples (bloat) — tabelas do acervo",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 9},
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "targets": [{"expr": "acervo_table_bloat_n_dead_tup", "legendFormat": "{{table_name}}"}]
+    },
+    {
+      "type": "timeseries", "title": "Autovacuum ativo — duração (s) por tabela",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 9},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [{"expr": "autovacuum_progress_running_seconds", "legendFormat": "{{table_name}} (pid {{pid}}) {{phase}}"}]
+    },
+    {
+      "type": "row", "title": "DB saúde / conexões",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 17}
+    },
+    {
+      "type": "stat", "title": "Conexões ativas",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 18},
+      "fieldConfig": {"defaults": {"unit": "short",
+        "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 30}, {"color": "red", "value": 40}]}}},
+      "targets": [{"expr": "connections_summary_active"}]
+    },
+    {
+      "type": "stat", "title": "Idle in transaction",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 18},
+      "fieldConfig": {"defaults": {"unit": "short",
+        "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 10}]}}},
+      "targets": [{"expr": "connections_summary_idle_in_txn"}]
+    },
+    {
+      "type": "stat", "title": "Xact mais longa (s)",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 18},
+      "fieldConfig": {"defaults": {"unit": "s",
+        "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 30}, {"color": "red", "value": 90}]}}},
+      "targets": [{"expr": "connections_summary_max_xact_seconds"}]
+    },
+    {
+      "type": "stat", "title": "fila vetorizar_write",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 18},
+      "fieldConfig": {"defaults": {"unit": "short",
+        "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 20000}, {"color": "red", "value": 100000}]}}},
+      "targets": [{"expr": "voyager_rq_queue_depth{queue=\"vetorizar_write\"}"}]
+    },
+    {
+      "type": "timeseries", "title": "Profundidade das filas RQ",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "targets": [{"expr": "voyager_rq_queue_depth", "legendFormat": "{{queue}}"}]
+    },
+    {
+      "type": "timeseries", "title": "p95 busca vetorial (PENDENTE — pg_stat_statements OFF)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "options": {"legend": {"showLegend": true}},
+      "targets": [{"expr": "vector(0)", "legendFormat": "requer shared_preload + restart (janela)"}]
+    },
+    {
+      "type": "row", "title": "GPU fleet (ponte hash Redis)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 32}
+    },
+    {
+      "type": "timeseries", "title": "GPU util % por host",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 33},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}},
+      "targets": [{"expr": "voyager_gpu_util", "legendFormat": "{{host}} · {{role}} · {{gpu}}"}]
+    },
+    {
+      "type": "timeseries", "title": "GPU VRAM usada / total (bytes)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 33},
+      "fieldConfig": {"defaults": {"unit": "bytes"}},
+      "targets": [
+        {"expr": "voyager_gpu_mem_used_bytes", "legendFormat": "used {{host}}"},
+        {"expr": "voyager_gpu_mem_total_bytes", "legendFormat": "total {{host}}"}
+      ]
+    },
+    {
+      "type": "stat", "title": "GPU hosts (vetorizacao)",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 41},
+      "targets": [{"expr": "voyager_gpu_hosts_total{role=\"vetorizacao\"}"}]
+    },
+    {
+      "type": "stat", "title": "GPU hosts (extracao)",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 41},
+      "targets": [{"expr": "voyager_gpu_hosts_total{role=\"extracao\"}"}]
+    },
+    {
+      "type": "stat", "title": "GPU hosts STALE (hang)",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 41},
+      "fieldConfig": {"defaults": {"unit": "short",
+        "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+      "targets": [{"expr": "sum(voyager_gpu_stale)"}]
+    },
+    {
+      "type": "stat", "title": "gpu-bridge up",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 41},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]}},
+      "targets": [{"expr": "voyager_gpu_bridge_up"}]
+    }
+  ]
+}
