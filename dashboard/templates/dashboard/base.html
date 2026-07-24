@@ -358,6 +358,11 @@
       {% url 'dashboard:partes' as partes_url %}
       {% url 'dashboard:ingestao' as ingestao_url %}
       {% url 'dashboard:workers' as workers_url %}
+      {% url 'dashboard:command' as command_url %}
+      <a href="{{ command_url }}" class="nav-item {% if request.path == command_url %}active{% endif %}">
+        {% voy_icon "radar" "w-4 h-4" %}
+        Command Center
+      </a>
       <a href="{{ overview_url }}" class="nav-item {% if request.path == overview_url %}active{% endif %}">
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral

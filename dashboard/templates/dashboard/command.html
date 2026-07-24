@@ -1,0 +1,126 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Command Center{% endblock %}
+
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Command Center' subtitle='Tudo que está sendo processado no acervo — vetorização · classificação · extração · frota · custo. Server-rendered, auto-refresh.' %}
+
+{% comment %}
+Builders ECharts do Command Center — definidos no SHELL pra sobreviverem aos
+swaps HTMX do partial (mesmo padrão da /dashboard/vetorizacao/). Reusa os
+helpers globais do base.html (chartGridColors, fmt, fmtCompact, setupChart,
+buildVetorProgress). Fase A do plano .ia/RAG_EVAL_OBS.md §3.
+{% endcomment %}
+<script>
+  // Gauge de progresso (donut % no centro) — fallback caso a /vetorizacao/ não
+  // tenha carregado antes. Idempotente (não sobrescreve se já existir).
+  window.buildVetorProgress = window.buildVetorProgress || function (cfg) {
+    cfg = cfg || {};
+    const pct = Math.max(0, Math.min(100, +cfg.pct || 0));
+    const color = cfg.color || 'rgb(16,185,129)';
+    return {
+      series: [{
+        type: 'pie', radius: ['74%', '92%'], center: ['50%', '50%'],
+        avoidLabelOverlap: false, silent: true,
+        label: {show: false}, labelLine: {show: false},
+        data: [
+          {value: pct, itemStyle: {color: color, borderRadius: 8}},
+          {value: 100 - pct, itemStyle: {color: 'rgba(148,163,184,0.16)'}},
+        ],
+      }],
+      graphic: {
+        type: 'text', left: 'center', top: 'center',
+        style: {text: pct.toFixed(1) + '%', fill: color, fontSize: 22,
+          fontWeight: 600, fontFamily: 'JetBrains Mono, monospace'},
+      },
+    };
+  };
+
+  // Mini-sparkline de KPI a partir do ring de histórico 24h.
+  // rows = [{ts, embed_h, extr_h, clas_min, fila, gpu_util, burn_h}, ...]
+  window.buildCmdSparkline = function (rows, field, rgb) {
+    rows = rows || [];
+    rgb = rgb || '16,185,129';
+    const vals = rows.map(r => (r && r[field] != null) ? +r[field] : 0);
+    return {
+      grid: {left: 1, right: 1, top: 3, bottom: 3},
+      xAxis: {show: false, type: 'category', boundaryGap: false},
+      yAxis: {show: false, type: 'value', scale: true},
+      tooltip: {trigger: 'axis', valueFormatter: v => fmt(Math.round(v)),
+        confine: true, backgroundColor: 'rgba(10,10,11,0.92)',
+        borderColor: 'rgba(255,255,255,0.08)',
+        textStyle: {color: '#e4e4e7', fontSize: 11}},
+      series: [{
+        type: 'line', data: vals, smooth: 0.4, symbol: 'none',
+        lineStyle: {color: 'rgb(' + rgb + ')', width: 1.6},
+        areaStyle: {color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            {offset: 0, color: 'rgba(' + rgb + ',0.30)'},
+            {offset: 1, color: 'rgba(' + rgb + ',0.01)'},
+          ],
+        }},
+      }],
+    };
+  };
+
+  // Gráfico 24h multi-série (throughput ou fila/GPU). rows do ring; series =
+  // [{field, name, rgb, area}]. Eixo X = horário HH:MM do ts.
+  window.buildCmd24h = function (rows, series) {
+    rows = rows || [];
+    series = series || [];
+    const c = chartGridColors();
+    const labels = rows.map(r => {
+      const d = new Date((r.ts || 0) * 1000);
+      return d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit', hour12: false});
+    });
+    return {
+      tooltip: {trigger: 'axis', valueFormatter: v => fmt(Math.round(v))},
+      legend: {top: 0, textStyle: {color: c.legend, fontSize: 11}, icon: 'roundRect'},
+      grid: {left: 48, right: 16, top: 28, bottom: 28},
+      xAxis: {type: 'category', data: labels, boundaryGap: false,
+        axisLabel: {color: c.axisLabel, fontSize: 10, interval: Math.ceil(labels.length / 8) || 1},
+        axisLine: {lineStyle: {color: c.axisLine}}},
+      yAxis: {type: 'value', axisLabel: {color: c.axisLabel, formatter: fmtCompact},
+        splitLine: {lineStyle: {color: c.splitLine}}},
+      series: series.map(s => ({
+        name: s.name, type: 'line', smooth: 0.3, symbol: 'none',
+        data: rows.map(r => (r[s.field] != null ? +r[s.field] : null)),
+        connectNulls: true,
+        lineStyle: {width: 2, color: 'rgb(' + s.rgb + ')'},
+        ...(s.area ? {areaStyle: {color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            {offset: 0, color: 'rgba(' + s.rgb + ',0.22)'},
+            {offset: 1, color: 'rgba(' + s.rgb + ',0.01)'},
+          ],
+        }}} : {}),
+      })),
+    };
+  };
+
+  // Velocidade de embedding por minuto (reusa formato da /vetorizacao/).
+  window.buildVetorSpeed = window.buildVetorSpeed || function (rows) {
+    rows = rows || [];
+    const c = chartGridColors();
+    return {
+      tooltip: {trigger: 'axis', valueFormatter: v => fmt(v) + ' docs/min'},
+      grid: {left: 44, right: 18, top: 18, bottom: 30},
+      xAxis: {type: 'category', data: rows.map(r => r.min), boundaryGap: false,
+        axisLabel: {color: c.axisLabel, fontSize: 10, interval: 9},
+        axisLine: {lineStyle: {color: c.axisLine}}},
+      yAxis: {type: 'value', minInterval: 1,
+        axisLabel: {color: c.axisLabel, formatter: fmtCompact},
+        splitLine: {lineStyle: {color: c.splitLine}}},
+      series: [{type: 'line', data: rows.map(r => r.n), smooth: 0.3, symbol: 'none',
+        lineStyle: {width: 2, color: 'rgb(16,185,129)'},
+        areaStyle: {color: {type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+          {offset: 0, color: 'rgba(16,185,129,0.28)'},
+          {offset: 1, color: 'rgba(16,185,129,0.02)'}]}}}],
+    };
+  };
+</script>
+
+{% include 'dashboard/_partials/_command_data.html' %}
+{% endblock %}

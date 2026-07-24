@@ -27,6 +27,7 @@ from dashboard.tasks import (
     warm_estatisticas_tribunal,
     warm_filtros_movimentacoes,
     warm_ingestao_por_hora,
+    warm_command_center,
     warm_kpis,
     warm_leads_charts,
     warm_partes,
@@ -243,6 +244,21 @@ def create_scheduler() -> BlockingScheduler:
         'interval',
         minutes=10,
         id='warm_vetorizacao_fleet',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # Command Center — custo QuickPod + ponto no ring de histórico 24h.
+    # INLINE, a cada 60s. Leve (1-2 GETs à API QuickPod + read-modify-write do
+    # ring no cache). Nunca propaga exceção. max_instances=1 garante que o ring
+    # de snapshots (read-modify-write) não tenha corrida. A cadência de 60s dá
+    # ~600 pontos ao longo de 24h (dentro do teto _COMMAND_HIST_MAX).
+    scheduler.add_job(
+        warm_command_center,
+        'interval',
+        seconds=60,
+        id='warm_command_center',
         replace_existing=True,
         max_instances=1,
         coalesce=True,

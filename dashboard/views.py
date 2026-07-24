@@ -3191,6 +3191,132 @@ def vetorizacao(request):
     return render(request, 'dashboard/vetorizacao.html', ctx)
 
 
+# ---------------------------------------------------------------------------
+# Command Center — dashboard única premium (pipeline + frota + custo + shells).
+# Fase A do plano .ia/RAG_EVAL_OBS.md §3. Consolida dados que JÁ EXISTEM
+# (fleet do Zordon + custo QuickPod) e deixa shells pros blocos Qualidade/Infra.
+# ---------------------------------------------------------------------------
+
+def _command_custo():
+    """Lê o custo QuickPod do cache (warm scheduler); nunca bate a API no request."""
+    from .tasks import COMMAND_CUSTO_CACHE_KEY
+    return _safe_cache_get(COMMAND_CUSTO_CACHE_KEY)
+
+
+def _command_hist():
+    """Lê o ring de snapshots 24h (throughput/fila/GPU) do cache."""
+    from .tasks import COMMAND_HIST_CACHE_KEY
+    return _safe_cache_get(COMMAND_HIST_CACHE_KEY) or []
+
+
+def _semaforo(valor, ok, atencao, inverso=False):
+    """Mapeia um número a um estado de semáforo (verde/amber/vermelho).
+
+    inverso=False: quanto MAIOR melhor (valor >= ok → verde).
+    inverso=True:  quanto MENOR melhor (valor <= ok → verde).
+    Retorna 'ok' | 'warn' | 'crit' | 'idle' (None → idle).
+    """
+    if valor is None:
+        return 'idle'
+    try:
+        v = float(valor)
+    except (TypeError, ValueError):
+        return 'idle'
+    if inverso:
+        if v <= ok:
+            return 'ok'
+        if v <= atencao:
+            return 'warn'
+        return 'crit'
+    if v >= ok:
+        return 'ok'
+    if v >= atencao:
+        return 'warn'
+    return 'crit'
+
+
+def _command_context():
+    """Monta o contexto do Command Center a partir das fontes cacheadas.
+
+    Fontes (todas via cache, nunca query pesada no request):
+      - fleet: telemetria da frota (warm_vetorizacao_fleet, 10min)
+      - custo: crédito/burn/runway QuickPod (warm_command_center, 60s)
+      - hist:  ring de snapshots 24h (throughput/fila/GPU)
+    Deriva semáforos por bloco a partir dos thresholds do plano.
+    """
+    fleet = _vetor_fleet_data()
+    custo = _command_custo()
+    hist = _command_hist()
+
+    pipe = (fleet or {}).get('pipelines') or {}
+    ex = (fleet or {}).get('extracao') or {}
+
+    # --- Semáforos por bloco (thresholds honestos, ligados aos alertas) ---
+    busy = (fleet or {}).get('busy_total') or 0
+    wtotal = (fleet or {}).get('workers_total') or 0
+    fila = (fleet or {}).get('queue_len') or 0
+    embed_h = (fleet or {}).get('rate_1h') or 0
+    runway_h = (custo or {}).get('runway_h') if custo else None
+
+    sem = {
+        # Pipeline verde se está embedando e há workers ocupados.
+        'pipeline': 'ok' if embed_h and busy else ('warn' if fleet else 'idle'),
+        # Frota verde se a maioria dos workers está viva (conectados > 0).
+        'frota': 'ok' if wtotal else 'idle',
+        # Custo: runway em horas. <6h crítico, <24h atenção, >=24h ok.
+        'custo': _semaforo(runway_h, ok=24, atencao=6, inverso=False)
+                 if runway_h is not None else ('idle' if not custo or not custo.get('ok') else 'ok'),
+        # Shells ainda sem dado real.
+        'qualidade': 'idle',
+        'infra': 'idle',
+    }
+
+    return {
+        'fleet': fleet,
+        'maquinas': _vetor_maquinas(fleet),
+        'pipe': pipe,
+        'extracao': ex,
+        'custo': custo,
+        'hist': hist,
+        'sem': sem,
+        'busy_total': busy,
+        'workers_total': wtotal,
+        'queue_len': fila,
+    }
+
+
+@login_required
+@require_GET
+def command_center(request):
+    """Command Center — a dashboard premium única (pipeline + frota + custo).
+
+    GET sem HX-Request → shell + dados iniciais (do cache).
+    GET com HX-Request → só o partial de dados (auto-refresh HTMX).
+    """
+    ctx = _command_context()
+    if _is_htmx(request):
+        return render(request, 'dashboard/_partials/_command_data.html', ctx)
+    return render(request, 'dashboard/command.html', ctx)
+
+
+@login_required
+@require_GET
+def command_data(request):
+    """Endpoint JSON agregado do Command Center (pipeline+frota+custo+hist).
+
+    Consome só caches curtos (fleet 10min, custo 60s, hist 24h) — nunca bate
+    QuickPod/DB por request. Serve pra consumidores externos/debug; a página em
+    si usa o partial HTMX server-rendered.
+    """
+    ctx = _command_context()
+    return JsonResponse({
+        'fleet': ctx['fleet'],
+        'custo': ctx['custo'],
+        'hist': ctx['hist'],
+        'semaforos': ctx['sem'],
+    }, json_dumps_params={'ensure_ascii': False})
+
+
 def _vetor_maquinas(data):
     """Funde workers + GPUs numa lista de máquinas (união dos hosts).
 

@@ -1,0 +1,24 @@
+{% comment %}
+Semáforo de bloco (verde/amber/vermelho/idle). Param:
+  s   — estado: 'ok' | 'warn' | 'crit' | 'idle'
+  hint — (opcional) tooltip explicando o critério
+Consistente com o tema dark premium. Ponto pulsante quando 'ok'.
+{% endcomment %}
+{% if s == 'ok' %}
+  <span class="inline-flex items-center gap-1.5 text-[0.65rem] font-medium text-accent-fg"{% if hint %} title="{{ hint }}"{% endif %}>
+    <span class="w-2 h-2 rounded-full shrink-0" style="background: rgb(var(--c-pulsar)); box-shadow: 0 0 6px rgb(var(--c-pulsar) / 0.8); animation: pulsar 1.6s ease-in-out infinite;"></span>
+    operante
+  </span>
+{% elif s == 'warn' %}
+  <span class="inline-flex items-center gap-1.5 text-[0.65rem] font-medium text-amber-400"{% if hint %} title="{{ hint }}"{% endif %}>
+    <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span> atenção
+  </span>
+{% elif s == 'crit' %}
+  <span class="inline-flex items-center gap-1.5 text-[0.65rem] font-medium text-red-400"{% if hint %} title="{{ hint }}"{% endif %}>
+    <span class="w-2 h-2 rounded-full bg-red-400 shrink-0" style="box-shadow: 0 0 6px rgba(248,113,113,0.7);"></span> anomalia
+  </span>
+{% else %}
+  <span class="inline-flex items-center gap-1.5 text-[0.65rem] font-medium text-fg-subtle"{% if hint %} title="{{ hint }}"{% endif %}>
+    <span class="w-2 h-2 rounded-full bg-fg-subtle/40 shrink-0"></span> aguardando
+  </span>
+{% endif %}

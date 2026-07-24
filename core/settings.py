@@ -335,6 +335,15 @@ IP_API_KEY = env('IP_API_KEY', default='')
 # container web); sobrescreva com ZORDON_URL no .env se o endereço mudar.
 ZORDON_URL = env('ZORDON_URL', default='http://100.116.189.18:8011')
 ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
+
+# QuickPod — API de crédito/pods da frota GPU cloud (Command Center · card CUSTO).
+# Consultada só pelo scheduler (warm_command_center), cacheada em Redis; nunca
+# batida no request do browser. Sobrescreva a chave via .env em prod.
+QUICKPOD_API_URL = env('QUICKPOD_API_URL', default='https://api.quickpod.org/update/api')
+QUICKPOD_API_KEY = env(
+    'QUICKPOD_API_KEY',
+    default='qpk_a65f5aef03d5b9dc.q4Vbjbc6mdixcCC_M6QnrAvumXn4kDUhLB2UAmEuwpg',
+)
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'SAMEORIGIN'  # a tela de extração embute o HTML rico do Zordon num iframe same-origin

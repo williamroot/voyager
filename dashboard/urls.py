@@ -84,6 +84,10 @@ urlpatterns = [
     path('leads/validacao/<int:lote_id>/item/<int:posicao>/',
          views.leads_validacao_item, name='leads_validacao_item'),
 
+    # Command Center — dashboard única premium (pipeline + frota + custo)
+    path('command/', views.command_center, name='command'),
+    path('command/data/', views.command_data, name='command-data'),
+
     # Vetorização — velocidade de processamento da frota (Zordon)
     path('vetorizacao/', views.vetorizacao, name='vetorizacao'),
 

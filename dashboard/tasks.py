@@ -346,3 +346,131 @@ def warm_vetorizacao_fleet():
     except Exception as e:
         logger.warning('warm_vetorizacao_fleet: %s: %s', type(e).__name__, e)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Command Center — custo (QuickPod) + histórico 24h de throughput/fila/GPU.
+# Roda INLINE no scheduler (leve: 1-2 GETs à API QuickPod + read-modify-write
+# do ring de snapshots no cache). NUNCA no request do browser.
+# ---------------------------------------------------------------------------
+
+# Custo QuickPod — crédito, burn/h, runway, nº pods.
+COMMAND_CUSTO_CACHE_KEY = 'command:custo:v1'
+_COMMAND_CUSTO_TTL = 600  # sobrevive a ~10 falhas do warm de 60s
+
+# Ring de snapshots 24h (throughput embed/extração/classif, fila, GPU util média).
+COMMAND_HIST_CACHE_KEY = 'command:hist:v1'
+_COMMAND_HIST_TTL = 172800   # 48h de folga
+_COMMAND_HIST_WINDOW = 86400  # janela exibida: 24h
+_COMMAND_HIST_MAX = 600       # teto de pontos (24h @ ~1 ponto/2,4min)
+
+
+def _quickpod_custo():
+    """Consulta a API QuickPod: crédito + pods ativos → burn/h + runway.
+
+    Retorna dict (nunca lança). Deriva $/1k chunks se der (via throughput
+    do fleet cacheado). burn/h = soma de hourly_cost dos pods em execução.
+    """
+    base = getattr(settings, 'QUICKPOD_API_URL', 'https://api.quickpod.org/update/api').rstrip('/')
+    key = getattr(settings, 'QUICKPOD_API_KEY', '')
+    if not key:
+        return {'ok': False, 'motivo': 'sem_api_key'}
+    headers = {'X-API-Key': key, 'User-Agent': 'voyager-dashboard/command-custo'}
+    out = {'ok': False, 'ts': int(time.time())}
+    try:
+        me = requests.get(f'{base}/me', headers=headers, timeout=(5, 15))
+        me.raise_for_status()
+        me = me.json()
+        credito = float(me.get('credit') or 0.0)
+        out['credito'] = round(credito, 4)
+        out['total_billed'] = round(float(me.get('total_billed') or 0.0), 2)
+
+        pods = requests.get(f'{base}/gpu_pods', headers=headers, timeout=(5, 15))
+        pods.raise_for_status()
+        pods = pods.json() or []
+
+        def _running(p):
+            st = (p.get('State') or p.get('intended_state') or '').lower()
+            return 'run' in st and not p.get('destroyed')
+
+        ativos = [p for p in pods if _running(p)]
+        burn_h = sum(float(p.get('hourly_cost') or p.get('pod_cost') or 0.0) for p in ativos)
+        gpus = sum(int(p.get('gpu_count') or 1) for p in ativos)
+        out['pods_ativos'] = len(ativos)
+        out['pods_total'] = len(pods)
+        out['gpus'] = gpus
+        out['burn_h'] = round(burn_h, 5)
+        # Runway em horas (crédito / burn). None se sem burn (nada rodando).
+        out['runway_h'] = round(credito / burn_h, 2) if burn_h > 0 else None
+        out['ok'] = True
+
+        # $/1k chunks: burn/h ÷ (chunks/h). Aproxima chunks/h por docs embedados/h
+        # (rate_1h do fleet) × ~fator chunks/doc. Sem fator confiável, expõe
+        # $/1k docs embedados (honesto) — o front rotula a fonte.
+        fleet = _safe_fleet()
+        docs_h = float((fleet or {}).get('rate_1h') or 0.0)
+        if burn_h > 0 and docs_h > 0:
+            out['usd_por_1k_docs'] = round((burn_h / docs_h) * 1000, 4)
+        else:
+            out['usd_por_1k_docs'] = None
+    except Exception as e:
+        logger.warning('_quickpod_custo: %s: %s', type(e).__name__, e)
+        out['motivo'] = f'{type(e).__name__}'
+    return out
+
+
+def _safe_fleet():
+    try:
+        return cache.get(VETOR_FLEET_CACHE_KEY)
+    except Exception:
+        return None
+
+
+def _append_hist(custo):
+    """Read-modify-write do ring de snapshots 24h. Só o scheduler escreve
+    (max_instances=1), então não há corrida. Cada ponto captura throughput
+    embed/extração/classif, fila e GPU util média — pros gráficos 24h.
+    """
+    fleet = _safe_fleet() or {}
+    now = int(time.time())
+    gpus = fleet.get('gpus') or []
+    utils = [g.get('util') for g in gpus if g.get('util') is not None]
+    gpu_util_avg = round(sum(utils) / len(utils), 1) if utils else None
+    pipe = fleet.get('pipelines') or {}
+    ponto = {
+        'ts': now,
+        'embed_h': fleet.get('rate_1h') or 0,           # docs embedados/h
+        'extr_h': (fleet.get('extracao') or {}).get('rate_h') or 0,
+        'clas_min': (pipe.get('classificacao') or {}).get('rate_min') or 0,
+        'fila': fleet.get('queue_len') or 0,
+        'gpu_util': gpu_util_avg,
+        'burn_h': (custo or {}).get('burn_h'),
+    }
+    try:
+        hist = cache.get(COMMAND_HIST_CACHE_KEY) or []
+        if not isinstance(hist, list):
+            hist = []
+    except Exception:
+        hist = []
+    hist.append(ponto)
+    corte = now - _COMMAND_HIST_WINDOW
+    hist = [p for p in hist if p.get('ts', 0) >= corte][-_COMMAND_HIST_MAX:]
+    try:
+        cache.set(COMMAND_HIST_CACHE_KEY, hist, timeout=_COMMAND_HIST_TTL)
+    except Exception as e:
+        logger.warning('_append_hist: cache.set falhou: %s', e)
+
+
+def warm_command_center():
+    """Warm INLINE do Command Center: custo QuickPod + ponto no ring 24h.
+
+    Roda no thread pool do scheduler (~60s). Leve (1-2 GETs HTTP + cache).
+    Nunca propaga exceção — degrade gracioso (mantém stale). Retorna o custo.
+    """
+    custo = _quickpod_custo()
+    try:
+        cache.set(COMMAND_CUSTO_CACHE_KEY, custo, timeout=_COMMAND_CUSTO_TTL)
+    except Exception as e:
+        logger.warning('warm_command_center: cache.set custo falhou: %s', e)
+    _append_hist(custo)
+    return custo
