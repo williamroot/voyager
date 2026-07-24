@@ -107,7 +107,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
         {% if custo.ok %}
           <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">${{ custo.credito|floatformat:2 }}</div>
           <div class="text-[0.7rem] mt-1 {% if sem.custo == 'crit' %}text-red-400{% elif sem.custo == 'warn' %}text-amber-400{% else %}text-fg-subtle{% endif %}">
-            {% if custo.runway_h != None %}~{{ custo.runway_h|floatformat:0 }}h de autonomia{% else %}sem burn (frota parada){% endif %}
+            {% if custo.runway_h != None %}~{{ custo.runway_h|floatformat:0 }}h de autonomia{% else %}cloud desligado · LAN grátis rodando{% endif %}
           </div>
         {% else %}
           <div class="text-xl font-semibold mt-1 kpi-num text-fg-subtle">—</div>
@@ -123,7 +123,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
           <div class="text-[0.7rem] text-fg-subtle mt-1">embedados · aprox.</div>
         {% else %}
           <div class="text-xl font-semibold mt-1 kpi-num text-fg-subtle">—</div>
-          <div class="text-[0.7rem] text-fg-subtle mt-1">sem throughput/burn</div>
+          <div class="text-[0.7rem] text-fg-subtle mt-1">sem pods cloud · LAN cobre</div>
         {% endif %}
       </div>
 
