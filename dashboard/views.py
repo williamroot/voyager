@@ -3209,6 +3209,12 @@ def _command_hist():
     return _safe_cache_get(COMMAND_HIST_CACHE_KEY) or []
 
 
+def _command_infra():
+    """Lê a infra (Prometheus Fase B) do cache; nunca bate o Prometheus no request."""
+    from .tasks import COMMAND_INFRA_CACHE_KEY
+    return _safe_cache_get(COMMAND_INFRA_CACHE_KEY)
+
+
 def _semaforo(valor, ok, atencao, inverso=False):
     """Mapeia um número a um estado de semáforo (verde/amber/vermelho).
 
@@ -3247,6 +3253,7 @@ def _command_context():
     fleet = _vetor_fleet_data()
     custo = _command_custo()
     hist = _command_hist()
+    infra = _command_infra()
 
     pipe = (fleet or {}).get('pipelines') or {}
     ex = (fleet or {}).get('extracao') or {}
@@ -3258,6 +3265,14 @@ def _command_context():
     embed_h = (fleet or {}).get('rate_1h') or 0
     runway_h = (custo or {}).get('runway_h') if custo else None
 
+    # Infra: cache-hit do índice HNSW é o leading indicator do disk-cliff.
+    # ≥99% verde · ≥90% (limiar do alerta HNSWCacheHitCaindo) atenção · <90% anomalia.
+    cache_hit = (infra or {}).get('cache_hit') if infra else None
+    if infra and infra.get('ok') and cache_hit is not None:
+        sem_infra = _semaforo(cache_hit, ok=0.99, atencao=0.90, inverso=False)
+    else:
+        sem_infra = 'idle'
+
     sem = {
         # Pipeline verde se está embedando e há workers ocupados.
         'pipeline': 'ok' if embed_h and busy else ('warn' if fleet else 'idle'),
@@ -3266,9 +3281,10 @@ def _command_context():
         # Custo: runway em horas. <6h crítico, <24h atenção, >=24h ok.
         'custo': _semaforo(runway_h, ok=24, atencao=6, inverso=False)
                  if runway_h is not None else ('idle' if not custo or not custo.get('ok') else 'ok'),
-        # Shells ainda sem dado real.
+        # Qualidade ainda é shell (Fase C).
         'qualidade': 'idle',
-        'infra': 'idle',
+        # Infra ligada (Fase B) — semáforo do cache-hit HNSW.
+        'infra': sem_infra,
     }
 
     return {
@@ -3278,6 +3294,7 @@ def _command_context():
         'extracao': ex,
         'custo': custo,
         'hist': hist,
+        'infra': infra,
         'sem': sem,
         'busy_total': busy,
         'workers_total': wtotal,
@@ -3312,6 +3329,7 @@ def command_data(request):
     return JsonResponse({
         'fleet': ctx['fleet'],
         'custo': ctx['custo'],
+        'infra': ctx['infra'],
         'hist': ctx['hist'],
         'semaforos': ctx['sem'],
     }, json_dumps_params={'ensure_ascii': False})

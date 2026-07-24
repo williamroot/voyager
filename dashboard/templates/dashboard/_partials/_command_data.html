@@ -301,19 +301,92 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
           {% voy_icon "calibrate" "w-4 h-4 text-fg-muted" %}
           <h2 class="text-sm font-semibold text-fg">Infra · vector store</h2>
         </div>
-        <span class="inline-flex items-center gap-1 rounded-full bg-fg-subtle/12 text-fg-subtle px-2 py-0.5 text-[0.6rem] font-medium uppercase tracking-wider">em breve</span>
+        {% if infra.ok %}
+          {% include 'dashboard/_partials/_command_semaforo.html' with s=sem.infra hint="Cache-hit do índice HNSW: >=99% verde · >=90% atenção · <90% anomalia. Leading indicator do disk-cliff." %}
+        {% else %}
+          <span class="inline-flex items-center gap-1 rounded-full bg-fg-subtle/12 text-fg-subtle px-2 py-0.5 text-[0.6rem] font-medium uppercase tracking-wider">indisponível</span>
+        {% endif %}
       </div>
-      <p class="text-xs text-fg-subtle mb-4">cache-hit HNSW · autovacuum · p95 busca · índice vs RAM — via Prometheus (<code class="text-fg-muted">postgres_exporter</code>).</p>
+      <p class="text-xs text-fg-subtle mb-4">cache-hit HNSW · índice vs shared_buffers · dead tuples · autovacuum · conexões — via Prometheus (<code class="text-fg-muted">postgres_exporter</code>).</p>
+
+      {% if infra.ok %}
       <div class="grid grid-cols-2 gap-3">
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="cache-hit HNSW" %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="p95 busca" %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="autovacuum" %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="índice/RAM" %}
+
+        {# cache-hit HNSW — o número que morde (leading indicator disk-cliff) #}
+        <div class="rounded-lg border p-3 {% if sem.infra == 'crit' %}border-red-400/40 bg-red-400/5{% elif sem.infra == 'warn' %}border-amber-400/40 bg-amber-400/5{% else %}border-border/60 bg-muted/20{% endif %}"
+             title="rate(hnsw_index_io_blks_hit[15m]) / (hit+read). Índice {{ infra.idx_gb|default:'?' }}GB > shared_buffers {{ infra.sb_gb|default:'?' }}GB — se o cache-hit cair, a busca vai pro DISCO (disk-cliff). Fonte: postgres_exporter (índice {{ infra.idx_name }}).">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">cache-hit HNSW</div>
+          {% if infra.cache_hit_pct != None %}
+            <div class="mt-1 text-2xl font-semibold kpi-num {% if sem.infra == 'crit' %}text-red-400{% elif sem.infra == 'warn' %}text-amber-400{% else %}text-accent-fg{% endif %}">{{ infra.cache_hit_pct|floatformat:1 }}<span class="text-fg-subtle text-sm">%</span></div>
+          {% else %}
+            <div class="mt-1 text-xl font-semibold kpi-num text-fg-subtle">—</div>
+          {% endif %}
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">buffer do índice</div>
+        </div>
+
+        {# índice vs shared_buffers #}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3"
+             title="Tamanho do índice HNSW ({{ infra.idx_name }}) vs shared_buffers do acervo DB. Razão >1 = índice maior que a RAM de buffer. Fonte: hnsw_index_io_size_bytes / db_shared_buffers_shared_buffers_bytes.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">índice / buffers</div>
+          <div class="mt-1 text-2xl font-semibold kpi-num {% if infra.idx_vs_sb and infra.idx_vs_sb > 1 %}text-amber-400{% else %}text-fg{% endif %}">{% if infra.idx_gb %}{{ infra.idx_gb|floatformat:0 }}<span class="text-fg-subtle text-sm">GB</span>{% else %}—{% endif %}</div>
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">buffers {{ infra.sb_gb|default:'?'|floatformat:0 }}GB{% if infra.idx_vs_sb %} · {{ infra.idx_vs_sb }}×{% endif %}</div>
+        </div>
+
+        {# dead tuples (bloat) acervo_chunk #}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3"
+             title="Tuplas mortas na acervo_chunk (bloat que o autovacuum limpa). Fonte: acervo_table_bloat_n_dead_tup{table_name=&quot;acervo_chunk&quot;}.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">dead tuples</div>
+          <div class="mt-1 text-2xl font-semibold kpi-num text-fg">{% if infra.dead_tup != None %}{{ infra.dead_tup|format_int }}{% else %}—{% endif %}</div>
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">acervo_chunk · bloat</div>
+        </div>
+
+        {# autovacuum ativo #}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3"
+             title="Autovacuum rodando na acervo_chunk (segundos). Composto com fila_write alta = vacuum estrangulando o writer (alerta FilaWriteRunawayComAutovacuum). Fonte: autovacuum_progress_running_seconds.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">autovacuum</div>
+          {% if infra.autovac_ativo %}
+            <div class="mt-1 text-2xl font-semibold kpi-num text-sky-400">ativo</div>
+            <div class="text-[0.6rem] text-fg-subtle mt-0.5">rodando há {{ infra.autovac_seg|format_eta }}</div>
+          {% else %}
+            <div class="mt-1 text-2xl font-semibold kpi-num text-fg-subtle">ocioso</div>
+            <div class="text-[0.6rem] text-fg-subtle mt-0.5">sem vacuum agora</div>
+          {% endif %}
+        </div>
+
+        {# conexões #}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3"
+             title="Conexões ativas no acervo DB · maior transação em aberto (s) · idle-in-transaction. Alerta DBSaturado: active>40 OU xact>90s OU idle>10. Fonte: connections_summary_*.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">conexões</div>
+          <div class="mt-1 text-2xl font-semibold kpi-num {% if infra.conns_active and infra.conns_active > 40 %}text-red-400{% else %}text-fg{% endif %}">{% if infra.conns_active != None %}{{ infra.conns_active }}{% else %}—{% endif %}<span class="text-fg-subtle text-sm"> ativas</span></div>
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">xact máx {% if infra.xact_max_seg != None %}{{ infra.xact_max_seg|floatformat:0 }}s{% else %}—{% endif %}{% if infra.idle_in_txn %} · {{ infra.idle_in_txn }} idle-tx{% endif %}</div>
+        </div>
+
+        {# p95 busca — PENDENTE (pg_stat_statements desligado) #}
+        <div class="rounded-lg border border-dashed border-border/60 bg-muted/10 p-3"
+             title="p95/p99 de busca vetorial exige pg_stat_statements no acervo DB (shared_preload_libraries + restart do Postgres = janela de prod). Ver .ia/OPS.md 'Métricas PENDENTES'.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">p95 busca</div>
+          <div class="mt-1 text-base font-medium text-fg-subtle">pendente</div>
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">precisa pg_stat_statements + restart DB</div>
+        </div>
+
       </div>
       <div class="mt-4 flex items-center gap-2 text-[0.65rem] text-fg-subtle">
         {% voy_icon "calibrate" "w-3.5 h-3.5" %}
-        Aguardando Fase B (Prometheus) — plano <code class="text-fg-muted">.ia/RAG_EVAL_OBS.md §6</code>.
+        Prometheus (Fase B) · <code class="text-fg-muted">.ia/OPS.md</code> Observability stack.
       </div>
+      {% else %}
+      {# Fail-soft: Prometheus inacessível — degrada gracioso, não quebra a página. #}
+      <div class="grid grid-cols-2 gap-3">
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="cache-hit HNSW" %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="índice/buffers" %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="dead tuples" %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="autovacuum" %}
+      </div>
+      <div class="mt-4 flex items-center gap-2 text-[0.65rem] text-fg-subtle">
+        {% voy_icon "signal-lost" "w-3.5 h-3.5 text-amber-400" %}
+        Prometheus indisponível{% if infra.motivo %} ({{ infra.motivo }}){% endif %} — cacheado no scheduler, recarrega em breve.
+      </div>
+      {% endif %}
     </div>
   </section>
 

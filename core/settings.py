@@ -341,6 +341,12 @@ ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
 # batida no request do browser. Sobrescreva a chave via .env em prod.
 QUICKPOD_API_URL = env('QUICKPOD_API_URL', default='https://api.quickpod.org/update/api')
 QUICKPOD_API_KEY = env('QUICKPOD_API_KEY', default='')  # credencial: só via .env (nunca hardcoded)
+
+# Prometheus (Observability stack — Fase B, ver .ia/OPS.md). Alimenta o bloco
+# INFRA do Command Center (cache-hit HNSW, índice vs shared_buffers, dead
+# tuples, autovacuum, conexões). Consultado só pelo scheduler
+# (warm_command_center), cacheado em Redis; nunca no request do browser.
+PROMETHEUS_URL = env('PROMETHEUS_URL', default='http://zordon:9490')
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'SAMEORIGIN'  # a tela de extração embute o HTML rico do Zordon num iframe same-origin

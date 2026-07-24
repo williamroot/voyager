@@ -364,6 +364,13 @@ _COMMAND_HIST_TTL = 172800   # 48h de folga
 _COMMAND_HIST_WINDOW = 86400  # janela exibida: 24h
 _COMMAND_HIST_MAX = 600       # teto de pontos (24h @ ~1 ponto/2,4min)
 
+# Infra / vector store (Prometheus da Fase B). Fonte + PromQL exatos em
+# .ia/OPS.md "Observability stack (Fase B)". Prometheus em zordon:9490.
+COMMAND_INFRA_CACHE_KEY = 'command:infra:v1'
+_COMMAND_INFRA_TTL = 600  # sobrevive a ~10 falhas do warm de 60s
+# O índice HNSW que morde é o halfvec (38GB > shared_buffers 24GB).
+_HNSW_IDX = 'chunk_emb_hnsw_half'
+
 
 def _quickpod_custo():
     """Consulta a API QuickPod: crédito + pods ativos → burn/h + runway.
@@ -461,10 +468,107 @@ def _append_hist(custo):
         logger.warning('_append_hist: cache.set falhou: %s', e)
 
 
-def warm_command_center():
-    """Warm INLINE do Command Center: custo QuickPod + ponto no ring 24h.
+def _prom_scalar(base, promql, timeout, selector=None):
+    """1 query instantânea no Prometheus → float | None (fail-soft).
 
-    Roda no thread pool do scheduler (~60s). Leve (1-2 GETs HTTP + cache).
+    selector: se dado, escolhe a série cujo metric bate os pares dados
+    (ex: {'index_name': 'chunk_emb_hnsw_half'}); senão pega a 1ª série.
+    Nunca lança — retorna None em qualquer erro/ausência.
+    """
+    try:
+        r = requests.get(f'{base}/api/v1/query', params={'query': promql}, timeout=timeout)
+        r.raise_for_status()
+        res = (r.json().get('data') or {}).get('result') or []
+        if not res:
+            return None
+        chosen = None
+        if selector:
+            for item in res:
+                m = item.get('metric') or {}
+                if all(m.get(k) == v for k, v in selector.items()):
+                    chosen = item
+                    break
+        else:
+            chosen = res[0]
+        if not chosen:
+            return None
+        val = chosen.get('value')  # [ts, "num"]
+        return float(val[1]) if val and val[1] not in (None, 'NaN') else None
+    except Exception:
+        return None
+
+
+def _prometheus_infra():
+    """Consulta o Prometheus (Fase B) pros números do bloco INFRA do Command
+    Center. Fonte + PromQL exatos em .ia/OPS.md "Observability stack (Fase B)".
+
+    Retorna dict (nunca lança). Fail-soft: se o Prometheus estiver inacessível
+    ou uma métrica faltar, os campos ficam None e a página degrada gracioso
+    (mostra '—' / último cache), igual o card de custo.
+
+    p95 de busca é PENDENTE (pg_stat_statements desligado no acervo DB — exige
+    janela de restart do Postgres, ver OPS.md); expõe pendente=True.
+    """
+    base = getattr(settings, 'PROMETHEUS_URL', 'http://zordon:9490').rstrip('/')
+    if not base:
+        return {'ok': False, 'motivo': 'sem_prometheus_url'}
+    to = (4, 12)
+    idx_sel = {'index_name': _HNSW_IDX}
+    out = {'ok': False, 'ts': int(time.time()), 'idx_name': _HNSW_IDX,
+           'p95_pendente': True}
+    try:
+        # 1 · cache-hit ratio do índice HNSW (leading indicator do disk-cliff).
+        cache_hit = _prom_scalar(base,
+            'rate(hnsw_index_io_blks_hit[15m]) / clamp_min(rate(hnsw_index_io_blks_hit[15m]) '
+            '+ rate(hnsw_index_io_blks_read[15m]), 1)', to, selector=idx_sel)
+        # 2 · tamanho do índice HNSW vs shared_buffers.
+        idx_bytes = _prom_scalar(base, 'hnsw_index_io_size_bytes', to, selector=idx_sel)
+        sb_bytes = _prom_scalar(base, 'db_shared_buffers_shared_buffers_bytes', to)
+        # 3 · dead tuples (bloat) da acervo_chunk.
+        dead_tup = _prom_scalar(base,
+            'acervo_table_bloat_n_dead_tup{table_name="acervo_chunk"}', to)
+        # 4 · autovacuum ativo (segundos rodando; >0 = ativo).
+        autovac_s = _prom_scalar(base, 'autovacuum_progress_running_seconds', to)
+        # 5 · conexões / xact longa.
+        conns_active = _prom_scalar(base, 'connections_summary_active', to)
+        xact_max_s = _prom_scalar(base, 'connections_summary_max_xact_seconds', to)
+        idle_in_txn = _prom_scalar(base, 'connections_summary_idle_in_txn', to)
+
+        # Sinal de que o Prometheus respondeu (mesmo que alguma métrica falte):
+        # considera OK se pelo menos o cache-hit OU o tamanho do índice vieram.
+        if cache_hit is None and idx_bytes is None:
+            out['motivo'] = 'sem_dados'
+            return out
+
+        out['cache_hit'] = round(cache_hit, 4) if cache_hit is not None else None
+        out['cache_hit_pct'] = round(cache_hit * 100, 1) if cache_hit is not None else None
+        out['idx_bytes'] = int(idx_bytes) if idx_bytes is not None else None
+        out['sb_bytes'] = int(sb_bytes) if sb_bytes is not None else None
+        if idx_bytes:
+            out['idx_gb'] = round(idx_bytes / 1e9, 1)
+        if sb_bytes:
+            out['sb_gb'] = round(sb_bytes / 1e9, 1)
+        # Razão índice/shared_buffers (>1 = índice maior que a RAM de buffer).
+        if idx_bytes and sb_bytes:
+            out['idx_vs_sb'] = round(idx_bytes / sb_bytes, 2)
+        out['dead_tup'] = int(dead_tup) if dead_tup is not None else None
+        out['autovac_seg'] = round(autovac_s, 0) if autovac_s is not None else None
+        out['autovac_ativo'] = bool(autovac_s and autovac_s > 0)
+        out['conns_active'] = int(conns_active) if conns_active is not None else None
+        out['xact_max_seg'] = round(xact_max_s, 0) if xact_max_s is not None else None
+        out['idle_in_txn'] = int(idle_in_txn) if idle_in_txn is not None else None
+        out['ok'] = True
+    except Exception as e:
+        logger.warning('_prometheus_infra: %s: %s', type(e).__name__, e)
+        out['motivo'] = f'{type(e).__name__}'
+    return out
+
+
+def warm_command_center():
+    """Warm INLINE do Command Center: custo QuickPod + infra (Prometheus) +
+    ponto no ring 24h.
+
+    Roda no thread pool do scheduler (~60s). Leve (poucos GETs HTTP + cache).
     Nunca propaga exceção — degrade gracioso (mantém stale). Retorna o custo.
     """
     custo = _quickpod_custo()
@@ -472,5 +576,15 @@ def warm_command_center():
         cache.set(COMMAND_CUSTO_CACHE_KEY, custo, timeout=_COMMAND_CUSTO_TTL)
     except Exception as e:
         logger.warning('warm_command_center: cache.set custo falhou: %s', e)
+
+    # Infra (Prometheus Fase B). Só sobrescreve o cache se veio algo útil —
+    # senão preserva o último valor bom (fail-soft, não zera a página).
+    infra = _prometheus_infra()
+    if infra.get('ok'):
+        try:
+            cache.set(COMMAND_INFRA_CACHE_KEY, infra, timeout=_COMMAND_INFRA_TTL)
+        except Exception as e:
+            logger.warning('warm_command_center: cache.set infra falhou: %s', e)
+
     _append_hist(custo)
     return custo
