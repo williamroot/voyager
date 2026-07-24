@@ -371,6 +371,11 @@ _COMMAND_INFRA_TTL = 600  # sobrevive a ~10 falhas do warm de 60s
 # O índice HNSW que morde é o halfvec (38GB > shared_buffers 24GB).
 _HNSW_IDX = 'chunk_emb_hnsw_half'
 
+# Qualidade RAG (régua de avaliação da Fase C). Proxy pro Zordon
+# /api/eval/summary (recall@k, citation acc, decomposição erro, p50/p95).
+COMMAND_QUALIDADE_CACHE_KEY = 'command:qualidade:v1'
+_COMMAND_QUALIDADE_TTL = 900  # a régua roda em batch — cache mais longo tolerável
+
 
 def _quickpod_custo():
     """Consulta a API QuickPod: crédito + pods ativos → burn/h + runway.
@@ -564,9 +569,135 @@ def _prometheus_infra():
     return out
 
 
+def _q_first(d, *keys):
+    """Primeiro valor não-None entre chaves candidatas de um dict (tolerante a
+    variações de naming do payload da régua)."""
+    for k in keys:
+        if isinstance(d, dict) and d.get(k) is not None:
+            return d.get(k)
+    return None
+
+
+def _q_pct(v):
+    """Normaliza fração/porcentagem → porcentagem (0-100). 0.952 → 95.2; 95.2 → 95.2."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f <= 1.0:  # veio como fração
+        f *= 100.0
+    return round(f, 1)
+
+
+def _zordon_qualidade():
+    """Consome o /api/eval/summary do Zordon (régua da Fase C) e normaliza os
+    números do bloco QUALIDADE do Command Center.
+
+    Proxy interno (mesmo host do fleet). Fail-soft: se o endpoint cair/404 ou o
+    payload faltar, retorna ok=False (o warm preserva o último cache bom e a
+    página degrada gracioso — mantém o shell com os tooltips de negócio).
+
+    Tolerante ao naming: aceita recall@8 como 'recall@8'/'recall_at_8'/aninhado
+    em 'recall'{...}; erro retrieval-vs-LLM como split absoluto ou fração.
+    """
+    base = getattr(settings, 'ZORDON_URL', '').rstrip('/')
+    if not base:
+        return {'ok': False, 'motivo': 'sem_zordon_url'}
+    out = {'ok': False, 'ts': int(time.time())}
+    try:
+        r = requests.get(
+            f'{base}/api/eval/summary',
+            timeout=(5, 20),
+            headers={'User-Agent': 'voyager-dashboard/command-qualidade'},
+        )
+        # 404 = endpoint da Fase C ainda não deployado nesse Zordon → fail-soft.
+        if r.status_code == 404:
+            out['motivo'] = 'endpoint_404'
+            return out
+        r.raise_for_status()
+        d = r.json()
+        if not isinstance(d, dict):
+            out['motivo'] = 'payload_invalido'
+            return out
+
+        # A régua pode aninhar as métricas do último run em 'metricas'/'metrics'/
+        # 'last'/'summary' — ou expô-las no topo. Achata pra um dict único.
+        m = {}
+        for container in (d, d.get('metricas'), d.get('metrics'),
+                          d.get('last'), d.get('summary'), d.get('last_run')):
+            if isinstance(container, dict):
+                m = {**m, **container}
+
+        recall8 = _q_pct(_q_first(m, 'recall@8', 'recall_at_8', 'recall8'))
+        recall4 = _q_pct(_q_first(m, 'recall@4', 'recall_at_4', 'recall4'))
+        recall1 = _q_pct(_q_first(m, 'recall@1', 'recall_at_1', 'recall1'))
+        # recall aninhado: {'recall': {'1':.., '4':.., '8':..}}
+        rnest = m.get('recall')
+        if isinstance(rnest, dict):
+            recall8 = recall8 if recall8 is not None else _q_pct(_q_first(rnest, '8', 'k8', 'at_8'))
+            recall4 = recall4 if recall4 is not None else _q_pct(_q_first(rnest, '4', 'k4', 'at_4'))
+            recall1 = recall1 if recall1 is not None else _q_pct(_q_first(rnest, '1', 'k1', 'at_1'))
+
+        citation = _q_pct(_q_first(m, 'citation_accuracy', 'citation_acc',
+                                   'cit_acc', 'citation'))
+
+        # Decomposição do erro (retrieval vs LLM). Aceita split absoluto (contagens)
+        # ou já em fração/percent. Normaliza pra % que somam ~100.
+        err_llm = _q_first(m, 'err_llm', 'error_llm', 'erro_llm', 'llm_error')
+        err_ret = _q_first(m, 'err_retrieval', 'error_retrieval', 'erro_retrieval',
+                           'retrieval_error')
+        enest = m.get('error_decomposition') or m.get('erro') or m.get('attribution')
+        if isinstance(enest, dict):
+            err_llm = err_llm if err_llm is not None else _q_first(enest, 'llm', 'err_llm')
+            err_ret = err_ret if err_ret is not None else _q_first(enest, 'retrieval', 'err_retrieval')
+        err_llm_pct = err_ret_pct = None
+        try:
+            if err_llm is not None and err_ret is not None:
+                a, b = float(err_llm), float(err_ret)
+                tot = a + b
+                if tot > 0:
+                    err_llm_pct = round(a / tot * 100, 1)
+                    err_ret_pct = round(b / tot * 100, 1)
+        except (TypeError, ValueError):
+            pass
+
+        p95 = _q_first(m, 'p95', 'latency_p95', 'p95_ms', 'retrieval_p95_ms')
+        p50 = _q_first(m, 'p50', 'latency_p50', 'p50_ms', 'retrieval_p50_ms')
+        try:
+            p95 = round(float(p95), 1) if p95 is not None else None
+            p50 = round(float(p50), 1) if p50 is not None else None
+        except (TypeError, ValueError):
+            p95 = p50 = None
+
+        n_cnjs = _q_first(m, 'n_cnjs', 'n', 'n_queries', 'dataset_size')
+        versao = _q_first(d, 'versao_git', 'version', 'versao', 'git') or _q_first(m, 'versao_git')
+        ran_at = _q_first(d, 'ts', 'ran_at', 'timestamp', 'created_at') or _q_first(m, 'ts')
+
+        # Sem NENHUM número-âncora → trata como indisponível (não mostra bloco vazio).
+        if recall8 is None and citation is None and err_llm_pct is None:
+            out['motivo'] = 'sem_metricas'
+            return out
+
+        out.update({
+            'ok': True,
+            'recall1': recall1, 'recall4': recall4, 'recall8': recall8,
+            'citation': citation,
+            'err_llm_pct': err_llm_pct, 'err_ret_pct': err_ret_pct,
+            'p95': p95, 'p50': p50,
+            'n_cnjs': int(n_cnjs) if isinstance(n_cnjs, (int, float)) else None,
+            'versao': versao, 'ran_at': ran_at,
+        })
+    except Exception as e:
+        logger.warning('_zordon_qualidade: %s: %s', type(e).__name__, e)
+        out['motivo'] = f'{type(e).__name__}'
+    return out
+
+
 def warm_command_center():
     """Warm INLINE do Command Center: custo QuickPod + infra (Prometheus) +
-    ponto no ring 24h.
+    qualidade (régua Zordon) + ponto no ring 24h.
 
     Roda no thread pool do scheduler (~60s). Leve (poucos GETs HTTP + cache).
     Nunca propaga exceção — degrade gracioso (mantém stale). Retorna o custo.
@@ -585,6 +716,15 @@ def warm_command_center():
             cache.set(COMMAND_INFRA_CACHE_KEY, infra, timeout=_COMMAND_INFRA_TTL)
         except Exception as e:
             logger.warning('warm_command_center: cache.set infra falhou: %s', e)
+
+    # Qualidade (régua Fase C, /api/eval/summary do Zordon). Mesmo padrão:
+    # só sobrescreve com dado bom, senão mantém o último cache (fail-soft).
+    qualidade = _zordon_qualidade()
+    if qualidade.get('ok'):
+        try:
+            cache.set(COMMAND_QUALIDADE_CACHE_KEY, qualidade, timeout=_COMMAND_QUALIDADE_TTL)
+        except Exception as e:
+            logger.warning('warm_command_center: cache.set qualidade falhou: %s', e)
 
     _append_hist(custo)
     return custo

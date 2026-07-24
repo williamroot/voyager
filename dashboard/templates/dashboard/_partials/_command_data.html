@@ -277,19 +277,81 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
           {% voy_icon "target" "w-4 h-4 text-sky-400" %}
           <h2 class="text-sm font-semibold text-fg">Qualidade RAG</h2>
         </div>
-        <span class="inline-flex items-center gap-1 rounded-full bg-sky-400/12 text-sky-400 px-2 py-0.5 text-[0.6rem] font-medium uppercase tracking-wider">em breve</span>
+        {% if qualidade.ok %}
+          {% include 'dashboard/_partials/_command_semaforo.html' with s=sem.qualidade hint="Recall@8 (régua-raiz): >=90% verde · >=80% atenção · <80% anomalia. Gate real de deploy é por DELTA vs baseline; aqui o absoluto serve pro semáforo visual." %}
+        {% else %}
+          <span class="inline-flex items-center gap-1 rounded-full bg-sky-400/12 text-sky-400 px-2 py-0.5 text-[0.6rem] font-medium uppercase tracking-wider">em breve</span>
+        {% endif %}
       </div>
-      <p class="text-xs text-fg-subtle mb-4">recall@k · citation accuracy · erro retrieval vs LLM · 👍👎 — da régua de avaliação triangulada (Zordon <code class="text-fg-muted">/api/eval/summary</code>).</p>
+      <p class="text-xs text-fg-subtle mb-4">recall@k · citation accuracy · erro retrieval vs LLM · latência — da régua de avaliação triangulada (Zordon <code class="text-fg-muted">/api/eval/summary</code>).</p>
+
+      {% if qualidade.ok %}
       <div class="grid grid-cols-2 gap-3">
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="recall@8" hint="Técnico: % de vezes que o top-k da busca contém o chunk-verdade (cnj-filtered). · Negócio: se cai, a extração/dossiê erra por NÃO ACHAR a info nos autos — mesmo com LLM perfeito. É a régua-raiz da qualidade." %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="citation acc" hint="Técnico: % das citações [N]/CNJ geradas que existem de fato nos trechos (verificação determinística). · Negócio: anti-alucinação — citação inventada em peça/dossiê jurídico é inaceitável. Crítico." %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="erro retrieval" hint="Técnico: decomposição do erro — chunk-verdade estava no contexto e o modelo errou (erro-LLM) vs não estava (erro-retrieval). · Negócio: diz ONDE investir — melhorar a busca ou o modelo. O número de maior valor." %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="thumbs 👍👎" hint="Técnico: feedback humano 👍👎 no chat/dossiê (Postgres). · Negócio: ground-truth de graça do usuário real — sinal direto de qualidade percebida, sem custo de anotação." %}
+
+        {# recall@8 — a régua-raiz #}
+        <div class="rounded-lg border p-3 cursor-help {% if sem.qualidade == 'crit' %}border-red-400/40 bg-red-400/5{% elif sem.qualidade == 'warn' %}border-amber-400/40 bg-amber-400/5{% else %}border-border/60 bg-muted/20{% endif %}"
+             title="Técnico: % de vezes que o top-8 da busca contém o chunk-verdade (cnj-filtered), sobre {{ qualidade.n_cnjs|default:'?' }} CNJs. · Negócio: se cai, a extração/dossiê erra por NÃO ACHAR a info nos autos — mesmo com LLM perfeito. É a régua-raiz da qualidade.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">recall@8</div>
+          {% if qualidade.recall8 != None %}
+            <div class="mt-1 text-2xl font-semibold kpi-num {% if sem.qualidade == 'crit' %}text-red-400{% elif sem.qualidade == 'warn' %}text-amber-400{% else %}text-sky-400{% endif %}">{{ qualidade.recall8|floatformat:1 }}<span class="text-fg-subtle text-sm">%</span></div>
+          {% else %}
+            <div class="mt-1 text-xl font-semibold kpi-num text-fg-subtle">—</div>
+          {% endif %}
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">{% if qualidade.recall1 != None %}@1 {{ qualidade.recall1|floatformat:0 }}% · {% endif %}{% if qualidade.recall4 != None %}@4 {{ qualidade.recall4|floatformat:0 }}%{% endif %}</div>
+        </div>
+
+        {# citation accuracy #}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: % das citações [N]/CNJ geradas que existem de fato nos trechos (verificação determinística). · Negócio: anti-alucinação — citação inventada em peça/dossiê jurídico é inaceitável. Crítico.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">citation acc</div>
+          <div class="mt-1 text-2xl font-semibold kpi-num {% if qualidade.citation != None and qualidade.citation < 98 %}text-amber-400{% else %}text-fg{% endif %}">{% if qualidade.citation != None %}{{ qualidade.citation|floatformat:1 }}<span class="text-fg-subtle text-sm">%</span>{% else %}—{% endif %}</div>
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">citações válidas</div>
+        </div>
+
+        {# erro retrieval-vs-LLM (split) #}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: decomposição do erro — chunk-verdade estava no contexto e o modelo extraiu errado (erro-LLM) vs não estava (erro-retrieval). · Negócio: erro do LLM = a busca ACHOU, o modelo errou → investir no prompt/DSPy, NÃO na busca. Diz onde está o gargalo.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">erro: LLM vs busca</div>
+          {% if qualidade.err_llm_pct != None %}
+            <div class="mt-1 text-2xl font-semibold kpi-num text-fg">{{ qualidade.err_llm_pct|floatformat:0 }}<span class="text-fg-subtle text-sm">% LLM</span></div>
+            {# barra split: LLM (laranja) vs retrieval (azul) #}
+            <div class="mt-1.5 flex h-2 rounded-full overflow-hidden bg-muted/40">
+              <div class="h-full" style="width: {{ qualidade.err_llm_pct }}%; background: rgb(var(--c-mission));" title="erro-LLM {{ qualidade.err_llm_pct }}%"></div>
+              <div class="h-full" style="width: {{ qualidade.err_ret_pct }}%; background: rgb(var(--c-info));" title="erro-retrieval {{ qualidade.err_ret_pct }}%"></div>
+            </div>
+            <div class="text-[0.6rem] text-fg-subtle mt-0.5">{{ qualidade.err_ret_pct|floatformat:0 }}% busca · investir no {% if qualidade.err_llm_pct >= qualidade.err_ret_pct %}prompt/LLM{% else %}retrieval{% endif %}</div>
+          {% else %}
+            <div class="mt-1 text-xl font-semibold kpi-num text-fg-subtle">—</div>
+            <div class="text-[0.6rem] text-fg-subtle mt-0.5">sem decomposição</div>
+          {% endif %}
+        </div>
+
+        {# latência p95 do retrieval #}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: p95 (e p50) de latência do retrieval na régua. · Negócio: é o tempo que o usuário SENTE ao buscar no chat/dossiê — sobe = experiência pior.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">latência p95</div>
+          <div class="mt-1 text-2xl font-semibold kpi-num text-fg">{% if qualidade.p95 != None %}{{ qualidade.p95|floatformat:0 }}<span class="text-fg-subtle text-sm">ms</span>{% else %}—{% endif %}</div>
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">{% if qualidade.p50 != None %}p50 {{ qualidade.p50|floatformat:0 }}ms{% else %}retrieval{% endif %}</div>
+        </div>
+
       </div>
       <div class="mt-4 flex items-center gap-2 text-[0.65rem] text-fg-subtle">
         {% voy_icon "calibrate" "w-3.5 h-3.5" %}
-        Aguardando Fase C (régua de avaliação) — plano <code class="text-fg-muted">.ia/RAG_EVAL_OBS.md §4</code>.
+        Régua (Fase C) · Zordon <code class="text-fg-muted">/api/eval/summary</code>{% if qualidade.versao %} · {{ qualidade.versao|slice:":10" }}{% endif %}{% if qualidade.n_cnjs %} · {{ qualidade.n_cnjs|format_int }} CNJs{% endif %}.
       </div>
+      {% else %}
+      {# Fail-soft: endpoint da régua ainda 404/indisponível — mantém o shell com os tooltips de negócio prontos. #}
+      <div class="grid grid-cols-2 gap-3">
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="recall@8" hint="Técnico: % de vezes que o top-k da busca contém o chunk-verdade (cnj-filtered). · Negócio: se cai, a extração/dossiê erra por NÃO ACHAR a info nos autos — mesmo com LLM perfeito. É a régua-raiz da qualidade." %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="citation acc" hint="Técnico: % das citações [N]/CNJ geradas que existem de fato nos trechos (verificação determinística). · Negócio: anti-alucinação — citação inventada em peça/dossiê jurídico é inaceitável. Crítico." %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="erro retrieval" hint="Técnico: decomposição do erro — chunk-verdade estava no contexto e o modelo errou (erro-LLM) vs não estava (erro-retrieval). · Negócio: erro do LLM = a busca achou, o modelo errou → investir no prompt/DSPy, não na busca." %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="latência p95" hint="Técnico: p95 de latência do retrieval na régua. · Negócio: é o tempo que o usuário sente ao buscar no chat/dossiê." %}
+      </div>
+      <div class="mt-4 flex items-center gap-2 text-[0.65rem] text-fg-subtle">
+        {% voy_icon "calibrate" "w-3.5 h-3.5" %}
+        Aguardando a régua (Fase C){% if qualidade.motivo %} · {{ qualidade.motivo }}{% endif %} — Zordon <code class="text-fg-muted">/api/eval/summary</code> ainda indisponível.
+      </div>
+      {% endif %}
     </div>
 
     {# ========================================================= #}

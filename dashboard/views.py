@@ -3215,6 +3215,12 @@ def _command_infra():
     return _safe_cache_get(COMMAND_INFRA_CACHE_KEY)
 
 
+def _command_qualidade():
+    """Lê a qualidade (régua Fase C) do cache; nunca bate o Zordon no request."""
+    from .tasks import COMMAND_QUALIDADE_CACHE_KEY
+    return _safe_cache_get(COMMAND_QUALIDADE_CACHE_KEY)
+
+
 def _semaforo(valor, ok, atencao, inverso=False):
     """Mapeia um número a um estado de semáforo (verde/amber/vermelho).
 
@@ -3254,6 +3260,7 @@ def _command_context():
     custo = _command_custo()
     hist = _command_hist()
     infra = _command_infra()
+    qualidade = _command_qualidade()
 
     pipe = (fleet or {}).get('pipelines') or {}
     ex = (fleet or {}).get('extracao') or {}
@@ -3273,6 +3280,14 @@ def _command_context():
     else:
         sem_infra = 'idle'
 
+    # Qualidade: recall@8 é a régua-raiz. ≥90% verde · ≥80% atenção · <80% anomalia
+    # (delta-gate no CI; pro semáforo visual serve o absoluto). % (0-100).
+    recall8 = (qualidade or {}).get('recall8') if qualidade else None
+    if qualidade and qualidade.get('ok') and recall8 is not None:
+        sem_qual = _semaforo(recall8, ok=90, atencao=80, inverso=False)
+    else:
+        sem_qual = 'idle'
+
     sem = {
         # Pipeline verde se está embedando e há workers ocupados.
         'pipeline': 'ok' if embed_h and busy else ('warn' if fleet else 'idle'),
@@ -3281,8 +3296,8 @@ def _command_context():
         # Custo: runway em horas. <6h crítico, <24h atenção, >=24h ok.
         'custo': _semaforo(runway_h, ok=24, atencao=6, inverso=False)
                  if runway_h is not None else ('idle' if not custo or not custo.get('ok') else 'ok'),
-        # Qualidade ainda é shell (Fase C).
-        'qualidade': 'idle',
+        # Qualidade ligada (Fase C) — semáforo do recall@8.
+        'qualidade': sem_qual,
         # Infra ligada (Fase B) — semáforo do cache-hit HNSW.
         'infra': sem_infra,
     }
@@ -3295,6 +3310,7 @@ def _command_context():
         'custo': custo,
         'hist': hist,
         'infra': infra,
+        'qualidade': qualidade,
         'sem': sem,
         'busy_total': busy,
         'workers_total': wtotal,
@@ -3330,6 +3346,7 @@ def command_data(request):
         'fleet': ctx['fleet'],
         'custo': ctx['custo'],
         'infra': ctx['infra'],
+        'qualidade': ctx['qualidade'],
         'hist': ctx['hist'],
         'semaforos': ctx['sem'],
     }, json_dumps_params={'ensure_ascii': False})
