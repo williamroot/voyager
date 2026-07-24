@@ -116,6 +116,18 @@ def analisar_vetorizados(request):
 
 
 @login_required
+def analisar_facets(request):
+    """Facets p/ popular os dropdowns da tela /analisar (tribunais, anos, naturezas
+    distintos entre os vetorizados). Cacheado no Zordon (django cache, TTL 10min)."""
+    try:
+        r = requests.get(f"{_base()}/api/analisar/facets", params=request.GET.dict(), timeout=30)
+    except requests.RequestException:
+        return HttpResponse('{"tribunais":[],"anos":[],"naturezas":[]}',
+                            status=200, content_type="application/json")
+    return _resp(r, "application/json")
+
+
+@login_required
 def status(request, job_id):
     """Tela de resultado/timeline COM chrome (topo+sidebar): base.html + um iframe
     same-origin que carrega a página rica do Zordon (`/extrair/<id>/raw`). O iframe

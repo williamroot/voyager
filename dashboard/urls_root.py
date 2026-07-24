@@ -10,6 +10,7 @@ urlpatterns = [
     path('analises', extrair_proxy.analises, name='analises'),
     path('api/analises', extrair_proxy.analises_api, name='analises-api'),
     path('api/analisar/vetorizados', extrair_proxy.analisar_vetorizados, name='analisar-vetorizados'),
+    path('api/analisar/facets', extrair_proxy.analisar_facets, name='analisar-facets'),
     path('api/extrair/modelos', extrair_proxy.api_modelos, name='extrair-modelos'),
     path('extrair/<uuid:job_id>', extrair_proxy.status, name='extrair-status'),
     path('extrair/<uuid:job_id>/raw', extrair_proxy.status_raw, name='extrair-status-raw'),
