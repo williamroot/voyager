@@ -340,10 +340,7 @@ ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
 # Consultada só pelo scheduler (warm_command_center), cacheada em Redis; nunca
 # batida no request do browser. Sobrescreva a chave via .env em prod.
 QUICKPOD_API_URL = env('QUICKPOD_API_URL', default='https://api.quickpod.org/update/api')
-QUICKPOD_API_KEY = env(
-    'QUICKPOD_API_KEY',
-    default='qpk_a65f5aef03d5b9dc.q4Vbjbc6mdixcCC_M6QnrAvumXn4kDUhLB2UAmEuwpg',
-)
+QUICKPOD_API_KEY = env('QUICKPOD_API_KEY', default='')  # credencial: só via .env (nunca hardcoded)
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'SAMEORIGIN'  # a tela de extração embute o HTML rico do Zordon num iframe same-origin
