@@ -43,9 +43,9 @@ USE_L10N mete vírgula decimal e quebra o parse do Alpine).
        consistência total entre as 3. Cores estáveis: vetor=accent/emerald,
        classif=info/sky, extração=mission/orange.{% endcomment %}
 
-    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.vetorizacao icon="probe" titulo="Vetorização" legenda="autos embedados no acervo" slug="vet" rgb="16,185,129" accent="text-accent-fg" %}
-    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.classificacao icon="scale" titulo="Classificação" legenda="documentos com doc_classe" slug="clas" rgb="56,189,248" accent="text-sky-400" %}
-    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.extracao icon="dossier" titulo="Extração" legenda="metadados extraídos dos autos" slug="ext" rgb="255,140,66" accent="text-mission" %}
+    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.vetorizacao icon="probe" titulo="Vetorização" legenda="autos embedados no acervo" slug="vet" rgb="16,185,129" accent="text-accent-fg" negocio="Transforma os autos (PDFs) em vetores pesquisáveis — a BASE de tudo: sem isso não há busca (RAG), extração, dossiê nem jurimetria. 'com autos' = universo de processos cujos autos já foram baixados (o que dá pra analisar)." %}
+    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.classificacao icon="scale" titulo="Classificação" legenda="documentos com doc_classe" slug="clas" rgb="56,189,248" accent="text-sky-400" negocio="Rotula cada documento (ofício/procuração/certidão…) → roteia a extração pro doc certo (precisão) E vira feature de estágio do processo (direito creditório → pré-precatório → precatório)." %}
+    {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.extracao icon="dossier" titulo="Extração" legenda="metadados extraídos dos autos" slug="ext" rgb="255,140,66" accent="text-mission" negocio="Extrai valor, natureza, ente devedor, partes, datas e desfecho dos autos → alimenta os modelos de jurimetria (sobrevivência/precatório) e o classificador de leads. É o que vira INTELIGÊNCIA de negócio." %}
 
   </section>
   {% endif %}
@@ -208,35 +208,35 @@ USE_L10N mete vírgula decimal e quebra o parse do Alpine).
       <h2 class="text-xs font-semibold uppercase tracking-[0.15em] text-fg-muted">Throughput ao vivo</h2>
     </div>
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-      <div class="card-tight">
+      <div class="card-tight cursor-help" title="Técnico: workers da fila 'vetorizar' ocupados / conectados. · Negócio: capacidade viva da frota tornando autos pesquisáveis — se poucos ocupados com fila alta, a frota está subutilizada ou travada.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Workers ativos</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">
           {{ fleet.busy_total|default:0 }}<span class="text-fg-subtle text-lg">/{{ fleet.workers_total|default:0 }}</span>
         </div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">ocupados / conectados</div>
       </div>
-      <div class="card-tight">
+      <div class="card-tight cursor-help" title="Técnico: CNJs aguardando na fila 'vetorizar' (Redis/django_rq). · Negócio: autos aguardando persistência; se empilha, o embed está mais rápido que o DB consegue gravar (gargalo = writer/DB).">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Fila</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.queue_len|default:0|format_int }}</div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">CNJs aguardando</div>
       </div>
-      <div class="card-tight">
+      <div class="card-tight cursor-help" title="Técnico: Processo(vetorizado=True). · Negócio: total de processos já pesquisáveis (RAG/dossiê/extração) — a base analisável acumulada do acervo.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Acervo total</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.acervo_total|default:0|format_int }}</div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">processos vetorizados</div>
       </div>
-      <div class="card-tight">
+      <div class="card-tight cursor-help" title="Técnico: processos vetorizados/min nos últimos 10 min (snapshot Redis). · Negócio: ritmo de entrada de processos novos na base analisável — quanto do acervo vira pesquisável por minuto.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Velocidade</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-accent-fg">{{ fleet.rate_10min|default:0 }}<span class="text-fg-subtle text-base">/min</span></div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">proc. vetorizados · 10 min</div>
       </div>
-      <div class="card-tight">
+      <div class="card-tight cursor-help" title="Técnico: docs 'ready' embedados na última hora (acervo_documento). · Negócio: velocidade de tornar autos pesquisáveis — o throughput real da BASE de tudo (RAG/extração/jurimetria). Gargalo típico = writer/DB.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Throughput</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ fleet.rate_1h|default:0|format_int }}<span class="text-fg-subtle text-base">/h</span></div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">docs embedados · última hora</div>
       </div>
       {% with ex=fleet.extracao %}
-      <div class="card-tight">
+      <div class="card-tight cursor-help" title="Técnico: metadados extraídos na última hora (acervo_metadadoextraido). · Negócio: velocidade de gerar valor/natureza/ente/partes/desfecho — o que vira lead e alimenta a jurimetria (sobrevivência/precatório).">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Extração</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-mission">{{ ex.rate_h|default:0|format_int }}<span class="text-fg-subtle text-base">/h</span></div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">metadados · última hora</div>

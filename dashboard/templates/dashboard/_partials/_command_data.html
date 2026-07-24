@@ -42,15 +42,15 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
         {% voy_icon "radar" "w-4 h-4 text-fg-muted" %}
-        <h2 class="text-xs font-semibold uppercase tracking-[0.15em] text-fg-muted">Esteiras · % do universo com autos</h2>
+        <h2 class="text-xs font-semibold uppercase tracking-[0.15em] text-fg-muted cursor-help" title="As 3 esteiras medem o quanto do trabalho TOTAL foi feito contra o MESMO universo de processos COM AUTOS (autos já baixados = o que dá pra analisar). Vetorização é a base; classificação e extração operam sobre o que ela já produziu.">Esteiras · % do universo com autos</h2>
       </div>
       {% include 'dashboard/_partials/_command_semaforo.html' with s=sem.pipeline hint="Verde quando há embedding ativo (docs/h > 0) e workers ocupados." %}
     </div>
     {% if pipe %}
     <div class="grid gap-5 lg:grid-cols-3">
-      {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.vetorizacao icon="probe" titulo="Vetorização" legenda="autos embedados no acervo" slug="vet" rgb="16,185,129" accent="text-accent-fg" %}
-      {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.classificacao icon="scale" titulo="Classificação" legenda="documentos com doc_classe" slug="clas" rgb="56,189,248" accent="text-sky-400" %}
-      {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.extracao icon="dossier" titulo="Extração" legenda="metadados extraídos dos autos" slug="ext" rgb="255,140,66" accent="text-mission" %}
+      {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.vetorizacao icon="probe" titulo="Vetorização" legenda="autos embedados no acervo" slug="vet" rgb="16,185,129" accent="text-accent-fg" negocio="Transforma os autos (PDFs) em vetores pesquisáveis — a BASE de tudo: sem isso não há busca (RAG), extração, dossiê nem jurimetria. 'com autos' = universo de processos cujos autos já foram baixados (o que dá pra analisar)." %}
+      {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.classificacao icon="scale" titulo="Classificação" legenda="documentos com doc_classe" slug="clas" rgb="56,189,248" accent="text-sky-400" negocio="Rotula cada documento (ofício/procuração/certidão…) → roteia a extração pro doc certo (precisão) E vira feature de estágio do processo (direito creditório → pré-precatório → precatório)." %}
+      {% include 'dashboard/_partials/_vetor_esteira.html' with e=pipe.extracao icon="dossier" titulo="Extração" legenda="metadados extraídos dos autos" slug="ext" rgb="255,140,66" accent="text-mission" negocio="Extrai valor, natureza, ente devedor, partes, datas e desfecho dos autos → alimenta os modelos de jurimetria (sobrevivência/precatório) e o classificador de leads. É o que vira INTELIGÊNCIA de negócio." %}
     </div>
     {% else %}
       <div class="card text-sm text-fg-subtle">Sem telemetria de esteiras (cache frio). Recarrega em breve.</div>
@@ -68,7 +68,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
 
       {# docs embedados/h — vetor (verde) #}
-      <div class="card-tight relative overflow-hidden" title="docs 'ready' embedados na última hora (acervo_documento). Fonte: fleet.rate_1h (Zordon).">
+      <div class="card-tight relative overflow-hidden cursor-help" title="Técnico: docs 'ready' embedados na última hora (acervo_documento). Fonte: fleet.rate_1h (Zordon). · Negócio: velocidade de tornar autos pesquisáveis — o throughput da BASE de tudo (RAG/extração/jurimetria). Gargalo típico = writer/DB.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Embed/h</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-accent-fg">{{ fleet.rate_1h|default:0|format_int }}</div>
         <div class="h-7 mt-1 chart-cell relative">
@@ -77,7 +77,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
       </div>
 
       {# extrações/h — laranja #}
-      <div class="card-tight relative overflow-hidden" title="metadados extraídos na última hora (acervo_metadadoextraido). Fonte: fleet.extracao.rate_h (Zordon).">
+      <div class="card-tight relative overflow-hidden cursor-help" title="Técnico: metadados extraídos na última hora (acervo_metadadoextraido). Fonte: fleet.extracao.rate_h (Zordon). · Negócio: velocidade de gerar valor/natureza/ente/partes/desfecho — o que vira lead e alimenta a jurimetria (sobrevivência/precatório).">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Extração/h</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-mission">{{ extracao.rate_h|default:0|format_int }}</div>
         <div class="h-7 mt-1 chart-cell relative">
@@ -86,7 +86,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
       </div>
 
       {# fila (vetorizar) — azul #}
-      <div class="card-tight relative overflow-hidden" title="CNJs aguardando na fila 'vetorizar' (Redis/django_rq). Fonte: fleet.queue_len.">
+      <div class="card-tight relative overflow-hidden cursor-help" title="Técnico: CNJs aguardando na fila 'vetorizar' (Redis/django_rq). Fonte: fleet.queue_len. · Negócio: autos aguardando persistência; se empilha, o embed está mais rápido que o DB consegue gravar (gargalo = writer/DB).">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Fila write</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ queue_len|default:0|format_int }}</div>
         <div class="h-7 mt-1 chart-cell relative">
@@ -95,14 +95,14 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
       </div>
 
       {# workers busy/total #}
-      <div class="card-tight" title="Workers da fila 'vetorizar' ocupados / conectados. Fonte: fleet.busy_total / workers_total.">
+      <div class="card-tight cursor-help" title="Técnico: workers da fila 'vetorizar' ocupados / conectados. Fonte: fleet.busy_total / workers_total. · Negócio: capacidade viva da frota tornando autos pesquisáveis — poucos ocupados com fila alta = frota subutilizada ou travada.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Workers</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ busy_total|default:0 }}<span class="text-fg-subtle text-lg">/{{ workers_total|default:0 }}</span></div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">ocupados / conectados</div>
       </div>
 
       {# crédito / runway (custo) #}
-      <div class="card-tight" title="Crédito QuickPod restante e autonomia (runway = crédito ÷ burn/h). Fonte: API QuickPod (cache 60s).">
+      <div class="card-tight cursor-help" title="Técnico: crédito QuickPod restante e autonomia (runway = crédito ÷ burn/h). Fonte: API QuickPod (cache 60s). · Negócio: quanto tempo a frota cloud roda antes de recarregar — se o runway encurta, decide recarga ou reduzir pods.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Crédito · runway</div>
         {% if custo.ok %}
           <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">${{ custo.credito|floatformat:2 }}</div>
@@ -116,7 +116,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
       </div>
 
       {# $/1k docs embedados #}
-      <div class="card-tight" title="Custo por 1.000 docs embedados = burn/h ÷ (docs embedados/h) × 1000. Aproximação: chunks/doc não modelado. Fonte: QuickPod + fleet.rate_1h.">
+      <div class="card-tight cursor-help" title="Técnico: custo por 1.000 docs embedados = burn/h ÷ (docs embedados/h) × 1000. Aproximação: chunks/doc não modelado. Fonte: QuickPod + fleet.rate_1h. · Negócio: custo unitário de vetorização — decide quanto escalar em pod cloud vale a pena.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">$/1k docs</div>
         {% if custo.usd_por_1k_docs != None %}
           <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">${{ custo.usd_por_1k_docs|floatformat:3 }}</div>
@@ -281,10 +281,10 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
       </div>
       <p class="text-xs text-fg-subtle mb-4">recall@k · citation accuracy · erro retrieval vs LLM · 👍👎 — da régua de avaliação triangulada (Zordon <code class="text-fg-muted">/api/eval/summary</code>).</p>
       <div class="grid grid-cols-2 gap-3">
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="recall@8" %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="citation acc" %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="erro retrieval" %}
-        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="thumbs 👍👎" %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="recall@8" hint="Técnico: % de vezes que o top-k da busca contém o chunk-verdade (cnj-filtered). · Negócio: se cai, a extração/dossiê erra por NÃO ACHAR a info nos autos — mesmo com LLM perfeito. É a régua-raiz da qualidade." %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="citation acc" hint="Técnico: % das citações [N]/CNJ geradas que existem de fato nos trechos (verificação determinística). · Negócio: anti-alucinação — citação inventada em peça/dossiê jurídico é inaceitável. Crítico." %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="erro retrieval" hint="Técnico: decomposição do erro — chunk-verdade estava no contexto e o modelo errou (erro-LLM) vs não estava (erro-retrieval). · Negócio: diz ONDE investir — melhorar a busca ou o modelo. O número de maior valor." %}
+        {% include 'dashboard/_partials/_command_shell_tile.html' with lbl="thumbs 👍👎" hint="Técnico: feedback humano 👍👎 no chat/dossiê (Postgres). · Negócio: ground-truth de graça do usuário real — sinal direto de qualidade percebida, sem custo de anotação." %}
       </div>
       <div class="mt-4 flex items-center gap-2 text-[0.65rem] text-fg-subtle">
         {% voy_icon "calibrate" "w-3.5 h-3.5" %}
@@ -313,8 +313,8 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
       <div class="grid grid-cols-2 gap-3">
 
         {# cache-hit HNSW — o número que morde (leading indicator disk-cliff) #}
-        <div class="rounded-lg border p-3 {% if sem.infra == 'crit' %}border-red-400/40 bg-red-400/5{% elif sem.infra == 'warn' %}border-amber-400/40 bg-amber-400/5{% else %}border-border/60 bg-muted/20{% endif %}"
-             title="rate(hnsw_index_io_blks_hit[15m]) / (hit+read). Índice {{ infra.idx_gb|default:'?' }}GB > shared_buffers {{ infra.sb_gb|default:'?' }}GB — se o cache-hit cair, a busca vai pro DISCO (disk-cliff). Fonte: postgres_exporter (índice {{ infra.idx_name }}).">
+        <div class="rounded-lg border p-3 cursor-help {% if sem.infra == 'crit' %}border-red-400/40 bg-red-400/5{% elif sem.infra == 'warn' %}border-amber-400/40 bg-amber-400/5{% else %}border-border/60 bg-muted/20{% endif %}"
+             title="Técnico: rate(hnsw_index_io_blks_hit[15m]) / (hit+read). Índice {{ infra.idx_gb|default:'?' }}GB > shared_buffers {{ infra.sb_gb|default:'?' }}GB. Fonte: postgres_exporter (índice {{ infra.idx_name }}). · Negócio: se cai, a busca vetorial vai pro DISCO → chat/dossiê/extração ficam LENTOS. Leading indicator de que o índice não cabe mais na RAM (disk-cliff).">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">cache-hit HNSW</div>
           {% if infra.cache_hit_pct != None %}
             <div class="mt-1 text-2xl font-semibold kpi-num {% if sem.infra == 'crit' %}text-red-400{% elif sem.infra == 'warn' %}text-amber-400{% else %}text-accent-fg{% endif %}">{{ infra.cache_hit_pct|floatformat:1 }}<span class="text-fg-subtle text-sm">%</span></div>
@@ -325,24 +325,24 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
         </div>
 
         {# índice vs shared_buffers #}
-        <div class="rounded-lg border border-border/60 bg-muted/20 p-3"
-             title="Tamanho do índice HNSW ({{ infra.idx_name }}) vs shared_buffers do acervo DB. Razão >1 = índice maior que a RAM de buffer. Fonte: hnsw_index_io_size_bytes / db_shared_buffers_shared_buffers_bytes.">
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: tamanho do índice HNSW ({{ infra.idx_name }}) vs shared_buffers do acervo DB; razão >1 = índice maior que a RAM de buffer. Fonte: hnsw_index_io_size_bytes / db_shared_buffers_shared_buffers_bytes. · Negócio: quando o índice passa a RAM, a busca despenca (disk-cliff) — chat/dossiê/extração ficam lentos.">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">índice / buffers</div>
           <div class="mt-1 text-2xl font-semibold kpi-num {% if infra.idx_vs_sb and infra.idx_vs_sb > 1 %}text-amber-400{% else %}text-fg{% endif %}">{% if infra.idx_gb %}{{ infra.idx_gb|floatformat:0 }}<span class="text-fg-subtle text-sm">GB</span>{% else %}—{% endif %}</div>
           <div class="text-[0.6rem] text-fg-subtle mt-0.5">buffers {{ infra.sb_gb|default:'?'|floatformat:0 }}GB{% if infra.idx_vs_sb %} · {{ infra.idx_vs_sb }}×{% endif %}</div>
         </div>
 
         {# dead tuples (bloat) acervo_chunk #}
-        <div class="rounded-lg border border-border/60 bg-muted/20 p-3"
-             title="Tuplas mortas na acervo_chunk (bloat que o autovacuum limpa). Fonte: acervo_table_bloat_n_dead_tup{table_name=&quot;acervo_chunk&quot;}.">
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: tuplas mortas na acervo_chunk (bloat que o autovacuum limpa). Fonte: acervo_table_bloat_n_dead_tup{table_name=&quot;acervo_chunk&quot;}. · Negócio: bloat degrada a busca; e o autovacuum que o limpa compete com o writer e pode travar a escrita de novos chunks.">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">dead tuples</div>
           <div class="mt-1 text-2xl font-semibold kpi-num text-fg">{% if infra.dead_tup != None %}{{ infra.dead_tup|format_int }}{% else %}—{% endif %}</div>
           <div class="text-[0.6rem] text-fg-subtle mt-0.5">acervo_chunk · bloat</div>
         </div>
 
         {# autovacuum ativo #}
-        <div class="rounded-lg border border-border/60 bg-muted/20 p-3"
-             title="Autovacuum rodando na acervo_chunk (segundos). Composto com fila_write alta = vacuum estrangulando o writer (alerta FilaWriteRunawayComAutovacuum). Fonte: autovacuum_progress_running_seconds.">
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: autovacuum rodando na acervo_chunk (segundos). Composto com fila_write alta = vacuum estrangulando o writer (alerta FilaWriteRunawayComAutovacuum). Fonte: autovacuum_progress_running_seconds. · Negócio: quando roda junto com fila cheia, trava a gravação dos autos novos — o embed empaca.">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">autovacuum</div>
           {% if infra.autovac_ativo %}
             <div class="mt-1 text-2xl font-semibold kpi-num text-sky-400">ativo</div>
@@ -354,16 +354,16 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
         </div>
 
         {# conexões #}
-        <div class="rounded-lg border border-border/60 bg-muted/20 p-3"
-             title="Conexões ativas no acervo DB · maior transação em aberto (s) · idle-in-transaction. Alerta DBSaturado: active>40 OU xact>90s OU idle>10. Fonte: connections_summary_*.">
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: conexões ativas no acervo DB · maior transação em aberto (s) · idle-in-transaction. Alerta DBSaturado: active>40 OU xact>90s OU idle>10. Fonte: connections_summary_*. · Negócio: DB saturado / transação longa segura locks e faz a busca e a escrita dos autos degradarem pra todo mundo.">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">conexões</div>
           <div class="mt-1 text-2xl font-semibold kpi-num {% if infra.conns_active and infra.conns_active > 40 %}text-red-400{% else %}text-fg{% endif %}">{% if infra.conns_active != None %}{{ infra.conns_active }}{% else %}—{% endif %}<span class="text-fg-subtle text-sm"> ativas</span></div>
           <div class="text-[0.6rem] text-fg-subtle mt-0.5">xact máx {% if infra.xact_max_seg != None %}{{ infra.xact_max_seg|floatformat:0 }}s{% else %}—{% endif %}{% if infra.idle_in_txn %} · {{ infra.idle_in_txn }} idle-tx{% endif %}</div>
         </div>
 
         {# p95 busca — PENDENTE (pg_stat_statements desligado) #}
-        <div class="rounded-lg border border-dashed border-border/60 bg-muted/10 p-3"
-             title="p95/p99 de busca vetorial exige pg_stat_statements no acervo DB (shared_preload_libraries + restart do Postgres = janela de prod). Ver .ia/OPS.md 'Métricas PENDENTES'.">
+        <div class="rounded-lg border border-dashed border-border/60 bg-muted/10 p-3 cursor-help"
+             title="Técnico: p95/p99 de busca vetorial exige pg_stat_statements no acervo DB (shared_preload_libraries + restart do Postgres = janela de prod). Ver .ia/OPS.md 'Métricas PENDENTES'. · Negócio: é a latência que o usuário SENTE no chat/dossiê de autos — quando ligar, mede a experiência real de busca.">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">p95 busca</div>
           <div class="mt-1 text-base font-medium text-fg-subtle">pendente</div>
           <div class="text-[0.6rem] text-fg-subtle mt-0.5">precisa pg_stat_statements + restart DB</div>
@@ -404,29 +404,29 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
 
     {% if custo.ok %}
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-      <div class="card-tight" title="Crédito restante na conta QuickPod. Fonte: /update/api/me.credit.">
+      <div class="card-tight cursor-help" title="Técnico: crédito restante na conta QuickPod. Fonte: /update/api/me.credit. · Negócio: saldo que banca a frota GPU cloud da vetorização — acabou, a frota cloud para.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Crédito</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">${{ custo.credito|floatformat:2 }}</div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">saldo disponível</div>
       </div>
-      <div class="card-tight" title="Gasto por hora = soma de hourly_cost dos pods em execução. Fonte: /gpu_pods.">
+      <div class="card-tight cursor-help" title="Técnico: gasto por hora = soma de hourly_cost dos pods em execução. Fonte: /gpu_pods. · Negócio: quanto custa manter a frota cloud vetorizando agora — escala com o nº de pods ligados.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Burn/h</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-mission">${{ custo.burn_h|floatformat:3 }}</div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">gasto por hora</div>
       </div>
-      <div class="card-tight" title="Runway = crédito ÷ burn/h. Tempo até o saldo acabar no ritmo atual.">
+      <div class="card-tight cursor-help" title="Técnico: runway = crédito ÷ burn/h. Tempo até o saldo acabar no ritmo atual. · Negócio: autonomia da frota cloud antes de recarregar — <6h acende vermelho (recarregar ou reduzir pods já).">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Runway</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num {% if sem.custo == 'crit' %}text-red-400{% elif sem.custo == 'warn' %}text-amber-400{% else %}text-fg{% endif %}">
           {% if custo.runway_h != None %}{{ custo.runway_h|floatformat:0 }}<span class="text-fg-subtle text-base">h</span>{% else %}∞{% endif %}
         </div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">no ritmo atual</div>
       </div>
-      <div class="card-tight" title="Pods em execução / total na conta. GPUs somadas por gpu_count.">
+      <div class="card-tight cursor-help" title="Técnico: pods em execução / total na conta; GPUs somadas por gpu_count. Fonte: /gpu_pods. · Negócio: tamanho da frota cloud vetorizando — mais pods = mais embed/h, mais burn/h.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Pods ativos</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{{ custo.pods_ativos|default:0 }}<span class="text-fg-subtle text-lg">/{{ custo.pods_total|default:0 }}</span></div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">{{ custo.gpus|default:0 }} GPU(s)</div>
       </div>
-      <div class="card-tight" title="Custo por 1.000 docs embedados = burn/h ÷ (docs/h) × 1000. Aproximação (chunks/doc não modelado).">
+      <div class="card-tight cursor-help" title="Técnico: custo por 1.000 docs embedados = burn/h ÷ (docs/h) × 1000. Aproximação (chunks/doc não modelado). · Negócio: custo unitário de vetorização — a régua pra decidir quanto escalar em pod cloud vale a pena.">
         <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">$/1k docs</div>
         <div class="text-2xl md:text-3xl font-semibold mt-1 kpi-num text-fg">{% if custo.usd_por_1k_docs != None %}${{ custo.usd_por_1k_docs|floatformat:3 }}{% else %}—{% endif %}</div>
         <div class="text-[0.7rem] text-fg-subtle mt-1">embedados · aprox.</div>

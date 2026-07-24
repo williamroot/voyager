@@ -14,10 +14,10 @@ Params:
 
 Bug de localização: pct vai pra x-data e pro builder ECharts → |unlocalize.
 {% endcomment %}
-<div class="card relative overflow-hidden flex flex-col">
+<div class="card relative overflow-hidden flex flex-col"{% if negocio %} title="{{ negocio }}"{% endif %}>
   <div class="flex items-center gap-2 mb-0.5">
     {% voy_icon icon "w-4 h-4" %}
-    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg">{{ titulo }}</h2>
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-fg{% if negocio %} cursor-help decoration-dotted underline-offset-4 hover:underline{% endif %}">{{ titulo }}</h2>
   </div>
   <div class="text-xs text-fg-subtle mb-4">{{ legenda }}</div>
 
@@ -38,15 +38,15 @@ Bug de localização: pct vai pra x-data e pro builder ECharts → |unlocalize.
       </div>
       {# Sub-rótulos por esteira (universo com-autos honesto) #}
       {% if e.missing %}
-      <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Manifest {{ e.manifest_total|format_int }} − {{ e.missing|format_int }} autos que sumiram na origem (s3_404, invetorizáveis). Estimativa: mais podem surgir.">
+      <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Técnico: Manifest {{ e.manifest_total|format_int }} − {{ e.missing|format_int }} autos que sumiram na origem (s3_404, invetorizáveis). · Negócio: são processos cujos autos nunca serão analisáveis (PDF perdeu na fonte) — saem do universo 'com autos'.">
         −{{ e.missing|format_int }} sem autos (s3_404)
       </div>
       {% elif e.docs_atuais %}
-      <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Total de docs estimado = docs atuais ({{ e.docs_atuais|format_int }}) ÷ processos vetorizados × processos com autos. Cresce conforme a vetorização avança.">
+      <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Técnico: total de docs estimado = docs atuais ({{ e.docs_atuais|format_int }}) ÷ processos vetorizados × processos com autos. · Negócio: cada doc classificado (ofício/procuração/certidão…) roteia a extração pro documento certo e vira feature de estágio do processo (dir. creditório → pré → precatório).">
         {{ e.docs_atuais|format_int }} docs já ingeridos · total estimado
       </div>
       {% elif e.disponiveis %}
-      <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Processos já vetorizados com doc de classe LLM-relevante — prontos p/ extrair agora. Cresce conforme a vetorização avança.">
+      <div class="text-[0.65rem] text-fg-subtle/70 mt-1.5" title="Técnico: processos já vetorizados com doc de classe LLM-relevante — prontos p/ extrair agora. · Negócio: extrair valor, natureza, ente devedor, partes, datas e desfecho vira a INTELIGÊNCIA que alimenta a jurimetria (sobrevivência/precatório) e o classificador de leads.">
         {{ e.disponiveis|format_int }} disponíveis p/ extrair agora
       </div>
       {% endif %}

@@ -1,5 +1,6 @@
-{% comment %}Tile placeholder (skeleton) de métrica ainda não disponível. Param: lbl.{% endcomment %}
-<div class="rounded-lg border border-border/60 bg-muted/20 p-3">
+{% comment %}Tile placeholder (skeleton) de métrica ainda não disponível.
+Params: lbl (rótulo) · hint (opcional — tooltip de negócio, já pronto pra quando o número chegar).{% endcomment %}
+<div class="rounded-lg border border-border/60 bg-muted/20 p-3{% if hint %} cursor-help{% endif %}"{% if hint %} title="{{ hint }}"{% endif %}>
   <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">{{ lbl }}</div>
   <div class="mt-2 h-6 w-20 rounded skeleton"></div>
 </div>
