@@ -290,7 +290,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
 
         {# recall@8 — a régua-raiz #}
         <div class="rounded-lg border p-3 cursor-help {% if sem.qualidade == 'crit' %}border-red-400/40 bg-red-400/5{% elif sem.qualidade == 'warn' %}border-amber-400/40 bg-amber-400/5{% else %}border-border/60 bg-muted/20{% endif %}"
-             title="Técnico: % de vezes que o top-8 da busca contém o chunk-verdade (cnj-filtered), sobre {{ qualidade.n_cnjs|default:'?' }} CNJs. · Negócio: se cai, a extração/dossiê erra por NÃO ACHAR a info nos autos — mesmo com LLM perfeito. É a régua-raiz da qualidade.">
+             title="Técnico: % de vezes que o top-8 da busca contém o chunk-verdade (weak-label triangulado), sobre {{ qualidade.n_cnjs|default:'?' }} CNJs. · Negócio: se cai, a extração/dossiê erra por NÃO ACHAR a info nos autos — mesmo com LLM perfeito. É a régua-raiz da qualidade.">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">recall@8</div>
           {% if qualidade.recall8 != None %}
             <div class="mt-1 text-2xl font-semibold kpi-num {% if sem.qualidade == 'crit' %}text-red-400{% elif sem.qualidade == 'warn' %}text-amber-400{% else %}text-sky-400{% endif %}">{{ qualidade.recall8|floatformat:1 }}<span class="text-fg-subtle text-sm">%</span></div>
@@ -300,44 +300,59 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
           <div class="text-[0.6rem] text-fg-subtle mt-0.5">{% if qualidade.recall1 != None %}@1 {{ qualidade.recall1|floatformat:0 }}% · {% endif %}{% if qualidade.recall4 != None %}@4 {{ qualidade.recall4|floatformat:0 }}%{% endif %}</div>
         </div>
 
-        {# citation accuracy #}
+        {# erro retrieval-vs-LLM (split) — o insight de maior valor #}
         <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
-             title="Técnico: % das citações [N]/CNJ geradas que existem de fato nos trechos (verificação determinística). · Negócio: anti-alucinação — citação inventada em peça/dossiê jurídico é inaceitável. Crítico.">
-          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">citation acc</div>
-          <div class="mt-1 text-2xl font-semibold kpi-num {% if qualidade.citation != None and qualidade.citation < 98 %}text-amber-400{% else %}text-fg{% endif %}">{% if qualidade.citation != None %}{{ qualidade.citation|floatformat:1 }}<span class="text-fg-subtle text-sm">%</span>{% else %}—{% endif %}</div>
-          <div class="text-[0.6rem] text-fg-subtle mt-0.5">citações válidas</div>
-        </div>
-
-        {# erro retrieval-vs-LLM (split) #}
-        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
-             title="Técnico: decomposição do erro — chunk-verdade estava no contexto e o modelo extraiu errado (erro-LLM) vs não estava (erro-retrieval). · Negócio: erro do LLM = a busca ACHOU, o modelo errou → investir no prompt/DSPy, NÃO na busca. Diz onde está o gargalo.">
+             title="Técnico: decomposição do erro sobre {{ qualidade.err_n_atrib|default:'?' }} casos atribuíveis. · Negócio: erro do LLM = a busca ACHOU o chunk certo, o modelo extraiu errado → investir no prompt/DSPy, NÃO na busca. Diz onde está o gargalo.">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">erro: LLM vs busca</div>
           {% if qualidade.err_llm_pct != None %}
             <div class="mt-1 text-2xl font-semibold kpi-num text-fg">{{ qualidade.err_llm_pct|floatformat:0 }}<span class="text-fg-subtle text-sm">% LLM</span></div>
             {# barra split: LLM (laranja) vs retrieval (azul) #}
             <div class="mt-1.5 flex h-2 rounded-full overflow-hidden bg-muted/40">
-              <div class="h-full" style="width: {{ qualidade.err_llm_pct }}%; background: rgb(var(--c-mission));" title="erro-LLM {{ qualidade.err_llm_pct }}%"></div>
-              <div class="h-full" style="width: {{ qualidade.err_ret_pct }}%; background: rgb(var(--c-info));" title="erro-retrieval {{ qualidade.err_ret_pct }}%"></div>
+              <div class="h-full" style="width: {{ qualidade.err_llm_pct|unlocalize }}%; background: rgb(var(--c-mission));" title="erro-LLM {{ qualidade.err_llm_pct }}%"></div>
+              <div class="h-full" style="width: {{ qualidade.err_ret_pct|unlocalize }}%; background: rgb(var(--c-info));" title="erro-retrieval {{ qualidade.err_ret_pct }}%"></div>
             </div>
-            <div class="text-[0.6rem] text-fg-subtle mt-0.5">{{ qualidade.err_ret_pct|floatformat:0 }}% busca · investir no {% if qualidade.err_llm_pct >= qualidade.err_ret_pct %}prompt/LLM{% else %}retrieval{% endif %}</div>
+            <div class="text-[0.6rem] text-fg-subtle mt-0.5">{{ qualidade.err_ret_pct|floatformat:0 }}% busca · gargalo no {% if qualidade.err_llm_pct >= qualidade.err_ret_pct %}<span class="text-mission">prompt/LLM</span>{% else %}<span class="text-info">retrieval</span>{% endif %}</div>
           {% else %}
             <div class="mt-1 text-xl font-semibold kpi-num text-fg-subtle">—</div>
             <div class="text-[0.6rem] text-fg-subtle mt-0.5">sem decomposição</div>
           {% endif %}
         </div>
 
-        {# latência p95 do retrieval #}
+        {# latência wall p95 (interativo) — em segundos, com a etapa que domina #}
         <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
-             title="Técnico: p95 (e p50) de latência do retrieval na régua. · Negócio: é o tempo que o usuário SENTE ao buscar no chat/dossiê — sobe = experiência pior.">
+             title="Técnico: p95/p50 de latência wall (fim-a-fim interativo) na régua; o rerank domina (p50 {{ qualidade.rerank_p50_s|default:'?' }}s). · Negócio: é o tempo que o usuário SENTE ao buscar no chat/dossiê — sobe = experiência pior.">
           <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">latência p95</div>
-          <div class="mt-1 text-2xl font-semibold kpi-num text-fg">{% if qualidade.p95 != None %}{{ qualidade.p95|floatformat:0 }}<span class="text-fg-subtle text-sm">ms</span>{% else %}—{% endif %}</div>
-          <div class="text-[0.6rem] text-fg-subtle mt-0.5">{% if qualidade.p50 != None %}p50 {{ qualidade.p50|floatformat:0 }}ms{% else %}retrieval{% endif %}</div>
+          <div class="mt-1 text-2xl font-semibold kpi-num text-fg">{% if qualidade.p95_s != None %}{{ qualidade.p95_s|floatformat:2 }}<span class="text-fg-subtle text-sm">s</span>{% else %}—{% endif %}</div>
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">{% if qualidade.p50_s != None %}p50 {{ qualidade.p50_s|floatformat:2 }}s{% endif %}{% if qualidade.rerank_p50_s != None %} · rerank {{ qualidade.rerank_p50_s|floatformat:1 }}s{% endif %}</div>
         </div>
+
+        {# extração acc por campo (valor/natureza/data) OU citation se existir #}
+        {% if qualidade.extracao %}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: acurácia da extração sobre os respondidos (Falcon triangulado), por campo. cobertura = % dos CNJs em que o campo foi extraído. · Negócio: valor/natureza/data são o que alimenta a jurimetria (sobrevivência/precatório) e o classificador de leads — a qualidade do dado que vira INTELIGÊNCIA.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">extração acc</div>
+          <div class="mt-1.5 space-y-1">
+            {% for campo, c in qualidade.extracao.items %}
+            <div class="flex items-center justify-between gap-2 text-[0.7rem]">
+              <span class="text-fg-muted capitalize">{{ campo }}</span>
+              <span class="font-mono text-fg">{% if c.acc_resp != None %}{{ c.acc_resp|floatformat:0 }}%<span class="text-fg-subtle">/{{ c.cobertura|floatformat:0 }}%cob</span>{% else %}—{% endif %}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% else %}
+        <div class="rounded-lg border border-border/60 bg-muted/20 p-3 cursor-help"
+             title="Técnico: % das citações [N]/CNJ geradas que existem de fato nos trechos (determinístico). Este run não computou citation. · Negócio: anti-alucinação — citação inventada em peça/dossiê jurídico é inaceitável.">
+          <div class="text-[0.6rem] uppercase tracking-wider text-fg-subtle">citation acc</div>
+          <div class="mt-1 text-2xl font-semibold kpi-num {% if qualidade.citation != None and qualidade.citation < 98 %}text-amber-400{% else %}text-fg{% endif %}">{% if qualidade.citation != None %}{{ qualidade.citation|floatformat:1 }}<span class="text-fg-subtle text-sm">%</span>{% else %}—{% endif %}</div>
+          <div class="text-[0.6rem] text-fg-subtle mt-0.5">{% if qualidade.citation == None %}não computado neste run{% else %}citações válidas{% endif %}</div>
+        </div>
+        {% endif %}
 
       </div>
       <div class="mt-4 flex items-center gap-2 text-[0.65rem] text-fg-subtle">
         {% voy_icon "calibrate" "w-3.5 h-3.5" %}
-        Régua (Fase C) · Zordon <code class="text-fg-muted">/api/eval/summary</code>{% if qualidade.versao %} · {{ qualidade.versao|slice:":10" }}{% endif %}{% if qualidade.n_cnjs %} · {{ qualidade.n_cnjs|format_int }} CNJs{% endif %}.
+        Régua (Fase C) · Zordon <code class="text-fg-muted">/api/eval/summary</code>{% if qualidade.versao %} · {{ qualidade.versao|slice:":10" }}{% endif %}{% if qualidade.config %} · {{ qualidade.config }}{% endif %}{% if qualidade.n_cnjs %} · {{ qualidade.n_cnjs|format_int }} CNJs{% endif %}.
       </div>
       {% else %}
       {# Fail-soft: endpoint da régua ainda 404/indisponível — mantém o shell com os tooltips de negócio prontos. #}

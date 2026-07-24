@@ -569,15 +569,6 @@ def _prometheus_infra():
     return out
 
 
-def _q_first(d, *keys):
-    """Primeiro valor não-None entre chaves candidatas de um dict (tolerante a
-    variações de naming do payload da régua)."""
-    for k in keys:
-        if isinstance(d, dict) and d.get(k) is not None:
-            return d.get(k)
-    return None
-
-
 def _q_pct(v):
     """Normaliza fração/porcentagem → porcentagem (0-100). 0.952 → 95.2; 95.2 → 95.2."""
     if v is None:
@@ -595,12 +586,19 @@ def _zordon_qualidade():
     """Consome o /api/eval/summary do Zordon (régua da Fase C) e normaliza os
     números do bloco QUALIDADE do Command Center.
 
-    Proxy interno (mesmo host do fleet). Fail-soft: se o endpoint cair/404 ou o
-    payload faltar, retorna ok=False (o warm preserva o último cache bom e a
-    página degrada gracioso — mantém o shell com os tooltips de negócio).
+    Estrutura REAL do payload (verificada 2026-07-24):
+      {tem_eval, latest:{ts, versao_git, config_label, n_cnjs, metricas:{
+         retrieval.recall_at_k["1"|"4"|"8"],
+         decomposicao_erro.{frac_erro_llm, frac_erro_retrieval, erro_llm,
+                            erro_retrieval, ok, n_atribuiveis, indeterminado},
+         latencia_por_etapa.{wall,rerank,embed,ann,fts}.{p50,p95},
+         extracao.por_campo.{valor,natureza,data}.{cobertura,acc_sobre_gt,
+                            acc_sobre_respondidos}}}, baseline, serie}
+      Latência em SEGUNDOS. citation pode não existir (grava None gracioso).
 
-    Tolerante ao naming: aceita recall@8 como 'recall@8'/'recall_at_8'/aninhado
-    em 'recall'{...}; erro retrieval-vs-LLM como split absoluto ou fração.
+    Proxy interno (mesmo host do fleet). Fail-soft: 404 / endpoint fora /
+    payload sem `latest` → ok=False (o warm preserva o último cache bom e a
+    página degrada gracioso — mantém o shell com os tooltips de negócio).
     """
     base = getattr(settings, 'ZORDON_URL', '').rstrip('/')
     if not base:
@@ -612,7 +610,6 @@ def _zordon_qualidade():
             timeout=(5, 20),
             headers={'User-Agent': 'voyager-dashboard/command-qualidade'},
         )
-        # 404 = endpoint da Fase C ainda não deployado nesse Zordon → fail-soft.
         if r.status_code == 404:
             out['motivo'] = 'endpoint_404'
             return out
@@ -622,61 +619,72 @@ def _zordon_qualidade():
             out['motivo'] = 'payload_invalido'
             return out
 
-        # A régua pode aninhar as métricas do último run em 'metricas'/'metrics'/
-        # 'last'/'summary' — ou expô-las no topo. Achata pra um dict único.
-        m = {}
-        for container in (d, d.get('metricas'), d.get('metrics'),
-                          d.get('last'), d.get('summary'), d.get('last_run')):
-            if isinstance(container, dict):
-                m = {**m, **container}
+        latest = d.get('latest')
+        if not d.get('tem_eval') or not isinstance(latest, dict):
+            out['motivo'] = 'sem_eval'
+            return out
+        m = latest.get('metricas') or {}
 
-        recall8 = _q_pct(_q_first(m, 'recall@8', 'recall_at_8', 'recall8'))
-        recall4 = _q_pct(_q_first(m, 'recall@4', 'recall_at_4', 'recall4'))
-        recall1 = _q_pct(_q_first(m, 'recall@1', 'recall_at_1', 'recall1'))
-        # recall aninhado: {'recall': {'1':.., '4':.., '8':..}}
-        rnest = m.get('recall')
-        if isinstance(rnest, dict):
-            recall8 = recall8 if recall8 is not None else _q_pct(_q_first(rnest, '8', 'k8', 'at_8'))
-            recall4 = recall4 if recall4 is not None else _q_pct(_q_first(rnest, '4', 'k4', 'at_4'))
-            recall1 = recall1 if recall1 is not None else _q_pct(_q_first(rnest, '1', 'k1', 'at_1'))
+        # --- recall@k (chaves STRING "1"/"4"/"8") ---
+        rec = ((m.get('retrieval') or {}).get('recall_at_k')) or {}
+        recall1 = _q_pct(rec.get('1'))
+        recall4 = _q_pct(rec.get('4'))
+        recall8 = _q_pct(rec.get('8'))
 
-        citation = _q_pct(_q_first(m, 'citation_accuracy', 'citation_acc',
-                                   'cit_acc', 'citation'))
-
-        # Decomposição do erro (retrieval vs LLM). Aceita split absoluto (contagens)
-        # ou já em fração/percent. Normaliza pra % que somam ~100.
-        err_llm = _q_first(m, 'err_llm', 'error_llm', 'erro_llm', 'llm_error')
-        err_ret = _q_first(m, 'err_retrieval', 'error_retrieval', 'erro_retrieval',
-                           'retrieval_error')
-        enest = m.get('error_decomposition') or m.get('erro') or m.get('attribution')
-        if isinstance(enest, dict):
-            err_llm = err_llm if err_llm is not None else _q_first(enest, 'llm', 'err_llm')
-            err_ret = err_ret if err_ret is not None else _q_first(enest, 'retrieval', 'err_retrieval')
+        # --- decomposição do erro (retrieval vs LLM) ---
+        dec = m.get('decomposicao_erro') or {}
         err_llm_pct = err_ret_pct = None
-        try:
-            if err_llm is not None and err_ret is not None:
-                a, b = float(err_llm), float(err_ret)
-                tot = a + b
-                if tot > 0:
-                    err_llm_pct = round(a / tot * 100, 1)
-                    err_ret_pct = round(b / tot * 100, 1)
-        except (TypeError, ValueError):
-            pass
+        fll, fret = dec.get('frac_erro_llm'), dec.get('frac_erro_retrieval')
+        if fll is not None or fret is not None:
+            err_llm_pct = _q_pct(fll)
+            err_ret_pct = _q_pct(fret)
+        else:  # fallback: contagens absolutas
+            a, b = dec.get('erro_llm'), dec.get('erro_retrieval')
+            try:
+                if a is not None and b is not None and (float(a) + float(b)) > 0:
+                    tot = float(a) + float(b)
+                    err_llm_pct = round(float(a) / tot * 100, 1)
+                    err_ret_pct = round(float(b) / tot * 100, 1)
+            except (TypeError, ValueError):
+                pass
+        err_n_atrib = dec.get('n_atribuiveis')
+        err_ok = dec.get('ok')  # nº de casos SEM erro (extração correta)
 
-        p95 = _q_first(m, 'p95', 'latency_p95', 'p95_ms', 'retrieval_p95_ms')
-        p50 = _q_first(m, 'p50', 'latency_p50', 'p50_ms', 'retrieval_p50_ms')
-        try:
-            p95 = round(float(p95), 1) if p95 is not None else None
-            p50 = round(float(p50), 1) if p50 is not None else None
-        except (TypeError, ValueError):
-            p95 = p50 = None
+        # --- latência (SEGUNDOS): wall (interativo) + rerank (etapa que domina) ---
+        lat = m.get('latencia_por_etapa') or {}
+        wall = lat.get('wall') or {}
+        rerank = lat.get('rerank') or {}
+        def _sec(v):
+            try:
+                return round(float(v), 2) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+        p95_s = _sec(wall.get('p95'))
+        p50_s = _sec(wall.get('p50'))
+        rerank_p50_s = _sec(rerank.get('p50'))
 
-        n_cnjs = _q_first(m, 'n_cnjs', 'n', 'n_queries', 'dataset_size')
-        versao = _q_first(d, 'versao_git', 'version', 'versao', 'git') or _q_first(m, 'versao_git')
-        ran_at = _q_first(d, 'ts', 'ran_at', 'timestamp', 'created_at') or _q_first(m, 'ts')
+        # --- citation (pode não existir neste run) ---
+        citation = _q_pct(m.get('citation_accuracy') or m.get('citation'))
 
-        # Sem NENHUM número-âncora → trata como indisponível (não mostra bloco vazio).
-        if recall8 is None and citation is None and err_llm_pct is None:
+        # --- extração acc por campo (valor/natureza/data) ---
+        por_campo = ((m.get('extracao') or {}).get('por_campo')) or {}
+        def _campo(nome):
+            c = por_campo.get(nome) or {}
+            return {
+                'cobertura': _q_pct(c.get('cobertura')),
+                'acc_gt': _q_pct(c.get('acc_sobre_gt')),
+                'acc_resp': _q_pct(c.get('acc_sobre_respondidos')),
+            } if c else None
+        extracao = {k: _campo(k) for k in ('valor', 'natureza', 'data')}
+        extracao = {k: v for k, v in extracao.items() if v}
+
+        n_cnjs = latest.get('n_cnjs') or m.get('n_cnjs')
+        versao = latest.get('versao_git')
+        config = latest.get('config_label')
+        ran_at = latest.get('ts')
+
+        # Sem NENHUM número-âncora → indisponível (não mostra bloco vazio).
+        if recall8 is None and err_llm_pct is None and not extracao:
             out['motivo'] = 'sem_metricas'
             return out
 
@@ -685,9 +693,12 @@ def _zordon_qualidade():
             'recall1': recall1, 'recall4': recall4, 'recall8': recall8,
             'citation': citation,
             'err_llm_pct': err_llm_pct, 'err_ret_pct': err_ret_pct,
-            'p95': p95, 'p50': p50,
+            'err_n_atrib': int(err_n_atrib) if isinstance(err_n_atrib, (int, float)) else None,
+            'err_ok': int(err_ok) if isinstance(err_ok, (int, float)) else None,
+            'p95_s': p95_s, 'p50_s': p50_s, 'rerank_p50_s': rerank_p50_s,
+            'extracao': extracao or None,
             'n_cnjs': int(n_cnjs) if isinstance(n_cnjs, (int, float)) else None,
-            'versao': versao, 'ran_at': ran_at,
+            'versao': versao, 'config': config, 'ran_at': ran_at,
         })
     except Exception as e:
         logger.warning('_zordon_qualidade: %s: %s', type(e).__name__, e)
