@@ -187,6 +187,58 @@ def warm_leads_charts():
     _with_lock('lock:warm_leads_charts', 2700, _run)
 
 
+# Charts da /dashboard/leads/visibilidade/ (observabilidade de classificação).
+# Cada tupla: (nome, builder). O `nome` TEM que bater com o usado nos endpoints
+# `chart_*` em views.py — a chave de cache é derivada dele. Builders sem args =
+# visão default (todos os tribunais ativos), a variante CARA (GROUP BY / COUNT
+# sobre a Process inteira, ~40M+). Filtros crus são vazios (ver
+# _chart_validacao_cache_key_raw).
+def _leads_vis_charts():
+    """Lazy import (evita circular queries↔views no import de tasks)."""
+    return (
+        ('heatmap_tribunal_ano', lambda: queries.heatmap_tribunal_ano()),
+        ('funil_ampliado',       lambda: queries.funil_ampliado(periodo_dias=90)),
+        ('histograma_score',     lambda: queries.histograma_score_por_tribunal()),
+        ('calibracao',           lambda: queries.calibracao_por_tribunal(periodo_dias=90)),
+        ('top_fn_semana',        lambda: queries.top_fn_semana(limit=10)),
+    )
+
+
+@job('warm', timeout=2400)
+def warm_leads_visibilidade_charts():
+    """Pré-aquece os charts da /dashboard/leads/visibilidade/ na visão default.
+
+    Motivação: os endpoints `chart_heatmap_tribunal_ano`, `chart_funil_ampliado`,
+    `chart_histograma_score`, `chart_calibracao_por_tribunal` rodavam agregações
+    síncronas (GROUP BY / COUNT) sobre `Process` inteira (~40M+ rows) a CADA
+    request em cache frio. Levavam minutos → estouravam o `--timeout 300` do
+    gunicorn → matavam o worker → 504 colateral em /analisar. Agora a visão
+    default computa AQUI (background) e cacheia nas MESMAS chaves que a view lê
+    (`voyager:chart:<nome>:<hash>:v<ver>` do filtro vazio). A view em MISS só
+    devolve `pending` — nunca bate a agregação de 40M no request.
+
+    TTL longo (_WARM_TTL=7d): dado stale é melhor que MISS (a página cairia em
+    'acquiring signal' indefinidamente). Fail-soft por chart — um timeout não
+    derruba os outros. Mesmo padrão de warm_charts_pesados / warm_leads_charts.
+    """
+    def _run():
+        from .views import _chart_validacao_cache_key_raw
+        for nome, builder in _leads_vis_charts():
+            # Chave da visão default = filtros crus vazios (tribunal/classif/dias).
+            key = _chart_validacao_cache_key_raw(nome, '', '', '')
+            try:
+                def _go(b=builder, k=key):
+                    data = b()
+                    # TTL longo pra sobreviver a falhas do warm; se a view
+                    # popular sob filtro usa o TTL curto dela, sem conflito.
+                    cache.set(k, data, timeout=_WARM_TTL)
+                _with_timeout(1800, _go)
+            except Exception as e:
+                logger.warning('warm_leads_visibilidade_charts %s: %s', nome, e)
+                _reset_connection()
+    _with_lock('lock:warm_leads_visibilidade_charts', 2700, _run)
+
+
 @job('warm', timeout=180)
 def warm_ingestao_por_hora():
     """Velocidade de ingestão (lê da MV mv_ingestion_rate_hora pro cache).

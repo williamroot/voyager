@@ -2396,25 +2396,63 @@ def _bump_chart_version():
         cache.set(_CHART_VERSION_KEY, 1, None)
 
 
-def _chart_validacao_cache_key(nome: str, request) -> str:
-    """Cache key versionada — incrementar version invalida tudo de uma vez."""
-    raw = (
-        request.GET.get('tribunal', '') + '|'
-        + request.GET.get('classificacao', '') + '|'
-        + str(request.GET.get('dias', ''))
-    )
+def _chart_validacao_cache_key_raw(nome: str, tribunal: str, classificacao: str,
+                                   dias: str) -> str:
+    """Cache key versionada a partir dos filtros CRUS (strings de GET).
+
+    Compartilhada entre o endpoint e o warm job — os dois PRECISAM gerar a
+    mesma chave pro warm popular o que a view lê. `dias` é a string crua do
+    querystring (default do picker é '' → a computação aplica dias=90).
+    """
+    raw = f'{tribunal}|{classificacao}|{dias}'
     h = hashlib.md5(raw.encode('utf-8')).hexdigest()[:10]
     ver = _chart_validacao_cache_version()
     return f'voyager:chart:{nome}:{h}:v{ver}'
 
 
+def _chart_validacao_cache_key(nome: str, request) -> str:
+    """Cache key versionada — incrementar version invalida tudo de uma vez."""
+    return _chart_validacao_cache_key_raw(
+        nome,
+        request.GET.get('tribunal', ''),
+        request.GET.get('classificacao', ''),
+        str(request.GET.get('dias', '')),
+    )
+
+
+def _is_default_chart_filter(request) -> bool:
+    """True quando NÃO há filtro explícito (visão default = todos os tribunais
+    ativos). É a variante cara (GROUP BY / COUNT sobre a Process inteira, ~40M+)
+    — servida SÓ do cache pré-aquecido pelo warm job. Filtro explícito por
+    tribunal é barato (index range) e pode computar no request."""
+    return not (request.GET.get('tribunal') or request.GET.get('classificacao'))
+
+
 def _chart_validacao_endpoint(nome: str, builder):
-    """Wrapper comum: cache + JSON + tratamento de erro."""
+    """Wrapper comum: cache-first + JSON + tratamento de erro.
+
+    NUNCA computa a agregação da visão default (todos os tribunais, ~40M+ rows)
+    no request — isso estourava o `--timeout 300` do gunicorn e matava o worker
+    (504 colateral em /analisar). A visão default é pré-aquecida pelo warm job
+    `warm_leads_visibilidade_charts` (scheduler); em MISS o endpoint devolve
+    `{data: null, pending: true}` e o `lazyChart` (base.html) reintenta a cada
+    10s até o cache aquecer. Só filtros explícitos por tribunal (index-bounded,
+    baratos) computam síncrono.
+    """
     def _resolve(request):
         key = _chart_validacao_cache_key(nome, request)
         cached = _safe_cache_get(key)
         if cached is not None:
             return JsonResponse({'data': cached}, json_dumps_params={'default': str})
+
+        # MISS na visão default (cara) → não computa no request; sinaliza warming.
+        if _is_default_chart_filter(request):
+            return JsonResponse(
+                {'data': None, 'pending': True, 'status': 'warming'},
+                json_dumps_params={'default': str},
+            )
+
+        # Filtro explícito por tribunal: query index-bounded, computa síncrono.
         try:
             data = builder(request)
         except Exception as exc:
