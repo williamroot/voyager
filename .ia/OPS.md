@@ -371,6 +371,48 @@ Regras pra índice concurrent em tabela grande/quente (`tribunals_process` ~600M
   `run --rm --entrypoint python`) → `restart web` (sobe limpo) → conserta o índice
   com REINDEX CONCURRENTLY.
 
+## Acervo DB (Zordon) fora — VM OOM-kill / IP errado no boot (2026-07-26)
+
+O DB do acervo/RAG (busca + vetorização + `/analisar`) é a **VM 102 `zordon-db`** no
+**Proxmox `root@179.127.17.228`** (nó `faec2a4zbp`, 251GB RAM; painel
+`https://179.127.17.228:8006`). PG 18.4 em `192.168.30.114:5432`. **Não** é o
+`voyager-db` (.101, Postgres do app) — é infra do Zordon.
+
+**Sintoma:** busca/`/analisar` em 504; da LAN, `192.168.30.114` sem ping, sem SSH,
+"No route to host" (o host inteiro some, não só o PG). Outros hosts da LAN respondem.
+
+**Causa raiz dupla:**
+1. **Morte = OOM-kill do HOST.** No Proxmox, `dmesg -T | grep -i oom` mostra
+   `global_oom` matando o kvm da 102. O host fica **oversubscrito** (Σ RAM das VMs >
+   físico) e o **KSM** (dedup que segura o overcommit) estava OFF → 1º pico de memória
+   mata a MAIOR VM.
+2. **Volta difícil = IP errado.** A VM sobe mas o netplan era **DHCP** → pega lease novo
+   (ex. `.125`) em vez do `.114`. `qm start` diz "running" e o console (login prompt) OK,
+   mas ARP p/ `.114` fica INCOMPLETE. Todo o sistema aponta pra .114 → não acha ninguém.
+
+**Runbook (o guest tem `qemu-guest-agent` → conserta SEM senha):**
+```bash
+ssh root@179.127.17.228
+qm list | grep 102                 # status da VM
+qm start 102                       # se stopped
+qm agent 102 network-get-interfaces | grep -A2 ip-address   # IP real do guest (agent)
+# se IP errado, restaurar .114 ao vivo (sem login):
+qm guest exec 102 -- ip addr add 192.168.30.114/24 dev ens18
+echo "screendump /tmp/x.ppm" | qm monitor 102   # console (sem serial → screendump)
+dmesg -T | grep -iE "oom|killed process"        # confirmar OOM
+```
+Verificar do zordon: `ping 192.168.30.114` + `SELECT 1` + `pg_is_in_recovery()` (deve
+ser `False`; PG é WAL/ACID → crash-recovery automático, sem perda de dado).
+
+**Prevenção aplicada (2026-07-26) — não deve mais repetir:**
+- **IP estático `.114`** no netplan do guest (`/etc/netplan/00-installer-config.yaml`,
+  `dhcp4:false`, gw .1, DNS 1.1.1.1/8.8.8.8; backup em `/root/netplan-backup-preincidente.yaml`).
+  Validado num reboot real: sobe sozinho em .114.
+- **VM 80GB** (era 98) + **swap do host 39GB** (era 7, 100% cheio) + **KSM** via
+  `ksmtuned` (enabled; liga dinâmico sob pressão — `run=0` com RAM sobrando é normal).
+- **Guard de auto-restart**: `vm102-guard.timer` (systemd no Proxmox, 2min) →
+  `qm start 102` se cair. Log: `journalctl -t vm102-guard`.
+
 ## Backfill de partes em batch
 
 Re-enfileira processos pendentes/erro pra fila do tribunal:
