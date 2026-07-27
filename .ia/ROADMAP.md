@@ -99,6 +99,18 @@ Sistema operando em produção (v5, AUC 0.95). Ver [`CLASSIFICACAO.md`](CLASSIFI
 - [ ] **Modelo por tribunal** — treinar v6.1 só TRF3, v6.2 só TJMG, etc. Talvez melhor que multi-tribunal único
 - [ ] **Active learning** — Juriscope marca FPs (precision real baixa em algum bucket) → aplicar ao re-treino próximo
 
+## Acervo — escala da vetorização / busca vetorial
+
+Gargalo raiz medido (jul/2026): o índice **HNSW do pgvector** na `acervo_chunk` não cabe na RAM → disk-cliff que trava ingest E busca. Teto de escrita medido ~380 procs/h. Plano faseado (parar quando resolver):
+
+- [x] **Fix single-pass** — `search_vector` no INSERT (elimina o double-HNSW-insert do padrão INSERT+UPDATE). **18× mais rápido na escrita** (A/B medido). Novo `acervo/chunk_writer.py`, deployado na frota. Commit `1f0203e`.
+- [x] **Autovacuum tunado** na `acervo_chunk` (scale_factor 0.02, cost_limit 1000) — controla o bloat de 25%.
+- [x] **RAM do zordon-db 30→94GB** + config (shared_buffers 24GB, effective_cache 70GB) → índice residente.
+- [~] **halfvec** (float16, índice 72→~36GB, recall@20=100% validado) — rebuild em curso com `maintenance_work_mem` alto; falta trocar a busca (`search.py` `CosineDistance` sobre `embedding::halfvec`) + dropar o índice full-precision.
+- [ ] **pgvectorscale (StreamingDiskANN)** — SE, ao crescer o corpus, o índice não couber na RAM. Disk-resident, fica no Postgres (hybrid RRF numa query).
+- [ ] **GPU-CAGRA (NVIDIA cuVS / Milvus-GPU)** — degrau pro **full-corpus (1,15M procs)**, onde nem 96GB segura o índice. Build de índice na GPU em minutos + busca GPU. Custo: 2º store + GPU dedicada (temos 3090s). pgvector é CPU-only. Prototipar num 3090 e comparar SE o gargalo persistir no full-corpus.
+- Pesquisa + trade-offs completos: memória IA `vetor-ingest-teto-e-opcoes.md`.
+
 ## Não-objetivos (declarados fora de escopo)
 
 - Login em PJe pra baixar autos (PDFs)
