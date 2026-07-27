@@ -8,7 +8,7 @@ from django.db import transaction
 from django.db.models import Count, Max, Min
 from django.utils import timezone
 
-from tribunals.models import IngestionRun, Movimentacao, Process, Tribunal
+from tribunals.models import IngestionRun, Movimentacao, Process, Tribunal, ano_cnj_from_numero
 
 from .client import DJENClient
 from .parser import parse_item
@@ -293,7 +293,7 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | Non
             .values_list('numero_cnj', 'pk')
         )
         novos_processos = [
-            Process(tribunal=tribunal, numero_cnj=c)
+            Process(tribunal=tribunal, numero_cnj=c, ano_cnj=ano_cnj_from_numero(c))
             for c in cnjs_pagina - existentes_cnj.keys()
         ]
         if novos_processos:

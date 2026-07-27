@@ -18,7 +18,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from djen.parser import parse_item
-from tribunals.models import IngestionRun, Movimentacao, Process, Tribunal
+from tribunals.models import IngestionRun, Movimentacao, Process, Tribunal, ano_cnj_from_numero
 
 logger = logging.getLogger('voyager.djen.carregar')
 
@@ -115,7 +115,7 @@ class Command(BaseCommand):
             Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
             .values_list('numero_cnj', 'pk')
         )
-        a_criar_proc = [Process(tribunal=tribunal, numero_cnj=c)
+        a_criar_proc = [Process(tribunal=tribunal, numero_cnj=c, ano_cnj=ano_cnj_from_numero(c))
                         for c in cnjs - existentes.keys()]
         n_proc_novos = len(a_criar_proc)
         if a_criar_proc:

@@ -5,6 +5,23 @@ from django.db import models
 from django.db.models import Q, UniqueConstraint
 from django.utils.translation import gettext_lazy as _
 
+import re
+
+# Formato CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO — os 4 dígitos do ano começam na posição 12.
+_CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
+
+
+def ano_cnj_from_numero(numero_cnj):
+    """Deriva o ano (smallint) de um numero_cnj bem-formado, ou None.
+
+    Espelha exatamente a lógica do trigger SQL `set_process_ano_cnj`
+    (migration 0008/0042). Guard p/ CNJ malformado → None.
+    """
+    if not numero_cnj:
+        return None
+    m = _CNJ_ANO_RE.match(numero_cnj)
+    return int(m.group(1)) if m else None
+
 
 class Tribunal(models.Model):
     sigla = models.CharField(max_length=10, primary_key=True)
@@ -169,6 +186,14 @@ class Process(models.Model):
 
     def __str__(self):
         return f'{self.tribunal_id}/{self.numero_cnj}'
+
+    def save(self, *args, **kwargs):
+        # ano_cnj é derivado do numero_cnj. O trigger SQL (migration 0042)
+        # é a fonte de verdade e cobre bulk_create; este override garante
+        # que saves via ORM também nasçam corretos mesmo que o trigger falte.
+        if self.ano_cnj is None and self.numero_cnj:
+            self.ano_cnj = ano_cnj_from_numero(self.numero_cnj)
+        super().save(*args, **kwargs)
 
 
 class Parte(models.Model):
