@@ -413,6 +413,35 @@ ser `False`; PG é WAL/ACID → crash-recovery automático, sem perda de dado).
 - **Guard de auto-restart**: `vm102-guard.timer` (systemd no Proxmox, 2min) →
   `qm start 102` se cair. Log: `journalctl -t vm102-guard`.
 
+## Vetorização "lenta/parada" — checar os WRITERS antes de escalar GPU (2026-07-27)
+
+**Sintoma:** dashboard mostra vetorização rastejando (`rate_10min`≈0, `done` não avança),
+buffer `vetorizar_write` (Redis) parado/subindo, mas as GPUs de embed ocupadas. Instinto
+errado = "falta GPU / subir pods". **Quase sempre é o DRENO (writers) desligado.**
+
+**Pipeline:** pods de embed (compute) produzem → buffer Redis `vetorizar_write` →
+`vetorizar_writer` (LAN, no zordon) drena → `INSERT acervo_chunk`. Se os writers estão OFF,
+os pods embedam pra um buffer que ninguém esvazia → nada chega no DB. **Aconteceu:** os 8
+writers ficaram OFF ~1 dia (pausados p/ um build de índice HNSW e nunca religados).
+
+**Diagnóstico (via `ssh ubuntu@zordon`):**
+```bash
+systemctl is-active zordon-vetorizar-writer@{1..8}.service   # devem estar active
+# buffer drenando? (django shell) contar rq:job:vetwrite-* 2x com sleep — deve CAIR
+curl -s http://127.0.0.1:8011/api/vetorizacao/fleet | python3 -c 'import sys,json;d=json.load(sys.stdin);print("rate_10min",d["rate_10min"])'
+```
+
+**Fix / prevenção (feito):** os writers agora são **systemd `zordon-vetorizar-writer@1..8`**
+(`Restart=always`, **enabled** → sobrevivem a reboot e a morte). Nunca mais ficam off
+calados. Religar/escalar: `sudo systemctl start zordon-vetorizar-writer@{1..8}`.
+
+**Teto real:** cada `INSERT acervo_chunk` leva **14-40s** (HNSW+FTS, DB I/O-bound) → teto
+~30k chunks/h. Mais writers dão retorno **sub-linear** (contendem no mesmo disco); mais pods
+de embed = só enche o buffer. **O gargalo é a ESCRITA no DB**, não GPU. Unlock durável =
+`.ia/UNLOCK_VETORIAL_ARQUITETURAL.md` (LanceDB). Docs grandes (mediana 18MB/proc, milhares
+de chunks) → `docs/h` baixo mas `chunks/h` alto é ESPERADO. Ver memórias
+`db-contencao-busca-vs-batch`, `frota-pods-quickpod-realidade`.
+
 ## Backfill de partes em batch
 
 Re-enfileira processos pendentes/erro pra fila do tribunal:
