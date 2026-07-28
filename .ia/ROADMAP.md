@@ -106,10 +106,12 @@ Gargalo raiz medido (jul/2026): o índice **HNSW do pgvector** na `acervo_chunk`
 - [x] **Fix single-pass** — `search_vector` no INSERT (elimina o double-HNSW-insert do padrão INSERT+UPDATE). **18× mais rápido na escrita** (A/B medido). Novo `acervo/chunk_writer.py`, deployado na frota. Commit `1f0203e`.
 - [x] **Autovacuum tunado** na `acervo_chunk` (scale_factor 0.02, cost_limit 1000) — controla o bloat de 25%.
 - [x] **RAM do zordon-db 30→94GB** + config (shared_buffers 24GB, effective_cache 70GB) → índice residente.
-- [~] **halfvec** (float16, índice 72→~36GB, recall@20=100% validado) — rebuild em curso com `maintenance_work_mem` alto; falta trocar a busca (`search.py` `CosineDistance` sobre `embedding::halfvec`) + dropar o índice full-precision.
-- [ ] **pgvectorscale (StreamingDiskANN)** — SE, ao crescer o corpus, o índice não couber na RAM. Disk-resident, fica no Postgres (hybrid RRF numa query).
-- [ ] **GPU-CAGRA (NVIDIA cuVS / Milvus-GPU)** — degrau pro **full-corpus (1,15M procs)**, onde nem 96GB segura o índice. Build de índice na GPU em minutos + busca GPU. Custo: 2º store + GPU dedicada (temos 3090s). pgvector é CPU-only. Prototipar num 3090 e comparar SE o gargalo persistir no full-corpus.
-- Pesquisa + trade-offs completos: memória IA `vetor-ingest-teto-e-opcoes.md`.
+- [x] **halfvec** (float16) — EM PROD: `chunk_emb_hnsw_half`, busca em `search.py` via `embedding::halfvec(1024)`, fp32 dropado, recall@8 = fp32 (0pp, medido). Índice cresceu p/ **58GB** com o corpus (31M chunks) e **voltou a raspar a RAM (76GB host)** → é o teto atual.
+- [x] **quantização binária ingênua** (bit+Hamming+rescore) — **BLOCK** no gate full-corpus (overlap@8 0,49). Ver `QUANTIZACAO_INDICE_VETORIAL.md`.
+- [x] **pgvectorscale (StreamingDiskANN + SBQ)** — **FAIL ESTRUTURAL**: SBQ 2-bit impossível >900d (bge-m3=1024d), só 1-bit = regime reprovado. Extensão instalada mas inerte. Ver `PGVECTORSCALE_SBQ.md`.
+- [ ] **Próximo degrau é ARQUITETURAL (sai do PG)** — **doc de decisão: `UNLOCK_VETORIAL_ARQUITETURAL.md`**. Recomenda **LanceDB** (embarcado, disk-first, serve só o ANN → RRF/FTS/rerank intactos), precedido de teste barato da Matryoshka (truncar bge-m3 <930d p/ ressuscitar o SBQ — **prior ruim: bge-m3 não tem MRL**). Mesmo gate overlap@8≥0,90 no corpus cheio + cutover reversível por flag.
+- [ ] **GPU-CAGRA (NVIDIA cuVS / Milvus-GPU)** — degrau FUTURO/condicional pro **full-corpus (~85M chunks)**, SE o LanceDB-CPU também raspar teto. Custo: 2º store + GPU dedicada (compete c/ embed/extração). PQ já coberto pelo LanceDB sem GPU.
+- Pesquisa + trade-offs completos: `UNLOCK_VETORIAL_ARQUITETURAL.md` + memória IA `vetor-ingest-teto-e-opcoes.md`.
 
 ## Não-objetivos (declarados fora de escopo)
 

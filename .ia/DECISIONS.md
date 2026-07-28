@@ -460,3 +460,37 @@ tabela `movimentacao` ter crescido pra ~614M com o backfill.
 warm. Trade-off: gráficos de volume ficam com staleness de até ~1 dia (refresh diário) e
 counts de overview viram estimativa reltuples — aceitável pra headline/tendência; números
 exatos por período continuam via query filtrada (barata e sargável).
+
+## ADR-027 — Extrator v2 "Ficha da Parte": extração por-documento + merge determinístico (2026-07-28)
+
+**Contexto:** O extrator v1 (Qwen2.5-7B QLoRA, macro 87,9) ficou com partes=54%.
+Diagnóstico medido: erro de CONTEÚDO/cobertura, não formato — grammar não moveu
+(0,533→0,529), modelo maior (120B) também não; o modelo gerava a lista de partes
+one-shot vendo ~6 chunks e nunca via metade dos herdeiros. Meta do produto: ficha
+COMPLETA por parte (papel, CPF, valor a receber, recebido via alvarás, saldo) +
+camada jurimetria (juiz por decisão, vara, relator), operando SEM Falcon em
+produção (Falcon só como professor no treino).
+
+**Decisão:**
+- **Extração POR-DOCUMENTO** condicionada a `doc_classe` (1 doc → registros JSON),
+  não por-processo: completude vem do pipeline (lê TODOS os docs relevantes), não
+  da memória do modelo; labels por documento são mais densos; doc cabe no ctx.
+- **Merge determinístico** (`acervo/ficha_parte.py`): entidade por CPF (chave
+  forte; mascarado NÃO conta), fuzzy conservador com guardas anti-mescla, espólio
+  LIGADO (não mesclado), alvará nunca cria parte (órfão flagado), saldo sempre
+  DERIVADO, conflito → abstém. LLM aponta; código decide.
+- **Especialistas por tier, não por campo**: regex (cessão), classificador pequeno
+  futuro (natureza), 7B único por-documento pro resto. Base swap rejeitado (120B
+  não consertou; o lever é cobertura documental).
+- Pré-requisito F0: classe ALVARA no doc_classificador (achou 171.667 alvarás,
+  94% escondidos em ADMIN/OUTROS) — fonte do "já recebeu".
+
+**Alternativas rejeitadas:** modelo maior (não resolve, mais caro); grammar mais
+estrita (formato não era o problema); rotular partes por-processo com mais chunks
+(estoura contexto e mantém one-shot).
+
+**Consequência:** dataset novo de 196.360 exemplos por-documento (55.847 CNJs,
+κ=13.470), treino v2 com caps por tarefa (anti "extrator de juiz": ofício+decisão
+eram 92% do cru). Custo: pipeline de inferência passa a iterar por documento
+(mais chamadas/processo, mitigado por docs curtos) e ganha um estágio de merge.
+Registro completo: `.ia/MODELOS.md` + `.ia/FICHA_PARTE.md`.
