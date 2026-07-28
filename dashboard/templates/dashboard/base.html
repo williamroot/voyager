@@ -454,6 +454,11 @@
         {% voy_icon "dossier" "w-4 h-4" %}
         Análises feitas
       </a>
+      {% url 'dashboard:modelo-extrator' as modelo_extrator_url %}
+      <a href="{{ modelo_extrator_url }}" class="nav-item {% if request.path == modelo_extrator_url %}active{% endif %}">
+        {% voy_icon "sparkles" "w-4 h-4" %}
+        Modelo Extrator
+      </a>
 
       {# ---- Seção Dados: movimentações, partes ---- #}
       <div class="nav-section">{% voy_icon "transmission" "w-3.5 h-3.5" %} Dados</div>

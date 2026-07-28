@@ -41,6 +41,7 @@ urlpatterns = [
     path('consulta-rapida/', views.consulta_rapida, name='consulta-rapida'),
     path('consulta-rapida/api/', views.consulta_rapida_api, name='consulta-rapida-api'),
     path('api/', views.api_docs, name='api-docs'),
+    path('modelos/extrator/', views.modelo_extrator, name='modelo-extrator'),
     path('leads/', views.leads_overview, name='leads'),
     path('leads/lista/', views.leads_lista, name='leads-lista'),
     path('leads/export/', views.leads_export_csv, name='leads-export'),

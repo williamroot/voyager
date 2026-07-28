@@ -3417,3 +3417,10 @@ def _vetor_maquinas(data):
             maquinas.append({'host': host, 'total': 0, 'busy': 0, 'idle': 0, 'gpu': g})
     maquinas.sort(key=lambda m: (-m['total'], m['host'] or ''))
     return maquinas
+
+
+@login_required
+@require_GET
+def modelo_extrator(request):
+    """Model card do extrator de precatórios — página autocontida (.ia/extrator-precatorio.html)."""
+    return render(request, 'dashboard/modelo_extrator.html')
