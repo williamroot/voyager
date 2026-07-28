@@ -106,5 +106,6 @@ de regex (normalizar no merger).
 |---|---|---|
 | Harness de treino (train_peft*, mix, gates, grammars) | llmsv2 `/mnt/nas-data/voyager-train/` | git local do diretório (scripts; sem out/data/logs) |
 | Geradores de dataset + extração/merger | zordon `~/zordon/` (repo git) | commit por ciclo |
+| **SDK standalone** (pdf→ficha, sem infra) | local `~/projetos/extrator-precatorio-sdk` (git main) | 53 testes; GGUF plugável via fetch_model.sh + md5 |
 | Pesos/GGUF/datasets | llmsv2 NAS + zordon eval/ | NÃO versionados — md5 neste arquivo |
 | Memória operacional da sessão | `~/.claude/.../memory/` | fora do repo (contexto do agente) |
