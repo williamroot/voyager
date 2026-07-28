@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Extrator de Precatórios — Model Card · Voyager/Zordon</title>
+<style>
+  :root{
+    --bg:#0b0e14; --bg2:#11151f; --card:#161b28; --card2:#1c2233;
+    --line:#252d42; --tx:#e8ecf4; --tx2:#9aa5bd; --tx3:#5f6a85;
+    --gold:#f5c451; --green:#4ade80; --blue:#60a5fa; --red:#f87171;
+    --violet:#a78bfa; --cyan:#22d3ee; --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--tx);font:16px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+
+  /* NAV */
+  nav{position:sticky;top:0;z-index:50;background:rgba(11,14,20,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:22px;height:56px;font-size:13.5px}
+  nav .logo{font-weight:800;letter-spacing:.4px;color:var(--gold)}
+  nav a{color:var(--tx2);white-space:nowrap} nav a:hover{color:var(--tx);text-decoration:none}
+  nav .spacer{flex:1}
+  .navtag{font-family:var(--mono);font-size:11px;color:var(--cyan);border:1px solid var(--line);border-radius:20px;padding:3px 10px}
+
+  /* HERO */
+  header{padding:72px 0 56px;background:
+    radial-gradient(900px 400px at 15% -10%,rgba(245,196,81,.10),transparent),
+    radial-gradient(700px 380px at 90% 0%,rgba(96,165,250,.08),transparent)}
+  .crumb{font-family:var(--mono);font-size:12px;color:var(--tx3);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:44px;line-height:1.12;font-weight:800;letter-spacing:-.5px;margin-bottom:14px}
+  h1 em{font-style:normal;background:linear-gradient(90deg,var(--gold),#f59e0b);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lead{font-size:18px;color:var(--tx2);max-width:760px;margin-bottom:30px}
+  .badges{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:36px}
+  .badge{font-family:var(--mono);font-size:12px;padding:5px 12px;border-radius:20px;border:1px solid var(--line);color:var(--tx2)}
+  .badge.b-gold{border-color:rgba(245,196,81,.5);color:var(--gold)}
+  .badge.b-blue{border-color:rgba(96,165,250,.5);color:var(--blue)}
+  .badge.b-green{border-color:rgba(74,222,128,.5);color:var(--green)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .kpi .v{font-size:30px;font-weight:800;font-family:var(--mono);letter-spacing:-1px}
+  .kpi .v small{font-size:15px;color:var(--tx3);font-weight:600}
+  .kpi .l{font-size:12.5px;color:var(--tx2);margin-top:3px}
+  .kpi.gold .v{color:var(--gold)} .kpi.green .v{color:var(--green)} .kpi.blue .v{color:var(--blue)} .kpi.violet .v{color:var(--violet)}
+
+  /* SECTIONS */
+  section{padding:52px 0;border-top:1px solid var(--line)}
+  h2{font-size:27px;font-weight:800;letter-spacing:-.3px;margin-bottom:8px}
+  h2 .num{color:var(--tx3);font-family:var(--mono);font-size:17px;margin-right:10px}
+  .sub{color:var(--tx2);margin-bottom:28px;max-width:820px}
+  h3{font-size:17px;font-weight:700;margin:26px 0 12px}
+  p{color:var(--tx2);margin-bottom:12px;max-width:860px}
+  strong{color:var(--tx)}
+
+  /* CARDS/GRID */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media(max-width:860px){.grid2,.grid3{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .card h4{font-size:15px;font-weight:700;margin-bottom:8px}
+  .card p{font-size:14px;margin-bottom:0;max-width:none}
+  .card .tag{display:inline-block;font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;padding:3px 9px;border-radius:12px;margin-bottom:12px}
+  .t-gold{background:rgba(245,196,81,.12);color:var(--gold)} .t-green{background:rgba(74,222,128,.12);color:var(--green)}
+  .t-blue{background:rgba(96,165,250,.12);color:var(--blue)} .t-red{background:rgba(248,113,113,.12);color:var(--red)}
+  .t-violet{background:rgba(167,139,250,.12);color:var(--violet)} .t-cyan{background:rgba(34,211,238,.12);color:var(--cyan)}
+
+  /* TABLES */
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:14px 0 6px}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--tx3);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+  td{padding:9px 12px;border-bottom:1px solid rgba(37,45,66,.55);color:var(--tx2)}
+  td:first-child{color:var(--tx);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  td.n,th.n{text-align:right;font-family:var(--mono)}
+  .up{color:var(--green);font-weight:700} .down{color:var(--red);font-weight:700} .flat{color:var(--tx3)}
+  .tbl{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 10px;overflow-x:auto}
+
+  /* BARS */
+  .bars{display:flex;flex-direction:column;gap:12px;margin:16px 0}
+  .bar-row{display:grid;grid-template-columns:130px 1fr 120px;gap:14px;align-items:center;font-size:13.5px}
+  .bar-row .lbl{color:var(--tx);font-weight:600;text-align:right}
+  .bar-track{position:relative;height:26px;background:var(--bg2);border-radius:7px;overflow:hidden}
+  .bar-base{position:absolute;inset:0 auto 0 0;background:rgba(95,106,133,.35);border-radius:7px}
+  .bar-ft{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#8a6d1f,var(--gold));border-radius:7px;box-shadow:0 0 14px rgba(245,196,81,.25)}
+  .bar-row .val{font-family:var(--mono);font-size:13px;color:var(--tx2);white-space:nowrap}
+  .bar-row .val b{color:var(--gold)}
+
+  /* TIMELINE */
+  .tl{position:relative;margin:24px 0 0;padding-left:34px}
+  .tl:before{content:"";position:absolute;left:11px;top:6px;bottom:6px;width:2px;background:var(--line)}
+  .tl-item{position:relative;padding-bottom:34px}
+  .tl-item:last-child{padding-bottom:6px}
+  .tl-dot{position:absolute;left:-30px;top:3px;width:20px;height:20px;border-radius:50%;border:2px solid var(--line);background:var(--bg);display:flex;align-items:center;justify-content:center}
+  .tl-dot i{width:8px;height:8px;border-radius:50%;background:var(--tx3)}
+  .tl-item.done .tl-dot{border-color:var(--green)} .tl-item.done .tl-dot i{background:var(--green)}
+  .tl-item.live .tl-dot{border-color:var(--gold);animation:pulse 1.8s infinite} .tl-item.live .tl-dot i{background:var(--gold)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(245,196,81,.45)}70%{box-shadow:0 0 0 10px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .tl-when{font-family:var(--mono);font-size:11.5px;color:var(--tx3);letter-spacing:.5px}
+  .tl-title{font-size:17px;font-weight:700;margin:2px 0 8px}
+  .tl-body{font-size:14px;color:var(--tx2);max-width:840px}
+  .mini{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .chip{font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--line);color:var(--tx2)}
+  .chip b{color:var(--gold);font-weight:700}
+
+  /* CODE */
+  pre{background:#0a0d13;border:1px solid var(--line);border-radius:12px;padding:18px 20px;font-family:var(--mono);font-size:13px;line-height:1.7;overflow-x:auto;margin:12px 0;color:#c9d4ea}
+  pre .c{color:#586585} pre .k{color:var(--gold)} pre .s{color:#7ee2a8} pre .u{color:var(--cyan)}
+  code{font-family:var(--mono);font-size:13px;background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--cyan)}
+
+  /* DIAGRAM */
+  .diagram{background:#0a0d13;border:1px solid var(--line);border-radius:12px;padding:22px;font-family:var(--mono);font-size:12.5px;line-height:1.8;overflow-x:auto;white-space:pre;color:var(--tx2)}
+  .diagram b{color:var(--gold);font-weight:700}
+
+  /* CALLOUT */
+  .callout{border-left:3px solid var(--gold);background:rgba(245,196,81,.06);border-radius:0 12px 12px 0;padding:16px 20px;margin:18px 0;font-size:14.5px;color:var(--tx2)}
+  .callout.red{border-color:var(--red);background:rgba(248,113,113,.06)}
+  .callout.blue{border-color:var(--blue);background:rgba(96,165,250,.06)}
+  .callout b{color:var(--tx)}
+
+  footer{padding:44px 0 60px;border-top:1px solid var(--line);color:var(--tx3);font-size:13px}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <span class="logo">◆ VOYAGER/ZORDON</span>
+  <a href="#visao">Visão</a><a href="#arq">Arquitetura</a><a href="#etapas">Etapas &amp; Métricas</a>
+  <a href="#v2">Ficha da Parte v2</a><a href="#artefatos">Artefatos</a><a href="#docker">Rodar no Docker</a><a href="#limites">Limitações</a>
+  <span class="spacer"></span>
+  <span class="navtag">model card · 28/jul/2026</span>
+</div></nav>
+
+<header><div class="wrap">
+  <div class="crumb">Model Card · extrator-precatorio</div>
+  <h1>Extrator de Precatórios<br><em>dos autos ao dado estruturado, local e auditável</em></h1>
+  <p class="lead">LLM 7B fine-tunado (QLoRA) que lê os autos processuais e extrai metadados estruturados —
+  natureza, valores, cessões, ente devedor, partes — com proveniência, abstenção e gramática de saída.
+  Treinado por destilação triangulada; <strong>em produção opera 100% sobre os autos</strong> (o oráculo Falcon/Juriscope é usado apenas como professor no treino).</p>
+  <div class="badges">
+    <span class="badge b-gold">v1 · GATE PASS · empacotado</span>
+    <span class="badge b-blue">v2 "Ficha da Parte" · treinando (ETA 29/07)</span>
+    <span class="badge b-green">serve em ~6GB VRAM (RTX 3060+)</span>
+    <span class="badge">Qwen2.5-7B · QLoRA · GGUF Q4_K_M</span>
+    <span class="badge">saída com grammar GBNF · temp 0</span>
+  </div>
+  <div class="kpis">
+    <div class="kpi gold"><div class="v">87,9<small>%</small></div><div class="l">macro TEST v1 (era 78,0 na base)</div></div>
+    <div class="kpi green"><div class="v">+9,9<small>pp</small></div><div class="l">ganho do fine-tune vs Qwen puro</div></div>
+    <div class="kpi blue"><div class="v">196k</div><div class="l">exemplos no dataset v2 (55,8k CNJs)</div></div>
+    <div class="kpi violet"><div class="v">4,68<small>GB</small></div><div class="l">GGUF Q4_K_M — roda em placa simples</div></div>
+  </div>
+</div></header>
+
+<section id="visao"><div class="wrap">
+  <h2><span class="num">01</span>Por que este modelo existe</h2>
+  <p class="sub">O acervo tem <strong>milhões de processos</strong> e centenas de milhares de autos baixados (644k+ documentos classificados).
+  Extrair metadados deles com API paga é caro e vaza dado; com modelo local genérico é lento (o protótipo com
+  gpt-oss:20b levava 30–60s/processo) e erra. A resposta: <strong>destilar</strong> o conhecimento de oráculos e regras
+  determinísticas num modelo pequeno, rápido e preciso, que roda em GPU barata.</p>
+  <div class="grid3">
+    <div class="card"><span class="tag t-gold">Princípio 1</span><h4>Zero-erro operacional</h4>
+      <p>O modelo <strong>abstém</strong> ("null") em vez de chutar. Conflito entre fontes → abstém. Precisão sobre o que é emitido &gt; cobertura. Nada gravado é chute.</p></div>
+    <div class="card"><span class="tag t-blue">Princípio 2</span><h4>Falcon só no treino</h4>
+      <p>O oráculo (Falcon/Juriscope) rotula dados de treino e mede gates. <strong>Em produção o modelo opera só com os autos</strong> — sem dependência externa.</p></div>
+    <div class="card"><span class="tag t-green">Princípio 3</span><h4>LLM aponta, código decide</h4>
+      <p>Saída constrangida por gramática (GBNF). Merge de entidades, saldo e agregações são <strong>determinísticos</strong> — o LLM nunca faz aritmética nem funde pessoas.</p></div>
+  </div>
+</div></section>
+
+<section id="arq"><div class="wrap">
+  <h2><span class="num">02</span>Arquitetura do pipeline</h2>
+  <p class="sub">Especialistas <strong>por tier de dificuldade</strong>, não um clone por campo. Regex resolve o que é mecânico;
+  o 7B entra só onde há linguagem de verdade — condicionado ao tipo de documento.</p>
+  <div class="diagram">autos (PDFs) ──▶ <b>doc_classificador</b> (23 classes; tier-1 nome + tier-2 conteúdo; 644k+ docs)
+                     │
+                     ├── OFICIO_REQUISITORIO ─▶ beneficiário, valor individual, natureza, vara, datas
+                     ├── PLANILHA_CALCULO ────▶ valores calculados por parte, data-base
+                     ├── PROCURACAO / DOC_PESSOAL ─▶ partes {nome, cpf, papel}
+                     ├── CESSAO_CREDITO ──────▶ cedente ↔ cessionário, % / valor
+                     ├── HABILITACAO / CERT_OBITO ─▶ falecido, herdeiros[]
+                     ├── <b>ALVARA</b> / PAGTO_COMPROVANTE ─▶ "já recebeu": beneficiário, valor pago, data
+                     ├── SENTENCA / DECISAO ──▶ <b>juiz POR decisão</b>, vara/comarca, data, desfecho
+                     └── ACORDAO ─────────────▶ relator, órgão julgador, desfecho recursal
+                     │
+              <b>extrator 7B</b> (1 documento → registros JSON, grammar GBNF, temp 0)
+                     │
+              <b>merger determinístico</b> (ficha_parte.py — 24 testes)
+                     │    CPF = chave forte · fuzzy c/ guardas · espólio LIGADO
+                     │    alvará nunca cria parte · conflito → abstém
+                     ▼
+              <b>FICHA DA PARTE</b> (ledger)                 <b>CONTEXTO JURIMETRIA</b>
+              nome canônico + CPF + papel                 vara / comarca / grau
+              valor a receber (parcela DELA)              juízes por decisão assinada
+              recebido[] {valor, data, alvará}            relator + câmara/turma
+              saldo = DERIVADO (nunca extraído)           desfecho por grau + datas-chave
+              eventos: cessão, óbito, habilitação         advogados + OAB</div>
+</div></section>
+
+<section id="etapas"><div class="wrap">
+  <h2><span class="num">03</span>Etapas &amp; métricas — a história completa</h2>
+  <p class="sub">Cada etapa com o número que a justificou. Nada aqui é estimativa retroativa — são os resultados dos gates da época.</p>
+
+  <div class="tl">
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">ETAPA 0 · jul/2026</div><div class="tl-title">Protótipo RAG (o que industrializamos)</div>
+      <div class="tl-body">Extração live por RAG (hybrid search FTS+pgvector+RRF+rerank → top-8 chunks → gpt-oss:20b). Funcionava, mas <strong>30–60s/processo</strong> (reasoning-model) e sem persistência. Provou o mecanismo; inviável pra volume.</div>
+      <div class="mini"><span class="chip">latência <b>30–60s/proc</b></span><span class="chip">modelo 20B reasoning</span></div>
+    </div>
+
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">ETAPA 1 · jul/2026</div><div class="tl-title">Régua de avaliação (dataset Falcon)</div>
+      <div class="tl-body">Antes de treinar, medir: dataset de eval cruzando extrações vs oráculo Falcon por <code>numero_autos</code>. Achado-chave da observabilidade: <strong>~90% do erro de extração era do LLM, não do retrieval</strong> — o lever era o modelo, não a busca. E: ente_devedor via LLM ~96,6% (melhor que o próprio Falcon no TJSP).</div>
+      <div class="mini"><span class="chip">erro: <b>90% LLM</b> / 10% retrieval</span><span class="chip">ente-LLM <b>96,6%</b></span></div>
+    </div>
+
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">ETAPA 2 · 27/jul/2026</div><div class="tl-title">Dataset v1 — destilação triangulada (por-processo)</div>
+      <div class="tl-body">Gerador streaming com rótulo por <strong>triangulação de concordância</strong>: só vira ouro quando ≥2 fontes independentes concordam (Falcon∩texto, regex e-SAJ determinística, LLM∩Falcon; ente via LLM-solo alta confiança). Divergência → fila κ humana. Split por hash de CNJ (train/dev/test sem vazamento). Lição aprendida: estratificar TJSP≤50% derrubou o yield de 58%→2% — revertido pra distribuição natural.</div>
+      <div class="mini"><span class="chip">N=8000 → <b>10.850 ouro</b></span><span class="chip">ente 4.188 · partes 2.225 · natureza 2.011 · cessão 1.905 · valor 521</span><span class="chip">62 MB</span></div>
+    </div>
+
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">ETAPA 3 · 28/jul/2026</div><div class="tl-title">Treino v1 — QLoRA na RTX 3090 (~10,4h)</div>
+      <div class="tl-body">Qwen2.5-7B-Instruct, 4-bit nf4, LoRA r=32/α=32 (<strong>80,7M parâmetros treináveis = 1,05%</strong>), maxseq 4096 (0 truncados), bs1×accum16, lr 2e-4 cosine, 3 épocas, gradient checkpointing. Stack: transformers 4.46 + peft 0.19 + bitsandbytes 0.50 + trl 0.12 (Unsloth abandonado — conflito de versões). Best-model por dev-loss. Incidente corrigido no meio: OOM no eval (bs=2→1 + subset 400 + exclusão de 12 exemplos all-masked que davam loss NaN).</div>
+      <div class="mini"><span class="chip">train loss <b>0,53 → 0,158</b></span><span class="chip">dev loss <b>0,093 → 0,073</b></span><span class="chip">sem overfit</span><span class="chip">VRAM ~19,8GB</span></div>
+    </div>
+
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">ETAPA 4 · 28/jul/2026</div><div class="tl-title">Gate v1 — TEST held-out (n=3.804, CNJs nunca vistos)</div>
+      <div class="tl-body">Baseline (Qwen sem fine-tune) vs fine-tune, mesma grammar, mesmo contexto:</div>
+      <div class="bars">
+        <div class="bar-row"><span class="lbl">natureza</span><div class="bar-track"><div class="bar-base" style="width:82%"></div><div class="bar-ft" style="width:99.1%"></div></div><span class="val">82 → <b>99,1</b> <span class="up">+17,1</span></span></div>
+        <div class="bar-row"><span class="lbl">valor_ofício</span><div class="bar-track"><div class="bar-base" style="width:72%"></div><div class="bar-ft" style="width:91.8%"></div></div><span class="val">72 → <b>91,8</b> <span class="up">+19,8</span></span></div>
+        <div class="bar-row"><span class="lbl">cessão</span><div class="bar-track"><div class="bar-base" style="width:98%"></div><div class="bar-ft" style="width:100%"></div></div><span class="val">98 → <b>100</b> <span class="up">+2,0</span></span></div>
+        <div class="bar-row"><span class="lbl">ente_devedor</span><div class="bar-track"><div class="bar-base" style="width:92%"></div><div class="bar-ft" style="width:94.7%"></div></div><span class="val">92 → <b>94,7</b> <span class="up">+2,7</span></span></div>
+        <div class="bar-row"><span class="lbl">partes</span><div class="bar-track"><div class="bar-base" style="width:46%"></div><div class="bar-ft" style="width:54%"></div></div><span class="val">46 → <b>54,0</b> <span class="up">+8,0</span></span></div>
+        <div class="bar-row"><span class="lbl">MACRO</span><div class="bar-track"><div class="bar-base" style="width:78%"></div><div class="bar-ft" style="width:87.9%"></div></div><span class="val">78 → <b>87,9</b> <span class="up">+9,9</span></span></div>
+      </div>
+      <div class="callout"><b>Diagnóstico decisivo do "partes" (n=200):</b> 82% dos erros eram de <b>conteúdo</b> (lista errada/incompleta), só 2,5% de JSON quebrado. Com grammar forçada: F1 0,533→0,529 (<b>flat</b>) — ou seja, gramática não resolve, modelo maior não resolve (120B errava igual). O problema era <b>cobertura documental</b>: o modelo gerava a lista one-shot vendo ~6 chunks e nunca via metade dos herdeiros. Essa medição definiu a v2 inteira.</div>
+    </div>
+
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">ETAPA 5 · 28/jul/2026</div><div class="tl-title">Empacotamento — GGUF Q4_K_M + grammars</div>
+      <div class="tl-body">Merge fp16 → convert → quantização Q4_K_M. <strong>Treina pesado (24GB), serve leve (~6GB)</strong> — roda numa RTX 3060. Modelfile ChatML (temp 0, ctx 4096) + 5 gramáticas GBNF por tarefa (enum fechado, campos tipados, null de abstenção).</div>
+      <div class="mini"><span class="chip">GGUF <b>4,68GB</b></span><span class="chip">serve <b>~6GB VRAM</b></span><span class="chip">5 grammars v1</span></div>
+    </div>
+  </div>
+</div></section>
+
+<section id="v2"><div class="wrap">
+  <h2><span class="num">04</span>Ficha da Parte — o ciclo v2 (versão atual, em treino)</h2>
+  <p class="sub">Reformulação completa do problema "partes": de <strong>lista one-shot por processo</strong> para
+  <strong>extração POR-DOCUMENTO + merge determinístico</strong>. Meta: a ficha completa de cada parte — papel, CPF,
+  valor a receber, <strong>quanto já recebeu</strong> — mais a camada de jurimetria (juiz por decisão, vara, relator, desfecho).</p>
+
+  <div class="tl">
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">F0 · 28/jul</div><div class="tl-title">Classe ALVARA — o "já recebeu" estava invisível</div>
+      <div class="tl-body">Classe nova no classificador de documentos (tier-1 nome + tier-2 conteúdo, incl. o template real "ALVARÁ ELETRÔNICO DE PAGAMENTO" do TJSP). Reclassificação de 1,95M docs dos baldes ADMIN/OUTROS/DECISAO:</div>
+      <div class="mini"><span class="chip"><b>171.667</b> alvarás encontrados</span><span class="chip">11.031 por nome + 160,1k por conteúdo</span><span class="chip"><b>94% estavam escondidos</b> em ADMIN/OUTROS</span><span class="chip">auditável via doc_classe_fonte</span></div>
+    </div>
+
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">F1 · 28/jul</div><div class="tl-title">Dataset v2 por-documento — piloto e full run</div>
+      <div class="tl-body">1 exemplo = 1 documento (instrução condicionada à doc_classe + até ~3k tokens do doc) → registros JSON. Ouro = triangulado; prata = 1 fonte estrutural; ~10% de <strong>abstenção explícita</strong> (v1 não tinha — o modelo aprende a dizer "não sei"). Piloto n=2000 validou o mecanismo (6.544 ex.); full run varreu o corpus inteiro em <strong>36 minutos</strong>:</div>
+      <div class="tbl"><table>
+        <tr><th>tarefa</th><th class="n">total</th><th class="n">ouro</th><th class="n">prata</th><th class="n">abstenção</th><th class="n">fila κ</th></tr>
+        <tr><td>ofício (beneficiário, valor individual…)</td><td class="n">91.673</td><td class="n">18.066</td><td class="n">73.170</td><td class="n">437</td><td class="n">2.575</td></tr>
+        <tr><td>decisão (juiz, vara, data, desfecho)</td><td class="n">88.263</td><td class="n"><span class="up">79.690 (90%)</span></td><td class="n">1.370</td><td class="n">7.203</td><td class="n">10.062</td></tr>
+        <tr><td>acórdão (relator, órgão, desfecho)</td><td class="n">5.905</td><td class="n">1.195</td><td class="n">4.119</td><td class="n">591</td><td class="n">0</td></tr>
+        <tr><td>partes_doc (nome, cpf, papel)</td><td class="n">5.864</td><td class="n">2.502</td><td class="n">2.775</td><td class="n">587</td><td class="n">0</td></tr>
+        <tr><td>pagamento (alvará: valor pago, data)</td><td class="n">2.514</td><td class="n"><span class="up">2.242 (89%)</span></td><td class="n">20</td><td class="n">252</td><td class="n">180</td></tr>
+        <tr><td>herdeiros (falecido → sucessores)</td><td class="n">1.522</td><td class="n">555</td><td class="n">814</td><td class="n">153</td><td class="n">152</td></tr>
+        <tr><td>cessão (cedente ↔ cessionário)</td><td class="n">619</td><td class="n"><span class="up">619 (100%)</span></td><td class="n">0</td><td class="n">0</td><td class="n">501</td></tr>
+        <tr><td><strong>TOTAL</strong></td><td class="n"><strong>196.360</strong></td><td class="n">104.869</td><td class="n">82.268</td><td class="n">9.223</td><td class="n">13.470</td></tr>
+      </table></div>
+      <div class="mini"><span class="chip"><b>55.847 CNJs</b> (corpus vetorizado inteiro)</span><span class="chip">parse JSONL <b>100%</b></span><span class="chip">1,1 GB</span><span class="chip">split hash-CNJ 78.650 / 48.696 / 69.014</span></div>
+      <div class="callout blue"><b>A joia da jurimetria:</b> a camada "decisão" saiu com <b>90% ouro</b> de graça — cabeçalho do e-SAJ triangulado com o rodapé de assinatura digital identifica <b>qual juiz assinou qual decisão, em qual vara, em que data</b>. É a fundação da jurimetria de magistrado.</div>
+    </div>
+
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">F3 · 28/jul</div><div class="tl-title">Merger/Ledger determinístico — 24/24 testes</div>
+      <div class="tl-body">Camada que transforma registros por-documento em fichas (<code>acervo/ficha_parte.py</code>). Regras de zero-erro:
+      CPF (só dígitos) = chave forte de merge; <strong>CPF mascarado do e-SAJ não conta</strong>; fuzzy conservador com guardas (FILHO/JR/NETO assimétrico nunca mescla; match ambíguo não mescla e flaga); espólio vira entidade <strong>ligada</strong> à pessoa; <strong>alvará nunca cria parte</strong> (órfão flagado); saldo em Decimal <strong>sempre derivado</strong> e só com os dois lados; conflito de papel → DESCONHECIDO (abstém).</div>
+      <div class="mini"><span class="chip"><b>24/24</b> testes passando</span><span class="chip">persistência idempotente versionada</span><span class="chip">juiz POR decisão no contexto</span></div>
+    </div>
+
+    <div class="tl-item done"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">F2a · 28/jul</div><div class="tl-title">Harness + mix balanceado (anti "extrator de juiz")</div>
+      <div class="tl-body">Ofício+decisão eram 92% do dataset cru → caps por tarefa no train (ouro primeiro, round-robin de tribunal): ofício ≤5k, decisão ≤5k, acórdão ≤2k, <strong>classes raras entram inteiras</strong>, + v1×0,3 de retenção. 7 grammars novas reconciliadas contra o JSONL real e validadas no llama-server. Colisão de split v1×v2: <strong>zero</strong>. Guard all-masked removeu 3.227 exemplos &gt;4096 tokens (viés contra docs longos — registrado como risco).</div>
+      <div class="mini"><span class="chip">train <b>17.500 → 14.273</b></span><span class="chip">dev 10.945</span><span class="chip">test <b>72.818</b> (integral, sem cap)</span></div>
+    </div>
+
+    <div class="tl-item live"><div class="tl-dot"><i></i></div>
+      <div class="tl-when">F2b · EM CURSO — ETA 29/jul à tarde</div><div class="tl-title">Treino v2 rodando na RTX 3090</div>
+      <div class="tl-body">Receita idêntica à v1, exceto 2 épocas (amostras/época ~2× o v1). ~1.786 steps totais. GPU 100%, VRAM 19,7GB, primeira loss 0,3965. <strong>Critérios de promoção do gate:</strong> (a) partes: F1 de entidade pós-canonicalização ≥0,75; (b) retenção v1: macro ≥85; (c) falsa-abstenção ≤5%; (d) checkpoint κ humano em amostra de fichas completas <strong>antes de qualquer deploy</strong>.</div>
+      <div class="mini"><span class="chip">~16–23h de treino</span><span class="chip">gate no test de 72,8k</span><span class="chip">saída: adapter_v2 → GGUF v2</span></div>
+    </div>
+  </div>
+</div></section>
+
+<section id="artefatos"><div class="wrap">
+  <h2><span class="num">05</span>Artefatos, hashes e onde vive cada coisa</h2>
+  <p class="sub">Pesos e datasets ficam <strong>fora do git</strong> — amarrados por md5. Código e docs versionados em 3 repositórios.</p>
+  <div class="tbl"><table>
+    <tr><th>artefato</th><th>md5</th><th class="n">tamanho</th><th>onde</th></tr>
+    <tr><td>GGUF v1 Q4_K_M (servível)</td><td><code>01cd53ff77ae9f76d5c360a4bec1ebf2</code></td><td class="n">4,68 GB</td><td>llmsv2 · voyager-train/out/</td></tr>
+    <tr><td>Adapter LoRA v1</td><td><code>8ae52f83125a8928da742bd681ee9656</code></td><td class="n">~640 MB</td><td>llmsv2 · out/adapter/</td></tr>
+    <tr><td>Dataset v1 (10.850 ouro)</td><td><code>277f07b5cc2a09e58166a339095faed1</code></td><td class="n">62 MB</td><td>zordon · eval/</td></tr>
+    <tr><td>Dataset v2 FULL (196.360)</td><td><code>177f4f0ed7ba2a9768f90df28d14e4ed</code></td><td class="n">1,1 GB</td><td>zordon · eval/ (cópia no NAS)</td></tr>
+    <tr><td>Fila κ v2 (revisão humana)</td><td>—</td><td class="n">11 MB · 13.470 casos</td><td>zordon · eval/</td></tr>
+    <tr><td>Adapter v2 (em treino)</td><td><em>pendente (gate)</em></td><td class="n">—</td><td>llmsv2 · out/adapter_v2/</td></tr>
+  </table></div>
+  <div class="grid3" style="margin-top:16px">
+    <div class="card"><span class="tag t-gold">Repo Voyager</span><h4>.ia/ — fonte de verdade</h4><p>MODELOS.md (registry), FICHA_PARTE.md (design), DECISIONS.md ADR-027 (por quê + alternativas rejeitadas).</p></div>
+    <div class="card"><span class="tag t-blue">Repo Zordon</span><h4>código executável</h4><p>Geradores de dataset, doc_classificador (ALVARA), ficha_parte.py + 24 testes, relatórios de run.</p></div>
+    <div class="card"><span class="tag t-violet">Repo voyager-train (llmsv2)</span><h4>harness de treino</h4><p>train_peft*, mix com caps, eval gates, 12 grammars GBNF. <code>.gitignore</code> blinda pesos/datasets.</p></div>
+  </div>
+</div></section>
+
+<section id="docker"><div class="wrap">
+  <h2><span class="num">06</span>Como rodar no Docker</h2>
+  <p class="sub">Duas rotas. <strong>A recomendada é llama.cpp server</strong>, porque aceita as gramáticas GBNF por request —
+  exatamente o modo em que o modelo foi validado. Requisitos: ~6GB VRAM (qualquer RTX 3060+) ou CPU (mais lento).</p>
+
+  <h3>Rota A — llama.cpp server + grammar por request (recomendada)</h3>
+<pre><span class="c"># 1. suba o server com o GGUF (ajuste o caminho do volume pro seu host)</span>
+docker run -d --name extrator --gpus all -p 8080:8080 \
+  -v /mnt/nas-data/voyager-train:/train \
+  ghcr.io/ggml-org/llama.cpp:server-cuda \
+  -m <span class="u">/train/out/precatorio-extrator-q4_k_m.gguf</span> \
+  -c 4096 -ngl 99 --host 0.0.0.0 --port 8080
+
+<span class="c"># (sem GPU: troque a imagem por ghcr.io/ggml-org/llama.cpp:server e remova --gpus/-ngl)</span>
+
+<span class="c"># 2. extraia — grammar da tarefa no corpo do request (temp 0 SEMPRE)</span>
+GRAMMAR=$(cat /mnt/nas-data/voyager-train/grammars/v2/oficio.gbnf | jq -Rs .)
+curl -s http://localhost:8080/completion -d @- &lt;&lt;EOF
+{
+  "prompt": "&lt;|im_start|&gt;system\nVocê extrai metadados de documentos judiciais.&lt;|im_end|&gt;\n&lt;|im_start|&gt;user\n${INSTRUCAO_DA_TAREFA}\n=== DOCUMENTO ===\n${TEXTO_DO_DOC}&lt;|im_end|&gt;\n&lt;|im_start|&gt;assistant\n",
+  "temperature": 0, "n_predict": 512,
+  "grammar": ${GRAMMAR}
+}
+EOF</pre>
+  <div class="callout"><b>Regra de ouro:</b> uma grammar por tarefa (<code>grammars/v2/{partes_doc,oficio,decisao,acordao,cessao,herdeiros,pagamento}.gbnf</code>).
+  Ela garante JSON 100% válido com enum fechado e <code>null</code> de abstenção — custo zero, elimina parse-error em produção.</div>
+
+  <h3>Rota B — Ollama (mais simples; sem GBNF, usa JSON-schema)</h3>
+<pre><span class="c"># 1. suba o ollama e registre o modelo a partir do Modelfile</span>
+docker run -d --name ollama --gpus all -p 11434:11434 \
+  -v ollama:/root/.ollama -v /mnt/nas-data/voyager-train/out:/models \
+  ollama/ollama
+docker exec ollama ollama create precatorio-extrator -f /models/Modelfile
+
+<span class="c"># 2. chame com format=json-schema (ollama ≥0.30 constrange a saída de verdade)</span>
+curl -s http://localhost:11434/api/generate -d '{
+  "model": "precatorio-extrator",
+  "prompt": "&lt;instrução da tarefa + texto do documento&gt;",
+  "format": {"type":"object","properties":{"beneficiario":{"type":["string","null"]},
+             "valor_individual":{"type":["string","null"]},"data":{"type":["string","null"]}}},
+  "options": {"temperature": 0, "num_ctx": 4096},
+  "stream": false
+}'</pre>
+
+  <h3>Empacotar pra levar (imagem autocontida)</h3>
+<pre><span class="c"># Dockerfile mínimo — modelo dentro da imagem (fica ~5GB; útil pra deploy em outra máquina)</span>
+FROM ghcr.io/ggml-org/llama.cpp:server-cuda
+COPY precatorio-extrator-q4_k_m.gguf /model/model.gguf
+COPY grammars/v2/ /model/grammars/
+ENTRYPOINT ["/app/llama-server","-m","/model/model.gguf","-c","4096","-ngl","99","--host","0.0.0.0"]</pre>
+
+  <div class="grid3">
+    <div class="card"><span class="tag t-green">Hardware mínimo</span><h4>GPU 6GB+</h4><p>RTX 3060 roda folgado. CPU-only funciona (~5-10× mais lento). RAM 8GB.</p></div>
+    <div class="card"><span class="tag t-blue">Parâmetros fixos</span><h4>temp 0 · ctx 4096 · ChatML</h4><p>O modelo foi treinado e gateado nessas condições. Não mude sem re-gatear.</p></div>
+    <div class="card"><span class="tag t-red">Não faça</span><h4>Servir sem grammar</h4><p>Sem constraint a taxa de JSON inválido volta. E não use pra campos fora do treino (vai alucinar com confiança).</p></div>
+  </div>
+</div></section>
+
+<section id="limites"><div class="wrap">
+  <h2><span class="num">07</span>Limitações conhecidas &amp; próximo ciclo</h2>
+  <div class="grid2">
+    <div class="card"><span class="tag t-red">Limite atual</span><h4>partes = 54% na v1</h4>
+      <p>Motivo raiz medido: cobertura documental (não formato, não capacidade). É exatamente o que a v2 em treino ataca com extração por-documento. Meta do gate: F1 entidade ≥0,75.</p></div>
+    <div class="card"><span class="tag t-red">Limite atual</span><h4>Alvará digitalizado sem OCR</h4>
+      <p>171k alvarás no acervo, mas a maioria é scan com OCR só do rodapé. Quando há texto, a extração é ~perfeita. Lever do "já recebeu" em massa = fila de OCR, não regex.</p></div>
+    <div class="card"><span class="tag t-red">Limite atual</span><h4>Viés TJSP (~98%)</h4>
+      <p>Camadas decisão/acórdão/pagamento são e-SAJ-only por ora. Cabeçalho PJe (TRF1+) precisa de padrões próprios na v2.1 pro modelo generalizar entre tribunais.</p></div>
+    <div class="card"><span class="tag t-red">Registrado</span><h4>Docs &gt;4096 tokens dropados no treino</h4>
+      <p>3.227 exemplos longos (acórdãos/escrituras grandes) fora do train v2 — viés conhecido. Fix futuro: janelar documentos longos no gerador preservando a evidência.</p></div>
+    <div class="card"><span class="tag t-gold">Próximo</span><h4>Fila κ humana (13.470 casos)</h4>
+      <p>Divergências entre fontes viram revisão humana com dupla anotação (κ≥0,7). O label humano (peso 3×) recalibra o próximo ciclo.</p></div>
+    <div class="card"><span class="tag t-gold">Próximo</span><h4>Orquestrador de produção</h4>
+      <p>Job que varre os docs do CNJ → extrator por doc → merger → persiste MetadadoExtraido. Só liga depois do gate v2 + κ humano (nunca direto em prod).</p></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <span>◆ Voyager/Zordon · model card do extrator-precatorio · gerado em 28/07/2026</span>
+  <span>fonte de verdade: <code>.ia/MODELOS.md</code> · design: <code>.ia/FICHA_PARTE.md</code> · decisão: ADR-027</span>
+</div></footer>
+
+</body>
+</html>
