@@ -3424,3 +3424,10 @@ def _vetor_maquinas(data):
 def modelo_extrator(request):
     """Model card do extrator de precatórios — página autocontida (.ia/extrator-precatorio.html)."""
     return render(request, 'dashboard/modelo_extrator.html')
+
+
+@login_required
+@require_GET
+def modelo_extrator_vitrine(request):
+    """Vitrine comercial do extrator — antes/depois, ficha da parte, números."""
+    return render(request, 'dashboard/modelo_extrator_vitrine.html')

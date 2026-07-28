@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inteligência de Autos — Vitrine · Voyager</title>
+<style>
+  :root{
+    --bg:#0b0e14; --bg2:#11151f; --card:#161b28; --card2:#1c2233;
+    --line:#252d42; --tx:#e8ecf4; --tx2:#9aa5bd; --tx3:#5f6a85;
+    --gold:#f5c451; --green:#4ade80; --blue:#60a5fa; --red:#f87171;
+    --violet:#a78bfa; --cyan:#22d3ee;
+    --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--tx);font:16px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 28px}
+  a{color:var(--blue);text-decoration:none}
+
+  nav{position:sticky;top:0;z-index:50;background:rgba(11,14,20,.88);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:20px;height:56px;font-size:13.5px}
+  nav .logo{font-weight:800;color:var(--gold)}
+  nav a{color:var(--tx2)} nav a:hover{color:var(--tx)}
+  nav .spacer{flex:1}
+  .btn-tech{font-size:12.5px;border:1px solid var(--line);border-radius:20px;padding:6px 14px;color:var(--tx2)}
+  .btn-tech:hover{border-color:var(--gold);color:var(--gold)}
+
+  header{padding:80px 0 60px;text-align:center;background:
+    radial-gradient(1000px 480px at 50% -20%,rgba(245,196,81,.13),transparent),
+    radial-gradient(700px 400px at 85% 10%,rgba(96,165,250,.07),transparent)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:18px}
+  h1{font-size:52px;line-height:1.08;font-weight:800;letter-spacing:-1px;max-width:900px;margin:0 auto 20px}
+  h1 em{font-style:normal;background:linear-gradient(90deg,var(--gold),#fb923c);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lead{font-size:19px;color:var(--tx2);max-width:720px;margin:0 auto 44px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;max-width:960px;margin:0 auto;text-align:left}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;position:relative;overflow:hidden}
+  .stat:before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--gold),transparent)}
+  .stat .v{font-size:38px;font-weight:800;font-family:var(--mono);letter-spacing:-2px;color:var(--gold)}
+  .stat .v small{font-size:18px;color:var(--tx3)}
+  .stat .l{font-size:13.5px;color:var(--tx2);margin-top:4px}
+  .stat .s{font-size:11.5px;color:var(--tx3);margin-top:6px}
+  .stat.g .v{color:var(--green)} .stat.b .v{color:var(--blue)} .stat.v2 .v{color:var(--violet)}
+
+  section{padding:64px 0;border-top:1px solid var(--line)}
+  .sec-eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:2.5px;text-transform:uppercase;color:var(--tx3);margin-bottom:10px}
+  h2{font-size:30px;font-weight:800;letter-spacing:-.4px;margin-bottom:10px}
+  .sub{color:var(--tx2);margin-bottom:36px;max-width:780px;font-size:16.5px}
+
+  /* BEFORE/AFTER */
+  .duel{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-bottom:28px}
+  .duel-head{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .duel-head .t{font-weight:700;font-size:16px}
+  .pill{font-family:var(--mono);font-size:11px;padding:4px 11px;border-radius:14px;letter-spacing:.5px}
+  .p-gold{background:rgba(245,196,81,.12);color:var(--gold)} .p-green{background:rgba(74,222,128,.12);color:var(--green)}
+  .doc{padding:16px 24px;background:var(--bg2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--tx3);line-height:1.8}
+  .doc b{color:var(--tx2);font-weight:600}
+  .duel-body{display:grid;grid-template-columns:1fr 1fr}
+  @media(max-width:820px){.duel-body{grid-template-columns:1fr}}
+  .side{padding:22px 24px}
+  .side.before{border-right:1px solid var(--line);background:rgba(248,113,113,.03)}
+  @media(max-width:820px){.side.before{border-right:none;border-bottom:1px solid var(--line)}}
+  .side.after{background:rgba(74,222,128,.03)}
+  .side h5{font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-bottom:14px}
+  .side.before h5{color:var(--red)} .side.after h5{color:var(--green)}
+  .json{font-family:var(--mono);font-size:13px;line-height:1.85;color:var(--tx2)}
+  .json .k{color:var(--cyan)} .json .bad{color:var(--red);font-weight:700} .json .good{color:var(--green);font-weight:700}
+  .json .why{display:block;font-size:11.5px;color:var(--tx3);padding-left:16px}
+  .json .why.r{color:#c9807f} .json .why.g{color:#7fae8e}
+  .duel-foot{padding:14px 24px;border-top:1px solid var(--line);font-size:13.5px;color:var(--tx2);display:flex;gap:20px;flex-wrap:wrap}
+  .duel-foot b{color:var(--gold)}
+
+  /* FICHA */
+  .ficha{background:linear-gradient(160deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:18px;padding:28px;max-width:720px;margin:0 auto}
+  .ficha-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:18px;flex-wrap:wrap}
+  .ficha .nome{font-size:22px;font-weight:800}
+  .ficha .cpf{font-family:var(--mono);font-size:13px;color:var(--tx3)}
+  .papel{font-family:var(--mono);font-size:11px;letter-spacing:1px;background:rgba(167,139,250,.14);color:var(--violet);border-radius:14px;padding:5px 13px}
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+  @media(max-width:640px){.fgrid{grid-template-columns:1fr}}
+  .fbox{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:15px 18px}
+  .fbox .fl{font-family:var(--mono);font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--tx3);margin-bottom:5px}
+  .fbox .fv{font-size:21px;font-weight:800;font-family:var(--mono);letter-spacing:-.5px}
+  .fbox .fv.gold{color:var(--gold)} .fbox .fv.green{color:var(--green)} .fbox .fv.blue{color:var(--blue)}
+  .fbox .fs{font-size:11.5px;color:var(--tx3);margin-top:4px}
+  .evlist{display:flex;flex-direction:column;gap:9px}
+  .ev{display:flex;gap:12px;align-items:baseline;font-size:13.5px;color:var(--tx2)}
+  .ev .d{font-family:var(--mono);font-size:11.5px;color:var(--tx3);min-width:76px}
+  .ev .dot2{width:7px;height:7px;border-radius:50%;background:var(--gold);flex-shrink:0;position:relative;top:-1px}
+  .prov{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);font-size:11.5px;color:var(--tx3)}
+  .prov code{font-family:var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--cyan);font-size:11px}
+
+  /* GRID CARDS */
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:860px){.grid3,.grid2{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px}
+  .card h4{font-size:16px;font-weight:700;margin-bottom:8px}
+  .card p{font-size:14px;color:var(--tx2)}
+  .card .big{font-size:34px;font-weight:800;font-family:var(--mono);letter-spacing:-1px;color:var(--gold);margin-bottom:4px}
+  .card .big.g{color:var(--green)} .card .big.b{color:var(--blue)} .card .big.v{color:var(--violet)} .card .big.c{color:var(--cyan)}
+
+  /* ACC TABLE */
+  .acc{max-width:760px;margin:0 auto}
+  .acc-row{display:grid;grid-template-columns:150px 1fr 90px;gap:16px;align-items:center;padding:13px 0;border-bottom:1px solid rgba(37,45,66,.5);font-size:14.5px}
+  .acc-row:last-child{border-bottom:none}
+  .acc-row .f{font-weight:700}
+  .acc-track{height:10px;background:var(--bg2);border-radius:6px;overflow:hidden}
+  .acc-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,#8a6d1f,var(--gold))}
+  .acc-fill.full{background:linear-gradient(90deg,#1f8a4c,var(--green))}
+  .acc-row .pct{font-family:var(--mono);font-weight:700;text-align:right;color:var(--gold)}
+  .acc-row .pct.g{color:var(--green)}
+  .foot-note{text-align:center;font-size:12px;color:var(--tx3);margin-top:18px}
+
+  footer{padding:48px 0 64px;border-top:1px solid var(--line);text-align:center;color:var(--tx3);font-size:13px}
+  .disclaimer{font-size:11.5px;color:var(--tx3);max-width:720px;margin:10px auto 0}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a href="{% url 'dashboard:overview' %}" class="logo">◆ VOYAGER</a>
+  <a href="#evolucao">Antes × Depois</a><a href="#ficha">Ficha da Parte</a><a href="#numeros">Números</a><a href="#seguranca">Segurança &amp; Custo</a>
+  <span class="spacer"></span>
+  <a class="btn-tech" href="{% url 'dashboard:modelo-extrator' %}">⚙ Ficha técnica completa</a>
+</div></nav>
+
+<header><div class="wrap">
+  <div class="eyebrow">Inteligência artificial própria · treinada em precatórios</div>
+  <h1>A IA que <em>lê os autos</em> como o seu melhor analista.<br>Só que em segundos.</h1>
+  <p class="lead">Treinamos um modelo próprio com dezenas de milhares de processos reais de precatório.
+  Ele lê ofícios, sentenças, procurações e alvarás — e devolve o dado estruturado, com a fonte de cada informação.
+  Quando não tem certeza, ele diz "não sei". <strong>Nunca inventa.</strong></p>
+  <div class="stats">
+    <div class="stat"><div class="v">99,1<small>%</small></div><div class="l">de acerto na natureza do crédito</div><div class="s">medido em 3.804 processos que o modelo nunca viu</div></div>
+    <div class="stat g"><div class="v">100<small>%</small></div><div class="l">de acerto na detecção de cessão de crédito</div><div class="s">quem cedeu, pra quem — sem falso positivo</div></div>
+    <div class="stat b"><div class="v">seg.</div><div class="l">por documento — antes eram 30 a 60s</div><div class="s">e roda em hardware acessível, dentro de casa</div></div>
+    <div class="stat v2"><div class="v">100<small>%</small></div><div class="l">local e privado</div><div class="s">nenhum dado sai da nossa infraestrutura. Zero API externa</div></div>
+  </div>
+</div></header>
+
+<section id="evolucao"><div class="wrap">
+  <div class="sec-eyebrow">A evolução, lado a lado</div>
+  <h2>O que muda quando a IA é treinada no seu domínio</h2>
+  <p class="sub">Exemplos reais do comportamento medido nos nossos testes — à esquerda, o que uma IA genérica responde;
+  à direita, o nosso modelo especializado. <em>(Nomes e números fictícios; o padrão de erro/acerto é o medido nos gates.)</em></p>
+
+  <!-- DUEL 1: natureza + valor -->
+  <div class="duel">
+    <div class="duel-head"><span class="t">📄 Ofício Requisitório — natureza e valor</span>
+      <span class="pill p-gold">acerto: 82% → 99,1%</span><span class="pill p-green">valor: 72% → 91,8%</span></div>
+    <div class="doc"><b>OFÍCIO REQUISITÓRIO Nº 0123/2024</b> — … requisita-se o pagamento em favor de <b>MARIA APARECIDA DOS SANTOS</b>,
+    crédito de natureza <b>alimentar</b> decorrente de diferenças de proventos… valor do requisitório: <b>R$ 231.450,10</b>…
+    valor total da execução: R$ 1.874.220,45 (autos principais)…</div>
+    <div class="duel-body">
+      <div class="side before"><h5>✗ IA genérica</h5><div class="json">
+        {<br>
+        &nbsp;&nbsp;<span class="k">"natureza"</span>: <span class="bad">"TRABALHISTA"</span>,<span class="why r">← categoria inventada — não existe no domínio</span>
+        &nbsp;&nbsp;<span class="k">"valor"</span>: <span class="bad">"R$ 1.874.220,45"</span>,<span class="why r">← pegou o valor da execução inteira, não o da credora</span>
+        &nbsp;&nbsp;<span class="k">"beneficiario"</span>: "Maria Aparecida dos Santos"<br>
+        }</div></div>
+      <div class="side after"><h5>✓ Modelo Voyager</h5><div class="json">
+        {<br>
+        &nbsp;&nbsp;<span class="k">"natureza"</span>: <span class="good">"ALIMENTAR"</span>,<span class="why g">← vocabulário fechado do domínio: impossível inventar categoria</span>
+        &nbsp;&nbsp;<span class="k">"valor_individual"</span>: <span class="good">"R$ 231.450,10"</span>,<span class="why g">← o valor DELA — distingue requisitório de execução</span>
+        &nbsp;&nbsp;<span class="k">"beneficiario"</span>: "MARIA APARECIDA DOS SANTOS"<br>
+        }</div></div>
+    </div>
+    <div class="duel-foot"><span>Por quê importa: <b>natureza alimentar muda a fila de pagamento</b> e o valor individual é a base de qualquer proposta de cessão.</span></div>
+  </div>
+
+  <!-- DUEL 2: herdeiros -->
+  <div class="duel">
+    <div class="duel-head"><span class="t">👪 Óbito e herdeiros — quem recebe hoje?</span>
+      <span class="pill p-gold">cobertura: lê TODOS os documentos</span></div>
+    <div class="doc"><b>HABILITAÇÃO DE HERDEIROS</b> — … falecimento do exequente <b>JOSÉ CARLOS PEREIRA</b> em 12/05/2022…
+    habilitam-se: <b>ANA PEREIRA</b> (cônjuge), <b>CARLOS EDUARDO PEREIRA</b>, <b>JULIANA PEREIRA COSTA</b>… + procurações às fls. 88, 92, 97…</div>
+    <div class="duel-body">
+      <div class="side before"><h5>✗ IA genérica (um trecho só)</h5><div class="json">
+        {<br>
+        &nbsp;&nbsp;<span class="k">"partes"</span>: [<span class="bad">"José Carlos Pereira"</span>]<span class="why r">← achou só o falecido; herdeiros estavam em OUTROS documentos que ela nunca viu</span>
+        }</div></div>
+      <div class="side after"><h5>✓ Modelo Voyager (varre o processo inteiro)</h5><div class="json">
+        {<br>
+        &nbsp;&nbsp;<span class="k">"falecido"</span>: <span class="good">"JOSÉ CARLOS PEREIRA"</span> <span class="why g">← vira ESPÓLIO, vinculado — óbito em 12/05/2022</span>
+        &nbsp;&nbsp;<span class="k">"herdeiros"</span>: [<span class="good">"ANA PEREIRA"</span>, <span class="good">"CARLOS EDUARDO PEREIRA"</span>, <span class="good">"JULIANA PEREIRA COSTA"</span>]<span class="why g">← cada um com o documento de origem (habilitação + procurações)</span>
+        }</div></div>
+    </div>
+    <div class="duel-foot"><span>Por quê importa: <b>negociar com quem não é mais o titular é negócio perdido.</b> Óbito, espólio e habilitação mudam quem assina.</span></div>
+  </div>
+
+  <!-- DUEL 3: já recebeu -->
+  <div class="duel">
+    <div class="duel-head"><span class="t">💰 Alvará de levantamento — quanto já foi pago?</span>
+      <span class="pill p-green">89% dos alvarás com texto: extração exata</span></div>
+    <div class="doc"><b>ALVARÁ ELETRÔNICO DE PAGAMENTO Nº 2024…059</b> — Comarca: Ribeirão Preto · 1ª V. Fazenda Pública ·
+    beneficiário: <b>MARIA APARECIDA DOS SANTOS</b> · valor: <b>R$ 50.000,00</b> · data: 01/03/2024…</div>
+    <div class="duel-body">
+      <div class="side before"><h5>✗ Processo "no escuro"</h5><div class="json">
+        <span class="bad">R$ 231.450,10 a receber…?</span><span class="why r">← sem ler os alvarás, o crédito parece intacto. Proposta errada, preço errado.</span>
+      </div></div>
+      <div class="side after"><h5>✓ Modelo Voyager</h5><div class="json">
+        {<br>
+        &nbsp;&nbsp;<span class="k">"recebido"</span>: [{<span class="k">"valor"</span>: <span class="good">"R$ 50.000,00"</span>, <span class="k">"data"</span>: "2024-03-01"}],<br>
+        &nbsp;&nbsp;<span class="k">"saldo"</span>: <span class="good">"R$ 181.450,10"</span><span class="why g">← calculado, não estimado. Descobrimos 171.667 alvarás que estavam invisíveis no acervo.</span>
+        }</div></div>
+    </div>
+    <div class="duel-foot"><span>Por quê importa: <b>o saldo real define o preço.</b> Crédito parcialmente levantado vale outra coisa.</span></div>
+  </div>
+</div></section>
+
+<section id="ficha"><div class="wrap">
+  <div class="sec-eyebrow">O produto final</div>
+  <h2 style="text-align:center">A Ficha da Parte</h2>
+  <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">Tudo que a IA extrai converge aqui: uma ficha por pessoa,
+  com valores, pagamentos e eventos — e <strong>cada dado com a fonte</strong> (qual documento, qual página).</p>
+  <div class="ficha">
+    <div class="ficha-top">
+      <div><div class="nome">MARIA APARECIDA DOS SANTOS</div><div class="cpf">CPF ***.842.108-** · 3ª Vara da Fazenda Pública de Santos</div></div>
+      <span class="papel">EXEQUENTE · CREDORA</span>
+    </div>
+    <div class="fgrid">
+      <div class="fbox"><div class="fl">Valor a receber (requisitório)</div><div class="fv gold">R$ 231.450,10</div><div class="fs">natureza ALIMENTAR · ofício nº 0123/2024</div></div>
+      <div class="fbox"><div class="fl">Já recebeu</div><div class="fv green">R$ 50.000,00</div><div class="fs">1 alvará · 01/03/2024</div></div>
+      <div class="fbox"><div class="fl">Saldo (derivado)</div><div class="fv blue">R$ 181.450,10</div><div class="fs">valor − levantamentos, calculado</div></div>
+      <div class="fbox"><div class="fl">Situação do crédito</div><div class="fv" style="color:var(--tx)">Sem cessão</div><div class="fs">nenhum evento de cessão detectado</div></div>
+    </div>
+    <div class="evlist">
+      <div class="ev"><span class="dot2"></span><span class="d">2019-08-14</span><span>Sentença procedente — Juíza Dra. R. M. Almeida, 3ª V. Faz. Pública</span></div>
+      <div class="ev"><span class="dot2"></span><span class="d">2021-03-02</span><span>Trânsito em julgado · homologação de cálculos em 2022-11-10</span></div>
+      <div class="ev"><span class="dot2"></span><span class="d">2024-01-15</span><span>Ofício requisitório expedido — R$ 231.450,10 (ALIMENTAR)</span></div>
+      <div class="ev"><span class="dot2"></span><span class="d">2024-03-01</span><span>Alvará de levantamento — R$ 50.000,00</span></div>
+    </div>
+    <div class="prov">Proveniência: cada campo aponta o documento de origem — <code>oficio#4412 p.2</code> · <code>alvara#9107 p.1</code> · <code>sentenca#1201 p.14</code>. Auditável, campo a campo.</div>
+  </div>
+  <p class="foot-note">Ficha ilustrativa (dados fictícios) — estrutura idêntica à gerada pelo pipeline.</p>
+</div></section>
+
+<section id="numeros"><div class="wrap">
+  <div class="sec-eyebrow">Assertividade medida, não prometida</div>
+  <h2>Números de teste cego — processos que o modelo nunca viu</h2>
+  <p class="sub">Todo número abaixo vem de um conjunto de teste separado por sorteio <em>antes</em> do treino (3.804 processos).
+  O modelo nunca teve contato com eles. É o cenário mais duro — e o mais honesto.</p>
+  <div class="acc">
+    <div class="acc-row"><span class="f">Cessão de crédito</span><div class="acc-track"><div class="acc-fill full" style="width:100%"></div></div><span class="pct g">100%</span></div>
+    <div class="acc-row"><span class="f">Natureza do crédito</span><div class="acc-track"><div class="acc-fill" style="width:99.1%"></div></div><span class="pct">99,1%</span></div>
+    <div class="acc-row"><span class="f">Ente devedor</span><div class="acc-track"><div class="acc-fill" style="width:94.7%"></div></div><span class="pct">94,7%</span></div>
+    <div class="acc-row"><span class="f">Valor do ofício</span><div class="acc-track"><div class="acc-fill" style="width:91.8%"></div></div><span class="pct">91,8%</span></div>
+  </div>
+  <p class="foot-note">Partes/herdeiros: nova geração em treinamento com leitura de 100% dos documentos do processo — números do teste cego saem na promoção.</p>
+
+  <div class="grid3" style="margin-top:44px">
+    <div class="card"><div class="big">+17<span style="font-size:18px">pp</span></div><h4>vs melhor IA genérica</h4><p>Na natureza do crédito, o treino especializado saltou de 82% para 99,1% — com o mesmo hardware.</p></div>
+    <div class="card"><div class="big g">0%</div><h4>de resposta fora do formato</h4><p>A saída é matematicamente restrita ao vocabulário do domínio. A IA não consegue "viajar".</p></div>
+    <div class="card"><div class="big b">"não sei"</div><h4>quando não tem certeza</h4><p>Conflito entre documentos? O modelo abstém e sinaliza pra revisão humana. Nada gravado é chute.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="sec-eyebrow">Escala do que já foi construído</div>
+  <h2>O motor por trás</h2>
+  <div class="grid3">
+    <div class="card"><div class="big">74<span style="font-size:18px">M</span></div><h4>processos monitorados</h4><p>Base nacional de processos com movimentações, partes e classificação de leads.</p></div>
+    <div class="card"><div class="big c">644<span style="font-size:18px">mil+</span></div><h4>documentos de autos classificados</h4><p>Cada PDF do processo identificado por tipo: ofício, sentença, procuração, alvará…</p></div>
+    <div class="card"><div class="big v">171<span style="font-size:18px">mil</span></div><h4>alvarás de pagamento descobertos</h4><p>Estavam "invisíveis" em pastas genéricas. Hoje alimentam o "quanto já foi pago".</p></div>
+    <div class="card"><div class="big">196<span style="font-size:18px">mil</span></div><h4>exemplos de treino gerados</h4><p>Rotulados por triangulação: só vira verdade de treino quando fontes independentes concordam.</p></div>
+    <div class="card"><div class="big g">56<span style="font-size:18px">mil</span></div><h4>processos lidos documento a documento</h4><p>O corpus completo de autos vetorizados, varrido em 36 minutos.</p></div>
+    <div class="card"><div class="big b">90<span style="font-size:18px">%</span></div><h4>de ouro na camada de jurimetria</h4><p>Qual juiz assinou qual decisão, em qual vara, quando — a base pra prever comportamento de vara.</p></div>
+  </div>
+</div></section>
+
+<section id="seguranca"><div class="wrap">
+  <div class="sec-eyebrow">Segurança &amp; economia</div>
+  <h2>IA própria: o dado não sai, o custo não escala</h2>
+  <div class="grid3">
+    <div class="card"><div class="big v">0</div><h4>dados enviados pra fora</h4><p>Nada de OpenAI/Google/API de terceiros. O modelo roda nas nossas máquinas — sigilo de negociação preservado.</p></div>
+    <div class="card"><div class="big g">~R$ 0</div><h4>custo marginal por documento</h4><p>Sem cobrança por página ou por token. Ler 10 ou 10 mil processos custa a mesma energia elétrica.</p></div>
+    <div class="card"><div class="big">6<span style="font-size:18px">GB</span></div><h4>de GPU pra servir</h4><p>Treina em máquina grande, roda em placa de vídeo doméstica. Escalar é plugar mais uma GPU barata.</p></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <div>◆ Voyager · Inteligência de Autos — vitrine comercial · <a href="{% url 'dashboard:modelo-extrator' %}">ficha técnica completa</a></div>
+  <p class="disclaimer">Exemplos com dados fictícios; padrões de acerto/erro e todos os percentuais são de medições reais em conjunto de teste cego (jul/2026), documentadas na ficha técnica. "IA genérica" = mesmo modelo base sem o treinamento especializado.</p>
+</div></footer>
+
+</body>
+</html>
