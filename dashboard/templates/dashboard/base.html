@@ -207,6 +207,61 @@
       border: 1px solid rgb(var(--c-border) / 0.5);
     }
 
+    /* ---- Grupos colapsáveis do menu lateral ---- */
+    .nav-group { margin-top: 0.4rem; }
+    .nav-group-btn {
+      width: 100%; display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.45rem 0.75rem; border-radius: 0.6rem;
+      font-size: 0.65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.14em;
+      color: rgb(var(--c-fg-subtle));
+      background: transparent; border: 1px solid transparent;
+      cursor: pointer; user-select: none;
+      transition: color 0.15s, background 0.15s;
+    }
+    .nav-group-btn:hover { color: rgb(var(--c-fg)); background: rgb(var(--c-muted) / 0.45); }
+    .nav-group-chevron {
+      margin-left: auto; width: 0.8rem; height: 0.8rem; opacity: 0.65;
+      transition: transform 0.22s ease; flex: none;
+    }
+    .nav-group.open > .nav-group-btn .nav-group-chevron { transform: rotate(90deg); }
+    .nav-group-items { display: grid; grid-template-rows: 0fr; }
+    .nav-group.nav-anim > .nav-group-items {
+      transition: grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .nav-group.open > .nav-group-items { grid-template-rows: 1fr; }
+    .nav-group-inner { overflow: hidden; min-height: 0; }
+    /* Indent + linha guia dos subitens */
+    .nav-group-list {
+      display: flex; flex-direction: column; gap: 1px;
+      margin: 0.15rem 0 0.35rem 1.05rem;
+      padding-left: 0.45rem;
+      border-left: 1px solid rgb(var(--c-border) / 0.55);
+    }
+    .nav-group-list .nav-item { padding: 0.42rem 0.6rem; font-size: 0.82rem; }
+    /* Grupo premium — IA LABS (glow dourado sutil) */
+    .nav-group-premium > .nav-group-btn {
+      color: rgb(var(--c-golden));
+      border-color: rgb(var(--c-golden) / 0.22);
+      background: linear-gradient(120deg, rgb(var(--c-golden) / 0.08), transparent 70%);
+      box-shadow: 0 0 14px rgb(var(--c-golden) / 0.10), inset 0 1px 0 rgb(255 255 255 / 0.04);
+    }
+    .nav-group-premium > .nav-group-btn:hover {
+      color: rgb(var(--c-golden));
+      background: linear-gradient(120deg, rgb(var(--c-golden) / 0.14), transparent 75%);
+      box-shadow: 0 0 18px rgb(var(--c-golden) / 0.18);
+    }
+    .nav-group-premium .nav-group-list { border-left-color: rgb(var(--c-golden) / 0.3); }
+    /* Badge live (treinos rodando) */
+    .nav-badge {
+      margin-left: auto; flex: none;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.62rem;
+      padding: 0.05rem 0.4rem; border-radius: 9999px;
+      background: rgb(var(--c-accent) / 0.14);
+      color: rgb(var(--c-accent-fg));
+      border: 1px solid rgb(var(--c-accent) / 0.35);
+    }
+
     .input {
       width: 100%;
       background: rgb(var(--c-surface) / 0.6);
@@ -379,135 +434,232 @@
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral
       </a>
-      {% url 'dashboard:leads' as leads_url %}
-      <a href="{{ leads_url }}" class="nav-item {% if request.path == leads_url %}active{% endif %}">
-        {% voy_icon "pulsar" "w-4 h-4" %}
-        Leads
-      </a>
-      {% url 'dashboard:algoritmo' as algoritmo_url %}
-      <a href="{{ algoritmo_url }}" class="nav-item nav-sub {% if request.path == algoritmo_url %}active{% endif %}">
-        {% voy_icon "calibrate" "w-4 h-4" %}
-        <span class="opacity-70">↳</span> Algoritmo
-      </a>
-      {% if perms.tribunals.can_view_validacao_dashboard %}
-      {% url 'dashboard:leads_visibilidade' as leads_visib_url %}
-      <a href="{{ leads_visib_url }}" class="nav-item nav-sub {% if request.path == leads_visib_url %}active{% endif %}">
-        {% voy_icon "trajectory" "w-4 h-4" %}
-        <span class="opacity-70">↳</span> Visibilidade
-      </a>
-      {% endif %}
-      {% if perms.tribunals.can_validate_lead %}
-      {% url 'dashboard:leads_validacao_overview' as leads_valid_url %}
-      <a href="{{ leads_valid_url }}" class="nav-item nav-sub {% if '/leads/validacao' in request.path %}active{% endif %}">
-        {% voy_icon "calibrate" "w-4 h-4" %}
-        <span class="opacity-70">↳</span> Validação
-      </a>
-      {% endif %}
-      {% url 'dashboard:tribunal-status' as tribunal_status_url %}
-      <a href="{{ tribunais_url }}" class="nav-item {% if request.path == tribunais_url %}active{% endif %}">
-        {% voy_icon "trajectory" "w-4 h-4" %}
-        Tribunais
-      </a>
-      <a href="{{ tribunal_status_url }}" class="nav-item nav-sub {% if request.path == tribunal_status_url %}active{% endif %}">
-        {% voy_icon "history" "w-4 h-4" %}
-        <span class="opacity-70">↳</span> Status / linha do tempo
-      </a>
-      <a href="{{ processos_url }}" class="nav-item {% if processos_url in request.path %}active{% endif %}">
-        {% voy_icon "dossier" "w-4 h-4" %}
-        Processos
-      </a>
-      {% url 'dashboard:jurimetria' as jurimetria_url %}
-      <a href="{{ jurimetria_url }}" class="nav-item {% if request.path == jurimetria_url %}active{% endif %}">
-        {% voy_icon "trajectory" "w-4 h-4" %}
-        Jurimetria
-      </a>
 
-      {# ---- Seção IA: dossiê, busca semântica, chat, extração e análises ---- #}
-      <div class="nav-section">{% voy_icon "sparkles" "w-3.5 h-3.5" %} IA</div>
-      {% url 'dashboard:jurimetria-dossie' as jurimetria_dossie_url %}
-      <a href="{{ jurimetria_dossie_url }}" class="nav-item {% if request.path == jurimetria_dossie_url %}active{% endif %}">
-        {% voy_icon "dossier" "w-4 h-4" %}
-        Dossiê por CNJ
-      </a>
-      {% url 'dashboard:acervo-busca' as acervo_busca_url %}
-      <a href="{{ acervo_busca_url }}" class="nav-item {% if request.path == acervo_busca_url %}active{% endif %}">
-        {% voy_icon "search" "w-4 h-4" %}
-        Busca semântica
-      </a>
-      {% url 'dashboard:jurimetria-chat' as jurimetria_chat_url %}
-      <a href="{{ jurimetria_chat_url }}" class="nav-item {% if request.path == jurimetria_chat_url %}active{% endif %}">
-        {% voy_icon "transmission" "w-4 h-4" %}
-        Chat IA
-      </a>
-      {% url 'extrair-autos' as extrair_autos_url %}
-      <a href="{{ extrair_autos_url }}" class="nav-item {% if '/extrair' in request.path %}active{% endif %}">
-        {% voy_icon "uplink" "w-4 h-4" %}
-        Extrair autos
-      </a>
-      {% url 'analisar-autos' as analisar_autos_url %}
-      <a href="{{ analisar_autos_url }}" class="nav-item {% if '/analisar' in request.path %}active{% endif %}">
-        {% voy_icon "uplink" "w-4 h-4" %}
-        Analisar do acervo
-      </a>
-      {% url 'analises' as analises_url %}
-      <a href="{{ analises_url }}" class="nav-item {% if '/analises' in request.path %}active{% endif %}">
-        {% voy_icon "dossier" "w-4 h-4" %}
-        Análises feitas
-      </a>
-      {% url 'dashboard:modelo-extrator' as modelo_extrator_url %}
-      <a href="{{ modelo_extrator_url }}" class="nav-item {% if request.path == modelo_extrator_url %}active{% endif %}">
-        {% voy_icon "sparkles" "w-4 h-4" %}
-        Modelo Extrator
-      </a>
+      {# ---- 🚀 IA LABS — Centro de Inteligência (grupo premium) ---- #}
+      <div class="nav-group nav-group-premium"
+           x-data="navGroup('ialabs', {% if '/dashboard/ia' in request.path or '/dashboard/modelos' in request.path or '/dashboard/jurimetria' in request.path or '/dashboard/acervo' in request.path or '/extrair' in request.path or '/analisar' in request.path or '/analises' in request.path %}true{% else %}false{% endif %})"
+           :class="{ open: open, 'nav-anim': anim }">
+        <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
+          <span aria-hidden="true">🚀</span> IA LABS
+          <svg class="nav-group-chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <div class="nav-group-items">
+          <div class="nav-group-inner">
+            <div class="nav-group-list">
+              {% url 'dashboard:ia-hub' as ia_hub_url %}
+              <a href="{{ ia_hub_url }}" class="nav-item {% if request.path == ia_hub_url %}active{% endif %}">
+                {% voy_icon "telescope" "w-4 h-4" %}
+                Centro de Inteligência
+              </a>
+              {% url 'dashboard:treinos-dashboard' as treinos_url %}
+              <a href="{{ treinos_url }}" class="nav-item {% if request.path == treinos_url %}active{% endif %}">
+                {% voy_icon "flask" "w-4 h-4" %}
+                Sala de Controle
+                <span id="nav-treinos-badge" class="nav-badge" style="display: none"></span>
+              </a>
+              {% url 'dashboard:modelo-extrator' as modelo_extrator_url %}
+              <a href="{{ modelo_extrator_url }}" class="nav-item {% if request.path == modelo_extrator_url %}active{% endif %}">
+                {% voy_icon "sparkles" "w-4 h-4" %}
+                Modelo Extrator
+              </a>
+              {% url 'dashboard:modelo-extrator-vitrine' as vitrine_url %}
+              <a href="{{ vitrine_url }}" class="nav-item {% if request.path == vitrine_url %}active{% endif %}">
+                {% voy_icon "gem" "w-4 h-4" %}
+                Vitrine comercial
+              </a>
+              {% url 'dashboard:kappa-amostra' as kappa_url %}
+              <a href="{{ kappa_url }}" class="nav-item {% if request.path == kappa_url %}active{% endif %}">
+                {% voy_icon "circle-check" "w-4 h-4" %}
+                Validação κ
+              </a>
+              {% url 'dashboard:jurimetria-chat' as jurimetria_chat_url %}
+              <a href="{{ jurimetria_chat_url }}" class="nav-item {% if request.path == jurimetria_chat_url %}active{% endif %}">
+                {% voy_icon "transmission" "w-4 h-4" %}
+                Chat IA
+              </a>
+              {% url 'dashboard:jurimetria-dossie' as jurimetria_dossie_url %}
+              <a href="{{ jurimetria_dossie_url }}" class="nav-item {% if request.path == jurimetria_dossie_url %}active{% endif %}">
+                {% voy_icon "dossier" "w-4 h-4" %}
+                Dossiê por CNJ
+              </a>
+              {% url 'dashboard:jurimetria' as jurimetria_url %}
+              <a href="{{ jurimetria_url }}" class="nav-item {% if request.path == jurimetria_url %}active{% endif %}">
+                {% voy_icon "trending-up" "w-4 h-4" %}
+                Jurimetria
+              </a>
+              {% url 'dashboard:acervo-busca' as acervo_busca_url %}
+              <a href="{{ acervo_busca_url }}" class="nav-item {% if request.path == acervo_busca_url %}active{% endif %}">
+                {% voy_icon "search" "w-4 h-4" %}
+                Busca semântica
+              </a>
+              {% url 'extrair-autos' as extrair_autos_url %}
+              <a href="{{ extrair_autos_url }}" class="nav-item {% if '/extrair' in request.path %}active{% endif %}">
+                {% voy_icon "uplink" "w-4 h-4" %}
+                Extrair autos
+              </a>
+              {% url 'analisar-autos' as analisar_autos_url %}
+              <a href="{{ analisar_autos_url }}" class="nav-item {% if '/analisar' in request.path %}active{% endif %}">
+                {% voy_icon "downlink" "w-4 h-4" %}
+                Analisar do acervo
+              </a>
+              {% url 'analises' as analises_url %}
+              <a href="{{ analises_url }}" class="nav-item {% if '/analises' in request.path %}active{% endif %}">
+                {% voy_icon "history" "w-4 h-4" %}
+                Análises feitas
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
 
-      {# ---- Seção Dados: movimentações, partes ---- #}
-      <div class="nav-section">{% voy_icon "transmission" "w-3.5 h-3.5" %} Dados</div>
-      <a href="{{ movs_url }}" class="nav-item {% if movs_url in request.path %}active{% endif %}">
-        {% voy_icon "transmission" "w-4 h-4" %}
-        Movimentações
-      </a>
-      <a href="{{ partes_url }}" class="nav-item {% if partes_url in request.path %}active{% endif %}">
-        {% voy_icon "constellation" "w-4 h-4" %}
-        Partes
-      </a>
+      {# ---- Leads ---- #}
+      <div class="nav-group"
+           x-data="navGroup('leads', {% if '/dashboard/leads' in request.path %}true{% else %}false{% endif %})"
+           :class="{ open: open, 'nav-anim': anim }">
+        <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
+          {% voy_icon "pulsar" "w-3.5 h-3.5" %} Leads
+          <svg class="nav-group-chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <div class="nav-group-items">
+          <div class="nav-group-inner">
+            <div class="nav-group-list">
+              {% url 'dashboard:leads' as leads_url %}
+              <a href="{{ leads_url }}" class="nav-item {% if request.path == leads_url %}active{% endif %}">
+                {% voy_icon "pulsar" "w-4 h-4" %}
+                Pipeline
+              </a>
+              {% url 'dashboard:algoritmo' as algoritmo_url %}
+              <a href="{{ algoritmo_url }}" class="nav-item {% if request.path == algoritmo_url %}active{% endif %}">
+                {% voy_icon "calibrate" "w-4 h-4" %}
+                Algoritmo
+              </a>
+              {% if perms.tribunals.can_view_validacao_dashboard %}
+              {% url 'dashboard:leads_visibilidade' as leads_visib_url %}
+              <a href="{{ leads_visib_url }}" class="nav-item {% if request.path == leads_visib_url %}active{% endif %}">
+                {% voy_icon "trajectory" "w-4 h-4" %}
+                Visibilidade
+              </a>
+              {% endif %}
+              {% if perms.tribunals.can_validate_lead %}
+              {% url 'dashboard:leads_validacao_overview' as leads_valid_url %}
+              <a href="{{ leads_valid_url }}" class="nav-item {% if '/leads/validacao' in request.path %}active{% endif %}">
+                {% voy_icon "circle-check" "w-4 h-4" %}
+                Validação
+              </a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
 
-      {# ---- Seção Operação: ingestão, saúde, workers, vetorização ---- #}
-      <div class="nav-section">{% voy_icon "calibrate" "w-3.5 h-3.5" %} Operação</div>
-      <a href="{{ ingestao_url }}" class="nav-item {% if ingestao_url in request.path %}active{% endif %}">
-        {% voy_icon "uplink" "w-4 h-4" %}
-        Ingestão
-      </a>
-      {% url 'dashboard:ingestao-saude' as ingestao_saude_url %}
-      <a href="{{ ingestao_saude_url }}" class="nav-item nav-sub {% if request.path == ingestao_saude_url %}active{% endif %}">
-        {% voy_icon "calibrate" "w-4 h-4" %}
-        <span class="opacity-70">↳</span> Saúde
-      </a>
-      <a href="{{ workers_url }}" class="nav-item {% if workers_url in request.path %}active{% endif %}">
-        {% voy_icon "calibrate" "w-4 h-4" %}
-        Workers
-      </a>
-      {% url 'dashboard:vetorizacao' as vetorizacao_url %}
-      <a href="{{ vetorizacao_url }}" class="nav-item {% if request.path == vetorizacao_url %}active{% endif %}">
-        {% voy_icon "probe" "w-4 h-4" %}
-        Vetorização
-      </a>
-      {% url 'dashboard:wizard' as wizard_url %}
-      <a href="{{ wizard_url }}" class="nav-item {% if wizard_url in request.path %}active{% endif %}">
-        {% voy_icon "eject" "w-4 h-4" %}
-        Exportar
-      </a>
-      {% url 'dashboard:api-docs' as api_docs_url %}
-      <a href="{{ api_docs_url }}" class="nav-item {% if api_docs_url in request.path %}active{% endif %}">
-        {% voy_icon "transmission" "w-4 h-4" %}
-        API
-      </a>
-      {% if user.is_superuser %}
-      {% url 'accounts:invites-list' as invites_url %}
-      <a href="{{ invites_url }}" class="nav-item {% if invites_url in request.path %}active{% endif %}">
-        {% voy_icon "transmission" "w-4 h-4" %}
-        Convites
-      </a>
-      {% endif %}
+      {# ---- Tribunais & Processos ---- #}
+      <div class="nav-group"
+           x-data="navGroup('tribunais', {% if '/dashboard/tribunais' in request.path or '/dashboard/processos' in request.path or '/dashboard/consulta-rapida' in request.path %}true{% else %}false{% endif %})"
+           :class="{ open: open, 'nav-anim': anim }">
+        <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
+          {% voy_icon "trajectory" "w-3.5 h-3.5" %} Tribunais &amp; Processos
+          <svg class="nav-group-chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <div class="nav-group-items">
+          <div class="nav-group-inner">
+            <div class="nav-group-list">
+              <a href="{{ tribunais_url }}" class="nav-item {% if request.path == tribunais_url %}active{% endif %}">
+                {% voy_icon "trajectory" "w-4 h-4" %}
+                Tribunais
+              </a>
+              {% url 'dashboard:tribunal-status' as tribunal_status_url %}
+              <a href="{{ tribunal_status_url }}" class="nav-item {% if request.path == tribunal_status_url %}active{% endif %}">
+                {% voy_icon "history" "w-4 h-4" %}
+                Status / linha do tempo
+              </a>
+              <a href="{{ processos_url }}" class="nav-item {% if processos_url in request.path %}active{% endif %}">
+                {% voy_icon "dossier" "w-4 h-4" %}
+                Processos
+              </a>
+              {% url 'dashboard:consulta-rapida' as consulta_rapida_url %}
+              <a href="{{ consulta_rapida_url }}" class="nav-item {% if request.path == consulta_rapida_url %}active{% endif %}">
+                {% voy_icon "search" "w-4 h-4" %}
+                Consulta rápida
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ---- Dados ---- #}
+      <div class="nav-group"
+           x-data="navGroup('dados', {% if '/dashboard/movimentacoes' in request.path or '/dashboard/partes' in request.path %}true{% else %}false{% endif %})"
+           :class="{ open: open, 'nav-anim': anim }">
+        <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
+          {% voy_icon "transmission" "w-3.5 h-3.5" %} Dados
+          <svg class="nav-group-chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <div class="nav-group-items">
+          <div class="nav-group-inner">
+            <div class="nav-group-list">
+              <a href="{{ movs_url }}" class="nav-item {% if movs_url in request.path %}active{% endif %}">
+                {% voy_icon "transmission" "w-4 h-4" %}
+                Movimentações
+              </a>
+              <a href="{{ partes_url }}" class="nav-item {% if partes_url in request.path %}active{% endif %}">
+                {% voy_icon "constellation" "w-4 h-4" %}
+                Partes
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ---- Operação ---- #}
+      <div class="nav-group"
+           x-data="navGroup('operacao', {% if '/dashboard/ingestao' in request.path or '/dashboard/workers' in request.path or '/dashboard/vetorizacao' in request.path or '/dashboard/wizard' in request.path or request.path == '/dashboard/api/' or '/dashboard/invites' in request.path %}true{% else %}false{% endif %})"
+           :class="{ open: open, 'nav-anim': anim }">
+        <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
+          {% voy_icon "calibrate" "w-3.5 h-3.5" %} Operação
+          <svg class="nav-group-chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <div class="nav-group-items">
+          <div class="nav-group-inner">
+            <div class="nav-group-list">
+              <a href="{{ ingestao_url }}" class="nav-item {% if request.path == ingestao_url %}active{% endif %}">
+                {% voy_icon "uplink" "w-4 h-4" %}
+                Ingestão
+              </a>
+              {% url 'dashboard:ingestao-saude' as ingestao_saude_url %}
+              <a href="{{ ingestao_saude_url }}" class="nav-item {% if request.path == ingestao_saude_url %}active{% endif %}">
+                {% voy_icon "calibrate" "w-4 h-4" %}
+                Saúde do pipeline
+              </a>
+              <a href="{{ workers_url }}" class="nav-item {% if workers_url in request.path %}active{% endif %}">
+                {% voy_icon "users" "w-4 h-4" %}
+                Workers
+              </a>
+              {% url 'dashboard:vetorizacao' as vetorizacao_url %}
+              <a href="{{ vetorizacao_url }}" class="nav-item {% if request.path == vetorizacao_url %}active{% endif %}">
+                {% voy_icon "probe" "w-4 h-4" %}
+                Vetorização
+              </a>
+              {% url 'dashboard:wizard' as wizard_url %}
+              <a href="{{ wizard_url }}" class="nav-item {% if wizard_url in request.path %}active{% endif %}">
+                {% voy_icon "eject" "w-4 h-4" %}
+                Exportar
+              </a>
+              {% url 'dashboard:api-docs' as api_docs_url %}
+              <a href="{{ api_docs_url }}" class="nav-item {% if request.path == api_docs_url %}active{% endif %}">
+                {% voy_icon "transmission" "w-4 h-4" %}
+                API
+              </a>
+              {% if user.is_superuser %}
+              {% url 'accounts:invites-list' as invites_url %}
+              <a href="{{ invites_url }}" class="nav-item {% if invites_url in request.path %}active{% endif %}">
+                {% voy_icon "send" "w-4 h-4" %}
+                Convites
+              </a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="mt-auto px-2 pt-3 border-t border-border/60 text-xs">
         <button onclick="window.toggleTheme()" class="flex items-center gap-2 text-fg-muted hover:text-fg-soft transition-colors py-2">
           <span class="dark:hidden">{% voy_icon "moon" "w-4 h-4" %}</span>
@@ -673,6 +825,49 @@
       document.cookie = `voyager-theme=${next}; path=/; max-age=${oneYear}; SameSite=Lax`;
       if (typeof initAllCharts === 'function') initAllCharts();
     };
+
+    // Grupos colapsáveis do menu lateral (Alpine component).
+    // Estado persiste em localStorage; grupo ativo (pela URL) abre sozinho;
+    // mobile fecha por padrão. 'anim' só liga na 1ª interação — evita a
+    // animação de abertura em todo page load.
+    window.navGroup = function(id, active) {
+      return {
+        open: false,
+        anim: false,
+        init() {
+          const stored = localStorage.getItem('voy-nav:' + id);
+          const mobile = window.innerWidth < 768;
+          if (active) this.open = true;
+          else if (stored !== null) this.open = stored === '1';
+          else this.open = !mobile;
+        },
+        toggle() {
+          this.anim = true;
+          this.open = !this.open;
+          localStorage.setItem('voy-nav:' + id, this.open ? '1' : '0');
+        },
+      };
+    };
+
+    // Badge live "N 🟢" na Sala de Controle (treinos rodando). Falha silenciosa.
+    (function() {
+      const el = document.getElementById('nav-treinos-badge');
+      if (!el) return;
+      fetch('{% url "dashboard:treinos-dashboard-data" %}', {credentials: 'same-origin'})
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!d) return;
+          const c = d.contadores || {};
+          const n = (c.rodando != null)
+            ? c.rodando
+            : (d.runs || []).filter((r) => r.status === 'running').length;
+          if (n > 0) {
+            el.textContent = n + ' 🟢';
+            el.style.display = '';
+          }
+        })
+        .catch(() => {});
+    })();
 
     // Toast helper — uso: window.toast('Salvo', 'success')
     window.toast = function(message, type = 'info', duration = 4000) {

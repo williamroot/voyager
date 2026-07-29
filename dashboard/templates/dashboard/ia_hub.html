@@ -1,0 +1,245 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Centro de Inteligência{% endblock %}
+{% block content %}
+
+<style>
+  /* ---- IA LABS · temática deep-space sutil ---- */
+  .ico-golden { color: rgb(var(--c-golden)); }
+  .ico-mission { color: rgb(var(--c-mission)); }
+  .ia-hero {
+    position: relative; overflow: hidden;
+    border-radius: 1.25rem;
+    border: 1px solid rgb(var(--c-border) / 0.7);
+    background:
+      radial-gradient(ellipse 90% 120% at 85% -20%, rgb(var(--c-pale-blue) / 0.12), transparent 60%),
+      radial-gradient(ellipse 70% 100% at 10% 110%, rgb(var(--c-mission) / 0.10), transparent 55%),
+      linear-gradient(160deg, rgb(var(--c-surface)), rgb(var(--c-base)));
+    padding: 2.25rem 2rem;
+  }
+  html:not(.dark) .ia-hero {
+    background:
+      radial-gradient(ellipse 90% 120% at 85% -20%, rgb(var(--c-pale-blue) / 0.10), transparent 60%),
+      radial-gradient(ellipse 70% 100% at 10% 110%, rgb(var(--c-mission) / 0.07), transparent 55%),
+      linear-gradient(160deg, rgb(255 255 255), rgb(var(--c-base)));
+  }
+  .ia-stat {
+    border: 1px solid rgb(var(--c-border) / 0.6);
+    border-radius: 0.75rem;
+    background: rgb(var(--c-card) / 0.5);
+    padding: 0.7rem 1rem;
+    backdrop-filter: blur(2px);
+  }
+  .ia-stat .v {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.35rem; font-weight: 700; line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+  .ia-stat .l {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.14em;
+    color: rgb(var(--c-fg-subtle)); margin-top: 0.15rem;
+  }
+  .ia-card {
+    position: relative; display: flex; flex-direction: column; gap: 0.5rem;
+    border: 1px solid rgb(var(--c-border) / 0.7);
+    border-radius: 1rem;
+    background: rgb(var(--c-card) / var(--card-alpha, 0.55));
+    padding: 1.1rem 1.2rem;
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  }
+  html:not(.dark) .ia-card { --card-alpha: 1; box-shadow: 0 2px 4px -1px rgb(15 23 42 / 0.05); }
+  .ia-card:hover {
+    border-color: rgb(var(--c-golden) / 0.45);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px -12px rgb(var(--c-golden) / 0.22);
+  }
+  .ia-card .arrow {
+    position: absolute; top: 1rem; right: 1rem;
+    color: rgb(var(--c-fg-subtle)); transition: color 0.15s, transform 0.15s;
+  }
+  .ia-card:hover .arrow { color: rgb(var(--c-golden)); transform: translateX(2px); }
+  .ia-card h3 { font-weight: 600; font-size: 0.95rem; }
+  .ia-card p { font-size: 0.78rem; color: rgb(var(--c-fg-muted)); }
+  .ia-card .mini-live {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
+    color: rgb(var(--c-accent-fg));
+  }
+  /* Timeline horizontal — a jornada */
+  .ia-journey { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 0.25rem 0 0.5rem; }
+  .ia-step { position: relative; flex: 1 1 0; min-width: 150px; padding: 0 1rem 0 1.1rem; }
+  .ia-step::before {
+    content: ''; position: absolute; left: 0; top: 0.45rem;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: rgb(var(--c-fg-subtle));
+  }
+  .ia-step::after {
+    content: ''; position: absolute; left: 14px; right: 0; top: 0.78rem;
+    height: 1px; background: rgb(var(--c-border) / 0.7);
+  }
+  .ia-step:last-child::after { display: none; }
+  .ia-step.done::before { background: rgb(var(--c-accent)); box-shadow: 0 0 8px rgb(var(--c-accent) / 0.6); }
+  .ia-step.now::before { background: rgb(var(--c-golden)); box-shadow: 0 0 10px rgb(var(--c-golden) / 0.7); animation: pulsar 1.6s ease-in-out infinite; }
+  .ia-step .t {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+    text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700;
+  }
+  .ia-step.done .t { color: rgb(var(--c-accent-fg)); }
+  .ia-step.now .t { color: rgb(var(--c-golden)); }
+  .ia-step .d { font-size: 0.72rem; color: rgb(var(--c-fg-muted)); margin-top: 0.25rem; }
+</style>
+
+{# ---- Hero deep-space ---- #}
+<section class="ia-hero mb-6">
+  <div class="star-field" style="opacity: 0.45"></div>
+  <div class="star-field-overlay"></div>
+  <div class="relative">
+    <span class="mission-tag mb-3 inline-flex">🚀 IA LABS</span>
+    <h1 class="text-2xl md:text-3xl font-bold tracking-tight">Centro de Inteligência Voyager</h1>
+    <p class="mt-2 max-w-2xl text-sm text-fg-muted">
+      Modelos próprios treinados no nosso universo de dados —
+      <span class="font-mono text-fg-soft">74M</span> processos,
+      <span class="font-mono text-fg-soft">644k</span> documentos,
+      zero API externa.
+    </p>
+    <div class="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3 max-w-3xl">
+      <div class="ia-stat">
+        <div class="v text-accent-fg" id="ia-stat-rodando">—</div>
+        <div class="l">treinos rodando</div>
+      </div>
+      <div class="ia-stat">
+        <div class="v" style="color: rgb(var(--c-pale-blue))" id="ia-stat-done">—</div>
+        <div class="l">treinos concluídos</div>
+      </div>
+      <div class="ia-stat">
+        <div class="v" style="color: rgb(var(--c-golden))" id="ia-stat-gpus">—</div>
+        <div class="l">GPUs em uso</div>
+      </div>
+      <div class="ia-stat">
+        <div class="v" style="color: rgb(var(--c-mission))">2</div>
+        <div class="l">modelos empacotados</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ---- Grid de ferramentas ---- #}
+<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-8">
+  <a href="{% url 'dashboard:treinos-dashboard' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "flask" "w-5 h-5 ico-golden" %}
+    <h3>Sala de Controle · Treinos</h3>
+    <p>Telemetria live dos treinos ML — progresso, loss, GPU e custo por run.</p>
+    <span class="mini-live" id="ia-mini-treinos">acquiring signal…</span>
+  </a>
+  <a href="{% url 'dashboard:modelo-extrator' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "sparkles" "w-5 h-5 ico-mission" %}
+    <h3>Modelo Extrator</h3>
+    <p>Ficha técnica do extrator de precatórios — arquitetura, métricas e gates.</p>
+  </a>
+  <a href="{% url 'dashboard:modelo-extrator-vitrine' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "gem" "w-5 h-5 ico-mission" %}
+    <h3>Vitrine comercial</h3>
+    <p>Antes/depois, ficha da parte e os números que vendem o modelo.</p>
+  </a>
+  <a href="{% url 'dashboard:kappa-amostra' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "circle-check" "w-5 h-5 text-accent-fg" %}
+    <h3>Validação κ</h3>
+    <p>Amostra de validação humana — concordância anotador × modelo.</p>
+  </a>
+  <a href="{% url 'dashboard:jurimetria-chat' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "transmission" "w-5 h-5 text-accent-fg" %}
+    <h3>Chat IA</h3>
+    <p>Converse com o acervo — jurimetria assistida por IA, com fontes.</p>
+  </a>
+  <a href="{% url 'dashboard:jurimetria-dossie' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "dossier" "w-5 h-5 text-accent-fg" %}
+    <h3>Dossiê por CNJ</h3>
+    <p>Dossiê completo de um processo com narrativa gerada por IA.</p>
+  </a>
+  <a href="{% url 'dashboard:acervo-busca' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "search" "w-5 h-5" %}
+    <h3>Busca semântica</h3>
+    <p>Busca híbrida (vetorial + léxica) nos documentos vetorizados do acervo.</p>
+  </a>
+  <a href="{% url 'extrair-autos' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "uplink" "w-5 h-5" %}
+    <h3>Extrair autos</h3>
+    <p>Suba um ZIP/PDF de autos e receba a extração estruturada, async.</p>
+  </a>
+  <a href="{% url 'analisar-autos' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "downlink" "w-5 h-5" %}
+    <h3>Analisar do acervo</h3>
+    <p>Rode a extração direto sobre autos já vetorizados no acervo.</p>
+  </a>
+</div>
+
+{# ---- A jornada ---- #}
+<section class="card">
+  <div class="flex items-center gap-2 mb-4">
+    {% voy_icon "trajectory" "w-4 h-4 ico-golden" %}
+    <h2 class="text-sm font-semibold uppercase tracking-widest text-fg-muted">A jornada</h2>
+  </div>
+  <div class="ia-journey">
+    <div class="ia-step done">
+      <div class="t">v1 · extrator</div>
+      <div class="d">Qwen2.5-7B QLoRA — 87,9% macro no TEST (+9,9 vs base).</div>
+    </div>
+    <div class="ia-step done">
+      <div class="t">v2 · ficha da parte</div>
+      <div class="d">Extração entity-centric: valores e pagamentos por parte.</div>
+    </div>
+    <div class="ia-step now">
+      <div class="t">v2.1 + A/B</div>
+      <div class="d">Em treino agora — acompanhe na Sala de Controle.</div>
+    </div>
+    <div class="ia-step">
+      <div class="t">Próximos</div>
+      <div class="d">DPO com κ humano · destilação 3B · Analista IA.</div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Stats live do hub — mesma fonte da Sala de Controle. Falha silenciosa.
+  (function() {
+    fetch('{% url "dashboard:treinos-dashboard-data" %}', {credentials: 'same-origin'})
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        const runs = d.runs || [];
+        const c = d.contadores || {};
+        const rodando = (c.rodando != null) ? c.rodando
+          : runs.filter((r) => r.status === 'running').length;
+        const done = (c.concluidos != null) ? c.concluidos
+          : runs.filter((r) => r.status === 'done').length;
+        const gpus = (c.gpus_em_uso != null) ? c.gpus_em_uso : null;
+        const set = (id, v) => {
+          const el = document.getElementById(id);
+          if (el && v != null) el.textContent = v;
+        };
+        set('ia-stat-rodando', rodando);
+        set('ia-stat-done', done);
+        set('ia-stat-gpus', gpus);
+        const mini = document.getElementById('ia-mini-treinos');
+        if (mini) {
+          mini.textContent = rodando > 0
+            ? '🟢 ' + rodando + ' rodando' + (gpus != null ? ' · ' + gpus + ' GPUs' : '')
+            : 'nenhum treino ativo agora';
+        }
+      })
+      .catch(() => {
+        const mini = document.getElementById('ia-mini-treinos');
+        if (mini) mini.textContent = 'telemetria indisponível';
+      });
+  })();
+</script>
+
+{% endblock %}

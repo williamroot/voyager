@@ -41,6 +41,8 @@ urlpatterns = [
     path('consulta-rapida/', views.consulta_rapida, name='consulta-rapida'),
     path('consulta-rapida/api/', views.consulta_rapida_api, name='consulta-rapida-api'),
     path('api/', views.api_docs, name='api-docs'),
+    # IA LABS — Centro de Inteligência Voyager (landing hub das ferramentas de IA)
+    path('ia/', views.ia_hub, name='ia-hub'),
     path('modelos/extrator/', views.modelo_extrator, name='modelo-extrator'),
     path('modelos/extrator/vitrine/', views.modelo_extrator_vitrine, name='modelo-extrator-vitrine'),
     path('modelos/extrator/kappa/', views.kappa_amostra, name='kappa-amostra'),

@@ -95,11 +95,33 @@ Estilo: stroke=currentColor, width=1.6px (Lucide default 2px reduzido pra harmon
 - `.btn-mission` (CTA com aura orange)
 - `.error-code` (display gigante com gradient)
 
+## Menu lateral (nav)
+
+Grupos **colapsáveis** (Alpine `navGroup(id, active)` em `base.html`): chevron
+girando, transição CSS (`grid-template-rows` 0fr→1fr), estado persistido em
+`localStorage` (`voy-nav:<id>`), grupo ativo abre sozinho pela URL (checks
+server-side de `request.path`), mobile fecha por padrão. Subitens com indent +
+linha guia (`.nav-group-list`). Estrutura:
+
+```
+Command Center · Visão geral            (topo, fora de grupo)
+🚀 IA LABS (premium — glow dourado, .nav-group-premium)
+   Centro de Inteligência (/dashboard/ia/) · Sala de Controle (badge live "N 🟢"
+   via fetch de modelos/treinos/data/, falha silenciosa) · Modelo Extrator ·
+   Vitrine · Validação κ · Chat IA · Dossiê por CNJ · Jurimetria ·
+   Busca semântica · Extrair autos · Analisar do acervo · Análises feitas
+Leads        → Pipeline · Algoritmo · Visibilidade (perm) · Validação (perm)
+Tribunais & Processos → Tribunais · Status/linha do tempo · Processos · Consulta rápida
+Dados        → Movimentações · Partes
+Operação     → Ingestão · Saúde · Workers · Vetorização · Exportar · API · Convites (su)
+```
+
 ## Páginas
 
 | URL | Arquivo | Descrição |
 |---|---|---|
 | `/dashboard/` | `overview.html` | KPIs + 6 charts + filtros globais (período + tribunais) |
+| `/dashboard/ia/` | `ia_hub.html` | **IA LABS — Centro de Inteligência**: landing hub das ferramentas de IA. Hero deep-space (star-field), stats live (treinos rodando/concluídos/GPUs via `modelos/treinos/data/` client-side, falha silenciosa), grid de cards navegáveis e timeline "A jornada" (v1 87,9% → v2 Ficha da Parte → v2.1+A/B → DPO/3B/Analista IA) |
 | `/dashboard/processos/` | `processos.html` | Tabela filtrada |
 | `/dashboard/processos/<pk>/` | `processo_detail.html` | Hero card + cards de polos + timeline + botão enriquecer |
 | `/dashboard/movimentacoes/` | `movimentacoes.html` | Cards com filter chips (tribunal/tipo/meio/classe/ativo) |

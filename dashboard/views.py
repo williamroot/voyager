@@ -3421,6 +3421,15 @@ def _vetor_maquinas(data):
 
 @login_required
 @require_GET
+def ia_hub(request):
+    """IA LABS — Centro de Inteligência Voyager. Landing hub das ferramentas de IA
+    (treinos, modelo extrator, chat, dossiê, busca semântica, extração de autos).
+    Stats live vêm client-side de treinos-dashboard-data (falha silenciosa)."""
+    return render(request, 'dashboard/ia_hub.html')
+
+
+@login_required
+@require_GET
 def modelo_extrator(request):
     """Model card do extrator de precatórios — página autocontida (.ia/extrator-precatorio.html)."""
     return render(request, 'dashboard/modelo_extrator.html')
