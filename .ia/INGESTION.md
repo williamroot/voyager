@@ -58,6 +58,21 @@ Fix (`djen/client.py`): **circuit-breaker fleet-wide via cache/Redis**.
   (`q.empty()` + `FailedJobRegistry.remove(..., delete_job=True)`) — os dias são
   re-enfileirados pelo tick quando o DJEN normaliza.
 
+### Watermark por tribunal no tick de backfill — incidente 2026-07-29
+
+Com ~25 tribunais em backfill simultâneo (TRTs/TST ativados 07-05) numa fila
+`djen_backfill` única, o teto **global** (`BACKFILL_WATERMARK=4000`) não dava
+fairness: quem enchia a fila primeiro monopolizava a FIFO e os demais viam
+`fila>=4000` → "aguardando" pra sempre; a fronteira recente dos TRTs congelou
+(lag 20d). Fix (`djen/jobs.py::tick_backfill_retroativo`):
+
+- `BACKFILL_WATERMARK_POR_TRIBUNAL=200` — limite operacional é por tribunal;
+  o global (agora 8000) é só sanidade (27×200=5.400 < 8.000).
+- Jobs do tick usam **job_id determinístico** `bfd:<sigla>:<dia>` — contagem
+  por tribunal via `get_job_ids()` (LRANGE barato, sem fetch de payload) e
+  dedupe natural de re-enfileiramento entre ticks. O fan-out do daily continua
+  com id aleatório + `at_front` (não conta no cap por tribunal).
+
 **Frontend correlato** (`base.html::buildIngestaoRateChart` + `queries.ingestion_rate_por_hora`):
 quando a MV está defasada, mostra o **último snapshot conhecido** (janela ancorada em
 `max(hora)`, não em `NOW`) com selo **"⚠ defasado há Xh"** — em vez de esconder o gráfico.

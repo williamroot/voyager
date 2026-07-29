@@ -292,12 +292,18 @@ def _coletar_args(queue) -> set[str]:
     return {str(j.args[0]) for j in jobs if j and j.args}
 
 
-BACKFILL_WATERMARK = 4000  # não enfileira mais se djen_backfill já tem isso.
+BACKFILL_WATERMARK = 8000  # teto GLOBAL de sanidade da fila djen_backfill.
 # 2026-07-05: 200 → 4000. Com 200 e a fila compartilhada por ~60 tribunais, o tick
-# dos TRTs via SEMPRE fila>=200 e PULAVA — backfill trabalhista ficou starved
-# (só 4 runs em ~1 dia). 4000 cabe o batch de todos os ativos (jobs curtos,
-# ~poucos MB no Redis); worker_ingestion drena com FIFO justo.
+# dos TRTs via SEMPRE fila>=200 e PULAVA — backfill trabalhista ficou starved.
+# 2026-07-29: teto global sozinho não dá fairness — quem enche primeiro monopoliza
+# a FIFO e os demais ficam com a fronteira recente congelada (TRTs com lag 20d).
+# Agora o limite operacional é POR TRIBUNAL (abaixo); o global é só sanidade
+# (27 tribunais × 200 = 5.400 < 8.000).
+BACKFILL_WATERMARK_POR_TRIBUNAL = 200  # máx de jobs pendentes de UM tribunal
 BACKFILL_BATCH = 100       # dias por tick
+BACKFILL_JOB_PREFIX = 'bfd'  # job_id determinístico bfd:<sigla>:<dia> — permite
+# contar pendentes por tribunal via get_job_ids() (LRANGE barato, sem fetch de
+# payload) e deduplica re-enfileiramento entre ticks.
 
 
 @job('djen_backfill', timeout=3600)
@@ -368,15 +374,22 @@ def tick_backfill_retroativo(tribunal_sigla: str) -> dict:
         return {'completo': True, 'total': total_dias}
 
     backfill_q = django_rq.get_queue('djen_backfill')
-    q_len = len(backfill_q)
-    if q_len >= BACKFILL_WATERMARK:
-        logger.debug('backfill %s: fila com %d jobs — aguardando', tribunal_sigla, q_len)
-        return {'aguardando': True, 'fila': q_len, 'pendentes': len(pendentes)}
+    job_ids = backfill_q.get_job_ids()
+    q_len = len(job_ids)
+    meu_prefixo = f'{BACKFILL_JOB_PREFIX}:{tribunal_sigla}:'
+    meus = sum(1 for jid in job_ids if jid.startswith(meu_prefixo))
+    if q_len >= BACKFILL_WATERMARK or meus >= BACKFILL_WATERMARK_POR_TRIBUNAL:
+        logger.debug('backfill %s: fila global=%d meus=%d — aguardando',
+                     tribunal_sigla, q_len, meus)
+        return {'aguardando': True, 'fila': q_len, 'meus': meus,
+                'pendentes': len(pendentes)}
 
-    vagas = BACKFILL_WATERMARK - q_len
+    vagas = min(BACKFILL_WATERMARK - q_len,
+                BACKFILL_WATERMARK_POR_TRIBUNAL - meus)
     a_enfileirar = pendentes[:min(BACKFILL_BATCH, vagas)]
     for dia in a_enfileirar:
-        backfill_dia.delay(tribunal_sigla, str(dia))
+        backfill_q.enqueue(backfill_dia, tribunal_sigla, str(dia),
+                           job_id=f'{meu_prefixo}{dia}', job_timeout=3600)
 
     logger.info(
         'backfill %s: +%d dias enfileirados (fila era %d) · %.1f%% completo',
