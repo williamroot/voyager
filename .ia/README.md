@@ -13,6 +13,7 @@ Esta pasta concentra a documentação **destilada** do projeto — o que um enge
 | [`ENRICHMENT.md`](ENRICHMENT.md) | Antes de adicionar enricher de tribunal novo (PJe ou outro sistema) |
 | [`CLASSIFICACAO.md`](CLASSIFICACAO.md) | Antes de mexer em classificação ML de leads, modelo, features, API Juriscope |
 | [`MODELOS.md`](MODELOS.md) | Registry + model cards dos modelos de extração (versões, hashes, gates) — atualizar a cada treino/promoção |
+| [`EXPERIMENTOS_MODELO.md`](EXPERIMENTOS_MODELO.md) | Os 4 experimentos em curso do extrator (DAPT, especialistas, DPO-κ, destilação 3B): hipótese, setup, critério pré-registrado, status |
 | [`FICHA_PARTE.md`](FICHA_PARTE.md) | Extração entity-centric v2: ficha por parte (valores/pagamentos) + camada jurimetria |
 | [`JURIMETRIA.md`](JURIMETRIA.md) | Plano/arquitetura de jurimetria (tracks processual, resultado, precatório) + estado dos dados |
 | [`ACCOUNTS.md`](ACCOUNTS.md) | Antes de mexer em convites, sistema de cadastro, captura de IP |
