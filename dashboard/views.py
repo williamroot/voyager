@@ -3435,6 +3435,31 @@ def modelo_extrator_vitrine(request):
 
 @login_required
 @require_GET
+def treinos_dashboard(request):
+    """Sala de controle dos treinos ML — página autocontida; dados via /data/ (JSON do coletor externo)."""
+    return render(request, 'dashboard/treinos_dashboard.html')
+
+
+@login_required
+@require_GET
+def treinos_dashboard_data(request):
+    """JSON de status dos treinos — escrito em /app/.ia/treinos_status.json pelo
+    coletor externo (scripts/coletor_treinos.sh, ciclo 120s, deploy via docker cp)."""
+    import json as _json
+    import os as _os
+    from django.conf import settings as _s
+    path = _os.path.join(_s.BASE_DIR, '.ia', 'treinos_status.json')
+    if not _os.path.exists(path):
+        return JsonResponse({'error': 'coletor ainda não publicou dados', 'runs': []})
+    try:
+        with open(path, encoding='utf-8') as f:
+            return JsonResponse(_json.load(f))
+    except Exception:
+        return JsonResponse({'error': 'treinos_status.json inválido', 'runs': []})
+
+
+@login_required
+@require_GET
 def kappa_amostra(request):
     """Amostra de validação humana (κ) do extrator — HTML autocontido servido cru
     (sem template engine: o arquivo tem JS próprio). Gerado por build_kappa_amostra_v2.py."""

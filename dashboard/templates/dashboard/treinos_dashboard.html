@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sala de Controle — Treinos ML · Voyager/Zordon</title>
+<style>
+  :root{
+    --bg:#0b0e14; --bg2:#11151f; --card:#161b28; --card2:#1c2233;
+    --line:#252d42; --tx:#e8ecf4; --tx2:#9aa5bd; --tx3:#5f6a85;
+    --gold:#f5c451; --green:#4ade80; --blue:#60a5fa; --red:#f87171;
+    --violet:#a78bfa; --cyan:#22d3ee; --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+  a{color:var(--blue);text-decoration:none}
+
+  nav{position:sticky;top:0;z-index:50;background:rgba(11,14,20,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:18px;height:54px;font-size:13.5px}
+  nav .logo{font-weight:800;letter-spacing:.4px;color:var(--gold)}
+  nav a{color:var(--tx2)} nav a:hover{color:var(--tx)}
+  nav .spacer{flex:1}
+  .navtag{font-family:var(--mono);font-size:11px;color:var(--cyan);border:1px solid var(--line);border-radius:20px;padding:3px 10px;display:flex;align-items:center;gap:7px}
+  .dotlive{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.5)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+  header{padding:48px 0 34px;background:
+    radial-gradient(900px 400px at 15% -10%,rgba(245,196,81,.10),transparent),
+    radial-gradient(700px 380px at 90% 0%,rgba(96,165,250,.08),transparent)}
+  .crumb{font-family:var(--mono);font-size:12px;color:var(--tx3);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px}
+  h1{font-size:38px;line-height:1.12;font-weight:800;letter-spacing:-.5px;margin-bottom:10px}
+  h1 em{font-style:normal;background:linear-gradient(90deg,var(--gold),#f59e0b);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lead{font-size:16px;color:var(--tx2);max-width:780px;margin-bottom:26px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .kpi .v{font-size:28px;font-weight:800;font-family:var(--mono);letter-spacing:-1px}
+  .kpi .v small{font-size:14px;color:var(--tx3);font-weight:600}
+  .kpi .l{font-size:12px;color:var(--tx2);margin-top:2px}
+  .kpi.gold .v{color:var(--gold)} .kpi.green .v{color:var(--green)}
+  .kpi.blue .v{color:var(--blue)} .kpi.violet .v{color:var(--violet)}
+  .updnote{font-family:var(--mono);font-size:11.5px;color:var(--tx3);margin-top:16px}
+  .updnote b{color:var(--tx2);font-weight:600}
+
+  section{padding:38px 0;border-top:1px solid var(--line)}
+  h2{font-size:23px;font-weight:800;letter-spacing:-.3px;margin-bottom:4px}
+  h2 .num{color:var(--tx3);font-family:var(--mono);font-size:15px;margin-right:8px}
+  .sub{color:var(--tx2);margin-bottom:22px;font-size:14px}
+
+  .runs{display:flex;flex-direction:column;gap:16px}
+  .run{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;transition:opacity .3s}
+  .run.stale{opacity:.72;border-style:dashed}
+  .run-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .run-nome{font-size:17px;font-weight:700}
+  .badge{font-family:var(--mono);font-size:11px;padding:3px 11px;border-radius:20px;border:1px solid var(--line);white-space:nowrap}
+  .b-run{border-color:rgba(74,222,128,.5);color:var(--green)}
+  .b-done{border-color:rgba(96,165,250,.5);color:var(--blue)}
+  .b-fail{border-color:rgba(248,113,113,.5);color:var(--red)}
+  .b-pause{border-color:rgba(245,196,81,.5);color:var(--gold)}
+  .b-stale{border-color:rgba(245,196,81,.5);color:var(--gold)}
+  .b-queue{color:var(--tx3)}
+  .run-desc{font-size:13.5px;color:var(--tx2);max-width:860px;margin-bottom:12px}
+  .run-onde{font-family:var(--mono);font-size:11.5px;color:var(--tx3);margin-left:auto;text-align:right}
+  .run-onde b{color:var(--cyan);font-weight:600}
+
+  .prog{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:center}
+  @media(max-width:760px){.prog{grid-template-columns:1fr}}
+  .bar-track{position:relative;height:26px;background:var(--bg2);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .bar-fill{position:absolute;inset:0 auto 0 0;border-radius:8px;min-width:6px;
+    background:linear-gradient(90deg,#8a6d1f,var(--gold));box-shadow:0 0 14px rgba(245,196,81,.25);
+    transition:width 1.2s ease}
+  .bar-fill:after{content:"";position:absolute;inset:0;
+    background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.22) 50%,transparent 70%);
+    background-size:200% 100%;animation:shimmer 2.2s linear infinite}
+  @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .run.done .bar-fill{background:linear-gradient(90deg,#1d4f7a,var(--blue));box-shadow:none}
+  .run.done .bar-fill:after{animation:none;display:none}
+  .bar-lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:11.5px;color:var(--tx);text-shadow:0 1px 3px rgba(0,0,0,.7);z-index:2}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .chip{font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--line);color:var(--tx2);white-space:nowrap}
+  .chip b{color:var(--gold);font-weight:700}
+  .chip.c-green b{color:var(--green)} .chip.c-blue b{color:var(--blue)} .chip.c-cyan b{color:var(--cyan)}
+
+  .conc{margin-top:12px;border-left:3px solid var(--blue);background:rgba(96,165,250,.07);
+    border-radius:0 10px 10px 0;padding:12px 16px;font-size:13.5px;color:var(--tx2)}
+  .conc .t{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--blue);margin-bottom:4px;font-weight:700}
+  .conc b{color:var(--tx)}
+
+  .qgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+  .qcard{background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:16px 18px}
+  .qcard .qn{font-weight:700;font-size:14.5px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .qcard p{font-size:13px;color:var(--tx2)}
+
+  .err{display:none;margin:14px 0 0;border-left:3px solid var(--red);background:rgba(248,113,113,.07);
+    border-radius:0 10px 10px 0;padding:12px 16px;font-size:13.5px;color:var(--tx2)}
+  footer{padding:34px 0 46px;border-top:1px solid var(--line);color:var(--tx3);font-size:12.5px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <span class="logo">VOYAGER</span>
+  <a href="/dashboard/">← dashboard</a>
+  <a href="/dashboard/modelos/extrator/">model card</a>
+  <a href="/dashboard/modelos/extrator/vitrine/">vitrine</a>
+  <span class="spacer"></span>
+  <span class="navtag"><span class="dotlive"></span> LIVE · atualiza a cada 2min</span>
+</div></nav>
+
+<header><div class="wrap">
+  <div class="crumb">ZORDON ML · SALA DE CONTROLE</div>
+  <h1>Treinos em <em>tempo real</em></h1>
+  <p class="lead">Todos os experimentos de ML do extrator de precatórios — o que está rodando agora,
+  em qual GPU, a que custo, e o que cada um já provou. Telemetria coletada direto das máquinas de treino.</p>
+  <div class="kpis">
+    <div class="kpi green"><div class="v" id="k-rodando">–</div><div class="l">rodando agora</div></div>
+    <div class="kpi blue"><div class="v" id="k-done">–</div><div class="l">concluídos</div></div>
+    <div class="kpi gold"><div class="v" id="k-gpus">–</div><div class="l">GPUs em uso</div></div>
+    <div class="kpi violet"><div class="v" id="k-custo">–</div><div class="l">custo cloud/hora</div></div>
+    <div class="kpi"><div class="v" id="k-fila">–</div><div class="l">na fila</div></div>
+  </div>
+  <div class="updnote">coletor roda a cada 2min nas máquinas de treino · página recarrega os dados a cada 60s ·
+  último dado: <b id="k-quando">—</b></div>
+  <div class="err" id="err"></div>
+</div></header>
+
+<section><div class="wrap">
+  <h2><span class="num">01</span>Em execução</h2>
+  <p class="sub">Runs ativos neste momento. <span style="color:var(--gold)">⚠ stale</span> = fonte fora do ar; mostramos o último dado conhecido.</p>
+  <div class="runs" id="ativos"></div>
+</div></section>
+
+<section><div class="wrap">
+  <h2><span class="num">02</span>Na fila</h2>
+  <p class="sub">Próximos experimentos — dependem de GPU livre ou de resultado dos runs atuais.</p>
+  <div class="qgrid" id="fila"></div>
+</div></section>
+
+<section><div class="wrap">
+  <h2><span class="num">03</span>Concluídos</h2>
+  <p class="sub">O que já saiu do forno — com os números finais de cada entrega.</p>
+  <div class="runs" id="concluidos"></div>
+</div></section>
+
+<footer><div class="wrap">
+  coletor: scripts/coletor_treinos.sh (ciclo 120s, SSH direto nas máquinas de treino) ·
+  dados: /dashboard/modelos/treinos/data/
+</div></footer>
+
+<script>
+(function(){
+  var DATA_URL = 'data/';
+
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function badge(r){
+    var st = r.status || 'running';
+    var b = '';
+    if (st === 'running') b = '<span class="badge b-run">🟢 RODANDO</span>';
+    else if (st === 'done') b = '<span class="badge b-done">✅ CONCLUÍDO</span>';
+    else if (st === 'failed') b = '<span class="badge b-fail">❌ FALHOU</span>';
+    else if (st === 'paused') b = '<span class="badge b-pause">⏸ PAUSADO</span>';
+    else b = '<span class="badge b-queue">🕓 NA FILA</span>';
+    if (r.stale) b += ' <span class="badge b-stale">⚠ STALE</span>';
+    return b;
+  }
+
+  function fmtLoss(x){
+    if (x == null) return null;
+    return (x < 0.01) ? x.toExponential(1) : x.toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
+  }
+
+  function runCard(r){
+    var pct = (r.pct != null) ? r.pct : (r.step != null && r.total ? 100*r.step/r.total : null);
+    var un = r.unidade || 'steps';
+    var barLbl = (r.step != null)
+      ? (r.step.toLocaleString('pt-BR') + ' / ' + (r.total||0).toLocaleString('pt-BR') + ' ' + un +
+         (pct != null ? ' · ' + pct.toFixed(1) + '%' : ''))
+      : 'aguardando telemetria…';
+    var chips = [];
+    if (r.tarefa_atual) chips.push('<span class="chip c-cyan">tarefa <b>' + esc(r.tarefa_atual) + '</b></span>');
+    if (r.s_per_step) chips.push('<span class="chip">vel <b>' + r.s_per_step.toFixed(1) + 's</b>/' + (un==='steps'?'step':un.replace(/s$/,'')) + '</span>');
+    if (r.loss != null) chips.push('<span class="chip c-green">loss <b>' + fmtLoss(r.loss) + '</b></span>');
+    if (r.eta && r.status === 'running') chips.push('<span class="chip c-blue">ETA <b>' + esc(r.eta) + '</b></span>');
+    if (r.custo) chips.push('<span class="chip">custo <b>' + esc(r.custo) + '</b></span>');
+
+    var conc = r.conclusao
+      ? '<div class="conc"><div class="t">Resultado final</div>' + esc(r.conclusao) + '</div>'
+      : '';
+
+    return '<div class="run ' + esc(r.status||'') + (r.stale ? ' stale' : '') + '">' +
+      '<div class="run-top">' +
+        '<span class="run-nome">' + esc(r.nome) + '</span>' + badge(r) +
+        '<span class="run-onde">' + esc(r.onde||'') + '</span>' +
+      '</div>' +
+      '<div class="run-desc">' + esc(r.desc||'') + '</div>' +
+      '<div class="prog">' +
+        '<div class="bar-track">' +
+          '<div class="bar-fill" style="width:' + (pct != null ? Math.max(1, Math.min(100, pct)) : 1) + '%"></div>' +
+          '<div class="bar-lbl">' + esc(barLbl) + '</div>' +
+        '</div>' +
+        '<div class="stats">' + chips.join('') + '</div>' +
+      '</div>' + conc + '</div>';
+  }
+
+  function doneCard(r){
+    var meta = r.onde ? '<span class="run-onde">' + esc(r.onde) + '</span>' : '';
+    return '<div class="run done">' +
+      '<div class="run-top"><span class="run-nome">' + esc(r.nome) + '</span>' + badge(r) + meta + '</div>' +
+      '<div class="run-desc">' + esc(r.desc||'') + '</div>' +
+      (r.conclusao ? '<div class="conc"><div class="t">Números finais</div>' + esc(r.conclusao) + '</div>' : '') +
+      '</div>';
+  }
+
+  function queueCard(r){
+    return '<div class="qcard"><div class="qn">🕓 ' + esc(r.nome) + '</div><p>' + esc(r.desc||'') + '</p></div>';
+  }
+
+  function render(d){
+    var runs = d.runs || [];
+    var ativos = runs.filter(function(r){ return r.status === 'running' || r.status === 'paused' || r.status === 'failed'; });
+    var done   = runs.filter(function(r){ return r.status === 'done'; });
+    var fila   = runs.filter(function(r){ return r.status === 'queued'; });
+
+    document.getElementById('ativos').innerHTML =
+      ativos.length ? ativos.map(runCard).join('') :
+      '<div class="run"><div class="run-desc">Nenhum treino rodando agora.</div></div>';
+    document.getElementById('concluidos').innerHTML = done.map(doneCard).join('');
+    document.getElementById('fila').innerHTML = fila.map(queueCard).join('');
+
+    var c = d.contadores || {};
+    document.getElementById('k-rodando').textContent = (c.rodando != null) ? c.rodando : ativos.length;
+    document.getElementById('k-done').textContent = (c.concluidos != null) ? c.concluidos : done.length;
+    document.getElementById('k-gpus').textContent = (c.gpus_em_uso != null) ? c.gpus_em_uso : '–';
+    document.getElementById('k-fila').textContent = (c.na_fila != null) ? c.na_fila : fila.length;
+    document.getElementById('k-custo').innerHTML = (c.custo_hora_usd != null)
+      ? '$' + c.custo_hora_usd.toFixed(2).replace('.', ',') + '<small>/h</small>' : '–';
+
+    var q = document.getElementById('k-quando');
+    if (d.generated_at){
+      var dt = new Date(d.generated_at);
+      var idade = Math.round((Date.now() - dt.getTime())/60000);
+      q.textContent = dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}) +
+        (idade > 0 ? ' (há ' + idade + 'min)' : ' (agora)');
+      q.style.color = idade > 10 ? 'var(--gold)' : '';
+    } else { q.textContent = '—'; }
+
+    var err = document.getElementById('err');
+    if (d.error){ err.style.display = 'block'; err.textContent = '⚠ ' + d.error; }
+    else { err.style.display = 'none'; }
+  }
+
+  function load(){
+    fetch(DATA_URL, {credentials:'same-origin'})
+      .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(render)
+      .catch(function(e){
+        var err = document.getElementById('err');
+        err.style.display = 'block';
+        err.textContent = '⚠ Falha ao buscar telemetria (' + e.message + ') — tentando de novo em 60s.';
+      });
+  }
+
+  load();
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
