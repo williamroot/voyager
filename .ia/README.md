@@ -15,6 +15,8 @@ Esta pasta concentra a documentação **destilada** do projeto — o que um enge
 | [`MODELOS.md`](MODELOS.md) | Registry + model cards dos modelos de extração (versões, hashes, gates) — atualizar a cada treino/promoção |
 | [`EXPERIMENTOS_MODELO.md`](EXPERIMENTOS_MODELO.md) | Os 4 experimentos em curso do extrator (DAPT, especialistas, DPO-κ, destilação 3B): hipótese, setup, critério pré-registrado, status |
 | [`FICHA_PARTE.md`](FICHA_PARTE.md) | Extração entity-centric v2: ficha por parte (valores/pagamentos) + camada jurimetria |
+| [`LABLOG.md`](LABLOG.md) | Diário de bordo dos experimentos de ML — cronológico, avanços E incidentes com lição; atualizar a cada ciclo |
+| [`ANALISTA.md`](ANALISTA.md) | Missão Analista: substituir o GPT do JuriscopeIA (colheita, shadow, bake-off de professores, Analista-7B) — **repo deles é read-only absoluto** |
 | [`JURIMETRIA.md`](JURIMETRIA.md) | Plano/arquitetura de jurimetria (tracks processual, resultado, precatório) + estado dos dados |
 | [`ACCOUNTS.md`](ACCOUNTS.md) | Antes de mexer em convites, sistema de cadastro, captura de IP |
 | [`DASHBOARD.md`](DASHBOARD.md) | Antes de criar páginas, alterar tema, adicionar componentes |

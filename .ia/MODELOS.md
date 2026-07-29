@@ -9,9 +9,22 @@
 | modelo | versão | status | artefato | onde |
 |---|---|---|---|---|
 | extrator-precatorio | **v1** | 🟡 empacotado (gate PASS, não deployado) | GGUF Q4_K_M `01cd53ff…ebf2` | llmsv2 `/mnt/nas-data/voyager-train/out/` |
-| extrator-precatorio | **v2 "Ficha da Parte"** | 🟡 gate PARCIAL — empacotado (κ pendente) | GGUF Q4 `59db32db…1de3` · adapter `5206de77…b333` | llmsv2 `out/precatorio-extrator-v2-q4_k_m.gguf` + `Modelfile.v2` |
+| extrator-precatorio | **v2 "Ficha da Parte"** | 🟡 gate PARCIAL — empacotado (amostra κ: ver card v2) | GGUF Q4 `59db32db…1de3` · adapter `5206de77…b333` | llmsv2 `out/precatorio-extrator-v2-q4_k_m.gguf` + `Modelfile.v2` |
+| extrator-precatorio | **v2.1** | 🔵 treinando (ETA qui) | `adapter_v21` (em treino) | llmsv2 `/mnt/nas-data/voyager-train/` |
+| extrator-precatorio | **A/B Qwen3-8B** | 🔵 treinando (ETA amanhã 12h) | `adapter_ab_qwen3_v21` | pod 4090 ($0,31/h) |
+| extrator-precatorio | **especialistas** | 🔵 treinando (7 adapters sequenciais) | `adapter_esp_*` | pod 3090 ($0,186/h) |
+| extrator-precatorio | **DAPT** | 🔵 treinando (~76,5h) | adapter DAPT r=64 all-linear | pod 3090 ($0,19/h) |
 | classificador-leads | v7 | 🟢 ativa | — | ver `.ia/CLASSIFICACAO.md` |
 | emulador-autos (GBM) | — | ⚪ planejado | — | ver `.ia/EMULADOR_AUTOS.md` |
+
+**Datasets versionados por hash** (dados fora do git; md5 aqui é o vínculo):
+
+| dataset | md5 | conteúdo | gerador |
+|---|---|---|---|
+| `train_extracao_v2.jsonl` (v1) | `277f07b5cc2a09e58166a339095faed1` | 10.850 ex-ouro por-processo | zordon `eval/build_train_extracao.py` |
+| `train_fichaparte_full.jsonl` (v2) | `177f4f0ed7ba2a9768f90df28d14e4ed` | 196.360 ex por-documento | zordon `eval/build_train_fichaparte.py` |
+| dataset **v2.1** | `2b90e642…` | **211.928 ex** (37.146 longos recuperados via janelamento) | zordon commit `bd4b2b9` |
+| **DPO pairs v1** (`eval/dpo_pairs_v1.jsonl`) | — (auditoria em `eval/relatorio_dpo_pairs.md`) | 2.688 pares (1.289 forte×fraca / 27 correções humanas / 1.372 abstenção) | zordon `eval/build_dpo_pairs.py` |
 
 Status: 🟢 ativa · 🟡 empacotado/shadow · 🔵 treinando · 🔴 morto (gate BLOCK) · ⚪ planejado
 
@@ -101,6 +114,21 @@ MACRO v2 bruto 66,5 (puxado pelas fracas). Critério partes ≥75: 72,4 → não
 o modelo INTEIRO; uso por-classe (fortes) possível após κ humano.
 Levers v2.1 confirmados pelo gate: janelar docs longos no gerador + gold melhor
 de cessão/herdeiros/casamento. A/B de base (Qwen3-8B) disparado na sequência.
+
+**Amostra κ humana v2 (60 docs do TEST, pré-análise IA — 29-30/07).**
+Régua: ✓ correto · ✗ = **afirmação falsa** (o grave) · ? = abstenção com
+evidência (o tolerável). Pré-análise IA: **28✓ / 5✗ / 27?**.
+
+| classe | precisão na amostra | observação |
+|---|--:|---|
+| DESPACHO / DECISAO / ALVARA | **100%** | consistente com o gate automático |
+| PROCURACAO | **62%** | 3 afirmações falsas GRAVES: CPF trocado entre outorgantes (×2), nome truncado + papel errado |
+
+Achado colateral: **ALVARA real ≈100% do subtipo "levantamento"** na amostra
+→ v2.1 já treina esse subtipo. As 3 falsas-afirmações de PROCURACAO são
+exatamente o alvo do DPO-κ (`.ia/EXPERIMENTOS_MODELO.md` §3); as 27
+correções humanas verificadas viraram pares (b) do dataset DPO. Amostra
+navegável: `.ia/kappa_amostra_v2.html`.
 
 **Critérios de promoção (pré-registrados).** (a) partes: F1 de entidade ≥0,75 no
 test v2; (b) retenção v1: macro ≥85 (não regredir natureza/cessao/valor/ente);
