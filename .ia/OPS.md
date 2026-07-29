@@ -21,10 +21,10 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 | `voyager-db` | `192.168.30.101` | nova | Postgres 16 nativo + pgbouncer (`:6432`) | — |
 | `voyager-redis` | `192.168.30.100` | nova | Redis 7 nativo | — |
 | `voyager-workers` | `192.168.30.102` | nova | Workers RQ — conecta em DB/Redis via **LAN** | `docker-compose-workers.yml` |
-| `voyager-workers-2` | `192.168.30.104` | nova | 2º host de workers RQ (subnet nova) — conecta em DB/Redis via **LAN**. Sucedeu o `voyager-workers-aux`. | `docker-compose-workers.yml` |
+| `voyager-workers-2` | `192.168.30.104` | nova | **DESTRUÍDA 2026-07-17** (`qmdestroy` no gravserver — liberação de RAM; host oversubscrito). Era o 2º host de workers RQ. Recriar = decisão pendente. | — |
 | `voyager-workers-aux` | `192.168.1.24` | antiga (pve antigo) | **Desativado** (offline desde ~2026-06-09) — era worker auxiliar na subnet antiga via Tailscale. | `docker-compose-workers.yml` |
 
-**Fleet de app são 3 hosts**: `voyager` (.103, web) + `voyager-workers` (.102) + `voyager-workers-2` (.104). Os dois de workers ficam na subnet nova e conectam DB/Redis via **LAN**. O drainer do stream **só roda no `voyager`** (.103), não nos hosts de workers.
+**Fleet de app são 2 hosts** (desde 2026-07-17): `voyager` (.103, web) + `voyager-workers` (.102). A `.104` foi destruída em 2026-07-17. Workers conectam DB/Redis via **LAN**. O drainer do stream **só roda no `voyager`** (.103). Na `.102`, `worker_ingestion` roda com 16 réplicas via `--scale` (2026-07-29, compensando a .104 — **não persistido** no compose; `up -d` sem a flag volta pra 8).
 
 `voyager-workers-2` (.104) entrou em 2026-06 pra somar capacidade na subnet nova, no lugar do `voyager-workers-aux` — a VM antiga (VMID 100, pve antigo, subnet `192.168.1.x`) que somava workers via Tailscale (`DATABASE_URL=postgres://...@100.68.5.114:6432/voyager`, `REDIS_URL=redis://100.98.86.54:6379/0`) e está offline desde ~2026-06-09.
 
