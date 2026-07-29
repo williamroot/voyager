@@ -118,6 +118,7 @@ Estilo: stroke=currentColor, width=1.6px (Lucide default 2px reduzido pra harmon
 | `/dashboard/leads/validacao/<id>/concluido/` | `leads/_partials/_lote_concluido.html` | Sumário pós-finalização do lote |
 | `/dashboard/api/` | `api_docs.html` | Docs da API de leads + cards de stats por nível + clientes ativos + métricas do modelo |
 | `/dashboard/consulta-rapida/` | `consulta_rapida.html` | Debug em tempo real: consulta CNJ no DJEN+Datajud, mostra raw + parsed sem persistir |
+| `/dashboard/modelos/treinos/` | `treinos_dashboard.html` | Sala de controle dos treinos ML — status live de cada run (barra de progresso, loss, ETA, host/GPU/custo), fila e concluídos. **Autocontida** (sem base.html); JS puro faz fetch de `modelos/treinos/data/` a cada 60s. Dados: `/app/.ia/treinos_status.json`, publicado por `scripts/coletor_treinos.sh` (loop 120s fora do prod, SSH nas máquinas de treino + `docker cp` no web) |
 | `/dashboard/invites/` | `accounts/invites_list.html` | **Superuser**: gerar/revogar convites de cadastro |
 | `/invite/<token>/` | `accounts/accept_invite.html` | **Público**: aceitar convite, criar conta |
 | `/dashboard/login/` | `login.html` | Patch + wordmark + telemetry strip + SOL counter. **Autocontida**: usa só `dashboard/login.css` (sem Tailwind CDN, sem `voyager-identity.css`, sem Google Fonts) — página pública precisa ser leve em mobile |
