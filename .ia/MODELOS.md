@@ -9,7 +9,7 @@
 | modelo | versão | status | artefato | onde |
 |---|---|---|---|---|
 | extrator-precatorio | **v1** | 🟡 empacotado (gate PASS, não deployado) | GGUF Q4_K_M `01cd53ff…ebf2` | llmsv2 `/mnt/nas-data/voyager-train/out/` |
-| extrator-precatorio | **v2 "Ficha da Parte"** | 🟡 gate PARCIAL (29/07) — classes fortes prontas | `out/adapter_v2` + GGUF v2 (empacotando) | llmsv2 idem |
+| extrator-precatorio | **v2 "Ficha da Parte"** | 🟡 gate PARCIAL — empacotado (κ pendente) | GGUF Q4 `59db32db…1de3` · adapter `5206de77…b333` | llmsv2 `out/precatorio-extrator-v2-q4_k_m.gguf` + `Modelfile.v2` |
 | classificador-leads | v7 | 🟢 ativa | — | ver `.ia/CLASSIFICACAO.md` |
 | emulador-autos (GBM) | — | ⚪ planejado | — | ver `.ia/EMULADOR_AUTOS.md` |
 
