@@ -33,10 +33,17 @@ a.pdf:hover{background:#3a6a3e}
 .export{background:#2c4a6e;color:#fff;border:none;border-radius:4px;
         padding:10px 18px;font-size:1em;cursor:pointer;margin:8px 0}
 #resumo{width:100%;min-height:120px;font-family:monospace;font-size:.8em}
+.selo-ia{display:inline-block;background:#f0e9f8;color:#5b3d84;border:1px solid #cbb6e4;
+         border-radius:4px;padding:1px 8px;font-size:.78em;margin-left:8px}
+.prebox{background:#f5f1fa;border-left:4px solid #7a5aa8;padding:12px 16px;margin:16px 0}
+.prebox table{border-collapse:collapse;margin:8px 0}
+.prebox td,.prebox th{border:1px solid #cbb6e4;padding:3px 10px;text-align:right;
+                      font-size:.9em}
+.prebox td:first-child,.prebox th:first-child{text-align:left}
 @media print{.item{border:1px solid #999}pre{max-height:none}}
 </style></head><body>
 <h1>Validação humana (κ) — extrator-precatorio v2 · classes fortes</h1>
-<p class='meta'>Gerado em 29/07/2026 14:02 · 60 documentos REAIS do split TEST (hash de CNJ ≥65, nunca vistos no treino) · JSON válido: 60/60 · modelo: precatorio-extrator-v2-q4_k_m.gguf (temp 0, grammar GBNF)</p>
+<p class='meta'>Gerado em 29/07/2026 16:30 · 60 documentos REAIS do split TEST (hash de CNJ ≥65, nunca vistos no treino) · JSON válido: 60/60 · modelo: precatorio-extrator-v2-q4_k_m.gguf (temp 0, grammar GBNF)</p>
 <div class='instr'><strong>Instruções de revisão.</strong> Para cada item: leia o trecho do documento, compare com o JSON extraído pelo modelo e marque:<br>✓ <strong>Correto</strong> — todos os campos preenchidos estão certos e nada relevante presente no trecho foi omitido;<br>✗ <strong>Errado</strong> — pelo menos um campo preenchido está errado (nome trocado, valor errado, data errada, papel errado);<br>? <strong>Parcial</strong> — o que foi preenchido está certo, mas faltou campo que está visível no trecho (ou <code>null</code> indevido).<br>Campo <code>null</code> quando o dado NÃO está no texto é comportamento correto (abstenção). Em caso de dúvida, abra <em>Ver documento completo</em> (texto integral extraído dos autos) ou o botão <em>📄 PDF original</em> — ele baixa o ZIP dos autos no Spaces (link válido por 7 dias a partir da geração desta página); abra dentro dele o arquivo indicado no botão. Use o campo de observação para registrar o erro. Ao final, clique em <em>Gerar resumo</em> e salve o bloco JSONL gerado (ou salve/imprima a página com as marcações).</div>
 <div class='regua'><strong>Régua de liberação:</strong> ≥95% correto na classe → classe liberada para produção. Abaixo disso, a classe volta pro ciclo (v2.1) com os erros anotados.</div>
 <table class='sumario'><tr><th>Classe</th><th>Itens</th></tr>
@@ -47,10 +54,20 @@ a.pdf:hover{background:#3a6a3e}
 <tr><td>PAGAMENTO_COMPROVANTE</td><td>10</td></tr>
 <tr><td>PROCURACAO</td><td>10</td></tr>
 <tr><th>Total</th><th>60</th></tr></table>
+<div class='prebox'><strong>🤖 Pré-análise IA (Claude) — sugestão, não veredito.</strong> Cada item abaixo já vem com o voto da IA pré-marcado e a observação preenchida (editável). <strong>O veredito final é do revisor humano</strong>: confirme ou corrija item a item antes de gerar o resumo.
+<table><tr><th>Classe</th><th>✓ correto</th><th>✗ errado</th><th>? parcial</th><th>Precisão ✓/(✓+✗)</th><th>✓/total</th></tr>
+<tr><td>ALVARA</td><td>4</td><td>0</td><td>8</td><td>100%</td><td>33%</td></tr>
+<tr><td>DECISAO</td><td>7</td><td>0</td><td>5</td><td>100%</td><td>58%</td></tr>
+<tr><td>DESPACHO</td><td>6</td><td>0</td><td>0</td><td>100%</td><td>100%</td></tr>
+<tr><td>OFICIO_REQUISITORIO</td><td>4</td><td>1</td><td>5</td><td>80%</td><td>40%</td></tr>
+<tr><td>PAGAMENTO_COMPROVANTE</td><td>2</td><td>1</td><td>7</td><td>67%</td><td>20%</td></tr>
+<tr><td>PROCURACAO</td><td>5</td><td>3</td><td>2</td><td>62%</td><td>50%</td></tr>
+<tr><th>Total</th><th>28</th><th>5</th><th>27</th><th>85%</th><th>47%</th></tr></table>
+<em>Régua da pré-análise: ✗ só quando o modelo afirmou algo falso; ? quando absteve com evidência clara no texto (ou pegou valor discutível); ✓ inclui abstenção correta (dado ausente no texto).</em></div>
 <div class='item' data-doc-id='971003' data-classe='ALVARA' data-cnj='0005830-89.2017.8.26.0053'>
 <h3>#01 <span class='classe'>ALVARA</span> 0005830-89.2017.8.26.0053</h3>
 <div class='meta'>doc_id=971003 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0005830-89.2017.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170236Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=7861c789d50f3a332e19206928462b996a4f136ef7c17ecf630a5afbe1906762' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Movimento Processual (pag 127 - 128).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0005830-89.2017.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193043Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=dc2829b316392d9c9bb158493f8b68a6ea376d8fca9cc7b6e105392c70babec6' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Movimento Processual (pag 127 - 128).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 127
 
@@ -123,12 +140,13 @@ Este documento é cópia do original, assinado digitalmente por Tribunal de Just
 <div class='marc'>
 <label><input type='radio' name='marc_971003' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_971003' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_971003' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_971003' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário visível (em favor de Antonio Pancioni), modelo absteve; valor/data null ok (SEM SALDO, sem valor no texto)</textarea></div></div>
 <div class='item' data-doc-id='894226' data-classe='ALVARA' data-cnj='0025240-02.2018.8.26.0053'>
 <h3>#02 <span class='classe'>ALVARA</span> 0025240-02.2018.8.26.0053</h3>
 <div class='meta'>doc_id=894226 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0025240-02.2018.8.26.0053_19.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170236Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=5939b26ded25974080047ea961ee0915dbb5e341627734e38686fa22ddf0c0f0' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 25 - 27).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0025240-02.2018.8.26.0053_19.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193043Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=0449404cbf5a04cf65e4018688419a5362b810c5ce35ac1d45e6f8c319901bef' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 25 - 27).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 25
 
@@ -241,12 +259,13 @@ Este documento é cópia do original, assinado digitalmente por LUIGI MONTEIRO S
 <div class='marc'>
 <label><input type='radio' name='marc_894226' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_894226' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_894226' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_894226' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário visível (DEFIRO levantamento em favor de Maria Aparecida Gregório Conceição), modelo absteve; valor ausente no texto e data null ok</textarea></div></div>
 <div class='item' data-doc-id='1181872' data-classe='ALVARA' data-cnj='0006174-65.2020.8.26.0053'>
 <h3>#03 <span class='classe'>ALVARA</span> 0006174-65.2020.8.26.0053</h3>
 <div class='meta'>doc_id=1181872 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0006174-65.2020.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170236Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=5d302626e6a20c9ab1cb3ea6c38d9493f5c780e331514787058a42b7676ff058' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Movimento Processual (pag 102).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0006174-65.2020.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193043Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=ff60fc0c90e355fd13b824272640a4c32ce46588e9d4680e479cafcf0368e0b9' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Movimento Processual (pag 102).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 102
 
@@ -297,14 +316,15 @@ Este documento é cópia do original, assinado digitalmente por Tribunal de Just
   &quot;data&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_1181872' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_1181872' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_1181872' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_1181872' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>abstenção certa: certidão de ciência de depósito/regularização, sem levantamento deferido, sem beneficiário nomeado no ato, sem valor nem data de pagamento</textarea></div></div>
 <div class='item' data-doc-id='86100' data-classe='ALVARA' data-cnj='1086508-64.2023.8.26.0053'>
 <h3>#04 <span class='classe'>ALVARA</span> 1086508-64.2023.8.26.0053</h3>
 <div class='meta'>doc_id=86100 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1086508-64.2023.8.26.0053_137.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170236Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=cd74de8d3e2e4eb4da6a6baec6f7a67cb3054a09f4975593a23f3feccab93836' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Certidão de Publicação (pag 66).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1086508-64.2023.8.26.0053_137.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193044Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=3eac88df90744b5ba1a3f6c534b26cb3680e6cf7bb88cfa6c03c96951d37013d' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Certidão de Publicação (pag 66).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 66
 
@@ -347,14 +367,15 @@ Este documento é cópia do original, assinado digitalmente por Tribunal de Just
   &quot;data&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_86100' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_86100' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_86100' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_86100' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>abstenção certa: deferir expedição de ofício RPV ≠ pagamento; só advogado nomeado (José Márcio do Valle Garcia), sem valor nem data</textarea></div></div>
 <div class='item' data-doc-id='676411' data-classe='ALVARA' data-cnj='0000016-25.1993.8.26.0575'>
 <h3>#05 <span class='classe'>ALVARA</span> 0000016-25.1993.8.26.0575</h3>
 <div class='meta'>doc_id=676411 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0000016-25.1993.8.26.0575_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170236Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=04a0e0e9e88a78aa7115a0dfdf4aa4fa6cd067f8e54f62ff8c103664bf71134f' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Certidão (pag 127).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0000016-25.1993.8.26.0575_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193044Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=7e919a5886ed2d34299e56135af7440a784cddd54ef520257ff1fa0ded5f1521' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Certidão (pag 127).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 127
 
@@ -401,14 +422,15 @@ Este documento é cópia do original, assinado digitalmente por PATRICIA DANIELL
   &quot;data&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_676411' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_676411' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_676411' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_676411' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>abstenção certa: nota de cartório intimando sobre comprovante DEPRE de fls. 122/124; só advogados nomeados, sem beneficiário/valor/data no texto</textarea></div></div>
 <div class='item' data-doc-id='963466' data-classe='ALVARA' data-cnj='0011350-64.2016.8.26.0053'>
 <h3>#06 <span class='classe'>ALVARA</span> 0011350-64.2016.8.26.0053</h3>
 <div class='meta'>doc_id=963466 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0011350-64.2016.8.26.0053_7.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170236Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=ee9141d0dd318e653103d5cb4bf27c23ad0263cf6448b989d20fa9571f046967' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 35 - 36).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0011350-64.2016.8.26.0053_7.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193044Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=ef00013da523828d0a118d50a253a5ef82b537715a3b4f4a406584572413c4a0' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 35 - 36).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 35
 
@@ -510,12 +532,13 @@ Este documento é cópia do original, assinado digitalmente por PAULA FERNANDA V
 <div class='marc'>
 <label><input type='radio' name='marc_963466' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_963466' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_963466' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_963466' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário visível (DEFIRO levantamento em favor de Heloísa Helena Ribeiro Faria), modelo absteve; valor ausente e data null ok</textarea></div></div>
 <div class='item' data-doc-id='736166' data-classe='ALVARA' data-cnj='0006267-65.2018.8.26.0322'>
 <h3>#07 <span class='classe'>ALVARA</span> 0006267-65.2018.8.26.0322</h3>
 <div class='meta'>doc_id=736166 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0006267-65.2018.8.26.0322_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170236Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=49b248f03995f385d38ea0a9a3aeca1e7d68bcf9c64d5b60502e7409418e630e' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Movimento Processual (pag 161).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0006267-65.2018.8.26.0322_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193044Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=393e274a6fdca7bff167691f372a474a63b90f3665956ec1f09607dee1f242a3' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Movimento Processual (pag 161).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 161
 
@@ -570,12 +593,13 @@ Este documento é cópia do original, assinado digitalmente por Tribunal de Just
 <div class='marc'>
 <label><input type='radio' name='marc_736166' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_736166' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_736166' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_736166' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>texto afirma &#x27;obrigação de pagar restou satisfeita&#x27; e requerente Firenze Engenharia identificável como beneficiária; modelo absteve; valor/data null ok</textarea></div></div>
 <div class='item' data-doc-id='969775' data-classe='ALVARA' data-cnj='0010754-75.2019.8.26.0053'>
 <h3>#08 <span class='classe'>ALVARA</span> 0010754-75.2019.8.26.0053</h3>
 <div class='meta'>doc_id=969775 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0010754-7520198260053.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170237Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=0fd6f5e382463d95462f5428ce744e4132552d4fa905a43c2cca4aa13596cfa3' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 152 - 154).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0010754-7520198260053.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193044Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=551d374c2db7342f741344e6f36391aa169d460ab230d491eaee6de88f91df27' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 152 - 154).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 152
 
@@ -694,12 +718,13 @@ Este documento é cópia do original, assinado digitalmente por PAULA FERNANDA D
 <div class='marc'>
 <label><input type='radio' name='marc_969775' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_969775' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_969775' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_969775' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário visível (DEFIRO levantamento em favor de Nehy da Silva Martini), modelo absteve; valor ausente e data null ok</textarea></div></div>
 <div class='item' data-doc-id='1228250' data-classe='ALVARA' data-cnj='0401691-87.2009.8.26.0577'>
 <h3>#09 <span class='classe'>ALVARA</span> 0401691-87.2009.8.26.0577</h3>
 <div class='meta'>doc_id=1228250 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0401691-87.2009.8.26.0577_4.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170237Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=5c5e84fa056e333bc92581cb97dd20ec4cd10273365c44a5f85a0b9d2c2eda2e' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ato Ordinatório (pag 119).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0401691-87.2009.8.26.0577_4.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193044Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=77e51be3df974904efd40753d84d2c439dc2b1b41167e5fc5a98269716813d44' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ato Ordinatório (pag 119).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 119
 
@@ -740,14 +765,15 @@ Este documento é cópia do original, assinado digitalmente por SOLANGE AKEMI MO
   &quot;data&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_1228250' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_1228250' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_1228250' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_1228250' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (requerente SANDRO ALVES PEREIRA, &#x27;em favor do requerente&#x27;), valor confere (R$ 1.654,49); data null ok (MLE expedido, pagamento ainda não efetivado)</textarea></div></div>
 <div class='item' data-doc-id='734806' data-classe='ALVARA' data-cnj='0033049-86.2018.8.26.0071'>
 <h3>#10 <span class='classe'>ALVARA</span> 0033049-86.2018.8.26.0071</h3>
 <div class='meta'>doc_id=734806 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0033049-86.2018.8.26.0071_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170237Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=f6fe44a68ff9e6c7a02acfa53704316baeb64bcfb41cc6ccc40c2e689b028917' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 258).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0033049-86.2018.8.26.0071_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193044Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=ca8bf2f4592b865f7a848861ff09ef662bf81d5d7233542a129a0f8a86840c8f' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 258).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 258
 
@@ -808,12 +834,13 @@ Este documento é cópia do original, assinado digitalmente por Elaine Cristina 
 <div class='marc'>
 <label><input type='radio' name='marc_734806' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_734806' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_734806' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_734806' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário visível (expeça-se MLE em favor da FESP), modelo absteve; valor só por referência a fls. 210/233 e data null ok</textarea></div></div>
 <div class='item' data-doc-id='680544' data-classe='ALVARA' data-cnj='0017317-22.2018.8.26.0053'>
 <h3>#11 <span class='classe'>ALVARA</span> 0017317-22.2018.8.26.0053</h3>
 <div class='meta'>doc_id=680544 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0017317-22.2018.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170237Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=82426f6faa6d43e4e4a4fdc320d8fa77f9085d97a790ea03c32577c52ddd0b9d' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Certidão (pag 42).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0017317-22.2018.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193045Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=e0bfef099bad0b5b4271683e39ced6c003dbc8314a7e23ccd9c2258d047b2fa7' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Certidão (pag 42).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 42
 
@@ -861,12 +888,13 @@ Este documento é cópia do original, assinado digitalmente por FERNANDA PEREIRA
 <div class='marc'>
 <label><input type='radio' name='marc_680544' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_680544' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_680544' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_680544' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário visível (DEFIRO levantamento em favor de Carlos Frederico Rocha), modelo absteve; valor ausente e data null ok</textarea></div></div>
 <div class='item' data-doc-id='1280402' data-classe='ALVARA' data-cnj='0012653-79.2017.8.26.0053'>
 <h3>#12 <span class='classe'>ALVARA</span> 0012653-79.2017.8.26.0053</h3>
 <div class='meta'>doc_id=1280402 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0012653-7920178260053.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170237Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=6f4a27b27ca959d9294717f3fc76929881aa443e6cb5f38eb32b83f9545e6c5f' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Movimento Processual (pag 112).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0012653-7920178260053.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193045Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=88c8ca71723e602045aaa3a758133f2da7e5badb06cc053d5fa174ef7bd107d5' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Movimento Processual (pag 112).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 112
 
@@ -926,12 +954,13 @@ Este documento é cópia do original, assinado digitalmente por Tribunal de Just
 <div class='marc'>
 <label><input type='radio' name='marc_1280402' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_1280402' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_1280402' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_1280402' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário visível (DEFIRO levantamento em favor de Leonilda de Lima dos Santos), modelo absteve; valor ausente e data null ok</textarea></div></div>
 <div class='item' data-doc-id='1358622' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='0007471-20.1999.8.26.0320'>
 <h3>#13 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 0007471-20.1999.8.26.0320</h3>
 <div class='meta'>doc_id=1358622 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0007471-20.1999.8.26.0320_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170237Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=688651d22f828909d74faf95b871eed5b262e3745afb81ac61c9f67eb41fc50f' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Pagamento (pag 228).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0007471-20.1999.8.26.0320_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193045Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=e3f768e3e4ae9650d1f2684175dff57b75ef56d89764910a7c58750f28a6d3a5' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Pagamento (pag 228).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 228
 
@@ -1012,14 +1041,15 @@ Este documento é cópia do original, assinado digitalmente por BRUNO AUGUSTO RI
   &quot;data&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_1358622' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_1358622' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_1358622' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_1358622' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Jose Ezequiel), valor confere com o TOTAL e a linha do beneficiário (49.732,54); data null ok (30/05/2022 é data-base da liquidação, não de pagamento)</textarea></div></div>
 <div class='item' data-doc-id='672282' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='1015398-49.2016.8.26.0053'>
 <h3>#14 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 1015398-49.2016.8.26.0053</h3>
 <div class='meta'>doc_id=672282 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1015398-4920168260053.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170237Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=62186f135fed4e25048d4733540c73f255a5671f75d9f9e988d100e41f75837e' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 1141).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1015398-4920168260053.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193045Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=65004ad8a3814d47392ee5395a4ec22062276ae72ef96d1d85eea24728aa76a7' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 1141).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre># fls. 1141
 
@@ -1068,12 +1098,13 @@ Este documento é cópia do original, assinado digitalmente por BRUNO AUGUSTO RI
 <div class='marc'>
 <label><input type='radio' name='marc_672282' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_672282' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_672282' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_672282' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Nazareth Apparecida Calhes Franco); valor 2.424,59 é SUB-TOTAL antes de juros — TOTAL é 3.830,50; data null ok</textarea></div></div>
 <div class='item' data-doc-id='649249' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='0010917-26.2017.8.26.0053'>
 <h3>#15 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 0010917-26.2017.8.26.0053</h3>
 <div class='meta'>doc_id=649249 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0010917-26.2017.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170237Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=2b93a8d2976e76a9998cde2abc934f984f1af997c769dafa00c16620f97d8c46' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 399).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0010917-26.2017.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193045Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=e90548cb87b5bcc9cd5b17eb06b246813bc6fc172bebae789ae69f38bd0e9a7b' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 399).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 399
 
@@ -1146,12 +1177,13 @@ Este documento é cópia do original, assinado digitalmente por FERNANDA PEREIRA
 <div class='marc'>
 <label><input type='radio' name='marc_649249' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_649249' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_649249' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_649249' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Maria Regina Precioso Broslavschi); valor 53.942,03 é SUB-TOTAL antes de juros — TOTAL é 109.079,15; data null ok</textarea></div></div>
 <div class='item' data-doc-id='1441397' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='0001997-53.2023.8.26.0053'>
 <h3>#16 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 0001997-53.2023.8.26.0053</h3>
 <div class='meta'>doc_id=1441397 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001997-53.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170238Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=70124d0804a277e124a636823f8be7057fb41167500f31e2fd21326b2e21cf0d' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Recibo de Pagamento (pag 229).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001997-53.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193045Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=766a6510f093d57ac313407ac4ae99f7847a238d3518f6bdf452d3852fd6cd10' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Recibo de Pagamento (pag 229).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 229
 
@@ -1224,14 +1256,15 @@ DEPRE 2.4</pre></details>
   &quot;data&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_1441397' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_1441397' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_1441397' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_1441397' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (ANA LUCIA SANTIAGO), valor confere com o TOTAL e a linha do beneficiário (96.331,94); data null ok (30/07/2025 é data-base da liquidação)</textarea></div></div>
 <div class='item' data-doc-id='671416' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='1015398-49.2016.8.26.0053'>
 <h3>#17 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 1015398-49.2016.8.26.0053</h3>
 <div class='meta'>doc_id=671416 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1015398-49.2016.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170238Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=5e0471944acaf9363e6d2c4f38c5ff41502f01c2c51c1ba5efd40d4d23e8a701' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 959).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1015398-49.2016.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193045Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=51f23814739ef1a0d52ac00c2f6fc44963bd0c505720d70701c985692f8421c0' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 959).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre># fls. 959
 
@@ -1280,12 +1313,13 @@ DEPRE 2.4</pre></details>
 <div class='marc'>
 <label><input type='radio' name='marc_671416' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_671416' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_671416' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_671416' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Filhinha Rodrigues Alves Maffeis); valor 1.965,89 é SUB-TOTAL antes de juros — TOTAL é 3.105,22; data null ok</textarea></div></div>
 <div class='item' data-doc-id='1326827' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='0006260-75.2015.8.26.0032'>
 <h3>#18 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 0006260-75.2015.8.26.0032</h3>
 <div class='meta'>doc_id=1326827 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0006260-75.2015.8.26.0032_4.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170238Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=29ec2827a5594fcc525ee8ecfbf6e07f9034243f464150bcd93b7076bbb62884' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 61).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0006260-75.2015.8.26.0032_4.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193045Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=1152523c353ddb45f22cefa5a36ba8c6deaa4c188eb5ffc57d223ddf544bce0c' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 61).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 61 Usuário: VIVIANE PARRA BUCKY DALL&#x27;OCA 369194
 
@@ -1321,13 +1355,14 @@ Este documento é cópia do original, assinado digitalmente por VIVIANE PARRA BU
 }</pre>
 <div class='marc'>
 <label><input type='radio' name='marc_1326827' value='correto'> ✓ Correto</label>
-<label><input type='radio' name='marc_1326827' value='errado'> ✗ Errado</label>
+<label><input type='radio' name='marc_1326827' value='errado' checked> ✗ Errado</label>
 <label><input type='radio' name='marc_1326827' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário errado: DEPARTAMENTO DE AGUA E ESGOTO é o Requerido (devedor); requerente é DELFINA MELHADO PINTO; valor 35.436,10 e data 25/02/2022 (aplicação do capital) conferem</textarea></div></div>
 <div class='item' data-doc-id='660168' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='0401183-84.1997.8.26.0053'>
 <h3>#19 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 0401183-84.1997.8.26.0053</h3>
 <div class='meta'>doc_id=660168 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0401183-84.1997.8.26.0053_3.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170238Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=acfbdae2decf141a6beec2dce9f0465bb6c47d8161655da92d245395b4790405' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 285).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0401183-84.1997.8.26.0053_3.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193046Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=bd2b885829fcf136e806bc091b6930b8c8a1af650badc7548342320de710509a' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 285).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre># fls. 285
 
@@ -1423,12 +1458,13 @@ META ANUAL DA TAXA SELIC - LEI 12.703/2012 Saldo = débito ÷ 41,923086 (07/2013
 <div class='marc'>
 <label><input type='radio' name='marc_660168' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_660168' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_660168' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_660168' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Maria Geronice Nunes Capeloa); valor 76.936,73 é SUB-TOTAL antes de juros — TOTAL é 131.473,29 (demonstrativo de saldo); data null ok</textarea></div></div>
 <div class='item' data-doc-id='1271610' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='0023415-57.2017.8.26.0053'>
 <h3>#20 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 0023415-57.2017.8.26.0053</h3>
 <div class='meta'>doc_id=1271610 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0023415-5720178260053.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170238Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=e628fb72bcfc27d730a39068f7684db5ddc44a879c34d6313d8edbc504e0da4c' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 162).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0023415-5720178260053.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193046Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=82d5c27ad101901ef1af9198129c7b6fefbf8fe5be27b121d0a04c8fc4d22d8f' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Depósito Judicial (pag 162).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 162
 
@@ -1513,12 +1549,13 @@ Este documento é cópia do original, assinado digitalmente por DOUGLAS FERREIRA
 <div class='marc'>
 <label><input type='radio' name='marc_1271610' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_1271610' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_1271610' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_1271610' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (João Ildebrando Bressanin); valor 34.993,88 é SUB-TOTAL antes de juros — TOTAL é 49.480,40; data null ok</textarea></div></div>
 <div class='item' data-doc-id='1164077' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='0004572-37.2019.8.26.0453'>
 <h3>#21 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 0004572-37.2019.8.26.0453</h3>
 <div class='meta'>doc_id=1164077 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0004572-37.2019.8.26.0453_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170238Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=32e4dca3fd6a97a0f471fb4059c412ed40449f013d2aa312963f9c1d7f1bd062' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Pagamento (pag 106).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0004572-37.2019.8.26.0453_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193046Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=3d4352edc14cbaa7241a1f8dfec9b34d894dd7c824e9f84aeeffdd71a95c0cd0' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Pagamento (pag 106).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre># fls. 106
 
@@ -1627,12 +1664,13 @@ ATUALIZAÇÃO DA META ANUAL DA TAXA SELIC - LEI 12.703/2012 Saldo = débito ÷ 4
 <div class='marc'>
 <label><input type='radio' name='marc_1164077' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_1164077' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_1164077' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_1164077' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Retífica Paulista Ltda - EPP); valor 116.582,54 é o TOTAL na data-base 30/09/2019, mas o demonstrativo atualiza até TOTAL 120.513,62 em 29/02/2020 (valor discutível); data null ok</textarea></div></div>
 <div class='item' data-doc-id='947217' data-classe='PAGAMENTO_COMPROVANTE' data-cnj='0031053-97.2016.8.26.0564'>
 <h3>#22 <span class='classe'>PAGAMENTO_COMPROVANTE</span> 0031053-97.2016.8.26.0564</h3>
 <div class='meta'>doc_id=947217 · tribunal=TJSP · tarefa=pagamento · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0031053-97.2016.8.26.0564_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170238Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=17a8d4feb5a6a0a7caa9737c505044397ddacbda3a8c3720fcfb948af78e927e' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Pagamento (pag 97).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0031053-97.2016.8.26.0564_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193046Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=4ef5315e87bdbd10258341839d2d68c81b540163902d657979268526f73a6bd6' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Comprovante de Pagamento (pag 97).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre># fls. 97
 
@@ -1741,12 +1779,13 @@ ATUALIZAÇÃO DA META ANUAL DA TAXA SELIC - LEI 12.703/2012 Saldo em 31/10/2021 
 <div class='marc'>
 <label><input type='radio' name='marc_947217' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_947217' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_947217' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_947217' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Admir Tarcisio do Nascimento); valor 1.538,34 é o TOTAL na data-base 30/06/2021, mas o demonstrativo atualiza até TOTAL 1.606,85 em 31/10/2021 (valor discutível); data null ok</textarea></div></div>
 <div class='item' data-doc-id='148053' data-classe='DECISAO' data-cnj='0013564-81.2023.8.26.0053'>
 <h3>#23 <span class='classe'>DECISAO</span> 0013564-81.2023.8.26.0053</h3>
 <div class='meta'>doc_id=148053 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0013564-81.2023.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170238Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=f85aa6d2558fbda7a20df890f379202c5f0ea42bb57b3375ba20f3b504b1124c' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 44).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0013564-81.2023.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193046Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=24ced974f0c13aafa98390e24a331cf2f023086ca9e89679ce7e6dc228385627' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 44).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 44
 
@@ -1806,14 +1845,15 @@ Este documento é cópia do original, assinado digitalmente por PABLO RODRIGO PA
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_148053' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_148053' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_148053' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_148053' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (PABLO RODRIGO PALARO DE CAMARGO, cabeçalho e assinatura), vara/comarca conferem (10ª Vara de Fazenda Pública, São Paulo), data confere (27/01/2025); desfecho null ok (expedição de ofício requisitório)</textarea></div></div>
 <div class='item' data-doc-id='349920' data-classe='DECISAO' data-cnj='0016322-96.2024.8.26.0053'>
 <h3>#24 <span class='classe'>DECISAO</span> 0016322-96.2024.8.26.0053</h3>
 <div class='meta'>doc_id=349920 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0016322-96.2024.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170239Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=a5c321fe8e39e2f3688f3b4051d860c03ef425a45379c2d7c90098cd95d3e30b' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 40).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0016322-96.2024.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193046Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=056b9c553003a61ac8a720b9087852e545f686f784ba1bca210506ed17d90784' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 40).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 40
 
@@ -1877,12 +1917,13 @@ Este documento é cópia do original, assinado digitalmente por BRUNO LUIZ CASSI
 <div class='marc'>
 <label><input type='radio' name='marc_349920' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_349920' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_349920' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_349920' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>absteve com evidência visível: assina AFONSO FARO JR. (Des. Coordenador DEPRE) e data &#x27;São Paulo, 15 de fevereiro de 2025&#x27;; vara_comarca null ok (DEPRE não é vara) e desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='391737' data-classe='DECISAO' data-cnj='1052280-29.2024.8.26.0053'>
 <h3>#25 <span class='classe'>DECISAO</span> 1052280-29.2024.8.26.0053</h3>
 <div class='meta'>doc_id=391737 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1052280-29.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170239Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=c0917dbb2d8a266a596173db3deb00ab4864f491bab667a4f82871878478b5cd' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 344).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1052280-29.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193046Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=ca6435116ede7d65f3dc8eb8e8d9e622cd0f254ef6c0175db749784b4d5f8406' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 344).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 344
 
@@ -1942,14 +1983,15 @@ Este documento é cópia do original, assinado digitalmente por ANTONIO AUGUSTO 
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_391737' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_391737' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_391737' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_391737' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (ANTONIO AUGUSTO GALVAO DE FRANCA, cabeçalho e assinatura), vara/comarca conferem (4ª Vara de Fazenda Pública, São Paulo), data confere (11/09/2024); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='323964' data-classe='DECISAO' data-cnj='0002940-94.2024.8.26.0066'>
 <h3>#26 <span class='classe'>DECISAO</span> 0002940-94.2024.8.26.0066</h3>
 <div class='meta'>doc_id=323964 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0002940-94.2024.8.26.0066_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170239Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=66a20103d7ad73b6afbb6cc55f3ad55e6c404bcda194d5fe93c22b0633f0c5f8' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 30).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0002940-94.2024.8.26.0066_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193047Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=e0686a2f1b27ac6019ed282a46513055d5e1f42e4032cb1c3f8771f282154c64' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 30).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 30
 
@@ -2009,14 +2051,15 @@ Este documento é cópia do original, assinado digitalmente por MATHEUS DE SOUZA
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_323964' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_323964' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_323964' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_323964' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (Matheus de Souza Parducci Camargo, cabeçalho e assinatura), vara/comarca conferem (3ª Vara Cível, Barretos), data confere (17/10/2024); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='27477' data-classe='DECISAO' data-cnj='0000128-59.2022.8.26.0063'>
 <h3>#27 <span class='classe'>DECISAO</span> 0000128-59.2022.8.26.0063</h3>
 <div class='meta'>doc_id=27477 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0000128-59.2022.8.26.0063_5.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170239Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=da23619a20f7ac93e5627d302465f6f7911f6d6a34a9a52336b0062633fe4ecb' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 56).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0000128-59.2022.8.26.0063_5.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193047Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=0b6add8e568d4725db68c175ec67ae32c88746325f14d50d099c55fc17a0e981' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 56).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 56
 
@@ -2078,12 +2121,13 @@ Este documento é cópia do original, assinado digitalmente por ANNA SYLVIA RODR
 <div class='marc'>
 <label><input type='radio' name='marc_27477' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_27477' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_27477' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_27477' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (RENATA ESSER DE SOUZA) e data confere (25/11/2025); vara_comarca visível no cabeçalho (Juizado Especial Cível e Criminal, Comarca de Barra Bonita) e o modelo absteve; desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='44711' data-classe='DECISAO' data-cnj='1000842-27.2024.8.26.0129'>
 <h3>#28 <span class='classe'>DECISAO</span> 1000842-27.2024.8.26.0129</h3>
 <div class='meta'>doc_id=44711 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1000842-27.2024.8.26.0129_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170239Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=1847b7f19e294ef3b418b7f664719fd04ae1fc1a1cbaec90e6a07dc963ac4a0b' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 86).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1000842-27.2024.8.26.0129_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193047Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=d33e0fe608907f39286e74d40e4caa0aa4deae200e97ea5c3baef2961417857a' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 86).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 86
 
@@ -2151,12 +2195,13 @@ Este documento é cópia do original, assinado digitalmente por BRUNO LUIZ CASSI
 <div class='marc'>
 <label><input type='radio' name='marc_44711' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_44711' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_44711' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_44711' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>absteve com evidência visível: assina AFONSO FARO JR. (Des. Coordenador DEPRE) e data &#x27;São Paulo, 07 de outubro de 2025&#x27;; vara_comarca e desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='322227' data-classe='DECISAO' data-cnj='0002760-65.2023.8.26.0114'>
 <h3>#29 <span class='classe'>DECISAO</span> 0002760-65.2023.8.26.0114</h3>
 <div class='meta'>doc_id=322227 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0002760-65.2023.8.26.0114_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170240Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=27fa01e7d0861df34d626ac4373c4c9d12fae13a9692cbc51deac2d1f0db2a24' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 11).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0002760-65.2023.8.26.0114_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193047Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=7a320d203aaa5c78e98e5f817d29ac3600fa8bb7b79feb40e6cb29c9285f0076' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 11).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 11
 
@@ -2220,14 +2265,15 @@ Este documento é cópia do original, assinado digitalmente por MAURO IUJI FUKUM
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_322227' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_322227' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_322227' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_322227' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (Mauro Iuji Fukumoto, cabeçalho e assinatura), vara/comarca certas (1ª Vara da Fazenda Pública, Campinas — arrasta &#x27;Francisco Xavier de Arruda Camargo&#x27;, que é o logradouro do fórum), data confere (21/10/2024); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='388457' data-classe='DECISAO' data-cnj='1017098-16.2023.8.26.0053'>
 <h3>#30 <span class='classe'>DECISAO</span> 1017098-16.2023.8.26.0053</h3>
 <div class='meta'>doc_id=388457 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1017098-16.2023.8.26.0053_33.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170240Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=9f10d0b9185ccd6f31345b1b4f6f6230533c7320b47922fbd4ac6a7326142dac' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 80).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1017098-16.2023.8.26.0053_33.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193047Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=2ab4b73e389fbe337a76755ce946d6fa21300f1937acce9b53853cd0f3684acb' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 80).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 80
 
@@ -2283,12 +2329,13 @@ Este documento é cópia do original, assinado digitalmente por BRUNO LUIZ CASSI
 <div class='marc'>
 <label><input type='radio' name='marc_388457' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_388457' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_388457' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_388457' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>absteve com evidência visível: assina AFONSO FARO JR. (Des. Coordenador DEPRE) e data &#x27;São Paulo, 05 de fevereiro de 2025&#x27;; vara_comarca e desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='93842' data-classe='DECISAO' data-cnj='1018626-51.2024.8.26.0053'>
 <h3>#31 <span class='classe'>DECISAO</span> 1018626-51.2024.8.26.0053</h3>
 <div class='meta'>doc_id=93842 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1018626-51.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170240Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=ca0f5af9bc6ab278d1012624ae32dac684fa59dd199e0b4aa77499dfb8fa4224' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 18).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1018626-51.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193048Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=0b87b7f4da049e2c7af1fdaa6ffeb44de6ac71fa5b6b7379ff4318231a4ddbd0' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 18).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 18
 
@@ -2348,14 +2395,15 @@ Este documento é cópia do original, assinado digitalmente por ALEXANDRE MUNOZ,
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_93842' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_93842' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_93842' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_93842' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (ALEXANDRE MUNOZ, cabeçalho e assinatura), vara/comarca conferem (1ª Vara do JEFAZ, São Paulo), data confere (31/03/2025); desfecho null ok (defere expedição de precatório)</textarea></div></div>
 <div class='item' data-doc-id='180375' data-classe='DECISAO' data-cnj='1045578-04.2023.8.26.0053'>
 <h3>#32 <span class='classe'>DECISAO</span> 1045578-04.2023.8.26.0053</h3>
 <div class='meta'>doc_id=180375 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1045578-04.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170240Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=5dce1ffd3308e825518df50a8f0114722a22bb25024a0f743408566f88e2bde6' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 108).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1045578-04.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193048Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=de1b1137a18a366f42cbeddaca1b3d60f6ade18653152dd9bad66002f0b99245' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 108).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 108
 
@@ -2419,14 +2467,15 @@ Este documento é cópia do original, assinado digitalmente por LARISSA KRUGER V
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_180375' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_180375' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_180375' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_180375' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (LARISSA KRUGER VATZCO, cabeçalho e assinatura), vara/comarca conferem (1ª Vara do JEFAZ, São Paulo), data confere (20/01/2025); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='412814' data-classe='DECISAO' data-cnj='0001673-34.2021.8.26.0053'>
 <h3>#33 <span class='classe'>DECISAO</span> 0001673-34.2021.8.26.0053</h3>
 <div class='meta'>doc_id=412814 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001673-34.2021.8.26.0053_35.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170240Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=774a6842613e4d5faa28991d121943527bd14cb95c6e4483e70c14d075a21a2d' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 338).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001673-34.2021.8.26.0053_35.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193048Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=57410065a5d91860f7f30da8f8458d8b6b973334bc005713b71c2f5b4ba68f79' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 338).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 338
 
@@ -2486,12 +2535,13 @@ Este documento é cópia do original, assinado digitalmente por BRUNO LUIZ CASSI
 <div class='marc'>
 <label><input type='radio' name='marc_412814' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_412814' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_412814' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_412814' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>absteve com evidência visível: assina AFONSO FARO JR. (Des. Coordenador DEPRE) e data &#x27;São Paulo, 01 de fevereiro de 2025&#x27;; vara_comarca e desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='303538' data-classe='DECISAO' data-cnj='0027211-80.2022.8.26.0053'>
 <h3>#34 <span class='classe'>DECISAO</span> 0027211-80.2022.8.26.0053</h3>
 <div class='meta'>doc_id=303538 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0027211-80.2022.8.26.0053_6.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170241Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=74ac9208253131561356aa38655eb7fcfa882c2cbf0c9d199bdb5763fe673c4d' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 314).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0027211-80.2022.8.26.0053_6.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193048Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=985f49e3d5ac5aa646aed3ab0fada1f53177099c07e56854113f264f1f70e159' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Decisão (pag 314).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 314
 
@@ -2559,14 +2609,15 @@ Este documento é cópia do original, assinado digitalmente por LUIZ FERNANDO RO
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_303538' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_303538' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_303538' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_303538' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (LUIZ FERNANDO RODRIGUES GUERRA, cabeçalho e assinatura), vara/comarca conferem (1ª Vara de Fazenda Pública, São Paulo), data confere (05/11/2024); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='333636' data-classe='PROCURACAO' data-cnj='1018111-60.2017.8.26.0053'>
 <h3>#35 <span class='classe'>PROCURACAO</span> 1018111-60.2017.8.26.0053</h3>
 <div class='meta'>doc_id=333636 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1018111-60.2017.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170241Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=c779fa0ba2128d35d3ba80f12493764c4c3d373d56cf761a778e2a18df3bb768' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 44 - 47).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1018111-60.2017.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193049Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=7059b0f9ae496c7d524e92e8d46dfa30c0e0926a301581cf2313477f94abc6a1' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 44 - 47).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 44
 
@@ -2615,14 +2666,15 @@ Este documento é cópia do original, assinado digitalmente por OLYNTHO DE LIMA 
   &quot;partes&quot;: []
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_333636' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_333636' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_333636' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_333636' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>abstenção certa (partes=[]): o texto capturado só tem carimbos de assinatura digital/rodapés, nenhuma pessoa qualificada como parte</textarea></div></div>
 <div class='item' data-doc-id='318860' data-classe='PROCURACAO' data-cnj='0034417-14.2023.8.26.0053'>
 <h3>#36 <span class='classe'>PROCURACAO</span> 0034417-14.2023.8.26.0053</h3>
 <div class='meta'>doc_id=318860 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0034417-14.2023.8.26.0053_5.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170241Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=25e548437edb2aa19b799b2931171266c4b2a40fbe71ad5741fbb5a808d3924f' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 9 - 10).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0034417-14.2023.8.26.0053_5.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193049Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=93d4c369e29d72a45cecc4542a3c4043b3afdee40a89c8ca088d8e1e19269987' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 9 - 10).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 9
 
@@ -2706,14 +2758,15 @@ Este Log é exclusivo ao, e deve ser considerado parte do, documento número f5d
   ]
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_318860' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_318860' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_318860' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_318860' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>outorgante confere (LUIZ ALVES FERREIRA, CPF 019.951.538-77), papel EXEQUENTE coerente; advogados outorgados não são partes (procuradores), não listar é aceitável</textarea></div></div>
 <div class='item' data-doc-id='1028912' data-classe='PROCURACAO' data-cnj='0025075-52.2018.8.26.0053'>
 <h3>#37 <span class='classe'>PROCURACAO</span> 0025075-52.2018.8.26.0053</h3>
 <div class='meta'>doc_id=1028912 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0025075-52.2018.8.26.0053_13.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170241Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=124a35f63f58cbdca1ced9563874461b806ee66ab4c5defb43e0d1036cef52fa' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 58 - 78).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0025075-52.2018.8.26.0053_13.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193049Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=26c00d443dc0c1730e0809ca4722ba1ab356bb1f9204213d265ae27e0c00a0f5' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 58 - 78).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 16 fls. 58
 
@@ -2884,14 +2937,15 @@ Este documento é cópia do original, assinado digitalmente por CLELIA CONSUELO 
   &quot;partes&quot;: []
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_1028912' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_1028912' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_1028912' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_1028912' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>abstenção certa (partes=[]): texto só com carimbos de assinatura digital repetidos, sem pessoa qualificada</textarea></div></div>
 <div class='item' data-doc-id='321311' data-classe='PROCURACAO' data-cnj='0002760-65.2023.8.26.0114'>
 <h3>#38 <span class='classe'>PROCURACAO</span> 0002760-65.2023.8.26.0114</h3>
 <div class='meta'>doc_id=321311 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0002760-65.2023.8.26.0114_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170241Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=5d2d01853b225426fad86d6d62e71c5e0e0fe9a1222f4ced765b5a2aa78704a0' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 5).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0002760-65.2023.8.26.0114_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193049Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=21523e339a56444c69523d1d2714166fbac46a9e2c8daedc3e581e0f0a586b9f' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 5).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 5
 
@@ -2972,13 +3026,14 @@ Este documento é cópia do original, assinado digitalmente por MARIO SILVIO CAR
 }</pre>
 <div class='marc'>
 <label><input type='radio' name='marc_321311' value='correto'> ✓ Correto</label>
-<label><input type='radio' name='marc_321311' value='errado'> ✗ Errado</label>
+<label><input type='radio' name='marc_321311' value='errado' checked> ✗ Errado</label>
 <label><input type='radio' name='marc_321311' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>par nome-CPF trocado: 781.922.509-20 é da 1ª outorgante (GISELE SCHNEIDER DA SILVA), não de &#x27;José Luiz de Rder&#x27; (nome corrompido/inexistente no texto); omitiu outorgantes JORGE BENTO DE BEM JÚNIOR e ALINE VALÉRIO; OCR do doc muito degradado</textarea></div></div>
 <div class='item' data-doc-id='220780' data-classe='PROCURACAO' data-cnj='0001267-57.2024.8.26.0069'>
 <h3>#39 <span class='classe'>PROCURACAO</span> 0001267-57.2024.8.26.0069</h3>
 <div class='meta'>doc_id=220780 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001267-57.2024.8.26.0069_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170241Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=dc252b495919df6845b3bb1753c55312d9f25cca45917eb6c4f5280713186acd' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 31).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001267-57.2024.8.26.0069_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193050Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=8b6d8fa0d6aad0d03e702f3d06004178a7a52c15aadd69778409ce052293de91' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 31).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 19 fls. 5 fls. 31
 
@@ -2991,14 +3046,15 @@ Este documento é cópia do original, assinado digitalmente por OSWALDO ROBERTO 
   &quot;partes&quot;: []
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_220780' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_220780' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_220780' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_220780' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>abstenção certa (partes=[]): texto só com carimbos de assinatura digital, sem pessoa qualificada</textarea></div></div>
 <div class='item' data-doc-id='541974' data-classe='PROCURACAO' data-cnj='0014889-91.2023.8.26.0053'>
 <h3>#40 <span class='classe'>PROCURACAO</span> 0014889-91.2023.8.26.0053</h3>
 <div class='meta'>doc_id=541974 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0014889-91.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170242Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=e6fd422494184e5e1ef1120032bb1a48b061c58fbdfd9e230eea5a78078e4741' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 254 - 258).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0014889-91.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193050Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=6bf1849f7c2803a15af593a7fc300234f94fbc897de615673527be7474d13f41' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 254 - 258).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 254 **REPÚBLICA FEDERATIVA DO BRASIL VERA MARIA CAMUYRANO TEIXEIRA- TAB. SUBSTITUTA** SEDE : Av. Presidente Vargas 435, 12 ° andar - Centro **ESTADO DO RIO DE JANEIRO** SUCURSAIS: Estrada do Galeão, 2315 – Ilha do Governador
 
@@ -3221,13 +3277,14 @@ Este documento é cópia do original, assinado digitalmente por PALOMA PIRES DA 
 }</pre>
 <div class='marc'>
 <label><input type='radio' name='marc_541974' value='correto'> ✓ Correto</label>
-<label><input type='radio' name='marc_541974' value='errado'> ✗ Errado</label>
+<label><input type='radio' name='marc_541974' value='errado' checked> ✗ Errado</label>
 <label><input type='radio' name='marc_541974' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>CPF trocado: atribuiu a ISMAR MARCOS SIQUEIRA LEITE o CPF 124.602.677-54, que é de IVY ARAUJO SANTOS (o de Ismar é 091.266.727-31); vários outorgados não-advogados (contadora, economista, arquivista, administrador) rotulados ADVOGADO; representantes (José Alexandre, Carlos Henrique) e demais CPFs conferem</textarea></div></div>
 <div class='item' data-doc-id='564336' data-classe='PROCURACAO' data-cnj='0004772-13.2023.8.26.0127'>
 <h3>#41 <span class='classe'>PROCURACAO</span> 0004772-13.2023.8.26.0127</h3>
 <div class='meta'>doc_id=564336 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0004772-13.2023.8.26.0127_5.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170242Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=cd1d7b36cfe057008be1ebe0aff5327791d24ca2ff7aad27fa1c4199a1889ac3' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 24).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0004772-13.2023.8.26.0127_5.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193050Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=0082c03008acb43fd554d3461cb264ee7136a3c91448eceb9301322a69dd6a6a' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 24).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 9 fls. 24
 
@@ -3240,14 +3297,15 @@ Este documento é cópia do original, assinado digitalmente por FABIO ROBERTO PI
   &quot;partes&quot;: []
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_564336' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_564336' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_564336' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_564336' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>abstenção certa (partes=[]): texto só com carimbos de assinatura digital, sem pessoa qualificada</textarea></div></div>
 <div class='item' data-doc-id='472458' data-classe='PROCURACAO' data-cnj='0013805-21.2024.8.26.0053'>
 <h3>#42 <span class='classe'>PROCURACAO</span> 0013805-21.2024.8.26.0053</h3>
 <div class='meta'>doc_id=472458 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0013805-21.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170242Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=1e63f4b4399e8a3fad81459352c0620d77c945ce45e9145e59eb5d6bbf3e2f0d' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 131 - 133).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0013805-21.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193050Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=ec3ee8187cee3d8aa7163c90f6d8e7f539387b2e3c20723a8f36c85a7921ce22' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 131 - 133).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 131
 
@@ -3580,12 +3638,13 @@ Este documento é cópia do original, assinado digitalmente por PRISCILA MARTINS
 <div class='marc'>
 <label><input type='radio' name='marc_472458' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_472458' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_472458' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_472458' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>extraiu o signatário ANDRE WALTER DE OLIVEIRA (CPF confere com a assinatura digital) como DESCONHECIDO quando o contexto indica representante da gestora; omitiu a outorgante GALES FIDC (CNPJ 54.486.959/0001-08), que é a parte do documento</textarea></div></div>
 <div class='item' data-doc-id='621033' data-classe='PROCURACAO' data-cnj='0000353-43.2024.8.26.0602'>
 <h3>#43 <span class='classe'>PROCURACAO</span> 0000353-43.2024.8.26.0602</h3>
 <div class='meta'>doc_id=621033 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0000353-43.2024.8.26.0602_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170242Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=58fcc2f7db549f78f3d88190497253b3bad922dd7709427bdf52e9fde13fea6f' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 4 - 6).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0000353-43.2024.8.26.0602_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193050Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=9f3ccef4a7a2541112b734f7853ea43469cd657243b6b6660ff10bd8a3a914d2' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 4 - 6).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 1 fls. 4
 
@@ -3664,12 +3723,13 @@ Este documento é cópia do original, assinado digitalmente por RODRIGO ROBERTO 
 <div class='marc'>
 <label><input type='radio' name='marc_621033' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_621033' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_621033' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_621033' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>RUTE REGINA GARCIA confere (CPF 030.343.038-19, EXEQUENTE — inicia cumprimento de sentença); omitiu a executada FAZENDA PÚBLICA DO ESTADO DE SÃO PAULO (CNPJ 46.379.400/0001-50) qualificada no texto (omissão de ente público pode ser aceitável por convenção)</textarea></div></div>
 <div class='item' data-doc-id='274502' data-classe='PROCURACAO' data-cnj='0005219-92.2024.8.26.0053'>
 <h3>#44 <span class='classe'>PROCURACAO</span> 0005219-92.2024.8.26.0053</h3>
 <div class='meta'>doc_id=274502 · tribunal=TJSP · tarefa=partes_doc · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0005219-92.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170242Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=22a2c44dac06e63367ec0b935cfb1093d09ac6b8d10d7a716e12d62bf14ac4f8' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 79).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0005219-92.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193050Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=d78d275f930d06051e2260026f7522f8d88f982ef32327a38017bf7f9d9fa2aa' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Instrumento de Procuração (pag 79).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 79
 
@@ -3777,13 +3837,14 @@ Este documento é cópia do original, assinado digitalmente por HENRIQUE DE AZEV
 }</pre>
 <div class='marc'>
 <label><input type='radio' name='marc_274502' value='correto'> ✓ Correto</label>
-<label><input type='radio' name='marc_274502' value='errado'> ✗ Errado</label>
+<label><input type='radio' name='marc_274502' value='errado' checked> ✗ Errado</label>
 <label><input type='radio' name='marc_274502' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>nome truncado (&#x27;AZEVEDO SEGUNDO&#x27; — o outorgante é LUPERCIO LUIZ DE AZEVEDO SEGUNDO) e papel EXEQUENTE questionável: a procuração visa ratificar transferência de titularidade do precatório EM FAVOR do outorgante (cessão) → CESSIONARIO; CPF confere</textarea></div></div>
 <div class='item' data-doc-id='20946' data-classe='OFICIO_REQUISITORIO' data-cnj='1042307-55.2021.8.26.0053'>
 <h3>#45 <span class='classe'>OFICIO_REQUISITORIO</span> 1042307-55.2021.8.26.0053</h3>
 <div class='meta'>doc_id=20946 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1042307-55.2021.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170243Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=8e136f9c07b1bc480d63aec2c86539a9f998aa7703f596eb45d61a30d3eeab2b' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Outros Documentos (pag 66 - 69).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1042307-55.2021.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193050Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=42caee3706c785cdce70a8ae5022fb1b0b99aaab63bcf295ff55a47c149f4ead' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Outros Documentos (pag 66 - 69).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>**Emitido em: 15/11/2025**
 
@@ -4161,14 +4222,15 @@ Isenção de imposto de renda: Não informado pelo peticionante Motivo da Isenç
   &quot;vara_expedidora&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_20946' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_20946' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_20946' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_20946' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Francisca Alexandre de Farias), valor_individual confere (Total deste requerente 117.747,90; evitou o global 135.259,00), natureza Alimentar confere; data_expedicao/vara null ok (termo de declaração, sem expedição nem vara nomeada)</textarea></div></div>
 <div class='item' data-doc-id='12847' data-classe='OFICIO_REQUISITORIO' data-cnj='0028163-98.2018.8.26.0053'>
 <h3>#46 <span class='classe'>OFICIO_REQUISITORIO</span> 0028163-98.2018.8.26.0053</h3>
 <div class='meta'>doc_id=12847 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0028163-98.2018.8.26.0053_21.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170243Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=9ddef4232758c04894dbd9f6fb77269f162264b00e86e2a2b35f96d0a4545f15' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 75 - 78).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0028163-98.2018.8.26.0053_21.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193051Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=a1722e66e7b6d62c3aaf358ec0cef62145a078ce1dd0f46ef5479c27405b5749' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 75 - 78).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 75
 
@@ -4278,12 +4340,13 @@ Este documento é cópia do original, assinado digitalmente por Maricy Maraldi e
 <div class='marc'>
 <label><input type='radio' name='marc_12847' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_12847' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_12847' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_12847' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário, valor (27.971,51), natureza e vara (10ª Vara de Fazenda Pública) conferem; absteve de data_expedicao apesar de &#x27;São Paulo, 09 de dezembro de 2025&#x27; visível no corpo do ofício</textarea></div></div>
 <div class='item' data-doc-id='106730' data-classe='OFICIO_REQUISITORIO' data-cnj='1001443-67.2024.8.26.0053'>
 <h3>#47 <span class='classe'>OFICIO_REQUISITORIO</span> 1001443-67.2024.8.26.0053</h3>
 <div class='meta'>doc_id=106730 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1001443-67.2024.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170243Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=196c477fa4aa66343ddf49352fab98c26bd8e0fb94c76772984f605070a64a39' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 25).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1001443-67.2024.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193051Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=7e71090a8941cee9c6d57326586eba726748ac27b46d22be8e29d35f4618c5f6' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 25).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 25
 
@@ -4348,12 +4411,13 @@ Este documento é cópia do original, assinado digitalmente por Afonso de Barros
 <div class='marc'>
 <label><input type='radio' name='marc_106730' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_106730' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_106730' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_106730' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário e natureza conferem, valor null ok; data 2025-03-12 é a do registro DEPRE (o ofício é datado de 26/04/2025) — discutível; vara é a destinatária/juízo da execução e a string veio truncada (&#x27;...Foro Central - Fazen&#x27;)</textarea></div></div>
 <div class='item' data-doc-id='238407' data-classe='OFICIO_REQUISITORIO' data-cnj='0023180-46.2024.8.26.0053'>
 <h3>#48 <span class='classe'>OFICIO_REQUISITORIO</span> 0023180-46.2024.8.26.0053</h3>
 <div class='meta'>doc_id=238407 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0023180-46.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170243Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=6ca133ca6eb5d396d13a07d3ce31f32a2f4ea131b7b674dca9aa4235b1d5d3ae' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Documentos Diversos (pag 14 - 16).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0023180-46.2024.8.26.0053_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193051Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=520eae667cdcbb9d06bc3f1a231597378e3b28706859248908788137e290106b' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Documentos Diversos (pag 14 - 16).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 37 fls. 14
 
@@ -4473,14 +4537,15 @@ Este documento é cópia do original, assinado digitalmente por CAIQUE VINICIUS 
   &quot;vara_expedidora&quot;: &quot;3ª VARA DE ACIDENTES DO TRABALHO&quot;
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_238407' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_238407' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_238407' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_238407' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>doc é decisão homologatória: beneficiário confere (Leone Santos Bagagine), valor confere (importe total homologado 117.173,85, inclui honorários), vara confere (3ª Vara de Acidentes do Trabalho); natureza e data_expedicao null ok (ofício ainda não expedido)</textarea></div></div>
 <div class='item' data-doc-id='103647' data-classe='OFICIO_REQUISITORIO' data-cnj='1000029-37.2022.8.26.0301'>
 <h3>#49 <span class='classe'>OFICIO_REQUISITORIO</span> 1000029-37.2022.8.26.0301</h3>
 <div class='meta'>doc_id=103647 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1000029-37.2022.8.26.0301_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170243Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=7d48b80a6ae828d903477e8dea1c356d6c9b1bda3b32caae5877acf41c7b8fcc' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 31 - 35).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1000029-37.2022.8.26.0301_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193051Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=89104d169e7db5d5e6b5f224c1fb50677f8d46e44d2ba8b6b787efafd2852a5c' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 31 - 35).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 31
 
@@ -4590,12 +4655,13 @@ Este documento é cópia do original, assinado digitalmente por CAROLINE OLIVEIR
 <div class='marc'>
 <label><input type='radio' name='marc_103647' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_103647' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_103647' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_103647' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário (Terrasil Concreto Ltda), valor (803.371,66) e natureza (Outras espécies) conferem; absteve de data_expedicao (&#x27;Jarinu, 14 de março de 2025&#x27;) e vara_expedidora (Vara Única do Foro de Jarinu), ambas visíveis</textarea></div></div>
 <div class='item' data-doc-id='12700' data-classe='OFICIO_REQUISITORIO' data-cnj='0028163-98.2018.8.26.0053'>
 <h3>#50 <span class='classe'>OFICIO_REQUISITORIO</span> 0028163-98.2018.8.26.0053</h3>
 <div class='meta'>doc_id=12700 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0028163-98.2018.8.26.0053_15.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170243Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=353bb0231e7ed107e2d5d7a49b62eace55feb34b28c02883b5ceec322705065b' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Outros Documentos (pag 58 - 61).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0028163-98.2018.8.26.0053_15.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193051Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=804687d2a1483c3d4769e7e9bb77aff4dd3be6362a14ab3052313d094db09798' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Outros Documentos (pag 58 - 61).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>**Emitido em: 18/07/2025**
 
@@ -4965,14 +5031,15 @@ liberado nos autos em 09/12/2025 às 13:50 . Para conferir o original, acesse o 
   &quot;vara_expedidora&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_12700' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_12700' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_12700' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_12700' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Maria Lucia de Lima), valor_individual confere (Total deste requerente 41.138,91; evitou o global 717.877,51), natureza Alimentar confere; data/vara null ok (termo de declaração, sem expedição nem vara nomeada)</textarea></div></div>
 <div class='item' data-doc-id='254658' data-classe='OFICIO_REQUISITORIO' data-cnj='1011986-66.2023.8.26.0053'>
 <h3>#51 <span class='classe'>OFICIO_REQUISITORIO</span> 1011986-66.2023.8.26.0053</h3>
 <div class='meta'>doc_id=254658 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1011986-66.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170243Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=5bdf23f704b162a856836a3f84d2b42047e178c427bbafd33fa661dd1e2c4a12' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 41 - 44).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1011986-66.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193051Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=d9a066ab66fa8aee74585d0fedcad1655fb8e2feb64f2417ca73d461df5709f5' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 41 - 44).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 41
 
@@ -5077,13 +5144,14 @@ Este documento é cópia do original, assinado digitalmente por JOAO MARIO ESTEV
 }</pre>
 <div class='marc'>
 <label><input type='radio' name='marc_254658' value='correto'> ✓ Correto</label>
-<label><input type='radio' name='marc_254658' value='errado'> ✗ Errado</label>
+<label><input type='radio' name='marc_254658' value='errado' checked> ✗ Errado</label>
 <label><input type='radio' name='marc_254658' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>data_expedicao 1957-11-21 é a DATA DE NASCIMENTO da credora (21/11/1957); o ofício é datado de 21/11/2024; beneficiário, valor (34.204,54), natureza e vara conferem</textarea></div></div>
 <div class='item' data-doc-id='225274' data-classe='OFICIO_REQUISITORIO' data-cnj='0022853-38.2023.8.26.0053'>
 <h3>#52 <span class='classe'>OFICIO_REQUISITORIO</span> 0022853-38.2023.8.26.0053</h3>
 <div class='meta'>doc_id=225274 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0022853-38.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170244Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=be39ce3617e21438f044735b82b1d50aa0a5a7e92bef2a11d0f2b9a1191ef717' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 35 - 38).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0022853-38.2023.8.26.0053_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193051Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=8f370ffda58a0b9d79b6d8b85fb45c71632a020693ee872c42585ae06dcd9217' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 35 - 38).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 35
 
@@ -5173,12 +5241,13 @@ Este documento é cópia do original, assinado digitalmente por PABLO RODRIGO PA
 <div class='marc'>
 <label><input type='radio' name='marc_225274' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_225274' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_225274' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_225274' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário, valor (319.136,98), natureza e vara (10ª Vara de Fazenda Pública) conferem; absteve de data_expedicao apesar de &#x27;São Paulo, 12 de dezembro de 2024&#x27; visível no corpo do ofício</textarea></div></div>
 <div class='item' data-doc-id='251599' data-classe='OFICIO_REQUISITORIO' data-cnj='0003346-34.2023.8.26.0266'>
 <h3>#53 <span class='classe'>OFICIO_REQUISITORIO</span> 0003346-34.2023.8.26.0266</h3>
 <div class='meta'>doc_id=251599 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0003346-34.2023.8.26.0266_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170244Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=813ee904470a153589fac04dc934f06efae3e465050e4947333134563d593977' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 16 - 19).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0003346-34.2023.8.26.0266_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193052Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=86a7db3528bccca83c3b016e1cb00fbadaa2d9b0767d5f6e818fdf14fe6c4a0e' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Ofício (pag 16 - 19).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 16
 
@@ -5272,12 +5341,13 @@ Este documento é cópia do original, assinado digitalmente por HELEN CRISTINA D
 <div class='marc'>
 <label><input type='radio' name='marc_251599' value='correto'> ✓ Correto</label>
 <label><input type='radio' name='marc_251599' value='errado'> ✗ Errado</label>
-<label><input type='radio' name='marc_251599' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<label><input type='radio' name='marc_251599' value='parcial' checked> ? Parcial</label>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário, valor (25.235,99) e natureza conferem; absteve de data_expedicao (&#x27;Itanhaém, 29 de novembro de 2024&#x27;) e vara_expedidora (Vara do JEC e Criminal do Foro de Itanhaém), ambas visíveis</textarea></div></div>
 <div class='item' data-doc-id='266796' data-classe='OFICIO_REQUISITORIO' data-cnj='0002508-90.2023.8.26.0428'>
 <h3>#54 <span class='classe'>OFICIO_REQUISITORIO</span> 0002508-90.2023.8.26.0428</h3>
 <div class='meta'>doc_id=266796 · tribunal=TJSP · tarefa=oficio · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0002508-90.2023.8.26.0428_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170244Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=f9e1960d4f08fa444a34422a5afc5748369678af1a05d940aab32867638d691a' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Outros Documentos (pag 7 - 9).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0002508-90.2023.8.26.0428_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193052Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=356faab9d4aa0a34e1fbb7ba095677e5b4ad02be055e65348485696c3b2f6a01' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Outros Documentos (pag 7 - 9).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>**Emitido em: 05/11/2024**
 
@@ -5608,10 +5678,11 @@ Tipo participação:
   &quot;vara_expedidora&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_266796' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_266796' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_266796' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_266796' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>beneficiário confere (Cecilia Imaculada da Silva), valor confere (24.164,97), natureza Alimentar confere; data/vara null ok (termo de declaração, sem expedição; só &#x27;Foro de Paulínia&#x27;, sem vara)</textarea></div></div>
 <div class='item' data-doc-id='2344552' data-classe='DESPACHO' data-cnj='0000822-44.2023.8.26.0596'>
 <h3>#55 <span class='classe'>DESPACHO</span> 0000822-44.2023.8.26.0596</h3>
 <div class='meta'>doc_id=2344552 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
@@ -5675,14 +5746,15 @@ Este documento é cópia do original, assinado digitalmente por VIVIANE DECNOP F
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_2344552' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_2344552' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_2344552' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_2344552' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (Viviane Decnop Freitas Figueira, cabeçalho e assinatura), vara/comarca conferem (1ª Vara, Serrana), data confere (05/11/2025); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='1849728' data-classe='DESPACHO' data-cnj='0001538-14.2011.8.26.0266'>
 <h3>#56 <span class='classe'>DESPACHO</span> 0001538-14.2011.8.26.0266</h3>
 <div class='meta'>doc_id=1849728 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001538-14.2011.8.26.0266_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170244Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=92d7a7a0d7bb7689b194ce1bdf1110ab9aee33900187d27281c63fbf0407bc81' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Despacho (pag 124).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001538-14.2011.8.26.0266_2.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193052Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=e541a68814ab8530050026fdfdfd0523ead8d8c8103ecdc5d8623df259ed2cac' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Despacho (pag 124).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 124
 
@@ -5770,10 +5842,11 @@ Este documento é cópia do original, assinado digitalmente por PAULO ALEXANDRE 
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_1849728' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_1849728' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_1849728' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_1849728' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (Paulo Alexandre Rodrigues Coutinho, cabeçalho e assinatura), vara/comarca conferem (1ª Vara, Itanhaém), data confere (24/11/2022); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='2088134' data-classe='DESPACHO' data-cnj='0001559-86.2020.8.26.0132'>
 <h3>#57 <span class='classe'>DESPACHO</span> 0001559-86.2020.8.26.0132</h3>
 <div class='meta'>doc_id=2088134 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
@@ -5837,14 +5910,15 @@ Este documento é cópia do original, assinado digitalmente por ADRIANE BANDEIRA
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_2088134' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_2088134' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_2088134' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_2088134' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (ADRIANE BANDEIRA PEREIRA), data confere (02/02/2021); vara certa (JEC de Catanduva — arrasta &#x27;Parque das Américas&#x27;, que é o logradouro); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='1986471' data-classe='DESPACHO' data-cnj='1007550-51.2023.8.26.0510'>
 <h3>#58 <span class='classe'>DESPACHO</span> 1007550-51.2023.8.26.0510</h3>
 <div class='meta'>doc_id=1986471 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1007550-51.2023.8.26.0510_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170245Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=d7bdfe97213bbae277021a3b5dfc1552a01d865abc89fa4e10c65f530579c6a6' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Despacho (pag 49).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/1007550-51.2023.8.26.0510_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193052Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=9ac007c5d2650f3c592d154317f51a886620b551171c950d34dbcc93f36fcf8e' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Despacho (pag 49).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 49
 
@@ -5908,14 +5982,15 @@ Este documento é cópia do original, assinado digitalmente por ANDRE ANTONIO DA
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_1986471' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_1986471' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_1986471' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_1986471' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (ANDRE ANTONIO DA SILVEIRA ALCANTARA, cabeçalho e assinatura), vara/comarca conferem (Vara da Fazenda Pública de Rio Claro), data confere (12/07/2024); desfecho null ok (despacho de manifestação)</textarea></div></div>
 <div class='item' data-doc-id='1463667' data-classe='DESPACHO' data-cnj='0001910-05.2023.8.26.0019'>
 <h3>#59 <span class='classe'>DESPACHO</span> 0001910-05.2023.8.26.0019</h3>
 <div class='meta'>doc_id=1463667 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
-<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001910-05.2023.8.26.0019_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T170245Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=66feb14feaacaf8f340be3ae9442dd21b53fec043c9f45c5a492d64153710327' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Despacho (pag 346).pdf</strong>)</a>
+<a class='pdf' href='https://process-storage.nyc3.digitaloceanspaces.com/falcon/process_files/0001910-05.2023.8.26.0019_1.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=DO00QX3PUWHLK3JH7GMV%2F20260729%2Fnyc3%2Fs3%2Faws4_request&amp;X-Amz-Date=20260729T193053Z&amp;X-Amz-Expires=604800&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=d425173ca2b8e018f900c1b0b2f5642efb97f50cd38dc0f3309124d885db5240' target='_blank' rel='noopener'>📄 PDF original (baixa o ZIP dos autos — abrir <strong>Despacho (pag 346).pdf</strong>)</a>
 <strong>Trecho do documento (primeiros ~1500 caracteres):</strong>
 <pre>fls. 346
 
@@ -5999,10 +6074,11 @@ Este documento é cópia do original, assinado digitalmente por ROBERTA VIRGINIO
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_1463667' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_1463667' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_1463667' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_1463667' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (Roberta Virginio dos Santos, cabeçalho e assinatura), vara/comarca conferem (1ª Vara Cível, Americana), data confere (26/08/2025); desfecho null ok</textarea></div></div>
 <div class='item' data-doc-id='2173670' data-classe='DESPACHO' data-cnj='0005885-28.2017.8.26.0445'>
 <h3>#60 <span class='classe'>DESPACHO</span> 0005885-28.2017.8.26.0445</h3>
 <div class='meta'>doc_id=2173670 · tribunal=TJSP · tarefa=decisao · json_ok=True</div>
@@ -6080,10 +6156,11 @@ Este documento é cópia do original, assinado digitalmente por LUIZ GUILHERME C
   &quot;desfecho&quot;: null
 }</pre>
 <div class='marc'>
-<label><input type='radio' name='marc_2173670' value='correto'> ✓ Correto</label>
+<label><input type='radio' name='marc_2173670' value='correto' checked> ✓ Correto</label>
 <label><input type='radio' name='marc_2173670' value='errado'> ✗ Errado</label>
 <label><input type='radio' name='marc_2173670' value='parcial'> ? Parcial</label>
-<textarea placeholder='Observação (qual campo errou / o que faltou)'></textarea></div></div>
+<span class='selo-ia'>🤖 pré-análise IA — confirme</span>
+<textarea placeholder='Observação (qual campo errou / o que faltou)'>juiz confere (Luiz Guilherme Cursino de Moura Santos, cabeçalho e assinatura), vara/comarca conferem (JEC e Criminal, Pindamonhangaba), data confere (20/05/2020); desfecho null ok</textarea></div></div>
 <h2>Fechamento</h2>
 <button class='export' onclick='coletar()'>Gerar resumo das marcações</button>
 <pre id='placar'></pre>
