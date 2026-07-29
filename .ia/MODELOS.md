@@ -9,7 +9,7 @@
 | modelo | versão | status | artefato | onde |
 |---|---|---|---|---|
 | extrator-precatorio | **v1** | 🟡 empacotado (gate PASS, não deployado) | GGUF Q4_K_M `01cd53ff…ebf2` | llmsv2 `/mnt/nas-data/voyager-train/out/` |
-| extrator-precatorio | **v2 "Ficha da Parte"** | 🔵 treinando (28/07 → ETA 29/07) | `out/adapter_v2` (em curso) | llmsv2 idem |
+| extrator-precatorio | **v2 "Ficha da Parte"** | 🟡 gate PARCIAL (29/07) — classes fortes prontas | `out/adapter_v2` + GGUF v2 (empacotando) | llmsv2 idem |
 | classificador-leads | v7 | 🟢 ativa | — | ver `.ia/CLASSIFICACAO.md` |
 | emulador-autos (GBM) | — | ⚪ planejado | — | ver `.ia/EMULADOR_AUTOS.md` |
 
@@ -88,7 +88,21 @@ pós-canonicalização, métricas por doc_classe, gate de abstenção) +
 `grammars/v2/*.gbnf` (7, reconciliadas contra o jsonl real, validadas no
 llama-server).
 
-**Gate planejado (critérios de promoção).** (a) partes: F1 de entidade ≥0,75 no
+**GATE EXECUTADO (29/07, n=3.762 TEST held-out, 4,8h) — veredito PARCIAL.**
+✅ Prontas: ALVARA 100/100/100 (beneficiário/valor/data), PAGAMENTO 100/99,5/100,
+DECISAO juiz 99,0/vara 99,4/data 99,5 (jurimetria), DESPACHO 94-97, PROCURACAO
+F1-entidade 72,4 + papel 77,6 (partes saltou de 54 → ~72-78), OFICIO benef 84/
+natureza 92/valor_individual 79. Retenção v1: macro 87,2 (≥85 ✓, natureza 99,55).
+Abstenção: 0% falsa-abstenção em todas as classes ✓✓.
+❌ Reprovadas (causa = DADO, prevista nos riscos): ACORDAO 16-27 e SENTENCA 60-80
+(docs longos — os 3.227 dropados >4096 tok; treino não viu, teste vê truncado),
+CESSAO 25-45 (269 exemplos de treino), herdeiros/óbito 11-31, casamento ~0.
+MACRO v2 bruto 66,5 (puxado pelas fracas). Critério partes ≥75: 72,4 → não promove
+o modelo INTEIRO; uso por-classe (fortes) possível após κ humano.
+Levers v2.1 confirmados pelo gate: janelar docs longos no gerador + gold melhor
+de cessão/herdeiros/casamento. A/B de base (Qwen3-8B) disparado na sequência.
+
+**Critérios de promoção (pré-registrados).** (a) partes: F1 de entidade ≥0,75 no
 test v2; (b) retenção v1: macro ≥85 (não regredir natureza/cessao/valor/ente);
 (c) abstenção: falsa-abstenção ≤5%; (d) κ humano em amostra de fichas completas
 antes de qualquer deploy (§12.0 — nunca direto em prod).
