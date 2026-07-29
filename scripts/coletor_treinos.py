@@ -107,7 +107,7 @@ def coleta_esp():
 
 
 def coleta_dapt():
-    # spec original: grep -oE '[0-9]+/3000' — o log real mostra N/3814; parseamos
+    # spec original: grep -oE '[0-9]+/3814' — o log real mostra N/3814; parseamos
     # a barra genericamente (local) pra sobreviver a mudança de total.
     ok, out = _run(SSH_BASE + ["-p", "23280", "-i", os.path.expanduser("~/.ssh/quickpod_dapt"),
                                "-o", "IdentitiesOnly=yes",
@@ -115,10 +115,10 @@ def coleta_dapt():
                                "tail -c 300 /root/dapt/train.log | tr '\\r' '\\n' | tail -3"])
     if not ok:
         return None
-    step, total, s_it, loss, _epoch = _parse_bar(out, 3000)
+    step, total, s_it, loss, _epoch = _parse_bar(out, 3814)
     if step is None:
         return None
-    return {"step": step, "total": total or 3000, "s_per_step": s_it, "loss": loss,
+    return {"step": step, "total": total or 3814, "s_per_step": s_it, "loss": loss,
             "done_hint": "100%|" in out}
 
 
@@ -165,7 +165,7 @@ RUNS_ATIVOS = [
         "nome": "DAPT — pré-treino continuado",
         "desc": "Pré-treino continuado no NOSSO corpus de 279M tokens de autos — o modelo aprende o dialeto do precatório antes da tarefa.",
         "onde": "QuickPod · RTX 3090 24GB", "custo": "$0,186/h",
-        "total_default": 3000, "s_step_default": 72.5, "gpu": True,
+        "total_default": 3814, "s_step_default": 72.5, "gpu": True,
         "custo_hora_usd": 0.186,
     },
     {
