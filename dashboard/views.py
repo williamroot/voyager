@@ -3431,3 +3431,18 @@ def modelo_extrator(request):
 def modelo_extrator_vitrine(request):
     """Vitrine comercial do extrator — antes/depois, ficha da parte, números."""
     return render(request, 'dashboard/modelo_extrator_vitrine.html')
+
+
+@login_required
+@require_GET
+def kappa_amostra(request):
+    """Amostra de validação humana (κ) do extrator — HTML autocontido servido cru
+    (sem template engine: o arquivo tem JS próprio). Gerado por build_kappa_amostra_v2.py."""
+    import os
+    from django.conf import settings as _s
+    from django.http import HttpResponse, Http404
+    path = os.path.join(_s.BASE_DIR, '.ia', 'kappa_amostra_v2.html')
+    if not os.path.exists(path):
+        raise Http404('amostra κ não encontrada')
+    with open(path, 'rb') as f:
+        return HttpResponse(f.read(), content_type='text/html; charset=utf-8')

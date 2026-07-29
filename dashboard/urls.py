@@ -43,6 +43,7 @@ urlpatterns = [
     path('api/', views.api_docs, name='api-docs'),
     path('modelos/extrator/', views.modelo_extrator, name='modelo-extrator'),
     path('modelos/extrator/vitrine/', views.modelo_extrator_vitrine, name='modelo-extrator-vitrine'),
+    path('modelos/extrator/kappa/', views.kappa_amostra, name='kappa-amostra'),
     path('leads/', views.leads_overview, name='leads'),
     path('leads/lista/', views.leads_lista, name='leads-lista'),
     path('leads/export/', views.leads_export_csv, name='leads-export'),
