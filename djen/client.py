@@ -118,7 +118,7 @@ class DJENClient:
         # Em modo normal (não-manual) intercala Cortex/Pool por request via
         # sorteio nesta proporção. Cada request sai com IP diferente —
         # diversifica de verdade quando o WAF bloqueia datacenter em onda.
-        self.cortex_ratio = getattr(settings, 'DJEN_CORTEX_RATIO', 0.5)
+        self.cortex_ratio = getattr(settings, 'DJEN_CORTEX_RATIO', 0.0)
 
     def count_window(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:
         """Estimativa do total de movimentações na janela.

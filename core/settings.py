@@ -253,7 +253,8 @@ CORTEX_BAD_TTL_SECONDS = env.int('CORTEX_BAD_TTL_SECONDS', default=15)
 # Probabilidade de cada request DJEN sair via Cortex (residencial) em vez do
 # pool ProxyScrape (datacenter). Diversifica IPs por request — quando o WAF
 # bloqueia datacenter em onda, ainda passa metade via Cortex e vice-versa.
-DJEN_CORTEX_RATIO = env.float('DJEN_CORTEX_RATIO', default=0.5)
+# Cortex só explícito (prefer_cortex) ou fallback; ProxyScrape é o primário (mais banda).
+DJEN_CORTEX_RATIO = env.float('DJEN_CORTEX_RATIO', default=0.0)
 # Ratio quando o pool datacenter está DEGRADADO (queimado/429): sem sentido
 # apostar no datacenter morto → 100% Cortex por padrão (2026-07-06).
 DJEN_CORTEX_RATIO_DEGRADED = env.float('DJEN_CORTEX_RATIO_DEGRADED', default=1.0)
