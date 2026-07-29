@@ -1,156 +1,159 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sala de Controle — Treinos ML · Voyager/Zordon</title>
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Sala de Controle · Treinos{% endblock %}
+{% block content %}
+
 <style>
-  :root{
+  /* ---- Sala de Controle — tema dark premium, escopado em .page-treinos ----
+     Vars redefinidas NO wrapper (não em :root) pra não vazar pro resto do app. */
+  .page-treinos{
     --bg:#0b0e14; --bg2:#11151f; --card:#161b28; --card2:#1c2233;
     --line:#252d42; --tx:#e8ecf4; --tx2:#9aa5bd; --tx3:#5f6a85;
     --gold:#f5c451; --green:#4ade80; --blue:#60a5fa; --red:#f87171;
     --violet:#a78bfa; --cyan:#22d3ee; --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+    background:var(--bg); color:var(--tx);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    border:1px solid var(--line); border-radius:1rem; overflow:hidden;
   }
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
-  .wrap{max-width:1180px;margin:0 auto;padding:0 28px}
-  a{color:var(--blue);text-decoration:none}
+  .page-treinos *{margin:0;padding:0;box-sizing:border-box}
+  .page-treinos .wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+  .page-treinos a{color:var(--blue);text-decoration:none}
 
-  nav{position:sticky;top:0;z-index:50;background:rgba(11,14,20,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-  nav .wrap{display:flex;align-items:center;gap:18px;height:54px;font-size:13.5px}
-  nav .logo{font-weight:800;letter-spacing:.4px;color:var(--gold)}
-  nav a{color:var(--tx2)} nav a:hover{color:var(--tx)}
-  nav .spacer{flex:1}
-  .navtag{font-family:var(--mono);font-size:11px;color:var(--cyan);border:1px solid var(--line);border-radius:20px;padding:3px 10px;display:flex;align-items:center;gap:7px}
-  .dotlive{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.5)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .page-treinos .toolbar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    padding:14px 28px;font-size:13.5px;border-bottom:1px solid var(--line);background:rgba(11,14,20,.85)}
+  .page-treinos .toolbar a{color:var(--tx2)} .page-treinos .toolbar a:hover{color:var(--tx)}
+  .page-treinos .spacer{flex:1}
+  .page-treinos .navtag{font-family:var(--mono);font-size:11px;color:var(--cyan);border:1px solid var(--line);border-radius:20px;padding:3px 10px;display:flex;align-items:center;gap:7px}
+  .page-treinos .dotlive{width:7px;height:7px;border-radius:50%;background:var(--green);animation:treinos-pulse 1.8s infinite}
+  @keyframes treinos-pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.5)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
 
-  header{padding:48px 0 34px;background:
+  .page-treinos header{padding:48px 0 34px;background:
     radial-gradient(900px 400px at 15% -10%,rgba(245,196,81,.10),transparent),
     radial-gradient(700px 380px at 90% 0%,rgba(96,165,250,.08),transparent)}
-  .crumb{font-family:var(--mono);font-size:12px;color:var(--tx3);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px}
-  h1{font-size:38px;line-height:1.12;font-weight:800;letter-spacing:-.5px;margin-bottom:10px}
-  h1 em{font-style:normal;background:linear-gradient(90deg,var(--gold),#f59e0b);-webkit-background-clip:text;background-clip:text;color:transparent}
-  .lead{font-size:16px;color:var(--tx2);max-width:780px;margin-bottom:26px}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
-  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-  .kpi .v{font-size:28px;font-weight:800;font-family:var(--mono);letter-spacing:-1px}
-  .kpi .v small{font-size:14px;color:var(--tx3);font-weight:600}
-  .kpi .l{font-size:12px;color:var(--tx2);margin-top:2px}
-  .kpi.gold .v{color:var(--gold)} .kpi.green .v{color:var(--green)}
-  .kpi.blue .v{color:var(--blue)} .kpi.violet .v{color:var(--violet)}
-  .updnote{font-family:var(--mono);font-size:11.5px;color:var(--tx3);margin-top:16px}
-  .updnote b{color:var(--tx2);font-weight:600}
+  .page-treinos .crumb{font-family:var(--mono);font-size:12px;color:var(--tx3);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px}
+  .page-treinos h1{font-size:38px;line-height:1.12;font-weight:800;letter-spacing:-.5px;margin-bottom:10px}
+  .page-treinos h1 em{font-style:normal;background:linear-gradient(90deg,var(--gold),#f59e0b);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .page-treinos .lead{font-size:16px;color:var(--tx2);max-width:780px;margin-bottom:26px}
+  .page-treinos .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+  .page-treinos .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .page-treinos .kpi .v{font-size:28px;font-weight:800;font-family:var(--mono);letter-spacing:-1px}
+  .page-treinos .kpi .v small{font-size:14px;color:var(--tx3);font-weight:600}
+  .page-treinos .kpi .l{font-size:12px;color:var(--tx2);margin-top:2px}
+  .page-treinos .kpi.gold .v{color:var(--gold)} .page-treinos .kpi.green .v{color:var(--green)}
+  .page-treinos .kpi.blue .v{color:var(--blue)} .page-treinos .kpi.violet .v{color:var(--violet)}
+  .page-treinos .updnote{font-family:var(--mono);font-size:11.5px;color:var(--tx3);margin-top:16px}
+  .page-treinos .updnote b{color:var(--tx2);font-weight:600}
 
-  section{padding:38px 0;border-top:1px solid var(--line)}
-  h2{font-size:23px;font-weight:800;letter-spacing:-.3px;margin-bottom:4px}
-  h2 .num{color:var(--tx3);font-family:var(--mono);font-size:15px;margin-right:8px}
-  .sub{color:var(--tx2);margin-bottom:22px;font-size:14px}
+  .page-treinos section{padding:38px 0;border-top:1px solid var(--line)}
+  .page-treinos h2{font-size:23px;font-weight:800;letter-spacing:-.3px;margin-bottom:4px}
+  .page-treinos h2 .num{color:var(--tx3);font-family:var(--mono);font-size:15px;margin-right:8px}
+  .page-treinos .sub{color:var(--tx2);margin-bottom:22px;font-size:14px}
 
-  .runs{display:flex;flex-direction:column;gap:16px}
-  .run{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;transition:opacity .3s}
-  .run.stale{opacity:.72;border-style:dashed}
-  .run-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
-  .run-nome{font-size:17px;font-weight:700}
-  .badge{font-family:var(--mono);font-size:11px;padding:3px 11px;border-radius:20px;border:1px solid var(--line);white-space:nowrap}
-  .b-run{border-color:rgba(74,222,128,.5);color:var(--green)}
-  .b-done{border-color:rgba(96,165,250,.5);color:var(--blue)}
-  .b-fail{border-color:rgba(248,113,113,.5);color:var(--red)}
-  .b-pause{border-color:rgba(245,196,81,.5);color:var(--gold)}
-  .b-stale{border-color:rgba(245,196,81,.5);color:var(--gold)}
-  .b-queue{color:var(--tx3)}
-  .run-desc{font-size:13.5px;color:var(--tx2);max-width:860px;margin-bottom:12px}
-  .run-onde{font-family:var(--mono);font-size:11.5px;color:var(--tx3);margin-left:auto;text-align:right}
-  .run-onde b{color:var(--cyan);font-weight:600}
+  .page-treinos .runs{display:flex;flex-direction:column;gap:16px}
+  .page-treinos .run{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;transition:opacity .3s}
+  .page-treinos .run.stale{opacity:.72;border-style:dashed}
+  .page-treinos .run-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .page-treinos .run-nome{font-size:17px;font-weight:700}
+  .page-treinos .badge{font-family:var(--mono);font-size:11px;padding:3px 11px;border-radius:20px;border:1px solid var(--line);white-space:nowrap}
+  .page-treinos .b-run{border-color:rgba(74,222,128,.5);color:var(--green)}
+  .page-treinos .b-done{border-color:rgba(96,165,250,.5);color:var(--blue)}
+  .page-treinos .b-fail{border-color:rgba(248,113,113,.5);color:var(--red)}
+  .page-treinos .b-pause{border-color:rgba(245,196,81,.5);color:var(--gold)}
+  .page-treinos .b-stale{border-color:rgba(245,196,81,.5);color:var(--gold)}
+  .page-treinos .b-queue{color:var(--tx3)}
+  .page-treinos .run-desc{font-size:13.5px;color:var(--tx2);max-width:860px;margin-bottom:12px}
+  .page-treinos .run-onde{font-family:var(--mono);font-size:11.5px;color:var(--tx3);margin-left:auto;text-align:right}
+  .page-treinos .run-onde b{color:var(--cyan);font-weight:600}
 
-  .prog{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:center}
-  @media(max-width:760px){.prog{grid-template-columns:1fr}}
-  .bar-track{position:relative;height:26px;background:var(--bg2);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-  .bar-fill{position:absolute;inset:0 auto 0 0;border-radius:8px;min-width:6px;
+  .page-treinos .prog{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:center}
+  @media(max-width:760px){.page-treinos .prog{grid-template-columns:1fr}}
+  .page-treinos .bar-track{position:relative;height:26px;background:var(--bg2);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .page-treinos .bar-fill{position:absolute;inset:0 auto 0 0;border-radius:8px;min-width:6px;
     background:linear-gradient(90deg,#8a6d1f,var(--gold));box-shadow:0 0 14px rgba(245,196,81,.25);
     transition:width 1.2s ease}
-  .bar-fill:after{content:"";position:absolute;inset:0;
+  .page-treinos .bar-fill:after{content:"";position:absolute;inset:0;
     background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.22) 50%,transparent 70%);
-    background-size:200% 100%;animation:shimmer 2.2s linear infinite}
-  @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-  .run.done .bar-fill{background:linear-gradient(90deg,#1d4f7a,var(--blue));box-shadow:none}
-  .run.done .bar-fill:after{animation:none;display:none}
-  .bar-lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background-size:200% 100%;animation:treinos-shimmer 2.2s linear infinite}
+  @keyframes treinos-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .page-treinos .run.done .bar-fill{background:linear-gradient(90deg,#1d4f7a,var(--blue));box-shadow:none}
+  .page-treinos .run.done .bar-fill:after{animation:none;display:none}
+  .page-treinos .bar-lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
     font-family:var(--mono);font-size:11.5px;color:var(--tx);text-shadow:0 1px 3px rgba(0,0,0,.7);z-index:2}
-  .stats{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-  .chip{font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--line);color:var(--tx2);white-space:nowrap}
-  .chip b{color:var(--gold);font-weight:700}
-  .chip.c-green b{color:var(--green)} .chip.c-blue b{color:var(--blue)} .chip.c-cyan b{color:var(--cyan)}
+  .page-treinos .stats{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .page-treinos .chip{font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--line);color:var(--tx2);white-space:nowrap;cursor:default}
+  .page-treinos .chip b{color:var(--gold);font-weight:700}
+  .page-treinos .chip.c-green b{color:var(--green)} .page-treinos .chip.c-blue b{color:var(--blue)} .page-treinos .chip.c-cyan b{color:var(--cyan)}
 
-  .conc{margin-top:12px;border-left:3px solid var(--blue);background:rgba(96,165,250,.07);
+  .page-treinos .conc{margin-top:12px;border-left:3px solid var(--blue);background:rgba(96,165,250,.07);
     border-radius:0 10px 10px 0;padding:12px 16px;font-size:13.5px;color:var(--tx2)}
-  .conc .t{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--blue);margin-bottom:4px;font-weight:700}
-  .conc b{color:var(--tx)}
+  .page-treinos .conc .t{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--blue);margin-bottom:4px;font-weight:700}
+  .page-treinos .conc b{color:var(--tx)}
 
-  .qgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
-  .qcard{background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:16px 18px}
-  .qcard .qn{font-weight:700;font-size:14.5px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
-  .qcard p{font-size:13px;color:var(--tx2)}
+  .page-treinos .qgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+  .page-treinos .qcard{background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:16px 18px}
+  .page-treinos .qcard .qn{font-weight:700;font-size:14.5px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .page-treinos .qcard p{font-size:13px;color:var(--tx2)}
 
-  .err{display:none;margin:14px 0 0;border-left:3px solid var(--red);background:rgba(248,113,113,.07);
+  .page-treinos .err{display:none;margin:14px 0 0;border-left:3px solid var(--red);background:rgba(248,113,113,.07);
     border-radius:0 10px 10px 0;padding:12px 16px;font-size:13.5px;color:var(--tx2)}
-  footer{padding:34px 0 46px;border-top:1px solid var(--line);color:var(--tx3);font-size:12.5px;font-family:var(--mono)}
+  .page-treinos footer{padding:34px 0 46px;border-top:1px solid var(--line);color:var(--tx3);font-size:12.5px;font-family:var(--mono)}
 </style>
-</head>
-<body>
 
-<nav><div class="wrap">
-  <span class="logo">VOYAGER</span>
-  <a href="/dashboard/">← dashboard</a>
-  <a href="/dashboard/modelos/extrator/">model card</a>
-  <a href="/dashboard/modelos/extrator/vitrine/">vitrine</a>
-  <span class="spacer"></span>
-  <span class="navtag"><span class="dotlive"></span> LIVE · atualiza a cada 2min</span>
-</div></nav>
+<div class="page-treinos">
 
-<header><div class="wrap">
-  <div class="crumb">ZORDON ML · SALA DE CONTROLE</div>
-  <h1>Treinos em <em>tempo real</em></h1>
-  <p class="lead">Todos os experimentos de ML do extrator de precatórios — o que está rodando agora,
-  em qual GPU, a que custo, e o que cada um já provou. Telemetria coletada direto das máquinas de treino.</p>
-  <div class="kpis">
-    <div class="kpi green"><div class="v" id="k-rodando">–</div><div class="l">rodando agora</div></div>
-    <div class="kpi blue"><div class="v" id="k-done">–</div><div class="l">concluídos</div></div>
-    <div class="kpi gold"><div class="v" id="k-gpus">–</div><div class="l">GPUs em uso</div></div>
-    <div class="kpi violet"><div class="v" id="k-custo">–</div><div class="l">custo cloud/hora</div></div>
-    <div class="kpi"><div class="v" id="k-fila">–</div><div class="l">na fila</div></div>
+  {# Links que viviam na nav própria da página — o menu do Voyager assume a navegação global #}
+  <div class="toolbar">
+    <a href="{% url 'dashboard:modelo-extrator' %}">model card</a>
+    <a href="{% url 'dashboard:modelo-extrator-vitrine' %}">vitrine</a>
+    <span class="spacer"></span>
+    <span class="navtag"><span class="dotlive"></span> LIVE · atualiza a cada 2min</span>
   </div>
-  <div class="updnote">coletor roda a cada 2min nas máquinas de treino · página recarrega os dados a cada 60s ·
-  último dado: <b id="k-quando">—</b></div>
-  <div class="err" id="err"></div>
-</div></header>
 
-<section><div class="wrap">
-  <h2><span class="num">01</span>Em execução</h2>
-  <p class="sub">Runs ativos neste momento. <span style="color:var(--gold)">⚠ stale</span> = fonte fora do ar; mostramos o último dado conhecido.</p>
-  <div class="runs" id="ativos"></div>
-</div></section>
+  <header><div class="wrap">
+    <div class="crumb">ZORDON ML · SALA DE CONTROLE</div>
+    <h1>Treinos em <em>tempo real</em></h1>
+    <p class="lead">Todos os experimentos de ML do extrator de precatórios — o que está rodando agora,
+    em qual GPU, a que custo, e o que cada um já provou. Telemetria coletada direto das máquinas de treino.</p>
+    <div class="kpis">
+      <div class="kpi green"><div class="v" id="k-rodando">–</div><div class="l">rodando agora</div></div>
+      <div class="kpi blue"><div class="v" id="k-done">–</div><div class="l">concluídos</div></div>
+      <div class="kpi gold"><div class="v" id="k-gpus">–</div><div class="l">GPUs em uso</div></div>
+      <div class="kpi violet"><div class="v" id="k-custo">–</div><div class="l">custo cloud/hora</div></div>
+      <div class="kpi"><div class="v" id="k-fila">–</div><div class="l">na fila</div></div>
+    </div>
+    <div class="updnote">coletor roda a cada 2min nas máquinas de treino · página recarrega os dados a cada 60s ·
+    último dado: <b id="k-quando">—</b></div>
+    <div class="err" id="err"></div>
+  </div></header>
 
-<section><div class="wrap">
-  <h2><span class="num">02</span>Na fila</h2>
-  <p class="sub">Próximos experimentos — dependem de GPU livre ou de resultado dos runs atuais.</p>
-  <div class="qgrid" id="fila"></div>
-</div></section>
+  <section><div class="wrap">
+    <h2><span class="num">01</span>Em execução</h2>
+    <p class="sub">Runs ativos neste momento. <span style="color:var(--gold)">⚠ stale</span> = fonte fora do ar; mostramos o último dado conhecido.</p>
+    <div class="runs" id="ativos"></div>
+  </div></section>
 
-<section><div class="wrap">
-  <h2><span class="num">03</span>Concluídos</h2>
-  <p class="sub">O que já saiu do forno — com os números finais de cada entrega.</p>
-  <div class="runs" id="concluidos"></div>
-</div></section>
+  <section><div class="wrap">
+    <h2><span class="num">02</span>Na fila</h2>
+    <p class="sub">Próximos experimentos — dependem de GPU livre ou de resultado dos runs atuais.</p>
+    <div class="qgrid" id="fila"></div>
+  </div></section>
 
-<footer><div class="wrap">
-  coletor: scripts/coletor_treinos.sh (ciclo 120s, SSH direto nas máquinas de treino) ·
-  dados: /dashboard/modelos/treinos/data/
-</div></footer>
+  <section><div class="wrap">
+    <h2><span class="num">03</span>Concluídos</h2>
+    <p class="sub">O que já saiu do forno — com os números finais de cada entrega.</p>
+    <div class="runs" id="concluidos"></div>
+  </div></section>
+
+  <footer><div class="wrap">
+    coletor: scripts/coletor_treinos.sh (ciclo 120s, SSH direto nas máquinas de treino) ·
+    dados: /dashboard/modelos/treinos/data/
+  </div></footer>
+
+</div>
 
 <script>
 (function(){
-  var DATA_URL = 'data/';
+  var DATA_URL = '{% url "dashboard:treinos-dashboard-data" %}';
 
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
@@ -267,5 +270,5 @@
   setInterval(load, 60000);
 })();
 </script>
-</body>
-</html>
+
+{% endblock %}

@@ -3445,7 +3445,7 @@ def modelo_extrator_vitrine(request):
 @login_required
 @require_GET
 def treinos_dashboard(request):
-    """Sala de controle dos treinos ML — página autocontida; dados via /data/ (JSON do coletor externo)."""
+    """Sala de controle dos treinos ML — estende base.html (miolo escopado em .page-treinos); dados via /data/ (JSON do coletor externo)."""
     return render(request, 'dashboard/treinos_dashboard.html')
 
 
