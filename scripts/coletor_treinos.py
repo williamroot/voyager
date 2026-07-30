@@ -63,7 +63,7 @@ def _parse_bar(texto, total_default):
 
 def coleta_v21():
     ok, out = _run(SSH_BASE + ["ubuntu@llmsv2",
-                               "tail -c 400 /mnt/nas-data/voyager-train/logs/train_v21.log"])
+                               "tail -c 1500 /mnt/nas-data/voyager-train/logs/train_v21.log"])
     if not ok:
         return None
     step, total, s_it, loss, epoch = _parse_bar(out.replace("\r", "\n"), 3045)
@@ -80,7 +80,7 @@ def coleta_ab():
     ok, out = _run(SSH_BASE + ["-p", "34800", "-i", os.path.expanduser("~/.ssh/quickpod_ab"),
                                "-o", "IdentitiesOnly=yes",
                                "e100a55d-5247-412b-ba81-7c8c29cd874a@159.48.242.22",
-                               "tail -c 400 /root/train/train_ab.log"])
+                               "tail -c 1500 /root/train/train_ab.log"])
     if not ok:
         return None
     step, total, s_it, loss, epoch = _parse_bar(out.replace("\r", "\n"), 3045)
