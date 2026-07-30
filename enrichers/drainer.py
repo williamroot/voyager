@@ -965,6 +965,26 @@ def run(*, batch_size: int = 200, block_ms: int = 2000,
         )
 
 
+def _heal_if_nogroup(r, stream_key, exc) -> bool:
+    """Auto-cura do consumer group perdido.
+
+    Se o Redis reiniciou/evictou o stream, o consumer group `enrichment-drainer`
+    some e todo XREADGROUP/XAUTOCLAIM passa a falhar com NOGROUP num loop infinito
+    (incidente 30/07/2026: 7 dias sem dreno, ~1M resultados represados/trimados).
+    Ao detectar NOGROUP, recria o grupo (id=0, recupera o backlog retido) e deixa
+    a próxima iteração retomar. Retorna True se curou.
+    """
+    if 'NOGROUP' not in str(exc):
+        return False
+    try:
+        ensure_consumer_group(r, stream_key=stream_key)
+        logger.warning('consumer group recriado (NOGROUP auto-heal)', extra={'stream': stream_key})
+        return True
+    except Exception:
+        logger.exception('falha ao recriar consumer group', extra={'stream': stream_key})
+        return False
+
+
 def _process_one_stream(r, stream_key, consumer, batch_size, block_ms, idle_ms,
                         trim_after_ack, autoclaim_cursors):
     """Iteração única do loop drainer pra UM stream. Extraído pra que
@@ -979,14 +999,16 @@ def _process_one_stream(r, stream_key, consumer, batch_size, block_ms, idle_ms,
             start_id=autoclaim_cursor,
         )
         autoclaim_cursors[stream_key] = autoclaim_cursor
-    except Exception:
+    except Exception as exc:
+        _heal_if_nogroup(r, stream_key, exc)
         logger.exception('falha em XAUTOCLAIM', extra={'stream': stream_key})
         autoclaim_cursors[stream_key] = '0'
         claimed_ids, claimed_raws = [], []
 
     try:
         new_ids, new_raws = _read_new(r, stream_key, consumer, batch_size, block_ms)
-    except Exception:
+    except Exception as exc:
+        _heal_if_nogroup(r, stream_key, exc)
         logger.exception('falha em XREADGROUP', extra={'stream': stream_key})
         time.sleep(1)
         return
