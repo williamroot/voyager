@@ -45,3 +45,7 @@ dashboard/data/*.live.json
 
 # observability stack secrets (Fase B)
 infra/observability/.env
+
+# Estágio do crédito — datasets e artefatos de modelo (md5 no .ia/MODELOS.md)
+scripts/estagio/out/
+models/

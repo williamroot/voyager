@@ -16,6 +16,7 @@
 | extrator-precatorio | **DAPT** | 🔵 treinando (~76,5h) | adapter DAPT r=64 all-linear | pod 3090 ($0,19/h) |
 | classificador-leads | v7 | 🟢 ativa | — | ver `.ia/CLASSIFICACAO.md` |
 | emulador-autos (GBM) | — | ⚪ planejado | — | ver `.ia/EMULADOR_AUTOS.md` |
+| **estagio-credito (GBM)** | **estagio_v1** | 🟡 gate PASS (EMITIDO p=0,954 · MORTO p=0,926 · thr_morto 0,80) — empacotado, não plugado em views | joblib `6bf0c7a4…9e36` | curiosity `voyager/scripts/estagio/out/` · lib `tribunals/estagio.py` · doc `.ia/ESTAGIO_CREDITO.md` |
 
 **Datasets versionados por hash** (dados fora do git; md5 aqui é o vínculo):
 
@@ -25,6 +26,8 @@
 | `train_fichaparte_full.jsonl` (v2) | `177f4f0ed7ba2a9768f90df28d14e4ed` | 196.360 ex por-documento | zordon `eval/build_train_fichaparte.py` |
 | dataset **v2.1** | `2b90e642…` | **211.928 ex** (37.146 longos recuperados via janelamento) | zordon commit `bd4b2b9` |
 | **DPO pairs v1** (`eval/dpo_pairs_v1.jsonl`) | — (auditoria em `eval/relatorio_dpo_pairs.md`) | 2.688 pares (1.289 forte×fraca / 27 correções humanas / 1.372 abstenção) | zordon `eval/build_dpo_pairs.py` |
+| `estagio_labels.jsonl.gz` | `658258043d640b556a6e2c98eb6f2759` | 820.777 rótulos de estágio (supervisão cruzada autos×Falcon, evidências auditáveis) | voyager `scripts/estagio/build_labels.py` (roda no zordon) |
+| `estagio_features.csv.gz` | `c80691c8e69de3c23371b3af1529a39d` | 99.667 linhas de features 100% públicas (snapshot 2026-07-30) | voyager `scripts/estagio/build_features.py` (roda no host voyager) |
 
 Status: 🟢 ativa · 🟡 empacotado/shadow · 🔵 treinando · 🔴 morto (gate BLOCK) · ⚪ planejado
 
