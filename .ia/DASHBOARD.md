@@ -122,6 +122,7 @@ Operação     → Ingestão · Saúde · Workers · Vetorização · Exportar �
 |---|---|---|
 | `/dashboard/` | `overview.html` | KPIs + 6 charts + filtros globais (período + tribunais) |
 | `/dashboard/ia/` | `ia_hub.html` | **IA LABS — Centro de Inteligência**: landing hub das ferramentas de IA. Hero deep-space (star-field), stats live (treinos rodando/concluídos/GPUs via `modelos/treinos/data/` client-side, falha silenciosa), grid de cards navegáveis e timeline "A jornada" (v1 87,9% → v2 Ficha da Parte → v2.1+A/B → DPO/3B/Analista IA) |
+| `/dashboard/ia/estagio/` | `ia_estagio.html` | **IA LABS — Estágio do Crédito** (vitrine investidor): CNJ → veredito DC/PRÉ/EMITIDO/MORTO(SATISFEITO·IMPROCEDENTE) ancorado nas movs (motor de regras `dashboard/services/estagio_rules.py`, plugável `ESTAGIO_ENGINE=rules\|gbm\|hybrid`); CNJ fora da base dispara busca on-demand (fila manual DJEN+Datajud, prefer_cortex) com polling |
 | `/dashboard/processos/` | `processos.html` | Tabela filtrada |
 | `/dashboard/processos/<pk>/` | `processo_detail.html` | Hero card + cards de polos + timeline + botão enriquecer |
 | `/dashboard/movimentacoes/` | `movimentacoes.html` | Cards com filter chips (tribunal/tipo/meio/classe/ativo) |

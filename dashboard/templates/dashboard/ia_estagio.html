@@ -1,0 +1,496 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+{% block title %}Estágio do Crédito{% endblock %}
+{% block content %}
+
+<style>
+  /* ---- Estágio do Crédito · temática deep-space sutil (padrão IA LABS) ---- */
+  .est-hero {
+    position: relative; overflow: hidden;
+    border-radius: 1.25rem;
+    border: 1px solid rgb(var(--c-border) / 0.7);
+    background:
+      radial-gradient(ellipse 90% 120% at 85% -20%, rgb(var(--c-pale-blue) / 0.12), transparent 60%),
+      radial-gradient(ellipse 70% 100% at 10% 110%, rgb(var(--c-golden) / 0.10), transparent 55%),
+      linear-gradient(160deg, rgb(var(--c-surface)), rgb(var(--c-base)));
+    padding: 2.5rem 2rem;
+  }
+  html:not(.dark) .est-hero {
+    background:
+      radial-gradient(ellipse 90% 120% at 85% -20%, rgb(var(--c-pale-blue) / 0.10), transparent 60%),
+      radial-gradient(ellipse 70% 100% at 10% 110%, rgb(var(--c-golden) / 0.07), transparent 55%),
+      linear-gradient(160deg, rgb(255 255 255), rgb(var(--c-base)));
+  }
+  .est-input {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.15rem; letter-spacing: 0.04em;
+    background: rgb(var(--c-card) / 0.7);
+    border: 1px solid rgb(var(--c-border));
+    border-radius: 0.9rem;
+    padding: 0.95rem 1.2rem; width: 100%;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .est-input:focus {
+    outline: none; border-color: rgb(var(--c-golden) / 0.6);
+    box-shadow: 0 0 0 3px rgb(var(--c-golden) / 0.15);
+  }
+  .est-input.invalid { border-color: rgb(var(--c-danger) / 0.7); }
+
+  /* ---- Selos de veredito ---- */
+  .selo {
+    display: inline-flex; align-items: center; gap: 0.6rem;
+    font-family: 'JetBrains Mono', monospace; font-weight: 700;
+    font-size: 1.35rem; letter-spacing: 0.08em;
+    padding: 0.7rem 1.4rem; border-radius: 0.9rem;
+    border: 1px solid; text-transform: uppercase;
+  }
+  .selo-DC        { color: rgb(var(--c-pale-blue)); border-color: rgb(var(--c-pale-blue) / 0.5); background: rgb(var(--c-pale-blue) / 0.10); }
+  .selo-PRE       { color: rgb(var(--c-golden)); border-color: rgb(var(--c-golden) / 0.5); background: rgb(var(--c-golden) / 0.10); }
+  .selo-EMITIDO   { color: rgb(var(--c-accent)); border-color: rgb(var(--c-accent) / 0.5); background: rgb(var(--c-accent) / 0.10); }
+  .selo-MORTO     { color: rgb(var(--c-fg-muted)); border-color: rgb(var(--c-border)); background: rgb(var(--c-muted) / 0.5); }
+  /* SATISFEITO — crédito PAGO: desfecho positivo (verde-escuro/cinza-dourado) */
+  .selo-SATISFEITO {
+    color: rgb(52 168 121); border-color: rgb(52 168 121 / 0.55);
+    background: linear-gradient(120deg, rgb(52 168 121 / 0.12), rgb(var(--c-golden) / 0.08));
+  }
+  .selo-IMPROCEDENTE { color: rgb(var(--c-fg-muted)); border-color: rgb(var(--c-danger) / 0.35); background: rgb(var(--c-muted) / 0.5); }
+  .selo-INDEFINIDO   { color: rgb(var(--c-fg-subtle)); border-color: rgb(var(--c-border)); background: transparent; }
+
+  .verdict-card {
+    position: relative; overflow: hidden; border-radius: 1.25rem;
+    border: 1px solid rgb(var(--c-border) / 0.8);
+    background: rgb(var(--c-card) / 0.6); padding: 1.8rem;
+  }
+  .verdict-card.v-DC       { box-shadow: 0 0 60px -25px rgb(var(--c-pale-blue) / 0.5) inset; }
+  .verdict-card.v-PRE      { box-shadow: 0 0 60px -25px rgb(var(--c-golden) / 0.5) inset; }
+  .verdict-card.v-EMITIDO  { box-shadow: 0 0 60px -25px rgb(var(--c-accent) / 0.5) inset; }
+
+  .conf-bar { height: 6px; border-radius: 999px; background: rgb(var(--c-muted)); overflow: hidden; }
+  .conf-bar > div { height: 100%; border-radius: 999px; transition: width .6s ease; }
+  .c-DC > div, .c-INDEFINIDO > div { background: rgb(var(--c-pale-blue)); }
+  .c-PRE > div { background: rgb(var(--c-golden)); }
+  .c-EMITIDO > div, .c-SATISFEITO > div { background: rgb(var(--c-accent)); }
+  .c-MORTO > div, .c-IMPROCEDENTE > div { background: rgb(var(--c-fg-subtle)); }
+
+  .flag-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border: 1px solid rgb(var(--c-warning) / 0.5); color: rgb(var(--c-warning));
+    background: rgb(var(--c-warning) / 0.08);
+    padding: 0.25rem 0.6rem; border-radius: 999px;
+  }
+  .badge-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.7rem; border: 1px dashed rgb(var(--c-border));
+    color: rgb(var(--c-fg-muted)); padding: 0.25rem 0.6rem; border-radius: 999px;
+  }
+
+  /* ---- Âncoras (chips numerados que conectam veredito → timeline) ---- */
+  .anc-chip {
+    display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer;
+    border: 1px solid rgb(var(--c-border)); border-radius: 0.6rem;
+    background: rgb(var(--c-surface) / 0.8); padding: 0.4rem 0.65rem;
+    font-size: 0.74rem; transition: border-color .15s, transform .15s;
+  }
+  .anc-chip:hover { border-color: rgb(var(--c-golden) / 0.6); transform: translateX(2px); }
+  .anc-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.15rem; height: 1.15rem; border-radius: 999px; flex: none;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; font-weight: 700;
+    background: rgb(var(--c-golden) / 0.18); color: rgb(var(--c-golden));
+    border: 1px solid rgb(var(--c-golden) / 0.5);
+  }
+
+  /* ---- Timeline vertical ---- */
+  .tl { position: relative; margin-left: 0.4rem; }
+  .tl::before {
+    content: ''; position: absolute; left: 7px; top: 8px; bottom: 8px;
+    width: 1px; background: linear-gradient(rgb(var(--c-border)), rgb(var(--c-border) / 0.2));
+  }
+  .tl-item { position: relative; padding: 0 0 1.1rem 2rem; }
+  .tl-dot {
+    position: absolute; left: 0; top: 0.35rem;
+    width: 15px; height: 15px; border-radius: 999px;
+    background: rgb(var(--c-base)); border: 2px solid rgb(var(--c-fg-subtle) / 0.6);
+  }
+  .tl-item.is-anchor .tl-dot {
+    border-color: rgb(var(--c-golden));
+    box-shadow: 0 0 10px rgb(var(--c-golden) / 0.55);
+    animation: pulsar 2.2s ease-in-out infinite;
+  }
+  .tl-item.is-anchor > .tl-body {
+    border: 1px solid rgb(var(--c-golden) / 0.35);
+    background: rgb(var(--c-golden) / 0.05);
+    border-radius: 0.8rem; padding: 0.8rem 1rem;
+  }
+  .tl-item.flash > .tl-body { border-color: rgb(var(--c-golden)); box-shadow: 0 0 0 3px rgb(var(--c-golden) / 0.2); }
+  .tl-sig {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-size: 0.68rem; font-weight: 600; color: rgb(var(--c-golden));
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .tl-date { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: rgb(var(--c-fg-subtle)); }
+  .tl-texto { font-size: 0.78rem; color: rgb(var(--c-fg-muted)); cursor: pointer; }
+  .tl-meio {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.6rem;
+    border: 1px solid rgb(var(--c-border)); border-radius: 0.35rem;
+    padding: 0.05rem 0.35rem; color: rgb(var(--c-fg-subtle));
+  }
+
+  .nullable-card {
+    border: 1px dashed rgb(var(--c-border)); border-radius: 1rem;
+    padding: 1.1rem 1.2rem; background: rgb(var(--c-card) / 0.35);
+  }
+  .est-footer {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.66rem;
+    color: rgb(var(--c-fg-subtle)); letter-spacing: 0.04em;
+  }
+  .est-spinner {
+    width: 1rem; height: 1rem; border-radius: 999px; flex: none;
+    border: 2px solid rgb(var(--c-golden) / 0.25); border-top-color: rgb(var(--c-golden));
+    animation: est-spin 0.8s linear infinite;
+  }
+  @keyframes est-spin { to { transform: rotate(360deg); } }
+</style>
+
+<div x-data="estagioApp()" class="space-y-6">
+
+  {# ---- HERO: input CNJ ---- #}
+  <section class="est-hero">
+    <div class="star-field" style="opacity: 0.4"></div>
+    <div class="star-field-overlay"></div>
+    <div class="relative max-w-3xl">
+      <span class="mission-tag mb-3 inline-flex">🚀 IA LABS</span>
+      <h1 class="text-2xl md:text-3xl font-bold tracking-tight">Estágio do Crédito</h1>
+      <p class="mt-2 text-sm text-fg-muted max-w-xl">
+        Digite o número CNJ e veja em que estágio o crédito judicial está —
+        <span class="font-mono" style="color: rgb(var(--c-pale-blue))">DC</span> ·
+        <span class="font-mono" style="color: rgb(var(--c-golden))">PRÉ-PRECATÓRIO</span> ·
+        <span class="font-mono text-accent-fg">EMITIDO</span> ·
+        <span class="font-mono text-fg-subtle">MORTO</span> —
+        com cada marco ancorado na movimentação pública exata.
+      </p>
+      <form class="mt-5 flex flex-col sm:flex-row gap-3" @submit.prevent="analisar()">
+        <input type="text" x-model="cnjInput" @input="cnjErro = ''"
+               :class="{'invalid': cnjErro}"
+               class="est-input flex-1"
+               placeholder="0000000-00.0000.0.00.0000"
+               autocomplete="off" spellcheck="false" />
+        <button type="submit" class="btn-mission px-8 py-3 rounded-xl font-semibold text-sm whitespace-nowrap"
+                :disabled="fase === 'carregando' || fase === 'buscando'">
+          <span x-show="fase !== 'carregando' && fase !== 'buscando'">Analisar</span>
+          <span x-show="fase === 'carregando' || fase === 'buscando'" class="inline-flex items-center gap-2">
+            <span class="est-spinner"></span> Analisando…
+          </span>
+        </button>
+      </form>
+      <p x-show="cnjErro" x-text="cnjErro" class="mt-2 text-xs" style="color: rgb(var(--c-danger))"></p>
+      <p class="mt-3 text-[0.68rem] text-fg-subtle font-mono uppercase tracking-widest">
+        análise 100% sobre dados públicos · DJEN + Datajud (CNJ)
+      </p>
+    </div>
+  </section>
+
+  {# ---- BUSCANDO NO TRIBUNAL (on-demand, tempo real) ---- #}
+  <section x-show="fase === 'buscando'" x-cloak class="card">
+    <div class="flex items-center gap-4">
+      <span class="est-spinner" style="width:1.6rem;height:1.6rem"></span>
+      <div>
+        <div class="font-semibold text-sm">
+          Processo fora da base — buscando agora no tribunal
+          <span class="font-mono" style="color: rgb(var(--c-golden))" x-text="buscaTribunal"></span>…
+        </div>
+        <div class="mt-1 text-xs text-fg-muted font-mono">
+          <span x-text="buscaMsg"></span>
+          <template x-if="buscaMovs > 0">
+            <span> · <span class="text-accent-fg" x-text="buscaMovs"></span> movimentações recebidas</span>
+          </template>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ---- ERRO / SEM DADOS ---- #}
+  <section x-show="fase === 'erro'" x-cloak class="card border" style="border-color: rgb(var(--c-danger) / 0.4)">
+    <div class="flex items-center gap-3">
+      {% voy_icon "anomaly" "w-5 h-5" %}
+      <div class="text-sm" x-text="erroMsg"></div>
+    </div>
+  </section>
+  <section x-show="fase === 'sem_dados'" x-cloak class="card">
+    <div class="flex items-start gap-3">
+      {% voy_icon "signal-lost" "w-5 h-5 text-fg-subtle" %}
+      <div>
+        <div class="font-semibold text-sm">Sem sinal público para este CNJ</div>
+        <p class="mt-1 text-xs text-fg-muted">
+          Consultamos o diário oficial (DJEN) e o repositório do CNJ (Datajud) em tempo real
+          e nenhuma movimentação pública foi localizada. Dado ausente ≠ erro — pode ser
+          segredo de justiça, processo físico ou tribunal sem cobertura de publicação.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  {# ---- RESULTADO ---- #}
+  <template x-if="fase === 'ok' && r">
+    <div class="space-y-6">
+
+      {# -- Veredito -- #}
+      <section class="verdict-card" :class="'v-' + r.resultado.classe">
+        <div class="flex flex-col lg:flex-row lg:items-start gap-6">
+          <div class="flex-1 min-w-0">
+            <div class="text-[0.65rem] font-mono uppercase tracking-widest text-fg-subtle mb-2">
+              veredito · <span x-text="r.cnj"></span> · <span x-text="r.processo.tribunal"></span>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="selo" :class="'selo-' + r.resultado.selo">
+                <span x-text="seloTexto(r.resultado)"></span>
+              </span>
+              <template x-for="f in r.resultado.flags" :key="f.code">
+                <span class="flag-chip" x-text="f.label"></span>
+              </template>
+            </div>
+            <div class="mt-2 text-sm font-semibold" x-text="r.resultado.label"></div>
+            <p class="mt-2 text-sm text-fg-muted max-w-2xl" x-text="r.resultado.motivo"></p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <template x-for="b in r.resultado.badges" :key="b.code">
+                <span class="badge-chip" x-text="b.label"></span>
+              </template>
+            </div>
+          </div>
+          <div class="w-full lg:w-64 flex-none">
+            <div class="text-[0.65rem] font-mono uppercase tracking-widest text-fg-subtle mb-1.5">
+              confiança do motor
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="conf-bar flex-1" :class="'c-' + r.resultado.selo">
+                <div :style="'width:' + Math.round(r.resultado.confianca * 100) + '%'"></div>
+              </div>
+              <span class="font-mono text-sm font-bold" x-text="Math.round(r.resultado.confianca * 100) + '%'"></span>
+            </div>
+            <div class="mt-4 text-[0.65rem] font-mono uppercase tracking-widest text-fg-subtle mb-1.5">
+              geometria da classificação
+            </div>
+            <div class="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
+              <template x-for="(a, i) in ancorasVerdict()" :key="i">
+                <span class="anc-chip" @click="irParaMov(a.mov_id)">
+                  <span class="anc-num" x-text="i + 1"></span>
+                  <span class="truncate" x-text="a.label"></span>
+                  <span class="tl-date flex-none" x-text="dataCurta(a.data)"></span>
+                </span>
+              </template>
+              <span x-show="!ancorasVerdict().length" class="text-xs text-fg-subtle italic">
+                sem âncoras — classificação por ausência de sinais
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {# -- Cards best-effort NULLABLE -- #}
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="nullable-card">
+          <div class="flex items-center gap-2 mb-2">
+            {% voy_icon "scale" "w-4 h-4 text-fg-subtle" %}
+            <h3 class="text-xs font-semibold uppercase tracking-widest text-fg-muted">Valor homologado</h3>
+          </div>
+          <template x-if="r.resultado.valor_homologado">
+            <div>
+              <div class="font-mono text-xl font-bold text-accent-fg"
+                   x-text="brl(r.resultado.valor_homologado.valor)"></div>
+              <p class="mt-1.5 text-[0.72rem] text-fg-subtle italic" x-text="'“' + r.resultado.valor_homologado.trecho + '”'"></p>
+              <p class="mt-1 text-[0.65rem] font-mono text-fg-subtle">
+                detectado em <span x-text="dataCurta(r.resultado.valor_homologado.data)"></span> · best-effort sobre texto público
+              </p>
+            </div>
+          </template>
+          <template x-if="!r.resultado.valor_homologado">
+            <p class="text-sm text-fg-subtle">
+              não disponível publicamente
+              <span class="block mt-1 text-[0.68rem]">o valor pode constar só nos autos — dado ausente ≠ erro</span>
+            </p>
+          </template>
+        </div>
+        <div class="nullable-card">
+          <div class="flex items-center gap-2 mb-2">
+            {% voy_icon "users" "w-4 h-4 text-fg-subtle" %}
+            <h3 class="text-xs font-semibold uppercase tracking-widest text-fg-muted">Partes beneficiárias</h3>
+          </div>
+          <template x-if="r.partes && r.partes.length">
+            <ul class="space-y-1.5">
+              <template x-for="p in r.partes" :key="p.nome">
+                <li class="text-sm flex items-baseline gap-2">
+                  <span class="font-medium truncate" x-text="p.nome"></span>
+                  <span class="text-[0.65rem] font-mono text-fg-subtle flex-none" x-text="p.papel"></span>
+                </li>
+              </template>
+            </ul>
+          </template>
+          <template x-if="!r.partes || !r.partes.length">
+            <p class="text-sm text-fg-subtle">
+              não disponível publicamente
+              <span class="block mt-1 text-[0.68rem]">polo ativo ainda não enriquecido pela consulta pública</span>
+            </p>
+          </template>
+        </div>
+      </div>
+
+      {# -- Linha do tempo vertical com marcos-âncora -- #}
+      <section class="card">
+        <div class="flex items-center justify-between mb-5">
+          <div class="flex items-center gap-2">
+            <span style="color: rgb(var(--c-golden))">{% voy_icon "trajectory" "w-4 h-4" %}</span>
+            <h2 class="text-sm font-semibold uppercase tracking-widest text-fg-muted">Linha do tempo · marcos-âncora</h2>
+          </div>
+          <label class="flex items-center gap-2 text-xs text-fg-muted cursor-pointer select-none">
+            <input type="checkbox" x-model="soAncoras" class="accent-[rgb(var(--c-golden))]">
+            só marcos-âncora
+          </label>
+        </div>
+        <div class="tl">
+          <template x-for="m in timelineVisivel()" :key="m.id">
+            <div class="tl-item" :class="{'is-anchor': m.ancora, 'flash': flashId === m.id}" :id="'mov-' + m.id">
+              <div class="tl-dot"></div>
+              <div class="tl-body">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="tl-date" x-text="dataCurta(m.data)"></span>
+                  <span class="tl-meio" x-text="m.meio"></span>
+                  <span class="text-xs font-medium" x-text="m.tipo"></span>
+                  <template x-for="(num, k) in m.marcadores" :key="k">
+                    <span class="anc-num" x-text="num" :title="m.sinais[k]"></span>
+                  </template>
+                </div>
+                <template x-if="m.ancora">
+                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                    <template x-for="s in m.sinais" :key="s">
+                      <span class="tl-sig">◈ <span x-text="s"></span></span>
+                    </template>
+                  </div>
+                </template>
+                <p class="tl-texto mt-1.5" @click="toggleMov(m.id)"
+                   x-text="expandido[m.id] ? m.texto : m.trecho + (m.texto.length > m.trecho.length ? ' … (clique para expandir)' : '')"></p>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      {# -- Rodapé técnico discreto -- #}
+      <p class="est-footer text-center">
+        análise 100% sobre dados públicos ·
+        <span x-text="r.resultado.total_movs"></span> movimentações analisadas ·
+        fonte: <span x-text="r.processo.tribunal"></span>
+        (<span x-text="(r.resultado.fontes || []).join(' + ') || 'DJEN'"></span>) ·
+        engine: <span x-text="r.resultado.engine"></span>
+      </p>
+    </div>
+  </template>
+</div>
+
+<script>
+function estagioApp() {
+  return {
+    cnjInput: '', cnjErro: '',
+    fase: 'idle',          // idle | carregando | buscando | ok | sem_dados | erro
+    r: null,
+    erroMsg: '',
+    buscaTribunal: '', buscaMsg: '', buscaMovs: 0,
+    _pollTimer: null, _pollInicio: 0, _pollCtx: null,
+    expandido: {}, soAncoras: false, flashId: null,
+
+    validarCnj(raw) {
+      const d = (raw || '').replace(/[\s.\-\/]/g, '');
+      if (!/^\d{20}$/.test(d)) return null;
+      return d.slice(0,7) + '-' + d.slice(7,9) + '.' + d.slice(9,13) + '.' +
+             d.slice(13,14) + '.' + d.slice(14,16) + '.' + d.slice(16,20);
+    },
+
+    analisar(rebusca) {
+      const cnj = this.validarCnj(this.cnjInput);
+      if (!cnj) {
+        this.cnjErro = 'CNJ inválido — são 20 dígitos no formato NNNNNNN-DD.AAAA.J.TR.OOOO.';
+        return;
+      }
+      this.cnjInput = cnj;
+      this.pararPoll();
+      this.fase = 'carregando'; this.r = null; this.expandido = {};
+      const url = '{% url "dashboard:ia-estagio-analisar" %}?cnj=' + encodeURIComponent(cnj) +
+                  (rebusca ? '&buscar=0' : '');
+      fetch(url, {credentials: 'same-origin'})
+        .then((resp) => resp.json().then((d) => ({http: resp.status, d})))
+        .then(({http, d}) => {
+          if (d.status === 'ok') { this.r = d; this.fase = 'ok'; return; }
+          if (d.status === 'buscando') { this.iniciarPoll(d); return; }
+          if (d.status === 'sem_dados') { this.fase = 'sem_dados'; return; }
+          this.erroMsg = d.erro || ('Falha inesperada (HTTP ' + http + ').');
+          this.fase = 'erro';
+        })
+        .catch(() => { this.erroMsg = 'Falha de rede — tente novamente.'; this.fase = 'erro'; });
+    },
+
+    iniciarPoll(ctx) {
+      this.fase = 'buscando';
+      this.buscaTribunal = ctx.tribunal; this.buscaMovs = 0;
+      this.buscaMsg = 'consultando DJEN (diário oficial) + Datajud (CNJ) em tempo real';
+      this._pollCtx = ctx; this._pollInicio = Date.now();
+      this._pollTimer = setInterval(() => this.poll(), 2500);
+    },
+    poll() {
+      const ctx = this._pollCtx;
+      const decorrido = (Date.now() - this._pollInicio) / 1000;
+      if (decorrido > 15) this.buscaMsg = 'tribunal respondendo — consolidando movimentações públicas';
+      if (decorrido > 45) this.buscaMsg = 'busca mais lenta que o normal — proxies rotacionando, aguarde';
+      fetch('{% url "dashboard:ia-estagio-status" %}?process_id=' + ctx.process_id +
+            '&jobs=' + ctx.jobs.join(','), {credentials: 'same-origin'})
+        .then((r) => r.json())
+        .then((d) => {
+          this.buscaMovs = d.movs || 0;
+          if (d.done || decorrido > 120) {
+            this.pararPoll();
+            this.analisar(true);   // re-análise sem re-disparar busca
+          }
+        })
+        .catch(() => {});
+    },
+    pararPoll() { if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; } },
+
+    // ---- helpers de render ----
+    seloTexto(res) {
+      if (res.classe === 'MORTO' && res.selo !== 'MORTO') return 'MORTO · ' + res.selo;
+      if (res.classe === 'PRE') return 'PRÉ-PRECATÓRIO';
+      return res.classe;
+    },
+    ancorasVerdict() {
+      return (this.r?.resultado?.ancoras || []).filter((a) => !['FLAG', 'BADGE'].includes(a.estagio));
+    },
+    timelineVisivel() {
+      const tl = this.r?.timeline || [];
+      return this.soAncoras ? tl.filter((m) => m.ancora) : tl;
+    },
+    toggleMov(id) { this.expandido[id] = !this.expandido[id]; },
+    irParaMov(id) {
+      if (!id) return;
+      this.soAncoras = false;
+      this.$nextTick(() => {
+        const el = document.getElementById('mov-' + id);
+        if (el) {
+          el.scrollIntoView({behavior: 'smooth', block: 'center'});
+          this.flashId = id;
+          setTimeout(() => { this.flashId = null; }, 1800);
+        }
+      });
+    },
+    dataCurta(iso) {
+      if (!iso) return 'cadastro';
+      return iso.slice(0, 10).split('-').reverse().join('/');
+    },
+    brl(v) {
+      try { return v.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}); }
+      catch (e) { return 'R$ ' + v; }
+    },
+  };
+}
+</script>
+
+{% endblock %}

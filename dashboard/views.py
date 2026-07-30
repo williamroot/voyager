@@ -2171,6 +2171,212 @@ def consulta_rapida_api(request):
                         json_dumps_params={'default': str, 'ensure_ascii': False, 'indent': 2})
 
 
+# ---------- IA LABS · Estágio do Crédito ----------
+
+# Caps do payload da timeline — protege a página de processos com milhares
+# de movs (o motor analisa TODAS server-side; só o payload é capado).
+_ESTAGIO_TIMELINE_MAX = 400
+_ESTAGIO_TRECHO_CHARS = 280
+_ESTAGIO_TEXTO_ANCORA = 3000
+_ESTAGIO_TEXTO_MOV = 1200
+
+
+@login_required
+@require_GET
+def ia_estagio(request):
+    """IA LABS — Estágio do Crédito: vitrine pra investidor. Digite um CNJ e
+    veja a classificação DC / PRÉ / EMITIDO / MORTO com ancoragem visual."""
+    return render(request, 'dashboard/ia_estagio.html')
+
+
+def _estagio_escolher_processo(cnj: str, sigla_hint: str | None):
+    """CNJ pode existir em >1 tribunal (raro). Prefere o tribunal inferido
+    do próprio CNJ; senão o com mais movimentações."""
+    procs = list(Process.objects.filter(numero_cnj=cnj)
+                 .only('id', 'tribunal_id', 'numero_cnj', 'classe_codigo',
+                       'classe_nome', 'orgao_julgador_nome', 'valor_causa',
+                       'data_autuacao', 'total_movimentacoes'))
+    if not procs:
+        return None
+    if sigla_hint:
+        for p in procs:
+            if p.tribunal_id == sigla_hint:
+                return p
+    return max(procs, key=lambda p: p.total_movimentacoes or 0)
+
+
+def _estagio_montar_timeline(proc, resultado: dict) -> list[dict]:
+    """Timeline vertical: todas as movs (capadas) com as âncoras destacadas
+    e conectadas ao veredito (numeração = ordem das âncoras no resultado)."""
+    # Numeração dos marcos = só âncoras de estágio (FLAG/BADGE destacam a mov,
+    # mas não ganham número — o número conecta veredito ↔ timeline).
+    ancoras = resultado.get('ancoras') or []
+    numeradas = [a for a in ancoras if a.get('estagio') not in ('FLAG', 'BADGE')]
+    ancoras_por_mov: dict[int, list[int]] = {}   # mov_id → números de marco
+    sinais_por_mov: dict[int, list[str]] = {}    # mov_id → labels (todas)
+    for i, a in enumerate(numeradas, start=1):
+        if a.get('mov_id'):
+            ancoras_por_mov.setdefault(a['mov_id'], []).append(i)
+    for a in ancoras:
+        if a.get('mov_id'):
+            sinais_por_mov.setdefault(a['mov_id'], []).append(a.get('label') or '')
+
+    rows = list(
+        Movimentacao.objects
+        .filter(processo_id=proc.pk, ativo=True)
+        .order_by('data_disponibilizacao')
+        .values('id', 'data_disponibilizacao', 'tipo_comunicacao', 'meio', 'texto')
+    )
+    if len(rows) > _ESTAGIO_TIMELINE_MAX:
+        # mantém TODAS as movs-âncora + as mais recentes até o cap
+        anc = [r for r in rows if r['id'] in sinais_por_mov]
+        resto = [r for r in rows if r['id'] not in sinais_por_mov]
+        resto = resto[-(_ESTAGIO_TIMELINE_MAX - len(anc)):]
+        rows = sorted(anc + resto, key=lambda r: r['data_disponibilizacao'])
+
+    import re as _re
+    timeline = []
+    for r in rows:
+        eh_ancora = r['id'] in sinais_por_mov
+        texto = _re.sub(r'\s+', ' ', r['texto'] or '').strip()
+        timeline.append({
+            'id': r['id'],
+            'data': r['data_disponibilizacao'].isoformat(),
+            'tipo': r['tipo_comunicacao'] or '',
+            'meio': 'Datajud' if r['meio'] == 'datajud' else 'DJEN',
+            'trecho': texto[:_ESTAGIO_TRECHO_CHARS],
+            'texto': texto[:_ESTAGIO_TEXTO_ANCORA if eh_ancora else _ESTAGIO_TEXTO_MOV],
+            'ancora': eh_ancora,
+            'marcadores': ancoras_por_mov.get(r['id'], []),
+            'sinais': sinais_por_mov.get(r['id'], []),
+        })
+    return timeline
+
+
+def _estagio_partes_beneficiarias(proc) -> list[dict]:
+    """Best-effort NULLABLE: partes do polo ativo (excluindo advogados)."""
+    pps = (ProcessoParte.objects
+           .filter(processo_id=proc.pk, polo=ProcessoParte.POLO_ATIVO,
+                   representa__isnull=True)
+           .exclude(parte__tipo=Parte.TIPO_ADV)
+           .select_related('parte')[:6])
+    return [{'nome': pp.parte.nome, 'papel': pp.papel or 'autor',
+             'documento': pp.parte.documento or ''} for pp in pps]
+
+
+@login_required
+@require_GET
+def ia_estagio_analisar(request):
+    """API JSON do Estágio do Crédito.
+
+    Fluxo:
+      1. processo na base com movs → roda o motor (settings.ESTAGIO_ENGINE);
+      2. não existe / sem movs → cria Process no tribunal inferido do CNJ e
+         dispara a busca on-demand (fila manual: DJEN + Datajud, prefer_cortex,
+         mesma máquina do botão "Sincronizar") → status='buscando' + polling;
+      3. `?buscar=0` nunca dispara busca (usado no re-check pós-polling).
+    """
+    from dashboard.services import estagio_rules
+
+    cnj = estagio_rules.normalizar_cnj(request.GET.get('cnj') or '')
+    if not cnj:
+        return JsonResponse({'status': 'erro',
+                             'erro': 'CNJ inválido — formato NNNNNNN-DD.AAAA.J.TR.OOOO.'},
+                            status=400)
+
+    sigla_hint = estagio_rules.tribunal_sigla_do_cnj(cnj)
+    proc = _estagio_escolher_processo(cnj, sigla_hint)
+
+    tem_movs = bool(proc) and Movimentacao.objects.filter(
+        processo_id=proc.pk).exists()
+
+    if proc and tem_movs:
+        resultado = estagio_rules.predict_estagio(proc)
+        return JsonResponse({
+            'status': 'ok',
+            'cnj': cnj,
+            'processo': {
+                'id': proc.pk,
+                'tribunal': proc.tribunal_id,
+                'classe': proc.classe_nome or '',
+                'orgao': proc.orgao_julgador_nome or '',
+                'valor_causa': str(proc.valor_causa) if proc.valor_causa else None,
+                'data_autuacao': proc.data_autuacao.isoformat() if proc.data_autuacao else None,
+            },
+            'resultado': resultado,
+            'timeline': _estagio_montar_timeline(proc, resultado),
+            'partes': _estagio_partes_beneficiarias(proc),
+        }, json_dumps_params={'ensure_ascii': False})
+
+    # --- não está na base (ou está sem movs) → busca on-demand no tribunal ---
+    if request.GET.get('buscar') == '0':
+        return JsonResponse({
+            'status': 'sem_dados', 'cnj': cnj,
+            'tribunal': sigla_hint or '?',
+            'mensagem': 'Nenhuma movimentação pública encontrada pra este CNJ '
+                        'no DJEN nem no Datajud.',
+        })
+
+    if not sigla_hint:
+        return JsonResponse({'status': 'erro',
+                             'erro': 'Não foi possível inferir o tribunal deste CNJ '
+                                     '(segmento de justiça fora de cobertura).'},
+                            status=400)
+    tribunal = Tribunal.objects.filter(sigla=sigla_hint).first()
+    if tribunal is None:
+        return JsonResponse({'status': 'erro',
+                             'erro': f'Tribunal {sigla_hint} fora da cobertura do Voyager.'},
+                            status=400)
+
+    if proc is None:
+        proc, _ = Process.objects.get_or_create(tribunal=tribunal, numero_cnj=cnj)
+
+    jobs = []
+    try:
+        from datajud.jobs import datajud_sincronizar_processo
+        j1 = sincronizar_movimentacoes.delay(proc.pk)
+        j2 = datajud_sincronizar_processo.delay(proc.pk)
+        jobs = [j1.id, j2.id]
+    except Exception as exc:  # Redis fora → informa em vez de 500
+        logger.exception('estagio: enqueue busca on-demand falhou p/ %s', cnj)
+        return JsonResponse({'status': 'erro',
+                             'erro': f'Falha ao disparar a busca no tribunal ({type(exc).__name__}). '
+                                     'Tente novamente em instantes.'}, status=503)
+
+    return JsonResponse({
+        'status': 'buscando',
+        'cnj': cnj,
+        'tribunal': sigla_hint,
+        'process_id': proc.pk,
+        'jobs': jobs,
+    })
+
+
+@login_required
+@require_GET
+def ia_estagio_status(request):
+    """Polling da busca on-demand: estado dos jobs RQ + movs já recebidas."""
+    import django_rq
+    process_id = request.GET.get('process_id')
+    job_ids = [j for j in (request.GET.get('jobs') or '').split(',') if j]
+    if not process_id or not process_id.isdigit():
+        return JsonResponse({'erro': 'process_id obrigatório'}, status=400)
+
+    q = django_rq.get_queue('manual')
+    estados = []
+    for jid in job_ids[:4]:
+        job = q.fetch_job(jid)
+        estados.append(job.get_status() if job is not None else 'gone')
+    pendente = any(s in ('queued', 'started', 'deferred', 'scheduled')
+                   for s in estados)
+    movs = Movimentacao.objects.filter(processo_id=int(process_id)).count()
+    return JsonResponse({
+        'done': not pendente,
+        'estados': estados,
+        'movs': movs,
+    })
+
+
 # ---------- Wizard de exportação ----------
 
 import csv

@@ -43,6 +43,10 @@ urlpatterns = [
     path('api/', views.api_docs, name='api-docs'),
     # IA LABS — Centro de Inteligência Voyager (landing hub das ferramentas de IA)
     path('ia/', views.ia_hub, name='ia-hub'),
+    # Estágio do Crédito — vitrine investidor (CNJ → DC/PRÉ/EMITIDO/MORTO ancorado)
+    path('ia/estagio/', views.ia_estagio, name='ia-estagio'),
+    path('ia/estagio/analisar/', views.ia_estagio_analisar, name='ia-estagio-analisar'),
+    path('ia/estagio/status/', views.ia_estagio_status, name='ia-estagio-status'),
     path('modelos/extrator/', views.modelo_extrator, name='modelo-extrator'),
     path('modelos/extrator/vitrine/', views.modelo_extrator_vitrine, name='modelo-extrator-vitrine'),
     path('modelos/extrator/kappa/', views.kappa_amostra, name='kappa-amostra'),

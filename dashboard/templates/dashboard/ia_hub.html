@@ -124,6 +124,12 @@
 
 {# ---- Grid de ferramentas ---- #}
 <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-8">
+  <a href="{% url 'dashboard:ia-estagio' %}" class="ia-card">
+    <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
+    {% voy_icon "gem" "w-5 h-5 ico-golden" %}
+    <h3>Estágio do Crédito ⚡</h3>
+    <p>Digite um CNJ e veja o estágio (DC · Pré · Emitido · Morto) ancorado nas movimentações públicas — busca no tribunal em tempo real.</p>
+  </a>
   <a href="{% url 'dashboard:treinos-dashboard' %}" class="ia-card">
     <span class="arrow">{% voy_icon "arrow" "w-4 h-4" %}</span>
     {% voy_icon "flask" "w-5 h-5 ico-golden" %}
