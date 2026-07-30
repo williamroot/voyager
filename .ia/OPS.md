@@ -24,7 +24,7 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 | `voyager-workers-2` | `192.168.30.104` | nova | **DESTRUÍDA 2026-07-17** (`qmdestroy` no gravserver — liberação de RAM; host oversubscrito). Era o 2º host de workers RQ. Recriar = decisão pendente. | — |
 | `voyager-workers-aux` | `192.168.1.24` | antiga (pve antigo) | **Desativado** (offline desde ~2026-06-09) — era worker auxiliar na subnet antiga via Tailscale. | `docker-compose-workers.yml` |
 
-**Fleet de app são 2 hosts** (desde 2026-07-17): `voyager` (.103, web) + `voyager-workers` (.102). A `.104` foi destruída em 2026-07-17. Workers conectam DB/Redis via **LAN**. O drainer do stream **só roda no `voyager`** (.103). Na `.102`, `worker_ingestion` roda com 16 réplicas via `--scale` (2026-07-29, compensando a .104 — **não persistido** no compose; `up -d` sem a flag volta pra 8).
+**Fleet de app são 2 hosts** (desde 2026-07-17): `voyager` (.103, web) + `voyager-workers` (.102). A `.104` foi destruída em 2026-07-17. Workers conectam DB/Redis via **LAN**. O drainer do stream **só roda no `voyager`** (.103). Na `.102`, `worker_ingestion` roda com **24 réplicas** via `--scale` (2026-07-29, compensando a .104 — **não persistido** no compose; `up -d` sem a flag volta pra 8). Validado 75min sob carga: ~310 runs/h, 0 aberturas de circuit-breaker, ~1,3% de 500 da DJEN, 26GB RAM livres.
 
 `voyager-workers-2` (.104) entrou em 2026-06 pra somar capacidade na subnet nova, no lugar do `voyager-workers-aux` — a VM antiga (VMID 100, pve antigo, subnet `192.168.1.x`) que somava workers via Tailscale (`DATABASE_URL=postgres://...@100.68.5.114:6432/voyager`, `REDIS_URL=redis://100.98.86.54:6379/0`) e está offline desde ~2026-06-09.
 
