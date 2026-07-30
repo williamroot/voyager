@@ -262,7 +262,10 @@ def ciclo():
                          "eta", "tarefa_atual", "last_ok_at", "status")})
             run["total"] = run.get("total") or spec["total_default"]
             run["status"] = prev.get("status") or "running"
-            run["stale"] = True
+            # run já concluído com a fonte fora do ar é esperado (o processo
+            # terminou e o log parou) — não é stale, só terminou. Stale só vale
+            # pra run *rodando* que perdeu o feed ao vivo.
+            run["stale"] = run["status"] != "done"
         else:
             step = dado.get("step")
             if step is None:  # barra não estava no tail — carrega o último visto
