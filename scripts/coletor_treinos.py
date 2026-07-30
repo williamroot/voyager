@@ -67,7 +67,12 @@ def coleta_v21():
     if not ok:
         return None
     step, total, s_it, loss, epoch = _parse_bar(out.replace("\r", "\n"), 3045)
-    return {"step": step, "total": total or 3045, "s_per_step": s_it, "loss": loss,
+    total = total or 3045
+    # a época é sempre confiável; a barra do tqdm às vezes fica fora do tail.
+    # deriva o step da época (2 épocas → total steps) e usa o maior dos dois.
+    if epoch:
+        step = max(step or 0, round(epoch / 2.0 * total))
+    return {"step": step, "total": total, "s_per_step": s_it, "loss": loss,
             "epoch": epoch, "done_hint": "train_runtime" in out or "100%|" in out}
 
 
@@ -79,7 +84,10 @@ def coleta_ab():
     if not ok:
         return None
     step, total, s_it, loss, epoch = _parse_bar(out.replace("\r", "\n"), 3045)
-    return {"step": step, "total": total or 3045, "s_per_step": s_it, "loss": loss,
+    total = total or 3045
+    if epoch:
+        step = max(step or 0, round(epoch / 2.0 * total))
+    return {"step": step, "total": total, "s_per_step": s_it, "loss": loss,
             "epoch": epoch, "done_hint": "train_runtime" in out or "100%|" in out}
 
 
