@@ -157,6 +157,42 @@ def warm_charts_pesados():
     _with_lock('lock:warm_charts_pesados', 14700, _run)
 
 
+@job('warm', timeout=6000)
+def warm_enriquecimento():
+    """Pré-aquece a /dashboard/ingestao/enriquecimento/ no filtro default (sem
+    tribunal): KPIs + série temporal + heatmap × períodos do picker (30/90/180).
+
+    Process aggregates (throughput por dia/tribunal + backlog por status) são
+    pesados → warm job, mesmo padrão de warm_charts_pesados/warm_leads_charts.
+    A view/endpoint leem só o cache no caminho default; filtro por tribunal
+    computa on-demand (bounded).
+    """
+    from .views import _ENRIQ_PERIODOS, _enriq_matriz_cache_key, _enriq_kpis_cache_key
+
+    def _run():
+        # KPIs completos (com backlog full-table) — default sem tribunal.
+        try:
+            _with_timeout(1200, lambda: cache.set(
+                _enriq_kpis_cache_key(''),
+                queries.enriquecimento_kpis(tribunais=None), timeout=_WARM_TTL))
+        except Exception as e:
+            logger.warning('warm_enriquecimento kpis: %s', e)
+            _reset_connection()
+        # Matriz tribunal×dia×desfecho por período (o GROUP BY pesado). Os charts
+        # e o filtro por tribunal são derivados dela em Python, no request.
+        for dias in _ENRIQ_PERIODOS:
+            try:
+                def _go(d=dias):
+                    cache.set(_enriq_matriz_cache_key(d),
+                              queries.enriquecimento_matriz(dias=d, tribunais=None),
+                              timeout=_WARM_TTL)
+                _with_timeout(1200, _go)
+            except Exception as e:
+                logger.warning('warm_enriquecimento matriz d=%s: %s', dias, e)
+                _reset_connection()
+    _with_lock('lock:warm_enriquecimento', 6300, _run)
+
+
 # Períodos do period-picker da /dashboard/leads/ (7d/30d/90d/1ano).
 _LEADS_PERIODOS = [7, 30, 90, 365]
 

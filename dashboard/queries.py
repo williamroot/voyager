@@ -1508,6 +1508,141 @@ def ingestao_kpis(tribunal=None):
 
 
 # ===========================================================================
+# Enriquecimento — throughput por dia/tribunal (página /ingestao/enriquecimento/)
+#
+# Fonte: Process.enriquecido_em (timestamp do ÚLTIMO enriquecimento resolvido) +
+# Process.enriquecimento_status (desfecho atual: ok | nao_encontrado | erro).
+# O drainer carimba enriquecido_em nos TRÊS desfechos (enrichers/drainer.py), então
+# DATE(enriquecido_em) agrupado por status = quantos processos resolvemos por dia e
+# com que desfecho. Ressalva: reprocessamento sobrescreve (é o último, não um log de
+# eventos) — é a melhor proxy disponível sem uma tabela EnrichmentRun por-run.
+# ===========================================================================
+
+
+def enriquecimento_matriz(dias=30, tribunais=None):
+    """Matriz fina (tribunal × dia × desfecho) — o primitivo cacheado pelo warm.
+
+    Retorna [{tribunal_id(sigla), dia, status, total}]. É UM GROUP BY pesado
+    (roda só no warm-job), mas o resultado é pequeno (~n_trib × n_dias × 3 ≈ 8k
+    linhas p/ 180d). Os dois charts são DERIVADOS dele em Python (derivar_temporal
+    / derivar_grid), então o request nunca toca a tabela Process — inclusive o
+    filtro por tribunal é só um slice da matriz cacheada.
+    """
+    from django.db.models.functions import TruncDate
+
+    qs = Process.objects.filter(enriquecido_em__isnull=False)
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
+    else:
+        qs = qs.filter(tribunal__ativo=True)
+    if dias:
+        qs = qs.filter(enriquecido_em__gte=timezone.now() - timedelta(days=dias))
+    rows = (qs.annotate(dia=TruncDate('enriquecido_em'))
+              .values('tribunal_id', 'dia', 'enriquecimento_status')
+              .annotate(total=Count('id'))
+              .order_by('dia'))
+    return [{'tribunal_id': r['tribunal_id'], 'dia': r['dia'].isoformat(),
+             'status': r['enriquecimento_status'], 'total': r['total']}
+            for r in rows if r['dia']]
+
+
+def derivar_temporal(matriz, tribunal=None):
+    """Deriva a série temporal (dia × desfecho) da matriz cacheada. Puro Python."""
+    from collections import defaultdict
+    acc = defaultdict(int)
+    for r in matriz:
+        if tribunal and r['tribunal_id'] != tribunal:
+            continue
+        acc[(r['dia'], r['status'])] += r['total']
+    return [{'dia': dia, 'status': status, 'total': total}
+            for (dia, status), total in sorted(acc.items())]
+
+
+def derivar_grid(matriz, tribunal=None):
+    """Deriva o heatmap (tribunal × dia: sucesso/total/taxa/cor) da matriz. Puro Python.
+
+    Cor: verde ≥80%, amarelo ≥50%, vermelho <50%, cinza sem dado.
+    """
+    from collections import defaultdict
+    agg = defaultdict(lambda: {'sucesso': 0, 'total': 0})
+    for r in matriz:
+        if tribunal and r['tribunal_id'] != tribunal:
+            continue
+        cell = agg[(r['tribunal_id'], r['dia'])]
+        cell['total'] += r['total']
+        if r['status'] == Process.ENRIQ_OK:
+            cell['sucesso'] += r['total']
+    out = []
+    for (trib, dia), c in sorted(agg.items()):
+        total = c['total']
+        ok = c['sucesso']
+        taxa = (ok / total) if total else 0.0
+        cor = 'cinza' if not total else 'verde' if taxa >= 0.8 else 'amarelo' if taxa >= 0.5 else 'vermelho'
+        out.append({'tribunal_id': trib, 'dia': dia, 'sucesso': ok, 'total': total,
+                    'taxa': round(taxa * 100, 1), 'cor': cor})
+    return out
+
+
+def enriquecimento_kpis(tribunais=None, leve=False):
+    """KPIs pra página de enriquecimento (throughput + backlog + freshness).
+
+    `leve=True` pula o agregado de backlog (Count por status na tabela inteira),
+    que é o único pedaço caro — usado no caminho síncrono (filtro por tribunal no
+    request). O warm-job usa leve=False pra ter os KPIs completos no default.
+    """
+    from django.db.models import Max
+
+    qs = Process.objects.all()
+    if tribunais:
+        qs = qs.filter(tribunal_id__in=tribunais)
+
+    agora = timezone.now()
+    # início do dia local como range (>=) — evita o cast ::date que mata o índice
+    # em enriquecido_em (um __date=hoje fazia seq scan de dezenas de M → ~105s).
+    inicio_hoje = timezone.localtime(agora).replace(hour=0, minute=0, second=0, microsecond=0)
+    h24 = agora - timedelta(hours=24)
+
+    # Backlog / estado atual (por status) — Count na tabela inteira: o único pedaço
+    # caro. No caminho leve (request filtrado) pula; só o warm-job computa.
+    estado = None if leve else qs.aggregate(
+        total=Count('id'),
+        enriquecidos=Count('id', filter=Q(enriquecimento_status=Process.ENRIQ_OK)),
+        pendentes=Count('id', filter=Q(enriquecimento_status=Process.ENRIQ_PENDENTE)),
+        com_erro=Count('id', filter=Q(enriquecimento_status=Process.ENRIQ_ERRO)),
+    )
+
+    # Throughput 24h (resolvidos por desfecho, via enriquecido_em).
+    win = qs.filter(enriquecido_em__gte=h24).aggregate(
+        resolvidos=Count('id'),
+        ok=Count('id', filter=Q(enriquecimento_status=Process.ENRIQ_OK)),
+    )
+    ok24 = win['ok']
+    res24 = win['resolvidos']
+
+    sucesso_hoje = qs.filter(enriquecido_em__gte=inicio_hoje,
+                             enriquecimento_status=Process.ENRIQ_OK).count()
+    ultimo = qs.filter(enriquecido_em__isnull=False).aggregate(m=Max('enriquecido_em'))['m']
+    lag_h = round((agora - ultimo).total_seconds() / 3600, 1) if ultimo else None
+
+    kpis = {
+        'sucesso_hoje': sucesso_hoje,
+        'sucesso_24h': ok24,
+        'resolvidos_24h': res24,
+        'taxa_sucesso_24h': round(ok24 / res24 * 100, 1) if res24 else None,
+        'lag_h': lag_h,
+    }
+    if estado is not None:
+        total = estado['total']
+        kpis.update({
+            'pendentes': estado['pendentes'],
+            'com_erro': estado['com_erro'],
+            'enriquecidos_total': estado['enriquecidos'],
+            'cobertura_pct': round(estado['enriquecidos'] / total * 100, 1) if total else None,
+        })
+    return kpis
+
+
+# ===========================================================================
 # Shadow mode (T19) — estado pra widget do dashboard de visibilidade
 # ===========================================================================
 

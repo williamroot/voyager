@@ -311,6 +311,44 @@ def chart_data(request, key):
     return JsonResponse({'data': data}, json_dumps_params={'default': str})
 
 
+# --- Charts de enriquecimento (mesmo padrão warm-job das demais dashboards) ---
+# O warm-job cacheia UMA matriz agregada (tribunal × dia × desfecho) por período —
+# GROUP BY pesado que NUNCA roda no request. Os dois charts (e o filtro por tribunal)
+# são derivados dessa matriz em Python: o request não toca a tabela Process.
+_ENRIQ_PERIODOS = [30, 90, 180]
+_ENRIQ_DERIVADORES = {
+    'temporal': queries.derivar_temporal,
+    'grid': queries.derivar_grid,
+}
+
+
+def _enriq_matriz_cache_key(dias) -> str:
+    return f'enriq-matriz:d={dias if dias is not None else "all"}'
+
+
+def _enriq_kpis_cache_key(trib_str) -> str:
+    return f'enriq:kpis:t={trib_str}'
+
+
+@login_required
+@require_GET
+def enriquecimento_chart(request, key):
+    derivar = _ENRIQ_DERIVADORES.get(key)
+    if not derivar:
+        raise Http404(f'chart de enriquecimento "{key}" não existe')
+    dias = _periodo_dias(request, default=30)
+    tribunais = _split_csv(request.GET.get('tribunal'))
+    sigla = request.GET.get('sigla') or None
+    trib = sigla or (tribunais[0] if tribunais else None)
+
+    matriz = _safe_cache_get(_enriq_matriz_cache_key(dias))
+    if matriz is None:
+        # cache frio (warm cron ainda não rodou) → pending, frontend faz retry.
+        return JsonResponse({'data': [], 'pending': True}, json_dumps_params={'default': str})
+    data = derivar(matriz, tribunal=trib)  # slice/agrega em Python, zero DB
+    return JsonResponse({'data': data}, json_dumps_params={'default': str})
+
+
 @login_required
 @require_GET
 def workers(request):
@@ -1451,6 +1489,34 @@ def ingestao_saude(request):
         'tribunais': Tribunal.objects.filter(ativo=True).order_by('sigla'),
         'kpis': queries.pipeline_kpis(
             tribunais=[tribunal_filtro] if tribunal_filtro else None),
+    })
+
+
+@login_required
+@require_GET
+def enriquecimento_saude(request):
+    """Quantos processos enriquecemos por dia, com sucesso, por tribunal."""
+    periodo_dias = _periodo_dias(request, default=30)
+    tribunal_filtro = request.GET.get('tribunal', '')
+    if tribunal_filtro:
+        # 1 tribunal: só throughput (leve=True pula o backlog full-table), cache curto.
+        ck = _enriq_kpis_cache_key(tribunal_filtro)
+        kpis = _safe_cache_get(ck)
+        if kpis is None:
+            kpis = queries.enriquecimento_kpis(tribunais=[tribunal_filtro], leve=True)
+            try:
+                cache.set(ck, kpis, timeout=600)
+            except Exception:
+                pass
+    else:
+        # default: KPIs pré-aquecidos por warm_enriquecimento (Process aggregate pesado).
+        kpis = _safe_cache_get(_enriq_kpis_cache_key('')) or {}
+    return render(request, 'dashboard/enriquecimento_saude.html', {
+        'periodo_dias': periodo_dias,
+        'tribunal_filtro': tribunal_filtro,
+        'tribunais': Tribunal.objects.filter(ativo=True).order_by('sigla'),
+        'kpis': kpis,
+        'kpis_pending': (not tribunal_filtro and not kpis),
     })
 
 

@@ -1,0 +1,105 @@
+{% extends 'dashboard/base.html' %}
+{% load static voyager_extras %}
+{% block title %}Enriquecimento por tribunal{% endblock %}
+{% block content %}
+
+{# ── Cabeçalho + filtros ─────────────────────────────────────────────────── #}
+<div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
+  <div>
+    <h1 class="text-3xl font-semibold tracking-tight">Enriquecimento por tribunal</h1>
+    <div class="text-sm text-fg-subtle mt-1">Quantos processos enriquecemos por dia, com sucesso · por tribunal</div>
+  </div>
+  <div class="flex flex-col items-end gap-2">
+    <div class="flex gap-1 items-center text-xs bg-card/60 border border-border rounded-xl p-1">
+      <a href="?{% query_string request dias=30 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 30  %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">30d</a>
+      <a href="?{% query_string request dias=90 %}"  class="px-3 py-1.5 rounded-lg {% if periodo_dias == 90  %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">90d</a>
+      <a href="?{% query_string request dias=180 %}" class="px-3 py-1.5 rounded-lg {% if periodo_dias == 180 %}bg-muted text-accent-fg{% else %}text-fg-muted hover:text-fg{% endif %}">180d</a>
+    </div>
+    <div class="flex flex-wrap gap-1 items-center text-xs">
+      <span class="text-fg-subtle mr-1">Tribunal:</span>
+      <a href="?{% query_string request tribunal='' %}" class="chip {% if not tribunal_filtro %}active{% endif %}">Todos</a>
+      {% for t in tribunais %}
+        <a href="?{% query_string request tribunal=t.sigla %}" class="chip {% if tribunal_filtro == t.sigla %}active{% endif %}">{{ t.sigla }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{# ── KPIs ─────────────────────────────────────────────────────────────────── #}
+<div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-2">
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Sucesso hoje</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num text-accent-fg">{{ kpis.sucesso_hoje|default:"0" }}</div>
+    <div class="text-xs text-fg-subtle mt-1">processos enriquecidos ok</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Sucesso 24h</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ kpis.sucesso_24h|default:"0" }}</div>
+    <div class="text-xs text-fg-subtle mt-1">de {{ kpis.resolvidos_24h|default:"0" }} resolvidos</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Taxa sucesso 24h</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num {% if kpis.taxa_sucesso_24h is not None and kpis.taxa_sucesso_24h < 60 %}text-warning{% else %}text-accent-fg{% endif %}">{{ kpis.taxa_sucesso_24h|default:"—" }}{% if kpis.taxa_sucesso_24h is not None %}%{% endif %}</div>
+    <div class="text-xs text-fg-subtle mt-1">ok / resolvidos</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Backlog pendente</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ kpis.pendentes|default:"0" }}</div>
+    <div class="text-xs text-fg-subtle mt-1">aguardando enriquecer</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Com erro</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num {% if kpis.com_erro %}text-danger{% endif %}">{{ kpis.com_erro|default:"0" }}</div>
+    <div class="text-xs text-fg-subtle mt-1">falha (pode retentar)</div>
+  </div>
+  <div class="card-tight">
+    <div class="text-fg-subtle text-xs uppercase tracking-wider">Cobertura</div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ kpis.cobertura_pct|default:"—" }}{% if kpis.cobertura_pct is not None %}%{% endif %}</div>
+    <div class="text-xs text-fg-subtle mt-1">enriquecidos / total</div>
+  </div>
+</div>
+
+<div class="mb-5 flex items-center gap-3">
+  <a href="{% url 'dashboard:ingestao-saude' %}" class="inline-flex items-center gap-1.5 text-xs text-accent-fg hover:underline">
+    {% voy_icon "uplink" "w-3.5 h-3.5" %}
+    Saúde do pipeline
+  </a>
+  <span class="text-fg-subtle text-xs">· contagem por <code>enriquecido_em</code> (último enriquecimento resolvido) e desfecho atual{% if kpis.lag_h is not None %} · último há {{ kpis.lag_h }}h{% endif %}</span>
+</div>
+
+{# ── Chart 1: throughput diário empilhado por desfecho ───────────────────── #}
+<div class="card mb-4">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Processos enriquecidos por dia</div>
+      <div class="text-xs text-fg-subtle">empilhado por desfecho · sucesso / não encontrado / erro</div>
+    </div>
+    <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">throughput</span>
+  </div>
+  <div class="h-64 chart-cell">
+    <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+    <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-enriquecimento' 'temporal' %}?dias={{ periodo_dias|default:'30' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}', d => buildEnriqTemporal(d))" class="absolute inset-0"></div>
+  </div>
+</div>
+
+{# ── Chart 2: heatmap tribunal × dia (cor = taxa de sucesso) ─────────────── #}
+<div class="card mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Mapa de sucesso por tribunal · dia</div>
+      <div class="text-xs text-fg-subtle">
+        <span class="inline-flex items-center gap-1 mr-3"><span class="w-2 h-2 rounded-sm inline-block" style="background:#10b981"></span> verde — ≥80% sucesso</span>
+        <span class="inline-flex items-center gap-1 mr-3"><span class="w-2 h-2 rounded-sm inline-block" style="background:#f59e0b"></span> amarelo — 50–80%</span>
+        <span class="inline-flex items-center gap-1 mr-3"><span class="w-2 h-2 rounded-sm inline-block" style="background:#f43f5e"></span> vermelho — &lt;50%</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm inline-block opacity-30" style="background:#3f3f46"></span> cinza — sem atividade</span>
+      </div>
+    </div>
+    <span class="text-[0.65rem] font-mono text-fg-subtle uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50">sucesso</span>
+  </div>
+  <div class="h-80 chart-cell">
+    <div class="chart-skeleton"><div class="pulsar-mark">acquiring signal</div></div>
+    <div data-echart='{}' x-init="lazyChart($el, '{% url 'dashboard:api-enriquecimento' 'grid' %}?dias={{ periodo_dias|default:'30' }}{% if tribunal_filtro %}&tribunal={{ tribunal_filtro }}{% endif %}', d => buildEnriqHeatmap(d))" class="absolute inset-0"></div>
+  </div>
+</div>
+
+{% endblock %}
