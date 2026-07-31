@@ -116,6 +116,14 @@ Formato: cada entrada = o que aconteceu + (quando for regresso) a **lição**.
   provado: Qwen2.5+v21 (91,76) quase alcançou Qwen3+v21 (93,36).**
 - 🔴 **Herdeiros continua quebrado nos DOIS** (v2.1 óbito 8,9/habilit 34,5; Qwen3
   20,6/54) — mas mede contra gold ruim; o relabel DeepSeek v2.2 é a cura.
+- 🛠️ **Relabel herdeiros v2.2 (DeepSeek, 1.189 docs, 3 erros)**: docs com herdeiro
+  **25%→49%** (585), **363 RECUPERADOS** (eram vazios, agora têm herdeiro com suporte no
+  texto). Amostra κ = 9/10 recuperados corretos (1 borda: cedente marcada herdeiro).
+  Papéis: herdeiro 1627, sucessor 444, inventariante 331, falecido 290, cônjuge 213.
+  Gold + `train_mix_v22`/`test_mix_v22` no NAS (`data/herd_gold_v22.jsonl`). O TEST
+  também foi corrigido → gate v2.2 re-avalia v2.1 no test novo p/ comparação JUSTA de
+  herdeiros. Treino v2.2 no pod 4090 (não na 3090 — reservada). GGUF do v2.1 (campeão)
+  empacotando em paralelo. **Regra reforçada: rótulo primeiro, modelo depois.**
 
 ---
 
