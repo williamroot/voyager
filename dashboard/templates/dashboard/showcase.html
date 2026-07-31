@@ -284,6 +284,8 @@
 .page-showcase .sc-honesto{margin-top:.7rem;border:1px solid rgba(34,197,94,.32);background:rgba(34,197,94,.08);border-radius:.55rem;padding:.55rem .7rem;display:flex;gap:.5rem;align-items:flex-start;font-size:.76rem;color:var(--fg);line-height:1.4;cursor:help}
 .page-showcase .sc-honesto-ic{color:#22c55e;font-weight:700;flex:none}
 .page-showcase .sc-honesto b{color:#22c55e}
+.page-showcase .sc-info{margin-top:.55rem;border:1px solid rgba(59,130,246,.28);background:rgba(59,130,246,.07);border-radius:.55rem;padding:.5rem .7rem;display:flex;flex-direction:column;gap:.2rem}
+.page-showcase .sc-info>div{font-size:.72rem;color:#93b4f5;line-height:1.35}
 .page-showcase .sc-vals{display:flex;gap:1.1rem;margin-top:.45rem;flex-wrap:wrap}
 .page-showcase .sc-val{font-size:.72rem}
 .page-showcase .sc-val b{display:block;font-size:.85rem;color:var(--fg)}
@@ -409,6 +411,8 @@ function showcase(){
         rs.forEach(g=>{ if(g && (g.valor!=null||g.vara_comarca||g.natureza||g.data||g.nome)) registros.push({...g, _doc:d.classe||d.nome}); }); });
       let natureza=null, ente=null;
       registros.forEach(g=>{ natureza=natureza||g.natureza; ente=ente||g.ente_devedor||g.ente; });
+      // ente devedor = a parte EXECUTADO (Fazenda/Estado/Município), se houver
+      if(!ente){ const ex=partes.find(p=>(p.papel||'').toUpperCase()==='EXECUTADO'); if(ex) ente=ex.nome; }
       // "vazio de verdade" SÓ se não há nada: nem parte, nem doc, nem sinal, nem contexto, nem aviso
       if(!partes.length && !docs.length && !registros.length && !temCtx && !avisos.length)
         return `<div class="sc-err">Nenhuma ficha extraída deste PDF.</div>`;
@@ -441,13 +445,21 @@ function showcase(){
       // avisos: separa ABSTENÇÃO (honestidade — o modelo não inventou) de problema real.
       // Abster-se num doc sem o dado é FEATURE (vs. mecânica que chuta), não erro → enquadrar positivo.
       if(avisos.length){
-        const abst = avisos.filter(a=>/abst[eéê]|absteve/i.test(a));
-        const probs = avisos.filter(a=>!/abst[eéê]|absteve/i.test(a));
+        const isAbst = a=>/abst[eéê]|absteve/i.test(a);
+        const isInfo = a=>/detectad|regra |capa e-?saj|CAPA_ESAJ|ente devedor|EXECUTADO|proveni/i.test(a);
+        const abst = avisos.filter(isAbst);
+        const info = avisos.filter(a=>!isAbst(a) && isInfo(a));
+        const probs = avisos.filter(a=>!isAbst(a) && !isInfo(a));
         if(abst.length){
           h+=`<div class="sc-honesto" title="${this.esc(abst.slice(0,15).join('  •  '))}">
             <span class="sc-honesto-ic">✓</span>
             <span>O modelo <b>absteve-se em ${abst.length} documento${abst.length>1?'s':''}</b> sem dado estruturável — preferiu <b>não responder a inventar</b>. <span style="opacity:.72">Zero alucinação; passe o mouse pra ver quais.</span></span>
           </div>`;
+        }
+        if(info.length){  // proveniência da camada mecânica (capa/ente) — INFO, não alerta
+          h+=`<div class="sc-info">`;
+          info.forEach(a=>h+=`<div>◈ ${this.esc(a)}</div>`);
+          h+=`</div>`;
         }
         if(probs.length){
           h+=`<div class="sc-avisos">`;
