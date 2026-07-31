@@ -81,13 +81,13 @@
       <div class="sc-drop" :class="{'sc-drop-over': dragover, 'sc-drop-has': !!file}"
            @dragover.prevent="dragover=true" @dragleave.prevent="dragover=false"
            @drop.prevent="onDrop($event)" @click="$refs.fileInput.click()">
-        <input type="file" x-ref="fileInput" accept="application/pdf,.pdf" class="hidden"
+        <input type="file" x-ref="fileInput" accept="application/pdf,.pdf,.zip,application/zip,application/x-zip-compressed" class="hidden"
                @change="onFile($event.target.files[0])">
         <template x-if="!file">
           <div class="text-center">
             {% voy_icon "uplink" "w-8 h-8 mx-auto text-fg-subtle mb-2" %}
-            <div class="text-sm font-medium text-fg-soft">Arraste o PDF ou clique</div>
-            <div class="text-xs text-fg-subtle mt-1">autos, ofício, habilitação… (inclui OCR de scan)</div>
+            <div class="text-sm font-medium text-fg-soft">Arraste o PDF ou o ZIP dos autos, ou clique</div>
+            <div class="text-xs text-fg-subtle mt-1">PDF único, autos combinados, ou ZIP do TJSP (vários PDFs) · inclui OCR de scan</div>
           </div>
         </template>
         <template x-if="file">
@@ -330,7 +330,7 @@ function showcase(){
     fmtSize(b){ return b>1e6 ? (b/1e6).toFixed(1)+' MB' : Math.round(b/1024)+' KB' },
     tempo(r){ return r.elapsed_ms>=1000 ? (r.elapsed_ms/1000).toFixed(1)+'s' : r.elapsed_ms+'ms' },
     onDrop(e){ this.dragover=false; const f=e.dataTransfer.files[0]; if(f) this.onFile(f) },
-    onFile(f){ if(!f) return; if(f.type && f.type.indexOf('pdf')<0 && !f.name.toLowerCase().endsWith('.pdf')){alert('Envie um PDF');return} this.file=f; this.results={} },
+    onFile(f){ if(!f) return; const n=f.name.toLowerCase(); const ok = n.endsWith('.pdf')||n.endsWith('.zip')||(f.type&&(f.type.indexOf('pdf')>=0||f.type.indexOf('zip')>=0)); if(!ok){alert('Envie um PDF ou um ZIP dos autos (TJSP)');return} this.file=f; this.results={} },
     clearFile(){ this.file=null; this.results={} },
     _startSteps(){
       this.steps=[
