@@ -65,6 +65,34 @@ Formato: cada entrada = o que aconteceu + (quando for regresso) a **lição**.
   sessões, régua = respostas humanas E6): `.ia/ANALISTA.md` §A3.
 - 🖥️ **IA LABS + Sala de Controle no ar** (acompanhamento dos treinos/pods).
 
+## 31/07 — v2.1 fechado + incidente enriquecimento + diagnóstico herdeiros
+
+- ✅ **v2.1 (Qwen2.5-7B) treino OK**: train 0,0056 / eval 0,007 (5× melhor que v1),
+  2 épocas, 11,4h. Sobreviveu a **3 OOMs** — causa sempre a mesma: **ollama servindo
+  na MESMA 3090 que treina**. Cura: supervisor auto-resume + travar ollama.
+  **Lição: não treine onde serve; treinos novos nascem em pod.**
+- ☁️ **Gate v2.1 migrado 3090→pod 4090** (pra liberar a 3090): mover treino EM CURSO
+  não vale (overhead > trabalho restante); mover **gate/próximo treino** vale.
+- 🚨 **Incidente: enriquecimento parado 7 dias** — consumer group Redis
+  `enrichment-drainer` sumiu; drainers em loop `NOGROUP` sem recriar → 1,6M jobs
+  represados, ~1M resultados trimados (perda). Fix runtime + **drainer auto-cura**
+  (commit fcc0850, deployado). **Lição: consumer de stream tem que recriar o grupo no
+  NOGROUP, não só no boot.** Memória: `incidente-drainer-nogroup`.
+- 🔬 **Diagnóstico herdeiros (o aprendizado do ciclo)**: F1 ~20% NÃO é OCR nem falta
+  de docs. **73-76% do gold de herdeiros está VAZIO** (`herdeiros:[]`) mesmo com texto
+  real (~4k chars). Causa: (a) doc-classificador super-inclui capa/certidão como
+  HABILITACAO_HERDEIROS; (b) **gold estrito (dupla-concordância) abstém** na decisão
+  difícil "quais nomes, no meio de advogado/tabelião/falecido, são herdeiros" → zera a
+  lista. O modelo **aprendeu a não emitir herdeiros** (73% dos exemplos ensinam vazio)
+  e a métrica mede só a minoria. **Lição: antes de "mais dado", medir a QUALIDADE do
+  rótulo — dado ruim em volume piora.**
+- 🎯 **Plano v2.2 herdeiros**: (1) **re-rotular com professor** (Ollama Cloud, prompt
+  cirúrgico "só herdeiros, excluir advogado/inventariante/tabelião/falecido") — rotular
+  offline é onde o modelo grande ajuda (≠ inferência, onde o Qwen3 não resolveu); (2)
+  apertar a fonte; (3) rebalancear (upsample não-vazios); (4) métrica honesta (F1 nos
+  não-vazios + acerto de abstenção separados). Professor por **mini bake-off específico
+  de herdeiros** (≠ bake-off do Analista, que é parecer) — por dado, não por fama.
+
 ---
 
 ## Mortos com autópsia (pré-ciclo — não repetir o caminho)
