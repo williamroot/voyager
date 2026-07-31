@@ -92,6 +92,19 @@ Formato: cada entrada = o que aconteceu + (quando for regresso) a **lição**.
   apertar a fonte; (3) rebalancear (upsample não-vazios); (4) métrica honesta (F1 nos
   não-vazios + acerto de abstenção separados). Professor por **mini bake-off específico
   de herdeiros** (≠ bake-off do Analista, que é parecer) — por dado, não por fama.
+- 🧪 **Mini bake-off herdeiros (4 professores Ollama Cloud, 27 docs)**: F1 vs gold —
+  **deepseek-v4-pro 43,9%** > glm-5.2 37,8% > gpt-oss:120b 36,8% > kimi-k3 0%
+  (quebrou, 27 erros de formato). 0 leak de falecido em todos. Vencedor = **DeepSeek**
+  (não foi o GLM). **MAS** o F1 de 44% é enganoso — ver spot-check abaixo.
+- 💡 **Spot-check reverteu a leitura (o achado do ciclo)**: nas 12 discordâncias
+  DeepSeek×gold, o **GOLD é que está ERRADO** — rotulava o **inventariante como
+  herdeiro** (≥4 casos: "sua inventariante Gertudes" virou herdeira) e **perdia
+  herdeiros reais** (achou "Diego Luiz" que o gold omitiu). O DeepSeek exclui o
+  inventariante e acha os que faltavam → está **mais certo que a régua**. **Lição: F1
+  contra gold ruim mede o gold, não o modelo — só o olho humano no resíduo desambigua.**
+  Ressalva: "excluir inventariante" é agressivo demais (viúva costuma ser inventariante
+  E herdeira) → v2.2 extrai **partes COM PAPEL** ({nome, papeis:[herdeiro|inventariante|
+  conjuge|sucessor]}), não lista pura, e o merge decide.
 
 ---
 
