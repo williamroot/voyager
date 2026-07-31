@@ -10,8 +10,9 @@
 |---|---|---|---|---|
 | extrator-precatorio | **v1** | 🟡 empacotado (gate PASS, não deployado) | GGUF Q4_K_M `01cd53ff…ebf2` | llmsv2 `/mnt/nas-data/voyager-train/out/` |
 | extrator-precatorio | **v2 "Ficha da Parte"** | 🟡 gate PARCIAL — empacotado (amostra κ: ver card v2) | GGUF Q4 `59db32db…1de3` · adapter `5206de77…b333` | llmsv2 `out/precatorio-extrator-v2-q4_k_m.gguf` + `Modelfile.v2` |
-| extrator-precatorio | **v2.1** | 🔵 treinando (ETA qui) | `adapter_v21` (em treino) | llmsv2 `/mnt/nas-data/voyager-train/` |
-| extrator-precatorio | **A/B Qwen3-8B** | 🔵 treinando (ETA amanhã 12h) | `adapter_ab_qwen3_v21` | pod 4090 ($0,31/h) |
+| extrator-precatorio | **v2.1** | 🟡 **gate PASS macro 91,76 — empacotado (CAMPEÃO)** | GGUF Q4_K_M `0012607b1634e7b8f96c8f6a9d7bad21` · `adapter_v21` | llmsv2 `out/extrator-v21-Q4_K_M.gguf` (4,68GB) |
+| extrator-precatorio | **v2.2 (herdeiros)** | 🔵 treinando (gold re-rotulado DeepSeek; test corrigido) | `adapter_v22` (em treino) | pod 4090 |
+| extrator-precatorio | **A/B Qwen3-8B** | 🔴 **gate não passou** (+1,6 macro <2; regride DOC_PESSOAL) → fica no Qwen2.5-7B | `adapter_ab_qwen3_v21` | pod 4090 |
 | extrator-precatorio | **especialistas** | 🔵 treinando (7 adapters sequenciais) | `adapter_esp_*` | pod 3090 ($0,186/h) |
 | extrator-precatorio | **DAPT** | 🔵 treinando (~76,5h) | adapter DAPT r=64 all-linear | pod 3090 ($0,19/h) |
 | classificador-leads | v7 | 🟢 ativa | — | ver `.ia/CLASSIFICACAO.md` |
