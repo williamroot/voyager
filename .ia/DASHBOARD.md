@@ -417,6 +417,34 @@ Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyag
   `warm_vetorizacao_fleet` do Voyager cacheia o payload inteiro — o bloco
   `extracao` flui sem mudança em `tasks.py`.
 
+## Showcase do Extrator — exportar a análise (MD/PDF/JSON)
+
+A tela `/dashboard/ia/showcase/` extrai a ficha on-device (proxy pro pod em
+`showcase_proxy.py`). O **export** do resultado vive em `dashboard/showcase_export.py`
+— o front POSTa o **próprio payload** que já tem em mãos e recebe o arquivo:
+
+| URL | name | Corpo | Resposta |
+|---|---|---|---|
+| `POST /dashboard/api/showcase/export/json` | `dashboard:showcase-export-json` | JSON da análise | `application/json` pretty, attachment |
+| `POST /dashboard/api/showcase/export/md` | `dashboard:showcase-export-md` | idem | `text/markdown`, attachment |
+| `POST /dashboard/api/showcase/export/pdf` | `dashboard:showcase-export-pdf` | idem | `application/pdf`, attachment |
+
+- `@csrf_exempt @login_required @require_POST` (mesmo padrão do `showcase_extrair`);
+  o front manda `X-CSRFToken` mesmo assim (harmless).
+- **Sem consulta externa** — o export é 100% derivado do payload; o rodapé reafirma
+  "gerado on-device pelo modelo `<versao>`".
+- **Forward-compatible**: inclui `estagio` (estágio + linha do tempo + próximos passos)
+  e `fichas[].valor_a_receber.status` **se presentes**; nunca quebra se ausentes.
+- Nome do arquivo: `analise-<arquivo-sanitizado>-<YYYYMMDD-HHMM>.<ext>`.
+- **Lógica de render é PURA** (`render_md(payload)->str`, `render_html(payload)->str`,
+  `render_pdf(payload)->bytes`), separada do request — testada em `tests/test_showcase_export.py`.
+- **PDF via WeasyPrint** (HTML→PDF, dark premium: cards de resumo, tabela de partes
+  com pill de status colorido por estado, timeline com pontos, chips de docs). Exige
+  `weasyprint` (requirements.txt) + libs nativas no `Dockerfile`
+  (`libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libgdk-pixbuf-2.0-0 libcairo2
+  libffi8 fonts-dejavu-core`). Se a lib faltar, o endpoint responde **501** (não 500).
+  → mudar isto é **rebuild web** (não hot-deploy: mexeu em requirements + Dockerfile).
+
 ## Atalhos de teclado
 
 Globais (em `base.html`): `g h` → home, `g p` → processos, `g m` → movimentações, `g i` → ingestão, `/` → busca, `t` → toggle tema, `?` → modal de ajuda. Listener com flag `pendingG`.
