@@ -125,6 +125,14 @@ Formato: cada entrada = o que aconteceu + (quando for regresso) a **lição**.
   herdeiros. Treino v2.2 no pod 4090 (não na 3090 — reservada). GGUF do v2.1 (campeão)
   empacotando em paralelo. **Regra reforçada: rótulo primeiro, modelo depois.**
 
+- 🧭 **META-LIÇÃO do ciclo (repetiu 3×): a métrica barata mente — valide contra
+  ground-truth antes de agir.** (1) bit-index: amostra pequena de recall mentiu → gate
+  no corpus todo pegou (BLOCK). (2) herdeiros: F1 contra gold mentiu (gold rotulava
+  inventariante como herdeiro) → spot-check humano no resíduo pegou. (3) vetorização:
+  SET `vetorizados` defasado dizia "trabalho esgotado, 96/h" → medir docs-persistidos
+  (3.312/h) evitou matar frota produtiva. **Regra: contadores Redis/amostras pequenas =
+  dica, NUNCA gatilho de decisão irreversível. O gatilho é a verdade-de-campo.**
+
 ---
 
 ## Mortos com autópsia (pré-ciclo — não repetir o caminho)
