@@ -47,8 +47,14 @@ def _modelos() -> dict:
 def showcase(request):
     """Página nativa do Voyager (chrome: topo+sidebar) da tela de showcase."""
     modelos = _modelos()
+    # cards explicativos: specs técnicas por versão + a cor/disponibilidade da versão
+    info = {}
+    for ver, spec in (getattr(settings, "SHOWCASE_MODELO_INFO", {}) or {}).items():
+        info[ver] = {**spec, "cor": modelos.get(ver, {}).get("cor", "#3b82f6"),
+                     "disponivel": modelos.get(ver, {}).get("disponivel", False)}
     return render(request, "dashboard/showcase.html", {
         "modelos": modelos,
+        "info": info,
         "tem_modelo": any(m["disponivel"] for m in modelos.values()),
     })
 

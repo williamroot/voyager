@@ -356,6 +356,52 @@ try:
 except Exception:
     SHOWCASE_MODELOS = _SHOWCASE_DEFAULT
 
+# Cards explicativos (specs técnicas) dos modelos no showcase — editável aqui.
+# VELOCIDADE não é hardcode: cada card mostra o tempo REAL do run assim que uma
+# extração roda naquela versão. Base comum: Qwen2.5-7B-Instruct, QLoRA 4-bit,
+# servido em GGUF Q4_K_M ~4,68GB (~6GB VRAM).
+SHOWCASE_MODELO_INFO = {
+    "v1": {
+        "nome": "Geração 1", "criado": "28/07/2026",
+        "base": "Qwen2.5-7B-Instruct",
+        "treino": "QLoRA · 1 época · ~10,4h (RTX 3090)",
+        "vram": "~6 GB", "servido": "GGUF Q4_K_M · 4,68 GB",
+        "gate": "TEST macro 87,9 (+9,9 vs base)",
+        "novidade": "1ª geração — esquema one-shot (extração única). Esquema antigo.",
+        "status": "geracao1",
+    },
+    "v2": {
+        "nome": "Ficha da Parte", "criado": "28-29/07/2026",
+        "base": "Qwen2.5-7B-Instruct",
+        "treino": "QLoRA r32/α32 · 2 épocas · ~13,3h",
+        "vram": "~6 GB", "servido": "GGUF Q4_K_M · 4,68 GB",
+        "gate": "train loss 0,028 · core forte (ofício/decisão ~100)",
+        "novidade": "Esquema por-DOCUMENTO: ficha por parte com papel + valores. "
+                    "Partes/herdeiros/cessão ainda fracos.",
+        "status": "padrao",
+    },
+    "v21": {
+        "nome": "Campeão atual", "criado": "30-31/07/2026",
+        "base": "Qwen2.5-7B-Instruct",
+        "treino": "QLoRA r32/α32 · 2 épocas · ~11,4h",
+        "vram": "~6 GB", "servido": "GGUF Q4_K_M · 4,68 GB",
+        "gate": "MACRO 91,76",
+        "novidade": "Janelamento de docs longos — acórdão/sentença/cessão/partes "
+                    "saltaram de 16-80% para 97-100%.",
+        "status": "campeao",
+    },
+    "v22": {
+        "nome": "Herdeiros", "criado": "31/07/2026",
+        "base": "Qwen2.5-7B-Instruct",
+        "treino": "QLoRA r32/α32 · 2 épocas · ~11h",
+        "vram": "~6 GB", "servido": "GGUF Q4_K_M · 4,68 GB",
+        "gate": "pendente (treinando)",
+        "novidade": "Gold de herdeiros re-rotulado com professor (DeepSeek): docs com "
+                    "herdeiro 25%→49%; papéis herdeiro/inventariante/cônjuge/sucessor.",
+        "status": "treino",
+    },
+}
+
 # QuickPod — API de crédito/pods da frota GPU cloud (Command Center · card CUSTO).
 # Consultada só pelo scheduler (warm_command_center), cacheada em Redis; nunca
 # batida no request do browser. Sobrescreva a chave via .env em prod.

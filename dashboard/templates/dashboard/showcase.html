@@ -4,6 +4,7 @@
 
 {% block content %}
 {{ modelos|json_script:"showcase-modelos" }}
+{{ info|json_script:"showcase-info" }}
 
 <div class="page-showcase" x-data="showcase()" x-init="init()">
 
@@ -34,6 +35,43 @@
     entram em <code>settings.SHOWCASE_MODELOS</code>. A tela já está pronta; assim que o pod subir, funciona.
   </div>
   {% endif %}
+
+  {# ═══════════════ CARDS DOS MODELOS (specs técnicas) ═══════════════ #}
+  <div class="sc-models-sec" x-show="Object.keys(info).length">
+    <button class="sc-models-toggle" @click="showCards=!showCards">
+      {% voy_icon "flask" "w-4 h-4" %}
+      <span>Os modelos por trás disto</span>
+      <span class="text-[0.65rem] text-fg-subtle font-normal" x-text="showCards ? 'ocultar' : 'ver specs'"></span>
+      <svg class="w-3.5 h-3.5 ml-auto transition-transform" :class="{'rotate-90': showCards}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+    </button>
+    <div class="sc-cards" x-show="showCards" x-cloak>
+      <template x-for="(m, ver) in info" :key="ver">
+        <div class="sc-card" :style="`--vc:${m.cor}`">
+          <div class="sc-card-bar"></div>
+          <div class="sc-card-head">
+            <div>
+              <div class="sc-card-ver" x-text="ver.toUpperCase()"></div>
+              <div class="sc-card-nome" x-text="m.nome"></div>
+            </div>
+            <span class="sc-card-badge" :class="`sc-st-${m.status}`" x-text="badgeLabel(m.status)"></span>
+          </div>
+          <p class="sc-card-nov" x-text="m.novidade"></p>
+          <dl class="sc-card-specs">
+            <div><dt>Criado</dt><dd x-text="m.criado"></dd></div>
+            <div><dt>Base</dt><dd x-text="m.base"></dd></div>
+            <div><dt>Treino</dt><dd x-text="m.treino"></dd></div>
+            <div><dt>VRAM</dt><dd x-text="m.vram"></dd></div>
+            <div><dt>Servido</dt><dd x-text="m.servido"></dd></div>
+            <div><dt>Gate / qualidade</dt><dd class="sc-card-gate" x-text="m.gate"></dd></div>
+            <div><dt>Velocidade</dt><dd>
+              <span x-show="results[ver] && !results[ver].erro" class="sc-card-speed" x-text="results[ver] ? tempo(results[ver]) + ' neste PDF' : ''"></span>
+              <span x-show="!(results[ver] && !results[ver].erro)" class="sc-na">medida ao vivo</span>
+            </dd></div>
+          </dl>
+        </div>
+      </template>
+    </div>
+  </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mt-5 items-start">
 
@@ -200,6 +238,32 @@
 .page-showcase .sc-step-idle{width:8px;height:8px;border-radius:50%;background:var(--border)}
 .page-showcase .sc-progress{height:4px;background:var(--muted);border-radius:2px;overflow:hidden}
 .page-showcase .sc-progress-bar{height:100%;background:linear-gradient(90deg,#3b82f6,#22c55e);transition:width .4s}
+/* cards de modelos */
+.page-showcase .sc-models-sec{margin-top:1.1rem}
+.page-showcase .sc-models-toggle{display:flex;align-items:center;gap:.5rem;width:100%;font-size:.85rem;font-weight:600;
+  color:var(--fg-soft);padding:.55rem .8rem;border:1px solid var(--border);border-radius:.7rem;background:var(--card)}
+.page-showcase .sc-models-toggle:hover{border-color:var(--accent-fg)}
+.page-showcase .sc-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin-top:.7rem}
+.page-showcase .sc-card{position:relative;background:var(--card);border:1px solid var(--border);border-radius:.85rem;
+  padding:.9rem .95rem .95rem;overflow:hidden;transition:.15s}
+.page-showcase .sc-card:hover{border-color:var(--vc);box-shadow:0 4px 20px -8px var(--vc)}
+.page-showcase .sc-card-bar{position:absolute;top:0;left:0;right:0;height:3px;background:var(--vc)}
+.page-showcase .sc-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;margin-bottom:.5rem;margin-top:.2rem}
+.page-showcase .sc-card-ver{font-size:.62rem;font-weight:700;letter-spacing:.08em;color:var(--vc)}
+.page-showcase .sc-card-nome{font-size:1rem;font-weight:600;color:var(--fg);line-height:1.1}
+.page-showcase .sc-card-badge{font-size:.58rem;font-weight:700;padding:.2rem .5rem;border-radius:999px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+.page-showcase .sc-st-campeao{background:linear-gradient(90deg,rgba(245,196,81,.2),rgba(34,197,94,.2));color:#f5c451;border:1px solid rgba(245,196,81,.4)}
+.page-showcase .sc-st-treino{background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.4);animation:sc-pulse 2s infinite}
+.page-showcase .sc-st-geracao1{background:var(--muted);color:var(--fg-subtle)}
+.page-showcase .sc-st-padrao{background:rgba(59,130,246,.14);color:#60a5fa}
+@keyframes sc-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.page-showcase .sc-card-nov{font-size:.72rem;color:var(--fg-muted);line-height:1.35;margin-bottom:.6rem;min-height:2.6em}
+.page-showcase .sc-card-specs{display:flex;flex-direction:column;gap:.32rem;font-size:.72rem;border-top:1px solid var(--border);padding-top:.55rem}
+.page-showcase .sc-card-specs>div{display:flex;justify-content:space-between;gap:.6rem}
+.page-showcase .sc-card-specs dt{color:var(--fg-subtle);flex:none}
+.page-showcase .sc-card-specs dd{color:var(--fg);font-weight:500;text-align:right}
+.page-showcase .sc-card-gate{color:#22c55e!important;font-weight:700!important}
+.page-showcase .sc-card-speed{color:var(--accent-fg);font-weight:700}
 /* ficha */
 .page-showcase .sc-ficha{background:var(--card);border:1px solid var(--border);border-radius:.9rem;padding:1.1rem;margin-bottom:1rem}
 .page-showcase .sc-fhead{display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;
@@ -237,15 +301,17 @@
 <script>
 function showcase(){
   return {
-    modelos:{}, single:null, selected:{}, modo:'single',
+    modelos:{}, info:{}, showCards:true, single:null, selected:{}, modo:'single',
     file:null, dragover:false, running:false, results:{}, progress:0, steps:[], _timer:null,
     init(){
       this.modelos = JSON.parse(document.getElementById('showcase-modelos').textContent||'{}');
+      this.info = JSON.parse(document.getElementById('showcase-info').textContent||'{}');
       // primeira versão disponível vira o default do single
       const av = Object.keys(this.modelos).filter(v=>this.modelos[v].disponivel);
       this.single = av[0] || Object.keys(this.modelos)[0] || null;
       av.forEach(v=>this.selected[v]=true);
     },
+    badgeLabel(s){ return {campeao:'★ campeão', treino:'em treino', geracao1:'geração 1', padrao:'estável'}[s]||s },
     get selectedVers(){ return Object.keys(this.modelos).filter(v=>this.selected[v] && this.modelos[v].disponivel) },
     isSel(v){ return !!this.selected[v] },
     toggle(v){ if(!this.modelos[v].disponivel) return; this.selected[v]=!this.selected[v] },
