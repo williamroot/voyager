@@ -277,6 +277,8 @@
 .page-showcase .sc-nome{font-weight:600;font-size:.86rem;color:var(--fg)}
 .page-showcase .sc-papel{font-size:.6rem;font-weight:700;padding:.12rem .45rem;border-radius:.35rem;text-transform:uppercase}
 .page-showcase .sc-conf{font-size:.6rem;color:var(--fg-subtle)}
+.page-showcase .sc-docs{display:flex;flex-wrap:wrap;gap:.35rem}
+.page-showcase .sc-docchip{font-size:.62rem;font-weight:600;padding:.2rem .5rem;border-radius:.4rem;background:var(--muted);color:var(--fg-muted);border:1px solid var(--border);white-space:nowrap}
 .page-showcase .sc-vals{display:flex;gap:1.1rem;margin-top:.45rem;flex-wrap:wrap}
 .page-showcase .sc-val{font-size:.72rem}
 .page-showcase .sc-val b{display:block;font-size:.85rem;color:var(--fg)}
@@ -366,75 +368,116 @@ function showcase(){
       ADVOGADO:'#64748b',EXECUTADO:'#ef4444',FALECIDO:'#6b7280'}; return m[(p||'').toUpperCase()]||'#3b82f6' },
     confBadge(c){ const m={alta:'#22c55e',media:'#f59e0b',baixa:'#ef4444'}; const k=(c||'').toLowerCase();
       return m[k]? `<span class="sc-conf" style="color:${m[k]}">● confiança ${this.esc(c)}</span>`:'' },
-    // fichas pode ser lista de partes OU objeto; normaliza pra um bloco render
+    // helpers de valor (contrato real)
+    _num(v){ if(v==null||v==='') return null; if(typeof v==='number') return v;
+      const n=Number(String(v).replace(/[^\d.,-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.')); return isNaN(n)?null:n },
+    _valorReceber(p){ // valor_a_receber={valor,...} OU valores_a_receber=[{valor},...]
+      if(p.valor_a_receber && p.valor_a_receber.valor!=null) return this._num(p.valor_a_receber.valor);
+      if(Array.isArray(p.valores_a_receber) && p.valores_a_receber.length){
+        let s=0,any=false; p.valores_a_receber.forEach(x=>{const n=this._num(x&&x.valor); if(n!=null){s+=n;any=true}});
+        return any?s:null;
+      }
+      return null;
+    },
+    _recebido(p){ // recebido = LISTA de pagamentos
+      const r=p.recebido; if(!Array.isArray(r)||!r.length) return {tem:false,txt:''};
+      let s=0,any=false; r.forEach(x=>{const n=this._num(x&&(x.valor!=null?x.valor:x)); if(n!=null){s+=n;any=true}});
+      if(any) return {tem:true, txt: this.money(s)+(r.length>1?` <span style="opacity:.6">(${r.length}×)</span>`:'')};
+      return {tem:true, txt: `${r.length} pagamento${r.length>1?'s':''}`};
+    },
+    // renderiza a resposta REAL do pod: {fichas(=partes), docs, tempos, contexto, avisos}
     renderFicha(r, compact){
       if(!r) return '';
       if(r.erro) return `<div class="sc-err">⚠ ${this.esc(r.erro)}${r.indisponivel?' — pod não configurado':''}</div>`;
       const fichas = Array.isArray(r.fichas)? r.fichas : (r.fichas? [r.fichas] : []);
-      if(!fichas.length) return `<div class="sc-err">Nenhuma ficha extraída deste PDF.</div>`;
-      // agrega partes de todas as fichas; metadados do processo pegam do 1º que tiver
-      let partes=[], herdeiros=[], falecido=null, natureza=null, valor=null, ente=null, cessao=null, eventos=[];
-      fichas.forEach(f=>{
-        if(Array.isArray(f.partes)) partes=partes.concat(f.partes);
-        else if(f.nome||f.papel) partes.push(f); // ficha por-parte
-        if(Array.isArray(f.herdeiros)) herdeiros=herdeiros.concat(f.herdeiros);
-        falecido=falecido||f.falecido; natureza=natureza||f.natureza; valor=valor||f.valor;
-        ente=ente||f.ente_devedor||f.ente; cessao=cessao||f.cessao;
-        if(Array.isArray(f.eventos)) eventos=eventos.concat(f.eventos);
-      });
+      const docs = Array.isArray(r.docs)? r.docs : [];
+      const ctx = r.contexto || {}; const tempos = r.tempos || {};
+      const partes = fichas.filter(f=>f && (f.nome||f.papel||f.valor_a_receber||f.valores_a_receber||f.recebido||f.saldo!=null));
+      if(!partes.length && !docs.length) return `<div class="sc-err">Nenhuma ficha extraída deste PDF.</div>`;
+      // valor do processo = soma dos valor_a_receber das partes (DERIVADO)
+      let valorProc=0, temValor=false;
+      partes.forEach(p=>{ const v=this._valorReceber(p); if(v!=null){valorProc+=v; temValor=true} });
+      // natureza/ente: só se vier na extração crua por-doc (docs[].registros); senão "—" honesto
+      let natureza=null, ente=null;
+      docs.forEach(d=>{ const g=d.registros||{}; natureza=natureza||g.natureza; ente=ente||g.ente_devedor||g.ente; });
+      // OCR
+      const ocrDocs = docs.filter(d=>d.paginas_ocr>0 || d.precisa_ocr);
+      const totOcr = ocrDocs.reduce((s,d)=>s+(d.paginas_ocr||0),0);
+
       let h=`<div class="sc-ficha">`;
-      h+=`<div class="sc-fhead"><div class="text-sm font-semibold text-fg">Ficha extraída</div>`;
-      if(!compact) h+=`<div class="flex items-center gap-3">
-        <span class="sc-fmeta">⏱ ${this.tempo(r)}</span>
-        <span class="sc-chip" style="background:rgba(34,197,94,.12);color:#22c55e">só o modelo</span></div>`;
-      h+=`</div>`;
-      // metadados do processo
+      // cabeçalho
+      h+=`<div class="sc-fhead"><div class="flex items-center gap-2 flex-wrap">
+        <span class="text-sm font-semibold text-fg">Ficha extraída</span>`;
+      if(ocrDocs.length) h+=`<span class="sc-chip" style="background:rgba(245,158,11,.14);color:#f59e0b" title="parte do texto veio de scan lido por OCR">📄 lido via OCR${totOcr?` (${totOcr} pág${totOcr>1?'s':''})`:''}</span>`;
+      h+=`</div><div class="flex items-center gap-2">
+        <span class="sc-fmeta">⏱ ${this.tempo(r)}${tempos.total_s!=null?` · modelo ${(+tempos.total_s).toFixed(1)}s`:''}</span>
+        <span class="sc-chip" style="background:rgba(34,197,94,.12);color:#22c55e">só o modelo</span></div></div>`;
+      // docs lidos (classe + confiança)
+      if(docs.length){
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Documentos lidos (${docs.length})</div><div class="sc-docs">`;
+        docs.forEach(d=>{
+          const conf=d.classe_conf!=null?` <span style="opacity:.55">${Math.round(d.classe_conf*100)}%</span>`:'';
+          const ocr=(d.paginas_ocr>0||d.precisa_ocr)?' 📄':'';
+          h+=`<span class="sc-docchip" title="${this.esc(d.nome||'')}">${this.esc(d.classe||d.nome||'?')}${conf}${ocr}</span>`;
+        });
+        h+=`</div></div>`;
+      }
+      // crédito
       h+=`<div class="sc-sec"><div class="sc-sec-t">Crédito</div><dl class="sc-kv">
+        <dt>Valor do processo</dt><dd>${temValor? this.money(valorProc) : '<span class="sc-na">—</span>'}</dd>
         <dt>Natureza</dt><dd>${this.na(natureza)}</dd>
-        <dt>Valor</dt><dd>${this.money(valor)}</dd>
         <dt>Ente devedor</dt><dd>${this.na(ente)}</dd></dl></div>`;
       // partes
       if(partes.length){
         h+=`<div class="sc-sec"><div class="sc-sec-t">Partes (${partes.length})</div>`;
         partes.forEach(p=>{
-          const nome=p.nome||p.beneficiario||p.falecido; const cor=this.papelCor(p.papel);
+          const cor=this.papelCor(p.papel); const esp=p.espolio||p.espolio_de;
           h+=`<div class="sc-parte"><div class="sc-parte-top">
-            <span class="sc-nome">${this.na(nome)}</span>
+            <span class="sc-nome">${this.na(p.nome)}</span>
             ${p.papel?`<span class="sc-papel" style="background:${cor}22;color:${cor}">${this.esc(p.papel)}</span>`:''}
             ${p.papel_conflito?`<span class="sc-papel" style="background:#ef444422;color:#ef4444">papel em conflito</span>`:''}
-            ${this.confBadge(p.papel_confianca)}
+            ${this.confBadge(p.confianca)}
             ${p.cpf_cnpj?`<span class="sc-conf">· ${this.esc(p.cpf_cnpj)}</span>`:''}
+            ${p.abstido?`<span class="sc-conf" style="color:#f59e0b">· o modelo absteve</span>`:''}
           </div>`;
-          if(p.valor!=null||p.recebido!=null||p.saldo!=null){
+          if(esp) h+=`<div class="sc-conf" style="margin-top:.15rem">espólio de ${this.esc(esp===true?'—':esp)}</div>`;
+          const vr=this._valorReceber(p); const rec=this._recebido(p);
+          const abstVal = p.valor_a_receber && p.valor_a_receber.abstido;
+          if(vr!=null || rec.tem || p.saldo!=null || abstVal){
             h+=`<div class="sc-vals">
-              <div class="sc-val"><span>a receber</span><b>${this.money(p.valor)}</b></div>
-              <div class="sc-val"><span>já recebido</span><b>${this.money(p.recebido)}</b></div>
-              <div class="sc-val"><span>saldo</span><b>${this.money(p.saldo)}</b></div></div>`;
+              <div class="sc-val"><span>a receber</span><b>${vr!=null? this.money(vr) : (abstVal? '<span class="sc-na" title="'+this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'sem evidência')+'">modelo absteve</span>':'<span class="sc-na">—</span>')}</b></div>
+              <div class="sc-val"><span>já recebido</span><b>${rec.tem? rec.txt : '<span class="sc-na">—</span>'}</b></div>
+              <div class="sc-val"><span>saldo</span><b>${p.saldo!=null? this.money(p.saldo) : `<span class="sc-na" title="${this.esc(p.saldo_motivo||'sem registro de pagamento')}">—</span>`}</b></div></div>`;
           }
           h+=`</div>`;
         });
         h+=`</div>`;
       }
-      // herdeiros / falecido
-      if(falecido||herdeiros.length){
-        h+=`<div class="sc-sec"><div class="sc-sec-t">Sucessão</div><dl class="sc-kv">
-          <dt>Falecido</dt><dd>${this.na(falecido&&(falecido.nome||falecido))}</dd>
-          <dt>Herdeiros</dt><dd>${herdeiros.length? herdeiros.map(x=>this.esc(x.nome||x)).join(', ') : '<span class="sc-na">nenhum</span>'}</dd>
-        </dl></div>`;
+      // jurimetria (contexto do processo)
+      const varas=ctx.varas||[], datas=ctx.datas_chave||[], desf=ctx.desfecho_por_grau||{},
+            decisoes=ctx.decisoes||[], acordaos=ctx.acordaos||[], flags=ctx.flags||[];
+      if(varas.length||datas.length||Object.keys(desf).length||decisoes.length||acordaos.length){
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Jurimetria (contexto do processo)</div>`;
+        if(varas.length||Object.keys(desf).length){
+          h+=`<dl class="sc-kv">`;
+          varas.forEach(v=>h+=`<dt>Vara / comarca</dt><dd>${this.esc(v.vara_comarca||v)}${v.primeira_data?` <span style="opacity:.55">(${this.esc(v.primeira_data)})</span>`:''}</dd>`);
+          Object.entries(desf).forEach(([g,d])=>h+=`<dt>Desfecho ${this.esc(g)}</dt><dd>${this.esc(d)}</dd>`);
+          h+=`</dl>`;
+        }
+        if(datas.length){
+          h+=`<div class="sc-timeline" style="margin-top:.5rem">`;
+          datas.forEach(e=>h+=`<div class="sc-ev"><div>${this.esc(e.tipo||'')}</div><div class="sc-ev-d">${this.esc(e.data||'')}${e.doc_classe?` · ${this.esc(e.doc_classe)}`:''}</div></div>`);
+          h+=`</div>`;
+        }
+        if(decisoes.length||acordaos.length) h+=`<div class="sc-conf" style="margin-top:.4rem">${decisoes.length} decisão(ões) · ${acordaos.length} acórdão(s)</div>`;
+        h+=`</div>`;
       }
-      // cessão
-      if(cessao&&(cessao.cedente||cessao.cessionario)){
-        h+=`<div class="sc-sec"><div class="sc-sec-t">Cessão de crédito</div><dl class="sc-kv">
-          <dt>Cedente</dt><dd>${this.na(cessao.cedente)}</dd>
-          <dt>Cessionário</dt><dd>${this.na(cessao.cessionario)}</dd>
-          <dt>Percentual/valor</dt><dd>${this.na(cessao.percentual||cessao.percentual_ou_valor)}</dd></dl></div>`;
-      }
-      // eventos
-      if(eventos.length){
-        h+=`<div class="sc-sec"><div class="sc-sec-t">Eventos</div><div class="sc-timeline">`;
-        eventos.forEach(e=>{ h+=`<div class="sc-ev"><div>${this.esc(e.tipo||e.evento||'')}${e.parte?` — ${this.esc(e.parte)}`:''}</div>
-          <div class="sc-ev-d">${this.esc(e.data||'')}${e.doc?` · ${this.esc(e.doc)}`:''}</div></div>` });
-        h+=`</div></div>`;
+      // avisos do modelo
+      const avisos = r.avisos || flags;
+      if(Array.isArray(avisos) && avisos.length){
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Avisos</div>`;
+        avisos.forEach(a=>h+=`<div class="sc-conf" style="color:#f59e0b">⚠ ${this.esc(a)}</div>`);
+        h+=`</div>`;
       }
       h+=`</div>`;
       return h;
