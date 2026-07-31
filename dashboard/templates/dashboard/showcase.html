@@ -279,6 +279,8 @@
 .page-showcase .sc-conf{font-size:.6rem;color:var(--fg-subtle)}
 .page-showcase .sc-docs{display:flex;flex-wrap:wrap;gap:.35rem}
 .page-showcase .sc-docchip{font-size:.62rem;font-weight:600;padding:.2rem .5rem;border-radius:.4rem;background:var(--muted);color:var(--fg-muted);border:1px solid var(--border);white-space:nowrap}
+.page-showcase .sc-avisos{margin-top:.7rem;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.07);border-radius:.55rem;padding:.55rem .7rem;display:flex;flex-direction:column;gap:.25rem}
+.page-showcase .sc-avisos>div{font-size:.74rem;color:#f59e0b;line-height:1.35}
 .page-showcase .sc-vals{display:flex;gap:1.1rem;margin-top:.45rem;flex-wrap:wrap}
 .page-showcase .sc-val{font-size:.72rem}
 .page-showcase .sc-val b{display:block;font-size:.85rem;color:var(--fg)}
@@ -393,21 +395,30 @@ function showcase(){
       const docs = Array.isArray(r.docs)? r.docs : [];
       const ctx = r.contexto || {}; const tempos = r.tempos || {};
       const partes = fichas.filter(f=>f && (f.nome||f.papel||f.valor_a_receber||f.valores_a_receber||f.recebido||f.saldo!=null));
-      if(!partes.length && !docs.length) return `<div class="sc-err">Nenhuma ficha extraída deste PDF.</div>`;
+      const avisos = Array.isArray(r.avisos)? r.avisos : (Array.isArray(ctx.flags)? ctx.flags : []);
+      const varas=ctx.varas||[], datas=ctx.datas_chave||[], desf=ctx.desfecho_por_grau||{},
+            decisoes=ctx.decisoes||[], acordaos=ctx.acordaos||[];
+      const temCtx = varas.length||datas.length||Object.keys(desf).length||decisoes.length||acordaos.length;
+      // registros CRUS por-doc (docs[].registros é LISTA) — sinais que o modelo achou
+      // mesmo sem consolidar uma ficha (ex.: valor+vara sem beneficiário atribuído)
+      const registros=[];
+      docs.forEach(d=>{ const rs=Array.isArray(d.registros)? d.registros : (d.registros? [d.registros] : []);
+        rs.forEach(g=>{ if(g && (g.valor!=null||g.vara_comarca||g.natureza||g.data||g.nome)) registros.push({...g, _doc:d.classe||d.nome}); }); });
+      let natureza=null, ente=null;
+      registros.forEach(g=>{ natureza=natureza||g.natureza; ente=ente||g.ente_devedor||g.ente; });
+      // "vazio de verdade" SÓ se não há nada: nem parte, nem doc, nem sinal, nem contexto, nem aviso
+      if(!partes.length && !docs.length && !registros.length && !temCtx && !avisos.length)
+        return `<div class="sc-err">Nenhuma ficha extraída deste PDF.</div>`;
       // valor do processo = soma dos valor_a_receber das partes (DERIVADO)
       let valorProc=0, temValor=false;
       partes.forEach(p=>{ const v=this._valorReceber(p); if(v!=null){valorProc+=v; temValor=true} });
-      // natureza/ente: só se vier na extração crua por-doc (docs[].registros); senão "—" honesto
-      let natureza=null, ente=null;
-      docs.forEach(d=>{ const g=d.registros||{}; natureza=natureza||g.natureza; ente=ente||g.ente_devedor||g.ente; });
-      // OCR
       const ocrDocs = docs.filter(d=>d.paginas_ocr>0 || d.precisa_ocr);
       const totOcr = ocrDocs.reduce((s,d)=>s+(d.paginas_ocr||0),0);
 
       let h=`<div class="sc-ficha">`;
-      // cabeçalho
+      // cabeçalho — título honesto: "Ficha extraída" ou "Sinais extraídos" (sem consolidar)
       h+=`<div class="sc-fhead"><div class="flex items-center gap-2 flex-wrap">
-        <span class="text-sm font-semibold text-fg">Ficha extraída</span>`;
+        <span class="text-sm font-semibold text-fg">${partes.length? 'Ficha extraída' : 'Sinais extraídos'}</span>`;
       if(ocrDocs.length) h+=`<span class="sc-chip" style="background:rgba(245,158,11,.14);color:#f59e0b" title="parte do texto veio de scan lido por OCR">📄 lido via OCR${totOcr?` (${totOcr} pág${totOcr>1?'s':''})`:''}</span>`;
       h+=`</div><div class="flex items-center gap-2">
         <span class="sc-fmeta">⏱ ${this.tempo(r)}${tempos.total_s!=null?` · modelo ${(+tempos.total_s).toFixed(1)}s`:''}</span>
@@ -422,13 +433,19 @@ function showcase(){
         });
         h+=`</div></div>`;
       }
-      // crédito
-      h+=`<div class="sc-sec"><div class="sc-sec-t">Crédito</div><dl class="sc-kv">
-        <dt>Valor do processo</dt><dd>${temValor? this.money(valorProc) : '<span class="sc-na">—</span>'}</dd>
-        <dt>Natureza</dt><dd>${this.na(natureza)}</dd>
-        <dt>Ente devedor</dt><dd>${this.na(ente)}</dd></dl></div>`;
-      // partes
+      // avisos em DESTAQUE (explicam por que às vezes não há ficha — honestidade = credibilidade)
+      if(avisos.length){
+        h+=`<div class="sc-avisos">`;
+        avisos.forEach(a=>h+=`<div>⚠ ${this.esc(a)}</div>`);
+        h+=`</div>`;
+      }
       if(partes.length){
+        // crédito
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Crédito</div><dl class="sc-kv">
+          <dt>Valor do processo</dt><dd>${temValor? this.money(valorProc) : '<span class="sc-na">—</span>'}</dd>
+          <dt>Natureza</dt><dd>${this.na(natureza)}</dd>
+          <dt>Ente devedor</dt><dd>${this.na(ente)}</dd></dl></div>`;
+        // partes
         h+=`<div class="sc-sec"><div class="sc-sec-t">Partes (${partes.length})</div>`;
         partes.forEach(p=>{
           const cor=this.papelCor(p.papel); const esp=p.espolio||p.espolio_de;
@@ -452,10 +469,23 @@ function showcase(){
           h+=`</div>`;
         });
         h+=`</div>`;
+      } else if(registros.length){
+        // achou sinais mas não atribuiu beneficiário → não consolidou ficha (honesto, não inventa dono)
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Sinais extraídos (sem ficha consolidada)</div>`;
+        h+=`<p style="font-size:.72rem;color:var(--fg-subtle);margin-bottom:.5rem;line-height:1.4">O modelo leu os documentos e extraiu os dados abaixo, mas <b>não atribuiu um beneficiário</b> — então <b>não inventou</b> um dono pro valor e não consolidou uma ficha.</p>`;
+        registros.forEach(g=>{
+          const bits=[]; const v=this._num(g.valor);
+          if(v!=null) bits.push(`<div class="sc-val"><span>valor</span><b>${this.money(v)}</b></div>`);
+          if(g.nome) bits.push(`<div class="sc-val"><span>nome</span><b>${this.esc(g.nome)}</b></div>`);
+          if(g.vara_comarca) bits.push(`<div class="sc-val"><span>vara/comarca</span><b>${this.esc(g.vara_comarca)}</b></div>`);
+          if(g.natureza) bits.push(`<div class="sc-val"><span>natureza</span><b>${this.esc(g.natureza)}</b></div>`);
+          if(g.data) bits.push(`<div class="sc-val"><span>data</span><b>${this.esc(g.data)}</b></div>`);
+          if(!bits.length) return;
+          h+=`<div class="sc-parte"><div class="sc-parte-top"><span class="sc-papel" style="background:#3b82f622;color:#60a5fa">${this.esc(g._doc||'doc')}</span>${g.confianca?this.confBadge(g.confianca):''}</div><div class="sc-vals">${bits.join('')}</div></div>`;
+        });
+        h+=`</div>`;
       }
       // jurimetria (contexto do processo)
-      const varas=ctx.varas||[], datas=ctx.datas_chave||[], desf=ctx.desfecho_por_grau||{},
-            decisoes=ctx.decisoes||[], acordaos=ctx.acordaos||[], flags=ctx.flags||[];
       if(varas.length||datas.length||Object.keys(desf).length||decisoes.length||acordaos.length){
         h+=`<div class="sc-sec"><div class="sc-sec-t">Jurimetria (contexto do processo)</div>`;
         if(varas.length||Object.keys(desf).length){
@@ -470,13 +500,6 @@ function showcase(){
           h+=`</div>`;
         }
         if(decisoes.length||acordaos.length) h+=`<div class="sc-conf" style="margin-top:.4rem">${decisoes.length} decisão(ões) · ${acordaos.length} acórdão(s)</div>`;
-        h+=`</div>`;
-      }
-      // avisos do modelo
-      const avisos = r.avisos || flags;
-      if(Array.isArray(avisos) && avisos.length){
-        h+=`<div class="sc-sec"><div class="sc-sec-t">Avisos</div>`;
-        avisos.forEach(a=>h+=`<div class="sc-conf" style="color:#f59e0b">⚠ ${this.esc(a)}</div>`);
         h+=`</div>`;
       }
       h+=`</div>`;
