@@ -105,6 +105,17 @@ Formato: cada entrada = o que aconteceu + (quando for regresso) a **lição**.
   Ressalva: "excluir inventariante" é agressivo demais (viúva costuma ser inventariante
   E herdeira) → v2.2 extrai **partes COM PAPEL** ({nome, papeis:[herdeiro|inventariante|
   conjuge|sucessor]}), não lista pura, e o merge decide.
+- 🏁 **Gate v2.1 (Qwen2.5-7B, ft_v21, n=3.727): MACRO v2 91,76%** — os buracos do v2
+  FORAM tapados: ACÓRDÃO 16-27→98-100, SENTENÇA 60-80→97-100, CESSÃO 25-45→98-99,
+  PROCURAÇÃO partes.f1 72,4→87,2. **Melhora clara — o janelamento funcionou.**
+- ⚖️ **Desempate Qwen2.5-v21 vs Qwen3-8B (mesmo test)**: Qwen3 macro 93,36 (+1,60),
+  partes.f1 89,7 (+2,5), partes.papel 76,9 (+10,1). **Critério pré-registrado (+2pp
+  macro OU +3pp partes.f1, sem regressão >1pp): Qwen3 NÃO passa limpo** (macro +1,6<2;
+  partes.f1 +2,5<3; regride DOC_PESSOAL papel −1,3). **Decisão: fica no Qwen2.5-7B**
+  (menor/mais barato). **Lição: o ganho do A/B era o DADO (janelamento), não o modelo —
+  provado: Qwen2.5+v21 (91,76) quase alcançou Qwen3+v21 (93,36).**
+- 🔴 **Herdeiros continua quebrado nos DOIS** (v2.1 óbito 8,9/habilit 34,5; Qwen3
+  20,6/54) — mas mede contra gold ruim; o relabel DeepSeek v2.2 é a cura.
 
 ---
 
