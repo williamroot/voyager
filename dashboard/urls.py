@@ -2,6 +2,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
 from . import views
+from . import showcase_proxy
 
 app_name = 'dashboard'
 
@@ -49,6 +50,10 @@ urlpatterns = [
     path('ia/estagio/', views.ia_estagio, name='ia-estagio'),
     path('ia/estagio/analisar/', views.ia_estagio_analisar, name='ia-estagio-analisar'),
     path('ia/estagio/status/', views.ia_estagio_status, name='ia-estagio-status'),
+    # Showcase do Extrator — sobe PDF → extração 100% on-device (SDK no pod), ficha rica + comparar versões
+    path('ia/showcase/', showcase_proxy.showcase, name='ia-showcase'),
+    path('api/showcase/extrair/<str:versao>/', showcase_proxy.showcase_extrair, name='showcase-extrair'),
+    path('api/showcase/explicar/<str:versao>/', showcase_proxy.showcase_explicar, name='showcase-explicar'),
     path('modelos/extrator/', views.modelo_extrator, name='modelo-extrator'),
     path('modelos/extrator/vitrine/', views.modelo_extrator_vitrine, name='modelo-extrator-vitrine'),
     path('modelos/extrator/kappa/', views.kappa_amostra, name='kappa-amostra'),

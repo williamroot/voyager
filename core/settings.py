@@ -337,6 +337,25 @@ IP_API_KEY = env('IP_API_KEY', default='')
 ZORDON_URL = env('ZORDON_URL', default='http://100.116.189.18:8011')
 ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
 
+# Showcase do Extrator (/dashboard/ia/showcase/) — URLs por VERSÃO do modelo,
+# cada uma a raiz de um SDK standalone (FastAPI) servido num pod (extração 100%
+# on-device, sem consulta externa). Preencher quando o pod servidor subir; versão
+# sem 'url' aparece como indisponível. Formato:
+#   {"v21": {"url": "http://IP:PORT", "label": "v2.1 (campeão)", "cor": "#22c55e",
+#            "explicavel": True}, ...}
+# Via env JSON (SHOWCASE_MODELOS) ou editar o default aqui.
+_SHOWCASE_DEFAULT = {
+    "v1":  {"url": "", "label": "Geração 1 (v1)",        "cor": "#71717a"},
+    "v2":  {"url": "", "label": "v2 · Ficha da Parte",   "cor": "#3b82f6"},
+    "v21": {"url": "", "label": "v2.1 · campeão",        "cor": "#22c55e"},
+    "v22": {"url": "", "label": "v2.2 · herdeiros",      "cor": "#a855f7"},
+}
+try:
+    _raw = env('SHOWCASE_MODELOS', default='')
+    SHOWCASE_MODELOS = __import__('json').loads(_raw) if _raw else _SHOWCASE_DEFAULT
+except Exception:
+    SHOWCASE_MODELOS = _SHOWCASE_DEFAULT
+
 # QuickPod — API de crédito/pods da frota GPU cloud (Command Center · card CUSTO).
 # Consultada só pelo scheduler (warm_command_center), cacheada em Redis; nunca
 # batida no request do browser. Sobrescreva a chave via .env em prod.

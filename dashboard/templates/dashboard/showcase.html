@@ -1,0 +1,379 @@
+{% extends 'dashboard/base.html' %}
+{% load static voyager_extras %}
+{% block title %}Showcase do Extrator{% endblock %}
+
+{% block content %}
+{{ modelos|json_script:"showcase-modelos" }}
+
+<div class="page-showcase" x-data="showcase()" x-init="init()">
+
+  {# ═══════════════ CABEÇALHO ═══════════════ #}
+  <div class="sc-hero">
+    <div>
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "sparkles" "w-6 h-6 text-accent-fg" %}
+        <h1 class="text-2xl md:text-3xl font-semibold tracking-tight text-fg">Showcase do Extrator</h1>
+      </div>
+      <p class="text-sm text-fg-subtle leading-relaxed max-w-2xl">
+        Suba um PDF dos autos e veja a <b class="text-fg-muted">ficha extraída</b> —
+        partes, papéis, valores, herdeiros, cessão, eventos — gerada <b class="text-fg-muted">na hora,
+        100% pelo modelo</b>, sem nenhuma consulta externa. Escolha uma versão ou
+        <b class="text-fg-muted">rode todas e compare</b>.
+      </p>
+    </div>
+    <div class="sc-badge-live">
+      {% voy_icon "probe" "w-3.5 h-3.5" %}
+      <span>resultado do modelo · on-device · zero consulta externa</span>
+    </div>
+  </div>
+
+  {% if not tem_modelo %}
+  <div class="sc-warn">
+    {% voy_icon "anomaly" "w-4 h-4" %}
+    Nenhum modelo servido ainda — o pod servidor está sendo provisionado. As URLs por versão
+    entram em <code>settings.SHOWCASE_MODELOS</code>. A tela já está pronta; assim que o pod subir, funciona.
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mt-5 items-start">
+
+    {# ═══════════════ COLUNA ESQUERDA: upload + config ═══════════════ #}
+    <div class="sc-panel space-y-4">
+      {# dropzone #}
+      <div class="sc-drop" :class="{'sc-drop-over': dragover, 'sc-drop-has': !!file}"
+           @dragover.prevent="dragover=true" @dragleave.prevent="dragover=false"
+           @drop.prevent="onDrop($event)" @click="$refs.fileInput.click()">
+        <input type="file" x-ref="fileInput" accept="application/pdf,.pdf" class="hidden"
+               @change="onFile($event.target.files[0])">
+        <template x-if="!file">
+          <div class="text-center">
+            {% voy_icon "uplink" "w-8 h-8 mx-auto text-fg-subtle mb-2" %}
+            <div class="text-sm font-medium text-fg-soft">Arraste o PDF ou clique</div>
+            <div class="text-xs text-fg-subtle mt-1">autos, ofício, habilitação… (inclui OCR de scan)</div>
+          </div>
+        </template>
+        <template x-if="file">
+          <div class="text-center">
+            {% voy_icon "scroll-text" "w-8 h-8 mx-auto text-accent-fg mb-2" %}
+            <div class="text-sm font-medium text-fg truncate" x-text="file.name"></div>
+            <div class="text-xs text-fg-subtle mt-1" x-text="fmtSize(file.size)"></div>
+            <button class="text-[0.7rem] text-danger mt-1 hover:underline" @click.stop="clearFile()">remover</button>
+          </div>
+        </template>
+      </div>
+
+      {# modo #}
+      <div>
+        <div class="sc-label">Modo</div>
+        <div class="sc-seg">
+          <button :class="{'sc-seg-on': modo==='single'}" @click="modo='single'">Uma versão</button>
+          <button :class="{'sc-seg-on': modo==='compare'}" @click="modo='compare'">Comparar todas</button>
+        </div>
+      </div>
+
+      {# versões #}
+      <div>
+        <div class="sc-label" x-text="modo==='single' ? 'Versão do modelo' : 'Versões a comparar'"></div>
+        <div class="space-y-1.5">
+          <template x-for="(m, ver) in modelos" :key="ver">
+            <label class="sc-model" :class="{'sc-model-off': !m.disponivel, 'sc-model-on': isSel(ver)}">
+              <input type="checkbox" x-show="modo==='compare'" :disabled="!m.disponivel"
+                     :checked="isSel(ver)" @change="toggle(ver)" class="accent-current">
+              <input type="radio" name="scver" x-show="modo==='single'" :disabled="!m.disponivel"
+                     :checked="single===ver" @change="single=ver" class="accent-current">
+              <span class="sc-dot" :style="`background:${m.cor}`"></span>
+              <span class="text-sm font-medium" x-text="m.label"></span>
+              <span x-show="!m.disponivel" class="ml-auto text-[0.65rem] text-fg-subtle">indisponível</span>
+            </label>
+          </template>
+        </div>
+      </div>
+
+      <button class="sc-run" :disabled="!canRun" @click="extrair()">
+        <template x-if="!running">
+          <span class="inline-flex items-center gap-2">{% voy_icon "send" "w-4 h-4" %} Extrair pelo modelo</span>
+        </template>
+        <template x-if="running">
+          <span class="inline-flex items-center gap-2"><span class="sc-spin"></span> Processando…</span>
+        </template>
+      </button>
+      <p class="text-[0.68rem] text-fg-subtle text-center leading-relaxed">
+        O modelo lê o PDF, classifica os documentos e extrai os campos — tudo na máquina do modelo.
+        Campo sem evidência aparece como <b>“não informado”</b> (o modelo não chuta).
+      </p>
+    </div>
+
+    {# ═══════════════ COLUNA DIREITA: etapas + resultado ═══════════════ #}
+    <div class="min-h-[300px]">
+
+      {# estado vazio #}
+      <div x-show="!running && !hasResult" class="sc-empty">
+        {% voy_icon "radar" "w-10 h-10 text-fg-subtle mb-3" %}
+        <div class="text-sm text-fg-soft">Suba um PDF e clique em <b>Extrair</b></div>
+        <div class="text-xs text-fg-subtle mt-1">o resultado da extração aparece aqui, rico e ao vivo</div>
+      </div>
+
+      {# etapas ao vivo #}
+      <div x-show="running" x-cloak class="sc-steps">
+        <div class="text-sm font-medium text-fg-soft mb-3">Processando <span x-text="file?.name"></span>…</div>
+        <template x-for="(s, i) in steps" :key="i">
+          <div class="sc-step" :class="{'sc-step-done': s.done, 'sc-step-now': s.now}">
+            <span class="sc-step-ic">
+              <template x-if="s.done">{% voy_icon "circle-check" "w-4 h-4" %}</template>
+              <template x-if="s.now"><span class="sc-spin sc-spin-sm"></span></template>
+              <template x-if="!s.done && !s.now"><span class="sc-step-idle"></span></template>
+            </span>
+            <span x-text="s.label"></span>
+          </div>
+        </template>
+        <div class="sc-progress mt-3"><div class="sc-progress-bar" :style="`width:${progress}%`"></div></div>
+      </div>
+
+      {# RESULTADO — single #}
+      <div x-show="!running && hasResult && modo==='single'" x-cloak>
+        <template x-if="results[single]">
+          <div x-html="renderFicha(results[single])"></div>
+        </template>
+      </div>
+
+      {# RESULTADO — comparar #}
+      <div x-show="!running && hasResult && modo==='compare'" x-cloak>
+        <div class="sc-compare-head">
+          {% voy_icon "constellation" "w-4 h-4" %}
+          Comparação entre versões — <span class="text-fg-subtle">campos que <b class="text-warning">divergem</b> ficam destacados</span>
+        </div>
+        <div class="sc-compare-grid" :style="`grid-template-columns: repeat(${selectedVers.length}, minmax(280px,1fr))`">
+          <template x-for="ver in selectedVers" :key="ver">
+            <div class="sc-compare-col">
+              <div class="sc-compare-colhead" :style="`border-color:${modelos[ver].cor}`">
+                <span class="sc-dot" :style="`background:${modelos[ver].cor}`"></span>
+                <span x-text="modelos[ver].label"></span>
+                <span class="ml-auto text-[0.65rem] text-fg-subtle" x-text="results[ver] && !results[ver].erro ? tempo(results[ver]) : ''"></span>
+              </div>
+              <div x-html="renderFicha(results[ver], true)"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{# ═══════════════ CSS (escopado em .page-showcase) ═══════════════ #}
+<style>
+.page-showcase [x-cloak]{display:none!important}
+.page-showcase .sc-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap}
+.page-showcase .sc-badge-live{display:inline-flex;align-items:center;gap:.4rem;font-size:.68rem;font-weight:600;
+  color:#22c55e;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);padding:.35rem .7rem;border-radius:999px;white-space:nowrap}
+.page-showcase .sc-warn{margin-top:1rem;display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--fg-muted);
+  background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:.6rem;padding:.6rem .8rem}
+.page-showcase .sc-warn code{font-size:.72rem;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem}
+.page-showcase .sc-panel{background:var(--card);border:1px solid var(--border);border-radius:.9rem;padding:1rem}
+.page-showcase .sc-drop{border:1.5px dashed var(--border);border-radius:.8rem;padding:1.4rem 1rem;cursor:pointer;
+  transition:.15s;background:rgba(255,255,255,.015)}
+.page-showcase .sc-drop:hover,.page-showcase .sc-drop-over{border-color:var(--accent-fg);background:rgba(59,130,246,.06)}
+.page-showcase .sc-drop-has{border-style:solid;border-color:rgba(34,197,94,.4)}
+.page-showcase .sc-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-subtle);margin-bottom:.4rem;font-weight:600}
+.page-showcase .sc-seg{display:flex;background:var(--muted);border-radius:.6rem;padding:.2rem;gap:.2rem}
+.page-showcase .sc-seg button{flex:1;font-size:.78rem;padding:.4rem;border-radius:.45rem;color:var(--fg-muted);font-weight:500}
+.page-showcase .sc-seg .sc-seg-on{background:var(--card);color:var(--accent-fg);box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.page-showcase .sc-model{display:flex;align-items:center;gap:.55rem;padding:.5rem .6rem;border:1px solid var(--border);
+  border-radius:.55rem;cursor:pointer;transition:.12s}
+.page-showcase .sc-model-on{border-color:var(--accent-fg);background:rgba(59,130,246,.06)}
+.page-showcase .sc-model-off{opacity:.45;cursor:not-allowed}
+.page-showcase .sc-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.page-showcase .sc-run{width:100%;padding:.65rem;border-radius:.6rem;background:var(--accent);color:#fff;font-weight:600;
+  font-size:.85rem;transition:.15s}
+.page-showcase .sc-run:hover:not(:disabled){filter:brightness(1.1)}
+.page-showcase .sc-run:disabled{opacity:.4;cursor:not-allowed}
+.page-showcase .sc-spin{width:15px;height:15px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;
+  display:inline-block;animation:sc-rot .7s linear infinite}
+.page-showcase .sc-spin-sm{width:12px;height:12px;border-width:2px;border-color:rgba(59,130,246,.35);border-top-color:var(--accent-fg)}
+@keyframes sc-rot{to{transform:rotate(360deg)}}
+.page-showcase .sc-empty,.page-showcase .sc-steps{background:var(--card);border:1px solid var(--border);border-radius:.9rem;padding:1.5rem}
+.page-showcase .sc-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:280px}
+.page-showcase .sc-step{display:flex;align-items:center;gap:.6rem;padding:.4rem 0;font-size:.82rem;color:var(--fg-subtle);transition:.2s}
+.page-showcase .sc-step-now{color:var(--fg)}
+.page-showcase .sc-step-done{color:#22c55e}
+.page-showcase .sc-step-ic{width:18px;display:flex;justify-content:center}
+.page-showcase .sc-step-idle{width:8px;height:8px;border-radius:50%;background:var(--border)}
+.page-showcase .sc-progress{height:4px;background:var(--muted);border-radius:2px;overflow:hidden}
+.page-showcase .sc-progress-bar{height:100%;background:linear-gradient(90deg,#3b82f6,#22c55e);transition:width .4s}
+/* ficha */
+.page-showcase .sc-ficha{background:var(--card);border:1px solid var(--border);border-radius:.9rem;padding:1.1rem;margin-bottom:1rem}
+.page-showcase .sc-fhead{display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;
+  border-bottom:1px solid var(--border);padding-bottom:.7rem;margin-bottom:.8rem}
+.page-showcase .sc-fmeta{display:inline-flex;align-items:center;gap:.4rem;font-size:.68rem;color:var(--fg-subtle)}
+.page-showcase .sc-chip{font-size:.62rem;font-weight:700;padding:.15rem .5rem;border-radius:999px;text-transform:uppercase;letter-spacing:.03em}
+.page-showcase .sc-sec{margin-top:.9rem}
+.page-showcase .sc-sec-t{font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-subtle);font-weight:700;margin-bottom:.45rem}
+.page-showcase .sc-parte{border:1px solid var(--border);border-radius:.6rem;padding:.6rem .7rem;margin-bottom:.5rem;background:rgba(255,255,255,.015)}
+.page-showcase .sc-parte-top{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.page-showcase .sc-nome{font-weight:600;font-size:.86rem;color:var(--fg)}
+.page-showcase .sc-papel{font-size:.6rem;font-weight:700;padding:.12rem .45rem;border-radius:.35rem;text-transform:uppercase}
+.page-showcase .sc-conf{font-size:.6rem;color:var(--fg-subtle)}
+.page-showcase .sc-vals{display:flex;gap:1.1rem;margin-top:.45rem;flex-wrap:wrap}
+.page-showcase .sc-val{font-size:.72rem}
+.page-showcase .sc-val b{display:block;font-size:.85rem;color:var(--fg)}
+.page-showcase .sc-val span{color:var(--fg-subtle);font-size:.62rem;text-transform:uppercase;letter-spacing:.03em}
+.page-showcase .sc-kv{display:grid;grid-template-columns:auto 1fr;gap:.3rem .8rem;font-size:.8rem}
+.page-showcase .sc-kv dt{color:var(--fg-subtle)}
+.page-showcase .sc-kv dd{color:var(--fg);font-weight:500;text-align:right}
+.page-showcase .sc-na{color:var(--fg-subtle);font-style:italic;font-weight:400}
+.page-showcase .sc-timeline{border-left:2px solid var(--border);padding-left:.9rem;margin-left:.3rem}
+.page-showcase .sc-ev{position:relative;padding-bottom:.6rem;font-size:.78rem}
+.page-showcase .sc-ev::before{content:'';position:absolute;left:-1.06rem;top:.3rem;width:8px;height:8px;border-radius:50%;background:var(--accent-fg)}
+.page-showcase .sc-ev-d{font-size:.62rem;color:var(--fg-subtle)}
+.page-showcase .sc-diff{background:rgba(245,158,11,.1);outline:1px solid rgba(245,158,11,.35);border-radius:.3rem}
+.page-showcase .sc-compare-head{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:var(--fg-soft);margin-bottom:.7rem}
+.page-showcase .sc-compare-grid{display:grid;gap:.8rem;overflow-x:auto;padding-bottom:.5rem}
+.page-showcase .sc-compare-col{min-width:0}
+.page-showcase .sc-compare-colhead{display:flex;align-items:center;gap:.45rem;font-weight:600;font-size:.8rem;
+  padding:.5rem .6rem;border:1px solid var(--border);border-left-width:3px;border-radius:.5rem;margin-bottom:.5rem;background:var(--card)}
+.page-showcase .sc-err{color:var(--danger);font-size:.8rem;padding:.8rem;border:1px solid rgba(244,63,94,.3);border-radius:.6rem;background:rgba(244,63,94,.06)}
+</style>
+
+<script>
+function showcase(){
+  return {
+    modelos:{}, single:null, selected:{}, modo:'single',
+    file:null, dragover:false, running:false, results:{}, progress:0, steps:[], _timer:null,
+    init(){
+      this.modelos = JSON.parse(document.getElementById('showcase-modelos').textContent||'{}');
+      // primeira versão disponível vira o default do single
+      const av = Object.keys(this.modelos).filter(v=>this.modelos[v].disponivel);
+      this.single = av[0] || Object.keys(this.modelos)[0] || null;
+      av.forEach(v=>this.selected[v]=true);
+    },
+    get selectedVers(){ return Object.keys(this.modelos).filter(v=>this.selected[v] && this.modelos[v].disponivel) },
+    isSel(v){ return !!this.selected[v] },
+    toggle(v){ if(!this.modelos[v].disponivel) return; this.selected[v]=!this.selected[v] },
+    get canRun(){ if(!this.file||this.running) return false;
+      return this.modo==='single' ? (this.single && this.modelos[this.single]?.disponivel) : this.selectedVers.length>0 },
+    get hasResult(){ return Object.keys(this.results).length>0 },
+    fmtSize(b){ return b>1e6 ? (b/1e6).toFixed(1)+' MB' : Math.round(b/1024)+' KB' },
+    tempo(r){ return r.elapsed_ms>=1000 ? (r.elapsed_ms/1000).toFixed(1)+'s' : r.elapsed_ms+'ms' },
+    onDrop(e){ this.dragover=false; const f=e.dataTransfer.files[0]; if(f) this.onFile(f) },
+    onFile(f){ if(!f) return; if(f.type && f.type.indexOf('pdf')<0 && !f.name.toLowerCase().endsWith('.pdf')){alert('Envie um PDF');return} this.file=f; this.results={} },
+    clearFile(){ this.file=null; this.results={} },
+    _startSteps(){
+      this.steps=[
+        {label:'Lendo o PDF (extração de texto + OCR se preciso)',now:true,done:false},
+        {label:'Classificando os documentos dos autos',now:false,done:false},
+        {label:'Extraindo campos por documento (grammar)',now:false,done:false},
+        {label:'Consolidando a ficha (merge determinístico)',now:false,done:false},
+      ];
+      this.progress=6; let i=0;
+      this._timer=setInterval(()=>{
+        this.progress=Math.min(this.progress+Math.random()*7, 92);
+        const adv=Math.floor(this.progress/25);
+        for(let k=0;k<this.steps.length;k++){ this.steps[k].done=k<adv; this.steps[k].now=k===adv }
+      },700);
+    },
+    _stopSteps(){ clearInterval(this._timer); this.progress=100; this.steps.forEach(s=>{s.done=true;s.now=false}) },
+    async extrair(){
+      if(!this.canRun) return;
+      this.running=true; this.results={}; this._startSteps();
+      const vers = this.modo==='single' ? [this.single] : this.selectedVers;
+      const token = document.querySelector('meta[name=csrf-token]')?.content;
+      await Promise.all(vers.map(async ver=>{
+        const fd=new FormData(); fd.append('arquivo', this.file);
+        try{
+          const resp=await fetch(`/dashboard/api/showcase/extrair/${ver}/`,{method:'POST',body:fd,
+            headers: token?{'X-CSRFToken':token}:{}, credentials:'same-origin'});
+          const j=await resp.json();
+          this.results[ver]= resp.ok ? j : {erro: j.erro||('HTTP '+resp.status), versao:ver};
+        }catch(e){ this.results[ver]={erro:String(e), versao:ver} }
+      }));
+      this._stopSteps();
+      setTimeout(()=>{ this.running=false },350);
+    },
+    // ---------- render ----------
+    esc(s){ if(s==null) return ''; return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) },
+    na(v){ return (v==null||v==='') ? '<span class="sc-na">não informado</span>' : this.esc(v) },
+    money(v){ if(v==null||v==='') return '<span class="sc-na">—</span>';
+      const n=Number(String(v).replace(/[^\d.,-]/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.'));
+      return isNaN(n)? this.esc(v) : 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:2}) },
+    papelCor(p){ const m={EXEQUENTE:'#22c55e',BENEFICIARIO:'#22c55e',HERDEIRO:'#a855f7',SUCESSOR:'#a855f7',
+      ESPOLIO:'#8b5cf6',INVENTARIANTE:'#f59e0b',CONJUGE:'#ec4899',CESSIONARIO:'#06b6d4',CEDENTE:'#0ea5e9',
+      ADVOGADO:'#64748b',EXECUTADO:'#ef4444',FALECIDO:'#6b7280'}; return m[(p||'').toUpperCase()]||'#3b82f6' },
+    confBadge(c){ const m={alta:'#22c55e',media:'#f59e0b',baixa:'#ef4444'}; const k=(c||'').toLowerCase();
+      return m[k]? `<span class="sc-conf" style="color:${m[k]}">● confiança ${this.esc(c)}</span>`:'' },
+    // fichas pode ser lista de partes OU objeto; normaliza pra um bloco render
+    renderFicha(r, compact){
+      if(!r) return '';
+      if(r.erro) return `<div class="sc-err">⚠ ${this.esc(r.erro)}${r.indisponivel?' — pod não configurado':''}</div>`;
+      const fichas = Array.isArray(r.fichas)? r.fichas : (r.fichas? [r.fichas] : []);
+      if(!fichas.length) return `<div class="sc-err">Nenhuma ficha extraída deste PDF.</div>`;
+      // agrega partes de todas as fichas; metadados do processo pegam do 1º que tiver
+      let partes=[], herdeiros=[], falecido=null, natureza=null, valor=null, ente=null, cessao=null, eventos=[];
+      fichas.forEach(f=>{
+        if(Array.isArray(f.partes)) partes=partes.concat(f.partes);
+        else if(f.nome||f.papel) partes.push(f); // ficha por-parte
+        if(Array.isArray(f.herdeiros)) herdeiros=herdeiros.concat(f.herdeiros);
+        falecido=falecido||f.falecido; natureza=natureza||f.natureza; valor=valor||f.valor;
+        ente=ente||f.ente_devedor||f.ente; cessao=cessao||f.cessao;
+        if(Array.isArray(f.eventos)) eventos=eventos.concat(f.eventos);
+      });
+      let h=`<div class="sc-ficha">`;
+      h+=`<div class="sc-fhead"><div class="text-sm font-semibold text-fg">Ficha extraída</div>`;
+      if(!compact) h+=`<div class="flex items-center gap-3">
+        <span class="sc-fmeta">⏱ ${this.tempo(r)}</span>
+        <span class="sc-chip" style="background:rgba(34,197,94,.12);color:#22c55e">só o modelo</span></div>`;
+      h+=`</div>`;
+      // metadados do processo
+      h+=`<div class="sc-sec"><div class="sc-sec-t">Crédito</div><dl class="sc-kv">
+        <dt>Natureza</dt><dd>${this.na(natureza)}</dd>
+        <dt>Valor</dt><dd>${this.money(valor)}</dd>
+        <dt>Ente devedor</dt><dd>${this.na(ente)}</dd></dl></div>`;
+      // partes
+      if(partes.length){
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Partes (${partes.length})</div>`;
+        partes.forEach(p=>{
+          const nome=p.nome||p.beneficiario||p.falecido; const cor=this.papelCor(p.papel);
+          h+=`<div class="sc-parte"><div class="sc-parte-top">
+            <span class="sc-nome">${this.na(nome)}</span>
+            ${p.papel?`<span class="sc-papel" style="background:${cor}22;color:${cor}">${this.esc(p.papel)}</span>`:''}
+            ${p.papel_conflito?`<span class="sc-papel" style="background:#ef444422;color:#ef4444">papel em conflito</span>`:''}
+            ${this.confBadge(p.papel_confianca)}
+            ${p.cpf_cnpj?`<span class="sc-conf">· ${this.esc(p.cpf_cnpj)}</span>`:''}
+          </div>`;
+          if(p.valor!=null||p.recebido!=null||p.saldo!=null){
+            h+=`<div class="sc-vals">
+              <div class="sc-val"><span>a receber</span><b>${this.money(p.valor)}</b></div>
+              <div class="sc-val"><span>já recebido</span><b>${this.money(p.recebido)}</b></div>
+              <div class="sc-val"><span>saldo</span><b>${this.money(p.saldo)}</b></div></div>`;
+          }
+          h+=`</div>`;
+        });
+        h+=`</div>`;
+      }
+      // herdeiros / falecido
+      if(falecido||herdeiros.length){
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Sucessão</div><dl class="sc-kv">
+          <dt>Falecido</dt><dd>${this.na(falecido&&(falecido.nome||falecido))}</dd>
+          <dt>Herdeiros</dt><dd>${herdeiros.length? herdeiros.map(x=>this.esc(x.nome||x)).join(', ') : '<span class="sc-na">nenhum</span>'}</dd>
+        </dl></div>`;
+      }
+      // cessão
+      if(cessao&&(cessao.cedente||cessao.cessionario)){
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Cessão de crédito</div><dl class="sc-kv">
+          <dt>Cedente</dt><dd>${this.na(cessao.cedente)}</dd>
+          <dt>Cessionário</dt><dd>${this.na(cessao.cessionario)}</dd>
+          <dt>Percentual/valor</dt><dd>${this.na(cessao.percentual||cessao.percentual_ou_valor)}</dd></dl></div>`;
+      }
+      // eventos
+      if(eventos.length){
+        h+=`<div class="sc-sec"><div class="sc-sec-t">Eventos</div><div class="sc-timeline">`;
+        eventos.forEach(e=>{ h+=`<div class="sc-ev"><div>${this.esc(e.tipo||e.evento||'')}${e.parte?` — ${this.esc(e.parte)}`:''}</div>
+          <div class="sc-ev-d">${this.esc(e.data||'')}${e.doc?` · ${this.esc(e.doc)}`:''}</div></div>` });
+        h+=`</div></div>`;
+      }
+      h+=`</div>`;
+      return h;
+    },
+  }
+}
+</script>
+{% endblock %}

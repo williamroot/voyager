@@ -456,6 +456,11 @@
                 {% voy_icon "gem" "w-4 h-4" %}
                 Estágio do Crédito ⚡
               </a>
+              {% url 'dashboard:ia-showcase' as ia_showcase_url %}
+              <a href="{{ ia_showcase_url }}" class="nav-item {% if request.path == ia_showcase_url %}active{% endif %}">
+                {% voy_icon "sparkles" "w-4 h-4" %}
+                Showcase do Extrator ✨
+              </a>
               {% url 'dashboard:treinos-dashboard' as treinos_url %}
               <a href="{{ treinos_url }}" class="nav-item {% if request.path == treinos_url %}active{% endif %}">
                 {% voy_icon "flask" "w-4 h-4" %}
