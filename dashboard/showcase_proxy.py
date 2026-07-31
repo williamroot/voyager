@@ -85,11 +85,17 @@ def showcase_extrair(request, versao: str):
     except ValueError:
         return JsonResponse({"erro": "resposta inválida do modelo", "versao": versao},
                             status=502)
+    _p = payload if isinstance(payload, dict) else {}
     return JsonResponse({
         "versao": versao,
         "label": cfg.get("label", versao),
-        "elapsed_ms": elapsed_ms,
-        "fichas": payload.get("fichas", payload if isinstance(payload, list) else []),
+        "elapsed_ms": elapsed_ms,                       # round-trip (rede + modelo)
+        "tempos": _p.get("tempos") or {},               # tempo REAL do modelo (total_s, llm_s, paginas_ocr)
+        "fichas": _p.get("fichas", payload if isinstance(payload, list) else []),
+        "docs": _p.get("docs") or [],                   # p/ selo de OCR (precisa_ocr / paginas_ocr) + classe por doc
+        "contexto": _p.get("contexto") or {},           # varas, decisoes, datas_chave, desfecho_por_grau
+        "avisos": _p.get("avisos") or [],
+        "alvaras_orfaos": _p.get("alvaras_orfaos") or [],
         "arquivo": up.name,
     }, json_dumps_params={"default": str})
 

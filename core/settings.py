@@ -345,10 +345,11 @@ ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
 #            "explicavel": True}, ...}
 # Via env JSON (SHOWCASE_MODELOS) ou editar o default aqui.
 _SHOWCASE_DEFAULT = {
-    "v1":  {"url": "", "label": "Geração 1 (v1)",        "cor": "#71717a"},
-    "v2":  {"url": "", "label": "v2 · Ficha da Parte",   "cor": "#3b82f6"},
-    "v21": {"url": "", "label": "v2.1 · campeão",        "cor": "#22c55e"},
-    "v22": {"url": "", "label": "v2.2 · herdeiros",      "cor": "#a855f7"},
+    # Pod de showcase (RTX 5090 32GB) servindo os GGUFs on-device. v22 sobe quando gatear.
+    "v1":  {"url": "http://159.48.242.22:32001", "label": "Geração 1 (v1)",      "cor": "#71717a"},
+    "v2":  {"url": "http://159.48.242.22:32002", "label": "v2 · Ficha da Parte", "cor": "#3b82f6"},
+    "v21": {"url": "http://159.48.242.22:32003", "label": "v2.1 · campeão",      "cor": "#22c55e"},
+    "v22": {"url": "",                           "label": "v2.2 · herdeiros",    "cor": "#a855f7"},
 }
 try:
     _raw = env('SHOWCASE_MODELOS', default='')
