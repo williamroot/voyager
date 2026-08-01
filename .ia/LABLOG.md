@@ -8,6 +8,37 @@ Formato: cada entrada = o que aconteceu + (quando for regresso) a **lição**.
 
 ---
 
+## 01/08 — Showcase do Extrator: pipeline completo + jurimetria na ficha
+
+Tela investidor `/dashboard/ia/showcase` (IA LABS) fechada ponta-a-ponta, validada
+no doc real 0027335 (150 págs, e-SAJ TJSP) no **modelo real** (v2.1), ~10s, on-device.
+
+- ✅ **Segmentação estrutural** (SDK): fatiar autos combinados por FRONTEIRA (carimbo
+  e-SAJ `TJ/SP - COMARCA` + reset do contador `Página:0001`), não por página. 63→41
+  docs coerentes; beneficiário+valor param de virar órfãos.
+- ✅ **Classificador híbrido**: regex herda sinais do Falcon (piso/GUIA) + hook Tier-2
+  do NOSSO modelo (decisor, atrás de flag `ARBITRO_MODELO`). **A/B do Tier-2 no doc
+  real: 0 ganho + 50% mais lento → mantido OFF** (métrica barata; decidir em lote).
+- ✅ **Completude de partes**: capa e-SAJ (benef+CPF, adv+OAB, tipo, valor global),
+  executada (Estado de SP), cessionário com CNPJ. **Vínculo pessoa↔documento = MODELO
+  lê o contexto; mecânica só confirma verbatim; abstém se não bater** (mata o erro do
+  Falcon de atribuir por proximidade). Filtro anti-parte-fantasma (rótulo ecoado).
+- ✅ **Guarda verbatim** em TODO literal (valor/data/nome/doc): existe no texto-fonte
+  ou é derrubado. Semântico (natureza/papel/desfecho) fica com o modelo.
+- ✅ **Jurimetria na ficha**: bloco `estagio` — estágio do crédito (DC/PRE/EMITIDO/
+  PAGO/MORTO), homologação (sim/não/não-identificada), **linha do tempo** com marcos
+  ancorados (distribuição→trânsito→sentença→cumprimento→ofício→pagamento), próximos
+  passos, e **status do valor por parte** (EXPEDIDO/HOMOLOGADO/REQUERIDO/…). No doc
+  real: PRECATÓRIO EXPEDIDO, JOSE MARIO=EXPEDIDO R$18.910,46, homologação=desconhecido.
+- ✅ **Wizard 3 passos** (Enviar→Modelo→Ficha) + **ZIP do TJSP** (vários PDFs → 1 ficha)
+  + **export MD/PDF/JSON** (WeasyPrint 63.1).
+- 🔧 **Gotcha ops**: `llama-server -c 16384 --parallel 4` = 4096 tok/slot → HTTP 400
+  em doc denso. Fix barato: `--parallel 2` = 8192/slot, mesma VRAM.
+- 📌 **Regra do usuário fixada**: precisão > velocidade em TODO dado; abster > chutar.
+- 🧭 **Tópico aberto**: TJSP separa o crédito por INCIDENTE (vários CNJ:
+  conhecimento→cumprimento→precatório) — unificar antes de decidir estágio (candidato
+  a ROADMAP; morde a tela Estágio do Crédito).
+
 ## 28/07 — treino v1
 
 - ✅ **Treino v1** (Qwen2.5-7B QLoRA, 1× 3090): 10,4h, gate TEST **macro 87,9**
