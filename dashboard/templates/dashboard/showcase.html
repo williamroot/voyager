@@ -235,9 +235,17 @@
           {% voy_icon "probe" "w-3.5 h-3.5" %}
           <span>resultado do modelo · on-device · zero consulta externa</span>
         </div>
-        <button class="sc-btn-next" style="background:var(--card);color:var(--fg);border:1px solid var(--border)" @click="novoDoc()">
-          {% voy_icon "history" "w-4 h-4" %} Novo documento
-        </button>
+        <div class="flex items-center gap-2 flex-wrap">
+          <div class="sc-exportbar" x-show="modo==='single' && results[single] && !results[single].erro">
+            <span class="text-[0.68rem] text-fg-subtle uppercase tracking-wide">Exportar</span>
+            <button class="sc-exportbtn" :disabled="exporting" @click="exportar('md')">{% voy_icon "scroll-text" "w-3.5 h-3.5" %} MD</button>
+            <button class="sc-exportbtn" :disabled="exporting" @click="exportar('pdf')">{% voy_icon "dossier" "w-3.5 h-3.5" %} PDF</button>
+            <button class="sc-exportbtn" :disabled="exporting" @click="exportar('json')">{% voy_icon "flask" "w-3.5 h-3.5" %} JSON</button>
+          </div>
+          <button class="sc-btn-next" style="background:var(--card);color:var(--fg);border:1px solid var(--border)" @click="novoDoc()">
+            {% voy_icon "history" "w-4 h-4" %} Novo documento
+          </button>
+        </div>
       </div>
 
       {# RESULTADO — single #}
@@ -397,6 +405,23 @@
 .page-showcase .sc-honesto b{color:#22c55e}
 .page-showcase .sc-info{margin-top:.55rem;border:1px solid rgba(59,130,246,.28);background:rgba(59,130,246,.07);border-radius:.55rem;padding:.5rem .7rem;display:flex;flex-direction:column;gap:.2rem}
 .page-showcase .sc-info>div{font-size:.72rem;color:#93b4f5;line-height:1.35}
+.page-showcase .sc-estagio{border:1px solid var(--border);border-radius:.7rem;padding:.7rem .8rem;background:linear-gradient(180deg,rgba(34,197,94,.04),transparent)}
+.page-showcase .sc-estagio-head{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem}
+.page-showcase .sc-estagio-badge{font-size:.8rem;font-weight:700;padding:.25rem .6rem;border-radius:.45rem;border:1px solid}
+.page-showcase .sc-tl{display:flex;flex-direction:column;gap:0;position:relative;margin:.3rem 0 .2rem;padding-left:.2rem}
+.page-showcase .sc-tl-item{display:flex;gap:.6rem;align-items:flex-start;position:relative;padding-bottom:.75rem}
+.page-showcase .sc-tl-item:not(:last-child)::before{content:"";position:absolute;left:5px;top:14px;bottom:-2px;width:2px;background:var(--border)}
+.page-showcase .sc-tl-dot{width:12px;height:12px;border-radius:50%;border:2px solid;flex:none;margin-top:2px;z-index:1}
+.page-showcase .sc-tl-rot{font-size:.8rem;font-weight:600;color:var(--fg)}
+.page-showcase .sc-tl-meta{font-size:.7rem;font-weight:600}
+.page-showcase .sc-nextsteps{margin-top:.5rem;border-top:1px dashed var(--border);padding-top:.5rem}
+.page-showcase .sc-nextsteps-t{font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-subtle);margin-bottom:.3rem}
+.page-showcase .sc-nextstep{font-size:.78rem;color:var(--fg-soft);line-height:1.5}
+.page-showcase .sc-stpill{font-size:.62rem;font-weight:700;padding:.12rem .45rem;border-radius:.35rem;border:1px solid;text-transform:uppercase;letter-spacing:.03em}
+.page-showcase .sc-exportbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.2rem}
+.page-showcase .sc-exportbtn{display:inline-flex;align-items:center;gap:.35rem;font-size:.75rem;font-weight:600;padding:.4rem .7rem;border-radius:.5rem;border:1px solid var(--border);background:var(--card);color:var(--fg);cursor:pointer}
+.page-showcase .sc-exportbtn:hover{border-color:var(--accent-fg);color:var(--accent-fg)}
+.page-showcase .sc-exportbtn:disabled{opacity:.5;cursor:wait}
 .page-showcase .sc-vals{display:flex;gap:1.1rem;margin-top:.45rem;flex-wrap:wrap}
 .page-showcase .sc-val{font-size:.72rem}
 .page-showcase .sc-val b{display:block;font-size:.85rem;color:var(--fg)}
@@ -423,7 +448,7 @@ function showcase(){
   return {
     modelos:{}, info:{}, showCards:false, single:null, selected:{}, modo:'single',
     file:null, dragover:false, running:false, results:{}, progress:0, steps:[], _timer:null,
-    step:1,
+    step:1, exporting:false,
     init(){
       this.modelos = JSON.parse(document.getElementById('showcase-modelos').textContent||'{}');
       this.info = JSON.parse(document.getElementById('showcase-info').textContent||'{}');
@@ -464,6 +489,23 @@ function showcase(){
     onDrop(e){ this.dragover=false; const f=e.dataTransfer.files[0]; if(f) this.onFile(f) },
     onFile(f){ if(!f) return; const n=f.name.toLowerCase(); const ok = n.endsWith('.pdf')||n.endsWith('.zip')||(f.type&&(f.type.indexOf('pdf')>=0||f.type.indexOf('zip')>=0)); if(!ok){alert('Envie um PDF ou um ZIP dos autos (TJSP)');return} this.file=f; this.results={} },
     clearFile(){ this.file=null; this.results={} },
+    async exportar(fmt){  // baixa a análise em md/pdf/json (do próprio payload, on-device)
+      const payload = this.results[this.single]; if(!payload || payload.erro) return;
+      this.exporting=true;
+      try{
+        const csrf=(document.cookie.match(/csrftoken=([^;]+)/)||[])[1]||'';
+        const resp=await fetch(`/dashboard/api/showcase/export/${fmt}`,{method:'POST',
+          headers:{'Content-Type':'application/json','X-CSRFToken':csrf},credentials:'same-origin',
+          body:JSON.stringify(payload)});
+        if(!resp.ok){ alert(resp.status===501?'Exportação PDF indisponível no servidor':'Falha ao exportar ('+resp.status+')'); return; }
+        const blob=await resp.blob();
+        const cd=resp.headers.get('Content-Disposition')||''; const mm=cd.match(/filename="?([^"]+)"?/);
+        const nome=mm?mm[1]:`analise.${fmt}`;
+        const url=URL.createObjectURL(blob); const a=document.createElement('a');
+        a.href=url; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      }catch(e){ alert('Erro ao exportar: '+e.message); }
+      finally{ this.exporting=false; }
+    },
     _startSteps(){
       this.steps=[
         {label:'Lendo o PDF (extração de texto + OCR se preciso)',now:true,done:false},
@@ -525,7 +567,49 @@ function showcase(){
       if(any) return {tem:true, txt: this.money(s)+(r.length>1?` <span style="opacity:.6">(${r.length}×)</span>`:'')};
       return {tem:true, txt: `${r.length} pagamento${r.length>1?'s':''}`};
     },
-    // renderiza a resposta REAL do pod: {fichas(=partes), docs, tempos, contexto, avisos}
+    // ESTÁGIO DO CRÉDITO + LINHA DO TEMPO — ancorado no que o modelo extraiu (abstém sem prova)
+    _estagioCor(e){ return ({DC:'#f59e0b',PRE_PRECATORIO:'#eab308',PRECATORIO_EMITIDO:'#22c55e',PAGO:'#3b82f6',MORTO:'#ef4444',INDEFINIDO:'#71717a'})[e]||'#71717a' },
+    _marcoCor(s){ return ({done:'#22c55e',pendente:'#f59e0b',desconhecido:'#52525b'})[s]||'#52525b' },
+    _statusValorCor(s){ return ({EXPEDIDO:'#22c55e',HOMOLOGADO:'#3b82f6',REQUERIDO:'#f59e0b',INDEFERIDO:'#ef4444',EM_CALCULO:'#eab308'})[s]||'#71717a' },
+    renderEstagio(e){
+      if(!e || !e.estagio) return '';
+      const cor=this._estagioCor(e.estagio);
+      let h=`<div class="sc-sec sc-estagio"><div class="sc-sec-t">Estágio do crédito</div>`;
+      // faixa do estágio + homologação
+      h+=`<div class="sc-estagio-head">
+        <span class="sc-estagio-badge" style="background:${cor}22;color:${cor};border-color:${cor}55">${this.esc(e.estagio_rotulo||e.estagio)}</span>`;
+      if(e.confianca) h+=this.confBadge(e.confianca);
+      if(e.homologado===true) h+=`<span class="sc-chip" style="background:rgba(59,130,246,.14);color:#60a5fa">cálculos homologados${e.homologacao_data?` · ${this.esc(e.homologacao_data)}`:''}</span>`;
+      else if(e.homologado===false) h+=`<span class="sc-chip" style="background:rgba(245,158,11,.14);color:#f59e0b">cálculos não homologados</span>`;
+      else h+=`<span class="sc-chip" style="background:var(--muted);color:var(--fg-subtle)" title="sem evidência no documento">homologação não identificada</span>`;
+      h+=`</div>`;
+      // linha do tempo — pontos por marco
+      const marcos=Array.isArray(e.marcos)?e.marcos:[];
+      if(marcos.length){
+        h+=`<div class="sc-tl">`;
+        marcos.forEach(m=>{
+          const mc=this._marcoCor(m.status);
+          const dt = m.data ? this.esc(m.data) : (m.status==='pendente'?'pendente':(m.status==='desconhecido'?'—':''));
+          h+=`<div class="sc-tl-item">
+            <div class="sc-tl-dot" style="background:${m.status==='done'?mc:'transparent'};border-color:${mc}"></div>
+            <div class="sc-tl-body">
+              <div class="sc-tl-rot">${this.esc(m.rotulo||m.chave||'')}</div>
+              <div class="sc-tl-meta"><span style="color:${mc}">${dt}</span>${m.fonte&&m.fonte!=='sem_ancora'?` <span style="opacity:.5">· ${this.esc(m.fonte)}</span>`:''}</div>
+            </div></div>`;
+        });
+        h+=`</div>`;
+      }
+      // próximos passos
+      const ps=Array.isArray(e.proximos_passos)?e.proximos_passos:[];
+      if(ps.length){
+        h+=`<div class="sc-nextsteps"><div class="sc-nextsteps-t">Passos que faltam</div>`;
+        ps.forEach(p=>h+=`<div class="sc-nextstep">→ ${this.esc(p.rotulo||p)}${p.detalhe?` <span style="opacity:.6">${this.esc(p.detalhe)}</span>`:''}</div>`);
+        h+=`</div>`;
+      }
+      h+=`</div>`;
+      return h;
+    },
+    // renderiza a resposta REAL do pod: {fichas(=partes), docs, tempos, contexto, avisos, estagio}
     renderFicha(r, compact){
       if(!r) return '';
       if(r.erro) return `<div class="sc-err">⚠ ${this.esc(r.erro)}${r.indisponivel?' — pod não configurado':''}</div>`;
@@ -563,6 +647,8 @@ function showcase(){
       h+=`</div><div class="flex items-center gap-2">
         <span class="sc-fmeta">⏱ ${this.tempo(r)}${tempos.total_s!=null?` · modelo ${(+tempos.total_s).toFixed(1)}s`:''}</span>
         <span class="sc-chip" style="background:rgba(34,197,94,.12);color:#22c55e">só o modelo</span></div></div>`;
+      // ═══ ESTÁGIO DO CRÉDITO + LINHA DO TEMPO (jurimetria — inteligência do sistema) ═══
+      h += this.renderEstagio(r.estagio || {});
       // docs lidos — agregados por CLASSE (mostra a amplitude sem virar 50 chips)
       if(docs.length){
         const porClasse = {}; let ocrTot=0;
@@ -621,6 +707,9 @@ function showcase(){
           if(esp) h+=`<div class="sc-conf" style="margin-top:.15rem">espólio de ${this.esc(esp===true?'—':esp)}</div>`;
           const vr=this._valorReceber(p); const rec=this._recebido(p);
           const abstVal = p.valor_a_receber && p.valor_a_receber.abstido;
+          const stv = (p.valor_a_receber && p.valor_a_receber.status) || null;
+          if(stv){ const sc=this._statusValorCor(stv);
+            h+=`<div style="margin-top:.2rem"><span class="sc-stpill" style="background:${sc}22;color:${sc};border-color:${sc}55" title="situação do valor desta parte">${this.esc((p.valor_a_receber.status_rotulo)||stv)}</span></div>`; }
           if(vr!=null || rec.tem || p.saldo!=null || abstVal){
             h+=`<div class="sc-vals">
               <div class="sc-val"><span>a receber</span><b>${vr!=null? this.money(vr) : (abstVal? '<span class="sc-na" title="'+this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'sem evidência')+'">modelo absteve</span>':'<span class="sc-na">—</span>')}</b></div>
