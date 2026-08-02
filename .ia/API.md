@@ -163,3 +163,71 @@ Erros:
   "modelo_versao": "v5", "modelo_atualizado_em": "..."
 }
 ```
+
+## API Jusbrasil/Digesto-compat (Diários Oficiais)
+
+Endpoints compatíveis com a API Jusbrasil/Digesto de Diários Oficiais. Spec:
+https://api.jusbrasil.com.br/docs/diarios_oficiais/busca.html
+
+### Auth
+
+Aceita 3 formas (em ordem de precedência):
+1. `Authorization: Bearer <token>` — lookup em `ApiClient.api_key`
+2. `Authorization: Api-Key <key>` — padrão `rest_framework_api_key`
+3. `X-API-Key: <key>` — legacy leads
+
+### Endpoints
+
+| Método | Path | Descrição |
+|---|---|---|
+| POST | `/api/v1/diarios-oficiais/doc/buscar` | Busca textual (body = query DSL ES) |
+| GET | `/api/v1/diarios-oficiais/doc/get/<id>` | Detalhe de uma publicação |
+| GET | `/api/v1/diarios-oficiais/fontes_recortes` | Lista de diários cobertos |
+| GET | `/api/v1/monitoramento/proc/tipos_norm_andamentos_movs` | Tipos normalizados |
+| GET | `/api/v1/base-judicial/tribproc/status_cobertura?area=` | Cobertura por área |
+| POST/GET | `/api/monitoramento/monitored_term` | CRUD termos monitorados |
+| POST/GET | `/api/monitoramento/monitored_person` | CRUD pessoas monitoradas |
+| POST/GET | `/api/monitoramento/proc` | CRUD processos monitorados |
+| GET | `/api/monitoramento/detections` | Detecções recentes |
+
+### Busca (`POST /doc/buscar`)
+
+Body = query DSL Elasticsearch 7.14 (passthrough pro cluster). Response = envelope ES nativo (`took/hits/_shards`).
+
+```json
+{"from": 0, "size": 10, "query": {"query_string": {"query": "precatório"}}}
+```
+
+### Limitações
+
+- `prev_page`/`next_page`/`num_pag_original`: sempre `null` (DJEN não dá página do diário).
+- `proc_alt`/`proc_apens`: sempre `null` (não existe no Voyager).
+- Busca por comarca: não suportada (granularidade = tribunal).
+- `assunto_norm`: heurístico (cobertura parcial; `[]` quando incerto).
+- `cached_docurl`: disponível se PDF baixado (job async pós-ingestão).
+
+### MCP Server
+
+O Voyager também expõe um **MCP (Model Context Protocol) server** em `/mcp/`
+pra LLMs/agentes (Claude Desktop, Cursor, etc.) conversarem sobre processos.
+
+| Método | Path | Descrição |
+|---|---|---|
+| GET | `/mcp/.well-known/mcp.json` | Descriptor (tools, versão, auth) |
+| POST | `/mcp/` | Initialize (handshake) |
+| POST | `/mcp/messages` | JSON-RPC (`tools/list`, `tools/call`) |
+| GET | `/mcp/sse` | SSE stream (compat) |
+| POST | `/mcp/resources` | Resources (`resources/list`, `resources/read`) |
+
+Auth: `Authorization: Bearer <mcp_token>` (gerar via `python manage.py gerar_mcp_token <nome_cliente>`).
+
+12 tools disponíveis: `buscar_diarios`, `get_documento`, `get_processo`, `list_movimentacoes`,
+`get_partes`, `listar_fontes`, `status_cobertura`, `monitorar_termo`, `monitorar_processo`,
+`listar_detections`, `get_pdf`, `classificacao_lead` (gated por `MCP_ENABLE_CLASSIFICACAO`).
+
+Configuração Claude Desktop:
+```json
+{"mcpServers": {"voyager": {"url": "https://voyager.was.dev.br/mcp/sse", "token": "<mcp_token>"}}}
+```
+
+Plano completo de implementação: [`JUSBRASIL_COMPAT_PLANO.md`](JUSBRASIL_COMPAT_PLANO.md).

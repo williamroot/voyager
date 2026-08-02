@@ -304,3 +304,48 @@ services:
     deploy:
       replicas: 8
     restart: unless-stopped
+
+  # ---- Workers Jusbrasil-compat (ES indexação + PDF download) ----
+  # Adicionados 2026-08-01: Fase A-I do plano Jusbrasil-compat.
+  # Conectam no ES e MinIO da VM voyager-search (.105) via .env.
+
+  worker_es_index:
+    image: voyager-web:prod
+    command: python manage.py rqworker es_index
+    env_file: .env
+    volumes:
+      - .:/app
+    # Indexação ES é leve (1 doc por job, bulk via signal). 512m chega.
+    mem_limit: 512m
+    deploy:
+      # 8 réplicas — acompanha a ingestão DJEN (11M movs/dia).
+      # Se lag crescer (fila > 100k), escalar.
+      replicas: 8
+    restart: unless-stopped
+
+  worker_pdf_download:
+    image: voyager-web:prod
+    command: python manage.py rqworker pdf_download
+    env_file: .env
+    volumes:
+      - .:/app
+    # Download de PDFs (requests.get + save no MinIO). 512m chega.
+    mem_limit: 512m
+    deploy:
+      # 4 réplicas — não compete com a DJEN (cada PDF é 1 GET).
+      # Escalar se backlog de PDFs crescer.
+      replicas: 4
+    restart: unless-stopped
+
+  worker_monitoring:
+    image: voyager-web:prod
+    command: python manage.py rqworker monitoring
+    env_file: .env
+    volumes:
+      - .:/app
+    # Varredura ES + webhook delivery (HTTP POST). Leve.
+    mem_limit: 512m
+    deploy:
+      # 2 réplicas — varredura é diária, webhook delivery é esporádico.
+      replicas: 2
+    restart: unless-stopped

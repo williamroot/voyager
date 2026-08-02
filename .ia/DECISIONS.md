@@ -494,3 +494,27 @@ estrita (formato não era o problema); rotular partes por-processo com mais chun
 eram 92% do cru). Custo: pipeline de inferência passa a iterar por documento
 (mais chamadas/processo, mitigado por docs curtos) e ganha um estágio de merge.
 Registro completo: `.ia/MODELOS.md` + `.ia/FICHA_PARTE.md`.
+
+## ADR-028: Elasticsearch + MinIO pra API Jusbrasil-compat
+
+**Data**: 2026-08-01
+
+### Contexto
+A API Jusbrasil/Digesto usa Elasticsearch pra busca textual com query DSL 7.14.
+O Voyager usava busca híbrida Postgres (tsquery + ILIKE GIN trigram). Pra ser
+100% compatível, precisamos aceitar a query DSL nativa.
+
+### Decisão
+1. **Elasticsearch** dedicado (cluster novo) como índice de busca. Postgres
+   continua como source of truth; ES é write-through via signals (fila `es_index`).
+2. **MinIO** (S3-compat local) pra armazenar PDFs das movimentações
+   (`Movimentacao.link` → `cached_docurl`). Download async via RQ.
+3. **MCP server** exposto em `/mcp/` pra LLMs/agentes conversarem sobre processos
+   sem implementar HTTP. 12 tools + resources. Auth por `mcp_token` (UUID).
+4. **Sem busca por comarca**: granularidade = tribunal. Documentado.
+
+### Consequências
+- +2 containers (ES 4GB heap, MinIO 1GB).
+- Reindex backfill de ~600M movs pode levar dias (throttle + batch).
+- PDF storage cresce ~550MB/dia (política de retenção futura).
+- API de busca tem SPOF em single node ES (mitigar com cluster em prod).

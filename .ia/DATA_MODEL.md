@@ -408,6 +408,57 @@ Process ──< ClassificacaoShadowLog                             │
 Tribunal 1 ──< ThresholdTribunal  (versionado por versao_modelo)
 ```
 
+## FonteDiario
+
+Mapeamento `source_id` (Jusbrasil/Digesto) → `Tribunal`. Granularidade: 1 por
+tribunal (sem comarca). TJMG usa 1 source_id representativo.
+
+```python
+source_id      int          PK    1, 59, 60, ...
+tribunal        FK Tribunal  OneToOne
+diario_slug     char(64)           'dje-trf1', 'comunica', ...
+orgao_slug      char(64)           'trf1', 'tjsp', ...
+caderno_slug    char(64)           '' ou 'cad.2-2-inst'
+nome            char(200)          'TRF - 1ª Reg.'
+```
+
+## Movimentacao.assunto_norm
+
+Classificação normalizada Jusbrasil/Digesto: lista de tuplas `[tipo, subtipo]`.
+Populado por classificador heurístico (`tribunals/tipos_norm.py`). `[]` quando
+incerto (compat spec: "lista vazia quando não disponível").
+
+## ApiClient.mcp_token
+
+UUID opcional pra auth no MCP server. Gerado via `python manage.py gerar_mcp_token <nome>`.
+
+## PdfArquivo (`pdf_storage/models.py`)
+
+PDF de uma `Movimentacao` baixado e armazenado no MinIO.
+
+```python
+movimentacao    FK Movimentacao  OneToOne CASCADE
+arquivo         FileField         storage=MinIO
+tamanho_bytes   bigint
+hash_sha256     char(64)
+baixado_em      datetime
+status          char(10)          pendente|ok|erro
+erro            text
+tentativas      smallint
+```
+
+## Monitoramento (`monitoring/models.py`)
+
+```python
+MonitoredTerm    term, source_ids[], is_active, created_at
+MonitoredPerson  nome, documento, oab, tribunais[], is_monitored_diario, is_advogado, is_active
+MonitoredProcess cnj, tribunais[], is_active
+Detection        target_type (term|person|proc), target_id, movimentacao FK,
+                 snippet, detected_at, entregue_em, erro_entrega
+                 constraint: unique(target_type, target_id, movimentacao)
+WebhookConfig   cliente FK ApiClient, url, secret, evento_types[], is_active
+```
+
 ## Volume / espaço
 
 Com cobertura ~60% TRF1+TRF3 (2020-12 → 2024-10 + 2026 parcial):

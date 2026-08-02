@@ -36,6 +36,28 @@ voyager/
                   - templatetags/voyager_extras.py: relative_dt, format_int, type_classes,
                     query_string, is_in_list
                   - static/dashboard/: voyager-identity.css + favicon.svg + voyager-patch.svg
+├── search/        Elasticsearch — indexação write-through.
+│                 - client.py: singleton get_es() + index_name()
+│                 - mappings.py: mappings ES (movimentacoes, processos)
+│                 - documents.py: serialização ORM → doc ES (formato Jusbrasil)
+│                 - signals.py: post_save/post_delete → enqueue indexação
+│                 - jobs.py: indexar/desindexar (fila es_index)
+│                 - management/commands/: es_ensure_indexes, reindexar_*
+├── pdf_storage/   Download e armazenamento de PDFs no MinIO (cached_docurl).
+│                 - models.py: PdfArquivo (OneToOne Movimentacao, status)
+│                 - jobs.py: baixar_pdf (fila pdf_download, retry 3x)
+│                 - cached_docurl.py: helper URL do PDF
+│                 - management/commands/: ensure_minio_bucket, baixar_pdfs_pendentes
+├── monitoring/    Monitoramento push (webhook) — Jusbrasil/Digesto-compat.
+│                 - models.py: MonitoredTerm/Person/Process, Detection, WebhookConfig
+│                 - jobs.py: varredura_diaria (ES) + entregar_detection (HMAC)
+│                 - payload.py: build_recorte_payload (schema Jusbrasil)
+│                 - scheduler.py: cron 05:00
+├── mcp_server/    MCP (Model Context Protocol) server pra LLMs/agentes.
+│                 - server.py: HTTP/JSON-RPC 2.0 (12 tools, resources, SSE)
+│                 - delegates.py: lógica de cada tool (reusa api/ e search/)
+│                 - auth.py: mcp_token + rate limit (token-bucket Redis)
+│                 - management/commands/: gerar_mcp_token
 ```
 
 ## Containers (docker-compose)
@@ -51,6 +73,10 @@ scheduler         APScheduler (BlockingScheduler + ThreadPoolExecutor(20)).
                   enrichers, datajud, classificação. Warm jobs do dashboard rodam
                   INLINE no thread pool — sem fila RQ, sem worker externo.
 nginx             Reverse proxy + cache de /static/ + resolver dinâmico do Docker DNS
+elasticsearch   Elasticsearch 8.14 (single-node dev, cluster prod). Índice de busca
+                (write-through via signals). Source of truth continua no Postgres.
+minio           MinIO (S3-compat). Armazenamento de PDFs das movimentações
+                (cached_docurl). Bucket: voyager-pdfs.
 ```
 
 ## Fluxo de ingestão

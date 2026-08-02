@@ -1,0 +1,81 @@
+# Compose pra máquina dedicada de Elasticsearch + MinIO (voyager-search).
+#
+# Roda ES single-node + MinIO na MESMA VM — boa separação pra começar.
+# Separar em VMs distintas quando:
+#   - ES passar de ~30GB heap (cluster de 3 nodes)
+#   - MinIO bater em TB de PDFs (expansão de disco)
+#   - I/O do ES competir com I/O do MinIO
+#
+# Setup:
+#   1. Criar VM no Proxmox (ex: VMID 105, 32GB RAM, 200GB disco)
+#   2. Instalar Docker + Docker Compose
+#   3. Copiar este compose + .env pra VM
+#   4. docker compose -f docker-compose-search.yml up -d
+#   5. Nos hosts voyager (.103) e voyager-workers (.102):
+#      - Adicionar no .env:
+#        ELASTICSEARCH_URL=http://<IP_DA_VM_SEARCH>:9200
+#        MINIO_ENDPOINT=<IP_DA_VM_SEARCH>:9000
+#        MINIO_ACCESS_KEY=voyager
+#        MINIO_SECRET_KEY=<senha_forte>
+#      - force-recreate web/scheduler/workers
+#
+# Recursos:
+#   ES 8.14 single-node: 4GB heap (Xms4g -Xmx4g), ~8GB RAM total (heap + off-heap)
+#   MinIO: ~1GB RAM, cresce com nº de objetos
+#   Disco: ES ~1GB por 1M docs; MinIO ~50KB por PDF. Pra 600M movs: ES 600GB,
+#   MinIO 30TB (mas vamos baixar só ativos/recentes — ver pdf_storage jobs).
+#   Começar com 200GB disco; expandir conforme volume.
+#
+# Healthchecks:
+#   ES: curl http://localhost:9200/_cluster/health
+#   MinIO: curl http://localhost:9000/minio/health/ready
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms8g -Xmx8g
+      - cluster.name=voyager-es
+      - node.name=voyager-es-01
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: always
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-voyager}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-voyager123change}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: always
+
+volumes:
+  es_data:
+  minio_data:
