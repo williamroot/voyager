@@ -20,41 +20,43 @@ class Command(BaseCommand):
                             help='Pula serialização de partes (mais rápido pra backfill inicial).')
 
     def handle(self, *args, **options):
-        qs = Movimentacao.objects.all()
+        # Paginação por PK — não depende de server-side cursors (pgbouncer incompatível).
+        base_qs = Movimentacao.objects.all()
         if options['tribunal']:
-            qs = qs.filter(tribunal_id=options['tribunal'])
+            base_qs = base_qs.filter(tribunal_id=options['tribunal'])
         if options['desde']:
-            qs = qs.filter(data_disponibilizacao__gte=options['desde'])
-        if options['limit']:
-            qs = qs[:options['limit']]
+            base_qs = base_qs.filter(data_disponibilizacao__gte=options['desde'])
 
-        # Estima count via pg_class (COUNT(*) em 51M demora minutos).
-        total_estimado = _estimativa_count(qs)
+        total_estimado = _estimativa_count(base_qs)
         self.stdout.write(f'Reindexando ~{total_estimado:,} movimentações...')
 
         es = get_es()
         idx = index_name('movimentacoes')
         sem_partes = options.get('sem_partes', False)
-        actions = []
+        batch_size = options['batch_size']
+        limit = options['limit']
         enviados = 0
-        for mov in qs.iterator(chunk_size=options['batch_size']):
-            if sem_partes:
-                doc = movimentacao_to_doc_sem_partes(mov)
-            else:
-                doc = movimentacao_to_doc(mov)
-            actions.append({
-                '_index': idx,
-                '_id': mov.id,
-                '_source': doc,
-            })
-            if len(actions) >= options['batch_size']:
+        last_pk = 0
+
+        while True:
+            qs = base_qs.filter(id__gt=last_pk).order_by('id')[:batch_size]
+            batch = list(qs)
+            if not batch:
+                break
+            actions = []
+            for mov in batch:
+                if sem_partes:
+                    doc = movimentacao_to_doc_sem_partes(mov)
+                else:
+                    doc = movimentacao_to_doc(mov)
+                actions.append({'_index': idx, '_id': mov.id, '_source': doc})
+            if actions:
                 helpers.bulk(es, actions)
                 enviados += len(actions)
                 self.stdout.write(f'  {enviados:,} enviados...')
-                actions = []
-        if actions:
-            helpers.bulk(es, actions)
-            enviados += len(actions)
+            last_pk = batch[-1].id
+            if limit and enviados >= limit:
+                break
 
         self.stdout.write(self.style.SUCCESS(f'Reindexação concluída: {enviados:,} docs.'))
 
