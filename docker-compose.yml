@@ -33,10 +33,19 @@ services:
       target: runtime
     volumes:
       - .:/app
+      # staticfiles NÃO pode vir do bind ".:/app" — o host tem a pasta vazia e
+      # sombreava o staticfiles baked na imagem → {% static %} sem manifest →
+      # ValueError → 500 em TODA página. Volume nomeado (popula da imagem na 1ª
+      # criação, gravável pelo app, não é sombreado, persiste). nginx serve o mesmo.
+      - static:/app/staticfiles
     environment:
       PYTHONUNBUFFERED: "1"
+    # collectstatic no boot = auto-cura + pega mudanças de static a cada deploy.
+    # "|| true": se falhar (perm/etc), mantém o staticfiles da imagem no volume —
+    # NUNCA derruba o web por causa de static (gunicorn sempre sobe).
     command: >
       sh -c "python manage.py migrate --noinput &&
+             (python manage.py collectstatic --noinput || echo 'WARN: collectstatic falhou; usando staticfiles da imagem') &&
              gunicorn core.wsgi:application -b 0.0.0.0:8000 -w 4 -k gthread --threads 4 --access-logfile -"
     env_file: .env
     depends_on:
