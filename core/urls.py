@@ -23,6 +23,7 @@ urlpatterns = [
     path('django-rq/', include('django_rq.urls')),
     path('', include('django_prometheus.urls')),
     path('api/v1/', include('api.urls')),
+    path('mcp/', include('mcp_server.server')),
     path('dashboard/', include('dashboard.urls')),
     path('', include('accounts.urls')),
     path('favicon.ico', FaviconRedirect.as_view()),

@@ -24,3 +24,9 @@ ipdb
 colorlog
 pypdf==5.1.0
 weasyprint==63.1  # HTML→PDF do export da showcase (precisa libpango/cairo no Dockerfile)
+
+# Jusbrasil-compat (Fase A) — busca ES, PDFs no MinIO, MCP server.
+elasticsearch>=8.14,<9
+django-storages[s3]>=1.14
+boto3>=1.34
+mcp>=1.0

@@ -12,6 +12,7 @@ from .models import (
     ClassificacaoLog,
     ClassificacaoShadowLog,
     ClassificadorVersao,
+    FonteDiario,
     IngestionRun,
     LeadConsumption,
     Movimentacao,
@@ -248,3 +249,11 @@ class ThresholdTribunalAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return self._is_super(request)
+
+
+@admin.register(FonteDiario)
+class FonteDiarioAdmin(admin.ModelAdmin):
+    list_display = ('source_id', 'tribunal', 'nome', 'diario_slug', 'orgao_slug')
+    list_select_related = ('tribunal',)
+    search_fields = ('source_id', 'nome', 'tribunal__sigla')
+    ordering = ('source_id',)

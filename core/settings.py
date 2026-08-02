@@ -35,6 +35,11 @@ INSTALLED_APPS = [
     'api',
     'dashboard',
     'accounts',
+    # Jusbrasil-compat (Fase A) — busca ES, PDFs no MinIO, monitoramento, MCP.
+    'search',
+    'pdf_storage',
+    'monitoring',
+    'mcp_server',
 ]
 
 MIDDLEWARE = [
@@ -115,6 +120,9 @@ STORAGES = {
             'django.contrib.staticfiles.storage.StaticFilesStorage' if DEBUG
             else 'whitenoise.storage.CompressedManifestStaticFilesStorage'
         ),
+    },
+    'pdfs': {
+        'BACKEND': 'storages.backends.s3.S3Storage',
     },
 }
 # Tolera entries faltando no manifest — evita ValueError em runtime se algum
@@ -209,6 +217,13 @@ RQ_QUEUES = {
     # Isolado pra não competir com classificação/ingestão; volume em rajada
     # (catch-up de ~268k + reportes diários).
     'leads_consumo':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 1800,  **_RQ_CONN},
+    # Indexação Elasticsearch — write-through de Movimentacao/Process.
+    # Fila dedicada pra não competir com default/ingestion.
+    'es_index':       {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 120,  **_RQ_CONN},
+    # Download de PDFs da DJEN (Movimentacao.link → MinIO).
+    'pdf_download':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,  **_RQ_CONN},
+    # Monitoramento push — varredura diária + webhook delivery.
+    'monitoring':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,  **_RQ_CONN},
 
 }
 
@@ -336,6 +351,33 @@ IP_API_KEY = env('IP_API_KEY', default='')
 # container web); sobrescreva com ZORDON_URL no .env se o endereço mudar.
 ZORDON_URL = env('ZORDON_URL', default='http://100.116.189.18:8011')
 ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
+
+# Elasticsearch — cluster dedicado pra busca Jusbrasil-compat.
+# Source of truth continua no Postgres; ES é índice de busca (write-through).
+ELASTICSEARCH_URL = env('ELASTICSEARCH_URL', default='http://elasticsearch:9200')
+ELASTICSEARCH_INDEX_PREFIX = env('ELASTICSEARCH_INDEX_PREFIX', default='voyager')
+ES_TIMEOUT = env.int('ES_TIMEOUT', default=30)
+
+# MinIO — armazenamento de PDFs das movimentações (cached_docurl).
+# S3-compatível local; django-storages fala com ele via boto3.
+MINIO_ENDPOINT = env('MINIO_ENDPOINT', default='minio:9000')
+MINIO_ACCESS_KEY = env('MINIO_ACCESS_KEY', default='voyager')
+MINIO_SECRET_KEY = env('MINIO_SECRET_KEY', default='voyager123')
+MINIO_BUCKET_PDFS = env('MINIO_BUCKET_PDFS', default='voyager-pdfs')
+MINIO_USE_SSL = env.bool('MINIO_USE_SSL', default=False)
+# django-storages S3 backend aponta pro MinIO.
+AWS_S3_ENDPOINT_URL = env('AWS_S3_ENDPOINT_URL', default=f'http{"s" if MINIO_USE_SSL else ""}://{MINIO_ENDPOINT}')
+AWS_ACCESS_KEY_ID = MINIO_ACCESS_KEY
+AWS_SECRET_ACCESS_KEY = MINIO_SECRET_KEY
+AWS_STORAGE_BUCKET_NAME = MINIO_BUCKET_PDFS
+AWS_S3_FILE_OVERWRITE = False
+AWS_QUERYSTRING_EXPIRE = 604800  # 7 dias — presigned URL expira em 1 semana.
+
+# MCP server — Model Context Protocol pra LLMs/agentes conversarem sobre processos.
+# Transport SSE em /mcp/sse; auth via ApiClient.mcp_token (UUID).
+MCP_RATE_LIMIT_RPM = env.int('MCP_RATE_LIMIT_RPM', default=60)
+# Gate: se True, expõe a tool classificacao_lead (score de ML). Default off.
+MCP_ENABLE_CLASSIFICACAO = env.bool('MCP_ENABLE_CLASSIFICACAO', default=False)
 
 # Showcase do Extrator (/dashboard/ia/showcase/) — URLs por VERSÃO do modelo,
 # cada uma a raiz de um SDK standalone (FastAPI) servido num pod (extração 100%

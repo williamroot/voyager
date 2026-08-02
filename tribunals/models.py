@@ -389,6 +389,11 @@ class Movimentacao(models.Model):
     data_cancelamento = models.DateTimeField(null=True, blank=True)
     motivo_cancelamento = models.TextField(blank=True)
 
+    # Classificação normalizada Jusbrasil/Digesto: lista de tuplas [tipo, subtipo].
+    # Populado por classificador heurístico (tribunals/tipos_norm.py).
+    # [] quando não classificável (compat spec: "lista vazia quando não disponível").
+    assunto_norm = models.JSONField(default=list, blank=True)
+
     search_vector = SearchVectorField(null=True)
 
     class Meta:
@@ -519,6 +524,7 @@ class ApiClient(models.Model):
     """Cliente externo que consome a API de leads (ex: Juriscope)."""
     nome = models.CharField(max_length=64, unique=True)
     api_key = models.CharField(max_length=64, unique=True, db_index=True)
+    mcp_token = models.UUIDField(null=True, blank=True, unique=True, editable=False)
     ativo = models.BooleanField(default=True)
     criado_em = models.DateTimeField(auto_now_add=True)
     notas = models.TextField(blank=True)
@@ -885,3 +891,27 @@ class ThresholdTribunal(models.Model):
 
     def __str__(self):
         return f'{self.tribunal_id}/{self.versao_modelo}'
+
+
+class FonteDiario(models.Model):
+    """Mapeamento entre source_id (Jusbrasil/Digesto) e Tribunal do Voyager.
+
+    Granularidade: 1 FonteDiario por tribunal (NÃO por comarca).
+    TJMG no Jusbrasil tem 1 source_id por comarca — aqui usamos 1
+    source_id representativo pra TJMG inteiro (limitação documentada).
+    """
+
+    source_id = models.IntegerField(primary_key=True)
+    tribunal = models.OneToOneField(
+        Tribunal, on_delete=models.CASCADE, related_name='fonte_diario',
+    )
+    diario_slug = models.CharField(max_length=64)    # 'dje-trf1', 'comunica', ...
+    orgao_slug = models.CharField(max_length=64)     # 'trf1', 'tjsp', ...
+    caderno_slug = models.CharField(max_length=64, blank=True)
+    nome = models.CharField(max_length=200)         # 'TRF - 1ª Reg.'
+
+    class Meta:
+        ordering = ['source_id']
+
+    def __str__(self):
+        return f'{self.source_id} · {self.nome}'

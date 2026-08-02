@@ -320,4 +320,10 @@ def create_scheduler() -> BlockingScheduler:
         )
         logger.info('agendado gerar_lotes_semanais_fn (dom 02:00)')
 
+    # Monitoramento (Fase F) — varredura diária 05:00 inline.
+    # Idempotente (constraint unique em Detection), cria detections e
+    # enfileira entregas webhook na fila 'monitoring'.
+    from monitoring.scheduler import register_monitoring_jobs
+    register_monitoring_jobs(scheduler)
+
     return scheduler
