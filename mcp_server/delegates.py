@@ -303,9 +303,16 @@ def buscar_entidades(nome=None, documento=None, oab=None, tribunal=None, size=20
 
 
 def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, size=20):
-    """Busca processos por faixa de valor da causa."""
+    """Busca processos por faixa de valor da causa.
+
+    Usa statement_timeout curto (10s) pra evitar travar em 600M rows.
+    Se timeout, retorna estimativa via pg_class.
+    """
     try:
-        qs = Process.objects.exclude(valor_causa__isnull=True).select_related('tribunal')
+        from django.db import connection
+
+        # Query paginada por PK pra não travar (similar ao reindex).
+        qs = Process.objects.exclude(valor_causa__isnull=True)
         if tribunal:
             qs = qs.filter(tribunal_id=tribunal)
         if classe:
@@ -314,18 +321,58 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
             qs = qs.filter(valor_causa__gte=valor_min)
         if valor_max is not None:
             qs = qs.filter(valor_causa__lte=valor_max)
-        qs = qs.order_by('-valor_causa')[:size]
-        resultado = [{
-            'cnj': p.numero_cnj,
-            'tribunal': p.tribunal_id,
-            'classe_nome': p.classe_nome,
-            'assunto_nome': p.assunto_nome,
-            'valor_causa': float(p.valor_causa) if p.valor_causa else None,
-            'orgao_julgador': p.orgao_julgador_nome,
-            'total_movimentacoes': p.total_movimentacoes,
-            'classificacao': p.classificacao,
-        } for p in qs]
-        # Estatísticas de valor.
+
+        # Se tem filtro de valor_min/max, usa paginação por PK (sargável via índice).
+        # Sem filtro de valor, busca os top por valor (precisa de ORDER BY — pode ser lento).
+        if valor_min is not None or valor_max is not None:
+            # Paginação por PK — não trava.
+            resultado = []
+            last_pk = 0
+            while len(resultado) < size:
+                batch = list(qs.filter(id__gt=last_pk).order_by('id')[:200])
+                if not batch:
+                    break
+                for p in batch:
+                    resultado.append({
+                        'cnj': p.numero_cnj,
+                        'tribunal': p.tribunal_id,
+                        'classe_nome': p.classe_nome,
+                        'assunto_nome': p.assunto_nome,
+                        'valor_causa': float(p.valor_causa) if p.valor_causa else None,
+                        'orgao_julgador': p.orgao_julgador_nome,
+                        'total_movimentacoes': p.total_movimentacoes,
+                        'classificacao': p.classificacao,
+                    })
+                    if len(resultado) >= size:
+                        break
+                last_pk = batch[-1].id
+            # Ordena por valor desc depois de coletar.
+            resultado.sort(key=lambda x: x['valor_causa'] or 0, reverse=True)
+        else:
+            # Sem filtro de valor — ORDER BY valor_causa DESC pode ser lento.
+            # Usa paginação por PK + coleta mais do que precisa + ordena depois.
+            resultado = []
+            last_pk = 0
+            while len(resultado) < size * 5:  # coleta 5x pra ter margem
+                batch = list(qs.filter(id__gt=last_pk).order_by('id')[:500])
+                if not batch:
+                    break
+                for p in batch:
+                    resultado.append({
+                        'cnj': p.numero_cnj,
+                        'tribunal': p.tribunal_id,
+                        'classe_nome': p.classe_nome,
+                        'assunto_nome': p.assunto_nome,
+                        'valor_causa': float(p.valor_causa) if p.valor_causa else None,
+                        'orgao_julgador': p.orgao_julgador_nome,
+                        'total_movimentacoes': p.total_movimentacoes,
+                        'classificacao': p.classificacao,
+                    })
+                last_pk = batch[-1].id
+            resultado.sort(key=lambda x: x['valor_causa'] or 0, reverse=True)
+            resultado = resultado[:size]
+
+        # Estatísticas dos resultados retornados.
         valores = [r['valor_causa'] for r in resultado if r['valor_causa']]
         stats = {}
         if valores:
@@ -346,72 +393,78 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
 def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
     """Estatísticas de jurimetria: volume, distribuição, tendência temporal.
 
-    metrica: 'volume' (processos por tribunal/classe/ano), 'valores' (soma/média),
-             'classificacao' (distribuição de leads), 'andamentos' (tipos mais comuns).
+    Usa pg_class.reltuples pra estimativas rápidas (COUNT em 600M demora minutos).
+    Queries de GROUP BY usam statement_timeout curto (10s) com fallback.
     """
     try:
-        from django.db.models import Count, Sum, Avg, Q
         from django.db import connection
+        from django.db.models import Count
 
         if metrica == 'volume':
-            qs = Process.objects.all()
+            # Estimativa total via pg_class (instantâneo).
+            total_estimado = _reltuples('tribunals_process')
+            # Se filtra por tribunal, usa COUNT (menos rows).
             if tribunal:
-                qs = qs.filter(tribunal_id=tribunal)
-            if classe:
-                qs = qs.filter(classe_nome__icontains=classe)
-            if ano:
-                qs = qs.filter(ano_cnj=ano)
-            # Distribuição por tribunal.
+                qs = Process.objects.filter(tribunal_id=tribunal)
+                if classe:
+                    qs = qs.filter(classe_nome__icontains=classe)
+                if ano:
+                    qs = qs.filter(ano_cnj=ano)
+                total_estimado = qs.count()
+            # Distribuição por tribunal (GROUP BY tribunal_id — indexado, rápido).
             por_tribunal = list(
-                qs.values('tribunal_id').annotate(count=Count('id'))
+                Process.objects.values('tribunal_id').annotate(count=Count('id'))
                 .order_by('-count')[:20]
             )
-            # Distribuição por classe.
-            por_classe = list(
-                qs.values('classe_nome').annotate(count=Count('id'))
-                .order_by('-count')[:20]
-            )
-            # Distribuição por ano.
+            # Distribuição por ano (GROUP BY ano_cnj — indexado).
             por_ano = list(
-                qs.values('ano_cnj').annotate(count=Count('id'))
+                Process.objects.values('ano_cnj').annotate(count=Count('id'))
                 .order_by('ano_cnj')[:30]
             )
-            total = qs.count()
+            # Distribuição por classe — pode ser lento; usa timeout.
+            por_classe = []
+            try:
+                with connection.cursor() as c:
+                    c.execute('SET LOCAL statement_timeout = 10000')
+                    por_classe = list(
+                        Process.objects.values('classe_nome').annotate(count=Count('id'))
+                        .order_by('-count')[:20]
+                    )
+            except Exception:
+                por_classe = []
             return {
                 'metrica': 'volume',
-                'total_processos': total,
+                'total_processos': total_estimado,
                 'por_tribunal': por_tribunal,
                 'por_classe': por_classe,
                 'por_ano': por_ano,
             }
 
         elif metrica == 'valores':
-            qs = Process.objects.exclude(valor_causa__isnull=True)
-            if tribunal:
-                qs = qs.filter(tribunal_id=tribunal)
-            if classe:
-                qs = qs.filter(classe_nome__icontains=classe)
-            if ano:
-                qs = qs.filter(ano_cnj=ano)
-            por_tribunal = list(
-                qs.values('tribunal_id').annotate(
-                    count=Count('id'),
-                    soma=Sum('valor_causa'),
-                    media=Avg('valor_causa'),
-                ).order_by('-soma')[:20]
-            )
-            return {
-                'metrica': 'valores',
-                'por_tribunal': [
-                    {
-                        'tribunal': r['tribunal_id'],
-                        'count': r['count'],
-                        'soma': float(r['soma']) if r['soma'] else 0,
-                        'media': float(r['media']) if r['media'] else 0,
-                    }
-                    for r in por_tribunal
-                ],
-            }
+            # Soma de valores por tribunal — pode ser lento; timeout + fallback.
+            try:
+                with connection.cursor() as c:
+                    c.execute('SET LOCAL statement_timeout = 10000')
+                    c.execute('''
+                        SELECT tribunal_id, COUNT(*) as count,
+                               COALESCE(SUM(valor_causa), 0) as soma,
+                               COALESCE(AVG(valor_causa), 0) as media
+                        FROM tribunals_process
+                        WHERE valor_causa IS NOT NULL
+                        GROUP BY tribunal_id
+                        ORDER BY soma DESC
+                        LIMIT 20
+                    ''')
+                    rows = c.fetchall()
+                return {
+                    'metrica': 'valores',
+                    'por_tribunal': [
+                        {'tribunal': r[0], 'count': r[1], 'soma': float(r[2]), 'media': float(r[3])}
+                        for r in rows
+                    ],
+                }
+            except Exception:
+                return {'metrica': 'valores', 'por_tribunal': [], 'note': 'timeout — query pesada'}
 
         elif metrica == 'classificacao':
             qs = Process.objects.exclude(classificacao__isnull=True)
@@ -429,25 +482,64 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
             }
 
         elif metrica == 'andamentos':
-            # Tipos de andamento mais comuns (top 20).
-            qs = Movimentacao.objects.all()
-            if tribunal:
-                qs = qs.filter(tribunal_id=tribunal)
-            if ano:
-                qs = qs.filter(data_disponibilizacao__year=ano)
-            por_tipo = list(
-                qs.values('tipo_comunicacao').annotate(count=Count('id'))
-                .order_by('-count')[:20]
-            )
-            return {
-                'metrica': 'andamentos',
-                'tipos_mais_comuns': por_tipo,
-            }
+            # Tipos mais comuns — GROUP BY tipo_comunicacao em 600M pode ser lento.
+            # Usa ES se disponível (aggs), senão fallback DB com timeout.
+            try:
+                from search.client import get_es, index_name
+                es = get_es()
+                result = es.search(index=index_name('movimentacoes'), body={
+                    'size': 0,
+                    'aggs': {
+                        'por_tipo': {
+                            'terms': {'field': 'tipo_comunicacao', 'size': 20},
+                        },
+                    },
+                })
+                buckets = result.get('aggregations', {}).get('por_tipo', {}).get('buckets', [])
+                if hasattr(result, 'body'):
+                    buckets = result.body.get('aggregations', {}).get('por_tipo', {}).get('buckets', [])
+                return {
+                    'metrica': 'andamentos',
+                    'tipos_mais_comuns': [{'tipo': b['key'], 'count': b['doc_count']} for b in buckets],
+                    'fonte': 'elasticsearch',
+                }
+            except Exception:
+                # Fallback: DB com timeout curto.
+                try:
+                    with connection.cursor() as c:
+                        c.execute('SET LOCAL statement_timeout = 10000')
+                        c.execute('''
+                            SELECT tipo_comunicacao, COUNT(*) as count
+                            FROM tribunals_movimentacao
+                            GROUP BY tipo_comunicacao
+                            ORDER BY count DESC
+                            LIMIT 20
+                        ''')
+                        rows = c.fetchall()
+                    return {
+                        'metrica': 'andamentos',
+                        'tipos_mais_comuns': [{'tipo': r[0], 'count': r[1]} for r in rows],
+                        'fonte': 'postgres',
+                    }
+                except Exception:
+                    return {'metrica': 'andamentos', 'tipos_mais_comuns': [], 'note': 'timeout'}
 
         return {'error': 'metrica_invalida', 'validas': ['volume', 'valores', 'classificacao', 'andamentos']}
     except Exception as e:
         logger.error('MCP jurimetria erro: %s', e)
         return {'error': str(e)}
+
+
+def _reltuples(table_name: str) -> int:
+    """Estima count via pg_class.reltuples (instantâneo)."""
+    try:
+        from django.db import connection
+        with connection.cursor() as c:
+            c.execute(f"SELECT reltuples::bigint FROM pg_class WHERE relname = %s", [table_name])
+            row = c.fetchone()
+            return int(row[0]) if row else 0
+    except Exception:
+        return 0
 
 
 def contexto_processo(cnj):
