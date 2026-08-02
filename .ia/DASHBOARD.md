@@ -418,6 +418,64 @@ Fluxo **scheduler → cache → página** (a frota vive no Zordon, fora do Voyag
   `warm_vetorizacao_fleet` do Voyager cacheia o payload inteiro — o bloco
   `extracao` flui sem mudança em `tasks.py`.
 
+## Showcase do Extrator — upload em chunks + extração assíncrona
+
+A tela `/dashboard/ia/showcase/` sobe um PDF/ZIP dos autos e mostra a ficha
+extraída on-device pelo pod. **O upload é em CHUNKS + extração ASSÍNCRONA** —
+substituiu o POST síncrono que estourava no Cloudflare (body 100 MB / timeout
+~100s) em arquivo grande. Aguenta ~1 GB.
+
+**Por quê:** `voyager.was.dev.br` passa por Cloudflare Tunnel. Fatiar em chunks de
+8 MB (cada `POST` << 100 MB) e devolver `job_id` na hora (`finish` < 2s, nunca
+segura o request longo) contorna os dois tetos. A extração roda num worker.
+
+**Módulos:** `dashboard/showcase_chunks.py` (views de upload/job) +
+`dashboard/showcase_jobs.py` (job RQ) + `dashboard/showcase_proxy.py`
+(`extrair_no_pod` — chamada ao pod, compartilhada com o endpoint síncrono legado).
+
+| Método | URL | name | Corpo | Resposta |
+|---|---|---|---|---|
+| POST | `/dashboard/api/showcase/upload/init/` | `dashboard:showcase-upload-init` | `{filename,size,total_chunks,content_type}` | `{upload_id}` |
+| POST | `/dashboard/api/showcase/upload/chunk/<upload_id>/<idx>/` | `dashboard:showcase-upload-chunk` | bytes crus do chunk (+ header `X-Chunk-MD5`) | `{ok,idx,bytes,recebidos,total}` |
+| POST | `/dashboard/api/showcase/upload/finish/<upload_id>/` | `dashboard:showcase-upload-finish` | `{versao}` **ou** `{versoes:[...]}` (+ `sha256` opcional) | `{jobs:{<versao>:<job_id>}}` |
+| GET | `/dashboard/api/showcase/job/<job_id>/` | `dashboard:showcase-job` | — | `{status,etapa,progresso,resultado?,erro?}` |
+
+- **Cliente (Alpine, `showcase.html`):** `File.slice` em chunks de 8 MB, envio com
+  **concorrência 4** + **retry com backoff** + md5 por-chunk (`md5FromBuffer`, MD5
+  inline — Web Crypto não tem MD5) + sha256 do arquivo inteiro (`crypto.subtle`).
+  Barra rica (`X/N chunks · MB · MB/s`). Poll a cada 2s até `done|erro`; quando
+  `done`, o `resultado` é a MESMA forma do endpoint síncrono → **`renderFicha`
+  intocado**. Compare = 1 job por versão, poll em paralelo.
+- **Servidor:** `@login_required @csrf_exempt` (padrão do `showcase_extrair`).
+  Chunks gravados em **streaming** (nunca em RAM) em `SHOWCASE_UPLOAD_DIR`
+  (default `media/showcase_uploads/<upload_id>/chunk_<idx>`; `media/` é
+  gitignored). `finish` **valida integridade** (contagem de chunks + tamanho
+  total + hashes), monta o arquivo único (streaming), **enfileira** o job e
+  devolve `job_id`. Guarda de path-traversal: `<upload_id>`/`<job_id>` só UUID.
+  Limites: `SHOWCASE_MAX_UPLOAD_BYTES` (2 GB), `SHOWCASE_MAX_CHUNKS` (4096).
+- **Job/fila:** roda na fila **`manual`** (`worker_manual`, `.103` — MESMO host do
+  `web`, ambos bind-montam o repo em `/app` → o worker enxerga os chunks
+  montados). `job_timeout=3600s` (pod pode demorar em doc grande). **Decisão de
+  fila:** reusar `manual` (já existe, já roda no `.103`, alta prioridade p/
+  cliques on-demand) em vez de criar fila nova — zero mudança de compose no
+  caminho feliz. Overridable via `SHOWCASE_QUEUE`.
+- **Estado do job:** hash no cache Redis keyed por `job_id` (`set_job_state`),
+  TTL 1h — sobrevive à limpeza do registry do RQ, polling barato sem tocar o DB.
+- **Cleanup:** o diretório do upload é apagado após o ÚLTIMO job (no compare, só o
+  job que fecha o lote apaga, pra não puxar o arquivo dos outros). TTL do meta 6h.
+- **Compat:** o endpoint síncrono `showcase_extrair` **continua vivo** (fallback);
+  ambos passam por `extrair_no_pod` (ponto único da chamada ao pod).
+- **LOGS RICOS** (`voyager.showcase`, formato greppável): `evt=init|chunk|assembly|
+  enqueued|job_start|pod_ok|job_done|cleanup|*_error` com `upload_id`, `job_id`,
+  `idx/total`, bytes, `dt`, MB/s, tamanho da resposta, nº de fichas/docs. Abrir
+  `docker logs web` (upload/assembly) e `worker_manual` (job/pod) e ver onde
+  travou. Ex.: `[showcase upload_id=… evt=chunk idx=3/128 bytes=8388608 dt=0.42s 19.1MB/s recebidos=4/128]`.
+- **Deploy:** toca `dashboard/**` + `urls.py` + o job que roda no `worker_manual` →
+  **rebuild web + rebuild/restart do `worker_manual`** no `.103` (não é hot-deploy
+  puro — o worker precisa do código novo do job). Sem migration, sem `.102`.
+- Testes: `tests/test_showcase_chunks.py` (integridade, rejeições, job com pod
+  mockado, guarda de traversal).
+
 ## Showcase do Extrator — exportar a análise (MD/PDF/JSON)
 
 A tela `/dashboard/ia/showcase/` extrai a ficha on-device (proxy pro pod em
