@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.db import connection
 
 from elasticsearch import helpers
 
@@ -17,7 +18,7 @@ class Command(BaseCommand):
         parser.add_argument('--batch-size', type=int, default=1000, help='Tamanho do bulk.')
 
     def handle(self, *args, **options):
-        qs = Movimentacao.objects.select_related('processo', 'tribunal').all()
+        qs = Movimentacao.objects.all()
         if options['tribunal']:
             qs = qs.filter(tribunal_id=options['tribunal'])
         if options['desde']:
@@ -25,12 +26,14 @@ class Command(BaseCommand):
         if options['limit']:
             qs = qs[:options['limit']]
 
-        total = qs.count()
-        self.stdout.write(f'Reindexando {total:,} movimentações...')
+        # Estima count via pg_class (COUNT(*) em 51M demora minutos).
+        total_estimado = _estimativa_count(qs)
+        self.stdout.write(f'Reindexando ~{total_estimado:,} movimentações...')
 
         es = get_es()
         idx = index_name('movimentacoes')
         actions = []
+        enviados = 0
         for mov in qs.iterator(chunk_size=options['batch_size']):
             doc = movimentacao_to_doc(mov)
             actions.append({
@@ -40,9 +43,22 @@ class Command(BaseCommand):
             })
             if len(actions) >= options['batch_size']:
                 helpers.bulk(es, actions)
-                self.stdout.write(f'  {len(actions)} enviados...')
+                enviados += len(actions)
+                self.stdout.write(f'  {enviados:,} enviados...')
                 actions = []
         if actions:
             helpers.bulk(es, actions)
+            enviados += len(actions)
 
-        self.stdout.write(self.style.SUCCESS(f'Reindexação concluída: {total:,} docs.'))
+        self.stdout.write(self.style.SUCCESS(f'Reindexação concluída: {enviados:,} docs.'))
+
+
+def _estimativa_count(qs) -> int:
+    """Estima count via pg_class.reltuples (instantâneo) em vez de COUNT(*)."""
+    try:
+        with connection.cursor() as c:
+            c.execute("SELECT reltuples::bigint FROM pg_class WHERE relname = 'tribunals_movimentacao'")
+            row = c.fetchone()
+            return int(row[0]) if row else 0
+    except Exception:
+        return 0
