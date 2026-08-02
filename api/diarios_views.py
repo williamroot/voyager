@@ -54,6 +54,12 @@ def diario_buscar(request):
         es_body.setdefault('size', size)
         result = es.search(index=index_name('movimentacoes'), body=es_body)
 
+        # Converte pra dict puro (ES 8 retorna AttrDict que JsonResponse não serializa).
+        if hasattr(result, 'body'):
+            result = dict(result.body)
+        elif not isinstance(result, dict):
+            result = dict(result)
+
         # Injeta _type em cada hit (ES 8 não retorna _type).
         for hit in result.get('hits', {}).get('hits', []):
             hit.setdefault('_type', '_doc')
@@ -85,6 +91,12 @@ def diario_get(request, doc_id: int):
             {'error': 'elasticsearch_unavailable', 'detail': str(e)},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
+
+    # Converte pra dict puro (ES 8 retorna AttrDict).
+    if hasattr(result, 'body'):
+        result = dict(result.body)
+    elif not isinstance(result, dict):
+        result = dict(result)
 
     if result.get('found', False):
         source = result['_source']
