@@ -20,7 +20,7 @@ class Command(BaseCommand):
                             help='Pula serialização de partes (mais rápido pra backfill inicial).')
 
     def handle(self, *args, **options):
-        qs = Movimentacao.objects.select_related('processo', 'tribunal').all()
+        qs = Movimentacao.objects.all()
         if options['tribunal']:
             qs = qs.filter(tribunal_id=options['tribunal'])
         if options['desde']:
