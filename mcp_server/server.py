@@ -147,6 +147,82 @@ TOOLS = [
             'required': ['cnj'],
         },
     },
+    {
+        'name': 'buscar_entidades',
+        'description': 'Busca processos por entidade (parte, advogado, pessoa física/jurídica) via nome, '
+                       'documento (CPF/CNPJ) ou OAB. Retorna processos + estatísticas agregadas.',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'nome': {'type': 'string', 'description': 'Nome da parte (parcial, case-insensitive)'},
+                'documento': {'type': 'string', 'description': 'CPF ou CNPJ (parcial)'},
+                'oab': {'type': 'string', 'description': 'Número OAB (ex: SP123456)'},
+                'tribunal': {'type': 'string', 'description': 'Filtrar por tribunal (ex: TRF1) — opcional'},
+                'size': {'type': 'integer', 'default': 20, 'description': 'Máximo de processos'},
+            },
+        },
+    },
+    {
+        'name': 'buscar_valores',
+        'description': 'Busca processos por faixa de valor da causa. Retorna processos ordenados por valor '
+                       'decrescente + estatísticas (soma, média, mediana, min, max).',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'tribunal': {'type': 'string', 'description': 'Filtrar por tribunal — opcional'},
+                'classe': {'type': 'string', 'description': 'Filtrar por classe processual (parcial) — opcional'},
+                'valor_min': {'type': 'number', 'description': 'Valor mínimo da causa — opcional'},
+                'valor_max': {'type': 'number', 'description': 'Valor máximo da causa — opcional'},
+                'size': {'type': 'integer', 'default': 20, 'description': 'Máximo de processos'},
+            },
+        },
+    },
+    {
+        'name': 'jurimetria',
+        'description': 'Estatísticas de jurimetria: volume de processos, distribuição por tribunal/classe/ano, '
+                       'valores, classificação de leads, tipos de andamentos mais comuns.',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'tribunal': {'type': 'string', 'description': 'Filtrar por tribunal — opcional'},
+                'classe': {'type': 'string', 'description': 'Filtrar por classe — opcional'},
+                'ano': {'type': 'integer', 'description': 'Filtrar por ano CNJ — opcional'},
+                'metrica': {
+                    'type': 'string',
+                    'enum': ['volume', 'valores', 'classificacao', 'andamentos'],
+                    'default': 'volume',
+                    'description': 'Tipo de estatística: volume (processos), valores (causa), classificacao (leads), andamentos (tipos)',
+                },
+            },
+        },
+    },
+    {
+        'name': 'contexto_processo',
+        'description': 'Dossiê completo de um processo: dados cadastrais, partes (polo ativo/passivo/outros), '
+                       'últimas 10 movimentações, timeline anual, classificação de lead, valor da causa, '
+                       'órgão julgador, enriquecimento. Use para dar contexto jurídico completo sobre um processo.',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'cnj': {'type': 'string', 'description': 'Número CNJ do processo'},
+            },
+            'required': ['cnj'],
+        },
+    },
+    {
+        'name': 'buscar_por_parte',
+        'description': 'Busca processos por nome de parte (pessoa/empresa) e retorna estatísticas da parte: '
+                       'quantos processos, em quais tribunais, em qual polo (ativo/passivo), valores, classificação.',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'nome': {'type': 'string', 'description': 'Nome da parte (parcial, case-insensitive, mín 3 chars)'},
+                'tribunal': {'type': 'string', 'description': 'Filtrar por tribunal — opcional'},
+                'size': {'type': 'integer', 'default': 20, 'description': 'Máximo de processos por parte'},
+            },
+            'required': ['nome'],
+        },
+    },
 ]
 
 TOOL_MAP = {
@@ -162,6 +238,11 @@ TOOL_MAP = {
     'listar_detections': delegates.listar_detections,
     'get_pdf': delegates.get_pdf,
     'classificacao_lead': delegates.classificacao_lead,
+    'buscar_entidades': delegates.buscar_entidades,
+    'buscar_valores': delegates.buscar_valores,
+    'jurimetria': delegates.jurimetria,
+    'contexto_processo': delegates.contexto_processo,
+    'buscar_por_parte': delegates.buscar_por_parte,
 }
 
 
@@ -324,6 +405,10 @@ RESOURCES = {
         'template': 'voyager://fontes',
         'description': 'Lista de fontes/diários cobertos',
     },
+    'contexto_processo': {
+        'template': 'voyager://contexto/{cnj}',
+        'description': 'Dossiê completo de um processo (partes, valores, movimentações, jurimetria)',
+    },
 }
 
 
@@ -374,6 +459,13 @@ def mcp_resources(request):
                 'jsonrpc': '2.0',
                 'id': msg_id,
                 'result': {'contents': [{'uri': uri, 'text': json.dumps(delegates.listar_fontes(), default=str)}]},
+            })
+        if uri.startswith('voyager://contexto/'):
+            cnj = uri.split('/')[-1]
+            return JsonResponse({
+                'jsonrpc': '2.0',
+                'id': msg_id,
+                'result': {'contents': [{'uri': uri, 'text': json.dumps(delegates.contexto_processo(cnj), default=str)}]},
             })
 
     return JsonResponse({
