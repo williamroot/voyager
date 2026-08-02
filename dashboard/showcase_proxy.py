@@ -19,6 +19,7 @@ Cada ``url`` é a raiz do SDK (FastAPI): ``POST {url}/extrair`` (multipart
 """
 from __future__ import annotations
 
+import logging
 import time
 
 import requests
@@ -27,6 +28,62 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
+
+logger = logging.getLogger("voyager.showcase")
+
+
+def extrair_no_pod(versao: str, fileobj, filename: str, content_type: str | None,
+                   *, timeout: int = 900) -> tuple[dict, int]:
+    """Chama o pod ``{url}/extrair`` da versão e devolve ``(payload_normalizado,
+    http_status)`` — a MESMA forma que o endpoint síncrono retornava (contrato
+    intocado). ``fileobj`` é um file-like aberto em modo binário (streaming, não
+    carrega em RAM). Compartilhado entre o proxy síncrono e o job assíncrono de
+    chunks — ponto único de verdade da chamada ao pod.
+
+    Nunca levanta: erros viram ``({"erro": ...}, status)`` pra o chamador
+    repassar/registrar. Loga latência, tamanho da resposta e nº de fichas/docs.
+    """
+    cfg = (getattr(settings, "SHOWCASE_MODELOS", {}) or {}).get(versao)
+    if not cfg or not cfg.get("url"):
+        return ({"erro": f"modelo '{versao}' indisponível (pod não configurado)",
+                 "versao": versao, "indisponivel": True}, 503)
+    base = cfg["url"].rstrip("/")
+    files = {"files": (filename, fileobj, content_type or "application/pdf")}
+    t0 = time.monotonic()
+    try:
+        r = requests.post(f"{base}/extrair", files=files, timeout=timeout)
+    except requests.RequestException as e:
+        logger.error("[showcase evt=pod_error versao=%s file=%s err=%s]",
+                     versao, filename, str(e)[:160])
+        return ({"erro": "pod do modelo fora do ar", "detalhe": str(e)[:120],
+                 "versao": versao, "indisponivel": True}, 502)
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    resp_bytes = len(r.content or b"")
+    try:
+        payload = r.json()
+    except ValueError:
+        logger.error("[showcase evt=pod_bad_json versao=%s http=%s bytes=%d]",
+                     versao, r.status_code, resp_bytes)
+        return ({"erro": "resposta inválida do modelo", "versao": versao}, 502)
+    _p = payload if isinstance(payload, dict) else {}
+    out = {
+        "versao": versao,
+        "label": cfg.get("label", versao),
+        "elapsed_ms": elapsed_ms,                       # round-trip (rede + modelo)
+        "tempos": _p.get("tempos") or {},               # tempo REAL do modelo
+        "fichas": _p.get("fichas", payload if isinstance(payload, list) else []),
+        "docs": _p.get("docs") or [],
+        "contexto": _p.get("contexto") or {},
+        "avisos": _p.get("avisos") or [],
+        "alvaras_orfaos": _p.get("alvaras_orfaos") or [],
+        "estagio": _p.get("estagio") or {},
+        "arquivo": filename,
+    }
+    logger.info("[showcase evt=pod_ok versao=%s file=%s http=%s dt=%dms resp_bytes=%d fichas=%d docs=%d]",
+                versao, filename, r.status_code, elapsed_ms, resp_bytes,
+                len(out["fichas"]) if isinstance(out["fichas"], list) else 0,
+                len(out["docs"]))
+    return (out, 200)
 
 
 def _modelos() -> dict:
@@ -66,38 +123,9 @@ def showcase_extrair(request, versao: str):
     MODELO (sem consulta externa) + o tempo de processamento. Tudo na hora."""
     if request.method != "POST" or not request.FILES.get("arquivo"):
         return JsonResponse({"erro": "envie um PDF em 'arquivo'"}, status=400)
-    cfg = (getattr(settings, "SHOWCASE_MODELOS", {}) or {}).get(versao)
-    if not cfg or not cfg.get("url"):
-        return JsonResponse({"erro": f"modelo '{versao}' indisponível (pod não configurado)",
-                             "versao": versao, "indisponivel": True}, status=503)
     up = request.FILES["arquivo"]
-    files = {"files": (up.name, up.file, up.content_type or "application/pdf")}
-    base = cfg["url"].rstrip("/")
-    t0 = time.monotonic()
-    try:
-        r = requests.post(f"{base}/extrair", files=files, timeout=900)
-    except requests.RequestException as e:
-        return JsonResponse({"erro": "pod do modelo fora do ar", "detalhe": str(e)[:120],
-                             "versao": versao, "indisponivel": True}, status=502)
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-    try:
-        payload = r.json()
-    except ValueError:
-        return JsonResponse({"erro": "resposta inválida do modelo", "versao": versao},
-                            status=502)
-    _p = payload if isinstance(payload, dict) else {}
-    return JsonResponse({
-        "versao": versao,
-        "label": cfg.get("label", versao),
-        "elapsed_ms": elapsed_ms,                       # round-trip (rede + modelo)
-        "tempos": _p.get("tempos") or {},               # tempo REAL do modelo (total_s, llm_s, paginas_ocr)
-        "fichas": _p.get("fichas", payload if isinstance(payload, list) else []),
-        "docs": _p.get("docs") or [],                   # p/ selo de OCR (precisa_ocr / paginas_ocr) + classe por doc
-        "contexto": _p.get("contexto") or {},           # varas, decisoes, datas_chave, desfecho_por_grau
-        "avisos": _p.get("avisos") or [],
-        "alvaras_orfaos": _p.get("alvaras_orfaos") or [],
-        "arquivo": up.name,
-    }, json_dumps_params={"default": str})
+    out, status = extrair_no_pod(versao, up.file, up.name, up.content_type)
+    return JsonResponse(out, status=status, json_dumps_params={"default": str})
 
 
 @csrf_exempt

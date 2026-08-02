@@ -445,6 +445,22 @@ SHOWCASE_MODELO_INFO = {
     },
 }
 
+# Showcase — upload em CHUNKS + extração ASSÍNCRONA (aguenta ~1GB via Cloudflare).
+# Chunks gravados em streaming num diretório de montagem; job na fila 'manual'
+# (worker_manual, .103 — mesmo host do web, vê os chunks montados). Ver
+# dashboard/showcase_chunks.py e .ia/DASHBOARD.md. Todos overridable via .env.
+SHOWCASE_UPLOAD_DIR = env('SHOWCASE_UPLOAD_DIR', default=str(BASE_DIR / 'media' / 'showcase_uploads'))
+SHOWCASE_MAX_UPLOAD_BYTES = env.int('SHOWCASE_MAX_UPLOAD_BYTES', default=2 * 1024**3)   # 2 GB
+SHOWCASE_MAX_CHUNKS = env.int('SHOWCASE_MAX_CHUNKS', default=4096)
+SHOWCASE_JOB_TIMEOUT = env.int('SHOWCASE_JOB_TIMEOUT', default=3600)                    # pod lento em doc grande
+SHOWCASE_JOB_TTL = env.int('SHOWCASE_JOB_TTL', default=3600)                            # estado do job no cache
+SHOWCASE_UPLOAD_TTL = env.int('SHOWCASE_UPLOAD_TTL', default=6 * 3600)                  # janela p/ terminar o upload
+SHOWCASE_QUEUE = env('SHOWCASE_QUEUE', default='manual')
+# Teto de body bufferizado do Django (guarda de form-parsing). O upload em chunks
+# lê o corpo via streaming (request.read), sem tocar request.body — mas o fallback
+# e outros POST JSON pequenos passam por aqui. 16 MB cobre 1 chunk de 8 MB folgado.
+DATA_UPLOAD_MAX_MEMORY_SIZE = env.int('DATA_UPLOAD_MAX_MEMORY_SIZE', default=16 * 1024**2)
+
 # QuickPod — API de crédito/pods da frota GPU cloud (Command Center · card CUSTO).
 # Consultada só pelo scheduler (warm_command_center), cacheada em Redis; nunca
 # batida no request do browser. Sobrescreva a chave via .env em prod.

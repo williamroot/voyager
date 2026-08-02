@@ -2,6 +2,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
 from . import views
+from . import showcase_chunks
 from . import showcase_export
 from . import showcase_proxy
 
@@ -56,6 +57,12 @@ urlpatterns = [
     path('ia/showcase/', showcase_proxy.showcase, name='ia-showcase'),
     path('api/showcase/extrair/<str:versao>/', showcase_proxy.showcase_extrair, name='showcase-extrair'),
     path('api/showcase/explicar/<str:versao>/', showcase_proxy.showcase_explicar, name='showcase-explicar'),
+    # Upload em chunks (aguenta ~1GB via Cloudflare) → extração assíncrona → polling.
+    # O transporte é chunk+async; o CONTRATO do resultado é o mesmo do extrair síncrono.
+    path('api/showcase/upload/init/', showcase_chunks.upload_init, name='showcase-upload-init'),
+    path('api/showcase/upload/chunk/<str:upload_id>/<int:index>/', showcase_chunks.upload_chunk, name='showcase-upload-chunk'),
+    path('api/showcase/upload/finish/<str:upload_id>/', showcase_chunks.upload_finish, name='showcase-upload-finish'),
+    path('api/showcase/job/<str:job_id>/', showcase_chunks.job_status, name='showcase-job'),
     # Exportar a análise da showcase (o front POSTa o payload que já tem em mãos)
     path('api/showcase/export/json', showcase_export.export_json, name='showcase-export-json'),
     path('api/showcase/export/md', showcase_export.export_md, name='showcase-export-md'),
