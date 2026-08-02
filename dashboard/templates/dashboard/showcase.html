@@ -572,10 +572,15 @@ function showcase(){
         }
         throw new Error('chunk '+idx+' falhou após retries');
       };
-      // pool de 4 workers consumindo a fila de índices
+      // pool de workers consumindo a fila de índices. Concorrência 2 (não 4): o
+      // Cloudflare Tunnel free tem banda agregada limitada e N chunks de 8MB em
+      // paralelo saturam a MESMA via que serve o site — num upload de ~1GB isso
+      // deixava o site público intermitente (000) pra outros usuários. 2 mantém o
+      // ganho do paralelo sem estrangular o tunnel. Subir só com rota dedicada.
+      const CONC = 2;
       let next=0;
       const worker=async()=>{ while(next<total){ const i=next++; await sendOne(i); } };
-      await Promise.all([worker(),worker(),worker(),worker()]);
+      await Promise.all(Array.from({length: CONC}, ()=>worker()));
       // FINISH — remonta+valida no servidor, enfileira, devolve job_id por versão
       this._advanceSteps(1); this.progress=64;
       const sha = await this._sha256File(file);
