@@ -185,35 +185,43 @@ def upload_chunk(request, upload_id: str, index: int):
     dest = d / f"chunk_{idx:06d}"
     tmp = d / f".chunk_{idx:06d}.part"
 
-    # Escreve streaming (nunca carrega em RAM). O corpo cru = bytes do chunk.
-    h = hashlib.md5()
-    n = 0
+    # Lê o corpo do chunk. Com o nginx BUFFERANDO o request (proxy_request_buffering
+    # on — default), o gunicorn recebe os 8MB COMPLETOS antes de a view rodar, então
+    # não há leitura interrompida no meio (a causa do 500: cliente/tunnel resetava a
+    # conexão durante request.read()). 8MB < DATA_UPLOAD_MAX_MEMORY_SIZE (16MB) → o
+    # corpo fica em RAM sem spill. Se a conexão cair mesmo assim, devolve erro
+    # RETENTÁVEL (503) — o cliente reenvia o chunk (idempotente por índice).
     try:
-        with open(tmp, "wb") as f:
-            # request.body seria full-buffer; usar o stream cru mantém memória baixa.
-            for piece in _iter_body(request):
-                f.write(piece)
-                h.update(piece)
-                n += len(piece)
-                if n > MAX_TOTAL_BYTES:  # guarda contra chunk gigante forjado
-                    raise ValueError("chunk excede o teto")
-    except Exception as e:  # noqa: BLE001
-        tmp.unlink(missing_ok=True)
-        logger.error("[showcase upload_id=%s evt=chunk_error idx=%d bytes=%d err=%s]",
-                     upload_id, idx, n, str(e)[:120])
-        return JsonResponse({"erro": "falha ao gravar o chunk", "detalhe": str(e)[:120]}, status=500)
+        data = request.body
+    except Exception as e:  # noqa: BLE001 — conexão resetada / corpo incompleto
+        logger.warning("[showcase upload_id=%s evt=chunk_read_reset idx=%d err=%s]",
+                       upload_id, idx, str(e)[:120])
+        return JsonResponse({"erro": "conexão interrompida ao receber o chunk — reenvie",
+                             "retryable": True}, status=503)
+    n = len(data)
+    if n > MAX_TOTAL_BYTES:  # guarda contra chunk gigante forjado
+        return JsonResponse({"erro": "chunk excede o teto"}, status=413)
 
     # Integridade opcional por chunk (o cliente manda o md5 hex).
     expected = (request.headers.get("X-Chunk-MD5") or request.GET.get("md5") or "").strip().lower()
-    got = h.hexdigest()
+    got = hashlib.md5(data).hexdigest()
     if expected and expected != got:
-        tmp.unlink(missing_ok=True)
         logger.warning("[showcase upload_id=%s evt=chunk_md5_mismatch idx=%d exp=%s got=%s bytes=%d]",
                        upload_id, idx, expected, got, n)
         return JsonResponse({"erro": "md5 do chunk não confere — reenvie",
                              "idx": idx, "esperado": expected, "recebido": got}, status=422)
 
-    os.replace(tmp, dest)  # atômico: só vira chunk válido após gravar inteiro
+    # Grava atômico: escreve no .part e só então renomeia (chunk válido = arquivo final).
+    try:
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, dest)
+    except Exception as e:  # noqa: BLE001 — disco cheio / IO
+        tmp.unlink(missing_ok=True)
+        logger.error("[showcase upload_id=%s evt=chunk_write_error idx=%d bytes=%d err=%s]",
+                     upload_id, idx, n, str(e)[:120])
+        return JsonResponse({"erro": "falha ao gravar o chunk", "retryable": True,
+                             "detalhe": str(e)[:120]}, status=500)
 
     # marca recebido (idempotente — retry do mesmo idx não duplica)
     meta = cache.get(_upl_key(upload_id)) or meta
@@ -229,24 +237,6 @@ def upload_chunk(request, upload_id: str, index: int):
                 len(meta["recebidos"]), meta["total_chunks"])
     return JsonResponse({"ok": True, "idx": idx, "bytes": n, "md5": got,
                          "recebidos": len(meta["recebidos"]), "total": meta["total_chunks"]})
-
-
-def _iter_body(request, size: int = 1024 * 1024):
-    """Itera o corpo cru do request em pedaços — evita bufferizar tudo na RAM.
-
-    ``HttpRequest.read`` é a API de streaming do Django: delega ao stream WSGI e
-    respeita o ``Content-Length``. Só funciona enquanto ``request.body``/``.POST``
-    não foram tocados (não são, aqui — lemos só ``headers``/``GET``). Fallback pra
-    ``request.body`` se o stream já tiver sido consumido.
-    """
-    try:
-        while True:
-            chunk = request.read(size)
-            if not chunk:
-                break
-            yield chunk
-    except Exception:  # noqa: BLE001 — stream já lido → cai pro corpo bufferizado
-        yield request.body
 
 
 # ─────────────────────────────────────────────────────────────────────────────

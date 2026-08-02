@@ -509,6 +509,22 @@ function showcase(){
     },
     _csrf(){ return (document.cookie.match(/csrftoken=([^;]+)/)||[])[1]
              || document.querySelector('meta[name=csrf-token]')?.content || '' },
+    // fetch com TIMEOUT (AbortController). O fetch do browser não tem timeout: um
+    // chunk que estola no tunnel congestionado penduraria pra SEMPRE → "enviando…"
+    // infinito. Aqui aborta em `ms`, o AbortError cai no retry, e se esgotar as
+    // tentativas o upload falha com mensagem clara (não trava a tela).
+    async _fetchTO(url, opts, ms){
+      const ac = new AbortController();
+      const t = setTimeout(()=>ac.abort(), ms);
+      try{ return await fetch(url, {...opts, signal: ac.signal}); }
+      finally{ clearTimeout(t); }
+    },
+    _upTick(feitos, voo, total, t0){ // feedback ao vivo do upload (nunca deixa parecer travado)
+      const secs=(performance.now()-t0)/1000;
+      const mb=(feitos*8*1024*1024)/1e6;
+      this.progress = Math.min(4 + Math.round(feitos/total*56), 60); // 4→60% = fase upload
+      this.upStat = `${feitos}/${total} chunks${voo?` · ${voo} em voo`:''} · ${mb.toFixed(0)} MB · ${(mb/Math.max(secs,0.1)).toFixed(1)} MB/s`;
+    },
     // fases: upload (fatiar+enviar chunks) → extração (poll dos jobs). A barra e
     // as etapas são movidas por SINAIS REAIS (progresso do upload; etapa do job),
     // não por um timer estimado.
@@ -550,27 +566,30 @@ function showcase(){
                               content_type:file.type||'application/octet-stream'})});
       if(!initResp.ok){ const j=await initResp.json().catch(()=>({})); throw new Error(j.erro||('init HTTP '+initResp.status)); }
       const {upload_id} = await initResp.json();
-      // ENVIA CHUNKS — concorrência limitada (4) + retry com backoff
-      let enviados=0; const t0=performance.now();
+      // ENVIA CHUNKS — concorrência limitada + retry com backoff + TIMEOUT por chunk.
+      let enviados=0, emVoo=0; const t0=performance.now();
+      this.upStat = `0/${total} chunks · preparando envio…`; this.progress=4;
       const sendOne = async (idx)=>{
         const start=idx*CHUNK; const blob=file.slice(start, Math.min(start+CHUNK, file.size));
         const buf=await blob.arrayBuffer(); const md5=await this._md5(buf);
-        for(let attempt=0; attempt<5; attempt++){
-          try{
-            const r=await fetch(`/dashboard/api/showcase/upload/chunk/${upload_id}/${idx}/`,{
-              method:'POST', credentials:'same-origin',
-              headers:{'X-CSRFToken':csrf, ...(md5?{'X-Chunk-MD5':md5}:{})}, body:buf});
-            if(r.ok){ enviados++;
-              const secs=(performance.now()-t0)/1000; const mb=(enviados*CHUNK)/1e6;
-              this.progress = Math.min(2 + Math.round(enviados/total*58), 60); // 2→60% = fase upload
-              this.upStat = `${enviados}/${total} chunks · ${mb.toFixed(0)} MB · ${(mb/Math.max(secs,0.1)).toFixed(1)} MB/s`;
-              return;
+        emVoo++; this._upTick(enviados, emVoo, total, t0);
+        try{
+          for(let attempt=0; attempt<6; attempt++){
+            try{
+              const r=await this._fetchTO(`/dashboard/api/showcase/upload/chunk/${upload_id}/${idx}/`,{
+                method:'POST', credentials:'same-origin',
+                headers:{'X-CSRFToken':csrf, ...(md5?{'X-Chunk-MD5':md5}:{})}, body:buf}, 90000);
+              if(r.ok){ enviados++; this._upTick(enviados, emVoo-1, total, t0); return; }
+              if(r.status===410){ throw new Error('upload expirou — recarregue a página e reenvie'); }
+              if(r.status===413){ const j=await r.json().catch(()=>({})); throw new Error(j.erro||'arquivo grande demais'); }
+              // 422 (md5) / 5xx / reset → cai no retry
+            }catch(e){
+              if(e && /expirou|grande demais/.test(e.message||'')) throw e; // erro terminal: não retenta
+              if(attempt===5) throw new Error(`chunk ${idx+1}/${total} falhou após 6 tentativas (${e.name==='AbortError'?'timeout':(e.message||'rede')})`);
             }
-            if(r.status===410){ throw new Error('upload expirou — recomece'); } // não adianta retentar
-          }catch(e){ if(attempt===4) throw e; }
-          await new Promise(res=>setTimeout(res, 300*Math.pow(2,attempt) + Math.random()*200)); // backoff
-        }
-        throw new Error('chunk '+idx+' falhou após retries');
+            await new Promise(res=>setTimeout(res, 400*Math.pow(2,attempt) + Math.random()*250)); // backoff
+          }
+        } finally { emVoo--; this._upTick(enviados, emVoo, total, t0); }
       };
       // pool de workers consumindo a fila de índices. Concorrência 2 (não 4): o
       // Cloudflare Tunnel free tem banda agregada limitada e N chunks de 8MB em
@@ -582,13 +601,16 @@ function showcase(){
       const worker=async()=>{ while(next<total){ const i=next++; await sendOne(i); } };
       await Promise.all(Array.from({length: CONC}, ()=>worker()));
       // FINISH — remonta+valida no servidor, enfileira, devolve job_id por versão
-      this._advanceSteps(1); this.progress=64;
-      const sha = await this._sha256File(file);
+      this._advanceSteps(1); this.progress=64; this.upStat='remontando e validando no servidor…';
+      // sha256 do arquivo inteiro carrega TUDO na RAM (f.arrayBuffer): em arquivo
+      // grande (~1GB) isso trava/estoura. Pula acima de 256MB — a integridade já
+      // está garantida pelo md5 POR-CHUNK + contagem + tamanho no servidor.
+      const sha = file.size > 256*1024*1024 ? '' : await this._sha256File(file);
       const vers = this.modo==='single' ? [this.single] : this.selectedVers;
-      const finResp = await fetch(`/dashboard/api/showcase/upload/finish/${upload_id}/`,{
+      const finResp = await this._fetchTO(`/dashboard/api/showcase/upload/finish/${upload_id}/`,{
         method:'POST', credentials:'same-origin',
         headers:{'Content-Type':'application/json','X-CSRFToken':csrf},
-        body: JSON.stringify(vers.length>1 ? {versoes:vers, sha256:sha} : {versao:vers[0], sha256:sha})});
+        body: JSON.stringify(vers.length>1 ? {versoes:vers, sha256:sha} : {versao:vers[0], sha256:sha})}, 300000);
       if(!finResp.ok){ const j=await finResp.json().catch(()=>({})); throw new Error(j.erro||('finish HTTP '+finResp.status)); }
       const {jobs} = await finResp.json();  // {versao: job_id}
       return jobs;
