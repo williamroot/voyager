@@ -305,74 +305,48 @@ def buscar_entidades(nome=None, documento=None, oab=None, tribunal=None, size=20
 def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, size=20):
     """Busca processos por faixa de valor da causa.
 
-    Usa statement_timeout curto (10s) pra evitar travar em 600M rows.
-    Se timeout, retorna estimativa via pg_class.
+    Usa SQL direto com statement_timeout curto (5s) pra evitar travar.
     """
     try:
         from django.db import connection
 
-        # Query paginada por PK pra não travar (similar ao reindex).
-        qs = Process.objects.exclude(valor_causa__isnull=True)
-        if tribunal:
-            qs = qs.filter(tribunal_id=tribunal)
-        if classe:
-            qs = qs.filter(classe_nome__icontains=classe)
-        if valor_min is not None:
-            qs = qs.filter(valor_causa__gte=valor_min)
-        if valor_max is not None:
-            qs = qs.filter(valor_causa__lte=valor_max)
+        with connection.cursor() as c:
+            c.execute('SET LOCAL statement_timeout = 5000')
+            sql = '''
+                SELECT numero_cnj, tribunal_id, classe_nome, assunto_nome,
+                       valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
+                FROM tribunals_process
+                WHERE valor_causa IS NOT NULL
+            '''
+            params = []
+            if tribunal:
+                sql += ' AND tribunal_id = %s'
+                params.append(tribunal)
+            if classe:
+                sql += ' AND classe_nome ILIKE %s'
+                params.append(f'%{classe}%')
+            if valor_min is not None:
+                sql += ' AND valor_causa >= %s'
+                params.append(valor_min)
+            if valor_max is not None:
+                sql += ' AND valor_causa <= %s'
+                params.append(valor_max)
+            sql += ' ORDER BY valor_causa DESC LIMIT %s'
+            params.append(size)
+            c.execute(sql, params)
+            rows = c.fetchall()
 
-        # Se tem filtro de valor_min/max, usa paginação por PK (sargável via índice).
-        # Sem filtro de valor, busca os top por valor (precisa de ORDER BY — pode ser lento).
-        if valor_min is not None or valor_max is not None:
-            # Paginação por PK — não trava.
-            resultado = []
-            last_pk = 0
-            while len(resultado) < size:
-                batch = list(qs.filter(id__gt=last_pk).order_by('id')[:200])
-                if not batch:
-                    break
-                for p in batch:
-                    resultado.append({
-                        'cnj': p.numero_cnj,
-                        'tribunal': p.tribunal_id,
-                        'classe_nome': p.classe_nome,
-                        'assunto_nome': p.assunto_nome,
-                        'valor_causa': float(p.valor_causa) if p.valor_causa else None,
-                        'orgao_julgador': p.orgao_julgador_nome,
-                        'total_movimentacoes': p.total_movimentacoes,
-                        'classificacao': p.classificacao,
-                    })
-                    if len(resultado) >= size:
-                        break
-                last_pk = batch[-1].id
-            # Ordena por valor desc depois de coletar.
-            resultado.sort(key=lambda x: x['valor_causa'] or 0, reverse=True)
-        else:
-            # Sem filtro de valor — ORDER BY valor_causa DESC pode ser lento.
-            # Usa paginação por PK + coleta mais do que precisa + ordena depois.
-            resultado = []
-            last_pk = 0
-            while len(resultado) < size * 5:  # coleta 5x pra ter margem
-                batch = list(qs.filter(id__gt=last_pk).order_by('id')[:500])
-                if not batch:
-                    break
-                for p in batch:
-                    resultado.append({
-                        'cnj': p.numero_cnj,
-                        'tribunal': p.tribunal_id,
-                        'classe_nome': p.classe_nome,
-                        'assunto_nome': p.assunto_nome,
-                        'valor_causa': float(p.valor_causa) if p.valor_causa else None,
-                        'orgao_julgador': p.orgao_julgador_nome,
-                        'total_movimentacoes': p.total_movimentacoes,
-                        'classificacao': p.classificacao,
-                    })
-                last_pk = batch[-1].id
-            resultado.sort(key=lambda x: x['valor_causa'] or 0, reverse=True)
-            resultado = resultado[:size]
+        resultado = [{
+            'cnj': r[0],
+            'tribunal': r[1],
+            'classe_nome': r[2],
+            'assunto_nome': r[3],
+            'valor_causa': float(r[4]) if r[4] else None,
+            'orgao_julgador': r[5],
+            'total_movimentacoes': r[6],
+            'classificacao': r[7],
+        } for r in rows]
 
-        # Estatísticas dos resultados retornados.
         valores = [r['valor_causa'] for r in resultado if r['valor_causa']]
         stats = {}
         if valores:
@@ -387,7 +361,7 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
         return {'processos': resultado, 'estatisticas_valores': stats}
     except Exception as e:
         logger.error('MCP buscar_valores erro: %s', e)
-        return {'error': str(e)}
+        return {'error': str(e), 'note': 'timeout ou erro — tente com filtros'}
 
 
 def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
@@ -401,37 +375,34 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
         from django.db.models import Count
 
         if metrica == 'volume':
-            # Estimativa total via pg_class (instantâneo).
-            total_estimado = _reltuples('tribunals_process')
-            # Se filtra por tribunal, usa COUNT (menos rows).
-            if tribunal:
-                qs = Process.objects.filter(tribunal_id=tribunal)
-                if classe:
-                    qs = qs.filter(classe_nome__icontains=classe)
-                if ano:
-                    qs = qs.filter(ano_cnj=ano)
-                total_estimado = qs.count()
-            # Distribuição por tribunal (GROUP BY tribunal_id — indexado, rápido).
-            por_tribunal = list(
-                Process.objects.values('tribunal_id').annotate(count=Count('id'))
-                .order_by('-count')[:20]
-            )
-            # Distribuição por ano (GROUP BY ano_cnj — indexado).
+            # Usa mv_tribunal_kpis (pré-computada, instantâneo).
+            with connection.cursor() as c:
+                c.execute('SELECT sigla, total_processos, total_movs, classes_unicas FROM mv_tribunal_kpis ORDER BY total_processos DESC LIMIT 20')
+                rows = c.fetchall()
+            por_tribunal = [{'tribunal_id': r[0], 'count': r[1], 'total_movs': r[2], 'classes': r[3]} for r in rows]
+            total_estimado = sum(r[1] for r in rows)
+            # Distribuição por ano via Process (ano_cnj é indexado — rápido).
             por_ano = list(
                 Process.objects.values('ano_cnj').annotate(count=Count('id'))
                 .order_by('ano_cnj')[:30]
             )
-            # Distribuição por classe — pode ser lento; usa timeout.
+            # Distribuição por classe — usa timeout curto.
             por_classe = []
             try:
                 with connection.cursor() as c:
-                    c.execute('SET LOCAL statement_timeout = 10000')
-                    por_classe = list(
-                        Process.objects.values('classe_nome').annotate(count=Count('id'))
-                        .order_by('-count')[:20]
-                    )
+                    c.execute('SET LOCAL statement_timeout = 5000')
+                    c.execute('''
+                        SELECT classe_nome, COUNT(*) as count
+                        FROM tribunals_process
+                        WHERE classe_nome != ''
+                        GROUP BY classe_nome
+                        ORDER BY count DESC
+                        LIMIT 20
+                    ''')
+                    rows = c.fetchall()
+                por_classe = [{'classe_nome': r[0], 'count': r[1]} for r in rows]
             except Exception:
-                por_classe = []
+                pass
             return {
                 'metrica': 'volume',
                 'total_processos': total_estimado,
