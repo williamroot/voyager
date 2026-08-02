@@ -305,51 +305,62 @@ def buscar_entidades(nome=None, documento=None, oab=None, tribunal=None, size=20
 def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, size=20):
     """Busca processos por faixa de valor da causa.
 
-    Usa SQL direto com statement_timeout curto (5s) pra evitar travar.
+    Usa paginação por PK + filtro em Python (valor_causa não tem índice parcial).
     """
     try:
         from django.db import connection
 
-        with connection.cursor() as c:
-            # statement_timeout na mesma transação (pgbouncer transaction-mode).
-            c.execute('SET statement_timeout = 5000')
-            sql = '''
-                SELECT numero_cnj, tribunal_id, classe_nome, assunto_nome,
-                       valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
-                FROM tribunals_process
-                WHERE valor_causa IS NOT NULL
-            '''
-            params = []
-            if tribunal:
-                sql += ' AND tribunal_id = %s'
-                params.append(tribunal)
-            if classe:
-                sql += ' AND classe_nome ILIKE %s'
-                params.append(f'%{classe}%')
-            if valor_min is not None:
-                sql += ' AND valor_causa >= %s'
-                params.append(valor_min)
-            if valor_max is not None:
-                sql += ' AND valor_causa <= %s'
-                params.append(valor_max)
-            # Sem ORDER BY — pagina por PK pra não sortar 600M rows.
-            # Coleta um lote grande e ordena em Python.
-            sql += ' ORDER BY id LIMIT %s'
-            params_limit = 50000 if (valor_min or valor_max) else min(size * 50, 5000)
-            c.execute(sql, params + [params_limit])
-            rows = c.fetchall()
+        resultado = []
+        last_pk = 0
+        batch_size = 1000
+        max_scans = 50  # máximo de 50k rows scanned
 
-        resultado = [{
-            'cnj': r[0],
-            'tribunal': r[1],
-            'classe_nome': r[2],
-            'assunto_nome': r[3],
-            'valor_causa': float(r[4]) if r[4] else None,
-            'orgao_julgador': r[5],
-            'total_movimentacoes': r[6],
-            'classificacao': r[7],
-        } for r in rows]
-        # Ordena por valor desc em Python (evita ORDER BY no DB em 600M rows).
+        with connection.cursor() as c:
+            c.execute('SET statement_timeout = 10000')
+            for _ in range(max_scans):
+                if len(resultado) >= size * 3:
+                    break
+                sql = '''
+                    SELECT id, numero_cnj, tribunal_id, classe_nome, assunto_nome,
+                           valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
+                    FROM tribunals_process
+                    WHERE id > %s
+                '''
+                params = [last_pk]
+                if tribunal:
+                    sql += ' AND tribunal_id = %s'
+                    params.append(tribunal)
+                if classe:
+                    sql += ' AND classe_nome ILIKE %s'
+                    params.append(f'%{classe}%')
+                sql += ' ORDER BY id LIMIT %s'
+                params.append(batch_size)
+                c.execute(sql, params)
+                rows = c.fetchall()
+                if not rows:
+                    break
+                for r in rows:
+                    last_pk = r[0]
+                    vc = float(r[5]) if r[5] else None
+                    if vc is None:
+                        continue
+                    if valor_min is not None and vc < valor_min:
+                        continue
+                    if valor_max is not None and vc > valor_max:
+                        continue
+                    resultado.append({
+                        'cnj': r[1],
+                        'tribunal': r[2],
+                        'classe_nome': r[3],
+                        'assunto_nome': r[4],
+                        'valor_causa': vc,
+                        'orgao_julgador': r[6],
+                        'total_movimentacoes': r[7],
+                        'classificacao': r[8],
+                    })
+                last_pk = rows[-1][0]
+
+        # Ordena por valor desc em Python.
         resultado.sort(key=lambda x: x['valor_causa'] or 0, reverse=True)
         resultado = resultado[:size]
 
@@ -364,10 +375,11 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
                 'min': min(valores),
                 'max': max(valores),
             }
-        return {'processos': resultado, 'estatisticas_valores': stats}
+        return {'processos': resultado, 'estatisticas_valores': stats,
+                'note': f'{len(resultado)} encontrados em {max_scans}k rows scanned'}
     except Exception as e:
         logger.error('MCP buscar_valores erro: %s', e)
-        return {'error': str(e), 'note': 'timeout ou erro — tente com filtros'}
+        return {'error': str(e), 'note': 'timeout ou erro'}
 
 
 def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
