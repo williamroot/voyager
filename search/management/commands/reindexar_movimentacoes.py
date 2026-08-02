@@ -16,9 +16,11 @@ class Command(BaseCommand):
         parser.add_argument('--desde', type=str, help='A partir de (YYYY-MM-DD).')
         parser.add_argument('--limit', type=int, default=0, help='Máximo de docs (0=ilimitado).')
         parser.add_argument('--batch-size', type=int, default=1000, help='Tamanho do bulk.')
+        parser.add_argument('--sem-partes', action='store_true',
+                            help='Pula serialização de partes (mais rápido pra backfill inicial).')
 
     def handle(self, *args, **options):
-        qs = Movimentacao.objects.all()
+        qs = Movimentacao.objects.select_related('processo', 'tribunal').all()
         if options['tribunal']:
             qs = qs.filter(tribunal_id=options['tribunal'])
         if options['desde']:
@@ -32,10 +34,14 @@ class Command(BaseCommand):
 
         es = get_es()
         idx = index_name('movimentacoes')
+        sem_partes = options.get('sem_partes', False)
         actions = []
         enviados = 0
         for mov in qs.iterator(chunk_size=options['batch_size']):
-            doc = movimentacao_to_doc(mov)
+            if sem_partes:
+                doc = movimentacao_to_doc_sem_partes(mov)
+            else:
+                doc = movimentacao_to_doc(mov)
             actions.append({
                 '_index': idx,
                 '_id': mov.id,
