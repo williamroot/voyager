@@ -333,8 +333,9 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
                 sql += ' AND valor_causa <= %s'
                 params.append(valor_max)
             # Sem ORDER BY — pagina por PK pra não sortar 600M rows.
+            # Coleta um lote grande e ordena em Python.
             sql += ' ORDER BY id LIMIT %s'
-            params_limit = min(size * 50, 5000)
+            params_limit = 50000 if (valor_min or valor_max) else min(size * 50, 5000)
             c.execute(sql, params + [params_limit])
             rows = c.fetchall()
 
