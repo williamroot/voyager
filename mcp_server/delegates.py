@@ -312,35 +312,32 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
 
         resultado = []
         last_pk = 0
-        batch_size = 2000
-        max_scans = 5  # máximo de 10k rows scanned (rápido < 10s)
-        # Sem filtro de tribunal: pega os mais recentes (id DESC) que têm mais chance
-        # de ter valor_causa (enriquecimento mais recente).
-        order = 'id' if tribunal else 'id DESC'
+        batch_size = 500
+        max_scans = 10  # máximo de 5k rows scanned
 
         with connection.cursor() as c:
             c.execute('SET statement_timeout = 10000')
             for _ in range(max_scans):
                 if len(resultado) >= size * 3:
                     break
+                # Usa índice enriquecido_em (enriquecidos = com valor_causa potencial).
+                # Ordena por enriquecido_em DESC (mais recentes) + pagina por enriquecido_em.
+                sql = '''
+                    SELECT id, numero_cnj, tribunal_id, classe_nome, assunto_nome,
+                           valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
+                    FROM tribunals_process
+                    WHERE enriquecido_em IS NOT NULL AND id > %s
+                '''
+                params = [last_pk]
                 if tribunal:
-                    sql = '''
-                        SELECT id, numero_cnj, tribunal_id, classe_nome, assunto_nome,
-                               valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
-                        FROM tribunals_process
-                        WHERE id > %s AND tribunal_id = %s
-                        ORDER BY id LIMIT %s
-                    '''
-                    c.execute(sql, [last_pk, tribunal, batch_size])
-                else:
-                    sql = '''
-                        SELECT id, numero_cnj, tribunal_id, classe_nome, assunto_nome,
-                               valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
-                        FROM tribunals_process
-                        WHERE id < %s OR %s = 0
-                        ORDER BY id DESC LIMIT %s
-                    '''
-                    c.execute(sql, [last_pk, last_pk, batch_size])
+                    sql += ' AND tribunal_id = %s'
+                    params.append(tribunal)
+                if classe:
+                    sql += ' AND classe_nome ILIKE %s'
+                    params.append(f'%{classe}%')
+                sql += ' ORDER BY enriquecido_em DESC, id LIMIT %s'
+                params.append(batch_size)
+                c.execute(sql, params)
                 rows = c.fetchall()
                 if not rows:
                     break
@@ -363,8 +360,7 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
                         'total_movimentacoes': r[7],
                         'classificacao': r[8],
                     })
-                if tribunal:
-                    last_pk = rows[-1][0]
+                last_pk = rows[-1][0]
 
         # Ordena por valor desc em Python.
         resultado.sort(key=lambda x: x['valor_causa'] or 0, reverse=True)
