@@ -331,9 +331,12 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
             if valor_max is not None:
                 sql += ' AND valor_causa <= %s'
                 params.append(valor_max)
-            sql += ' ORDER BY valor_causa DESC LIMIT %s'
-            params.append(size)
-            c.execute(sql, params)
+            # Sem ORDER BY — pagina por PK pra não sortar 600M rows.
+            # Se sem filtro de valor, busca via índice (id > last_pk) e filtra valor em Python.
+            sql += ' AND id > %s ORDER BY id LIMIT %s'
+            params_last = 0
+            params_limit = min(size * 50, 5000)  # coleta até 5000 pra ordenar em Python
+            c.execute(sql, params + [params_last, params_limit])
             rows = c.fetchall()
 
         resultado = [{
@@ -346,6 +349,9 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
             'total_movimentacoes': r[6],
             'classificacao': r[7],
         } for r in rows]
+        # Ordena por valor desc em Python (evita ORDER BY no DB em 600M rows).
+        resultado.sort(key=lambda x: x['valor_causa'] or 0, reverse=True)
+        resultado = resultado[:size]
 
         valores = [r['valor_causa'] for r in resultado if r['valor_causa']]
         stats = {}
@@ -381,11 +387,19 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
                 rows = c.fetchall()
             por_tribunal = [{'tribunal_id': r[0], 'count': r[1], 'total_movs': r[2], 'classes': r[3]} for r in rows]
             total_estimado = sum(r[1] for r in rows)
-            # Distribuição por ano via Process (ano_cnj é indexado — rápido).
-            por_ano = list(
-                Process.objects.values('ano_cnj').annotate(count=Count('id'))
-                .order_by('ano_cnj')[:30]
-            )
+            # Distribuição por ano via mv_volume_mensal (pré-computada, instantâneo).
+            por_ano = []
+            try:
+                with connection.cursor() as c:
+                    c.execute('''
+                        SELECT EXTRACT(year FROM dia)::int as ano, SUM(total) as count
+                        FROM mv_volume_diario
+                        GROUP BY 1 ORDER BY 1 LIMIT 30
+                    ''')
+                    for r in c.fetchall():
+                        por_ano.append({'ano_cnj': r[0], 'count': int(r[1])})
+            except Exception:
+                pass
             # Distribuição por classe — usa timeout curto.
             por_classe = []
             try:
