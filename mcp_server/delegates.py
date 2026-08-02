@@ -311,7 +311,8 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
         from django.db import connection
 
         with connection.cursor() as c:
-            c.execute('SET LOCAL statement_timeout = 5000')
+            # statement_timeout na mesma transação (pgbouncer transaction-mode).
+            c.execute('SET statement_timeout = 5000')
             sql = '''
                 SELECT numero_cnj, tribunal_id, classe_nome, assunto_nome,
                        valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
@@ -332,11 +333,9 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
                 sql += ' AND valor_causa <= %s'
                 params.append(valor_max)
             # Sem ORDER BY — pagina por PK pra não sortar 600M rows.
-            # Se sem filtro de valor, busca via índice (id > last_pk) e filtra valor em Python.
-            sql += ' AND id > %s ORDER BY id LIMIT %s'
-            params_last = 0
-            params_limit = min(size * 50, 5000)  # coleta até 5000 pra ordenar em Python
-            c.execute(sql, params + [params_last, params_limit])
+            sql += ' ORDER BY id LIMIT %s'
+            params_limit = min(size * 50, 5000)
+            c.execute(sql, params + [params_limit])
             rows = c.fetchall()
 
         resultado = [{
@@ -387,7 +386,7 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
                 rows = c.fetchall()
             por_tribunal = [{'tribunal_id': r[0], 'count': r[1], 'total_movs': r[2], 'classes': r[3]} for r in rows]
             total_estimado = sum(r[1] for r in rows)
-            # Distribuição por ano via mv_volume_mensal (pré-computada, instantâneo).
+            # Distribuição por ano via mv_volume_diario (pré-computada, instantâneo).
             por_ano = []
             try:
                 with connection.cursor() as c:
@@ -404,7 +403,7 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
             por_classe = []
             try:
                 with connection.cursor() as c:
-                    c.execute('SET LOCAL statement_timeout = 5000')
+                    c.execute('SET statement_timeout = 5000')
                     c.execute('''
                         SELECT classe_nome, COUNT(*) as count
                         FROM tribunals_process
