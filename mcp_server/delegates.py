@@ -314,28 +314,33 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
         last_pk = 0
         batch_size = 2000
         max_scans = 5  # máximo de 10k rows scanned (rápido < 10s)
+        # Sem filtro de tribunal: pega os mais recentes (id DESC) que têm mais chance
+        # de ter valor_causa (enriquecimento mais recente).
+        order = 'id' if tribunal else 'id DESC'
 
         with connection.cursor() as c:
             c.execute('SET statement_timeout = 10000')
             for _ in range(max_scans):
                 if len(resultado) >= size * 3:
                     break
-                sql = '''
-                    SELECT id, numero_cnj, tribunal_id, classe_nome, assunto_nome,
-                           valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
-                    FROM tribunals_process
-                    WHERE id > %s
-                '''
-                params = [last_pk]
                 if tribunal:
-                    sql += ' AND tribunal_id = %s'
-                    params.append(tribunal)
-                if classe:
-                    sql += ' AND classe_nome ILIKE %s'
-                    params.append(f'%{classe}%')
-                sql += ' ORDER BY id LIMIT %s'
-                params.append(batch_size)
-                c.execute(sql, params)
+                    sql = '''
+                        SELECT id, numero_cnj, tribunal_id, classe_nome, assunto_nome,
+                               valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
+                        FROM tribunals_process
+                        WHERE id > %s AND tribunal_id = %s
+                        ORDER BY id LIMIT %s
+                    '''
+                    c.execute(sql, [last_pk, tribunal, batch_size])
+                else:
+                    sql = '''
+                        SELECT id, numero_cnj, tribunal_id, classe_nome, assunto_nome,
+                               valor_causa, orgao_julgador_nome, total_movimentacoes, classificacao
+                        FROM tribunals_process
+                        WHERE id < %s OR %s = 0
+                        ORDER BY id DESC LIMIT %s
+                    '''
+                    c.execute(sql, [last_pk, last_pk, batch_size])
                 rows = c.fetchall()
                 if not rows:
                     break
@@ -358,7 +363,8 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
                         'total_movimentacoes': r[7],
                         'classificacao': r[8],
                     })
-                last_pk = rows[-1][0]
+                if tribunal:
+                    last_pk = rows[-1][0]
 
         # Ordena por valor desc em Python.
         resultado.sort(key=lambda x: x['valor_causa'] or 0, reverse=True)
@@ -438,10 +444,10 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
             }
 
         elif metrica == 'valores':
-            # Soma de valores por tribunal — pode ser lento; timeout + fallback.
+            # SUM por tribunal pode ser lento; usa timeout 20s + fallback.
             try:
                 with connection.cursor() as c:
-                    c.execute('SET LOCAL statement_timeout = 10000')
+                    c.execute('SET statement_timeout = 20000')
                     c.execute('''
                         SELECT tribunal_id, COUNT(*) as count,
                                COALESCE(SUM(valor_causa), 0) as soma,
@@ -461,7 +467,18 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
                     ],
                 }
             except Exception:
-                return {'metrica': 'valores', 'por_tribunal': [], 'note': 'timeout — query pesada'}
+                # Fallback: usa mv_tribunal_kpis (sem valores, só counts).
+                with connection.cursor() as c:
+                    c.execute('SELECT sigla, total_processos FROM mv_tribunal_kpis ORDER BY total_processos DESC LIMIT 20')
+                    rows = c.fetchall()
+                return {
+                    'metrica': 'valores',
+                    'por_tribunal': [
+                        {'tribunal': r[0], 'count': r[1], 'soma': 0, 'media': 0, 'note': 'valores indisponíveis (timeout)'}
+                        for r in rows
+                    ],
+                    'note': 'timeout no SUM — usando counts da MV',
+                }
 
         elif metrica == 'classificacao':
             qs = Process.objects.exclude(classificacao__isnull=True)
