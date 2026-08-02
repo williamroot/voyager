@@ -140,6 +140,7 @@ Operação     → Ingestão · Saúde · Workers · Vetorização · Exportar �
 | `/dashboard/leads/validacao/<id>/` | `leads/validacao_lote.html` | Fila de anotação 1-por-vez com hotkeys (HTMX swap entre itens) |
 | `/dashboard/leads/validacao/<id>/concluido/` | `leads/_partials/_lote_concluido.html` | Sumário pós-finalização do lote |
 | `/dashboard/api/` | `api_docs.html` | Docs da API de leads + cards de stats por nível + clientes ativos + métricas do modelo |
+| `/dashboard/mcp/` | `mcp_setup.html` | Configuração do MCP server (Claude/ChatGPT/Gemini/Cursor) |
 | `/dashboard/consulta-rapida/` | `consulta_rapida.html` | Debug em tempo real: consulta CNJ no DJEN+Datajud, mostra raw + parsed sem persistir |
 | `/dashboard/modelos/treinos/` | `treinos_dashboard.html` | Sala de controle dos treinos ML — status live de cada run (barra de progresso, loss, ETA, host/GPU/custo), fila e concluídos. Estende `base.html` (menu lateral do Voyager); o miolo dark premium fica escopado no wrapper `.page-treinos` (CSS vars locais, sem vazar pro app). JS puro faz fetch de `modelos/treinos/data/` a cada 60s. Dados: `/app/.ia/treinos_status.json`, publicado por `scripts/coletor_treinos.sh` (loop 120s fora do prod, SSH nas máquinas de treino + `docker cp` no web) |
 | `/dashboard/modelos/extrator/` | `modelo_extrator.html` | Model card do extrator de precatórios (arquitetura, gates, artefatos, como rodar). Estende `base.html`; estilo dark premium escopado em `.page-mx`; âncoras internas + botão pra vitrine no topo do conteúdo |

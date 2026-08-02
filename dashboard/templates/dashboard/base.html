@@ -664,6 +664,11 @@
                 {% voy_icon "transmission" "w-4 h-4" %}
                 API
               </a>
+              {% url 'dashboard:mcp-setup' as mcp_setup_url %}
+              <a href="{{ mcp_setup_url }}" class="nav-item {% if request.path == mcp_setup_url %}active{% endif %}">
+                {% voy_icon "probe" "w-4 h-4" %}
+                MCP
+              </a>
               {% if user.is_superuser %}
               {% url 'accounts:invites-list' as invites_url %}
               <a href="{{ invites_url }}" class="nav-item {% if invites_url in request.path %}active{% endif %}">

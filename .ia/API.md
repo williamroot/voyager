@@ -230,4 +230,9 @@ Configuração Claude Desktop:
 {"mcpServers": {"voyager": {"url": "https://voyager.was.dev.br/mcp/sse", "token": "<mcp_token>"}}}
 ```
 
+### Página de configuração
+
+O dashboard tem uma página interativa que ensina a configurar o MCP em cada cliente:
+`/dashboard/mcp/` — mostra instruções pra Claude Desktop, Claude Code, ChatGPT, Gemini, Cursor e clientes customizados (curl).
+
 Plano completo de implementação: [`JUSBRASIL_COMPAT_PLANO.md`](JUSBRASIL_COMPAT_PLANO.md).

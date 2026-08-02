@@ -45,6 +45,7 @@ urlpatterns = [
     path('consulta-rapida/', views.consulta_rapida, name='consulta-rapida'),
     path('consulta-rapida/api/', views.consulta_rapida_api, name='consulta-rapida-api'),
     path('api/', views.api_docs, name='api-docs'),
+    path('mcp/', views.mcp_setup, name='mcp-setup'),
     # IA LABS — Centro de Inteligência Voyager (landing hub das ferramentas de IA)
     path('ia/', views.ia_hub, name='ia-hub'),
     # Estágio do Crédito — vitrine investidor (CNJ → DC/PRÉ/EMITIDO/MORTO ancorado)

@@ -1,0 +1,206 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}MCP · Configuração{% endblock %}
+{% block content %}
+
+<div class="mb-5">
+  <h1 class="text-2xl font-semibold text-fg-soft mb-1">MCP · Configuração</h1>
+  <p class="text-sm text-fg-subtle">Como conectar o Voyager a LLMs e agentes de IA (Claude, ChatGPT, Gemini, Cursor) via Model Context Protocol.</p>
+</div>
+
+<!-- Endpoint -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2">Endpoint</h2>
+  <div class="space-y-2 text-xs">
+    <div>
+      <span class="text-fg-subtle">URL base:</span>
+      <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/</code>
+    </div>
+    <div>
+      <span class="text-fg-subtle">Descriptor:</span>
+      <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/.well-known/mcp.json</code>
+    </div>
+    <div>
+      <span class="text-fg-subtle">Transport:</span>
+      HTTP (JSON-RPC 2.0) + SSE
+    </div>
+  </div>
+</div>
+
+<!-- Token -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2">Token de acesso</h2>
+  <p class="text-xs text-fg-muted mb-3">Cada cliente precisa de um <strong>token MCP</strong> (UUID). Gere via Django admin ou command:</p>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto mb-3"><code>python manage.py gerar_mcp_token &lt;nome_cliente&gt;</code></pre>
+  <div class="flex items-center gap-2">
+    <input type="text" id="mcp-token" placeholder="Cole seu token MCP aqui..."
+           class="flex-1 bg-muted/50 border border-border rounded px-3 py-2 text-xs font-mono text-fg-soft placeholder-fg-subtle focus:outline-none focus:border-mission">
+    <button onclick="navigator.clipboard.readText().then(t=>{document.getElementById('mcp-token').value=t;updateTokens()})"
+            class="text-xs px-3 py-2 border border-border rounded text-fg-subtle hover:text-mission">📋 Colar</button>
+  </div>
+  <p class="text-xs text-fg-subtle mt-2">Cole o token acima e os exemplos abaixo serão preenchidos automaticamente.</p>
+</div>
+
+<!-- Claude Desktop -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
+    <span class="text-mission">◉</span> Claude Desktop / claude.ai
+  </h2>
+  <ol class="text-xs text-fg-muted space-y-1 mb-3 list-decimal list-inside">
+    <li>Abra <strong>Settings</strong> → <strong>Connectors</strong> → <strong>Add custom connector</strong></li>
+    <li>URL: <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/</code></li>
+    <li>Header estático: <code class="font-mono bg-muted px-1 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code></li>
+    <li>Salve e converse com o Claude — ele terá acesso às 17 tools do Voyager</li>
+  </ol>
+  <p class="text-xs text-fg-subtle">A conexão parte da nuvem da Anthropic: o serviço precisa estar acessível publicamente (tunnel Cloudflare já configurado).</p>
+</div>
+
+<!-- Claude Code (CLI) -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
+    <span class="text-mission">◉</span> Claude Code (CLI)
+  </h2>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>claude mcp add --transport http voyager https://voyager.was.dev.br/mcp \
+  --header "Authorization: Bearer <span class="token-placeholder">SEU-TOKEN</span>"</code></pre>
+</div>
+
+<!-- ChatGPT -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
+    <span class="text-mission">◉</span> ChatGPT (developer mode)
+  </h2>
+  <ol class="text-xs text-fg-muted space-y-1 mb-3 list-decimal list-inside">
+    <li>Abra <strong>Settings</strong> → <strong>Connectors</strong> → <strong>Create</strong></li>
+    <li>URL: <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/</code></li>
+    <li>Auth: header <code class="font-mono bg-muted px-1 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code></li>
+  </ol>
+</div>
+
+<!-- OpenAI Responses API -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
+    <span class="text-mission">◉</span> OpenAI Responses API
+  </h2>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>tools=[{
+    "type": "mcp",
+    "server_label": "voyager",
+    "server_url": "https://voyager.was.dev.br/mcp",
+    "authorization": "<span class="token-placeholder">SEU-TOKEN</span>",
+    "require_approval": {"never": {"tool_names": [
+        "buscar_diarios", "get_documento", "get_processo",
+        "list_movimentacoes", "get_partes", "listar_fontes",
+        "status_cobertura", "buscar_entidades", "buscar_valores",
+        "jurimetria", "contexto_processo", "buscar_por_parte",
+    ]}},
+}]</code></pre>
+  <p class="text-xs text-fg-subtle mt-2">Mantenha aprovação manual para <code>monitorar_termo</code> e <code>monitorar_processo</code> — eles criam monitoramentos push.</p>
+</div>
+
+<!-- Gemini -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
+    <span class="text-mission">◉</span> Google Gemini (AI Studio)
+  </h2>
+  <ol class="text-xs text-fg-muted space-y-1 mb-3 list-decimal list-inside">
+    <li>No Google AI Studio, abra <strong>Settings</strong> → <strong>Tools</strong> → <strong>MCP Servers</strong></li>
+    <li>Add server: URL <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/</code></li>
+    <li>Header: <code class="font-mono bg-muted px-1 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code></li>
+    <li>O Gemini terá acesso às tools e poderá buscar processos, ver partes, jurimetria, etc.</li>
+  </ol>
+  <p class="text-xs text-fg-subtle">Alternativa via SDK Python: use a lib <code>google-genai</code> com <code>tools=mcp.Server(url=..., headers={"Authorization": "Bearer ..."})</code>.</p>
+</div>
+
+<!-- Cursor -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
+    <span class="text-mission">◉</span> Cursor
+  </h2>
+  <ol class="text-xs text-fg-muted space-y-1 mb-3 list-decimal list-inside">
+    <li>Abra <strong>Settings</strong> → <strong>Models</strong> → <strong>MCP</strong></li>
+    <li>Add MCP Server: URL <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/</code></li>
+    <li>Header: <code class="font-mono bg-muted px-1 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code></li>
+  </ol>
+  <p class="text-xs text-fg-subtle">Ou edite <code>~/.cursor/mcp.json</code> diretamente:</p>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>{
+  "mcpServers": {
+    "voyager": {
+      "url": "https://voyager.was.dev.br/mcp",
+      "headers": { "Authorization": "Bearer <span class="token-placeholder">SEU-TOKEN</span>" }
+    }
+  }
+}</code></pre>
+</div>
+
+<!-- Clientes customizados -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
+    <span class="text-mission">◉</span> Clientes customizados (HTTP/JSON-RPC)
+  </h2>
+  <p class="text-xs text-fg-muted mb-3">O MCP server usa JSON-RPC 2.0 sobre HTTP. Exemplos com curl:</p>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Listar tools</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto mb-3"><code>curl -X POST https://voyager.was.dev.br/mcp/messages \
+  -H "Authorization: Bearer <span class="token-placeholder">SEU-TOKEN</span>" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"tools/list","id":1,"params":{}}'</code></pre>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Buscar diários</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto mb-3"><code>curl -X POST https://voyager.was.dev.br/mcp/messages \
+  -H "Authorization: Bearer <span class="token-placeholder">SEU-TOKEN</span>" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"tools/call","id":2,"params":{"name":"buscar_diarios","arguments":{"query":"precatório","size":5}}}'</code></pre>
+
+  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Dossiê de processo</div>
+  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>curl -X POST https://voyager.was.dev.br/mcp/messages \
+  -H "Authorization: Bearer <span class="token-placeholder">SEU-TOKEN</span>" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"tools/call","id":3,"params":{"name":"contexto_processo","arguments":{"cnj":"1097648-06.2025.4.01.3400"}}}'</code></pre>
+</div>
+
+<!-- Tools disponíveis -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2">Tools disponíveis (17)</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+    <div><code class="font-mono text-mission">buscar_diarios</code> — busca textual em diários oficiais (ES)</div>
+    <div><code class="font-mono text-mission">get_documento</code> — detalhe de publicação por ID</div>
+    <div><code class="font-mono text-mission">get_processo</code> — dados de um processo por CNJ</div>
+    <div><code class="font-mono text-mission">list_movimentacoes</code> — movimentações de um processo</div>
+    <div><code class="font-mono text-mission">get_partes</code> — partes (polo ativo/passivo/outros)</div>
+    <div><code class="font-mono text-mission">listar_fontes</code> — diários/tribunais cobertos</div>
+    <div><code class="font-mono text-mission">status_cobertura</code> — cobertura por área</div>
+    <div><code class="font-mono text-mission">buscar_entidades</code> — busca por nome/doc/OAB</div>
+    <div><code class="font-mono text-mission">buscar_valores</code> — busca por faixa de valor da causa</div>
+    <div><code class="font-mono text-mission">jurimetria</code> — estatísticas (volume/valores/classificação/andamentos)</div>
+    <div><code class="font-mono text-mission">contexto_processo</code> — dossiê completo (partes+movs+timeline)</div>
+    <div><code class="font-mono text-mission">buscar_por_parte</code> — busca por nome de parte + estatísticas</div>
+    <div><code class="font-mono text-mission">monitorar_termo</code> — cria monitoramento push (webhook)</div>
+    <div><code class="font-mono text-mission">monitorar_processo</code> — cria monitoramento de processo</div>
+    <div><code class="font-mono text-mission">listar_detections</code> — detecções recentes</div>
+    <div><code class="font-mono text-mission">get_pdf</code> — URL do PDF armazenado</div>
+    <div><code class="font-mono text-mission">classificacao_lead</code> — score de ML (gated)</div>
+  </div>
+</div>
+
+<!-- Resources -->
+<div class="card-tight mb-6">
+  <h2 class="text-sm font-semibold text-fg-soft mb-2">Resources</h2>
+  <div class="space-y-2 text-xs">
+    <div><code class="font-mono text-pulsar">voyager://processo/{cnj}</code> — dados de um processo</div>
+    <div><code class="font-mono text-pulsar">voyager://movimentacao/{id}</code> — detalhe de uma publicação</div>
+    <div><code class="font-mono text-pulsar">voyager://contexto/{cnj}</code> — dossiê completo enriquecido</div>
+    <div><code class="font-mono text-pulsar">voyager://fontes</code> — lista de fontes/diários</div>
+  </div>
+</div>
+
+<script>
+function updateTokens() {
+  const token = document.getElementById('mcp-token').value.trim();
+  document.querySelectorAll('.token-placeholder').forEach(el => {
+    el.textContent = token || 'SEU-TOKEN';
+  });
+}
+document.getElementById('mcp-token').addEventListener('input', updateTokens);
+</script>
+
+{% endblock %}

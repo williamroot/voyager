@@ -2143,6 +2143,13 @@ def api_docs(request):
 
 @login_required
 @require_GET
+def mcp_setup(request):
+    """Página de configuração do MCP server — como conectar em Claude/ChatGPT/Gemini/Cursor."""
+    return render(request, 'dashboard/mcp_setup.html', {})
+
+
+@login_required
+@require_GET
 def consulta_rapida(request):
     """Tela de debug — consulta CNJ ao vivo no DJEN e Datajud sem salvar nada."""
     return render(request, 'dashboard/consulta_rapida.html', {
