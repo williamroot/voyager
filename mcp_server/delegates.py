@@ -312,8 +312,8 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
 
         resultado = []
         last_pk = 0
-        batch_size = 1000
-        max_scans = 50  # máximo de 50k rows scanned
+        batch_size = 2000
+        max_scans = 5  # máximo de 10k rows scanned (rápido < 10s)
 
         with connection.cursor() as c:
             c.execute('SET statement_timeout = 10000')
