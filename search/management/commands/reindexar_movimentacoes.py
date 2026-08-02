@@ -4,7 +4,7 @@ from django.db import connection
 from elasticsearch import helpers
 
 from search.client import get_es, index_name
-from search.documents import movimentacao_to_doc
+from search.documents import movimentacao_to_doc, movimentacao_to_doc_sem_partes
 from tribunals.models import Movimentacao
 
 
