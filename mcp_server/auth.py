@@ -21,14 +21,21 @@ def validate_mcp_token(token):
 
 
 def check_rate_limit(cliente):
-    """Token-bucket Redis. Retorna True se dentro do limite."""
+    """Token-bucket Redis. Retorna True se dentro do limite.
+
+    Fail-open: se Redis está cheio (noeviction OOM) ou indisponível,
+    permite a request em vez de 500 — rate limit é best-effort.
+    """
     key = f'mcp:rate:{cliente.pk}'
     rpm = settings.MCP_RATE_LIMIT_RPM
     if rpm <= 0:
         return True
-    now = time.time()
-    count = cache.get(key, 0)
-    if count >= rpm:
-        return False
-    cache.set(key, count + 1, timeout=60)
-    return True
+    try:
+        count = cache.get(key, 0)
+        if count >= rpm:
+            return False
+        cache.set(key, count + 1, timeout=60)
+        return True
+    except Exception as e:
+        logger.warning('Rate limit Redis falhou (fail-open): %s', e)
+        return True
