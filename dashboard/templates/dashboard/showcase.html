@@ -397,6 +397,26 @@
 .page-showcase .sc-nome{font-weight:600;font-size:.86rem;color:var(--fg)}
 .page-showcase .sc-papel{font-size:.6rem;font-weight:700;padding:.12rem .45rem;border-radius:.35rem;text-transform:uppercase}
 .page-showcase .sc-conf{font-size:.6rem;color:var(--fg-subtle)}
+/* ── partes agrupadas por polo + cards premium ── */
+.page-showcase .sc-polo{margin-top:.85rem}
+.page-showcase .sc-polo:first-child{margin-top:.15rem}
+.page-showcase .sc-polo-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+.page-showcase .sc-polo-dot{width:.55rem;height:.55rem;border-radius:50%;background:var(--polo);box-shadow:0 0 0 3px color-mix(in srgb,var(--polo) 22%,transparent);flex:none}
+.page-showcase .sc-polo-t{font-size:.68rem;font-weight:800;letter-spacing:.03em;color:var(--fg);text-transform:uppercase}
+.page-showcase .sc-polo-n{font-size:.6rem;font-weight:700;color:var(--polo);background:color-mix(in srgb,var(--polo) 16%,transparent);border-radius:.8rem;padding:.05rem .42rem;min-width:1.1rem;text-align:center}
+.page-showcase .sc-polo-tot{margin-left:auto;font-size:.62rem;color:var(--fg-subtle);text-transform:uppercase;letter-spacing:.03em}
+.page-showcase .sc-polo-tot b{color:var(--polo);font-size:.82rem;letter-spacing:0}
+.page-showcase .sc-pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:.55rem}
+.page-showcase .sc-pcard{position:relative;border:1px solid var(--border);border-left:3px solid var(--pc);border-radius:.65rem;padding:.65rem .75rem;background:linear-gradient(180deg,color-mix(in srgb,var(--pc) 6%,transparent),transparent);transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+.page-showcase .sc-pcard:hover{transform:translateY(-1px);box-shadow:0 7px 22px -9px color-mix(in srgb,var(--pc) 50%,transparent);border-color:color-mix(in srgb,var(--pc) 45%,var(--border))}
+.page-showcase .sc-pcard-top{display:flex;align-items:flex-start;gap:.55rem}
+.page-showcase .sc-pcard-av{flex:none;width:2rem;height:2rem;border-radius:50%;border:1px solid;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9rem}
+.page-showcase .sc-pcard-id{min-width:0;flex:1}
+.page-showcase .sc-pcard-nome{font-weight:700;font-size:.87rem;color:var(--fg);line-height:1.2;word-break:break-word}
+.page-showcase .sc-pcard-tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.25rem;align-items:center}
+.page-showcase .sc-pcard-sub{font-size:.64rem;color:var(--fg-subtle);margin-top:.4rem;line-height:1.35}
+.page-showcase .sc-pcard-vals{display:flex;gap:1rem;margin-top:.55rem;padding-top:.5rem;border-top:1px dashed var(--border);flex-wrap:wrap}
+.page-showcase .sc-val-hero b{font-size:1.02rem;color:var(--pc);font-weight:800}
 .page-showcase .sc-docs{display:flex;flex-wrap:wrap;gap:.35rem}
 .page-showcase .sc-docchip{font-size:.62rem;font-weight:600;padding:.2rem .5rem;border-radius:.4rem;background:var(--muted);color:var(--fg-muted);border:1px solid var(--border);white-space:nowrap}
 .page-showcase .sc-avisos{margin-top:.7rem;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.07);border-radius:.55rem;padding:.55rem .7rem;display:flex;flex-direction:column;gap:.25rem}
@@ -664,6 +684,56 @@ function showcase(){
     papelCor(p){ const m={EXEQUENTE:'#22c55e',BENEFICIARIO:'#22c55e',HERDEIRO:'#a855f7',SUCESSOR:'#a855f7',
       ESPOLIO:'#8b5cf6',INVENTARIANTE:'#f59e0b',CONJUGE:'#ec4899',CESSIONARIO:'#06b6d4',CEDENTE:'#0ea5e9',
       ADVOGADO:'#64748b',EXECUTADO:'#ef4444',FALECIDO:'#6b7280'}; return m[(p||'').toUpperCase()]||'#3b82f6' },
+    // polo da parte: ativo (recebe o crédito) | passivo (paga) | repr (advogado) | outro.
+    // Só o polo ATIVO tem valor a receber por definição — o passivo (Fazenda/ente) NÃO
+    // recebe, então não mostramos "a receber —" pra ele (a menos que exista valor real).
+    _poloParte(papel){
+      const P=(papel||'').toUpperCase();
+      if(/CEDENTE/.test(P)) return {polo:'ativo'};                       // era credor, cedeu
+      if(/EXEQUENTE|EXEQ|BENEFICI|HERDEIR|SUCESSOR|ESP[OÓ]LIO|INVENTARIANT|CESSION|C[OÔ]NJUGE|CREDOR/.test(P)) return {polo:'ativo'};
+      if(/EXECUTAD|ENTE|FAZENDA|DEVEDOR|MUNIC|ESTADO|UNI[AÃ]O|INSS/.test(P)) return {polo:'passivo'};
+      if(/ADVOGAD|PROCURADOR|REPRESENT|PATRONO|CAUSID/.test(P)) return {polo:'repr'};
+      return {polo:'outro'};
+    },
+    // card de UMA parte. forceValor=true (polo ativo) sempre mostra o bloco de valor;
+    // senão, só mostra se houver valor/pagamento REAL (não polui o passivo com "—").
+    _parteCard(p, forceValor){
+      const cor=this.papelCor(p.papel); const esp=p.espolio||p.espolio_de;
+      const vr=this._valorReceber(p); const rec=this._recebido(p);
+      const abstVal=p.valor_a_receber && p.valor_a_receber.abstido;
+      const stv=(p.valor_a_receber && p.valor_a_receber.status)||null;
+      const temValorReal=(vr!=null || rec.tem || p.saldo!=null || abstVal);
+      const mostrarValor=forceValor || temValorReal;
+      const inicial=((p.nome||'?').trim().charAt(0)||'?').toUpperCase();
+      let c=`<div class="sc-pcard" style="--pc:${cor}">`;
+      c+=`<div class="sc-pcard-top">
+        <span class="sc-pcard-av" style="background:${cor}22;color:${cor};border-color:${cor}55">${this.esc(inicial)}</span>
+        <div class="sc-pcard-id">
+          <div class="sc-pcard-nome">${this.na(p.nome)}</div>
+          <div class="sc-pcard-tags">
+            ${p.papel?`<span class="sc-papel" style="background:${cor}22;color:${cor}">${this.esc(p.papel)}</span>`:''}
+            ${p.papel_conflito?`<span class="sc-papel" style="background:#ef444422;color:#ef4444">papel em conflito</span>`:''}
+            ${this.confBadge(p.confianca)}
+          </div>
+        </div>`;
+      if(stv){ const sc=this._statusValorCor(stv);
+        c+=`<span class="sc-stpill" style="background:${sc}22;color:${sc};border-color:${sc}55" title="situação do valor desta parte">${this.esc((p.valor_a_receber.status_rotulo)||stv)}</span>`; }
+      c+=`</div>`;
+      const sub=[];
+      if(p.cpf_cnpj) sub.push(this.esc(p.cpf_cnpj));
+      if(esp) sub.push('espólio de '+this.esc(esp===true?'—':esp));
+      if(p.abstido) sub.push('<span style="color:#f59e0b">modelo absteve o papel</span>');
+      if(sub.length) c+=`<div class="sc-pcard-sub">${sub.join('&nbsp;·&nbsp;')}</div>`;
+      if(mostrarValor){
+        c+=`<div class="sc-pcard-vals">
+          <div class="sc-val sc-val-hero"><span>a receber</span><b>${vr!=null? this.money(vr) : (abstVal? '<span class="sc-na" title="'+this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'sem evidência')+'">modelo absteve</span>':'<span class="sc-na">—</span>')}</b></div>
+          <div class="sc-val"><span>já recebido</span><b>${rec.tem? rec.txt : '<span class="sc-na">—</span>'}</b></div>
+          <div class="sc-val"><span>saldo</span><b>${p.saldo!=null? this.money(p.saldo) : `<span class="sc-na" title="${this.esc(p.saldo_motivo||'sem registro de pagamento')}">—</span>`}</b></div>
+        </div>`;
+      }
+      c+=`</div>`;
+      return c;
+    },
     confBadge(c){ const m={alta:'#22c55e',media:'#f59e0b',baixa:'#ef4444'}; const k=(c||'').toLowerCase();
       return m[k]? `<span class="sc-conf" style="color:${m[k]}">● confiança ${this.esc(c)}</span>`:'' },
     // helpers de valor (contrato real)
@@ -808,31 +878,29 @@ function showcase(){
           <dt>Valor do processo</dt><dd>${temValor? this.money(valorProc) : '<span class="sc-na">—</span>'}</dd>
           <dt>Natureza</dt><dd>${this.na(natureza)}</dd>
           <dt>Ente devedor</dt><dd>${this.na(ente)}</dd></dl></div>`;
-        // partes
+        // partes — AGRUPADAS POR POLO (ativo recebe · passivo paga · advogados)
         h+=`<div class="sc-sec"><div class="sc-sec-t">Partes (${partes.length})</div>`;
-        partes.forEach(p=>{
-          const cor=this.papelCor(p.papel); const esp=p.espolio||p.espolio_de;
-          h+=`<div class="sc-parte"><div class="sc-parte-top">
-            <span class="sc-nome">${this.na(p.nome)}</span>
-            ${p.papel?`<span class="sc-papel" style="background:${cor}22;color:${cor}">${this.esc(p.papel)}</span>`:''}
-            ${p.papel_conflito?`<span class="sc-papel" style="background:#ef444422;color:#ef4444">papel em conflito</span>`:''}
-            ${this.confBadge(p.confianca)}
-            ${p.cpf_cnpj?`<span class="sc-conf">· ${this.esc(p.cpf_cnpj)}</span>`:''}
-            ${p.abstido?`<span class="sc-conf" style="color:#f59e0b">· o modelo absteve</span>`:''}
-          </div>`;
-          if(esp) h+=`<div class="sc-conf" style="margin-top:.15rem">espólio de ${this.esc(esp===true?'—':esp)}</div>`;
-          const vr=this._valorReceber(p); const rec=this._recebido(p);
-          const abstVal = p.valor_a_receber && p.valor_a_receber.abstido;
-          const stv = (p.valor_a_receber && p.valor_a_receber.status) || null;
-          if(stv){ const sc=this._statusValorCor(stv);
-            h+=`<div style="margin-top:.2rem"><span class="sc-stpill" style="background:${sc}22;color:${sc};border-color:${sc}55" title="situação do valor desta parte">${this.esc((p.valor_a_receber.status_rotulo)||stv)}</span></div>`; }
-          if(vr!=null || rec.tem || p.saldo!=null || abstVal){
-            h+=`<div class="sc-vals">
-              <div class="sc-val"><span>a receber</span><b>${vr!=null? this.money(vr) : (abstVal? '<span class="sc-na" title="'+this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'sem evidência')+'">modelo absteve</span>':'<span class="sc-na">—</span>')}</b></div>
-              <div class="sc-val"><span>já recebido</span><b>${rec.tem? rec.txt : '<span class="sc-na">—</span>'}</b></div>
-              <div class="sc-val"><span>saldo</span><b>${p.saldo!=null? this.money(p.saldo) : `<span class="sc-na" title="${this.esc(p.saldo_motivo||'sem registro de pagamento')}">—</span>`}</b></div></div>`;
-          }
-          h+=`</div>`;
+        const GRUPOS=[
+          {key:'ativo',   titulo:'Polo ativo · quem recebe',   cor:'#22c55e'},
+          {key:'passivo', titulo:'Polo passivo · quem paga',    cor:'#ef4444'},
+          {key:'repr',    titulo:'Advogados & representantes',  cor:'#94a3b8'},
+          {key:'outro',   titulo:'Outras partes',              cor:'#3b82f6'},
+        ];
+        const buckets={ativo:[],passivo:[],repr:[],outro:[]};
+        partes.forEach(p=>{ (buckets[this._poloParte(p.papel).polo]||buckets.outro).push(p); });
+        GRUPOS.forEach(g=>{
+          const lst=buckets[g.key]; if(!lst.length) return;
+          let tot=0,temTot=false; if(g.key==='ativo') lst.forEach(p=>{const v=this._valorReceber(p); if(v!=null){tot+=v;temTot=true}});
+          h+=`<div class="sc-polo" style="--polo:${g.cor}">
+            <div class="sc-polo-head">
+              <span class="sc-polo-dot"></span>
+              <span class="sc-polo-t">${g.titulo}</span>
+              <span class="sc-polo-n">${lst.length}</span>
+              ${g.key==='ativo'&&temTot?`<span class="sc-polo-tot">total a receber&nbsp;<b>${this.money(tot)}</b></span>`:''}
+            </div>
+            <div class="sc-pgrid">`;
+          lst.forEach(p=>{ h+=this._parteCard(p, g.key==='ativo'); });
+          h+=`</div></div>`;
         });
         h+=`</div>`;
       } else if(registros.length){
