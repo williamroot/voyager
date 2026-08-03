@@ -3,7 +3,7 @@ function showcase(){
   return {
     modelos:{}, info:{}, showCards:false, single:null, selected:{}, modo:'single', analiseIds:{},
     file:null, dragover:false, running:false, results:{}, progress:0, steps:[], _timer:null,
-    step:1, exporting:false, upStat:'',
+    step:1, exporting:false, upStat:'', redirecting:false,
     init(){
       this.modelos = JSON.parse(document.getElementById('showcase-modelos').textContent||'{}');
       this.info = JSON.parse(document.getElementById('showcase-info').textContent||'{}');
@@ -209,6 +209,16 @@ function showcase(){
       }
       this.steps.forEach(s=>{s.done=true;s.now=false}); this.progress=100;
       setTimeout(()=>{ this.running=false },350);
+      // redireciona pro SALVO (página compartilhável por UUID) assim que termina —
+      // modo single, extração OK e persistida. Mesma ficha + link pra compartilhar.
+      // Comparação (N modelos) NÃO redireciona (há N análises); persistência falha
+      // (sem analise_id) cai no render inline — graceful, sem prender o usuário.
+      if(this.modo==='single'){
+        const aid=this.analiseIds[this.single];
+        const ok=this.results[this.single] && !this.results[this.single].erro;
+        if(aid && ok){ this.redirecting=true;
+          setTimeout(()=>{ window.location.href=`/dashboard/ia/showcase/a/${aid}/`; }, 850); }
+      }
     },
     // ---------- render ----------
     esc(s){ if(s==null) return ''; return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) },

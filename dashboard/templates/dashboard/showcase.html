@@ -235,6 +235,12 @@
         <div class="text-[0.68rem] text-fg-subtle mt-1.5 font-mono" x-show="upStat" x-text="upStat"></div>
       </div>
 
+      {# indo pro SALVO — feedback do redirect automático (modo single) #}
+      <div x-show="redirecting" x-cloak class="sc-steps" style="display:flex;align-items:center;gap:.5rem">
+        <span class="sc-spin sc-spin-sm"></span>
+        <span class="text-sm text-accent-fg">abrindo a análise salva…</span>
+      </div>
+
       {# resultado — barra de ação #}
       <div x-show="!running && hasResult" class="sc-navrow" style="margin-top:0;margin-bottom:.9rem">
         <div class="sc-badge-live">
