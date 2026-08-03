@@ -264,11 +264,11 @@ function showcase(){
     },
     _parteCard(p, forceValor){
       const cor=this.papelCor(p.papel); const esp=p.espolio||p.espolio_de;
+      const ehAdvogado=/ADVOGAD|PROCURADOR|REPRESENT|PATRONO|CAUSID/.test((p.papel||'').toUpperCase());
       const vr=this._valorReceber(p); const rec=this._recebido(p);
       const abstVal=p.valor_a_receber && p.valor_a_receber.abstido;
       const stv=(p.valor_a_receber && p.valor_a_receber.status)||null;
-      const temValorReal=(vr!=null || rec.tem || p.saldo!=null || abstVal);
-      const mostrarValor=forceValor || temValorReal;
+      const temValorReal=(vr!=null || rec.tem || p.saldo!=null);
       const inicial=((p.nome||'?').trim().charAt(0)||'?').toUpperCase();
       let c=`<div class="sc-pcard" style="--pc:${cor}">`;
       c+=`<div class="sc-pcard-top">
@@ -305,14 +305,20 @@ function showcase(){
         const rots=[...new Set(orig.map(x=>this._classeRot(x)).filter(Boolean))];
         if(rots.length) c+=`<div class="sc-pcard-orig"><span>consta em</span> ${rots.map(r=>`<em>${this.esc(r)}</em>`).join(' · ')}</div>`;
       }
-      if(mostrarValor){
-        // "a receber" é o herói (sempre no polo ativo). "já recebido" e "saldo" só
-        // aparecem quando há dado — colapsar os "—" tira ruído de cada card.
-        c+=`<div class="sc-pcard-vals">
-          <div class="sc-val sc-val-hero"><span>a receber</span><b>${vr!=null? this.money(vr) : (abstVal? '<span class="sc-na" title="'+this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'sem evidência')+'">modelo absteve</span>':'<span class="sc-na">—</span>')}</b></div>`;
-        if(rec.tem) c+=`<div class="sc-val"><span>já recebido</span><b>${rec.txt}</b></div>`;
-        if(p.saldo!=null) c+=`<div class="sc-val"><span>saldo</span><b>${this.money(p.saldo)}</b></div>`;
-        c+=`</div>`;
+      // VALOR — advogado NUNCA recebe o crédito (sem bloco de valor). Parte com
+      // valor real → bloco completo (a receber é o herói; já-recebido/saldo só se
+      // houver). Polo ativo SEM valor → nota compacta e honesta, em vez do bloco
+      // grande de "MODELO ABSTEVE" repetido em cada card (era o que confundia).
+      if(!ehAdvogado){
+        if(temValorReal){
+          c+=`<div class="sc-pcard-vals">
+            <div class="sc-val sc-val-hero"><span>a receber</span><b>${vr!=null? this.money(vr) : '<span class="sc-na">—</span>'}</b></div>`;
+          if(rec.tem) c+=`<div class="sc-val"><span>já recebido</span><b>${rec.txt}</b></div>`;
+          if(p.saldo!=null) c+=`<div class="sc-val"><span>saldo</span><b>${this.money(p.saldo)}</b></div>`;
+          c+=`</div>`;
+        } else if(forceValor){
+          c+=`<div class="sc-pcard-semval" title="${this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'o modelo não atribuiu um valor individual a esta parte')}">${abstVal?'modelo absteve o valor desta parte':'sem valor individual atribuído'}</div>`;
+        }
       }
       c+=`</div>`;
       return c;
