@@ -290,7 +290,7 @@ function showcase(){
       const oab=p.oab||p.oab_numero||(p.registro_oab);
       const idbits=[];
       if(doc) idbits.push(`<span class="sc-idchip"><i>${ehCnpj?'CNPJ':'CPF'}</i>${this.esc(doc)}</span>`);
-      if(oab) idbits.push(`<span class="sc-idchip sc-idchip-oab"><i>OAB</i>${this.esc(oab)}</span>`);
+      if(oab) idbits.push(`<span class="sc-idchip sc-idchip-oab"><i>OAB</i>${this.esc(String(oab).replace(/^\s*OAB[\/\s:-]*/i,''))}</span>`);
       if(idbits.length) c+=`<div class="sc-pcard-id2">${idbits.join('')}</div>`;
       const sub=[];
       if(esp) sub.push('espólio de '+this.esc(esp===true?'—':esp));
@@ -306,11 +306,13 @@ function showcase(){
         if(rots.length) c+=`<div class="sc-pcard-orig"><span>consta em</span> ${rots.map(r=>`<em>${this.esc(r)}</em>`).join(' · ')}</div>`;
       }
       if(mostrarValor){
+        // "a receber" é o herói (sempre no polo ativo). "já recebido" e "saldo" só
+        // aparecem quando há dado — colapsar os "—" tira ruído de cada card.
         c+=`<div class="sc-pcard-vals">
-          <div class="sc-val sc-val-hero"><span>a receber</span><b>${vr!=null? this.money(vr) : (abstVal? '<span class="sc-na" title="'+this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'sem evidência')+'">modelo absteve</span>':'<span class="sc-na">—</span>')}</b></div>
-          <div class="sc-val"><span>já recebido</span><b>${rec.tem? rec.txt : '<span class="sc-na">—</span>'}</b></div>
-          <div class="sc-val"><span>saldo</span><b>${p.saldo!=null? this.money(p.saldo) : `<span class="sc-na" title="${this.esc(p.saldo_motivo||'sem registro de pagamento')}">—</span>`}</b></div>
-        </div>`;
+          <div class="sc-val sc-val-hero"><span>a receber</span><b>${vr!=null? this.money(vr) : (abstVal? '<span class="sc-na" title="'+this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'sem evidência')+'">modelo absteve</span>':'<span class="sc-na">—</span>')}</b></div>`;
+        if(rec.tem) c+=`<div class="sc-val"><span>já recebido</span><b>${rec.txt}</b></div>`;
+        if(p.saldo!=null) c+=`<div class="sc-val"><span>saldo</span><b>${this.money(p.saldo)}</b></div>`;
+        c+=`</div>`;
       }
       c+=`</div>`;
       return c;
@@ -447,15 +449,17 @@ function showcase(){
       // linha do tempo — pontos por marco
       const marcos=Array.isArray(e.marcos)?e.marcos:[];
       if(marcos.length){
+        // marco ATUAL = o último 'done' (onde o crédito está HOJE) → destaque "está aqui"
+        let idxAtual=-1; marcos.forEach((m,i)=>{ if(m.status==='done') idxAtual=i; });
         h+=`<div class="sc-tl">`;
-        marcos.forEach(m=>{
-          const mc=this._marcoCor(m.status);
+        marcos.forEach((m,i)=>{
+          const mc=this._marcoCor(m.status); const atual=(i===idxAtual);
           const dt = m.data ? this.esc(m.data) : (m.status==='pendente'?'pendente':(m.status==='desconhecido'?'—':''));
-          h+=`<div class="sc-tl-item">
+          h+=`<div class="sc-tl-item${atual?' sc-tl-atual':''}">
             <div class="sc-tl-dot" style="background:${m.status==='done'?mc:'transparent'};border-color:${mc}"></div>
             <div class="sc-tl-body">
-              <div class="sc-tl-rot">${this.esc(m.rotulo||m.chave||'')}</div>
-              <div class="sc-tl-meta"><span style="color:${mc}">${dt}</span>${m.fonte&&m.fonte!=='sem_ancora'?` <span style="opacity:.5">· ${this.esc(m.fonte)}</span>`:''}</div>
+              <div class="sc-tl-rot">${this.esc(m.rotulo||m.chave||'')}${atual?' <span class="sc-tl-badge">estágio atual</span>':''}</div>
+              <div class="sc-tl-meta"><span style="color:${mc}">${dt}</span>${m.fonte&&m.fonte!=='sem_ancora'?` <span class="sc-soft">· ${this.esc(m.fonte)}</span>`:''}</div>
             </div></div>`;
         });
         h+=`</div>`;
@@ -469,6 +473,35 @@ function showcase(){
       }
       h+=`</div>`;
       return h;
+    },
+    // ── FAIXA-HERÓI — o número que decide o investimento (valor) + estágio + cessão + partes ativas
+    _renderHero(r, fichas, partes, docs, valorProc, temValor){
+      if(!partes.length) return '';
+      const est=r.estagio||{};
+      const ativas=partes.filter(p=>this._poloParte(p.papel).polo==='ativo').length;
+      const temCessao=this._coletaCessoes(fichas, docs).length>0;
+      const ec=est.estagio? this._estagioCor(est.estagio):'var(--fg-muted)';
+      let h=`<div class="sc-hero2">
+        <div class="sc-hero-val">
+          <div class="sc-hero-lb">Valor total a receber</div>
+          <div class="sc-hero-big">${temValor? this.money(valorProc) : '<span class="sc-hero-abst">modelo absteve</span>'}</div>
+        </div>
+        <div class="sc-hero-chips">`;
+      if(est.estagio) h+=`<div class="sc-hero-chip"><span class="sc-hero-clb">Estágio</span><span class="sc-hero-cval" style="color:${ec}">${this.esc(est.estagio_rotulo||est.estagio)}</span></div>`;
+      h+=`<div class="sc-hero-chip"><span class="sc-hero-clb">Partes ativas</span><span class="sc-hero-cval">${ativas}</span></div>`;
+      h+=`<div class="sc-hero-chip"><span class="sc-hero-clb">Cessão de crédito</span><span class="sc-hero-cval" style="color:${temCessao?'#22d3ee':'var(--fg-muted)'}">${temCessao?'sim':'não'}</span></div>`;
+      h+=`</div></div>`;
+      return h;
+    },
+    // legenda das cores — colapsável (papel/polo/status/confiança), tira dúvida do investidor
+    _renderLegenda(){
+      const it=(c,t)=>`<span class="sc-lg-it"><i style="background:${c}"></i>${t}</span>`;
+      return `<details class="sc-legenda"><summary>O que as cores significam</summary><div class="sc-lg-grid">`
+        + it('#22c55e','Polo ativo · recebe') + it('#ef4444','Polo passivo · paga')
+        + it('#22d3ee','Cessão · cessionário') + it('#a855f7','Herdeiro · sucessor')
+        + it('#64748b','Advogado') + it('#3b82f6','Estágio · precatório emitido')
+        + it('#22c55e','Confiança alta') + it('#f59e0b','Confiança média') + it('#ef4444','Confiança baixa')
+        + `</div></details>`;
     },
     // renderiza a resposta REAL do pod: {fichas(=partes), docs, tempos, contexto, avisos, estagio}
     renderFicha(r, compact){
@@ -508,22 +541,24 @@ function showcase(){
       h+=`</div><div class="flex items-center gap-2">
         <span class="sc-fmeta">⏱ ${this.tempo(r)}${tempos.total_s!=null?` · modelo ${(+tempos.total_s).toFixed(1)}s`:''}</span>
         <span class="sc-chip" style="background:rgba(34,197,94,.12);color:#22c55e">só o modelo</span></div></div>`;
-      // ═══ ESTÁGIO DO CRÉDITO + LINHA DO TEMPO (jurimetria — inteligência do sistema) ═══
+      // ── FAIXA-HERÓI — o TL;DR da decisão: valor total + estágio + cessão + partes ativas
+      h += this._renderHero(r, fichas, partes, docs, valorProc, temValor);
+      // ═══ ESTÁGIO DO CRÉDITO + LINHA DO TEMPO ═══
       h += this.renderEstagio(r.estagio || {});
-      // docs lidos — agregados por CLASSE (mostra a amplitude sem virar 50 chips)
+      // ═══ CESSÃO DE CRÉDITO — card dedicado (cedente → cessionário) ═══
+      h += this.renderCessao(fichas, docs);
+      // ── PROCEDÊNCIA (documentos lidos + avisos/abstenção): guardada pro RODAPÉ.
+      //    É qualidade da leitura, não a substância — o valor/partes vêm ANTES.
+      let secProc='';
       if(docs.length){
         const porClasse = {}; let ocrTot=0;
         docs.forEach(d=>{ const c=(d.classe||d.nome||'?'); porClasse[c]=(porClasse[c]||0)+1; if(d.paginas_ocr>0||d.precisa_ocr) ocrTot++; });
         const classes = Object.keys(porClasse).sort((a,b)=>porClasse[b]-porClasse[a]);
-        h+=`<div class="sc-sec"><div class="sc-sec-t">Documentos lidos — ${docs.length} peça${docs.length>1?'s':''}, ${classes.length} tipo${classes.length>1?'s':''}${ocrTot?` · ${ocrTot} via OCR`:''}</div><div class="sc-docs">`;
-        classes.forEach(c=>{
-          const n=porClasse[c];
-          h+=`<span class="sc-docchip">${this.esc(c)}${n>1?` <span style="opacity:.6">×${n}</span>`:''}</span>`;
-        });
-        h+=`</div></div>`;
+        secProc+=`<div class="sc-sec"><div class="sc-sec-t">Documentos lidos — ${docs.length} peça${docs.length>1?'s':''}, ${classes.length} tipo${classes.length>1?'s':''}${ocrTot?` · ${ocrTot} via OCR`:''}</div><div class="sc-docs">`;
+        classes.forEach(c=>{ const n=porClasse[c];
+          secProc+=`<span class="sc-docchip">${this.esc(this._classeRot(c)||c)}${n>1?` <span class="sc-soft">×${n}</span>`:''}</span>`; });
+        secProc+=`</div></div>`;
       }
-      // avisos: separa ABSTENÇÃO (honestidade — o modelo não inventou) de problema real.
-      // Abster-se num doc sem o dado é FEATURE (vs. mecânica que chuta), não erro → enquadrar positivo.
       if(avisos.length){
         const isAbst = a=>/abst[eéê]|absteve/i.test(a);
         const isInfo = a=>/detectad|regra |capa e-?saj|CAPA_ESAJ|ente devedor|EXECUTADO|proveni/i.test(a);
@@ -531,24 +566,14 @@ function showcase(){
         const info = avisos.filter(a=>!isAbst(a) && isInfo(a));
         const probs = avisos.filter(a=>!isAbst(a) && !isInfo(a));
         if(abst.length){
-          h+=`<div class="sc-honesto" title="${this.esc(abst.slice(0,15).join('  •  '))}">
+          secProc+=`<div class="sc-honesto" title="${this.esc(abst.slice(0,15).join('  •  '))}">
             <span class="sc-honesto-ic">✓</span>
-            <span>O modelo <b>absteve-se em ${abst.length} documento${abst.length>1?'s':''}</b> sem dado estruturável — preferiu <b>não responder a inventar</b>. <span style="opacity:.72">Zero alucinação; passe o mouse pra ver quais.</span></span>
+            <span>O modelo <b>absteve-se em ${abst.length} documento${abst.length>1?'s':''}</b> sem dado estruturável — preferiu <b>não responder a inventar</b>. <span class="sc-soft">Zero alucinação; passe o mouse pra ver quais.</span></span>
           </div>`;
         }
-        if(info.length){  // proveniência da camada mecânica (capa/ente) — INFO, não alerta
-          h+=`<div class="sc-info">`;
-          info.forEach(a=>h+=`<div>◈ ${this.esc(a)}</div>`);
-          h+=`</div>`;
-        }
-        if(probs.length){
-          h+=`<div class="sc-avisos">`;
-          probs.forEach(a=>h+=`<div>⚠ ${this.esc(a)}</div>`);
-          h+=`</div>`;
-        }
+        if(info.length){ secProc+=`<div class="sc-info">`; info.forEach(a=>secProc+=`<div>◈ ${this.esc(a)}</div>`); secProc+=`</div>`; }
+        if(probs.length){ secProc+=`<div class="sc-avisos">`; probs.forEach(a=>secProc+=`<div>⚠ ${this.esc(a)}</div>`); secProc+=`</div>`; }
       }
-      // ═══ CESSÃO DE CRÉDITO — card dedicado (cedente → cessionário), bem visível ═══
-      h += this.renderCessao(fichas, docs);
       if(partes.length){
         // crédito
         h+=`<div class="sc-sec"><div class="sc-sec-t">Crédito</div><dl class="sc-kv">
@@ -621,6 +646,10 @@ function showcase(){
         if(decisoes.length||acordaos.length) h+=`<div class="sc-conf" style="margin-top:.4rem">${decisoes.length} decisão(ões) · ${acordaos.length} acórdão(s)</div>`;
         h+=`</div>`;
       }
+      // procedência (documentos lidos + abstenção) no RODAPÉ — depois de valor/partes
+      h += secProc;
+      // legenda das cores (papel/polo/status/confiança) — colapsável, tira dúvida
+      h += this._renderLegenda();
       h+=`</div>`;
       return h;
     },

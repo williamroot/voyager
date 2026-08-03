@@ -218,4 +218,53 @@
 .page-showcase .sc-cessmeta i{font-style:normal;font-size:.56rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-subtle);margin-right:.3rem}
 @media(max-width:560px){.page-showcase .sc-cessflow{grid-template-columns:1fr}
   .page-showcase .sc-cessarrow{flex-direction:row;padding:.4rem;border-top:1px dashed rgba(6,182,212,.25)}}
+
+/* ═══ FAIXA-HERÓI — o TL;DR da decisão (valor + estágio + cessão + partes) ═══ */
+.page-showcase .sc-hero2{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:1rem;
+  margin:.2rem 0 1rem;padding:.9rem 1.1rem;border:1px solid var(--border);border-radius:.8rem;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--accent-fg,#22c55e) 10%,transparent),rgba(255,255,255,.02))}
+.page-showcase .sc-hero-lb{font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);font-weight:700}
+.page-showcase .sc-hero-big{font-size:1.7rem;font-weight:800;line-height:1.05;color:var(--fg);letter-spacing:-.01em;
+  font-variant-numeric:tabular-nums;margin-top:.1rem}
+.page-showcase .sc-hero-abst{font-size:.95rem;font-weight:600;color:#f59e0b}
+.page-showcase .sc-hero-chips{display:flex;gap:.5rem;flex-wrap:wrap}
+.page-showcase .sc-hero-chip{display:flex;flex-direction:column;gap:.1rem;min-width:5.5rem;padding:.4rem .65rem;
+  border:1px solid var(--border);border-radius:.55rem;background:rgba(0,0,0,.18)}
+.page-showcase .sc-hero-clb{font-size:.6rem;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-subtle);font-weight:700}
+.page-showcase .sc-hero-cval{font-size:.92rem;font-weight:700;color:var(--fg)}
+@media(max-width:520px){.page-showcase .sc-hero-big{font-size:1.4rem}.page-showcase .sc-hero-chip{flex:1 1 40%}}
+
+/* contraste: rótulo "soft" sem opacity composta sobre cinza (piso legível) */
+.page-showcase .sc-soft{color:var(--fg-muted)}
+
+/* hierarquia do valor: o TOTAL do polo é o número que importa no grupo */
+.page-showcase .sc-polo-tot b{font-size:.98rem;font-weight:800;font-variant-numeric:tabular-nums}
+.page-showcase .sc-val-hero b{color:var(--fg)}
+
+/* timeline: marcar "está AQUI" (estágio atual) */
+.page-showcase .sc-tl-atual .sc-tl-dot{width:.85rem;height:.85rem;margin-top:-.08rem;
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--accent-fg,#22c55e) 22%,transparent)}
+.page-showcase .sc-tl-atual .sc-tl-rot{font-weight:800;color:var(--fg)}
+.page-showcase .sc-tl-badge{display:inline-block;font-size:.56rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:#0b0d12;background:var(--accent-fg,#22c55e);border-radius:999px;padding:.06rem .4rem;margin-left:.4rem;vertical-align:middle}
+
+/* legenda de cores — colapsável, rodapé */
+.page-showcase .sc-legenda{margin-top:1rem;border-top:1px solid var(--border);padding-top:.7rem}
+.page-showcase .sc-legenda summary{cursor:pointer;font-size:.7rem;color:var(--fg-muted);font-weight:600;list-style:none;user-select:none}
+.page-showcase .sc-legenda summary::-webkit-details-marker{display:none}
+.page-showcase .sc-legenda summary::before{content:'▸ ';color:var(--fg-subtle)}
+.page-showcase .sc-legenda[open] summary::before{content:'▾ '}
+.page-showcase .sc-lg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.35rem .8rem;margin-top:.6rem}
+.page-showcase .sc-lg-it{display:flex;align-items:center;gap:.4rem;font-size:.68rem;color:var(--fg-muted)}
+.page-showcase .sc-lg-it i{width:.7rem;height:.7rem;border-radius:.2rem;flex:none}
+
+/* piso de legibilidade: rótulos micro nunca abaixo de .62rem efetivo */
+.page-showcase .sc-pcard-orig span,.page-showcase .sc-cessrole,.page-showcase .sc-idchip i,
+.page-showcase .sc-cessmeta i,.page-showcase .sc-hero-clb{font-size:.62rem}
+
+/* grades apertadas no mobile: empilhar os valores do card */
+@media(max-width:400px){
+  .page-showcase .sc-pcard-vals{flex-direction:column;gap:.35rem}
+  .page-showcase .sc-kv dd{text-align:left}
+}
 </style>

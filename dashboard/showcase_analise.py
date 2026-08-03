@@ -17,14 +17,40 @@ def analise_detalhe(request, aid):
     a = get_object_or_404(ShowcaseAnalise.objects.select_related('usuario'), uuid=aid)
     tempos = a.tempos or {}
     tsec = tempos.get('total_s') or (a.elapsed_ms / 1000 if a.elapsed_ms else 0)
+    res = a.resultado or {}
+
+    # valor total a receber (soma dos valor_a_receber das partes) + estágio — o
+    # "cartão de visita" da análise mostra o que decide, não só metadados.
+    def _num(v):
+        try:
+            s = str(v).replace('.', '').replace(',', '.')
+            import re as _re
+            s = _re.sub(r'[^\d.-]', '', s)
+            return float(s) if s not in ('', '-', '.') else None
+        except Exception:
+            return None
+    total = 0.0
+    tem_valor = False
+    for f in (res.get('fichas') or []):
+        if not isinstance(f, dict):
+            continue
+        va = f.get('valor_a_receber')
+        v = _num(va.get('valor')) if isinstance(va, dict) else None
+        if v is not None:
+            total += v
+            tem_valor = True
+    valor_txt = ('R$ ' + f'{total:,.2f}'.replace(',', '§').replace('.', ',').replace('§', '.')) if tem_valor else '—'
+    estagio = ((res.get('estagio') or {}).get('estagio_rotulo')
+               or (res.get('estagio') or {}).get('estagio') or '—')
+
     def _mil(n):
         return f'{int(n):,}'.replace(',', '.')
     stats = [
+        ('Valor a receber', valor_txt),
+        ('Estágio', estagio),
         ('Modelo', a.modelo_label or a.versao or '—'),
         ('Tempo', f'{tsec:.1f}s' if tsec else '—'),
         ('Páginas', _mil(a.paginas) if a.paginas else '—'),
-        ('Partes', _mil(a.n_partes)),
-        ('Documentos', _mil(a.n_docs)),
         ('Tamanho', filesizeformat(a.tamanho_bytes) if a.tamanho_bytes else '—'),
         ('SHA-256', (a.sha256[:12] + '…') if a.sha256 else '—'),
     ]
