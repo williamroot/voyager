@@ -3543,25 +3543,32 @@ def _indexacao_data():
     if cached:
         return cached
 
+    import requests
+    from django.conf import settings
     from tribunals.models import Process, Movimentacao
-    from search.client import get_es, index_name
+
+    # HTTP direto no ES (o container web NÃO tem a lib `elasticsearch` — só o worker
+    # de indexação tem; `requests` está sempre disponível). Sem dependência extra.
+    es_url = getattr(settings, 'ELASTICSEARCH_URL', 'http://elasticsearch:9200').rstrip('/')
+    prefix = getattr(settings, 'ELASTICSEARCH_INDEX_PREFIX', 'voyager')
+    idx_name = lambda suf: f'{prefix}-{suf}'
 
     out = {'conteudos': [], 'por_tribunal': [], 'cluster': {}, 'erro': None, 'ts': _time.time()}
     try:
-        es = get_es()
         try:
-            h = dict(es.cluster.health())
+            h = requests.get(f'{es_url}/_cluster/health', timeout=5).json()
             out['cluster'] = {'status': h.get('status'), 'nodes': h.get('number_of_nodes'),
                               'active_pct': round(h.get('active_shards_percent_as_number') or 0, 1)}
         except Exception:  # noqa: BLE001
             out['cluster'] = {}
         for nome, model, suf in [('Processos', Process, 'processos'),
                                  ('Movimentações', Movimentacao, 'movimentacoes')]:
-            idx = index_name(suf)
+            idx = idx_name(suf)
             indexado = 0
             try:
-                if es.indices.exists(index=idx):
-                    indexado = int(dict(es.count(index=idx)).get('count', 0))
+                r = requests.get(f'{es_url}/{idx}/_count', timeout=6)
+                if r.status_code == 200:
+                    indexado = int(r.json().get('count', 0))
             except Exception:  # noqa: BLE001
                 indexado = 0
             total = _indexacao_estimativa_db(model)
@@ -3571,10 +3578,12 @@ def _indexacao_data():
                                      'cobertura': cob})
         # por tribunal — INDEXADO (agg ES do índice de processos); DB por-tribunal é caro.
         try:
-            idxp = index_name('processos')
-            if es.indices.exists(index=idxp):
-                res = dict(es.search(index=idxp, body={'size': 0,
-                    'aggs': {'trib': {'terms': {'field': 'tribunal', 'size': 80}}}}))
+            idxp = idx_name('processos')
+            r = requests.post(f'{es_url}/{idxp}/_search',
+                              json={'size': 0, 'aggs': {'trib': {'terms': {'field': 'tribunal', 'size': 80}}}},
+                              timeout=8)
+            if r.status_code == 200:
+                res = r.json()
                 for b in (((res.get('aggregations') or {}).get('trib') or {}).get('buckets') or []):
                     out['por_tribunal'].append({'tribunal': b.get('key'), 'indexado': b.get('doc_count', 0)})
                 out['por_tribunal'].sort(key=lambda x: x['indexado'], reverse=True)
