@@ -1,0 +1,60 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Indexação{% endblock %}
+
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Indexação Elasticsearch' subtitle='Cobertura do índice de busca por conteúdo — quanto do banco já está indexado (Jusbrasil-compat). Atualiza sozinho a cada 30s.' %}
+
+{# builder ECharts definido no shell — persiste entre swaps HTMX #}
+<script>
+  // barra horizontal empilhada: indexado (cor) + pendente (cinza), com rótulo de cobertura.
+  window.buildIxCobertura = function (rows) {
+    const nomes = rows.map(r => r.nome);
+    return {
+      grid: {left: 8, right: 16, top: 10, bottom: 6, containLabel: true},
+      tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'},
+        valueFormatter: v => Number(v).toLocaleString('pt-BR')},
+      legend: {data: ['Indexado', 'Pendente'], top: 0, right: 8,
+        textStyle: {color: '#94a3b8', fontSize: 11}, itemWidth: 10, itemHeight: 10},
+      xAxis: {type: 'value', axisLabel: {color: '#64748b', formatter: v => {
+        if (v >= 1e6) return (v/1e6).toFixed(0)+'M'; if (v >= 1e3) return (v/1e3).toFixed(0)+'k'; return v;
+      }}, splitLine: {lineStyle: {color: 'rgba(148,163,184,0.08)'}}},
+      yAxis: {type: 'category', data: nomes, axisLabel: {color: '#cbd5e1', fontWeight: 600},
+        axisLine: {show: false}, axisTick: {show: false}},
+      series: [
+        {name: 'Indexado', type: 'bar', stack: 't', barWidth: 22,
+         data: rows.map(r => r.indexado),
+         itemStyle: {color: 'rgb(16,185,129)', borderRadius: [4,0,0,4]},
+         label: {show: true, position: 'insideLeft', color: '#04231a', fontWeight: 700,
+           formatter: p => p.value > 0 ? r_cob(rows, p.dataIndex) : ''}},
+        {name: 'Pendente', type: 'bar', stack: 't', barWidth: 22,
+         data: rows.map(r => r.pendente),
+         itemStyle: {color: 'rgba(148,163,184,0.18)', borderRadius: [0,4,4,0]}},
+      ],
+    };
+    function r_cob(rows, i){ return rows[i].cobertura + '%'; }
+  };
+  window.buildIxTribunal = function (rows) {
+    return {
+      grid: {left: 8, right: 16, top: 10, bottom: 24, containLabel: true},
+      tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'},
+        valueFormatter: v => Number(v).toLocaleString('pt-BR')},
+      xAxis: {type: 'category', data: rows.map(r => r.tribunal),
+        axisLabel: {color: '#94a3b8', rotate: rows.length > 12 ? 45 : 0, fontSize: 10},
+        axisTick: {show: false}},
+      yAxis: {type: 'value', axisLabel: {color: '#64748b'},
+        splitLine: {lineStyle: {color: 'rgba(148,163,184,0.08)'}}},
+      series: [{type: 'bar', data: rows.map(r => r.indexado), barMaxWidth: 26,
+        itemStyle: {color: 'rgb(59,130,246)', borderRadius: [4,4,0,0]}}],
+    };
+  };
+</script>
+
+<div id="ix-root"
+     hx-get="{% url 'dashboard:indexacao' %}"
+     hx-trigger="every 30s"
+     hx-swap="innerHTML">
+  {% include 'dashboard/_partials/_indexacao_data.html' with ix=ix %}
+</div>
+{% endblock %}

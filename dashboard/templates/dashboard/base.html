@@ -622,7 +622,7 @@
 
       {# ---- Operação ---- #}
       <div class="nav-group"
-           x-data="navGroup('operacao', {% if '/dashboard/ingestao' in request.path or '/dashboard/workers' in request.path or '/dashboard/vetorizacao' in request.path or '/dashboard/wizard' in request.path or request.path == '/dashboard/api/' or '/dashboard/invites' in request.path %}true{% else %}false{% endif %})"
+           x-data="navGroup('operacao', {% if '/dashboard/ingestao' in request.path or '/dashboard/workers' in request.path or '/dashboard/vetorizacao' in request.path or '/dashboard/indexacao' in request.path or '/dashboard/wizard' in request.path or request.path == '/dashboard/api/' or '/dashboard/invites' in request.path %}true{% else %}false{% endif %})"
            :class="{ open: open, 'nav-anim': anim }">
         <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
           {% voy_icon "calibrate" "w-3.5 h-3.5" %} Operação
@@ -653,6 +653,11 @@
               <a href="{{ vetorizacao_url }}" class="nav-item {% if request.path == vetorizacao_url %}active{% endif %}">
                 {% voy_icon "probe" "w-4 h-4" %}
                 Vetorização
+              </a>
+              {% url 'dashboard:indexacao' as indexacao_url %}
+              <a href="{{ indexacao_url }}" class="nav-item {% if request.path == indexacao_url %}active{% endif %}">
+                {% voy_icon "search" "w-4 h-4" %}
+                Indexação
               </a>
               {% url 'dashboard:wizard' as wizard_url %}
               <a href="{{ wizard_url }}" class="nav-item {% if wizard_url in request.path %}active{% endif %}">

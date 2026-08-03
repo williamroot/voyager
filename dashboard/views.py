@@ -3509,6 +3509,95 @@ def vetorizacao(request):
 
 
 # ---------------------------------------------------------------------------
+# Indexação Elasticsearch — cobertura por conteúdo (processos, movimentações).
+# ---------------------------------------------------------------------------
+
+def _indexacao_estimativa_db(model) -> int:
+    """Total de linhas ESTIMADO via Postgres (pg_class.reltuples) — instantâneo.
+
+    ``.count()`` em Process(71M)/Movimentacao(100M+) faz full scan e TRAVA a página.
+    reltuples é a estimativa do planner (mantida por ANALYZE/autovacuum): boa o
+    suficiente pra denominador de cobertura. 0 se a estimativa não existir ainda.
+    """
+    from django.db import connection
+    try:
+        with connection.cursor() as c:
+            c.execute("SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass(%s)",
+                      [model._meta.db_table])
+            r = c.fetchone()
+        return int(r[0]) if r and r[0] and r[0] > 0 else 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _indexacao_data():
+    """Cobertura de indexação ES por conteúdo (cache 5min).
+
+    ES ``count`` é barato; total do DB via estimativa (reltuples). Nunca levanta —
+    ES fora do ar vira ``erro`` no payload e a página degrada.
+    """
+    import time as _time
+    from django.core.cache import cache
+    ck = 'dash:indexacao:v1'
+    cached = cache.get(ck)
+    if cached:
+        return cached
+
+    from tribunals.models import Process, Movimentacao
+    from search.client import get_es, index_name
+
+    out = {'conteudos': [], 'por_tribunal': [], 'cluster': {}, 'erro': None, 'ts': _time.time()}
+    try:
+        es = get_es()
+        try:
+            h = dict(es.cluster.health())
+            out['cluster'] = {'status': h.get('status'), 'nodes': h.get('number_of_nodes'),
+                              'active_pct': round(h.get('active_shards_percent_as_number') or 0, 1)}
+        except Exception:  # noqa: BLE001
+            out['cluster'] = {}
+        for nome, model, suf in [('Processos', Process, 'processos'),
+                                 ('Movimentações', Movimentacao, 'movimentacoes')]:
+            idx = index_name(suf)
+            indexado = 0
+            try:
+                if es.indices.exists(index=idx):
+                    indexado = int(dict(es.count(index=idx)).get('count', 0))
+            except Exception:  # noqa: BLE001
+                indexado = 0
+            total = _indexacao_estimativa_db(model)
+            cob = round(100.0 * indexado / total, 2) if total else 0.0
+            out['conteudos'].append({'nome': nome, 'index': idx, 'indexado': indexado,
+                                     'total': total, 'pendente': max(total - indexado, 0),
+                                     'cobertura': cob})
+        # por tribunal — INDEXADO (agg ES do índice de processos); DB por-tribunal é caro.
+        try:
+            idxp = index_name('processos')
+            if es.indices.exists(index=idxp):
+                res = dict(es.search(index=idxp, body={'size': 0,
+                    'aggs': {'trib': {'terms': {'field': 'tribunal', 'size': 80}}}}))
+                for b in (((res.get('aggregations') or {}).get('trib') or {}).get('buckets') or []):
+                    out['por_tribunal'].append({'tribunal': b.get('key'), 'indexado': b.get('doc_count', 0)})
+                out['por_tribunal'].sort(key=lambda x: x['indexado'], reverse=True)
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception as e:  # noqa: BLE001 — ES indisponível
+        out['erro'] = str(e)[:200]
+    cache.set(ck, out, 300)
+    return out
+
+
+def indexacao(request):
+    """Cobertura de indexação Elasticsearch por conteúdo (gráfico).
+
+    GET normal → shell + dados (cache). HX-Request → só o partial (refresh 30s).
+    """
+    data = _indexacao_data()
+    if _is_htmx(request):
+        return render(request, 'dashboard/_partials/_indexacao_data.html', {'ix': data})
+    return render(request, 'dashboard/indexacao.html', {'ix': data})
+
+
+# ---------------------------------------------------------------------------
 # Command Center — dashboard única premium (pipeline + frota + custo + shells).
 # Fase A do plano .ia/RAG_EVAL_OBS.md §3. Consolida dados que JÁ EXISTEM
 # (fleet do Zordon + custo QuickPod) e deixa shells pros blocos Qualidade/Infra.

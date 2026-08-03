@@ -1,0 +1,81 @@
+{{ ix|json_script:"ix-data" }}
+
+{# cluster + erro #}
+<div class="flex items-center gap-3 flex-wrap mb-4" id="ix-cluster"></div>
+
+{# cards de cobertura por conteúdo #}
+<div class="grid gap-3 mb-5" id="ix-cards" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))"></div>
+
+{# gráfico principal: cobertura por conteúdo #}
+<div class="rounded-xl border border-white/10 bg-white/[0.015] p-4 mb-4">
+  <div class="text-xs uppercase tracking-wide text-slate-400 font-bold mb-1">Cobertura de indexação por conteúdo</div>
+  <div class="text-[0.7rem] text-slate-500 mb-3">Verde = já no índice de busca · cinza = ainda no banco, fora do índice.</div>
+  <div id="ix-chart-conteudo" style="height:150px"></div>
+</div>
+
+{# gráfico por tribunal (indexado) #}
+<div class="rounded-xl border border-white/10 bg-white/[0.015] p-4">
+  <div class="text-xs uppercase tracking-wide text-slate-400 font-bold mb-1">Processos indexados por tribunal</div>
+  <div class="text-[0.7rem] text-slate-500 mb-3">Preenche conforme o reindex roda. Vazio = índice de processos ainda não populado.</div>
+  <div id="ix-chart-trib" style="height:230px"></div>
+  <div id="ix-trib-empty" class="hidden text-center text-slate-500 text-sm py-10">Nenhum processo indexado ainda — índice <code>voyager-processos</code> vazio.</div>
+</div>
+
+<script>
+(function(){
+  const ix = JSON.parse(document.getElementById('ix-data').textContent || '{}');
+  const fmt = n => (n==null ? '—' : Number(n).toLocaleString('pt-BR'));
+  const conteudos = ix.conteudos || [];
+  const cl = ix.cluster || {};
+
+  // ── cluster chip ──
+  const clEl = document.getElementById('ix-cluster');
+  if (clEl) {
+    const st = (cl.status || '?').toLowerCase();
+    const cor = st === 'green' ? '#22c55e' : (st === 'yellow' ? '#f59e0b' : (st === 'red' ? '#ef4444' : '#64748b'));
+    let chips = `<span class="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1 rounded-full"
+        style="background:${cor}22;color:${cor};border:1px solid ${cor}55">
+        <span style="width:.5rem;height:.5rem;border-radius:50%;background:${cor}"></span>
+        cluster ${st === 'yellow' ? 'yellow (normal p/ 1 nó)' : (cl.status || '—')}</span>`;
+    if (cl.nodes != null) chips += `<span class="text-xs text-slate-400">${cl.nodes} nó(s) · shards ativos ${cl.active_pct ?? '—'}%</span>`;
+    if (ix.erro) chips += `<span class="text-xs font-semibold px-3 py-1 rounded-full" style="background:#ef444422;color:#ef4444">ES: ${ix.erro}</span>`;
+    clEl.innerHTML = chips;
+  }
+
+  // ── cards ──
+  const cardsEl = document.getElementById('ix-cards');
+  if (cardsEl) {
+    cardsEl.innerHTML = conteudos.map(c => {
+      const cob = c.cobertura || 0;
+      const corb = cob >= 95 ? '#22c55e' : (cob >= 1 ? '#f59e0b' : '#ef4444');
+      return `<div class="rounded-xl border border-white/10 p-4" style="background:linear-gradient(180deg,${corb}0d,transparent)">
+        <div class="flex items-baseline justify-between">
+          <div class="text-sm font-bold text-slate-200">${c.nome}</div>
+          <div class="text-2xl font-extrabold" style="color:${corb};font-family:'JetBrains Mono',monospace">${cob.toFixed(1)}%</div>
+        </div>
+        <div class="text-[0.7rem] text-slate-400 mt-1"><b class="text-slate-200">${fmt(c.indexado)}</b> indexados de <b>${fmt(c.total)}</b> <span class="opacity-60">(estimado)</span></div>
+        <div class="mt-2 h-2 rounded-full overflow-hidden" style="background:rgba(148,163,184,.15)">
+          <div style="height:100%;width:${Math.max(cob,0.5)}%;background:${corb};border-radius:999px"></div>
+        </div>
+        <div class="text-[0.66rem] text-slate-500 mt-1.5 font-mono">${c.index} · faltam ${fmt(c.pendente)}</div>
+      </div>`;
+    }).join('') || '<div class="text-slate-500 text-sm">Sem dados de índice.</div>';
+  }
+
+  // ── charts (dispose+reinit seguro entre swaps) ──
+  function chart(id, opt){
+    if (!window.echarts) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    const inst = echarts.getInstanceByDom(el) || echarts.init(el, null, {renderer:'canvas'});
+    inst.setOption(opt, true);
+  }
+  if (conteudos.length) chart('ix-chart-conteudo', window.buildIxCobertura(conteudos));
+
+  const trib = (ix.por_tribunal || []).filter(t => t.tribunal);
+  const empty = document.getElementById('ix-trib-empty');
+  const tchart = document.getElementById('ix-chart-trib');
+  if (trib.length) { if(empty) empty.classList.add('hidden'); if(tchart) tchart.style.display='block'; chart('ix-chart-trib', window.buildIxTribunal(trib)); }
+  else { if(empty) empty.classList.remove('hidden'); if(tchart) tchart.style.display='none'; }
+})();
+</script>

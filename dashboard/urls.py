@@ -122,6 +122,9 @@ urlpatterns = [
     # Vetorização — velocidade de processamento da frota (Zordon)
     path('vetorizacao/', views.vetorizacao, name='vetorizacao'),
 
+    # Indexação Elasticsearch — cobertura por conteúdo
+    path('indexacao/', views.indexacao, name='indexacao'),
+
     # Acervo — busca semântica (Zordon)
     path('acervo/busca/', views.acervo_busca, name='acervo-busca'),
     path('acervo/teor/<str:cnj>/', views.acervo_teor, name='acervo-teor'),
