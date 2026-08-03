@@ -338,6 +338,8 @@ def upload_finish(request, upload_id: str):
                     "content_type": meta["content_type"], "upload_id": upload_id,
                     # limpa o dir só depois do ÚLTIMO job (o que fecha o compare)
                     "limpar_dir": (ver == versoes[-1]),
+                    # quem rodou + integridade → persistem na ShowcaseAnalise (compartilhável)
+                    "user_id": meta.get("user_id"), "sha256": hash_hex,
                 },
                 job_timeout=JOB_TIMEOUT,
                 result_ttl=JOB_TTL,

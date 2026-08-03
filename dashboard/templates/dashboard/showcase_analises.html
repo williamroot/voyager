@@ -1,0 +1,39 @@
+{% extends 'dashboard/base.html' %}
+{% load static voyager_extras %}
+
+{% block title %}Análises salvas{% endblock %}
+
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Análises salvas' subtitle='Extrações do Extrator guardadas e compartilháveis por link (UUID) entre usuários.' %}
+
+<div class="max-w-5xl mx-auto">
+  <div class="flex justify-end mb-3">
+    <a class="sc-btn-next" href="{% url 'dashboard:ia-showcase' %}">{% voy_icon "sparkles" "w-4 h-4" %} Nova análise</a>
+  </div>
+
+  {% if analises %}
+  <div class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+    {% for a in analises %}
+    <a href="{% url 'dashboard:showcase-analise' a.uuid %}"
+       class="rounded-xl border border-white/10 p-3.5 block transition hover:border-white/25"
+       style="background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)">
+      <div class="text-sm font-semibold text-fg" style="word-break:break-word">{{ a.arquivo }}</div>
+      <div class="text-[0.68rem] text-fg-subtle mt-1">
+        {% if a.usuario %}{{ a.usuario.get_username }} · {% endif %}{{ a.criado_em|date:"d/m/Y H:i" }}
+      </div>
+      <div class="flex gap-3 mt-2 text-[0.66rem] text-fg-subtle" style="font-family:'JetBrains Mono',ui-monospace,monospace">
+        <span><b class="text-fg-muted">{{ a.n_partes }}</b> partes</span>
+        <span><b class="text-fg-muted">{{ a.n_docs }}</b> docs</span>
+        {% if a.paginas %}<span><b class="text-fg-muted">{{ a.paginas }}</b> pág</span>{% endif %}
+        <span class="ml-auto">{{ a.modelo_label|default:a.versao }}</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center text-fg-subtle text-sm py-16">
+    Nenhuma análise salva ainda. Rode uma extração na <a class="text-accent-fg underline" href="{% url 'dashboard:ia-showcase' %}">Showcase</a>.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

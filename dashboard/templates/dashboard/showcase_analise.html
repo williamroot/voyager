@@ -1,0 +1,57 @@
+{% extends 'dashboard/base.html' %}
+{% load static voyager_extras %}
+
+{% block title %}Ficha · {{ a.arquivo }}{% endblock %}
+
+{% block content %}
+<div class="page-showcase" style="max-width:1120px;margin:0 auto"
+     x-data="{copiado:false, copiar(){navigator.clipboard.writeText(window.location.href).then(()=>{this.copiado=true;setTimeout(()=>this.copiado=false,1800)}).catch(()=>{})}}">
+
+  {# ── cabeçalho: o quê / quem / quando + ações ── #}
+  <div class="sc-hero" style="align-items:flex-start">
+    <div style="min-width:0">
+      <div class="text-[0.62rem] uppercase tracking-[0.18em] text-accent-fg font-bold mb-1">Análise salva · on-device · zero consulta externa</div>
+      <h1 class="text-xl md:text-2xl font-semibold tracking-tight text-fg" style="word-break:break-word">{{ a.arquivo }}</h1>
+      <div class="text-xs text-fg-subtle mt-1">
+        rodou {% if a.usuario %}por <b class="text-fg-muted">{{ a.usuario.get_username }}</b>{% else %}<span class="text-fg-muted">—</span>{% endif %}
+        · {{ a.criado_em|date:"d/m/Y H:i" }} · <span class="font-mono">{{ a.uuid }}</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <button class="sc-exportbtn" @click="copiar()" x-text="copiado ? '✓ link copiado' : '🔗 copiar link'"></button>
+      <a class="sc-btn-next" style="background:var(--card);color:var(--fg);border:1px solid var(--border)" href="{% url 'dashboard:showcase-analises' %}">{% voy_icon "history" "w-4 h-4" %} Todas</a>
+      <a class="sc-btn-next" href="{% url 'dashboard:ia-showcase' %}">{% voy_icon "sparkles" "w-4 h-4" %} Nova análise</a>
+    </div>
+  </div>
+
+  {# ── stats: modelo / tempo / páginas / partes / docs / tamanho ── #}
+  <div class="grid gap-2 my-4" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+    {% for rot, val in stats %}
+    <div class="rounded-xl border border-white/10 p-3" style="background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)">
+      <div class="text-[0.6rem] uppercase tracking-wide text-fg-subtle">{{ rot }}</div>
+      <div class="text-base font-bold text-fg mt-0.5" style="font-family:'JetBrains Mono',ui-monospace,monospace;word-break:break-word">{{ val }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {{ resultado_json|json_script:"analise-data" }}
+  <div class="page-showcase" id="ficha-render"></div>
+</div>
+
+{# reusa o MESMO design + renderFicha do showcase (partials compartilhados) #}
+{% include 'dashboard/_partials/_showcase_ficha_css.html' %}
+{% include 'dashboard/_partials/_showcase_ficha_js.html' %}
+<script>
+(function(){
+  function go(){
+    try{
+      const data = JSON.parse(document.getElementById('analise-data').textContent || '{}');
+      document.getElementById('ficha-render').innerHTML = showcase().renderFicha(data, false);
+    }catch(e){
+      document.getElementById('ficha-render').innerHTML = '<div class="sc-err">Falha ao renderizar a ficha: '+e.message+'</div>';
+    }
+  }
+  if (document.readyState !== 'loading') go(); else document.addEventListener('DOMContentLoaded', go);
+})();
+</script>
+{% endblock %}

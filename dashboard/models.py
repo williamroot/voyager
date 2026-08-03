@@ -71,3 +71,44 @@ class ChatMessage(models.Model):
         """Concatena os blocks de texto (pro contexto do LLM e pra busca)."""
         blocks = (self.content_json or {}).get('blocks') or []
         return '\n'.join(b.get('text', '') for b in blocks if b.get('type') == 'text').strip()
+
+
+class ShowcaseAnalise(models.Model):
+    """Uma análise (extração) SALVA da Showcase do Extrator — compartilhável por UUID.
+
+    Persiste a ficha completa (``resultado``, que ``renderFicha`` consome) + o
+    "quem/quando/o quê/quanto tempo/qual modelo". A URL pública usa o ``uuid``
+    (não a PK sequencial). Compartilhável entre usuários da plataforma (login).
+    """
+
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                on_delete=models.SET_NULL, related_name='showcase_analises')
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    arquivo = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=120, blank=True, default='')
+    tamanho_bytes = models.BigIntegerField(default=0)
+    sha256 = models.CharField(max_length=64, blank=True, default='')
+
+    versao = models.CharField(max_length=20, blank=True, default='')       # chave do modelo (v21…)
+    modelo_label = models.CharField(max_length=120, blank=True, default='')
+    elapsed_ms = models.IntegerField(default=0)          # round-trip web↔pod
+    tempos = models.JSONField(default=dict, blank=True)  # tempo REAL do modelo (total_s, n_paginas…)
+
+    n_partes = models.IntegerField(default=0)
+    n_docs = models.IntegerField(default=0)
+    paginas = models.IntegerField(default=0)
+
+    resultado = models.JSONField(default=dict)           # a ficha completa (renderFicha)
+    upload_id = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        ordering = ['-criado_em']
+        indexes = [
+            models.Index(fields=['-criado_em']),
+            models.Index(fields=['usuario', '-criado_em']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.arquivo} · {self.versao} · {self.criado_em:%Y-%m-%d %H:%M}'

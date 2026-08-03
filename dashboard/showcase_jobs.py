@@ -20,7 +20,8 @@ logger = logging.getLogger("voyager.showcase")
 
 
 def extrair_job(*, state_job_id: str, versao: str, caminho: str, arquivo: str,
-                content_type: str, upload_id: str, limpar_dir: bool = True) -> dict:
+                content_type: str, upload_id: str, limpar_dir: bool = True,
+                user_id: int | None = None, sha256: str = "") -> dict:
     """Faz a extração de UM arquivo montado numa versão do modelo.
 
     Reporta progresso via ``set_job_state`` (cache) em cada etapa. Não levanta
@@ -61,7 +62,13 @@ def extrair_job(*, state_job_id: str, versao: str, caminho: str, arquivo: str,
                     state_job_id, versao, dt,
                     len(out.get("fichas") or []) if isinstance(out.get("fichas"), list) else 0,
                     len(out.get("docs") or []))
-        ret = {"status": "done"}
+        # persiste a análise (compartilhável por UUID) e devolve o id ao cliente
+        analise_id = _persistir_analise(out, versao=versao, arquivo=arquivo,
+                                        content_type=content_type, tamanho=tamanho,
+                                        sha256=sha256, user_id=user_id, upload_id=upload_id)
+        if analise_id:
+            set_job_state(state_job_id, analise_id=analise_id)
+        ret = {"status": "done", "analise_id": analise_id}
     else:
         # Pod indisponível / resposta inválida — não é crash do job, é erro de negócio.
         set_job_state(state_job_id, status="erro", etapa="modelo indisponível",
@@ -73,6 +80,33 @@ def extrair_job(*, state_job_id: str, versao: str, caminho: str, arquivo: str,
 
     _talvez_limpar(upload_id, limpar_dir, state_job_id)
     return ret
+
+
+def _persistir_analise(out: dict, *, versao: str, arquivo: str, content_type: str,
+                       tamanho: int, sha256: str, user_id: int | None, upload_id: str):
+    """Salva a análise no DB (compartilhável por UUID). NUNCA derruba o job."""
+    try:
+        from .models import ShowcaseAnalise
+        tempos = out.get("tempos") or {}
+        fichas = out.get("fichas") or []
+        docs = out.get("docs") or []
+        a = ShowcaseAnalise.objects.create(
+            usuario_id=user_id,
+            arquivo=(arquivo or "autos.pdf")[:255], content_type=(content_type or "")[:120],
+            tamanho_bytes=int(tamanho or 0), sha256=(sha256 or "")[:64],
+            versao=(versao or "")[:20], modelo_label=(out.get("label") or "")[:120],
+            elapsed_ms=int(out.get("elapsed_ms") or 0), tempos=tempos,
+            n_partes=len(fichas) if isinstance(fichas, list) else 0,
+            n_docs=len(docs) if isinstance(docs, list) else 0,
+            paginas=int(tempos.get("n_paginas") or 0),
+            resultado=out, upload_id=(upload_id or "")[:64],
+        )
+        logger.info("[showcase evt=analise_salva uuid=%s versao=%s partes=%d]",
+                    a.uuid, versao, a.n_partes)
+        return str(a.uuid)
+    except Exception as e:  # noqa: BLE001 — persistir não pode derrubar o job
+        logger.warning("[showcase evt=analise_persist_error err=%s]", str(e)[:180])
+        return None
 
 
 def _talvez_limpar(upload_id: str, limpar: bool, job_id: str) -> None:

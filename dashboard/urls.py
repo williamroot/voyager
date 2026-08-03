@@ -2,6 +2,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
 from . import views
+from . import showcase_analise
 from . import showcase_chunks
 from . import showcase_export
 from . import showcase_proxy
@@ -55,6 +56,9 @@ urlpatterns = [
     path('ia/estagio/status/', views.ia_estagio_status, name='ia-estagio-status'),
     # Showcase do Extrator — sobe PDF → extração 100% on-device (SDK no pod), ficha rica + comparar versões
     path('ia/showcase/', showcase_proxy.showcase, name='ia-showcase'),
+    # Análises SALVAS (compartilháveis por UUID entre usuários)
+    path('ia/showcase/analises/', showcase_analise.analise_lista, name='showcase-analises'),
+    path('ia/showcase/a/<uuid:aid>/', showcase_analise.analise_detalhe, name='showcase-analise'),
     path('api/showcase/extrair/<str:versao>/', showcase_proxy.showcase_extrair, name='showcase-extrair'),
     path('api/showcase/explicar/<str:versao>/', showcase_proxy.showcase_explicar, name='showcase-explicar'),
     # Upload em chunks (aguenta ~1GB via Cloudflare) → extração assíncrona → polling.
