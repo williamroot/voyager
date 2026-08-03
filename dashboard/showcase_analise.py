@@ -4,8 +4,6 @@ A ficha (``resultado``) é renderizada client-side pelo MESMO ``renderFicha`` do
 showcase (partials ``_showcase_ficha_{css,js}.html``). Login obrigatório —
 compartilhável entre usuários da plataforma, não público.
 """
-import json
-
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render
 from django.template.defaultfilters import filesizeformat
@@ -32,7 +30,8 @@ def analise_detalhe(request, aid):
     ]
     return render(request, 'dashboard/showcase_analise.html', {
         'a': a, 'stats': stats,
-        'resultado_json': json.dumps(a.resultado or {}, default=str),
+        # dict CRU — o filtro json_script serializa (passar json.dumps aqui = double-encode)
+        'resultado': a.resultado or {},
     })
 
 
