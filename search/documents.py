@@ -16,7 +16,10 @@ def _get_fonte(tribunal_id: str) -> Optional[FonteDiario]:
 
 def _serialize_partes(processo: Process) -> tuple[str, str]:
     """Retorna (advs_str, partes_str) serializadas pra string concatenada."""
-    pps = ProcessoParte.objects.filter(processo=processo).select_related('parte')
+    # relação reversa: se o queryset veio com prefetch_related('participacoes'),
+    # NÃO dispara query por processo — essencial pro reindex em massa (71M) não cair
+    # em N+1. No caminho single-doc (write-through) faz 1 query, igual antes.
+    pps = processo.participacoes.all()
     advs = []
     partes = []
     for pp in pps:
