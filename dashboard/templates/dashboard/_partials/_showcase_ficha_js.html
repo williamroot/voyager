@@ -392,7 +392,9 @@ function showcase(){
         raw.push({cedente:nome(ev.cedente_nome), cedente_doc:null, cessionario:nome(ev.cessionario_nome), cessionario_doc:null,
           valor:ev.valor, percentual:ev.percentual, data:ev.data, doc:ev.doc_classe, conf:ev.confianca}); }); });
       // descarta registros totalmente vazios (sem cedente, sem cessionário, sem valor)
-      const util=raw.filter(r=>r.cedente||r.cessionario||r.cedente_doc||r.cessionario_doc||r.valor!=null);
+      // exige PELO MENOS UM lado identificado (nome ou doc). Fragmento só-valor
+      // (cedente/cessionário nulos) NÃO vira card — o valor já vem no fragmento nomeado.
+      const util=raw.filter(r=>r.cedente||r.cessionario||r.cedente_doc||r.cessionario_doc);
       if(!util.length) return [];
       // 2) clusteriza por identidade (doc-digits OU nome normalizado/prefixo)
       const grupos=[];

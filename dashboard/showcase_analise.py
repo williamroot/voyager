@@ -31,10 +31,14 @@ def analise_detalhe(request, aid):
     # valor total a receber (soma dos valor_a_receber das partes) + estágio — o
     # "cartão de visita" da análise mostra o que decide, não só metadados.
     def _num(v):
+        # número já vem float no JSON (18910.46); string é BR ("18.910,46").
+        if isinstance(v, (int, float)):
+            return float(v)
         try:
-            s = str(v).replace('.', '').replace(',', '.')
             import re as _re
-            s = _re.sub(r'[^\d.-]', '', s)
+            s = _re.sub(r'[^\d,.-]', '', str(v))
+            if ',' in s:                     # BR: '.' = milhar, ',' = decimal
+                s = s.replace('.', '').replace(',', '.')
             return float(s) if s not in ('', '-', '.') else None
         except Exception:
             return None
