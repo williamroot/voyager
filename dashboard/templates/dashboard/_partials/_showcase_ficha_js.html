@@ -242,6 +242,26 @@ function showcase(){
     },
     // card de UMA parte. forceValor=true (polo ativo) sempre mostra o bloco de valor;
     // senão, só mostra se houver valor/pagamento REAL (não polui o passivo com "—").
+    // enquadra o ADVOGADO num polo pela COOCORRÊNCIA de documento: a procuração
+    // (ou habilitação) vincula o advogado ao outorgante; se ele divide o mesmo
+    // doc_id com uma parte de polo conhecido, herda esse polo. Substabelecimento
+    // é adv→adv (não vincula polo) e o caso ambíguo → null (abstém, não chuta).
+    _advogadoPolo(adv, partes){
+      const meus=new Set();
+      (Array.isArray(adv.docs_origem)?adv.docs_origem:[]).forEach(o=>{
+        const c=this._normNome(o&&o.doc_classe);
+        if((c==='PROCURACAO'||c==='HABILITACAOHERDEIROS') && o&&o.doc_id) meus.add(o.doc_id);
+      });
+      if(!meus.size) return null;
+      const cont={ativo:0,passivo:0};
+      partes.forEach(p=>{ if(p===adv) return;
+        const pl=this._poloParte(p.papel).polo; if(pl!=='ativo'&&pl!=='passivo') return;
+        (Array.isArray(p.docs_origem)?p.docs_origem:[]).forEach(o=>{ if(o&&meus.has(o.doc_id)) cont[pl]++; });
+      });
+      if(cont.ativo && !cont.passivo) return 'ativo';
+      if(cont.passivo && !cont.ativo) return 'passivo';
+      return null;   // sem sinal ou ambíguo → não atribui
+    },
     _parteCard(p, forceValor){
       const cor=this.papelCor(p.papel); const esp=p.espolio||p.espolio_de;
       const vr=this._valorReceber(p); const rec=this._recebido(p);
@@ -537,18 +557,26 @@ function showcase(){
           <dt>Ente devedor</dt><dd>${this.na(ente)}</dd></dl></div>`;
         // partes — AGRUPADAS POR POLO (ativo recebe · passivo paga · advogados)
         h+=`<div class="sc-sec"><div class="sc-sec-t">Partes (${partes.length})</div>`;
+        // grupos: cada polo + os advogados JÁ ENQUADRADOS nele; advogado sem lado
+        // vai pra um grupo próprio (honesto). 'lado' pinta a faixa (ativo/passivo).
         const GRUPOS=[
-          {key:'ativo',   titulo:'Polo ativo · quem recebe',   cor:'#22c55e'},
-          {key:'passivo', titulo:'Polo passivo · quem paga',    cor:'#ef4444'},
-          {key:'repr',    titulo:'Advogados & representantes',  cor:'#94a3b8'},
-          {key:'outro',   titulo:'Outras partes',              cor:'#3b82f6'},
+          {key:'ativo',      titulo:'Polo ativo · quem recebe',            cor:'#22c55e', lado:'ativo'},
+          {key:'advAtivo',   titulo:'Advogados do polo ativo',            cor:'#22c55e', lado:'ativo',   adv:true},
+          {key:'passivo',    titulo:'Polo passivo · quem paga',           cor:'#ef4444', lado:'passivo'},
+          {key:'advPassivo', titulo:'Advogados do polo passivo',          cor:'#ef4444', lado:'passivo', adv:true},
+          {key:'advSem',     titulo:'Advogados · lado não identificado',  cor:'#94a3b8', adv:true},
+          {key:'outro',      titulo:'Outras partes',                      cor:'#3b82f6'},
         ];
-        const buckets={ativo:[],passivo:[],repr:[],outro:[]};
-        partes.forEach(p=>{ (buckets[this._poloParte(p.papel).polo]||buckets.outro).push(p); });
+        const buckets={ativo:[],passivo:[],advAtivo:[],advPassivo:[],advSem:[],outro:[]};
+        partes.forEach(p=>{ const pl=this._poloParte(p.papel).polo;
+          if(pl==='repr'){ const ap=this._advogadoPolo(p, partes);
+            buckets[ap==='ativo'?'advAtivo':ap==='passivo'?'advPassivo':'advSem'].push(p); }
+          else (buckets[pl]||buckets.outro).push(p);
+        });
         GRUPOS.forEach(g=>{
           const lst=buckets[g.key]; if(!lst.length) return;
           let tot=0,temTot=false; if(g.key==='ativo') lst.forEach(p=>{const v=this._valorReceber(p); if(v!=null){tot+=v;temTot=true}});
-          h+=`<div class="sc-polo" style="--polo:${g.cor}">
+          h+=`<div class="sc-polo${g.lado?` sc-polo-${g.lado}`:''}${g.adv?' sc-polo-adv':''}" style="--polo:${g.cor}">
             <div class="sc-polo-head">
               <span class="sc-polo-dot"></span>
               <span class="sc-polo-t">${g.titulo}</span>

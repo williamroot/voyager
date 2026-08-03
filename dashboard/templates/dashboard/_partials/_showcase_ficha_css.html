@@ -116,6 +116,12 @@
 /* ── partes agrupadas por polo + cards premium ── */
 .page-showcase .sc-polo{margin-top:.85rem}
 .page-showcase .sc-polo:first-child{margin-top:.15rem}
+/* faixa por polo: banda tingida + barra lateral, pra bater o olho e separar ativo×passivo */
+.page-showcase .sc-polo-ativo,.page-showcase .sc-polo-passivo{
+  border-left:3px solid var(--polo);border-radius:.6rem;padding:.6rem .7rem .2rem;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--polo) 8%,transparent),transparent 62%)}
+.page-showcase .sc-polo-adv{border-left-style:dashed;opacity:.96}
+.page-showcase .sc-polo-adv .sc-polo-t{color:var(--fg-muted)}
 .page-showcase .sc-polo-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
 .page-showcase .sc-polo-dot{width:.55rem;height:.55rem;border-radius:50%;background:var(--polo);box-shadow:0 0 0 3px color-mix(in srgb,var(--polo) 22%,transparent);flex:none}
 .page-showcase .sc-polo-t{font-size:.68rem;font-weight:800;letter-spacing:.03em;color:var(--fg);text-transform:uppercase}
