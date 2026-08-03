@@ -99,6 +99,7 @@ class ShowcaseAnalise(models.Model):
     n_partes = models.IntegerField(default=0)
     n_docs = models.IntegerField(default=0)
     paginas = models.IntegerField(default=0)
+    tem_cessao = models.BooleanField(default=False)      # há cessão de crédito na ficha (label + filtro)
 
     resultado = models.JSONField(default=dict)           # a ficha completa (renderFicha)
     upload_id = models.CharField(max_length=64, blank=True, default='')
@@ -108,6 +109,7 @@ class ShowcaseAnalise(models.Model):
         indexes = [
             models.Index(fields=['-criado_em'], name='showanalise_criado_idx'),
             models.Index(fields=['usuario', '-criado_em'], name='showanalise_user_criado_idx'),
+            models.Index(fields=['tem_cessao', '-criado_em'], name='showanalise_cessao_idx'),
         ]
 
     def __str__(self) -> str:

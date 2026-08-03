@@ -264,11 +264,24 @@ function showcase(){
       if(stv){ const sc=this._statusValorCor(stv);
         c+=`<span class="sc-stpill" style="background:${sc}22;color:${sc};border-color:${sc}55" title="situação do valor desta parte">${this.esc((p.valor_a_receber.status_rotulo)||stv)}</span>`; }
       c+=`</div>`;
+      // linha de documento de identidade — CPF/CNPJ mascarado + OAB (advogado)
+      const doc=p.cpf_cnpj?this._mascaraDoc(p.cpf_cnpj):null;
+      const ehCnpj=doc&&String(p.cpf_cnpj).replace(/\D/g,'').length===14;
+      const oab=p.oab||p.oab_numero||(p.registro_oab);
+      const idbits=[];
+      if(doc) idbits.push(`<span class="sc-idchip"><i>${ehCnpj?'CNPJ':'CPF'}</i>${this.esc(doc)}</span>`);
+      if(oab) idbits.push(`<span class="sc-idchip sc-idchip-oab"><i>OAB</i>${this.esc(oab)}</span>`);
+      if(idbits.length) c+=`<div class="sc-pcard-id2">${idbits.join('')}</div>`;
       const sub=[];
-      if(p.cpf_cnpj) sub.push(this.esc(p.cpf_cnpj));
       if(esp) sub.push('espólio de '+this.esc(esp===true?'—':esp));
       if(p.abstido) sub.push('<span style="color:#f59e0b">modelo absteve o papel</span>');
       if(sub.length) c+=`<div class="sc-pcard-sub">${sub.join('&nbsp;·&nbsp;')}</div>`;
+      // "consta em" — de quais DOCUMENTOS a parte foi lida (proveniência clara)
+      const orig=(Array.isArray(p.docs_origem)?p.docs_origem:[]).filter(Boolean);
+      if(orig.length){
+        const rots=[...new Set(orig.map(x=>this._classeRot(x)).filter(Boolean))];
+        if(rots.length) c+=`<div class="sc-pcard-orig"><span>consta em</span> ${rots.map(r=>`<em>${this.esc(r)}</em>`).join(' · ')}</div>`;
+      }
       if(mostrarValor){
         c+=`<div class="sc-pcard-vals">
           <div class="sc-val sc-val-hero"><span>a receber</span><b>${vr!=null? this.money(vr) : (abstVal? '<span class="sc-na" title="'+this.esc((p.valor_a_receber&&p.valor_a_receber.motivo_abstencao)||'sem evidência')+'">modelo absteve</span>':'<span class="sc-na">—</span>')}</b></div>
@@ -297,6 +310,68 @@ function showcase(){
       let s=0,any=false; r.forEach(x=>{const n=this._num(x&&(x.valor!=null?x.valor:x)); if(n!=null){s+=n;any=true}});
       if(any) return {tem:true, txt: this.money(s)+(r.length>1?` <span style="opacity:.6">(${r.length}×)</span>`:'')};
       return {tem:true, txt: `${r.length} pagamento${r.length>1?'s':''}`};
+    },
+    // máscara de CPF (000.000.000-00) / CNPJ (00.000.000/0000-00). Só formata; não valida.
+    _mascaraDoc(v){ if(v==null||v==='') return ''; const d=String(v).replace(/\D/g,'');
+      if(d.length===11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4');
+      if(d.length===14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5');
+      return String(v); },
+    // rótulo humano da classe do documento (pro "consta em" e fonte da cessão)
+    _classeRot(c){ const m={OFICIO_REQUISITORIO:'Ofício requisitório',PROCURACAO:'Procuração',
+      HABILITACAO_HERDEIROS:'Habilitação de herdeiros',CESSAO_CREDITO:'Cessão de crédito',
+      SENTENCA:'Sentença',DECISAO:'Decisão',DESPACHO:'Despacho',CUMPRIMENTO_SENTENCA:'Cumprimento de sentença',
+      PLANILHA_CALCULO:'Planilha de cálculo',DOC_PESSOAL:'Documento pessoal',ALVARA:'Alvará',
+      PAGAMENTO_COMPROVANTE:'Comprovante de pagamento',CERTIDAO_OBITO:'Certidão de óbito',CERTIDAO_CASAMENTO:'Certidão de casamento',
+      CERTIDAO_NASCIMENTO:'Certidão de nascimento',FORMAL_PARTILHA:'Formal de partilha',ACORDAO:'Acórdão',ACORDO:'Acordo',
+      PETICAO:'Petição',CONTRATO_HONORARIOS:'Contrato de honorários',PROCURACAO:'Procuração',SUBSTABELECIMENTO:'Substabelecimento',
+      TRANSITO_JULGADO:'Trânsito em julgado',RECURSO:'Recurso',PENHORA:'Penhora'};
+      const k=(c||'').toUpperCase(); return m[k]||(k?k.charAt(0)+k.slice(1).toLowerCase().replace(/_/g,' '):''); },
+    // ── CESSÃO DE CRÉDITO ── coleta de fichas[].eventos (relação+%/data) e
+    // docs[].registros do CESSAO_CREDITO (CPF/CNPJ). Dedup por cedente>cessionário.
+    _coletaCessoes(fichas, docs){
+      const out=[], seen=new Set();
+      const key=c=>((c.cedente||'')+'>'+(c.cessionario||'')).toLowerCase();
+      (docs||[]).forEach(d=>{ if((d.classe||'').toUpperCase()!=='CESSAO_CREDITO') return;
+        const rs=Array.isArray(d.registros)?d.registros:(d.registros?[d.registros]:[]);
+        rs.forEach(r=>{ const ced=r.cedente||{}, ces=r.cessionario||{};
+          const c={cedente:ced.nome||r.cedente_nome, cedente_doc:ced.cpf_cnpj, cessionario:ces.nome||r.cessionario_nome,
+                   cessionario_doc:ces.cpf_cnpj, valor:r.valor, percentual:r.percentual, data:r.data, doc:d.classe||d.nome, conf:r.confianca||d.classe_conf};
+          if(key(c)!=='>' && !seen.has(key(c))){ seen.add(key(c)); out.push(c); } }); });
+      (fichas||[]).forEach(f=>{ (f.eventos||[]).forEach(ev=>{ if((ev.tipo||'').toUpperCase()!=='CESSAO') return;
+        const c={cedente:ev.cedente_nome, cessionario:ev.cessionario_nome, valor:ev.valor, percentual:ev.percentual, data:ev.data, doc:ev.doc_classe, conf:ev.confianca};
+        const ex=out.find(o=>key(o)===key(c));
+        if(ex){ ex.data=ex.data||c.data; ex.percentual=ex.percentual||c.percentual; ex.valor=ex.valor||c.valor; }
+        else if(key(c)!=='>' && !seen.has(key(c))){ seen.add(key(c)); out.push(c); } }); });
+      return out;
+    },
+    renderCessao(fichas, docs){
+      const cs=this._coletaCessoes(fichas, docs); if(!cs.length) return '';
+      let h=`<div class="sc-sec"><div class="sc-sec-t">Cessão de crédito <span class="sc-cesslabel">CESSÃO</span></div>`;
+      cs.forEach(c=>{
+        const v=this._num(c.valor);
+        h+=`<div class="sc-cesscard">
+          <div class="sc-cessflow">
+            <div class="sc-cessside" style="--cs:#0ea5e9">
+              <div class="sc-cessrole">Cedente · quem cede o crédito</div>
+              <div class="sc-cessnome">${this.na(c.cedente)}</div>
+              ${c.cedente_doc?`<div class="sc-cessdoc">${this.esc(this._mascaraDoc(c.cedente_doc))}</div>`:''}
+            </div>
+            <div class="sc-cessarrow">${this.na(c.percentual)!==''&&c.percentual?`<span class="sc-cesspct">${this.esc(c.percentual)}</span>`:''}<span>➜</span></div>
+            <div class="sc-cessside" style="--cs:#06b6d4">
+              <div class="sc-cessrole">Cessionário · quem recebe</div>
+              <div class="sc-cessnome">${this.na(c.cessionario)}</div>
+              ${c.cessionario_doc?`<div class="sc-cessdoc">${this.esc(this._mascaraDoc(c.cessionario_doc))}</div>`:''}
+            </div>
+          </div>
+          <div class="sc-cessmeta">
+            ${v!=null?`<span><i>Valor cedido</i> ${this.money(v)}</span>`:''}
+            ${c.data?`<span><i>Data</i> ${this.esc(c.data)}</span>`:''}
+            ${c.doc?`<span><i>Fonte</i> ${this.esc(this._classeRot(c.doc))}</span>`:''}
+            ${c.conf?this.confBadge(c.conf):''}
+          </div>
+        </div>`;
+      });
+      h+=`</div>`; return h;
     },
     // ESTÁGIO DO CRÉDITO + LINHA DO TEMPO — ancorado no que o modelo extraiu (abstém sem prova)
     _estagioCor(e){ return ({DC:'#f59e0b',PRE_PRECATORIO:'#eab308',PRECATORIO_EMITIDO:'#22c55e',PAGO:'#3b82f6',MORTO:'#ef4444',INDEFINIDO:'#71717a'})[e]||'#71717a' },
@@ -417,6 +492,8 @@ function showcase(){
           h+=`</div>`;
         }
       }
+      // ═══ CESSÃO DE CRÉDITO — card dedicado (cedente → cessionário), bem visível ═══
+      h += this.renderCessao(fichas, docs);
       if(partes.length){
         // crédito
         h+=`<div class="sc-sec"><div class="sc-sec-t">Crédito</div><dl class="sc-kv">

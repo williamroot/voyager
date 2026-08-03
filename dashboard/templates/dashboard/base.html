@@ -200,6 +200,9 @@
       color: rgb(var(--c-fg-muted)); font-size: 0.875rem;
       transition: all 0.12s;
     }
+    /* label ocupa o espaço; o emoji vira um badge à direita (nunca orfana em linha só) */
+    .nav-item .nav-label { flex: 1 1 auto; min-width: 0; }
+    .nav-item .nav-tag { flex: 0 0 auto; font-size: 0.72rem; line-height: 1; opacity: 0.9; }
     .nav-item:hover { background: rgb(var(--c-muted) / 0.6); color: rgb(var(--c-fg)); }
     .nav-item.active {
       background: rgb(var(--c-surface));
@@ -454,12 +457,14 @@
               {% url 'dashboard:ia-estagio' as ia_estagio_url %}
               <a href="{{ ia_estagio_url }}" class="nav-item {% if request.path == ia_estagio_url %}active{% endif %}">
                 {% voy_icon "gem" "w-4 h-4" %}
-                Estágio do Crédito ⚡
+                <span class="nav-label">Estágio do Crédito</span>
+                <span class="nav-tag" title="destaque">⚡</span>
               </a>
               {% url 'dashboard:ia-showcase' as ia_showcase_url %}
               <a href="{{ ia_showcase_url }}" class="nav-item {% if request.path == ia_showcase_url %}active{% endif %}">
                 {% voy_icon "sparkles" "w-4 h-4" %}
-                Showcase do Extrator ✨
+                <span class="nav-label">Showcase do Extrator</span>
+                <span class="nav-tag" title="novo">✨</span>
               </a>
               {% url 'dashboard:showcase-analises' as showcase_analises_url %}
               <a href="{{ showcase_analises_url }}" class="nav-item {% if request.path == showcase_analises_url %}active{% endif %}">

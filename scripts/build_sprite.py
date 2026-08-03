@@ -63,6 +63,7 @@ MAPPING = [
     ('circle-check',  ['circle-check']),             # ✅ juriscope
     ('users',         ['users']),                    # 👥 partes
     ('sparkles',      ['sparkles']),                 # 🆕 v7 features
+    ('plus',          ['plus']),                     # ➕ nova análise / add
 ]
 
 

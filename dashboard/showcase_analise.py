@@ -37,6 +37,15 @@ def analise_detalhe(request, aid):
 
 @login_required
 def analise_lista(request):
-    """Lista as análises salvas (todas — compartilhadas entre usuários)."""
-    qs = ShowcaseAnalise.objects.select_related('usuario').all()[:300]
-    return render(request, 'dashboard/showcase_analises.html', {'analises': qs})
+    """Lista as análises salvas (todas — compartilhadas entre usuários).
+    Filtro opcional ``?cessao=1`` → só as que têm cessão de crédito."""
+    so_cessao = request.GET.get('cessao') in ('1', 'true', 'sim')
+    qs = ShowcaseAnalise.objects.select_related('usuario')
+    if so_cessao:
+        qs = qs.filter(tem_cessao=True)
+    total = ShowcaseAnalise.objects.count()
+    n_cessao = ShowcaseAnalise.objects.filter(tem_cessao=True).count()
+    return render(request, 'dashboard/showcase_analises.html', {
+        'analises': qs[:300], 'so_cessao': so_cessao,
+        'total': total, 'n_cessao': n_cessao,
+    })

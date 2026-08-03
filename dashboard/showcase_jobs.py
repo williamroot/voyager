@@ -82,6 +82,26 @@ def extrair_job(*, state_job_id: str, versao: str, caminho: str, arquivo: str,
     return ret
 
 
+def _detecta_cessao(fichas: list, docs: list) -> bool:
+    """True se a ficha tem cessão de crédito — evento CESSAO na parte, papel
+    CEDENTE/CESSIONARIO, ou doc classe CESSAO_CREDITO. Alimenta label + filtro."""
+    try:
+        for f in (fichas or []):
+            if not isinstance(f, dict):
+                continue
+            if (f.get("papel") or "").upper() in ("CESSIONARIO", "CEDENTE"):
+                return True
+            for ev in (f.get("eventos") or []):
+                if isinstance(ev, dict) and (ev.get("tipo") or "").upper() == "CESSAO":
+                    return True
+        for d in (docs or []):
+            if isinstance(d, dict) and (d.get("classe") or "").upper() == "CESSAO_CREDITO":
+                return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
 def _persistir_analise(out: dict, *, versao: str, arquivo: str, content_type: str,
                        tamanho: int, sha256: str, user_id: int | None, upload_id: str):
     """Salva a análise no DB (compartilhável por UUID). NUNCA derruba o job."""
@@ -99,6 +119,7 @@ def _persistir_analise(out: dict, *, versao: str, arquivo: str, content_type: st
             n_partes=len(fichas) if isinstance(fichas, list) else 0,
             n_docs=len(docs) if isinstance(docs, list) else 0,
             paginas=int(tempos.get("n_paginas") or 0),
+            tem_cessao=_detecta_cessao(fichas, docs),
             resultado=out, upload_id=(upload_id or "")[:64],
         )
         logger.info("[showcase evt=analise_salva uuid=%s versao=%s partes=%d]",

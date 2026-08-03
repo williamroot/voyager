@@ -7,17 +7,33 @@
 {% include 'dashboard/_partials/page_header.html' with title='Análises salvas' subtitle='Extrações do Extrator guardadas e compartilháveis por link (UUID) entre usuários.' %}
 
 <div class="max-w-5xl mx-auto">
-  <div class="flex justify-end mb-3">
-    <a class="sc-btn-next" href="{% url 'dashboard:ia-showcase' %}">{% voy_icon "sparkles" "w-4 h-4" %} Nova análise</a>
+  {# barra: filtros (esquerda) + nova análise (direita) #}
+  <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+    <div class="flex items-center gap-1.5">
+      <a href="{% url 'dashboard:showcase-analises' %}"
+         class="an-chip {% if not so_cessao %}an-chip-on{% endif %}">
+        Todas <span class="an-chip-n">{{ total }}</span>
+      </a>
+      <a href="{% url 'dashboard:showcase-analises' %}?cessao=1"
+         class="an-chip {% if so_cessao %}an-chip-on{% endif %}">
+        {% voy_icon "constellation" "w-3.5 h-3.5" %} Com cessão <span class="an-chip-n">{{ n_cessao }}</span>
+      </a>
+    </div>
+    <a class="btn-primary inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg"
+       href="{% url 'dashboard:ia-showcase' %}">
+      {% voy_icon "plus" "w-4 h-4" %} Nova análise
+    </a>
   </div>
 
   {% if analises %}
-  <div class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+  <div class="grid gap-2.5" style="grid-template-columns:repeat(auto-fill,minmax(310px,1fr))">
     {% for a in analises %}
     <a href="{% url 'dashboard:showcase-analise' a.uuid %}"
-       class="rounded-xl border border-white/10 p-3.5 block transition hover:border-white/25"
-       style="background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)">
-      <div class="text-sm font-semibold text-fg" style="word-break:break-word">{{ a.arquivo }}</div>
+       class="an-card">
+      <div class="flex items-start justify-between gap-2">
+        <div class="text-sm font-semibold text-fg" style="word-break:break-word;line-height:1.3">{{ a.arquivo }}</div>
+        {% if a.tem_cessao %}<span class="an-cessao">{% voy_icon "constellation" "w-3 h-3" %} cessão</span>{% endif %}
+      </div>
       <div class="text-[0.68rem] text-fg-subtle mt-1">
         {% if a.usuario %}{{ a.usuario.get_username }} · {% endif %}{{ a.criado_em|date:"d/m/Y H:i" }}
       </div>
@@ -32,8 +48,23 @@
   </div>
   {% else %}
   <div class="text-center text-fg-subtle text-sm py-16">
-    Nenhuma análise salva ainda. Rode uma extração na <a class="text-accent-fg underline" href="{% url 'dashboard:ia-showcase' %}">Showcase</a>.
+    {% if so_cessao %}Nenhuma análise <b>com cessão</b> ainda.{% else %}Nenhuma análise salva ainda.{% endif %}
+    Rode uma extração na <a class="text-accent-fg underline" href="{% url 'dashboard:ia-showcase' %}">Showcase</a>.
   </div>
   {% endif %}
 </div>
+
+<style>
+  .an-chip{display:inline-flex;align-items:center;gap:.35rem;font-size:.76rem;color:var(--fg-muted);
+    padding:.32rem .7rem;border:1px solid var(--border);border-radius:999px;transition:all .12s;background:var(--card)}
+  .an-chip:hover{color:var(--fg);border-color:rgb(var(--c-fg-muted)/.4)}
+  .an-chip-on{background:rgb(var(--c-accent)/.14);color:rgb(var(--c-accent));border-color:rgb(var(--c-accent)/.4)}
+  .an-chip-n{font-size:.62rem;font-weight:700;opacity:.7;font-family:'JetBrains Mono',ui-monospace,monospace}
+  .an-card{display:block;border-radius:.7rem;border:1px solid var(--border);padding:.85rem .9rem;transition:all .12s;
+    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+  .an-card:hover{border-color:rgb(var(--c-fg-muted)/.35);transform:translateY(-1px)}
+  .an-cessao{flex:0 0 auto;display:inline-flex;align-items:center;gap:.25rem;font-size:.58rem;font-weight:800;
+    letter-spacing:.05em;text-transform:uppercase;color:#22d3ee;background:rgba(6,182,212,.14);
+    border:1px solid rgba(6,182,212,.4);border-radius:999px;padding:.12rem .4rem;white-space:nowrap}
+</style>
 {% endblock %}
