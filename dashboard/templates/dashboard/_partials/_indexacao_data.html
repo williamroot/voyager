@@ -55,9 +55,9 @@
         </div>
         <div class="text-[0.7rem] text-slate-400 mt-1"><b class="text-slate-200">${fmt(c.indexado)}</b> indexados de <b>${fmt(c.total)}</b> <span class="opacity-60">(estimado)</span></div>
         <div class="mt-2 h-2 rounded-full overflow-hidden" style="background:rgba(148,163,184,.15)">
-          <div style="height:100%;width:${Math.max(cob,0.5)}%;background:${corb};border-radius:999px"></div>
+          <div style="height:100%;width:${Math.min(Math.max(cob,0.5),100)}%;background:${corb};border-radius:999px"></div>
         </div>
-        <div class="text-[0.66rem] text-slate-500 mt-1.5 font-mono">${c.index} · faltam ${fmt(c.pendente)}</div>
+        <div class="text-[0.66rem] text-slate-500 mt-1.5 font-mono">${c.index} · ${c.completo?'✓ indexado (total é estimativa)':'faltam '+fmt(c.pendente)}</div>
       </div>`;
     }).join('') || '<div class="text-slate-500 text-sm">Sem dados de índice.</div>';
   }

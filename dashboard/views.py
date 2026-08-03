@@ -3572,10 +3572,13 @@ def _indexacao_data():
             except Exception:  # noqa: BLE001
                 indexado = 0
             total = _indexacao_estimativa_db(model)
-            cob = round(100.0 * indexado / total, 2) if total else 0.0
+            # total é ESTIMATIVA (reltuples); o ES count é exato. Quando o índice
+            # alcança tudo, o exato passa da estimativa → capar em 100% (cobertura
+            # não é >100). completo=True quando o indexado alcançou/passou a estimativa.
+            cob = round(min(100.0, 100.0 * indexado / total), 2) if total else 0.0
             out['conteudos'].append({'nome': nome, 'index': idx, 'indexado': indexado,
                                      'total': total, 'pendente': max(total - indexado, 0),
-                                     'cobertura': cob})
+                                     'cobertura': cob, 'completo': bool(total and indexado >= total)})
         # por tribunal — INDEXADO (agg ES do índice de processos); DB por-tribunal é caro.
         try:
             idxp = idx_name('processos')
