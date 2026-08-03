@@ -276,8 +276,11 @@ function showcase(){
       if(esp) sub.push('espólio de '+this.esc(esp===true?'—':esp));
       if(p.abstido) sub.push('<span style="color:#f59e0b">modelo absteve o papel</span>');
       if(sub.length) c+=`<div class="sc-pcard-sub">${sub.join('&nbsp;·&nbsp;')}</div>`;
-      // "consta em" — de quais DOCUMENTOS a parte foi lida (proveniência clara)
-      const orig=(Array.isArray(p.docs_origem)?p.docs_origem:[]).filter(Boolean);
+      // "consta em" — de quais DOCUMENTOS a parte foi lida (proveniência clara).
+      // docs_origem = [{doc_classe,...}] OU lista de strings — normaliza pra classe.
+      const orig=(Array.isArray(p.docs_origem)?p.docs_origem:[])
+        .map(x=> (typeof x==='string') ? x : (x && (x.doc_classe||x.classe)))
+        .filter(Boolean);
       if(orig.length){
         const rots=[...new Set(orig.map(x=>this._classeRot(x)).filter(Boolean))];
         if(rots.length) c+=`<div class="sc-pcard-orig"><span>consta em</span> ${rots.map(r=>`<em>${this.esc(r)}</em>`).join(' · ')}</div>`;
@@ -325,7 +328,7 @@ function showcase(){
       CERTIDAO_NASCIMENTO:'Certidão de nascimento',FORMAL_PARTILHA:'Formal de partilha',ACORDAO:'Acórdão',ACORDO:'Acordo',
       PETICAO:'Petição',CONTRATO_HONORARIOS:'Contrato de honorários',PROCURACAO:'Procuração',SUBSTABELECIMENTO:'Substabelecimento',
       TRANSITO_JULGADO:'Trânsito em julgado',RECURSO:'Recurso',PENHORA:'Penhora'};
-      const k=(c||'').toUpperCase(); return m[k]||(k?k.charAt(0)+k.slice(1).toLowerCase().replace(/_/g,' '):''); },
+      const k=String(c==null?'':c).toUpperCase(); return m[k]||(k?k.charAt(0)+k.slice(1).toLowerCase().replace(/_/g,' '):''); },
     // ── CESSÃO DE CRÉDITO ── coleta de fichas[].eventos (relação+%/data) e
     // docs[].registros do CESSAO_CREDITO (CPF/CNPJ). Dedup por cedente>cessionário.
     _coletaCessoes(fichas, docs){
