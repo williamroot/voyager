@@ -331,27 +331,59 @@ function showcase(){
       const k=String(c==null?'':c).toUpperCase(); return m[k]||(k?k.charAt(0)+k.slice(1).toLowerCase().replace(/_/g,' '):''); },
     // ── CESSÃO DE CRÉDITO ── coleta de fichas[].eventos (relação+%/data) e
     // docs[].registros do CESSAO_CREDITO (CPF/CNPJ). Dedup por cedente>cessionário.
+    // helpers de identidade p/ dedup da cessão
+    _soDig(v){ return v==null?'':String(v).replace(/\D/g,''); },
+    _normNome(s){ return String(s==null?'':s).normalize('NFD').replace(/\p{Diacritic}/gu,'').toUpperCase().replace(/[^A-Z0-9]/g,''); },
+    _ehRotuloCess(s){ return /^(CEDENTE|CESSIONARI[OA]S?|CEDENTES)$/.test(this._normNome(s)); }, // modelo ecoou o rótulo como nome
+    _nomeSim(a,b){ if(!a||!b) return false; if(a===b) return true;
+      const s=a.length<b.length?a:b, l=a.length<b.length?b:a;
+      if(s.length>=8 && l.startsWith(s)) return true;      // um é prefixo do outro
+      let i=0; while(i<s.length && s[i]===l[i]) i++;         // prefixo comum longo (fundos: "PRIORITYFUNDODE…")
+      return i>=15; },
+    _ladoComp(dA,nA,dB,nB){ const da=this._soDig(dA), db=this._soDig(dB);
+      if(da&&db) return da===db?'match':'conflito';
+      const na=this._normNome(nA), nb=this._normNome(nB);
+      if(na&&nb) return this._nomeSim(na,nb)?'match':'conflito';
+      return 'incerto'; },                                   // um lado sem info → não afirma
+    _mesmaCessao(a,b){
+      const c=this._ladoComp(a.cedente_doc,a.cedente,b.cedente_doc,b.cedente);
+      const s=this._ladoComp(a.cessionario_doc,a.cessionario,b.cessionario_doc,b.cessionario);
+      if(c==='conflito'||s==='conflito') return false;       // lados divergem → cessões distintas
+      return c==='match'||s==='match';                       // ≥1 lado casa e nenhum conflita
+    },
     _coletaCessoes(fichas, docs){
-      const out=[], seen=new Set();
-      const key=c=>((c.cedente||'')+'>'+(c.cessionario||'')).toLowerCase();
-      (docs||[]).forEach(d=>{ if((d.classe||'').toUpperCase()!=='CESSAO_CREDITO') return;
+      // 1) coleta bruta (docs[].registros do CESSAO_CREDITO têm CPF/CNPJ; fichas[].eventos têm %/data)
+      const raw=[]; const nome=n=>this._ehRotuloCess(n)?null:(n||null);
+      (docs||[]).forEach(d=>{ if(this._normNome(d.classe)!=='CESSAOCREDITO') return;
         const rs=Array.isArray(d.registros)?d.registros:(d.registros?[d.registros]:[]);
         rs.forEach(r=>{ const ced=r.cedente||{}, ces=r.cessionario||{};
-          const c={cedente:ced.nome||r.cedente_nome, cedente_doc:ced.cpf_cnpj, cessionario:ces.nome||r.cessionario_nome,
-                   cessionario_doc:ces.cpf_cnpj, valor:r.valor, percentual:r.percentual, data:r.data, doc:d.classe||d.nome, conf:r.confianca||d.classe_conf};
-          if(key(c)!=='>' && !seen.has(key(c))){ seen.add(key(c)); out.push(c); } }); });
-      (fichas||[]).forEach(f=>{ (f.eventos||[]).forEach(ev=>{ if((ev.tipo||'').toUpperCase()!=='CESSAO') return;
-        const c={cedente:ev.cedente_nome, cessionario:ev.cessionario_nome, valor:ev.valor, percentual:ev.percentual, data:ev.data, doc:ev.doc_classe, conf:ev.confianca};
-        const ex=out.find(o=>key(o)===key(c));
-        if(ex){ ex.data=ex.data||c.data; ex.percentual=ex.percentual||c.percentual; ex.valor=ex.valor||c.valor; }
-        else if(key(c)!=='>' && !seen.has(key(c))){ seen.add(key(c)); out.push(c); } }); });
-      return out;
+          raw.push({cedente:nome(ced.nome||r.cedente_nome), cedente_doc:ced.cpf_cnpj||null,
+            cessionario:nome(ces.nome||r.cessionario_nome), cessionario_doc:ces.cpf_cnpj||null,
+            valor:r.valor, percentual:r.percentual, data:r.data, doc:d.classe||d.nome, conf:r.confianca||d.classe_conf}); }); });
+      (fichas||[]).forEach(f=>{ (f.eventos||[]).forEach(ev=>{ if(this._normNome(ev.tipo)!=='CESSAO') return;
+        raw.push({cedente:nome(ev.cedente_nome), cedente_doc:null, cessionario:nome(ev.cessionario_nome), cessionario_doc:null,
+          valor:ev.valor, percentual:ev.percentual, data:ev.data, doc:ev.doc_classe, conf:ev.confianca}); }); });
+      // descarta registros totalmente vazios (sem cedente, sem cessionário, sem valor)
+      const util=raw.filter(r=>r.cedente||r.cessionario||r.cedente_doc||r.cessionario_doc||r.valor!=null);
+      if(!util.length) return [];
+      // 2) clusteriza por identidade (doc-digits OU nome normalizado/prefixo)
+      const grupos=[];
+      util.forEach(r=>{ let g=grupos.find(g=>g.some(x=>this._mesmaCessao(x,r))); if(g)g.push(r); else grupos.push([r]); });
+      // 3) funde cada grupo num card: melhor nome (mais longo), doc, valores DISTINTOS
+      const mNome=(g,k)=>g.map(x=>x[k]).filter(Boolean).sort((a,b)=>b.length-a.length)[0]||null;
+      const pick=(g,k)=>g.map(x=>x[k]).find(v=>v!=null&&v!=='')||null;
+      return grupos.map(g=>{
+        const vals=[...new Set(g.map(x=>this._num(x.valor)).filter(v=>v!=null))];
+        return {cedente:mNome(g,'cedente'), cedente_doc:pick(g,'cedente_doc'),
+          cessionario:mNome(g,'cessionario'), cessionario_doc:pick(g,'cessionario_doc'),
+          valores:vals, percentual:pick(g,'percentual'), data:pick(g,'data'), doc:pick(g,'doc'), conf:pick(g,'conf')}; });
     },
     renderCessao(fichas, docs){
       const cs=this._coletaCessoes(fichas, docs); if(!cs.length) return '';
-      let h=`<div class="sc-sec"><div class="sc-sec-t">Cessão de crédito <span class="sc-cesslabel">CESSÃO</span></div>`;
+      const plural=cs.length>1;
+      let h=`<div class="sc-sec"><div class="sc-sec-t">Cessão de crédito <span class="sc-cesslabel">CESSÃO${plural?` ×${cs.length}`:''}</span></div>`;
       cs.forEach(c=>{
-        const v=this._num(c.valor);
+        const valTxt=(c.valores&&c.valores.length)? c.valores.map(v=>this.money(v)).join(' · ') : null;
         h+=`<div class="sc-cesscard">
           <div class="sc-cessflow">
             <div class="sc-cessside" style="--cs:#0ea5e9">
@@ -359,7 +391,7 @@ function showcase(){
               <div class="sc-cessnome">${this.na(c.cedente)}</div>
               ${c.cedente_doc?`<div class="sc-cessdoc">${this.esc(this._mascaraDoc(c.cedente_doc))}</div>`:''}
             </div>
-            <div class="sc-cessarrow">${this.na(c.percentual)!==''&&c.percentual?`<span class="sc-cesspct">${this.esc(c.percentual)}</span>`:''}<span>➜</span></div>
+            <div class="sc-cessarrow">${c.percentual?`<span class="sc-cesspct">${this.esc(c.percentual)}</span>`:''}<span>➜</span></div>
             <div class="sc-cessside" style="--cs:#06b6d4">
               <div class="sc-cessrole">Cessionário · quem recebe</div>
               <div class="sc-cessnome">${this.na(c.cessionario)}</div>
@@ -367,7 +399,7 @@ function showcase(){
             </div>
           </div>
           <div class="sc-cessmeta">
-            ${v!=null?`<span><i>Valor cedido</i> ${this.money(v)}</span>`:''}
+            ${valTxt?`<span><i>Valor${c.valores.length>1?'es':''} cedido${c.valores.length>1?'s':''}</i> ${valTxt}</span>`:''}
             ${c.data?`<span><i>Data</i> ${this.esc(c.data)}</span>`:''}
             ${c.doc?`<span><i>Fonte</i> ${this.esc(this._classeRot(c.doc))}</span>`:''}
             ${c.conf?this.confBadge(c.conf):''}
