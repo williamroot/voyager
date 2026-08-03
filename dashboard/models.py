@@ -106,8 +106,8 @@ class ShowcaseAnalise(models.Model):
     class Meta:
         ordering = ['-criado_em']
         indexes = [
-            models.Index(fields=['-criado_em']),
-            models.Index(fields=['usuario', '-criado_em']),
+            models.Index(fields=['-criado_em'], name='showanalise_criado_idx'),
+            models.Index(fields=['usuario', '-criado_em'], name='showanalise_user_criado_idx'),
         ]
 
     def __str__(self) -> str:
