@@ -10,11 +10,12 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render
 from django.template.defaultfilters import filesizeformat
 
+from .models import ShowcaseAnalise
+
 
 @login_required
 def analise_detalhe(request, aid):
     """Página compartilhável de UMA análise (URL por UUID)."""
-    from .models import ShowcaseAnalise
     a = get_object_or_404(ShowcaseAnalise.objects.select_related('usuario'), uuid=aid)
     tempos = a.tempos or {}
     tsec = tempos.get('total_s') or (a.elapsed_ms / 1000 if a.elapsed_ms else 0)
