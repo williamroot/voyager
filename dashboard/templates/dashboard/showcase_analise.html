@@ -5,7 +5,26 @@
 
 {% block content %}
 <div class="page-showcase" style="max-width:1120px;margin:0 auto"
-     x-data="{copiado:false, copiar(){navigator.clipboard.writeText(window.location.href).then(()=>{this.copiado=true;setTimeout(()=>this.copiado=false,1800)}).catch(()=>{})}}">
+     x-data="{copiado:false, reproc:false, reprocMsg:'', tempFile:{{ a.arquivo_path|yesno:'true,false' }},
+       copiar(){navigator.clipboard.writeText(window.location.href).then(()=>{this.copiado=true;setTimeout(()=>this.copiado=false,1800)}).catch(()=>{})},
+       async reprocessar(){
+         if(this.reproc) return; this.reproc=true; this.reprocMsg='enfileirando…';
+         try{
+           const r=await fetch('{% url 'dashboard:showcase-reprocessar' a.uuid %}',{method:'POST',credentials:'same-origin'});
+           const j=await r.json();
+           if(!r.ok){ this.reprocMsg=j.erro||'falha'; this.reproc=false; setTimeout(()=>this.reprocMsg='',6000); return; }
+           this.reprocMsg='reprocessando…';
+           for(let i=0;i<220;i++){
+             await new Promise(s=>setTimeout(s,3000));
+             let st; try{ st=await (await fetch('/dashboard/api/showcase/job/'+j.job_id+'/',{credentials:'same-origin'})).json(); }catch(e){ continue; }
+             if(st.status==='done' && st.analise_id){ window.location.href='/dashboard/ia/showcase/a/'+st.analise_id+'/'; return; }
+             if(st.status==='erro'){ this.reprocMsg=st.erro||'erro'; this.reproc=false; setTimeout(()=>this.reprocMsg='',6000); return; }
+             if(st.etapa) this.reprocMsg='reprocessando · '+st.etapa;
+           }
+           this.reprocMsg='demorou demais — recarregue'; this.reproc=false;
+         }catch(e){ this.reprocMsg='erro: '+e.message; this.reproc=false; }
+       }
+     }">
 
   {# ── cabeçalho: o quê / quem / quando + ações ── #}
   <div class="sc-hero" style="align-items:flex-start">
@@ -19,9 +38,17 @@
     </div>
     <div class="flex items-center gap-2 flex-wrap">
       <button class="sc-exportbtn" @click="copiar()" x-text="copiado ? '✓ link copiado' : '🔗 copiar link'"></button>
+      {% if a.arquivo_path %}
+      <button class="sc-btn-next" style="background:var(--card);color:var(--fg);border:1px solid var(--border)"
+              @click="reprocessar()" :disabled="reproc" :style="reproc?'opacity:.7;cursor:progress':''">
+        <span x-show="!reproc" class="inline-flex items-center gap-1.5">{% voy_icon "history" "w-4 h-4" %} Reprocessar</span>
+        <span x-show="reproc" x-text="reprocMsg" class="inline-flex items-center gap-1.5"><span class="sc-spin sc-spin-sm"></span></span>
+      </button>
+      {% endif %}
       <a class="sc-btn-next" style="background:var(--card);color:var(--fg);border:1px solid var(--border)" href="{% url 'dashboard:showcase-analises' %}">{% voy_icon "history" "w-4 h-4" %} Todas</a>
       <a class="sc-btn-next" href="{% url 'dashboard:ia-showcase' %}">{% voy_icon "sparkles" "w-4 h-4" %} Nova análise</a>
     </div>
+    <div x-show="reprocMsg && !reproc" x-text="reprocMsg" class="text-xs text-amber-400 w-full mt-1"></div>
   </div>
 
   {# ── stats: modelo / tempo / páginas / partes / docs / tamanho ── #}

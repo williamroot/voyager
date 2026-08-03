@@ -4,9 +4,18 @@ A ficha (``resultado``) é renderizada client-side pelo MESMO ``renderFicha`` do
 showcase (partials ``_showcase_ficha_{css,js}.html``). Login obrigatório —
 compartilhável entre usuários da plataforma, não público.
 """
+import os
+import shutil
+import uuid as _uuid
+from pathlib import Path
+
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.template.defaultfilters import filesizeformat
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 
 from .models import ShowcaseAnalise
 
@@ -59,6 +68,57 @@ def analise_detalhe(request, aid):
         # dict CRU — o filtro json_script serializa (passar json.dumps aqui = double-encode)
         'resultado': a.resultado or {},
     })
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def analise_reprocessar(request, aid):
+    """Roda a MESMA análise de novo (mesmo arquivo + mesma versão) — pega melhorias
+    do modelo/SDK sem reenviar. Usa o arquivo preservado (``arquivo_path``); se ele
+    não existe mais, orienta a reenviar. Devolve ``{job_id}`` pro cliente pollar."""
+    import django_rq
+    from . import showcase_jobs
+    from .showcase_chunks import (JOB_TIMEOUT, JOB_TTL, QUEUE_NAME, UPLOAD_DIR,
+                                  set_job_state)
+
+    a = get_object_or_404(ShowcaseAnalise, uuid=aid)
+    if not a.arquivo_path:
+        return JsonResponse({"erro": "o arquivo original desta análise não foi preservado "
+                                     "(análise antiga) — reenvie pela Showcase."}, status=409)
+    src = Path(settings.MEDIA_ROOT) / a.arquivo_path
+    if not src.exists():
+        return JsonResponse({"erro": "o arquivo original não está mais disponível — "
+                                     "reenvie pela Showcase."}, status=409)
+
+    # staging: novo upload_id, hardlink/copia o arquivo pro dir de uploads (o worker lê de lá)
+    upload_id = str(_uuid.uuid4())
+    d = UPLOAD_DIR / upload_id
+    d.mkdir(parents=True, exist_ok=True)
+    montado = d / (a.arquivo or "autos.pdf")
+    try:
+        os.link(src, montado)
+    except OSError:
+        shutil.copy2(src, montado)
+
+    job_id = str(_uuid.uuid4())
+    set_job_state(job_id, status="pending", etapa="na fila (reprocessar)", progresso=0,
+                  versao=a.versao, arquivo=a.arquivo, upload_id=upload_id)
+    try:
+        django_rq.get_queue(QUEUE_NAME).enqueue(
+            showcase_jobs.extrair_job, job_id=job_id,
+            kwargs={"state_job_id": job_id, "versao": a.versao or "v21",
+                    "caminho": str(montado), "arquivo": a.arquivo or "autos.pdf",
+                    "content_type": a.content_type or "application/pdf",
+                    "upload_id": upload_id, "limpar_dir": True,
+                    "user_id": request.user.id, "sha256": a.sha256},
+            job_timeout=JOB_TIMEOUT, result_ttl=JOB_TTL, failure_ttl=JOB_TTL)
+    except Exception as e:  # noqa: BLE001 — Redis/fila fora
+        set_job_state(job_id, status="erro", etapa="falha ao enfileirar",
+                      erro="fila indisponível — tente de novo")
+        return JsonResponse({"erro": "não foi possível enfileirar (fila fora do ar)",
+                             "detalhe": str(e)[:120]}, status=503)
+    return JsonResponse({"job_id": job_id})
 
 
 @login_required

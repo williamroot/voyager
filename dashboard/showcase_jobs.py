@@ -65,7 +65,8 @@ def extrair_job(*, state_job_id: str, versao: str, caminho: str, arquivo: str,
         # persiste a análise (compartilhável por UUID) e devolve o id ao cliente
         analise_id = _persistir_analise(out, versao=versao, arquivo=arquivo,
                                         content_type=content_type, tamanho=tamanho,
-                                        sha256=sha256, user_id=user_id, upload_id=upload_id)
+                                        sha256=sha256, user_id=user_id, upload_id=upload_id,
+                                        caminho=caminho)
         if analise_id:
             set_job_state(state_job_id, analise_id=analise_id)
         ret = {"status": "done", "analise_id": analise_id}
@@ -102,8 +103,36 @@ def _detecta_cessao(fichas: list, docs: list) -> bool:
     return False
 
 
+def _preservar_arquivo(a, caminho: str) -> None:
+    """Guarda o arquivo original junto da análise (hardlink → sem duplicar bytes;
+    fallback copy se fs diferente) pra permitir REPROCESSAR sem reenviar. Best-effort."""
+    try:
+        import os
+        import shutil
+        from django.conf import settings
+        src = Path(caminho or "")
+        if not caminho or not src.exists():
+            return
+        dstdir = Path(settings.MEDIA_ROOT) / "showcase_src"
+        dstdir.mkdir(parents=True, exist_ok=True)
+        ext = src.suffix or ""
+        rel = f"showcase_src/{a.uuid}{ext}"
+        dst = Path(settings.MEDIA_ROOT) / rel
+        if dst.exists():
+            dst.unlink()
+        try:
+            os.link(src, dst)          # hardlink: mesma partição → custo ~0
+        except OSError:
+            shutil.copy2(src, dst)     # partições diferentes → copia
+        a.arquivo_path = rel
+        a.save(update_fields=["arquivo_path"])
+    except Exception as e:  # noqa: BLE001 — preservar não pode derrubar o job
+        logger.warning("[showcase evt=preservar_arquivo_err err=%s]", str(e)[:160])
+
+
 def _persistir_analise(out: dict, *, versao: str, arquivo: str, content_type: str,
-                       tamanho: int, sha256: str, user_id: int | None, upload_id: str):
+                       tamanho: int, sha256: str, user_id: int | None, upload_id: str,
+                       caminho: str = ""):
     """Salva a análise no DB (compartilhável por UUID). NUNCA derruba o job."""
     try:
         from .models import ShowcaseAnalise
@@ -122,6 +151,7 @@ def _persistir_analise(out: dict, *, versao: str, arquivo: str, content_type: st
             tem_cessao=_detecta_cessao(fichas, docs),
             resultado=out, upload_id=(upload_id or "")[:64],
         )
+        _preservar_arquivo(a, caminho)   # cópia p/ reprocessar (best-effort)
         logger.info("[showcase evt=analise_salva uuid=%s versao=%s partes=%d]",
                     a.uuid, versao, a.n_partes)
         return str(a.uuid)

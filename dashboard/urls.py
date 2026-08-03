@@ -59,6 +59,7 @@ urlpatterns = [
     # Análises SALVAS (compartilháveis por UUID entre usuários)
     path('ia/showcase/analises/', showcase_analise.analise_lista, name='showcase-analises'),
     path('ia/showcase/a/<uuid:aid>/', showcase_analise.analise_detalhe, name='showcase-analise'),
+    path('api/showcase/reprocessar/<uuid:aid>/', showcase_analise.analise_reprocessar, name='showcase-reprocessar'),
     path('api/showcase/extrair/<str:versao>/', showcase_proxy.showcase_extrair, name='showcase-extrair'),
     path('api/showcase/explicar/<str:versao>/', showcase_proxy.showcase_explicar, name='showcase-explicar'),
     # Upload em chunks (aguenta ~1GB via Cloudflare) → extração assíncrona → polling.

@@ -103,6 +103,7 @@ class ShowcaseAnalise(models.Model):
 
     resultado = models.JSONField(default=dict)           # a ficha completa (renderFicha)
     upload_id = models.CharField(max_length=64, blank=True, default='')
+    arquivo_path = models.CharField(max_length=255, blank=True, default='')  # cópia persistente (rel. MEDIA_ROOT) p/ reprocessar
 
     class Meta:
         ordering = ['-criado_em']
