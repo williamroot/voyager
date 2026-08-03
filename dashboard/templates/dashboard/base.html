@@ -461,6 +461,11 @@
                 {% voy_icon "sparkles" "w-4 h-4" %}
                 Showcase do Extrator ✨
               </a>
+              {% url 'dashboard:showcase-analises' as showcase_analises_url %}
+              <a href="{{ showcase_analises_url }}" class="nav-item {% if request.path == showcase_analises_url %}active{% endif %}">
+                {% voy_icon "history" "w-4 h-4" %}
+                Análises salvas
+              </a>
               {% url 'dashboard:treinos-dashboard' as treinos_url %}
               <a href="{{ treinos_url }}" class="nav-item {% if request.path == treinos_url %}active{% endif %}">
                 {% voy_icon "flask" "w-4 h-4" %}
