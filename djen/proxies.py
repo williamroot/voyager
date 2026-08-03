@@ -43,6 +43,14 @@ class ProxyScrapePool:
         self.refresh_threshold = getattr(settings, 'DJEN_POOL_REFRESH_THRESHOLD', 20)
         self._list_key = f'voyager:proxies:{name}:list'
         self._bad_key = f'voyager:proxies:{name}:bad_zset'
+        # Sinal de degradação por TAXA DE FALHA (ver is_degraded). Compartilhado
+        # entre workers via Redis — o bloqueio de faixa é global, não por worker.
+        self._fail_streak_key = f'voyager:proxies:{name}:fail_streak'
+        self._degraded_key = f'voyager:proxies:{name}:degraded'
+        self.fail_streak_degrade = getattr(
+            settings, 'DJEN_POOL_FAIL_STREAK_DEGRADE', 25)
+        self.degraded_ttl = getattr(
+            settings, 'DJEN_POOL_DEGRADED_TTL_SECONDS', 600)
         self._healthy_cache: list[str] = []
         self._healthy_cache_ts: float = 0.0
         self._last_refresh_attempt: float = 0.0
@@ -106,6 +114,24 @@ class ProxyScrapePool:
         self.redis.zadd(self._bad_key, {url: expiry})
         self._healthy_cache_ts = 0.0  # invalida cache local
         logger.warning('proxy ruim [%s]: %s (ttl=%ds)', self.name, url, self.bad_ttl)
+        streak = self.redis.incr(self._fail_streak_key)
+        if streak == self.fail_streak_degrade:
+            self.redis.set(self._degraded_key, '1', ex=self.degraded_ttl)
+            logger.error(
+                'pool[%s] DEGRADADO por taxa de falha: %d falhas seguidas sem '
+                'nenhum 200 → tráfego vai pro Cortex por %ds',
+                self.name, streak, self.degraded_ttl,
+            )
+
+    def mark_ok(self) -> None:
+        """Request pelo pool voltou 200 — zera o streak e sai da degradação.
+
+        Chamado pelo cliente DJEN no caminho de sucesso. Sem isso a degradação
+        por taxa de falha não teria como se desarmar sozinha."""
+        pipe = self.redis.pipeline(transaction=False)
+        pipe.delete(self._fail_streak_key)
+        pipe.delete(self._degraded_key)
+        pipe.execute()
 
     def mark_cortex_bad(self, ttl: Optional[int] = None) -> None:
         ttl = ttl if ttl is not None else self.cortex_bad_ttl
@@ -175,6 +201,11 @@ class ProxyScrapePool:
         # Sem isso, pool de 13 proxies que foram todos marcados ruins
         # continua vazia mesmo após refresh bem-sucedido.
         pipe.delete(self._bad_key)
+        # Idem pro streak: a contagem é sobre os IPs antigos. O flag de
+        # degradação NÃO é limpo aqui de propósito — em ban de faixa o refresh
+        # devolve os mesmos ranges, e limpar aqui faria o fallback piscar a
+        # cada 15min. Ele sai por TTL (vira sonda) ou por mark_ok().
+        pipe.delete(self._fail_streak_key)
         pipe.execute()
         self._healthy_cache_ts = 0.0
         # Adapta threshold ao tamanho real do pool para evitar refresh
@@ -193,11 +224,31 @@ class ProxyScrapePool:
             total = 0
         now = time.time()
         bad_count = self.redis.zcount(self._bad_key, now, '+inf')
-        return {'total': total, 'bad': bad_count, 'saudaveis': max(total - bad_count, 0)}
+        return {
+            'total': total,
+            'bad': bad_count,
+            'saudaveis': max(total - bad_count, 0),
+            'fail_streak': int(self.redis.get(self._fail_streak_key) or 0),
+            'degradado': bool(self.redis.exists(self._degraded_key)),
+        }
 
     def is_degraded(self) -> bool:
-        """Pool está em estado crítico (saudáveis abaixo do limiar de refresh).
-        Cliente DJEN usa pra forçar mais tráfego via Cortex residencial."""
+        """Pool está em estado crítico. Cliente DJEN usa pra forçar mais
+        tráfego via Cortex residencial.
+
+        Dois sinais, e o de taxa de falha é o que importa em bloqueio de faixa:
+
+        1. **Taxa de falha** — N falhas seguidas sem nenhum 200 pelo pool.
+           Contagem de IPs não enxerga WAF que bane a faixa DATACENTER inteira:
+           os IPs continuam "saudáveis" (respondem, só que 403) e o cooldown de
+           `PROXY_BAD_TTL_SECONDS` (120s) devolve todos à lista em 2 minutos.
+           Foi exatamente isso em 2026-08-03: 2500 IPs no pool, ~800 fora de
+           cooldown, 100% de 403 no comunicaapi — e o fallback nunca acendeu.
+        2. **Escassez** — saudáveis abaixo do limiar de refresh (sinal antigo,
+           mantido: pool que esvaziou também é pool degradado).
+        """
+        if self.redis.exists(self._degraded_key):
+            return True
         return len(self._healthy_list()) < self.refresh_threshold
 
 

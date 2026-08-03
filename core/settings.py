@@ -303,6 +303,13 @@ DJEN_ROTATION_PAUSE_MAX = env.float('DJEN_ROTATION_PAUSE_MAX', default=30.0)
 # Quando saudáveis ficam abaixo desse limiar, força refresh da ProxyScrape API
 # pra puxar IPs novos.
 DJEN_POOL_REFRESH_THRESHOLD = env.int('DJEN_POOL_REFRESH_THRESHOLD', default=20)
+# Degradação do pool por TAXA DE FALHA (não por contagem de IPs). N falhas
+# seguidas sem nenhum 200 pelo pool → marca degradado por
+# DJEN_POOL_DEGRADED_TTL_SECONDS e o tráfego vai pro Cortex
+# (DJEN_CORTEX_RATIO_DEGRADED). O TTL também é a sonda: quando expira, o pool
+# é testado de novo e volta sozinho se o WAF liberou.
+DJEN_POOL_FAIL_STREAK_DEGRADE = env.int('DJEN_POOL_FAIL_STREAK_DEGRADE', default=25)
+DJEN_POOL_DEGRADED_TTL_SECONDS = env.int('DJEN_POOL_DEGRADED_TTL_SECONDS', default=600)
 
 # Classificador — hot reload de pesos
 # TTL do cache em memória do classificador. A cada N segundos, o classificador

@@ -268,6 +268,11 @@ class DJENClient:
                     latency_ms, proxy_rotations, transport_retries,
                 )
                 _record_success()  # DJEN respondeu 200 → fecha o circuito
+                if using == 'pool':
+                    # Pool provou que funciona: zera o streak de falhas e tira
+                    # a degradação. Sem este par do mark_bad, o sinal de taxa
+                    # de falha só sobe e nunca se desarma.
+                    self.pool.mark_ok()
                 return resp.json()
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError,
