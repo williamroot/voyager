@@ -127,6 +127,33 @@ CLASSES_FAZENDA_PUBLICA = {
 # veta a promoção: expedido e já pago não sobe.
 PRECATORIO_SINAL_TRIBUNAIS = {'TJAL', 'TJMA', 'TJSP'}
 
+# ---------------------------------------------------------------------------
+# Regra de sinal por CLASSE: o precatório JÁ AUTUADO.
+# ---------------------------------------------------------------------------
+# A classe CNJ 1265 "Precatório" não é o precursor do crédito — é o crédito
+# requisitado, já autuado como processo próprio no órgão de precatórios do
+# tribunal (2º grau). O LR nunca a alcança: foi treinado no padrão "Cumprimento
+# contra a Fazenda" e a 1265 tem F1_cumprim=0, então o score morre em ~0,05.
+# Medido em 2026-08-03: 8.598 processos TJAL de classe 1265, score médio 0,055,
+# TODOS NAO_LEAD — e a página pública de 2º grau (cposg) traz credor, CPF, valor
+# e devedor. Era o maior ponto cego do TJAL.
+CLASSES_PRECATORIO_AUTUADO = {'1265'}
+
+# O par (código, nome) vem do DJEN e nem sempre é coerente: 65 processos TJAL
+# chegam com código 1265 mas nome "Processo Administrativo". Exigir que o NOME
+# também diga precatório descarta esse ruído. E "Carta Precatória" (códigos 261
+# /355/1455) casa com 'precat' sem ser precatório nenhum — veto explícito, pra
+# regra não depender só de o código estar certo.
+_RE_NOME_PRECATORIO = re.compile(r'precat[óo]ri', re.I)
+_RE_NOME_CARTA_PRECATORIA = re.compile(r'carta\s+precat', re.I)
+
+# Rollout controlado por tribunal, como as demais regras de sinal. A classe 1265
+# é nacional e existe em todo o fleet (TJSP 50k, TRF5 23k, TJDFT 22k, TJAP 7k,
+# TJMG 6k... ~140k no total, nenhum classificado como precatório hoje), mas o
+# ganho só vira lead onde o JURISCOPE sabe LER o processo — hoje o TJAL, via
+# consulta pública de 2º grau. Ampliar exige o leitor correspondente.
+CLASSE_PRECATORIO_SINAL_TRIBUNAIS = {'TJAL'}
+
 # Score gravado na promoção por regra de sinal. Precisa passar o
 # VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
 SCORE_PROMOCAO_SINAL = 1.0
@@ -347,6 +374,20 @@ def _is_anti_classe(classe_nome: str) -> int:
                or 'procedimento comum' in n)
 
 
+def _is_classe_precatorio_autuado(processo) -> bool:
+    """True quando o processo É um precatório autuado (classe CNJ 1265).
+
+    Exige código E nome coerentes, e rejeita carta precatória — ver comentário
+    em CLASSES_PRECATORIO_AUTUADO.
+    """
+    if (processo.classe_codigo or '').strip() not in CLASSES_PRECATORIO_AUTUADO:
+        return False
+    nome = processo.classe_nome or ''
+    if _RE_NOME_CARTA_PRECATORIA.search(nome):
+        return False
+    return bool(_RE_NOME_PRECATORIO.search(nome))
+
+
 def _sigmoid(z: float) -> float:
     z = max(min(z, 30.0), -30.0)
     return 1.0 / (1.0 + math.exp(-z))
@@ -487,6 +528,23 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
                 and features.get('F1_cumprim') == 1
                 and (features.get('F14_oficio_text') == 1
                      or features.get('F20_exp_juriscope') == 1)):
+            return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, features
+
+    # Regra de sinal por CLASSE: a classe 1265 É o precatório autuado. Promove
+    # a N1 direto — não há "score" a estimar, a classe processual já afirma que
+    # o crédito foi requisitado.
+    if (processo.tribunal_id in CLASSE_PRECATORIO_SINAL_TRIBUNAIS
+            and _is_classe_precatorio_autuado(processo)):
+        if features is None:
+            features = compute_features(processo)
+        # Vetos: precatório pago (F24), cancelado/revogado (F19) ou com
+        # desfecho terminal negativo (F30) não é crédito comprável. Checados
+        # explicitamente porque as regras negativas lá embaixo só agem sobre
+        # categoria já positiva — e aqui o LR entrega NAO_LEAD, então elas
+        # nunca disparariam e um precatório já levantado viraria lead.
+        if not (features.get('F24_pago_pos_exped_ANTI') == 1
+                or features.get('F19_cancelado_ANTI') == 1
+                or features.get('F30_extinto_neg_ANTI') == 1):
             return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, features
 
     # Garante que estamos usando os pesos mais recentes (com TTL).
