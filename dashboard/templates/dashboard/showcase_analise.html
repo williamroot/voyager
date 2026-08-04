@@ -15,8 +15,9 @@
            const r=await fetch('/dashboard/api/showcase/export/'+fmt,{method:'POST',credentials:'same-origin',
              headers:{'Content-Type':'application/json','X-CSRFToken':csrf},body:JSON.stringify(data)});
            if(!r.ok){ alert('Falha ao exportar ('+r.status+')'); this.exp=''; return; }
-           const blob=await r.blob(); const cd=r.headers.get('Content-Disposition')||''; const mm=cd.match(/filename=\"?([^\";]+)\"?/);
-           const nome=mm?mm[1]:('{{ a.arquivo }}.'+fmt); const u=URL.createObjectURL(blob); const a=document.createElement('a');
+           const blob=await r.blob();
+           const nome=('{{ a.arquivo }}'.replace(/\.[^.]+$/,'')||'analise')+'.'+fmt;
+           const u=URL.createObjectURL(blob); const a=document.createElement('a');
            a.href=u; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
          }catch(e){ alert('Erro ao exportar: '+e.message); } finally{ this.exp=''; }
        },
