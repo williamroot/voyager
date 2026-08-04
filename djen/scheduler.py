@@ -183,6 +183,18 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Watcher da fila datajud: registra profundidade em cache + loga 🔴 se passar
+    # do teto de alerta (o refill/auto-enqueue capam em 100k; estouro = regressão).
+    # É o olho que faltava no incidente 02/07 (fila foi a 63M sem ninguém ver).
+    from datajud.jobs import datajud_queue_watch
+    scheduler.add_job(
+        datajud_queue_watch.delay,
+        'interval',
+        minutes=5,
+        id='datajud_queue_watch',
+        replace_existing=True,
+    )
+
     # Aquecimento do dashboard — inline no thread pool do scheduler.
     # Sem fila RQ: sem acúmulo de duplicatas, sem dependência de workers externos.
     # _with_lock em cada função é a proteção primária contra sobreposição;

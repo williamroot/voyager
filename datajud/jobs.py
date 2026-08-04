@@ -20,6 +20,18 @@ DATAJUD_RETRY = Retry(max=3)
 # de Process com data_enriquecimento_datajud IS NULL.
 DATAJUD_REFILL_BATCH = 10_000
 DATAJUD_REFILL_HIGH_WATER = 100_000
+# Teto de ALERTA do watcher: o refill E o auto-enqueue capam em HIGH_WATER (100k);
+# se a fila passar disso com folga, algo enfileirou SEM bound (foi o vetor do
+# incidente 02/07: 63M jobs). datajud_queue_watch loga 🔴 e registra em cache.
+DATAJUD_QUEUE_CEILING = 300_000
+
+
+def _fila_datajud_cheia(queue=None) -> tuple[bool, int]:
+    """(cheia?, profundidade) — bound compartilhado por refill e auto-enqueue.
+    Fonte única do high-water pra fila nunca virar o monstro do 02/07."""
+    q = queue or django_rq.get_queue('datajud')
+    depth = len(q)
+    return depth >= DATAJUD_REFILL_HIGH_WATER, depth
 
 
 @job('manual', timeout=300)
@@ -64,30 +76,43 @@ def reabastecer_fila_datajud() -> dict:
         logger.info('reabastecer_fila_datajud: desativado (DATAJUD_ENQUEUE_ENABLED=False)')
         return {'skipped': 'disabled'}
     queue = django_rq.get_queue('datajud')
-    if len(queue) >= DATAJUD_REFILL_HIGH_WATER:
-        msg = f'skip (fila com {len(queue):,} jobs ≥ {DATAJUD_REFILL_HIGH_WATER:,})'
+    cheia, depth = _fila_datajud_cheia(queue)
+    if cheia:
+        msg = f'skip (fila com {depth:,} jobs ≥ {DATAJUD_REFILL_HIGH_WATER:,})'
         logger.info('reabastecer_fila_datajud: %s', msg)
         return {'skipped': msg}
 
-    capacidade = DATAJUD_REFILL_HIGH_WATER - len(queue)
+    capacidade = DATAJUD_REFILL_HIGH_WATER - depth
     a_enfileirar = min(capacidade, DATAJUD_REFILL_BATCH)
-    # `order_by('-inserido_em')`: sem ordenação, o Postgres devolve por
-    # heap order — que clustera por tribunal_id e faz cada refill enfileirar
-    # 10k do MESMO tribunal. Resultado: drenagem por blocos (TRF5 dias,
-    # depois TJMG dias, etc.) e tribunais menores como TRF3 ficam esperando
-    # seu "lote" ser sorteado. Ordenando por inserido_em DESC, refills
-    # naturalmente intercalam tribunais (DJEN diária toca todos).
-    # Escopo: só tribunais SEM enricher (onde há enricher, classe/assunto vem dele
-    # → Datajud redundante). Evita reafogar a API pública compartilhada do CNJ.
+    # PRIORIZAÇÃO por SPREAD entre tribunais (não FIFO/heap).
+    # O drama do 02/07 foi enfileirar em heap order → clusterou por tribunal e
+    # deixou os TJs gigantes no fim da fila (33d de defasagem enquanto TRTs = 0d).
+    # Aqui damos a CADA tribunal elegível uma COTA do batch, sempre os mais NOVOS
+    # (`-inserido_em`) — assim TODO tribunal drena em paralelo (o max(data_enriq)
+    # de cada um salta pra recente → lag cai junto) e um tribunal grande (TJSP)
+    # não engole o lote inteiro. Escopo: só tribunais SEM enricher (onde há
+    # enricher, classe/assunto vem dele → Datajud redundante), pra não reafogar
+    # a API pública compartilhada do CNJ.
     from djen.ingestion import TRIBUNAIS_COM_ENRICHER
-    pids = list(
-        Process.objects.filter(
-            tribunal__ativo=True,
-            data_enriquecimento_datajud__isnull=True,
-        ).exclude(
-            tribunal__sigla__in=TRIBUNAIS_COM_ENRICHER,
-        ).order_by('-inserido_em').values_list('pk', flat=True)[:a_enfileirar]
+    from tribunals.models import Tribunal
+    # Tribunal tem `sigla` como PK → Process.tribunal_id == sigla.
+    elig = list(
+        Tribunal.objects.filter(ativo=True)
+        .exclude(sigla__in=TRIBUNAIS_COM_ENRICHER)
+        .values_list('sigla', flat=True)
     )
+    cota = max(1, a_enfileirar // max(1, len(elig)))
+    base = Process.objects.filter(data_enriquecimento_datajud__isnull=True)
+    pids: list[int] = []
+    for sigla in elig:
+        if len(pids) >= a_enfileirar:
+            break
+        resto = a_enfileirar - len(pids)
+        pids.extend(
+            base.filter(tribunal_id=sigla)
+            .order_by('-inserido_em')
+            .values_list('pk', flat=True)[:min(cota, resto)]
+        )
     # Enqueue explícito na queue 'datajud' (não usa .delay()) — mesmo padrão
     # do reabastecer_filas_enriquecimento, defensivo contra alguém mudar o
     # decorator do datajud_sync_bulk no futuro.
@@ -142,3 +167,35 @@ def datajud_api_healthcheck() -> dict:
     elif not ok:
         logger.info('Datajud API ainda fora (%s, %ss)', status, latency)
     return state
+
+
+@job('default', timeout=60)
+def datajud_queue_watch() -> dict:
+    """Watcher da profundidade da fila `datajud` — impede o 'monstro' do 02/07.
+
+    Registra a profundidade em cache (`datajud:queue_depth`, lida pelo Command
+    Center) e loga 🔴 se passar do teto de alerta. O bound de verdade vive no
+    refill e no auto-enqueue (`_fila_datajud_cheia`); este job é o OLHO — se a
+    fila estourar mesmo com os bounds, é sinal de que algo enfileirou sem passar
+    pelo guard (regressão), e queremos saber no dia 1, não em 33 dias.
+    """
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    q = django_rq.get_queue('datajud')
+    depth = len(q)
+    estado = {
+        'depth': depth,
+        'high_water': DATAJUD_REFILL_HIGH_WATER,
+        'ceiling': DATAJUD_QUEUE_CEILING,
+        'alerta': depth >= DATAJUD_QUEUE_CEILING,
+        'checked_at': timezone.now().isoformat(),
+    }
+    cache.set('datajud:queue_depth', estado, 3600)
+    if depth >= DATAJUD_QUEUE_CEILING:
+        logger.warning(
+            '🔴 fila datajud=%s ≥ teto de alerta %s — algo enfileirou SEM bound '
+            '(refill/auto-enqueue capam em %s). Investigar antes de virar backlog.',
+            f'{depth:,}', f'{DATAJUD_QUEUE_CEILING:,}', f'{DATAJUD_REFILL_HIGH_WATER:,}',
+        )
+    return estado

@@ -469,15 +469,23 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
     datajud_enq = 0
     if datajud_eligiveis and datajud_on:
         import django_rq
-        from datajud.jobs import DATAJUD_RETRY, datajud_sync_bulk
+        from datajud.jobs import (DATAJUD_RETRY, _fila_datajud_cheia,
+                                  datajud_sync_bulk)
         queue = django_rq.get_queue('datajud')
-        for pid in datajud_eligiveis:
-            try:
-                queue.enqueue(datajud_sync_bulk, pid, job_timeout=600, at_front=True,
-                              retry=DATAJUD_RETRY)
-                datajud_enq += 1
-            except Exception as exc:
-                logger.warning('falha enfileirar datajud', extra={'pid': pid, 'erro': str(exc)})
+        # BOUND (faltava): sem isto o auto-enqueue diário empurrava sem teto e a
+        # fila virava o monstro do 02/07 (63M jobs). Mesmo high-water do refill.
+        cheia, depth = _fila_datajud_cheia(queue)
+        if cheia:
+            logger.info('auto-enqueue datajud skip %s: fila %d ≥ high-water',
+                        tribunal.sigla, depth)
+        else:
+            for pid in datajud_eligiveis:
+                try:
+                    queue.enqueue(datajud_sync_bulk, pid, job_timeout=600, at_front=True,
+                                  retry=DATAJUD_RETRY)
+                    datajud_enq += 1
+                except Exception as exc:
+                    logger.warning('falha enfileirar datajud', extra={'pid': pid, 'erro': str(exc)})
 
     logger.info(
         'auto-enqueue %s → pje=%d datajud=%d (de %d tocados)',
