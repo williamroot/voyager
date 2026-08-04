@@ -884,8 +884,16 @@ def tribunal_status(request):
             row['lag_max'] = None
             continue
         row['mini'] = _timeline_geometry(row)
-        lags = [v for v in (row.get('lag_datajud'), row.get('lag_classificacao'))
-                if v is not None]
+        # Defasagem REAL = freshness da pipeline que o tribunal DE FATO usa.
+        # Tribunais com enricher (PJe/e-SAJ) pegam classe/assunto do enricher e são
+        # excluídos do Datajud DE PROPÓSITO (redundante) — então `lag_datajud` fica
+        # eternamente stale pra eles e NÃO reflete defasagem de dado. Contá-lo pintava
+        # 33d/16d de vermelho em tribunais que estão em dia via classificação (0d).
+        from djen.ingestion import TRIBUNAIS_COM_ENRICHER
+        cand = [row.get('lag_classificacao')]
+        if row.get('sigla') not in TRIBUNAIS_COM_ENRICHER:
+            cand.append(row.get('lag_datajud'))   # datajud só conta onde é a fonte
+        lags = [v for v in cand if v is not None]
         row['lag_max'] = max(lags) if lags else None
 
     timeline = None
