@@ -517,6 +517,18 @@ function showcase(){
       return `<div class="sc-atr"><span class="sc-atr-l">${this.esc(rot)}</span>`
         + `<b class="sc-atr-v"${cor?` style="color:${cor}"`:''}>${this.esc(val)}</b></div>`;
     },
+    // chip de infra — quantas/quais GPUs processaram (pool multi-GPU do SDK)
+    _infraChip(infra){
+      if(!infra || !infra.n_gpus) return '';
+      const eps=Array.isArray(infra.endpoints)?infra.endpoints:[];
+      const n=infra.n_gpus;
+      const det=eps.map(e=>`${this.esc(e.label||e.host||'gpu')} <span style="opacity:.6">${e.requests}×</span>`).join(' · ');
+      const ic = n>1 ? '🖥️🖥️' : '🖥️';
+      const tip = eps.map(e=>`${e.label||e.host}: ${e.requests} req${e.falhas?` (${e.falhas} falha${e.falhas>1?'s':''})`:''}`).join('  •  ');
+      const cor = n>1 ? '#a855f7' : '#64748b';   // multi-GPU destaca (roxo)
+      return `<span class="sc-chip" style="background:${cor}1f;color:${cor}" title="${this.esc(tip)}">`
+        + `${ic} ${n} GPU${n>1?'s':''}${det?` · ${det}`:''}</span>`;
+    },
     _renderAtributos(r){
       const a=r.atributos||{}; if(!a || !Object.keys(a).length) return '';
       let h=`<div class="sc-sec"><div class="sc-sec-t">Atributos do crédito</div><div class="sc-atrs">`;
@@ -575,8 +587,9 @@ function showcase(){
       h+=`<div class="sc-fhead"><div class="flex items-center gap-2 flex-wrap">
         <span class="text-sm font-semibold text-fg">${partes.length? 'Ficha extraída' : 'Sinais extraídos'}</span>`;
       if(ocrDocs.length) h+=`<span class="sc-chip" style="background:rgba(245,158,11,.14);color:#f59e0b" title="parte do texto veio de scan lido por OCR">📄 lido via OCR${totOcr?` (${totOcr} pág${totOcr>1?'s':''})`:''}</span>`;
-      h+=`</div><div class="flex items-center gap-2">
+      h+=`</div><div class="flex items-center gap-2 flex-wrap">
         <span class="sc-fmeta">⏱ ${this.tempo(r)}${tempos.total_s!=null?` · modelo ${(+tempos.total_s).toFixed(1)}s`:''}</span>
+        ${this._infraChip(r.infra)}
         <span class="sc-chip" style="background:rgba(34,197,94,.12);color:#22c55e">só o modelo</span></div></div>`;
       // ── FAIXA-HERÓI — o TL;DR da decisão: valor total + estágio + cessão + partes ativas
       h += this._renderHero(r, fichas, partes, docs, valorProc, temValor);
