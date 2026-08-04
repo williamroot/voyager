@@ -511,7 +511,28 @@ function showcase(){
         + it('#22c55e','Confiança alta') + it('#f59e0b','Confiança média') + it('#ef4444','Confiança baixa')
         + `</div></details>`;
     },
-    // renderiza a resposta REAL do pod: {fichas(=partes), docs, tempos, contexto, avisos, estagio}
+    // ── ATRIBUTOS DO CRÉDITO — dados ricos dos leitores por evento (nº precatório,
+    // honorários, preferência, cessão homologada). Só o que foi LIDO (nada de vazio).
+    _atr(rot, val, cor){
+      return `<div class="sc-atr"><span class="sc-atr-l">${this.esc(rot)}</span>`
+        + `<b class="sc-atr-v"${cor?` style="color:${cor}"`:''}>${this.esc(val)}</b></div>`;
+    },
+    _renderAtributos(r){
+      const a=r.atributos||{}; if(!a || !Object.keys(a).length) return '';
+      let h=`<div class="sc-sec"><div class="sc-sec-t">Atributos do crédito</div><div class="sc-atrs">`;
+      const p=a.precatorio||{};
+      if(p.numero_precatorio) h+=this._atr('Nº do precatório', p.numero_precatorio, '#22c55e');
+      if(p.tipo_requisicao)   h+=this._atr('Tipo de requisição', p.tipo_requisicao==='RPV'?'RPV (pequeno valor)':'Precatório');
+      if(p.ano_orcamentario)  h+=this._atr('Exercício orçamentário', p.ano_orcamentario);
+      if(a.preferencia){ const pf=a.preferencia; const m={IDOSO:'idoso',DOENCA_GRAVE:'doença grave',DEFICIENCIA:'deficiência'}[pf.motivo]||'sim';
+        h+=this._atr('Preferência (fura fila)', m+(pf.data?` · ${pf.data}`:''), '#f59e0b'); }
+      if(a.cessao_homologada) h+=this._atr('Cessão homologada em', a.cessao_homologada.data||'sim', '#22d3ee');
+      (a.honorarios||[]).forEach(hn=>{ const t=hn.tipo==='CONTRATUAIS'?'contratuais':'sucumbenciais';
+        const v=[hn.percentual,hn.valor,hn.beneficiario].filter(Boolean).join(' · ')||'sim';
+        h+=this._atr('Honorários '+t, v, '#a855f7'); });
+      h+=`</div></div>`; return h;
+    },
+    // renderiza a resposta REAL do pod: {fichas(=partes), docs, tempos, contexto, avisos, estagio, atributos}
     renderFicha(r, compact){
       if(!r) return '';
       if(r.erro) return `<div class="sc-err">⚠ ${this.esc(r.erro)}${r.indisponivel?' — pod não configurado':''}</div>`;
@@ -553,6 +574,8 @@ function showcase(){
       h += this._renderHero(r, fichas, partes, docs, valorProc, temValor);
       // ═══ ESTÁGIO DO CRÉDITO + LINHA DO TEMPO ═══
       h += this.renderEstagio(r.estagio || {});
+      // ═══ ATRIBUTOS DO CRÉDITO (nº precatório, honorários, preferência…) ═══
+      h += this._renderAtributos(r);
       // ═══ CESSÃO DE CRÉDITO — card dedicado (cedente → cessionário) ═══
       h += this.renderCessao(fichas, docs);
       // ── PROCEDÊNCIA (documentos lidos + avisos/abstenção): guardada pro RODAPÉ.
