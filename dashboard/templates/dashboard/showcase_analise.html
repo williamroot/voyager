@@ -5,8 +5,21 @@
 
 {% block content %}
 <div class="page-showcase" style="max-width:1120px;margin:0 auto"
-     x-data="{copiado:false, reproc:false, reprocMsg:'', tempFile:{{ a.arquivo_path|yesno:'true,false' }},
+     x-data="{copiado:false, reproc:false, reprocMsg:'', exp:'',
        copiar(){navigator.clipboard.writeText(window.location.href).then(()=>{this.copiado=true;setTimeout(()=>this.copiado=false,1800)}).catch(()=>{})},
+       async exportar(fmt){
+         if(this.exp) return; this.exp=fmt;
+         try{
+           const data=JSON.parse(document.getElementById('analise-data').textContent||'{}');
+           const csrf=(document.cookie.match(/csrftoken=([^;]+)/)||[])[1]||document.querySelector('meta[name=csrf-token]')?.content||'';
+           const r=await fetch('/dashboard/api/showcase/export/'+fmt,{method:'POST',credentials:'same-origin',
+             headers:{'Content-Type':'application/json','X-CSRFToken':csrf},body:JSON.stringify(data)});
+           if(!r.ok){ alert('Falha ao exportar ('+r.status+')'); this.exp=''; return; }
+           const blob=await r.blob(); const cd=r.headers.get('Content-Disposition')||''; const mm=cd.match(/filename=\"?([^\";]+)\"?/);
+           const nome=mm?mm[1]:('{{ a.arquivo }}.'+fmt); const u=URL.createObjectURL(blob); const a=document.createElement('a');
+           a.href=u; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+         }catch(e){ alert('Erro ao exportar: '+e.message); } finally{ this.exp=''; }
+       },
        async reprocessar(){
          if(this.reproc) return; this.reproc=true; this.reprocMsg='enfileirando…';
          try{
@@ -37,6 +50,8 @@
       </div>
     </div>
     <div class="flex items-center gap-2 flex-wrap">
+      <button class="sc-exportbtn" @click="exportar('md')" :disabled="exp"><span x-show="exp!=='md'">{% voy_icon "scroll-text" "w-3.5 h-3.5" %} MD</span><span x-show="exp==='md'">…</span></button>
+      <button class="sc-exportbtn" @click="exportar('json')" :disabled="exp"><span x-show="exp!=='json'">{% voy_icon "flask" "w-3.5 h-3.5" %} JSON</span><span x-show="exp==='json'">…</span></button>
       <button class="sc-exportbtn" @click="copiar()" x-text="copiado ? '✓ link copiado' : '🔗 copiar link'"></button>
       {% if a.arquivo_path %}
       <button class="sc-btn-next" style="background:var(--card);color:var(--fg);border:1px solid var(--border)"

@@ -527,9 +527,17 @@ function showcase(){
       if(a.preferencia){ const pf=a.preferencia; const m={IDOSO:'idoso',DOENCA_GRAVE:'doença grave',DEFICIENCIA:'deficiência'}[pf.motivo]||'sim';
         h+=this._atr('Preferência (fura fila)', m+(pf.data?` · ${pf.data}`:''), '#f59e0b'); }
       if(a.cessao_homologada) h+=this._atr('Cessão homologada em', a.cessao_homologada.data||'sim', '#22d3ee');
+      const vl=a.valores||{};
+      if(vl.valor_originario) h+=this._atr('Valor originário', this.money(vl.valor_originario));
+      if(vl.valor_atualizado) h+=this._atr('Valor atualizado', this.money(vl.valor_atualizado), '#22c55e');
+      if(vl.data_base) h+=this._atr('Data-base do cálculo', vl.data_base);
       (a.honorarios||[]).forEach(hn=>{ const t=hn.tipo==='CONTRATUAIS'?'contratuais':'sucumbenciais';
-        const v=[hn.percentual,hn.valor,hn.beneficiario].filter(Boolean).join(' · ')||'sim';
+        const v=[hn.percentual,hn.valor&&this.money(hn.valor),hn.beneficiario].filter(Boolean).join(' · ')||'sim';
         h+=this._atr('Honorários '+t, v, '#a855f7'); });
+      (a.impugnacoes||[]).forEach(im=>{ const v=[im.tipo,im.resultado,im.data].filter(Boolean).join(' · ')||'sim';
+        h+=this._atr('Impugnação / embargos', v, '#ef4444'); });
+      (a.penhoras||[]).forEach(pn=>{ const v=[pn.valor&&this.money(pn.valor),pn.data].filter(Boolean).join(' · ')||'sim';
+        h+=this._atr('Penhora / gravame', v, '#ef4444'); });
       h+=`</div></div>`; return h;
     },
     // renderiza a resposta REAL do pod: {fichas(=partes), docs, tempos, contexto, avisos, estagio, atributos}
