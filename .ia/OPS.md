@@ -163,14 +163,28 @@ docker compose -f docker-compose-workers.yml up -d --scale worker_datajud=4 work
 #    loop LPOP count=10000 + UNLINK (async), com sleep. Ver scripts/_purge2.py do incidente.
 ```
 
-**Mitigação estrutural (já no código, `DATAJUD_ENQUEUE_ENABLED=false` até a API voltar):**
+**Mitigação estrutural (já no código):**
 - **Rate-limiter global** `datajud/ratelimit.py` (token-bucket Redis) no `_post` do
   client, sob `DATAJUD_RATE_LIMIT_RPM` (default 100). `<=0` desliga.
 - **Escopo:** auto-enqueue e `reabastecer_fila_datajud` só pra tribunais SEM
   enricher (os 16 de `TRIBUNAIS_COM_ENRICHER` pegam classe/assunto do enricher).
+- **Bound compartilhado** `_fila_datajud_cheia` (high-water 100k) agora no refill
+  **E no auto-enqueue** da ingestão (`djen/ingestion.py`) — antes só o refill
+  tinha teto; o auto-enqueue sem bound foi o vetor da explosão de 63M (2026-08-04).
+- **Priorização por SPREAD** (2026-08-04): `reabastecer_fila_datajud` deixou de ser
+  FIFO/heap (que deixava os TJs gigantes no fim = 33d de defasagem) e dá **cota por
+  tribunal elegível** (newest-first) → todo tribunal drena em paralelo, TJSP não
+  engole o lote.
+- **Watcher** `datajud_queue_watch` (scheduler, 5min): registra profundidade em
+  cache `datajud:queue_depth` e loga 🔴 se passar do teto de alerta
+  `DATAJUD_QUEUE_CEILING` (300k) — o olho que faltou no 02/07 (fila foi a 63M sem
+  ninguém ver).
 
 **Religar quando a API recuperar** (testar `_count` direto; se responder 200):
-`DATAJUD_ENQUEUE_ENABLED=true` no .env + force-recreate. O rate-limiter mantém sob quota.
+`DATAJUD_ENQUEUE_ENABLED=true` no .env de TODOS os hosts + **force-recreate**
+(restart NÃO relê .env). Se a fila estiver enorme de um incidente anterior, **purgar
+primeiro** (senão o refill priorizado nunca assume — pula em fila ≥ high-water). O
+rate-limiter + os bounds mantêm sob quota; o watcher avisa se re-explodir.
 
 ### Filas RQ (`core/settings.py::RQ_QUEUES`)
 ```
