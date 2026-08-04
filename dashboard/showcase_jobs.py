@@ -103,6 +103,86 @@ def _detecta_cessao(fichas: list, docs: list) -> bool:
     return False
 
 
+import re as _re
+
+# polo da parte — MESMA regra do front (_poloParte em _showcase_ficha_js.html).
+_RE_ATIVO = _re.compile(
+    r'CEDENTE|EXEQUENTE|EXEQ|BENEFICI|HERDEIR|SUCESSOR|ESP[OÓ]LIO|INVENTARIANT'
+    r'|CESSION|C[OÔ]NJUGE|CREDOR', _re.I)
+_RE_PASSIVO = _re.compile(
+    r'EXECUTAD|ENTE|FAZENDA|DEVEDOR|MUNIC|ESTADO|UNI[AÃ]O|INSS', _re.I)
+
+
+def _polo_da_parte(papel: str) -> str:
+    """ativo (recebe) | passivo (paga) | '' (advogado/ambíguo → não conta)."""
+    p = (papel or '').upper()
+    if _RE_ATIVO.search(p):
+        return 'ativo'
+    if _RE_PASSIVO.search(p):
+        return 'passivo'
+    return ''
+
+
+def _derivar_facetas(out: dict) -> dict:
+    """Deriva as colunas DESNORMALIZADAS da ficha (``out``) p/ a listagem indexada.
+
+    Roda em milhões de processos: a lista lê estas colunas, nunca o JSON.
+    Espelha a lógica que o front usa em ``renderFicha`` (polo, estágio, homologação).
+    Best-effort: qualquer falha → default seguro (nunca derruba o save).
+    """
+    fac = {
+        'duracao_s': 0.0, 'oficio_emitido': False, 'calculos_homologados': None,
+        'estagio': '', 'parte_ativa': '', 'parte_passiva': '',
+    }
+    try:
+        tempos = out.get('tempos') or {}
+        try:
+            fac['duracao_s'] = float(tempos.get('total_s') or 0) or float(
+                (out.get('elapsed_ms') or 0)) / 1000.0
+        except (TypeError, ValueError):
+            fac['duracao_s'] = 0.0
+
+        est = out.get('estagio') or {}
+        if isinstance(est, dict):
+            fac['estagio'] = (est.get('estagio') or '')[:32]
+            hom = est.get('homologado')
+            if hom in (True, False):
+                fac['calculos_homologados'] = hom
+            # ofício/precatório expedido: estágio já passou da emissão…
+            if fac['estagio'] in ('PRECATORIO_EMITIDO', 'PAGO'):
+                fac['oficio_emitido'] = True
+
+        # …ou o atributo do precatório traz nº do ofício requisitório (leitura direta)
+        atr = out.get('atributos') or {}
+        prec = (atr.get('precatorio') or {}) if isinstance(atr, dict) else {}
+        if isinstance(prec, dict) and (prec.get('numero_precatorio')
+                                       or prec.get('numero_oficio')):
+            fac['oficio_emitido'] = True
+        # homologação também pode vir só nos atributos (leitor dedicado)
+        if fac['calculos_homologados'] is None and isinstance(atr, dict):
+            h = atr.get('homologacao')
+            if isinstance(h, dict) and h.get('homologado') in (True, False):
+                fac['calculos_homologados'] = h.get('homologado')
+
+        # 1 parte de cada polo (primeira encontrada, nome limpo)
+        for f in (out.get('fichas') or []):
+            if not isinstance(f, dict):
+                continue
+            nome = (f.get('nome') or '').strip()
+            if not nome:
+                continue
+            polo = _polo_da_parte(f.get('papel'))
+            if polo == 'ativo' and not fac['parte_ativa']:
+                fac['parte_ativa'] = nome[:180]
+            elif polo == 'passivo' and not fac['parte_passiva']:
+                fac['parte_passiva'] = nome[:180]
+            if fac['parte_ativa'] and fac['parte_passiva']:
+                break
+    except Exception as e:  # noqa: BLE001 — derivar nunca derruba o save
+        logger.warning("[showcase evt=derivar_facetas_err err=%s]", str(e)[:160])
+    return fac
+
+
 def _preservar_arquivo(a, caminho: str) -> None:
     """Guarda o arquivo original junto da análise (hardlink → sem duplicar bytes;
     fallback copy se fs diferente) pra permitir REPROCESSAR sem reenviar. Best-effort."""
@@ -139,6 +219,7 @@ def _persistir_analise(out: dict, *, versao: str, arquivo: str, content_type: st
         tempos = out.get("tempos") or {}
         fichas = out.get("fichas") or []
         docs = out.get("docs") or []
+        fac = _derivar_facetas(out)
         a = ShowcaseAnalise.objects.create(
             usuario_id=user_id,
             arquivo=(arquivo or "autos.pdf")[:255], content_type=(content_type or "")[:120],
@@ -149,6 +230,9 @@ def _persistir_analise(out: dict, *, versao: str, arquivo: str, content_type: st
             n_docs=len(docs) if isinstance(docs, list) else 0,
             paginas=int(tempos.get("n_paginas") or 0),
             tem_cessao=_detecta_cessao(fichas, docs),
+            duracao_s=fac["duracao_s"], oficio_emitido=fac["oficio_emitido"],
+            calculos_homologados=fac["calculos_homologados"], estagio=fac["estagio"],
+            parte_ativa=fac["parte_ativa"], parte_passiva=fac["parte_passiva"],
             resultado=out, upload_id=(upload_id or "")[:64],
         )
         _preservar_arquivo(a, caminho)   # cópia p/ reprocessar (best-effort)

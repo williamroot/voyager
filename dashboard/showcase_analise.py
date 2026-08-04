@@ -128,14 +128,28 @@ def analise_reprocessar(request, aid):
 @login_required
 def analise_lista(request):
     """Lista as análises salvas (todas — compartilhadas entre usuários).
-    Filtro opcional ``?cessao=1`` → só as que têm cessão de crédito."""
-    so_cessao = request.GET.get('cessao') in ('1', 'true', 'sim')
-    qs = ShowcaseAnalise.objects.select_related('usuario')
-    if so_cessao:
+
+    Escala p/ milhões: a lista lê SÓ as colunas desnormalizadas (facetas) e
+    faz ``.defer('resultado')`` — o JSON pesado da ficha nunca entra na query.
+    Filtros por faceta indexada: ``?f=cessao|oficio|homolog``."""
+    filtro = (request.GET.get('f') or '').strip().lower()
+    if filtro not in ('cessao', 'oficio', 'homolog'):
+        # compat com o link antigo ?cessao=1
+        filtro = 'cessao' if request.GET.get('cessao') in ('1', 'true', 'sim') else ''
+
+    qs = ShowcaseAnalise.objects.select_related('usuario').defer('resultado')
+    if filtro == 'cessao':
         qs = qs.filter(tem_cessao=True)
-    total = ShowcaseAnalise.objects.count()
-    n_cessao = ShowcaseAnalise.objects.filter(tem_cessao=True).count()
+    elif filtro == 'oficio':
+        qs = qs.filter(oficio_emitido=True)
+    elif filtro == 'homolog':
+        qs = qs.filter(calculos_homologados=True)
+
+    base = ShowcaseAnalise.objects
     return render(request, 'dashboard/showcase_analises.html', {
-        'analises': qs[:300], 'so_cessao': so_cessao,
-        'total': total, 'n_cessao': n_cessao,
+        'analises': qs[:300], 'filtro': filtro, 'so_cessao': filtro == 'cessao',
+        'total': base.count(),
+        'n_cessao': base.filter(tem_cessao=True).count(),
+        'n_oficio': base.filter(oficio_emitido=True).count(),
+        'n_homolog': base.filter(calculos_homologados=True).count(),
     })

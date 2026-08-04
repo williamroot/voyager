@@ -99,7 +99,17 @@ class ShowcaseAnalise(models.Model):
     n_partes = models.IntegerField(default=0)
     n_docs = models.IntegerField(default=0)
     paginas = models.IntegerField(default=0)
-    tem_cessao = models.BooleanField(default=False)      # há cessão de crédito na ficha (label + filtro)
+    duracao_s = models.FloatField(default=0)             # tempo REAL do modelo (tempos.total_s) — desnormalizado p/ listar sem tocar o JSON
+
+    # ── facetas desnormalizadas (denorm) — extraídas do ``resultado`` no save.
+    # Rodará em MILHÕES de processos: a listagem NUNCA faz parse de JSON por linha;
+    # lê estas colunas indexadas. Preenchidas por ``_derivar_facetas`` (showcase_jobs).
+    tem_cessao = models.BooleanField(default=False)      # há cessão de crédito na ficha
+    oficio_emitido = models.BooleanField(default=False)  # ofício requisitório / precatório expedido
+    calculos_homologados = models.BooleanField(null=True)  # cálculos homologados: True/False/None(=não identificado)
+    estagio = models.CharField(max_length=32, blank=True, default='')  # código do estágio (PRECATORIO_EMITIDO, PAGO…)
+    parte_ativa = models.CharField(max_length=180, blank=True, default='')   # 1 parte do polo ATIVO (quem recebe)
+    parte_passiva = models.CharField(max_length=180, blank=True, default='') # 1 parte do polo PASSIVO (quem paga)
 
     resultado = models.JSONField(default=dict)           # a ficha completa (renderFicha)
     upload_id = models.CharField(max_length=64, blank=True, default='')
@@ -110,7 +120,12 @@ class ShowcaseAnalise(models.Model):
         indexes = [
             models.Index(fields=['-criado_em'], name='showanalise_criado_idx'),
             models.Index(fields=['usuario', '-criado_em'], name='showanalise_user_criado_idx'),
+            # facetas de filtro — compostas com -criado_em p/ a lista filtrada seguir
+            # index-ordered em escala (milhões). Nomes/tempo são display-only → sem índice.
             models.Index(fields=['tem_cessao', '-criado_em'], name='showanalise_cessao_idx'),
+            models.Index(fields=['oficio_emitido', '-criado_em'], name='showanalise_oficio_idx'),
+            models.Index(fields=['calculos_homologados', '-criado_em'], name='showanalise_homolog_idx'),
+            models.Index(fields=['estagio', '-criado_em'], name='showanalise_estagio_idx'),
         ]
 
     def __str__(self) -> str:

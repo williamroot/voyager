@@ -133,6 +133,26 @@ def truncate_words_smart(value, n):
 
 
 @register.filter
+def dur_humana(value):
+    """Segundos → duração curta legível: 8.4s, 47s, 1m34s, 12m."""
+    try:
+        s = float(value or 0)
+    except (TypeError, ValueError):
+        return ''
+    if s <= 0:
+        return '—'
+    if s < 10:
+        return f'{s:.1f}s'
+    if s < 60:
+        return f'{s:.0f}s'
+    m, seg = divmod(int(round(s)), 60)
+    if m < 60:
+        return f'{m}m{seg:02d}s' if seg else f'{m}m'
+    h, m = divmod(m, 60)
+    return f'{h}h{m:02d}m'
+
+
+@register.filter
 def slugify_id(value):
     if value is None:
         return ''
