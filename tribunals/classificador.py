@@ -125,7 +125,39 @@ CLASSES_FAZENDA_PUBLICA = {
 # pull diário (80/dia) baixa pré-precatório genérico no lugar deles. Nos
 # tribunais que TAMBÉM têm a regra negativa (PAGAMENTO_SINAL_TRIBUNAIS), o F24
 # veta a promoção: expedido e já pago não sobe.
-PRECATORIO_SINAL_TRIBUNAIS = {'TJAL', 'TJMA', 'TJSP'}
+# A regra de sinal é por tribunal E POR FEATURE. Não basta dizer "este tribunal
+# entra": precisa dizer COM QUAL sinal, porque a precisão de cada um varia muito
+# entre tribunais.
+#
+# O caso que forçou isso — TJMG, medido em 2026-08-04 sobre 60 movimentações de
+# CumSenFaz que casam cada feature:
+#
+#   F14 ('ofício requisitório' no texto):  17% é expedição de fato.
+#       33% é DETERMINAÇÃO ("Expeça-se ofício requisitório", "determino a
+#       expedição") e 50% é ambíguo (certidão de preenchimento do formulário,
+#       indeferimento de conversão para RPV, instrução sobre o que o ofício
+#       deve informar). Ligar F14 no TJMG faria 83% de lead falso — e é
+#       exatamente a reversão de maio/2026, "despacho não é ofício".
+#
+#   F20 ('precatório expedido', 'rpv expedida', 'ofício requisitório
+#       expedido'...):  95% é expedição de fato. Exige o particípio, não o
+#       imperativo. As 3 exceções de 60 eram "retifique o ofício requisitório
+#       expedido" e "ciência do ofício requisitório expedido" — casos em que o
+#       ofício EXISTE.
+#
+# Daí TJMG entrar só com F20. Alcance medido: ~1.972 dos 86.990 CumSenFaz, num
+# tribunal que entregava ZERO precatório (o LR fica em score médio 0,368 lá,
+# contra 0,532 no TRF1, e o corte N1 é 0,70 — a evidência existe, o modelo é
+# que não a converte).
+PRECATORIO_SINAL_FEATURES = {
+    'TJAL': ('F14_oficio_text', 'F20_exp_juriscope'),
+    'TJMA': ('F14_oficio_text', 'F20_exp_juriscope'),
+    'TJSP': ('F14_oficio_text', 'F20_exp_juriscope'),
+    'TJMG': ('F20_exp_juriscope',),
+}
+
+# Derivado — quem só precisa saber "este tribunal tem regra de sinal?".
+PRECATORIO_SINAL_TRIBUNAIS = frozenset(PRECATORIO_SINAL_FEATURES)
 
 # ---------------------------------------------------------------------------
 # Regra de sinal por CLASSE: o precatório JÁ AUTUADO.
@@ -511,10 +543,13 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     """
     from .models import Process
 
-    # Regra de sinal (eSAJ): Cumprimento (F1) com ofício requisitório (F14) ou
-    # expedição (F20) nos movimentos é precatório de fato. Promove a N1 com
-    # score alto, bypassando o LR (que trava o eSAJ <0.70). Escopado por tribunal.
-    if processo.tribunal_id in PRECATORIO_SINAL_TRIBUNAIS:
+    # Regra de sinal: Cumprimento (F1) com sinal de requisitório nos movimentos
+    # é precatório de fato. Promove a N1 com score alto, bypassando o LR (que
+    # trava o eSAJ <0.70 e o TJMG em ~0,37). Escopado por tribunal E por
+    # feature — ver PRECATORIO_SINAL_FEATURES: qual sinal vale depende do
+    # tribunal, porque a precisão de cada um varia demais entre eles.
+    feats_sinal = PRECATORIO_SINAL_FEATURES.get(processo.tribunal_id)
+    if feats_sinal:
         if features is None:
             features = compute_features(processo)
         # Guard F24 (só onde a regra negativa está ativa, ex.: TJMA): a
@@ -526,8 +561,7 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
             and features.get('F24_pago_pos_exped_ANTI') == 1)
         if (not pago_pos_exped
                 and features.get('F1_cumprim') == 1
-                and (features.get('F14_oficio_text') == 1
-                     or features.get('F20_exp_juriscope') == 1)):
+                and any(features.get(f) == 1 for f in feats_sinal)):
             return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, features
 
     # Regra de sinal por CLASSE: a classe 1265 É o precatório autuado. Promove
