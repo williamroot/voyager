@@ -201,11 +201,17 @@ class ProxyScrapePool:
         # Sem isso, pool de 13 proxies que foram todos marcados ruins
         # continua vazia mesmo após refresh bem-sucedido.
         pipe.delete(self._bad_key)
-        # Idem pro streak: a contagem é sobre os IPs antigos. O flag de
-        # degradação NÃO é limpo aqui de propósito — em ban de faixa o refresh
-        # devolve os mesmos ranges, e limpar aqui faria o fallback piscar a
-        # cada 15min. Ele sai por TTL (vira sonda) ou por mark_ok().
-        pipe.delete(self._fail_streak_key)
+        # O streak NÃO é zerado aqui. Parecia razoável ("IPs novos, contagem
+        # nova"), mas cria um buraco: o refresh roda de 15 em 15 min por cron,
+        # e se as falhas chegarem mais devagar que o limiar dentro dessa
+        # janela, o contador nunca alcança e a degradação nunca acende — o
+        # sinal fica preso abaixo do gatilho para sempre. Medido em prod
+        # 2026-08-04: o contador foi visto zerado logo após um refresh, no meio
+        # de uma sequência de 403.
+        #
+        # Quem limpa o streak é o SUCESSO (`mark_ok`), e só ele: se os IPs
+        # novos funcionarem, o primeiro 200 zera. Se não funcionarem, a
+        # contagem continua de onde parou — que é o comportamento correto.
         pipe.execute()
         self._healthy_cache_ts = 0.0
         # Adapta threshold ao tamanho real do pool para evitar refresh

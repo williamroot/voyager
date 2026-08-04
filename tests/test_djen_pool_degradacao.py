@@ -176,3 +176,27 @@ def test_status_expoe_o_sinal():
     st = p.status()
     assert st['degradado'] is True
     assert st['fail_streak'] == 3
+
+
+def test_refresh_NAO_zera_o_streak():
+    """Regressão do buraco achado em prod (2026-08-04).
+
+    O refresh roda de 15 em 15 min por cron. Se ele zerasse o streak, uma
+    sequência de falhas mais lenta que o limiar dentro dessa janela nunca
+    acenderia a degradação — o sinal ficaria preso abaixo do gatilho.
+    Quem limpa é o sucesso, e só ele.
+    """
+    p = _pool(streak=5)
+    for i in range(4):
+        p.mark_bad(f'http://10.0.0.{i}:3129')
+    assert int(p.redis.get(p._fail_streak_key)) == 4
+
+    # simula o refresh: troca a lista e limpa o bad_zset, mas preserva o streak
+    pipe = p.redis.pipeline(transaction=False)
+    pipe.set(p._list_key, json.dumps(['http://9.9.9.9:3129']))
+    pipe.delete(p._bad_key)
+    pipe.execute()
+
+    assert int(p.redis.get(p._fail_streak_key)) == 4, 'refresh nao pode zerar'
+    p.mark_bad('http://9.9.9.9:3129')      # 5a falha, atinge o limiar
+    assert p.is_degraded()
