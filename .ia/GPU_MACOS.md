@@ -242,19 +242,54 @@ utun0  100.105.16.107  tailscaled do brew    nó "voyager-worker-mac"  ← servi
 utun5  100.88.162.109  app GUI (macsys ext)  nó "mac-mini-de-davi"    ← nada escutando
 ```
 
-Sintoma: `tailscale ip -4` responde o IP do **macsys**, com aviso de versão
+Sintoma 1: `tailscale ip -4` responde o IP do **macsys**, com aviso de versão
 divergente (`client 1.102.2-teb67e5dcb != server 1.102.2-t6cac91817`). No próximo
-boot o `ts-ip.sh` bindaria os serviços no IP errado — falha silenciosa.
+boot o `ts-ip.sh` bindaria os serviços no IP errado.
 
-**Fix aplicado:** o `ts-ip.sh` fixa o socket do brew, nunca a CLI default.
+**Fix:** o `ts-ip.sh` fixa o socket do brew, nunca a CLI default.
 
 ```bash
 tailscale --socket /var/run/tailscaled.socket ip -4   # → 100.105.16.107 (certo)
 tailscale ip -4                                        # → 100.88.162.109 (macsys)
 ```
 
-Ideal seria remover o app GUI (`/Applications/Tailscale.app`) e ficar só com o
-daemon do brew — **pendente**, exige desinstalar a system extension.
+#### Sintoma 2 (grave): a máquina fica INALCANÇÁVEL de fora, mas `tailscale ping` passa
+
+Os dois stacks disputam a tabela de rotas e ela fica **partida**:
+
+```
+100.64/10          → utun0    ← daemon do brew, onde os serviços escutam
+100.100.144.57/32  → utun1    ← rota pro .103 sai pelo stack ERRADO
+100.68.5.114/32    → utun1
+```
+
+Pacote entra pelo `utun0`, o serviço responde, a resposta é roteada pelo `utun1`
+— outra identidade, sem estado da conexão — e se perde. **Toda** porta fica
+bloqueada de fora, inclusive a 22.
+
+O que engana: `tailscale ping` **funciona** (`pong ... via DERP(sao) in 5ms`)
+porque é resolvido dentro do daemon, sem passar pela pilha IP. Fácil concluir
+"a rede está boa" e procurar no lugar errado. Diagnóstico honesto é TCP puro:
+
+```bash
+# no .103
+timeout 6 bash -c '</dev/tcp/100.105.16.107/8003' && echo aberto || echo bloqueado
+route -n get 100.100.144.57 | grep interface   # no Mac: tem que ser utun0
+```
+
+**Fix (encerrar o app NÃO basta** — a system extension é independente e segue
+de pé com o utun ativo):
+
+```bash
+osascript -e 'quit app "Tailscale"'
+sudo tailscale logout          # SEM --socket → atinge o macsys, derruba o utun dele
+route -n get 100.100.144.57 | grep interface    # deve voltar pra utun0
+```
+
+Depois disso, de prod: `:8001 :8002 :8003 → http=200`.
+
+Ideal continua sendo remover o app (`/Applications/Tailscale.app`) e a system
+extension de vez — o `logout` resolve até alguém logar no app de novo.
 
 **2. `tailscale up` não imprime a URL em pipe.** Sem TTY o output fica preso. Pegue assim:
 
@@ -359,7 +394,34 @@ Extração real pós-reboot no v2.1: `157800.65`, confiança alta, **7,43 s** �
 idêntico ao pré-reboot.
 
 > ⚠️ **`/tmp` é limpo no boot do macOS.** PDFs de teste e logs de provisionamento
-> ali somem. Guarde fixture em `~`.
+> ali somem. Fixture fica em `~/fixtures/oficio_full.pdf`.
+>
+> Pior: `curl -F "files=@arquivo_inexistente"` **não falha alto** — o SDK recebe
+> conteúdo vazio, classifica como `DESPACHO` e devolve 0 fichas em ~0,2 s. Parece
+> resposta válida. Sempre confira o `ls -l` do fixture antes de concluir qualquer
+> coisa de um teste rápido.
+
+## Alcance a partir de prod (o teste que vale)
+
+Testar do laptop não prova nada — quem precisa alcançar o Mac é o host `web`
+(`.103`). Validado em 2026-08-07 **depois** de resolver o conflito de rotas:
+
+```
+.103 → 100.105.16.107:800{1,2,3}  →  http=200
+.103 → POST :8003/extrair (ofício requisitório de 1 página)
+       round-trip 7,44 s · modelo 7,39 s (rede ≈ 45 ms)
+       JOAO DA SILVA SANTOS | BENEFICIARIO | 157800.65 | conf: alta
+```
+
+Pra apontar a showcase pro Mac:
+
+```python
+# core/settings.py :: _SHOWCASE_DEFAULT  (ou env SHOWCASE_MODELOS em JSON)
+"v1":  {"url": "http://100.105.16.107:8001", ...}
+"v2":  {"url": "http://100.105.16.107:8002", ...}
+"v21": {"url": "http://100.105.16.107:8003", ...}
+```
+
 
 Após o boot, `install-daemons.sh status` deu:
 
