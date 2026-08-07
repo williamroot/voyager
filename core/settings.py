@@ -393,11 +393,15 @@ MCP_ENABLE_CLASSIFICACAO = env.bool('MCP_ENABLE_CLASSIFICACAO', default=False)
 #   {"v21": {"url": "http://IP:PORT", "label": "v2.1 (campeão)", "cor": "#22c55e",
 #            "explicavel": True}, ...}
 # Via env JSON (SHOWCASE_MODELOS) ou editar o default aqui.
+# Nó GPU macOS `voyager-worker-mac` (Mac mini M4, Metal) via Tailscale — ver
+# `.ia/GPU_MACOS.md`. Substituiu o pod QuickPod RTX 5090 (159.48.242.22:3200x),
+# que saiu do ar. Trade-off consciente: o M4 gera ~22,9 t/s contra ~150-200 da
+# 5090, então a extração é ~1 ordem de grandeza mais lenta — aceitável porque o
+# pod custava ~$0,50/h e estava indisponível. v22 sobe quando gatear.
 _SHOWCASE_DEFAULT = {
-    # Pod de showcase (RTX 5090 32GB) servindo os GGUFs on-device. v22 sobe quando gatear.
-    "v1":  {"url": "http://159.48.242.22:32001", "label": "Geração 1 (v1)",      "cor": "#71717a"},
-    "v2":  {"url": "http://159.48.242.22:32002", "label": "v2 · Ficha da Parte", "cor": "#3b82f6"},
-    "v21": {"url": "http://159.48.242.22:32003", "label": "v2.1 · campeão",      "cor": "#22c55e"},
+    "v1":  {"url": "http://100.105.16.107:8001", "label": "Geração 1 (v1)",      "cor": "#71717a"},
+    "v2":  {"url": "http://100.105.16.107:8002", "label": "v2 · Ficha da Parte", "cor": "#3b82f6"},
+    "v21": {"url": "http://100.105.16.107:8003", "label": "v2.1 · campeão",      "cor": "#22c55e"},
     "v22": {"url": "",                           "label": "v2.2 · herdeiros",    "cor": "#a855f7"},
 }
 try:
