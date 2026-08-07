@@ -135,8 +135,11 @@ Fonte ao vivo: scheduler grava `treinos_status.json`; UI em `/dashboard/treinos`
 
 ## 7. Modelo servido em produção (o que a showcase usa)
 
-- **Campeão v2.1** GGUF Q4_K_M (`0012607b1634e7b8f96c8f6a9d7bad21`), servido no pod
-  5090 (`159.48.242.22:32003`), junto de v1 (`:32001`) e v2 (`:32002`).
+- **Campeão v2.1** GGUF Q4_K_M (`0012607b1634e7b8f96c8f6a9d7bad21`). Desde
+  **2026-08-07** servido no **`voyager-worker-mac`** (Mac mini M4, Metal) em
+  `100.105.16.107:8003`, junto de v1 (`:8001`) e v2 (`:8002`) — o pod 5090
+  (`159.48.242.22:3200x`) saiu do ar. Ver [`GPU_MACOS.md`](GPU_MACOS.md).
+  ⚠️ ~1 ordem de grandeza mais lento (22,9 t/s vs ~150-200 da 5090).
 - A tela `/dashboard/ia/showcase` chama via proxy Django (`settings.SHOWCASE_MODELOS`).
 - **v2.2** entra no slot `:32004` quando gatear (`/opt/extrator/add_v22.sh`).
 - **Tier-2 modelo-decisor** (classificador híbrido) existe atrás de flag

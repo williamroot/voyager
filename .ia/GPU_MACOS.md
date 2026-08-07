@@ -413,14 +413,37 @@ Testar do laptop não prova nada — quem precisa alcançar o Mac é o host `web
        JOAO DA SILVA SANTOS | BENEFICIARIO | 157800.65 | conf: alta
 ```
 
-Pra apontar a showcase pro Mac:
+## Showcase apontada pro Mac (feito em 2026-08-07)
 
-```python
-# core/settings.py :: _SHOWCASE_DEFAULT  (ou env SHOWCASE_MODELOS em JSON)
-"v1":  {"url": "http://100.105.16.107:8001", ...}
-"v2":  {"url": "http://100.105.16.107:8002", ...}
-"v21": {"url": "http://100.105.16.107:8003", ...}
+O pod QuickPod 5090 saiu do ar; a showcase passou a servir daqui. Aplicado em
+**duas camadas**:
+
+1. **Código** — `core/settings.py :: _SHOWCASE_DEFAULT` agora traz as URLs do Mac
+   (fonte de verdade do repo).
+2. **Prod** — `SHOWCASE_MODELOS` (JSON numa linha) no `.env` do `.103`, que tem
+   precedência. Backup: `.env.bak-showcase-20260807-215845`.
+
+```bash
+# aplicar/reverter em prod — restart NÃO relê o .env
+docker compose -f docker-compose-prod.yml up -d --force-recreate web
 ```
+
+Validado pelo **próprio `showcase_proxy.extrair_no_pod`** dentro do container do
+`web`, num ofício requisitório de 1 página:
+
+```
+v1   http=200  9276ms  fichas=1  valor=157800.65
+v2   http=200  7656ms  fichas=1  valor=157800.65
+v21  http=200  7407ms  fichas=1  valor=157800.65
+```
+
+```
+[showcase evt=pod_ok versao=v21 file=of.pdf http=200 dt=7540ms fichas=1 docs=1]
+```
+
+> ⚠️ **A showcase agora depende do Mac estar ligado.** Se ele for desligado,
+> `/dashboard/ia/showcase/` volta 502 ("pod do modelo fora do ar") — não há
+> fallback pro pod. Reverter = tirar `SHOWCASE_MODELOS` do `.env` + force-recreate.
 
 
 Após o boot, `install-daemons.sh status` deu:
