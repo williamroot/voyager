@@ -88,6 +88,21 @@ docker compose -f docker-compose-prod.yml up -d
 
 `web` aplica migrações e `collectstatic` no entrypoint. Domínio público via Cloudflare Tunnel — `CLOUDFLARE_TUNNEL_TOKEN` no `.env` do servidor. Detalhes em [`.ia/OPS.md`](.ia/OPS.md).
 
+## Nó GPU (extração com LLM)
+
+O serving dos GGUF do extrator de precatórios roda **fora** do fleet de app, em nós de GPU dedicados — pods QuickPod (CUDA) e um **Mac mini M4** (Apple Silicon/Metal, `voyager-worker-mac`). O Mac é o único nó bare-metal sem Docker: `llama.cpp` + o `extrator-precatorio-sdk` (FastAPI) supervisionados por `launchd`.
+
+```
+showcase (web .103) ──► showcase_proxy ──► POST {url}/extrair
+                                              │ Tailscale
+                                   ┌──────────▼───────────┐
+                                   │ SDK FastAPI :8001-3  │
+                                   │ llama-server :8081-3 │ Metal / CUDA
+                                   └──────────────────────┘
+```
+
+Desempenho medido no M4: **pp512 244,67 t/s · tg128 22,86 t/s** (Qwen2.5-7B Q4_K_M) ≈ 25 s por janela de documento — ~1 ordem de grandeza abaixo de uma RTX 5090. Serve pra **lote**, não pra demo ao vivo. Runbook completo, gotchas do macOS e LaunchDaemons em [`.ia/GPU_MACOS.md`](.ia/GPU_MACOS.md).
+
 ## Endpoints
 
 | Path | Descrição |

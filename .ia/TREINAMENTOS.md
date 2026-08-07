@@ -96,6 +96,7 @@ quantização bit-index (recall BLOCK), pgvectorscale SBQ (limite estrutural).
 | **trainpod** (QuickPod) | RTX 4090 24GB | treinos pesados (v2.2, A/B, DAPT) | ~$0,19-0,31/h | `ssh trainpod` (config pronta) |
 | **pod showcase** (QuickPod) | RTX 5090 32GB | **serve** os GGUF (não treina) | ~$0,50/h | ver `~/VOYAGER_ACCESS.md` §4.1 |
 | **pod 3090** (QuickPod) | RTX 3090 | DAPT + especialistas | ~$0,19/h | — |
+| **voyager-worker-mac** (lab, Tailscale) | Apple **M4** 10-core, 24GB unificados | **serve** GGUF via Metal (não treina) | $0 (hardware próprio) | `ssh davicordeiro@192.168.200.37` · [`GPU_MACOS.md`](GPU_MACOS.md) |
 
 **Regra ops:** **NÃO treinar onde serve** e **não travar a 3090 do llmsv2** (é
 compartilhada com o bge-m3 da vetorização e com outro projeto). Mover treino pra
@@ -108,6 +109,12 @@ VRAM no checkpoint. Fix: `systemctl disable ollama` + resume do checkpoint.
 **Gotcha de serving (llama-server):** `-c N --parallel P` divide o contexto →
 `N/P` tok/slot. `-c 16384 --parallel 4` = 4096/slot → **HTTP 400** em doc denso.
 Fix barato: baixar `--parallel` (mesma VRAM). Ver `~/VOYAGER_ACCESS.md` §4.1.
+
+**Apple Silicon é ~1 ordem de grandeza mais lento (medido 2026-08-07):** no M4
+(10-core GPU), `llama-bench` no Qwen2.5-7B Q4_K_M deu **pp512 244,67 t/s** e
+**tg128 22,86 t/s** → ~**25 s por janela** de documento do SDK. O PDF de 1,5 GB
+(2.765 docs, ~13 min no pod 5090) daria **~19 h**. Serve pra **lote noturno**, não
+pra demo ao vivo. Detalhe em [`GPU_MACOS.md`](GPU_MACOS.md).
 
 ---
 
