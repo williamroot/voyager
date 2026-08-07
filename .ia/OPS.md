@@ -23,6 +23,13 @@ Em prod o `nginx` não expõe porta no host; tudo passa pelo serviço `cloudflar
 | `voyager-workers` | `192.168.30.102` | nova | Workers RQ — conecta em DB/Redis via **LAN** | `docker-compose-workers.yml` |
 | `voyager-workers-2` | `192.168.30.104` | nova | **DESTRUÍDA 2026-07-17** (`qmdestroy` no gravserver — liberação de RAM; host oversubscrito). Era o 2º host de workers RQ. Recriar = decisão pendente. | — |
 | `voyager-workers-aux` | `192.168.1.24` | antiga (pve antigo) | **Desativado** (offline desde ~2026-06-09) — era worker auxiliar na subnet antiga via Tailscale. | `docker-compose-workers.yml` |
+| `voyager-worker-mac` | Wi-Fi `192.168.200.37` (estático) · cabo `192.168.1.13` | **ilha** — nenhuma alcança `192.168.30.x` | **Nó GPU** (Mac mini M4, 24GB unificados) — serve os GGUF do extrator via Metal em `100.105.16.107:800{1,2,3}`. **NÃO é worker RQ**: sem Django, sem Docker, não toca Postgres/Redis. Ver [`GPU_MACOS.md`](GPU_MACOS.md). | — (LaunchDaemons) |
+
+> **`voyager-worker-mac` está ilhado** (2026-08-07): tem duas interfaces — Wi-Fi
+> `192.168.200.37` (fixado estático; era DHCP e trocava de IP no reboot) e cabo
+> `192.168.1.13` (rota default) — e **nenhuma delas alcança `192.168.30.x`**.
+> Todo tráfego dele com o Voyager passa por **Tailscale** (`100.105.16.107`).
+> É nó de **GPU/serving**, não entra no fleet de app.
 
 **Fleet de app são 2 hosts** (desde 2026-07-17): `voyager` (.103, web) + `voyager-workers` (.102). A `.104` foi destruída em 2026-07-17. Workers conectam DB/Redis via **LAN**. O drainer do stream **só roda no `voyager`** (.103). Na `.102`, `worker_ingestion` roda com **24 réplicas** via `--scale` (2026-07-29, compensando a .104 — **não persistido** no compose; `up -d` sem a flag volta pra 8). Validado 75min sob carga: ~310 runs/h, 0 aberturas de circuit-breaker, ~1,3% de 500 da DJEN, 26GB RAM livres.
 
