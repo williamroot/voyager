@@ -233,11 +233,10 @@ def tick_requeue_erros_enricher() -> dict:
         if sig in pausados:
             relatorio[sig] = 'pausado'
             continue
-        pend = Process.objects.filter(
-            tribunal_id=sig, enriquecimento_status=Process.ENRIQ_PENDENTE).count()
-        if pend >= REENRICH_PENDENTE_FLOOR:
-            relatorio[sig] = f'skip (pendente {pend:,} ≥ {REENRICH_PENDENTE_FLOOR:,})'
-            continue
+        # SEM floor de pendente: os 'erro' estão PERMANENTEMENTE presos (o
+        # reabastecer só pega 'pendente'); resetá-los é o ganho mesmo com pendente
+        # já alto — a FILA é bounded a QUEUE_HIGH_WATER, não o status no DB. O
+        # batch por tick é o único limitador de ritmo (churn bounded).
         ids = list(Process.objects.filter(
             tribunal_id=sig, enriquecimento_status=Process.ENRIQ_ERRO,
         ).values_list('pk', flat=True)[:REENRICH_RESET_BATCH])
