@@ -1425,6 +1425,73 @@ def tribunal_status_data(sigla=None):
     return overview, cached.get(sigla), False
 
 
+_COBERTURA_ENRIQ_CACHE_KEY = 'cobertura_enriquecimento:v1'
+_COBERTURA_ENRIQ_TTL = 6 * 3600 + 1800  # warm 6h; TTL sobrevive a uma falha
+
+
+def cobertura_enriquecimento_warm():
+    """Computa a COBERTURA de enriquecimento por tribunal e cacheia (warm, 6h).
+
+    Responde "quais faltam" (≠ freshness/lag): pra cada tribunal, quanto do acervo
+    tem a fonte que ele usa (enricher → status 'ok'; datajud → data_enriquecimento
+    preenchida). Marca o ALVO DE VALOR (Juriscope + prioridade datajud). Passe caro
+    (group-by 75M + scan de NULL) — SÓ no warm, nunca no hot path.
+    Ver .ia/ENRICHMENT.md "Plano de cobertura por valor".
+    """
+    from django.core.cache import cache
+    from django.utils import timezone
+    from redis.exceptions import RedisError
+
+    from djen.ingestion import TRIBUNAIS_COM_ENRICHER, TRIBUNAIS_JURISCOPE
+    from datajud.jobs import DATAJUD_PRIORIDADE
+    prio = set(DATAJUD_PRIORIDADE)
+
+    st: dict[str, dict] = {}
+    for r in (Process.objects.values('tribunal_id', 'enriquecimento_status')
+              .annotate(n=Count('id'))):
+        st.setdefault(r['tribunal_id'], {})[r['enriquecimento_status'] or 'nulo'] = r['n']
+    dj_null = dict(
+        Process.objects.filter(data_enriquecimento_datajud__isnull=True)
+        .values_list('tribunal_id').annotate(n=Count('id')).values_list('tribunal_id', 'n'))
+
+    rows = []
+    for t in Tribunal.objects.filter(ativo=True).values_list('sigla', flat=True):
+        d = st.get(t, {})
+        total = sum(d.values())
+        ok, pend, err = d.get('ok', 0), d.get('pendente', 0), d.get('erro', 0)
+        nf = d.get('nao_encontrado', 0)
+        if t in TRIBUNAIS_COM_ENRICHER:
+            fonte, cobertos, gap = 'enricher', ok, pend + err
+        else:
+            djn = dj_null.get(t, 0)
+            fonte, cobertos, gap = 'datajud', total - djn, djn
+        rows.append({
+            'sigla': t, 'total': total, 'cobertos': cobertos, 'gap': gap,
+            'pendente': pend, 'erro': err, 'nao_encontrado': nf, 'fonte': fonte,
+            'pct': round(100 * cobertos / total, 1) if total else 0.0,
+            'juriscope': t in TRIBUNAIS_JURISCOPE, 'prioridade': t in prio,
+        })
+    # alvo de valor (Juriscope/prioridade) primeiro; depois por buraco (gap) desc
+    rows.sort(key=lambda r: (not (r['juriscope'] or r['prioridade']), -r['gap']))
+    payload = {'rows': rows, 'gerado_em': timezone.now().isoformat()}
+    try:
+        cache.set(_COBERTURA_ENRIQ_CACHE_KEY, payload, timeout=_COBERTURA_ENRIQ_TTL)
+    except RedisError:
+        pass
+    return payload
+
+
+def cobertura_enriquecimento_data():
+    """Lê o cache do warm (hot path, nunca computa). Miss → {'pending': True}."""
+    from django.core.cache import cache
+    from redis.exceptions import RedisError
+    try:
+        cached = cache.get(_COBERTURA_ENRIQ_CACHE_KEY)
+    except RedisError:
+        cached = None
+    return cached or {'pending': True, 'rows': []}
+
+
 def ingestao_por_dia(dias=None, tribunal=None):
     """Agrega IngestionRuns por janela_inicio: status, throughput e duração.
 

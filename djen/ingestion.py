@@ -28,6 +28,14 @@ TRIBUNAIS_COM_ENRICHER = {'TRF1', 'TRF3', 'TRF5', 'TJMG', 'TJMA', 'TJSP', 'TJAL'
                           # recon 2026-06-29: consulta pública aberta (sem captcha/login)
                           'TJCE', 'TJAP', 'TJPE', 'TJRJ', 'TJRO', 'TJAC', 'TJMT', 'TJPA'}
 
+# Tribunais que o JURISCOPE/Falcon de fato lê (precatório vira lead lá) — o ALVO DE
+# VALOR do enriquecimento. Medido no Falcon (datamodel_process, 2026-08-06): 2,43M
+# precatórios conhecidos. Enriquecer POR VALOR (não por contagem) é obrigatório: o
+# Datajud tem 1 APIKey pública compartilhada (~100 rpm, teto permanente). Ver
+# .ia/ENRICHMENT.md "Plano de cobertura por valor".
+TRIBUNAIS_JURISCOPE = {'TJSP', 'TRF1', 'TRF3', 'TRF4', 'TJMG', 'TRF6', 'TRF5',
+                       'TJAL', 'TRF2', 'TJMA'}
+
 
 def ingest_processo(processo, client: DJENClient | None = None) -> dict:
     """Sincroniza movimentações de UM processo via DJEN.

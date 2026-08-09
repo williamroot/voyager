@@ -23,6 +23,7 @@ from dashboard.tasks import (
     refresh_ingestion_rate_hora,
     refresh_materialized_views,
     warm_charts_leves,
+    warm_cobertura_enriquecimento,
     warm_charts_pesados,
     warm_enriquecimento,
     warm_estatisticas_tribunal,
@@ -213,6 +214,7 @@ def create_scheduler() -> BlockingScheduler:
         (warm_leads_charts,          'warm_leads_charts',          {'minutes': 30}),
         (warm_leads_visibilidade_charts, 'warm_leads_visibilidade_charts', {'minutes': 15}),
         (warm_tribunal_status,       'warm_tribunal_status',       {'minutes': 15}),
+        (warm_cobertura_enriquecimento, 'warm_cobertura_enriquecimento', {'hours': 6}),
     ):
         scheduler.add_job(
             warm_fn,

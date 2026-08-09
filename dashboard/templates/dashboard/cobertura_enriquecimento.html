@@ -1,0 +1,82 @@
+{% extends 'dashboard/base.html' %}
+{% load static voyager_extras %}
+
+{% block title %}Cobertura de enriquecimento{% endblock %}
+
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Cobertura de enriquecimento' subtitle='Quais processos JÁ têm a fonte de enriquecimento que o tribunal usa (enricher PJe/e-SAJ ou Datajud) — não é freshness, é cobertura.' %}
+
+<div class="max-w-6xl mx-auto">
+  {% if pending %}
+  <div class="text-center text-fg-subtle text-sm py-16">
+    Cobertura ainda não aquecida — o warm roda a cada 6h (passe caro sobre ~75M).
+    Recarregue em instantes.
+  </div>
+  {% else %}
+
+  {# resumo do ALVO DE VALOR (Juriscope + prioridade datajud) #}
+  <div class="grid gap-2 my-4" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+    <div class="cb-kpi"><div class="cb-kpi-l">Falta no ALVO (valor)</div><div class="cb-kpi-v text-amber-400">{{ resumo.gap_alvo|format_int }}</div><div class="cb-kpi-s">de {{ resumo.total_alvo|format_int }} · {{ resumo.n_alvo }} tribunais Juriscope+prio</div></div>
+    <div class="cb-kpi"><div class="cb-kpi-l">Falta no acervo todo</div><div class="cb-kpi-v text-fg-muted">{{ resumo.gap_geral|format_int }}</div><div class="cb-kpi-s">priorizar o alvo troca "meses" por "dias"</div></div>
+    <div class="cb-kpi"><div class="cb-kpi-l">Atualizado</div><div class="cb-kpi-v text-sm">{{ gerado_em|slice:":16"|default:"—" }}</div><div class="cb-kpi-s">warm 6h</div></div>
+  </div>
+
+  <div class="overflow-x-auto rounded-xl border border-white/10">
+  <table class="w-full text-sm" style="border-collapse:collapse">
+    <thead>
+      <tr class="text-[0.6rem] uppercase tracking-wide text-fg-subtle text-left">
+        <th class="cb-th">Tribunal</th><th class="cb-th">Fonte</th>
+        <th class="cb-th text-right">Total</th><th class="cb-th" style="width:220px">Cobertura</th>
+        <th class="cb-th text-right">Falta</th><th class="cb-th text-right">Pendente</th>
+        <th class="cb-th text-right">Erro</th>
+      </tr>
+    </thead>
+    <tbody class="an-mono">
+      {% for r in rows %}
+      <tr class="cb-row {% if r.juriscope or r.prioridade %}cb-alvo{% endif %}">
+        <td class="cb-td font-semibold text-fg">
+          {{ r.sigla }}
+          {% if r.juriscope %}<span class="cb-badge cb-b-jur">Juriscope</span>{% endif %}
+          {% if r.prioridade and not r.juriscope %}<span class="cb-badge cb-b-prio">prioridade</span>{% endif %}
+        </td>
+        <td class="cb-td text-fg-subtle">{{ r.fonte }}</td>
+        <td class="cb-td text-right text-fg-muted">{{ r.total|format_int }}</td>
+        <td class="cb-td">
+          <div class="cb-bar"><div class="cb-bar-fill" style="width:{{ r.pct }}%;background:{% if r.pct >= 80 %}#22c55e{% elif r.pct >= 40 %}#eab308{% else %}#ef4444{% endif %}"></div></div>
+          <span class="cb-pct">{{ r.pct }}%</span>
+        </td>
+        <td class="cb-td text-right {% if r.gap %}text-amber-400{% else %}text-fg-subtle{% endif %}">{{ r.gap|format_int }}</td>
+        <td class="cb-td text-right text-fg-subtle">{{ r.pendente|format_int }}</td>
+        <td class="cb-td text-right {% if r.erro %}text-red-400{% else %}text-fg-subtle{% endif %}">{{ r.erro|format_int }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="text-[0.66rem] text-fg-subtle mt-3">
+    <b>Fonte</b>: enricher = classe/assunto vem do PJe/e-SAJ (cobertura = status <code>ok</code>);
+    datajud = API pública CNJ (cobertura = <code>data_enriquecimento_datajud</code> preenchida).
+    Datajud tem 1 APIKey compartilhada (~100 rpm, teto permanente) → o refill prioriza o ALVO.
+  </p>
+  {% endif %}
+</div>
+
+<style>
+  .cb-kpi{border:1px solid var(--border);border-radius:.7rem;padding:.7rem .85rem;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+  .cb-kpi-l{font-size:.58rem;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-subtle)}
+  .cb-kpi-v{font-size:1.35rem;font-weight:800;font-family:'JetBrains Mono',ui-monospace,monospace;line-height:1.1;margin-top:.15rem}
+  .cb-kpi-s{font-size:.6rem;color:var(--fg-subtle);margin-top:.2rem}
+  .an-mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+  .cb-th{padding:.55rem .7rem;border-bottom:1px solid var(--border)}
+  .cb-td{padding:.5rem .7rem;border-bottom:1px solid rgba(255,255,255,.05);font-size:.76rem;white-space:nowrap}
+  .cb-row:hover{background:rgba(255,255,255,.02)}
+  .cb-alvo{background:rgb(var(--c-accent)/.05)}
+  .cb-alvo:hover{background:rgb(var(--c-accent)/.09)}
+  .cb-bar{display:inline-block;width:150px;height:7px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;vertical-align:middle}
+  .cb-bar-fill{height:100%;border-radius:4px}
+  .cb-pct{font-size:.66rem;color:var(--fg-muted);margin-left:.4rem}
+  .cb-badge{font-size:.52rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;border-radius:999px;padding:.08rem .36rem;margin-left:.35rem;border:1px solid}
+  .cb-b-jur{color:rgb(var(--c-accent));background:rgb(var(--c-accent)/.14);border-color:rgb(var(--c-accent)/.4)}
+  .cb-b-prio{color:#a855f7;background:rgba(168,85,247,.14);border-color:rgba(168,85,247,.4)}
+</style>
+{% endblock %}

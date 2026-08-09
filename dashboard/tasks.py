@@ -374,6 +374,17 @@ def warm_tribunal_status():
 
 
 @job('warm', timeout=7200)
+def warm_cobertura_enriquecimento():
+    """Cobertura de enriquecimento por tribunal (/dashboard/tribunais/cobertura/).
+
+    "Quais faltam" (≠ freshness): group-by (tribunal,status) + scan de datajud NULL
+    em ~75M. Passe caro → só no warm (6h). Ver .ia/ENRICHMENT.md."""
+    def _run():
+        _with_timeout(3600, queries.cobertura_enriquecimento_warm)
+    _with_lock('lock:warm_cobertura_enriquecimento', 7500, _run)
+
+
+@job('warm', timeout=7200)
 def warm_filtros_movimentacoes():
     """Top tipos/meios/classes pra facetas de /movimentacoes/."""
     def _run():

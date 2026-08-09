@@ -16,6 +16,7 @@ urlpatterns = [
     path('logout/', LogoutView.as_view(), name='logout'),
     path('tribunais/', views.tribunais, name='tribunais'),
     path('tribunais/status/', views.tribunal_status, name='tribunal-status'),
+    path('tribunais/cobertura/', views.cobertura_enriquecimento, name='tribunal-cobertura'),
     path('tribunais/<str:sigla>/', views.tribunal_detail, name='tribunal-detail'),
     path('processos/', views.processos, name='processos'),
     path('processos/<int:pk>/', views.processo_detail, name='processo-detail'),

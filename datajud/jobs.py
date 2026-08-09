@@ -20,6 +20,13 @@ DATAJUD_RETRY = Retry(max=3)
 # de Process com data_enriquecimento_datajud IS NULL.
 DATAJUD_REFILL_BATCH = 10_000
 DATAJUD_REFILL_HIGH_WATER = 100_000
+# PRIORIDADE DE VALOR (Fase 1 do plano de cobertura): tribunais datajud que o
+# Juriscope lê (Juriscope ∩ sem-enricher) + TJPR (add do usuário). O refill gasta
+# ~90% do batch neles (o teto de 100 rpm da APIKey pública é permanente → foco no
+# que vira lead); os 10% restantes espalham pros demais pra não secarem.
+# Ver .ia/ENRICHMENT.md "Plano de cobertura por valor".
+DATAJUD_PRIORIDADE = ('TJPR', 'TRF4', 'TRF6', 'TRF2')
+DATAJUD_PRIORIDADE_FRACAO = 0.9
 # Teto de ALERTA do watcher: o refill E o auto-enqueue capam em HIGH_WATER (100k);
 # se a fila passar disso com folga, algo enfileirou SEM bound (foi o vetor do
 # incidente 02/07: 63M jobs). datajud_queue_watch loga 🔴 e registra em cache.
@@ -96,23 +103,36 @@ def reabastecer_fila_datajud() -> dict:
     from djen.ingestion import TRIBUNAIS_COM_ENRICHER
     from tribunals.models import Tribunal
     # Tribunal tem `sigla` como PK → Process.tribunal_id == sigla.
-    elig = list(
+    elig = set(
         Tribunal.objects.filter(ativo=True)
         .exclude(sigla__in=TRIBUNAIS_COM_ENRICHER)
         .values_list('sigla', flat=True)
     )
-    cota = max(1, a_enfileirar // max(1, len(elig)))
     base = Process.objects.filter(data_enriquecimento_datajud__isnull=True)
+
+    def _coletar(siglas, teto, pids):
+        """Espalha `teto` vagas entre `siglas` (cota igual, newest-first)."""
+        siglas = [s for s in siglas if s in elig]
+        if not siglas or len(pids) >= teto:
+            return
+        cota = max(1, (teto - len(pids)) // len(siglas))
+        for sigla in siglas:
+            if len(pids) >= teto:
+                break
+            pids.extend(
+                base.filter(tribunal_id=sigla)
+                .order_by('-inserido_em')
+                .values_list('pk', flat=True)[:min(cota, teto - len(pids))]
+            )
+
+    # 1) ALVO DE VALOR primeiro (~90% do batch); 2) resto no piso restante.
     pids: list[int] = []
-    for sigla in elig:
-        if len(pids) >= a_enfileirar:
-            break
-        resto = a_enfileirar - len(pids)
-        pids.extend(
-            base.filter(tribunal_id=sigla)
-            .order_by('-inserido_em')
-            .values_list('pk', flat=True)[:min(cota, resto)]
-        )
+    alvo = int(a_enfileirar * DATAJUD_PRIORIDADE_FRACAO)
+    _coletar(DATAJUD_PRIORIDADE, alvo, pids)              # prioridade
+    outros = sorted(elig - set(DATAJUD_PRIORIDADE))
+    _coletar(outros, a_enfileirar, pids)                 # piso pro resto
+    # se a prioridade não encheu sua fatia (backlog acabou), completa com o resto
+    _coletar(DATAJUD_PRIORIDADE, a_enfileirar, pids)
     # Enqueue explícito na queue 'datajud' (não usa .delay()) — mesmo padrão
     # do reabastecer_filas_enriquecimento, defensivo contra alguém mudar o
     # decorator do datajud_sync_bulk no futuro.

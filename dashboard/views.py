@@ -921,6 +921,27 @@ def tribunal_status(request):
     })
 
 
+def cobertura_enriquecimento(request):
+    """Cobertura de enriquecimento por tribunal (quais faltam, não freshness).
+
+    Lê só do warm cache. Destaca o ALVO DE VALOR (Juriscope + prioridade datajud)
+    e soma o buraco do alvo vs total — o "quanto falta no que importa"."""
+    data = queries.cobertura_enriquecimento_data()
+    rows = data.get('rows', [])
+    alvo = [r for r in rows if r.get('juriscope') or r.get('prioridade')]
+    resumo = {
+        'gap_alvo': sum(r['gap'] for r in alvo),
+        'total_alvo': sum(r['total'] for r in alvo),
+        'gap_geral': sum(r['gap'] for r in rows),
+        'n_alvo': len(alvo),
+    }
+    return render(request, 'dashboard/cobertura_enriquecimento.html', {
+        'rows': rows, 'resumo': resumo,
+        'pending': data.get('pending', False),
+        'gerado_em': data.get('gerado_em'),
+    })
+
+
 @login_required
 @require_GET
 def processos(request):
