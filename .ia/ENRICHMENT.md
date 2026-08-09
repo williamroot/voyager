@@ -564,3 +564,15 @@ TJMT, TJCE) — Juriscope não cobre esses.
 - Datajud = 1 APIKey compartilhada → **sem lever de rate-limit** (não existe key dedicada).
   Escala do Track A = priorização, não throughput.
 - Enricher = proxy/captcha/WAF por tribunal; kill-switch + watermark já existem.
+
+### Execução (2026-08-09) — o que saiu
+- **Fase 1 ✅**: refill datajud prioriza o alvo (fila 92% TJPR/TRF4/TRF6/TRF2). Bug
+  pego: `order_by('-inserido_em')` por-tribunal = 35s → timeout 300s; fix = sem sort.
+- **Fase 3 ✅**: `/dashboard/tribunais/cobertura/` (warm 6h). Gap do alvo = 13,9M.
+- **Fase 2 ✅**: `tick_requeue_erros_enricher` (10min) devolve erro→pendente nos 7
+  tribunais Juriscope∩enricher (SEM floor — senão pulava os grandes). Erro caindo
+  ~50k/batch (1,14M→…). reabastecer só pega 'pendente', por isso os erros ficavam presos.
+- **Fase 0 ⛔ (não é quick-win)**: pré-filtro por `classificacao` NÃO serve nos
+  tribunais datajud — TJPR tem 4,2M classificados mas **lead=0** (sem datajud o
+  classificador não acha precatório: chicken-egg). Pré-filtro real = flag DJEN-texto
+  denormalizado + backfill (migration + scan de movimentações) → item próprio.
