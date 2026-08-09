@@ -111,7 +111,11 @@ def reabastecer_fila_datajud() -> dict:
     base = Process.objects.filter(data_enriquecimento_datajud__isnull=True)
 
     def _coletar(siglas, teto, pids):
-        """Espalha `teto` vagas entre `siglas` (cota igual, newest-first)."""
+        """Espalha `teto` vagas entre `siglas` (cota igual). SEM order_by: o
+        `WHERE tribunal_id=X AND datajud IS NULL ORDER BY inserido_em` não tem
+        índice que sirva e estoura o timeout de 300s em tribunais grandes
+        (TJPR 5,8M). Pra backfill, QUALQUER pendente serve — LIMIT sem sort é
+        indexado e instantâneo."""
         siglas = [s for s in siglas if s in elig]
         if not siglas or len(pids) >= teto:
             return
@@ -121,7 +125,6 @@ def reabastecer_fila_datajud() -> dict:
                 break
             pids.extend(
                 base.filter(tribunal_id=sigla)
-                .order_by('-inserido_em')
                 .values_list('pk', flat=True)[:min(cota, teto - len(pids))]
             )
 
