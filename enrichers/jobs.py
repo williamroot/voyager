@@ -218,6 +218,40 @@ def tick_reenrich_esaj_legacy() -> dict:
 
 
 @job('default', timeout=600)
+def tick_requeue_erros_enricher() -> dict:
+    """Devolve status='erro' → 'pendente' nos tribunais de VALOR (Juriscope ∩
+    enricher), bounded pelo pendente floor. Fase 2 do plano de cobertura: o
+    `reabastecer_filas_enriquecimento` só re-enfileira 'pendente' → sem isto os
+    ~1,1M em 'erro' (transitórios: proxy/WAF, comentário do ENRIQ_ERRO) ficavam
+    presos pra sempre. Gêmeo do tick_reenrich_esaj_legacy. Ver .ia/ENRICHMENT.md.
+    """
+    from djen.ingestion import TRIBUNAIS_JURISCOPE
+    alvo = [s for s in _ENRICHERS if s in TRIBUNAIS_JURISCOPE]
+    relatorio: dict = {}
+    pausados = enrich_pausados()
+    for sig in alvo:
+        if sig in pausados:
+            relatorio[sig] = 'pausado'
+            continue
+        pend = Process.objects.filter(
+            tribunal_id=sig, enriquecimento_status=Process.ENRIQ_PENDENTE).count()
+        if pend >= REENRICH_PENDENTE_FLOOR:
+            relatorio[sig] = f'skip (pendente {pend:,} ≥ {REENRICH_PENDENTE_FLOOR:,})'
+            continue
+        ids = list(Process.objects.filter(
+            tribunal_id=sig, enriquecimento_status=Process.ENRIQ_ERRO,
+        ).values_list('pk', flat=True)[:REENRICH_RESET_BATCH])
+        if not ids:
+            relatorio[sig] = 'sem erro'
+            continue
+        n = Process.objects.filter(pk__in=ids).update(
+            enriquecimento_status=Process.ENRIQ_PENDENTE)
+        relatorio[sig] = f'reset {n:,}'
+        logger.info('tick_requeue_erros_enricher %s: reset %d erro->pendente', sig, n)
+    return relatorio
+
+
+@job('default', timeout=600)
 def reabastecer_filas_enriquecimento() -> dict:
     """Cron: enfileira Process pendentes por tribunal, sem duplicar in-flight.
 

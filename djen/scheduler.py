@@ -145,6 +145,18 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Fase 2 (cobertura por valor): devolve status='erro' → 'pendente' nos
+    # tribunais Juriscope∩enricher (o reabastecer só pega 'pendente'; erros
+    # transitórios ficavam presos). Bounded pelo pendente floor. Ver ENRICHMENT.md.
+    from enrichers.jobs import tick_requeue_erros_enricher
+    scheduler.add_job(
+        tick_requeue_erros_enricher.delay,
+        'interval',
+        minutes=10,
+        id='requeue_erros_enricher',
+        replace_existing=True,
+    )
+
     # Re-treino semanal do modelo de sobrevivência DC→precatório (freshness):
     # KM numpy sobre dados frescos → reescreve surv_strata.json (serving recarrega
     # por mtime). Domingo 03:17 (off-hours), fila default.
