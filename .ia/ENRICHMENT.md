@@ -521,3 +521,46 @@ proxies passam). `enrichers/pje.py::_request_with_rotation` detecta
 (`202/405/403/429` + `awswaf` no corpo) e **rotaciona o proxy** como um 403, até
 achar um IP que o WAF libera (não é bug de parser — não pausar). Bloqueio TOTAL
 (TJRO/TJAP: 0 proxies passam) → pausar.
+
+---
+
+## Plano de cobertura por VALOR (Juriscope) — 2026-08-06
+
+**Contexto.** Auditoria da cobertura de enriquecimento do acervo (75,6M): ~50M sem
+enriquecimento completo. Brute-force é inviável — o Datajud é **1 APIKey pública
+compartilhada** (teto ~100 rpm, ~15s/job na API do CNJ → ~94/min → 278 dias só o
+Track A). **Decisão: enriquecer por VALOR, não por contagem** — só os tribunais que o
+Juriscope de fato lê (precatório vira lead lá).
+
+**Alvo = 10 tribunais do Falcon/Juriscope + TJPR** (add do usuário). Corta 50M → **~14M**.
+Falcon (`datamodel_process` @ 10.10.0.51): TJSP, TRF1, TRF3, TRF4, TJMG, TRF6, TRF5,
+TJAL, TRF2, TJMA (2,43M precatórios conhecidos).
+
+### O buraco no alvo
+```
+Track A — datajud (sem enricher): TJPR 5,83M · TRF4 2,28M · TRF6 1,02M · TRF2 0,86M   → ~10,0M
+Track B — enricher (PJe/e-SAJ):   {TJSP,TRF1,TRF3,TRF5,TJMG,TJAL,TJMA}
+                                   20,5M tot · 54% ok · pendente 2,78M · erro 1,14M    → gap ~3,9M
+TOTAL ALVO ≈ 13,9M  (vs ~50M do acervo inteiro)
+```
+Nota: isso DESprioriza os maiores backlogs de enricher (TJRJ 1,3M/386k-erro, TJPE, TJPA,
+TJMT, TJCE) — Juriscope não cobre esses.
+
+### Fases
+- **Fase 0 — alvo fino (pré-filtro DJEN).** Dentro do alvo, enriquecer PRIMEIRO os CNJ
+  cujo texto DJEN (já ingerido, sem custo) menciona precatório/requisitório/RPV/ofício.
+  Troca "74 dias pro Track A" por "dias pro que importa".
+- **Fase 1 — Track A priorizado.** Refill do datajud puxa por (alvo-Juriscope → sinal-DJEN
+  → newest), não FIFO/spread cego. Teto de 100 rpm é permanente (APIKey única) → foco em
+  gastar a quota no que vale. TJPR é o grosso (5,8M).
+- **Fase 2 — Track B higiene.** (a) requeue dos **1,14M em erro** (muito é transitório de
+  proxy/WAF; parte é parser — ver fix ViewState TJPE/TRF1); (b) escalar scrapers dos
+  maiores do alvo sob o kill-switch existente. Não mexer nos não-alvo.
+- **Fase 3 — instrumentação.** Página de **cobertura por tribunal** (%ok, pendente, erro,
+  datajud-null) — hoje só há freshness (lag), não cobertura. Responde "quais faltam"
+  continuamente. Barato; fazer primeiro.
+
+### Restrições firmes
+- Datajud = 1 APIKey compartilhada → **sem lever de rate-limit** (não existe key dedicada).
+  Escala do Track A = priorização, não throughput.
+- Enricher = proxy/captcha/WAF por tribunal; kill-switch + watermark já existem.
