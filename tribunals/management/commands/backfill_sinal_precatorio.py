@@ -37,11 +37,23 @@ class Command(BaseCommand):
     def handle(self, *a, **o):
         tribs = [s.strip().upper() for s in o['tribunais'].split(',') if s.strip()]
         batch, sleep = o['batch'], o['sleep']
+        # Range de pk via ORDER BY id LIMIT 1 POR tribunal (usa o índice
+        # (tribunal,-id) → instantâneo). MIN/MAX com `tribunal_id = ANY(array)`
+        # NÃO usa o índice → vira scan e trava (visto em prod).
+        lo0 = hi0 = None
         with connection.cursor() as c:
-            c.execute(
-                "SELECT COALESCE(MIN(id),0), COALESCE(MAX(id),0) FROM tribunals_process "
-                "WHERE tribunal_id = ANY(%s)", [tribs])
-            lo0, hi0 = c.fetchone()
+            for t in tribs:
+                c.execute("SELECT id FROM tribunals_process WHERE tribunal_id=%s "
+                          "ORDER BY id ASC LIMIT 1", [t])
+                r = c.fetchone()
+                if r:
+                    lo0 = r[0] if lo0 is None else min(lo0, r[0])
+                c.execute("SELECT id FROM tribunals_process WHERE tribunal_id=%s "
+                          "ORDER BY id DESC LIMIT 1", [t])
+                r = c.fetchone()
+                if r:
+                    hi0 = r[0] if hi0 is None else max(hi0, r[0])
+        lo0, hi0 = lo0 or 0, hi0 or 0
         lo = o['min_id'] if o['min_id'] is not None else lo0
         hi = o['max_id'] if o['max_id'] is not None else hi0
         self.stdout.write(f'alvo={tribs} pk[{lo:,}..{hi:,}] batch={batch:,} sleep={sleep}s'

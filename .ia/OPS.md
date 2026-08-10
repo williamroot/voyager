@@ -1119,3 +1119,32 @@ Atualizar config: editar em `infra/observability/` no repo → `rsync` pra `~/vo
 no zordon → `up -d` (ou reload pro que é hot). Trocar senha do exporter: `ALTER ROLE
 voyager_exporter WITH PASSWORD '...'` + atualizar `.env` + `up -d --force-recreate
 postgres-exporter`.
+
+### Incidente: migration `atomic=False` não-registrada → web crash-loop → 502 (2026-08-10)
+
+**Sintoma:** site 502; `docker compose ps web` = `Up 2 seconds` repetindo (restart loop).
+Logs do web: `ProgrammingError: column "X" of relation "tribunals_process" already
+exists` no `migrate` do entrypoint.
+
+**Causa:** migration com `atomic = False` (necessário p/ `AddIndexConcurrently`)
+aplicada MANUALMENTE, mas o registro em `django_migrations` **não gravou** (o processo
+do migrate foi interrompido/morto após o DDL commitar). Como o **entrypoint do web roda
+`migrate --noinput` a cada start**, ele re-tenta a migração → `AddField`/`CREATE INDEX`
+falha ("already exists") → boot falha → restart loop → nginx sem upstream → 502.
+⚠️ Pegadinha do `atomic=False`: aplicação PARCIAL — os objetos (coluna/índice) existem
+mas a migração fica "não aplicada" pro Django.
+
+**Fix:** marcar como aplicada SEM re-rodar, via container one-off (o web está em loop):
+```bash
+docker compose -f docker-compose-prod.yml run --rm --entrypoint python web \
+  manage.py migrate --fake tribunals <NNNN>
+docker compose -f docker-compose-prod.yml up -d --force-recreate web   # sai do loop
+curl -s -o /dev/null -w '%{http_code}' https://voyager.was.dev.br/dashboard/   # 302 = ok
+```
+
+**Prevenção:** depois de aplicar migration `atomic=False` MANUALMENTE, confirmar
+`manage.py showmigrations tribunals` mostra `[X]` (não só que a coluna existe). E
+**checar o site logo após qualquer `force-recreate web`** — o 502 aqui ficou mascarado
+como "saturação do banco" (o web em loop + build de índice CONCURRENTLY spikam conexões/
+IO); o DB estava OK (0 queries ativas). Diag do DB sem depender do pool esgotado:
+`docker exec voyager-postgres-1 psql "postgresql://voyager:$PW@192.168.30.101:6432/pgbouncer" -c "SHOW POOLS"`.
