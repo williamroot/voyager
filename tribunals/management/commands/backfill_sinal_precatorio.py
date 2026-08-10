@@ -37,64 +37,47 @@ class Command(BaseCommand):
     def handle(self, *a, **o):
         tribs = [s.strip().upper() for s in o['tribunais'].split(',') if s.strip()]
         batch, sleep = o['batch'], o['sleep']
-        # Range de pk via ORDER BY id LIMIT 1 POR tribunal (usa o índice
-        # (tribunal,-id) → instantâneo). MIN/MAX com `tribunal_id = ANY(array)`
-        # NÃO usa o índice → vira scan e trava (visto em prod).
-        lo0 = hi0 = None
-        with connection.cursor() as c:
-            for t in tribs:
-                c.execute("SELECT id FROM tribunals_process WHERE tribunal_id=%s "
-                          "ORDER BY id ASC LIMIT 1", [t])
-                r = c.fetchone()
-                if r:
-                    lo0 = r[0] if lo0 is None else min(lo0, r[0])
-                c.execute("SELECT id FROM tribunals_process WHERE tribunal_id=%s "
-                          "ORDER BY id DESC LIMIT 1", [t])
-                r = c.fetchone()
-                if r:
-                    hi0 = r[0] if hi0 is None else max(hi0, r[0])
-        lo0, hi0 = lo0 or 0, hi0 or 0
-        lo = o['min_id'] if o['min_id'] is not None else lo0
-        hi = o['max_id'] if o['max_id'] is not None else hi0
-        self.stdout.write(f'alvo={tribs} pk[{lo:,}..{hi:,}] batch={batch:,} sleep={sleep}s'
-                          + (' DRY-RUN' if o['dry_run'] else ''))
+        self.stdout.write(f'alvo={tribs} batch={batch} sleep={sleep}s'
+                          + (' DRY-RUN' if o['dry_run'] else ''), ending='\n')
+        self.stdout.flush()
         if o['dry_run']:
             return
 
-        sql = """
-            UPDATE tribunals_process p
-               SET tem_sinal_precatorio = EXISTS (
-                     SELECT 1 FROM tribunals_movimentacao m
-                      WHERE m.processo_id = p.id AND m.texto ~* %s)
-             WHERE p.tribunal_id = ANY(%s)
-               AND p.data_enriquecimento_datajud IS NULL
-               AND p.tem_sinal_precatorio IS NULL
-               AND p.id >= %s AND p.id < %s
-        """
+        # Pega EXATAMENTE `batch` linhas ainda-NULL do alvo (usa o índice composto
+        # proc_trib_sinalprec_idx) e marca só essas por pk. Batch pequeno = transação
+        # curta + progresso visível + custo previsível (~batch × 7ms). Resumível.
+        janela = [o['min_id'], o['max_id']]
+        sql_pick = ("SELECT id FROM tribunals_process "
+                    "WHERE tribunal_id = ANY(%s) AND tem_sinal_precatorio IS NULL "
+                    "AND data_enriquecimento_datajud IS NULL "
+                    + ("AND id >= %s " if janela[0] is not None else "")
+                    + ("AND id < %s " if janela[1] is not None else "")
+                    + "LIMIT %s")
+        sql_upd = ("UPDATE tribunals_process p SET tem_sinal_precatorio = EXISTS ("
+                   "SELECT 1 FROM tribunals_movimentacao m "
+                   "WHERE m.processo_id = p.id AND m.texto ~* %s) WHERE p.id = ANY(%s)")
         t0 = time.monotonic()
-        feitos = marcados = 0
-        cur = lo
-        while cur <= hi:
-            nxt = cur + batch
+        feitos = 0
+        while True:
+            params = [tribs] + [x for x in janela if x is not None] + [batch]
             with connection.cursor() as c:
-                c.execute(sql, [PADRAO, tribs, cur, nxt])
-                n = c.rowcount
-                c.execute(
-                    "SELECT COUNT(*) FROM tribunals_process WHERE tribunal_id = ANY(%s) "
-                    "AND tem_sinal_precatorio IS TRUE AND id >= %s AND id < %s",
-                    [tribs, cur, nxt])
-                m = c.fetchone()[0]
-            feitos += n
-            marcados += m
-            if feitos and (cur // batch) % 20 == 0:
-                dt = time.monotonic() - t0
-                self.stdout.write(
-                    f'  pk~{cur:,} · processados {feitos:,} · com_sinal {marcados:,} '
-                    f'({100*marcados/feitos:.1f}%) · {feitos/dt:.0f}/s')
-            cur = nxt
+                c.execute(sql_pick, params)
+                ids = [r[0] for r in c.fetchall()]
+                if not ids:
+                    break
+                c.execute(sql_upd, [PADRAO, ids])
+            feitos += len(ids)
+            dt = time.monotonic() - t0
+            self.stdout.write(f'  processados {feitos:,} · {feitos/dt:.0f}/s '
+                              f'· {dt/60:.1f}min', ending='\n')
+            self.stdout.flush()
+            if len(ids) < batch:
+                break
             if sleep:
                 time.sleep(sleep)
-        dt = time.monotonic() - t0
+        with connection.cursor() as c:
+            c.execute("SELECT count(*) FROM tribunals_process WHERE tribunal_id = ANY(%s) "
+                      "AND tem_sinal_precatorio IS TRUE", [tribs])
+            com = c.fetchone()[0]
         self.stdout.write(self.style.SUCCESS(
-            f'FIM: {feitos:,} processados, {marcados:,} com sinal '
-            f'({100*marcados/feitos if feitos else 0:.1f}%) em {dt/60:.1f}min'))
+            f'FIM: {feitos:,} processados · {com:,} com sinal · {(time.monotonic()-t0)/60:.1f}min'))
