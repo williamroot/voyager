@@ -150,6 +150,12 @@ class Process(models.Model):
     classificacao_versao = models.CharField(max_length=10, null=True, blank=True)
     classificacao_em = models.DateTimeField(null=True, blank=True, db_index=True)
 
+    # Fase 0 do plano de cobertura (.ia/ENRICHMENT.md): sinal de precatório LIDO do
+    # texto DJEN (movimentações), computável ANTES de enriquecer. null = ainda não
+    # varrido; True/False = tem/não tem sinal. O refill datajud prioriza os True
+    # dentro dos tribunais-alvo (só ~5,5% do TJPR tem sinal → foca a quota de 100 rpm).
+    tem_sinal_precatorio = models.BooleanField(null=True, blank=True)
+
     class Meta:
         constraints = [
             UniqueConstraint(fields=['tribunal', 'numero_cnj'], name='uniq_proc_tribunal_cnj'),
@@ -182,6 +188,10 @@ class Process(models.Model):
             # a busca semântica). Índice standalone resolve.
             models.Index(fields=['numero_cnj'], name='proc_numero_cnj_idx'),
             models.Index(fields=['data_enriquecimento_datajud'], name='proc_datajud_em_idx'),
+            # Fase 0: refill datajud prioriza WHERE tribunal_id=X AND datajud IS NULL
+            # AND tem_sinal_precatorio — composto líder tribunal.
+            models.Index(fields=['tribunal', 'tem_sinal_precatorio'],
+                         name='proc_trib_sinalprec_idx'),
         ]
 
     def __str__(self):

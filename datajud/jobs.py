@@ -110,12 +110,14 @@ def reabastecer_fila_datajud() -> dict:
     )
     base = Process.objects.filter(data_enriquecimento_datajud__isnull=True)
 
-    def _coletar(siglas, teto, pids):
-        """Espalha `teto` vagas entre `siglas` (cota igual). SEM order_by: o
-        `WHERE tribunal_id=X AND datajud IS NULL ORDER BY inserido_em` não tem
-        índice que sirva e estoura o timeout de 300s em tribunais grandes
-        (TJPR 5,8M). Pra backfill, QUALQUER pendente serve — LIMIT sem sort é
-        indexado e instantâneo."""
+    pids: list[int] = []
+    _vistos: set[int] = set()
+
+    def _coletar(siglas, teto, qs):
+        """Espalha `teto` vagas entre `siglas` (cota igual, sem duplicar). SEM
+        order_by: o `WHERE tribunal_id=X AND datajud IS NULL ORDER BY inserido_em`
+        não tem índice que sirva e estoura o timeout de 300s (TJPR 5,8M). Pra
+        backfill, QUALQUER pendente serve — LIMIT sem sort é indexado/instantâneo."""
         siglas = [s for s in siglas if s in elig]
         if not siglas or len(pids) >= teto:
             return
@@ -123,19 +125,29 @@ def reabastecer_fila_datajud() -> dict:
         for sigla in siglas:
             if len(pids) >= teto:
                 break
-            pids.extend(
-                base.filter(tribunal_id=sigla)
-                .values_list('pk', flat=True)[:min(cota, teto - len(pids))]
-            )
+            adicionados = 0
+            # busca cota + folga p/ compensar dedup dos já-vistos
+            for pid in qs.filter(tribunal_id=sigla).values_list(
+                    'pk', flat=True)[:cota + len(_vistos)]:
+                if adicionados >= cota or len(pids) >= teto:
+                    break
+                if pid in _vistos:
+                    continue
+                _vistos.add(pid)
+                pids.append(pid)
+                adicionados += 1
 
-    # 1) ALVO DE VALOR primeiro (~90% do batch); 2) resto no piso restante.
-    pids: list[int] = []
+    # Fase 0: dentro da prioridade, os COM sinal de precatório vão PRIMEIRO
+    # (só ~5,5% do TJPR tem sinal → a quota de 100 rpm cai no que vira lead).
+    # Inócuo enquanto o backfill não rodou (tem_sinal_precatorio IS NULL → 0 aqui,
+    # cai no passe seguinte = comportamento atual por-tribunal).
+    base_sinal = base.filter(tem_sinal_precatorio=True)
     alvo = int(a_enfileirar * DATAJUD_PRIORIDADE_FRACAO)
-    _coletar(DATAJUD_PRIORIDADE, alvo, pids)              # prioridade
+    _coletar(DATAJUD_PRIORIDADE, alvo, base_sinal)       # 1) prioridade COM sinal
+    _coletar(DATAJUD_PRIORIDADE, alvo, base)             # 2) prioridade (resto)
     outros = sorted(elig - set(DATAJUD_PRIORIDADE))
-    _coletar(outros, a_enfileirar, pids)                 # piso pro resto
-    # se a prioridade não encheu sua fatia (backlog acabou), completa com o resto
-    _coletar(DATAJUD_PRIORIDADE, a_enfileirar, pids)
+    _coletar(outros, a_enfileirar, base)                 # 3) piso pro resto
+    _coletar(DATAJUD_PRIORIDADE, a_enfileirar, base)     # 4) completa prioridade
     # Enqueue explícito na queue 'datajud' (não usa .delay()) — mesmo padrão
     # do reabastecer_filas_enriquecimento, defensivo contra alguém mudar o
     # decorator do datajud_sync_bulk no futuro.
