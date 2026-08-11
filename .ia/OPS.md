@@ -1148,3 +1148,38 @@ curl -s -o /dev/null -w '%{http_code}' https://voyager.was.dev.br/dashboard/   #
 como "saturação do banco" (o web em loop + build de índice CONCURRENTLY spikam conexões/
 IO); o DB estava OK (0 queries ativas). Diag do DB sem depender do pool esgotado:
 `docker exec voyager-postgres-1 psql "postgresql://voyager:$PW@192.168.30.101:6432/pgbouncer" -c "SHOW POOLS"`.
+
+### Incidente: fila `es_index` — zumbi + .env + imagem velha no .102 (2026-08-11)
+
+Três causas empilhadas descobertas ao ligar o write-through ES do drainer
+(`indexar_processos_bulk`). Sintomas e curas, na ordem em que mordem:
+
+1. **`ModuleNotFoundError: No module named 'elasticsearch'`** nos workers do .102 —
+   a imagem local `voyager-web:prod` do .102 era ANTERIOR à entrada da lib no
+   requirements (mesma pegadinha do dev container). O .102 builda a PRÓPRIA imagem:
+   ```bash
+   ssh ubuntu@voyager-workers 'cd ~/voyager && docker build -t voyager-web:prod . && \
+     docker compose -f docker-compose-workers.yml up -d --force-recreate worker_es_index'
+   ```
+2. **`NameResolutionError: 'elasticsearch:9200'`** — o `.env` do .102 NÃO tinha
+   `ELASTICSEARCH_URL` e o client caía no default. Fix: `ELASTICSEARCH_URL=http://192.168.30.128:9200`
+   no `~/voyager/.env` do .102 + force-recreate.
+3. **Worker ZUMBI no .103** — container avulso `worker_es_index` (fora do compose,
+   criado manualmente semanas antes) com código stale consumia a fila e envenenava
+   ~26 jobs/min por 9 dias. Sintoma: FailedJobRegistry da `es_index` crescendo
+   continuamente mesmo com os workers do .102 sãos. Cura: `docker rm -f <id>` +
+   requeue (`FailedJobRegistry(queue).requeue(jid)` — o job é idempotente por `_id`).
+   ⚠️ Se aparecer worker de fila que "ninguém subiu", procure containers fora do
+   compose nos DOIS hosts: `docker ps --format '{{.Names}} {{.CreatedAt}}' | grep -v voyager-`.
+
+**Pendente (recomendação do QA):** watcher do failed-registry da `es_index` (mesmo
+padrão do `datajud_queue_watch`) — o zumbi passou 9 dias invisível.
+
+### Gotcha: `docker exec -d` morre no restart do container (2026-08-11)
+
+Jobs longos lançados com `docker exec -d` no web (backfills, reindex) MORREM em
+qualquer `restart`/`force-recreate` do web — inclusive deploys de rotina. Já matou o
+backfill Fase 0 (1×) e o reindex TJSP (2×) nesta sessão. Regra: antes de restartar o
+web, `docker top voyager-web-1 | grep -E 'backfill|reindex'`; se houver job, esperar ou
+relançar depois (comandos são resumíveis: backfill é idempotente, reindex tem
+`--desde-id`; lance com `> /tmp/<job>.log 2>&1` pra ter o checkpoint).
