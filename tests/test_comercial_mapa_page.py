@@ -58,6 +58,29 @@ def test_geojson_local_e_registermap(user):
     assert "registerMap('brasil'" in html
 
 
+def test_potencial_null_tratado_como_desconhecido(user):
+    """Fix do QA adversarial: potencial null / sinal_processado=false NUNCA vira "0".
+
+    O shell precisa carregar a lógica honesta: helper potDesconhecido (null/
+    sinal_processado false ⇒ fora da escala de cor + rótulo distinto), o texto
+    do tooltip "sinal ainda não processado" e o caveat de ranking parcial no
+    Ataque primeiro ("processado em N de 27 estados").
+    """
+    c = Client()
+    c.force_login(user)
+    html = c.get(reverse(URL_NAME)).content.decode()
+    # helper de desconhecido considera os DOIS sinais do contrato novo
+    assert 'potDesconhecido' in html
+    assert 'sinal_processado' in html
+    # tooltip do choropleth: desconhecido tem rótulo próprio, não "Potencial: 0"
+    assert 'sinal ainda não processado' in html
+    # caveat honesto do ranking (derivado dos buckets)
+    assert 'ranking parcial' in html
+    assert 'de 27 estados' in html
+    # painéis usam potLabel (— pra não-processado) em vez de fmt cru
+    assert 'potLabel' in html
+
+
 def test_sem_cdn_externo_na_pagina(user):
     """A página não pode introduzir nenhuma URL http(s) externa (CSP).
 

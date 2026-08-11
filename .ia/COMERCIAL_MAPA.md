@@ -175,8 +175,20 @@ a casca do mapa (topojson, layout) com dados mock; integra quando os endpoints s
   - ⏳ **potencial = 0** até sincronizar `tem_sinal_precatorio` Postgres→ES (espera o
     backfill Fase 0 fechar; loop monitorando). Score de foco fica 0 enquanto potencial=0.
   - ⏳ **uf incompleto** (18/27 UFs) — `update_by_query` do `uf` ainda enchendo o ES.
-- **Fase E** ⏳ QA adversarial (reconciliar ES×Postgres) — roda DEPOIS que potencial e uf
-  acenderem (senão reconcilia contra camada escura).
+- **Fase E** ✅ QA adversarial RODOU (11/08) → veredito inicial **BLOCK** com 4 correções
+  obrigatórias, TODAS aplicadas no mesmo dia:
+  1. Worker `es_index` ZUMBI no .103 (avulso de 02/08, código stale, envenenava ~26 jobs/min
+     havia 9 dias) → removido + 2.010 requeued.
+  2. Potencial=0 mascarava "não processado" → backend expõe `potencial: null` +
+     `sinal_processado` (sub-agg exists); UI pinta como "sem dado" + caveat "processado em
+     N de 27 estados — ranking parcial" (commit do front).
+  3. Confirmado stale no ES (35k vs 47,6k PG; TJMG mostrava 1) → resync de 47.642 via fila
+     es_index (96 bulks).
+  4. Latência filtros 2,7-4,9s → cache por combinação de filtros TTL 2min.
+  O QA APROVOU: reconciliação volume/potencial (Δ≤0,5%), score recalculado à mão bate,
+  API busca sob abuso (0×500; full-text quente 126ms), regressão zero (87 testes).
+  Recomendações registradas: watcher do failed-registry es_index; outliers de valor_causa;
+  índice PG duplicado proc_numero_cnj_idx_ccnew (husk de REINDEX) a limpar.
 - **Dep externa**: backfill Fase 0 rodando (alimenta `tem_sinal_precatorio`); sync do sinal
   pro ES espera ele fechar (~horas). O mapa já pode subir com `uf` + `classificacao` +
   `valor_causa` e ligar o `potencial` quando o sinal sincronizar.

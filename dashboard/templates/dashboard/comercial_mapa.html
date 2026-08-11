@@ -135,13 +135,18 @@ Mapa Comercial (Agente 3 — FRONTEND).
       },
 
       // valor da métrica ativa pra um bucket, respeitando os dois toggles.
+      // No modo Potencial, bucket com sinal NÃO processado (potencial null /
+      // sinal_processado false) retorna null — desconhecido ≠ zero: o ECharts
+      // pinta como "sem dado" (cinza), FORA da escala de cor (achado do QA:
+      // SP com 4,2M processos aparecia como "Potencial: 0" = mentira material).
       metricaDe(b) {
         if (this.metricMode === 'valor') {
           // no modo R$, o toggle potencial/confirmado não muda o eixo de valor
           // (não temos valor separado por sinal) — mostramos o valor do bucket.
           return b.valor || 0;
         }
-        return this.sinalMode === 'confirmado' ? (b.confirmado || 0) : (b.potencial || 0);
+        if (this.sinalMode === 'confirmado') return b.confirmado || 0;
+        return this.potDesconhecido(b) ? null : (b.potencial || 0);
       },
 
       rotuloMetrica() {
@@ -189,10 +194,14 @@ Mapa Comercial (Agente 3 — FRONTEND).
               const cob = (b.cobertura_pct === null || b.cobertura_pct === undefined)
                 ? '<span style="opacity:.7">cobertura desconhecida</span>'
                 : (Number(b.cobertura_pct).toFixed(1) + '% validado');
+              // potencial null / sinal não processado ⇒ desconhecido, NÃO "0"
+              const pot = self.potDesconhecido(b)
+                ? '<span style="color:#f97316;opacity:.75;font-style:italic">Potencial: sinal ainda não processado</span>'
+                : '<span style="color:#f97316">Potencial: ' + fmt(b.potencial) + '</span>';
               return '<b>' + nome + ' (' + b.uf + ')</b><br/>'
                 + 'Volume: ' + fmt(b.volume) + '<br/>'
                 + 'Valor: ' + fmtBRL(b.valor) + '<br/>'
-                + '<span style="color:#f97316">Potencial: ' + fmt(b.potencial) + '</span><br/>'
+                + pot + '<br/>'
                 + '<span style="color:#10b981">Confirmado: ' + fmt(b.confirmado) + '</span><br/>'
                 + cob + '<br/>'
                 + '<span style="opacity:.7">score foco: ' + (b.score_foco ?? 0) + '</span>';
@@ -304,6 +313,24 @@ Mapa Comercial (Agente 3 — FRONTEND).
       cobDesconhecida(b) {
         return b.cobertura_pct === null || b.cobertura_pct === undefined;
       },
+      // potencial DESCONHECIDO = backfill do sinal não passou pelo bucket
+      // (potencial null OU sinal_processado false) — nunca exibir como "0".
+      potDesconhecido(b) {
+        return b.potencial === null || b.potencial === undefined
+            || b.sinal_processado === false;
+      },
+      potLabel(b) {
+        return this.potDesconhecido(b) ? '—' : fmt(b.potencial);
+      },
+      // Quantas UFs geográficas (fora FED) já têm o sinal processado — alimenta
+      // o caveat "ranking parcial" do Ataque primeiro.
+      ufsComSinal() {
+        return this.ufsGeo().filter(b => !this.potDesconhecido(b)).length;
+      },
+      sinalParcial() {
+        const geo = this.ufsGeo();
+        return geo.length > 0 && this.ufsComSinal() < 27;
+      },
       // Top-N por score (reusa o array `ufs`, já ordenado por score_foco desc)
       topScore(n) { return (this.ufs || []).slice(0, n || 8); },
       // maior score entre os buckets (pra barra relativa)
@@ -335,7 +362,7 @@ Mapa Comercial (Agente 3 — FRONTEND).
     </div>
     <div class="flex items-center gap-2">
       <span class="inline-block w-3 h-3 rounded-sm" style="background:rgba(120,120,130,0.5)"></span>
-      <span class="text-fg-subtle">cinza = sem dado / cobertura desconhecida (não é "zero")</span>
+      <span class="text-fg-subtle">cinza = sem dado / sinal ainda não processado (desconhecido, não é "zero")</span>
     </div>
     <div class="ml-auto text-xs text-fg-subtle font-mono" x-show="geradoEm" x-cloak>
       atualizado <span x-text="geradoLegivel()"></span>
@@ -469,10 +496,12 @@ Mapa Comercial (Agente 3 — FRONTEND).
       {# federal — camada separada, NUNCA misturada no choropleth #}
       <template x-if="bucketFED()">
         <div class="mt-4 p-3 rounded-md border border-border bg-surface/60 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-          <span class="text-xs uppercase tracking-wide text-info-fg font-semibold">Camada Federal (multi-UF)</span>
+          <span class="text-xs uppercase tracking-wide text-info font-semibold">Camada Federal (multi-UF)</span>
           <span class="text-fg-muted">Volume: <span class="font-mono text-fg" x-text="fmt(bucketFED().volume)"></span></span>
           <span class="text-fg-muted">Valor: <span class="font-mono text-fg" x-text="fmtBRL(bucketFED().valor)"></span></span>
-          <span style="color:#f97316">Potencial: <span class="font-mono" x-text="fmt(bucketFED().potencial)"></span></span>
+          <span style="color:#f97316">Potencial:
+            <span class="font-mono" :class="potDesconhecido(bucketFED()) ? 'italic opacity-70' : ''"
+                  x-text="potDesconhecido(bucketFED()) ? 'não processado' : fmt(bucketFED().potencial)"></span></span>
           <span style="color:#10b981">Confirmado: <span class="font-mono" x-text="fmt(bucketFED().confirmado)"></span></span>
           <button type="button" @click="abrirUf('FED')" class="ml-auto text-xs px-2 py-1 rounded border border-border text-fg-muted hover:text-fg">ver tribunais →</button>
         </div>
@@ -488,7 +517,13 @@ Mapa Comercial (Agente 3 — FRONTEND).
           {% voy_icon "target" "w-4 h-4 text-mission" %}
           <h2 class="text-lg font-semibold text-fg">Ataque primeiro</h2>
         </div>
-        <p class="text-xs text-fg-subtle mb-3">Ranking por <b>score de foco</b> — precatório-rico, com dinheiro, ainda pouco tocado. Clique pra abrir os tribunais.</p>
+        <p class="text-xs text-fg-subtle mb-2">Ranking por <b>score de foco</b> — precatório-rico, com dinheiro, ainda pouco tocado. Clique pra abrir os tribunais.</p>
+        {# caveat honesto: sinal de precatório ainda não cobriu todos os estados #}
+        <p x-show="sinalParcial()" x-cloak
+           class="text-[0.7rem] mb-3 px-2 py-1.5 rounded border border-warning/40 bg-warning/10 text-warning flex items-start gap-1.5">
+          <span aria-hidden="true">⚠</span>
+          <span>sinal de precatório processado em <b x-text="ufsComSinal()"></b> de 27 estados — ranking parcial; “pot —” = ainda não processado, não zero.</span>
+        </p>
         <div x-show="loading" class="text-xs text-fg-subtle font-mono">acquiring signal…</div>
         <ol class="space-y-2">
           <template x-for="(b, i) in topScore(10)" :key="b.uf">
@@ -506,7 +541,9 @@ Mapa Comercial (Agente 3 — FRONTEND).
                        :style="'width:' + Math.max(3, 100*(b.score_foco||0)/maxScore()) + '%;background:#f97316'"></div>
                 </div>
                 <div class="mt-1 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
-                  <span style="color:#f97316" x-text="'pot ' + fmt(b.potencial)"></span>
+                  <span style="color:#f97316" :class="potDesconhecido(b) ? 'italic opacity-70' : ''"
+                        :title="potDesconhecido(b) ? 'sinal de precatório ainda não processado nesta UF' : ''"
+                        x-text="'pot ' + potLabel(b)"></span>
                   <span style="color:#10b981" x-text="'conf ' + fmt(b.confirmado)"></span>
                   <span x-text="fmtBRL(b.valor)"></span>
                   <span class="ml-auto" :class="cobDesconhecida(b) ? 'italic opacity-70' : ''"
@@ -522,7 +559,7 @@ Mapa Comercial (Agente 3 — FRONTEND).
       <div class="card p-4" x-show="selecionada" x-cloak>
         <div class="flex items-center justify-between mb-1">
           <div class="flex items-center gap-2">
-            {% voy_icon "trajectory" "w-4 h-4 text-info-fg" %}
+            {% voy_icon "trajectory" "w-4 h-4 text-info" %}
             <h2 class="text-lg font-semibold text-fg">
               <span x-text="selecionada ? nomeUf(selecionada) : ''"></span>
               <span class="text-fg-subtle text-sm" x-text="selecionada ? '(' + selecionada + ')' : ''"></span>
@@ -560,7 +597,9 @@ Mapa Comercial (Agente 3 — FRONTEND).
               </div>
               <div class="mt-1 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
                 <span x-text="'vol ' + fmt(t.volume)"></span>
-                <span style="color:#f97316" x-text="'pot ' + fmt(t.potencial)"></span>
+                <span style="color:#f97316" :class="potDesconhecido(t) ? 'italic opacity-70' : ''"
+                      :title="potDesconhecido(t) ? 'sinal de precatório ainda não processado neste tribunal' : ''"
+                      x-text="'pot ' + potLabel(t)"></span>
                 <span style="color:#10b981" x-text="'conf ' + fmt(t.confirmado)"></span>
               </div>
               <div class="mt-0.5 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
