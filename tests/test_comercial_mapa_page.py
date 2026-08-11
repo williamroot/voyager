@@ -81,6 +81,32 @@ def test_potencial_null_tratado_como_desconhecido(user):
     assert 'potLabel' in html
 
 
+def test_glossario_tooltips_presentes(user):
+    """Tooltips explicativos: glossário canônico definido 1x e aplicado via title.
+
+    O exec precisa entender cada número sem perguntar — o shell carrega o
+    GLOSSARIO (fonte única) e os pontos numéricos usam glos('<métrica>').
+    """
+    c = Client()
+    c.force_login(user)
+    html = c.get(reverse(URL_NAME)).content.decode()
+    # objeto canônico definido uma vez
+    assert 'window.GLOSSARIO' in html
+    # trechos-chave de cada texto do glossário (1 por métrica)
+    assert 'não é o acervo oficial do tribunal' in html          # volume
+    assert 'O valor exato do precatório virá do Falcon' in html  # valor
+    assert 'carta precatória' in html                            # potencial
+    assert 'limitado pela cobertura de enriquecimento' in html   # confirmado
+    assert 'já passaram por enriquecimento' in html              # cobertura
+    assert 'densidade de precatório × valor relativo' in html    # score
+    # aplicação via helper glos() em bindings :title (reuso, não copy-paste)
+    assert html.count("glos('potencial')") >= 3   # barra + KPI + Top-N + drill + FED
+    assert html.count("glos('score')") >= 3       # intro + Top-N + drill
+    assert html.count("glos('cobertura')") >= 2   # Top-N + drill
+    # linha de contexto da métrica ativa no tooltip do choropleth
+    assert 'glosMetricaAtiva' in html
+
+
 def test_sem_cdn_externo_na_pagina(user):
     """A página não pode introduzir nenhuma URL http(s) externa (CSP).
 

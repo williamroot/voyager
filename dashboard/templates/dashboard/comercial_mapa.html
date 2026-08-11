@@ -39,6 +39,18 @@ Mapa Comercial (Agente 3 — FRONTEND).
     SC:'Santa Catarina', SP:'São Paulo', SE:'Sergipe', TO:'Tocantins', FED:'Federal',
   };
 
+  // Glossário canônico das métricas — definido UMA vez e reusado em TODO ponto
+  // numérico (KPIs, tooltip do mapa, Top-N, drill-down, Camada Federal) via
+  // title nativo (:title no Alpine). Mesmo texto pra mesma métrica em todo lugar.
+  window.GLOSSARIO = {
+    volume: 'Total de processos que já ingerimos desse tribunal/estado (não é o acervo oficial do tribunal).',
+    valor: 'Soma do valor da causa (fonte pública: Datajud/e-SAJ). R$ 0 = valor ainda não capturado pelo enriquecimento — não significa "sem dinheiro". O valor exato do precatório virá do Falcon.',
+    potencial: "Processos com sinal textual de precatório nas publicações do DJEN (amplo, inclui falsos positivos — ex.: carta precatória). '—' = sinal ainda não processado neste tribunal/estado.",
+    confirmado: 'Processos classificados como PRECATÓRIO pelo modelo de ML — preciso, mas limitado pela cobertura de enriquecimento.',
+    cobertura: '% dos processos do tribunal/estado que já passaram por enriquecimento (Datajud ou robô do tribunal).',
+    score: "densidade de precatório × valor relativo × (1 − cobertura). Prioriza onde é rico em precatório, tem dinheiro e ainda foi pouco explorado. 0.0000 com 'pot —' = ainda não medido, não 'sem oportunidade'.",
+  };
+
   function fmtBRL(v) {
     v = Number(v) || 0;
     if (Math.abs(v) >= 1e9) return 'R$ ' + (v/1e9).toFixed(1).replace('.', ',') + ' bi';
@@ -198,13 +210,19 @@ Mapa Comercial (Agente 3 — FRONTEND).
               const pot = self.potDesconhecido(b)
                 ? '<span style="color:#f97316;opacity:.75;font-style:italic">Potencial: sinal ainda não processado</span>'
                 : '<span style="color:#f97316">Potencial: ' + fmt(b.potencial) + '</span>';
+              // 1 linha curta de contexto da métrica ATIVA (glossário canônico)
+              const ctx = '<div style="max-width:280px;white-space:normal;opacity:.55;'
+                + 'margin-top:4px;font-size:11px;line-height:1.35;border-top:1px solid '
+                + 'rgba(128,128,128,0.25);padding-top:4px">'
+                + self.glosMetricaAtiva() + '</div>';
               return '<b>' + nome + ' (' + b.uf + ')</b><br/>'
                 + 'Volume: ' + fmt(b.volume) + '<br/>'
                 + 'Valor: ' + fmtBRL(b.valor) + '<br/>'
                 + pot + '<br/>'
                 + '<span style="color:#10b981">Confirmado: ' + fmt(b.confirmado) + '</span><br/>'
                 + cob + '<br/>'
-                + '<span style="opacity:.7">score foco: ' + (b.score_foco ?? 0) + '</span>';
+                + '<span style="opacity:.7">score foco: ' + (b.score_foco ?? 0) + '</span>'
+                + ctx;
             },
           },
           visualMap: {
@@ -305,6 +323,13 @@ Mapa Comercial (Agente 3 — FRONTEND).
       // ---- helpers de exibição ----
       fmt(v) { return fmt(v || 0); },
       fmtBRL(v) { return fmtBRL(v); },
+      // texto canônico do glossário (title/tooltip) — fonte única: GLOSSARIO
+      glos(k) { return (window.GLOSSARIO && window.GLOSSARIO[k]) || ''; },
+      // glossário da métrica ATIVA no choropleth (acompanha os toggles)
+      glosMetricaAtiva() {
+        if (this.metricMode === 'valor') return this.glos('valor');
+        return this.glos(this.sinalMode === 'confirmado' ? 'confirmado' : 'potencial');
+      },
       nomeUf(uf) { return window.UF_NOMES[uf] || uf; },
       cobLabel(b) {
         if (b.cobertura_pct === null || b.cobertura_pct === undefined) return 'desconhecida';
@@ -350,12 +375,12 @@ Mapa Comercial (Agente 3 — FRONTEND).
 
   {# ---- barra de honestidade (potencial vs confirmado) ---- #}
   <div class="card p-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 cursor-help" :title="glos('potencial')">
       <span class="inline-block w-3 h-3 rounded-sm" style="background:#f97316"></span>
       <span class="text-fg"><b>Potencial</b></span>
       <span class="text-fg-subtle">sinal DJEN — amplo, tem falso-positivo</span>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 cursor-help" :title="glos('confirmado')">
       <span class="inline-block w-3 h-3 rounded-sm" style="background:#10b981"></span>
       <span class="text-fg"><b>Confirmado</b></span>
       <span class="text-fg-subtle">classificação ML — preciso, limitado pela cobertura</span>
@@ -427,20 +452,20 @@ Mapa Comercial (Agente 3 — FRONTEND).
 
   {# ---- KPIs globais ---- #}
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" x-show="total" x-cloak>
-    <div class="card p-4">
-      <div class="text-xs text-fg-muted uppercase tracking-wide">Volume</div>
+    <div class="card p-4 cursor-help" :title="glos('volume')">
+      <div class="text-xs text-fg-muted uppercase tracking-wide">Volume <span class="text-fg-subtle normal-case" aria-hidden="true">ⓘ</span></div>
       <div class="text-2xl font-mono text-fg mt-1" x-text="fmt(total ? total.volume : 0)"></div>
     </div>
-    <div class="card p-4">
-      <div class="text-xs text-fg-muted uppercase tracking-wide">Valor (R$)</div>
+    <div class="card p-4 cursor-help" :title="glos('valor')">
+      <div class="text-xs text-fg-muted uppercase tracking-wide">Valor (R$) <span class="text-fg-subtle normal-case" aria-hidden="true">ⓘ</span></div>
       <div class="text-2xl font-mono text-fg mt-1" x-text="fmtBRL(total ? total.valor : 0)"></div>
     </div>
-    <div class="card p-4">
-      <div class="text-xs uppercase tracking-wide" style="color:#f97316">Potencial</div>
+    <div class="card p-4 cursor-help" :title="glos('potencial')">
+      <div class="text-xs uppercase tracking-wide" style="color:#f97316">Potencial <span class="text-fg-subtle normal-case" aria-hidden="true">ⓘ</span></div>
       <div class="text-2xl font-mono mt-1" style="color:#f97316" x-text="fmt(total ? total.potencial : 0)"></div>
     </div>
-    <div class="card p-4">
-      <div class="text-xs uppercase tracking-wide" style="color:#10b981">Confirmado</div>
+    <div class="card p-4 cursor-help" :title="glos('confirmado')">
+      <div class="text-xs uppercase tracking-wide" style="color:#10b981">Confirmado <span class="text-fg-subtle normal-case" aria-hidden="true">ⓘ</span></div>
       <div class="text-2xl font-mono mt-1" style="color:#10b981" x-text="fmt(total ? total.confirmado : 0)"></div>
     </div>
   </div>
@@ -453,7 +478,8 @@ Mapa Comercial (Agente 3 — FRONTEND).
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-2">
           <h2 class="text-lg font-semibold text-fg">Choropleth por estado</h2>
-          <span class="text-xs text-fg-subtle" x-text="'· ' + rotuloMetrica()"></span>
+          <span class="text-xs text-fg-subtle cursor-help" :title="glosMetricaAtiva()"
+                x-text="'· ' + rotuloMetrica() + ' ⓘ'"></span>
         </div>
         <div class="flex flex-wrap items-center gap-3">
           {# toggle Volume ↔ R$ #}
@@ -497,12 +523,12 @@ Mapa Comercial (Agente 3 — FRONTEND).
       <template x-if="bucketFED()">
         <div class="mt-4 p-3 rounded-md border border-border bg-surface/60 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <span class="text-xs uppercase tracking-wide text-info font-semibold">Camada Federal (multi-UF)</span>
-          <span class="text-fg-muted">Volume: <span class="font-mono text-fg" x-text="fmt(bucketFED().volume)"></span></span>
-          <span class="text-fg-muted">Valor: <span class="font-mono text-fg" x-text="fmtBRL(bucketFED().valor)"></span></span>
-          <span style="color:#f97316">Potencial:
+          <span class="text-fg-muted cursor-help" :title="glos('volume')">Volume: <span class="font-mono text-fg" x-text="fmt(bucketFED().volume)"></span></span>
+          <span class="text-fg-muted cursor-help" :title="glos('valor')">Valor: <span class="font-mono text-fg" x-text="fmtBRL(bucketFED().valor)"></span></span>
+          <span style="color:#f97316" class="cursor-help" :title="glos('potencial')">Potencial:
             <span class="font-mono" :class="potDesconhecido(bucketFED()) ? 'italic opacity-70' : ''"
                   x-text="potDesconhecido(bucketFED()) ? 'não processado' : fmt(bucketFED().potencial)"></span></span>
-          <span style="color:#10b981">Confirmado: <span class="font-mono" x-text="fmt(bucketFED().confirmado)"></span></span>
+          <span style="color:#10b981" class="cursor-help" :title="glos('confirmado')">Confirmado: <span class="font-mono" x-text="fmt(bucketFED().confirmado)"></span></span>
           <button type="button" @click="abrirUf('FED')" class="ml-auto text-xs px-2 py-1 rounded border border-border text-fg-muted hover:text-fg">ver tribunais →</button>
         </div>
       </template>
@@ -517,7 +543,7 @@ Mapa Comercial (Agente 3 — FRONTEND).
           {% voy_icon "target" "w-4 h-4 text-mission" %}
           <h2 class="text-lg font-semibold text-fg">Ataque primeiro</h2>
         </div>
-        <p class="text-xs text-fg-subtle mb-2">Ranking por <b>score de foco</b> — precatório-rico, com dinheiro, ainda pouco tocado. Clique pra abrir os tribunais.</p>
+        <p class="text-xs text-fg-subtle mb-2">Ranking por <b class="cursor-help" :title="glos('score')">score de foco <span aria-hidden="true">ⓘ</span></b> — precatório-rico, com dinheiro, ainda pouco tocado. Clique pra abrir os tribunais.</p>
         {# caveat honesto: sinal de precatório ainda não cobriu todos os estados #}
         <p x-show="sinalParcial()" x-cloak
            class="text-[0.7rem] mb-3 px-2 py-1.5 rounded border border-warning/40 bg-warning/10 text-warning flex items-start gap-1.5">
@@ -534,19 +560,22 @@ Mapa Comercial (Agente 3 — FRONTEND).
                   <span class="text-xs font-mono text-fg-subtle w-5 text-right" x-text="(i+1)+'.'"></span>
                   <span class="font-semibold text-fg" x-text="b.uf"></span>
                   <span class="text-xs text-fg-muted truncate" x-text="nomeUf(b.uf)"></span>
-                  <span class="ml-auto text-xs font-mono text-mission" x-text="(b.score_foco ?? 0).toFixed(4)"></span>
+                  <span class="ml-auto text-xs font-mono text-mission cursor-help" :title="glos('score')"
+                        x-text="(b.score_foco ?? 0).toFixed(4)"></span>
                 </div>
                 <div class="mt-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
                   <div class="h-full rounded-full" style="background:var(--tw-c-mission,#f97316)"
                        :style="'width:' + Math.max(3, 100*(b.score_foco||0)/maxScore()) + '%;background:#f97316'"></div>
                 </div>
                 <div class="mt-1 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
-                  <span style="color:#f97316" :class="potDesconhecido(b) ? 'italic opacity-70' : ''"
-                        :title="potDesconhecido(b) ? 'sinal de precatório ainda não processado nesta UF' : ''"
+                  <span style="color:#f97316" class="cursor-help" :class="potDesconhecido(b) ? 'italic opacity-70' : ''"
+                        :title="glos('potencial')"
                         x-text="'pot ' + potLabel(b)"></span>
-                  <span style="color:#10b981" x-text="'conf ' + fmt(b.confirmado)"></span>
-                  <span x-text="fmtBRL(b.valor)"></span>
-                  <span class="ml-auto" :class="cobDesconhecida(b) ? 'italic opacity-70' : ''"
+                  <span style="color:#10b981" class="cursor-help" :title="glos('confirmado')"
+                        x-text="'conf ' + fmt(b.confirmado)"></span>
+                  <span class="cursor-help" :title="glos('valor')" x-text="fmtBRL(b.valor)"></span>
+                  <span class="ml-auto cursor-help" :class="cobDesconhecida(b) ? 'italic opacity-70' : ''"
+                        :title="glos('cobertura')"
                         x-text="'val ' + cobLabel(b)"></span>
                 </div>
               </button>
@@ -572,12 +601,12 @@ Mapa Comercial (Agente 3 — FRONTEND).
         </div>
 
         <div x-show="drillTotal" x-cloak class="mb-3 grid grid-cols-2 gap-2 text-xs">
-          <div class="p-2 rounded bg-surface/60 border border-border">
-            <div class="text-fg-subtle">Volume</div>
+          <div class="p-2 rounded bg-surface/60 border border-border cursor-help" :title="glos('volume')">
+            <div class="text-fg-subtle">Volume <span aria-hidden="true">ⓘ</span></div>
             <div class="font-mono text-fg" x-text="fmt(drillTotal ? drillTotal.volume : 0)"></div>
           </div>
-          <div class="p-2 rounded bg-surface/60 border border-border">
-            <div class="text-fg-subtle">Valor</div>
+          <div class="p-2 rounded bg-surface/60 border border-border cursor-help" :title="glos('valor')">
+            <div class="text-fg-subtle">Valor <span aria-hidden="true">ⓘ</span></div>
             <div class="font-mono text-fg" x-text="fmtBRL(drillTotal ? drillTotal.valor : 0)"></div>
           </div>
         </div>
@@ -593,18 +622,21 @@ Mapa Comercial (Agente 3 — FRONTEND).
               <div class="flex items-center gap-2">
                 <span class="text-xs font-mono text-fg-subtle w-5 text-right" x-text="(i+1)+'.'"></span>
                 <span class="font-semibold text-fg" x-text="t.tribunal"></span>
-                <span class="ml-auto text-xs font-mono text-mission" x-text="'score ' + (t.score_foco ?? 0).toFixed(4)"></span>
+                <span class="ml-auto text-xs font-mono text-mission cursor-help" :title="glos('score')"
+                      x-text="'score ' + (t.score_foco ?? 0).toFixed(4)"></span>
               </div>
               <div class="mt-1 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
-                <span x-text="'vol ' + fmt(t.volume)"></span>
-                <span style="color:#f97316" :class="potDesconhecido(t) ? 'italic opacity-70' : ''"
-                      :title="potDesconhecido(t) ? 'sinal de precatório ainda não processado neste tribunal' : ''"
+                <span class="cursor-help" :title="glos('volume')" x-text="'vol ' + fmt(t.volume)"></span>
+                <span style="color:#f97316" class="cursor-help" :class="potDesconhecido(t) ? 'italic opacity-70' : ''"
+                      :title="glos('potencial')"
                       x-text="'pot ' + potLabel(t)"></span>
-                <span style="color:#10b981" x-text="'conf ' + fmt(t.confirmado)"></span>
+                <span style="color:#10b981" class="cursor-help" :title="glos('confirmado')"
+                      x-text="'conf ' + fmt(t.confirmado)"></span>
               </div>
               <div class="mt-0.5 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
-                <span x-text="fmtBRL(t.valor)"></span>
-                <span class="ml-auto" :class="cobDesconhecida(t) ? 'italic opacity-70' : ''"
+                <span class="cursor-help" :title="glos('valor')" x-text="fmtBRL(t.valor)"></span>
+                <span class="ml-auto cursor-help" :class="cobDesconhecida(t) ? 'italic opacity-70' : ''"
+                      :title="glos('cobertura')"
                       x-text="'validado ' + cobLabel(t)"></span>
               </div>
             </li>
