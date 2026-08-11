@@ -204,6 +204,15 @@ def test_score_foco_valor_max_zero_fator_neutro():
     assert score == 0.1
 
 
+def test_score_foco_valor_esparso_bucket_sem_valor_neutro():
+    # valor_causa é esparso (só SP tem hoje): bucket SEM valor num conjunto onde
+    # OUTRO bucket tem → fator neutro pro desconhecido (não multiplica por ~0).
+    dens, score = agg.calcular_score_foco(
+        volume=1000, valor=0.0, potencial=100, cobertura_pct=0, valor_max=1e12)
+    assert dens == 0.1
+    assert score == 0.1  # neutro, não esmagado pelo valor_max de SP
+
+
 def test_score_foco_volume_zero_nao_div0():
     dens, score = agg.calcular_score_foco(
         volume=0, valor=100.0, potencial=0, cobertura_pct=0, valor_max=100.0)

@@ -344,12 +344,19 @@ def calcular_score_foco(volume: int, valor: float, potencial: int,
 
     - cobertura_pct None (sem dado no cache) ⇒ trata como 0 (fator (1−0)=1),
       ou seja, "não tocamos" — o que INFLA o score, coerente com "ataque primeiro".
-    - valor_max 0 (conjunto SEM dado de valor — ex.: federal, valor_causa não vem
-      do DJEN) ⇒ fator valor NEUTRO (1.0): rankeia por densidade×(1−cobertura) em
-      vez de zerar o score inteiro. O front sinaliza "R$ desconhecido".
+    - valor 0/None no BUCKET ⇒ fator valor NEUTRO (1.0). valor_causa é ESPARSO
+      (medido 11/08: só SP tem no ES — federal/DJEN não traz) — desconhecido não é
+      "sem dinheiro"; multiplicar por ~0 mataria o ranking inteiro por falta de
+      dado. O front sinaliza "R$ desconhecido". Quando o valor real (Falcon)
+      entrar, o fator volta a discriminar.
     """
     densidade = (potencial / volume) if volume else 0.0
-    valor_relativo = (valor / valor_max) if valor_max else 1.0
+    if not valor:
+        valor_relativo = 1.0            # desconhecido ≠ zero: neutro
+    elif valor_max:
+        valor_relativo = valor / valor_max
+    else:
+        valor_relativo = 1.0
     cob = 0.0 if cobertura_pct is None else max(0.0, min(cobertura_pct, 100.0)) / 100.0
     score = densidade * valor_relativo * (1.0 - cob)
     return round(densidade, 4), round(score, 4)
