@@ -4,8 +4,10 @@ Sinal precatório computável ANTES de enriquecer (o refill datajud prioriza os 
 Set-based por JANELA DE PK: cada linha usa EXISTS com o índice (processo) sobre a
 movimentação — NÃO varre a tabela de 1,33B (não há índice de texto). ~7ms/proc.
 
-Resumível (só toca tem_sinal_precatorio IS NULL), throttlável (--sleep) e shardável
-(--min-id/--max-id → rode N cópias em paralelo em faixas disjuntas).
+Resumível (só toca tem_sinal_precatorio IS NULL), throttlável (--sleep) e paralelizável:
+o pick usa `FOR UPDATE SKIP LOCKED` dentro de uma transação, então dá pra rodar N cópias
+NO MESMO tribunal que cada uma pega um lote disjunto (sem contention de row-lock). Também
+shardável por --min-id/--max-id.
 
     python manage.py backfill_sinal_precatorio --tribunais TJPR,TRF4,TRF6,TRF2
     python manage.py backfill_sinal_precatorio --tribunais TJPR --min-id 0 --max-id 5000000
@@ -13,7 +15,7 @@ Resumível (só toca tem_sinal_precatorio IS NULL), throttlável (--sleep) e sha
 import time
 
 from django.core.management.base import BaseCommand
-from django.db import connection
+from django.db import connection, transaction
 
 # Sinal de precatório no TEXTO das movimentações (mesmos termos do classificador,
 # _MOVS_AGG_SQL: f11/f12/f13/f14). Precursor do crédito contra a Fazenda.
@@ -52,7 +54,7 @@ class Command(BaseCommand):
                     "AND data_enriquecimento_datajud IS NULL "
                     + ("AND id >= %s " if janela[0] is not None else "")
                     + ("AND id < %s " if janela[1] is not None else "")
-                    + "LIMIT %s")
+                    + "LIMIT %s FOR UPDATE SKIP LOCKED")
         sql_upd = ("UPDATE tribunals_process p SET tem_sinal_precatorio = EXISTS ("
                    "SELECT 1 FROM tribunals_movimentacao m "
                    "WHERE m.processo_id = p.id AND m.texto ~* %s) WHERE p.id = ANY(%s)")
@@ -60,12 +62,16 @@ class Command(BaseCommand):
         feitos = 0
         while True:
             params = [tribs] + [x for x in janela if x is not None] + [batch]
-            with connection.cursor() as c:
-                c.execute(sql_pick, params)
-                ids = [r[0] for r in c.fetchall()]
-                if not ids:
-                    break
-                c.execute(sql_upd, [PADRAO, ids])
+            # pick+update na MESMA transação: o FOR UPDATE SKIP LOCKED segura o lote
+            # até o UPDATE commitar, então cópias paralelas pegam lotes disjuntos.
+            with transaction.atomic():
+                with connection.cursor() as c:
+                    c.execute(sql_pick, params)
+                    ids = [r[0] for r in c.fetchall()]
+                    if ids:
+                        c.execute(sql_upd, [PADRAO, ids])
+            if not ids:
+                break
             feitos += len(ids)
             dt = time.monotonic() - t0
             self.stdout.write(f'  processados {feitos:,} · {feitos/dt:.0f}/s '
