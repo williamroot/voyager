@@ -166,9 +166,17 @@ a casca do mapa (topojson, layout) com dados mock; integra quando os endpoints s
   (choropleth ECharts + toggles Volume↔R$ / Potencial↔Confirmado + drill-down + filtros +
   Top-N "ataque primeiro" + legenda honesta com cobertura null explícita). FED fora do
   choropleth (bloco separado). Link no nav de topo.
-- **Deploy**: prod já tem `elasticsearch 8.19.3` (endpoints rodam); sem migration no módulo
-  (aditivo, login-gated) → hot-deploy.
-- **Fase E** ⏳ QA adversarial contra o prod ao vivo (reconciliar ES×Postgres) após deploy.
+- **Deploy** ✅ FEITO (rebuild web no .103, prod em 9ca1df9). readiness 200; 4 rotas
+  respondem 302 (login) sem 500; smoke real no shell de prod: `agg_por_uf({})` bate no ES
+  (200), volume 71.083.438 / R$ 2,88 tri / confirmado 35.231. Cobertura cache warmado (59
+  tribunais). Página `/dashboard/comercial/mapa/` no ar.
+- **Camadas de dado — estado ao vivo (honesto):**
+  - ✅ **volume, R$, confirmado, cobertura** funcionando agora.
+  - ⏳ **potencial = 0** até sincronizar `tem_sinal_precatorio` Postgres→ES (espera o
+    backfill Fase 0 fechar; loop monitorando). Score de foco fica 0 enquanto potencial=0.
+  - ⏳ **uf incompleto** (18/27 UFs) — `update_by_query` do `uf` ainda enchendo o ES.
+- **Fase E** ⏳ QA adversarial (reconciliar ES×Postgres) — roda DEPOIS que potencial e uf
+  acenderem (senão reconcilia contra camada escura).
 - **Dep externa**: backfill Fase 0 rodando (alimenta `tem_sinal_precatorio`); sync do sinal
   pro ES espera ele fechar (~horas). O mapa já pode subir com `uf` + `classificacao` +
   `valor_causa` e ligar o `potencial` quando o sinal sincronizar.
