@@ -126,11 +126,14 @@ def movimentacao_to_doc_sem_partes(mov: Movimentacao) -> dict:
 
 def processo_to_doc(proc: Process) -> dict:
     """Monta o documento ES do processo (index processos)."""
+    from .geo import uf_do_tribunal
     advs, partes = _serialize_partes(proc)
     source_id = _source_id_for(proc.tribunal_id)
     return {
         'id': proc.id,
         'tribunal': proc.tribunal_id,
+        'uf': uf_do_tribunal(proc.tribunal_id),            # mapa comercial: agrega por estado
+        'tem_sinal_precatorio': proc.tem_sinal_precatorio,  # Fase 0: possível precatório (sinal DJEN)
         'source': source_id,
         'proc': proc.numero_cnj,
         'classe_nome': proc.classe_nome or '',

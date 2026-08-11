@@ -54,6 +54,8 @@ PROC_MAPPING = {
         "properties": {
             "id":              {"type": "long"},
             "tribunal":        {"type": "keyword"},
+            "uf":              {"type": "keyword"},        # mapa comercial: agrega por estado
+            "tem_sinal_precatorio": {"type": "boolean"},   # Fase 0: possível precatório (sinal DJEN)
             "source":          {"type": "integer"},
             "proc":            {"type": "keyword"},
             "classe_nome":     {"type": "keyword"},
