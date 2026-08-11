@@ -492,19 +492,37 @@ class BaseEsajEnricher:
 
     # Mapeamento de papéis comuns no e-SAJ → polo. Abreviados (1º grau) e por
     # extenso (2º grau usa 'Agravante'/'Agravado', 'Apelante'/'Apelado', etc).
+    # Prefixos SEM a vogal final, porque o feminino troca justamente ela:
+    # 'requerido' não casa 'REQUERIDA', 'executado' não casa 'EXECUTADA'.
+    # Medido no banco em 2026-08-10: 33.338 partes de tribunais e-SAJ (TJAL,
+    # TJSP, TJAC) caíram em 'outros' só por causa do gênero — RÉ 19.852,
+    # AGRAVADA 4.178, EXECUTADA 2.821, REQUERIDA 2.654, e por aí.
+    #
+    # O ativo escapou por sorte: 'autor' já cobre 'autora' por prefixo e os
+    # demais ('requerente', 'exequente', 'apelante') são neutros. Mesmo assim
+    # ficam sem a vogal, para não depender de sorte.
     _PAPEIS_ATIVO = (
-        'exeqte', 'reqte', 'requerente', 'autor', 'apte', 'apelante',
-        'embte', 'embargante', 'impte', 'impetrante', 'agvte', 'agravante',
-        'rclte', 'reclamante', 'recte', 'recorrente',
+        # 'exequent' por extenso FALTAVA (só havia a abreviação 'exeqte'):
+        # 'Exequente' caía em 'outros' desde sempre. Achado pelo teste, não
+        # pela leitura.
+        'exequent', 'exeqte', 'reqte', 'requerent', 'autor', 'apte', 'apelant',
+        'embte', 'embargant', 'impte', 'impetrant', 'agvte', 'agravant',
+        'rclte', 'reclamant', 'recte', 'recorrent',
     )
     _PAPEIS_PASSIVO = (
-        'exectdo', 'reqdo', 'requerido', 'réu', 'reu', 'apdo', 'apelado',
-        'embdo', 'embargado', 'impdo', 'impetrado', 'agvdo', 'agravado',
-        'rcldo', 'reclamado', 'recdo', 'recorrido',
+        'exectd', 'reqd', 'requerid', 'apd', 'apelad',
+        'embd', 'embargad', 'impd', 'impetrad', 'agvd', 'agravad',
+        'rcld', 'reclamad', 'recd', 'recorrid', 'executad',
     )
+    # Formas CURTAS vão por igualdade, nunca por prefixo: 'ré'/'re' como
+    # prefixo engoliria 'requerente', 'reclamante' e 'recorrente' — o polo
+    # ativo inteiro viraria passivo.
+    _PAPEIS_PASSIVO_EXATOS = frozenset({'réu', 'reu', 'ré', 'réu/ré', 'reu/re'})
 
     def _polo_para_tipo(self, tipo: str) -> str:
         t = (tipo or '').strip().lower()
+        if t in self._PAPEIS_PASSIVO_EXATOS:
+            return 'passivo'
         if any(t.startswith(p) for p in self._PAPEIS_ATIVO):
             return 'ativo'
         if any(t.startswith(p) for p in self._PAPEIS_PASSIVO):
