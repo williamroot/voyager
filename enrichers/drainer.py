@@ -16,6 +16,7 @@ import signal
 import socket
 import time
 
+import django_rq
 from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -826,6 +827,19 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
         if to_update:
             update_fields = list(all_changed)
             Process.objects.bulk_update(to_update, fields=update_fields, batch_size=500)
+
+    # Write-through ES pós-commit: bulk_update/bulk_create NÃO disparam
+    # post_save — sem isto, processo enriquecido (partes, valor_causa,
+    # enriquecido_em) nunca chegaria ao ES até o próximo reindex manual.
+    # Best-effort: falha de enqueue não pode derrubar o drainer (o reindex
+    # periódico cobre o gap).
+    try:
+        pids_es = list(valid.keys())
+        q = django_rq.get_queue('es_index')
+        for i in range(0, len(pids_es), 500):
+            q.enqueue('search.jobs.indexar_processos_bulk', pids_es[i:i + 500])
+    except Exception:
+        logger.warning('enqueue es_index falhou pro batch — reindex cobre', exc_info=True)
 
     return (len(valid), skipped)
 

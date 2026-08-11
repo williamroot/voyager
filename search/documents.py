@@ -14,12 +14,20 @@ def _get_fonte(tribunal_id: str) -> Optional[FonteDiario]:
     return _FONTE_CACHE[tribunal_id]
 
 
-def _serialize_partes(processo: Process) -> tuple[str, str, bool]:
-    """Retorna (advs_str, partes_str, tem_ente_publico_passivo).
+def _so_digitos(numero: Optional[str]) -> str:
+    """CNJ só dígitos (20) — busca 'colável': casa com ou sem máscara."""
+    return ''.join(ch for ch in (numero or '') if ch.isdigit())
 
-    tem_ente_publico_passivo = devedor público no polo passivo (RE_ENTE_PUBLICO,
-    a mesma regex do Estágio do Crédito) — derivado aqui porque as participações
-    JÁ estão carregadas (zero query extra).
+
+def _serialize_partes(processo: Process) -> tuple[str, str, bool, list[dict]]:
+    """Retorna (advs_str, partes_str, tem_ente_publico_passivo, participacoes).
+
+    - advs/partes: strings concatenadas (compat Jusbrasil/Digesto — full-text).
+    - participacoes: lista pro campo NESTED do doc processos — busca estruturada
+      por polo/papel/documento/OAB ("processos onde X é EXECUTADO").
+    - tem_ente_publico_passivo = devedor público no polo passivo (RE_ENTE_PUBLICO,
+      a mesma regex do Estágio do Crédito) — derivado aqui porque as participações
+      JÁ estão carregadas (zero query extra).
     """
     from tribunals.estagio import RE_ENTE_PUBLICO
     # relação reversa: se o queryset veio com prefetch_related('participacoes'),
@@ -28,17 +36,29 @@ def _serialize_partes(processo: Process) -> tuple[str, str, bool]:
     pps = processo.participacoes.all()
     advs = []
     partes = []
+    participacoes = []
     tem_ente = False
     for pp in pps:
-        if pp.parte.tipo == 'advogado' or 'ADVOGADO' in (pp.papel or ''):
+        eh_advogado = pp.parte.tipo == 'advogado' or 'ADVOGADO' in (pp.papel or '')
+        if eh_advogado:
             nome = pp.parte.nome
             if pp.parte.oab:
                 nome = f'{nome} (OAB {pp.parte.oab})'
             advs.append(nome)
         partes.append(pp.parte.nome)
+        participacoes.append({
+            'parte_id': pp.parte_id,
+            'nome': pp.parte.nome,
+            'documento': pp.parte.documento or None,
+            'oab': pp.parte.oab or None,
+            'tipo': pp.parte.tipo,
+            'polo': pp.polo,
+            'papel': pp.papel or '',
+            'eh_advogado': eh_advogado,
+        })
         if not tem_ente and pp.polo == 'passivo' and RE_ENTE_PUBLICO.search(pp.parte.nome or ''):
             tem_ente = True
-    return ', '.join(advs), ', '.join(partes), tem_ente
+    return ', '.join(advs), ', '.join(partes), tem_ente, participacoes
 
 
 def _source_id_for(tribunal_id: str) -> Optional[int]:
@@ -64,7 +84,7 @@ def _periodico_slugs(tribunal_id: str) -> dict:
 def movimentacao_to_doc(mov: Movimentacao) -> dict:
     """Monta o documento ES no formato Jusbrasil/Digesto."""
     proc = mov.processo
-    advs, partes, _ = _serialize_partes(proc)
+    advs, partes, _, _ = _serialize_partes(proc)
     source_id = _source_id_for(mov.tribunal_id)
     slugs = _periodico_slugs(mov.tribunal_id)
     return {
@@ -78,6 +98,7 @@ def movimentacao_to_doc(mov: Movimentacao) -> dict:
         'docurl': mov.link,
         'cached_docurl': None,  # populado por pdf_storage se disponível
         'proc': proc.numero_cnj,
+        'proc_digits': _so_digitos(proc.numero_cnj),
         'proc_alt': None,
         'proc_apens': None,
         'advs': advs,
@@ -91,6 +112,7 @@ def movimentacao_to_doc(mov: Movimentacao) -> dict:
         'ativo': mov.ativo,
         'recorte_id': mov.id,
         'tipo_comunicacao': mov.tipo_comunicacao,
+        'tipo_documento': mov.tipo_documento,
         'nome_orgao': mov.nome_orgao,
         **slugs,
     }
@@ -115,6 +137,7 @@ def movimentacao_to_doc_sem_partes(mov: Movimentacao) -> dict:
         'docurl': mov.link,
         'cached_docurl': None,
         'proc': proc.numero_cnj,
+        'proc_digits': _so_digitos(proc.numero_cnj),
         'proc_alt': None,
         'proc_apens': None,
         'advs': '',
@@ -128,6 +151,7 @@ def movimentacao_to_doc_sem_partes(mov: Movimentacao) -> dict:
         'ativo': mov.ativo,
         'recorte_id': mov.id,
         'tipo_comunicacao': mov.tipo_comunicacao,
+        'tipo_documento': mov.tipo_documento,
         'nome_orgao': mov.nome_orgao,
         **slugs,
     }
@@ -141,7 +165,7 @@ def processo_to_doc(proc: Process) -> dict:
     atualizar o mapping + reindexar.
     """
     from .geo import uf_do_tribunal
-    advs, partes, tem_ente = _serialize_partes(proc)
+    advs, partes, tem_ente, participacoes = _serialize_partes(proc)
     source_id = _source_id_for(proc.tribunal_id)
     # "validado" = passou por QUALQUER enriquecimento (tribunal/djen/datajud)
     enriquecido_em = (proc.data_enriquecimento_datajud or proc.data_enriquecimento_tribunal
@@ -153,13 +177,16 @@ def processo_to_doc(proc: Process) -> dict:
         'tem_sinal_precatorio': proc.tem_sinal_precatorio,  # Fase 0: possível precatório (sinal DJEN)
         'source': source_id,
         'proc': proc.numero_cnj,
+        'proc_digits': _so_digitos(proc.numero_cnj),
         'classe_nome': proc.classe_nome or '',
         'codigo_classe': proc.classe_codigo or '',
         'assunto': proc.assunto_nome or '',
         'assunto_codigo': proc.assunto_codigo or '',
         'advs': advs,
         'partes': partes,
+        'participacoes': participacoes,
         'orgao_julgador': proc.orgao_julgador_nome or '',
+        'juizo': proc.juizo or '',
         'valor_causa': float(proc.valor_causa) if proc.valor_causa else None,
         'ano_cnj': proc.ano_cnj,
         'data_autuacao': proc.data_autuacao.isoformat() if proc.data_autuacao else None,
@@ -170,8 +197,10 @@ def processo_to_doc(proc: Process) -> dict:
         'segredo_justica': proc.segredo_justica,
         'classificacao': proc.classificacao or '',
         'classificacao_score': proc.classificacao_score,
+        'classificacao_versao': proc.classificacao_versao or '',
         'classificacao_em': proc.classificacao_em.isoformat() if proc.classificacao_em else None,
         'enriquecido': enriquecido_em is not None,
         'enriquecido_em': enriquecido_em.isoformat() if enriquecido_em else None,
+        'enriquecimento_status': proc.enriquecimento_status or '',
         'tem_ente_publico_passivo': tem_ente,
     }

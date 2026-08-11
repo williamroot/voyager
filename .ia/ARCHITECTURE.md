@@ -37,12 +37,13 @@ voyager/
                     query_string, is_in_list
                   - static/dashboard/: voyager-identity.css + favicon.svg + voyager-patch.svg
 ├── search/        Elasticsearch — indexação write-through.
+│                 Schema canônico + regras: .ia/SEARCH_SCHEMA.md
 │                 - client.py: singleton get_es() + index_name()
-│                 - mappings.py: mappings ES (movimentacoes, processos)
+│                 - mappings.py: mappings ES (movimentacoes, processos c/ partes nested)
 │                 - documents.py: serialização ORM → doc ES (formato Jusbrasil)
 │                 - signals.py: post_save/post_delete → enqueue indexação
-│                 - jobs.py: indexar/desindexar (fila es_index)
-│                 - management/commands/: es_ensure_indexes, reindexar_*
+│                 - jobs.py: indexar/desindexar + indexar_processos_bulk (fila es_index)
+│                 - management/commands/: es_ensure_indexes, reindexar_*, sync_sinal_es
 ├── pdf_storage/   Download e armazenamento de PDFs no MinIO (cached_docurl).
 │                 - models.py: PdfArquivo (OneToOne Movimentacao, status)
 │                 - jobs.py: baixar_pdf (fila pdf_download, retry 3x)

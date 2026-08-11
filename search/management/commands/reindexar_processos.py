@@ -25,6 +25,11 @@ class Command(BaseCommand):
         parser.add_argument('--batch-size', type=int, default=2000, help='Tamanho do bulk.')
         parser.add_argument('--sleep', type=float, default=0.0,
                             help='Pausa (s) entre bulks — throttle do DB (I/O sensível).')
+        parser.add_argument('--desde-id', type=int, default=0,
+                            help='Retoma de id > N (o progresso loga o range; resume manual).')
+        parser.add_argument('--somente-enriquecidos', action='store_true',
+                            help='Só processos com enriquecido_em (únicos que têm partes/'
+                                 'valor — fase 1 do backfill do schema novo).')
 
     def handle(self, *args, **options):
         es = getattr(settings, 'ELASTICSEARCH_URL', 'http://elasticsearch:9200').rstrip('/')
@@ -40,6 +45,12 @@ class Command(BaseCommand):
               .order_by('id'))
         if options['tribunal']:
             qs = qs.filter(tribunal_id=options['tribunal'])
+        if options['desde_id']:
+            qs = qs.filter(id__gt=options['desde_id'])
+        if options['somente_enriquecidos']:
+            # enriquecido_em é setado em TODO caminho do drainer (ok/nao_encontrado/
+            # erro) e é indexado — seek barato; só esses docs têm partes/valor.
+            qs = qs.filter(enriquecido_em__isnull=False)
         if options['limit']:
             qs = qs[:options['limit']]
 
@@ -70,9 +81,11 @@ class Command(BaseCommand):
 
         actions = []
         enviados = 0
+        ultimo_id = 0
         t0 = time.monotonic()
         for proc in qs.iterator(chunk_size=bs):
             actions.append((proc.id, processo_to_doc(proc)))
+            ultimo_id = proc.id
             if len(actions) >= bs:
                 flush(actions)
                 enviados += len(actions)
@@ -81,7 +94,8 @@ class Command(BaseCommand):
                 rate = enviados / el if el else 0
                 eta = (total - enviados) / rate / 60 if rate else 0
                 self.stdout.write(f'  {enviados:,}/{total:,} '
-                                  f'({100 * enviados / max(total, 1):.1f}%) · {rate:.0f}/s · ETA {eta:.0f}min')
+                                  f'({100 * enviados / max(total, 1):.1f}%) · id={ultimo_id} '
+                                  f'· {rate:.0f}/s · ETA {eta:.0f}min')
                 self.stdout.flush()
                 if slp:
                     time.sleep(slp)

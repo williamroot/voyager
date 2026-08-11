@@ -8,8 +8,8 @@ from tribunals.models import Movimentacao, Process
 
 # Campos que, se mudaram, justificam reindexar.
 MOV_TRACKED = frozenset({
-    'texto', 'tipo_comunicacao', 'nome_orgao', 'nome_classe', 'codigo_classe',
-    'link', 'ativo', 'assunto_norm', 'data_disponibilizacao',
+    'texto', 'tipo_comunicacao', 'tipo_documento', 'nome_orgao', 'nome_classe',
+    'codigo_classe', 'link', 'ativo', 'assunto_norm', 'data_disponibilizacao',
 })
 
 
@@ -37,6 +37,20 @@ def proc_post_save(sender, instance, created, update_fields, **kwargs):
 def proc_post_delete(sender, instance, **kwargs):
     q = django_rq.get_queue('es_index')
     q.enqueue('search.jobs.desindexar_processo', instance.id)
+
+
+# ProcessoParte NÃO tem signal de propósito (auditoria ES-SCHEMA, 2026-08):
+# o doc do processo carrega as partes (nested `participacoes`), mas TODO caminho
+# que escreve ProcessoParte já reindexa o processo por outra via —
+#   - apply_event (enrichers diretos + drainer per-event): termina em
+#     processo.save(update_fields=...) → proc_post_save ✔
+#   - apply_batch (drainer bulk): bulk_update não dispara signal; o drainer
+#     enfileira search.jobs.indexar_processos_bulk explicitamente ✔
+# Um signal em ProcessoParte multiplicaria a fila es_index por ~2N jobs
+# redundantes por enriquecimento (o wipe+reinsert dispara post_delete/post_save
+# POR LINHA). Comandos de manutenção em massa (dedup_partes, recategorizar_
+# tipo_partes) usam SQL cru — signal nunca dispararia; rodar reindex direcionado
+# depois (ver .ia/SEARCH_SCHEMA.md).
 
 
 def _should_index_mov(instance, update_fields) -> bool:
