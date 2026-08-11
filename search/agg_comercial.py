@@ -32,7 +32,10 @@ Objeto BUCKET (unidade de resposta, mesma forma pra UF e tribunal):
       "tribunal": "TJSP",      // presente na visão por-tribunal
       "volume": 123456,        // int  — nº de processos
       "valor": 9876543.21,     // float — soma de valor_causa (R$)
-      "potencial": 4200,       // int  — tem_sinal_precatorio=true
+      "potencial": 4200,       // int|null — tem_sinal_precatorio=true; NULL se o
+                               //   sinal nunca foi computado no bucket (backfill
+                               //   Fase 0 não passou) — desconhecido ≠ zero
+      "sinal_processado": true,// bool — backfill do sinal já cobriu o bucket?
       "confirmado": 810,       // int  — classificacao=PRECATORIO
       "cobertura_pct": 42.5,   // float 0..100 — % validado (cache; null se pending)
       "densidade": 0.034,      // float 0..1
@@ -89,6 +92,8 @@ recuperar (ex.: `uf` ausente em /tribunais) devolve 400 com `{"erro": "..."}`.
 --------------------------------------------------------------------------------
 """
 import datetime
+import hashlib
+import json
 import logging
 
 from django.core.cache import cache
@@ -259,6 +264,10 @@ def _metric_subaggs() -> dict:
         'valor': {'sum': {'field': 'valor_causa'}},
         'potencial': {'filter': {'term': {'tem_sinal_precatorio': True}}},
         'confirmado': {'filter': {'term': {'classificacao': CLASSIF_CONFIRMADO}}},
+        # quantos docs do bucket TÊM o sinal computado (true OU false). 0 ⇒ o
+        # backfill Fase 0 não passou por ali ⇒ potencial é DESCONHECIDO (null),
+        # não zero — achado do QA: SP parecia "sem precatório" no modo Potencial.
+        'sinal_conhecido': {'filter': {'exists': {'field': 'tem_sinal_precatorio'}}},
     }
 
 
@@ -370,11 +379,16 @@ def _parse_buckets(resp: dict, campo: str) -> list:
     raw = (resp.get('aggregations', {}).get('buckets', {}).get('buckets', []))
     out = []
     for b in raw:
+        sinal_conhecido = b.get('sinal_conhecido', {}).get('doc_count', 0)
+        potencial = b.get('potencial', {}).get('doc_count', 0)
         out.append({
             campo: b['key'],
             'volume': b['doc_count'],
             'valor': round(b.get('valor', {}).get('value') or 0.0, 2),
-            'potencial': b.get('potencial', {}).get('doc_count', 0),
+            # sinal nunca computado no bucket ⇒ potencial DESCONHECIDO (null),
+            # não "0 precatórios" — o front sinaliza "não processado".
+            'potencial': potencial if sinal_conhecido else None,
+            'sinal_processado': bool(sinal_conhecido),
             'confirmado': b.get('confirmado', {}).get('doc_count', 0),
         })
     return out
@@ -400,7 +414,7 @@ def _enriquecer_buckets(buckets: list, campo: str, cobertura_map: dict) -> list:
         cob = cobertura_map.get(chave)
         b['cobertura_pct'] = cob
         dens, score = calcular_score_foco(
-            b['volume'], b['valor'], b['potencial'], cob, valor_max)
+            b['volume'], b['valor'], b['potencial'] or 0, cob, valor_max)
         b['densidade'] = dens
         b['score_foco'] = score
     buckets.sort(key=lambda x: x['score_foco'], reverse=True)
@@ -442,12 +456,19 @@ def agg_por_uf(filtros: dict | None = None) -> dict:
     Retorna {'ufs': [...], 'total': {...}, 'filtros': {...}, 'gerado_em': iso}.
     """
     filtros = filtros or {}
-    cache_key = None
+    # cache POR COMBINAÇÃO de filtros (achado do QA: range em 71M = 2,7-4,9s por
+    # request sem cache; o warm de 5min só existia pro agregado sem filtro).
+    # Filtrado usa TTL menor (2min) — é exploração interativa, staleness ok.
     if _sem_filtro(filtros):
         cache_key = f'{_CACHE_PREFIX}:uf:v1'
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
+        ttl = CACHE_TTL
+    else:
+        chave = json.dumps(filtros, sort_keys=True, default=str)
+        cache_key = f'{_CACHE_PREFIX}:uf:f:{hashlib.md5(chave.encode()).hexdigest()}'
+        ttl = 120
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     resp = _run(build_body_por_campo('uf', filtros))
     total_resp = _run(build_body_total(filtros))
@@ -461,8 +482,7 @@ def agg_por_uf(filtros: dict | None = None) -> dict:
         'filtros': filtros,
         'gerado_em': _agora_iso(),
     }
-    if cache_key:
-        cache.set(cache_key, payload, CACHE_TTL)
+    cache.set(cache_key, payload, ttl)
     return payload
 
 
@@ -476,13 +496,17 @@ def agg_tribunais(uf: str, filtros: dict | None = None) -> dict:
     uf = (uf or '').strip().upper()
     filtros['uf'] = uf
 
-    cache_key = None
-    # cacheia o drill-down default (só uf) por 5min
+    # drill-down default (só uf) 5min; filtrado por combinação, 2min (QA: 349ms+)
     if set(filtros.keys()) == {'uf'}:
         cache_key = f'{_CACHE_PREFIX}:trib:{uf}:v1'
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
+        ttl = CACHE_TTL
+    else:
+        chave = json.dumps(filtros, sort_keys=True, default=str)
+        cache_key = f'{_CACHE_PREFIX}:trib:f:{hashlib.md5(chave.encode()).hexdigest()}'
+        ttl = 120
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     resp = _run(build_body_por_campo('tribunal', filtros))
     total_resp = _run(build_body_total(filtros))
@@ -497,8 +521,7 @@ def agg_tribunais(uf: str, filtros: dict | None = None) -> dict:
         'filtros': filtros,
         'gerado_em': _agora_iso(),
     }
-    if cache_key:
-        cache.set(cache_key, payload, CACHE_TTL)
+    cache.set(cache_key, payload, ttl)
     return payload
 
 

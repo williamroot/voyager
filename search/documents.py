@@ -167,9 +167,12 @@ def processo_to_doc(proc: Process) -> dict:
     from .geo import uf_do_tribunal
     advs, partes, tem_ente, participacoes = _serialize_partes(proc)
     source_id = _source_id_for(proc.tribunal_id)
-    # "validado" = passou por QUALQUER enriquecimento (tribunal/djen/datajud)
-    enriquecido_em = (proc.data_enriquecimento_datajud or proc.data_enriquecimento_tribunal
-                      or proc.data_enriquecimento_djen or proc.enriquecido_em)
+    # "validado" = passou por QUALQUER enriquecimento (tribunal/djen/datajud).
+    # max() das datas — QA: a cadeia de or priorizava datajud e subnotificava
+    # freshness (doc enriquecido hoje mostrava data de maio).
+    datas = [d for d in (proc.data_enriquecimento_datajud, proc.data_enriquecimento_tribunal,
+                         proc.data_enriquecimento_djen, proc.enriquecido_em) if d]
+    enriquecido_em = max(datas) if datas else None
     return {
         'id': proc.id,
         'tribunal': proc.tribunal_id,

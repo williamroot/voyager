@@ -32,6 +32,10 @@ def _es_resp_terms(campo, buckets):
                         'doc_count': b['volume'],
                         'valor': {'value': b.get('valor', 0.0)},
                         'potencial': {'doc_count': b.get('potencial', 0)},
+                        # default: sinal processado no bucket inteiro (docs com o
+                        # campo presente); use sinal_conhecido=0 pra simular UF
+                        # não-backfillada (potencial → None)
+                        'sinal_conhecido': {'doc_count': b.get('sinal_conhecido', b['volume'])},
                         'confirmado': {'doc_count': b.get('confirmado', 0)},
                     }
                     for b in buckets
@@ -204,6 +208,21 @@ def test_score_foco_valor_max_zero_fator_neutro():
     assert score == 0.1
 
 
+def test_parse_buckets_sinal_nao_processado_potencial_null():
+    # UF onde o backfill Fase 0 nunca passou (nenhum doc tem o campo) →
+    # potencial=None + sinal_processado=False (desconhecido ≠ zero; achado do QA:
+    # SP parecia "sem precatório" no modo Potencial).
+    resp = _es_resp_terms('uf', [
+        {'key': 'SP', 'volume': 1000, 'potencial': 0, 'sinal_conhecido': 0},
+        {'key': 'PR', 'volume': 500, 'potencial': 40, 'sinal_conhecido': 500},
+    ])
+    out = agg._parse_buckets(resp, 'uf')
+    sp = next(b for b in out if b['uf'] == 'SP')
+    pr = next(b for b in out if b['uf'] == 'PR')
+    assert sp['potencial'] is None and sp['sinal_processado'] is False
+    assert pr['potencial'] == 40 and pr['sinal_processado'] is True
+
+
 def test_score_foco_valor_esparso_bucket_sem_valor_neutro():
     # valor_causa é esparso (só SP tem hoje): bucket SEM valor num conjunto onde
     # OUTRO bucket tem → fator neutro pro desconhecido (não multiplica por ~0).
@@ -238,6 +257,8 @@ def test_agg_por_uf_monta_query_e_calcula_score(mock_get_es, mock_cob):
     mock_get_es.return_value = es
     mock_cob.return_value = {'SP': 20.0, 'RJ': 80.0}
 
+    from django.core.cache import cache
+    cache.clear()  # consultas filtradas agora também têm cache (por combinação)
     out = agg.agg_por_uf({'ano_min': 2020})
 
     # 1 request de terms + 1 de total (não N requests)
