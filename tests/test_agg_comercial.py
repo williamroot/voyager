@@ -195,10 +195,13 @@ def test_score_foco_cobertura_none_trata_como_zero():
     assert score == 0.1
 
 
-def test_score_foco_valor_max_zero_nao_div0():
+def test_score_foco_valor_max_zero_fator_neutro():
+    # conjunto sem dado de valor (ex.: federal, DJEN não traz valor_causa) →
+    # fator valor NEUTRO: rankeia por densidade×(1−cobertura) em vez de zerar.
     dens, score = agg.calcular_score_foco(
         volume=1000, valor=0.0, potencial=100, cobertura_pct=0, valor_max=0.0)
-    assert score == 0.0
+    assert dens == 0.1
+    assert score == 0.1
 
 
 def test_score_foco_volume_zero_nao_div0():

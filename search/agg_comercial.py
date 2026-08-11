@@ -344,10 +344,12 @@ def calcular_score_foco(volume: int, valor: float, potencial: int,
 
     - cobertura_pct None (sem dado no cache) ⇒ trata como 0 (fator (1−0)=1),
       ou seja, "não tocamos" — o que INFLA o score, coerente com "ataque primeiro".
-    - valor_max 0 ⇒ valor_relativo 0 (evita div/0), score 0.
+    - valor_max 0 (conjunto SEM dado de valor — ex.: federal, valor_causa não vem
+      do DJEN) ⇒ fator valor NEUTRO (1.0): rankeia por densidade×(1−cobertura) em
+      vez de zerar o score inteiro. O front sinaliza "R$ desconhecido".
     """
     densidade = (potencial / volume) if volume else 0.0
-    valor_relativo = (valor / valor_max) if valor_max else 0.0
+    valor_relativo = (valor / valor_max) if valor_max else 1.0
     cob = 0.0 if cobertura_pct is None else max(0.0, min(cobertura_pct, 100.0)) / 100.0
     score = densidade * valor_relativo * (1.0 - cob)
     return round(densidade, 4), round(score, 4)
