@@ -148,3 +148,26 @@ fases 1+2 ≈ 8–11h, total 71M ≈ 18–25h de execução líquida.
   candidatos a receber os CNJ vinculados (tema TJSP incidentes CNJ).
 - **`data_envio`, `meio`, `numero_comunicacao`, `hash`**: operacionais,
   ficam só no PG.
+
+## Freshness contínua — sync incremental (11/08)
+
+O write-through por signal cobre `.save()` unitário. TRÊS fluxos de volume escrevem
+em LOTE e não disparam signal — eram buracos por onde o ES envelhecia:
+
+| Fluxo | Escrita | Cobertura |
+|---|---|---|
+| Ingestão DJEN (Process/Movimentacao) | `bulk_create` | ❌ era → ✅ `sync_es_incremental` |
+| Reclassificação em lote | `.update()` | ❌ era (QA mediu −26% no confirmado) → ✅ idem |
+| `tem_sinal_precatorio` de processo NOVO | nada computava | ❌ era → ✅ computado no tick |
+| Enriquecimento (drainer `apply_batch`) | `bulk_update` | ✅ enfileira bulk (fix 11/08) |
+| `.save()` unitário | ORM | ✅ signal |
+
+**`search/sync_incremental.py`** → job `sync_es_incremental` no scheduler (10 min, INLINE):
+- **processos novos**: keyset por `id > watermark` → computa o sinal **antes** de indexar
+  (senão o doc entra com `tem_sinal_precatorio` NULL) → enfileira bulk na `es_index`;
+- **processos atualizados**: watermark por `atualizado_em`; se bate o teto, avança só
+  até o último lido (não pula o resto);
+- **movimentações novas**: keyset por `id`.
+- 1º tick **ancora** os watermarks no topo (não reprocessa a base — pra isso existe o
+  `reindexar_processos`). Tetos por tick, kill-switch `cache.set('sync_es:off', True)`,
+  bloco que falha não derruba o tick. 7 testes em `tests/test_sync_incremental.py`.

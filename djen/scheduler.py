@@ -19,6 +19,8 @@ from django.db import close_old_connections
 
 from tribunals.models import Tribunal
 
+from search.sync_incremental import tick_sync_es_incremental
+
 from dashboard.tasks import (
     refresh_ingestion_rate_hora,
     refresh_materialized_views,
@@ -274,6 +276,22 @@ def create_scheduler() -> BlockingScheduler:
         'interval',
         minutes=10,
         id='warm_vetorizacao_fleet',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # Sync incremental Postgres → ES — INLINE, a cada 10 min.
+    # Fecha os 3 fluxos que escrevem em LOTE e NÃO disparam signal (logo, nunca
+    # chegavam ao ES sozinhos): ingestão DJEN (bulk_create de Process/Movimentacao),
+    # reclassificação em lote (.update()) e o tem_sinal_precatorio de processo
+    # novo. Keyset/watermark no cache, teto por tick, kill-switch `sync_es:off`.
+    # Sem isto o ES envelhece e o mapa comercial volta a mentir por omissão.
+    scheduler.add_job(
+        tick_sync_es_incremental,
+        'interval',
+        minutes=10,
+        id='sync_es_incremental',
         replace_existing=True,
         max_instances=1,
         coalesce=True,
