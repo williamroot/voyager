@@ -154,8 +154,21 @@ a casca do mapa (topojson, layout) com dados mock; integra quando os endpoints s
 
 ## Status de execução (o general mantém aqui)
 - **Fase A** ✅ concluída (uf + tem_sinal_precatorio no doc/mapping; commit f413ef2).
-- **Fase B** ⏳ próxima (ES-DATA).
-- **Fases C/D/E** ⏳ pendentes.
+- **Fase B** 🟢 rodando (ES-DATA): mapping aplicado; `uf` populando via update_by_query.
+- **Fase C** ✅ concluída (BACKEND; commit a7acb75). Gate do general PASS: 24 testes,
+  `manage.py check` limpo, índice ES reconciliado com `search/client.py`. Endpoints
+  `/dashboard/api/comercial/{mapa,tribunais,top}` login-gated; contrato no topo de
+  `search/agg_comercial.py`. Pendência de infra: pacote `elasticsearch` no ambiente
+  que roda o web em prod (dev container não tem; testes rodam sem, por design).
+- **Fase D** ✅ concluída (FRONTEND). Gate do general PASS: `check` limpo, 5 testes,
+  zero URL externa no template (CSP ok — ECharts + GeoJSON servidos por `{% static %}`),
+  GeoJSON dos 27 estados (simplificado, 144KB). Página `/dashboard/comercial/mapa/`
+  (choropleth ECharts + toggles Volume↔R$ / Potencial↔Confirmado + drill-down + filtros +
+  Top-N "ataque primeiro" + legenda honesta com cobertura null explícita). FED fora do
+  choropleth (bloco separado). Link no nav de topo.
+- **Deploy**: prod já tem `elasticsearch 8.19.3` (endpoints rodam); sem migration no módulo
+  (aditivo, login-gated) → hot-deploy.
+- **Fase E** ⏳ QA adversarial contra o prod ao vivo (reconciliar ES×Postgres) após deploy.
 - **Dep externa**: backfill Fase 0 rodando (alimenta `tem_sinal_precatorio`); sync do sinal
   pro ES espera ele fechar (~horas). O mapa já pode subir com `uf` + `classificacao` +
   `valor_causa` e ligar o `potencial` quando o sinal sincronizar.

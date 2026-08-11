@@ -1,0 +1,579 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+{% load voyager_extras %}
+
+{% block title %}Mapa Comercial{% endblock %}
+
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Mapa Comercial de Precatórios' subtitle='Onde estão os precatórios — por estado e por tribunal. Reflete <strong>o que já processamos</strong>, não a verdade do Brasil: <span class="text-mission">potencial</span> (sinal DJEN, amplo) ≠ <span class="text-accent-fg">confirmado</span> (ML, preciso), e <span class="text-fg-muted">% validado</span> diz o quanto ainda mal tocamos.' %}
+
+{% comment %}
+Mapa Comercial (Agente 3 — FRONTEND).
+- ECharts servido localmente (base.html) — CSP: zero CDN externo.
+- GeoJSON dos 27 estados em {% static 'dashboard/geo/brasil-uf.geojson' %}
+  (properties.name = UF; registrado como mapa 'brasil'). Federal (FED) fica
+  FORA do choropleth de propósito (processo federal é multi-UF) — aparece à parte.
+- Todos os dados vêm dos 3 endpoints JSON (login-gated). Toggles re-pintam a
+  partir dos dados já carregados (todos os campos vêm no bucket). Filtros e
+  drill-down re-requestam.
+{% endcomment %}
+
+<script>
+  // URL do GeoJSON local (resolvido pelo Django; sem CDN).
+  window.COMERCIAL_GEOJSON_URL = "{% static 'dashboard/geo/brasil-uf.geojson' %}";
+
+  // Endpoints resolvidos via url tag (nomes reais, evita hardcode de path).
+  window.COMERCIAL_URLS = {
+    mapa: "{% url 'dashboard:comercial-mapa' %}",
+    tribunais: "{% url 'dashboard:comercial-tribunais' %}",
+    top: "{% url 'dashboard:comercial-top' %}",
+  };
+
+  // Nomes completos dos estados (rótulo de tooltip/painel; o mapa usa a sigla).
+  window.UF_NOMES = {
+    AC:'Acre', AL:'Alagoas', AP:'Amapá', AM:'Amazonas', BA:'Bahia', CE:'Ceará',
+    DF:'Distrito Federal', ES:'Espírito Santo', GO:'Goiás', MA:'Maranhão',
+    MT:'Mato Grosso', MS:'Mato Grosso do Sul', MG:'Minas Gerais', PA:'Pará',
+    PB:'Paraíba', PR:'Paraná', PE:'Pernambuco', PI:'Piauí', RJ:'Rio de Janeiro',
+    RN:'Rio Grande do Norte', RS:'Rio Grande do Sul', RO:'Rondônia', RR:'Roraima',
+    SC:'Santa Catarina', SP:'São Paulo', SE:'Sergipe', TO:'Tocantins', FED:'Federal',
+  };
+
+  function fmtBRL(v) {
+    v = Number(v) || 0;
+    if (Math.abs(v) >= 1e9) return 'R$ ' + (v/1e9).toFixed(1).replace('.', ',') + ' bi';
+    if (Math.abs(v) >= 1e6) return 'R$ ' + (v/1e6).toFixed(1).replace('.', ',') + ' mi';
+    if (Math.abs(v) >= 1e3) return 'R$ ' + (v/1e3).toFixed(1).replace('.', ',') + ' mil';
+    return 'R$ ' + v.toLocaleString('pt-BR', {maximumFractionDigits: 0});
+  }
+
+  // Estado da página — padrão Alpine da casa (função nomeada, não objeto inline gigante).
+  function comercialMapa() {
+    return {
+      // ---- dados ----
+      ufs: [],            // buckets por UF (ordenados por score_foco desc pelo backend)
+      total: null,        // agregado global
+      geradoEm: null,
+      loading: true,
+      erro: null,
+
+      // ---- toggles ----
+      metricMode: 'volume',   // 'volume' | 'valor'
+      sinalMode: 'potencial', // 'potencial' | 'confirmado'
+
+      // ---- filtros ----
+      filtros: {
+        classificacao: '', tipo: '', natureza: '', codigo_classe: '',
+        ano_min: '', ano_max: '', valor_min: '', valor_max: '',
+      },
+
+      // ---- drill-down ----
+      selecionada: null,      // UF selecionada
+      drillLoading: false,
+      drillErro: null,
+      tribunais: [],
+      drillTotal: null,
+
+      _chart: null,
+      _mapReady: false,
+
+      async init() {
+        // 1) registra o mapa (uma vez) 2) carrega dados
+        try {
+          await this.registrarMapa();
+        } catch (e) {
+          this.erro = 'Não consegui carregar o mapa do Brasil (' + (e.message || e) + ').';
+          this.loading = false;
+          return;
+        }
+        // re-pinta ao trocar tema (base.html dispara initAllCharts; garantimos aqui)
+        this.$watch('metricMode', () => this.pintar());
+        this.$watch('sinalMode', () => this.pintar());
+        await this.carregar();
+        // re-render em troca de tema (as cores de eixo/label mudam)
+        window.addEventListener('voy:theme', () => this.pintar());
+      },
+
+      async registrarMapa() {
+        if (window._brasilMapRegistrado) { this._mapReady = true; return; }
+        const resp = await fetch(window.COMERCIAL_GEOJSON_URL, {credentials: 'same-origin'});
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const geo = await resp.json();
+        echarts.registerMap('brasil', geo);
+        window._brasilMapRegistrado = true;
+        this._mapReady = true;
+      },
+
+      querystring() {
+        const p = new URLSearchParams();
+        for (const [k, v] of Object.entries(this.filtros)) {
+          if (v !== '' && v !== null && v !== undefined) p.set(k, v);
+        }
+        return p.toString();
+      },
+
+      async carregar() {
+        this.loading = true;
+        this.erro = null;
+        try {
+          const qs = this.querystring();
+          const url = window.COMERCIAL_URLS.mapa + (qs ? ('?' + qs) : '');
+          const resp = await fetch(url, {credentials: 'same-origin', headers: {'Accept': 'application/json'}});
+          const json = await resp.json();
+          if (!resp.ok) throw new Error(json.erro || ('HTTP ' + resp.status));
+          this.ufs = json.ufs || [];
+          this.total = json.total || null;
+          this.geradoEm = json.gerado_em || null;
+          this.loading = false;
+          this.$nextTick(() => this.pintar());
+          // se havia uma UF selecionada, recarrega o drill sob os novos filtros
+          if (this.selecionada) this.abrirUf(this.selecionada, true);
+        } catch (e) {
+          this.erro = String(e.message || e);
+          this.loading = false;
+        }
+      },
+
+      // valor da métrica ativa pra um bucket, respeitando os dois toggles.
+      metricaDe(b) {
+        if (this.metricMode === 'valor') {
+          // no modo R$, o toggle potencial/confirmado não muda o eixo de valor
+          // (não temos valor separado por sinal) — mostramos o valor do bucket.
+          return b.valor || 0;
+        }
+        return this.sinalMode === 'confirmado' ? (b.confirmado || 0) : (b.potencial || 0);
+      },
+
+      rotuloMetrica() {
+        if (this.metricMode === 'valor') return 'Valor (R$)';
+        return this.sinalMode === 'confirmado' ? 'Confirmados (ML)' : 'Potenciais (sinal DJEN)';
+      },
+
+      // buckets que caem no choropleth = só UFs geográficas (FED fica de fora).
+      ufsGeo() {
+        return this.ufs.filter(b => b.uf && b.uf !== 'FED');
+      },
+      bucketFED() {
+        return this.ufs.find(b => b.uf === 'FED') || null;
+      },
+
+      pintar() {
+        if (!this._mapReady) return;
+        const el = this.$refs.mapa;
+        if (!el) return;
+        const geo = this.ufsGeo();
+        const c = chartGridColors();
+        const isDark = document.documentElement.classList.contains('dark');
+        const data = geo.map(b => ({
+          name: b.uf,
+          value: this.metricaDe(b),
+          bucket: b,
+        }));
+        const vals = data.map(d => d.value).filter(v => v > 0);
+        const max = vals.length ? Math.max(...vals) : 1;
+        const emR$ = this.metricMode === 'valor';
+
+        const self = this;
+        const opts = {
+          backgroundColor: 'transparent',
+          tooltip: {
+            trigger: 'item',
+            confine: true,
+            backgroundColor: isDark ? 'rgba(10,10,11,0.94)' : 'rgba(255,255,255,0.98)',
+            borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+            textStyle: {color: isDark ? '#e4e4e7' : '#27272a', fontSize: 12},
+            formatter: function (p) {
+              const b = p.data && p.data.bucket;
+              if (!b) return (window.UF_NOMES[p.name] || p.name) + '<br/>sem dado';
+              const nome = window.UF_NOMES[b.uf] || b.uf;
+              const cob = (b.cobertura_pct === null || b.cobertura_pct === undefined)
+                ? '<span style="opacity:.7">cobertura desconhecida</span>'
+                : (Number(b.cobertura_pct).toFixed(1) + '% validado');
+              return '<b>' + nome + ' (' + b.uf + ')</b><br/>'
+                + 'Volume: ' + fmt(b.volume) + '<br/>'
+                + 'Valor: ' + fmtBRL(b.valor) + '<br/>'
+                + '<span style="color:#f97316">Potencial: ' + fmt(b.potencial) + '</span><br/>'
+                + '<span style="color:#10b981">Confirmado: ' + fmt(b.confirmado) + '</span><br/>'
+                + cob + '<br/>'
+                + '<span style="opacity:.7">score foco: ' + (b.score_foco ?? 0) + '</span>';
+            },
+          },
+          visualMap: {
+            type: 'continuous',
+            min: 0,
+            max: max,
+            left: 'left',
+            bottom: 8,
+            calculable: true,
+            text: ['alto', 'baixo'],
+            textStyle: {color: c.axisLabel, fontSize: 10},
+            inRange: {
+              color: emR$
+                ? ['#0c2a2a', '#0f766e', '#10b981', '#6ee7b7']
+                : ['#2a1505', '#9a3412', '#f97316', '#fdba74'],
+            },
+            formatter: emR$ ? (v) => fmtBRL(v) : (v) => fmtCompact(v),
+          },
+          series: [{
+            type: 'map',
+            map: 'brasil',
+            roam: true,
+            scaleLimit: {min: 1, max: 8},
+            data: data,
+            nameProperty: 'name',
+            label: {show: false},
+            emphasis: {
+              label: {show: true, color: isDark ? '#fff' : '#111',
+                      fontFamily: 'JetBrains Mono, monospace', fontSize: 11},
+              itemStyle: {areaColor: isDark ? '#f59e0b' : '#fbbf24'},
+            },
+            select: {
+              itemStyle: {areaColor: isDark ? '#f97316' : '#fb923c',
+                          borderColor: '#fff', borderWidth: 1.4},
+            },
+            itemStyle: {
+              borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.12)',
+              borderWidth: 0.6,
+              // estados sem dado ficam cinza translúcido (não "0% pintado")
+              areaColor: isDark ? 'rgba(63,63,70,0.35)' : 'rgba(228,228,231,0.6)',
+            },
+          }],
+        };
+
+        // reusa a instância; setupChart persiste opts + remove skeleton
+        setupChart(el, opts);
+        this._chart = echarts.getInstanceByDom(el);
+        if (this._chart && !el._clickBound) {
+          this._chart.on('click', (p) => {
+            if (p && p.name) self.abrirUf(p.name);
+          });
+          el._clickBound = true;
+        }
+      },
+
+      async abrirUf(uf, silent) {
+        this.selecionada = uf;
+        if (!silent) this.drillLoading = true;
+        this.drillErro = null;
+        // destaca a UF no mapa
+        if (this._chart) {
+          this._chart.dispatchAction({type: 'unselect', seriesIndex: 0});
+          this._chart.dispatchAction({type: 'select', seriesIndex: 0, name: uf});
+        }
+        try {
+          const qs = this.querystring();
+          const sep = qs ? '&' : '';
+          const url = window.COMERCIAL_URLS.tribunais + '?uf=' + encodeURIComponent(uf) + sep + qs;
+          const resp = await fetch(url, {credentials: 'same-origin', headers: {'Accept': 'application/json'}});
+          const json = await resp.json();
+          if (!resp.ok) throw new Error(json.erro || ('HTTP ' + resp.status));
+          this.tribunais = json.tribunais || [];
+          this.drillTotal = json.total || null;
+        } catch (e) {
+          this.drillErro = String(e.message || e);
+          this.tribunais = [];
+        } finally {
+          this.drillLoading = false;
+        }
+      },
+
+      fecharDrill() {
+        this.selecionada = null;
+        this.tribunais = [];
+        this.drillTotal = null;
+        if (this._chart) this._chart.dispatchAction({type: 'unselect', seriesIndex: 0});
+      },
+
+      aplicarFiltros() { this.carregar(); },
+      limparFiltros() {
+        for (const k of Object.keys(this.filtros)) this.filtros[k] = '';
+        this.carregar();
+      },
+      temFiltro() {
+        return Object.values(this.filtros).some(v => v !== '' && v !== null && v !== undefined);
+      },
+
+      // ---- helpers de exibição ----
+      fmt(v) { return fmt(v || 0); },
+      fmtBRL(v) { return fmtBRL(v); },
+      nomeUf(uf) { return window.UF_NOMES[uf] || uf; },
+      cobLabel(b) {
+        if (b.cobertura_pct === null || b.cobertura_pct === undefined) return 'desconhecida';
+        return Number(b.cobertura_pct).toFixed(1) + '%';
+      },
+      cobDesconhecida(b) {
+        return b.cobertura_pct === null || b.cobertura_pct === undefined;
+      },
+      // Top-N por score (reusa o array `ufs`, já ordenado por score_foco desc)
+      topScore(n) { return (this.ufs || []).slice(0, n || 8); },
+      // maior score entre os buckets (pra barra relativa)
+      maxScore() {
+        return Math.max(0.0001, ...(this.ufs || []).map(b => b.score_foco || 0));
+      },
+      geradoLegivel() {
+        if (!this.geradoEm) return '';
+        try { return new Date(this.geradoEm).toLocaleString('pt-BR'); }
+        catch (e) { return this.geradoEm; }
+      },
+    };
+  }
+</script>
+
+<div x-data="comercialMapa()" x-init="init()" class="space-y-6">
+
+  {# ---- barra de honestidade (potencial vs confirmado) ---- #}
+  <div class="card p-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+    <div class="flex items-center gap-2">
+      <span class="inline-block w-3 h-3 rounded-sm" style="background:#f97316"></span>
+      <span class="text-fg"><b>Potencial</b></span>
+      <span class="text-fg-subtle">sinal DJEN — amplo, tem falso-positivo</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="inline-block w-3 h-3 rounded-sm" style="background:#10b981"></span>
+      <span class="text-fg"><b>Confirmado</b></span>
+      <span class="text-fg-subtle">classificação ML — preciso, limitado pela cobertura</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="inline-block w-3 h-3 rounded-sm" style="background:rgba(120,120,130,0.5)"></span>
+      <span class="text-fg-subtle">cinza = sem dado / cobertura desconhecida (não é "zero")</span>
+    </div>
+    <div class="ml-auto text-xs text-fg-subtle font-mono" x-show="geradoEm" x-cloak>
+      atualizado <span x-text="geradoLegivel()"></span>
+    </div>
+  </div>
+
+  {# ---- filtros ---- #}
+  <div class="card p-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Classificação</span>
+        <select x-model="filtros.classificacao" @change="aplicarFiltros()"
+                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <option value="">todas</option>
+          <option value="PRECATORIO">Precatório</option>
+          <option value="PRE_PRECATORIO">Pré-precatório</option>
+          <option value="DIREITO_CREDITORIO">Direito creditório</option>
+          <option value="NAO_LEAD">Não lead</option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Tipo de sinal</span>
+        <select x-model="filtros.tipo" @change="aplicarFiltros()"
+                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <option value="">qualquer</option>
+          <option value="potencial">Só com sinal (potencial)</option>
+          <option value="confirmado">Só confirmados (ML)</option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Natureza / classe (código)</span>
+        <input type="text" x-model="filtros.natureza" @change="aplicarFiltros()" inputmode="numeric"
+               placeholder="ex.: 1116"
+               class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+      </label>
+      <div class="flex flex-col gap-1">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Ano CNJ (min / max)</span>
+        <div class="flex gap-2">
+          <input type="number" x-model="filtros.ano_min" @change="aplicarFiltros()" placeholder="min" min="1990" max="2100"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <input type="number" x-model="filtros.ano_max" @change="aplicarFiltros()" placeholder="max" min="1990" max="2100"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+        </div>
+      </div>
+      <div class="flex flex-col gap-1">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Valor R$ (min / max)</span>
+        <div class="flex gap-2">
+          <input type="number" x-model="filtros.valor_min" @change="aplicarFiltros()" placeholder="min" min="0"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <input type="number" x-model="filtros.valor_max" @change="aplicarFiltros()" placeholder="max" min="0"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+        </div>
+      </div>
+      <div class="flex items-end">
+        <button type="button" @click="limparFiltros()" x-show="temFiltro()" x-cloak
+                class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-subtle focus:outline-none focus:ring-2 focus:ring-accent/40">
+          Limpar filtros
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# ---- KPIs globais ---- #}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" x-show="total" x-cloak>
+    <div class="card p-4">
+      <div class="text-xs text-fg-muted uppercase tracking-wide">Volume</div>
+      <div class="text-2xl font-mono text-fg mt-1" x-text="fmt(total ? total.volume : 0)"></div>
+    </div>
+    <div class="card p-4">
+      <div class="text-xs text-fg-muted uppercase tracking-wide">Valor (R$)</div>
+      <div class="text-2xl font-mono text-fg mt-1" x-text="fmtBRL(total ? total.valor : 0)"></div>
+    </div>
+    <div class="card p-4">
+      <div class="text-xs uppercase tracking-wide" style="color:#f97316">Potencial</div>
+      <div class="text-2xl font-mono mt-1" style="color:#f97316" x-text="fmt(total ? total.potencial : 0)"></div>
+    </div>
+    <div class="card p-4">
+      <div class="text-xs uppercase tracking-wide" style="color:#10b981">Confirmado</div>
+      <div class="text-2xl font-mono mt-1" style="color:#10b981" x-text="fmt(total ? total.confirmado : 0)"></div>
+    </div>
+  </div>
+
+  {# ---- grid: mapa + painel lateral ---- #}
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    {# ---- mapa ---- #}
+    <div class="lg:col-span-2 card p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div class="flex items-center gap-2">
+          <h2 class="text-lg font-semibold text-fg">Choropleth por estado</h2>
+          <span class="text-xs text-fg-subtle" x-text="'· ' + rotuloMetrica()"></span>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          {# toggle Volume ↔ R$ #}
+          <div class="inline-flex rounded-md border border-border overflow-hidden text-xs" role="group" aria-label="Métrica">
+            <button type="button" @click="metricMode='volume'"
+                    :class="metricMode==='volume' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg'"
+                    class="px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40">Volume</button>
+            <button type="button" @click="metricMode='valor'"
+                    :class="metricMode==='valor' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg'"
+                    class="px-3 py-1.5 border-l border-border focus:outline-none focus:ring-2 focus:ring-accent/40">R$</button>
+          </div>
+          {# toggle Potencial ↔ Confirmado (só faz sentido no modo Volume) #}
+          <div class="inline-flex rounded-md border border-border overflow-hidden text-xs"
+               role="group" aria-label="Sinal" :class="metricMode==='valor' ? 'opacity-40 pointer-events-none' : ''">
+            <button type="button" @click="sinalMode='potencial'"
+                    :class="sinalMode==='potencial' ? 'text-white' : 'text-fg-muted hover:text-fg'"
+                    :style="sinalMode==='potencial' ? 'background:#f97316' : ''"
+                    class="px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40">Potencial</button>
+            <button type="button" @click="sinalMode='confirmado'"
+                    :class="sinalMode==='confirmado' ? 'text-white' : 'text-fg-muted hover:text-fg'"
+                    :style="sinalMode==='confirmado' ? 'background:#10b981' : ''"
+                    class="px-3 py-1.5 border-l border-border focus:outline-none focus:ring-2 focus:ring-accent/40">Confirmado</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="relative chart-cell" style="height: 30rem;">
+        <div class="chart-skeleton" x-show="loading" x-cloak>
+          <div class="pulsar-mark">acquiring signal</div>
+        </div>
+        <div x-show="erro" x-cloak class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-danger">
+          {% voy_icon "signal-lost" "w-6 h-6" %}
+          <span class="text-xs font-mono uppercase tracking-widest">signal lost</span>
+          <span class="text-xs text-fg-subtle" x-text="erro"></span>
+          <button type="button" @click="carregar()" class="mt-2 text-xs px-3 py-1 rounded border border-border hover:text-fg">tentar de novo</button>
+        </div>
+        <div x-ref="mapa" data-echart='{}' class="absolute inset-0"></div>
+      </div>
+
+      {# federal — camada separada, NUNCA misturada no choropleth #}
+      <template x-if="bucketFED()">
+        <div class="mt-4 p-3 rounded-md border border-border bg-surface/60 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <span class="text-xs uppercase tracking-wide text-info-fg font-semibold">Camada Federal (multi-UF)</span>
+          <span class="text-fg-muted">Volume: <span class="font-mono text-fg" x-text="fmt(bucketFED().volume)"></span></span>
+          <span class="text-fg-muted">Valor: <span class="font-mono text-fg" x-text="fmtBRL(bucketFED().valor)"></span></span>
+          <span style="color:#f97316">Potencial: <span class="font-mono" x-text="fmt(bucketFED().potencial)"></span></span>
+          <span style="color:#10b981">Confirmado: <span class="font-mono" x-text="fmt(bucketFED().confirmado)"></span></span>
+          <button type="button" @click="abrirUf('FED')" class="ml-auto text-xs px-2 py-1 rounded border border-border text-fg-muted hover:text-fg">ver tribunais →</button>
+        </div>
+      </template>
+    </div>
+
+    {# ---- painel lateral: Top-N por score OU drill-down ---- #}
+    <div class="lg:col-span-1 space-y-4">
+
+      {# Top-N "ataque primeiro" — some quando um estado está selecionado #}
+      <div class="card p-4" x-show="!selecionada" x-cloak>
+        <div class="flex items-center gap-2 mb-1">
+          {% voy_icon "target" "w-4 h-4 text-mission" %}
+          <h2 class="text-lg font-semibold text-fg">Ataque primeiro</h2>
+        </div>
+        <p class="text-xs text-fg-subtle mb-3">Ranking por <b>score de foco</b> — precatório-rico, com dinheiro, ainda pouco tocado. Clique pra abrir os tribunais.</p>
+        <div x-show="loading" class="text-xs text-fg-subtle font-mono">acquiring signal…</div>
+        <ol class="space-y-2">
+          <template x-for="(b, i) in topScore(10)" :key="b.uf">
+            <li>
+              <button type="button" @click="abrirUf(b.uf)"
+                      class="w-full text-left group focus:outline-none focus:ring-2 focus:ring-accent/40 rounded-md p-1.5 -m-1.5 hover:bg-muted/40">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-mono text-fg-subtle w-5 text-right" x-text="(i+1)+'.'"></span>
+                  <span class="font-semibold text-fg" x-text="b.uf"></span>
+                  <span class="text-xs text-fg-muted truncate" x-text="nomeUf(b.uf)"></span>
+                  <span class="ml-auto text-xs font-mono text-mission" x-text="(b.score_foco ?? 0).toFixed(4)"></span>
+                </div>
+                <div class="mt-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                  <div class="h-full rounded-full" style="background:var(--tw-c-mission,#f97316)"
+                       :style="'width:' + Math.max(3, 100*(b.score_foco||0)/maxScore()) + '%;background:#f97316'"></div>
+                </div>
+                <div class="mt-1 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
+                  <span style="color:#f97316" x-text="'pot ' + fmt(b.potencial)"></span>
+                  <span style="color:#10b981" x-text="'conf ' + fmt(b.confirmado)"></span>
+                  <span x-text="fmtBRL(b.valor)"></span>
+                  <span class="ml-auto" :class="cobDesconhecida(b) ? 'italic opacity-70' : ''"
+                        x-text="'val ' + cobLabel(b)"></span>
+                </div>
+              </button>
+            </li>
+          </template>
+        </ol>
+      </div>
+
+      {# drill-down: tribunais da UF selecionada #}
+      <div class="card p-4" x-show="selecionada" x-cloak>
+        <div class="flex items-center justify-between mb-1">
+          <div class="flex items-center gap-2">
+            {% voy_icon "trajectory" "w-4 h-4 text-info-fg" %}
+            <h2 class="text-lg font-semibold text-fg">
+              <span x-text="selecionada ? nomeUf(selecionada) : ''"></span>
+              <span class="text-fg-subtle text-sm" x-text="selecionada ? '(' + selecionada + ')' : ''"></span>
+            </h2>
+          </div>
+          <button type="button" @click="fecharDrill()" aria-label="Fechar"
+                  class="text-fg-subtle hover:text-fg focus:outline-none focus:ring-2 focus:ring-accent/40 rounded p-1">
+            {% voy_icon "clear" "w-4 h-4" %}
+          </button>
+        </div>
+
+        <div x-show="drillTotal" x-cloak class="mb-3 grid grid-cols-2 gap-2 text-xs">
+          <div class="p-2 rounded bg-surface/60 border border-border">
+            <div class="text-fg-subtle">Volume</div>
+            <div class="font-mono text-fg" x-text="fmt(drillTotal ? drillTotal.volume : 0)"></div>
+          </div>
+          <div class="p-2 rounded bg-surface/60 border border-border">
+            <div class="text-fg-subtle">Valor</div>
+            <div class="font-mono text-fg" x-text="fmtBRL(drillTotal ? drillTotal.valor : 0)"></div>
+          </div>
+        </div>
+
+        <div x-show="drillLoading" class="text-xs text-fg-subtle font-mono">acquiring signal…</div>
+        <div x-show="drillErro" x-cloak class="text-xs text-danger" x-text="drillErro"></div>
+        <div x-show="!drillLoading && !drillErro && tribunais.length===0" x-cloak
+             class="text-xs text-fg-subtle italic">Sem tribunais com dado nesta UF sob os filtros atuais.</div>
+
+        <ol class="space-y-2">
+          <template x-for="(t, i) in tribunais" :key="t.tribunal">
+            <li class="p-2 rounded-md border border-border bg-surface/40">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-mono text-fg-subtle w-5 text-right" x-text="(i+1)+'.'"></span>
+                <span class="font-semibold text-fg" x-text="t.tribunal"></span>
+                <span class="ml-auto text-xs font-mono text-mission" x-text="'score ' + (t.score_foco ?? 0).toFixed(4)"></span>
+              </div>
+              <div class="mt-1 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
+                <span x-text="'vol ' + fmt(t.volume)"></span>
+                <span style="color:#f97316" x-text="'pot ' + fmt(t.potencial)"></span>
+                <span style="color:#10b981" x-text="'conf ' + fmt(t.confirmado)"></span>
+              </div>
+              <div class="mt-0.5 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
+                <span x-text="fmtBRL(t.valor)"></span>
+                <span class="ml-auto" :class="cobDesconhecida(t) ? 'italic opacity-70' : ''"
+                      x-text="'validado ' + cobLabel(t)"></span>
+              </div>
+            </li>
+          </template>
+        </ol>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

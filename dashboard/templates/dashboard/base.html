@@ -433,6 +433,12 @@
         {% voy_icon "radar" "w-4 h-4" %}
         Command Center
       </a>
+      {% url 'dashboard:comercial-mapa-page' as comercial_mapa_url %}
+      <a href="{{ comercial_mapa_url }}" class="nav-item {% if request.path == comercial_mapa_url %}active{% endif %}">
+        {% voy_icon "target" "w-4 h-4" %}
+        <span class="nav-label">Mapa Comercial</span>
+        <span class="nav-tag" title="novo">✨</span>
+      </a>
       <a href="{{ overview_url }}" class="nav-item {% if request.path == overview_url %}active{% endif %}">
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral

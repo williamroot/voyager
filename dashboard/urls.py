@@ -86,6 +86,7 @@ urlpatterns = [
     path('api/chart/<str:key>/', views.chart_data, name='api-chart'),
 
     # Mapa Comercial de Precatórios — agregações ES (choropleth + drill-down + ranking)
+    path('comercial/mapa/', comercial_views.comercial_mapa_page, name='comercial-mapa-page'),
     path('api/comercial/mapa', comercial_views.comercial_mapa, name='comercial-mapa'),
     path('api/comercial/tribunais', comercial_views.comercial_tribunais, name='comercial-tribunais'),
     path('api/comercial/top', comercial_views.comercial_top, name='comercial-top'),

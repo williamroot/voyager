@@ -13,6 +13,7 @@ import logging
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
 from search import agg_comercial
@@ -23,6 +24,18 @@ logger = logging.getLogger('voyager.comercial.views')
 def _json(payload, status=200):
     # default=str garante serialização de qualquer resíduo (datas etc.)
     return JsonResponse(payload, status=status, json_dumps_params={'default': str})
+
+
+@login_required
+@require_GET
+def comercial_mapa_page(request):
+    """GET /dashboard/comercial/mapa/ — página HTML do Mapa Comercial (choropleth).
+
+    Só renderiza o shell; TODOS os dados vêm dos 3 endpoints JSON
+    (`comercial-mapa`/`comercial-tribunais`/`comercial-top`) via fetch no browser.
+    Nenhuma query pesada aqui — o Postgres não é tocado.
+    """
+    return render(request, 'dashboard/comercial_mapa.html')
 
 
 @login_required
