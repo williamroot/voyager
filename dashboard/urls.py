@@ -2,6 +2,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
 from . import views
+from . import comercial_views
 from . import showcase_analise
 from . import showcase_chunks
 from . import showcase_export
@@ -83,6 +84,11 @@ urlpatterns = [
     path('leads/export/', views.leads_export_csv, name='leads-export'),
     path('api/leads/<str:key>/', views.leads_chart_data, name='leads-chart'),
     path('api/chart/<str:key>/', views.chart_data, name='api-chart'),
+
+    # Mapa Comercial de Precatórios — agregações ES (choropleth + drill-down + ranking)
+    path('api/comercial/mapa', comercial_views.comercial_mapa, name='comercial-mapa'),
+    path('api/comercial/tribunais', comercial_views.comercial_tribunais, name='comercial-tribunais'),
+    path('api/comercial/top', comercial_views.comercial_top, name='comercial-top'),
     path('jobs/<str:job_id>/status/', views.job_status, name='job-status'),
     path('wizard/', views.WizardView.as_view(), name='wizard'),
     path('wizard/count/', views.WizardCountView.as_view(), name='wizard-count'),
