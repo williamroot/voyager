@@ -18,6 +18,10 @@ DRF read-only sob `/api/v1/`. Auth via API key (`Authorization: Api-Key <key>`).
 | GET | `/api/v1/leads/` | Próximos N leads não consumidos (Juriscope integration) |
 | POST | `/api/v1/leads/consumed/` | Enfileira consumo (async, 202) — requer `lote_id` |
 | GET | `/api/v1/leads/stats/` | Métricas agregadas pro cliente |
+| GET | `/api/v1/busca/processos/<cnj>/` | **Busca v1 (ES)** — doc completo por CNJ exato |
+| GET | `/api/v1/busca/processos/<cnj>/movimentacoes/` | Movs do processo (cursor search_after) |
+| GET | `/api/v1/busca/processos/` | Busca parte/advogado/valor + filtros combinados |
+| GET | `/api/v1/busca/movimentacoes/` | Full-text no body + highlight (ver seção Busca v1) |
 | GET | `/api/v1/health/` | Readiness rico (503 se lag >36h em algum ativo) |
 | GET | `/api/v1/health/liveness/` | Liveness simples (200 sempre se up) |
 | GET | `/api/v1/schema/` | OpenAPI (drf-spectacular) |
@@ -163,6 +167,88 @@ Erros:
   "modelo_versao": "v5", "modelo_atualizado_em": "..."
 }
 ```
+
+## API de Busca v1 (`/api/v1/busca/*`) — 100% Elasticsearch
+
+Busca rica pra clientes/integrações. Lê SÓ o ES (`voyager-processos` ~71M docs,
+`voyager-movimentacoes` ~1.16B) — Postgres de prod é contido, nunca tocado.
+Serviço: `search/busca_api.py` (contrato completo no docstring). Views:
+`api/busca_views.py`. Auth: `HasAPIKeyOrBearer` (Bearer | Api-Key | X-API-Key).
+
+**Erros (nunca 500 cru)**: `400 {"erro": "cnj_invalido|cursor_invalido|informe_q_proc_ou_tribunal"}`,
+`404 {"erro": "processo_nao_encontrado"}`, `503 {"erro": "elasticsearch_indisponivel"}`.
+
+**Paginação**: cursor opaco (`next_cursor`, search_after em base64) — NUNCA
+from/size (índice de 1.16B docs estoura o max_result_window de 10k). Repassar
+`cursor=` intocado; `null` = acabou. `total` tem cap ES de 10k (`relation: "gte"`).
+`size` clampa em [1, 100] (default 20; movs do processo 50).
+
+| Método | Path | Descrição |
+|---|---|---|
+| GET | `/api/v1/busca/processos/<cnj>/` | Doc completo por CNJ exato (term `proc`; aceita máscara ou 20 dígitos) |
+| GET | `/api/v1/busca/processos/<cnj>/movimentacoes/` | Movs do processo (publish_date desc, cursor) |
+| GET | `/api/v1/busca/processos/` | Busca por parte/advogado/valor + filtros combinados |
+| GET | `/api/v1/busca/movimentacoes/` | Full-text no body das publicações + highlight |
+
+### `GET /busca/processos/` — params
+
+- **Texto** (match AND, combináveis): `parte=` (campo `partes`), `advogado=`
+  (campo `advs`; aceita nome ou nº OAB — o doc traz "Nome (OAB XXX)").
+- **Filtros**: `tribunal=` (CSV ⇒ terms), `uf=`, `ano_min/ano_max` (ano_cnj,
+  clamp [1990, atual]), `classificacao=`, `tem_sinal_precatorio=`,
+  `tem_ente_publico_passivo=`, `segredo_justica=`, `enriquecido=` (bools
+  true/false/1/0), `codigo_classe=`, `assunto_codigo=` (TPU),
+  `valor_min/valor_max` (valor_causa; negativo ignorado),
+  `ultima_mov_gte/lte`, `autuacao_gte/lte` (ISO).
+- **`ordenar=`**: `relevancia` (default com texto) | `recente`
+  (ultima_movimentacao_em desc, default sem texto) | `valor_desc` | `valor_asc`
+  (sem valor vai pro fim). Sort sempre com tiebreaker `id` (search_after estável).
+- Inválido degrada limpo: ano clampado, faixa invertida ordenada, enum
+  desconhecido cai no default.
+
+```bash
+curl -sH 'X-API-Key: K' 'https://voyager.was.dev.br/api/v1/busca/processos/?parte=estado+de+sao+paulo&tribunal=TJSP&tem_sinal_precatorio=1&valor_min=100000&ordenar=valor_desc&size=10'
+```
+```json
+{"versao": "v1", "total": {"value": 10000, "relation": "gte"},
+ "results": [ { ...doc ES do processo (proc, tribunal, uf, partes, advs,
+                valor_causa, ano_cnj, classificacao, ...)... } ],
+ "size": 10, "next_cursor": "WzEyMy45LDQ1Nl0", "ordenar": "valor_desc",
+ "filtros": {"tribunal": ["TJSP"], "tem_sinal_precatorio": true,
+             "valor_min": 100000.0, "parte": "estado de sao paulo"}}
+```
+
+### `GET /busca/movimentacoes/` — params
+
+`q=` full-text no `body` (match AND) com highlight (`<em>`, 3×200 chars).
+Exige pelo menos um de `q`/`proc`/`tribunal` (400 senão). Filtros: `tribunal=`
+(CSV), `proc=` (CNJ), `tipo_comunicacao=`, `codigo_classe=`,
+`publicado_gte/lte` (publish_date, ISO). `ordenar=`: `relevancia` (default com
+q) | `recente`. A lista NÃO devolve o `body` inteiro (payload) — texto completo
+via `/busca/processos/<cnj>/movimentacoes/` ou `/diarios-oficiais/doc/get/<id>`.
+
+```bash
+curl -sH 'X-API-Key: K' 'https://voyager.was.dev.br/api/v1/busca/movimentacoes/?q=precat%C3%B3rio&tribunal=TJSP&publicado_gte=2026-07-01'
+```
+```json
+{"versao": "v1", "total": {"value": 10000, "relation": "gte"},
+ "results": [{"id": 1271133182, "proc": "1105916-36.2026.8.26.0053",
+              "tribunal": "TJSP", "publish_date": "2026-07-15T03:00:00+00:00",
+              "tipo_comunicacao": "Intimação", "nome_orgao": "...",
+              "classe_nome": "...", "codigo_classe": "...", "docurl": "...",
+              "highlight": ["...apresentação do <em>precatório</em>..."]}],
+ "size": 20, "next_cursor": "...", "ordenar": "relevancia",
+ "filtros": {"tribunal": ["TJSP"], "publicado_gte": "2026-07-01", "q": "precatório"}}
+```
+
+### Limitações (ago/2026)
+
+- `parte`/`advogado` = match textual em campo concatenado (sem polo/CPF/CNPJ).
+  Upgrade: nested `participacoes` já está no mapping, mas cobertura prod = 0 até
+  reindex; aí entram `parte_polo=`/`parte_documento=`/`oab=` sem breaking change.
+- Campos novos (data_autuacao, segredo_justica, enriquecido, assunto_codigo...)
+  só existem em docs reindexados pós-7d03bab — filtrar por eles restringe ao subset.
+- `valor_causa` tem outliers de digitação (o serviço não higieniza).
 
 ## API Jusbrasil/Digesto-compat (Diários Oficiais)
 

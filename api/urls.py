@@ -2,6 +2,7 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
+from . import busca_views
 from . import diarios_views
 from . import leads as leads_views
 from . import monitoring_views
@@ -29,6 +30,13 @@ urlpatterns = [
     path('leads/', leads_views.listar_leads, name='leads-list'),
     path('leads/consumed/', leads_views.marcar_consumidos, name='leads-consumed'),
     path('leads/stats/', leads_views.stats, name='leads-stats'),
+
+    # API de Busca v1 (100% Elasticsearch — ver search/busca_api.py)
+    path('busca/processos/', busca_views.busca_processos, name='busca-processos'),
+    path('busca/processos/<str:cnj>/', busca_views.busca_processo, name='busca-processo'),
+    path('busca/processos/<str:cnj>/movimentacoes/',
+         busca_views.busca_processo_movimentacoes, name='busca-processo-movs'),
+    path('busca/movimentacoes/', busca_views.busca_movimentacoes, name='busca-movimentacoes'),
 
     # Diários Oficiais (Jusbrasil/Digesto-compat)
     path('diarios-oficiais/doc/buscar', diarios_views.diario_buscar, name='diario-buscar'),
