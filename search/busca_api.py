@@ -555,6 +555,13 @@ def buscar_processos(parte=None, advogado=None, filtros=None, ordenar=None,
         'size': size,
         'sort': sort,
         'timeout': ES_QUERY_TIMEOUT,
+        # Sem isto o ES para de contar em 10.000 e devolve
+        # {"value": 10000, "relation": "gte"} — a busca por "Instituto Nacional
+        # do Seguro Social" dizia "10.000+" quando são 4.402.239 processos.
+        # "10 mil ou mais" e "4,4 milhões" levam a decisões comerciais opostas.
+        # Custa uma contagem exata por busca; num índice de 71M com filtro por
+        # termo o ES resolve por bitset, não por varredura.
+        'track_total_hits': True,
     }
     if bool_q:
         body['query'] = {'bool': bool_q}

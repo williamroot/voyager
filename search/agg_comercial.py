@@ -206,6 +206,15 @@ def parse_filtros(qd) -> dict:
     if codigo_classe:
         filtros['codigo_classe'] = codigo_classe
 
+    # PARTE/ENTIDADE — usa o campo TEXTO `partes` (nomes concatenados), que está
+    # em 100% dos 71,18M docs. O nested `participacoes` (estruturado, com polo e
+    # documento) só existe em 1,9% até o reindex terminar: filtrar por ele daria
+    # "o INSS tem 53.577 processos" quando a base tem 4.402.239 — 82× menos.
+    # Quando o reindex fechar, dá pra oferecer `parte_polo=` sem quebrar isto.
+    parte = ' '.join((g('parte') or '').split())[:120]
+    if parte:
+        filtros['parte'] = parte
+
     tipo = (g('tipo') or '').strip().lower()
     if tipo == 'potencial':
         filtros['tem_sinal'] = True
@@ -259,6 +268,16 @@ def build_filter_clauses(filtros: dict) -> list:
         clauses.append({'term': {'codigo_classe': filtros['codigo_classe']}})
     if 'tem_sinal' in filtros:
         clauses.append({'term': {'tem_sinal_precatorio': filtros['tem_sinal']}})
+    if filtros.get('parte'):
+        # `match` com AND: "fazenda são paulo" exige as duas palavras, em
+        # qualquer ordem — o nome vem em ordens e grafias diferentes por
+        # tribunal ("INSS - Instituto Nacional..." vs "Instituto Nacional do
+        # Seguro Social (INSS)"). `match_phrase` exigiria a ordem exata e
+        # perderia metade; `should` sem AND traria qualquer processo com a
+        # palavra "estado". Fica em `filter` (sem score) porque aqui só
+        # contamos — relevância é problema da busca, não da agregação.
+        clauses.append({'match': {'partes': {'query': filtros['parte'],
+                                             'operator': 'and'}}})
 
     ano_range = {}
     if 'ano_min' in filtros:

@@ -468,3 +468,37 @@ def test_ranking_top_metric_potencial_none_nao_quebra(mock_agg):
         'gerado_em': 'x',
     }
     assert agg.ranking_top('potencial', 10, {})['ranking'][0]['uf'] == 'PR'
+
+
+# --------------------------------------------------------------------------- #
+# filtro por PARTE/ENTIDADE (ex.: ver só o INSS no mapa)
+# --------------------------------------------------------------------------- #
+def test_parse_filtros_parte():
+    assert agg.parse_filtros(_qd(parte='  Instituto   Nacional do Seguro Social '))['parte'] \
+        == 'Instituto Nacional do Seguro Social'
+    assert 'parte' not in agg.parse_filtros(_qd(parte='   '))
+    # nome absurdo não vira query gigante
+    assert len(agg.parse_filtros(_qd(parte='x' * 500))['parte']) == 120
+
+
+def test_filtro_parte_usa_campo_texto_com_AND():
+    """`partes` (texto, 100% dos 71,18M docs), não o nested `participacoes`.
+
+    Medido em 12/08/2026: o nested só existe em 1,9% da base — filtrar por ele
+    daria 53.577 processos do INSS quando são 4.402.239 (82× menos).
+    E o operador é AND: sem ele, "Fazenda São Paulo" traria todo processo que
+    cite "estado", e com match_phrase perderia as grafias fora de ordem.
+    """
+    cl = agg.build_filter_clauses({'parte': 'Instituto Nacional do Seguro Social'})
+    m = [c for c in cl if 'match' in c]
+    assert len(m) == 1
+    assert 'partes' in m[0]['match']
+    assert m[0]['match']['partes']['operator'] == 'and'
+    # nada de nested: quebraria a cobertura
+    assert not any('nested' in c for c in cl)
+
+
+def test_filtro_parte_combina_com_os_outros():
+    cl = agg.build_filter_clauses({'parte': 'INSS', 'uf': 'MG', 'tem_sinal': True})
+    tipos = [list(c)[0] for c in cl]
+    assert tipos.count('match') == 1 and tipos.count('term') == 2
