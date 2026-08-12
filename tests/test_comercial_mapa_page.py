@@ -107,6 +107,44 @@ def test_glossario_tooltips_presentes(user):
     assert 'glosMetricaAtiva' in html
 
 
+def test_bloco_didatico_visivel_na_tela(user):
+    """Textos didáticos VISÍVEIS (não só no hover) — o comercial é leigo.
+
+    Cobre: o bloco "Como ler estes números" do drill-down (colapsável, aberto
+    por default + persistência), os 6 textos leigos, a frase de leitura
+    automática (insightUf) e a legenda leiga de Potencial vs Confirmado no topo.
+    """
+    c = Client()
+    c.force_login(user)
+    html = c.get(reverse(URL_NAME)).content.decode()
+
+    # cabeçalho do bloco + mecânica de colapso persistida
+    assert 'Como ler estes números' in html
+    assert 'ajudaAberta' in html
+    assert 'toggleAjuda' in html
+    assert 'voy-mapa:ajuda-drill' in html   # chave do localStorage
+
+    # os 6 textos didáticos, em linguagem leiga, no corpo da página
+    assert 'já trouxemos para a nossa base' in html                    # Volume
+    assert 'ofício requisitório ou RPV' in html                        # Potencial
+    assert 'É um forte indício, não uma certeza' in html               # Potencial
+    assert 'nossa inteligência artificial já classificou' in html      # Confirmado
+    assert 'não que o processo não tenha dinheiro' in html             # R$
+    assert 'território inexplorado' in html                            # Validado
+    assert 'onde atacar primeiro' in html                              # Score
+
+    # frase de leitura automática (montada dos números do estado aberto)
+    assert 'insightUf' in html
+    assert 'têm indício de precatório' in html
+    # caso honesto: sinal não processado tem frase própria
+    assert 'Ainda não processamos o indício de precatório neste estado' in html
+
+    # legenda leiga no topo (sem jargão "sinal DJEN" / "classificação ML")
+    assert 'nossa IA já leu e confirmou' in html
+    assert 'sinal DJEN —' not in html
+    assert 'classificação ML —' not in html
+
+
 def test_sem_cdn_externo_na_pagina(user):
     """A página não pode introduzir nenhuma URL http(s) externa (CSP).
 

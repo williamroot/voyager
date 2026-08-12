@@ -90,6 +90,7 @@ Mapa Comercial (Agente 3 — FRONTEND).
       _mapReady: false,
 
       async init() {
+        this.initAjuda();   // preferência do bloco "Como ler estes números"
         // 1) registra o mapa (uma vez) 2) carrega dados
         try {
           await this.registrarMapa();
@@ -98,12 +99,22 @@ Mapa Comercial (Agente 3 — FRONTEND).
           this.loading = false;
           return;
         }
-        // re-pinta ao trocar tema (base.html dispara initAllCharts; garantimos aqui)
         this.$watch('metricMode', () => this.pintar());
         this.$watch('sinalMode', () => this.pintar());
         await this.carregar();
-        // re-render em troca de tema (as cores de eixo/label mudam)
-        window.addEventListener('voy:theme', () => this.pintar());
+        this.observarTema();
+      },
+
+      // Re-pinta na troca de tema. NÃO existe evento 'voy:theme' no base.html —
+      // o toggleTheme() só mexe na classe `dark` do <html> e chama initAllCharts()
+      // (que ignora este mapa, por não ter data-echart). Observamos a classe.
+      observarTema() {
+        const html = document.documentElement;
+        let ultimo = html.classList.contains('dark');
+        new MutationObserver(() => {
+          const agora = html.classList.contains('dark');
+          if (agora !== ultimo) { ultimo = agora; this.pintar(); }
+        }).observe(html, {attributes: true, attributeFilter: ['class']});
       },
 
       async registrarMapa() {
@@ -243,7 +254,15 @@ Mapa Comercial (Agente 3 — FRONTEND).
           },
           series: [{
             type: 'map',
+            // nome da métrica ativa (sem isto o tooltip de fallback diz "series0")
+            name: emR$ ? 'Valor (R$)'
+                       : (this.sinalMode === 'confirmado' ? 'Confirmados' : 'Potenciais'),
             map: 'brasil',
+            // O default do ECharts é 0.75 (calibrado pro mapa da China) e ESMAGA o
+            // Brasil 25% na horizontal ("magro"). Nosso bbox é lon -74→-34 (40°) x
+            // lat -34→+5 (39°): praticamente quadrado, e cos(15° médio)≈0,97 → 1.0
+            // dá a proporção equiretangular correta.
+            aspectScale: 1,
             roam: true,
             scaleLimit: {min: 1, max: 8},
             data: data,
@@ -267,9 +286,37 @@ Mapa Comercial (Agente 3 — FRONTEND).
           }],
         };
 
-        // reusa a instância; setupChart persiste opts + remove skeleton
-        setupChart(el, opts);
-        this._chart = echarts.getInstanceByDom(el);
+        // NÃO usar setupChart aqui: ele faz JSON.stringify(opts) pro data-echart,
+        // e JSON.stringify DESCARTA funções — matava os nossos `formatter`
+        // (tooltip do mapa e visualMap), fazendo o ECharts cair no tooltip
+        // default ("series0"). Aplicamos direto e removemos o skeleton à mão.
+        // O tema é fixado no init() do ECharts: reusar a instância após o toggle
+        // manteria o tema velho. Se o tema virou, descarta e reinicializa.
+        let chart = echarts.getInstanceByDom(el);
+        if (chart && el._voyTema !== (isDark ? 'dark' : 'light')) {
+          chart.dispose();
+          chart = null;
+          el._clickBound = false;   // handlers morrem com a instância
+        }
+        if (!chart) {
+          chart = echarts.init(el, isDark ? 'dark' : undefined);
+          el._voyTema = isDark ? 'dark' : 'light';
+        }
+        this._chart = chart;
+        this._chart.setOption(opts, true);
+        // resize 1× por elemento (o initChart do base registrava a cada chamada)
+        if (!el._resizeBound) {
+          window.addEventListener('resize', () => {
+            const c = echarts.getInstanceByDom(el);
+            if (c) c.resize();
+          });
+          el._resizeBound = true;
+        }
+        const cell = el.closest('.chart-cell');
+        if (cell) {
+          const skel = cell.querySelector('.chart-skeleton');
+          if (skel) skel.remove();
+        }
         if (this._chart && !el._clickBound) {
           this._chart.on('click', (p) => {
             if (p && p.name) self.abrirUf(p.name);
@@ -367,30 +414,102 @@ Mapa Comercial (Agente 3 — FRONTEND).
         try { return new Date(this.geradoEm).toLocaleString('pt-BR'); }
         catch (e) { return this.geradoEm; }
       },
+
+      // ---- bloco didático "Como ler estes números" (drill-down) ----
+      // Aberto por default na 1ª visita; a preferência persiste em localStorage.
+      ajudaAberta: true,
+      _AJUDA_KEY: 'voy-mapa:ajuda-drill',
+      initAjuda() {
+        try {
+          const v = localStorage.getItem(this._AJUDA_KEY);
+          if (v !== null) this.ajudaAberta = (v === '1');
+        } catch (e) { /* localStorage bloqueado — mantém default aberto */ }
+      },
+      toggleAjuda() {
+        this.ajudaAberta = !this.ajudaAberta;
+        try { localStorage.setItem(this._AJUDA_KEY, this.ajudaAberta ? '1' : '0'); }
+        catch (e) { /* ignora */ }
+      },
+
+      // bucket da UF aberta no drill-down (vem do array `ufs` do /mapa)
+      bucketSel() {
+        if (!this.selecionada) return null;
+        return this.ufs.find(b => b.uf === this.selecionada) || null;
+      },
+
+      // ---- frase de leitura automática (o "insight em uma linha") ----
+      // Montada dos próprios números do estado aberto. Honesta: se o sinal não
+      // foi processado, diz isso; senão calcula densidade (pot/vol) e cobertura
+      // e escolhe o tom (inexplorado / pouco explorado / já explorado).
+      insightUf() {
+        const b = this.bucketSel();
+        if (!b) return '';
+        const nome = this.nomeUf(b.uf);
+        if (this.potDesconhecido(b)) {
+          return 'Ainda não processamos o indício de precatório neste estado — '
+               + 'os ' + fmt(b.volume) + ' processos já estão na base, mas a leitura '
+               + 'das publicações ainda não passou por aqui.';
+        }
+        const vol = b.volume || 0;
+        const dens = vol ? (100 * (b.potencial || 0) / vol) : 0;
+        const cobConhecida = !this.cobDesconhecida(b);
+        const cob = cobConhecida ? Number(b.cobertura_pct) : null;
+        const densTxt = dens.toFixed(1).replace('.', ',') + '%';
+        const cobTxt = cobConhecida ? cob.toFixed(1).replace('.', ',') + '%' : null;
+
+        let frase = densTxt + ' dos processos deste estado têm indício de precatório';
+        if (cobTxt !== null) {
+          frase += ' e ' + (cob < 1 ? 'apenas ' : '') + cobTxt + ' foi analisado a fundo';
+        } else {
+          frase += ' (ainda não sabemos quanto foi analisado a fundo)';
+        }
+        // tom do fechamento — sem exagero, ancorado nos dois números
+        let tom;
+        if (dens > 5 && cobConhecida && cob < 10) {
+          tom = ' — território praticamente inexplorado, prioridade alta.';
+        } else if (cobConhecida && cob >= 50) {
+          tom = ' — já bem explorado por nós.';
+        } else if (dens > 5) {
+          tom = ' — bom indício de precatório, ainda pouco explorado.';
+        } else if (dens < 1) {
+          tom = ' — indício de precatório baixo neste estado.';
+        } else {
+          tom = ' — ainda há espaço pra explorar.';
+        }
+        return nome + ': ' + frase + tom;
+      },
     };
   }
 </script>
 
 <div x-data="comercialMapa()" x-init="init()" class="space-y-6">
 
-  {# ---- barra de honestidade (potencial vs confirmado) ---- #}
-  <div class="card p-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-    <div class="flex items-center gap-2 cursor-help" :title="glos('potencial')">
-      <span class="inline-block w-3 h-3 rounded-sm" style="background:#f97316"></span>
-      <span class="text-fg"><b>Potencial</b></span>
-      <span class="text-fg-subtle">sinal DJEN — amplo, tem falso-positivo</span>
+  {# ---- barra de honestidade: Potencial vs Confirmado em linguagem LEIGA ---- #}
+  {# (dúvida nº 1 do comercial — texto visível na tela, sem jargão; os tooltips
+     completos do glossário continuam no hover, redundância é boa aqui) #}
+  <div class="card p-4 space-y-2 text-sm">
+    <div class="flex flex-wrap items-start gap-x-8 gap-y-2">
+      <div class="flex items-start gap-2 cursor-help max-w-md" :title="glos('potencial')">
+        <span class="inline-block w-3 h-3 rounded-sm mt-1 shrink-0" style="background:#f97316"></span>
+        <span>
+          <b class="text-fg">Potencial</b>
+          <span class="text-fg-muted">— processos cujas publicações oficiais <b>mencionam</b> precatório. Forte indício, não certeza.</span>
+        </span>
+      </div>
+      <div class="flex items-start gap-2 cursor-help max-w-md" :title="glos('confirmado')">
+        <span class="inline-block w-3 h-3 rounded-sm mt-1 shrink-0" style="background:#10b981"></span>
+        <span>
+          <b class="text-fg">Confirmado</b>
+          <span class="text-fg-muted">— processos que <b>nossa IA já leu e confirmou</b> serem precatório. Mais certeiro, e por isso menor.</span>
+        </span>
+      </div>
+      <div class="ml-auto text-xs text-fg-subtle font-mono shrink-0" x-show="geradoEm" x-cloak>
+        atualizado <span x-text="geradoLegivel()"></span>
+      </div>
     </div>
-    <div class="flex items-center gap-2 cursor-help" :title="glos('confirmado')">
-      <span class="inline-block w-3 h-3 rounded-sm" style="background:#10b981"></span>
-      <span class="text-fg"><b>Confirmado</b></span>
-      <span class="text-fg-subtle">classificação ML — preciso, limitado pela cobertura</span>
-    </div>
-    <div class="flex items-center gap-2">
-      <span class="inline-block w-3 h-3 rounded-sm" style="background:rgba(120,120,130,0.5)"></span>
-      <span class="text-fg-subtle">cinza = sem dado / sinal ainda não processado (desconhecido, não é "zero")</span>
-    </div>
-    <div class="ml-auto text-xs text-fg-subtle font-mono" x-show="geradoEm" x-cloak>
-      atualizado <span x-text="geradoLegivel()"></span>
+    <div class="flex items-start gap-2 text-fg-subtle">
+      <span class="inline-block w-3 h-3 rounded-sm mt-1 shrink-0" style="background:rgba(120,120,130,0.5)"></span>
+      <span>Cinza no mapa = <b>ainda não olhamos</b> esse estado (desconhecido), não é “zero precatório”.</span>
     </div>
   </div>
 
@@ -516,7 +635,11 @@ Mapa Comercial (Agente 3 — FRONTEND).
           <span class="text-xs text-fg-subtle" x-text="erro"></span>
           <button type="button" @click="carregar()" class="mt-2 text-xs px-3 py-1 rounded border border-border hover:text-fg">tentar de novo</button>
         </div>
-        <div x-ref="mapa" data-echart='{}' class="absolute inset-0"></div>
+        {# SEM data-echart de propósito: o initAllCharts() do base.html varre
+           [data-echart], dá dispose() na instância e só reinicializa a partir do
+           JSON do atributo — que não pode carregar nossos formatters (funções).
+           Ficar fora dessa varredura evita o mapa sumir ao trocar o tema. #}
+        <div x-ref="mapa" class="absolute inset-0"></div>
       </div>
 
       {# federal — camada separada, NUNCA misturada no choropleth #}
@@ -609,6 +732,51 @@ Mapa Comercial (Agente 3 — FRONTEND).
             <div class="text-fg-subtle">Valor <span aria-hidden="true">ⓘ</span></div>
             <div class="font-mono text-fg" x-text="fmtBRL(drillTotal ? drillTotal.valor : 0)"></div>
           </div>
+        </div>
+
+        {# ---- frase de leitura automática (insight em 1 linha, dos próprios números) ---- #}
+        <p x-show="insightUf()" x-cloak
+           class="mb-3 text-sm leading-snug text-fg px-2.5 py-2 rounded-md border border-mission/30 bg-mission/10">
+          <span x-text="insightUf()"></span>
+        </p>
+
+        {# ---- bloco didático "Como ler estes números" (colapsável, aberto por default) ---- #}
+        <div class="mb-3 rounded-md border border-border bg-surface/50">
+          <button type="button" @click="toggleAjuda()" :aria-expanded="ajudaAberta"
+                  class="w-full flex items-center gap-2 px-2.5 py-2 text-sm text-fg-muted hover:text-fg focus:outline-none focus:ring-2 focus:ring-accent/40 rounded-md">
+            <span aria-hidden="true">ⓘ</span>
+            <span class="font-medium">Como ler estes números</span>
+            <svg class="ml-auto w-3.5 h-3.5 transition-transform" :class="ajudaAberta ? 'rotate-90' : ''"
+                 fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+          </button>
+          <dl x-show="ajudaAberta" x-cloak class="px-2.5 pb-2.5 space-y-1.5 text-sm leading-snug">
+            <div>
+              <dt class="inline font-semibold text-fg">Volume — </dt>
+              <dd class="inline text-fg-muted">Quantos processos deste estado já trouxemos para a nossa base. Não é o total do tribunal.</dd>
+            </div>
+            <div>
+              <dt class="inline font-semibold" style="color:#f97316">Potencial (pot) — </dt>
+              <dd class="inline text-fg-muted">Processos cujas publicações mencionam precatório, ofício requisitório ou RPV. É um forte indício, não uma certeza — pode incluir menções como “carta precatória”.</dd>
+            </div>
+            <div>
+              <dt class="inline font-semibold" style="color:#10b981">Confirmado (conf) — </dt>
+              <dd class="inline text-fg-muted">Processos que nossa inteligência artificial já classificou como precatório de verdade. Número menor porque só analisamos a fundo os processos já enriquecidos.</dd>
+            </div>
+            <div>
+              <dt class="inline font-semibold text-fg">R$ (Valor) — </dt>
+              <dd class="inline text-fg-muted">Soma do valor da causa. “R$ 0” significa que o tribunal ainda não informou o valor — não que o processo não tenha dinheiro.</dd>
+            </div>
+            <div>
+              <dt class="inline font-semibold text-fg">Validado (%) — </dt>
+              <dd class="inline text-fg-muted">Quanto deste estado já passou pela nossa análise detalhada. Perto de 0% = território inexplorado.</dd>
+            </div>
+            <div>
+              <dt class="inline font-semibold text-mission">Score (pontuação) — </dt>
+              <dd class="inline text-fg-muted">Prioridade comercial: alto = muitos precatórios em relação ao total E pouco explorado por nós. É a resposta para “onde atacar primeiro”.</dd>
+            </div>
+          </dl>
         </div>
 
         <div x-show="drillLoading" class="text-xs text-fg-subtle font-mono">acquiring signal…</div>
