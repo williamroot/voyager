@@ -248,11 +248,30 @@ def test_legenda_nao_filtra_nem_sequestra_scroll(html):
 
 
 def test_layout_medido_nao_regride(html):
-    """`aspectScale`/`layoutSize`/`layoutCenter`/altura foram MEDIDOS headless."""
+    """Geometria do mapa MEDIDA em browser real (Chromium, canvas pixel a pixel).
+
+    - `aspectScale: 1` — o default do ECharts é 0.75 (calibrado pro mapa da
+      China) e esmagava o Brasil: proporção 0.799 (o "magro" original).
+    - `layoutSize`/`layoutCenter` — sem eles o `getLayoutRect` aplica fator 0.8
+      e o mapa desenhava 409x384 num container 1080x480 (38% da largura).
+    - caixa com `aspect-ratio` casando a proporção do mapa (1.066) em vez de
+      altura fixa: com `height: 40rem` num card largo a moldura era 1.69:1 pro
+      conteúdo 1.07:1 e sobravam ~438px de vazio nas laterais — era ISSO que
+      lia como "desproporcional". Medido depois: caixa 766x719 e mapa 720x676
+      (ambos 1.065), mapa ocupando 94% da caixa em card largo E estreito.
+    Referência: o Brasil físico é 1.040 (41,6° x 39,0° corrigidos por cos da
+    latitude média -14,2°), então 1.066 tem 2,5% de folga — a forma está certa.
+    Mexer em qualquer um destes sem medir de novo regride o bug.
+    """
     assert 'aspectScale: 1' in html
     assert "layoutSize: '100%'" in html
     assert "layoutCenter: ['50%', '50%']" in html
-    assert 'height: 40rem' in html
+    assert 'aspect-ratio: 1.066' in html, 'a caixa precisa casar a proporção do mapa'
+    assert 'max-width: 47.9rem' in html, 'sem o cap a caixa cresce sem limite em tela larga'
+    assert 'height: 40rem' not in html, 'altura fixa volta a criar moldura vazia'
+    # grade 3/5 pro mapa (era 2/3: card largo demais pro conteúdo 1.066)
+    assert 'lg:grid-cols-5' in html
+    assert 'lg:col-span-3 card' in html
 
 
 def test_tooltip_rico_sem_setupchart(html):
