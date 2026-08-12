@@ -14,6 +14,7 @@ import logging
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
 from search import agg_comercial
@@ -26,14 +27,21 @@ def _json(payload, status=200):
     return JsonResponse(payload, status=status, json_dumps_params={'default': str})
 
 
+@never_cache
 @login_required
 @require_GET
 def comercial_mapa_page(request):
-    """GET /dashboard/comercial/mapa/ — página HTML do Mapa Comercial (choropleth).
+    """GET /dashboard/comercial/mapa/ — página HTML do Mapa Comercial.
 
     Só renderiza o shell; TODOS os dados vêm dos 3 endpoints JSON
     (`comercial-mapa`/`comercial-tribunais`/`comercial-top`) via fetch no browser.
     Nenhuma query pesada aqui — o Postgres não é tocado.
+
+    `@never_cache` (padrão já usado em dashboard/views.py): sem ele o browser
+    servia o HTML do disco e o usuário continuava vendo a versão ANTIGA depois do
+    deploy — aconteceu de verdade (12/08/2026: o print reclamando de layout
+    mostrava textos já removidos há 3 deploys). A página é toda dinâmica e o
+    payload é pequeno; cachear HTML aqui não economiza nada e esconde correção.
     """
     return render(request, 'dashboard/comercial_mapa.html')
 

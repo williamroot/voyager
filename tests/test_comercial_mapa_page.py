@@ -420,3 +420,19 @@ def test_sem_cdn_externo_na_pagina(html):
         assert termo not in corpo, f'referência externa proibida no corpo: {termo}'
     # nenhum http(s):// no fonte do template
     assert not re.search(r'https?://', CODIGO), 'URL absoluta no template'
+
+
+@pytest.mark.django_db
+def test_pagina_nao_cacheia_no_browser(client, django_user_model):
+    """Sem `no-store` o browser serve o HTML do disco e ESCONDE o deploy.
+
+    Aconteceu em 12/08/2026: o usuário reclamou 3× do layout mostrando prints com
+    textos que já tinham sido removidos — estava vendo HTML velho em cache. O
+    Cloudflare não era o culpado (`cf-cache-status: DYNAMIC`); era o browser.
+    """
+    u = django_user_model.objects.create_user('cachetest', password='x', is_staff=True)
+    client.force_login(u)
+    r = client.get('/dashboard/comercial/mapa/')
+    assert r.status_code == 200
+    cc = r.headers.get('Cache-Control', '')
+    assert 'no-store' in cc or 'no-cache' in cc, f'Cache-Control fraco: {cc!r}'
