@@ -406,8 +406,19 @@ def _cobertura_por_uf() -> dict:
 # --------------------------------------------------------------------------- #
 # Score de foco
 # --------------------------------------------------------------------------- #
+#: Peso do "estado imaginário" que amortece densidade de amostra minúscula.
+#: Com filtro ativo (ex.: parte=INSS) aparecem UFs com 1 ou 2 processos: 1÷1 =
+#: 100% de densidade e o estado lidera o ranking com uma amostra de UM. 1.000
+#: processos de prior significa: um estado só passa a ser lido pela sua própria
+#: densidade quando tem volume dessa ordem; abaixo disso ele é puxado pra média
+#: nacional (3,29% em 12/08/2026). Não afeta quem tem volume real — RO, com
+#: 1,07M processos, vai de 0,1115 pra 0,1114.
+PRIOR_DENSIDADE = 1000
+
+
 def calcular_score_foco(volume: int, valor: float, potencial: int,
-                        cobertura_pct, valor_max: float) -> tuple:
+                        cobertura_pct, valor_max: float,
+                        densidade_media: float | None = None) -> tuple:
     """DENSIDADE pura: potencial ÷ volume. Retorna (densidade, score_foco).
 
     Os dois são o mesmo número — `score_foco` sobrevive só porque é o nome no
@@ -427,9 +438,19 @@ def calcular_score_foco(volume: int, valor: float, potencial: int,
 
     `potencial` é o ALVO: `_enriquecer_buckets` chama esta função uma vez por
     lente (possíveis / confirmados / todos) — ver `SCORE_POR_LENTE`.
+
+    `densidade` é a taxa CRUA (é o que a tela mostra: "34,2% dos processos
+    citam precatório"). O `score_foco` é a mesma taxa AMORTECIDA por um prior —
+    ver `PRIOR_DENSIDADE`. Sem isso, com filtro por parte, um estado com 1
+    processo e 1 possível ficava em 1º com "prioridade 100".
     """
     densidade = (potencial / volume) if volume else 0.0
-    return round(densidade, 4), round(densidade, 4)
+    if densidade_media is None:
+        score = densidade
+    else:
+        score = ((potencial + PRIOR_DENSIDADE * densidade_media)
+                 / (volume + PRIOR_DENSIDADE))
+    return round(densidade, 4), round(score, 4)
 
 
 # --------------------------------------------------------------------------- #
@@ -487,6 +508,15 @@ def _enriquecer_buckets(buckets: list, campo: str, cobertura_map: dict) -> list:
     o default histórico do endpoint — quem consome sem saber de lente não quebra.
     """
     valor_max = max((b['valor'] for b in buckets), default=0.0)
+    # média do CONJUNTO exibido (não uma constante): com filtro por parte a
+    # base de comparação certa é "a densidade típica deste recorte", não a do
+    # país inteiro. É pra ela que amostra pequena é puxada.
+    volume_total = sum(b['volume'] or 0 for b in buckets)
+    media_por_lente = {
+        lente: ((sum(b.get(campo_alvo) or 0 for b in buckets) / volume_total)
+                if volume_total else 0.0)
+        for lente, campo_alvo in SCORE_POR_LENTE.items()
+    }
     for b in buckets:
         chave = b[campo]
         cob = cobertura_map.get(chave)
@@ -494,7 +524,8 @@ def _enriquecer_buckets(buckets: list, campo: str, cobertura_map: dict) -> list:
         dens_por_lente, score_por_lente = {}, {}
         for lente, campo_alvo in SCORE_POR_LENTE.items():
             dens, score = calcular_score_foco(
-                b['volume'], b['valor'], b.get(campo_alvo) or 0, cob, valor_max)
+                b['volume'], b['valor'], b.get(campo_alvo) or 0, cob, valor_max,
+                densidade_media=media_por_lente[lente])
             dens_por_lente[lente] = dens
             score_por_lente[lente] = score
         b['densidade_por_lente'] = dens_por_lente

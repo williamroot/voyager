@@ -660,3 +660,203 @@ def test_pagina_nao_cacheia_no_browser(client, django_user_model):
     assert r.status_code == 200
     cc = r.headers.get('Cache-Control', '')
     assert 'no-store' in cc or 'no-cache' in cc, f'Cache-Control fraco: {cc!r}'
+
+
+# --------------------------------------------------------------------------- #
+# Filtro por PARTE / ENTIDADE ("dá pra ver TODOS os processos do INSS?")
+# --------------------------------------------------------------------------- #
+def test_filtro_por_parte_existe_e_entra_no_ciclo_normal(html):
+    """O campo existe, é debounced e participa do ciclo de filtro da página.
+
+    Debounce é requisito de custo, não de gosto: cada busca é uma agregação
+    sobre 71,18M documentos no ES — disparar por tecla multiplicaria isso por
+    letra digitada.
+    """
+    assert 'Parte / entidade' in html
+    assert 'id="f-parte"' in html
+    assert 'x-model="filtros.parte"' in html
+    # entra no `filtros` (é ele que vira querystring do fetch E do link do estado)
+    assert re.search(r'filtros:\s*\{\s*\n?\s*parte:', html), 'parte fora do objeto filtros'
+    # debounce no input + Enter pra quem não quer esperar
+    assert '@input.debounce.600ms="buscarParte()"' in html
+    assert '@keydown.enter.prevent="buscarParte()"' in html
+    assert '@input="aplicarFiltros()"' not in CODIGO, 'busca a cada tecla em 71M docs'
+    # placeholder com exemplo REAL (nome que existe na base), não "digite aqui"
+    assert 'ex.: INSS, Fazenda Pública do Estado de São Paulo' in html
+    # chip do que está ativo + fechar por chip + limpar tudo já são genéricos:
+    # basta o rótulo estar registrado
+    assert re.search(r'_ROTULOS_FILTRO:\s*\{\s*\n?\s*parte:', html)
+
+
+def test_chip_da_parte_mostra_o_que_foi_BUSCADO(html):
+    """Com "IN" no campo, o mapa ainda é o da busca anterior.
+
+    Se o chip lesse o campo de texto ele anunciaria um filtro que não foi
+    aplicado — a tela diria "Parte: IN" mostrando os números de "INSS".
+    """
+    assert "const v = (k === 'parte') ? this._parteAplicada : this.filtros[k];" in html
+    # e a página DIZ, em texto, que o mapa está atrasado em relação ao campo
+    assert 'O mapa ainda mostra' in html
+    assert 'partePendente()' in html
+    # o `temFiltro` (que governa a barra de chips) segue o aplicado, não o digitado
+    assert 'temFiltro() { return this.chipsFiltros().length > 0; }' in html
+
+
+def test_parte_propaga_pra_pagina_do_estado(html):
+    """A página dedicada do estado tem que herdar a parte buscada.
+
+    `urlPaginaEstado` monta a querystring a partir de `filtros` — o teste
+    garante que ela não passou a montar uma lista fixa de chaves (que deixaria
+    a parte pra trás sem ninguém perceber).
+    """
+    m = re.search(r'urlPaginaEstado\(uf\) \{(.{0,400}?)\n      \},', html, re.S)
+    assert m, 'sumiu urlPaginaEstado'
+    assert 'this.querystring()' in m.group(1)
+    qs = re.search(r'querystring\(\) \{(.{0,400}?)\n      \},', html, re.S)
+    assert qs and 'Object.entries(this.filtros)' in qs.group(1)
+
+
+def test_honestidade_do_filtro_de_parte_em_texto_visivel(html):
+    """As três armadilhas do dado ficam na TELA, não no hover.
+
+    (1) casa pelo nome escrito na publicação — grafia diferente, número
+    diferente (medido: "INSS" 4.255.175 × nome por extenso 4.403.363);
+    (2) casa em qualquer polo — não é "quem deve";
+    (3) todas as palavras precisam bater (AND).
+    """
+    assert 'como ele foi escrito na publicação' in html
+    assert 'dos dois lados do processo' in html          # não é só devedor
+    assert 'Todas as palavras precisam aparecer' in html  # AND
+    assert '“Fazenda São Paulo” acha, “Fazenda do Estado SP” não acha' in html
+    assert '4,26 milhões' in html and '4,40 milhões' in html
+    # a explicação é texto do documento (aria-describedby), nunca tooltip/title
+    assert 'id="ajuda-parte"' in html and 'aria-describedby="ajuda-parte"' in html
+    # com o painel fechado a ressalva não some: volta resumida na barra de chips
+    assert 'Busca pelo nome escrito na publicação, dos dois lados do processo.' in html
+
+
+def test_atalhos_usam_o_nome_de_maior_recall_medido(html):
+    """Atalho tem que trazer MAIS processo que a sigla — medido, não achado.
+
+    Contagens no índice em 12/08/2026 (todas as palavras exigidas, que é como
+    o backend monta a query):
+        INSS 4.255.175 × Instituto Nacional do Seguro Social 4.403.363
+        União 1.597.369 × União Federal 1.508.785
+        Fazenda do Estado de São Paulo 82.481 × Fazenda Pública ... 77.372
+    """
+    assert "{rotulo: 'INSS', q: 'Instituto Nacional do Seguro Social'}" in html
+    assert "{rotulo: 'União', q: 'União'}" in html
+    assert "{rotulo: 'Fazenda de SP', q: 'Fazenda do Estado de São Paulo'}" in html
+    # o atalho preenche o campo (o texto buscado fica à vista — é ele que
+    # explica a diferença de contagem)
+    assert 'usarAtalhoParte(a.q)' in html
+    assert 'os atalhos preenchem o nome por extenso' in html
+
+
+def test_busca_nao_dispara_com_1_ou_2_letras_nem_repete(html):
+    """Guarda de custo: 1-2 letras não é busca, e o debounce repete o valor."""
+    assert 'PARTE_MIN: 3' in html
+    assert 'if (p.length > 0 && p.length < this.PARTE_MIN) return;' in html
+    assert 'if (p === this._parteAplicada) return;' in html
+    assert 'Escreva ao menos' in html   # e a tela DIZ por que não buscou
+
+
+def test_aviso_de_concentracao_na_justica_federal(html):
+    """FED não é pintada no mapa — e com filtro de parte ela costuma dominar.
+
+    Medido: o INSS tem 4.213.070 dos seus 4.403.363 processos na Justiça
+    Federal (95,7%). Sem o aviso, o choropleth quase todo cinza lê como "o INSS
+    mal tem processo" — o oposto do dado.
+    """
+    assert 'avisoFED()' in html and 'pctFED()' in html
+    assert 'que não é pintada no mapa' in html
+    # só com filtro de parte e só quando FED passa de metade do recorte
+    assert 'if (!this._parteAplicada) return null;' in html
+    assert "return (p !== null && p >= 50) ? fmtPct(p) : null;" in html
+
+
+def test_vazio_por_filtro_nao_vira_falta_de_cobertura(html):
+    """Com filtro ativo, o cinza é do FILTRO — não da nossa leitura.
+
+    Medido com `parte=INSS`: 15 dos 27 estados ficam cinza porque não têm
+    processo do INSS na base. A legenda dizia "ainda não analisado" nos 15 —
+    culpando a nossa cobertura por uma ausência que o usuário mesmo pediu. E o
+    aviso do "Ataque primeiro" dizia "já lemos as publicações de 11 dos 27
+    estados", que no recorte é a mesma mentira ao contrário.
+    """
+    assert "if (this.temFiltro()) {" in html
+    assert "'sem processo com estes filtros'" in html
+    assert "'ainda não analisado ou sem processo com estes filtros'" in html
+    # quando as DUAS causas convivem (AP tem processo do INSS mas o sinal nunca
+    # foi lido lá), a frase diz as duas em vez de escolher uma
+    assert 'const naoLido' in html
+    # tooltip de estado sem bucket segue a mesma regra
+    assert 'nenhum processo deste estado com os filtros atuais' in html
+    # aviso do ranking: texto por função, porque a CAUSA muda com o filtro
+    assert 'avisoParcial()' in html
+    assert "'Com estes filtros, ' + geo + ' dos 27 estados têm processo'" in html
+    assert 'Os demais nem entram nesta comparação.' in html
+
+
+# --------------------------------------------------------------------------- #
+# Ranking = DENSIDADE PURA (backend 1aa6c03) — a copy tinha que virar junto
+# --------------------------------------------------------------------------- #
+def test_ataque_primeiro_descreve_densidade_e_nao_a_formula_antiga(html):
+    """O ranking respondia 3 perguntas num número só e a copy descrevia isso.
+
+    `score_foco` virou `possíveis ÷ processos do estado` — valor e cobertura
+    saíram da conta. Medido em prod: o MT tem a 6ª maior densidade do país
+    (5,59%) e aparecia em 21º, punido por já termos olhado 24,4% dele e por ter
+    publicado valor menor que o de Alagoas. Dizer "muito precatório, COM VALOR,
+    e que quase não olhamos ainda" passou a ser mentira sobre a própria lista.
+    """
+    assert 'onde a maior fatia dos processos cita precatório' in html
+    assert 'com valor, e que quase não olhamos ainda' not in CODIGO
+    assert 'muito precatório em relação ao total E pouco explorado' not in CODIGO
+    assert 'o estado mais promissor da lista' not in CODIGO
+    # o tooltip da prioridade diz O QUE é 100 e como refazer a conta
+    assert 'comparando só os estados desta lista' in html          # segue relativo
+    assert '100 = a maior fatia da lista' in html
+    assert 'A conta é possíveis ÷ processos do estado.' in html
+    # glossário canônico acompanha (fonte única de explicação)
+    assert 'que fatia dos processos do estado cita precatório' in html
+
+
+def test_densidade_visivel_na_linha_e_no_tooltip(html):
+    """A nota agora é uma conta que o usuário refaz de cabeça — então aparece.
+
+    Antes o único número exposto era `prioridade 87` (relativo) e o "cálculo
+    interno: 0,1115" (o score cru, que embutia valor e cobertura e ninguém
+    conseguia reproduzir).
+    """
+    assert 'densidadePct' in html and 'densLabel' in html
+    # calculada do PRÓPRIO bucket (alvo ÷ volume): o endpoint tem cache de 2min
+    # e pode servir `score_foco` no formato antigo logo depois do deploy
+    assert 'return 100 * alvo / vol;' in html
+    # a fatia muda de significado com a lente — a frase muda junto
+    assert "' dos processos citam precatório'" in html
+    assert "' dos processos a IA confirmou'" in html
+    # na linha do ranking E no tooltip do mapa
+    assert 'x-text="densLabel(b)"' in html and 'x-text="densLabel(t)"' in html
+    assert "'Densidade: ' + fmtPct(densPct)" in html
+    # o "cálculo interno" virou a divisão que gera a nota, não o score cru
+    assert "fmt(alvoB) + ' ÷ ' + fmt(b.volume)" in html
+    assert 'String(b.score_foco ?? 0)' not in CODIGO
+    # e a linha mostra os dois números da divisão
+    assert "fmt(b.volume) + ' na base'" in html
+
+
+def test_cobertura_virou_bandeira_e_nao_desconto(html):
+    """"Já analisamos X%" saiu da fórmula e virou informação exibida.
+
+    Enquanto multiplicava `(1 − cobertura)`, trabalhar um estado rebaixava esse
+    estado no ranking — o comercial nunca via de novo o que já tinha começado a
+    atacar. Agora quem decide se vale reatacar é ele, lendo a bandeira.
+    """
+    assert "('já analisamos ' + p)" in html
+    assert "'não sabemos quanto já analisamos'" in html
+    assert 'rounded border border-border px-1.5 py-0.5" x-text="cobLabel(b)"' in html
+    assert 'não desconto na prioridade' in html      # dito no bloco didático
+    # a frase automática do estado não pode mais implicar rebaixamento
+    assert 'território praticamente inexplorado, prioridade alta' not in CODIGO
+    assert 'densidade alta, mas já bem trabalhado por nós' in html

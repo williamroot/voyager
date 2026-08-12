@@ -287,12 +287,17 @@ def test_agg_por_uf_monta_query_e_calcula_score(mock_get_es, mock_cob):
     assert {'range': {'ano_cnj': {'gte': 2020}}} in body_terms['query']['bool']['filter']
 
     ufs = {b['uf']: b for b in out['ufs']}
-    # SP: dens=200/1000=0.2 → score=0.2 (valor e cobertura não entram na conta)
+    # densidade CRUA (o que a tela mostra): SP 200/1000, RJ 50/500
     assert ufs['SP']['densidade'] == 0.2
-    assert ufs['SP']['score_foco'] == pytest.approx(0.2)
+    assert ufs['RJ']['densidade'] == 0.1
     assert ufs['SP']['cobertura_pct'] == 20.0     # segue no bucket, pra exibir
-    # RJ: dens=50/500=0.1 (antes 0.01: cobertura 80% + valor menor derrubavam)
-    assert ufs['RJ']['score_foco'] == pytest.approx(0.1)
+    # score = densidade AMORTECIDA pelo prior (média do conjunto = 250/1500):
+    # com fixtures minúsculas o prior de 1.000 domina — em prod, com milhões de
+    # processos por UF, o efeito some (ver test_amostra_minuscula...)
+    media = 250 / 1500
+    assert ufs['SP']['score_foco'] == pytest.approx((200 + 1000 * media) / 2000, abs=1e-4)
+    assert ufs['RJ']['score_foco'] == pytest.approx((50 + 1000 * media) / 1500, abs=1e-4)
+    assert ufs['SP']['score_foco'] > ufs['RJ']['score_foco']
     # ordenado por score desc → SP primeiro
     assert out['ufs'][0]['uf'] == 'SP'
     assert out['total']['volume'] == 1500
@@ -527,3 +532,38 @@ def test_valor_fora_da_formula_mas_no_bucket():
     _, valor_pequeno = agg.calcular_score_foco(valor=3.2e11, **base)
     _, valor_lider = agg.calcular_score_foco(valor=1e12, **base)
     assert sem_valor == valor_pequeno == valor_lider == 0.1
+
+
+def test_amostra_minuscula_nao_lidera_o_ranking():
+    """Com filtro por parte aparecem UFs com 1-2 processos.
+
+    1 possível em 1 processo = 100% de densidade e o estado ficava em 1º com
+    "prioridade 100" — em cima de uma amostra de UM. O prior puxa amostra
+    pequena pra densidade típica do recorte; quem tem volume real não sente.
+    """
+    buckets = [
+        # RO: amostra grande, densidade alta de verdade (11,15%)
+        {'uf': 'RO', 'volume': 1_072_089, 'valor': 0.0,
+         'potencial': 119_586, 'confirmado': 1_948, 'todos': 119_586},
+        # MG: amostra grande, densidade baixa (0,02%) — puxa a média do recorte
+        {'uf': 'MG', 'volume': 4_671_972, 'valor': 0.0,
+         'potencial': 814, 'confirmado': 3_238, 'todos': 4_022},
+        # AC: UM processo, que por acaso é possível
+        {'uf': 'AC', 'volume': 1, 'valor': 0.0,
+         'potencial': 1, 'confirmado': 0, 'todos': 1},
+    ]
+    out = agg._enriquecer_buckets(buckets, 'uf', {})
+    ro = next(b for b in out if b['uf'] == 'RO')
+    ac = next(b for b in out if b['uf'] == 'AC')
+
+    # a taxa CRUA continua honesta — é o que a tela exibe
+    assert ac['densidade'] == 1.0
+    # mas o RANKING não deixa 1 processo liderar
+    assert ro['score_foco'] > ac['score_foco'], '1 processo liderou o ranking'
+    assert out[0]['uf'] == 'RO'
+    # e quem tem volume real quase não sente o amortecimento
+    assert ro['score_foco'] == pytest.approx(ro['densidade'], abs=0.001)
+    # o estado de amostra 1 é tratado como MEDIANO (a densidade típica do
+    # recorte), não como campeão nem como zero
+    media = 120_401 / 5_744_062          # 2,1% neste conjunto
+    assert ac['score_foco'] == pytest.approx(media, abs=0.005)

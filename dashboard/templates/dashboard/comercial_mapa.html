@@ -58,7 +58,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     potencial:  'Processos cujas publicações citam precatório. Indício forte, não certeza. "Não analisado" = ainda não lemos este estado.',
     confirmado: 'A nossa IA leu o processo e confirmou que é precatório. Mais certeiro que os possíveis e, por isso, um número menor.',
     cobertura:  'Quanto deste estado já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem.',
-    score:      'Prioridade de 0 a 100: muito precatório, com valor, e pouco explorado por nós. 100 = o estado mais promissor da lista.',
+    {% comment %} A nota virou DENSIDADE PURA (possíveis ÷ processos do estado)
+       — valor e cobertura saíram da conta. Motivo medido: o MT tem a 6ª maior
+       densidade do país (5,59%) e caía pro 21º por já termos olhado 24% dele e
+       por ter publicado valor menor que o de Alagoas. {% endcomment %}
+    score:      'Prioridade de 0 a 100: que fatia dos processos do estado cita precatório. 100 = a maior fatia desta lista.',
     naoAnalisado: 'Ainda não lemos as publicações deste estado. O número é desconhecido, não é zero.',
     federal:      'Processo federal corre em vários estados, então não cabe em um só. Fica contado aqui, separado do mapa.',
     // Chave nova. Diz o que é E o que NÃO é: quem cai nos dois lados conta uma
@@ -142,7 +146,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       sinalMode: 'potencial', // 'potencial' | 'confirmado' | 'todos' (união)
 
       // ---- filtros ----
+      // `parte` primeiro de propósito: é o filtro que responde a pergunta que
+      // o comercial faz em voz alta ("cadê TODOS os processos do INSS?"), e a
+      // ordem daqui é a ordem dos chips.
       filtros: {
+        parte: '',
         classificacao: '', tipo: '', natureza: '', codigo_classe: '',
         ano_min: '', ano_max: '', valor_min: '', valor_max: '',
       },
@@ -213,6 +221,10 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
 
       async carregar() {
         const seq = ++this._seq;
+        // registra a parte que ESTA requisição leva: é ela que os chips e o
+        // aviso de "ainda mostrando X" usam como verdade, em vez do que estiver
+        // no campo de texto no meio da digitação.
+        this._parteAplicada = this.parteNorm();
         this.loading = true;
         this.erro = null;
         this.erroDetalhe = null;
@@ -303,8 +315,21 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       // No modo TODOS a única causa de cinza é o estado não ter vindo na resposta
       // (nenhum processo dele na base): "ainda não analisado" seria MENTIRA ali,
       // porque a união não depende do backfill do sinal.
+      // Com FILTRO ativo entra um quarto vazio, e ele é o mais comum: o estado
+      // simplesmente não tem processo NAQUELE recorte. Medido com o filtro do
+      // INSS: 15 dos 27 estados ficam cinza por isso — chamar tudo aquilo de
+      // "ainda não analisado" culparia a nossa cobertura por uma ausência que é
+      // do filtro. Quando as duas causas convivem (AP tem processo do INSS mas
+      // o sinal nunca foi lido lá), a frase diz as duas — inventar uma só seria
+      // escolher qual mentira contar.
       rotuloSemDado() {
         if (this.metricMode === 'valor') return 'valor não informado';
+        const naoLido = this.sinalMode === 'potencial'
+          && this.ufsGeo().some(b => this.potDesconhecido(b));
+        if (this.temFiltro()) {
+          return naoLido ? 'ainda não analisado ou sem processo com estes filtros'
+                         : 'sem processo com estes filtros';
+        }
         if (this.sinalMode === 'todos') return 'sem processo na nossa base';
         return 'ainda não analisado';
       },
@@ -447,7 +472,8 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
               // processo" (o estado não veio na resposta) — não é "não lemos".
               if (!b) {
                 return '<b>' + nomeSo + ' (' + p.name + ')</b><br/>'
-                  + 'nenhum processo deste estado na nossa base';
+                  + (self.temFiltro() ? 'nenhum processo deste estado com os filtros atuais'
+                                      : 'nenhum processo deste estado na nossa base');
               }
               const nome = window.UF_NOMES[b.uf] || b.uf;
               const pctCob = fmtPct(b.cobertura_pct);
@@ -459,10 +485,18 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
               const priTxt = pri === null
                 ? 'Prioridade: ainda não medida'
                 : 'Prioridade: ' + pri + ' de 100';
-              // cálculo interno explícito: quem precisa auditar o ranking acha
-              // o score_foco cru sem abrir o DevTools.
+              // A nota agora É a densidade — então ela aparece por extenso, com
+              // a divisão que a gera. Antes o "cálculo interno" era o
+              // `score_foco` cru (0,1115), um número que ninguém conseguia
+              // refazer porque embutia valor e cobertura.
+              const densPct = self.densidadePct(b);
+              const alvoB = self.alvoDe(b);
+              const densTxt = densPct === null
+                ? 'Densidade: ainda não lemos as publicações daqui'
+                : 'Densidade: ' + fmtPct(densPct) + self.densFrase();
               const bruto = '<span style="color:' + corMuda + '">cálculo interno: '
-                + String(b.score_foco ?? 0).replace('.', ',') + '</span>';
+                + (densPct === null ? 'sem densidade'
+                   : (fmt(alvoB) + ' ÷ ' + fmt(b.volume))) + '</span>';
               // 1 linha curta de contexto da métrica ATIVA (glossário canônico)
               const ctx = '<div style="max-width:280px;white-space:normal;color:' + corMuda + ';'
                 + 'margin-top:4px;font-size:11px;line-height:1.35;border-top:1px solid '
@@ -482,6 +516,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                 + '<span style="color:' + corConfirmado + '">Confirmados pela IA: ' + fmt(b.confirmado) + '</span><br/>'
                 + uniao
                 + cob + '<br/>'
+                + densTxt + '<br/>'
                 + priTxt + '<br/>'
                 + bruto
                 + ctx;
@@ -663,8 +698,73 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         this.filtros[k] = '';
         this.carregar();
       },
-      temFiltro() {
-        return Object.values(this.filtros).some(v => v !== '' && v !== null && v !== undefined);
+      // conta o que está APLICADO (é o que os chips mostram), não o que está
+      // sendo digitado: com "IN" no campo o mapa ainda é o da busca anterior.
+      temFiltro() { return this.chipsFiltros().length > 0; },
+
+      // ---- PARTE / ENTIDADE ------------------------------------------------
+      // Busca no campo TEXTO `partes` (nomes concatenados), presente em 100%
+      // dos 71,18M docs — o `participacoes` (estruturado, com polo) só existe
+      // em 1,9% até o reindex fechar e daria "o INSS tem 53.577 processos".
+      // Contagens medidas no nosso índice em 12/08/2026 (todas as palavras
+      // exigidas, que é como o backend monta a query):
+      //   INSS ..................................... 4.255.175
+      //   Instituto Nacional do Seguro Social ...... 4.403.363   ← atalho
+      //   União .................................... 1.597.369   ← atalho
+      //   União Federal ............................ 1.508.785
+      //   Fazenda do Estado de São Paulo ...........    82.481   ← atalho
+      //   Fazenda Pública do Estado de São Paulo ...    77.372
+      //   Fazenda São Paulo ........................   108.224
+      // Os atalhos preenchem o nome por extenso porque MEDIU mais processo
+      // (+148.188 no INSS, +88.584 na União, +5.109 na Fazenda de SP). Não
+      // usamos "Fazenda São Paulo" — traz 25.743 a mais, mas são duas palavras
+      // soltas que casam com "Fazenda Nacional" + qualquer parte de São Paulo
+      // no mesmo processo: recall comprado com processo errado.
+      // O campo mostra o texto por extenso porque a GRAFIA muda o número —
+      // esconder o que foi buscado esconderia a razão da diferença.
+      ATALHOS_PARTE: [
+        {rotulo: 'INSS', q: 'Instituto Nacional do Seguro Social'},
+        {rotulo: 'União', q: 'União'},
+        {rotulo: 'Fazenda de SP', q: 'Fazenda do Estado de São Paulo'},
+      ],
+      //: mínimo de letras pra disparar. Cada busca é uma agregação sobre 71M
+      //: docs — 1 ou 2 letras não é busca de ninguém, é conta cara à toa.
+      PARTE_MIN: 3,
+      //: o que o MAPA está mostrando (≠ do que está no campo enquanto digita)
+      _parteAplicada: '',
+      parteNorm() { return (this.filtros.parte || '').trim().replace(/\s+/g, ' '); },
+      parteCurta() {
+        const p = this.parteNorm();
+        return p.length > 0 && p.length < this.PARTE_MIN;
+      },
+      // digitou e ainda não virou busca (curto demais, ou o debounce em voo)
+      partePendente() { return this.parteNorm() !== this._parteAplicada; },
+      // Chamado pelo debounce do campo e pelo Enter. Guarda dupla: não busca
+      // por 1-2 letras e não repete a busca que já está na tela (o debounce
+      // dispara mesmo quando o texto voltou a ser o mesmo).
+      buscarParte() {
+        const p = this.parteNorm();
+        if (p.length > 0 && p.length < this.PARTE_MIN) return;
+        if (p === this._parteAplicada) return;
+        this.carregar();
+      },
+      usarAtalhoParte(q) {
+        this.filtros.parte = q;
+        this.buscarParte();
+      },
+      // Com filtro de parte a Justiça Federal costuma dominar — o INSS litiga
+      // lá: 4.213.070 dos 4.403.363 processos dele (95,7%). FED NÃO entra no
+      // choropleth (processo federal é multi-UF), então sem esta linha o mapa
+      // fica quase apagado e o leitor conclui "o INSS mal tem processo".
+      pctFED() {
+        const t = this.total, f = this.bucketFED();
+        if (!t || !f || !t.volume) return null;
+        return 100 * (Number(f.volume) || 0) / Number(t.volume);
+      },
+      avisoFED() {
+        if (!this._parteAplicada) return null;
+        const p = this.pctFED();
+        return (p !== null && p >= 50) ? fmtPct(p) : null;
       },
 
       // ---- filtros num DISCLOSURE ----------------------------------------
@@ -676,6 +776,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       // valor por extenso e um × pra tirar só aquele.
       filtrosAbertos: false,
       _ROTULOS_FILTRO: {
+        parte: {t: 'Parte'},
         classificacao: {t: 'Classificação', v: {
           PRECATORIO: 'Precatório', PRE_PRECATORIO: 'Pré-precatório',
           DIREITO_CREDITORIO: 'Direito creditório', NAO_LEAD: 'Não é lead'}},
@@ -688,7 +789,10 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       chipsFiltros() {
         const out = [];
         for (const [k, meta] of Object.entries(this._ROTULOS_FILTRO)) {
-          const v = this.filtros[k];
+          {% comment %} o chip da parte mostra o que foi BUSCADO, não o que está
+             sendo digitado: com "IN" no campo o mapa ainda é o da busca
+             anterior, e um chip dizendo "Parte: IN" seria mentira. {% endcomment %}
+          const v = (k === 'parte') ? this._parteAplicada : this.filtros[k];
           if (v === '' || v === null || v === undefined) continue;
           out.push({k: k, label: meta.t + ': ' + ((meta.v && meta.v[v]) || v)});
         }
@@ -720,10 +824,42 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         return !!b && b.todos !== null && b.todos !== undefined
             && Number.isFinite(Number(b.todos));
       },
-      // "4% analisado" / "não sabemos ainda" — nunca "0.0%" nem "desconhecida"
+      // BANDEIRA, não desconto: a cobertura saiu da fórmula do ranking (ela
+      // rebaixava estado bom por já termos trabalhado nele — o MT caiu do 6º
+      // pro 21º por isso) e virou informação exibida. Quem decide se vale
+      // reatacar um estado meio trabalhado é o comercial lendo o número.
       cobLabel(b) {
         const p = fmtPct(b.cobertura_pct);
-        return p === null ? 'não sabemos ainda' : (p + ' analisado');
+        return p === null ? 'não sabemos quanto já analisamos' : ('já analisamos ' + p);
+      },
+
+      // ---- DENSIDADE: agora ela É a nota do ranking ------------------------
+      // `score_foco` do backend virou densidade pura, mas aqui recalculamos do
+      // próprio bucket (alvo ÷ volume) por dois motivos: o endpoint tem cache
+      // de 2min e pode servir score do formato antigo logo após o deploy, e a
+      // conta tem que bater com os dois números que estão na MESMA linha.
+      alvoDe(b) {
+        if (!b) return null;
+        if (this.sinalMode === 'todos') return Number(b.todos) || 0;
+        if (this.sinalMode === 'confirmado') return Number(b.confirmado) || 0;
+        return this.potDesconhecido(b) ? null : (Number(b.potencial) || 0);
+      },
+      densidadePct(b) {
+        const vol = Number(b && b.volume) || 0;
+        const alvo = this.alvoDe(b);
+        if (!vol || alvo === null) return null;
+        return 100 * alvo / vol;
+      },
+      // o complemento muda com a lente: a fatia é de coisas diferentes
+      densFrase() {
+        if (this.sinalMode === 'confirmado') return ' dos processos a IA confirmou';
+        if (this.sinalMode === 'todos') return ' dos processos citam precatório ou a IA confirmou';
+        return ' dos processos citam precatório';
+      },
+      densLabel(b) {
+        const p = this.densidadePct(b);
+        if (p === null) return 'ainda não lemos as publicações daqui';
+        return (fmtPct(p) || '0%') + this.densFrase();
       },
       cobDesconhecida(b) {
         return b.cobertura_pct === null || b.cobertura_pct === undefined;
@@ -754,6 +890,25 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         if (this.sinalMode !== 'potencial') return false;
         const geo = this.ufsGeo();
         return geo.length > 0 && this.ufsComSinal() < 27;
+      },
+      // Texto do aviso. A CAUSA de o ranking estar incompleto muda com o
+      // filtro, e o aviso tem que mudar junto: sem filtro a causa é a nossa
+      // leitura (o backfill do sinal); COM filtro é o próprio filtro. Medido
+      // com parte=INSS: só 12 dos 27 estados têm processo do INSS na base —
+      // dizer ali "já lemos 11 dos 27 estados" culparia a nossa cobertura por
+      // uma ausência que o usuário mesmo pediu.
+      avisoParcial() {
+        if (!this.sinalParcial()) return null;
+        const geo = this.ufsGeo().length;
+        const comSinal = this.ufsComSinal();
+        if (this.temFiltro()) {
+          const semSinal = geo - comSinal;
+          return 'Com estes filtros, ' + geo + ' dos 27 estados têm processo'
+            + (semSinal ? ' — e em ' + semSinal + ' deles ainda não lemos as publicações' : '')
+            + '. Os demais nem entram nesta comparação.';
+        }
+        return 'Já lemos as publicações de ' + comSinal + ' dos 27 estados. '
+             + 'Onde diz “ainda não analisado”, o estado nem entrou nesta comparação.';
       },
       // ---- score POR LENTE -------------------------------------------------
       // O backend manda `score_por_lente` com as 3 densidades. Sem isso, o mapa
@@ -918,14 +1073,18 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         } else {
           frase += ' — e ainda não sabemos quanto foi analisado a fundo';
         }
-        // tom do fechamento — sem exagero, ancorado nos dois números
+        // Tom do fechamento — sem exagero, ancorado nos dois números. A
+        // prioridade é SÓ densidade: estado denso que já trabalhamos continua
+        // no topo da lista, e a frase diz as duas coisas em vez de rebaixá-lo.
         let tom;
         if (dens > 5 && cobConhecida && cob < 10) {
-          tom = ' — território praticamente inexplorado, prioridade alta.';
+          tom = ' — densidade alta e território praticamente inexplorado.';
+        } else if (dens > 5 && cobConhecida && cob >= 50) {
+          tom = ' — densidade alta, mas já bem trabalhado por nós.';
         } else if (cobConhecida && cob >= 50) {
           tom = ' — já bem explorado por nós.';
         } else if (dens > 5) {
-          tom = ' — boa concentração de precatório, ainda pouco explorado.';
+          tom = ' — densidade alta: prioridade alta nesta lista.';
         } else if (dens < 1) {
           tom = ' — pouca menção a precatório neste estado.';
         } else {
@@ -1032,8 +1191,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
        filtro, com o valor por extenso e × pra tirar só aquele. {% endcomment %}
     <div x-show="temFiltro()" x-cloak class="flex flex-wrap items-center gap-2">
       <template x-for="c in chipsFiltros()" :key="c.k">
-        <span class="inline-flex items-center gap-1 rounded-full border border-mission/40 bg-mission/10 pl-2.5 pr-1 py-0.5 text-xs text-fg">
-          <span x-text="c.label"></span>
+        <span class="inline-flex items-center gap-1 rounded-full border border-mission/40 bg-mission/10 pl-2.5 pr-1 py-0.5 text-xs text-fg max-w-full">
+          {% comment %} `break-words`: o chip da parte carrega o nome por
+             extenso (até 120 caracteres) — sem isto ele estouraria a linha em
+             vez de quebrar. {% endcomment %}
+          <span class="break-words" x-text="c.label"></span>
           <button type="button" @click="limparFiltro(c.k)" :aria-label="'Remover filtro ' + c.label"
                   class="rounded-full p-0.5 text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
             {% voy_icon "clear" "w-3 h-3" %}
@@ -1050,7 +1212,27 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       <span class="text-xs text-fg-muted" x-show="filtrandoPorValor()" x-cloak>
         Processo sem valor informado fica de fora do resultado.
       </span>
+      {% comment %} mesma lógica do aviso de valor: com o painel fechado, a
+         frase que impede a leitura errada some junto. O resumo repete a parte
+         que muda o sentido do número. {% endcomment %}
+      <span class="text-xs text-fg-muted" x-show="_parteAplicada" x-cloak>
+        Busca pelo nome escrito na publicação, dos dois lados do processo. Outra grafia dá outro número.
+      </span>
     </div>
+
+    {% comment %} A parte concentrada na Justiça Federal é a armadilha visual
+       desta tela: o INSS tem 4,21M dos seus 4,40M processos na federal, que NÃO
+       é pintada no choropleth. Sem esta linha o mapa fica quase todo cinza e
+       lê como "o INSS mal tem processo". Só aparece quando FED passa de metade
+       do recorte — em recorte normal ela seria ruído. {% endcomment %}
+    <p x-show="avisoFED()" x-cloak
+       class="text-xs text-fg flex items-start gap-1.5 px-2 py-1.5 rounded border border-info/40 bg-info/10">
+      {% voy_icon "info" "w-3.5 h-3.5 shrink-0 mt-0.5 text-info" %}
+      <span>
+        <b x-text="avisoFED()"></b> dos processos deste recorte estão na Justiça Federal, que não é pintada no mapa
+        — o número dela fica logo abaixo do mapa.
+      </span>
+    </p>
 
     {# ---- painel de filtros (disclosure, fechado por padrão) ---- #}
     {% comment %} lg:grid-cols-3 com o par de valor ocupando 2 colunas: são 5
@@ -1059,6 +1241,58 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     {% endcomment %}
     <div id="mapa-filtros" x-show="filtrosAbertos" x-cloak
          class="border-t border-border pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-4">
+      {% comment %} ---- PARTE / ENTIDADE (largura inteira, primeiro) ---------
+         É o filtro que responde à pergunta que o dono faz em voz alta ("dá pra
+         ver TODOS os processos do INSS?"), então abre o painel — e ocupa as 3
+         colunas porque leva atalhos e as três frases que impedem a leitura
+         errada do número. A busca só dispara depois de 600ms parado: cada
+         tecla seria uma agregação sobre 71,18M documentos.
+      {% endcomment %}
+      <div class="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-3">
+        <label for="f-parte" class="text-xs text-fg-muted uppercase tracking-wide">Parte / entidade</label>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <input id="f-parte" type="text" x-model="filtros.parte" maxlength="120"
+                 @input.debounce.600ms="buscarParte()"
+                 @keydown.enter.prevent="buscarParte()"
+                 placeholder="ex.: INSS, Fazenda Pública do Estado de São Paulo"
+                 autocomplete="off" spellcheck="false"
+                 aria-describedby="ajuda-parte"
+                 class="flex-1 min-w-[16rem] bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          {% comment %} atalhos de 1 clique pras entidades campeãs. Preenchem o
+             nome POR EXTENSO (que mediu mais processo que a sigla) e deixam o
+             texto à vista, porque é a grafia que explica a diferença de
+             contagem. {% endcomment %}
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="text-xs text-fg-muted">atalhos:</span>
+            <template x-for="a in ATALHOS_PARTE" :key="a.rotulo">
+              <button type="button" @click="usarAtalhoParte(a.q)"
+                      :aria-pressed="_parteAplicada === a.q"
+                      :class="_parteAplicada === a.q ? 'border-mission bg-mission/10 text-fg' : 'border-border text-fg-muted hover:text-fg hover:bg-muted/40'"
+                      class="rounded-full border px-2.5 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base"
+                      x-text="a.rotulo"></button>
+            </template>
+          </div>
+        </div>
+        {% comment %} VISÍVEL, não tooltip: são as três armadilhas do dado. Sem
+           elas o comercial lê o número como "todos os processos do INSS"
+           (é o que está escrito na publicação), como "quem deve" (casa nos dois
+           polos) e como estável (outra grafia, outro número). {% endcomment %}
+        <p id="ajuda-parte" class="text-xs text-fg-muted leading-relaxed max-w-4xl">
+          Procura o nome <b class="font-semibold text-fg">como ele foi escrito na publicação</b>, dos dois lados do processo — quem cobra e quem é cobrado.
+          Todas as palavras precisam aparecer: “Fazenda São Paulo” acha, “Fazenda do Estado SP” não acha.
+          E a grafia muda a conta: “INSS” traz 4,26 milhões de processos, o nome por extenso traz 4,40 milhões — por isso os atalhos preenchem o nome por extenso.
+        </p>
+        <p x-show="parteCurta()" x-cloak class="text-xs text-fg">
+          Escreva ao menos <b x-text="PARTE_MIN"></b> letras para buscar.
+        </p>
+        {% comment %} enquanto o texto novo não virou busca, o mapa continua
+           sendo o da busca ANTERIOR — dizer isso é mais barato que deixar o
+           usuário concluir que o número na tela é do que ele acabou de
+           digitar. {% endcomment %}
+        <p x-show="partePendente() && _parteAplicada" x-cloak class="text-xs text-fg">
+          O mapa ainda mostra “<span x-text="_parteAplicada"></span>”.
+        </p>
+      </div>
       <label class="flex flex-col gap-1.5">
         <span class="text-xs text-fg-muted uppercase tracking-wide">O que a IA classificou</span>
         <select x-model="filtros.classificacao" @change="aplicarFiltros()"
@@ -1223,11 +1457,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         </div>
         <div>
           <dt class="inline font-semibold text-fg">Já analisado — </dt>
-          <dd class="inline text-fg-muted">Quanto deste estado já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem.</dd>
+          <dd class="inline text-fg-muted">Quanto deste estado já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem. É informação para você decidir, não desconto na prioridade: estado já trabalhado não é rebaixado por isso.</dd>
         </div>
         <div>
           <dt class="inline font-semibold text-mission-fg">Prioridade — </dt>
-          <dd class="inline text-fg-muted">0 a 100: muito precatório em relação ao total E pouco explorado por nós. É a resposta para “onde atacar primeiro”.</dd>
+          <dd class="inline text-fg-muted">0 a 100: que fatia dos processos do estado cita precatório — possíveis ÷ processos na base. 100 = a maior fatia da lista. É a resposta para “onde atacar primeiro”.</dd>
         </div>
       </dl>
     </div>
@@ -1406,16 +1640,24 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           {% voy_icon "target" "w-4 h-4 text-mission-fg" %}
           <h2 class="text-lg font-semibold text-fg">Ataque primeiro</h2>
         </div>
+        {% comment %} A copy anterior ("muito precatório, COM VALOR, e que quase
+           não olhamos ainda") descrevia a fórmula antiga — densidade × valor ×
+           (1 − cobertura) — e virou mentira quando o ranking passou a ser
+           densidade pura. Três perguntas num número só ninguém interpreta, e
+           ela escondia estado bom pelo motivo errado (o MT, 6ª maior densidade
+           do país, saía em 21º por já termos olhado 24% dele). Agora a lista
+           responde UMA pergunta, e o quanto já olhamos vira bandeira na linha.
+        {% endcomment %}
         <p class="text-xs text-fg-muted mb-2">
           Estados em ordem de
           <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-prioridade">
             prioridade
             {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
             <span class="voy-tip-body tip-right" role="tooltip" id="tip-prioridade">
-              Escala de 0 a 100 comparando só os estados desta lista, com os filtros atuais. 100 = o mais promissor.
+              Escala de 0 a 100 comparando só os estados desta lista, com os filtros atuais. 100 = a maior fatia da lista. A conta é possíveis ÷ processos do estado.
             </span>
           </button>:
-          muito precatório, com valor, e que quase não olhamos ainda. Clique para ver os tribunais.
+          onde a maior fatia dos processos cita precatório. Clique para ver os tribunais.
         </p>
         {# aviso honesto: ainda não lemos as publicações de todos os estados #}
         {% comment %} O texto era `text-warning` sobre `bg-warning/10`: 2,86:1 medido
@@ -1423,10 +1665,13 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
            legível da tela. O alerta agora vem do ÍCONE (objeto gráfico, piso
            3:1) e da borda; a frase vai em `text-fg`, que é AA por construção.
         {% endcomment %}
-        <p x-show="sinalParcial()" x-cloak
+        {% comment %} o texto vem do `avisoParcial()` porque a CAUSA de o
+           ranking estar incompleto muda com o filtro (nossa leitura × o próprio
+           filtro) — a mesma frase nos dois casos mentiria em um deles. {% endcomment %}
+        <p x-show="avisoParcial()" x-cloak
            class="text-xs mb-3 px-2 py-1.5 rounded border border-warning/40 bg-warning/10 text-fg flex items-start gap-1.5">
           {% voy_icon "anomaly" "w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" %}
-          <span>Já lemos as publicações de <b x-text="ufsComSinal()"></b> dos 27 estados. Onde diz “ainda não analisado”, o estado nem entrou nesta comparação.</span>
+          <span x-text="avisoParcial()"></span>
         </p>
         <div x-show="loading" class="text-xs text-fg-muted font-mono">carregando o ranking…</div>
         <div x-show="vazioPorFiltro()" x-cloak class="text-xs text-fg-muted">
@@ -1447,22 +1692,32 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                 <div class="mt-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
                   <div class="h-full rounded-full bg-mission" :style="'width:' + barraPct(b, ufs) + '%'"></div>
                 </div>
-                {# 2 níveis: quem/quanto na 1ª linha, dinheiro/leitura na 2ª #}
-                <div class="mt-1 flex flex-wrap items-center gap-x-2 text-xs font-mono">
+                {% comment %} A NOTA por extenso, logo abaixo da barra: agora que
+                   o ranking é densidade pura, "5,6% dos processos citam
+                   precatório" é a própria conta da posição — o usuário refaz de
+                   cabeça com os dois números da linha de baixo. {% endcomment %}
+                <div class="mt-1 text-xs font-mono"
+                     :class="densidadePct(b) === null ? 'text-fg-muted italic' : 'text-mission-fg'"
+                     x-text="densLabel(b)"></div>
+                {# 3 níveis: a nota, os números que a geram, e as bandeiras #}
+                <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs font-mono">
                   <span class="text-mission-fg" :class="potDesconhecido(b) ? 'italic' : ''" x-text="potLabel(b)"></span>
+                  <span class="text-fg-muted" aria-hidden="true">·</span>
+                  <span class="text-fg-muted" x-text="fmt(b.volume) + ' na base'"></span>
                   <span class="text-fg-muted" aria-hidden="true">·</span>
                   <span class="text-accent-fg" x-text="fmt(b.confirmado) + ' confirmados'"></span>
                 </div>
-                <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs font-mono text-fg-muted">
+                <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono text-fg-muted">
                   {% comment %} valor 0 = "não informado"; repetir "R$ 0" em 10 linhas é ruído
                      — a lista diz UMA vez, abaixo, quantos estão sem valor. {% endcomment %}
                   <template x-if="temValor(b)">
                     <span x-text="fmtBRL(b.valor)"></span>
                   </template>
-                  <template x-if="temValor(b)">
-                    <span aria-hidden="true">·</span>
-                  </template>
-                  <span x-text="cobLabel(b)"></span>
+                  {% comment %} a cobertura ganhou moldura porque deixou de ser
+                     nota de rodapé: ela saiu da fórmula e passou a ser a
+                     bandeira que decide "vale reatacar um estado que já
+                     trabalhei?". {% endcomment %}
+                  <span class="rounded border border-border px-1.5 py-0.5" x-text="cobLabel(b)"></span>
                 </div>
               </button>
             </li>
@@ -1543,14 +1798,18 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
               </div>
               <div class="mt-0.5 text-xs font-mono text-mission-fg" :class="potDesconhecido(t) ? 'italic' : ''"
                    x-text="potLabel(t)"></div>
-              <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs font-mono text-fg-muted">
+              {% comment %} a nota do tribunal é a MESMA conta do estado
+                 (possíveis ÷ processos) — se ela só aparecesse por extenso no
+                 ranking de estados, o drill-down voltaria a mostrar uma posição
+                 sem dizer de onde ela vem. {% endcomment %}
+              <div class="mt-0.5 text-xs font-mono"
+                   :class="densidadePct(t) === null ? 'text-fg-muted italic' : 'text-mission-fg'"
+                   x-text="densLabel(t)"></div>
+              <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono text-fg-muted">
                 <template x-if="temValor(t)">
                   <span x-text="fmtBRL(t.valor)"></span>
                 </template>
-                <template x-if="temValor(t)">
-                  <span aria-hidden="true">·</span>
-                </template>
-                <span x-text="cobLabel(t)"></span>
+                <span class="rounded border border-border px-1.5 py-0.5" x-text="cobLabel(t)"></span>
               </div>
             </li>
           </template>
