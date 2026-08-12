@@ -111,7 +111,7 @@
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
   <div class="card-tight">
     <div class="text-fg-subtle text-xs uppercase tracking-wider">Proxies (ProxyScrape)</div>
-    <div class="text-2xl font-semibold mt-1 kpi-num">{{ proxies.saudaveis|format_int }} <span class="text-fg-subtle text-base">/ {{ proxies.total|format_int }}</span></div>
+    <div class="text-2xl font-semibold mt-1 kpi-num">{{ proxies.saudaveis|format_int }} <span class="text-fg-subtle text-[1rem]">/ {{ proxies.total|format_int }}</span></div>
     <div class="flex items-center gap-2 mt-2">
       {% include 'dashboard/_partials/badge.html' with text=proxies.bad|stringformat:'s'|add:' ruins' variant='warning' size='mini' %}
       {% if proxies.saudaveis %}{% include 'dashboard/_partials/badge.html' with text='OK' variant='accent' size='mini' %}

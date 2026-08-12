@@ -117,6 +117,21 @@ Estilo: stroke=currentColor, width=1.6px (Lucide default 2px reduzido pra harmon
 - `.btn-mission` (CTA com aura orange)
 - `.error-code` (display gigante com gradient)
 
+## ⚠️ Armadilha: `text-base` aqui é COR, não tamanho
+
+`base` é um token de **cor** registrado no tailwind.config (é o fundo da página),
+então `.text-base` gera `color: var(--base)` e **não** `font-size: 1rem`. Num
+elemento com duas classes de cor (`class="text-base font-bold text-fg"`) quem
+ganha é a ordem no CSS gerado, não a ordem no atributo — medido em browser:
+ganha a cor `base`, ou seja, **texto da cor do fundo = invisível** no tema
+escuro.
+
+Achado em 12/08/2026 pelo agente da página do estado; mordia 3 templates
+(`algoritmo.html`, `showcase_analise.html`, `ingestao.html`). Correção: use
+`text-[1rem]` quando quiser tamanho. `text-base` só faz sentido como cor de
+texto sobre tinta (`bg-accent text-base`, em `wizard.html`) — e ali é
+intencional.
+
 ## Tooltip: `.voy-tip` (CSS-only) — **nunca use `title=`**
 
 `title=` nativo é fonte do SO, posição do cursor, ~1s de atraso, sem controle de
