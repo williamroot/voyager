@@ -115,3 +115,91 @@ PROC_MAPPING = {
         }
     },
 }
+
+# --------------------------------------------------------------------------- #
+# voyager-entidades — cadastro canônico de "quem deve" (base do autocomplete)
+# --------------------------------------------------------------------------- #
+# Uma linha por ENTIDADE (não por `Parte`): o INSS são 610 linhas de
+# tribunals_parte / 610 CNPJs / 11 grafias, e vira 1 documento aqui.
+# Doc builder: search/entidades.py::grupo_to_doc. Ver .ia/SEARCH_SCHEMA.md.
+#
+# AUTOCOMPLETE = `search_as_you_type` (subcampo `.autocomplete`), NÃO edge-ngram.
+# Por quê:
+#   - o ES já gera os shingles (`._2gram`, `._3gram`) e o `._index_prefix`, e o
+#     `multi_match type=bool_prefix` casa "fazenda sao pau" sem analyzer feito à
+#     mão — edge-ngram exigiria um par analyzer/search_analyzer manual (o erro
+#     clássico é esquecer o `search_analyzer` e o índice casar ngram×ngram);
+#   - `analyzer: portuguese_asciifolding` faz `uniao` achar `UNIÃO` — requisito
+#     medido: o usuário digita sem acento;
+#   - o custo do índice (o ponto fraco do search_as_you_type) é irrelevante
+#     aqui: são ~1-2M docs curtos, não os 71M de processos.
+# `variantes` também é autocompletável: quem digita "inss" precisa achar a
+# entidade cujo `nome_canonico` é "INSTITUTO NACIONAL DO SEGURO SOCIAL".
+ENTIDADE_MAPPING = {
+    "settings": {
+        **ANALYZER_SETTINGS,
+        "number_of_shards": 1,
+        "number_of_replicas": 1,
+    },
+    "mappings": {
+        "properties": {
+            # `cnpj:29979036` ou `nome:<sha1[:20]>` — igual ao `_id` (idempotência)
+            "entidade_id":     {"type": "keyword"},
+            # procedência da chave: 'cnpj' = identidade PROVADA por documento;
+            # 'nome' = heurística de grafia. Quem consome PRECISA saber.
+            "chave":           {"type": "keyword"},
+            "raiz_cnpj":       {"type": "keyword"},        # 8 dígitos: une matriz+filiais
+            "nome_canonico":   {"type": "text",
+                                "analyzer": "portuguese_asciifolding",
+                                "fields": {
+                                    "raw": {"type": "keyword", "ignore_above": 256},
+                                    "autocomplete": {
+                                        "type": "search_as_you_type",
+                                        "analyzer": "portuguese_asciifolding"}}},
+            # chave de fusão por nome (debug/join) — não é pra busca humana
+            "nome_normalizado": {"type": "keyword", "ignore_above": 256},
+            # O PRODUTO: todas as grafias, ordenadas por frequência desc. Vira o
+            # OR de match_phrase contra o campo texto `partes` (100% dos docs).
+            # É o campo de RECALL — inclui grafia de 1 linha (typo de cartório
+            # que mesmo assim aparece em processo real).
+            "variantes":       {"type": "text",
+                                "analyzer": "portuguese_asciifolding",
+                                "fields": {
+                                    "raw": {"type": "keyword", "ignore_above": 256}}},
+            # O campo de PRECISÃO: só as grafias com peso (≥2 linhas e ≥1% da
+            # entidade, top-3 sempre). É ele que o autocomplete busca. Sem essa
+            # separação, o INSS — que tem UMA linha grafada "Instituto Nacional
+            # do Seguro Social (UNIÃO)" entre 764 — vinha em 1º na busca por
+            # "uniao" (medido 12/08): o grande sequestra a busca do alheio.
+            "variantes_busca": {"type": "text",
+                                "analyzer": "portuguese_asciifolding",
+                                "fields": {
+                                    "autocomplete": {
+                                        "type": "search_as_you_type",
+                                        "analyzer": "portuguese_asciifolding"}}},
+            # frequência de cada grafia, MESMA ORDEM de `variantes` — deixa o
+            # consumidor cortar cauda antes de montar o OR (over-match)
+            "variantes_n":     {"type": "integer"},
+            "n_variantes":     {"type": "integer"},
+            "variantes_truncadas": {"type": "boolean"},    # bateu MAX_VARIANTES
+            "documentos":      {"type": "keyword"},        # CNPJs formatados (sem mascarados)
+            "n_documentos":    {"type": "integer"},
+            # linhas cujo CNPJ veio MASCARADO (LGPD do tribunal) e por isso NÃO
+            # fundiram por raiz — auditoria da decisão de não fundir por máscara
+            "documentos_mascarados": {"type": "integer"},
+            "tipo":            {"type": "keyword"},        # pj|desconhecido|… (dominante)
+            # grupos-por-nome absorvidos pela consolidação nome→cnpj
+            "grupos_absorvidos": {"type": "integer"},
+            "eh_ente_publico": {"type": "boolean"},        # RE_ENTE_PUBLICO (+complemento)
+            "ente_publico_por_complemento": {"type": "boolean"},
+            # nº de linhas de `Parte` fundidas. PROXY DE PREVALÊNCIA (ranking do
+            # autocomplete) — NÃO é contagem de processos. `Parte.total_processos`
+            # está preenchido em só 39,3% da base: precomputar n_processos daqui
+            # mostraria "0 processos" em 6 de cada 10 entidades. A contagem sai do
+            # ES em tempo de query (search/entidades.py::query_variantes).
+            "n_partes":        {"type": "integer"},
+            "parte_id_min":    {"type": "long"},           # âncora pro join no Postgres
+            "atualizado_em":   {"type": "date"},
+        }
+    },
+}

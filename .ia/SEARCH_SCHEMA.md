@@ -16,8 +16,11 @@ Campo sem mapping vira dynamic mapping silencioso (tipo errado pra sempre).
 |---|---|---|---|
 | `voyager-processos` | 71,1M | `search/documents.py::processo_to_doc` | `PROC_MAPPING` |
 | `voyager-movimentacoes` | 1,16B | `movimentacao_to_doc[_sem_partes]` | `MOV_MAPPING` |
+| `voyager-entidades` | ~1,5M | `search/entidades.py::grupo_to_doc` | `ENTIDADE_MAPPING` |
 
 `_id` = pk do Postgres (idempotente). Formato compat Jusbrasil/Digesto.
+Exceção: em `voyager-entidades` o `_id` é a chave canônica (`cnpj:29979036` /
+`nome:<sha1>`) — não existe pk de "entidade" no Postgres.
 
 ## voyager-processos (schema de negócio)
 
@@ -100,6 +103,166 @@ Busca de decisão = `body` (match) + `tipo_documento`/`tipo_comunicacao`
 (term) + `publish_date` (range) + `tribunal` (term). **UF em movimentações:
 resolver no app** (`uf → [tribunais]` via `search/geo.py`) — não vale reindexar
 1,16B docs pra denormalizar um campo derivável do `tribunal`.
+
+## voyager-entidades — cadastro canônico de "quem deve"
+
+Base do **autocomplete** que substitui a busca por texto livre no mapa e na
+listagem. Uma linha por ENTIDADE, não por `Parte`. Serviço:
+`search/entidades.py`. Build: `manage.py construir_indice_entidades`.
+
+**O problema, em números medidos (12/08/2026):** a raiz de CNPJ `29.979.036`
+(INSS) são **610 linhas** de `tribunals_parte`, **610 CNPJs distintos** e **11
+grafias de nome**. Nenhuma delas é o INSS; todas são. Digitar "INSS" não acha
+"Instituto Nacional do Seguro Social" e vice-versa.
+
+| Campo | Tipo | Caso de uso |
+|---|---|---|
+| `entidade_id` | keyword | = `_id`: `cnpj:29979036` ou `nome:<sha1[:20]>` |
+| `chave` | keyword | **procedência**: `cnpj` (identidade PROVADA) \| `nome` (heurística) |
+| `raiz_cnpj` | keyword | 8 dígitos — une matriz e filiais |
+| `nome_canonico` | text + `.raw` + `.autocomplete` | rótulo exibido = a grafia MAIS FREQUENTE |
+| `nome_normalizado` | keyword | chave de fusão por nome (debug/join) |
+| `variantes[]` | text + `.raw` | **RECALL** — todas as grafias, freq. desc (o OR) |
+| `variantes_n[]` | integer | frequência de cada grafia (mesma ordem) |
+| `variantes_busca[]` | text + `.autocomplete` | **PRECISÃO** — só as grafias com peso (o autocomplete busca aqui) |
+| `n_variantes`, `variantes_truncadas` | integer, boolean | tamanho / bateu `MAX_VARIANTES` (300) |
+| `documentos[]`, `n_documentos` | keyword, integer | CNPJs formatados (mascarados NÃO entram) |
+| `documentos_mascarados` | integer | linhas com CNPJ mascarado que não fundiram por raiz |
+| `tipo` | keyword | `pj`\|`desconhecido`\|… (o dominante do grupo) |
+| `eh_ente_publico`, `ente_publico_por_complemento` | boolean | `agg_estado.eh_ente_publico` (RE_ENTE_PUBLICO + complemento) |
+| `grupos_absorvidos` | integer | grupos-por-nome consolidados neste (auditoria) |
+| `n_partes` | integer | linhas de `Parte` fundidas — **proxy de prevalência, NÃO nº de processos** |
+| `parte_id_min` | long | âncora pro join de volta no Postgres |
+| `atualizado_em` | date | freshness do build |
+
+### Decisões (o porquê)
+
+1. **Chave = raiz do CNPJ (8 dígitos).** A raiz é a PJ; os 4 seguintes são a
+   filial. Pelo CNPJ completo cada gerência do INSS viraria um devedor
+   diferente (`/0001-40` 23.230 processos, `/0012-01` 2.067, `/0002-21` 925,
+   `/0988-76` 158). Pelo nome, 11 grafias virariam 11 entidades.
+2. **CNPJ mascarado (`29.9**.***/****-**`) NÃO funde.** A máscara deixa 2-3
+   dígitos de raiz — `29.9**` casa com 29,9 milhões de CNPJs. Fundir por
+   prefixo parcial juntaria entidades diferentes num índice que responde "quem
+   deve". Mascarado é tratado como **ausente**: cai no agrupamento por nome, e
+   o documento não entra em `documentos[]`. O descarte é contado
+   (`documentos_mascarados`, e o total no relatório do comando).
+3. **Sem documento → chave por nome normalizado.** Medido: numa janela de 200k
+   ids, dos nomes que casam a regex de ente público, **704 eram
+   `tipo=desconhecido` sem documento** contra 270 `pj` com CNPJ. Exigir CNPJ
+   descartaria justamente município/estado/fazenda.
+4. **Escopo = PJ + entes públicos. Advogado FORA** (`tipo='advogado'` OU `oab`
+   preenchida — nenhum dos dois cobre 100%): ele representa o devedor. **PF
+   fora do MVP**; CPF no documento vence o `tipo` do cadastro (prova > rótulo).
+5. **Nome canônico = grafia mais frequente**, não a mais longa (seria
+   "AUTORIDADE COATORA … GERENTE EXECUTIVO(A) DO INSS EM CARUARU/PE", 1 linha)
+   nem a primeira lida. Sufixo de papel do PJe (`(REQUERIDO(A))`, `- EXECUTADO`)
+   sai do rótulo (`entidades.limpar_rotulo`).
+6. **Autocomplete = `search_as_you_type`**, não edge-ngram: o ES já gera
+   `._2gram`/`._3gram`/`._index_prefix`, o `multi_match type=bool_prefix` casa
+   "fazenda sao pau" sem analyzer manual, e o `analyzer:
+   portuguese_asciifolding` faz `uniao` achar `UNIÃO`. O custo de índice (ponto
+   fraco do tipo) é irrelevante em ~1,5M docs curtos. `variantes` também é
+   autocompletável — quem digita "inss" precisa achar a entidade cujo nome
+   canônico é "INSTITUTO NACIONAL DO SEGURO SOCIAL".
+7. **Ranking com `dis_max`, não `bool.should`.** Medido no ES de prod: com
+   `bool_prefix` de 1 termo o score textual satura (os 338 casamentos de "inss"
+   pontuaram 2,0), e somando os dois campos quem casa nos dois ganha o dobro —
+   "Gerente Executivo do INSS em Manaus" (7 linhas) passava na frente do INSS
+   (610), que casa "inss" só pela variante. Com `dis_max` + prevalência
+   `log2p(4 × n_partes)` o INSS volta pro topo.
+7b. **`operator: and` primeiro, `or` como rede.** `bool_prefix` casa por OR por
+   padrão: "fazenda sao paulo" devolvia "FAZENDA SÃO MARCELO LTDA" no topo (2
+   de 3 termos num campo curto) e a "FAZENDA DO ESTADO DE SÃO PAULO" (21
+   linhas, existe no índice) ficava fora do top-5. Digitar MAIS palavras tem
+   que ESTREITAR. A cláusula `or` fica com boost menor, só pra typo não
+   devolver vazio.
+7c. **Recall e precisão em campos SEPARADOS.** `variantes` tem tudo (é o OR);
+   `variantes_busca` tem só as grafias com ≥2 linhas e ≥1% da entidade (top-3
+   sempre). Motivo medido: o INSS tem UMA linha grafada "Instituto Nacional do
+   Seguro Social (UNIÃO)" entre 764 — o cartório digitou as duas partes no
+   mesmo campo — e com ela indexada o INSS vinha em **1º lugar na busca por
+   "uniao"**. Num índice de 1,1M entidades, o typo de quem é grande sequestra a
+   busca de quem é o alvo.
+8. **SEM `n_processos` precomputado.** `Parte.total_processos` está preenchido
+   em **39,3%** da base: o autocomplete mostraria "0 processos" em 6 de cada 10
+   entidades. A contagem vem do ES em tempo de query.
+9. **Consolidação nome→cnpj** com dupla prova: o nome normalizado tem que bater
+   com o nome CANÔNICO do grupo-por-CNPJ (não com uma variante qualquer, senão
+   a grafia solta "UNIÃO FEDERAL" pendurada no CNPJ da AGU engoliria o grupo
+   "União Federal" inteiro) **e** apontar pra um CNPJ inequívoco: único, ou
+   dominante (≥90% das linhas e ≥10× o segundo). A dominância existe porque o
+   INSS tem, além da raiz certa (610 linhas), **5 CNPJs errados** digitados por
+   tribunal com o mesmo nome (1 linha cada) — o empate falso barrava a fusão.
+   Homônimo de verdade (3 "AUTO POSTO SÃO JOSÉ LTDA" com volume parecido) fica
+   separado — abstém.
+10. **Falso-merge > falso-split em gravidade.** O primeiro build completo
+   provou: a normalização herdada do `agg_estado` colapsava **144 empresas** na
+   chave "INDUSTRIA COMERCIO", 88 em "EMPREENDIMENTOS IMOBILIARIOS" e 54 em
+   "TRANSPORTES" — descartava o PRIMEIRO segmento curto como sigla (mas ali
+   mora a marca: "HENRIMAR - INDUSTRIA E COMERCIO LTDA") e tratava inicial de
+   1 letra como conectivo ("A&E" e "A. O." → "TRANSPORTES"). Corrigido: sigla
+   só cai DEPOIS do primeiro segmento; token de 1 letra nunca é stopword.
+   **Por isso `normalizar_nome` (entidades) ≠ `normalizar_entidade`
+   (agg_estado)** — as chaves não são intercambiáveis.
+11. **Placeholder não é entidade.** "INFORMAÇÃO PROTEGIDA" (segredo de justiça)
+   somava 4.212 linhas e era a MAIOR entidade do índice — NULL disfarçado no
+   topo do autocomplete. `NOMES_PLACEHOLDER` corta.
+
+### Como se consome (enquanto o nested não está reindexado)
+
+`participacoes` (nested) é a forma estruturalmente correta, mas está em **1,9%**
+dos docs (reindex em curso). O campo TEXTO `partes` está em **100%** dos 71,1M.
+Então o autocomplete devolve a entidade e a busca vira um **OR de
+`match_phrase` das `variantes` contra `partes`** (`entidades.query_variantes`).
+Quando o reindex fechar, a query passa a filtrar `participacoes.documento` /
+`participacoes.parte_id` e o OR vira fallback.
+
+```python
+from search.entidades import query_autocomplete, query_variantes
+es.search(index='voyager-entidades', body=query_autocomplete('inss'))
+es.count(index='voyager-processos',
+         body=query_variantes(doc['variantes'],
+                              ocorrencias=doc['variantes_n'], min_ocorrencias=2))
+```
+
+### Build
+
+```bash
+# passada completa (canônica) — ~16,7M linhas
+manage.py construir_indice_entidades --lote 20000 --sleep 0.05
+# ensaio sem escrever
+manage.py construir_indice_entidades --dry-run --limite 200000
+# top-up incremental (só partes novas), mesclando com o que já está no índice
+manage.py construir_indice_entidades --desde-id <ultimo_id> --merge-es
+```
+
+Leitura por **keyset** (`id > :ultimo ORDER BY id LIMIT :lote`) — índice puro na
+PK. **Nunca `COUNT(*)`**: o total é `reltuples` do `pg_class`. Cada lote é
+cronometrado e ENCOLHE sozinho (metade, piso 500) se passar de `--alvo-lote-s`.
+Nada de faixa fixa de id: os 16,68M de linhas estão espalhadas em 626M de ids
+(2,7% de densidade) — uma faixa devolveria de 0 a 70k linhas.
+
+A agregação é **global em memória** e o ES só é escrito no fim (não dá pra
+fechar uma entidade antes do fim da leitura — a última linha pode ser mais uma
+grafia do INSS). `--checkpoint` grava o progresso da LEITURA; retomar do meio
+gera um índice que cobre só a janela lida. O modo incremental correto é
+`--desde-id` + `--merge-es` (mget → une variantes/documentos, soma `n_partes`);
+nele a consolidação nome→cnpj é PULADA, porque "aponta pra exatamente 1 CNPJ"
+não é verificável sem a base toda em memória.
+
+### Limitações conhecidas
+
+- `chave='nome'` é heurística: dois municípios homônimos em UFs diferentes
+  colapsam numa entidade. Por isso a procedência vai no doc.
+- `eh_ente_publico` herda os falsos positivos da regex compartilhada: `\bfazenda\b`
+  marca "FAZENDA SÃO RAIMUNDO LTDA" (uma fazenda de verdade) como ente público.
+- Uma grafia genérica pendurada num CNPJ específico polui o OR ("UNIÃO FEDERAL"
+  entre as variantes da AGU). Defesa: `variantes_n` + `min_ocorrencias`.
+- `n_partes` é proxy de prevalência, não contagem de processos (decisão 8).
+- Não há write-through: o índice é reconstruído por comando (candidato a cron
+  diário `--desde-id` + `--merge-es`). Parte renomeada/dedupada só some no
+  rebuild completo.
 
 ## Write-through — quem indexa o quê (mapa honesto)
 
