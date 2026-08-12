@@ -152,6 +152,34 @@ a casca do mapa (topojson, layout) com dados mock; integra quando os endpoints s
 - **CSP**: mapa 100% inline (sem CDN de topojson/JS).
 - **Lição atomic=False** (incidente 10/08): qualquer migration nova conferir `showmigrations [X]`.
 
+## 🇧🇷 MAPA NACIONAL ACESO (12/08, madrugada)
+
+Backfill do sinal estendido aos **60 tribunais** (era só os 4 do datajud), em modo dedicado
+(~5h, pico 2.930/s, 12 runners SKIP LOCKED; site fora por decisão do usuário).
+
+| | Antes | Depois |
+|---|---|---|
+| Processos com sinal (PG) | 588.548 | **2.675.121** (4,5×) |
+| Docs marcados no ES | 588.548 | **2.340.039** |
+| UFs com sinal processado | 1 de 27 | **28 de 28** (27 UFs + FED) |
+| Confirmado (ML) | 35k stale | **47.721** |
+
+TOP-8 por score de foco (pot / conf / cobertura): RO 119.586/1.948/0% · RN 130.992/2/4% ·
+TO 37.191/2/11,6% · RR 13.488/1/5,4% · SE 39.694/0/5,3% · PR 267.975/1/1,3% ·
+AP 10.575/81/10% · MA 114.687/3.310/14,8%.
+
+Leitura de negócio: o ranking deixou de refletir "onde processamos" e passou a refletir
+**onde há crédito e ninguém tocou** — RO/RN/TO/RR lideram por densidade alta com cobertura
+quase zero. PR (o antigo #1) caiu pra 6º quando o resto do país entrou na comparação.
+
+**Freshness dali em diante**: `sync_es_incremental` (10 min) mantém ES = espelho do PG —
+processo novo já entra com o sinal computado (ver SEARCH_SCHEMA.md). O backfill vira evento
+único, não rotina.
+
+Gap conhecido (não bloqueia): PG 2,675M vs ES 2,340M ≈ 335k — processos que ainda não têm
+doc no ES (o `_update` do sync ignora doc ausente). O reindex faseado do SEARCH_SCHEMA.md
++ o tick incremental fecham isso naturalmente.
+
 ## Status de execução (o general mantém aqui)
 - **Fase A** ✅ concluída (uf + tem_sinal_precatorio no doc/mapping; commit f413ef2).
 - **Fase B** 🟢 rodando (ES-DATA): mapping aplicado; `uf` populando via update_by_query.
