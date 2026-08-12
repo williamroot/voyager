@@ -37,6 +37,10 @@ def _es_resp_terms(campo, buckets):
                         # não-backfillada (potencial → None)
                         'sinal_conhecido': {'doc_count': b.get('sinal_conhecido', b['volume'])},
                         'confirmado': {'doc_count': b.get('confirmado', 0)},
+                        # união possível ∪ confirmado (default: o maior dos dois,
+                        # que é o piso lógico da união)
+                        'todos': {'doc_count': b.get('todos',
+                                  max(b.get('potencial', 0), b.get('confirmado', 0)))},
                     }
                     for b in buckets
                 ]
@@ -45,13 +49,15 @@ def _es_resp_terms(campo, buckets):
     }
 
 
-def _es_resp_total(volume, valor, potencial, confirmado):
+def _es_resp_total(volume, valor, potencial, confirmado, todos=None):
     return {
         'hits': {'total': {'value': volume}},
         'aggregations': {
             'valor': {'value': valor},
             'potencial': {'doc_count': potencial},
             'confirmado': {'doc_count': confirmado},
+            # união possível ∪ confirmado (default: piso lógico = o maior)
+            'todos': {'doc_count': max(potencial, confirmado) if todos is None else todos},
         },
     }
 
@@ -334,3 +340,44 @@ def test_ranking_top_clampa_n(mock_agg):
     assert agg.ranking_top('score', 0, {})['n'] == 1
     assert agg.ranking_top('score', 999, {})['n'] == 100
     assert agg.ranking_top('score', 'abc', {})['n'] == 10
+
+
+# --------------------------------------------------------------------------- #
+# visão "todos" = UNIÃO possível ∪ confirmado
+# --------------------------------------------------------------------------- #
+def test_subagg_todos_e_uniao_nao_soma():
+    """`todos` tem que ser bool/should (união), NUNCA soma dos dois contadores.
+
+    Medido no ES em 12/08/2026: dos 47.720 confirmados só 6.421 também têm sinal
+    de texto ⇒ somar contaria essa interseção em dobro. E 41.299 confirmados
+    (87%) NÃO têm sinal, então ficavam invisíveis na visão "possíveis".
+    """
+    sub = agg._metric_subaggs()
+    assert 'todos' in sub
+    b = sub['todos']['filter']['bool']
+    assert b['minimum_should_match'] == 1
+    campos = {list(c['term'].keys())[0] for c in b['should']}
+    assert campos == {'tem_sinal_precatorio', 'classificacao'}
+
+
+def test_todos_no_bucket_e_no_total():
+    resp = _es_resp_terms('uf', [
+        # SP: sinal NÃO processado (potencial None) mas com confirmados reais —
+        # é o caso que a visão "possíveis" esconde e a "todos" revela
+        {'key': 'SP', 'volume': 1000, 'potencial': 0, 'sinal_conhecido': 0,
+         'confirmado': 4218, 'todos': 4218},
+        {'key': 'PR', 'volume': 500, 'potencial': 40, 'confirmado': 1, 'todos': 41},
+    ])
+    out = agg._parse_buckets(resp, 'uf')
+    sp = next(b for b in out if b['uf'] == 'SP')
+    pr = next(b for b in out if b['uf'] == 'PR')
+    # 'todos' é SEMPRE numérico (mesmo sem sinal processado) — é o dado que existe
+    assert sp['potencial'] is None and sp['todos'] == 4218
+    assert pr['todos'] == 41
+    # e nunca é a soma (que daria 41 == 40+1 por coincidência aqui, mas 4218 != 0+4218+…)
+    assert sp['todos'] != (sp['potencial'] or 0) + sp['confirmado'] or sp['potencial'] is None
+
+
+def test_total_expõe_todos():
+    tot = agg._parse_total(_es_resp_total(1500, 750.0, 250, 60, todos=280))
+    assert tot['todos'] == 280

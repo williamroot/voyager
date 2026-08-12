@@ -27,6 +27,12 @@ Postgres (fonte da verdade)  ──write-through (signals)──▶  Elasticsear
 - **Potencial de precatório** = `tem_sinal_precatorio=true` (sinal do texto DJEN; amplo, toda
   a base; tem falso-positivo tipo "carta precatória" → é POTENCIAL, não confirmado).
 - **Precatório confirmado** = `classificacao='PRECATORIO'` (ML; preciso, mas só onde enriquecemos).
+- **Todos** = união possível ∪ confirmado (`bool.should` + `minimum_should_match: 1`).
+  **NUNCA a soma** — medido 12/08/2026: dos 47.720 confirmados só 6.421 têm sinal de
+  texto, então somar inflaria em 6.421. Os outros 41.299 (87%) **só aparecem nesta visão**
+  (o ML confirmou sem que a publicação dissesse "precatório"). O backend manda `todos`
+  sempre numérico (mesmo com `sinal_processado=false`, caso do SP); o front esconde o
+  botão se o campo não vier — some antes de somar.
 - **% validado** (cobertura) = enriquecidos ÷ total do tribunal (datajud/enricher done).
 - **Densidade** = potencial ÷ total do tribunal.
 - **Score de foco** = `densidade × valor_relativo × (1 − cobertura)` → prioriza estado

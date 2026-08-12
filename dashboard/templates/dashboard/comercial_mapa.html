@@ -58,6 +58,10 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     score:      'Prioridade de 0 a 100: muito precatório, com valor, e pouco explorado por nós. 100 = o estado mais promissor da lista.',
     naoAnalisado: 'Ainda não lemos as publicações deste estado. O número é desconhecido, não é zero.',
     federal:      'Processo federal corre em vários estados, então não cabe em um só. Fica contado aqui, separado do mapa.',
+    // Chave nova. Diz o que é E o que NÃO é: quem cai nos dois lados conta uma
+    // vez. Medido no nosso índice em 12/08/2026: dos 47.720 confirmados pela IA,
+    // só 6.421 também têm o sinal no texto — somar contaria esses em dobro.
+    todos:      'Processos que citam precatório nas publicações ou que a nossa IA confirmou. Quem está nos dois conta uma vez: não é a soma.',
   };
 
   // ---------------------------------------------------------------------------
@@ -132,7 +136,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
 
       // ---- toggles ----
       metricMode: 'volume',   // 'volume' | 'valor'
-      sinalMode: 'potencial', // 'potencial' | 'confirmado'
+      sinalMode: 'potencial', // 'potencial' | 'confirmado' | 'todos' (união)
 
       // ---- filtros ----
       filtros: {
@@ -222,6 +226,12 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           this.ufs = json.ufs || [];
           this.total = json.total || null;
           this.geradoEm = json.gerado_em || null;
+          // resposta sem o campo da união (cache de 2min servindo payload
+          // anterior ao deploy): volta pro modo possíveis em vez de pintar um
+          // mapa inteiro de zeros com o rótulo "possíveis ou confirmados".
+          if (this.sinalMode === 'todos' && !this.todosDisponivel()) {
+            this.sinalMode = 'potencial';
+          }
           this.loading = false;
           this.$nextTick(() => this.pintar());
           // se havia uma UF selecionada, recarrega o drill sob os novos filtros
@@ -258,24 +268,46 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       //    mais baixa diria "quase nenhum dinheiro aqui", que é falso. O rótulo
       //    da faixa cinza muda de acordo (ver `rotuloSemDado`).
       // Confirmados = 0 é zero DE VERDADE e entra na escala (faixa mais baixa).
+      // Modo TODOS (união possível ∪ confirmado): o backend manda `todos` SEMPRE
+      // numérico, inclusive onde o sinal do texto não foi processado — ali o
+      // confirmado da IA já é dado real (medido: SP tem potencial null e 4.218
+      // confirmados). Logo, neste modo NÃO existe "ainda não analisado": nunca
+      // devolvemos null por falta de sinal.
       metricaDe(b) {
         if (this.metricMode === 'valor') {
-          // no modo R$, o toggle possíveis/confirmados não muda o eixo de valor
+          // no modo R$, o toggle de nível de certeza não muda o eixo de valor
           // (não temos valor separado por sinal) — mostramos o valor do bucket.
           return (b.valor && Number(b.valor) > 0) ? Number(b.valor) : null;
         }
+        if (this.sinalMode === 'todos') return Number(b.todos) || 0;
         if (this.sinalMode === 'confirmado') return b.confirmado || 0;
         return this.potDesconhecido(b) ? null : (b.potencial || 0);
       },
 
       rotuloMetrica() {
         if (this.metricMode === 'valor') return 'Valor informado (R$)';
+        if (this.sinalMode === 'todos') return 'Possíveis ou confirmados';
         return this.sinalMode === 'confirmado' ? 'Confirmados pela IA' : 'Possíveis precatórios';
       },
-      // O que a faixa CINZA significa depende da métrica ativa — são dois vazios
+      // O que a faixa CINZA significa depende da métrica ativa — são vazios
       // diferentes e não podem colapsar num rótulo só.
+      // No modo TODOS a única causa de cinza é o estado não ter vindo na resposta
+      // (nenhum processo dele na base): "ainda não analisado" seria MENTIRA ali,
+      // porque a união não depende do backfill do sinal.
       rotuloSemDado() {
-        return this.metricMode === 'valor' ? 'valor não informado' : 'ainda não analisado';
+        if (this.metricMode === 'valor') return 'valor não informado';
+        if (this.sinalMode === 'todos') return 'sem processo na nossa base';
+        return 'ainda não analisado';
+      },
+      // A união só existe se o backend mandou o campo. O endpoint tem cache de
+      // 2min por combinação de filtro: logo após o deploy uma resposta antiga
+      // (sem `todos`) ainda pode ser servida. Em vez de inventar número — somar
+      // possíveis+confirmados contaria a interseção em dobro —, o 3º botão só
+      // aparece quando o dado está lá.
+      todosDisponivel() {
+        const num = (v) => v !== null && v !== undefined && Number.isFinite(Number(v));
+        if (this.total && num(this.total.todos)) return true;
+        return (this.ufs || []).some(x => num(x.todos));
       },
 
       // buckets que caem no choropleth = só UFs geográficas (FED fica de fora).
@@ -307,9 +339,21 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       // fundo, a página volta a apagar o estado pequeno. Toda faixa tem cor
       // visível, com claridade monotônica. No claro a rampa inverte (pálido →
       // saturado) porque em fundo branco "mais forte" é mais escuro.
+      // Uma família de cor por métrica, pra cor NUNCA prometer a métrica errada:
+      // laranja = possíveis, verde = confirmados, R$ = verde-água, e a UNIÃO
+      // ganha azul (família do token pale-blue) — se ela usasse laranja o mapa
+      // diria "possíveis" com um número que também tem os confirmados.
       rampaCor() {
         const isDark = document.documentElement.classList.contains('dark');
         if (this.metricMode === 'valor') {
+          return isDark ? ['#065f46', '#0f766e', '#10b981', '#6ee7b7']
+                        : ['#d1fae5', '#6ee7b7', '#059669', '#065f46'];
+        }
+        if (this.sinalMode === 'todos') {
+          return isDark ? ['#1e40af', '#2563eb', '#3b82f6', '#93c5fd']
+                        : ['#dbeafe', '#93c5fd', '#2563eb', '#1e3a8a'];
+        }
+        if (this.sinalMode === 'confirmado') {
           return isDark ? ['#065f46', '#0f766e', '#10b981', '#6ee7b7']
                         : ['#d1fae5', '#6ee7b7', '#059669', '#065f46'];
         }
@@ -375,6 +419,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         const corSemDado = this.corSemDado();
         const corPossivel = corToken('--c-mission-fg', 'rgb(253,186,116)');
         const corConfirmado = corToken('--c-accent-fg', 'rgb(110,231,183)');
+        const corUniao = corToken('--c-pale-blue', 'rgb(147,197,253)');
         const corMuda = corToken('--c-fg-muted', 'rgb(161,161,170)');
 
         const self = this;
@@ -414,11 +459,19 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                 + 'margin-top:4px;font-size:11px;line-height:1.35;border-top:1px solid '
                 + 'rgba(128,128,128,0.25);padding-top:4px">'
                 + self.glosMetricaAtiva() + '</div>';
+              // União, sempre que o backend mandar. Fica LOGO ABAIXO dos dois
+              // números que ela junta — é a forma mais barata de ensinar que
+              // 119.586 + 1.948 não dá 121.534: quem está nos dois conta uma vez.
+              const uniao = self.temTodos(b)
+                ? '<span style="color:' + corUniao + '">Possíveis ou confirmados: '
+                  + fmt(b.todos) + '</span><br/>'
+                : '';
               return '<b>' + nome + ' (' + b.uf + ')</b><br/>'
                 + 'Processos na base: ' + fmt(b.volume) + '<br/>'
                 + 'Valor informado: ' + fmtBRL(b.valor) + '<br/>'
                 + pot + '<br/>'
                 + '<span style="color:' + corConfirmado + '">Confirmados pela IA: ' + fmt(b.confirmado) + '</span><br/>'
+                + uniao
                 + cob + '<br/>'
                 + priTxt + '<br/>'
                 + bruto
@@ -446,7 +499,8 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
             type: 'map',
             // nome da métrica ativa (sem isto o tooltip de fallback diz "series0")
             name: emR$ ? 'Valor informado'
-                       : (this.sinalMode === 'confirmado' ? 'Confirmados' : 'Possíveis'),
+                       : (this.sinalMode === 'todos' ? 'Possíveis ou confirmados'
+                       : (this.sinalMode === 'confirmado' ? 'Confirmados' : 'Possíveis')),
             map: 'brasil',
             // O default do ECharts é 0.75 (calibrado pro mapa da China) e ESMAGA o
             // Brasil 25% na horizontal ("magro"). Nosso bbox é lon -74→-34 (40°) x
@@ -592,9 +646,16 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       // glossário da métrica ATIVA no choropleth (acompanha os toggles)
       glosMetricaAtiva() {
         if (this.metricMode === 'valor') return this.glos('valor');
+        if (this.sinalMode === 'todos') return this.glos('todos');
         return this.glos(this.sinalMode === 'confirmado' ? 'confirmado' : 'potencial');
       },
       nomeUf(uf) { return window.UF_NOMES[uf] || uf; },
+      // o bucket trouxe a união? (payload velho de cache não traz — ver
+      // todosDisponivel; nunca calculamos a união somando os dois)
+      temTodos(b) {
+        return !!b && b.todos !== null && b.todos !== undefined
+            && Number.isFinite(Number(b.todos));
+      },
       // "4% analisado" / "não sabemos ainda" — nunca "0.0%" nem "desconhecida"
       cobLabel(b) {
         const p = fmtPct(b.cobertura_pct);
@@ -803,6 +864,10 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           <dd class="inline text-fg-muted">A nossa IA leu o processo e bateu o martelo: é precatório. O número é menor porque só analisamos a fundo parte da base.</dd>
         </div>
         <div>
+          <dt class="inline font-semibold text-pale-blue">Possíveis ou confirmados — </dt>
+          <dd class="inline text-fg-muted">Os dois juntos, sem contar ninguém duas vezes: <b>não é a soma</b>. São duas buscas independentes — a maior parte dos confirmados pela IA <b>não</b> tem menção a precatório no texto das publicações, e só aqui eles aparecem.</dd>
+        </div>
+        <div>
           <dt class="inline font-semibold text-fg">Valor informado — </dt>
           <dd class="inline text-fg-muted">Soma dos valores publicados pelos tribunais. “Não informado” = o tribunal não publicou. Não é falta de dinheiro.</dd>
         </div>
@@ -889,7 +954,13 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
   </div>
 
   {# ---- KPIs globais ---- #}
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" x-show="total" x-cloak>
+  {% comment %} 5 colunas quando a união existe: ela é o tamanho REAL do funil
+     (o número que responde "quantos leads temos no total?") e não tinha lugar
+     nenhum na página. Os 4 primeiros ficam intocados — o par de honestidade
+     possíveis/confirmados continua lado a lado, com a união depois deles.
+  {% endcomment %}
+  <div class="grid grid-cols-2 gap-3" x-show="total" x-cloak
+       :class="todosDisponivel() ? 'lg:grid-cols-5' : 'lg:grid-cols-4'">
     <div class="card p-4">
       <div class="text-xs text-fg-muted uppercase tracking-wide">
         <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-volume">
@@ -930,6 +1001,16 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       </div>
       <div class="text-2xl font-mono mt-1 text-accent-fg" x-text="fmt(total ? total.confirmado : 0)"></div>
     </div>
+    <div class="card p-4" x-show="todosDisponivel()" x-cloak>
+      <div class="text-xs uppercase tracking-wide text-pale-blue">
+        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-todos">
+          Possíveis ou confirmados
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+          <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-todos" x-text="glos('todos')"></span>
+        </button>
+      </div>
+      <div class="text-2xl font-mono mt-1 text-pale-blue" x-text="fmt(total ? total.todos : 0)"></div>
+    </div>
   </div>
 
   {# ---- grid: mapa + painel lateral ---- #}
@@ -965,9 +1046,13 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                     :class="metricMode==='valor' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg'"
                     class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">R$</button>
           </div>
-          {% comment %} toggle Possíveis ↔ Confirmados (só faz sentido no modo Quantidade).
-             `:disabled` de verdade: `pointer-events-none` + opacidade continuava
-             acionável por Enter no teclado (e a opacidade não diz por quê). {% endcomment %}
+          {% comment %} toggle Possíveis / Confirmados / Todos (só faz sentido no
+             modo Quantidade). `:disabled` de verdade: `pointer-events-none` +
+             opacidade continuava acionável por Enter no teclado (e a opacidade
+             não diz por quê).
+             "Todos" = UNIÃO dos dois, e só aparece quando o backend manda o
+             campo — a união NUNCA é calculada aqui somando possíveis+confirmados
+             (contaria a interseção em dobro). {% endcomment %}
           <div class="inline-flex rounded-md border border-border overflow-hidden text-xs"
                role="group" aria-label="Nível de certeza">
             <button type="button" @click="sinalMode='potencial'" :disabled="metricMode==='valor'"
@@ -978,6 +1063,15 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                     :aria-pressed="sinalMode==='confirmado'"
                     :class="sinalMode==='confirmado' && metricMode!=='valor' ? 'bg-accent text-white' : 'text-fg-muted hover:text-fg'"
                     class="px-3 py-1.5 border-l border-border disabled:text-fg-subtle disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Confirmados</button>
+            {% comment %} `text-surface` e não `text-white`: o token pale-blue
+               INVERTE com o tema (blue-300 no escuro, blue-600 no claro) e o
+               surface inverte junto — dá 10:1 no escuro e 5,2:1 no claro, os
+               dois AA. Com `text-white` o escuro ficaria em 1,5:1. {% endcomment %}
+            <button type="button" @click="sinalMode='todos'" :disabled="metricMode==='valor'"
+                    x-show="todosDisponivel()" x-cloak
+                    :aria-pressed="sinalMode==='todos'"
+                    :class="sinalMode==='todos' && metricMode!=='valor' ? 'bg-pale-blue text-surface' : 'text-fg-muted hover:text-fg'"
+                    class="px-3 py-1.5 border-l border-border disabled:text-fg-subtle disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Todos</button>
           </div>
         </div>
       </div>
@@ -1124,7 +1218,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
               <button type="button" @click="abrirUf(b.uf)" :data-uf-item="b.uf"
                       class="w-full text-left group rounded-md p-1.5 -m-1.5 hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
                 <div class="flex items-center gap-2">
-                  <span class="text-xs font-mono text-fg-muted w-5 text-right" x-text="(i+1)+'.'"></span>
+                  <span class="text-xs font-mono text-fg-muted w-6 shrink-0 text-right" x-text="(i+1)+'.'"></span>
                   <span class="font-semibold text-fg" x-text="b.uf"></span>
                   <span class="text-xs text-fg-muted truncate" x-text="nomeUf(b.uf)"></span>
                   <span class="ml-auto text-xs font-mono text-mission-fg shrink-0"
@@ -1206,7 +1300,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           <template x-for="(t, i) in tribunais" :key="t.tribunal">
             <li class="p-2 rounded-md border border-border bg-surface/40">
               <div class="flex items-center gap-2">
-                <span class="text-xs font-mono text-fg-muted w-5 text-right" x-text="(i+1)+'.'"></span>
+                <span class="text-xs font-mono text-fg-muted w-6 shrink-0 text-right" x-text="(i+1)+'.'"></span>
                 <span class="font-semibold text-fg" x-text="t.tribunal"></span>
                 <span class="ml-auto text-xs font-mono text-mission-fg shrink-0"
                       x-text="prioridadeLabel(t, tribunais)"></span>

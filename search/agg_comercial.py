@@ -37,6 +37,11 @@ Objeto BUCKET (unidade de resposta, mesma forma pra UF e tribunal):
                                //   Fase 0 não passou) — desconhecido ≠ zero
       "sinal_processado": true,// bool — backfill do sinal já cobriu o bucket?
       "confirmado": 810,       // int  — classificacao=PRECATORIO
+      "todos": 4900,           // int  — UNIÃO possível ∪ confirmado (nunca a
+                               //   SOMA: confirmado NÃO é subconjunto de
+                               //   possível — medido 12/08/2026: dos 47.720
+                               //   confirmados só 6.421 têm sinal de texto, e
+                               //   41.299 (87%) só aparecem nesta visão)
       "cobertura_pct": 42.5,   // float 0..100 — % validado (cache; null se pending)
       "densidade": 0.034,      // float 0..1
       "score_foco": 0.0191     // float ≥ 0
@@ -268,6 +273,20 @@ def _metric_subaggs() -> dict:
         # backfill Fase 0 não passou por ali ⇒ potencial é DESCONHECIDO (null),
         # não zero — achado do QA: SP parecia "sem precatório" no modo Potencial.
         'sinal_conhecido': {'filter': {'exists': {'field': 'tem_sinal_precatorio'}}},
+        # UNIÃO possível ∪ confirmado — a visão "todos". Tem que ser união (bool
+        # should), NUNCA soma: medido no ES em 12/08/2026, dos 47.720 confirmados
+        # só 6.421 também têm sinal de texto, então somar contaria essa
+        # interseção em dobro. E os outros 41.299 confirmados (87%!) NÃO têm
+        # sinal de texto — ficavam invisíveis na visão "possíveis". Confirmado
+        # não é subconjunto de possível: são dois detectores independentes
+        # (texto das publicações × classificação da IA).
+        'todos': {'filter': {'bool': {
+            'should': [
+                {'term': {'tem_sinal_precatorio': True}},
+                {'term': {'classificacao': CLASSIF_CONFIRMADO}},
+            ],
+            'minimum_should_match': 1,
+        }}},
     }
 
 
@@ -390,6 +409,12 @@ def _parse_buckets(resp: dict, campo: str) -> list:
             'potencial': potencial if sinal_conhecido else None,
             'sinal_processado': bool(sinal_conhecido),
             'confirmado': b.get('confirmado', {}).get('doc_count', 0),
+            # visão "todos" = união (nunca soma; ver _metric_subaggs). Sempre
+            # numérica: mesmo sem o sinal processado, o confirmado da IA já é um
+            # dado real do bucket — é justamente o que a visão "possíveis"
+            # esconde. Ex. medido: SP sem sinal processado mas com 4.218
+            # confirmados ⇒ 'todos' mostra os 4.218 em vez de "não analisado".
+            'todos': b.get('todos', {}).get('doc_count', 0),
         })
     return out
 
@@ -403,6 +428,7 @@ def _parse_total(resp: dict) -> dict:
         'valor': round(aggs.get('valor', {}).get('value') or 0.0, 2),
         'potencial': aggs.get('potencial', {}).get('doc_count', 0),
         'confirmado': aggs.get('confirmado', {}).get('doc_count', 0),
+        'todos': aggs.get('todos', {}).get('doc_count', 0),
     }
 
 

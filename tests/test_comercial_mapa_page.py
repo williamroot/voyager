@@ -227,8 +227,11 @@ def test_escala_de_cor_por_faixas_com_legenda_html(html):
     assert 'rotuloSemDado' in html
     assert 'Cor mais forte = mais' in html
     assert "'até '" in html and "'mais de '" in html
-    # o vazio da escala é dito com PALAVRA, e varia com a métrica ativa
-    assert "'valor não informado' : 'ainda não analisado'" in html
+    # o vazio da escala é dito com PALAVRA, e varia com a métrica ativa —
+    # três causas diferentes, três frases (nunca o mesmo rótulo pra tudo)
+    assert "return 'valor não informado'" in html          # modo R$
+    assert "return 'sem processo na nossa base'" in html   # modo Todos
+    assert "return 'ainda não analisado'" in html          # modo Possíveis
 
 
 def test_legenda_nao_filtra_nem_sequestra_scroll(html):
@@ -245,6 +248,84 @@ def test_legenda_nao_filtra_nem_sequestra_scroll(html):
     assert 'roam: false' in html
     assert 'roam: true' not in CODIGO
     assert 'scaleLimit' not in CODIGO
+
+
+def test_terceiro_modo_todos_uniao(html):
+    """3º modo do segmentado: Possíveis | Confirmados | **Todos** (a união).
+
+    `todos` vem do backend como UNIÃO possível ∪ confirmado — jamais somado
+    aqui. Medido no índice em 12/08/2026: dos 47.720 confirmados pela IA só
+    6.421 também têm sinal no texto, então somar contaria a interseção em dobro;
+    e os outros 41.299 (87%) só aparecem NESTE modo.
+    """
+    # botão presente, com o mesmo contrato de acessibilidade dos irmãos
+    assert ">Todos</button>" in html
+    assert "@click=\"sinalMode='todos'\"" in html
+    assert ":aria-pressed=\"sinalMode==='todos'\"" in html
+    assert html.count(":disabled=\"metricMode==='valor'\"") == 3, \
+        'os 3 botões de certeza têm que desligar juntos no modo R$'
+
+    # a métrica lê o campo do backend — e NUNCA soma os dois
+    assert "if (this.sinalMode === 'todos') return Number(b.todos) || 0;" in html
+    for soma in ('potencial + b.confirmado', 'potencial||0) + (b.confirmado',
+                 'potencial || 0) + (b.confirmado'):
+        assert soma not in CODIGO, f'união calculada por SOMA: {soma}'
+
+    # rótulos: "ou", não "+" — "+" leria como soma, que é justamente o erro
+    assert 'Possíveis ou confirmados' in html
+    assert 'Possíveis + confirmados' not in html
+
+    # glossário explica união E nega a soma, em ≤140 caracteres
+    import re as _re
+    m = _re.search(r"todos:\s*'([^']+)'", html)
+    assert m, 'chave `todos` ausente do GLOSSARIO'
+    texto = m.group(1)
+    assert len(texto) <= 140, f'glossário com {len(texto)} caracteres'
+    assert 'não é a soma' in texto
+    assert 'conta uma vez' in texto
+    assert ' ou ' in texto
+
+    # bloco didático ganhou a linha do modo novo
+    assert 'sem contar ninguém duas vezes' in html
+    assert 'duas buscas independentes' in html
+
+    # cor própria: se a união usasse laranja, o mapa diria "possíveis" com um
+    # número que também tem os confirmados
+    assert "if (this.sinalMode === 'todos') {" in html
+    assert '#93c5fd' in html and '#1e3a8a' in html   # rampa azul (pale-blue)
+    assert 'bg-pale-blue' in html
+    # `text-surface` (não `text-white`): pale-blue inverte com o tema
+    assert 'bg-pale-blue text-surface' in html
+
+
+def test_modo_todos_nao_diz_nao_analisado(html):
+    """No modo Todos NÃO existe "ainda não analisado" — e não pode dizer que existe.
+
+    `todos` é sempre numérico, inclusive onde o backfill do sinal não passou
+    (SP: `potencial` null e 4.218 confirmados). Se o mapa pintasse cinza ali,
+    esconderia justamente o que este modo existe pra revelar.
+    """
+    # metricaDe não devolve null por falta de sinal neste modo: o branch de
+    # `potDesconhecido` fica DEPOIS do branch de `todos`
+    pos_todos = html.find("if (this.sinalMode === 'todos') return Number(b.todos)")
+    pos_pot = html.find('return this.potDesconhecido(b) ? null : (b.potencial || 0);')
+    assert 0 < pos_todos < pos_pot, 'o modo todos tem que curto-circuitar o "não analisado"'
+    # e o rótulo da faixa cinza troca de frase
+    assert "if (this.sinalMode === 'todos') return 'sem processo na nossa base';" in html
+
+
+def test_uniao_e_defensiva_com_payload_velho(html):
+    """Cache de 2min do endpoint pode servir resposta anterior ao deploy.
+
+    Sem o campo `todos`, a opção não deve existir (em vez de inventar número).
+    """
+    assert 'todosDisponivel' in html
+    assert 'temTodos' in html
+    assert 'x-show="todosDisponivel()"' in html
+    assert "if (this.sinalMode === 'todos' && !this.todosDisponivel())" in html
+    # o KPI da união e a coluna extra também só aparecem com o dado
+    assert "todosDisponivel() ? 'lg:grid-cols-5' : 'lg:grid-cols-4'" in html
+    assert 'id="tip-todos"' in html
 
 
 def test_layout_medido_nao_regride(html):
