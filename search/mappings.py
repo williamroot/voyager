@@ -192,12 +192,32 @@ ENTIDADE_MAPPING = {
             "grupos_absorvidos": {"type": "integer"},
             "eh_ente_publico": {"type": "boolean"},        # RE_ENTE_PUBLICO (+complemento)
             "ente_publico_por_complemento": {"type": "boolean"},
-            # nº de linhas de `Parte` fundidas. PROXY DE PREVALÊNCIA (ranking do
-            # autocomplete) — NÃO é contagem de processos. `Parte.total_processos`
-            # está preenchido em só 39,3% da base: precomputar n_processos daqui
-            # mostraria "0 processos" em 6 de cada 10 entidades. A contagem sai do
-            # ES em tempo de query (search/entidades.py::query_variantes).
+            # nº de linhas de `Parte` fundidas. PROXY DE PREVALÊNCIA — NÃO é
+            # contagem de processos, e é um proxy FRACO: medido 12/08, o
+            # "Gerente Executivo do INSS de São Paulo/Centro" tem 109 linhas
+            # contra 764 do INSS inteiro, e por isso vinha na FRENTE dele no
+            # autocomplete de "inss". Continua no doc como fallback de ranking
+            # (ver `n_processos`) e como âncora de auditoria do build.
             "n_partes":        {"type": "integer"},
+            # A contagem REAL: quantos docs de `voyager-processos` casam o OR de
+            # `match_phrase` das `variantes_busca` (search/entidades.py::
+            # query_contagem). Medido: INSS = 4.402.239 contra 764 `n_partes`.
+            # NÃO sai do build (`grupo_to_doc` não escreve este campo): vem do
+            # comando `contar_processos_entidades`, que é ES→ES e escreve por
+            # `_bulk`/`update` parcial. `long` porque é contagem sobre um índice
+            # de 77M docs que cresce todo dia.
+            #
+            # AUSENTE = "não contamos" — NÃO é zero. O escopo da contagem é
+            # deliberadamente parcial (as ~182k entidades que disputam o
+            # autocomplete, de 1,14M): quem ficou fora não tem o campo, e
+            # `query_autocomplete` cai no `n_partes`. Zero é resposta MEDIDA
+            # (o OR não achou processo nenhum) e ranqueia ABAIXO de desconhecido.
+            # Quem consumir precisa distinguir os dois — por isso ausência, e
+            # nunca 0 de enchimento.
+            "n_processos":     {"type": "long"},
+            # quando a contagem foi feita: o número envelhece (a base de
+            # processos cresce), então quem exibe precisa saber a idade dele
+            "n_processos_em":  {"type": "date"},
             "parte_id_min":    {"type": "long"},           # âncora pro join no Postgres
             "atualizado_em":   {"type": "date"},
         }

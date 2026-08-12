@@ -16,7 +16,7 @@ Campo sem mapping vira dynamic mapping silencioso (tipo errado pra sempre).
 |---|---|---|---|
 | `voyager-processos` | 71,1M | `search/documents.py::processo_to_doc` | `PROC_MAPPING` |
 | `voyager-movimentacoes` | 1,16B | `movimentacao_to_doc[_sem_partes]` | `MOV_MAPPING` |
-| `voyager-entidades` | ~1,5M | `search/entidades.py::grupo_to_doc` | `ENTIDADE_MAPPING` |
+| `voyager-entidades` | 1,14M (build 12/08) | `search/entidades.py::grupo_to_doc` (+ `n_processos` por `contar_processos_entidades`) | `ENTIDADE_MAPPING` |
 
 `_id` = pk do Postgres (idempotente). Formato compat Jusbrasil/Digesto.
 Exceção: em `voyager-entidades` o `_id` é a chave canônica (`cnpj:29979036` /
@@ -131,7 +131,9 @@ grafias de nome**. Nenhuma delas é o INSS; todas são. Digitar "INSS" não acha
 | `tipo` | keyword | `pj`\|`desconhecido`\|… (o dominante do grupo) |
 | `eh_ente_publico`, `ente_publico_por_complemento` | boolean | `agg_estado.eh_ente_publico` (RE_ENTE_PUBLICO + complemento) |
 | `grupos_absorvidos` | integer | grupos-por-nome consolidados neste (auditoria) |
-| `n_partes` | integer | linhas de `Parte` fundidas — **proxy de prevalência, NÃO nº de processos** |
+| `n_partes` | integer | linhas de `Parte` fundidas — **proxy fraco de prevalência**; hoje serve de ATESTAÇÃO e de fallback (decisão 8) |
+| `n_processos` | long | **contagem REAL** em `voyager-processos` (INSS = 4.402.239). **Ausente = "não contamos" ≠ 0** |
+| `n_processos_em` | date | quando a contagem foi feita (o número envelhece) |
 | `parte_id_min` | long | âncora pro join de volta no Postgres |
 | `atualizado_em` | date | freshness do build |
 
@@ -170,7 +172,8 @@ grafias de nome**. Nenhuma delas é o INSS; todas são. Digitar "INSS" não acha
    pontuaram 2,0), e somando os dois campos quem casa nos dois ganha o dobro —
    "Gerente Executivo do INSS em Manaus" (7 linhas) passava na frente do INSS
    (610), que casa "inss" só pela variante. Com `dis_max` + prevalência
-   `log2p(4 × n_partes)` o INSS volta pro topo.
+   (hoje `log2p(4 × n_processos) × log2p(4 × n_partes)`, ver 8c) o INSS volta
+   pro topo.
 7b. **`operator: and` primeiro, `or` como rede.** `bool_prefix` casa por OR por
    padrão: "fazenda sao paulo" devolvia "FAZENDA SÃO MARCELO LTDA" no topo (2
    de 3 termos num campo curto) e a "FAZENDA DO ESTADO DE SÃO PAULO" (21
@@ -184,9 +187,37 @@ grafias de nome**. Nenhuma delas é o INSS; todas são. Digitar "INSS" não acha
    mesmo campo — e com ela indexada o INSS vinha em **1º lugar na busca por
    "uniao"**. Num índice de 1,1M entidades, o typo de quem é grande sequestra a
    busca de quem é o alvo.
-8. **SEM `n_processos` precomputado.** `Parte.total_processos` está preenchido
-   em **39,3%** da base: o autocomplete mostraria "0 processos" em 6 de cada 10
-   entidades. A contagem vem do ES em tempo de query.
+8. **`n_processos` vem do ES, nunca do Postgres — e é ESCOPO PARCIAL.**
+   `Parte.total_processos` está preenchido em **39,3%** da base: precomputar
+   dali mostraria "0 processos" em 6 de cada 10 entidades. O build NÃO escreve
+   o campo; ele sai de uma 2ª passada **ES→ES** (`contar_processos_entidades`),
+   que roda o OR de `match_phrase` contra `voyager-processos` e grava por
+   `update` parcial. Escopo = quem disputa o autocomplete (`n_partes >= 2` OU
+   ente público = **182.196** de 1,14M, 16%): medido em 55 termos reais, cobre
+   **94,5%** das entidades que aparecem no top-10 e **98,0%** das do top-3
+   (contra 89,6%/96,6% do corte `>= 3`, que economizaria só ~2 min).
+   **Ausente ≠ zero**: quem ficou fora não tem o campo (o ranking cai no
+   `n_partes`); zero é medição e ranqueia ABAIXO de desconhecido.
+   **Um rebuild do índice apaga a contagem** (o `_bulk` do build usa `index`) —
+   depois de reconstruir, rode o contador de novo.
+8b. **Por que `n_partes` não bastava.** Ele conta CADASTRO, não litígio. Medido
+   no índice real: buscar "inss" devolvia em 1º o "Gerente Executivo do INSS de
+   São Paulo/Centro" — **109 linhas de `Parte` e 21 processos** — à frente da
+   autarquia (764 linhas, **4.402.239** processos). Com a contagem real a
+   gerência sai até do top-10.
+8c. **Ranking = texto × prevalência × ATESTAÇÃO.** Só trocar o proxy pela
+   contagem não bastou: `n_processos` é propriedade da FRASE, então as FACETAS
+   do INSS (`INSS` 53 linhas/4,25 MI, `CEAB - INSS` 4/2,09 MI, `Procuradoria da
+   CEAB-DJ INSS` 1/1,18 MI) casam quase os mesmos processos, o `log2p` achata
+   4,40 MI e 4,25 MI em 3,5% e o texto — que prefere o nome curto — volta a
+   decidir: a autarquia caía pro **11º**. O que separa a entidade das suas
+   facetas é o cadastro (764 contra 53), então quem foi contado ranqueia por
+   `log2p(4·n_processos) × log2p(4·n_partes)`. A atestação NÃO se aplica a quem
+   não foi contado (lá `n_partes` já é a única evidência e não pode contar 2×).
+   Validado fora dos 5 termos do gate, em 55 termos: mediana de processos do 1º
+   colocado 11.147 → 16.718, top-1 irrelevante (≤100 processos) 7 → 2, e
+   "fragmento no topo" (≤2 linhas de cadastro com ≥100k processos) 6 → **0**
+   (é a atestação que zera isso; sem ela eram 6).
 9. **Consolidação nome→cnpj** com dupla prova: o nome normalizado tem que bater
    com o nome CANÔNICO do grupo-por-CNPJ (não com uma variante qualquer, senão
    a grafia solta "UNIÃO FEDERAL" pendurada no CNPJ da AGU engoliria o grupo
@@ -226,6 +257,48 @@ es.count(index='voyager-processos',
                               ocorrencias=doc['variantes_n'], min_ocorrencias=2))
 ```
 
+Quem exibe "N processos" tem que ler `n_processos` como **tri-estado**:
+número = medido; `None`/ausente = fora do escopo da contagem (mostre "—", não
+"0"); `0` = medido e vazio. E `n_processos_em` diz a idade do número.
+
+### Contagem de processos (`n_processos`)
+
+```bash
+# passada completa do escopo (182k entidades, ~6 min, ES→ES, ZERO Postgres)
+manage.py contar_processos_entidades --indice entidades-teste --lote 250 --top 20
+# ensaio: conta e mede latência, não escreve
+manage.py contar_processos_entidades --dry-run --limite 2000
+# retomada de uma corrida interrompida (não revisita quem já tem número)
+manage.py contar_processos_entidades --somente-faltantes
+manage.py contar_processos_entidades --desde '<cursor final do relatório>'
+```
+
+`_msearch` em lote (1 requisição por 250 entidades — 182k requisições
+individuais seriam ~1h só de RTT), `search_after` no `entidade_id` (chave única
+e imutável; o cursor só anda pra frente, então escrever nos docs já visitados
+não desloca o que vem depois), escrita por `_bulk`/`update` **parcial** (nunca
+`index`: o resto do doc é o produto do build). Idempotente — rodar 2× reescreve
+o mesmo número. O lote é cronometrado e ENCOLHE sozinho (metade, piso 50) se
+passar de `--alvo-lote-s`, porque o ES serve a dashboard de produção.
+
+Medido em 12/08/2026 (182.196 entidades): **341 s**, 535 entidades/s, `_msearch`
+média 0,21 s / p95 0,40 s / pico 1,33 s, `_bulk` média 0,19 s / pico 0,96 s.
+Impacto no ES: CPU 20-38%, `search` thread pool com no máximo 10 ativos e fila
+1, **zero rejeições**. 1.518 zeros medidos; p50=3, p90=28, p99=794 processos.
+
+**Poda de over-match (obrigatória).** `match_phrase` de frase CURTA casa toda
+frase longa que a contém. Na 1ª contagem completa o top-10 de "quem mais litiga
+no Brasil" saiu com `Procuradoria - Allianz` (4 linhas de cadastro) em 1º com
+**7.222.852** processos — porque uma das grafias da entidade era só
+"PROCURADORIA" — e `INSTITUTO NACIONAL LTDA` (2 linhas) com 4.469.999, pela
+grafia "INSTITUTO NACIONAL". `entidades.grafias_para_contagem` corta isso:
+**entre duas grafias da MESMA entidade em que uma é sub-frase da outra, a mais
+curta só sobrevive se for MAIS FREQUENTE que a mais longa** ("INSTITUTO NACIONAL
+DO SEGURO SOCIAL" 610× ⊂ "… - INSS" 17× → é o NOME, fica; "S." 1× ⊂ "S.A.
+(VIAÇÃO AÉREA RIO-GRANDENSE) - FALIDA" 1× → empate, é TRUNCAMENTO, sai). A
+comparação passa pelo `limpar_rotulo` antes, senão "X (REQUERIDO(A))" engoliria
+"X" e toda entidade carimbada pelo cartório seria subcontada.
+
 ### Build
 
 ```bash
@@ -258,8 +331,21 @@ não é verificável sem a base toda em memória.
 - `eh_ente_publico` herda os falsos positivos da regex compartilhada: `\bfazenda\b`
   marca "FAZENDA SÃO RAIMUNDO LTDA" (uma fazenda de verdade) como ente público.
 - Uma grafia genérica pendurada num CNPJ específico polui o OR ("UNIÃO FEDERAL"
-  entre as variantes da AGU). Defesa: `variantes_n` + `min_ocorrencias`.
+  entre as variantes da AGU). Defesa: `variantes_n` + `min_ocorrencias` na
+  busca, `grafias_para_contagem` na contagem.
 - `n_partes` é proxy de prevalência, não contagem de processos (decisão 8).
+- **`n_processos` mede a FRASE, não a entidade.** A poda pega a grafia truncada,
+  mas não o nome de UM TOKEN que é genérico por natureza: a entidade `JOSÉ`
+  (2 linhas de cadastro) marca 1.796.174 porque `match_phrase("josé")` casa
+  todo José do país. Sobrou no top-10 da contagem; o lever é do BUILD (nome de
+  1 token sem CNPJ é cadastro truncado, candidato a `NOMES_PLACEHOLDER`), não
+  do contador. No autocomplete o dano é contido pela atestação (8c).
+- **A mesma entidade sai em vários docs e o topo do `n_processos` mostra isso**:
+  o INSS aparece 5× (a raiz certa + os 4 CNPJs errados digitados por tribunal,
+  1 linha cada), todos com os mesmos 4.402.239. A consolidação nome→cnpj não
+  os funde porque os 4 têm chave `cnpj` própria (ela só absorve grupos por
+  NOME). Candidato natural a uma consolidação cnpj→cnpj por nome canônico
+  idêntico + dominância.
 - Não há write-through: o índice é reconstruído por comando (candidato a cron
   diário `--desde-id` + `--merge-es`). Parte renomeada/dedupada só some no
   rebuild completo.

@@ -75,14 +75,41 @@ DECISÕES (o porquê de cada uma)
    real chama a entidade. Desempate determinístico: caixa mista > CAIXA ALTA,
    depois mais longa, depois alfabética.
 
-6. NADA DE `n_processos` PRECOMPUTADO
-   -----------------------------------
-   `Parte.total_processos` está preenchido em só 39,3% das linhas — o
-   autocomplete mostraria "0 processos" em 6 de cada 10 entidades. A contagem
-   vem do ES em tempo de query (`query_variantes`) ou de um job separado.
-   O único número de volume que este índice publica é `n_partes` (quantas
-   linhas de `Parte` foram fundidas) — e ele é um **proxy de prevalência**,
-   NÃO uma contagem de processos.
+6. `n_processos` VEM DO ES, NUNCA DO POSTGRES
+   -------------------------------------------
+   `Parte.total_processos` está preenchido em só 39,3% das linhas — precomputar
+   a partir dele mostraria "0 processos" em 6 de cada 10 entidades. Por isso o
+   BUILD (`grupo_to_doc`) não escreve `n_processos`: a contagem é uma segunda
+   passada **ES→ES** (`contar_processos_entidades`), que roda o OR de
+   `query_contagem` contra `voyager-processos` e grava o resultado por `update`
+   parcial. Zero Postgres.
+
+   Por que a segunda passada existe: `n_partes` é proxy FRACO de prevalência.
+   Medido no índice real (12/08), buscar "inss" devolvia
+
+       1º  Gerente Executivo do INSS de São Paulo/Centro    109 partes
+       2º  INSTITUTO NACIONAL DO SEGURO SOCIAL              764 partes
+
+   — e o 2º é quem aparece em **4.402.239** processos contra 6.665 do 1º.
+   `n_partes` conta linhas de CADASTRO, não litígio: uma gerência que o
+   tribunal redigitou 109 vezes empata com uma autarquia federal.
+
+   ESCOPO PARCIAL, POR DESENHO. Contar as 1,14M entidades seria varrer um índice
+   de 77M docs 1,14M vezes pra decidir a ordem de uma lista de 10 linhas. Só
+   entra quem DISPUTA o autocomplete (`escopo_contagem`, default
+   `n_partes >= 2` OU ente público = 182.196 entidades, 16% do índice). Medido
+   em 55 termos de busca reais: esse corte cobre 94,5% das entidades que
+   aparecem no top-10 e 98,0% das do top-3.
+
+   AUSENTE ≠ ZERO. Quem ficou fora do escopo **não tem o campo** — nunca 0.
+   "Não contamos" e "contamos e deu zero" são fatos diferentes, e o ranking
+   trata os dois de forma diferente (ver `query_autocomplete`): ausente cai no
+   `n_partes`; zero é medição e ranqueia abaixo de desconhecido.
+
+   O NÚMERO ENVELHECE: `voyager-processos` cresce todo dia, então vai junto
+   `n_processos_em`. E um rebuild do índice de entidades APAGA a contagem (o
+   `_bulk` do build usa `index`, que substitui o doc inteiro) — depois de
+   reconstruir, rode `contar_processos_entidades` de novo.
 
 7. FALSO-MERGE É PIOR QUE FALSO-SPLIT
    -----------------------------------
@@ -747,6 +774,98 @@ def _campos_autocomplete(campo: str) -> list[str]:
 #: Executivo do INSS em Manaus" (7 linhas) fica na frente do INSS (610).
 FATOR_PREVALENCIA = 4
 
+#: campo de prevalência MEDIDO (contagem real em `voyager-processos`) e o
+#: proxy que sobrou pra quem ficou fora do escopo da contagem.
+CAMPO_PREVALENCIA = 'n_processos'
+CAMPO_PREVALENCIA_FALLBACK = 'n_partes'
+
+#: peso da ATESTAÇÃO — ver `funcoes_prevalencia`. Fator ALTO comprime mais
+#: (`log10(2 + fator·n)`), então este número controla o quanto o cadastro pode
+#: desempatar contagens parecidas; calibrado em 4 (mesmo `FATOR_PREVALENCIA`)
+#: porque a folga medida no caso "inss" é 1,66 contra os 1,33 que o score
+#: textual dá de vantagem pro nome curto.
+FATOR_ATESTACAO = 4
+
+
+def _fator(campo: str) -> dict:
+    return {'field_value_factor': {'field': campo, 'modifier': 'log2p',
+                                   'factor': FATOR_PREVALENCIA, 'missing': 0}}
+
+
+def funcoes_prevalencia() -> list:
+    """As funções de prevalência do `function_score`.
+
+    Duas delas são mutuamente exclusivas (a prevalência propriamente dita):
+    contadas usam `n_processos`; NÃO-contadas (campo ausente) caem no `n_partes`,
+    que é o comportamento anterior. A terceira é a ATESTAÇÃO, e só existe pra
+    quem foi contado (ver mais abaixo).
+
+    Os filtros são `exists`/`must_not exists`, e NÃO `score_mode: max` entre os
+    dois campos, de propósito:
+
+      * `max` faria `n_partes` virar PISO de todo mundo, e aí a entidade que a
+        contagem provou pequena ("Gerente Executivo do INSS de São Paulo/Centro":
+        109 linhas de cadastro, 6.665 processos) manteria o score inflado que a
+        gente está justamente tentando corrigir. Quem foi medido é ranqueado
+        pela MEDIDA, não pelo proxy;
+      * e `max` colapsaria ausente com zero — os dois cairiam no `n_partes`.
+        AUSENTE é "não contamos" (fora do escopo, ver `escopo_contagem`); ZERO é
+        "contamos e o OR não achou processo nenhum". O primeiro merece o
+        benefício da dúvida do proxy; o segundo é fato medido e fica embaixo:
+        `log2p(0) = log10(2) ≈ 0,30` contra `log2p(n_partes)` ≥ 0,78.
+
+    Escala: `log2p` = `log10(2 + fator·valor)`. O INSS (4.402.239) pontua 7,25 e
+    uma entidade de 3 processos pontua 1,15 — spread de ~6× num score textual
+    que varia entre ~2 e ~5, ou seja, a prevalência decide a ordem (é o que se
+    quer) mas o `operator: and` continua sendo quem decide QUEM entra na lista.
+
+    ATESTAÇÃO (a 3ª função, só pra quem foi contado)
+    ------------------------------------------------
+    `n_processos` é propriedade da FRASE, não da entidade: ele mede "em quantos
+    processos aparece um nome que contém estas palavras". Numa entidade grande
+    isso cria um cardume de FACETAS — pedaços do mesmo órgão, cada um em seu
+    documento, todos casando quase os mesmos processos. Medido, buscando "inss"
+    logo depois da 1ª contagem:
+
+         1º  INSS                          53 linhas · 4.255.175
+         2º  INSTITUTO NACIONAL … SOCIAL INSS  22 linhas · 4.174.336
+         3º  CEAB - INSS                    4 linhas · 2.087.983
+        11º  INSTITUTO NACIONAL DO SEGURO SOCIAL  764 linhas · 4.402.239  ← o INSS
+
+    O log achata 4,40 MI e 4,25 MI para 3,5% de diferença, e aí quem decide volta
+    a ser o texto — que prefere o nome CURTO ("INSS" casa "inss" como nome
+    canônico; a autarquia casa só por variante). Nenhuma transformação monótona
+    da contagem conserta isso: 3,5% não vence 33%.
+
+    O que separa a autarquia das suas facetas não é a contagem — é o CADASTRO.
+    764 linhas de `Parte` contra 53, 22, 4, 1. `n_partes` responde uma pergunta
+    que `n_processos` não responde: *quantas vezes, independentemente, o tribunal
+    registrou esta entidade com este nome?* Uma faceta de 1 linha que casa um
+    milhão de processos está medindo a promiscuidade da frase, não o tamanho da
+    entidade.
+
+    Por isso o ranking de quem foi contado é **prevalência × atestação**:
+    `log2p(4·n_processos) × log2p(4·n_partes)`. Medido no caso "inss", a
+    atestação abre 1,66× entre a autarquia (764) e a maior faceta (53) — folga
+    sobre os 1,33× que o texto dá pro nome curto — e devolve o INSS ao 1º lugar
+    sem ressuscitar a gerência de 109 linhas/21 processos (que continua em 17,7
+    contra 54,3 da autarquia).
+
+    A atestação NÃO se aplica a quem não foi contado: ali `n_partes` já é a única
+    evidência e contá-lo duas vezes mudaria o fallback, que tem que ser
+    exatamente o comportamento anterior.
+    """
+    return [
+        {'filter': {'exists': {'field': CAMPO_PREVALENCIA}},
+         **_fator(CAMPO_PREVALENCIA)},
+        {'filter': {'bool': {'must_not': [{'exists': {'field': CAMPO_PREVALENCIA}}]}},
+         **_fator(CAMPO_PREVALENCIA_FALLBACK)},
+        {'filter': {'exists': {'field': CAMPO_PREVALENCIA}},
+         'field_value_factor': {'field': CAMPO_PREVALENCIA_FALLBACK,
+                                'modifier': 'log2p', 'factor': FATOR_ATESTACAO,
+                                'missing': 0}},
+    ]
+
 
 def query_autocomplete(termo: str, tamanho: int = 10,
                        somente_ente_publico: bool = False) -> dict:
@@ -772,10 +891,21 @@ def query_autocomplete(termo: str, tamanho: int = 10,
     A busca corre em `variantes_busca` (grafias com peso), não em `variantes`
     (tudo) — ver `variantes_de_busca`.
 
-    Ranking: sem `n_processos` (decisão 6), ordenamos por relevância textual ×
-    `n_partes` (proxy de prevalência declarado), em log pra que o INSS não
-    esmague a busca textual — quem digita o nome inteiro de um município
-    pequeno tem que achar o município pequeno.
+    Ranking = relevância textual × prevalência × atestação, tudo em log pra que
+    o INSS não esmague a busca textual (quem digita o nome inteiro de um
+    município pequeno tem que achar o município pequeno). Prevalência é
+    `n_processos` — a contagem REAL em `voyager-processos` — quando ela existe, e
+    `n_partes` quando não existe. Ver `funcoes_prevalencia`: é ali que mora a
+    diferença entre "não contamos" e "contamos e deu zero", e o porquê da
+    atestação.
+
+    Medido no índice real (1º colocado antes → depois de contar):
+        "inss" .................. Gerente Executivo do INSS SP/Centro (21
+                                  processos) → INSTITUTO NACIONAL DO SEGURO
+                                  SOCIAL (4.402.239)
+        "fazenda sao paulo" ..... Fazenda São Paulo Agropecuária Ltda (11) →
+                                  Fazenda Pública do Estado de SP (77.053)
+        "caixa" ................. o doc de 1 linha da CAIXA → o de 655 linhas
     """
     def _mm(campo, operador, boost):
         return {'multi_match': {'query': termo, 'type': 'bool_prefix',
@@ -797,14 +927,18 @@ def query_autocomplete(termo: str, tamanho: int = 10,
         'query': {
             'function_score': {
                 'query': query,
-                'field_value_factor': {'field': 'n_partes', 'modifier': 'log2p',
-                                       'factor': FATOR_PREVALENCIA, 'missing': 0},
+                'functions': funcoes_prevalencia(),
+                # `multiply`: o ES já ignora função cujo filtro não casa, então
+                # quem foi contado multiplica prevalência × atestação e quem não
+                # foi fica só com o fallback `n_partes` (= comportamento anterior)
+                'score_mode': 'multiply',
                 'boost_mode': 'multiply',
             },
         },
         '_source': ['entidade_id', 'nome_canonico', 'variantes', 'variantes_n',
                     'variantes_busca', 'chave', 'raiz_cnpj', 'documentos',
-                    'eh_ente_publico', 'n_partes', 'n_variantes'],
+                    'eh_ente_publico', 'n_partes', 'n_variantes',
+                    'n_processos', 'n_processos_em'],
     }
 
 
@@ -847,3 +981,170 @@ def query_variantes(variantes, campo: str = 'partes',
             'minimum_should_match': 1,
         }},
     }
+
+
+# --------------------------------------------------------------------------- #
+# Contagem REAL de processos (`n_processos`) — segunda passada, ES→ES
+# --------------------------------------------------------------------------- #
+#: corte default do escopo da contagem. Medido em 55 termos de busca reais
+#: (490 entidades distintas no top-10, 147 no top-3) contra o índice de 1,14M:
+#:
+#:     corte                  entidades   cobre top-10   cobre top-3
+#:     n_partes>=2 OU ente     182.196       94,5%          98,0%   ← default
+#:     n_partes>=3 OU ente     102.372       89,6%          96,6%
+#:     n_partes>=5 OU ente      74.259       81,0%          92,5%
+#:     só ente público          68.783       57,8%          58,5%
+#:
+#: O degrau de 2→3 custa 4,9pp do top-10 e economiza 80k contagens — que, medidas,
+#: são ~2min de `_msearch`. Barato demais pra abrir mão da cobertura, ainda mais
+#: porque é exatamente na faixa `n_partes=2` que mora o bug relatado ("Fazenda São
+#: Paulo Agropecuária Ltda", 2 linhas de cadastro, ganhando da Fazenda Pública do
+#: Estado de SP): entidade que disputa o topo tem que ser MEDIDA, não presumida.
+#: Ente público entra sempre, com qualquer `n_partes` — é o universo do produto
+#: ("quem deve") e ele quase nunca tem CNPJ no dado do tribunal (decisão 3).
+CONTAGEM_MIN_PARTES = 2
+
+
+def escopo_contagem(min_partes: int = CONTAGEM_MIN_PARTES,
+                    incluir_ente_publico: bool = True,
+                    somente_faltantes: bool = False) -> dict:
+    """Query que seleciona QUEM vai ser contado (ver `CONTAGEM_MIN_PARTES`).
+
+    `somente_faltantes` pula quem já tem `n_processos` — é a retomada barata de
+    uma passada interrompida, e o que torna re-rodar o comando quase de graça.
+    """
+    deve: list = [{'range': {'n_partes': {'gte': min_partes}}}]
+    if incluir_ente_publico:
+        deve.append({'term': {'eh_ente_publico': True}})
+    bool_query: dict = {'should': deve, 'minimum_should_match': 1}
+    if somente_faltantes:
+        bool_query['must_not'] = [{'exists': {'field': 'n_processos'}}]
+    return {'bool': bool_query}
+
+
+def _tokens_grafia(grafia: str) -> tuple:
+    """Tokens de IDENTIDADE de uma grafia, pra comparar uma com a outra.
+
+    Segue o `portuguese_asciifolding` (standard + asciifolding, SEM stopword —
+    "DO" é token pro ES), mas passa antes pelo `limpar_rotulo`, que descasca o
+    papel processual que o PJe cola no nome. Sem isso "FULANO SA - FALIDA" seria
+    sub-frase de "FULANO SA - FALIDA (EXECUTADO(A))" e a poda comeria o nome
+    LIMPO em favor da variante decorada — um subregistro sistemático em toda
+    entidade que o cartório carimbou com o papel.
+    """
+    return tuple(_RE_NAO_ALNUM.sub(
+        ' ', _sem_acento(limpar_rotulo(grafia)).upper()).split())
+
+
+def _e_sub_frase(menor: tuple, maior: tuple) -> bool:
+    """`menor` é uma sequência CONTÍGUA e estritamente menor dentro de `maior`.
+
+    É a relação que o `match_phrase` enxerga: quem procura a frase curta pega
+    todo documento que contém a longa.
+    """
+    if not menor or len(menor) >= len(maior):
+        return False
+    return any(maior[i:i + len(menor)] == menor
+               for i in range(len(maior) - len(menor) + 1))
+
+
+def grafias_para_contagem(grafias, ocorrencias=None) -> list:
+    """Poda de OVER-MATCH: tira do OR a grafia truncada que não é o nome real.
+
+    O problema, medido na 1ª contagem completa (12/08, 182.196 entidades): o
+    top-10 de "quem mais litiga no Brasil" saiu assim —
+
+        7.222.852  Procuradoria - Allianz        (4 linhas)  grafias: "PROCURADORIA" | "Procuradoria - Allianz"
+        4.469.999  INSTITUTO NACIONAL LTDA       (2 linhas)  grafias: "INSTITUTO NACIONAL" | "INSTITUTO NACIONAL LTDA"
+        1.538.141  S.A. (VIAÇÃO AÉREA…) - FALIDA (4 linhas)  grafias: "S." | "S.A. (VIAÇÃO AÉREA RIO-GRANDENSE) - FALIDA"
+
+    `match_phrase` de uma frase CURTA casa todo processo que contém a frase
+    LONGA: procurar "PROCURADORIA" traz as 7,2 milhões de procuradorias do país.
+    Uma linha truncada do cartório ("PROCURADORIA" digitado sozinho) vira, no
+    índice, uma entidade que aparenta litigar mais que o INSS.
+
+    REGRA: entre duas grafias da MESMA entidade em que uma é sub-frase da outra,
+    a mais CURTA só sobrevive se for MAIS FREQUENTE que a mais longa. É a
+    diferença entre um nome e um pedaço de nome:
+
+        INSS  "INSTITUTO NACIONAL DO SEGURO SOCIAL" (610×) ⊂ "… - INSS" (17×)
+              → 610 > 17: a curta é o NOME. Fica. (contagem segue 4.402.239)
+        VARIG "S." (1×) ⊂ "S.A. (VIAÇÃO AÉREA RIO-GRANDENSE) - FALIDA" (1×)
+              → empate: a curta é um TRUNCAMENTO. Sai.
+
+    Empate cai pra fora de propósito — sem evidência de que a forma curta é o
+    nome, a longa é a aposta segura (abster > chutar). Nunca devolve lista vazia:
+    a grafia mais longa não é sub-frase de ninguém, então nunca é podada.
+
+    Isto NÃO mexe em `query_variantes`/`variantes_busca` (recall da busca): é uma
+    regra de MEDIÇÃO. Na busca, uma grafia a mais custa um resultado a mais; na
+    contagem, custa 7 milhões de processos atribuídos a quem não é dono deles.
+    """
+    limpas = [g for g in (grafias or []) if (g or '').strip()]
+    if len(limpas) < 2:
+        return limpas
+    ocorrencias = ocorrencias or {}
+    toks = {g: _tokens_grafia(g) for g in limpas}
+    mantidas = []
+    for g in limpas:
+        engolida = any(
+            _e_sub_frase(toks[g], toks[h])
+            and int(ocorrencias.get(g, 0)) <= int(ocorrencias.get(h, 0))
+            for h in limpas if h != g)
+        if not engolida:
+            mantidas.append(g)
+    return mantidas or limpas[:1]
+
+
+def query_contagem(variantes, campo: str = 'partes',
+                   max_clausulas: int = MAX_CLAUSULAS_VARIANTES,
+                   ocorrencias=None) -> dict:
+    """Sub-busca do `_msearch` que devolve SÓ o total de processos da entidade.
+
+    `ocorrencias` = `{grafia: nº de linhas de Parte}` (de `variantes`/
+    `variantes_n`), usado por `grafias_para_contagem` pra podar a grafia
+    truncada. Sem ele a poda não roda — e o topo do índice vira ruído.
+
+    É `query_variantes` + duas coisas que não podem faltar:
+      * `size: 0` — não queremos nenhum documento, só o número. Sem isso o ES
+        monta e serializa 10 hits × 182k entidades à toa;
+      * `track_total_hits: true` — o default do ES 8 é **10.000**, e sem isso o
+        INSS voltaria `{"value": 10000, "relation": "gte"}`. Um teto silencioso
+        gravado como se fosse contagem seria pior que não contar: empataria as
+        50 maiores entidades do país no mesmo número redondo.
+    """
+    podadas = grafias_para_contagem(variantes, ocorrencias)
+    corpo = query_variantes(podadas, campo=campo, max_clausulas=max_clausulas)
+    corpo['size'] = 0
+    corpo['track_total_hits'] = True
+    return corpo
+
+
+def total_exato(resposta: dict):
+    """Total de uma resposta do ES — `None` se não for confiável.
+
+    Devolve `None` (e não 0) quando a sub-busca falhou ou quando o total veio
+    truncado (`relation='gte'`, ou seja, `track_total_hits` não pegou): gravar 0
+    ali seria inventar "essa entidade não tem processo". Ausência é a resposta
+    honesta — o ranking sabe cair no `n_partes`.
+    """
+    if not isinstance(resposta, dict) or 'error' in resposta:
+        return None
+    total = (resposta.get('hits') or {}).get('total')
+    if isinstance(total, dict):
+        if total.get('relation') != 'eq':
+            return None
+        return int(total.get('value', 0))
+    if isinstance(total, int):          # ES antigo devolvia int puro
+        return int(total)
+    return None
+
+
+def doc_contagem(n_processos: int, agora: str | None = None) -> dict:
+    """O `doc` do `_bulk`/`update` parcial — só os 2 campos da contagem.
+
+    Parcial de propósito: reindexar a entidade inteira aqui apagaria o trabalho
+    do build (variantes, documentos, consolidação) por causa de um número.
+    """
+    return {'n_processos': int(n_processos),
+            'n_processos_em': agora or datetime.now(timezone.utc).isoformat()}

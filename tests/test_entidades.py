@@ -12,6 +12,8 @@ O que se cobra aqui é exatamente o que quebra o produto se regredir:
   - quem não tem documento cai no nome e é MARCADO como tal (`chave='nome'`);
   - o mapping tem o campo de autocomplete.
 """
+import math
+
 import pytest
 
 from search import entidades as ent
@@ -408,13 +410,25 @@ def test_mapping_cobre_todo_campo_do_doc_builder():
     assert not faltando, f'campos sem mapping: {faltando}'
 
 
-def test_mapping_nao_precomputa_n_processos():
-    """`Parte.total_processos` está preenchido em 39,3% — precomputar mostraria
-    '0 processos' em 6 de cada 10 entidades."""
+def test_mapping_tem_n_processos_mas_o_build_nao_o_escreve():
+    """`n_processos` é campo do índice, mas NÃO sai do build.
+
+    `Parte.total_processos` está preenchido em 39,3% — precomputar dali mostraria
+    '0 processos' em 6 de cada 10 entidades (decisão 6). O número vem da segunda
+    passada ES→ES (`contar_processos_entidades`), então o doc do build sai SEM o
+    campo — e ausência é informação: significa "ainda não contamos".
+    """
     props = ENTIDADE_MAPPING['mappings']['properties']
-    assert 'n_processos' not in props
-    assert 'total_processos' not in props
+    assert props['n_processos']['type'] == 'long'      # 77M docs e crescendo
+    assert props['n_processos_em']['type'] == 'date'   # o número envelhece
+    assert 'total_processos' not in props              # nunca veio do Postgres
     assert props['n_partes']['type'] == 'integer'
+
+    doc = next(iter(_docs(_agregar(
+        [_linha('INSTITUTO NACIONAL DO SEGURO SOCIAL', CNPJS_INSS[0], 'CNPJ')]
+    )).values()))
+    assert 'n_processos' not in doc
+    assert 'n_processos_em' not in doc
 
 
 def test_query_variantes_e_or_de_match_phrase_no_campo_partes():
@@ -456,9 +470,14 @@ def test_query_autocomplete_usa_bool_prefix_nos_dois_campos():
     assert 'nome_canonico.autocomplete' in campos
     assert 'variantes_busca.autocomplete' in campos    # "inss" acha o INSS
     assert 'variantes_busca.autocomplete._3gram' in campos
-    # ranking sem n_processos: prevalência por n_partes (proxy declarado)
-    assert body['query']['function_score']['field_value_factor']['field'] == 'n_partes'
+    # prevalência: contagem real quando existe, proxy `n_partes` quando não
+    campos_fvf = {f['field_value_factor']['field']
+                  for f in body['query']['function_score']['functions']}
+    assert campos_fvf == {'n_processos', 'n_partes'}
+    assert body['query']['function_score']['boost_mode'] == 'multiply'
     assert body['size'] == 5
+    # o consumidor precisa receber o número (e a idade dele) pra exibir
+    assert {'n_processos', 'n_processos_em'} <= set(body['_source'])
 
 
 def test_variantes_de_busca_corta_grafia_de_uma_linha_da_entidade_grande():
@@ -519,6 +538,251 @@ def test_query_autocomplete_filtra_ente_publico_sem_perder_o_dis_max():
     interna = q['query']['function_score']['query']
     assert interna['bool']['filter'] == [{'term': {'eh_ente_publico': True}}]
     assert 'dis_max' in interna['bool']['must'][0]
+
+
+# --------------------------------------------------------------------------- #
+# 6b. `n_processos` — a contagem REAL e o ranking que ela conserta
+# --------------------------------------------------------------------------- #
+#: medido no índice real (12/08) — os dois lados do bug do autocomplete de "inss".
+#: `score` é o score que o ES devolvia ANTES (relevância textual × log2p(n_partes)),
+#: e é dele que se extrai o componente TEXTUAL, que esta mudança não altera.
+INSS_REAL = {'n_partes': 764, 'n_processos': 4_402_239, 'score': 9.062}
+#: 109 linhas de cadastro ("o cartório redigitou o nome da gerência 109 vezes")
+#: contra 21 processos de verdade. O proxy errava por 5 ordens de grandeza.
+GERENTE_SP_REAL = {'n_partes': 109, 'n_processos': 21, 'score': 9.166}
+
+
+def _prevalencia(doc):
+    """Reproduz o `function_score` do ES sobre um `_source`: qual fator sai.
+
+    `score_mode: multiply` das funções cujo FILTRO casa — o ES simplesmente
+    ignora as outras. `log2p` do ES é `log10(2 + fator·valor)`.
+    """
+    tem = doc.get('n_processos') is not None
+    fator = None
+    for funcao in ent.funcoes_prevalencia():
+        filtro = funcao['filter']
+        casa = ('exists' in filtro) if tem else ('bool' in filtro)
+        if not casa:
+            continue
+        fvf = funcao['field_value_factor']
+        valor = doc.get(fvf['field'], fvf['missing'])
+        if valor is None:
+            valor = fvf['missing']
+        parcela = math.log10(2 + fvf['factor'] * valor)
+        fator = parcela if fator is None else fator * parcela
+    assert fator is not None, f'nenhuma função de prevalência casou com {doc}'
+    return fator
+
+
+def _componente_textual(real):
+    """O pedaço do score que vem do TEXTO — o que esta mudança NÃO toca.
+
+    `score_antigo = texto × log2p(n_partes)`, então `texto = score / log2p(...)`.
+    Reconstruir daqui é o que torna o teste um teste do dado real e não da
+    minha aritmética: os dois `score` foram copiados do ES de prod.
+    """
+    return real['score'] / math.log10(2 + 4 * real['n_partes'])
+
+
+def test_inss_ganha_de_quem_so_tem_linhas_de_cadastro():
+    """O TESTE-REI DESTA MUDANÇA. Buscar "inss" devolvia, no índice real:
+
+        1º  Gerente Executivo do INSS de São Paulo/Centro   109 partes  score 9,166
+        2º  INSTITUTO NACIONAL DO SEGURO SOCIAL             764 partes  score 9,062
+
+    O proxy `n_partes` conta CADASTRO, não litígio: 109 redigitações do nome de
+    uma gerência (21 processos de verdade) contra a autarquia com 4.402.239.
+    Como `log2p` achata (3,49 contra 2,64), quem decidia era o texto — e o texto
+    prefere o nome curto e específico. Com a contagem real não há o que decidir.
+    """
+    texto_inss = _componente_textual(INSS_REAL)
+    texto_gerente = _componente_textual(GERENTE_SP_REAL)
+    # o bug: o texto favorece a gerência e o proxy não dá conta de reverter
+    assert texto_gerente > texto_inss
+    assert INSS_REAL['score'] < GERENTE_SP_REAL['score']
+
+    depois_inss = texto_inss * _prevalencia(INSS_REAL)
+    depois_gerente = texto_gerente * _prevalencia(GERENTE_SP_REAL)
+    assert depois_inss > depois_gerente, 'digitar "inss" tem que trazer o INSS'
+    # e não por pouco: a distância tem que aguentar variação de score textual
+    assert depois_inss > 2 * depois_gerente
+
+
+def test_ranking_cai_no_n_partes_quando_n_processos_e_null():
+    """Fallback: fora do escopo da contagem, o comportamento é o de antes."""
+    sem = {'n_partes': 44, 'n_processos': None}
+    assert _prevalencia(sem) == pytest.approx(math.log10(2 + 4 * 44))
+    # e quem foi contado passa na frente de quem só tem cadastro
+    assert _prevalencia({'n_partes': 44, 'n_processos': 500_000}) > _prevalencia(sem)
+
+
+def test_null_nao_e_zero_no_ranking():
+    """"Não contamos" ≠ "contamos e deu zero".
+
+    Se o ranking usasse `max` entre os dois campos, os dois casos cairiam no
+    `n_partes` e virariam a mesma coisa. Zero é MEDIÇÃO e tem que ranquear
+    abaixo do desconhecido, que ainda merece o benefício da dúvida do proxy.
+    """
+    desconhecido = {'n_partes': 50, 'n_processos': None}
+    medido_zero = {'n_partes': 50, 'n_processos': 0}
+    assert _prevalencia(medido_zero) < _prevalencia(desconhecido)
+    # contado: log2p(0) × atestação(50); desconhecido: só log2p(50)
+    assert _prevalencia(medido_zero) == pytest.approx(
+        math.log10(2) * math.log10(2 + 4 * 50))
+    assert _prevalencia(desconhecido) == pytest.approx(math.log10(2 + 4 * 50))
+    # e nenhuma das duas zera o score (log2p, não log) — a entidade não some
+    assert _prevalencia(medido_zero) > 0
+
+    funcoes = ent.funcoes_prevalencia()
+    assert funcoes[0]['filter'] == {'exists': {'field': 'n_processos'}}
+    assert funcoes[1]['filter']['bool']['must_not'] == [
+        {'exists': {'field': 'n_processos'}}]
+    corpo = ent.query_autocomplete('inss')['query']['function_score']
+    assert corpo['score_mode'] == 'multiply'
+
+
+def test_atestacao_so_vale_para_quem_foi_contado():
+    """O fallback tem que ser EXATAMENTE o comportamento anterior.
+
+    Se a atestação valesse pra todo mundo, `n_partes` entraria duas vezes no
+    score de quem não foi contado — e aí a mudança mexeria também em quem ela
+    não mediu. Fora do escopo da contagem, nada muda.
+    """
+    funcoes = ent.funcoes_prevalencia()
+    atestacao = [f for f in funcoes
+                 if f['field_value_factor']['field'] == 'n_partes'
+                 and f['filter'] == {'exists': {'field': 'n_processos'}}]
+    assert len(atestacao) == 1
+    assert _prevalencia({'n_partes': 764, 'n_processos': None}) \
+        == pytest.approx(math.log10(2 + 4 * 764))
+
+
+def test_atestacao_separa_a_entidade_das_suas_facetas():
+    """Achado da 1ª contagem: contando só processos, buscar "inss" devolvia
+
+        1º  INSS                                  53 linhas · 4.255.175
+       11º  INSTITUTO NACIONAL DO SEGURO SOCIAL  764 linhas · 4.402.239
+
+    `n_processos` é propriedade da FRASE: as facetas do INSS casam quase os
+    mesmos processos, o log achata 4,40 MI e 4,25 MI em 3,5% e o texto (que
+    prefere o nome curto "INSS") volta a decidir. Quem separa a autarquia das
+    suas facetas é o CADASTRO: 764 linhas contra 53.
+    """
+    autarquia = {'n_partes': 764, 'n_processos': 4_402_239}
+    faceta = {'n_partes': 53, 'n_processos': 4_255_175}
+    # a contagem sozinha não separa: 0,2% de diferença
+    so_contagem = (math.log10(2 + 4 * autarquia['n_processos'])
+                   / math.log10(2 + 4 * faceta['n_processos']))
+    assert so_contagem < 1.01
+    # ...e o texto dá 1,33× de vantagem pro nome curto (medido no ES de prod)
+    vantagem_textual = _componente_textual(GERENTE_SP_REAL) / _componente_textual(INSS_REAL)
+    assert _prevalencia(autarquia) / _prevalencia(faceta) > vantagem_textual
+
+
+def test_poda_a_grafia_truncada_que_sequestra_a_contagem():
+    """Achado da 1ª contagem completa (12/08): o top-10 de "quem mais litiga no
+    Brasil" saiu com `Procuradoria - Allianz` (4 linhas de cadastro) em 1º com
+    **7.222.852** processos — porque uma das grafias da entidade era só
+    "PROCURADORIA", e `match_phrase` de frase curta casa toda frase longa que a
+    contém. `INSTITUTO NACIONAL LTDA` (2 linhas) marcou 4.469.999 pelo mesmo
+    motivo: a grafia "INSTITUTO NACIONAL" pega o INSS inteiro."""
+    assert ent.grafias_para_contagem(
+        ['PROCURADORIA', 'Procuradoria - Allianz'],
+        {'PROCURADORIA': 1, 'Procuradoria - Allianz': 3}) == ['Procuradoria - Allianz']
+    # empate de frequência também poda: sem prova de que a curta é o nome, a
+    # longa é a aposta segura (abster > chutar)
+    assert ent.grafias_para_contagem(
+        ['INSTITUTO NACIONAL', 'INSTITUTO NACIONAL LTDA'],
+        {'INSTITUTO NACIONAL': 1, 'INSTITUTO NACIONAL LTDA': 1}) \
+        == ['INSTITUTO NACIONAL LTDA']
+
+
+def test_poda_preserva_o_inss_porque_a_grafia_curta_e_o_nome():
+    """O contra-exemplo que a regra NÃO pode quebrar: a grafia curta do INSS é
+    sub-frase da longa, mas aparece 610× contra 17× — ela é o NOME, não um
+    truncamento. Podá-la derrubaria a contagem validada de 4.402.239."""
+    grafias = ['INSTITUTO NACIONAL DO SEGURO SOCIAL',
+               'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS',
+               'Instituto Nacional do Seguro Social - INSS']
+    ocorrencias = dict(zip(grafias, (610, 17, 9)))
+    assert ent.grafias_para_contagem(grafias, ocorrencias) == grafias
+    # e é essa lista que vai pro OR da contagem
+    corpo = ent.query_contagem(grafias, ocorrencias=ocorrencias)
+    assert len(corpo['query']['bool']['should']) == 3
+
+
+def test_poda_ignora_o_papel_do_pje_na_comparacao():
+    """"X" e "X (REQUERIDO(A))" são a MESMA identidade — a decorada não pode
+    engolir a limpa, senão toda entidade carimbada pelo cartório passa a ser
+    contada só nos processos onde o carimbo aparece (subregistro sistemático)."""
+    grafias = ['MUNICIPIO DE ARARAS', 'MUNICIPIO DE ARARAS (REQUERIDO(A))']
+    assert ent.grafias_para_contagem(grafias, dict.fromkeys(grafias, 1)) == grafias
+
+
+def test_poda_nunca_esvazia_o_or():
+    """Sem grafia não há contagem — a mais longa nunca é sub-frase de ninguém."""
+    assert ent.grafias_para_contagem(['ÚNICA'], {'ÚNICA': 1}) == ['ÚNICA']
+    assert ent.grafias_para_contagem([]) == []
+    # sem `ocorrencias` a regra vira "empate em 0": a longa fica
+    assert ent.grafias_para_contagem(['S.', 'S.A. VARIG FALIDA']) == ['S.A. VARIG FALIDA']
+
+
+def test_query_contagem_pede_total_exato_e_zero_documentos():
+    """`track_total_hits` default do ES 8 é 10.000: sem isso o INSS voltaria
+    10.000 e as 50 maiores entidades do país empatariam num número redondo."""
+    grafias = ['INSTITUTO NACIONAL DO SEGURO SOCIAL',
+               'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS']
+    corpo = ent.query_contagem(grafias, ocorrencias=dict(zip(grafias, (610, 17))))
+    assert corpo['track_total_hits'] is True
+    assert corpo['size'] == 0
+    should = corpo['query']['bool']['should']
+    assert len(should) == 2 and all('match_phrase' in c for c in should)
+    assert corpo['query']['bool']['minimum_should_match'] == 1
+    # a poda de over-match é o DEFAULT, não um opcional: sem `ocorrencias` a
+    # grafia curta não tem como se provar nome e sai do OR
+    sem_prova = ent.query_contagem(grafias)['query']['bool']['should']
+    assert sem_prova == [{'match_phrase': {
+        'partes': 'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS'}}]
+
+
+def test_total_exato_recusa_contagem_truncada_ou_com_erro():
+    """Abster > chutar: total truncado/erro vira `None` e o campo não é gravado."""
+    assert ent.total_exato({'hits': {'total': {'value': 4402239, 'relation': 'eq'}}}) \
+        == 4402239
+    assert ent.total_exato({'hits': {'total': {'value': 0, 'relation': 'eq'}}}) == 0
+    assert ent.total_exato({'hits': {'total': {'value': 10000, 'relation': 'gte'}}}) is None
+    assert ent.total_exato({'error': {'type': 'search_phase_execution_exception'}}) is None
+    assert ent.total_exato({}) is None
+    assert ent.total_exato(None) is None
+
+
+def test_escopo_contagem_e_o_corte_declarado():
+    """Escopo = quem disputa o autocomplete (n_partes>=2 OU ente público)."""
+    escopo = ent.escopo_contagem()
+    assert escopo['bool']['minimum_should_match'] == 1
+    assert {'range': {'n_partes': {'gte': ent.CONTAGEM_MIN_PARTES}}} in escopo['bool']['should']
+    assert {'term': {'eh_ente_publico': True}} in escopo['bool']['should']
+    assert 'must_not' not in escopo['bool']
+    # ente público entra com QUALQUER n_partes: é o universo do produto e quase
+    # nunca tem CNPJ no dado do tribunal (decisão 3)
+    so_partes = ent.escopo_contagem(incluir_ente_publico=False)
+    assert so_partes['bool']['should'] == [{'range': {'n_partes': {'gte': 2}}}]
+
+
+def test_contagem_e_idempotente():
+    """Rodar 2× não corrompe: `--somente-faltantes` nem revisita quem já tem
+    número, e o `doc` da escrita é parcial e determinístico."""
+    faltantes = ent.escopo_contagem(somente_faltantes=True)
+    assert faltantes['bool']['must_not'] == [{'exists': {'field': 'n_processos'}}]
+
+    agora = '2026-08-12T00:00:00+00:00'
+    doc = ent.doc_contagem(4402239, agora)
+    assert doc == ent.doc_contagem(4402239, agora)          # mesma entrada, mesma saída
+    assert doc == {'n_processos': 4402239, 'n_processos_em': agora}
+    # escrita PARCIAL: não pode carregar nada do build junto (senão o `update`
+    # sobrescreveria variantes/documentos com o que a contagem não sabe)
+    assert set(doc) == {'n_processos', 'n_processos_em'}
 
 
 # --------------------------------------------------------------------------- #
