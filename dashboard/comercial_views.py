@@ -17,7 +17,7 @@ from django.shortcuts import render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
-from search import agg_comercial
+from search import agg_comercial, agg_estado as agg_estado_svc
 
 logger = logging.getLogger('voyager.comercial.views')
 
@@ -74,6 +74,29 @@ def comercial_tribunais(request):
     except Exception:
         logger.exception('comercial_tribunais: falha na agregação ES',
                          extra={'uf': uf, 'filtros': filtros})
+        return _json({'erro': 'falha ao consultar o índice de busca'}, status=503)
+    return _json(payload)
+
+
+@login_required
+@require_GET
+def comercial_estado(request, uf):
+    """GET /dashboard/api/comercial/estado/<uf>/ — página dedicada de um estado.
+
+    Mesmos filtros do mapa (`agg_comercial.parse_filtros`) + `metrica`
+    (possiveis|confirmados|todos). O `uf` da querystring é ignorado — manda o da
+    rota. Contrato JSON completo no topo de `search/agg_estado.py`.
+    UF inválida → 400; ES fora → 503 (nunca 500 cru).
+    """
+    filtros = agg_comercial.parse_filtros(request.GET)
+    metrica = request.GET.get('metrica', agg_estado_svc.METRICA_DEFAULT)
+    try:
+        payload = agg_estado_svc.agg_estado(uf, filtros, metrica)
+    except agg_estado_svc.UfInvalida:
+        return _json({'erro': f'UF inválida: {uf}'}, status=400)
+    except Exception:
+        logger.exception('comercial_estado: falha na agregação ES',
+                         extra={'uf': uf, 'metrica': metrica, 'filtros': filtros})
         return _json({'erro': 'falha ao consultar o índice de busca'}, status=503)
     return _json(payload)
 

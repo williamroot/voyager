@@ -250,6 +250,45 @@ curl -sH 'X-API-Key: K' 'https://voyager.was.dev.br/api/v1/busca/movimentacoes/?
   só existem em docs reindexados pós-7d03bab — filtrar por eles restringe ao subset.
 - `valor_causa` tem outliers de digitação (o serviço não higieniza).
 
+## Mapa Comercial — agregações ES (`/dashboard/api/comercial/*`)
+
+JSON interno do dashboard (**sessão logada**, não API key). 100% Elasticsearch —
+nenhuma leitura no Postgres (só o cache de cobertura). Contrato completo no topo
+de `search/agg_comercial.py` (mapa) e `search/agg_estado.py` (página de estado).
+
+| Método | Path | Descrição |
+|---|---|---|
+| GET | `/dashboard/api/comercial/mapa` | Agregado por UF + total + score de foco |
+| GET | `/dashboard/api/comercial/tribunais?uf=SP` | Drill-down por tribunal da UF |
+| GET | `/dashboard/api/comercial/top?metric=score&n=10` | Ranking Top-N por UF |
+| GET | `/dashboard/api/comercial/estado/<uf>/` | **Página dedicada do estado** (blocos "explodidos") |
+
+Filtros (querystring, comuns aos 4): `uf, tribunal, classificacao,
+tipo(potencial|confirmado), tem_sinal, ano_min, ano_max, valor_min, valor_max,
+codigo_classe, natureza` — saneados em `agg_comercial.parse_filtros` (ano futuro
+clampa, valor negativo cai fora, enum desconhecido vira default; nunca 500).
+
+### `GET /dashboard/api/comercial/estado/<uf>/`
+
+`<uf>` = 27 siglas + `FED`. UF inválida → **400**; ES fora → **503**.
+Param extra: `metrica=possiveis|confirmados|todos` (default `todos`) — a LENTE
+dos blocos de detalhe; `todos` é UNIÃO (`bool.should`), **nunca soma**.
+1 request ES (`_msearch` de 2 sub-buscas), cache 5min (2min com filtro).
+
+Blocos: `resumo` (volume/possíveis/confirmados/todos/valor/cobertura/nº tribunais),
+`por_tipo_processo` (classe_nome), `por_ano` (ano_cnj), `por_tribunal`,
+`por_classificacao`, `por_entidade_devedora` (nested `participacoes` polo passivo,
+grafias fundidas por normalização + filtro de ente público).
+
+**Honestidade obrigatória**: todo bloco traz `cobertura_amostra`
+`{campo, docs_com_o_campo, total_do_escopo, total_do_estado, pct}` — o front
+escreve "amostra de X% dos processos" quando `pct < 100`. Campos parciais
+medidos em 12/08/2026: `participacoes` (RO = 0 indexadas), `valor_causa` (2,8%
+da base), `classe_nome` presente em 100% mas **vazia** em 69,6% dos docs de RO.
+
+Latências medidas (ES de prod, cache frio): SP 215ms · RO 199ms · MG 84ms ·
+FED ~2-5s (21,5M docs; amortizado pelo cache). Cache quente: <1ms.
+
 ## API Jusbrasil/Digesto-compat (Diários Oficiais)
 
 Endpoints compatíveis com a API Jusbrasil/Digesto de Diários Oficiais. Spec:
