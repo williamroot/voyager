@@ -705,8 +705,12 @@ import tasks; tasks.warm_cobertura_enriquecimento()"` (rode **detached**, leva
 ~1min e tem lock próprio). Confirme com `agg_comercial._cobertura_por_uf()`
 devolvendo 28 UFs.
 
-Em vez de limpar tudo, apague a chave específica:
-`cache.delete('comercial:agg:uf:v1')` ou `cache.delete_pattern('comercial:agg*')`.
+Em vez de limpar tudo, apague a chave específica —
+`cache.delete('comercial:agg:uf:v1')`. ⚠️ **`delete_pattern` NÃO existe** neste
+backend (`RedisCache` do Django, não django-redis): a chamada levanta
+`AttributeError` e, se estiver dentro de um `try`, você acha que limpou e não
+limpou. Monte a chave na mão (o mapa usa
+`comercial:agg:uf:f:{md5(json.dumps(filtros, sort_keys=True))}`).
 
 **Gotcha irmão**: o agregado do mapa cacheia por combinação de filtro com TTL
 de 2min. Se você medir algo, deployar e medir de novo em menos de 2 minutos,
