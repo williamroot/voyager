@@ -634,6 +634,119 @@ def resolver_entidade(filtros: dict) -> dict:
     return {**filtros, '_variantes': variantes}
 
 
+#: Quantos candidatos o autocomplete devolve pra escolha do MAIOR. 8 era
+#: pouco: "prefeitura de sao paulo" trazia a "Prefeitura de São Paulo" (56
+#: processos) porque a "PREFEITURA MUNICIPAL DE SÃO PAULO" (7.380) ficava fora
+#: da janela — o ranking textual ordena por um proxy fraco de prevalência.
+#: 30 é barato (1 query, cacheada 1h) e cobre a cauda.
+CANDIDATOS_TEXTO = 30
+
+
+def _tokens(texto: str) -> set:
+    import unicodedata
+    t = unicodedata.normalize('NFKD', texto or '').encode('ascii', 'ignore').decode()
+    return {p for p in ''.join(c if c.isalnum() else ' ' for c in t).upper().split()
+            if len(p) > 2}          # "de", "do", "da" não discriminam nada
+
+
+def resolver_texto(filtros: dict) -> dict:
+    """Texto digitado → entidade canônica, quando dá pra ter certeza.
+
+    O `match` AND contra o campo `partes` casa as palavras em partes
+    DIFERENTES da mesma lista: medido em prod, "união federal" devolvia
+    1.508.785 em vez de 1.232.679 porque pegava "Defensoria Pública da UNIÃO" +
+    "Caixa Econômica FEDERAL" no mesmo processo (+18% de falso positivo).
+
+    Nenhum parâmetro de query resolve isso — medido: `match_phrase` puro
+    despenca ("fazenda sao paulo" → 14 processos, porque o nome real é "Fazenda
+    Pública do Estado de São Paulo") e `slop` volta a inflar (slop 5 →
+    1.422.380 na União).
+
+    A correção é mudar o ALVO do AND: em vez de casar as palavras contra a
+    lista de partes (longa, com várias entidades), casamos contra o NOME da
+    entidade (curto, canônico). Se todos os tokens do que foi digitado estão no
+    nome de uma entidade conhecida, usamos as GRAFIAS dela — que é o filtro
+    correto. Senão, cai no texto livre de antes (e o front avisa).
+
+    Devolve `_entidade_resolvida` pro front poder dizer QUEM ele está mostrando
+    e oferecer a troca: adivinhar em silêncio é pior que não adivinhar.
+    """
+    texto = filtros.get('parte')
+    if not texto or filtros.get('_variantes') or filtros.get('entidade_id'):
+        return filtros
+    alvo = _tokens(texto)
+    if not alvo:
+        return filtros
+    chave = f'{_CACHE_PREFIX}:txt:{hashlib.md5(texto.upper().encode()).hexdigest()}'
+    achado = cache.get(chave)
+    if achado is None:
+        try:
+            from search import entidades as _ent
+            resp = get_es().search(index=_indice_entidades(),
+                                   body=_ent.query_autocomplete(texto, tamanho=CANDIDATOS_TEXTO))
+            # Entre os candidatos válidos, o MAIOR — não o primeiro do ranking.
+            # Medido: buscar "inss" trazia "Gerente Executivo do INSS de São
+            # Paulo" (21 processos) na frente do INSS (4,4 milhões), porque o
+            # ranking textual usa `n_partes` como proxy de prevalência e ele é
+            # fraco. Quem digita "inss" quer o INSS. `n_processos` (contagem
+            # real) manda quando existe; `n_partes` é o desempate enquanto ela
+            # não é populada em toda a base.
+            candidatos = []
+            for h in resp.get('hits', {}).get('hits', []):
+                src = h.get('_source') or {}
+                # Todos os tokens digitados têm que caber em UMA grafia — o
+                # nome canônico OU qualquer variante. Testar só o canônico
+                # falhava justamente no caso mais comum: o nome canônico do
+                # INSS é "INSTITUTO NACIONAL DO SEGURO SOCIAL" (a grafia mais
+                # frequente) e NÃO contém a sigla; quem digita "inss" casa pela
+                # variante "INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS".
+                # UMA grafia, não a união delas: senão "fazenda gado" casaria
+                # juntando "fazenda" de uma variante e "gado" de outra.
+                grafias = [src.get('nome_canonico') or '']
+                grafias += list(src.get('variantes') or src.get('variantes_busca') or [])
+                if any(alvo.issubset(_tokens(g)) for g in grafias):
+                    candidatos.append((
+                        src.get('n_processos') if src.get('n_processos') is not None
+                        else -1,
+                        src.get('n_partes') or 0,
+                        h.get('_id'), src,
+                    ))
+            achado = {}
+            if candidatos:
+                _, _, eid_top, src = max(candidatos, key=lambda c: (c[0], c[1]))
+                achado = {
+                    'entidade_id': eid_top,
+                    'nome': src.get('nome_canonico'),
+                    'n_variantes': src.get('n_variantes'),
+                    'variantes': list(src.get('variantes_busca') or []),
+                }
+        except Exception:
+            logger.warning('resolver_texto: índice de entidades indisponível',
+                           extra={'parte': texto})
+            return filtros
+        cache.set(chave, achado, TTL_ENTIDADE)
+    if not achado or not achado.get('variantes'):
+        return filtros
+    return {**filtros, '_variantes': achado['variantes'],
+            '_entidade_resolvida': {k: achado[k] for k in
+                                    ('entidade_id', 'nome', 'n_variantes')}}
+
+
+def _eco_filtros(filtros: dict) -> dict:
+    """Filtros pro payload: some com o interno, mantém a entidade resolvida.
+
+    `_variantes` é ruído (dezenas de grafias) e detalhe de implementação.
+    `_entidade_resolvida` FICA: o front precisa dizer de quem são os números
+    quando adivinhamos a entidade a partir do texto — adivinhar em silêncio é
+    pior que não adivinhar.
+    """
+    eco = {k: v for k, v in filtros.items() if not k.startswith('_')}
+    ent = filtros.get('_entidade_resolvida')
+    if ent:
+        eco['entidade_resolvida'] = ent
+    return eco
+
+
 def _sem_filtro(filtros: dict) -> bool:
     return not filtros
 
@@ -663,7 +776,7 @@ def agg_por_uf(filtros: dict | None = None) -> dict:
 
     # entidade → grafias DEPOIS do cache lookup: com cache quente não paga o
     # GET no índice de entidades.
-    filtros = resolver_entidade(filtros)
+    filtros = resolver_texto(resolver_entidade(filtros))
     resp = _run(build_body_por_campo('uf', filtros))
     total_resp = _run(build_body_total(filtros))
 
@@ -673,7 +786,7 @@ def agg_por_uf(filtros: dict | None = None) -> dict:
     payload = {
         'ufs': buckets,
         'total': _parse_total(total_resp),
-        'filtros': filtros,
+        'filtros': _eco_filtros(filtros),
         'gerado_em': _agora_iso(),
     }
     cache.set(cache_key, payload, ttl)
@@ -702,7 +815,7 @@ def agg_tribunais(uf: str, filtros: dict | None = None) -> dict:
     if cached is not None:
         return cached
 
-    filtros = resolver_entidade(filtros)
+    filtros = resolver_texto(resolver_entidade(filtros))
     resp = _run(build_body_por_campo('tribunal', filtros))
     total_resp = _run(build_body_total(filtros))
 
@@ -713,7 +826,7 @@ def agg_tribunais(uf: str, filtros: dict | None = None) -> dict:
         'uf': uf,
         'tribunais': buckets,
         'total': _parse_total(total_resp),
-        'filtros': filtros,
+        'filtros': _eco_filtros(filtros),
         'gerado_em': _agora_iso(),
     }
     cache.set(cache_key, payload, ttl)
@@ -758,7 +871,7 @@ def ranking_top(metric: str = 'score', n: int = 10, filtros: dict | None = None,
         'lente': lente,
         'n': n,
         'ranking': ranking,
-        'filtros': filtros,
+        'filtros': _eco_filtros(filtros),
         'gerado_em': base.get('gerado_em') or _agora_iso(),
     }
 

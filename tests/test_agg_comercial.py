@@ -646,3 +646,152 @@ def test_entidade_usa_phrase_e_nao_match_solto():
     should = [c for c in cl if 'bool' in c][0]['bool']['should']
     assert all('match_phrase' in c for c in should), 'match solto = 18% de falso positivo'
     assert not any('match' in c and 'match_phrase' not in c for c in should)
+
+
+# --------------------------------------------------------------------------- #
+# texto livre → entidade (o AND vale contra o NOME, não contra a lista)
+# --------------------------------------------------------------------------- #
+def test_tokens_ignora_conectivos():
+    assert agg._tokens('Fazenda Pública do Estado de São Paulo') == {
+        'FAZENDA', 'PUBLICA', 'ESTADO', 'SAO', 'PAULO'}
+    assert agg._tokens('uniao federal') == {'UNIAO', 'FEDERAL'}
+
+
+@patch('search.agg_comercial.get_es')
+def test_texto_resolve_para_entidade_e_usa_as_grafias(mock_es):
+    """"uniao federal" digitado vira as GRAFIAS da União Federal.
+
+    Sem isto, o `match` AND casaria "união" e "federal" em partes DIFERENTES
+    ("Defensoria Pública da UNIÃO" + "Caixa Econômica FEDERAL") e inflaria 18%.
+    """
+    from django.core.cache import cache as _c
+    _c.clear()
+    mock_es.return_value.search.return_value = {'hits': {'hits': [{
+        '_id': 'nome:UNIAO FEDERAL',
+        '_source': {'nome_canonico': 'UNIAO FEDERAL', 'n_variantes': 98,
+                    'variantes_busca': ['UNIAO FEDERAL', 'UNIÃO FEDERAL']},
+    }]}}
+    out = agg.resolver_texto({'parte': 'uniao federal'})
+    assert out['_variantes'] == ['UNIAO FEDERAL', 'UNIÃO FEDERAL']
+    assert out['_entidade_resolvida']['n_variantes'] == 98
+    # e vira match_phrase, não match
+    should = [c for c in agg.build_filter_clauses(out) if 'bool' in c][0]['bool']['should']
+    assert all('match_phrase' in c for c in should)
+
+
+@patch('search.agg_comercial.get_es')
+def test_texto_nao_resolve_quando_o_nome_nao_contem_tudo(mock_es):
+    """Só adivinha com certeza: TODOS os tokens têm que estar no nome canônico.
+
+    Digitar "fazenda gado" não pode virar "Fazenda Pública do Estado de SP".
+    """
+    from django.core.cache import cache as _c
+    _c.clear()
+    mock_es.return_value.search.return_value = {'hits': {'hits': [{
+        '_id': 'x', '_source': {'nome_canonico': 'FAZENDA PUBLICA DO ESTADO DE SAO PAULO',
+                                'variantes_busca': ['FAZENDA PUBLICA...']}}]}}
+    out = agg.resolver_texto({'parte': 'fazenda gado'})
+    assert '_variantes' not in out, 'adivinhou entidade errada'
+    # cai no texto livre de antes
+    assert any('match' in c for c in agg.build_filter_clauses(out))
+
+
+@patch('search.agg_comercial.get_es')
+def test_indice_de_entidades_fora_nao_quebra_o_texto(mock_es):
+    from django.core.cache import cache as _c
+    _c.clear()
+    mock_es.return_value.search.side_effect = RuntimeError('fora')
+    out = agg.resolver_texto({'parte': 'uniao federal'})
+    assert out == {'parte': 'uniao federal'}
+
+
+def test_eco_esconde_variantes_mas_mostra_a_entidade():
+    """O front precisa saber DE QUEM são os números; as grafias são ruído."""
+    eco = agg._eco_filtros({
+        'parte': 'uniao federal', '_variantes': ['A', 'B'],
+        '_entidade_resolvida': {'nome': 'UNIAO FEDERAL', 'n_variantes': 98},
+    })
+    assert '_variantes' not in eco and '_entidade_resolvida' not in eco
+    assert eco['entidade_resolvida']['nome'] == 'UNIAO FEDERAL'
+    assert eco['parte'] == 'uniao federal'
+
+
+@patch('search.agg_comercial.get_es')
+def test_texto_escolhe_a_MAIOR_entidade_candidata(mock_es):
+    """Digitar "inss" tem que dar o INSS, não o "Gerente Executivo do INSS".
+
+    Medido em prod: o ranking textual do índice de entidades usa `n_partes`
+    como proxy e devolvia "Gerente Executivo do INSS de São Paulo" (21
+    processos) na frente do INSS (4,4 milhões). Entre os candidatos que contêm
+    todos os tokens, vale o MAIOR — não o 1º do ranking.
+    """
+    from django.core.cache import cache as _c
+    _c.clear()
+    mock_es.return_value.search.return_value = {'hits': {'hits': [
+        {'_id': 'nome:GERENTE', '_source': {
+            'nome_canonico': 'Gerente Executivo do INSS de São Paulo',
+            'n_partes': 109, 'variantes_busca': ['Gerente Executivo do INSS']}},
+        {'_id': 'cnpj:29979036', '_source': {
+            'nome_canonico': 'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS',
+            'n_partes': 764, 'variantes_busca': ['INSTITUTO NACIONAL DO SEGURO SOCIAL']}},
+    ]}}
+    out = agg.resolver_texto({'parte': 'inss'})
+    assert out['_entidade_resolvida']['entidade_id'] == 'cnpj:29979036'
+
+
+@patch('search.agg_comercial.get_es')
+def test_n_processos_manda_sobre_n_partes(mock_es):
+    """Quando a contagem real existe, ela decide — n_partes é só o desempate."""
+    from django.core.cache import cache as _c
+    _c.clear()
+    mock_es.return_value.search.return_value = {'hits': {'hits': [
+        {'_id': 'a', '_source': {'nome_canonico': 'UNIAO FEDERAL A', 'n_partes': 9000,
+                                 'n_processos': 10, 'variantes_busca': ['A']}},
+        {'_id': 'b', '_source': {'nome_canonico': 'UNIAO FEDERAL B', 'n_partes': 5,
+                                 'n_processos': 1_232_679, 'variantes_busca': ['B']}},
+    ]}}
+    out = agg.resolver_texto({'parte': 'uniao federal'})
+    assert out['_entidade_resolvida']['entidade_id'] == 'b'
+
+
+@patch('search.agg_comercial.get_es')
+def test_sigla_casa_pela_variante_nao_pelo_canonico(mock_es):
+    """"inss" tem que achar o INSS mesmo o nome canônico não tendo a sigla.
+
+    Medido em prod: o nome canônico é a grafia MAIS FREQUENTE, e no INSS ela é
+    "INSTITUTO NACIONAL DO SEGURO SOCIAL" — sem "INSS". Testando só o canônico,
+    quem digitava "inss" caía no "Gerente Executivo do INSS de São Paulo"
+    (21 processos) em vez do INSS (4,4 milhões).
+    """
+    from django.core.cache import cache as _c
+    _c.clear()
+    mock_es.return_value.search.return_value = {'hits': {'hits': [
+        {'_id': 'nome:GERENTE', '_source': {
+            'nome_canonico': 'Gerente Executivo do INSS de São Paulo',
+            'n_partes': 109, 'variantes': ['Gerente Executivo do INSS de São Paulo'],
+            'variantes_busca': ['Gerente Executivo do INSS de São Paulo']}},
+        {'_id': 'cnpj:29979036', '_source': {
+            'nome_canonico': 'INSTITUTO NACIONAL DO SEGURO SOCIAL',
+            'n_partes': 764,
+            'variantes': ['INSTITUTO NACIONAL DO SEGURO SOCIAL',
+                          'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS'],
+            'variantes_busca': ['INSTITUTO NACIONAL DO SEGURO SOCIAL']}},
+    ]}}
+    out = agg.resolver_texto({'parte': 'inss'})
+    assert out['_entidade_resolvida']['entidade_id'] == 'cnpj:29979036'
+
+
+@patch('search.agg_comercial.get_es')
+def test_tokens_precisam_caber_em_UMA_grafia(mock_es):
+    """Não vale juntar token de grafias diferentes da mesma entidade."""
+    from django.core.cache import cache as _c
+    _c.clear()
+    mock_es.return_value.search.return_value = {'hits': {'hits': [
+        {'_id': 'x', '_source': {
+            'nome_canonico': 'FAZENDA PUBLICA DO ESTADO',
+            'n_partes': 10,
+            'variantes': ['FAZENDA PUBLICA DO ESTADO', 'GADO NELORE LTDA'],
+            'variantes_busca': ['FAZENDA PUBLICA DO ESTADO']}},
+    ]}}
+    out = agg.resolver_texto({'parte': 'fazenda gado'})
+    assert '_variantes' not in out, 'juntou tokens de grafias diferentes'
