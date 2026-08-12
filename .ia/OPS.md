@@ -691,6 +691,27 @@ Espera ver `Registered tunnel connection` em 4 PoPs.
 
 CSRF falha foi resolvida em `infra/nginx.conf`: `proxy_set_header X-Forwarded-Proto https;` (hardcoded) — o nginx em prod só recebe via tunnel, sempre HTTPS no edge.
 
+## ⚠️ NUNCA rodar `cache.clear()` em produção
+
+Parece inofensivo e não é: o Redis guarda caches **caros de reconstruir**, que
+existem justamente porque a query original é pesada demais pro Postgres
+contido. Em 12/08/2026 rodei `cache.clear()` pra invalidar um agregado de 2min
+e derrubei junto o `cobertura_enriquecimento:v1` — o "% já analisado" da
+dashboard e do mapa virou "não sabemos ainda" em TODAS as UFs, porque quem
+repõe é um job de scheduler que só roda de 6 em 6 horas.
+
+Cura: `docker exec voyager-web-1 python manage.py shell -c "from dashboard
+import tasks; tasks.warm_cobertura_enriquecimento()"` (rode **detached**, leva
+~1min e tem lock próprio). Confirme com `agg_comercial._cobertura_por_uf()`
+devolvendo 28 UFs.
+
+Em vez de limpar tudo, apague a chave específica:
+`cache.delete('comercial:agg:uf:v1')` ou `cache.delete_pattern('comercial:agg*')`.
+
+**Gotcha irmão**: o agregado do mapa cacheia por combinação de filtro com TTL
+de 2min. Se você medir algo, deployar e medir de novo em menos de 2 minutos,
+vai reler o valor ANTIGO e concluir que o deploy não pegou. Já aconteceu.
+
 ## Backups
 
 ```bash
