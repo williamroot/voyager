@@ -95,6 +95,12 @@ urlpatterns = [
          name='comercial-estado-page'),
     path('api/comercial/estado/<str:uf>/', comercial_views.comercial_estado,
          name='comercial-estado'),
+    # autocomplete de ENTIDADE canônica (índice `voyager-entidades*`) — alimenta
+    # o filtro "Parte / entidade" do mapa. Fora de `api/comercial/` de propósito:
+    # o cadastro de entidades não é do mapa, é do produto (listagem e busca vão
+    # consumir o mesmo endpoint).
+    path('api/entidades/autocomplete', comercial_views.entidades_autocomplete,
+         name='entidades-autocomplete'),
     path('jobs/<str:job_id>/status/', views.job_status, name='job-status'),
     path('wizard/', views.WizardView.as_view(), name='wizard'),
     path('wizard/count/', views.WizardCountView.as_view(), name='wizard-count'),

@@ -364,6 +364,11 @@ ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
 ELASTICSEARCH_URL = env('ELASTICSEARCH_URL', default='http://elasticsearch:9200')
 ELASTICSEARCH_INDEX_PREFIX = env('ELASTICSEARCH_INDEX_PREFIX', default='voyager')
 ES_TIMEOUT = env.int('ES_TIMEOUT', default=30)
+# Sufixo do índice canônico de ENTIDADES (o autocomplete de "quem deve").
+# Default = índice de TESTE de propósito: o cadastro está em validação
+# (1.141.630 entidades, build de 12/08/2026) e a promoção pro `entidades` final
+# é trocar esta variável de ambiente — não caçar hardcode espalhado.
+ENTIDADES_INDICE_SUFIXO = env('ENTIDADES_INDICE_SUFIXO', default='entidades-teste')
 
 # MinIO — armazenamento de PDFs das movimentações (cached_docurl).
 # S3-compatível local; django-storages fala com ele via boto3.

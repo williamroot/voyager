@@ -36,6 +36,8 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     // Página dedicada do estado (abre em aba nova). '__UF__' é trocado em
     // runtime — a rota continua resolvida pelo Django, sem path hardcoded.
     estadoPage: "{% url 'dashboard:comercial-estado-page' uf='__UF__' %}",
+    // autocomplete do cadastro canônico de entidades (1,14M entidades)
+    entidades: "{% url 'dashboard:entidades-autocomplete' %}",
   };
 
   // Nomes completos dos estados (rótulo de tooltip/painel; o mapa usa a sigla).
@@ -151,6 +153,9 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       // ordem daqui é a ordem dos chips.
       filtros: {
         parte: '',
+        // precisa existir desde o início: Alpine só observa chaves declaradas,
+        // e o querystring() itera as chaves do objeto.
+        entidade_id: '',
         classificacao: '', tipo: '', natureza: '', codigo_classe: '',
         ano_min: '', ano_max: '', valor_min: '', valor_max: '',
       },
@@ -184,6 +189,13 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         }
         this.$watch('metricMode', () => this.pintar());
         this.$watch('sinalMode', () => this.pintar());
+        {% comment %} O autocomplete escuta o MODELO, não um segundo @input no
+           campo: o input já carrega o `@input.debounce.600ms` da busca do mapa
+           e HTML não aceita o mesmo atributo duas vezes (o segundo é
+           silenciosamente descartado pelo parser — bug que só aparece em
+           runtime). Pelo $watch ele também pega colar com o mouse e o
+           preenchimento pelos atalhos. {% endcomment %}
+        this.$watch('filtros.parte', (v) => this.aoMudarParte(v));
         await this.carregar();
         this.observarTema();
       },
@@ -692,10 +704,12 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       aplicarFiltros() { this.carregar(); },
       limparFiltros() {
         for (const k of Object.keys(this.filtros)) this.filtros[k] = '';
+        this.esquecerEntidade();
         this.carregar();
       },
       limparFiltro(k) {
         this.filtros[k] = '';
+        if (k === 'parte') this.esquecerEntidade();
         this.carregar();
       },
       // conta o que está APLICADO (é o que os chips mostram), não o que está
@@ -749,8 +763,206 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         this.carregar();
       },
       usarAtalhoParte(q) {
+        this._acProgramatico = q;   // preenchimento nosso não abre o dropdown
+        this.acEscolhida = null;    // atalho é TEXTO, não entidade do cadastro
+        this.filtros.entidade_id = '';
         this.filtros.parte = q;
         this.buscarParte();
+      },
+
+      // ---- AUTOCOMPLETE DE ENTIDADE CANÔNICA -------------------------------
+      // O texto livre continua valendo (Enter busca o que estiver escrito). O
+      // dropdown é ATALHO: sugere a ENTIDADE do cadastro canônico (1,14M
+      // entidades, fundidas por raiz de CNPJ / nome normalizado), que já sabe
+      // quantas grafias o mesmo devedor tem — o INSS aparece UMA vez, com as
+      // suas 104 grafias, em vez de o usuário ter de adivinhar qual delas o
+      // tribunal digitou.
+      //
+      // O QUE ESCOLHER UMA ENTIDADE FAZ HOJE: manda o NOME CANÔNICO dela no
+      // `parte=` de sempre — nenhum contrato novo no backend do mapa. Medido no
+      // ES de prod (12/08/2026), o nome canônico sozinho cobre 99,7% a 100% do
+      // que o OR das grafias da entidade devolve (INSS 4.403.363 de 4.418.191 =
+      // 99,7%; Caixa Econômica Federal 99,9%; Estado de SP, Município de SP e
+      // União Federal 100%). Ou seja: não há recall relevante a ganhar com uma
+      // query por `entidade_id`. O que a busca por texto ainda traz de MAIS é
+      // ruído (ela casa palavra solta em partes diferentes: "Município de São
+      // Paulo" traz "Município de São Luís" + uma pessoa chamada "Paulo") — e é
+      // por isso que a ressalva de honestidade abaixo continua na tela.
+      //: espelha ENTIDADES_MIN_CARACTERES do backend (o endpoint também barra)
+      AC_MIN: 3,
+      //: o dropdown responde mais rápido que a agregação do mapa: é uma busca
+      //: em 1,14M entidades (~5-90ms), não em 71,18M processos
+      AC_DEBOUNCE: 250,
+      AC_N: 8,
+      acItens: [],
+      acAberto: false,
+      acIdx: -1,            // item destacado pelo teclado (-1 = nenhum)
+      acLoading: false,
+      acErro: null,
+      acEscolhida: null,    // entidade escolhida (null = texto livre)
+      acBuscou: false,
+      _acSeq: 0,
+      _acTimer: null,
+      //: valor que NÓS escrevemos no campo (atalho/escolha). Guardamos o VALOR,
+      //: não um booleano: flag booleana fica presa se o $watch não disparar
+      //: (valor idêntico) e engole a sugestão da digitação seguinte.
+      _acProgramatico: null,
+
+      aoMudarParte(v) {
+        const termo = (v || '').trim();
+        // O token NÃO é consumido na primeira passada: o Alpine notifica o
+        // mesmo valor mais de uma vez (medido no browser — o `$watch` disparou
+        // 2× pro mesmo 'INSS'), e com o token já apagado a segunda notificação
+        // reabria o dropdown logo depois do Enter. Ele só sai de cena quando
+        // chega um valor DIFERENTE, que é exatamente "o usuário digitou".
+        if (this._acProgramatico !== null && termo === this._acProgramatico) {
+          this.fecharSugestoes();
+          return;
+        }
+        this._acProgramatico = null;
+        // digitou por cima da escolha: voltou a ser texto livre, e dizer isso
+        // importa (a linha "filtrando pela entidade X" some junto).
+        // O `entidade_id` cai JUNTO: sem isso, apagar o campo deixava o filtro
+        // preso na entidade anterior — campo vazio e mapa ainda recortado, sem
+        // nada na tela explicando por quê. Pego em browser, não em teste.
+        if (this.acEscolhida && termo !== this.acEscolhida.nome_canonico) {
+          this.acEscolhida = null;
+          this.filtros.entidade_id = '';
+        }
+        clearTimeout(this._acTimer);
+        if (termo.length < this.AC_MIN) {
+          this.acItens = [];
+          this.acBuscou = false;
+          this.acErro = null;
+          this.fecharSugestoes();
+          return;
+        }
+        this._acTimer = setTimeout(() => this.sugerir(), this.AC_DEBOUNCE);
+      },
+
+      async sugerir() {
+        const termo = this.parteNorm();
+        if (termo.length < this.AC_MIN) return;
+        const seq = ++this._acSeq;
+        this.acLoading = true;
+        this.acErro = null;
+        try {
+          const url = window.COMERCIAL_URLS.entidades
+                    + '?q=' + encodeURIComponent(termo) + '&n=' + this.AC_N;
+          const resp = await fetch(url, {credentials: 'same-origin',
+                                         headers: {'Accept': 'application/json'}});
+          const json = await resp.json();
+          if (seq !== this._acSeq) return;   // resposta fora de ordem: descarta
+          if (!resp.ok) throw new Error(json.erro || ('HTTP ' + resp.status));
+          this.acItens = json.itens || [];
+          this.acBuscou = true;
+          this.acIdx = -1;
+          this.acAberto = true;
+        } catch (e) {
+          if (seq !== this._acSeq) return;
+          // o cadastro fora do ar NÃO pode bloquear a busca: o campo é de texto
+          // livre desde sempre e continua funcionando por Enter.
+          this.acItens = [];
+          this.acBuscou = true;
+          this.acAberto = true;
+          this.acErro = 'Não conseguimos carregar as sugestões agora. Dá para buscar pelo nome mesmo assim: escreva e aperte Enter.';
+        } finally {
+          if (seq === this._acSeq) this.acLoading = false;
+        }
+      },
+
+      fecharSugestoes() { this.acAberto = false; this.acIdx = -1; },
+      // Voltar o foco ao campo reabre a lista que já foi buscada — MENOS
+      // quando o que está escrito É a entidade já escolhida: aí a lista não
+      // tem nada a oferecer, e ela reabria sozinha logo depois do Enter
+      // (o `focus()` do `escolherEntidade` disparava este mesmo handler).
+      reabrirSugestoes() {
+        if (this.acEscolhida && this.parteNorm() === this.acEscolhida.nome_canonico) return;
+        if (this.acItens.length || this.acErro) this.acAberto = true;
+      },
+      acDesce() {
+        if (!this.acAberto) { this.reabrirSugestoes(); if (!this.acAberto) return; }
+        if (!this.acItens.length) return;
+        this.acIdx = (this.acIdx + 1) % this.acItens.length;
+      },
+      acSobe() {
+        if (!this.acAberto) { this.reabrirSugestoes(); if (!this.acAberto) return; }
+        if (!this.acItens.length) return;
+        this.acIdx = this.acIdx <= 0 ? this.acItens.length - 1 : this.acIdx - 1;
+      },
+      // Enter com item destacado escolhe a entidade; sem item destacado busca o
+      // texto que estiver escrito (o campo NÃO virou prisão de autocomplete).
+      enterParte() {
+        if (this.acAberto && this.acIdx >= 0 && this.acItens[this.acIdx]) {
+          this.escolherEntidade(this.acItens[this.acIdx]);
+          return;
+        }
+        this.fecharSugestoes();
+        this.buscarParte();
+      },
+      escolherEntidade(item) {
+        if (!item) return;
+        clearTimeout(this._acTimer);
+        this.acEscolhida = item;
+        this._acProgramatico = item.nome_canonico;
+        this.filtros.parte = item.nome_canonico;   // o que fica escrito no campo
+        // ...e o ID, que é o que o backend usa DE VERDADE. O nome canônico vira
+        // `match` AND e casa palavra solta em partes diferentes do processo; o
+        // ID vira o OR das grafias exatas da entidade. Medido em prod: por
+        // texto, "MUNICIPIO DE SAO PAULO" traz 45,5% de lixo (Município de São
+        // LUÍS + uma pessoa chamada PAULO no mesmo processo) e "UNIAO FEDERAL"
+        // traz 18,3% (Defensoria da União + Caixa Econômica FEDERAL).
+        this.filtros.entidade_id = item.entidade_id;
+        this.fecharSugestoes();
+        if (this.$refs.parteInput) this.$refs.parteInput.focus();
+        // `carregar()` direto, NÃO `buscarParte()`: a guarda dele é só sobre o
+        // texto, e escolher a entidade pode não mudar o texto (digitar "uniao
+        // federal" e escolher "UNIAO FEDERAL" normaliza igual) — a busca não
+        // dispararia e o `entidade_id` nunca seria aplicado.
+        this.carregar();
+      },
+      esquecerEntidade() {
+        this.acEscolhida = null;
+        this.filtros.entidade_id = '';   // solta a entidade: volta a ser texto
+        this.acItens = [];
+        this.acBuscou = false;
+        this.acErro = null;
+        this.fecharSugestoes();
+      },
+      acOptId(i) { return 'ac-opt-' + i; },
+      acAtivoId() {
+        return (this.acAberto && this.acIdx >= 0) ? this.acOptId(this.acIdx) : null;
+      },
+      acResumoAcessivel() {
+        if (!this.acAberto) return '';
+        if (this.acErro) return this.acErro;
+        if (this.acLoading) return 'Procurando entidades…';
+        if (!this.acItens.length) return 'Nenhuma entidade encontrada no cadastro.';
+        const n = this.acItens.length;
+        return n + (n === 1 ? ' entidade sugerida.' : ' entidades sugeridas.')
+             + ' Use as setas para escolher e Enter para aplicar.';
+      },
+      // Raiz do CNPJ (8 dígitos) formatada. É ela que PROVA a identidade da
+      // entidade — sem ela o item é fusão por nome (heurística), e a diferença
+      // vai escrita no próprio item.
+      fmtRaiz(r) {
+        const d = String(r || '').replace(/\D/g, '');
+        if (d.length !== 8) return '';
+        return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8);
+      },
+      // "unifica 104 grafias" é o produto do cadastro — o número que explica
+      // por que escolher a entidade é melhor que digitar o nome na mão.
+      grafiasFrase(item) {
+        const n = Number(item && item.n_variantes) || 0;
+        if (n > 1) return 'unifica ' + fmt(n) + ' grafias';
+        return 'uma grafia conhecida';
+      },
+      // n_processos AUSENTE (null) = não contamos ainda. NUNCA 0: zero é uma
+      // afirmação ("esta entidade não tem processo") e seria mentira.
+      processosFrase(item) {
+        const n = item ? item.n_processos : null;
+        if (n === null || n === undefined) return 'processos: não contamos ainda';
+        return fmt(n) + ' processos';
       },
       // Com filtro de parte a Justiça Federal costuma dominar — o INSS litiga
       // lá: 4.213.070 dos 4.403.363 processos dele (95,7%). FED NÃO entra no
@@ -1251,13 +1463,75 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       <div class="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-3">
         <label for="f-parte" class="text-xs text-fg-muted uppercase tracking-wide">Parte / entidade</label>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <input id="f-parte" type="text" x-model="filtros.parte" maxlength="120"
-                 @input.debounce.600ms="buscarParte()"
-                 @keydown.enter.prevent="buscarParte()"
-                 placeholder="ex.: INSS, Fazenda Pública do Estado de São Paulo"
-                 autocomplete="off" spellcheck="false"
-                 aria-describedby="ajuda-parte"
-                 class="flex-1 min-w-[16rem] bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          {% comment %} COMBOBOX: o campo continua sendo de texto livre (quem
+             escreve e aperta Enter busca como sempre) e ganhou um dropdown com
+             as ENTIDADES do cadastro canônico. O wrapper é `relative` porque a
+             lista é `absolute`: se ela empurrasse o conteúdo, o painel de
+             filtros cresceria a cada tecla e o mapa desceria junto (a altura
+             medida do card é gate desta tela). {% endcomment %}
+          <div class="relative flex-1 min-w-[16rem]" @click.outside="fecharSugestoes()">
+            <input id="f-parte" type="text" x-model="filtros.parte" maxlength="120"
+                   x-ref="parteInput"
+                   @input.debounce.600ms="buscarParte()"
+                   @keydown.enter.prevent="enterParte()"
+                   @keydown.arrow-down.prevent="acDesce()"
+                   @keydown.arrow-up.prevent="acSobe()"
+                   @keydown.escape.stop="fecharSugestoes()"
+                   @keydown.tab="fecharSugestoes()"
+                   @focus="reabrirSugestoes()"
+                   role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
+                   aria-controls="ac-entidades"
+                   :aria-expanded="acAberto ? 'true' : 'false'"
+                   :aria-activedescendant="acAtivoId()"
+                   placeholder="ex.: INSS, Fazenda Pública do Estado de São Paulo"
+                   autocomplete="off" spellcheck="false"
+                   aria-describedby="ajuda-parte"
+                   class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            {% comment %} A lista fica FORA do fluxo (absolute) e por cima do
+               resto (z-30). `aria-activedescendant` no input + `aria-selected`
+               na opção: o foco NUNCA sai do campo, que é o que faz ↑ ↓ Enter
+               funcionarem enquanto se digita. {% endcomment %}
+            <div x-show="acAberto" x-cloak
+                 class="absolute left-0 right-0 z-30 mt-1 rounded-md border border-border bg-surface shadow-lg">
+              <ul id="ac-entidades" role="listbox" aria-label="Entidades sugeridas"
+                  class="max-h-72 overflow-y-auto py-1">
+                <template x-for="(it, i) in acItens" :key="it.entidade_id">
+                  <li :id="acOptId(i)" role="option"
+                      :aria-selected="acIdx === i ? 'true' : 'false'"
+                      @click="escolherEntidade(it)" @mousemove="acIdx = i"
+                      :class="acIdx === i ? 'bg-mission/10 border-l-2 border-mission' : 'border-l-2 border-transparent'"
+                      class="px-3 py-2 cursor-pointer">
+                    <span class="block text-sm text-fg break-words" x-text="it.nome_canonico"></span>
+                    {% comment %} a linha de baixo é o PRODUTO do cadastro: quantas
+                       grafias este item unifica e quantos processos são. Sem
+                       contagem no índice, escreve "não contamos ainda" — nunca 0
+                       (0 seria a afirmação de que a entidade não tem processo).
+                    {% endcomment %}
+                    <span class="block text-xs text-fg-muted break-words">
+                      <span x-text="grafiasFrase(it)"></span>
+                      <span> · </span><span x-text="processosFrase(it)"></span>
+                      <template x-if="it.raiz_cnpj">
+                        <span> · CNPJ <span x-text="fmtRaiz(it.raiz_cnpj)"></span></span>
+                      </template>
+                      <template x-if="!it.raiz_cnpj">
+                        <span> · agrupado pelo nome, sem CNPJ no cadastro</span>
+                      </template>
+                      <template x-if="it.eh_ente_publico"><span> · ente público</span></template>
+                    </span>
+                  </li>
+                </template>
+              </ul>
+              <p x-show="acErro" x-cloak class="px-3 py-2 text-xs text-fg border-t border-border"
+                 x-text="acErro"></p>
+              <p x-show="!acErro && acBuscou && !acLoading && acItens.length === 0" x-cloak
+                 class="px-3 py-2 text-xs text-fg">
+                Nenhuma entidade com esse nome no cadastro. Dá para buscar o texto assim mesmo: aperte Enter.
+              </p>
+            </div>
+            {% comment %} leitor de tela: o dropdown aparecendo não é anunciado
+               sozinho quando o foco continua no campo. {% endcomment %}
+            <p class="sr-only" aria-live="polite" x-text="acResumoAcessivel()"></p>
+          </div>
           {% comment %} atalhos de 1 clique pras entidades campeãs. Preenchem o
              nome POR EXTENSO (que mediu mais processo que a sigla) e deixam o
              texto à vista, porque é a grafia que explica a diferença de
@@ -1278,9 +1552,25 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
            (é o que está escrito na publicação), como "quem deve" (casa nos dois
            polos) e como estável (outra grafia, outro número). {% endcomment %}
         <p id="ajuda-parte" class="text-xs text-fg-muted leading-relaxed max-w-4xl">
+          Escreva 3 letras e escolha uma <b class="font-semibold text-fg">entidade</b> da lista — ela já junta as várias grafias do mesmo devedor. Ou escreva o nome e aperte Enter para buscar o texto do jeito que você escreveu.
           Procura o nome <b class="font-semibold text-fg">como ele foi escrito na publicação</b>, dos dois lados do processo — quem cobra e quem é cobrado.
           Todas as palavras precisam aparecer: “Fazenda São Paulo” acha, “Fazenda do Estado SP” não acha.
           E a grafia muda a conta: “INSS” traz 4,26 milhões de processos, o nome por extenso traz 4,40 milhões — por isso os atalhos preenchem o nome por extenso.
+        </p>
+        {% comment %} Escolher a entidade não muda o CONTRATO da busca: o mapa
+           continua filtrando por `parte=<nome canônico>` (texto). Medido no ES
+           de prod em 12/08/2026, o nome canônico sozinho cobre 99,7%-100% do
+           que o OR das grafias da entidade devolve — não há recall relevante a
+           ganhar. O que sobra de diferença é ruído da busca textual, e é
+           exatamente isso que esta linha avisa. {% endcomment %}
+        <p x-show="acEscolhida" x-cloak
+           class="text-xs text-fg flex items-start gap-1.5 px-2 py-1.5 rounded border border-mission/40 bg-mission/10">
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 mt-0.5 text-mission" %}
+          <span>
+            Entidade do cadastro: <b class="font-semibold" x-text="acEscolhida && acEscolhida.nome_canonico"></b>
+            — <span x-text="grafiasFrase(acEscolhida)"></span>, <span x-text="processosFrase(acEscolhida)"></span>.
+            O mapa busca esse nome <b class="font-semibold">como texto</b> na publicação: pode entrar processo em que essas palavras aparecem em partes diferentes, e pode ficar de fora uma grafia que o tribunal inventou.
+          </span>
         </p>
         <p x-show="parteCurta()" x-cloak class="text-xs text-fg">
           Escreva ao menos <b x-text="PARTE_MIN"></b> letras para buscar.

@@ -679,7 +679,11 @@ def test_filtro_por_parte_existe_e_entra_no_ciclo_normal(html):
     assert re.search(r'filtros:\s*\{\s*\n?\s*parte:', html), 'parte fora do objeto filtros'
     # debounce no input + Enter pra quem não quer esperar
     assert '@input.debounce.600ms="buscarParte()"' in html
-    assert '@keydown.enter.prevent="buscarParte()"' in html
+    # Enter passa por `enterParte()` desde o autocomplete: com um item do
+    # dropdown destacado ele ESCOLHE a entidade; sem item destacado cai no
+    # `buscarParte()` de sempre (o campo não virou prisão de autocomplete).
+    assert '@keydown.enter.prevent="enterParte()"' in html
+    assert 'this.fecharSugestoes();\n        this.buscarParte();' in html
     assert '@input="aplicarFiltros()"' not in CODIGO, 'busca a cada tecla em 71M docs'
     # placeholder com exemplo REAL (nome que existe na base), não "digite aqui"
     assert 'ex.: INSS, Fazenda Pública do Estado de São Paulo' in html
@@ -860,3 +864,44 @@ def test_cobertura_virou_bandeira_e_nao_desconto(html):
     # a frase automática do estado não pode mais implicar rebaixamento
     assert 'território praticamente inexplorado, prioridade alta' not in CODIGO
     assert 'densidade alta, mas já bem trabalhado por nós' in html
+
+
+def test_escolher_entidade_manda_o_ID_nao_so_o_nome(html):
+    """Escolher no autocomplete tem que filtrar pelas GRAFIAS, não pelo nome.
+
+    O nome canônico vira `match` AND no backend e casa palavra solta em partes
+    diferentes do processo. Medido em prod: por texto, "MUNICIPIO DE SAO PAULO"
+    traz 45,5% de lixo (Município de São LUÍS + uma pessoa chamada PAULO) e
+    "UNIAO FEDERAL" traz 18,3% (Defensoria da União + Caixa Econômica FEDERAL).
+    O `entidade_id` vira o OR das grafias exatas.
+    """
+    assert 'this.filtros.entidade_id = item.entidade_id;' in html
+    # a chave precisa existir no objeto inicial: Alpine só observa o declarado,
+    # e o querystring() itera as chaves de `filtros`
+    assert "entidade_id: ''," in html
+    # soltar a entidade volta pro texto livre
+    assert "this.filtros.entidade_id = '';" in html
+
+
+def test_escolher_entidade_recarrega_mesmo_com_texto_igual(html):
+    """`carregar()` direto, não `buscarParte()`.
+
+    A guarda de `buscarParte` compara só o texto normalizado; digitar "uniao
+    federal" e depois escolher "UNIAO FEDERAL" no dropdown dá o mesmo texto, e
+    a busca não dispararia — o `entidade_id` nunca chegaria ao backend.
+    """
+    ini = html.find('escolherEntidade(item) {')
+    fim = html.find('esquecerEntidade()', ini)
+    corpo = html[ini:fim]
+    assert 'this.carregar();' in corpo
+    assert 'this.buscarParte();' not in corpo
+
+
+def test_entidade_id_nao_vira_chip(html):
+    """O chip é pra humano: "entidade_id: cnpj:29979036" não diz nada.
+
+    Quem informa é o chip de `parte` (o nome) — o id fica invisível de propósito.
+    """
+    ini = html.find('_ROTULOS_FILTRO')
+    fim = html.find('chipsFiltros()', ini)
+    assert 'entidade_id' not in html[ini:fim]

@@ -9,15 +9,19 @@ O CONTRATO JSON completo (request/response) está documentado no topo de
 serviço → `JsonResponse`. Erros de infra (ES fora) viram 503 (nunca 500 cru);
 `uf` ausente no drill-down vira 400.
 """
+import hashlib
 import logging
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
-from search import agg_comercial, agg_estado as agg_estado_svc
+from search import agg_comercial, agg_estado as agg_estado_svc, entidades as entidades_svc
+from search.client import get_es, index_name
 
 logger = logging.getLogger('voyager.comercial.views')
 
@@ -139,4 +143,167 @@ def comercial_top(request):
         logger.exception('comercial_top: falha na agregação ES',
                          extra={'metric': metric, 'filtros': filtros})
         return _json({'erro': 'falha ao consultar o índice de busca'}, status=503)
+    return _json(payload)
+
+
+# --------------------------------------------------------------------------- #
+# AUTOCOMPLETE DE ENTIDADE CANÔNICA
+# --------------------------------------------------------------------------- #
+# Substitui o texto livre do filtro "Parte / entidade": em vez de o usuário
+# adivinhar a grafia que o tribunal usou, ele escolhe UMA entidade do índice
+# canônico (`search/entidades.py`), que já fundiu as grafias por raiz de CNPJ /
+# nome normalizado. Esta view só CONSOME `entidades.query_autocomplete` — a
+# construção do índice e o ranking vivem em `search/`.
+#
+# Contrato:
+#   GET /dashboard/api/entidades/autocomplete?q=inss&n=8&ente=1
+#   200 {"termo", "min_caracteres", "buscou": bool, "motivo": str|None,
+#        "indice": str, "contagem_processos_disponivel": bool,
+#        "itens": [{"entidade_id", "nome_canonico", "chave", "n_variantes",
+#                   "grafias_exemplo": [...], "raiz_cnpj", "documentos": [...],
+#                   "n_documentos", "eh_ente_publico", "n_partes",
+#                   "n_processos": int|null}]}
+#   503 {"erro": ...}  — ES fora (nunca 500 cru)
+#
+# `n_processos` é `null` quando o índice ainda NÃO tem a contagem. `null` =
+# DESCONHECIDO, e a UI escreve "não contamos ainda" — nunca "0". Zero é uma
+# afirmação ("esta entidade não tem processo"); ausência não é.
+
+#: mínimo de caracteres pra tocar o ES. Abaixo disso devolvemos lista vazia sem
+#: requisição nenhuma: 1-2 letras casam com centenas de milhares das 1,14M
+#: entidades e ninguém escolhe nada nessa lista — é custo sem produto.
+ENTIDADES_MIN_CARACTERES = 3
+ENTIDADES_N_DEFAULT = 8
+#: teto de itens. O dropdown é pra ESCOLHER, não pra navegar catálogo; e o
+#: `_source` de cada entidade carrega listas (grafias, CNPJs).
+ENTIDADES_N_MAX = 20
+#: TTL do cache por termo. Curto de propósito: o índice é reconstruído com
+#: frequência nesta fase e um TTL longo mascararia o rebuild (o mesmo erro que
+#: o cache de 2min do dashboard já causou — ver OPS).
+ENTIDADES_CACHE_TTL = 60
+#: quanto do `_source` volta pro browser. O INSS tem 650 CNPJs e 104 grafias —
+#: mandar tudo por item × 8 itens a cada tecla é payload que ninguém lê. O
+#: NÚMERO total continua indo (`n_documentos`/`n_variantes`); a lista é amostra.
+ENTIDADES_MAX_DOCUMENTOS = 3
+ENTIDADES_MAX_GRAFIAS = 3
+
+
+def _indice_entidades() -> str:
+    """Nome do índice ES de entidades — configurável por setting/env.
+
+    Hoje aponta pro índice de TESTE (`voyager-entidades-teste`, 1.141.630
+    entidades construídas em 12/08/2026). A promoção pro nome final
+    (`voyager-entidades`) é trocar `ENTIDADES_INDICE_SUFIXO` no ambiente, sem
+    caçar string hardcoded no código.
+    """
+    sufixo = getattr(settings, 'ENTIDADES_INDICE_SUFIXO', entidades_svc.INDICE)
+    return index_name(sufixo)
+
+
+def _int_no_intervalo(valor, default: int, minimo: int, maximo: int) -> int:
+    try:
+        n = int(valor)
+    except (TypeError, ValueError):
+        return default
+    return max(minimo, min(n, maximo))
+
+
+def _flag(valor) -> bool:
+    return str(valor or '').strip().lower() in ('1', 'true', 'sim', 'yes', 'on')
+
+
+def _item_entidade(fonte: dict) -> dict:
+    """Documento do índice → item do dropdown (só o que a UI mostra/usa)."""
+    documentos = [d for d in (fonte.get('documentos') or []) if d]
+    variantes = fonte.get('variantes') or []
+    # `variantes_busca` são as grafias com peso (≥2 linhas / ≥1% da entidade) —
+    # é a amostra honesta pra mostrar "o que este item unifica"; grafia de 1
+    # linha é typo de cartório e daria uma impressão errada da entidade.
+    grafias = fonte.get('variantes_busca') or variantes
+
+    # `n_processos` PODE não existir (o índice está sendo populado). Ausente,
+    # None, ou não-numérico ⇒ None = DESCONHECIDO. Nunca 0.
+    bruto = fonte.get('n_processos')
+    n_processos = int(bruto) if isinstance(bruto, (int, float)) and not isinstance(bruto, bool) else None
+
+    return {
+        'entidade_id': fonte.get('entidade_id'),
+        'nome_canonico': fonte.get('nome_canonico') or '',
+        # 'cnpj' = identidade PROVADA por documento; 'nome' = heurística de
+        # grafia. Quem consome precisa saber que confiança tem (decisão 3 do
+        # módulo de entidades) — por isso vai no payload, não fica escondido.
+        'chave': fonte.get('chave') or '',
+        'n_variantes': fonte.get('n_variantes') if fonte.get('n_variantes') is not None else len(variantes),
+        'grafias_exemplo': grafias[:ENTIDADES_MAX_GRAFIAS],
+        'raiz_cnpj': fonte.get('raiz_cnpj'),
+        'documentos': documentos[:ENTIDADES_MAX_DOCUMENTOS],
+        'n_documentos': len(documentos),
+        'eh_ente_publico': bool(fonte.get('eh_ente_publico')),
+        # proxy de PREVALÊNCIA (linhas de `Parte` fundidas) — não é contagem de
+        # processos. Vai com este nome pra ninguém confundir os dois.
+        'n_partes': fonte.get('n_partes'),
+        'n_processos': n_processos,
+    }
+
+
+@login_required
+@require_GET
+def entidades_autocomplete(request):
+    """GET /dashboard/api/entidades/autocomplete?q=&n=&ente=1 — sugestões de entidade.
+
+    Login-gated como todo o módulo comercial. `q` com menos de
+    `ENTIDADES_MIN_CARACTERES` devolve lista vazia SEM tocar no ES (o motivo vai
+    no payload, pra UI dizer por que não buscou). ES fora → 503, nunca 500 cru.
+    Cache de `ENTIDADES_CACHE_TTL`s por (termo, n, ente): quem digita "inss"
+    passa pelas mesmas 4 requisições que o vizinho digitou há 10 segundos.
+    """
+    termo = ' '.join((request.GET.get('q') or '').split())[:120]
+    tamanho = _int_no_intervalo(request.GET.get('n'), ENTIDADES_N_DEFAULT, 1, ENTIDADES_N_MAX)
+    somente_ente = _flag(request.GET.get('ente'))
+
+    base = {
+        'termo': termo,
+        'min_caracteres': ENTIDADES_MIN_CARACTERES,
+        'itens': [],
+        'buscou': False,
+        'motivo': None,
+    }
+    if not termo:
+        return _json({**base, 'motivo': 'sem_termo'})
+    if len(termo) < ENTIDADES_MIN_CARACTERES:
+        return _json({**base, 'motivo': 'termo_curto'})
+
+    chave_cache = 'ac_ent:' + hashlib.sha1(
+        f'{_indice_entidades()}|{termo.lower()}|{tamanho}|{int(somente_ente)}'.encode('utf-8')
+    ).hexdigest()[:20]
+    try:
+        cacheado = cache.get(chave_cache)
+    except Exception:                       # Redis fora não pode derrubar a busca
+        cacheado = None
+    if cacheado is not None:
+        return _json({**cacheado, 'cache': True})
+
+    body = entidades_svc.query_autocomplete(termo, tamanho, somente_ente)
+    try:
+        resp = get_es().search(index=_indice_entidades(), **body)
+    except Exception:
+        logger.exception('entidades_autocomplete: falha ao consultar o índice de entidades',
+                         extra={'termo': termo, 'n': tamanho, 'ente': somente_ente})
+        return _json({'erro': 'falha ao consultar o índice de entidades'}, status=503)
+
+    itens = [_item_entidade(h.get('_source') or {}) for h in resp.get('hits', {}).get('hits', [])]
+    payload = {
+        **base,
+        'buscou': True,
+        'itens': itens,
+        'indice': _indice_entidades(),
+        # a UI precisa saber se a contagem de processos EXISTE pra escrever
+        # "não contamos ainda" em vez de inventar zero
+        'contagem_processos_disponivel': any(i['n_processos'] is not None for i in itens),
+        'levou_ms': resp.get('took'),
+    }
+    try:
+        cache.set(chave_cache, payload, ENTIDADES_CACHE_TTL)
+    except Exception:
+        pass                                 # cache é otimização, não requisito
     return _json(payload)
