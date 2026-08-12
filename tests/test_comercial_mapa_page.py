@@ -84,8 +84,15 @@ def test_logado_renderiza_200(html):
     # subtítulo curto, uma linha, com largura máxima (era 300+ caracteres soltos)
     assert 'Em que estados atacar primeiro' in html
     assert 'max-w-3xl' in html
-    # honestidade: possível e confirmado nomeados e distintos
-    assert 'Possível' in html and 'Confirmado' in html
+    # Honestidade: possível e confirmado seguem NOMEADOS e DISTINTOS. A faixa de
+    # 4 chips ("Possível" / "Confirmado" / ...) que ficava em cima do mapa saiu —
+    # a definição de cada um já vivia no "Como ler estes números", e a faixa
+    # gastava área nobre repetindo. O que se guarda aqui é o conceito, não o
+    # chip: os dois termos canônicos e a diferença entre eles continuam na tela.
+    assert 'Possíveis precatórios' in html or 'Possíveis' in html
+    assert 'Confirmados pela IA' in html
+    assert 'Indício forte, não certeza' in html          # possível ≠ certeza
+    assert 'bateu o martelo' in html                     # confirmado = a IA leu
 
 
 def test_geojson_local_e_registermap(html):
@@ -510,6 +517,133 @@ def test_sem_cdn_externo_na_pagina(html):
         assert termo not in corpo, f'referência externa proibida no corpo: {termo}'
     # nenhum http(s):// no fonte do template
     assert not re.search(r'https?://', CODIGO), 'URL absoluta no template'
+
+
+#: fatia do template do topo do componente até o grid do mapa — é nela que se
+#: mede DENSIDADE (quantas faixas o usuário rola antes de ver o produto).
+_INI_COMPONENTE = TEMPLATE_SRC.find('<div x-data="comercialMapa()"')
+_INI_MAPA = TEMPLATE_SRC.find('---- grid: mapa + painel lateral ----')
+CABECALHO = TEMPLATE_SRC[_INI_COMPONENTE:_INI_MAPA]
+
+
+def test_uma_faixa_so_antes_do_mapa(html):
+    """Densidade: o produto é o MAPA e ele não pode nascer fora da dobra.
+
+    Eram QUATRO faixas de largura total antes dele (legenda/glossário → filtros
+    → lente → KPI) = 706px de cabeçalho medidos em Chromium a 1440x900, com o
+    mapa começando a 91px da dobra; em 1366x768 ele não começava. Agora é UM
+    bloco (`#cockpit`) e o card do mapa começa em 319px (1440) / 365px (1366).
+    """
+    assert _INI_COMPONENTE > 0 and _INI_MAPA > _INI_COMPONENTE
+    # um `card` só entre o topo do componente e o mapa
+    assert CABECALHO.count('class="card') == 1, (
+        'voltou a empilhar faixa de largura total antes do mapa')
+    assert 'id="cockpit"' in CABECALHO
+    # o KPI não é mais um grid de 3 cards largos com o número no canto
+    assert 'grid grid-cols-1 sm:grid-cols-3' not in CODIGO
+
+
+def test_lente_e_numero_que_ela_governa_no_mesmo_bloco(html):
+    """A lente escolhe o alvo; o número do alvo é o herói do MESMO bloco.
+
+    Antes a lente vivia numa faixa e o número que ela troca aparecia em outra,
+    abaixo — quem chega não liga um ao outro. Tudo isto tem que estar dentro do
+    `#cockpit`: lente, herói, os dois números de contexto, filtros e ajuda.
+    """
+    ini = TEMPLATE_SRC.find('id="cockpit"')
+    bloco = TEMPLATE_SRC[ini:_INI_MAPA]
+    for marca in ('aria-label="Nível de certeza"', 'id="tip-alvo"',
+                  'id="tip-volume"', 'id="tip-valor"',
+                  'id="mapa-filtros"', 'id="mapa-ajuda"'):
+        assert marca in bloco, f'{marca} ficou fora do cockpit'
+    # o único `card` da fatia é o próprio cockpit
+    assert bloco.count('class="card') == 1
+
+
+def test_hierarquia_do_numero_heroi(html):
+    """Premium é hierarquia: UM número herói, os outros em escala menor.
+
+    Os 3 KPI eram `text-2xl` iguais lado a lado — sem hierarquia, o olho não
+    sabia onde pousar. Agora o número da lente é 4xl/5xl e os dois de contexto
+    são `text-xl`.
+    """
+    assert "'text-4xl sm:text-5xl'" in html
+    assert html.count('text-xl font-mono text-fg') == 2   # base + valor
+    # `text-2xl` uniforme nos três cards não pode voltar
+    assert 'text-2xl font-mono' not in CODIGO
+    # a frase do desconhecido não pode ser renderizada em 48px
+    assert "alvoTotal() === null) ? 'text-xl'" in html
+
+
+def test_filtros_em_disclosure_com_chips_do_que_esta_ativo(html):
+    """Filtro é ferramenta de exceção: fica fechado, mas nunca escondido.
+
+    O card de filtros era uma faixa inteira (5 campos numa linha, "Valor da
+    causa" sozinho na outra com meia linha vazia). Virou disclosure fechado por
+    padrão — e o que está ATIVO aparece como chip, com o valor por extenso e um
+    botão de fechar que remove só aquele.
+    """
+    assert 'filtrosAbertos: false' in html          # fechado por padrão
+    assert 'aria-controls="mapa-filtros"' in html
+    assert ':aria-expanded="filtrosAbertos"' in html
+    assert 'chipsFiltros()' in html and 'nFiltros()' in html
+    assert 'limparFiltro(c.k)' in html              # remove UM filtro
+    assert 'Remover filtro ' in html                # nome acessível do fechar
+    assert 'limpar tudo' in html
+    # 3 colunas com o par de valor ocupando 2 => 6 células pra 5 controles,
+    # nenhuma faixa de grade vazia (medido em browser)
+    assert 'lg:grid-cols-3' in html
+    assert 'lg:grid-cols-4 gap-3' not in CODIGO
+    # o aviso que muda a leitura do número não pode ficar atrás do disclosure
+    assert 'filtrandoPorValor' in html
+    assert html.count('Processo sem valor informado fica de fora do resultado') >= 1
+    assert 'Processo sem valor informado fica de fora do resultado.' in html
+
+
+def test_lente_ativa_tem_contraste_aa_medido(html):
+    """`bg-mission text-white` media 3,56:1 nos DOIS temas (piso 4,5:1).
+
+    Orange-600 com branco por cima é exatamente o que a doc do design system
+    proíbe: a var SEM sufixo é cor de MARCA, não de texto. O contrato que passa
+    é o mesmo do botão da união — variante `-fg` de fundo + `text-surface`, que
+    inverte junto com o tema (medido: 5,2:1 no claro, 10:1 no escuro).
+    """
+    assert 'bg-mission-fg text-surface' in html
+    assert 'bg-accent-fg text-surface' in html
+    assert 'bg-pale-blue text-surface' in html
+    assert 'text-white' not in CODIGO, 'branco sobre tinta de marca reprova AA'
+    # o aviso de ranking parcial era `text-warning` sobre `bg-warning/10`:
+    # 2,86:1 medido no claro — o alerta vinha do ícone, não do texto
+    assert 'bg-warning/10 text-fg' in html
+    # sky-600 em TEXTO de 12px no card branco = 4,10:1 medido (reprova 4,5:1).
+    # Em ícone segue válido: objeto gráfico tem piso 3:1.
+    for linha in CODIGO.split('\n'):
+        if 'text-info' in linha:
+            assert 'voy_icon' in linha, f'text-info em texto (4,10:1): {linha.strip()[:70]}'
+
+
+def test_cards_do_mapa_e_do_ranking_nao_esticam(html):
+    """Item de grade estica até a altura da linha: o ranking (10 estados) é
+    ~250px mais alto que o mapa e o card do mapa ganhava 250px de nada no pé.
+    Card vazio lê como quebrado — era metade do "espaço sobrando"."""
+    assert 'lg:grid-cols-5 items-start' in html
+
+
+def test_mapa_repinta_no_resize(html):
+    """`chart.resize()` SOZINHO apaga o mapeamento de cor — o mapa MENTIA.
+
+    Medido em Chromium: antes do resize RO=#ea580c / PR=#9a3412 (as faixas);
+    depois de um único `resize()` os dois viram #5470c6 (cor 0 da paleta padrão
+    do ECharts) e o choropleth inteiro renderiza no cinza de "sem dado", que
+    pela nossa legenda quer dizer "ainda não analisado". Arrastar a janela,
+    abrir o DevTools ou girar o tablet bastava. O `visualMap` continua no
+    option com os `pieces` certos; é o estágio visual que não roda de novo.
+    Repintar (setOption completo) devolve a cor — verificado lendo os pixels.
+    """
+    assert 'self.pintar();' in html
+    m = re.search(r"addEventListener\('resize',(.{0,400}?)\}\);", html, re.S)
+    assert m, 'sumiu o handler de resize do mapa'
+    assert 'pintar()' in m.group(1), 'resize sem repintura: o mapa volta a mentir'
 
 
 @pytest.mark.django_db

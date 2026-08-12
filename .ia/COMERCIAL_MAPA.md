@@ -39,6 +39,38 @@ Postgres (fonte da verdade)  ──write-through (signals)──▶  Elasticsear
   precatório-rico, com dinheiro, que ainda mal tocamos. É o ranking-rei do exec.
 - **Federal (TRF*, TST, STJ…)** = camada `uf='FED'` separada (processo federal é multi-UF).
 - Toggle do mapa: **Volume ↔ R$** (constrói os dois).
+- **`score_por_lente`** — o score é recalculado nas 3 lentes (aritmética sobre o
+  mesmo payload, zero request extra). O ranking "Ataque primeiro" ordena pela
+  lente ativa: mapa pintando uma métrica e ranking ordenando por outra é
+  contradição na mesma tela.
+
+## Layout: o COCKPIT (12/08/2026)
+
+Quatro faixas full-width (legenda de chips → filtros → lente → KPI) empilhavam
+**706px** de cabeçalho e o mapa — que é o produto — só começava depois disso;
+em 1366x768 ele **não aparecia** acima da dobra (825px). Viraram um bloco só:
+
+```
+┌─ #cockpit ─────────────────────────────────────────────────────────────┐
+│ O QUE ESTOU CAÇANDO [Possíveis|Confirmados|Todos]  [Filtros ▸] [Ajuda ▸]│
+│ ┌───────────────┬──────────────────────────────────────────────────────┤
+│ │ 2.340.491     │ Processos na base 71.181.213 · Valor R$ 3,1 tri      │
+│ │ (número herói)│                                                      │
+└─┴───────────────┴──────────────────────────────────────────────────────┘
+```
+
+- **Lente e número herói juntos**: a lente escolhe o alvo, então o número que
+  ela governa fica ao lado. Separados em cards distintos, ninguém liga um ao
+  outro. Hierarquia por escala (4xl/5xl vs xl), não por moldura.
+- **Filtros em disclosure** fechado, com chips do que está ativo (valor por
+  extenso: "Classificação: Precatório", não `PRECATORIO`) e fechar por chip.
+- Card do mapa: `items-start` na grade — sem isso ele esticava até a altura do
+  ranking e sobravam ~250px de card vazio no rodapé.
+- Painel lateral é `lg:col-span-2` numa grade de 5 com o mapa em 3. Com
+  `col-span-1` sobrava **uma coluna inteira (20%) vazia** e o ranking truncava
+  ("Rio Grande d...").
+- Medido depois: mapa começa a **319px** em 1440x900 E em 1366x768; documento
+  1751 → 1364px.
 
 ---
 

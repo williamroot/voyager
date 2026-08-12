@@ -316,6 +316,19 @@ Todas as queries do dashboard aceitam `dias` + `tribunais` (CSV). Implementadas 
 - Senão `min(max(int, 1), 3650)`
 - Banner amarelo no `overview.html` quando `_backfill_em_curso() is True` informando cobertura atual
 
+## ⚠️ Armadilha: `chart.resize()` sozinho apaga o mapeamento de cor do choropleth
+
+Em mapa (`series.type = 'map'`) com `visualMap`, chamar só `resize()` no
+listener de janela **descarta o mapeamento**: medido em Chromium (12/08/2026,
+mapa comercial), RO `#ea580c` e PR `#9a3412` viravam `#5470c6` — a paleta
+padrão do ECharts — e o choropleth inteiro renderizava no cinza que a nossa
+legenda define como "ainda não analisado". Ou seja, **o mapa passava a mentir**
+depois de arrastar a janela, abrir o DevTools ou girar o tablet.
+
+Correção: no resize, **repintar** (`setOption(opts, true)`, com debounce
+~120ms), não só redimensionar. Vale pra qualquer série que dependa de
+`visualMap`.
+
 ## Charts
 
 `base.html` define helpers globais (`buildVolumeChart`, `buildDonut`, `buildHorizBar`, `buildSparkline`) que respeitam tema (via `chartGridColors()`).

@@ -568,10 +568,26 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         this._chart.hideLoading();
         this._chart.setOption(opts, true);
         // resize 1× por elemento (o initChart do base registrava a cada chamada)
+        // ATENÇÃO: `c.resize()` SOZINHO apaga o mapeamento de cor. Medido em
+        // Chromium: antes do resize RO=#ea580c/PR=#9a3412 (as faixas); depois de
+        // um único resize() os TRÊS viram #5470c6 (cor 0 da paleta padrão do
+        // ECharts) e o mapa inteiro renderiza no cinza de "sem dado" — que, pela
+        // nossa própria legenda, quer dizer "ainda não analisado". Ou seja:
+        // arrastar a janela (ou abrir o DevTools, ou girar o tablet) fazia o
+        // mapa MENTIR. O `visualMap` continua no option com os `pieces` certos;
+        // é o estágio visual que não roda de novo no resize. Repintar
+        // (setOption completo) devolve as cores. Debounce pra não repintar a
+        // cada pixel do arrasto.
         if (!el._resizeBound) {
+          let tmr = null;
           window.addEventListener('resize', () => {
-            const c = echarts.getInstanceByDom(el);
-            if (c) c.resize();
+            clearTimeout(tmr);
+            tmr = setTimeout(() => {
+              const c = echarts.getInstanceByDom(el);
+              if (!c) return;
+              c.resize();
+              self.pintar();
+            }, 120);
           });
           el._resizeBound = true;
         }
@@ -643,8 +659,47 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         for (const k of Object.keys(this.filtros)) this.filtros[k] = '';
         this.carregar();
       },
+      limparFiltro(k) {
+        this.filtros[k] = '';
+        this.carregar();
+      },
       temFiltro() {
         return Object.values(this.filtros).some(v => v !== '' && v !== null && v !== undefined);
+      },
+
+      // ---- filtros num DISCLOSURE ----------------------------------------
+      // O card de filtros era uma faixa inteira de largura total ANTES do mapa
+      // (5 campos numa linha e "Valor da causa" sozinho na outra, com meia linha
+      // vazia) — ~150px de altura que empurravam o produto pra fora da dobra
+      // pra um controle que quase ninguém mexe. Fechado por padrão; o que está
+      // ATIVO nunca fica escondido: vira chip visível ao lado do botão, com o
+      // valor por extenso e um × pra tirar só aquele.
+      filtrosAbertos: false,
+      _ROTULOS_FILTRO: {
+        classificacao: {t: 'Classificação', v: {
+          PRECATORIO: 'Precatório', PRE_PRECATORIO: 'Pré-precatório',
+          DIREITO_CREDITORIO: 'Direito creditório', NAO_LEAD: 'Não é lead'}},
+        tipo: {t: 'Certeza', v: {
+          potencial: 'só os possíveis', confirmado: 'só os confirmados pela IA'}},
+        natureza: {t: 'Classe processual'},
+        ano_min: {t: 'Ano de'}, ano_max: {t: 'Ano até'},
+        valor_min: {t: 'Valor de R$'}, valor_max: {t: 'Valor até R$'},
+      },
+      chipsFiltros() {
+        const out = [];
+        for (const [k, meta] of Object.entries(this._ROTULOS_FILTRO)) {
+          const v = this.filtros[k];
+          if (v === '' || v === null || v === undefined) continue;
+          out.push({k: k, label: meta.t + ': ' + ((meta.v && meta.v[v]) || v)});
+        }
+        return out;
+      },
+      nFiltros() { return this.chipsFiltros().length; },
+      // o filtro de valor EXCLUI quem não tem valor publicado (a maior parte da
+      // base). A frase vive no painel; com o painel fechado ela some, então o
+      // resumo repete a parte que muda a leitura do número.
+      filtrandoPorValor() {
+        return this.filtros.valor_min !== '' || this.filtros.valor_max !== '';
       },
 
       // ---- helpers de exibição ----
@@ -882,75 +937,285 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
   }
 </script>
 
-<div x-data="comercialMapa()" x-init="init()" class="space-y-6">
+<div x-data="comercialMapa()" x-init="init()" class="space-y-5">
 
-  {# ---- barra de honestidade: 1 coluna por chave de leitura do mapa ---- #}
-  {% comment %} Texto VISÍVEL, não tooltip: foi o `title=` que falhou — tooltip nativo não
-     abre no toque e ninguém passa o mouse antes de tirar a conclusão errada. {% endcomment %}
-  <div class="card p-4 space-y-3">
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 text-xs">
-      <div class="flex items-start gap-2">
-        <span class="inline-block w-3 h-3 rounded-sm mt-0.5 shrink-0 bg-mission"></span>
-        <span>
-          <span class="block font-semibold text-fg">Possível</span>
-          <span class="block text-fg-muted">as publicações citam precatório. Indício, não certeza.</span>
-        </span>
+  {% comment %}
+  ---- COCKPIT: a lente e o número que ela governa, na MESMA faixa -----------
+  Antes eram QUATRO faixas de largura total antes do mapa (legenda/glossário →
+  filtros → lente → KPI): 706px de cabeçalho medidos em 1440x900, ou seja o
+  produto (o mapa) começava a 91px da dobra e em 1366x768 NÃO começava. Três
+  problemas de uma vez:
+   - a lente ocupava uma faixa inteira com um segmentado de 230px grudado à
+     esquerda (~1.100px de vazio à direita);
+   - o KPI era um grid de 3 cards largos com o número pequeno no canto — muito
+     ar, nenhuma hierarquia;
+   - a lente escolhia o alvo num card e o número do alvo aparecia em OUTRO card,
+     abaixo: quem chega não liga um ao outro.
+  Agora é um bloco só: linha de controle (lente à esquerda, disclosures à
+  direita) + linha de números com UM herói (o número da lente, 48px) e dois
+  contextos menores (20px). O que sumiu de faixa NÃO sumiu de tela: os 4 chips
+  de legenda viraram entradas com swatch dentro do "Como ler estes números"
+  (onde a definição já morava — e onde o swatch fica ao lado do texto que
+  explica), e o cinza do mapa continua rotulado na legenda de cor do card do
+  mapa, que é onde ele é olhado.
+  {% endcomment %}
+  <div id="cockpit" class="card p-4 sm:p-5 space-y-4">
+
+    {# ---- linha de controle: LENTE + disclosures ---- #}
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span class="text-xs uppercase tracking-wider text-fg-muted">O que estou caçando</span>
+        <div class="inline-flex rounded-lg border border-border overflow-hidden text-xs font-medium"
+             role="group" aria-label="Nível de certeza">
+          {% comment %} Ativo = `bg-<token>-fg text-surface`, o mesmo contrato do
+             botão da união: `bg-mission text-white` media 3,56:1 nos DOIS temas
+             (reprovado em 4,5:1) porque orange-600 com branco por cima é
+             exatamente a combinação que a doc marca como "cor de marca, não de
+             texto". Com a variante -fg de fundo e `surface` (que inverte junto
+             com o tema) o mesmo botão vai a 5,2:1 no claro e 10:1 no escuro,
+             sem trocar de família de cor. {% endcomment %}
+          <button type="button" @click="sinalMode='potencial'"
+                  :aria-pressed="sinalMode==='potencial'"
+                  :class="sinalMode==='potencial' ? 'bg-mission-fg text-surface' : 'text-fg-muted hover:text-fg hover:bg-muted/40'"
+                  class="px-3.5 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Possíveis</button>
+          <button type="button" @click="sinalMode='confirmado'"
+                  :aria-pressed="sinalMode==='confirmado'"
+                  :class="sinalMode==='confirmado' ? 'bg-accent-fg text-surface' : 'text-fg-muted hover:text-fg hover:bg-muted/40'"
+                  class="px-3.5 py-2 border-l border-border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Confirmados</button>
+          {% comment %} `text-surface` e não `text-white`: o token pale-blue INVERTE
+             com o tema (blue-300 no escuro, blue-600 no claro) e o surface inverte
+             junto — 10:1 no escuro, 5,2:1 no claro, os dois AA. Com `text-white` o
+             escuro cairia pra 1,5:1. {% endcomment %}
+          <button type="button" @click="sinalMode='todos'"
+                  x-show="todosDisponivel()" x-cloak
+                  :aria-pressed="sinalMode==='todos'"
+                  :class="sinalMode==='todos' ? 'bg-pale-blue text-surface' : 'text-fg-muted hover:text-fg hover:bg-muted/40'"
+                  class="px-3.5 py-2 border-l border-border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Todos</button>
+        </div>
+        <button type="button" class="voy-tip voy-tip-underline text-xs text-fg-muted"
+                aria-describedby="tip-lente">
+          entenda os três
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+          <span class="voy-tip-body tip-below" role="tooltip" id="tip-lente" x-text="glosMetricaAtiva()"></span>
+        </button>
       </div>
-      <div class="flex items-start gap-2">
-        <span class="inline-block w-3 h-3 rounded-sm mt-0.5 shrink-0 bg-accent"></span>
-        <span>
-          <span class="block font-semibold text-fg">Confirmado</span>
-          <span class="block text-fg-muted">nossa IA leu o processo e confirmou.</span>
-        </span>
-      </div>
-      <div class="flex items-start gap-2">
-        {% comment %} MESMA cor do mapa (corSemDado), não um cinza qualquer: o
-           chip só cumpre a função se o olho casar swatch e estado. {% endcomment %}
-        <span class="inline-block w-3 h-3 rounded-sm mt-0.5 shrink-0 border border-border"
-              :style="'background:' + corSemDado()"></span>
-        <span>
-          <span class="block font-semibold text-fg">Ainda não analisado</span>
-          <span class="block text-fg-muted">cinza no mapa: não olhamos este estado.</span>
-        </span>
-      </div>
-      <div class="flex items-start gap-2">
-        <span class="inline-block w-3 h-3 rounded-sm mt-0.5 shrink-0 border border-border"></span>
-        <span>
-          <span class="block font-semibold text-fg">R$ não informado</span>
-          <span class="block text-fg-muted">o tribunal não publicou o valor.</span>
-        </span>
+
+      {# disclosures + carimbo de atualização, ancorados à direita #}
+      <div class="ml-auto flex flex-wrap items-center gap-2">
+        <button type="button" @click="filtrosAbertos = !filtrosAbertos"
+                :aria-expanded="filtrosAbertos" aria-controls="mapa-filtros"
+                class="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-fg-muted hover:text-fg hover:bg-muted/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          {% voy_icon "calibrate" "w-4 h-4 shrink-0" %}
+          <span>Filtros</span>
+          <span x-show="nFiltros()" x-cloak
+                class="rounded-full bg-mission-fg text-surface px-1.5 font-mono"
+                x-text="nFiltros()"></span>
+          <svg class="w-3.5 h-3.5 shrink-0 transition-transform" :class="filtrosAbertos ? 'rotate-90' : ''"
+               fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+          </svg>
+        </button>
+        <button type="button" @click="toggleAjuda()" :aria-expanded="ajudaAberta"
+                aria-controls="mapa-ajuda"
+                class="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-fg-muted hover:text-fg hover:bg-muted/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          {% voy_icon "info" "w-4 h-4 shrink-0" %}
+          <span>Como ler estes números</span>
+          <svg class="w-3.5 h-3.5 shrink-0 transition-transform" :class="ajudaAberta ? 'rotate-90' : ''"
+               fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+          </svg>
+        </button>
       </div>
     </div>
 
-    {# ---- bloco didático "Como ler estes números" — nível de PÁGINA ---- #}
-    <div class="rounded-md border border-border bg-surface/50">
-      <button type="button" @click="toggleAjuda()" :aria-expanded="ajudaAberta"
-              aria-controls="mapa-ajuda"
-              class="w-full flex items-center gap-2 px-2.5 py-2 text-sm text-fg-muted hover:text-fg rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-        {% voy_icon "info" "w-4 h-4 shrink-0" %}
-        <span class="font-medium">Como ler estes números</span>
-        <svg class="ml-auto w-3.5 h-3.5 transition-transform" :class="ajudaAberta ? 'rotate-90' : ''"
-             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-        </svg>
+    {% comment %} O que está ATIVO nunca fica atrás do disclosure: um chip por
+       filtro, com o valor por extenso e × pra tirar só aquele. {% endcomment %}
+    <div x-show="temFiltro()" x-cloak class="flex flex-wrap items-center gap-2">
+      <template x-for="c in chipsFiltros()" :key="c.k">
+        <span class="inline-flex items-center gap-1 rounded-full border border-mission/40 bg-mission/10 pl-2.5 pr-1 py-0.5 text-xs text-fg">
+          <span x-text="c.label"></span>
+          <button type="button" @click="limparFiltro(c.k)" :aria-label="'Remover filtro ' + c.label"
+                  class="rounded-full p-0.5 text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            {% voy_icon "clear" "w-3 h-3" %}
+          </button>
+        </span>
+      </template>
+      <button type="button" @click="limparFiltros()"
+              class="text-xs text-fg-muted hover:text-fg underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        limpar tudo
       </button>
-      <dl id="mapa-ajuda" x-show="ajudaAberta" x-cloak
-          class="px-2.5 pb-2.5 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 text-sm leading-snug">
+      {% comment %} O painel fechado esconderia o aviso do filtro de valor — e ele
+         muda a leitura do número (o filtro derruba TODO processo sem valor
+         publicado, que é a maior parte da base). {% endcomment %}
+      <span class="text-xs text-fg-muted" x-show="filtrandoPorValor()" x-cloak>
+        Processo sem valor informado fica de fora do resultado.
+      </span>
+    </div>
+
+    {# ---- painel de filtros (disclosure, fechado por padrão) ---- #}
+    {% comment %} lg:grid-cols-3 com o par de valor ocupando 2 colunas: são 5
+       controles e 6 células, então NENHUMA faixa fica vazia (era 4 colunas com
+       5 campos + "Valor da causa" sozinho na 2ª linha, meia linha em branco).
+    {% endcomment %}
+    <div id="mapa-filtros" x-show="filtrosAbertos" x-cloak
+         class="border-t border-border pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-4">
+      <label class="flex flex-col gap-1.5">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">O que a IA classificou</span>
+        <select x-model="filtros.classificacao" @change="aplicarFiltros()"
+                class="bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <option value="">todos os processos</option>
+          <option value="PRECATORIO">Precatório</option>
+          <option value="PRE_PRECATORIO">Pré-precatório</option>
+          <option value="DIREITO_CREDITORIO">Direito creditório</option>
+          <option value="NAO_LEAD">Não é lead</option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1.5">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Nível de certeza</span>
+        <select x-model="filtros.tipo" @change="aplicarFiltros()"
+                class="bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <option value="">todos</option>
+          <option value="potencial">Só os possíveis</option>
+          <option value="confirmado">Só os confirmados pela IA</option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1.5">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Código da classe processual</span>
+        <input type="text" x-model="filtros.natureza" @change="aplicarFiltros()" inputmode="numeric"
+               placeholder="ex.: 1116"
+               class="bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      </label>
+      <div class="flex flex-col gap-1.5" role="group" aria-labelledby="lbl-ano">
+        <span id="lbl-ano" class="text-xs text-fg-muted uppercase tracking-wide">Ano do processo (de / até)</span>
+        <div class="flex gap-2">
+          <input type="number" x-model="filtros.ano_min" @change="aplicarFiltros()" placeholder="de" min="1990" max="2100"
+                 aria-label="Ano do processo, de"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <input type="number" x-model="filtros.ano_max" @change="aplicarFiltros()" placeholder="até" min="1990" max="2100"
+                 aria-label="Ano do processo, até"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        </div>
+      </div>
+      <div class="flex flex-col gap-1.5 sm:col-span-2" role="group" aria-labelledby="lbl-valor">
+        <span id="lbl-valor" class="text-xs text-fg-muted uppercase tracking-wide">Valor da causa (de / até)</span>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div class="flex gap-2 min-w-[12rem] flex-1">
+            <input type="number" x-model="filtros.valor_min" @change="aplicarFiltros()" placeholder="de" min="0"
+                   aria-label="Valor da causa, de"
+                   aria-describedby="aviso-valor"
+                   class="w-1/2 bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            <input type="number" x-model="filtros.valor_max" @change="aplicarFiltros()" placeholder="até" min="0"
+                   aria-label="Valor da causa, até"
+                   aria-describedby="aviso-valor"
+                   class="w-1/2 bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          </div>
+          {% comment %} VISÍVEL, não tooltip: o filtro exclui silenciosamente todo processo com
+             valor não informado (a maior parte da base). Sem esta frase o
+             comercial conclui "não tem nada acima de R$ 1 mi nesse estado". {% endcomment %}
+          <span id="aviso-valor" class="text-xs text-fg-muted flex-1 min-w-[14rem]">Filtra pelo valor publicado pelo tribunal. Processo sem valor informado fica de fora do resultado.</span>
+        </div>
+      </div>
+    </div>
+
+    {% comment %} ---- NÚMEROS: 1 herói + 2 contextos ------------------------
+       Hierarquia por escala, não por moldura: o número que a LENTE governa vem
+       em 48px, na cor da lente (a mesma família do mapa e da legenda), logo
+       abaixo do controle que o escolhe. Os dois números que não estão em foco
+       ficam em 20px à direita de um filete — presentes pra comparação (é ali
+       que se vê que 2.340.491 + 47.720 não dá 2.381.790), sem disputar o olho.
+    {% endcomment %}
+    <div class="flex flex-wrap items-end gap-x-8 gap-y-5">
+      <div class="min-w-0">
+        <div class="text-xs uppercase tracking-wider" :class="alvoCor()">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-alvo">
+            <span x-text="rotuloAlvo()"></span>
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-alvo" x-text="glosMetricaAtiva()"></span>
+          </button>
+        </div>
+        {% comment %} `null` = sinal nunca lido: a PALAVRA, nunca "0" — 0 aqui
+           seria "não existe precatório nesse recorte", que é outra coisa. A
+           frase não cabe em 48px, então cai pra 20px sem virar número. Antes de
+           a 1ª resposta chegar mostra "—" (o card já ocupa a altura final: sem
+           isso o mapa subia e descia ~90px na carga). {% endcomment %}
+        <div class="mt-1.5 font-mono leading-none tracking-tight"
+             :class="[alvoCor(), (total && alvoTotal() === null) ? 'text-xl' : 'text-4xl sm:text-5xl']"
+             x-text="!total ? '—' : (alvoTotal() === null ? 'ainda não analisado' : fmt(alvoTotal()))"></div>
+        <div class="mt-2 text-xs font-mono text-fg-muted min-h-[1rem]" x-text="alvoContexto()"></div>
+      </div>
+
+      <div class="hidden sm:block self-stretch w-px bg-border" aria-hidden="true"></div>
+
+      <div class="flex flex-wrap items-end gap-x-8 gap-y-4">
+        <div>
+          <div class="text-xs text-fg-muted uppercase tracking-wider">
+            <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-volume">
+              Processos na base
+              {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+              <span class="voy-tip-body tip-below" role="tooltip" id="tip-volume" x-text="glos('volume')"></span>
+            </button>
+          </div>
+          <div class="mt-1.5 text-xl font-mono text-fg leading-none"
+               x-text="total ? fmt(total.volume) : '—'"></div>
+        </div>
+        <div>
+          <div class="text-xs text-fg-muted uppercase tracking-wider">
+            <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-valor">
+              Valor informado
+              {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+              <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-valor" x-text="glos('valor')"></span>
+            </button>
+          </div>
+          <div class="mt-1.5 text-xl font-mono text-fg leading-none"
+               x-text="total ? fmtBRL(total.valor) : '—'"></div>
+        </div>
+      </div>
+
+      {% comment %} O carimbo estava na linha de controle e, a 1366px, era ele
+         que empurrava os dois disclosures pra uma segunda linha (medido). Aqui
+         ele qualifica exatamente o que precisa qualificar — os números — e
+         encosta na direita sem competir com nada. {% endcomment %}
+      <span class="ml-auto text-xs text-fg-muted font-mono" x-show="geradoEm" x-cloak>
+        atualizado <span x-text="geradoLegivel()"></span>
+      </span>
+    </div>
+
+    {% comment %} aviso do modo R$: fica colado nos números porque é deles que
+       ele fala (o mapa pinta dinheiro, os números seguem a lente). {% endcomment %}
+    <p class="text-xs text-fg-muted" x-show="metricMode==='valor'" x-cloak>
+      O mapa está pintando por R$. A lente segue valendo para os números e para o “Ataque primeiro”.
+    </p>
+
+    {# ---- bloco didático "Como ler estes números" — nível de PÁGINA ---- #}
+    <div id="mapa-ajuda" x-show="ajudaAberta" x-cloak class="border-t border-border pt-4">
+      <dl class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm leading-snug">
         <div>
           <dt class="inline font-semibold text-fg">Processos na base — </dt>
           <dd class="inline text-fg-muted">Quantos processos deste estado já trouxemos para cá. O tribunal tem mais; estes são os que temos.</dd>
         </div>
         <div>
-          <dt class="inline font-semibold text-mission-fg">Possíveis — </dt>
+          <dt class="inline font-semibold text-mission-fg">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm align-middle mr-1 bg-mission" aria-hidden="true"></span>Possíveis — </dt>
           <dd class="inline text-fg-muted">As publicações do processo citam precatório, ofício requisitório ou RPV. Indício forte, não certeza: um “carta precatória” entra aqui por engano.</dd>
         </div>
         <div>
-          <dt class="inline font-semibold text-accent-fg">Confirmados pela IA — </dt>
+          <dt class="inline font-semibold text-accent-fg">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm align-middle mr-1 bg-accent" aria-hidden="true"></span>Confirmados pela IA — </dt>
           <dd class="inline text-fg-muted">A nossa IA leu o processo e bateu o martelo: é precatório. O número é menor porque só analisamos a fundo parte da base.</dd>
         </div>
         <div>
-          <dt class="inline font-semibold text-pale-blue">Possíveis ou confirmados — </dt>
+          <dt class="inline font-semibold text-pale-blue">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm align-middle mr-1 bg-pale-blue" aria-hidden="true"></span>Possíveis ou confirmados — </dt>
           <dd class="inline text-fg-muted">Os dois juntos, sem contar ninguém duas vezes: <b>não é a soma</b>. São duas buscas independentes — a maior parte dos confirmados pela IA <b>não</b> tem menção a precatório no texto das publicações, e só aqui eles aparecem.</dd>
+        </div>
+        {% comment %} os 2 chips que sobraram da faixa antiga viram entradas
+           daqui, com o MESMO cinza do mapa (corSemDado) — o swatch só cumpre a
+           função se o olho casar a amostra com o estado pintado. {% endcomment %}
+        <div>
+          <dt class="inline font-semibold text-fg">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm align-middle mr-1 border border-border"
+                  :style="'background:' + corSemDado()" aria-hidden="true"></span>Ainda não analisado — </dt>
+          <dd class="inline text-fg-muted">O cinza do mapa: não lemos as publicações deste estado. O número é desconhecido, não é zero.</dd>
         </div>
         <div>
           <dt class="inline font-semibold text-fg">Valor informado — </dt>
@@ -966,171 +1231,6 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         </div>
       </dl>
     </div>
-
-    <div class="text-xs text-fg-muted font-mono" x-show="geradoEm" x-cloak>
-      atualizado <span x-text="geradoLegivel()"></span>
-    </div>
-  </div>
-
-  {# ---- filtros ---- #}
-  <div class="card p-4">
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-      <label class="flex flex-col gap-1">
-        <span class="text-xs text-fg-muted uppercase tracking-wide">O que a IA classificou</span>
-        <select x-model="filtros.classificacao" @change="aplicarFiltros()"
-                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-          <option value="">todos os processos</option>
-          <option value="PRECATORIO">Precatório</option>
-          <option value="PRE_PRECATORIO">Pré-precatório</option>
-          <option value="DIREITO_CREDITORIO">Direito creditório</option>
-          <option value="NAO_LEAD">Não é lead</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1">
-        <span class="text-xs text-fg-muted uppercase tracking-wide">Nível de certeza</span>
-        <select x-model="filtros.tipo" @change="aplicarFiltros()"
-                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-          <option value="">todos</option>
-          <option value="potencial">Só os possíveis</option>
-          <option value="confirmado">Só os confirmados pela IA</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1">
-        <span class="text-xs text-fg-muted uppercase tracking-wide">Código da classe processual</span>
-        <input type="text" x-model="filtros.natureza" @change="aplicarFiltros()" inputmode="numeric"
-               placeholder="ex.: 1116"
-               class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-      </label>
-      <div class="flex flex-col gap-1" role="group" aria-labelledby="lbl-ano">
-        <span id="lbl-ano" class="text-xs text-fg-muted uppercase tracking-wide">Ano do processo (de / até)</span>
-        <div class="flex gap-2">
-          <input type="number" x-model="filtros.ano_min" @change="aplicarFiltros()" placeholder="de" min="1990" max="2100"
-                 aria-label="Ano do processo, de"
-                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-          <input type="number" x-model="filtros.ano_max" @change="aplicarFiltros()" placeholder="até" min="1990" max="2100"
-                 aria-label="Ano do processo, até"
-                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-        </div>
-      </div>
-      <div class="flex flex-col gap-1 sm:col-span-2" role="group" aria-labelledby="lbl-valor">
-        <span id="lbl-valor" class="text-xs text-fg-muted uppercase tracking-wide">Valor da causa (de / até)</span>
-        <div class="flex gap-2">
-          <input type="number" x-model="filtros.valor_min" @change="aplicarFiltros()" placeholder="de" min="0"
-                 aria-label="Valor da causa, de"
-                 aria-describedby="aviso-valor"
-                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-          <input type="number" x-model="filtros.valor_max" @change="aplicarFiltros()" placeholder="até" min="0"
-                 aria-label="Valor da causa, até"
-                 aria-describedby="aviso-valor"
-                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-        </div>
-        {% comment %} VISÍVEL, não tooltip: o filtro exclui silenciosamente todo processo com
-           valor não informado (a maior parte da base). Sem esta frase o
-           comercial conclui "não tem nada acima de R$ 1 mi nesse estado". {% endcomment %}
-        <span id="aviso-valor" class="text-xs text-fg-muted">Filtra pelo valor publicado pelo tribunal. Processo sem valor informado fica de fora do resultado.</span>
-      </div>
-      <div class="flex items-end">
-        <button type="button" @click="limparFiltros()" x-show="temFiltro()" x-cloak
-                class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
-          Limpar filtros
-        </button>
-      </div>
-    </div>
-  </div>
-
-  {# ---- LENTE (governa a página inteira: KPI + mapa + Ataque primeiro) ---- #}
-  {% comment %} Subiu do header do card do mapa pra cá. Lá dentro ela parecia um
-     controle DO MAPA; na verdade escolhe o alvo comercial e agora reordena
-     também o "Ataque primeiro" e troca o KPI. Controle que muda a página toda
-     mora no nível da página. {% endcomment %}
-  <div class="card p-3 flex flex-wrap items-center gap-x-4 gap-y-2" x-show="total" x-cloak>
-    <div class="text-sm text-fg">
-      O que estou caçando:
-      <button type="button" class="voy-tip voy-tip-underline text-xs text-fg-muted ml-1"
-              aria-describedby="tip-lente">
-        entenda os três
-        {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
-        <span class="voy-tip-body tip-below" role="tooltip" id="tip-lente" x-text="glosMetricaAtiva()"></span>
-      </button>
-    </div>
-    <div class="inline-flex rounded-md border border-border overflow-hidden text-xs"
-         role="group" aria-label="Nível de certeza">
-      <button type="button" @click="sinalMode='potencial'"
-              :aria-pressed="sinalMode==='potencial'"
-              :class="sinalMode==='potencial' ? 'bg-mission text-white' : 'text-fg-muted hover:text-fg'"
-              class="px-3 py-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Possíveis</button>
-      <button type="button" @click="sinalMode='confirmado'"
-              :aria-pressed="sinalMode==='confirmado'"
-              :class="sinalMode==='confirmado' ? 'bg-accent text-white' : 'text-fg-muted hover:text-fg'"
-              class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Confirmados</button>
-      {% comment %} `text-surface` e não `text-white`: o token pale-blue INVERTE
-         com o tema (blue-300 no escuro, blue-600 no claro) e o surface inverte
-         junto — 10:1 no escuro, 5,2:1 no claro, os dois AA. Com `text-white` o
-         escuro cairia pra 1,5:1. {% endcomment %}
-      <button type="button" @click="sinalMode='todos'"
-              x-show="todosDisponivel()" x-cloak
-              :aria-pressed="sinalMode==='todos'"
-              :class="sinalMode==='todos' ? 'bg-pale-blue text-surface' : 'text-fg-muted hover:text-fg'"
-              class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Todos</button>
-    </div>
-    {% comment %} No topo a lente NÃO fica desabilitada no modo R$ (era assim
-       quando ela só pintava o mapa). Ela continua valendo pros números e pro
-       ranking; só o mapa é que passa a pintar por dinheiro. Dizer isso é mais
-       honesto que travar 3 botões sem explicar. {% endcomment %}
-    <span class="text-xs text-fg-muted" x-show="metricMode==='valor'" x-cloak>
-      O mapa está pintando por R$. A lente segue valendo para os números e para o “Ataque primeiro”.
-    </span>
-  </div>
-
-  {# ---- KPIs globais ---- #}
-  {% comment %} 3 cards, não 5: com a lente no topo o dono pediu que os cards
-     mudem junto, e cards fixos por definição não mudam. Então os dois primeiros
-     são o CONTEXTO (não dependem de lente: base é o denominador, valor é do
-     processo inteiro) e o terceiro é o ALVO da lente ativa.
-     A comparação não se perde — os outros dois números viram a linha de baixo
-     do card do alvo, que é exatamente onde se vê que 2.340.491 + 47.720 não dá
-     2.381.790. {% endcomment %}
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3" x-show="total" x-cloak>
-    <div class="card p-4">
-      <div class="text-xs text-fg-muted uppercase tracking-wide">
-        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-volume">
-          Processos na base
-          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
-          <span class="voy-tip-body tip-below" role="tooltip" id="tip-volume" x-text="glos('volume')"></span>
-        </button>
-      </div>
-      <div class="text-2xl font-mono text-fg mt-1" x-text="fmt(total ? total.volume : 0)"></div>
-    </div>
-    <div class="card p-4">
-      <div class="text-xs text-fg-muted uppercase tracking-wide">
-        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-valor">
-          Valor informado
-          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
-          <span class="voy-tip-body tip-below" role="tooltip" id="tip-valor" x-text="glos('valor')"></span>
-        </button>
-      </div>
-      <div class="text-2xl font-mono text-fg mt-1" x-text="fmtBRL(total ? total.valor : 0)"></div>
-    </div>
-    {% comment %} card do ALVO: rótulo, cor e número seguem a lente ativa —
-       mesma família de cor do mapa e da legenda (laranja=possíveis,
-       verde=confirmados, azul=união), senão o card diria uma coisa e o mapa
-       pintaria outra. `ring` marca que ESTE é o card que a lente comanda.
-    {% endcomment %}
-    <div class="card p-4 ring-1 ring-inset ring-border">
-      <div class="text-xs uppercase tracking-wide" :class="alvoCor()">
-        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-alvo">
-          <span x-text="rotuloAlvo()"></span>
-          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
-          <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-alvo" x-text="glosMetricaAtiva()"></span>
-        </button>
-      </div>
-      {% comment %} `null` = sinal nunca lido: a PALAVRA, nunca "0" — 0 aqui
-         seria "não existe precatório nesse recorte", que é outra coisa.
-      {% endcomment %}
-      <div class="text-2xl font-mono mt-1" :class="alvoCor()"
-           x-text="alvoTotal() === null ? 'ainda não analisado' : fmt(alvoTotal())"></div>
-      <div class="text-xs font-mono text-fg-muted mt-1" x-text="alvoContexto()"></div>
-    </div>
   </div>
 
   {# ---- grid: mapa + painel lateral ---- #}
@@ -1142,7 +1242,16 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
   (b) a auditoria de UX apontou o ranking apertado na coluna 1/3.
   3/5 dá ~784px de card (mapa usa ~100% da largura) e ~530px pro ranking.
   {% endcomment %}
-  <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+  {% comment %} gap assimétrico de propósito: 24px na horizontal (mapa e ranking
+     são regiões diferentes e precisam de ar entre si) contra 20px na vertical,
+     que é o mesmo passo do `space-y-5` da página — espaçamento intencional, não
+     o mesmo `gap` em tudo. {% endcomment %}
+  {% comment %} `items-start`: sem isso o item de grade ESTICA até a altura da
+     linha, e como o ranking (10 estados) é ~250px mais alto que o mapa, o card
+     do mapa ganhava 250px de nada no rodapé — card vazio lê como quebrado, e
+     era metade do "espaço sobrando" que o dono viu. Cada card passa a ter a
+     altura do próprio conteúdo. {% endcomment %}
+  <div class="grid grid-cols-1 lg:grid-cols-5 items-start gap-x-6 gap-y-5">
 
     {# ---- mapa ---- #}
     <div class="lg:col-span-3 card p-4">
@@ -1157,14 +1266,19 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           </button>
         </div>
         <div class="flex flex-wrap items-center gap-3">
-          {# toggle Quantidade ↔ R$ #}
-          <div class="inline-flex rounded-md border border-border overflow-hidden text-xs" role="group" aria-label="O que o mapa mostra">
+          {% comment %} toggle Quantidade ↔ R$ — MESMA geometria do segmentado da
+             lente (rounded-lg, px-3.5 py-2, hover igual): dois componentes
+             idênticos com formatos diferentes na mesma tela leem como descuido.
+             O que os diferencia é o PESO do estado ativo — sólido na lente (que
+             governa a página), tinta suave aqui (que só troca o eixo do mapa) —
+             e isso é hierarquia, não inconsistência. {% endcomment %}
+          <div class="inline-flex rounded-lg border border-border overflow-hidden text-xs font-medium" role="group" aria-label="O que o mapa mostra">
             <button type="button" @click="metricMode='volume'" :aria-pressed="metricMode==='volume'"
-                    :class="metricMode==='volume' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg'"
-                    class="px-3 py-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Quantidade</button>
+                    :class="metricMode==='volume' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg hover:bg-muted/40'"
+                    class="px-3.5 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Quantidade</button>
             <button type="button" @click="metricMode='valor'" :aria-pressed="metricMode==='valor'"
-                    :class="metricMode==='valor' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg'"
-                    class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">R$</button>
+                    :class="metricMode==='valor' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg hover:bg-muted/40'"
+                    class="px-3.5 py-2 border-l border-border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">R$</button>
           </div>
           {% comment %} O toggle Possíveis/Confirmados/Todos saiu daqui e subiu
              pro topo da página: ele governa KPI + mapa + "Ataque primeiro", não
@@ -1255,7 +1369,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       {# federal — camada separada, NUNCA misturada no choropleth #}
       <template x-if="bucketFED()">
         <div class="mt-4 p-3 rounded-md border border-border bg-surface/60 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
-          <span class="uppercase tracking-wide text-info font-semibold">
+          {% comment %} `text-fg`, não `text-info`: sky-600 sobre o card branco mede
+             4,10:1 (medido) e reprova o 4,5:1 de texto pequeno. A camada já se
+             distingue por posição (fora do choropleth) e pelo ícone — não
+             precisa pagar isso em legibilidade. {% endcomment %}
+          <span class="uppercase tracking-wide text-fg font-semibold">
             <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-federal">
               Justiça Federal — fora do mapa
               {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
@@ -1275,7 +1393,12 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     </div>
 
     {# ---- painel lateral: Top-N por prioridade OU drill-down ---- #}
-    <div class="lg:col-span-1 space-y-4">
+    {% comment %} span-2, NÃO span-1: a grade tem 5 colunas e o mapa usa 3 —
+       com 1 aqui sobrava uma coluna inteira (20% da largura) em branco à
+       direita, e o ranking ficava espremido a ponto de truncar "Rio Grande
+       d..." e quebrar "119.586 possíveis · 1.948 confirmados" em duas linhas.
+    {% endcomment %}
+    <div class="lg:col-span-2 space-y-4">
 
       {# Top-N "ataque primeiro" — some quando um estado está selecionado #}
       <div class="card p-4" x-show="!selecionada" x-cloak>
@@ -1295,9 +1418,14 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           muito precatório, com valor, e que quase não olhamos ainda. Clique para ver os tribunais.
         </p>
         {# aviso honesto: ainda não lemos as publicações de todos os estados #}
+        {% comment %} O texto era `text-warning` sobre `bg-warning/10`: 2,86:1 medido
+           no tema claro — o aviso mais importante da honestidade era o menos
+           legível da tela. O alerta agora vem do ÍCONE (objeto gráfico, piso
+           3:1) e da borda; a frase vai em `text-fg`, que é AA por construção.
+        {% endcomment %}
         <p x-show="sinalParcial()" x-cloak
-           class="text-xs mb-3 px-2 py-1.5 rounded border border-warning/40 bg-warning/10 text-warning flex items-start gap-1.5">
-          {% voy_icon "anomaly" "w-3.5 h-3.5 shrink-0 mt-0.5" %}
+           class="text-xs mb-3 px-2 py-1.5 rounded border border-warning/40 bg-warning/10 text-fg flex items-start gap-1.5">
+          {% voy_icon "anomaly" "w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" %}
           <span>Já lemos as publicações de <b x-text="ufsComSinal()"></b> dos 27 estados. Onde diz “ainda não analisado”, o estado nem entrou nesta comparação.</span>
         </p>
         <div x-show="loading" class="text-xs text-fg-muted font-mono">carregando o ranking…</div>
