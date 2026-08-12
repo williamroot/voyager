@@ -46,6 +46,31 @@ def comercial_mapa_page(request):
     return render(request, 'dashboard/comercial_mapa.html')
 
 
+@never_cache
+@login_required
+@require_GET
+def comercial_estado_page(request, uf):
+    """GET /dashboard/comercial/estado/<uf>/ — página dedicada de UM estado.
+
+    Mesmo padrão do `comercial_mapa_page`: só renderiza o shell, ZERO query
+    (nem Postgres nem ES). Todos os números vêm do endpoint JSON
+    `comercial-estado` via fetch no browser, com os filtros que já vieram na
+    querystring do mapa (a página é aberta em aba nova pelo drill-down).
+
+    A UF NÃO é validada aqui de propósito: quem valida é o serviço
+    (`agg_estado.normalizar_uf` → 400 no endpoint), e a página trata esse 400
+    com uma tela humana ("não conhecemos este estado") em vez de um 404 seco no
+    meio de uma navegação que veio de um clique no mapa. Só normalizamos a
+    caixa e resolvemos o nome por extenso pro `<title>`/cabeçalho — dicionário
+    em memória, sem I/O.
+    """
+    sigla = (uf or '').strip().upper()
+    return render(request, 'dashboard/comercial_estado.html', {
+        'uf': sigla,
+        'uf_nome': agg_estado_svc.UF_NOME.get(sigla, ''),
+    })
+
+
 @login_required
 @require_GET
 def comercial_mapa(request):

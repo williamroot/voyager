@@ -1,0 +1,1362 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+{% load voyager_extras %}
+
+{% block title %}{% if uf_nome %}{{ uf_nome }}{% else %}Estado {{ uf }}{% endif %} — Precatórios{% endblock %}
+
+{% block content %}
+{% comment %}
+PÁGINA DEDICADA DE UM ESTADO (Mapa Comercial).
+- Abre em aba nova a partir do drill-down do mapa, carregando os MESMOS filtros.
+- Shell puro: todo número vem de GET /dashboard/api/comercial/estado/<uf>/
+  (contrato completo no topo de `search/agg_estado.py`).
+- ECharts local (base.html) — CSP: zero CDN, zero URL externa.
+- Padrões herdados do mapa e que NÃO podem regredir:
+  * `setOption(opts, true)` direto — NUNCA `setupChart`, que faz JSON.stringify
+    das opções e DESCARTA os formatters (o tooltip cai em "series0");
+  * explicação em `.voy-tip` (hover + foco + TAP), nunca `title=`;
+  * cor de texto por token do tema, nunca hex inline;
+  * comentário de várias linhas SÓ na tag `comment` do Django: o lexer não usa
+    DOTALL, então comentário de cerquilha que atravessa a linha VAZA literal na
+    tela (aconteceu no mapa, 3 vezes).
+- ARMADILHA da casa: `text-base` NÃO é tamanho de fonte aqui. `base` é um token
+  de COR registrado no tailwind.config, então `.text-base` vira
+  `color: var(--c-base)` — a cor de FUNDO da página — e vence o `text-fg` (mesma
+  especificidade, vem depois na folha). Medido em browser: os títulos dos cards
+  saíam em rgb(9,9,11) no tema escuro, invisíveis. Por isso os h3 usam `text-[1rem]`.
+- O dado aqui é DESIGUAL por estado, e isso define o desenho: cada bloco traz
+  `cobertura_amostra` e a página escreve a cobertura AO LADO do gráfico, com
+  as mesmas palavras do mapa. Medido em 12/08/2026: em RO 69,6% dos processos
+  não têm o tipo preenchido e ZERO participação está indexada (o bloco de
+  entidade devedora volta vazio) — vazio ali é "ainda não indexamos", nunca
+  "não há devedor público".
+{% endcomment %}
+
+{% with titulo_pagina=uf_nome|default:uf %}
+{% include 'dashboard/_partials/page_header.html' with title=titulo_pagina subtitle='<span class="block max-w-3xl">Tudo o que já temos deste estado, aberto em gráficos: tipo de processo, ano, tribunal, quem deve e o que a nossa IA achou.</span>' %}
+{% endwith %}
+
+<script>
+  // Identidade do estado + endpoints (resolvidos pelo Django; sem hardcode).
+  window.ESTADO_UF = "{{ uf|escapejs }}";
+  window.ESTADO_NOME = "{{ uf_nome|escapejs }}";
+  window.ESTADO_URLS = {
+    // '__UF__' é trocado em runtime — a rota é resolvida pelo `url` tag mesmo assim.
+    dados: "{% url 'dashboard:comercial-estado' uf='__UF__' %}",
+    mapa: "{% url 'dashboard:comercial-mapa-page' %}",
+  };
+
+  // Glossário canônico. As frases de `volume`, `valor`, `potencial`,
+  // `confirmado`, `cobertura` e `todos` são LITERALMENTE as do mapa: o mesmo
+  // número não pode ganhar duas explicações diferentes em duas telas.
+  // Regras (iguais às do mapa): ≤140 caracteres, 1 frase, zero jargão interno.
+  window.GLOSSARIO = {
+    volume:     'Processos deste estado que já estão na nossa base. O tribunal tem mais — estes são os que temos.',
+    potencial:  'Processos cujas publicações citam precatório. Indício forte, não certeza. "Não analisado" = ainda não lemos este estado.',
+    confirmado: 'A nossa IA leu o processo e confirmou que é precatório. Mais certeiro que os possíveis e, por isso, um número menor.',
+    cobertura:  'Quanto deste estado já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem.',
+    todos:      'Processos que citam precatório nas publicações ou que a nossa IA confirmou. Quem está nos dois conta uma vez: não é a soma.',
+    // Chaves NOVAS desta página (as de cima são idênticas, palavra por
+    // palavra, às do mapa — o mesmo número não pode ganhar duas explicações).
+    tribunais:  'Quantos tribunais deste estado já têm processo na nossa base.',
+    valorCausa: 'Soma do valor da causa publicado pelos tribunais. É o valor da ação, não o valor do precatório.',
+  };
+
+  // ---------------------------------------------------------------------------
+  // FORMATAÇÃO pt-BR — mesmas regras do mapa (helpers LOCAIS desta página)
+  // ---------------------------------------------------------------------------
+  const _ESCALA_BRL = [[1e12, 'tri'], [1e9, 'bi'], [1e6, 'mi'], [1e3, 'mil']];
+  function _num1(v, k) {
+    return (v / k).toFixed(1).replace(/\.0$/, '').replace('.', ',');
+  }
+  // 0 é "não informado" (o tribunal não publicou), NUNCA "R$ 0" — que o leitor
+  // entende como "não tem dinheiro".
+  function fmtBRL(v) {
+    if (v === null || v === undefined || v === '') return 'não informado';
+    v = Number(v);
+    if (!isFinite(v) || v === 0) return 'não informado';
+    const a = Math.abs(v);
+    for (const [k, suf] of _ESCALA_BRL) {
+      if (a >= k) return 'R$ ' + _num1(v, k) + ' ' + suf;
+    }
+    return 'R$ ' + v.toLocaleString('pt-BR', {maximumFractionDigits: 0});
+  }
+  // Contagem compacta em pt-BR (só nos eixos dos gráficos). LOCAL: o
+  // fmtCompact() global do base.html devolve "120k"/"1.2M" (inglês) e é
+  // consumido por outras páginas — não pode ser alterado aqui.
+  function fmtQtdCompacta(n) {
+    const v = Number(n) || 0, a = Math.abs(v);
+    if (a >= 1e6) return _num1(v, 1e6) + ' mi';
+    if (a >= 1e3) return _num1(v, 1e3) + ' mil';
+    return String(Math.round(v));
+  }
+  // 0 → "0%"; 0<n<0,1 → "menos de 0,1%"; senão 1 casa com VÍRGULA e sem ",0".
+  function fmtPct(v) {
+    const n = Number(v);
+    if (v === null || v === undefined || !isFinite(n)) return null;
+    if (n === 0) return '0%';
+    if (n > 0 && n < 0.1) return 'menos de 0,1%';
+    return n.toFixed(1).replace(/\.0$/, '').replace('.', ',') + '%';
+  }
+  // Cor de token do design system pro CANVAS do ECharts (o gráfico não entende
+  // classe Tailwind). Segue o tema porque lê a var CSS viva.
+  function corToken(nome, fallback) {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+      return v ? 'rgb(' + v + ')' : fallback;
+    } catch (e) { return fallback; }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PALETA DAS SÉRIES — contraste MEDIDO (WCAG) sobre o fundo do card nos dois
+  // temas: card escuro = rgb(17,17,18) (zinc-900 a 55% sobre zinc-950), card
+  // claro = branco puro. Toda cor abaixo tem ≥3:1 (piso de objeto gráfico) e as
+  // usadas em TEXTO de rótulo têm ≥4,5:1. São as mesmas famílias dos tokens da
+  // casa (mission / pale-blue / info / accent), não cores novas.
+  //   escuro: mission-fg 11,2:1 · pale-blue 8,6:1 · sky-300 10,4:1 · emerald-300 12,0:1
+  //   claro:  orange-700 5,2:1 · blue-600 5,2:1 · sky-700 5,4:1 · emerald-700 5,3:1
+  // ---------------------------------------------------------------------------
+  const CORES_SERIE = {
+    dark:  {tipo: '#fdba74', ano: '#93c5fd', tribunal: '#7dd3fc', entidade: '#6ee7b7'},
+    light: {tipo: '#c2410c', ano: '#2563eb', tribunal: '#0369a1', entidade: '#047857'},
+  };
+  // Uma cor por nível de classificação (o nível é categórico, não uma escala).
+  const CORES_CLASSIF = {
+    dark:  {PRECATORIO: '#fdba74', PRE_PRECATORIO: '#fcd34d',
+            DIREITO_CREDITORIO: '#6ee7b7', NAO_LEAD: '#a1a1aa', _outro: '#93c5fd'},
+    light: {PRECATORIO: '#c2410c', PRE_PRECATORIO: '#b45309',
+            DIREITO_CREDITORIO: '#047857', NAO_LEAD: '#475569', _outro: '#2563eb'},
+  };
+  // Rótulo humano do nível — o enum cru ("PRE_PRECATORIO") é jargão de banco.
+  const ROTULO_CLASSIF = {
+    PRECATORIO: 'Precatório',
+    PRE_PRECATORIO: 'Pré-precatório',
+    DIREITO_CREDITORIO: 'Direito creditório',
+    NAO_LEAD: 'Não é lead',
+  };
+
+  function comercialEstado() {
+    return {
+      // ---- identidade ----
+      uf: window.ESTADO_UF || '',
+      ufNome: window.ESTADO_NOME || '',
+
+      // ---- dados ----
+      dados: null,
+      loading: true,
+      erro: null,
+      erroDetalhe: null,
+      ufInvalida: false,
+
+      // ---- lente (escopo dos blocos por_*) ----
+      metrica: 'todos',
+
+      // ---- filtros (os MESMOS do mapa) ----
+      filtros: {
+        classificacao: '', tipo: '', natureza: '',
+        ano_min: '', ano_max: '', valor_min: '', valor_max: '',
+      },
+
+      // Token de requisição: trocar lente e trocar filtro disparam pedidos
+      // independentes; sem isto a resposta LENTA de um pedido antigo chega
+      // depois da rápida e repinta os gráficos com o recorte errado.
+      _seq: 0,
+      ajudaAberta: false,
+      _AJUDA_KEY: 'voy-estado:ajuda',
+
+      async init() {
+        this.lerQuerystring();
+        this.initAjuda();
+        await this.carregar();
+        this.observarTema();
+      },
+
+      // ---- querystring: entra com os filtros do mapa e mantém a URL viva ----
+      lerQuerystring() {
+        const p = new URLSearchParams(window.location.search);
+        const m = (p.get('metrica') || '').toLowerCase();
+        if (['possiveis', 'confirmados', 'todos'].indexOf(m) >= 0) this.metrica = m;
+        for (const k of Object.keys(this.filtros)) {
+          const v = p.get(k);
+          if (v !== null && v !== '') this.filtros[k] = v;
+        }
+        // `codigo_classe` e `natureza` são o mesmo campo no backend; o mapa
+        // manda `natureza`. Se vier o outro nome, aceita igual.
+        if (!this.filtros.natureza && p.get('codigo_classe')) {
+          this.filtros.natureza = p.get('codigo_classe');
+        }
+      },
+      querystring(comMetrica) {
+        const p = new URLSearchParams();
+        for (const [k, v] of Object.entries(this.filtros)) {
+          if (v !== '' && v !== null && v !== undefined) p.set(k, v);
+        }
+        if (comMetrica) p.set('metrica', this.metrica);
+        return p.toString();
+      },
+      // Mantém a barra de endereços igual ao que está na tela: recarregar (F5)
+      // ou mandar o link pra alguém tem que trazer o MESMO recorte.
+      sincronizarUrl() {
+        try {
+          const qs = this.querystring(true);
+          window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+        } catch (e) { /* navegador sem history API — a página segue funcionando */ }
+      },
+
+      // ---- carga ----
+      async carregar() {
+        const seq = ++this._seq;
+        this.loading = true;
+        this.erro = null;
+        this.erroDetalhe = null;
+        this.ufInvalida = false;
+        this.sincronizarUrl();
+        this.mostrarCarregandoNosGraficos();
+        try {
+          const qs = this.querystring(true);
+          const url = window.ESTADO_URLS.dados.replace('__UF__', encodeURIComponent(this.uf))
+                    + (qs ? '?' + qs : '');
+          const resp = await fetch(url, {
+            credentials: 'same-origin', headers: {'Accept': 'application/json'},
+          });
+          const json = await resp.json();
+          if (seq !== this._seq) return;        // resposta fora de ordem: descarta
+          if (resp.status === 400) {
+            this.ufInvalida = true;
+            this.dados = null;
+            this.loading = false;
+            return;
+          }
+          if (!resp.ok) throw new Error(json.erro || ('HTTP ' + resp.status));
+          this.dados = json;
+          if (json.uf_nome) this.ufNome = json.uf_nome;
+          this.loading = false;
+          this.pintar();
+        } catch (e) {
+          if (seq !== this._seq) return;
+          this.erro = 'Não conseguimos carregar os números deste estado.';
+          this.erroDetalhe = String(e.message || e);
+          this.dados = null;
+          this.loading = false;
+        }
+      },
+
+      trocarMetrica(m) {
+        if (this.metrica === m) return;
+        this.metrica = m;
+        this.carregar();
+      },
+      aplicarFiltros() { this.carregar(); },
+      limparFiltros() {
+        for (const k of Object.keys(this.filtros)) this.filtros[k] = '';
+        this.carregar();
+      },
+      limparFiltro(chaves) {
+        for (const k of chaves) this.filtros[k] = '';
+        this.carregar();
+      },
+      temFiltro() {
+        return Object.values(this.filtros).some(v => v !== '' && v !== null && v !== undefined);
+      },
+      // Chips do que está filtrando AGORA — em português, não o nome do campo.
+      filtrosAtivos() {
+        const f = this.filtros, out = [];
+        if (f.classificacao) {
+          out.push({chaves: ['classificacao'],
+                    texto: 'A IA classificou como: ' + (ROTULO_CLASSIF[f.classificacao] || f.classificacao)});
+        }
+        if (f.tipo) {
+          out.push({chaves: ['tipo'], texto: 'Nível de certeza: '
+                    + (f.tipo === 'potencial' ? 'só os possíveis' : 'só os confirmados pela IA')});
+        }
+        if (f.natureza) out.push({chaves: ['natureza'], texto: 'Código da classe: ' + f.natureza});
+        if (f.ano_min || f.ano_max) {
+          const t = f.ano_min && f.ano_max ? ('de ' + f.ano_min + ' até ' + f.ano_max)
+                  : f.ano_min ? ('a partir de ' + f.ano_min) : ('até ' + f.ano_max);
+          out.push({chaves: ['ano_min', 'ano_max'], texto: 'Ano do processo: ' + t});
+        }
+        if (f.valor_min || f.valor_max) {
+          const t = f.valor_min && f.valor_max
+                  ? ('de ' + fmtBRL(f.valor_min) + ' até ' + fmtBRL(f.valor_max))
+                  : f.valor_min ? ('a partir de ' + fmtBRL(f.valor_min))
+                  : ('até ' + fmtBRL(f.valor_max));
+          out.push({chaves: ['valor_min', 'valor_max'], texto: 'Valor da causa: ' + t});
+        }
+        return out;
+      },
+
+      // ---- helpers de leitura do payload ----
+      resumo() { return (this.dados && this.dados.resumo) || null; },
+      bloco(nome) { return (this.dados && this.dados[nome]) || null; },
+      itens(nome) {
+        const b = this.bloco(nome);
+        return (b && b.itens) || [];
+      },
+      // Acesso seguro a um campo do bloco. As expressões `x-text` do Alpine são
+      // avaliadas MESMO com o elemento escondido por x-show — sem este helper,
+      // `bloco('...').outros` estoura antes da 1ª resposta chegar.
+      val(nome, chave) {
+        const b = this.bloco(nome);
+        const v = b ? b[chave] : null;
+        return (v === null || v === undefined) ? 0 : v;
+      },
+      temDados() { return !!this.dados && !this.erro && !this.ufInvalida; },
+      escopoVolume() {
+        const r = this.resumo();
+        return r ? (r.escopo_volume || 0) : 0;
+      },
+      // Recorte vazio: a lente + os filtros não deixaram nenhum processo passar.
+      // Sem esta tela os 5 gráficos ficariam em branco e o leitor concluiria
+      // "não há precatório neste estado" — que é diferente de "o filtro cortou".
+      escopoVazio() { return this.temDados() && this.escopoVolume() === 0; },
+
+      fmt(v) { return fmt(v || 0); },
+      fmtBRL(v) { return fmtBRL(v); },
+      fmtPct(v) { return fmtPct(v); },
+      glos(k) { return (window.GLOSSARIO && window.GLOSSARIO[k]) || ''; },
+
+      // "possíveis" DESCONHECIDO = o backfill do sinal não passou pelo estado.
+      // Nunca exibir como "0".
+      possiveisDesconhecido() {
+        const r = this.resumo();
+        if (!r) return false;
+        return r.possiveis === null || r.possiveis === undefined || r.sinal_processado === false;
+      },
+      possiveisLabel() {
+        const r = this.resumo();
+        if (!r) return '';
+        return this.possiveisDesconhecido() ? 'ainda não analisado' : fmt(r.possiveis);
+      },
+      cobDesconhecida() {
+        const r = this.resumo();
+        return !r || r.cobertura_pct === null || r.cobertura_pct === undefined;
+      },
+      cobLabel() {
+        const r = this.resumo();
+        const p = r ? fmtPct(r.cobertura_pct) : null;
+        return p === null ? 'não sabemos ainda' : p;
+      },
+      // valor_causa é ESPARSO: se ninguém publicou valor neste estado, o card de
+      // R$ não é desenhado (um "R$ 0" gigante leria como "não há dinheiro aqui").
+      temValor() {
+        const r = this.resumo();
+        if (!r) return false;
+        const cob = r.cobertura_valor || {};
+        return Number(cob.pct || 0) > 0 && Number(r.valor || 0) > 0;
+      },
+
+      // ---- a lente ----
+      rotuloMetrica(m) {
+        const k = m || this.metrica;
+        if (k === 'possiveis') return 'possíveis precatórios';
+        if (k === 'confirmados') return 'confirmados pela IA';
+        return 'possíveis ou confirmados';
+      },
+      glosMetrica() {
+        if (this.metrica === 'possiveis') return this.glos('potencial');
+        if (this.metrica === 'confirmados') return this.glos('confirmado');
+        return this.glos('todos');
+      },
+      fraseEscopo() {
+        if (!this.temDados()) return '';
+        return 'Os gráficos abaixo olham ' + fmt(this.escopoVolume())
+             + ' processos de ' + this.ufNome + ' — os ' + this.rotuloMetrica() + '.';
+      },
+
+      // ---- honestidade de cobertura, por bloco ----
+      cobertura(nome) {
+        const b = this.bloco(nome);
+        return (b && b.cobertura_amostra) || null;
+      },
+      coberturaPct(nome) {
+        const c = this.cobertura(nome);
+        return c ? Number(c.pct || 0) : 0;
+      },
+      // Parcial de verdade (deixamos 0,5pp de folga pro arredondamento do
+      // backend, que devolve 1 casa).
+      coberturaParcial(nome) { return this.coberturaPct(nome) < 99.5; },
+      // < 60% é o caso RO (37,4%): aí a frase deixa de ser uma nota e vira
+      // aviso com moldura — o gráfico está falando por pouco mais de um terço
+      // do recorte.
+      coberturaCritica(nome) { return this.coberturaPct(nome) < 60; },
+      // A frase que vai AO LADO do gráfico (não em rodapé cinza).
+      frasePorque(nome) {
+        const mapa = {
+          por_tipo_processo: 'nos outros o tribunal não informou o tipo do processo',
+          por_classificacao: 'os outros ainda não passaram pela nossa IA',
+          por_ano: 'nos outros o número do processo não trouxe o ano',
+          por_entidade_devedora: 'nos outros ainda não indexamos as partes do processo',
+        };
+        return mapa[nome] || 'os outros não têm este dado preenchido';
+      },
+      textoCobertura(nome) {
+        const c = this.cobertura(nome);
+        if (!c) return '';
+        const pct = fmtPct(c.pct) || '0%';
+        const faltam = Math.max(0, (c.total_do_escopo || 0) - (c.docs_com_o_campo || 0));
+        if (!this.coberturaParcial(nome)) {
+          return 'Desenhado sobre os ' + fmt(c.total_do_escopo) + ' processos deste recorte — nenhum ficou de fora.';
+        }
+        return 'Desenhado sobre ' + fmt(c.docs_com_o_campo) + ' de ' + fmt(c.total_do_escopo)
+             + ' processos deste recorte, ou seja ' + pct + '. Faltam ' + fmt(faltam)
+             + ': ' + this.frasePorque(nome) + '.';
+      },
+
+      // ---- alturas: barra horizontal cresce com o nº de itens ----
+      alturaBarras(n, minimo) {
+        const base = (minimo || 220);
+        return Math.max(base, Math.min(560, 70 + (n || 0) * 26));
+      },
+
+      // ---- entidade devedora ----
+      entidadeVazia() {
+        const b = this.bloco('por_entidade_devedora');
+        return !!b && (!b.itens || b.itens.length === 0);
+      },
+      notaEntidade() {
+        const b = this.bloco('por_entidade_devedora');
+        return (b && b.nota) || '';
+      },
+      // O ranking veio de um top-200 do índice: é "os maiores", não "todos".
+      entidadeTruncada() {
+        const b = this.bloco('por_entidade_devedora');
+        return !!b && b.truncado === true;
+      },
+
+      // ---- tribunais: o gráfico mostra os maiores, a página diz quantos há ----
+      tribunaisNoGrafico() { return Math.min(15, this.itens('por_tribunal').length); },
+      tribunaisTotal() { return this.itens('por_tribunal').length; },
+
+      // ---- tema ----
+      // Não existe evento 'voy:theme' no base.html: o toggle só mexe na classe
+      // `dark` do <html> e chama initAllCharts(), que ignora estes gráficos
+      // (não têm data-echart, de propósito). Observamos a classe.
+      observarTema() {
+        const html = document.documentElement;
+        let ultimo = html.classList.contains('dark');
+        new MutationObserver(() => {
+          const agora = html.classList.contains('dark');
+          if (agora !== ultimo) { ultimo = agora; this.pintar(); }
+        }).observe(html, {attributes: true, attributeFilter: ['class']});
+      },
+      escuro() { return document.documentElement.classList.contains('dark'); },
+      cores() { return this.escuro() ? CORES_SERIE.dark : CORES_SERIE.light; },
+
+      // ---- render dos gráficos ----
+      // NÃO usar setupChart: ele faz JSON.stringify(opts) pro data-echart e
+      // JSON.stringify DESCARTA funções — matava os formatters e o ECharts caía
+      // no tooltip default ("series0"). Aplicamos direto.
+      _instancia(el) {
+        if (!el) return null;
+        const isDark = this.escuro();
+        let chart = echarts.getInstanceByDom(el);
+        // o tema é fixado no init() do ECharts: reusar a instância depois do
+        // toggle manteria o tema velho.
+        if (chart && el._voyTema !== (isDark ? 'dark' : 'light')) {
+          chart.dispose();
+          chart = null;
+        }
+        if (!chart) {
+          chart = echarts.init(el, isDark ? 'dark' : undefined);
+          el._voyTema = isDark ? 'dark' : 'light';
+        }
+        if (!el._resizeBound) {
+          window.addEventListener('resize', () => {
+            const c = echarts.getInstanceByDom(el);
+            if (c) c.resize();
+          });
+          el._resizeBound = true;
+        }
+        return chart;
+      },
+      _aplicar(el, opts) {
+        const chart = this._instancia(el);
+        if (!chart) return;
+        chart.hideLoading();
+        chart.setOption(opts, true);
+        chart.resize();
+      },
+      mostrarCarregandoNosGraficos() {
+        const refs = ['chTipo', 'chAno', 'chTribunal', 'chClassif', 'chEntidade'];
+        for (const r of refs) {
+          const el = this.$refs[r];
+          if (!el) continue;
+          const c = echarts.getInstanceByDom(el);
+          if (!c) continue;   // 1ª carga: quem cobre é o skeleton do card
+          c.showLoading('default', {
+            text: 'acquiring signal',
+            color: corToken('--c-mission', 'rgb(234,88,12)'),
+            textColor: corToken('--c-fg-muted', 'rgb(161,161,170)'),
+            maskColor: this.escuro() ? 'rgba(9,9,11,0.55)' : 'rgba(248,250,252,0.7)',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 12,
+            zlevel: 10,
+          });
+        }
+      },
+
+      // base comum: tooltip e tipografia no tema vivo
+      _baseOpts() {
+        const isDark = this.escuro();
+        return {
+          backgroundColor: 'transparent',
+          textStyle: {fontFamily: 'Manrope, sans-serif', fontSize: 12},
+          tooltip: {
+            confine: true,
+            backgroundColor: isDark ? 'rgba(10,10,11,0.94)' : 'rgba(255,255,255,0.98)',
+            borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+            textStyle: {color: isDark ? '#e4e4e7' : '#27272a', fontSize: 12},
+          },
+        };
+      },
+      // Linha de contexto do tooltip. Cor por TOKEN (nunca opacidade: quem não
+      // enxerga transparência lê o texto apagado como se não existisse).
+      _linhaSecundaria(texto) {
+        if (!texto) return '';
+        const cor = corToken('--c-fg-muted', 'rgb(161,161,170)');
+        return '<span style="color:' + cor + '">' + texto + '</span>';
+      },
+      _pctDoEscopo(v) {
+        const total = this.escopoVolume();
+        if (!total) return '';
+        const p = fmtPct(100 * (Number(v) || 0) / total);
+        return p === null ? '' : p + ' do recorte';
+      },
+
+      pintar() {
+        if (!this.temDados()) return;
+        // $nextTick: os cards só existem depois que o x-show libera — pintar
+        // antes desenharia num container 0x0.
+        this.$nextTick(() => {
+          this.pintarTipo();
+          this.pintarAno();
+          this.pintarTribunal();
+          this.pintarClassificacao();
+          this.pintarEntidade();
+        });
+      },
+
+      // Barra horizontal padrão (tipo / tribunal / entidade / classificação).
+      // O ECharts empilha o eixo Y de baixo pra cima, então invertemos a lista
+      // pra o MAIOR ficar em cima — que é como se lê um ranking.
+      _barrasHorizontais(el, rotulos, valores, cor, nomeSerie, formatterTooltip,
+                         larguraRotulo) {
+        const base = this._baseOpts();
+        const c = chartGridColors();
+        const corTexto = corToken('--c-fg', this.escuro() ? 'rgb(244,244,245)' : 'rgb(15,23,42)');
+        const opts = Object.assign({}, base, {
+          tooltip: Object.assign({}, base.tooltip, {
+            trigger: 'axis',
+            axisPointer: {type: 'shadow'},
+            formatter: formatterTooltip,
+          }),
+          grid: {left: 8, right: 72, top: 8, bottom: 8, containLabel: true},
+          xAxis: {
+            type: 'value',
+            // `splitNumber` baixo + `hideOverlap`: com o default os rótulos do
+            // eixo colavam num card de 485px ("5 mil10 mil15 mil20 mil")
+            splitNumber: 4,
+            axisLabel: {color: c.axisLabel, fontSize: 12, hideOverlap: true,
+                        formatter: fmtQtdCompacta},
+            splitLine: {lineStyle: {color: c.splitLine}},
+          },
+          yAxis: {
+            type: 'category',
+            data: rotulos.slice().reverse(),
+            axisLabel: {
+              color: c.axisLabel, fontSize: 12,
+              // nome comprido é cortado com reticência e sai INTEIRO no tooltip
+              width: larguraRotulo || 210, overflow: 'truncate', ellipsis: '…',
+            },
+            axisLine: {lineStyle: {color: c.axisLine}},
+            axisTick: {show: false},
+          },
+          series: [{
+            // série NOMEADA: sem isso o tooltip de fallback diz "series0"
+            name: nomeSerie,
+            type: 'bar',
+            data: valores.slice().reverse(),
+            itemStyle: {color: cor, borderRadius: [0, 3, 3, 0]},
+            barMaxWidth: 20,
+            label: {
+              show: true, position: 'right', color: corTexto, fontSize: 12,
+              fontFamily: 'JetBrains Mono, monospace',
+              formatter: (p) => fmtQtdCompacta(p.value),
+            },
+          }],
+        });
+        this._aplicar(el, opts);
+      },
+
+      pintarTipo() {
+        const itens = this.itens('por_tipo_processo');
+        if (!itens.length) return;
+        const self = this;
+        // CAIXA: o índice tem grafia inconsistente na MESMA lista ("PRECATÓRIO"
+        // ao lado de "CUMPRIMENTO DE SENTENçA") — é ruído da fonte e lê como bug.
+        // Uniformizamos só a EXIBIÇÃO; nenhum dado é alterado.
+        const rotulos = itens.map(i => String(i.tipo || '').toUpperCase());
+        const valores = itens.map(i => i.volume || 0);
+        this._barrasHorizontais(
+          this.$refs.chTipo, rotulos, valores, this.cores().tipo, 'Processos',
+          function (ps) {
+            const p = ps[0];
+            return '<b>' + p.name + '</b><br/>' + fmt(p.value) + ' processos<br/>'
+                 + self._linhaSecundaria(self._pctDoEscopo(p.value));
+          });
+      },
+
+      pintarAno() {
+        const itens = this.itens('por_ano');
+        if (!itens.length) return;
+        const self = this;
+        const base = this._baseOpts();
+        const c = chartGridColors();
+        const opts = Object.assign({}, base, {
+          tooltip: Object.assign({}, base.tooltip, {
+            trigger: 'axis',
+            axisPointer: {type: 'shadow'},
+            formatter: function (ps) {
+              const p = ps[0];
+              return '<b>' + p.name + '</b><br/>' + fmt(p.value) + ' processos<br/>'
+                   + self._linhaSecundaria(self._pctDoEscopo(p.value));
+            },
+          }),
+          grid: {left: 8, right: 16, top: 12, bottom: 8, containLabel: true},
+          xAxis: {
+            type: 'category',
+            data: itens.map(i => String(i.ano)),
+            axisLabel: {color: c.axisLabel, fontSize: 12, hideOverlap: true},
+            axisLine: {lineStyle: {color: c.axisLine}},
+            axisTick: {show: false},
+          },
+          yAxis: {
+            type: 'value',
+            splitNumber: 4,
+            axisLabel: {color: c.axisLabel, fontSize: 12, hideOverlap: true,
+                        formatter: fmtQtdCompacta},
+            splitLine: {lineStyle: {color: c.splitLine}},
+          },
+          series: [{
+            name: 'Processos',
+            type: 'bar',
+            data: itens.map(i => i.volume || 0),
+            itemStyle: {color: this.cores().ano, borderRadius: [3, 3, 0, 0]},
+            barMaxWidth: 26,
+          }],
+        });
+        this._aplicar(this.$refs.chAno, opts);
+      },
+
+      pintarTribunal() {
+        const itens = this.itens('por_tribunal').slice(0, 15);
+        if (!itens.length) return;
+        const self = this;
+        const rotulos = itens.map(i => i.tribunal);
+        const valores = itens.map(i => i.volume || 0);
+        this._barrasHorizontais(
+          this.$refs.chTribunal, rotulos, valores, this.cores().tribunal, 'Processos',
+          function (ps) {
+            const p = ps[0];
+            const it = itens.find(x => x.tribunal === p.name) || {};
+            const desconhecido = it.possiveis === null || it.possiveis === undefined
+                              || it.sinal_processado === false;
+            const cob = fmtPct(it.cobertura_pct);
+            return '<b>' + p.name + '</b><br/>'
+                 + fmt(p.value) + ' processos neste recorte<br/>'
+                 + 'Possíveis precatórios: ' + (desconhecido ? 'ainda não analisado' : fmt(it.possiveis)) + '<br/>'
+                 + 'Confirmados pela IA: ' + fmt(it.confirmados || 0) + '<br/>'
+                 + 'Já analisado: ' + (cob === null ? 'não sabemos ainda' : cob);
+          });
+      },
+
+      pintarClassificacao() {
+        const itens = this.itens('por_classificacao');
+        if (!itens.length) return;
+        const self = this;
+        const paleta = this.escuro() ? CORES_CLASSIF.dark : CORES_CLASSIF.light;
+        const c = chartGridColors();
+        const base = this._baseOpts();
+        const corTexto = corToken('--c-fg', this.escuro() ? 'rgb(244,244,245)' : 'rgb(15,23,42)');
+        const rotulos = itens.map(i => ROTULO_CLASSIF[i.classificacao] || i.classificacao);
+        const dados = itens.map(i => ({
+          value: i.volume || 0,
+          itemStyle: {color: paleta[i.classificacao] || paleta._outro, borderRadius: [0, 3, 3, 0]},
+        }));
+        const opts = Object.assign({}, base, {
+          tooltip: Object.assign({}, base.tooltip, {
+            trigger: 'axis',
+            axisPointer: {type: 'shadow'},
+            formatter: function (ps) {
+              const p = ps[0];
+              return '<b>' + p.name + '</b><br/>' + fmt(p.value) + ' processos<br/>'
+                   + self._linhaSecundaria(self._pctDoEscopo(p.value));
+            },
+          }),
+          grid: {left: 8, right: 72, top: 8, bottom: 8, containLabel: true},
+          xAxis: {
+            type: 'value',
+            splitNumber: 4,
+            axisLabel: {color: c.axisLabel, fontSize: 12, hideOverlap: true,
+                        formatter: fmtQtdCompacta},
+            splitLine: {lineStyle: {color: c.splitLine}},
+          },
+          yAxis: {
+            type: 'category',
+            data: rotulos.slice().reverse(),
+            axisLabel: {color: c.axisLabel, fontSize: 12},
+            axisLine: {lineStyle: {color: c.axisLine}},
+            axisTick: {show: false},
+          },
+          series: [{
+            name: 'Processos',
+            type: 'bar',
+            data: dados.slice().reverse(),
+            barMaxWidth: 22,
+            label: {
+              show: true, position: 'right', color: corTexto, fontSize: 12,
+              fontFamily: 'JetBrains Mono, monospace',
+              formatter: (p) => fmtQtdCompacta(p.value),
+            },
+          }],
+        });
+        this._aplicar(this.$refs.chClassif, opts);
+      },
+
+      pintarEntidade() {
+        const itens = this.itens('por_entidade_devedora');
+        if (!itens.length) return;   // caso RO: quem fala é o estado vazio, não um gráfico fantasma
+        const rotulos = itens.map(i => i.entidade);
+        const valores = itens.map(i => i.volume || 0);
+        const self = this;
+        this._barrasHorizontais(
+          this.$refs.chEntidade, rotulos, valores, this.cores().entidade, 'Processos',
+          function (ps) {
+            const p = ps[0];
+            const it = itens.find(x => x.entidade === p.name) || {};
+            let txt = '<b>' + p.name + '</b><br/>' + fmt(p.value) + ' processos<br/>'
+                    + self._linhaSecundaria(self._pctDoEscopo(p.value));
+            if (it.variantes > 1) {
+              txt += '<br/>' + self._linhaSecundaria(
+                it.variantes + ' formas de escrever o mesmo nome, somadas');
+            }
+            if (it.por_complemento) {
+              txt += '<br/>' + self._linhaSecundaria(
+                'reconhecido como órgão público por regra complementar');
+            }
+            return txt;
+          }, 340);   // card de largura inteira: nome de órgão cabe em 340px
+      },
+
+      // ---- bloco didático "Como ler esta página" ----
+      initAjuda() {
+        try {
+          const v = localStorage.getItem(this._AJUDA_KEY);
+          if (v !== null) this.ajudaAberta = (v === '1');
+        } catch (e) { /* localStorage bloqueado — mantém default fechado */ }
+      },
+      toggleAjuda() {
+        this.ajudaAberta = !this.ajudaAberta;
+        try { localStorage.setItem(this._AJUDA_KEY, this.ajudaAberta ? '1' : '0'); }
+        catch (e) { /* ignora */ }
+      },
+
+      geradoLegivel() {
+        if (!this.dados || !this.dados.gerado_em) return '';
+        try {
+          const d = new Date(this.dados.gerado_em);
+          const hora = d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+          const hoje = new Date();
+          if (d.toDateString() === hoje.toDateString()) return 'hoje às ' + hora;
+          const dia = d.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
+          return dia + ' às ' + hora;
+        } catch (e) { return this.dados.gerado_em; }
+      },
+      voltarAoMapa() {
+        const qs = this.querystring(false);
+        return window.ESTADO_URLS.mapa + (qs ? '?' + qs : '');
+      },
+    };
+  }
+</script>
+
+<div id="pagina-estado" x-data="comercialEstado()" x-init="init()" class="space-y-6">
+
+  {# ---- volta pro mapa, levando os filtros ---- #}
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <a :href="voltarAoMapa()"
+       class="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg rounded-md px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      {% voy_icon "trajectory" "w-4 h-4 shrink-0" %}
+      <span>Voltar ao Mapa de Precatórios</span>
+    </a>
+    <span class="text-xs text-fg-muted font-mono" x-show="geradoLegivel()" x-cloak>
+      atualizado <span x-text="geradoLegivel()"></span>
+    </span>
+  </div>
+
+  {# ---- UF inválida: 400 do endpoint, dito com palavra ---- #}
+  <div x-show="ufInvalida" x-cloak class="card p-6 flex flex-col items-start gap-3">
+    {% voy_icon "signal-lost" "w-6 h-6 text-danger" %}
+    <h2 class="text-lg font-semibold text-fg">Não conhecemos este estado.</h2>
+    <p class="text-sm text-fg-muted max-w-xl">
+      O endereço aponta para <span class="font-mono text-fg" x-text="uf"></span>, que não é uma
+      das 27 unidades da federação nem a Justiça Federal. Volte ao mapa e clique no estado
+      que você quer abrir.
+    </p>
+    <a :href="voltarAoMapa()"
+       class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      Ir para o mapa
+    </a>
+  </div>
+
+  {# ---- erro de infra (503): mensagem humana + tentar de novo ---- #}
+  <div x-show="erro" x-cloak class="card p-6 flex flex-col items-start gap-2">
+    {% voy_icon "signal-lost" "w-6 h-6 text-danger" %}
+    <span class="text-xs font-mono uppercase tracking-widest text-danger">signal lost</span>
+    <h2 class="text-lg font-semibold text-fg" x-text="erro"></h2>
+    <p class="text-sm text-fg-muted max-w-xl">
+      O buscador que alimenta esta página não respondeu. Os dados não sumiram — só não
+      conseguimos ler agora.
+    </p>
+    <span class="text-xs font-mono text-fg-muted" x-text="erroDetalhe"></span>
+    <button type="button" @click="carregar()"
+            class="mt-1 text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      Tentar de novo
+    </button>
+  </div>
+
+  {# ---- bloco didático "Como ler esta página" (nível de PÁGINA, colapsado) ---- #}
+  <div class="card p-4 space-y-3" x-show="!ufInvalida && !erro" x-cloak>
+    <div class="rounded-md border border-border bg-surface/50">
+      <button type="button" @click="toggleAjuda()" :aria-expanded="ajudaAberta"
+              aria-controls="estado-ajuda"
+              class="w-full flex items-center gap-2 px-2.5 py-2 text-sm text-fg-muted hover:text-fg rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        {% voy_icon "info" "w-4 h-4 shrink-0" %}
+        <span class="font-medium">Como ler esta página</span>
+        <svg class="ml-auto w-3.5 h-3.5 transition-transform" :class="ajudaAberta ? 'rotate-90' : ''"
+             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+      <dl id="estado-ajuda" x-show="ajudaAberta" x-cloak
+          class="px-2.5 pb-2.5 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 text-sm leading-snug">
+        <div>
+          <dt class="inline font-semibold text-fg">Processos na base — </dt>
+          <dd class="inline text-fg-muted">Quantos processos deste estado já trouxemos para cá. O tribunal tem mais; estes são os que temos.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-mission-fg">Possíveis — </dt>
+          <dd class="inline text-fg-muted">As publicações do processo citam precatório, ofício requisitório ou RPV. Indício forte, não certeza: um “carta precatória” entra aqui por engano.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-accent-fg">Confirmados pela IA — </dt>
+          <dd class="inline text-fg-muted">A nossa IA leu o processo e bateu o martelo: é precatório. O número é menor porque só analisamos a fundo parte da base.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-pale-blue">Possíveis ou confirmados — </dt>
+          <dd class="inline text-fg-muted">Os dois juntos, sem contar ninguém duas vezes: <b>não é a soma</b>. São duas buscas independentes — a maior parte dos confirmados pela IA <b>não</b> tem menção a precatório no texto das publicações.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Já analisado — </dt>
+          <dd class="inline text-fg-muted">Quanto deste estado já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Os seis números do topo — </dt>
+          <dd class="inline text-fg-muted">São o retrato do estado inteiro e <b>não mudam</b> quando você troca a lente dos gráficos. A lente muda só os gráficos.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">“Desenhado sobre N de M” — </dt>
+          <dd class="inline text-fg-muted">Cada gráfico diz sobre quantos processos ele foi feito. Onde falta dado, o processo fica de fora do gráfico — e a frase avisa quantos são.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Quem deve — </dt>
+          <dd class="inline text-fg-muted">Só o órgão público que aparece no polo passivo. Advogado e procuradoria ficam de fora porque representam o devedor, não são o devedor.</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  {# ---- filtros (os MESMOS do mapa, com a mesma copy) ---- #}
+  <div class="card p-4" x-show="!ufInvalida" x-cloak>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">O que a IA classificou</span>
+        <select x-model="filtros.classificacao" @change="aplicarFiltros()"
+                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <option value="">todos os processos</option>
+          <option value="PRECATORIO">Precatório</option>
+          <option value="PRE_PRECATORIO">Pré-precatório</option>
+          <option value="DIREITO_CREDITORIO">Direito creditório</option>
+          <option value="NAO_LEAD">Não é lead</option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Nível de certeza</span>
+        <select x-model="filtros.tipo" @change="aplicarFiltros()"
+                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <option value="">todos</option>
+          <option value="potencial">Só os possíveis</option>
+          <option value="confirmado">Só os confirmados pela IA</option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Código da classe processual</span>
+        <input type="text" x-model="filtros.natureza" @change="aplicarFiltros()" inputmode="numeric"
+               placeholder="ex.: 1116"
+               class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      </label>
+      <div class="flex flex-col gap-1" role="group" aria-labelledby="lbl-ano">
+        <span id="lbl-ano" class="text-xs text-fg-muted uppercase tracking-wide">Ano do processo (de / até)</span>
+        <div class="flex gap-2">
+          <input type="number" x-model="filtros.ano_min" @change="aplicarFiltros()" placeholder="de" min="1990" max="2100"
+                 aria-label="Ano do processo, de"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <input type="number" x-model="filtros.ano_max" @change="aplicarFiltros()" placeholder="até" min="1990" max="2100"
+                 aria-label="Ano do processo, até"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        </div>
+      </div>
+      <div class="flex flex-col gap-1 sm:col-span-2" role="group" aria-labelledby="lbl-valor">
+        <span id="lbl-valor" class="text-xs text-fg-muted uppercase tracking-wide">Valor da causa (de / até)</span>
+        <div class="flex gap-2">
+          <input type="number" x-model="filtros.valor_min" @change="aplicarFiltros()" placeholder="de" min="0"
+                 aria-label="Valor da causa, de" aria-describedby="aviso-valor"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <input type="number" x-model="filtros.valor_max" @change="aplicarFiltros()" placeholder="até" min="0"
+                 aria-label="Valor da causa, até" aria-describedby="aviso-valor"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        </div>
+        {% comment %} VISÍVEL, não tooltip: o filtro exclui silenciosamente todo processo com
+           valor não informado (a maior parte da base). Sem esta frase o comercial conclui
+           "não tem nada acima de R$ 1 mi nesse estado". {% endcomment %}
+        <span id="aviso-valor" class="text-xs text-fg-muted">Filtra pelo valor publicado pelo tribunal. Processo sem valor informado fica de fora do resultado.</span>
+      </div>
+      <div class="flex items-end">
+        <button type="button" @click="limparFiltros()" x-show="temFiltro()" x-cloak
+                class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          Limpar filtros
+        </button>
+      </div>
+    </div>
+
+    {% comment %} Filtros ATIVOS em texto, não só no controle: quem chega por um link
+       do mapa não mexeu em nenhum campo e precisa ver, escrito, por que o número
+       desta página não bate com o do estado inteiro. {% endcomment %}
+    <div class="mt-3 flex flex-wrap items-center gap-2" x-show="temFiltro()" x-cloak>
+      <span class="text-xs text-fg-muted uppercase tracking-wide">Filtrando por</span>
+      <template x-for="f in filtrosAtivos()" :key="f.texto">
+        <span class="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-mission/40 bg-mission/10 text-fg">
+          <span x-text="f.texto"></span>
+          <button type="button" @click="limparFiltro(f.chaves)"
+                  :aria-label="'Remover filtro: ' + f.texto"
+                  class="text-fg-muted hover:text-fg rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            {% voy_icon "clear" "w-3.5 h-3.5" %}
+          </button>
+        </span>
+      </template>
+    </div>
+  </div>
+
+  {# ---- KPIs do estado (o `resumo`: NÃO muda com a lente) ---- #}
+  <div x-show="!ufInvalida && !erro" x-cloak>
+    <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-2">
+      <h2 class="text-lg font-semibold text-fg">
+        <span x-text="ufNome || uf"></span>
+        <span class="text-fg-muted text-sm font-normal" x-text="'(' + uf + ')'"></span>
+      </h2>
+      <span class="text-sm text-fg-muted">— o estado inteiro, com os filtros acima</span>
+    </div>
+
+    {# skeleton da 1ª carga: nunca um spinner eterno #}
+    <div x-show="loading && !dados" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+      <template x-for="i in 6" :key="i">
+        <div class="card p-4">
+          <div class="skeleton h-3 w-24 rounded"></div>
+          <div class="skeleton h-7 w-20 rounded mt-2"></div>
+        </div>
+      </template>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3" x-show="dados" x-cloak>
+      <div class="card p-4">
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-volume">
+            Processos na base
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-volume" x-text="glos('volume')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono text-fg mt-1" x-text="fmt(resumo() ? resumo().volume : 0)"></div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs uppercase tracking-wide text-mission-fg">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-possiveis">
+            Possíveis precatórios
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-possiveis" x-text="glos('potencial')"></span>
+          </button>
+        </div>
+        {% comment %} Dois elementos e não uma classe condicional: "ainda não
+           analisado" é PALAVRA (o desconhecido nunca vira 0) e não cabe no
+           corpo de número — misturar text-xl e text-sm no mesmo nó depende da
+           ordem do CSS. {% endcomment %}
+        <div class="text-xl font-mono mt-1 text-mission-fg" x-show="!possiveisDesconhecido()"
+             x-text="fmt(resumo() ? resumo().possiveis : 0)"></div>
+        <div class="text-sm mt-1 text-mission-fg italic" x-show="possiveisDesconhecido()" x-cloak>ainda não analisado</div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs uppercase tracking-wide text-accent-fg">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-confirmados">
+            Confirmados pela IA
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-confirmados" x-text="glos('confirmado')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono mt-1 text-accent-fg" x-text="fmt(resumo() ? resumo().confirmados : 0)"></div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs uppercase tracking-wide text-pale-blue">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-todos">
+            Possíveis ou confirmados
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-todos" x-text="glos('todos')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono mt-1 text-pale-blue" x-text="fmt(resumo() ? resumo().todos : 0)"></div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-tribunais">
+            Tribunais
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-tribunais" x-text="glos('tribunais')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono text-fg mt-1" x-text="fmt(resumo() ? resumo().tribunais : 0)"></div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-cobertura">
+            Já analisado
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-cobertura" x-text="glos('cobertura')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono text-fg mt-1" x-show="!cobDesconhecida()" x-text="cobLabel()"></div>
+        <div class="text-sm text-fg-muted italic mt-1" x-show="cobDesconhecida()" x-cloak>não sabemos ainda</div>
+      </div>
+    </div>
+
+    {% comment %} Card de R$ SÓ quando alguém publicou valor neste estado. Com
+       cobertura 0% (MG, RO e a Justiça Federal, medido em 12/08/2026) um
+       "R$ 0" gigante seria lido como "não há dinheiro aqui" — que é falso: o
+       tribunal apenas não publicou. {% endcomment %}
+    <div class="card p-4 mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2" x-show="dados && temValor()" x-cloak>
+      <div>
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-valor">
+            Valor da causa informado
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-valor" x-text="glos('valorCausa')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono text-fg mt-1" x-text="fmtBRL(resumo() ? resumo().valor : 0)"></div>
+      </div>
+      <p class="text-sm text-fg-muted max-w-2xl">
+        É o valor <b class="text-fg">da causa</b>, não o valor do precatório. E só
+        <b class="text-fg" x-text="fmtPct(resumo() && resumo().cobertura_valor ? resumo().cobertura_valor.pct : 0)"></b>
+        dos processos deste estado trazem esse valor publicado — a soma acima é só desses.
+      </p>
+    </div>
+  </div>
+
+  {# ---- lente: escopo dos gráficos ---- #}
+  <div class="card p-4" x-show="dados" x-cloak>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <h2 class="text-lg font-semibold text-fg">Os gráficos deste estado</h2>
+        <button type="button" class="voy-tip voy-tip-underline text-xs text-fg-muted"
+                aria-describedby="tip-lente">
+          <span x-text="'· olhando: ' + rotuloMetrica()"></span>
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+          <span class="voy-tip-body tip-below" role="tooltip" id="tip-lente" x-text="glosMetrica()"></span>
+        </button>
+      </div>
+      {% comment %} Mesmo componente e mesma semântica do segmentado do mapa:
+         "Todos" é a UNIÃO possíveis ∪ confirmados — NUNCA a soma (medido
+         12/08/2026: dos 47.720 confirmados só 6.421 têm sinal no texto). {% endcomment %}
+      <div class="inline-flex rounded-md border border-border overflow-hidden text-xs"
+           role="group" aria-label="O que os gráficos olham">
+        <button type="button" @click="trocarMetrica('possiveis')" :aria-pressed="metrica==='possiveis'"
+                :class="metrica==='possiveis' ? 'bg-mission/20 text-fg font-semibold' : 'text-fg-muted hover:text-fg'"
+                class="px-3 py-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Possíveis</button>
+        <button type="button" @click="trocarMetrica('confirmados')" :aria-pressed="metrica==='confirmados'"
+                :class="metrica==='confirmados' ? 'bg-accent/20 text-fg font-semibold' : 'text-fg-muted hover:text-fg'"
+                class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Confirmados</button>
+        {% comment %} Ativo = fundo TINTO + `text-fg`, não preenchimento sólido com
+           texto claro. Medido: `bg-mission text-white` dá 3,54:1 no tema claro (o
+           laranja da marca não carrega texto branco em 12px) e
+           `bg-pale-blue/20 text-pale-blue` dá 3,89:1 — os dois reprovam AA. Com
+           `text-fg` sobre a mesma tinta dá 11,9:1 no claro e 11,2:1 no escuro, e a
+           família de cor continua codificando a lente. {% endcomment %}
+        <button type="button" @click="trocarMetrica('todos')" :aria-pressed="metrica==='todos'"
+                :class="metrica==='todos' ? 'bg-pale-blue/20 text-fg font-semibold' : 'text-fg-muted hover:text-fg'"
+                class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Todos</button>
+      </div>
+    </div>
+
+    <p class="mt-2 text-sm text-fg" x-text="fraseEscopo()"></p>
+    <p class="mt-1 text-sm text-fg-muted">
+      Os números do quadro acima são do estado inteiro e <b class="text-fg">não mudam</b> quando você
+      troca esta escolha. “Todos” são os possíveis <b class="text-fg">ou</b> confirmados, sem contar
+      ninguém duas vezes: não é a soma dos dois.
+    </p>
+  </div>
+
+  {# ---- recorte vazio: sem isto os 5 gráficos ficariam em branco sem explicação ---- #}
+  <div class="card p-6 flex flex-col items-start gap-3" x-show="escopoVazio()" x-cloak>
+    {% voy_icon "search" "w-6 h-6 text-fg-muted" %}
+    <h2 class="text-lg font-semibold text-fg">Nenhum processo passou por este recorte.</h2>
+    <p class="text-sm text-fg-muted max-w-2xl">
+      Com a lente <b class="text-fg" x-text="rotuloMetrica()"></b> e os filtros atuais não sobrou
+      nenhum processo deste estado. Isso é o filtro cortando, não o estado estar vazio — troque a
+      lente ou limpe os filtros.
+    </p>
+    <button type="button" @click="limparFiltros()" x-show="temFiltro()"
+            class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      Limpar filtros
+    </button>
+  </div>
+
+  {% comment %} Skeleton da 1ª carga dos gráficos — a forma da página aparece
+     antes do dado. Nada de spinner eterno: se der ruim, quem fala é o card de
+     erro acima (com "Tentar de novo"), não uma animação sem fim. {% endcomment %}
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6" x-show="loading && !dados">
+    <template x-for="i in 4" :key="i">
+      <div class="card p-4">
+        <div class="skeleton h-4 w-44 rounded"></div>
+        <div class="skeleton h-3 w-64 rounded mt-2"></div>
+        <div class="relative chart-cell mt-3" style="height: 260px;">
+          <div class="chart-skeleton">
+            <div class="pulsar-mark">acquiring signal</div>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  {# ---- os gráficos ---- #}
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start" x-show="dados && !escopoVazio()" x-cloak>
+
+    {# ---------- tipo de processo ---------- #}
+    <div class="card p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "scale" "w-4 h-4 text-mission-fg shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">Tipo de processo</h3>
+      </div>
+      <p class="text-xs text-fg-muted mb-2">
+        O nome que o tribunal deu ao processo, como “precatório” ou “cumprimento de sentença”.
+        Os 15 mais comuns neste recorte, do maior para o menor.
+      </p>
+
+      {% comment %} A cobertura vem AO LADO do gráfico, com moldura quando é
+         crítica (< 60%) — em RO o tipo só existe em 37,4% dos processos, e
+         esconder isso num rodapé cinza faria a pizza mentir. {% endcomment %}
+      <div class="mb-2 text-sm rounded-md px-2.5 py-2 flex items-start gap-2"
+           :class="coberturaCritica('por_tipo_processo') ? 'border border-warning/50 bg-warning/10 text-fg' : 'text-fg-muted'"
+           x-show="cobertura('por_tipo_processo')">
+        <template x-if="coberturaCritica('por_tipo_processo')">
+          {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+        </template>
+        <span x-text="textoCobertura('por_tipo_processo')"></span>
+      </div>
+
+      <div class="relative chart-cell" :style="'height:' + alturaBarras(itens('por_tipo_processo').length) + 'px'">
+        <div x-ref="chTipo" class="absolute inset-0"></div>
+      </div>
+
+      <p class="mt-2 text-sm text-fg-muted" x-show="val('por_tipo_processo', 'outros') > 0" x-cloak>
+        Outros <span class="font-mono text-fg" x-text="fmt(val('por_tipo_processo', 'outros'))"></span>
+        processos estão em tipos menos frequentes, fora desta lista.
+      </p>
+    </div>
+
+    {# ---------- ano do processo ---------- #}
+    <div class="card p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "calendar" "w-4 h-4 text-pale-blue shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">Ano do processo</h3>
+      </div>
+      {% comment %} Estas três explicações eram `.voy-tip`. Viraram TEXTO VISÍVEL por
+         dois motivos: (a) a regra da casa — o que é preciso saber pra não ler errado
+         não pode depender de hover; (b) medido em browser, o corpo do tooltip (368px)
+         nos cards da COLUNA DIREITA furava a janela em 1366px (borda em 1369) e
+         nenhuma âncora do componente resolvia nas duas larguras: `tip-right` joga o
+         corpo pra fora à ESQUERDA quando a grade cai pra 1 coluna. {% endcomment %}
+      <p class="text-xs text-fg-muted mb-2">
+        Quantos processos deste recorte começaram em cada ano. O ano vem do número do
+        processo — em regra, o ano em que ele começou.
+      </p>
+
+      <div class="mb-2 text-sm rounded-md px-2.5 py-2 flex items-start gap-2"
+           :class="coberturaCritica('por_ano') ? 'border border-warning/50 bg-warning/10 text-fg' : 'text-fg-muted'"
+           x-show="cobertura('por_ano')">
+        <template x-if="coberturaCritica('por_ano')">
+          {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+        </template>
+        <span x-text="textoCobertura('por_ano')"></span>
+      </div>
+
+      <div class="relative chart-cell" style="height: 300px;">
+        <div x-ref="chAno" class="absolute inset-0"></div>
+      </div>
+
+      {% comment %} CNJ malformado gera ano 9400/9900 — o backend joga em
+         `fora_da_faixa` pra não estourar o eixo. Some aqui como nota, com o
+         motivo, em vez de sumir sem explicação. {% endcomment %}
+      <p class="mt-2 text-sm text-fg-muted" x-show="val('por_ano', 'fora_da_faixa') > 0" x-cloak>
+        <span class="font-mono text-fg" x-text="fmt(val('por_ano', 'fora_da_faixa'))"></span>
+        processos ficaram fora do gráfico porque o número do processo traz um ano impossível
+        (por exemplo 9400) — é erro de cadastro na origem, não processo antigo.
+      </p>
+    </div>
+
+    {# ---------- tribunais ---------- #}
+    <div class="card p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "trajectory" "w-4 h-4 text-info shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">Tribunais</h3>
+      </div>
+      <p class="text-xs text-fg-muted mb-2">
+        Onde os processos deste recorte estão correndo. Passe o mouse para ver possíveis,
+        confirmados e quanto já analisamos em cada um.
+      </p>
+
+      <div class="mb-2 text-sm text-fg-muted" x-show="tribunaisTotal() > tribunaisNoGrafico()" x-cloak>
+        Mostrando os <span class="font-mono text-fg" x-text="tribunaisNoGrafico()"></span> maiores
+        de <span class="font-mono text-fg" x-text="tribunaisTotal()"></span> tribunais deste recorte.
+      </div>
+
+      <div class="relative chart-cell" :style="'height:' + alturaBarras(tribunaisNoGrafico()) + 'px'">
+        <div x-ref="chTribunal" class="absolute inset-0"></div>
+      </div>
+    </div>
+
+    {# ---------- o que a IA classificou ---------- #}
+    <div class="card p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "gem" "w-4 h-4 text-accent-fg shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">O que a nossa IA classificou</h3>
+      </div>
+      <p class="text-xs text-fg-muted mb-2">O veredito da IA para os processos deste recorte.</p>
+
+      <div class="mb-2 text-sm rounded-md px-2.5 py-2 flex items-start gap-2"
+           :class="coberturaCritica('por_classificacao') ? 'border border-warning/50 bg-warning/10 text-fg' : 'text-fg-muted'"
+           x-show="cobertura('por_classificacao')">
+        <template x-if="coberturaCritica('por_classificacao')">
+          {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+        </template>
+        <span x-text="textoCobertura('por_classificacao')"></span>
+      </div>
+
+      <div class="relative chart-cell" :style="'height:' + alturaBarras(itens('por_classificacao').length, 200) + 'px'">
+        <div x-ref="chClassif" class="absolute inset-0"></div>
+      </div>
+
+      <p class="mt-2 text-sm text-fg-muted" x-show="val('por_classificacao', 'sem_dado') > 0" x-cloak>
+        <span class="font-mono text-fg" x-text="fmt(val('por_classificacao', 'sem_dado'))"></span>
+        processos ainda não passaram pela IA — ficam fora do gráfico, não viram “não é lead”.
+      </p>
+    </div>
+
+    {# ---------- quem deve (a estrela da página) ---------- #}
+    <div class="card p-4 xl:col-span-2">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "users" "w-4 h-4 text-accent-fg shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">Quem deve</h3>
+      </div>
+      <p class="text-xs text-fg-muted mb-2">
+        Os órgãos públicos que mais aparecem como devedores nos processos deste recorte.
+        Advogado e procuradoria não entram: eles representam quem deve, não são quem deve.
+      </p>
+
+      {% comment %} ESTADO VAZIO (o caso RO): zero participação indexada. Vazio aqui
+         é "ainda não indexamos", NUNCA "não há ente público devedor" — e quem diz
+         isso é o próprio backend, no campo `nota`. Nada de gráfico fantasma. {% endcomment %}
+      <div x-show="entidadeVazia()" x-cloak
+           class="rounded-lg border border-border bg-surface/50 px-4 py-6 flex flex-col items-start gap-2">
+        {% voy_icon "constellation" "w-6 h-6 text-fg-muted" %}
+        <h4 class="text-sm font-semibold text-fg">Ainda não sabemos quem deve neste recorte.</h4>
+        <p class="text-sm text-fg-muted max-w-3xl" x-text="notaEntidade()"></p>
+        <p class="text-sm text-fg-muted max-w-3xl">
+          Não confunda: isto <b class="text-fg">não</b> quer dizer que não há órgão público devendo
+          aqui. Quer dizer que as partes destes processos ainda não entraram no nosso índice.
+        </p>
+      </div>
+
+      <div x-show="!entidadeVazia()" x-cloak>
+        <div class="mb-2 text-sm rounded-md px-2.5 py-2 flex items-start gap-2"
+             :class="coberturaCritica('por_entidade_devedora') ? 'border border-warning/50 bg-warning/10 text-fg' : 'text-fg-muted'"
+             x-show="cobertura('por_entidade_devedora')">
+          <template x-if="coberturaCritica('por_entidade_devedora')">
+            {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+          </template>
+          <span x-text="textoCobertura('por_entidade_devedora')"></span>
+        </div>
+
+        <div class="relative chart-cell" :style="'height:' + alturaBarras(itens('por_entidade_devedora').length, 260) + 'px'">
+          <div x-ref="chEntidade" class="absolute inset-0"></div>
+        </div>
+
+        <p class="mt-2 text-sm text-fg-muted" x-show="entidadeTruncada()" x-cloak>
+          São <b class="text-fg">os maiores</b>, não todos: a lista saiu dos 200 nomes mais
+          frequentes do índice, então um devedor de cauda longa pode não aparecer.
+        </p>
+
+        {% comment %} Como o número foi feito. Fica discreto, mas na tela: é auditoria
+           de ranking (tiramos advogados do polo passivo, fundimos grafias e aceitamos
+           alguns órgãos por regra complementar). {% endcomment %}
+        <dl class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 text-sm leading-snug"
+            x-show="bloco('por_entidade_devedora')">
+          <div x-show="val('por_entidade_devedora', 'advogados_excluidos') > 0" x-cloak>
+            <dt class="inline font-semibold text-fg">Advogados fora da conta — </dt>
+            <dd class="inline text-fg-muted">
+              <span class="font-mono" x-text="fmt(val('por_entidade_devedora', 'advogados_excluidos'))"></span>
+              participações do lado do devedor eram de advogado ou procuradoria e saíram do ranking:
+              eles representam quem deve, não são quem deve.
+            </dd>
+          </div>
+          <div x-show="val('por_entidade_devedora', 'buckets_fundidos') > 0" x-cloak>
+            <dt class="inline font-semibold text-fg">Nomes iguais somados — </dt>
+            <dd class="inline text-fg-muted">
+              <span class="font-mono" x-text="fmt(val('por_entidade_devedora', 'buckets_fundidos'))"></span>
+              formas diferentes de escrever o mesmo órgão foram juntadas em um nome só.
+            </dd>
+          </div>
+          <div x-show="val('por_entidade_devedora', 'aceitos_por_complemento') > 0" x-cloak>
+            <dt class="inline font-semibold text-fg">Reconhecidos por regra extra — </dt>
+            <dd class="inline text-fg-muted">
+              <span class="font-mono" x-text="fmt(val('por_entidade_devedora', 'aceitos_por_complemento'))"></span>
+              órgãos entraram por uma regra complementar de reconhecimento. É uma leitura do nome,
+              não um cadastro oficial: pode faltar órgão pequeno.
+            </dd>
+          </div>
+          <div x-show="val('por_entidade_devedora', 'descartados_nao_ente') > 0" x-cloak>
+            <dt class="inline font-semibold text-fg">Fora por não serem órgão público — </dt>
+            <dd class="inline text-fg-muted">
+              <span class="font-mono" x-text="fmt(val('por_entidade_devedora', 'descartados_nao_ente'))"></span>
+              nomes do lado do devedor eram empresa ou pessoa física e não entram nesta lista.
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

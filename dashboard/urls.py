@@ -91,6 +91,8 @@ urlpatterns = [
     path('api/comercial/tribunais', comercial_views.comercial_tribunais, name='comercial-tribunais'),
     path('api/comercial/top', comercial_views.comercial_top, name='comercial-top'),
     # página dedicada por ESTADO (aggs "explodidas" da UF) — contrato em search/agg_estado.py
+    path('comercial/estado/<str:uf>/', comercial_views.comercial_estado_page,
+         name='comercial-estado-page'),
     path('api/comercial/estado/<str:uf>/', comercial_views.comercial_estado,
          name='comercial-estado'),
     path('jobs/<str:job_id>/status/', views.job_status, name='job-status'),
