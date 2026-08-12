@@ -33,6 +33,9 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     mapa: "{% url 'dashboard:comercial-mapa' %}",
     tribunais: "{% url 'dashboard:comercial-tribunais' %}",
     top: "{% url 'dashboard:comercial-top' %}",
+    // Página dedicada do estado (abre em aba nova). '__UF__' é trocado em
+    // runtime — a rota continua resolvida pelo Django, sem path hardcoded.
+    estadoPage: "{% url 'dashboard:comercial-estado-page' uf='__UF__' %}",
   };
 
   // Nomes completos dos estados (rótulo de tooltip/painel; o mapa usa a sigla).
@@ -284,6 +287,12 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         return this.potDesconhecido(b) ? null : (b.potencial || 0);
       },
 
+      // rótulo do card do ALVO: sempre a lente, nunca "R$". O card do alvo conta
+      // processos; quem mostra dinheiro é o card "Valor informado", ao lado.
+      rotuloAlvo() {
+        if (this.sinalMode === 'todos') return 'Possíveis ou confirmados';
+        return this.sinalMode === 'confirmado' ? 'Confirmados pela IA' : 'Possíveis precatórios';
+      },
       rotuloMetrica() {
         if (this.metricMode === 'valor') return 'Valor informado (R$)';
         if (this.sinalMode === 'todos') return 'Possíveis ou confirmados';
@@ -682,31 +691,90 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       ufsComSinal() {
         return this.ufsGeo().filter(b => !this.potDesconhecido(b)).length;
       },
+      // O aviso "o estado nem entrou nesta comparação" só é VERDADE na lente
+      // possíveis. Nas lentes confirmados/todos o ranking compara os 27, porque
+      // o número existe independente do backfill do sinal — repetir o aviso ali
+      // assustaria à toa sobre um ranking que está completo.
       sinalParcial() {
+        if (this.sinalMode !== 'potencial') return false;
         const geo = this.ufsGeo();
         return geo.length > 0 && this.ufsComSinal() < 27;
       },
-      // Top-N por score (reusa o array `ufs`, já ordenado por score_foco desc)
-      topScore(n) { return (this.ufs || []).slice(0, n || 8); },
+      // ---- score POR LENTE -------------------------------------------------
+      // O backend manda `score_por_lente` com as 3 densidades. Sem isso, o mapa
+      // pintava confirmados enquanto o "Ataque primeiro" continuava ordenando
+      // por possíveis: em MG são 3.238 confirmados contra 814 possíveis, ou
+      // seja, a mesma tela dava duas respostas pra "onde eu ataco?".
+      // Fallback pro `score_foco` (= lente possíveis) porque o endpoint tem
+      // cache de 2min: logo após o deploy ainda vem payload sem o campo novo.
+      scoreDe(b) {
+        const porLente = b && b.score_por_lente;
+        const v = porLente ? porLente[this.sinalMode] : undefined;
+        return Number.isFinite(Number(v)) ? Number(v) : (Number(b && b.score_foco) || 0);
+      },
+      // Top-N pela lente ativa. `ufs` chega ordenado por score_foco (possíveis),
+      // então reordenamos aqui — o payload já traz TODAS as UFs, não há refetch.
+      topScore(n) {
+        return (this.ufs || []).slice()
+          .sort((a, b) => this.scoreDe(b) - this.scoreDe(a))
+          .slice(0, n || 8);
+      },
       // maior score entre os buckets (pra barra relativa)
       maxScore() {
-        return Math.max(0.0001, ...(this.ufs || []).map(b => b.score_foco || 0));
+        return Math.max(0.0001, ...(this.ufs || []).map(b => this.scoreDe(b)));
+      },
+      // ---- KPI do ALVO (o card que segue a lente) --------------------------
+      // Antes eram 3 cards fixos lado a lado; com a lente no topo governando a
+      // página inteira, o número grande é o da lente ativa e os outros dois
+      // viram linha de contexto (a comparação é o que ensina que a união não é
+      // a soma — 2.340.491 + 47.720 ≠ 2.381.790).
+      alvoTotal() {
+        const t = this.total || {};
+        if (this.sinalMode === 'todos') return Number(t.todos) || 0;
+        if (this.sinalMode === 'confirmado') return Number(t.confirmado) || 0;
+        return (t.potencial === null || t.potencial === undefined) ? null : Number(t.potencial);
+      },
+      // classe de cor do alvo: uma família por lente, igual ao mapa e à legenda
+      alvoCor() {
+        if (this.sinalMode === 'todos') return 'text-pale-blue';
+        return this.sinalMode === 'confirmado' ? 'text-accent-fg' : 'text-mission-fg';
+      },
+      // os DOIS números que não estão em foco, pra comparação ficar na tela
+      alvoContexto() {
+        const t = this.total || {};
+        const itens = [];
+        if (this.sinalMode !== 'potencial') {
+          itens.push(t.potencial === null || t.potencial === undefined
+            ? 'possíveis: não analisado'
+            : (fmt(t.potencial) + ' possíveis'));
+        }
+        if (this.sinalMode !== 'confirmado') itens.push(fmt(t.confirmado) + ' confirmados');
+        if (this.sinalMode !== 'todos' && this.todosDisponivel()) {
+          itens.push(fmt(t.todos) + ' na união');
+        }
+        return itens.join(' · ');
       },
       // PRIORIDADE 0–100: `0.0142` é ilegível e não dá âncora nenhuma pra julgar
       // se é alto. É RELATIVA à lista filtrada (dito na explicação) e o valor
       // cru continua auditável no tooltip do mapa ("cálculo interno").
+      // "não medida" SÓ vale na lente possíveis: nas outras duas o número existe
+      // mesmo sem o sinal ter sido lido (SP tem potencial null e 4.378
+      // confirmados — dizer "não medida" ali seria esconder dado que temos).
+      prioridadeIndisponivel(b) {
+        return this.sinalMode === 'potencial' && this.potDesconhecido(b);
+      },
       prioridadeEm(b, lista) {
-        if (this.potDesconhecido(b)) return null;   // sem sinal lido, não há o que medir
-        const max = Math.max(0.0001, ...(lista || []).map(x => x.score_foco || 0));
-        return Math.round(100 * (b.score_foco || 0) / max);
+        if (this.prioridadeIndisponivel(b)) return null;
+        const max = Math.max(0.0001, ...(lista || []).map(x => this.scoreDe(x)));
+        return Math.round(100 * this.scoreDe(b) / max);
       },
       prioridadeLabel(b, lista) {
         const p = this.prioridadeEm(b, lista);
         return p === null ? 'prioridade não medida' : ('prioridade ' + p);
       },
       barraPct(b, lista) {
-        const max = Math.max(0.0001, ...(lista || []).map(x => x.score_foco || 0));
-        return Math.max(3, 100 * (b.score_foco || 0) / max);
+        const max = Math.max(0.0001, ...(lista || []).map(x => this.scoreDe(x)));
+        return Math.max(3, 100 * this.scoreDe(b) / max);
       },
       // Quantos itens da lista estão sem valor publicado. Serve pra dizer UMA
       // vez "o tribunal não informou" em vez de repetir "R$ 0" em 10 linhas.
@@ -744,6 +812,23 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         this.ajudaAberta = !this.ajudaAberta;
         try { localStorage.setItem(this._AJUDA_KEY, this.ajudaAberta ? '1' : '0'); }
         catch (e) { /* ignora */ }
+      },
+
+      // ---- ponte pra página dedicada do estado ----
+      // Leva os filtros ATUAIS e a lente atual: quem filtrou por ano espera
+      // chegar filtrado do outro lado. O nome da lente muda entre as telas
+      // (aqui `sinalMode`, lá `metrica`) — a tradução é feita aqui, uma vez.
+      metricaDaLente() {
+        if (this.sinalMode === 'confirmado') return 'confirmados';
+        if (this.sinalMode === 'todos') return 'todos';
+        return 'possiveis';
+      },
+      urlPaginaEstado(uf) {
+        if (!uf) return '#';
+        const p = new URLSearchParams(this.querystring());
+        p.set('metrica', this.metricaDaLente());
+        return window.COMERCIAL_URLS.estadoPage.replace('__UF__', encodeURIComponent(uf))
+             + '?' + p.toString();
       },
 
       // bucket da UF aberta no drill-down (vem do array `ufs` do /mapa)
@@ -953,14 +1038,59 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     </div>
   </div>
 
+  {# ---- LENTE (governa a página inteira: KPI + mapa + Ataque primeiro) ---- #}
+  {% comment %} Subiu do header do card do mapa pra cá. Lá dentro ela parecia um
+     controle DO MAPA; na verdade escolhe o alvo comercial e agora reordena
+     também o "Ataque primeiro" e troca o KPI. Controle que muda a página toda
+     mora no nível da página. {% endcomment %}
+  <div class="card p-3 flex flex-wrap items-center gap-x-4 gap-y-2" x-show="total" x-cloak>
+    <div class="text-sm text-fg">
+      O que estou caçando:
+      <button type="button" class="voy-tip voy-tip-underline text-xs text-fg-muted ml-1"
+              aria-describedby="tip-lente">
+        entenda os três
+        {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+        <span class="voy-tip-body tip-below" role="tooltip" id="tip-lente" x-text="glosMetricaAtiva()"></span>
+      </button>
+    </div>
+    <div class="inline-flex rounded-md border border-border overflow-hidden text-xs"
+         role="group" aria-label="Nível de certeza">
+      <button type="button" @click="sinalMode='potencial'"
+              :aria-pressed="sinalMode==='potencial'"
+              :class="sinalMode==='potencial' ? 'bg-mission text-white' : 'text-fg-muted hover:text-fg'"
+              class="px-3 py-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Possíveis</button>
+      <button type="button" @click="sinalMode='confirmado'"
+              :aria-pressed="sinalMode==='confirmado'"
+              :class="sinalMode==='confirmado' ? 'bg-accent text-white' : 'text-fg-muted hover:text-fg'"
+              class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Confirmados</button>
+      {% comment %} `text-surface` e não `text-white`: o token pale-blue INVERTE
+         com o tema (blue-300 no escuro, blue-600 no claro) e o surface inverte
+         junto — 10:1 no escuro, 5,2:1 no claro, os dois AA. Com `text-white` o
+         escuro cairia pra 1,5:1. {% endcomment %}
+      <button type="button" @click="sinalMode='todos'"
+              x-show="todosDisponivel()" x-cloak
+              :aria-pressed="sinalMode==='todos'"
+              :class="sinalMode==='todos' ? 'bg-pale-blue text-surface' : 'text-fg-muted hover:text-fg'"
+              class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Todos</button>
+    </div>
+    {% comment %} No topo a lente NÃO fica desabilitada no modo R$ (era assim
+       quando ela só pintava o mapa). Ela continua valendo pros números e pro
+       ranking; só o mapa é que passa a pintar por dinheiro. Dizer isso é mais
+       honesto que travar 3 botões sem explicar. {% endcomment %}
+    <span class="text-xs text-fg-muted" x-show="metricMode==='valor'" x-cloak>
+      O mapa está pintando por R$. A lente segue valendo para os números e para o “Ataque primeiro”.
+    </span>
+  </div>
+
   {# ---- KPIs globais ---- #}
-  {% comment %} 5 colunas quando a união existe: ela é o tamanho REAL do funil
-     (o número que responde "quantos leads temos no total?") e não tinha lugar
-     nenhum na página. Os 4 primeiros ficam intocados — o par de honestidade
-     possíveis/confirmados continua lado a lado, com a união depois deles.
-  {% endcomment %}
-  <div class="grid grid-cols-2 gap-3" x-show="total" x-cloak
-       :class="todosDisponivel() ? 'lg:grid-cols-5' : 'lg:grid-cols-4'">
+  {% comment %} 3 cards, não 5: com a lente no topo o dono pediu que os cards
+     mudem junto, e cards fixos por definição não mudam. Então os dois primeiros
+     são o CONTEXTO (não dependem de lente: base é o denominador, valor é do
+     processo inteiro) e o terceiro é o ALVO da lente ativa.
+     A comparação não se perde — os outros dois números viram a linha de baixo
+     do card do alvo, que é exatamente onde se vê que 2.340.491 + 47.720 não dá
+     2.381.790. {% endcomment %}
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3" x-show="total" x-cloak>
     <div class="card p-4">
       <div class="text-xs text-fg-muted uppercase tracking-wide">
         <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-volume">
@@ -981,35 +1111,25 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       </div>
       <div class="text-2xl font-mono text-fg mt-1" x-text="fmtBRL(total ? total.valor : 0)"></div>
     </div>
-    <div class="card p-4">
-      <div class="text-xs uppercase tracking-wide text-mission-fg">
-        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-possiveis">
-          Possíveis precatórios
+    {% comment %} card do ALVO: rótulo, cor e número seguem a lente ativa —
+       mesma família de cor do mapa e da legenda (laranja=possíveis,
+       verde=confirmados, azul=união), senão o card diria uma coisa e o mapa
+       pintaria outra. `ring` marca que ESTE é o card que a lente comanda.
+    {% endcomment %}
+    <div class="card p-4 ring-1 ring-inset ring-border">
+      <div class="text-xs uppercase tracking-wide" :class="alvoCor()">
+        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-alvo">
+          <span x-text="rotuloAlvo()"></span>
           {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
-          <span class="voy-tip-body tip-below" role="tooltip" id="tip-possiveis" x-text="glos('potencial')"></span>
+          <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-alvo" x-text="glosMetricaAtiva()"></span>
         </button>
       </div>
-      <div class="text-2xl font-mono mt-1 text-mission-fg" x-text="fmt(total ? total.potencial : 0)"></div>
-    </div>
-    <div class="card p-4">
-      <div class="text-xs uppercase tracking-wide text-accent-fg">
-        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-confirmados">
-          Confirmados pela IA
-          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
-          <span class="voy-tip-body tip-below" role="tooltip" id="tip-confirmados" x-text="glos('confirmado')"></span>
-        </button>
-      </div>
-      <div class="text-2xl font-mono mt-1 text-accent-fg" x-text="fmt(total ? total.confirmado : 0)"></div>
-    </div>
-    <div class="card p-4" x-show="todosDisponivel()" x-cloak>
-      <div class="text-xs uppercase tracking-wide text-pale-blue">
-        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-todos">
-          Possíveis ou confirmados
-          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
-          <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-todos" x-text="glos('todos')"></span>
-        </button>
-      </div>
-      <div class="text-2xl font-mono mt-1 text-pale-blue" x-text="fmt(total ? total.todos : 0)"></div>
+      {% comment %} `null` = sinal nunca lido: a PALAVRA, nunca "0" — 0 aqui
+         seria "não existe precatório nesse recorte", que é outra coisa.
+      {% endcomment %}
+      <div class="text-2xl font-mono mt-1" :class="alvoCor()"
+           x-text="alvoTotal() === null ? 'ainda não analisado' : fmt(alvoTotal())"></div>
+      <div class="text-xs font-mono text-fg-muted mt-1" x-text="alvoContexto()"></div>
     </div>
   </div>
 
@@ -1046,40 +1166,12 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                     :class="metricMode==='valor' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg'"
                     class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">R$</button>
           </div>
-          {% comment %} toggle Possíveis / Confirmados / Todos (só faz sentido no
-             modo Quantidade). `:disabled` de verdade: `pointer-events-none` +
-             opacidade continuava acionável por Enter no teclado (e a opacidade
-             não diz por quê).
-             "Todos" = UNIÃO dos dois, e só aparece quando o backend manda o
-             campo — a união NUNCA é calculada aqui somando possíveis+confirmados
-             (contaria a interseção em dobro). {% endcomment %}
-          <div class="inline-flex rounded-md border border-border overflow-hidden text-xs"
-               role="group" aria-label="Nível de certeza">
-            <button type="button" @click="sinalMode='potencial'" :disabled="metricMode==='valor'"
-                    :aria-pressed="sinalMode==='potencial'"
-                    :class="sinalMode==='potencial' && metricMode!=='valor' ? 'bg-mission text-white' : 'text-fg-muted hover:text-fg'"
-                    class="px-3 py-1.5 disabled:text-fg-subtle disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Possíveis</button>
-            <button type="button" @click="sinalMode='confirmado'" :disabled="metricMode==='valor'"
-                    :aria-pressed="sinalMode==='confirmado'"
-                    :class="sinalMode==='confirmado' && metricMode!=='valor' ? 'bg-accent text-white' : 'text-fg-muted hover:text-fg'"
-                    class="px-3 py-1.5 border-l border-border disabled:text-fg-subtle disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Confirmados</button>
-            {% comment %} `text-surface` e não `text-white`: o token pale-blue
-               INVERTE com o tema (blue-300 no escuro, blue-600 no claro) e o
-               surface inverte junto — dá 10:1 no escuro e 5,2:1 no claro, os
-               dois AA. Com `text-white` o escuro ficaria em 1,5:1. {% endcomment %}
-            <button type="button" @click="sinalMode='todos'" :disabled="metricMode==='valor'"
-                    x-show="todosDisponivel()" x-cloak
-                    :aria-pressed="sinalMode==='todos'"
-                    :class="sinalMode==='todos' && metricMode!=='valor' ? 'bg-pale-blue text-surface' : 'text-fg-muted hover:text-fg'"
-                    class="px-3 py-1.5 border-l border-border disabled:text-fg-subtle disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Todos</button>
-          </div>
+          {% comment %} O toggle Possíveis/Confirmados/Todos saiu daqui e subiu
+             pro topo da página: ele governa KPI + mapa + "Ataque primeiro", não
+             só este card. Aqui fica só o eixo do MAPA (Quantidade ↔ R$).
+          {% endcomment %}
         </div>
       </div>
-
-      {# por que o toggle está desligado — texto visível, não tooltip #}
-      <p class="text-xs text-fg-muted mb-2" x-show="metricMode==='valor'" x-cloak>
-        No modo R$ não separamos possíveis de confirmados — o valor vem do processo inteiro.
-      </p>
 
       {% comment %} ---- LEGENDA DA COR (HTML, no header do card) ------------------------
          Fora do canvas de propósito: dentro dele o `visualMap` `calculable`
@@ -1287,6 +1379,17 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
            class="mb-3 text-sm leading-snug text-fg px-2.5 py-2 rounded-md border border-mission/30 bg-mission/10">
           <span x-text="insightUf()"></span>
         </p>
+
+        {% comment %} Porta pra página dedicada do estado: mesma seleção, mesmos
+           filtros, aba NOVA (o mapa não se perde). `rel="noopener"` porque
+           `target="_blank"` sem ele entrega `window.opener` pra página aberta. {% endcomment %}
+        <a :href="urlPaginaEstado(selecionada)" target="_blank" rel="noopener"
+           class="mb-3 inline-flex items-center gap-1.5 text-sm text-accent-fg hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          {% voy_icon "dossier" "w-4 h-4 shrink-0" %}
+          <span x-text="'Ver página completa de ' + nomeUf(selecionada)"></span>
+          {% voy_icon "arrow" "w-3.5 h-3.5 shrink-0" %}
+          <span class="sr-only">abre em uma nova aba</span>
+        </a>
 
         <div x-show="drillLoading" class="text-xs text-fg-muted font-mono">carregando os tribunais…</div>
         <div x-show="drillErro" x-cloak class="text-xs">

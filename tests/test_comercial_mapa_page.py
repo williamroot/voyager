@@ -262,8 +262,13 @@ def test_terceiro_modo_todos_uniao(html):
     assert ">Todos</button>" in html
     assert "@click=\"sinalMode='todos'\"" in html
     assert ":aria-pressed=\"sinalMode==='todos'\"" in html
-    assert html.count(":disabled=\"metricMode==='valor'\"") == 3, \
-        'os 3 botões de certeza têm que desligar juntos no modo R$'
+    # A lente NÃO desliga mais no modo R$. Desligava quando só pintava o mapa;
+    # agora governa também os KPI e o "Ataque primeiro", que continuam válidos
+    # com o mapa em R$ — travar os 3 botões congelaria a página inteira por
+    # causa do eixo de cor de um card só. A regra vira texto na tela.
+    assert ":disabled=\"metricMode==='valor'\"" not in html
+    assert 'A lente segue valendo para os números' in html, \
+        'tirar o disabled sem explicar deixa o usuário sem saber o que a lente faz em R$'
 
     # a métrica lê o campo do backend — e NUNCA soma os dois
     assert "if (this.sinalMode === 'todos') return Number(b.todos) || 0;" in html
@@ -323,9 +328,11 @@ def test_uniao_e_defensiva_com_payload_velho(html):
     assert 'temTodos' in html
     assert 'x-show="todosDisponivel()"' in html
     assert "if (this.sinalMode === 'todos' && !this.todosDisponivel())" in html
-    # o KPI da união e a coluna extra também só aparecem com o dado
-    assert "todosDisponivel() ? 'lg:grid-cols-5' : 'lg:grid-cols-4'" in html
-    assert 'id="tip-todos"' in html
+    # o botão da união só existe com o dado; o KPI virou card único do ALVO
+    # (não há mais uma coluna extra pra esconder — a lente é que troca o número)
+    assert 'x-show="todosDisponivel()" x-cloak' in html
+    assert "if (this.sinalMode !== 'todos' && this.todosDisponivel())" in html, \
+        'a linha de contexto do KPI só cita a união quando o campo existe'
 
 
 def test_layout_medido_nao_regride(html):
@@ -374,7 +381,7 @@ def test_tooltip_rico_sem_setupchart(html):
 def test_prioridade_0_100_substitui_score_cru(html):
     """`0.0142` é ilegível e sem âncora; `prioridade 87` é comparável."""
     assert 'prioridadeEm' in html and 'prioridadeLabel' in html
-    assert 'Math.round(100 * (b.score_foco || 0) / max)' in html
+    assert 'Math.round(100 * this.scoreDe(b) / max)' in html
     assert 'prioridade não medida' in html
     assert 'toFixed(4)' not in CODIGO, 'voltou o score cru de 4 casas'
     # explicação de que a escala é relativa à lista filtrada
@@ -414,8 +421,10 @@ def test_acessibilidade_foco_e_controles(html):
     assert 'focus-visible:ring-2 focus-visible:ring-accent' in html
     assert 'ring-offset-base' in html
     assert 'ring-accent/40' not in CODIGO
-    # o grupo desabilitado era acionável por Enter (opacity + pointer-events)
-    assert ":disabled=\"metricMode==='valor'\"" in html
+    # "desabilitar" nunca pode ser opacidade + pointer-events (segue acionável
+    # por Enter no teclado, e opacidade não diz por quê). Hoje não há mais
+    # controle desabilitado nesta página — a regra virou frase visível —, então
+    # o que se guarda é o anti-padrão.
     assert 'pointer-events-none' not in CODIGO
     # inputs de faixa com nome acessível + grupo rotulado
     assert 'aria-label="Ano do processo, de"' in html
