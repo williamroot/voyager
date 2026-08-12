@@ -217,6 +217,17 @@ def parse_filtros(qd) -> dict:
     if parte:
         filtros['parte'] = parte
 
+    # ENTIDADE CANÔNICA (autocomplete) — precisa das GRAFIAS, não do nome.
+    # O INSS tem 104 grafias no índice; filtrar só pelo nome canônico
+    # ("INSTITUTO NACIONAL DO SEGURO SOCIAL") acha 4.402.239, mas há outras
+    # grafias que o `match` AND não alcança. `entidade_id` é resolvido em
+    # `resolver_entidade` (1 GET por id, cacheado) → OR de match_phrase.
+    # Tem precedência sobre `parte`: escolher no autocomplete é mais específico
+    # que digitar texto.
+    entidade_id = (g('entidade_id') or '').strip()[:120]
+    if entidade_id:
+        filtros['entidade_id'] = entidade_id
+
     tipo = (g('tipo') or '').strip().lower()
     if tipo == 'potencial':
         filtros['tem_sinal'] = True
@@ -270,7 +281,23 @@ def build_filter_clauses(filtros: dict) -> list:
         clauses.append({'term': {'codigo_classe': filtros['codigo_classe']}})
     if 'tem_sinal' in filtros:
         clauses.append({'term': {'tem_sinal_precatorio': filtros['tem_sinal']}})
-    if filtros.get('parte'):
+    variantes = filtros.get('_variantes')
+    if variantes:
+        # Entidade escolhida no autocomplete: OR das GRAFIAS dela, em
+        # `match_phrase`. Não é só refinamento — CORRIGE o texto livre.
+        #
+        # Medido em 12/08/2026, "União Federal": o `match` AND do texto livre
+        # devolve 1.508.785 processos e o OR das grafias 1.232.679. A diferença
+        # de 276.106 (18%) NÃO é recall perdido: são processos onde "união" e
+        # "federal" aparecem em partes DIFERENTES da mesma lista — tipo
+        # "Defensoria Pública da UNIÃO" + "Caixa Econômica FEDERAL". O texto
+        # livre inflava; a grafia exata acerta.
+        # (INSS: 4.403.363 → 4.402.239, mesma natureza, magnitude irrisória.)
+        clauses.append({'bool': {
+            'should': [{'match_phrase': {'partes': v}} for v in variantes],
+            'minimum_should_match': 1,
+        }})
+    elif filtros.get('parte'):
         # `match` com AND: "fazenda são paulo" exige as duas palavras, em
         # qualquer ordem — o nome vem em ordens e grafias diferentes por
         # tribunal ("INSS - Instituto Nacional..." vs "Instituto Nacional do
@@ -558,6 +585,55 @@ def _run(body: dict) -> dict:
     return es.search(index=index_name('processos'), body=body)
 
 
+#: TTL do lookup de entidade → grafias. Entidade muda com o rebuild do índice
+#: (raro); 1h é folgado e evita 1 GET no ES por request de mapa.
+TTL_ENTIDADE = 3600
+
+
+def _indice_entidades() -> str:
+    """Índice de entidades ATIVO. Configurável porque hoje ele ainda é o de
+    teste (`voyager-entidades-teste`): o ranking do autocomplete usava um proxy
+    ruim de prevalência e o índice não foi promovido. Promover = trocar o
+    setting, sem deploy de código.
+    """
+    from django.conf import settings
+    nome = getattr(settings, 'ENTIDADES_INDICE', None) or 'voyager-entidades-teste'
+    return nome
+
+
+def resolver_entidade(filtros: dict) -> dict:
+    """Troca `entidade_id` pelas GRAFIAS da entidade (`_variantes`).
+
+    Sem isto, escolher "INSS" no autocomplete filtraria só pelo nome canônico e
+    perderia as outras 103 grafias que o índice de entidades unificou.
+
+    Falha silenciosa por decisão: se o índice de entidades estiver fora ou o id
+    não existir, devolve os filtros INTACTOS — o mapa continua respondendo (com
+    o `parte` textual, se houver), em vez de 503. Perder o refinamento é menos
+    grave que derrubar a tela.
+    """
+    eid = filtros.get('entidade_id')
+    if not eid or filtros.get('_variantes'):
+        return filtros
+    chave = f'{_CACHE_PREFIX}:ent:{hashlib.md5(eid.encode()).hexdigest()}'
+    variantes = cache.get(chave)
+    if variantes is None:
+        try:
+            resp = get_es().get(index=_indice_entidades(), id=eid,
+                                _source=['variantes_busca', 'nome_canonico'])
+            src = resp.get('_source') or {}
+            variantes = list(src.get('variantes_busca') or [])
+            if not variantes and src.get('nome_canonico'):
+                variantes = [src['nome_canonico']]
+        except Exception:
+            logger.warning('resolver_entidade: lookup falhou', extra={'entidade_id': eid})
+            return filtros
+        cache.set(chave, variantes, TTL_ENTIDADE)
+    if not variantes:
+        return filtros
+    return {**filtros, '_variantes': variantes}
+
+
 def _sem_filtro(filtros: dict) -> bool:
     return not filtros
 
@@ -585,6 +661,9 @@ def agg_por_uf(filtros: dict | None = None) -> dict:
     if cached is not None:
         return cached
 
+    # entidade → grafias DEPOIS do cache lookup: com cache quente não paga o
+    # GET no índice de entidades.
+    filtros = resolver_entidade(filtros)
     resp = _run(build_body_por_campo('uf', filtros))
     total_resp = _run(build_body_total(filtros))
 
@@ -623,6 +702,7 @@ def agg_tribunais(uf: str, filtros: dict | None = None) -> dict:
     if cached is not None:
         return cached
 
+    filtros = resolver_entidade(filtros)
     resp = _run(build_body_por_campo('tribunal', filtros))
     total_resp = _run(build_body_total(filtros))
 

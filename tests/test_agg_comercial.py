@@ -567,3 +567,82 @@ def test_amostra_minuscula_nao_lidera_o_ranking():
     # recorte), não como campeão nem como zero
     media = 120_401 / 5_744_062          # 2,1% neste conjunto
     assert ac['score_foco'] == pytest.approx(media, abs=0.005)
+
+
+# --------------------------------------------------------------------------- #
+# entidade canônica (autocomplete) → OR das grafias
+# --------------------------------------------------------------------------- #
+def test_parse_filtros_entidade_id():
+    f = agg.parse_filtros(_qd(entidade_id='cnpj:29979036'))
+    assert f['entidade_id'] == 'cnpj:29979036'
+    assert 'entidade_id' not in agg.parse_filtros(_qd(entidade_id='  '))
+
+
+def test_entidade_vira_OR_das_grafias():
+    """Escolher "INSS" tem que buscar as 104 grafias, não só o nome canônico.
+
+    `match_phrase` (não `match`): "INSTITUTO NACIONAL DO SEGURO SOCIAL" solto
+    traria qualquer "instituto" e qualquer "social".
+    """
+    variantes = ['INSTITUTO NACIONAL DO SEGURO SOCIAL',
+                 'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS',
+                 'Instituto Nacional do Seguro Social - INSS']
+    cl = agg.build_filter_clauses({'entidade_id': 'cnpj:29979036', '_variantes': variantes})
+    bools = [c for c in cl if 'bool' in c]
+    assert len(bools) == 1
+    should = bools[0]['bool']['should']
+    assert len(should) == 3
+    assert all('match_phrase' in c for c in should)
+    assert bools[0]['bool']['minimum_should_match'] == 1
+
+
+def test_entidade_tem_precedencia_sobre_texto_livre():
+    """Escolher no autocomplete é mais específico que digitar — não somam."""
+    cl = agg.build_filter_clauses(
+        {'parte': 'inss', 'entidade_id': 'x', '_variantes': ['INSS']})
+    assert not any('match' in c and 'partes' in c.get('match', {}) for c in cl)
+    assert any('bool' in c for c in cl)
+
+
+@patch('search.agg_comercial.get_es')
+def test_resolver_entidade_indice_fora_nao_derruba_o_mapa(mock_es):
+    """Índice de entidades fora ⇒ perde o refinamento, NÃO devolve 503.
+
+    O mapa é a tela; degradar o filtro é menos grave que apagar a tela.
+    """
+    mock_es.return_value.get.side_effect = RuntimeError('ES fora')
+    from django.core.cache import cache as _c
+    _c.clear()
+    filtros = {'entidade_id': 'cnpj:29979036', 'parte': 'inss'}
+    out = agg.resolver_entidade(filtros)
+    assert out == filtros and '_variantes' not in out
+    # e o filtro textual segue valendo
+    assert any('match' in c for c in agg.build_filter_clauses(out))
+
+
+@patch('search.agg_comercial.get_es')
+def test_resolver_entidade_cacheia(mock_es):
+    from django.core.cache import cache as _c
+    _c.clear()
+    mock_es.return_value.get.return_value = {
+        '_source': {'variantes_busca': ['INSS'], 'nome_canonico': 'INSS'}}
+    a = agg.resolver_entidade({'entidade_id': 'cnpj:1'})
+    b = agg.resolver_entidade({'entidade_id': 'cnpj:1'})
+    assert a['_variantes'] == b['_variantes'] == ['INSS']
+    assert mock_es.return_value.get.call_count == 1, 'não cacheou o lookup'
+
+
+def test_entidade_usa_phrase_e_nao_match_solto():
+    """`match_phrase`, NUNCA `match` — a diferença é falso positivo em massa.
+
+    Medido em prod (12/08/2026) com "União Federal": o `match` AND devolvia
+    1.508.785 e as grafias exatas 1.232.679. Os 276.106 de diferença eram
+    processos com "Defensoria Pública da UNIÃO" + "Caixa Econômica FEDERAL" —
+    as duas palavras em partes DIFERENTES da mesma lista. Trocar phrase por
+    match aqui infla 18% e ninguém percebe.
+    """
+    cl = agg.build_filter_clauses(
+        {'entidade_id': 'x', '_variantes': ['UNIAO FEDERAL', 'UNIÃO FEDERAL']})
+    should = [c for c in cl if 'bool' in c][0]['bool']['should']
+    assert all('match_phrase' in c for c in should), 'match solto = 18% de falso positivo'
+    assert not any('match' in c and 'match_phrase' not in c for c in should)
