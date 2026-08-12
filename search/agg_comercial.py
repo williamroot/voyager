@@ -16,9 +16,11 @@ DEFINIÇÕES DE MÉTRICA (do plano `.ia/COMERCIAL_MAPA.md`)
                   pela cobertura
 - cobertura_pct = % validado do bucket (do cache de enriquecimento, 0..100)
 - densidade     = potencial / volume
-- valor_relativo= valor do bucket / maior valor entre os buckets (0..1)
-- score_foco    = densidade × valor_relativo × (1 − cobertura)
-                  prioriza estado precatório-rico, com dinheiro, ainda pouco tocado
+- score_foco    = **a própria densidade** (o campo sobrevive pelo contrato)
+                  O ranking responde UMA pergunta: onde é denso em precatório.
+                  Valor e cobertura são ATRIBUTOS exibidos ao lado ("já olhamos
+                  24%"), não multiplicadores escondidos na nota — ver
+                  `calcular_score_foco` para o porquê e os números.
 
 --------------------------------------------------------------------------------
 CONTRATO JSON DOS ENDPOINTS (o agente FRONTEND segue isto à risca)
@@ -406,36 +408,28 @@ def _cobertura_por_uf() -> dict:
 # --------------------------------------------------------------------------- #
 def calcular_score_foco(volume: int, valor: float, potencial: int,
                         cobertura_pct, valor_max: float) -> tuple:
-    """densidade × valor_relativo × (1 − cobertura). Retorna (densidade, score_foco).
+    """DENSIDADE pura: potencial ÷ volume. Retorna (densidade, score_foco).
 
-    `potencial` é o ALVO — o numerador da densidade. Por padrão é o sinal de
-    texto, mas `_enriquecer_buckets` chama esta função uma vez por lente
-    (possíveis / confirmados / todos) pra que o ranking "ataque primeiro"
-    responda à lente escolhida no mapa. Ver `SCORE_POR_LENTE`.
+    Os dois são o mesmo número — `score_foco` sobrevive só porque é o nome no
+    contrato do endpoint. A pergunta que o ranking responde é **"onde é denso
+    em precatório"**, e só isso.
 
-    - cobertura_pct None (sem dado no cache) ⇒ trata como 0 (fator (1−0)=1),
-      ou seja, "não tocamos" — o que INFLA o score, coerente com "ataque primeiro".
-    - valor 0/None no BUCKET ⇒ fator valor NEUTRO (1.0). valor_causa é ESPARSO
-      (medido 11/08: só SP tem no ES — federal/DJEN não traz) — desconhecido não é
-      "sem dinheiro"; multiplicar por ~0 mataria o ranking inteiro por falta de
-      dado. O front sinaliza "R$ desconhecido". Quando o valor real (Falcon)
-      entrar, o fator volta a discriminar.
+    Até 12/08/2026 era `densidade × valor_relativo × (1 − cobertura)`, e essa
+    multiplicação era o erro: espremia três perguntas diferentes ("é denso?",
+    "tem dinheiro?", "já olhamos?") num número só, que ninguém conseguia
+    interpretar e que escondia estado bom por motivo errado. Medido: o MT
+    (5,59% de densidade, a 6ª do país) aparecia em 21º porque já tínhamos
+    olhado 24% dele e porque publicou um valor menor que o de Alagoas.
+
+    `valor` e `cobertura_pct` continuam na assinatura e no bucket, mas como
+    ATRIBUTOS exibidos ao lado do estado — "já olhamos 24%" é uma bandeira que
+    o usuário lê e decide, não um desconto silencioso na nota.
+
+    `potencial` é o ALVO: `_enriquecer_buckets` chama esta função uma vez por
+    lente (possíveis / confirmados / todos) — ver `SCORE_POR_LENTE`.
     """
     densidade = (potencial / volume) if volume else 0.0
-    # Valor é BÔNUS (1..2), nunca punição. Antes era `valor / valor_max`, que
-    # com dado esparso invertia o incentivo: quem NÃO publica valor caía no
-    # neutro 1.0 (o máximo), e quem publica um valor menor que o do líder era
-    # multiplicado por uma fração. Medido em 12/08/2026: só 5 UFs publicam
-    # valor, e o MT (R$ 324 bi = 24% do líder) despencava do 7º pro 21º lugar
-    # por causa disso — enquanto 23 UFs sem nenhum dado ficavam à frente dele.
-    # Publicar dado não pode rebaixar ninguém.
-    if not valor or not valor_max:
-        valor_relativo = 1.0            # desconhecido ≠ zero: neutro
-    else:
-        valor_relativo = 1.0 + (valor / valor_max)
-    cob = 0.0 if cobertura_pct is None else max(0.0, min(cobertura_pct, 100.0)) / 100.0
-    score = densidade * valor_relativo * (1.0 - cob)
-    return round(densidade, 4), round(score, 4)
+    return round(densidade, 4), round(densidade, 4)
 
 
 # --------------------------------------------------------------------------- #

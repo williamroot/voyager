@@ -183,26 +183,39 @@ def test_build_body_total():
 # --------------------------------------------------------------------------- #
 # score de foco
 # --------------------------------------------------------------------------- #
-def test_score_foco_basico():
-    # densidade=0.1, valor_relativo=1+(100/100)=2.0, cobertura=0 → score=0.2
+def test_score_foco_e_densidade_pura():
+    """O ranking responde UMA pergunta: onde é denso em precatório.
+
+    Até 12/08/2026 multiplicava por valor e por (1−cobertura), espremendo três
+    perguntas num número só. Valor e cobertura seguem no bucket, como atributos
+    exibidos — não como desconto silencioso na nota.
+    """
     dens, score = agg.calcular_score_foco(
         volume=1000, valor=100.0, potencial=100, cobertura_pct=0, valor_max=100.0)
     assert dens == 0.1
-    assert score == 0.2
+    assert score == dens
 
 
-def test_score_foco_penaliza_cobertura():
-    # cobertura 50% derruba o score pela metade
-    _, score = agg.calcular_score_foco(
+def test_cobertura_nao_mexe_no_score():
+    """"Já olhamos" é BANDEIRA, não desconto.
+
+    Medido em prod: o MT tem a 6ª maior densidade do país (5,59%) e aparecia em
+    21º porque já tínhamos olhado 24,4% dele. Quem decide se vale reatacar um
+    estado meio trabalhado é o comercial, lendo a bandeira — não a fórmula,
+    escondendo o estado.
+    """
+    _, com_cobertura = agg.calcular_score_foco(
         volume=1000, valor=100.0, potencial=100, cobertura_pct=50.0, valor_max=100.0)
-    assert score == pytest.approx(0.10)   # 0.1 × 2.0 × 0.5
+    _, sem_cobertura = agg.calcular_score_foco(
+        volume=1000, valor=100.0, potencial=100, cobertura_pct=0.0, valor_max=100.0)
+    assert com_cobertura == sem_cobertura == 0.1
 
 
 def test_score_foco_cobertura_none_trata_como_zero():
     # sem cobertura no cache ⇒ (1-0)=1, score cheio (ataque primeiro)
     _, score = agg.calcular_score_foco(
         volume=1000, valor=100.0, potencial=100, cobertura_pct=None, valor_max=100.0)
-    assert score == 0.2
+    assert score == 0.1
 
 
 def test_score_foco_valor_max_zero_fator_neutro():
@@ -274,14 +287,12 @@ def test_agg_por_uf_monta_query_e_calcula_score(mock_get_es, mock_cob):
     assert {'range': {'ano_cnj': {'gte': 2020}}} in body_terms['query']['bool']['filter']
 
     ufs = {b['uf']: b for b in out['ufs']}
-    # SP: dens=200/1000=0.2, valor_rel=1+500/500=2, cob=0.2 → 0.2*2*0.8=0.32
+    # SP: dens=200/1000=0.2 → score=0.2 (valor e cobertura não entram na conta)
     assert ufs['SP']['densidade'] == 0.2
-    assert ufs['SP']['score_foco'] == pytest.approx(0.32)
-    assert ufs['SP']['cobertura_pct'] == 20.0
-    # RJ: dens=50/500=0.1, valor_rel=1+250/500=1.5, cob=0.8 → 0.1*1.5*0.2=0.03
-    # (com o fator antigo dava 0.01: metade do valor do líder VALIA metade do
-    #  score, o que rebaixava quem publicou abaixo de quem não publicou nada)
-    assert ufs['RJ']['score_foco'] == pytest.approx(0.03)
+    assert ufs['SP']['score_foco'] == pytest.approx(0.2)
+    assert ufs['SP']['cobertura_pct'] == 20.0     # segue no bucket, pra exibir
+    # RJ: dens=50/500=0.1 (antes 0.01: cobertura 80% + valor menor derrubavam)
+    assert ufs['RJ']['score_foco'] == pytest.approx(0.1)
     # ordenado por score desc → SP primeiro
     assert out['ufs'][0]['uf'] == 'SP'
     assert out['total']['volume'] == 1500
@@ -506,19 +517,13 @@ def test_filtro_parte_combina_com_os_outros():
     assert tipos.count('match') == 1 and tipos.count('term') == 2
 
 
-def test_valor_e_bonus_nunca_punicao():
-    """Publicar valor MENOR que o do líder não pode rebaixar quem publicou.
-
-    Bug medido em 12/08/2026: com `valor / valor_max`, o MT (R$ 324 bi = 24% do
-    líder) caía do 7º pro 21º lugar, atrás de 23 UFs que não publicam valor
-    nenhum e ficavam no neutro 1.0. Ter dado parcial era pior que não ter dado.
-    Agora o fator é 1 + (valor/valor_max): desconhecido = 1.0, quem publica
-    ganha entre 1.0 e 2.0. Ninguém desce por ter publicado.
+def test_valor_fora_da_formula_mas_no_bucket():
+    """Valor saiu do score (era `valor/valor_max` e punia quem publicava: o MT,
+    com 24% do valor de AL, caía 14 posições atrás de 23 UFs que não publicam
+    nada). Continua no bucket porque a lista mostra R$ em cada linha.
     """
     base = dict(volume=1000, potencial=100, cobertura_pct=0, valor_max=1e12)
     _, sem_valor = agg.calcular_score_foco(valor=0.0, **base)
-    _, valor_pequeno = agg.calcular_score_foco(valor=3.2e11, **base)   # o caso MT
+    _, valor_pequeno = agg.calcular_score_foco(valor=3.2e11, **base)
     _, valor_lider = agg.calcular_score_foco(valor=1e12, **base)
-    assert valor_pequeno > sem_valor, 'publicar valor rebaixou quem publicou'
-    assert valor_lider > valor_pequeno, 'mais dinheiro ainda tem que valer mais'
-    assert valor_lider == pytest.approx(2 * sem_valor), 'o bônus satura em 2x'
+    assert sem_valor == valor_pequeno == valor_lider == 0.1
