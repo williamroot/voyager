@@ -422,12 +422,17 @@ def calcular_score_foco(volume: int, valor: float, potencial: int,
       entrar, o fator volta a discriminar.
     """
     densidade = (potencial / volume) if volume else 0.0
-    if not valor:
+    # Valor é BÔNUS (1..2), nunca punição. Antes era `valor / valor_max`, que
+    # com dado esparso invertia o incentivo: quem NÃO publica valor caía no
+    # neutro 1.0 (o máximo), e quem publica um valor menor que o do líder era
+    # multiplicado por uma fração. Medido em 12/08/2026: só 5 UFs publicam
+    # valor, e o MT (R$ 324 bi = 24% do líder) despencava do 7º pro 21º lugar
+    # por causa disso — enquanto 23 UFs sem nenhum dado ficavam à frente dele.
+    # Publicar dado não pode rebaixar ninguém.
+    if not valor or not valor_max:
         valor_relativo = 1.0            # desconhecido ≠ zero: neutro
-    elif valor_max:
-        valor_relativo = valor / valor_max
     else:
-        valor_relativo = 1.0
+        valor_relativo = 1.0 + (valor / valor_max)
     cob = 0.0 if cobertura_pct is None else max(0.0, min(cobertura_pct, 100.0)) / 100.0
     score = densidade * valor_relativo * (1.0 - cob)
     return round(densidade, 4), round(score, 4)

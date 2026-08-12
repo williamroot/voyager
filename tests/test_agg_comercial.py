@@ -184,25 +184,25 @@ def test_build_body_total():
 # score de foco
 # --------------------------------------------------------------------------- #
 def test_score_foco_basico():
-    # densidade=0.1, valor_relativo=1.0, cobertura=0 → score=0.1
+    # densidade=0.1, valor_relativo=1+(100/100)=2.0, cobertura=0 → score=0.2
     dens, score = agg.calcular_score_foco(
         volume=1000, valor=100.0, potencial=100, cobertura_pct=0, valor_max=100.0)
     assert dens == 0.1
-    assert score == 0.1
+    assert score == 0.2
 
 
 def test_score_foco_penaliza_cobertura():
     # cobertura 50% derruba o score pela metade
     _, score = agg.calcular_score_foco(
         volume=1000, valor=100.0, potencial=100, cobertura_pct=50.0, valor_max=100.0)
-    assert score == pytest.approx(0.05)
+    assert score == pytest.approx(0.10)   # 0.1 × 2.0 × 0.5
 
 
 def test_score_foco_cobertura_none_trata_como_zero():
     # sem cobertura no cache ⇒ (1-0)=1, score cheio (ataque primeiro)
     _, score = agg.calcular_score_foco(
         volume=1000, valor=100.0, potencial=100, cobertura_pct=None, valor_max=100.0)
-    assert score == 0.1
+    assert score == 0.2
 
 
 def test_score_foco_valor_max_zero_fator_neutro():
@@ -274,12 +274,14 @@ def test_agg_por_uf_monta_query_e_calcula_score(mock_get_es, mock_cob):
     assert {'range': {'ano_cnj': {'gte': 2020}}} in body_terms['query']['bool']['filter']
 
     ufs = {b['uf']: b for b in out['ufs']}
-    # SP: dens=200/1000=0.2, valor_rel=500/500=1, cob=0.2 → 0.2*1*0.8=0.16
+    # SP: dens=200/1000=0.2, valor_rel=1+500/500=2, cob=0.2 → 0.2*2*0.8=0.32
     assert ufs['SP']['densidade'] == 0.2
-    assert ufs['SP']['score_foco'] == pytest.approx(0.16)
+    assert ufs['SP']['score_foco'] == pytest.approx(0.32)
     assert ufs['SP']['cobertura_pct'] == 20.0
-    # RJ: dens=50/500=0.1, valor_rel=250/500=0.5, cob=0.8 → 0.1*0.5*0.2=0.01
-    assert ufs['RJ']['score_foco'] == pytest.approx(0.01)
+    # RJ: dens=50/500=0.1, valor_rel=1+250/500=1.5, cob=0.8 → 0.1*1.5*0.2=0.03
+    # (com o fator antigo dava 0.01: metade do valor do líder VALIA metade do
+    #  score, o que rebaixava quem publicou abaixo de quem não publicou nada)
+    assert ufs['RJ']['score_foco'] == pytest.approx(0.03)
     # ordenado por score desc → SP primeiro
     assert out['ufs'][0]['uf'] == 'SP'
     assert out['total']['volume'] == 1500
@@ -502,3 +504,21 @@ def test_filtro_parte_combina_com_os_outros():
     cl = agg.build_filter_clauses({'parte': 'INSS', 'uf': 'MG', 'tem_sinal': True})
     tipos = [list(c)[0] for c in cl]
     assert tipos.count('match') == 1 and tipos.count('term') == 2
+
+
+def test_valor_e_bonus_nunca_punicao():
+    """Publicar valor MENOR que o do líder não pode rebaixar quem publicou.
+
+    Bug medido em 12/08/2026: com `valor / valor_max`, o MT (R$ 324 bi = 24% do
+    líder) caía do 7º pro 21º lugar, atrás de 23 UFs que não publicam valor
+    nenhum e ficavam no neutro 1.0. Ter dado parcial era pior que não ter dado.
+    Agora o fator é 1 + (valor/valor_max): desconhecido = 1.0, quem publica
+    ganha entre 1.0 e 2.0. Ninguém desce por ter publicado.
+    """
+    base = dict(volume=1000, potencial=100, cobertura_pct=0, valor_max=1e12)
+    _, sem_valor = agg.calcular_score_foco(valor=0.0, **base)
+    _, valor_pequeno = agg.calcular_score_foco(valor=3.2e11, **base)   # o caso MT
+    _, valor_lider = agg.calcular_score_foco(valor=1e12, **base)
+    assert valor_pequeno > sem_valor, 'publicar valor rebaixou quem publicou'
+    assert valor_lider > valor_pequeno, 'mais dinheiro ainda tem que valer mais'
+    assert valor_lider == pytest.approx(2 * sem_valor), 'o bônus satura em 2x'
