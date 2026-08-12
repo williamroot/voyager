@@ -9,6 +9,9 @@ página.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
+import dashboard
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
@@ -19,6 +22,13 @@ pytestmark = pytest.mark.django_db
 User = get_user_model()
 
 URL_NAME = 'dashboard:comercial-mapa-page'
+
+#: fonte do template — usada nas asserções ESTRUTURAIS (ex.: "não chama o
+#: setupChart da casa"), que não dá pra fazer no HTML renderizado porque o
+#: base.html define `function setupChart(el, opts)` em toda página.
+TEMPLATE_SRC = (
+    Path(dashboard.__file__).parent / 'templates' / 'dashboard' / 'comercial_mapa.html'
+).read_text(encoding='utf-8')
 
 
 @pytest.fixture
@@ -143,6 +153,38 @@ def test_bloco_didatico_visivel_na_tela(user):
     assert 'nossa IA já leu e confirmou' in html
     assert 'sinal DJEN —' not in html
     assert 'classificação ML —' not in html
+
+
+def test_mapa_proporcao_e_tooltip_rico(user):
+    """Regressão dos 2 bugs de tela: Brasil "magro" + tooltip default do ECharts.
+
+    BUG 1: sem `aspectScale`, o default do ECharts é 0.75 (calibrado pro mapa da
+    China) e esmagava o Brasil 25% na horizontal.
+    BUG 2 (causa raiz): o helper `setupChart` da casa serializa as opts com
+    `JSON.stringify` no atributo data-echart — e JSON.stringify DESCARTA
+    funções, matando o nosso `tooltip.formatter`. O ECharts caía no tooltip
+    default ("series0 / TO 37,191"). Fix: aplicar as opts direto na instância
+    (sem round-trip JSON) e ficar fora da varredura `[data-echart]`.
+    """
+    c = Client()
+    c.force_login(user)
+    html = c.get(reverse(URL_NAME)).content.decode()
+
+    # BUG 1 — proporção explícita (nunca voltar ao default 0.75)
+    assert 'aspectScale: 1' in html
+
+    # BUG 2 — opts aplicadas direto na instância, sem passar por setupChart.
+    # (a checagem de "não chama setupChart" é no FONTE do template: o base.html
+    # define `function setupChart(el, opts)` e apareceria num grep do HTML)
+    assert 'setOption(opts, true)' in html
+    assert 'setupChart(' not in TEMPLATE_SRC
+    # a div do mapa NÃO pode ter data-echart (initAllCharts daria dispose + blank)
+    assert 'x-ref="mapa" data-echart' not in html
+    # série nomeada => nunca mais "series0"
+    assert "name: emR$ ? 'Valor (R$)'" in html
+    # listener morto removido; troca de tema observada de verdade
+    assert "addEventListener('voy:theme'" not in html
+    assert 'MutationObserver' in html
 
 
 def test_sem_cdn_externo_na_pagina(user):
