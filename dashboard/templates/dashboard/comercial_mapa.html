@@ -263,6 +263,11 @@ Mapa Comercial (Agente 3 — FRONTEND).
             // lat -34→+5 (39°): praticamente quadrado, e cos(15° médio)≈0,97 → 1.0
             // dá a proporção equiretangular correta.
             aspectScale: 1,
+            // sem layoutSize o ECharts deixa margem interna generosa (mapa a 38%
+            // da largura do card). Medido headless: 100% + centro → o mapa usa a
+            // altura inteira (+38% de área) mantendo a proporção 1.066.
+            layoutSize: '100%',
+            layoutCenter: ['50%', '50%'],
             roam: true,
             scaleLimit: {min: 1, max: 8},
             data: data,
@@ -625,7 +630,11 @@ Mapa Comercial (Agente 3 — FRONTEND).
         </div>
       </div>
 
-      <div class="relative chart-cell" style="height: 30rem;">
+      {# Altura MEDIDA (render headless do ECharts, container de 1080px):
+         30rem → o mapa desenha 480x450 e ocupa só 44% da largura (parece "magro"
+         de tanto vazio em volta); 40rem → 640x600, ocupa 59%. A proporção é a
+         mesma (1.066, correta) nas duas — o que muda é a PRESENÇA. #}
+      <div class="relative chart-cell" style="height: 40rem;">
         <div class="chart-skeleton" x-show="loading" x-cloak>
           <div class="pulsar-mark">acquiring signal</div>
         </div>
