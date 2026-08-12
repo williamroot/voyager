@@ -381,3 +381,90 @@ def test_todos_no_bucket_e_no_total():
 def test_total_expõe_todos():
     tot = agg._parse_total(_es_resp_total(1500, 750.0, 250, 60, todos=280))
     assert tot['todos'] == 280
+
+
+# --------------------------------------------------------------------------- #
+# score por LENTE — o "ataque primeiro" segue a lente escolhida no mapa
+# --------------------------------------------------------------------------- #
+def test_score_por_lente_muda_o_numerador():
+    """Cada lente ranqueia pela SUA densidade.
+
+    RO tem muito sinal de texto e pouco confirmado; MG é o inverso. Se o score
+    ignorasse a lente, o mapa pintaria confirmados com MG na frente e o ranking
+    continuaria mandando atacar RO — duas respostas na mesma tela.
+    """
+    buckets = [
+        {'uf': 'RO', 'volume': 1_000_000, 'valor': 0.0,
+         'potencial': 119_586, 'confirmado': 1_948, 'todos': 119_586},
+        {'uf': 'MG', 'volume': 1_000_000, 'valor': 0.0,
+         'potencial': 814, 'confirmado': 3_238, 'todos': 4_022},
+    ]
+    out = agg._enriquecer_buckets(buckets, 'uf', {})
+    ro = next(b for b in out if b['uf'] == 'RO')
+    mg = next(b for b in out if b['uf'] == 'MG')
+
+    assert ro['score_por_lente']['potencial'] > mg['score_por_lente']['potencial']
+    assert mg['score_por_lente']['confirmado'] > ro['score_por_lente']['confirmado']
+    assert ro['score_por_lente']['todos'] > mg['score_por_lente']['todos']
+    # densidade da lente 'todos' de MG usa 4.022 (união), não 4.052 (soma)
+    assert mg['densidade_por_lente']['todos'] == round(4_022 / 1_000_000, 4)
+
+
+def test_score_foco_sem_sufixo_continua_sendo_possiveis():
+    """Compat: quem consome `score_foco`/`densidade` sem saber de lente não quebra."""
+    out = agg._enriquecer_buckets(
+        [{'uf': 'RO', 'volume': 1000, 'valor': 0.0,
+          'potencial': 100, 'confirmado': 5, 'todos': 100}], 'uf', {})
+    b = out[0]
+    assert b['score_foco'] == b['score_por_lente']['potencial']
+    assert b['densidade'] == b['densidade_por_lente']['potencial']
+
+
+def test_score_lente_potencial_none_nao_quebra():
+    """UF sem sinal processado (potencial None) ainda pontua nas outras lentes."""
+    out = agg._enriquecer_buckets(
+        [{'uf': 'SP', 'volume': 1000, 'valor': 0.0,
+          'potencial': None, 'confirmado': 40, 'todos': 40}], 'uf', {})
+    b = out[0]
+    assert b['score_por_lente']['potencial'] == 0.0
+    assert b['score_por_lente']['confirmado'] > 0
+
+
+@patch('search.agg_comercial.agg_por_uf')
+def test_ranking_top_reordena_por_lente(mock_agg):
+    mock_agg.return_value = {
+        'ufs': [
+            {'uf': 'RO', 'score_foco': 0.12, 'confirmado': 1_948,
+             'score_por_lente': {'potencial': 0.12, 'confirmado': 0.001, 'todos': 0.12}},
+            {'uf': 'MG', 'score_foco': 0.0008, 'confirmado': 3_238,
+             'score_por_lente': {'potencial': 0.0008, 'confirmado': 0.003, 'todos': 0.004}},
+        ],
+        'gerado_em': 'x',
+    }
+    assert agg.ranking_top('score', 10, {}, lente='potencial')['ranking'][0]['uf'] == 'RO'
+    assert agg.ranking_top('score', 10, {}, lente='confirmado')['ranking'][0]['uf'] == 'MG'
+    assert agg.ranking_top('score', 10, {}, lente='todos')['ranking'][0]['uf'] == 'RO'
+    # lente desconhecida cai no default histórico (possíveis), não estoura
+    r = agg.ranking_top('score', 10, {}, lente='xpto')
+    assert r['lente'] == 'potencial' and r['ranking'][0]['uf'] == 'RO'
+
+
+@patch('search.agg_comercial.agg_por_uf')
+def test_ranking_top_payload_velho_sem_score_por_lente(mock_agg):
+    """Cache de 2min pós-deploy pode devolver bucket sem `score_por_lente`."""
+    mock_agg.return_value = {
+        'ufs': [{'uf': 'RO', 'score_foco': 0.12}, {'uf': 'MG', 'score_foco': 0.01}],
+        'gerado_em': 'x',
+    }
+    r = agg.ranking_top('score', 10, {}, lente='confirmado')
+    assert r['ranking'][0]['uf'] == 'RO'      # cai pro score_foco, não quebra
+
+
+@patch('search.agg_comercial.agg_por_uf')
+def test_ranking_top_metric_potencial_none_nao_quebra(mock_agg):
+    """Ordenar por `potencial` com UF não processada (None) não pode dar TypeError."""
+    mock_agg.return_value = {
+        'ufs': [{'uf': 'SP', 'potencial': None}, {'uf': 'PR', 'potencial': 42}],
+        'gerado_em': 'x',
+    }
+    assert agg.ranking_top('potencial', 10, {})['ranking'][0]['uf'] == 'PR'

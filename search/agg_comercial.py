@@ -43,8 +43,15 @@ Objeto BUCKET (unidade de resposta, mesma forma pra UF e tribunal):
                                //   confirmados só 6.421 têm sinal de texto, e
                                //   41.299 (87%) só aparecem nesta visão)
       "cobertura_pct": 42.5,   // float 0..100 — % validado (cache; null se pending)
-      "densidade": 0.034,      // float 0..1
-      "score_foco": 0.0191     // float ≥ 0
+      "densidade": 0.034,      // float 0..1   — lente POSSÍVEIS (compat)
+      "score_foco": 0.0191,    // float ≥ 0    — lente POSSÍVEIS (compat)
+      "densidade_por_lente": { "potencial": 0.034, "confirmado": 0.001, "todos": 0.035 },
+      "score_por_lente":     { "potencial": 0.019, "confirmado": 0.000, "todos": 0.020 }
+                               //   o mapa tem 3 lentes; o ranking "ataque
+                               //   primeiro" reordena pela lente ativa, senão
+                               //   mapa e ranking respondem coisas diferentes
+                               //   na mesma tela. Custo zero: é aritmética
+                               //   sobre números que já vieram no bucket.
     }
 
 1) GET /dashboard/api/comercial/mapa
@@ -65,9 +72,12 @@ Objeto BUCKET (unidade de resposta, mesma forma pra UF e tribunal):
      }
    `uf` é obrigatório aqui (400 se ausente/ inválido).
 
-3) GET /dashboard/api/comercial/top?metric=score&n=10
+3) GET /dashboard/api/comercial/top?metric=score&n=10&lente=todos
    → {
-       "metric": "score",              // score | volume | valor | potencial | confirmado
+       "metric": "score",       // score | volume | valor | potencial | confirmado | todos
+       "lente": "todos",        // potencial | confirmado | todos — só afeta metric=score;
+                                //   é a MESMA string do `sinalMode` do front, de propósito
+                                //   (tradução no meio do caminho é bug silencioso)
        "n": 10,
        "ranking": [ <bucket com "uf">, ... ],   // ordenado pela métrica desc
        "filtros": { ... },
@@ -114,7 +124,16 @@ ANO_MIN_PLAUSIVEL = 1990
 CLASSIF_CONFIRMADO = 'PRECATORIO'
 
 #: métricas aceitas pelo ranking /top
-METRICAS_RANKING = {'score', 'volume', 'valor', 'potencial', 'confirmado'}
+METRICAS_RANKING = {'score', 'volume', 'valor', 'potencial', 'confirmado', 'todos'}
+
+# Lente do mapa → campo do bucket que vira NUMERADOR da densidade no score.
+# Uma lente por chave; a chave é a mesma string que o front usa em `sinalMode`,
+# pra não haver tradução no meio do caminho (fonte de bug silencioso).
+SCORE_POR_LENTE = {
+    'potencial': 'potencial',
+    'confirmado': 'confirmado',
+    'todos': 'todos',
+}
 
 #: TTL do warm cache dos agregados globais (sem filtro) — 5 min
 CACHE_TTL = 300
@@ -370,6 +389,11 @@ def calcular_score_foco(volume: int, valor: float, potencial: int,
                         cobertura_pct, valor_max: float) -> tuple:
     """densidade × valor_relativo × (1 − cobertura). Retorna (densidade, score_foco).
 
+    `potencial` é o ALVO — o numerador da densidade. Por padrão é o sinal de
+    texto, mas `_enriquecer_buckets` chama esta função uma vez por lente
+    (possíveis / confirmados / todos) pra que o ranking "ataque primeiro"
+    responda à lente escolhida no mapa. Ver `SCORE_POR_LENTE`.
+
     - cobertura_pct None (sem dado no cache) ⇒ trata como 0 (fator (1−0)=1),
       ou seja, "não tocamos" — o que INFLA o score, coerente com "ataque primeiro".
     - valor 0/None no BUCKET ⇒ fator valor NEUTRO (1.0). valor_causa é ESPARSO
@@ -433,16 +457,32 @@ def _parse_total(resp: dict) -> dict:
 
 
 def _enriquecer_buckets(buckets: list, campo: str, cobertura_map: dict) -> list:
-    """Junta cobertura + calcula densidade/score_foco. Ordena por score desc."""
+    """Junta cobertura + calcula densidade/score_foco POR LENTE. Ordena por score desc.
+
+    O mapa tem 3 lentes (possíveis / confirmados / todos) e o ranking "ataque
+    primeiro" precisa mudar junto: mapa pintando uma métrica e ranking ordenando
+    por outra é contradição na mesma tela. Como o score é aritmética sobre
+    números que já vieram no bucket, calcular as 3 não custa request nenhuma no
+    ES — sai tudo do mesmo payload.
+
+    `densidade`/`score_foco` (sem sufixo) continuam sendo os de POSSÍVEIS, que é
+    o default histórico do endpoint — quem consome sem saber de lente não quebra.
+    """
     valor_max = max((b['valor'] for b in buckets), default=0.0)
     for b in buckets:
         chave = b[campo]
         cob = cobertura_map.get(chave)
         b['cobertura_pct'] = cob
-        dens, score = calcular_score_foco(
-            b['volume'], b['valor'], b['potencial'] or 0, cob, valor_max)
-        b['densidade'] = dens
-        b['score_foco'] = score
+        dens_por_lente, score_por_lente = {}, {}
+        for lente, campo_alvo in SCORE_POR_LENTE.items():
+            dens, score = calcular_score_foco(
+                b['volume'], b['valor'], b.get(campo_alvo) or 0, cob, valor_max)
+            dens_por_lente[lente] = dens
+            score_por_lente[lente] = score
+        b['densidade_por_lente'] = dens_por_lente
+        b['score_por_lente'] = score_por_lente
+        b['densidade'] = dens_por_lente['potencial']
+        b['score_foco'] = score_por_lente['potencial']
     buckets.sort(key=lambda x: x['score_foco'], reverse=True)
     return buckets
 
@@ -551,15 +591,24 @@ def agg_tribunais(uf: str, filtros: dict | None = None) -> dict:
     return payload
 
 
-def ranking_top(metric: str = 'score', n: int = 10, filtros: dict | None = None) -> dict:
+def ranking_top(metric: str = 'score', n: int = 10, filtros: dict | None = None,
+                lente: str = 'potencial') -> dict:
     """Ranking Top-N por UF numa métrica. Reusa `agg_por_uf` (mesma agg ES).
 
-    metric ∈ {score, volume, valor, potencial, confirmado}. n clampado 1..100.
+    metric ∈ {score, volume, valor, potencial, confirmado, todos}. n clampado 1..100.
+
+    `lente` só afeta metric='score': o "ataque primeiro" reordena conforme a
+    lente ativa no mapa, senão o mapa pinta confirmados e o ranking continua
+    ordenando por possíveis — duas respostas diferentes pra mesma pergunta na
+    mesma tela. Lente desconhecida cai em 'potencial' (default histórico).
     """
     filtros = filtros or {}
     metric = (metric or 'score').strip().lower()
     if metric not in METRICAS_RANKING:
         metric = 'score'
+    lente = (lente or 'potencial').strip().lower()
+    if lente not in SCORE_POR_LENTE:
+        lente = 'potencial'
     try:
         n = int(n)
     except (TypeError, ValueError):
@@ -567,11 +616,17 @@ def ranking_top(metric: str = 'score', n: int = 10, filtros: dict | None = None)
     n = max(1, min(n, 100))
 
     base = agg_por_uf(filtros)
-    chave_ordem = 'score_foco' if metric == 'score' else metric
-    ranking = sorted(base['ufs'], key=lambda x: x.get(chave_ordem, 0), reverse=True)[:n]
+    if metric == 'score':
+        def ordem(x):
+            return (x.get('score_por_lente') or {}).get(lente, x.get('score_foco') or 0)
+    else:
+        def ordem(x):
+            return x.get(metric) or 0        # `potencial` pode vir None (não processado)
+    ranking = sorted(base['ufs'], key=ordem, reverse=True)[:n]
 
     return {
         'metric': metric,
+        'lente': lente,
         'n': n,
         'ranking': ranking,
         'filtros': filtros,
