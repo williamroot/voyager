@@ -230,7 +230,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
                     {% if t == 'vetorizacao' %}
                       <span class="inline-flex items-center gap-1 rounded-full bg-accent-fg/12 text-accent-fg px-2 py-0.5 text-[0.65rem] font-medium">{% voy_icon "probe" "w-3 h-3" %} Vetorização</span>
                     {% elif t == 'extracao' %}
-                      <span class="inline-flex items-center gap-1 rounded-full bg-mission/12 text-mission px-2 py-0.5 text-[0.65rem] font-medium">{% voy_icon "sparkles" "w-3 h-3" %} Extração</span>
+                      <span class="inline-flex items-center gap-1 rounded-full bg-mission/10 text-mission-fg px-2 py-0.5 text-[0.65rem] font-medium">{% voy_icon "sparkles" "w-3 h-3" %} Extração</span>
                     {% endif %}
                   {% endfor %}
                 </div>
@@ -311,7 +311,7 @@ Bug de localização: números injetados em x-data / builders ECharts → |unloc
               <div class="h-full" style="width: {{ qualidade.err_llm_pct|unlocalize }}%; background: rgb(var(--c-mission));" title="erro-LLM {{ qualidade.err_llm_pct }}%"></div>
               <div class="h-full" style="width: {{ qualidade.err_ret_pct|unlocalize }}%; background: rgb(var(--c-info));" title="erro-retrieval {{ qualidade.err_ret_pct }}%"></div>
             </div>
-            <div class="text-[0.6rem] text-fg-subtle mt-0.5">{{ qualidade.err_ret_pct|floatformat:0 }}% busca · gargalo no {% if qualidade.err_llm_pct >= qualidade.err_ret_pct %}<span class="text-mission">prompt/LLM</span>{% else %}<span class="text-info">retrieval</span>{% endif %}</div>
+            <div class="text-[0.6rem] text-fg-subtle mt-0.5">{{ qualidade.err_ret_pct|floatformat:0 }}% busca · gargalo no {% if qualidade.err_llm_pct >= qualidade.err_ret_pct %}<span class="text-mission-fg">prompt/LLM</span>{% else %}<span class="text-info">retrieval</span>{% endif %}</div>
           {% else %}
             <div class="mt-1 text-xl font-semibold kpi-num text-fg-subtle">—</div>
             <div class="text-[0.6rem] text-fg-subtle mt-0.5">sem decomposição</div>
