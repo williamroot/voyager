@@ -2,13 +2,16 @@
 {% load static %}
 {% load voyager_extras %}
 
-{% block title %}Mapa Comercial{% endblock %}
+{% block title %}Mapa de Precatórios{% endblock %}
 
 {% block content %}
-{% include 'dashboard/_partials/page_header.html' with title='Mapa Comercial de Precatórios' subtitle='Onde estão os precatórios — por estado e por tribunal. Reflete <strong>o que já processamos</strong>, não a verdade do Brasil: <span class="text-mission">potencial</span> (sinal DJEN, amplo) ≠ <span class="text-accent-fg">confirmado</span> (ML, preciso), e <span class="text-fg-muted">% validado</span> diz o quanto ainda mal tocamos.' %}
+{% comment %} O subtítulo vai num <span class="block max-w-3xl">: o page_header não tem
+   max-w e o texto corria ~200 caracteres por linha em telas largas. O wrapper é
+   LAYOUT (não estilo de texto inline) — a copy em si é texto puro. {% endcomment %}
+{% include 'dashboard/_partials/page_header.html' with title='Mapa de Precatórios' subtitle='<span class="block max-w-3xl">Em que estados atacar primeiro. Mostra o que já temos na nossa base — não o Brasil inteiro.</span>' %}
 
 {% comment %}
-Mapa Comercial (Agente 3 — FRONTEND).
+Mapa de Precatórios (Agente 3 — FRONTEND).
 - ECharts servido localmente (base.html) — CSP: zero CDN externo.
 - GeoJSON dos 27 estados em {% static 'dashboard/geo/brasil-uf.geojson' %}
   (properties.name = UF; registrado como mapa 'brasil'). Federal (FED) fica
@@ -16,6 +19,9 @@ Mapa Comercial (Agente 3 — FRONTEND).
 - Todos os dados vêm dos 3 endpoints JSON (login-gated). Toggles re-pintam a
   partir dos dados já carregados (todos os campos vêm no bucket). Filtros e
   drill-down re-requestam.
+- Copy: `.ia/UX_COPY_MAPA.md` é a fonte de verdade de TODO texto visível.
+- Explicações: componente `.voy-tip` (hover + foco + tap) — NUNCA `title=`,
+  que não abre no toque e é invisível pro teclado.
 {% endcomment %}
 
 <script>
@@ -36,27 +42,81 @@ Mapa Comercial (Agente 3 — FRONTEND).
     MT:'Mato Grosso', MS:'Mato Grosso do Sul', MG:'Minas Gerais', PA:'Pará',
     PB:'Paraíba', PR:'Paraná', PE:'Pernambuco', PI:'Piauí', RJ:'Rio de Janeiro',
     RN:'Rio Grande do Norte', RS:'Rio Grande do Sul', RO:'Rondônia', RR:'Roraima',
-    SC:'Santa Catarina', SP:'São Paulo', SE:'Sergipe', TO:'Tocantins', FED:'Federal',
+    SC:'Santa Catarina', SP:'São Paulo', SE:'Sergipe', TO:'Tocantins',
+    FED:'Justiça Federal',
   };
 
-  // Glossário canônico das métricas — definido UMA vez e reusado em TODO ponto
-  // numérico (KPIs, tooltip do mapa, Top-N, drill-down, Camada Federal) via
-  // title nativo (:title no Alpine). Mesmo texto pra mesma métrica em todo lugar.
+  // Glossário canônico — fonte única de toda explicação numérica da página.
+  // Regras: ≤140 caracteres, 1 frase, ZERO parênteses aninhados, zero jargão
+  // interno. As CHAVES são estáveis de propósito (nenhum glos('...') muda).
   window.GLOSSARIO = {
-    volume: 'Total de processos que já ingerimos desse tribunal/estado (não é o acervo oficial do tribunal).',
-    valor: 'Soma do valor da causa (fonte pública: Datajud/e-SAJ). R$ 0 = valor ainda não capturado pelo enriquecimento — não significa "sem dinheiro". O valor exato do precatório virá do Falcon.',
-    potencial: "Processos com sinal textual de precatório nas publicações do DJEN (amplo, inclui falsos positivos — ex.: carta precatória). '—' = sinal ainda não processado neste tribunal/estado.",
-    confirmado: 'Processos classificados como PRECATÓRIO pelo modelo de ML — preciso, mas limitado pela cobertura de enriquecimento.',
-    cobertura: '% dos processos do tribunal/estado que já passaram por enriquecimento (Datajud ou robô do tribunal).',
-    score: "densidade de precatório × valor relativo × (1 − cobertura). Prioriza onde é rico em precatório, tem dinheiro e ainda foi pouco explorado. 0.0000 com 'pot —' = ainda não medido, não 'sem oportunidade'.",
+    volume:     'Processos deste estado que já estão na nossa base. O tribunal tem mais — estes são os que temos.',
+    valor:      'Soma dos valores publicados pelos tribunais. "Não informado" quer dizer que o tribunal não publicou, não que falte dinheiro.',
+    potencial:  'Processos cujas publicações citam precatório. Indício forte, não certeza. "Não analisado" = ainda não lemos este estado.',
+    confirmado: 'A nossa IA leu o processo e confirmou que é precatório. Mais certeiro que os possíveis e, por isso, um número menor.',
+    cobertura:  'Quanto deste estado já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem.',
+    score:      'Prioridade de 0 a 100: muito precatório, com valor, e pouco explorado por nós. 100 = o estado mais promissor da lista.',
+    naoAnalisado: 'Ainda não lemos as publicações deste estado. O número é desconhecido, não é zero.',
+    federal:      'Processo federal corre em vários estados, então não cabe em um só. Fica contado aqui, separado do mapa.',
   };
 
+  // ---------------------------------------------------------------------------
+  // FORMATAÇÃO pt-BR (helpers LOCAIS desta página)
+  // ---------------------------------------------------------------------------
+  // Dinheiro: a escada parava em `bi`, então o KPI global (R$ 2,88 tri) saía
+  // como "R$ 2880,0 bi" — o número mais visível da página, errado.
+  const _ESCALA_BRL = [[1e12, 'tri'], [1e9, 'bi'], [1e6, 'mi'], [1e3, 'mil']];
+  function _num1(v, k) {
+    return (v / k).toFixed(1).replace(/\.0$/, '').replace('.', ',');
+  }
+  // Devolve SEM o prefixo "R$" quando não há valor, pra caber em
+  // "Valor informado: não informado". 0 é "não informado" (o tribunal não
+  // publicou), NUNCA "R$ 0" — que o leitor entende como "não tem dinheiro".
   function fmtBRL(v) {
-    v = Number(v) || 0;
-    if (Math.abs(v) >= 1e9) return 'R$ ' + (v/1e9).toFixed(1).replace('.', ',') + ' bi';
-    if (Math.abs(v) >= 1e6) return 'R$ ' + (v/1e6).toFixed(1).replace('.', ',') + ' mi';
-    if (Math.abs(v) >= 1e3) return 'R$ ' + (v/1e3).toFixed(1).replace('.', ',') + ' mil';
+    if (v === null || v === undefined || v === '') return 'não informado';
+    v = Number(v);
+    if (!isFinite(v) || v === 0) return 'não informado';
+    const a = Math.abs(v);
+    for (const [k, suf] of _ESCALA_BRL) {
+      if (a >= k) return 'R$ ' + _num1(v, k) + ' ' + suf;
+    }
     return 'R$ ' + v.toLocaleString('pt-BR', {maximumFractionDigits: 0});
+  }
+  // Dinheiro na ESCALA DE COR: aqui 0 é um corte de faixa legítimo (não um
+  // vazio), então formata sempre — o vazio da escala é a faixa cinza à parte.
+  function fmtBRLEscala(v) {
+    v = Number(v) || 0;
+    const a = Math.abs(v);
+    for (const [k, suf] of _ESCALA_BRL) {
+      if (a >= k) return 'R$ ' + _num1(v, k) + ' ' + suf;
+    }
+    return 'R$ ' + v.toLocaleString('pt-BR', {maximumFractionDigits: 0});
+  }
+  // Contagem compacta em pt-BR. LOCAL desta página: o fmtCompact() global do
+  // base.html devolve "120k"/"1.2M" (inglês) e é consumido por outras páginas —
+  // não pode ser alterado aqui.
+  function fmtQtdCompacta(n) {
+    const v = Number(n) || 0, a = Math.abs(v);
+    if (a >= 1e6) return _num1(v, 1e6) + ' mi';
+    if (a >= 1e3) return _num1(v, 1e3) + ' mil';
+    return String(Math.round(v));
+  }
+  // Porcentagem: 0 → "0%"; 0<n<0,1 → "menos de 0,1%"; senão 1 casa com VÍRGULA
+  // e sem o ",0" (o toFixed(1) cru produzia "0.0%", separador inglês).
+  function fmtPct(v) {
+    const n = Number(v);
+    if (v === null || v === undefined || !isFinite(n)) return null;
+    if (n === 0) return '0%';
+    if (n > 0 && n < 0.1) return 'menos de 0,1%';
+    return n.toFixed(1).replace(/\.0$/, '').replace('.', ',') + '%';
+  }
+  // Cor de token do design system, pro CANVAS do ECharts (o gráfico não entende
+  // classe Tailwind). Segue tema porque lê a var CSS viva.
+  function corToken(nome, fallback) {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+      return v ? 'rgb(' + v + ')' : fallback;
+    } catch (e) { return fallback; }
   }
 
   // Estado da página — padrão Alpine da casa (função nomeada, não objeto inline gigante).
@@ -68,6 +128,7 @@ Mapa Comercial (Agente 3 — FRONTEND).
       geradoEm: null,
       loading: true,
       erro: null,
+      faixas: [],         // faixas de cor por quantil (legenda HTML + visualMap)
 
       // ---- toggles ----
       metricMode: 'volume',   // 'volume' | 'valor'
@@ -88,6 +149,12 @@ Mapa Comercial (Agente 3 — FRONTEND).
 
       _chart: null,
       _mapReady: false,
+      // Tokens de requisição: os 4 inputs de faixa disparam @change independentes
+      // (e o drill re-requesta sozinho). Sem isto, a resposta LENTA de um filtro
+      // antigo chegava depois da rápida e pintava o mapa do filtro errado.
+      _seq: 0,
+      _seqDrill: 0,
+      _ufOrigem: null,   // item do ranking que abriu o drill (devolução de foco)
 
       async init() {
         this.initAjuda();   // preferência do bloco "Como ler estes números"
@@ -95,7 +162,8 @@ Mapa Comercial (Agente 3 — FRONTEND).
         try {
           await this.registrarMapa();
         } catch (e) {
-          this.erro = 'Não consegui carregar o mapa do Brasil (' + (e.message || e) + ').';
+          this.erro = 'Não conseguimos desenhar o mapa do Brasil. Recarregue a página.';
+          this.erroDetalhe = String(e.message || e);
           this.loading = false;
           return;
         }
@@ -104,6 +172,7 @@ Mapa Comercial (Agente 3 — FRONTEND).
         await this.carregar();
         this.observarTema();
       },
+      erroDetalhe: null,
 
       // Re-pinta na troca de tema. NÃO existe evento 'voy:theme' no base.html —
       // o toggleTheme() só mexe na classe `dark` do <html> e chama initAllCharts()
@@ -136,13 +205,19 @@ Mapa Comercial (Agente 3 — FRONTEND).
       },
 
       async carregar() {
+        const seq = ++this._seq;
         this.loading = true;
         this.erro = null;
+        this.erroDetalhe = null;
+        // Sinal de "estou buscando" SOBRE o mapa antigo: trocar filtro leva 2-5s
+        // e antes disso o mapa velho ficava parado, sem nenhum aviso.
+        this.mostrarLoadingChart();
         try {
           const qs = this.querystring();
           const url = window.COMERCIAL_URLS.mapa + (qs ? ('?' + qs) : '');
           const resp = await fetch(url, {credentials: 'same-origin', headers: {'Accept': 'application/json'}});
           const json = await resp.json();
+          if (seq !== this._seq) return;          // resposta fora de ordem: descarta
           if (!resp.ok) throw new Error(json.erro || ('HTTP ' + resp.status));
           this.ufs = json.ufs || [];
           this.total = json.total || null;
@@ -152,29 +227,55 @@ Mapa Comercial (Agente 3 — FRONTEND).
           // se havia uma UF selecionada, recarrega o drill sob os novos filtros
           if (this.selecionada) this.abrirUf(this.selecionada, true);
         } catch (e) {
-          this.erro = String(e.message || e);
+          if (seq !== this._seq) return;
+          this.erro = 'Não conseguimos carregar os dados do mapa.';
+          this.erroDetalhe = String(e.message || e);
           this.loading = false;
+          if (this._chart) this._chart.hideLoading();
         }
       },
 
+      mostrarLoadingChart() {
+        if (!this._chart) return;   // 1ª carga: o skeleton do card cobre
+        const isDark = document.documentElement.classList.contains('dark');
+        this._chart.showLoading('default', {
+          text: 'acquiring signal',
+          color: corToken('--c-mission', 'rgb(249,115,22)'),
+          textColor: corToken('--c-fg-muted', 'rgb(161,161,170)'),
+          maskColor: isDark ? 'rgba(9,9,11,0.55)' : 'rgba(248,250,252,0.7)',
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 11,
+          zlevel: 10,
+        });
+      },
+
       // valor da métrica ativa pra um bucket, respeitando os dois toggles.
-      // No modo Potencial, bucket com sinal NÃO processado (potencial null /
-      // sinal_processado false) retorna null — desconhecido ≠ zero: o ECharts
-      // pinta como "sem dado" (cinza), FORA da escala de cor (achado do QA:
-      // SP com 4,2M processos aparecia como "Potencial: 0" = mentira material).
+      // null = DESCONHECIDO (fora da escala de cor, cinza):
+      //  - modo Quantidade/Possíveis: sinal não processado (potencial null ou
+      //    sinal_processado false) — achado do QA: SP com 4,2M processos
+      //    aparecia como "Potencial: 0" = mentira material;
+      //  - modo R$: valor 0 = o tribunal NÃO PUBLICOU o valor. Pintar na faixa
+      //    mais baixa diria "quase nenhum dinheiro aqui", que é falso. O rótulo
+      //    da faixa cinza muda de acordo (ver `rotuloSemDado`).
+      // Confirmados = 0 é zero DE VERDADE e entra na escala (faixa mais baixa).
       metricaDe(b) {
         if (this.metricMode === 'valor') {
-          // no modo R$, o toggle potencial/confirmado não muda o eixo de valor
+          // no modo R$, o toggle possíveis/confirmados não muda o eixo de valor
           // (não temos valor separado por sinal) — mostramos o valor do bucket.
-          return b.valor || 0;
+          return (b.valor && Number(b.valor) > 0) ? Number(b.valor) : null;
         }
         if (this.sinalMode === 'confirmado') return b.confirmado || 0;
         return this.potDesconhecido(b) ? null : (b.potencial || 0);
       },
 
       rotuloMetrica() {
-        if (this.metricMode === 'valor') return 'Valor (R$)';
-        return this.sinalMode === 'confirmado' ? 'Confirmados (ML)' : 'Potenciais (sinal DJEN)';
+        if (this.metricMode === 'valor') return 'Valor informado (R$)';
+        return this.sinalMode === 'confirmado' ? 'Confirmados pela IA' : 'Possíveis precatórios';
+      },
+      // O que a faixa CINZA significa depende da métrica ativa — são dois vazios
+      // diferentes e não podem colapsar num rótulo só.
+      rotuloSemDado() {
+        return this.metricMode === 'valor' ? 'valor não informado' : 'ainda não analisado';
       },
 
       // buckets que caem no choropleth = só UFs geográficas (FED fica de fora).
@@ -183,6 +284,77 @@ Mapa Comercial (Agente 3 — FRONTEND).
       },
       bucketFED() {
         return this.ufs.find(b => b.uf === 'FED') || null;
+      },
+      // resposta OK mas sem nenhum estado: filtro restritivo demais. Sem este
+      // estado o Brasil inteiro fica CINZA — que pela nossa própria legenda quer
+      // dizer "ainda não analisado". O mapa passaria a mentir por acidente.
+      vazioPorFiltro() {
+        return !this.loading && !this.erro && this.ufsGeo().length === 0;
+      },
+
+      // ---- escala de cor: FAIXAS POR QUANTIL -----------------------------
+      // POR QUÊ QUANTIL: a escala linear min:0 → max punha RO/RN/TO/RR
+      // (13k–130k) na mesma cor de "zero" ao lado do PR (267.975) — apagando do
+      // mapa exatamente os estados que o ranking manda atacar. Quartil distribui
+      // a cor pela POSIÇÃO no ranking, não pela distância até o máximo.
+      // POR QUÊ `visualMap.pieces` (piecewise) e não cor no `data`: o ECharts e a
+      // legenda HTML leem O MESMO array `this.faixas` — cor do mapa e swatch da
+      // legenda não podem divergir; e o `null` continua caindo no areaColor
+      // cinza (o vazio) sem uma linha de código extra.
+      // A rampa antiga começava em #2a1505 / #0c2a2a — quase o fundo do tema
+      // escuro. Numa escala LINEAR isso era coerente (o piso era "≈0"), mas com
+      // quantil o piso é um quartil de estados REAIS: se ele desaparece no
+      // fundo, a página volta a apagar o estado pequeno. Toda faixa tem cor
+      // visível, com claridade monotônica. No claro a rampa inverte (pálido →
+      // saturado) porque em fundo branco "mais forte" é mais escuro.
+      rampaCor() {
+        const isDark = document.documentElement.classList.contains('dark');
+        if (this.metricMode === 'valor') {
+          return isDark ? ['#065f46', '#0f766e', '#10b981', '#6ee7b7']
+                        : ['#d1fae5', '#6ee7b7', '#059669', '#065f46'];
+        }
+        return isDark ? ['#7c2d12', '#c2410c', '#f97316', '#fdba74']
+                      : ['#ffedd5', '#fdba74', '#ea580c', '#9a3412'];
+      },
+      corSemDado() {
+        const isDark = document.documentElement.classList.contains('dark');
+        return isDark ? 'rgba(63,63,70,0.55)' : 'rgba(203,213,225,0.75)';
+      },
+      calcularFaixas(valores) {
+        const vals = valores
+          .filter(v => v !== null && v !== undefined && isFinite(v))
+          .sort((a, b) => a - b);
+        if (!vals.length) return [];
+        const rampa = this.rampaCor();
+        const emR$ = this.metricMode === 'valor';
+        const rot = emR$ ? fmtBRLEscala : fmtQtdCompacta;
+        const quantil = (p) => vals[Math.min(vals.length - 1, Math.floor(p * vals.length))];
+        const cortes = [];
+        for (const p of [0.25, 0.5, 0.75]) {
+          const c = quantil(p);
+          if (c > vals[0] && cortes.indexOf(c) === -1) cortes.push(c);
+        }
+        const n = cortes.length + 1;
+        if (n === 1) {
+          // todos os estados no mesmo valor: 1 faixa só (senão a legenda mentiria
+          // sugerindo variação que não existe).
+          return [{cor: rampa[rampa.length - 1], gte: vals[0], lt: null, rotulo: rot(vals[0])}];
+        }
+        const cor = (i) => rampa[Math.round(i * (rampa.length - 1) / (n - 1))];
+        const out = [];
+        for (let i = 0; i < n; i++) {
+          const lo = i === 0 ? null : cortes[i - 1];
+          const hi = i === n - 1 ? null : cortes[i];
+          out.push({
+            cor: cor(i),
+            gte: lo,
+            lt: hi,
+            rotulo: lo === null ? ('até ' + rot(hi))
+                  : hi === null ? ('mais de ' + rot(lo))
+                  : (rot(lo) + ' a ' + rot(hi)),
+          });
+        }
+        return out;
       },
 
       pintar() {
@@ -197,9 +369,13 @@ Mapa Comercial (Agente 3 — FRONTEND).
           value: this.metricaDe(b),
           bucket: b,
         }));
-        const vals = data.map(d => d.value).filter(v => v > 0);
-        const max = vals.length ? Math.max(...vals) : 1;
+        // recalculadas a cada pintura => acompanham filtros E toggles
+        this.faixas = this.calcularFaixas(data.map(d => d.value));
         const emR$ = this.metricMode === 'valor';
+        const corSemDado = this.corSemDado();
+        const corPossivel = corToken('--c-mission-fg', 'rgb(253,186,116)');
+        const corConfirmado = corToken('--c-accent-fg', 'rgb(110,231,183)');
+        const corMuda = corToken('--c-fg-muted', 'rgb(161,161,170)');
 
         const self = this;
         const opts = {
@@ -211,52 +387,66 @@ Mapa Comercial (Agente 3 — FRONTEND).
             borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
             textStyle: {color: isDark ? '#e4e4e7' : '#27272a', fontSize: 12},
             formatter: function (p) {
+              const nomeSo = window.UF_NOMES[p.name] || p.name;
               const b = p.data && p.data.bucket;
-              if (!b) return (window.UF_NOMES[p.name] || p.name) + '<br/>sem dado';
+              // três vazios DIFERENTES, três textos: aqui é "não temos o
+              // processo" (o estado não veio na resposta) — não é "não lemos".
+              if (!b) {
+                return '<b>' + nomeSo + ' (' + p.name + ')</b><br/>'
+                  + 'nenhum processo deste estado na nossa base';
+              }
               const nome = window.UF_NOMES[b.uf] || b.uf;
-              const cob = (b.cobertura_pct === null || b.cobertura_pct === undefined)
-                ? '<span style="opacity:.7">cobertura desconhecida</span>'
-                : (Number(b.cobertura_pct).toFixed(1) + '% validado');
-              // potencial null / sinal não processado ⇒ desconhecido, NÃO "0"
+              const pctCob = fmtPct(b.cobertura_pct);
+              const cob = 'Já analisado: ' + (pctCob === null ? 'não sabemos ainda' : pctCob);
               const pot = self.potDesconhecido(b)
-                ? '<span style="color:#f97316;opacity:.75;font-style:italic">Potencial: sinal ainda não processado</span>'
-                : '<span style="color:#f97316">Potencial: ' + fmt(b.potencial) + '</span>';
+                ? '<span style="color:' + corPossivel + ';font-style:italic">Possíveis precatórios: ainda não analisado</span>'
+                : '<span style="color:' + corPossivel + '">Possíveis precatórios: ' + fmt(b.potencial) + '</span>';
+              const pri = self.prioridadeEm(b, self.ufs);
+              const priTxt = pri === null
+                ? 'Prioridade: ainda não medida'
+                : 'Prioridade: ' + pri + ' de 100';
+              // cálculo interno explícito: quem precisa auditar o ranking acha
+              // o score_foco cru sem abrir o DevTools.
+              const bruto = '<span style="color:' + corMuda + '">cálculo interno: '
+                + String(b.score_foco ?? 0).replace('.', ',') + '</span>';
               // 1 linha curta de contexto da métrica ATIVA (glossário canônico)
-              const ctx = '<div style="max-width:280px;white-space:normal;opacity:.55;'
+              const ctx = '<div style="max-width:280px;white-space:normal;color:' + corMuda + ';'
                 + 'margin-top:4px;font-size:11px;line-height:1.35;border-top:1px solid '
                 + 'rgba(128,128,128,0.25);padding-top:4px">'
                 + self.glosMetricaAtiva() + '</div>';
               return '<b>' + nome + ' (' + b.uf + ')</b><br/>'
-                + 'Volume: ' + fmt(b.volume) + '<br/>'
-                + 'Valor: ' + fmtBRL(b.valor) + '<br/>'
+                + 'Processos na base: ' + fmt(b.volume) + '<br/>'
+                + 'Valor informado: ' + fmtBRL(b.valor) + '<br/>'
                 + pot + '<br/>'
-                + '<span style="color:#10b981">Confirmado: ' + fmt(b.confirmado) + '</span><br/>'
+                + '<span style="color:' + corConfirmado + '">Confirmados pela IA: ' + fmt(b.confirmado) + '</span><br/>'
                 + cob + '<br/>'
-                + '<span style="opacity:.7">score foco: ' + (b.score_foco ?? 0) + '</span>'
+                + priTxt + '<br/>'
+                + bruto
                 + ctx;
             },
           },
-          visualMap: {
-            type: 'continuous',
-            min: 0,
-            max: max,
-            left: 'left',
-            bottom: 8,
-            calculable: true,
-            text: ['alto', 'baixo'],
-            textStyle: {color: c.axisLabel, fontSize: 10},
-            inRange: {
-              color: emR$
-                ? ['#0c2a2a', '#0f766e', '#10b981', '#6ee7b7']
-                : ['#2a1505', '#9a3412', '#f97316', '#fdba74'],
-            },
-            formatter: emR$ ? (v) => fmtBRL(v) : (v) => fmtCompact(v),
-          },
+          // A legenda vive em HTML no header do card (`faixas`), não no canvas:
+          // `calculable: true` dava alças que REMOVEM estados da escala — o
+          // estado saía da cor e virava CINZA, que a nossa legenda define como
+          // "ainda não analisado". Era um filtro destrutivo disfarçado de
+          // legenda, sem desfazer. Legenda não filtra; filtro tem card próprio.
+          visualMap: this.faixas.length ? {
+            type: 'piecewise',
+            show: false,
+            calculable: false,
+            text: ['mais', 'menos'],
+            pieces: this.faixas.map(f => {
+              const p = {color: f.cor};
+              if (f.gte !== null && f.gte !== undefined) p.gte = f.gte;
+              if (f.lt !== null && f.lt !== undefined) p.lt = f.lt;
+              return p;
+            }),
+          } : undefined,
           series: [{
             type: 'map',
             // nome da métrica ativa (sem isto o tooltip de fallback diz "series0")
-            name: emR$ ? 'Valor (R$)'
-                       : (this.sinalMode === 'confirmado' ? 'Confirmados' : 'Potenciais'),
+            name: emR$ ? 'Valor informado'
+                       : (this.sinalMode === 'confirmado' ? 'Confirmados' : 'Possíveis'),
             map: 'brasil',
             // O default do ECharts é 0.75 (calibrado pro mapa da China) e ESMAGA o
             // Brasil 25% na horizontal ("magro"). Nosso bbox é lon -74→-34 (40°) x
@@ -268,8 +458,11 @@ Mapa Comercial (Agente 3 — FRONTEND).
             // altura inteira (+38% de área) mantendo a proporção 1.066.
             layoutSize: '100%',
             layoutCenter: ['50%', '50%'],
-            roam: true,
-            scaleLimit: {min: 1, max: 8},
+            // roam:true SEQUESTRAVA o scroll: a roda do mouse dava zoom em vez de
+            // rolar a página, no touch o dedo não passava do mapa, e um zoom
+            // errado só voltava com F5. 27 estados cabem na tela — não há o que
+            // explorar por pan/zoom.
+            roam: false,
             data: data,
             nameProperty: 'name',
             label: {show: false},
@@ -285,16 +478,17 @@ Mapa Comercial (Agente 3 — FRONTEND).
             itemStyle: {
               borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.12)',
               borderWidth: 0.6,
-              // estados sem dado ficam cinza translúcido (não "0% pintado")
-              areaColor: isDark ? 'rgba(63,63,70,0.35)' : 'rgba(228,228,231,0.6)',
+              // valor null (desconhecido) fica cinza — a legenda HTML diz, com
+              // PALAVRA, qual dos vazios é (não analisado / valor não informado)
+              areaColor: corSemDado,
             },
           }],
         };
 
         // NÃO usar setupChart aqui: ele faz JSON.stringify(opts) pro data-echart,
         // e JSON.stringify DESCARTA funções — matava os nossos `formatter`
-        // (tooltip do mapa e visualMap), fazendo o ECharts cair no tooltip
-        // default ("series0"). Aplicamos direto e removemos o skeleton à mão.
+        // (tooltip do mapa), fazendo o ECharts cair no tooltip default
+        // ("series0"). Aplicamos direto e controlamos o skeleton por x-show.
         // O tema é fixado no init() do ECharts: reusar a instância após o toggle
         // manteria o tema velho. Se o tema virou, descarta e reinicializa.
         let chart = echarts.getInstanceByDom(el);
@@ -308,6 +502,7 @@ Mapa Comercial (Agente 3 — FRONTEND).
           el._voyTema = isDark ? 'dark' : 'light';
         }
         this._chart = chart;
+        this._chart.hideLoading();
         this._chart.setOption(opts, true);
         // resize 1× por elemento (o initChart do base registrava a cada chamada)
         if (!el._resizeBound) {
@@ -316,11 +511,6 @@ Mapa Comercial (Agente 3 — FRONTEND).
             if (c) c.resize();
           });
           el._resizeBound = true;
-        }
-        const cell = el.closest('.chart-cell');
-        if (cell) {
-          const skel = cell.querySelector('.chart-skeleton');
-          if (skel) skel.remove();
         }
         if (this._chart && !el._clickBound) {
           this._chart.on('click', (p) => {
@@ -331,9 +521,19 @@ Mapa Comercial (Agente 3 — FRONTEND).
       },
 
       async abrirUf(uf, silent) {
+        const seq = ++this._seqDrill;
         this.selecionada = uf;
-        if (!silent) this.drillLoading = true;
         this.drillErro = null;
+        if (!silent) {
+          this.drillLoading = true;
+          this._ufOrigem = uf;
+          // O card do ranking sai da tela e o foco cairia no <body> — quem usa
+          // teclado perdia o lugar. Manda o foco pro título do painel novo.
+          this.$nextTick(() => {
+            const h = this.$refs.drillTitulo;
+            if (h) h.focus();
+          });
+        }
         // destaca a UF no mapa
         if (this._chart) {
           this._chart.dispatchAction({type: 'unselect', seriesIndex: 0});
@@ -345,22 +545,34 @@ Mapa Comercial (Agente 3 — FRONTEND).
           const url = window.COMERCIAL_URLS.tribunais + '?uf=' + encodeURIComponent(uf) + sep + qs;
           const resp = await fetch(url, {credentials: 'same-origin', headers: {'Accept': 'application/json'}});
           const json = await resp.json();
+          if (seq !== this._seqDrill) return;     // resposta fora de ordem: descarta
           if (!resp.ok) throw new Error(json.erro || ('HTTP ' + resp.status));
           this.tribunais = json.tribunais || [];
           this.drillTotal = json.total || null;
         } catch (e) {
-          this.drillErro = String(e.message || e);
+          if (seq !== this._seqDrill) return;
+          this.drillErro = 'Não conseguimos carregar os tribunais deste estado.';
+          this.drillErroDetalhe = String(e.message || e);
           this.tribunais = [];
         } finally {
-          this.drillLoading = false;
+          if (seq === this._seqDrill) this.drillLoading = false;
         }
       },
+      drillErroDetalhe: null,
 
       fecharDrill() {
+        const origem = this._ufOrigem;
         this.selecionada = null;
         this.tribunais = [];
         this.drillTotal = null;
+        this.drillErro = null;
+        this.drillErroDetalhe = null;
         if (this._chart) this._chart.dispatchAction({type: 'unselect', seriesIndex: 0});
+        // devolve o foco ao item do ranking que abriu o painel
+        this.$nextTick(() => {
+          const alvo = origem && this.$root.querySelector('[data-uf-item="' + origem + '"]');
+          if (alvo) alvo.focus();
+        });
       },
 
       aplicarFiltros() { this.carregar(); },
@@ -375,7 +587,7 @@ Mapa Comercial (Agente 3 — FRONTEND).
       // ---- helpers de exibição ----
       fmt(v) { return fmt(v || 0); },
       fmtBRL(v) { return fmtBRL(v); },
-      // texto canônico do glossário (title/tooltip) — fonte única: GLOSSARIO
+      // texto canônico do glossário — fonte única: GLOSSARIO
       glos(k) { return (window.GLOSSARIO && window.GLOSSARIO[k]) || ''; },
       // glossário da métrica ATIVA no choropleth (acompanha os toggles)
       glosMetricaAtiva() {
@@ -383,9 +595,10 @@ Mapa Comercial (Agente 3 — FRONTEND).
         return this.glos(this.sinalMode === 'confirmado' ? 'confirmado' : 'potencial');
       },
       nomeUf(uf) { return window.UF_NOMES[uf] || uf; },
+      // "4% analisado" / "não sabemos ainda" — nunca "0.0%" nem "desconhecida"
       cobLabel(b) {
-        if (b.cobertura_pct === null || b.cobertura_pct === undefined) return 'desconhecida';
-        return Number(b.cobertura_pct).toFixed(1) + '%';
+        const p = fmtPct(b.cobertura_pct);
+        return p === null ? 'não sabemos ainda' : (p + ' analisado');
       },
       cobDesconhecida(b) {
         return b.cobertura_pct === null || b.cobertura_pct === undefined;
@@ -396,11 +609,15 @@ Mapa Comercial (Agente 3 — FRONTEND).
         return b.potencial === null || b.potencial === undefined
             || b.sinal_processado === false;
       },
+      // "119.586 possíveis" ou, no desconhecido, a PALAVRA (não um glifo nem
+      // transparência): quem não sabe ler opacidade lia "0".
       potLabel(b) {
-        return this.potDesconhecido(b) ? '—' : fmt(b.potencial);
+        return this.potDesconhecido(b)
+          ? 'possíveis: não analisado'
+          : (fmt(b.potencial) + ' possíveis');
       },
       // Quantas UFs geográficas (fora FED) já têm o sinal processado — alimenta
-      // o caveat "ranking parcial" do Ataque primeiro.
+      // o aviso de ranking parcial do Ataque primeiro.
       ufsComSinal() {
         return this.ufsGeo().filter(b => !this.potDesconhecido(b)).length;
       },
@@ -414,21 +631,53 @@ Mapa Comercial (Agente 3 — FRONTEND).
       maxScore() {
         return Math.max(0.0001, ...(this.ufs || []).map(b => b.score_foco || 0));
       },
+      // PRIORIDADE 0–100: `0.0142` é ilegível e não dá âncora nenhuma pra julgar
+      // se é alto. É RELATIVA à lista filtrada (dito na explicação) e o valor
+      // cru continua auditável no tooltip do mapa ("cálculo interno").
+      prioridadeEm(b, lista) {
+        if (this.potDesconhecido(b)) return null;   // sem sinal lido, não há o que medir
+        const max = Math.max(0.0001, ...(lista || []).map(x => x.score_foco || 0));
+        return Math.round(100 * (b.score_foco || 0) / max);
+      },
+      prioridadeLabel(b, lista) {
+        const p = this.prioridadeEm(b, lista);
+        return p === null ? 'prioridade não medida' : ('prioridade ' + p);
+      },
+      barraPct(b, lista) {
+        const max = Math.max(0.0001, ...(lista || []).map(x => x.score_foco || 0));
+        return Math.max(3, 100 * (b.score_foco || 0) / max);
+      },
+      // Quantos itens da lista estão sem valor publicado. Serve pra dizer UMA
+      // vez "o tribunal não informou" em vez de repetir "R$ 0" em 10 linhas.
+      semValor(lista) {
+        return (lista || []).filter(b => !b.valor || Number(b.valor) === 0).length;
+      },
+      temValor(b) { return !!b.valor && Number(b.valor) > 0; },
       geradoLegivel() {
         if (!this.geradoEm) return '';
-        try { return new Date(this.geradoEm).toLocaleString('pt-BR'); }
-        catch (e) { return this.geradoEm; }
+        try {
+          const d = new Date(this.geradoEm);
+          const hora = d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+          const hoje = new Date();
+          const mesmoDia = d.toDateString() === hoje.toDateString();
+          if (mesmoDia) return 'hoje às ' + hora;
+          const dia = d.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
+          return dia + ' às ' + hora;
+        } catch (e) { return this.geradoEm; }
       },
 
-      // ---- bloco didático "Como ler estes números" (drill-down) ----
-      // Aberto por default na 1ª visita; a preferência persiste em localStorage.
-      ajudaAberta: true,
+      // ---- bloco didático "Como ler estes números" (nível de PÁGINA) ----
+      // Vivia DENTRO do drill-down: quem nunca clicava num estado nunca lia o
+      // melhor material didático da tela. Colapsado por default (não empurra o
+      // mapa); a preferência persiste. Chave de localStorage mantida pra não
+      // descartar a preferência de quem já usava a página.
+      ajudaAberta: false,
       _AJUDA_KEY: 'voy-mapa:ajuda-drill',
       initAjuda() {
         try {
           const v = localStorage.getItem(this._AJUDA_KEY);
           if (v !== null) this.ajudaAberta = (v === '1');
-        } catch (e) { /* localStorage bloqueado — mantém default aberto */ }
+        } catch (e) { /* localStorage bloqueado — mantém default fechado */ }
       },
       toggleAjuda() {
         this.ajudaAberta = !this.ajudaAberta;
@@ -443,30 +692,30 @@ Mapa Comercial (Agente 3 — FRONTEND).
       },
 
       // ---- frase de leitura automática (o "insight em uma linha") ----
-      // Montada dos próprios números do estado aberto. Honesta: se o sinal não
-      // foi processado, diz isso; senão calcula densidade (pot/vol) e cobertura
-      // e escolhe o tom (inexplorado / pouco explorado / já explorado).
+      // Montada dos próprios números do estado aberto. Honesta: se ainda não
+      // lemos as publicações, diz isso com o nome do estado; senão calcula
+      // densidade (pot/vol) e cobertura e escolhe o tom.
       insightUf() {
         const b = this.bucketSel();
         if (!b) return '';
         const nome = this.nomeUf(b.uf);
         if (this.potDesconhecido(b)) {
-          return 'Ainda não processamos o indício de precatório neste estado — '
-               + 'os ' + fmt(b.volume) + ' processos já estão na base, mas a leitura '
-               + 'das publicações ainda não passou por aqui.';
+          return 'Ainda não lemos as publicações de ' + nome + '. Os '
+               + fmt(b.volume) + ' processos já estão na nossa base, mas nenhum '
+               + 'foi olhado a fundo aqui.';
         }
         const vol = b.volume || 0;
         const dens = vol ? (100 * (b.potencial || 0) / vol) : 0;
         const cobConhecida = !this.cobDesconhecida(b);
         const cob = cobConhecida ? Number(b.cobertura_pct) : null;
-        const densTxt = dens.toFixed(1).replace('.', ',') + '%';
-        const cobTxt = cobConhecida ? cob.toFixed(1).replace('.', ',') + '%' : null;
+        const densTxt = fmtPct(dens) || '0%';
+        const cobTxt = cobConhecida ? fmtPct(cob) : null;
 
-        let frase = densTxt + ' dos processos deste estado têm indício de precatório';
+        let frase = densTxt + ' dos processos daqui citam precatório';
         if (cobTxt !== null) {
-          frase += ' e ' + (cob < 1 ? 'apenas ' : '') + cobTxt + ' foi analisado a fundo';
+          frase += ' e ' + (cob < 1 ? 'só ' : '') + cobTxt + ' foi analisado a fundo';
         } else {
-          frase += ' (ainda não sabemos quanto foi analisado a fundo)';
+          frase += ' — e ainda não sabemos quanto foi analisado a fundo';
         }
         // tom do fechamento — sem exagero, ancorado nos dois números
         let tom;
@@ -475,9 +724,9 @@ Mapa Comercial (Agente 3 — FRONTEND).
         } else if (cobConhecida && cob >= 50) {
           tom = ' — já bem explorado por nós.';
         } else if (dens > 5) {
-          tom = ' — bom indício de precatório, ainda pouco explorado.';
+          tom = ' — boa concentração de precatório, ainda pouco explorado.';
         } else if (dens < 1) {
-          tom = ' — indício de precatório baixo neste estado.';
+          tom = ' — pouca menção a precatório neste estado.';
         } else {
           tom = ' — ainda há espaço pra explorar.';
         }
@@ -489,32 +738,87 @@ Mapa Comercial (Agente 3 — FRONTEND).
 
 <div x-data="comercialMapa()" x-init="init()" class="space-y-6">
 
-  {# ---- barra de honestidade: Potencial vs Confirmado em linguagem LEIGA ---- #}
-  {# (dúvida nº 1 do comercial — texto visível na tela, sem jargão; os tooltips
-     completos do glossário continuam no hover, redundância é boa aqui) #}
-  <div class="card p-4 space-y-2 text-sm">
-    <div class="flex flex-wrap items-start gap-x-8 gap-y-2">
-      <div class="flex items-start gap-2 cursor-help max-w-md" :title="glos('potencial')">
-        <span class="inline-block w-3 h-3 rounded-sm mt-1 shrink-0" style="background:#f97316"></span>
+  {# ---- barra de honestidade: 1 coluna por chave de leitura do mapa ---- #}
+  {% comment %} Texto VISÍVEL, não tooltip: foi o `title=` que falhou — tooltip nativo não
+     abre no toque e ninguém passa o mouse antes de tirar a conclusão errada. {% endcomment %}
+  <div class="card p-4 space-y-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 text-xs">
+      <div class="flex items-start gap-2">
+        <span class="inline-block w-3 h-3 rounded-sm mt-0.5 shrink-0 bg-mission"></span>
         <span>
-          <b class="text-fg">Potencial</b>
-          <span class="text-fg-muted">— processos cujas publicações oficiais <b>mencionam</b> precatório. Forte indício, não certeza.</span>
+          <span class="block font-semibold text-fg">Possível</span>
+          <span class="block text-fg-muted">as publicações citam precatório. Indício, não certeza.</span>
         </span>
       </div>
-      <div class="flex items-start gap-2 cursor-help max-w-md" :title="glos('confirmado')">
-        <span class="inline-block w-3 h-3 rounded-sm mt-1 shrink-0" style="background:#10b981"></span>
+      <div class="flex items-start gap-2">
+        <span class="inline-block w-3 h-3 rounded-sm mt-0.5 shrink-0 bg-accent"></span>
         <span>
-          <b class="text-fg">Confirmado</b>
-          <span class="text-fg-muted">— processos que <b>nossa IA já leu e confirmou</b> serem precatório. Mais certeiro, e por isso menor.</span>
+          <span class="block font-semibold text-fg">Confirmado</span>
+          <span class="block text-fg-muted">nossa IA leu o processo e confirmou.</span>
         </span>
       </div>
-      <div class="ml-auto text-xs text-fg-subtle font-mono shrink-0" x-show="geradoEm" x-cloak>
-        atualizado <span x-text="geradoLegivel()"></span>
+      <div class="flex items-start gap-2">
+        {% comment %} MESMA cor do mapa (corSemDado), não um cinza qualquer: o
+           chip só cumpre a função se o olho casar swatch e estado. {% endcomment %}
+        <span class="inline-block w-3 h-3 rounded-sm mt-0.5 shrink-0 border border-border"
+              :style="'background:' + corSemDado()"></span>
+        <span>
+          <span class="block font-semibold text-fg">Ainda não analisado</span>
+          <span class="block text-fg-muted">cinza no mapa: não olhamos este estado.</span>
+        </span>
+      </div>
+      <div class="flex items-start gap-2">
+        <span class="inline-block w-3 h-3 rounded-sm mt-0.5 shrink-0 border border-border"></span>
+        <span>
+          <span class="block font-semibold text-fg">R$ não informado</span>
+          <span class="block text-fg-muted">o tribunal não publicou o valor.</span>
+        </span>
       </div>
     </div>
-    <div class="flex items-start gap-2 text-fg-subtle">
-      <span class="inline-block w-3 h-3 rounded-sm mt-1 shrink-0" style="background:rgba(120,120,130,0.5)"></span>
-      <span>Cinza no mapa = <b>ainda não olhamos</b> esse estado (desconhecido), não é “zero precatório”.</span>
+
+    {# ---- bloco didático "Como ler estes números" — nível de PÁGINA ---- #}
+    <div class="rounded-md border border-border bg-surface/50">
+      <button type="button" @click="toggleAjuda()" :aria-expanded="ajudaAberta"
+              aria-controls="mapa-ajuda"
+              class="w-full flex items-center gap-2 px-2.5 py-2 text-sm text-fg-muted hover:text-fg rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        {% voy_icon "info" "w-4 h-4 shrink-0" %}
+        <span class="font-medium">Como ler estes números</span>
+        <svg class="ml-auto w-3.5 h-3.5 transition-transform" :class="ajudaAberta ? 'rotate-90' : ''"
+             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+      <dl id="mapa-ajuda" x-show="ajudaAberta" x-cloak
+          class="px-2.5 pb-2.5 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 text-sm leading-snug">
+        <div>
+          <dt class="inline font-semibold text-fg">Processos na base — </dt>
+          <dd class="inline text-fg-muted">Quantos processos deste estado já trouxemos para cá. O tribunal tem mais; estes são os que temos.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-mission-fg">Possíveis — </dt>
+          <dd class="inline text-fg-muted">As publicações do processo citam precatório, ofício requisitório ou RPV. Indício forte, não certeza: um “carta precatória” entra aqui por engano.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-accent-fg">Confirmados pela IA — </dt>
+          <dd class="inline text-fg-muted">A nossa IA leu o processo e bateu o martelo: é precatório. O número é menor porque só analisamos a fundo parte da base.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Valor informado — </dt>
+          <dd class="inline text-fg-muted">Soma dos valores publicados pelos tribunais. “Não informado” = o tribunal não publicou. Não é falta de dinheiro.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Já analisado — </dt>
+          <dd class="inline text-fg-muted">Quanto deste estado já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-mission-fg">Prioridade — </dt>
+          <dd class="inline text-fg-muted">0 a 100: muito precatório em relação ao total E pouco explorado por nós. É a resposta para “onde atacar primeiro”.</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="text-xs text-fg-muted font-mono" x-show="geradoEm" x-cloak>
+      atualizado <span x-text="geradoLegivel()"></span>
     </div>
   </div>
 
@@ -522,52 +826,62 @@ Mapa Comercial (Agente 3 — FRONTEND).
   <div class="card p-4">
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       <label class="flex flex-col gap-1">
-        <span class="text-xs text-fg-muted uppercase tracking-wide">Classificação</span>
+        <span class="text-xs text-fg-muted uppercase tracking-wide">O que a IA classificou</span>
         <select x-model="filtros.classificacao" @change="aplicarFiltros()"
-                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
-          <option value="">todas</option>
+                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <option value="">todos os processos</option>
           <option value="PRECATORIO">Precatório</option>
           <option value="PRE_PRECATORIO">Pré-precatório</option>
           <option value="DIREITO_CREDITORIO">Direito creditório</option>
-          <option value="NAO_LEAD">Não lead</option>
+          <option value="NAO_LEAD">Não é lead</option>
         </select>
       </label>
       <label class="flex flex-col gap-1">
-        <span class="text-xs text-fg-muted uppercase tracking-wide">Tipo de sinal</span>
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Nível de certeza</span>
         <select x-model="filtros.tipo" @change="aplicarFiltros()"
-                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
-          <option value="">qualquer</option>
-          <option value="potencial">Só com sinal (potencial)</option>
-          <option value="confirmado">Só confirmados (ML)</option>
+                class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <option value="">todos</option>
+          <option value="potencial">Só os possíveis</option>
+          <option value="confirmado">Só os confirmados pela IA</option>
         </select>
       </label>
       <label class="flex flex-col gap-1">
-        <span class="text-xs text-fg-muted uppercase tracking-wide">Natureza / classe (código)</span>
+        <span class="text-xs text-fg-muted uppercase tracking-wide">Código da classe processual</span>
         <input type="text" x-model="filtros.natureza" @change="aplicarFiltros()" inputmode="numeric"
                placeholder="ex.: 1116"
-               class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+               class="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
       </label>
-      <div class="flex flex-col gap-1">
-        <span class="text-xs text-fg-muted uppercase tracking-wide">Ano CNJ (min / max)</span>
+      <div class="flex flex-col gap-1" role="group" aria-labelledby="lbl-ano">
+        <span id="lbl-ano" class="text-xs text-fg-muted uppercase tracking-wide">Ano do processo (de / até)</span>
         <div class="flex gap-2">
-          <input type="number" x-model="filtros.ano_min" @change="aplicarFiltros()" placeholder="min" min="1990" max="2100"
-                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
-          <input type="number" x-model="filtros.ano_max" @change="aplicarFiltros()" placeholder="max" min="1990" max="2100"
-                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <input type="number" x-model="filtros.ano_min" @change="aplicarFiltros()" placeholder="de" min="1990" max="2100"
+                 aria-label="Ano do processo, de"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <input type="number" x-model="filtros.ano_max" @change="aplicarFiltros()" placeholder="até" min="1990" max="2100"
+                 aria-label="Ano do processo, até"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
         </div>
       </div>
-      <div class="flex flex-col gap-1">
-        <span class="text-xs text-fg-muted uppercase tracking-wide">Valor R$ (min / max)</span>
+      <div class="flex flex-col gap-1 sm:col-span-2" role="group" aria-labelledby="lbl-valor">
+        <span id="lbl-valor" class="text-xs text-fg-muted uppercase tracking-wide">Valor da causa (de / até)</span>
         <div class="flex gap-2">
-          <input type="number" x-model="filtros.valor_min" @change="aplicarFiltros()" placeholder="min" min="0"
-                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
-          <input type="number" x-model="filtros.valor_max" @change="aplicarFiltros()" placeholder="max" min="0"
-                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <input type="number" x-model="filtros.valor_min" @change="aplicarFiltros()" placeholder="de" min="0"
+                 aria-label="Valor da causa, de"
+                 aria-describedby="aviso-valor"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <input type="number" x-model="filtros.valor_max" @change="aplicarFiltros()" placeholder="até" min="0"
+                 aria-label="Valor da causa, até"
+                 aria-describedby="aviso-valor"
+                 class="w-1/2 bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
         </div>
+        {% comment %} VISÍVEL, não tooltip: o filtro exclui silenciosamente todo processo com
+           valor não informado (a maior parte da base). Sem esta frase o
+           comercial conclui "não tem nada acima de R$ 1 mi nesse estado". {% endcomment %}
+        <span id="aviso-valor" class="text-xs text-fg-muted">Filtra pelo valor publicado pelo tribunal. Processo sem valor informado fica de fora do resultado.</span>
       </div>
       <div class="flex items-end">
         <button type="button" @click="limparFiltros()" x-show="temFiltro()" x-cloak
-                class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-subtle focus:outline-none focus:ring-2 focus:ring-accent/40">
+                class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
           Limpar filtros
         </button>
       </div>
@@ -576,21 +890,45 @@ Mapa Comercial (Agente 3 — FRONTEND).
 
   {# ---- KPIs globais ---- #}
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" x-show="total" x-cloak>
-    <div class="card p-4 cursor-help" :title="glos('volume')">
-      <div class="text-xs text-fg-muted uppercase tracking-wide">Volume <span class="text-fg-subtle normal-case" aria-hidden="true">ⓘ</span></div>
+    <div class="card p-4">
+      <div class="text-xs text-fg-muted uppercase tracking-wide">
+        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-volume">
+          Processos na base
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+          <span class="voy-tip-body tip-below" role="tooltip" id="tip-volume" x-text="glos('volume')"></span>
+        </button>
+      </div>
       <div class="text-2xl font-mono text-fg mt-1" x-text="fmt(total ? total.volume : 0)"></div>
     </div>
-    <div class="card p-4 cursor-help" :title="glos('valor')">
-      <div class="text-xs text-fg-muted uppercase tracking-wide">Valor (R$) <span class="text-fg-subtle normal-case" aria-hidden="true">ⓘ</span></div>
+    <div class="card p-4">
+      <div class="text-xs text-fg-muted uppercase tracking-wide">
+        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-valor">
+          Valor informado
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+          <span class="voy-tip-body tip-below" role="tooltip" id="tip-valor" x-text="glos('valor')"></span>
+        </button>
+      </div>
       <div class="text-2xl font-mono text-fg mt-1" x-text="fmtBRL(total ? total.valor : 0)"></div>
     </div>
-    <div class="card p-4 cursor-help" :title="glos('potencial')">
-      <div class="text-xs uppercase tracking-wide" style="color:#f97316">Potencial <span class="text-fg-subtle normal-case" aria-hidden="true">ⓘ</span></div>
-      <div class="text-2xl font-mono mt-1" style="color:#f97316" x-text="fmt(total ? total.potencial : 0)"></div>
+    <div class="card p-4">
+      <div class="text-xs uppercase tracking-wide text-mission-fg">
+        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-possiveis">
+          Possíveis precatórios
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+          <span class="voy-tip-body tip-below" role="tooltip" id="tip-possiveis" x-text="glos('potencial')"></span>
+        </button>
+      </div>
+      <div class="text-2xl font-mono mt-1 text-mission-fg" x-text="fmt(total ? total.potencial : 0)"></div>
     </div>
-    <div class="card p-4 cursor-help" :title="glos('confirmado')">
-      <div class="text-xs uppercase tracking-wide" style="color:#10b981">Confirmado <span class="text-fg-subtle normal-case" aria-hidden="true">ⓘ</span></div>
-      <div class="text-2xl font-mono mt-1" style="color:#10b981" x-text="fmt(total ? total.confirmado : 0)"></div>
+    <div class="card p-4">
+      <div class="text-xs uppercase tracking-wide text-accent-fg">
+        <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-confirmados">
+          Confirmados pela IA
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+          <span class="voy-tip-body tip-below" role="tooltip" id="tip-confirmados" x-text="glos('confirmado')"></span>
+        </button>
+      </div>
+      <div class="text-2xl font-mono mt-1 text-accent-fg" x-text="fmt(total ? total.confirmado : 0)"></div>
     </div>
   </div>
 
@@ -599,146 +937,235 @@ Mapa Comercial (Agente 3 — FRONTEND).
 
     {# ---- mapa ---- #}
     <div class="lg:col-span-2 card p-4">
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <div class="flex items-center gap-2">
-          <h2 class="text-lg font-semibold text-fg">Choropleth por estado</h2>
-          <span class="text-xs text-fg-subtle cursor-help" :title="glosMetricaAtiva()"
-                x-text="'· ' + rotuloMetrica() + ' ⓘ'"></span>
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+        <div class="flex flex-wrap items-baseline gap-2">
+          <h2 class="text-lg font-semibold text-fg">Brasil por estado</h2>
+          <button type="button" class="voy-tip voy-tip-underline text-xs text-fg-muted"
+                  aria-describedby="tip-metrica">
+            <span x-text="'· mostrando: ' + rotuloMetrica()"></span>
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-metrica" x-text="glosMetricaAtiva()"></span>
+          </button>
         </div>
         <div class="flex flex-wrap items-center gap-3">
-          {# toggle Volume ↔ R$ #}
-          <div class="inline-flex rounded-md border border-border overflow-hidden text-xs" role="group" aria-label="Métrica">
-            <button type="button" @click="metricMode='volume'"
+          {# toggle Quantidade ↔ R$ #}
+          <div class="inline-flex rounded-md border border-border overflow-hidden text-xs" role="group" aria-label="O que o mapa mostra">
+            <button type="button" @click="metricMode='volume'" :aria-pressed="metricMode==='volume'"
                     :class="metricMode==='volume' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg'"
-                    class="px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40">Volume</button>
-            <button type="button" @click="metricMode='valor'"
+                    class="px-3 py-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Quantidade</button>
+            <button type="button" @click="metricMode='valor'" :aria-pressed="metricMode==='valor'"
                     :class="metricMode==='valor' ? 'bg-accent/20 text-accent-fg' : 'text-fg-muted hover:text-fg'"
-                    class="px-3 py-1.5 border-l border-border focus:outline-none focus:ring-2 focus:ring-accent/40">R$</button>
+                    class="px-3 py-1.5 border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">R$</button>
           </div>
-          {# toggle Potencial ↔ Confirmado (só faz sentido no modo Volume) #}
+          {% comment %} toggle Possíveis ↔ Confirmados (só faz sentido no modo Quantidade).
+             `:disabled` de verdade: `pointer-events-none` + opacidade continuava
+             acionável por Enter no teclado (e a opacidade não diz por quê). {% endcomment %}
           <div class="inline-flex rounded-md border border-border overflow-hidden text-xs"
-               role="group" aria-label="Sinal" :class="metricMode==='valor' ? 'opacity-40 pointer-events-none' : ''">
-            <button type="button" @click="sinalMode='potencial'"
-                    :class="sinalMode==='potencial' ? 'text-white' : 'text-fg-muted hover:text-fg'"
-                    :style="sinalMode==='potencial' ? 'background:#f97316' : ''"
-                    class="px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40">Potencial</button>
-            <button type="button" @click="sinalMode='confirmado'"
-                    :class="sinalMode==='confirmado' ? 'text-white' : 'text-fg-muted hover:text-fg'"
-                    :style="sinalMode==='confirmado' ? 'background:#10b981' : ''"
-                    class="px-3 py-1.5 border-l border-border focus:outline-none focus:ring-2 focus:ring-accent/40">Confirmado</button>
+               role="group" aria-label="Nível de certeza">
+            <button type="button" @click="sinalMode='potencial'" :disabled="metricMode==='valor'"
+                    :aria-pressed="sinalMode==='potencial'"
+                    :class="sinalMode==='potencial' && metricMode!=='valor' ? 'bg-mission text-white' : 'text-fg-muted hover:text-fg'"
+                    class="px-3 py-1.5 disabled:text-fg-subtle disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Possíveis</button>
+            <button type="button" @click="sinalMode='confirmado'" :disabled="metricMode==='valor'"
+                    :aria-pressed="sinalMode==='confirmado'"
+                    :class="sinalMode==='confirmado' && metricMode!=='valor' ? 'bg-accent text-white' : 'text-fg-muted hover:text-fg'"
+                    class="px-3 py-1.5 border-l border-border disabled:text-fg-subtle disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Confirmados</button>
           </div>
         </div>
       </div>
 
-      {# Altura MEDIDA (render headless do ECharts, container de 1080px):
+      {# por que o toggle está desligado — texto visível, não tooltip #}
+      <p class="text-xs text-fg-muted mb-2" x-show="metricMode==='valor'" x-cloak>
+        No modo R$ não separamos possíveis de confirmados — o valor vem do processo inteiro.
+      </p>
+
+      {% comment %} ---- LEGENDA DA COR (HTML, no header do card) ------------------------
+         Fora do canvas de propósito: dentro dele o `visualMap` `calculable`
+         virava um filtro destrutivo (as alças removem estados da escala e o
+         estado fica CINZA = "não analisado" pela nossa legenda), sem desfazer.
+         Faixas por QUANTIL dos dados atuais — a escala linear 0→max punha
+         RO/RN/TO/RR na cor do zero ao lado do PR. Recalculadas a cada filtro
+         e a cada toggle. {% endcomment %}
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3" x-show="faixas.length" x-cloak
+           role="img" :aria-label="'Escala de cor por faixas: ' + faixas.map(f => f.rotulo).join(', ') + '; cinza: ' + rotuloSemDado()">
+        <span class="text-xs text-fg-muted">Cor mais forte = mais</span>
+        <template x-for="f in faixas" :key="f.rotulo">
+          {% comment %} borda no swatch: sem ela a faixa mais escura (no tema
+             escuro) e a mais clara (no claro) somem no fundo do card. {% endcomment %}
+          <span class="inline-flex items-center gap-1.5 text-xs text-fg-muted">
+            <span class="inline-block w-3 h-3 rounded-sm shrink-0 border border-border" :style="'background:' + f.cor"></span>
+            <span x-text="f.rotulo"></span>
+          </span>
+        </template>
+        <span class="inline-flex items-center gap-1.5 text-xs text-fg-muted">
+          <span class="inline-block w-3 h-3 rounded-sm shrink-0 border border-border" :style="'background:' + corSemDado()"></span>
+          <span x-text="rotuloSemDado()"></span>
+        </span>
+      </div>
+
+      {% comment %} Altura MEDIDA (render headless do ECharts, container de 1080px):
          30rem → o mapa desenha 480x450 e ocupa só 44% da largura (parece "magro"
          de tanto vazio em volta); 40rem → 640x600, ocupa 59%. A proporção é a
-         mesma (1.066, correta) nas duas — o que muda é a PRESENÇA. #}
+         mesma (1.066, correta) nas duas — o que muda é a PRESENÇA. {% endcomment %}
       <div class="relative chart-cell" style="height: 40rem;">
-        <div class="chart-skeleton" x-show="loading" x-cloak>
+        {% comment %} skeleton por x-show (antes era .remove(): o nó era destruído e depois
+           da 1ª carga não sobrava sinal nenhum de "estou buscando" na troca de
+           filtro). Só na 1ª carga: com o mapa já desenhado, quem avisa é o
+           showLoading() do ECharts (máscara sobre o mapa antigo). {% endcomment %}
+        <div class="chart-skeleton" x-show="loading && !total" x-cloak>
           <div class="pulsar-mark">acquiring signal</div>
         </div>
         <div x-show="erro" x-cloak class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-danger">
           {% voy_icon "signal-lost" "w-6 h-6" %}
           <span class="text-xs font-mono uppercase tracking-widest">signal lost</span>
-          <span class="text-xs text-fg-subtle" x-text="erro"></span>
-          <button type="button" @click="carregar()" class="mt-2 text-xs px-3 py-1 rounded border border-border hover:text-fg">tentar de novo</button>
+          <span class="text-sm text-fg" x-text="erro"></span>
+          <span class="text-xs font-mono text-fg-muted" x-text="erroDetalhe"></span>
+          <button type="button" @click="carregar()"
+                  class="mt-2 text-xs px-3 py-1 rounded border border-border text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Tentar de novo</button>
         </div>
-        {# SEM data-echart de propósito: o initAllCharts() do base.html varre
+        {% comment %} Estado vazio: sem isto, um filtro restritivo pintava o Brasil TODO de
+           cinza — e cinza, pela nossa legenda, quer dizer "ainda não analisado".
+           O mapa passaria a mentir por acidente. {% endcomment %}
+        <div x-show="vazioPorFiltro()" x-cloak
+             class="absolute inset-0 z-10 flex items-center justify-center bg-base/70 rounded-lg px-6">
+          {% comment %} painel OPACO: sobre um mapa inteiro cinza, texto em scrim
+             translúcido fica ilegível — e é exatamente o texto que impede a
+             leitura errada do cinza. {% endcomment %}
+          <div class="flex flex-col items-center gap-3 text-center max-w-sm
+                      bg-card border border-border rounded-xl px-5 py-4 shadow-lg"
+               style="--card-alpha: 1;">
+            {% voy_icon "search" "w-6 h-6 text-fg-muted" %}
+            <span class="text-sm font-semibold text-fg">Nenhum estado tem dado com os filtros atuais.</span>
+            <span class="text-xs text-fg-muted">O cinza do mapa aqui não quer dizer “não analisado” — é o filtro que não deixou nada passar.</span>
+            <button type="button" @click="limparFiltros()"
+                    class="text-xs px-3 py-1.5 rounded border border-border text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Limpar filtros</button>
+          </div>
+        </div>
+        {% comment %} SEM data-echart de propósito: o initAllCharts() do base.html varre
            [data-echart], dá dispose() na instância e só reinicializa a partir do
            JSON do atributo — que não pode carregar nossos formatters (funções).
-           Ficar fora dessa varredura evita o mapa sumir ao trocar o tema. #}
+           Ficar fora dessa varredura evita o mapa sumir ao trocar o tema. {% endcomment %}
         <div x-ref="mapa" class="absolute inset-0"></div>
       </div>
 
       {# federal — camada separada, NUNCA misturada no choropleth #}
       <template x-if="bucketFED()">
-        <div class="mt-4 p-3 rounded-md border border-border bg-surface/60 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-          <span class="text-xs uppercase tracking-wide text-info font-semibold">Camada Federal (multi-UF)</span>
-          <span class="text-fg-muted cursor-help" :title="glos('volume')">Volume: <span class="font-mono text-fg" x-text="fmt(bucketFED().volume)"></span></span>
-          <span class="text-fg-muted cursor-help" :title="glos('valor')">Valor: <span class="font-mono text-fg" x-text="fmtBRL(bucketFED().valor)"></span></span>
-          <span style="color:#f97316" class="cursor-help" :title="glos('potencial')">Potencial:
-            <span class="font-mono" :class="potDesconhecido(bucketFED()) ? 'italic opacity-70' : ''"
-                  x-text="potDesconhecido(bucketFED()) ? 'não processado' : fmt(bucketFED().potencial)"></span></span>
-          <span style="color:#10b981" class="cursor-help" :title="glos('confirmado')">Confirmado: <span class="font-mono" x-text="fmt(bucketFED().confirmado)"></span></span>
-          <button type="button" @click="abrirUf('FED')" class="ml-auto text-xs px-2 py-1 rounded border border-border text-fg-muted hover:text-fg">ver tribunais →</button>
+        <div class="mt-4 p-3 rounded-md border border-border bg-surface/60 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+          <span class="uppercase tracking-wide text-info font-semibold">
+            <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-federal">
+              Justiça Federal — fora do mapa
+              {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+              <span class="voy-tip-body" role="tooltip" id="tip-federal" x-text="glos('federal')"></span>
+            </button>
+          </span>
+          <span class="text-fg-muted">Processos na base: <span class="font-mono text-fg" x-text="fmt(bucketFED().volume)"></span></span>
+          <span class="text-fg-muted">Valor informado: <span class="font-mono text-fg" x-text="fmtBRL(bucketFED().valor)"></span></span>
+          <span class="text-mission-fg">Possíveis:
+            <span class="font-mono" :class="potDesconhecido(bucketFED()) ? 'italic' : ''"
+                  x-text="potDesconhecido(bucketFED()) ? 'ainda não analisado' : fmt(bucketFED().potencial)"></span></span>
+          <span class="text-accent-fg">Confirmados pela IA: <span class="font-mono" x-text="fmt(bucketFED().confirmado)"></span></span>
+          <button type="button" @click="abrirUf('FED')" data-uf-item="FED"
+                  class="ml-auto text-xs px-2 py-1 rounded border border-border text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">Ver tribunais federais →</button>
         </div>
       </template>
     </div>
 
-    {# ---- painel lateral: Top-N por score OU drill-down ---- #}
+    {# ---- painel lateral: Top-N por prioridade OU drill-down ---- #}
     <div class="lg:col-span-1 space-y-4">
 
       {# Top-N "ataque primeiro" — some quando um estado está selecionado #}
       <div class="card p-4" x-show="!selecionada" x-cloak>
         <div class="flex items-center gap-2 mb-1">
-          {% voy_icon "target" "w-4 h-4 text-mission" %}
+          {% voy_icon "target" "w-4 h-4 text-mission-fg" %}
           <h2 class="text-lg font-semibold text-fg">Ataque primeiro</h2>
         </div>
-        <p class="text-xs text-fg-subtle mb-2">Ranking por <b class="cursor-help" :title="glos('score')">score de foco <span aria-hidden="true">ⓘ</span></b> — precatório-rico, com dinheiro, ainda pouco tocado. Clique pra abrir os tribunais.</p>
-        {# caveat honesto: sinal de precatório ainda não cobriu todos os estados #}
-        <p x-show="sinalParcial()" x-cloak
-           class="text-[0.7rem] mb-3 px-2 py-1.5 rounded border border-warning/40 bg-warning/10 text-warning flex items-start gap-1.5">
-          <span aria-hidden="true">⚠</span>
-          <span>sinal de precatório processado em <b x-text="ufsComSinal()"></b> de 27 estados — ranking parcial; “pot —” = ainda não processado, não zero.</span>
+        <p class="text-xs text-fg-muted mb-2">
+          Estados em ordem de
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-prioridade">
+            prioridade
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-right" role="tooltip" id="tip-prioridade">
+              Escala de 0 a 100 comparando só os estados desta lista, com os filtros atuais. 100 = o mais promissor.
+            </span>
+          </button>:
+          muito precatório, com valor, e que quase não olhamos ainda. Clique para ver os tribunais.
         </p>
-        <div x-show="loading" class="text-xs text-fg-subtle font-mono">acquiring signal…</div>
+        {# aviso honesto: ainda não lemos as publicações de todos os estados #}
+        <p x-show="sinalParcial()" x-cloak
+           class="text-xs mb-3 px-2 py-1.5 rounded border border-warning/40 bg-warning/10 text-warning flex items-start gap-1.5">
+          {% voy_icon "anomaly" "w-3.5 h-3.5 shrink-0 mt-0.5" %}
+          <span>Já lemos as publicações de <b x-text="ufsComSinal()"></b> dos 27 estados. Onde diz “ainda não analisado”, o estado nem entrou nesta comparação.</span>
+        </p>
+        <div x-show="loading" class="text-xs text-fg-muted font-mono">carregando o ranking…</div>
+        <div x-show="vazioPorFiltro()" x-cloak class="text-xs text-fg-muted">
+          Nenhum estado tem dado com os filtros atuais.
+        </div>
         <ol class="space-y-2">
           <template x-for="(b, i) in topScore(10)" :key="b.uf">
             <li>
-              <button type="button" @click="abrirUf(b.uf)"
-                      class="w-full text-left group focus:outline-none focus:ring-2 focus:ring-accent/40 rounded-md p-1.5 -m-1.5 hover:bg-muted/40">
+              <button type="button" @click="abrirUf(b.uf)" :data-uf-item="b.uf"
+                      class="w-full text-left group rounded-md p-1.5 -m-1.5 hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
                 <div class="flex items-center gap-2">
-                  <span class="text-xs font-mono text-fg-subtle w-5 text-right" x-text="(i+1)+'.'"></span>
+                  <span class="text-xs font-mono text-fg-muted w-5 text-right" x-text="(i+1)+'.'"></span>
                   <span class="font-semibold text-fg" x-text="b.uf"></span>
                   <span class="text-xs text-fg-muted truncate" x-text="nomeUf(b.uf)"></span>
-                  <span class="ml-auto text-xs font-mono text-mission cursor-help" :title="glos('score')"
-                        x-text="(b.score_foco ?? 0).toFixed(4)"></span>
+                  <span class="ml-auto text-xs font-mono text-mission-fg shrink-0"
+                        x-text="prioridadeLabel(b, ufs)"></span>
                 </div>
                 <div class="mt-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
-                  <div class="h-full rounded-full" style="background:var(--tw-c-mission,#f97316)"
-                       :style="'width:' + Math.max(3, 100*(b.score_foco||0)/maxScore()) + '%;background:#f97316'"></div>
+                  <div class="h-full rounded-full bg-mission" :style="'width:' + barraPct(b, ufs) + '%'"></div>
                 </div>
-                <div class="mt-1 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
-                  <span style="color:#f97316" class="cursor-help" :class="potDesconhecido(b) ? 'italic opacity-70' : ''"
-                        :title="glos('potencial')"
-                        x-text="'pot ' + potLabel(b)"></span>
-                  <span style="color:#10b981" class="cursor-help" :title="glos('confirmado')"
-                        x-text="'conf ' + fmt(b.confirmado)"></span>
-                  <span class="cursor-help" :title="glos('valor')" x-text="fmtBRL(b.valor)"></span>
-                  <span class="ml-auto cursor-help" :class="cobDesconhecida(b) ? 'italic opacity-70' : ''"
-                        :title="glos('cobertura')"
-                        x-text="'val ' + cobLabel(b)"></span>
+                {# 2 níveis: quem/quanto na 1ª linha, dinheiro/leitura na 2ª #}
+                <div class="mt-1 flex flex-wrap items-center gap-x-2 text-xs font-mono">
+                  <span class="text-mission-fg" :class="potDesconhecido(b) ? 'italic' : ''" x-text="potLabel(b)"></span>
+                  <span class="text-fg-muted" aria-hidden="true">·</span>
+                  <span class="text-accent-fg" x-text="fmt(b.confirmado) + ' confirmados'"></span>
+                </div>
+                <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs font-mono text-fg-muted">
+                  {% comment %} valor 0 = "não informado"; repetir "R$ 0" em 10 linhas é ruído
+                     — a lista diz UMA vez, abaixo, quantos estão sem valor. {% endcomment %}
+                  <template x-if="temValor(b)">
+                    <span x-text="fmtBRL(b.valor)"></span>
+                  </template>
+                  <template x-if="temValor(b)">
+                    <span aria-hidden="true">·</span>
+                  </template>
+                  <span x-text="cobLabel(b)"></span>
                 </div>
               </button>
             </li>
           </template>
         </ol>
+        <p class="mt-2 text-xs text-fg-muted" x-show="semValor(topScore(10)) > 0" x-cloak>
+          Em <b x-text="semValor(topScore(10))"></b> destes estados o valor ainda não foi informado pelo tribunal — por isso a linha de valor não aparece.
+        </p>
       </div>
 
       {# drill-down: tribunais da UF selecionada #}
-      <div class="card p-4" x-show="selecionada" x-cloak>
+      <div class="card p-4" x-show="selecionada" x-cloak aria-live="polite">
         <div class="flex items-center justify-between mb-1">
           <div class="flex items-center gap-2">
             {% voy_icon "trajectory" "w-4 h-4 text-info" %}
-            <h2 class="text-lg font-semibold text-fg">
+            {% comment %} tabindex -1 + focus() no $nextTick: ao abrir o painel o card do
+               ranking sai da tela e o foco cairia no <body> {% endcomment %}
+            <h2 class="text-lg font-semibold text-fg" x-ref="drillTitulo" tabindex="-1">
               <span x-text="selecionada ? nomeUf(selecionada) : ''"></span>
-              <span class="text-fg-subtle text-sm" x-text="selecionada ? '(' + selecionada + ')' : ''"></span>
+              <span class="text-fg-muted text-sm" x-text="selecionada ? '(' + selecionada + ')' : ''"></span>
             </h2>
           </div>
-          <button type="button" @click="fecharDrill()" aria-label="Fechar"
-                  class="text-fg-subtle hover:text-fg focus:outline-none focus:ring-2 focus:ring-accent/40 rounded p-1">
+          <button type="button" @click="fecharDrill()" aria-label="Fechar o painel deste estado"
+                  class="text-fg-muted hover:text-fg rounded p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
             {% voy_icon "clear" "w-4 h-4" %}
           </button>
         </div>
 
         <div x-show="drillTotal" x-cloak class="mb-3 grid grid-cols-2 gap-2 text-xs">
-          <div class="p-2 rounded bg-surface/60 border border-border cursor-help" :title="glos('volume')">
-            <div class="text-fg-subtle">Volume <span aria-hidden="true">ⓘ</span></div>
+          <div class="p-2 rounded bg-surface/60 border border-border">
+            <div class="text-fg-muted">Processos na base</div>
             <div class="font-mono text-fg" x-text="fmt(drillTotal ? drillTotal.volume : 0)"></div>
           </div>
-          <div class="p-2 rounded bg-surface/60 border border-border cursor-help" :title="glos('valor')">
-            <div class="text-fg-subtle">Valor <span aria-hidden="true">ⓘ</span></div>
+          <div class="p-2 rounded bg-surface/60 border border-border">
+            <div class="text-fg-muted">Valor informado</div>
             <div class="font-mono text-fg" x-text="fmtBRL(drillTotal ? drillTotal.valor : 0)"></div>
           </div>
         </div>
@@ -749,76 +1176,45 @@ Mapa Comercial (Agente 3 — FRONTEND).
           <span x-text="insightUf()"></span>
         </p>
 
-        {# ---- bloco didático "Como ler estes números" (colapsável, aberto por default) ---- #}
-        <div class="mb-3 rounded-md border border-border bg-surface/50">
-          <button type="button" @click="toggleAjuda()" :aria-expanded="ajudaAberta"
-                  class="w-full flex items-center gap-2 px-2.5 py-2 text-sm text-fg-muted hover:text-fg focus:outline-none focus:ring-2 focus:ring-accent/40 rounded-md">
-            <span aria-hidden="true">ⓘ</span>
-            <span class="font-medium">Como ler estes números</span>
-            <svg class="ml-auto w-3.5 h-3.5 transition-transform" :class="ajudaAberta ? 'rotate-90' : ''"
-                 fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-            </svg>
-          </button>
-          <dl x-show="ajudaAberta" x-cloak class="px-2.5 pb-2.5 space-y-1.5 text-sm leading-snug">
-            <div>
-              <dt class="inline font-semibold text-fg">Volume — </dt>
-              <dd class="inline text-fg-muted">Quantos processos deste estado já trouxemos para a nossa base. Não é o total do tribunal.</dd>
-            </div>
-            <div>
-              <dt class="inline font-semibold" style="color:#f97316">Potencial (pot) — </dt>
-              <dd class="inline text-fg-muted">Processos cujas publicações mencionam precatório, ofício requisitório ou RPV. É um forte indício, não uma certeza — pode incluir menções como “carta precatória”.</dd>
-            </div>
-            <div>
-              <dt class="inline font-semibold" style="color:#10b981">Confirmado (conf) — </dt>
-              <dd class="inline text-fg-muted">Processos que nossa inteligência artificial já classificou como precatório de verdade. Número menor porque só analisamos a fundo os processos já enriquecidos.</dd>
-            </div>
-            <div>
-              <dt class="inline font-semibold text-fg">R$ (Valor) — </dt>
-              <dd class="inline text-fg-muted">Soma do valor da causa. “R$ 0” significa que o tribunal ainda não informou o valor — não que o processo não tenha dinheiro.</dd>
-            </div>
-            <div>
-              <dt class="inline font-semibold text-fg">Validado (%) — </dt>
-              <dd class="inline text-fg-muted">Quanto deste estado já passou pela nossa análise detalhada. Perto de 0% = território inexplorado.</dd>
-            </div>
-            <div>
-              <dt class="inline font-semibold text-mission">Score (pontuação) — </dt>
-              <dd class="inline text-fg-muted">Prioridade comercial: alto = muitos precatórios em relação ao total E pouco explorado por nós. É a resposta para “onde atacar primeiro”.</dd>
-            </div>
-          </dl>
+        <div x-show="drillLoading" class="text-xs text-fg-muted font-mono">carregando os tribunais…</div>
+        <div x-show="drillErro" x-cloak class="text-xs">
+          <span class="block text-danger" x-text="drillErro"></span>
+          <span class="block font-mono text-fg-muted" x-text="drillErroDetalhe"></span>
         </div>
-
-        <div x-show="drillLoading" class="text-xs text-fg-subtle font-mono">acquiring signal…</div>
-        <div x-show="drillErro" x-cloak class="text-xs text-danger" x-text="drillErro"></div>
         <div x-show="!drillLoading && !drillErro && tribunais.length===0" x-cloak
-             class="text-xs text-fg-subtle italic">Sem tribunais com dado nesta UF sob os filtros atuais.</div>
+             class="text-xs text-fg-muted">Nenhum tribunal deste estado tem dado com os filtros atuais. Tente limpar os filtros.</div>
 
         <ol class="space-y-2">
           <template x-for="(t, i) in tribunais" :key="t.tribunal">
             <li class="p-2 rounded-md border border-border bg-surface/40">
               <div class="flex items-center gap-2">
-                <span class="text-xs font-mono text-fg-subtle w-5 text-right" x-text="(i+1)+'.'"></span>
+                <span class="text-xs font-mono text-fg-muted w-5 text-right" x-text="(i+1)+'.'"></span>
                 <span class="font-semibold text-fg" x-text="t.tribunal"></span>
-                <span class="ml-auto text-xs font-mono text-mission cursor-help" :title="glos('score')"
-                      x-text="'score ' + (t.score_foco ?? 0).toFixed(4)"></span>
+                <span class="ml-auto text-xs font-mono text-mission-fg shrink-0"
+                      x-text="prioridadeLabel(t, tribunais)"></span>
               </div>
-              <div class="mt-1 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
-                <span class="cursor-help" :title="glos('volume')" x-text="'vol ' + fmt(t.volume)"></span>
-                <span style="color:#f97316" class="cursor-help" :class="potDesconhecido(t) ? 'italic opacity-70' : ''"
-                      :title="glos('potencial')"
-                      x-text="'pot ' + potLabel(t)"></span>
-                <span style="color:#10b981" class="cursor-help" :title="glos('confirmado')"
-                      x-text="'conf ' + fmt(t.confirmado)"></span>
+              <div class="mt-1 flex flex-wrap items-center gap-x-2 text-xs font-mono">
+                <span class="text-fg-muted" x-text="fmt(t.volume) + ' processos'"></span>
+                <span class="text-fg-muted" aria-hidden="true">·</span>
+                <span class="text-accent-fg" x-text="fmt(t.confirmado) + ' confirmados'"></span>
               </div>
-              <div class="mt-0.5 flex items-center gap-3 text-[0.68rem] text-fg-subtle font-mono">
-                <span class="cursor-help" :title="glos('valor')" x-text="fmtBRL(t.valor)"></span>
-                <span class="ml-auto cursor-help" :class="cobDesconhecida(t) ? 'italic opacity-70' : ''"
-                      :title="glos('cobertura')"
-                      x-text="'validado ' + cobLabel(t)"></span>
+              <div class="mt-0.5 text-xs font-mono text-mission-fg" :class="potDesconhecido(t) ? 'italic' : ''"
+                   x-text="potLabel(t)"></div>
+              <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs font-mono text-fg-muted">
+                <template x-if="temValor(t)">
+                  <span x-text="fmtBRL(t.valor)"></span>
+                </template>
+                <template x-if="temValor(t)">
+                  <span aria-hidden="true">·</span>
+                </template>
+                <span x-text="cobLabel(t)"></span>
               </div>
             </li>
           </template>
         </ol>
+        <p class="mt-2 text-xs text-fg-muted" x-show="tribunais.length && semValor(tribunais) > 0" x-cloak>
+          Em <b x-text="semValor(tribunais)"></b> destes tribunais o valor ainda não foi informado — por isso a linha de valor não aparece.
+        </p>
       </div>
 
     </div>
