@@ -3,6 +3,7 @@
 Mantém os IDs voy-{alias} pra não precisar mudar nenhum template.
 """
 from __future__ import annotations
+import os
 import re
 import sys
 import urllib.request
@@ -40,6 +41,7 @@ MAPPING = [
     ('eject',         ['log-out']),
     ('arrow',         ['arrow-right']),
     ('clear',         ['x']),
+    ('info',          ['info']),                     # ⓘ trigger de tooltip (.voy-tip)
     # ── Substituição de emojis (badges de nível + famílias + features) ──
     # Badges dos 4 níveis
     ('gem',           ['gem']),                      # 💎 PRECATÓRIO
@@ -138,7 +140,10 @@ def main() -> int:
     parts.append('</svg>')
     parts.append('')
 
-    out_path = '/home/will/projetos/voyager/dashboard/static/dashboard/voyager-icons.svg'
+    # Deriva do próprio arquivo (era hardcoded em /home/will/... e escrevia fora
+    # do repo — ou falhava — em qualquer outra máquina/checkout).
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out_path = os.path.join(repo_root, 'dashboard/static/dashboard/voyager-icons.svg')
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(parts))
     print(f'\nEscrito: {out_path} ({len(results)} símbolos)', file=sys.stderr)

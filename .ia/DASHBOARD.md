@@ -16,6 +16,26 @@ Inspirada no programa espacial Voyager (NASA, 1977).
 - Semânticos: `--c-accent` (emerald), `--c-danger` (rose), `--c-warning` (amber), `--c-info` (sky)
 - Voyager: `--c-mission` (NASA orange), `--c-pulsar` (phosphor green), `--c-golden` (Golden Record), `--c-pale-blue` (Pale Blue Dot)
 
+**TODO token de cor tem que estar registrado no `tailwind.config.colors` do
+`base.html`** — senão `text-mission` & cia. são classes **mortas** (o Tailwind
+não gera nada, falha em silêncio) e o autor acaba caindo em hex inline, que
+falha WCAG no tema claro. Registrados hoje: os semânticos + `mission`,
+`mission-fg`, `pulsar`, `pulsar-fg`, `golden`, `pale-blue`.
+
+**Par `X` / `X-fg` (contrato de contraste):**
+
+| Use | Onde | Contraste medido (claro / escuro) |
+|---|---|---|
+| `mission` (orange-600) | ícone, `bg-mission/10`, `border-mission/30`, número ≥24px | 3,56:1 / 5,30:1 — cumpre 3:1 de UI e texto grande, **não** cumpre 4,5:1 |
+| `mission-fg` (orange-700 no claro, orange-300 no escuro) | **texto corrido** `<p>/<code>/<span>`/link | 5,18:1 / 11,19:1 |
+| `accent` / `accent-fg` | idem (emerald) | — / — |
+| `pulsar` (emerald-600/300) | bullet, dot, fundo | 3,77:1 / 13,44:1 |
+| `pulsar-fg` (emerald-700/300) | **texto corrido** | 5,48:1 / 13,44:1 |
+
+Regra: **texto < 24px sempre no `-fg`**; a var sem sufixo é cor de marca.
+`golden` no tema claro é 2,94:1 (yellow-600) — só use como fundo/borda/ícone,
+nunca em texto.
+
 Tema dark/light via `data-theme` no `<html>` + `tailwind.config.darkMode = 'class'`. Toggle persiste em `localStorage`. Tema claro inspirado no Falcon (slate-based, sombras sutis em vez de bordas fortes).
 
 **Ícones (`voy_icon` tag → sprite SVG):**
@@ -24,7 +44,7 @@ Sprite em `dashboard/static/dashboard/voyager-icons.svg` — 21 símbolos `<symb
 
 Os aliases preservam o vocabulário espacial; o desenho vem do Lucide. Re-gerar com `python3 scripts/build_sprite.py` (atualiza versão pinada no topo do script).
 
-Mapping atual (40 símbolos):
+Mapping atual (42 símbolos):
 
 **Identidade espacial** (preserva vocabulário Voyager):
 | alias | lucide source | uso típico |
@@ -47,6 +67,8 @@ Mapping atual (40 símbolos):
 | `arrow` | arrow-right | reservado |
 | `clear` | x | fechar |
 | `radar` | radar | reservado (varredura) |
+| `info` | info | ⓘ trigger de tooltip (`.voy-tip`) |
+| `plus` | plus | nova análise / adicionar |
 
 **Badges dos 4 níveis de classificação** (substituíram emojis 💎/⏳/🌱/🚫):
 | alias | lucide source | uso |
@@ -94,6 +116,35 @@ Estilo: stroke=currentColor, width=1.6px (Lucide default 2px reduzido pra harmon
 - `.mission-tag` (pill orange uppercase)
 - `.btn-mission` (CTA com aura orange)
 - `.error-code` (display gigante com gradient)
+
+## Tooltip: `.voy-tip` (CSS-only) — **nunca use `title=`**
+
+`title=` nativo é fonte do SO, posição do cursor, ~1s de atraso, sem controle de
+largura, **zero em touch** e invisível pro teclado. Use o componente
+(`voyager-identity.css`, sem JS, CSP-safe): hover + `:focus-visible` (teclado) +
+`:focus-within` (**TAP** no mobile).
+
+```django
+<button type="button" class="voy-tip" aria-label="Ajuda: score"
+        aria-describedby="tip-score">
+  {% voy_icon "info" "w-3.5 h-3.5" %}
+  <span class="voy-tip-body" role="tooltip" id="tip-score">
+    Média das notas do modelo. <strong>Não</strong> é probabilidade.
+  </span>
+</button>
+```
+
+- Trigger = `<button type="button">` (sem `type`, dentro de `<form>` **submete**).
+  `<span>` só com `tabindex="0"`.
+- `aria-describedby` (trigger) ⇄ `id` (body) é **obrigatório** — é o que o leitor
+  de tela lê. `role="tooltip"` no body. Trigger só-ícone precisa de `aria-label`
+  (o `<svg>` do `voy_icon` é `aria-hidden`).
+- Ancoragem: `.tip-right` (alinha pela direita — coluna direita do card),
+  `.tip-center`, `.tip-below` (trigger no topo da página).
+- Largura ~23rem (≈56 chars/linha). Herança de `uppercase`/`letter-spacing`/
+  `font-mono` do rótulo é resetada dentro do body.
+- **Limitação:** ancestral com `overflow:hidden` **clipa** o tooltip.
+- `.voy-tip-underline` = sublinhado pontilhado no rótulo (afordância).
 
 ## Menu lateral (nav)
 

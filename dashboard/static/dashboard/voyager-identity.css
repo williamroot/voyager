@@ -2,10 +2,23 @@
  * Variáveis adicionais ao tema base, decorações e tipografia mission-control. */
 
 :root {
-  --c-mission:     234 88 12;     /* NASA orange */
+  --c-mission:     234 88 12;     /* NASA orange (orange-600) */
   --c-pulsar:      134 239 172;   /* Phosphor green */
   --c-golden:      250 204 21;    /* Golden Record */
   --c-pale-blue:   147 197 253;   /* Pale Blue Dot */
+
+  /* Variantes -fg: versão AA-safe pra TEXTO corrido, mesmo contrato do par
+   * accent/accent-fg do base.html. A var SEM sufixo é cor de MARCA (ícone,
+   * fundo /10, borda, número grande >=24px); a var COM -fg é pra <p>, <code>,
+   * <span>, link — qualquer texto pequeno.
+   * Estes são os valores do tema ESCURO; o tema claro sobrescreve no bloco
+   * `html:not(.dark)` do base.html (mission-fg 194 65 12 / pulsar-fg 4 120 87).
+   * Contraste medido sobre card escuro rgb(17,17,18):
+   *   mission-fg 253 186 116 → 11,19:1   (mission cru: 5,30:1)
+   *   pulsar-fg  134 239 172 → 13,44:1
+   */
+  --c-mission-fg:  253 186 116;   /* orange-300 */
+  --c-pulsar-fg:   134 239 172;   /* emerald-300 (= pulsar; já é AA no escuro) */
 }
 
 /* Tipografia. Aplicada como utility via @font-family. */
@@ -1630,3 +1643,161 @@ html:not(.dark) .grain { opacity: 0.15; mix-blend-mode: multiply; }
 }
 .kpi-tile--fn .kpi-tile-value { color: rgb(var(--c-golden)); }
 /* === fim KPI tiles ===================================================== */
+
+/* === voy-tip — tooltip CSS-only (substitui o atributo `title`) =========== */
+/*
+ * POR QUÊ: `title="..."` nativo = fonte do SO, posição do cursor, ~1s de
+ * atraso, sem controle de largura/quebra, ZERO em touch e invisível pro
+ * teclado. Este componente é hover + foco (teclado) + `:focus-within` (TAP no
+ * mobile), sem JS, sem host externo (CSP-safe).
+ *
+ * ─── MARKUP CANÔNICO (copie e cole; troque só o id e os textos) ───────────
+ *
+ *   <button type="button" class="voy-tip" aria-label="Ajuda: score"
+ *           aria-describedby="tip-score">
+ *     {% voy_icon "info" "w-3.5 h-3.5" %}
+ *     <span class="voy-tip-body" role="tooltip" id="tip-score">
+ *       Média das notas do modelo. <strong>Não</strong> é probabilidade.
+ *     </span>
+ *   </button>
+ *
+ * Com rótulo visível (o texto vira o próprio trigger, dispensa aria-label):
+ *
+ *   <button type="button" class="voy-tip voy-tip-underline"
+ *           aria-describedby="tip-pot">
+ *     potencial
+ *     <span class="voy-tip-body" role="tooltip" id="tip-pot">Sinal DJEN…</span>
+ *   </button>
+ *
+ * ─── REGRAS (não são opcionais) ───────────────────────────────────────────
+ *  1. O trigger é `<button type="button">`. `type` importa: sem ele, dentro de
+ *     <form> o clique SUBMETE. `<span>` só serve se levar `tabindex="0"` —
+ *     senão o tooltip não existe pro teclado.
+ *  2. `aria-describedby` no trigger ⇄ `id` no `.voy-tip-body` (par obrigatório;
+ *     é o que faz o leitor de tela ler o texto). `role="tooltip"` no body.
+ *  3. Se o trigger for só o ícone, ele PRECISA de `aria-label` — o `<svg>` do
+ *     `voy_icon` é `aria-hidden`, logo o botão fica sem nome acessível.
+ *  4. NÃO ponha `aria-hidden` no ícone-trigger (ele já vem `aria-hidden` do
+ *     `voy_icon`) nem duplique o texto do tooltip num `title=`.
+ *  5. Variantes de ancoragem (o body é `position:absolute` e sangra fora do
+ *     card se ancorado à esquerda perto da borda direita):
+ *       `.tip-right`  → alinha pela DIREITA do trigger (use na coluna direita)
+ *       `.tip-center` → centraliza no trigger
+ *       `.tip-below`  → abre pra BAIXO (use em trigger no topo da página)
+ *     Ex.: `<span class="voy-tip-body tip-right" role="tooltip" id="…">`
+ *  6. LIMITAÇÃO: ancestral com `overflow:hidden` CLIPA o tooltip. Não use
+ *     `.voy-tip` dentro de `.card.overflow-hidden` / célula de tabela com
+ *     overflow — ou mova o trigger pra fora do container clipado.
+ *  7. `pointer-events:none` no body é DE PROPÓSITO (mesmo comportamento do
+ *     `title`: o texto não é selecionável, em troca de zero flicker ao
+ *     atravessar o vão de 8px entre trigger e tooltip).
+ */
+.voy-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  /* Reset de chrome de <button> — o trigger tem que parecer texto/ícone. */
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  cursor: help;
+  vertical-align: middle;
+  -webkit-tap-highlight-color: transparent;
+}
+.voy-tip:focus-visible {
+  outline: 2px solid rgb(var(--c-mission));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Sublinhado pontilhado — afordância de "tem explicação" em rótulo de texto. */
+.voy-tip-underline {
+  text-decoration: underline dotted rgb(var(--c-fg-subtle));
+  text-underline-offset: 3px;
+}
+
+.voy-tip > .voy-tip-body {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  /* ~55 caracteres por linha (faixa legível 45-75). MEDIDO no Chromium: 23rem =
+   * 368px ≈ 56 chars em Manrope 13px. NÃO usar `55ch` — em Manrope o glifo "0"
+   * é largo e 55ch renderiza 455px (~70 chars, no limite superior).
+   * O min() impede o tooltip sangrar da viewport no mobile. */
+  max-width: min(23rem, calc(100vw - 2rem));
+  padding: 0.55rem 0.7rem;
+  background: rgb(var(--c-surface));
+  color: rgb(var(--c-fg-soft));
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 0.5rem;
+  box-shadow: 0 12px 28px -10px rgb(0 0 0 / 0.55);
+  /* Reset de HERANÇA: o trigger vive dentro de rótulos `.telemetry` /
+   * `uppercase tracking-widest` / `.font-mono` / `.brand-wordmark`. Sem isto o
+   * tooltip sai TODO MAIÚSCULO, espaçado e com glow. */
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  text-indent: 0;
+  text-shadow: none;
+  text-decoration: none;
+  white-space: normal;
+  overflow-wrap: break-word;
+  font-variant-numeric: normal;
+  cursor: default;
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+  z-index: 50;
+  pointer-events: none;
+}
+/* No escuro `--c-surface` e `--c-card` são o MESMO zinc-900 — o tooltip
+   desapareceria sobre o card. Sobe pro `--c-muted` (zinc-800) e reforça a
+   borda. Texto fg-soft sobre zinc-800 = 11,74:1. */
+html.dark .voy-tip > .voy-tip-body {
+  background: rgb(var(--c-muted));
+  border-color: rgb(var(--c-fg-subtle) / 0.45);
+}
+.voy-tip:hover > .voy-tip-body,
+.voy-tip:focus-visible > .voy-tip-body,
+.voy-tip:focus-within > .voy-tip-body {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+/* Ancoragem alternativa (ver regra 5 acima). */
+.voy-tip > .voy-tip-body.tip-right  { left: auto; right: 0; }
+.voy-tip > .voy-tip-body.tip-center { left: 50%; right: auto; transform: translateX(-50%) translateY(2px); }
+.voy-tip:hover > .voy-tip-body.tip-center,
+.voy-tip:focus-visible > .voy-tip-body.tip-center,
+.voy-tip:focus-within > .voy-tip-body.tip-center { transform: translateX(-50%); }
+.voy-tip > .voy-tip-body.tip-below  { bottom: auto; top: calc(100% + 8px); transform: translateY(-2px); }
+.voy-tip:hover > .voy-tip-body.tip-below,
+.voy-tip:focus-visible > .voy-tip-body.tip-below,
+.voy-tip:focus-within > .voy-tip-body.tip-below { transform: none; }
+
+/* Tipografia interna — mesmo contrato do .chart-help-body. */
+.voy-tip-body strong { color: rgb(var(--c-fg)); font-weight: 600; }
+.voy-tip-body code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.95em;
+  color: rgb(var(--c-mission-fg));
+}
+.voy-tip-body p + p { margin-top: 0.4rem; }
+
+/* O bloco global de reduced-motion (linha ~1257) já neutraliza a transição via
+   `!important`; esta regra é explícita pra o componente não depender dele. */
+@media (prefers-reduced-motion: reduce) {
+  .voy-tip > .voy-tip-body { transition: none; }
+}
+/* === fim voy-tip ======================================================== */

@@ -59,6 +59,26 @@
             danger:    'rgb(var(--c-danger) / <alpha-value>)',
             warning:   'rgb(var(--c-warning) / <alpha-value>)',
             info:      'rgb(var(--c-info) / <alpha-value>)',
+
+            // Paleta Voyager (identidade). As vars vivem em voyager-identity.css
+            // (valores do tema escuro) e são sobrescritas no `html:not(.dark)`
+            // abaixo (tema claro). SEM registro aqui, `text-mission`/`bg-pulsar`
+            // & cia. eram classes MORTAS — o Tailwind não gerava nada e o autor
+            // caía em hex literal (que falha WCAG no tema claro).
+            //
+            // Par base/-fg = mesmo contrato de accent/accent-fg:
+            //   `mission`     → cor de MARCA: ícone, fundo (/10), borda, número
+            //                   grande (>=24px). Contraste medido 3,56:1 no claro
+            //                   — cumpre 3:1 de UI/texto grande, NÃO cumpre 4,5:1.
+            //   `mission-fg`  → versão AA-safe pra TEXTO corrido: 5,18:1 no claro
+            //                   e 11,19:1 no escuro. Use em <p>, <code>, <span>,
+            //                   link e qualquer texto < 24px.
+            mission:      'rgb(var(--c-mission) / <alpha-value>)',
+            'mission-fg': 'rgb(var(--c-mission-fg) / <alpha-value>)',
+            pulsar:       'rgb(var(--c-pulsar) / <alpha-value>)',
+            'pulsar-fg':  'rgb(var(--c-pulsar-fg) / <alpha-value>)',
+            golden:       'rgb(var(--c-golden) / <alpha-value>)',
+            'pale-blue':  'rgb(var(--c-pale-blue) / <alpha-value>)',
           },
         },
       },
@@ -108,10 +128,14 @@
       --c-danger:    220 38 38;     /* red-600 */
       --c-warning:   217 119 6;     /* amber-600 */
       --c-info:      2 132 199;     /* sky-600 */
-      --c-mission:   234 88 12;
+      --c-mission:   234 88 12;      /* orange-600 — 3,56:1 no branco (UI/texto grande) */
       --c-pulsar:    5 150 105;     /* emerald-600 (pulsar visível em fundo claro) */
       --c-golden:    202 138 4;     /* yellow-600 */
-      --c-pale-blue: 37 99 235;     /* blue-600 */
+      --c-pale-blue: 37 99 235;     /* blue-600 — 5,17:1 no branco */
+      /* Variantes AA-safe pra TEXTO (>=4,5:1 sobre card branco). Contraparte
+         escura em voyager-identity.css. Mesmo contrato do par accent/accent-fg. */
+      --c-mission-fg: 194 65 12;    /* orange-700 — 5,18:1 no branco */
+      --c-pulsar-fg:  4 120 87;     /* emerald-700 — 5,48:1 no branco */
 
       --shadow-card: 0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px 0 rgb(15 23 42 / 0.04);
     }
