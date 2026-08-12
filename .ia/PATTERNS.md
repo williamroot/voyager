@@ -278,3 +278,26 @@ refactor(enrichers): extrai helpers de parsing pra parsers.py
 ❌ `--no-verify`, `--amend` em commits publicados.
 
 ❌ Mensagens em inglês ou misturadas.
+
+## Comentário em template: `{% comment %}` quando passa de 1 linha
+
+O lexer do Django (`django/template/base.py`) usa `({%.*?%}|{{.*?}}|{#.*?#})`
+**sem `re.DOTALL`**. Consequência: `{# ... #}` que atravessa linhas **não é
+reconhecido como comentário e VAZA LITERAL na tela**.
+
+```django
+{# ok: uma linha só #}
+
+{# ERRADO: isto sai
+   como texto pro usuário #}
+
+{% comment %}
+Certo: várias linhas, quantas quiser.
+{% endcomment %}
+```
+
+Aconteceu em prod (12/08/2026): a página do Mapa Comercial exibia 3 desses,
+incluindo uma nota técnica sobre a altura do gráfico logo acima do mapa. A
+armadilha é sutil — o editor colore como comentário e só vaza em runtime.
+Guarda automática: `tests/test_templates_comentarios.py` (varre todo `*.html`,
+com controle positivo pra não passar calado se o detector quebrar).
