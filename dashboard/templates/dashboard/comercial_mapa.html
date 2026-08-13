@@ -178,8 +178,44 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       _seqDrill: 0,
       _ufOrigem: null,   // item do ranking que abriu o drill (devolução de foco)
 
+      // Recorte por ENTIDADE vindo de fora (o link "Ver esta entidade no mapa"
+      // da ficha). Roda ANTES do $watch de `filtros.parte` de propósito: o
+      // Alpine só notifica mudanças posteriores ao registro, então preencher
+      // aqui não abre o dropdown do autocomplete nem dispara uma busca extra.
+      //
+      // Sem isto o link abria o mapa SEM filtro nenhum e mostrava o Brasil
+      // inteiro com o nome da entidade escrito no campo — o pior resultado
+      // possível: o número na tela não era o dela e nada dizia isso.
+      lerQuerystringEntidade() {
+        let p;
+        try { p = new URLSearchParams(window.location.search); } catch (e) { return; }
+        const eid = (p.get('entidade_id') || '').trim().slice(0, 120);
+        const nome = (p.get('parte') || '').trim().slice(0, 120);
+        if (!eid && !nome) return;
+        if (nome) this.filtros.parte = nome;
+        if (eid) this.filtros.entidade_id = eid;
+        // token do autocomplete: o valor foi escrito por NÓS, não digitado.
+        this._acProgramatico = nome || null;
+        // A linha "Entidade do cadastro: X" é montada com o que o link trouxe —
+        // sem uma segunda consulta ao cadastro. `n_processos` ausente continua
+        // sendo "não contamos ainda" (nunca 0) porque `processosFrase` trata
+        // undefined; por isso a chave só é setada quando o link a trouxe.
+        if (eid) {
+          const nv = parseInt(p.get('n_variantes') || '', 10);
+          const np = parseInt(p.get('n_processos') || '', 10);
+          const escolhida = {entidade_id: eid, nome_canonico: nome,
+                             n_variantes: isFinite(nv) ? nv : 0};
+          if (isFinite(np)) escolhida.n_processos = np;
+          this.acEscolhida = escolhida;
+        }
+        // painel aberto: o recorte não pode ficar atrás de um disclosure
+        // fechado quando o usuário não foi quem o aplicou.
+        this.filtrosAbertos = true;
+      },
+
       async init() {
         this.initAjuda();   // preferência do bloco "Como ler estes números"
+        this.lerQuerystringEntidade();
         // 1) registra o mapa (uma vez) 2) carrega dados
         try {
           await this.registrarMapa();
@@ -1452,6 +1488,24 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
 
       {# disclosures + carimbo de atualização, ancorados à direita #}
       <div class="ml-auto flex flex-wrap items-center gap-2">
+        {% comment %} O cadastro de entidades é o outro jeito de entrar no dado
+           ("quem aparece" em vez de "onde"), e até aqui só existia escondido
+           dentro do dropdown do filtro de parte — o dono perguntou em voz alta
+           "cadê a página de entidades?". Fica ao lado dos disclosures, na mesma
+           faixa acima da dobra.
+
+           `url ... as` (e não `url ...` direto) porque a forma com `as` NÃO
+           lança `NoReverseMatch`: enquanto a rota não existir no ambiente, o
+           mapa perde o link em vez de responder 500. Um botão a menos é falha
+           tolerável; a tela inteira cair por causa dele não é. {% endcomment %}
+        {% url 'dashboard:entidades' as url_entidades %}
+        {% if url_entidades %}
+        <a href="{{ url_entidades }}"
+           class="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-fg-muted hover:text-fg hover:bg-muted/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          {% voy_icon "constellation" "w-4 h-4 shrink-0" %}
+          <span>Todas as entidades</span>
+        </a>
+        {% endif %}
         <button type="button" @click="filtrosAbertos = !filtrosAbertos"
                 :aria-expanded="filtrosAbertos" aria-controls="mapa-filtros"
                 class="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-fg-muted hover:text-fg hover:bg-muted/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">

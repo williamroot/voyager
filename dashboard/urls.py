@@ -105,6 +105,11 @@ urlpatterns = [
     # A rota do ranking vem DEPOIS do autocomplete de propósito: `<str:...>`
     # casaria "autocomplete" como se fosse um entidade_id (o Django resolve na
     # ordem, então o autocomplete continua ganhando).
+    # TELAS (shell HTML) — vêm antes dos endpoints por legibilidade; não há
+    # colisão: estas são `comercial/entidade*`, aquelas `api/entidades/*`.
+    path('comercial/entidades/', comercial_views.entidades_page, name='entidades'),
+    path('comercial/entidade/<str:entidade_id>/', comercial_views.entidade_page,
+         name='entidade'),
     path('api/entidades/', comercial_views.entidades_ranking,
          name='entidades-ranking'),
     path('api/entidades/<str:entidade_id>/', comercial_views.entidades_ficha,

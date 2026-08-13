@@ -322,6 +322,32 @@ def entidades_autocomplete(request):
 # `search/agg_entidade.py`, e o CONTRATO JSON completo está documentado lá.
 
 
+@never_cache
+@login_required
+@require_GET
+def entidades_page(request):
+    """GET /dashboard/comercial/entidades/ — ranking de entidades ("quem deve").
+
+    Só o shell; os dados vêm de `entidades-ranking` via fetch. `@never_cache`
+    pelo mesmo motivo das outras telas: sem ele o browser serve o HTML do disco
+    e o usuário continua vendo a versão anterior depois do deploy.
+    """
+    return render(request, 'dashboard/entidades.html')
+
+
+@never_cache
+@login_required
+@require_GET
+def entidade_page(request, entidade_id):
+    """GET /dashboard/comercial/entidade/<entidade_id>/ — ficha de UMA entidade.
+
+    `entidade_id` vai pro contexto porque o template monta a URL da API com ele
+    (o template tem fallback lendo a própria URL, mas depender disso deixaria a
+    página quebrada em qualquer mudança de rota).
+    """
+    return render(request, 'dashboard/entidade.html', {'entidade_id': entidade_id})
+
+
 @login_required
 @require_GET
 def entidades_ranking(request):

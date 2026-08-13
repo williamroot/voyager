@@ -1,0 +1,743 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+{% load voyager_extras %}
+
+{% block title %}Entidades — quem aparece nos processos{% endblock %}
+
+{% block content %}
+{% comment %}
+RANKING DE ENTIDADES (cadastro canônico `voyager-entidades`).
+
+- Shell puro: todo número vem de GET /dashboard/api/entidades/ (contrato no topo
+  de `search/agg_entidade.py`). A view não toca no ES — se o índice cair, a
+  PÁGINA ainda abre e quem fala é o card de erro com "Tentar de novo".
+- Padrões herdados da página do estado e do mapa, e que NÃO podem regredir:
+  * explicação em `.voy-tip` (hover + foco + TAP), NUNCA `title=`;
+  * cor de texto por token do tema, nunca hex inline;
+  * comentário de várias linhas SÓ na tag `comment` do Django: o lexer não usa
+    DOTALL, então cerquilha atravessando linha VAZA literal na tela;
+  * `text-base` aqui é COR (o token `base` é o fundo da página), não tamanho —
+    título de card usa `text-[1rem]`.
+
+AS QUATRO HONESTIDADES DESTA TELA (não são enfeite; sem elas a lista mente).
+Todas medidas no cadastro real em 13/08/2026:
+
+ 1. `n_processos` AUSENTE = "não contamos ainda", JAMAIS 0. Só 182.026 das
+    1.141.610 entidades (16,0%) têm contagem: 959 mil NUNCA foram contadas (o
+    escopo da contagem é deliberadamente parcial). Zero é uma AFIRMAÇÃO ("esta
+    entidade não tem processo") e seria mentira.
+ 2. A contagem é pelo NOME ESCRITO NA PUBLICAÇÃO (união de `match_phrase` das
+    grafias contra o campo texto de partes), não por vínculo estruturado. Nome
+    genérico reivindica processo alheio. Por isso cada linha carrega os DOIS
+    sinais de confiança do payload: `confianca`/`chave` (cnpj = identidade
+    provada por documento; nome = heurística de grafia) e `n_partes` (quantas
+    vezes, independentemente, o tribunal cadastrou aquele nome = ATESTAÇÃO).
+ 3. O TOPO DA LISTA É UM CARDUME DE FACETAS DA MESMA ENTIDADE. No top-20 real
+    por processos, o INSS aparece 8 vezes e a União 3 — a autarquia com 768
+    linhas de cadastro ao lado de "CEAB - INSS" com 4 e de CNPJs digitados
+    errado com 1. A lista ranqueia NOMES, não pessoas jurídicas consolidadas, e
+    isso vai ESCRITO. A ferramenta é o filtro de atestação mínima
+    (`min_partes`): medido, `>= 10` derruba a lista de 1,14M pra 1.588 e limpa
+    metade das facetas.
+ 4. Casa em QUALQUER POLO. Não é "quem deve": é "quem aparece". O INSS aparece
+    como réu; um município aparece como autor em execução fiscal. A tela nunca
+    escreve "devedor" sobre este número.
+
+A `nota` e as `exclusoes` que o backend manja prontas NÃO são exibidas
+verbatim: elas citam nome de campo (`min_partes`, `documentos_secundarios`,
+`match_phrase`), que é jargão de banco. A tela diz as MESMAS coisas em
+português — a fonte da verdade continua sendo o número do payload.
+{% endcomment %}
+
+{% include 'dashboard/_partials/page_header.html' with title='Entidades' subtitle='<span class="block max-w-3xl">O cadastro de quem aparece nos processos, com as várias grafias do mesmo nome já juntadas. Clique numa entidade para ver a ficha dela.</span>' %}
+
+<script>
+  // Rotas resolvidas pelo Django (sem hardcode de path no JS).
+  window.ENTIDADES_URLS = {
+    lista: "{% url 'dashboard:entidades-ranking' %}",
+    // '__ID__' é trocado em runtime — a rota continua resolvida pelo `url` tag.
+    // Argumento POSICIONAL de propósito: assim o template não depende do nome
+    // do kwarg escolhido no urls.py.
+    ficha: "{% url 'dashboard:entidade' '__ID__' %}",
+    mapa: "{% url 'dashboard:comercial-mapa-page' %}",
+  };
+
+  // Esta tela NÃO tem glossário de tooltip, de propósito. Tudo o que muda a
+  // leitura do número (é busca por texto; casa em qualquer polo; ausência não é
+  // zero; a lista ranqueia nomes e não pessoas jurídicas) está em TEXTO VISÍVEL
+  // e no bloco "Como ler esta lista" — o que é preciso saber pra não ler errado
+  // não pode depender de hover. As explicações em tooltip vivem na FICHA, onde
+  // os números do resumo têm o mesmo nome e a mesma frase do mapa e da página
+  // do estado.
+
+  // ---------------------------------------------------------------------------
+  // FORMATAÇÃO pt-BR — helpers LOCAIS (o fmtCompact() global devolve "1.2M",
+  // em inglês, e é consumido por outras páginas: não pode ser alterado aqui).
+  // ---------------------------------------------------------------------------
+  function _num1(v, k) {
+    return (v / k).toFixed(1).replace(/\.0$/, '').replace('.', ',');
+  }
+  function fmtQtdCompacta(n) {
+    const v = Number(n) || 0, a = Math.abs(v);
+    if (a >= 1e6) return _num1(v, 1e6) + ' mi';
+    if (a >= 1e3) return _num1(v, 1e3) + ' mil';
+    return String(Math.round(v));
+  }
+  // 0 -> "0%"; 0<n<0,1 -> "menos de 0,1%"; senão 1 casa com VÍRGULA e sem ",0".
+  function fmtPct(v) {
+    const n = Number(v);
+    if (v === null || v === undefined || !isFinite(n)) return null;
+    if (n === 0) return '0%';
+    if (n > 0 && n < 0.1) return 'menos de 0,1%';
+    return n.toFixed(1).replace(/\.0$/, '').replace('.', ',') + '%';
+  }
+
+  function entidadesRanking() {
+    return {
+      // ---- dados ----
+      itens: [],
+      total: null,
+      cobertura: null,       // `cobertura_contagem` do payload
+      cursor: null,          // cursor da PRÓXIMA página (null = fim)
+      geradoEm: null,
+      loading: true,         // 1ª carga
+      carregandoMais: false,
+      erro: null,
+      erroDetalhe: null,
+
+      // ---- recorte ----
+      q: '',
+      ente: false,
+      contadas: false,
+      minPartes: 0,
+      ordenar: 'n_processos',
+
+      //: espelha o mínimo do backend (o endpoint também ignora abaixo disso)
+      Q_MIN: 3,
+      //: busca em 1,14M entidades (~5-90ms) — não precisa dos 600ms do mapa
+      DEBOUNCE: 300,
+      TAMANHO: 30,
+
+      _seq: 0,
+      _timer: null,
+      _qAplicado: '',
+      ajudaAberta: false,
+      _AJUDA_KEY: 'voy-entidades:ajuda',
+
+      // ---- opções de recorte (rótulo + o porquê, os dois na tela) ----
+      ORDENS: [
+        {chave: 'n_processos', rotulo: 'Processos', so_busca: false,
+         nota: 'Ordena pelas entidades com mais processos. Quem ainda não foi contado não disputa esta ordem e aparece no fim.'},
+        {chave: 'n_partes', rotulo: 'Atestação', so_busca: false,
+         nota: 'Ordena por quantas vezes o tribunal cadastrou este nome. Mede o quanto o acervo confirma a entidade, não o tamanho do litígio.'},
+        {chave: 'n_variantes', rotulo: 'Grafias', so_busca: false,
+         nota: 'Ordena por quantas formas diferentes de escrever o mesmo nome a entidade junta. É a bagunça de cadastro dos tribunais.'},
+        {chave: 'nome', rotulo: 'Nome', so_busca: false,
+         nota: 'Ordem alfabética do nome canônico. Útil para conferir o cadastro, não para achar quem é grande.'},
+        {chave: 'relevancia', rotulo: 'Relevância', so_busca: true,
+         nota: 'Ordena pelo quanto o nome casa com o que você escreveu, com um peso para as entidades mais atestadas.'},
+      ],
+      ATESTACOES: [
+        {valor: 0, rotulo: 'Todas',
+         nota: 'Nenhum corte: entra até o nome que o acervo viu uma única vez — e é aí que moram as facetas repetidas da mesma entidade.'},
+        {valor: 2, rotulo: 'a partir de 2',
+         nota: 'Tira os nomes vistos uma única vez no acervo. Corta boa parte dos CNPJs que o tribunal digitou errado.'},
+        {valor: 10, rotulo: 'a partir de 10',
+         nota: 'Só nomes que o tribunal cadastrou 10 vezes ou mais. Derruba a lista de 1,14 milhão para cerca de 1.600 entidades e limpa metade das facetas repetidas.'},
+      ],
+
+      async init() {
+        this.lerQuerystring();
+        this.initAjuda();
+        await this.carregar();
+      },
+
+      // ---- querystring: o link é o estado da tela ----
+      lerQuerystring() {
+        const p = new URLSearchParams(window.location.search);
+        const q = (p.get('q') || '').trim();
+        if (q) this.q = q.slice(0, 120);
+        this.ente = this._flag(p.get('ente'));
+        this.contadas = this._flag(p.get('contadas'));
+        const mp = parseInt(p.get('min_partes') || '', 10);
+        if (this.ATESTACOES.some(a => a.valor === mp)) this.minPartes = mp;
+        const o = (p.get('ordenar') || '').trim();
+        if (this.ORDENS.some(x => x.chave === o)) this.ordenar = o;
+      },
+      _flag(v) { return ['1', 'true', 'on', 'sim'].indexOf((v || '').toLowerCase()) >= 0; },
+      querystring(comCursor) {
+        const p = new URLSearchParams();
+        if (this.qValido()) p.set('q', this.qNorm());
+        if (this.ente) p.set('ente', '1');
+        if (this.contadas) p.set('contadas', '1');
+        if (this.minPartes) p.set('min_partes', String(this.minPartes));
+        p.set('ordenar', this.ordenarEfetivo());
+        p.set('tamanho', String(this.TAMANHO));
+        if (comCursor && this.cursor) p.set('cursor', this.cursor);
+        return p.toString();
+      },
+      // A barra de endereços acompanha a tela: F5 e link compartilhado trazem o
+      // MESMO recorte. O cursor fica de fora — ele é paginação, não recorte.
+      sincronizarUrl() {
+        try {
+          const p = new URLSearchParams();
+          if (this.qValido()) p.set('q', this.qNorm());
+          if (this.ente) p.set('ente', '1');
+          if (this.contadas) p.set('contadas', '1');
+          if (this.minPartes) p.set('min_partes', String(this.minPartes));
+          if (this.ordenar !== 'n_processos') p.set('ordenar', this.ordenar);
+          const qs = p.toString();
+          window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+        } catch (e) { /* navegador sem history API — a página segue funcionando */ }
+      },
+
+      qNorm() { return (this.q || '').trim().replace(/\s+/g, ' '); },
+      qValido() { return this.qNorm().length >= this.Q_MIN; },
+      // 1-2 letras não disparam recorte: o backend ignora o termo e devolveria a
+      // lista global, que é diferente de "nenhum resultado".
+      qCurta() {
+        const n = this.qNorm().length;
+        return n > 0 && n < this.Q_MIN;
+      },
+      // "Relevância" sem termo de busca é ordenar por relevância de nada — o
+      // backend cai no default, e a tela seguiria mostrando o botão aceso
+      // mentindo sobre a ordem.
+      ordemDisponivel(o) { return !o.so_busca || this.qValido(); },
+      ordenarEfetivo() {
+        return (this.ordenar === 'relevancia' && !this.qValido()) ? 'n_processos' : this.ordenar;
+      },
+
+      // ---- carga ----
+      async carregar(anexar) {
+        const seq = ++this._seq;
+        if (anexar) { this.carregandoMais = true; } else { this.loading = true; }
+        this.erro = null;
+        this.erroDetalhe = null;
+        if (!anexar) this.sincronizarUrl();
+        try {
+          const qs = this.querystring(!!anexar);
+          const url = window.ENTIDADES_URLS.lista + (qs ? '?' + qs : '');
+          const resp = await fetch(url, {
+            credentials: 'same-origin', headers: {'Accept': 'application/json'},
+          });
+          const json = await resp.json();
+          if (seq !== this._seq) return;        // resposta fora de ordem: descarta
+          if (!resp.ok) throw new Error(json.erro || ('HTTP ' + resp.status));
+          const novos = json.itens || [];
+          this.itens = anexar ? this.itens.concat(novos) : novos;
+          this.total = (json.total === null || json.total === undefined) ? null : Number(json.total);
+          this.cobertura = json.cobertura_contagem || null;
+          // `proximo_cursor` é o nome do contrato; `cursor_proximo` é o alias
+          // de compatibilidade que vai sumir. Lemos os dois pra a paginação não
+          // morrer no dia em que o alias sair.
+          this.cursor = json.proximo_cursor || json.cursor_proximo || null;
+          this.geradoEm = json.gerado_em || null;
+          this._qAplicado = (json.busca && json.busca.aplicada) ? (json.busca.termo || '') : '';
+        } catch (e) {
+          if (seq !== this._seq) return;
+          this.erro = 'Não conseguimos carregar o cadastro de entidades.';
+          this.erroDetalhe = String(e.message || e);
+          if (!anexar) { this.itens = []; this.total = null; this.cursor = null; }
+        } finally {
+          if (seq === this._seq) { this.loading = false; this.carregandoMais = false; }
+        }
+      },
+      // Toda mudança de recorte volta pra página 1: manter o cursor traria a
+      // segunda página do recorte ANTIGO grudada na primeira do novo.
+      recarregar() { this.cursor = null; this.carregar(false); },
+      aoDigitar() {
+        clearTimeout(this._timer);
+        this._timer = setTimeout(() => this.recarregar(), this.DEBOUNCE);
+      },
+      limparBusca() { this.q = ''; this.recarregar(); },
+      trocarOrdem(o) {
+        if (this.ordenar === o) return;
+        this.ordenar = o;
+        this.recarregar();
+      },
+      trocarAtestacao(v) {
+        if (this.minPartes === v) return;
+        this.minPartes = v;
+        this.recarregar();
+      },
+      alternarEnte() { this.ente = !this.ente; this.recarregar(); },
+      alternarContadas() { this.contadas = !this.contadas; this.recarregar(); },
+      carregarMais() { if (this.cursor && !this.carregandoMais) this.carregar(true); },
+
+      notaOrdem() {
+        const o = this.ORDENS.find(x => x.chave === this.ordenarEfetivo());
+        return o ? o.nota : '';
+      },
+      notaAtestacao() {
+        const a = this.ATESTACOES.find(x => x.valor === this.minPartes);
+        return a ? a.nota : '';
+      },
+
+      // ---- leitura honesta de cada item ----
+      fmt(v) { return fmt(Number(v) || 0); },
+
+      // AUSENTE != ZERO. Este é o ponto mais importante da tela.
+      semContagem(it) {
+        const n = it ? it.n_processos : null;
+        return n === null || n === undefined;
+      },
+      processosLabel(it) {
+        return this.semContagem(it) ? 'não contamos ainda' : fmt(it.n_processos);
+      },
+      grafiasFrase(it) {
+        const n = Number(it && it.n_variantes) || 0;
+        if (n > 1) return 'unifica ' + fmt(n) + ' grafias';
+        return 'uma grafia conhecida';
+      },
+      // Raiz do CNPJ (8 dígitos) formatada. É ela que PROVA a identidade.
+      fmtRaiz(r) {
+        const d = String(r || '').replace(/\D/g, '');
+        if (d.length !== 8) return '';
+        return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8);
+      },
+      // O backend manda `confianca` ('forte'|'fraca'); `chave` é a origem dela.
+      // Lemos os dois pra a linha não perder o sinal se um deles faltar.
+      provada(it) {
+        if (!it) return false;
+        if (it.confianca) return it.confianca === 'forte';
+        return it.chave === 'cnpj';
+      },
+      // Uma linha de cadastro = o acervo viu este nome UMA vez. Não invalida a
+      // entidade; muda o quanto dá pra confiar nela, e isso vai escrito.
+      poucaAtestacao(it) {
+        const n = Number(it && it.n_partes);
+        return isFinite(n) && n > 0 && n < 2;
+      },
+      // CNPJs que o tribunal digitou errado e que fundimos: sinalizar na lista
+      // evita a pergunta "por que a busca por aquele CNPJ cai aqui?".
+      temCnpjErrado(it) { return Number(it && it.n_documentos_secundarios) > 0; },
+      urlFicha(it) {
+        return window.ENTIDADES_URLS.ficha.replace(
+          '__ID__', encodeURIComponent(it && it.entidade_id || ''));
+      },
+
+      // ---- resumos da lista ----
+      buscando() { return !!this._qAplicado; },
+      semResultado() {
+        return !this.loading && !this.erro && this.itens.length === 0;
+      },
+      temRecorte() { return this.ente || this.contadas || this.minPartes > 0 || this.buscando(); },
+      limparRecorte() {
+        this.q = '';
+        this.ente = false;
+        this.contadas = false;
+        this.minPartes = 0;
+        this.recarregar();
+      },
+      // Quantos da lista VISÍVEL ainda não têm contagem. É o número que impede
+      // a leitura "as outras têm zero processo".
+      nSemContagem() { return this.itens.filter(i => this.semContagem(i)).length; },
+      // Quantas entidades do RECORTE INTEIRO nunca foram contadas (do payload).
+      naoContadasNoRecorte() {
+        const c = this.cobertura;
+        if (!c) return null;
+        const total = Number(c.total_do_escopo);
+        const com = Number(c.docs_com_o_campo);
+        if (!isFinite(total) || !isFinite(com)) return null;
+        return Math.max(0, total - com);
+      },
+      pctContado() { return this.cobertura ? fmtPct(this.cobertura.pct) : null; },
+      geradoLegivel() {
+        if (!this.geradoEm) return '';
+        try {
+          const d = new Date(this.geradoEm);
+          const hora = d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+          const hoje = new Date();
+          if (d.toDateString() === hoje.toDateString()) return 'hoje às ' + hora;
+          const dia = d.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
+          return dia + ' às ' + hora;
+        } catch (e) { return this.geradoEm; }
+      },
+
+      // ---- bloco didático ----
+      initAjuda() {
+        try {
+          const v = localStorage.getItem(this._AJUDA_KEY);
+          if (v !== null) this.ajudaAberta = (v === '1');
+        } catch (e) { /* localStorage bloqueado — mantém default fechado */ }
+      },
+      toggleAjuda() {
+        this.ajudaAberta = !this.ajudaAberta;
+        try { localStorage.setItem(this._AJUDA_KEY, this.ajudaAberta ? '1' : '0'); }
+        catch (e) { /* ignora */ }
+      },
+    };
+  }
+</script>
+
+<div id="pagina-entidades" x-data="entidadesRanking()" x-init="init()" class="space-y-5">
+
+  {# ---- navegação + carimbo ---- #}
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <a href="{% url 'dashboard:comercial-mapa-page' %}"
+       class="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg rounded-md px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      {% voy_icon "trajectory" "w-4 h-4 shrink-0" %}
+      <span>Voltar ao Mapa de Precatórios</span>
+    </a>
+    <span class="text-xs text-fg-muted font-mono" x-show="geradoLegivel()" x-cloak>
+      atualizado <span x-text="geradoLegivel()"></span>
+    </span>
+  </div>
+
+  {% comment %} COCKPIT: caveat + busca + recorte num card só. Eram três cards
+     empilhados e o 1º item da lista começava a 909px — abaixo da dobra em
+     1440x900 E em 1366x768 (medido em browser). É o mesmo erro que o mapa
+     cometeu com as suas quatro faixas de cabeçalho: o produto desta tela é a
+     LISTA, e ela tem que aparecer sem rolar.
+
+     O parágrafo carrega as TRÊS armadilhas que mudam o sentido do número (é o
+     nome escrito na publicação · casa em qualquer polo · a lista ranqueia nomes
+     e ausência não é zero). O detalhe de cada uma vive no disclosure ao lado,
+     que já tem tudo — não é escondido, é o segundo nível.
+  {% endcomment %}
+  <div class="card p-4 space-y-3">
+    <p class="text-sm text-fg leading-relaxed max-w-4xl">
+      Cada linha é <b class="font-semibold">um nome do cadastro</b>, com as várias grafias que os
+      tribunais deram a ele já juntadas. A contagem procura o nome
+      <b class="font-semibold">como ele foi escrito na publicação</b>,
+      em <b class="font-semibold">qualquer lado do processo</b>.
+      Não é “quem deve”: é quem aparece. Nome genérico puxa processo dos outros.
+      A lista ranqueia <b class="text-fg">nomes</b>, não pessoas jurídicas consolidadas — no topo
+      por processos o INSS ocupa <b class="text-fg">8 das 20 primeiras posições</b>, então suba a
+      atestação mínima para derrubar as repetições. Onde não há contagem está escrito
+      <b class="text-fg">“não contamos ainda”</b>, que nunca é zero.
+    </p>
+
+    <div class="rounded-md border border-border bg-surface/50">
+      <button type="button" @click="toggleAjuda()" :aria-expanded="ajudaAberta"
+              aria-controls="entidades-ajuda"
+              class="w-full flex items-center gap-2 px-2.5 py-2 text-sm text-fg-muted hover:text-fg rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        {% voy_icon "info" "w-4 h-4 shrink-0" %}
+        <span class="font-medium">Como ler esta lista</span>
+        <svg class="ml-auto w-3.5 h-3.5 transition-transform" :class="ajudaAberta ? 'rotate-90' : ''"
+             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+      <dl id="entidades-ajuda" x-show="ajudaAberta" x-cloak
+          class="px-2.5 pb-2.5 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 text-sm leading-snug">
+        <div>
+          <dt class="inline font-semibold text-fg">Entidade — </dt>
+          <dd class="inline text-fg-muted">Um nome só para o mesmo órgão ou empresa. O INSS tem 104 formas de ser escrito nos tribunais e o cadastro junta todas numa linha.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Processos — </dt>
+          <dd class="inline text-fg-muted">Em quantos processos esse nome aparece nas publicações. É busca por texto, não vínculo do tribunal: nome genérico puxa processo dos outros.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-mission-fg">“Não contamos ainda” — </dt>
+          <dd class="inline text-fg-muted">Só contamos as entidades que disputam a busca — <b class="text-fg">16%</b> do cadastro. Os outros 959 mil nomes nunca foram contados, e isso <b class="text-fg">não</b> é zero processo.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Atestação — </dt>
+          <dd class="inline text-fg-muted">Quantas vezes o tribunal cadastrou este nome, de forma independente. Uma vez só quer dizer que o acervo o viu uma vez na vida.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-accent-fg">CNPJ confere — </dt>
+          <dd class="inline text-fg-muted">A entidade foi montada pela raiz do CNPJ, que identifica a pessoa jurídica. Matriz e filiais entram como uma só.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Juntado pelo nome — </dt>
+          <dd class="inline text-fg-muted">Sem CNPJ no cadastro do tribunal — o que é a regra em município, estado e fazenda pública. Dois homônimos de cidades diferentes podem colar num nome só.</dd>
+        </div>
+        <div>
+          {% comment %} `pale-blue` e não `info`: o token `info` é sky-600 e mede
+             4,1:1 sobre o card branco (medido em browser) — reprova o piso de
+             4,5:1 de texto. `pale-blue` inverte com o tema (blue-600 no claro,
+             blue-300 no escuro) e mede 5,2:1 / 8,6:1. A família de cor é a
+             mesma; só a versão AA-safe muda. {% endcomment %}
+          <dt class="inline font-semibold text-pale-blue">Ente público — </dt>
+          <dd class="inline text-fg-muted">O nome foi reconhecido como órgão público por leitura do nome, não por cadastro oficial. Pode faltar órgão pequeno.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Em qualquer polo — </dt>
+          <dd class="inline text-fg-muted">O nome casa dos dois lados. Um município aparece como autor em execução fiscal e como réu em precatório — os dois entram na conta.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Quem fica de fora — </dt>
+          <dd class="inline text-fg-muted">Advogados e pessoas físicas nunca entram. Também não entra cadastro truncado que casa o país inteiro: “JOSÉ” marcava 1,8 milhão de processos e “MUNICIPIO DE”, 467 mil.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">Não dá para filtrar por estado — </dt>
+          <dd class="inline text-fg-muted">Entidade não mora num estado; os processos dela é que se espalham. Para “quem aparece neste estado”, use a página do estado a partir do mapa.</dd>
+        </div>
+      </dl>
+    </div>
+
+    {# ---- busca + recorte + ordenação (no MESMO card, ver comentário acima) ---- #}
+    <div class="border-t border-border pt-3 flex flex-wrap items-end gap-x-4 gap-y-3">
+      <div class="flex flex-col gap-1.5 flex-1 min-w-[16rem]">
+        <label for="q-entidade" class="text-xs text-fg-muted uppercase tracking-wide">Procurar entidade</label>
+        <div class="relative">
+          <input id="q-entidade" type="text" x-model="q" maxlength="120"
+                 @input="aoDigitar()" @keydown.enter.prevent="recarregar()"
+                 autocomplete="off" spellcheck="false"
+                 aria-describedby="ajuda-busca"
+                 placeholder="ex.: INSS, Caixa Econômica, Prefeitura de São Paulo"
+                 class="w-full bg-surface border border-border rounded-md pl-2.5 pr-9 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <button type="button" @click="limparBusca()" x-show="q" x-cloak
+                  aria-label="Limpar a busca"
+                  class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            {% voy_icon "clear" "w-4 h-4" %}
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-1.5">
+        <span id="lbl-recorte" class="text-xs text-fg-muted uppercase tracking-wide">Recorte</span>
+        <div class="flex flex-wrap gap-2" role="group" aria-labelledby="lbl-recorte">
+          <button type="button" @click="alternarEnte()" :aria-pressed="ente ? 'true' : 'false'"
+                  :class="ente ? 'border-info bg-info/10 text-fg' : 'border-border text-fg-muted hover:text-fg hover:bg-muted/40'"
+                  class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            {% voy_icon "mission-tag" "w-4 h-4 shrink-0" %}
+            <span>Só ente público</span>
+          </button>
+          {% comment %} O par honesto de "não contamos ainda": quem quer só o que
+             foi medido pede aqui, em vez de concluir que os sem número são
+             pequenos. {% endcomment %}
+          <button type="button" @click="alternarContadas()" :aria-pressed="contadas ? 'true' : 'false'"
+                  :class="contadas ? 'border-mission bg-mission/10 text-fg' : 'border-border text-fg-muted hover:text-fg hover:bg-muted/40'"
+                  class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            {% voy_icon "circle-check" "w-4 h-4 shrink-0" %}
+            <span>Só as já contadas</span>
+          </button>
+        </div>
+      </div>
+
+      {% comment %} ATESTAÇÃO MÍNIMA — a ferramenta contra o cardume de facetas.
+         Medido: `>= 10` derruba a lista de 1,14M pra 1.588 entidades e limpa
+         metade das repetições do INSS. É o único controle desta tela que muda a
+         NATUREZA da lista, então ele fica visível e com a nota ao lado.
+      {% endcomment %}
+      <div class="flex flex-col gap-1.5">
+        <span id="lbl-atestacao" class="text-xs text-fg-muted uppercase tracking-wide">Atestação mínima</span>
+        <div class="inline-flex rounded-lg border border-border overflow-hidden text-sm"
+             role="group" aria-labelledby="lbl-atestacao">
+          <template x-for="(a, i) in ATESTACOES" :key="a.valor">
+            <button type="button" @click="trocarAtestacao(a.valor)"
+                    :aria-pressed="minPartes === a.valor ? 'true' : 'false'"
+                    :class="[minPartes === a.valor ? 'bg-info/20 text-fg font-semibold' : 'text-fg-muted hover:text-fg hover:bg-muted/40', i ? 'border-l border-border' : '']"
+                    class="px-3 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base"
+                    x-text="a.rotulo"></button>
+          </template>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-1.5">
+        <span id="lbl-ordem" class="text-xs text-fg-muted uppercase tracking-wide">Ordenar por</span>
+        <div class="inline-flex rounded-lg border border-border overflow-hidden text-sm"
+             role="group" aria-labelledby="lbl-ordem">
+          <template x-for="(o, i) in ORDENS" :key="o.chave">
+            {% comment %} Ativo = fundo TINTO + `text-fg`. Medido no mapa:
+               `bg-mission text-white` dá 3,54:1 no claro (reprova AA); com
+               `text-fg` sobre a mesma tinta dá 11,9:1 e a família de cor
+               continua codificando o estado. {% endcomment %}
+            <button type="button" @click="trocarOrdem(o.chave)"
+                    x-show="ordemDisponivel(o)"
+                    :aria-pressed="ordenarEfetivo() === o.chave ? 'true' : 'false'"
+                    :class="[ordenarEfetivo() === o.chave ? 'bg-mission/20 text-fg font-semibold' : 'text-fg-muted hover:text-fg hover:bg-muted/40', i ? 'border-l border-border' : '']"
+                    class="px-3 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base"
+                    x-text="o.rotulo"></button>
+          </template>
+        </div>
+      </div>
+
+      <div class="flex items-end">
+        <button type="button" @click="limparRecorte()" x-show="temRecorte()" x-cloak
+                class="text-sm px-3 py-2 rounded-lg border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          Limpar recorte
+        </button>
+      </div>
+    </div>
+
+    {% comment %} As notas do recorte ATIVO são VISÍVEIS, numa linha só (o
+       cabeçalho desta tela é gate de altura): ordenar por processos tira 959 mil
+       entidades da disputa e a atestação mínima muda quantas entidades existem
+       na lista. As duas mudam a leitura do que está logo abaixo. {% endcomment %}
+    <p class="text-sm text-fg-muted max-w-4xl">
+      <span id="ajuda-busca">Procura no nome canônico e nas grafias do cadastro, a partir de
+      <span x-text="Q_MIN"></span> letras.</span>
+      <span x-text="notaOrdem()"></span>
+      <span x-text="notaAtestacao()"></span>
+    </p>
+
+    <p x-show="qCurta()" x-cloak class="text-sm text-fg">
+      Escreva ao menos <b x-text="Q_MIN"></b> letras para buscar — a lista abaixo ainda é a anterior.
+    </p>
+  </div>
+
+  {# ---- erro de infra: mensagem humana + tentar de novo ---- #}
+  <div x-show="erro" x-cloak class="card p-6 flex flex-col items-start gap-2">
+    {% voy_icon "signal-lost" "w-6 h-6 text-danger" %}
+    <span class="text-xs font-mono uppercase tracking-widest text-danger">signal lost</span>
+    <h2 class="text-lg font-semibold text-fg" x-text="erro"></h2>
+    <p class="text-sm text-fg-muted max-w-xl">
+      O cadastro que alimenta esta página não respondeu. As entidades não sumiram — só não
+      conseguimos ler agora.
+    </p>
+    <span class="text-xs font-mono text-fg-muted" x-text="erroDetalhe"></span>
+    <button type="button" @click="recarregar()"
+            class="mt-1 text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      Tentar de novo
+    </button>
+  </div>
+
+  {# ---- contagem do recorte ---- #}
+  <div class="space-y-1" x-show="!loading && !erro" x-cloak>
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="text-lg font-semibold text-fg">
+        <span x-show="!buscando()">Cadastro de entidades</span>
+        <span x-show="buscando()" x-cloak>
+          Entidades com “<span x-text="_qAplicado"></span>”
+        </span>
+      </h2>
+      <span class="text-sm text-fg-muted" x-show="total !== null" x-cloak>
+        <span class="font-mono text-fg" x-text="fmt(total)"></span> neste recorte ·
+        mostrando <span class="font-mono text-fg" x-text="fmt(itens.length)"></span>
+      </span>
+    </div>
+
+    {% comment %} Sem esta linha o leitor conclui que as entidades sem número
+       têm zero processo. O número vem do payload (`cobertura_contagem`), então
+       ele acompanha o recorte em vez de ser um texto fixo. {% endcomment %}
+    <p class="text-sm text-fg-muted max-w-4xl" x-show="naoContadasNoRecorte() > 0" x-cloak>
+      Contamos os processos de
+      <b class="text-fg" x-text="pctContado()"></b> das entidades deste recorte;
+      as outras <span class="font-mono text-fg" x-text="fmt(naoContadasNoRecorte())"></span>
+      nunca foram contadas e aparecem com “não contamos ainda”, que
+      <b class="text-fg">não</b> é zero processo.
+    </p>
+  </div>
+
+  {# ---- skeleton da 1ª carga: nunca um spinner eterno ---- #}
+  <div x-show="loading" class="space-y-2">
+    <template x-for="i in 8" :key="i">
+      <div class="card p-4">
+        <div class="skeleton h-4 w-72 max-w-full rounded"></div>
+        <div class="skeleton h-3 w-96 max-w-full rounded mt-2"></div>
+      </div>
+    </template>
+  </div>
+
+  {# ---- lista vazia ---- #}
+  <div x-show="semResultado()" x-cloak class="card p-6 flex flex-col items-start gap-3">
+    {% voy_icon "search" "w-6 h-6 text-fg-muted" %}
+    <h2 class="text-lg font-semibold text-fg">Nenhuma entidade com esse nome no cadastro.</h2>
+    <p class="text-sm text-fg-muted max-w-2xl">
+      O cadastro guarda o nome <b class="text-fg">como o tribunal escreveu</b>. Tente um pedaço
+      do nome por extenso (“seguro social” em vez de “INSS”), baixe a atestação mínima ou tire
+      o recorte de ente público.
+    </p>
+    <button type="button" @click="limparRecorte()" x-show="temRecorte()" x-cloak
+            class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      Limpar recorte
+    </button>
+  </div>
+
+  {# ---- a lista ---- #}
+  <ol class="space-y-2" x-show="!loading && itens.length" x-cloak
+      aria-label="Entidades do cadastro">
+    <template x-for="it in itens" :key="it.entidade_id">
+      <li>
+        <a :href="urlFicha(it)"
+           class="card block p-4 hover:border-fg-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-[1rem] font-semibold text-fg break-words" x-text="it.nome_canonico"></span>
+                <template x-if="it.eh_ente_publico">
+                  <span class="inline-flex items-center gap-1 rounded-full border border-info/40 bg-info/10 px-2 py-0.5 text-xs text-fg">
+                    {% voy_icon "mission-tag" "w-3 h-3 shrink-0" %}
+                    <span>ente público</span>
+                  </span>
+                </template>
+                {% comment %} A confiança da fusão vai NA LINHA, não num rodapé:
+                   `cnpj` é identidade provada por documento, `nome` é
+                   semelhança de grafia — e um homônimo de outra cidade cola
+                   silenciosamente no segundo caso. {% endcomment %}
+                <template x-if="provada(it)">
+                  <span class="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs text-fg">
+                    {% voy_icon "circle-check" "w-3 h-3 shrink-0" %}
+                    <span>CNPJ confere</span>
+                  </span>
+                </template>
+                <template x-if="!provada(it)">
+                  <span class="inline-flex items-center gap-1 rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-xs text-fg">
+                    {% voy_icon "info" "w-3 h-3 shrink-0" %}
+                    <span>juntado pelo nome</span>
+                  </span>
+                </template>
+              </div>
+
+              <div class="mt-1.5 text-sm text-fg-muted flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span x-text="grafiasFrase(it)"></span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  cadastrado
+                  <span class="font-mono text-fg" x-text="fmt(it.n_partes || 0)"></span>
+                  <span x-text="(Number(it.n_partes) === 1 ? 'vez pelos tribunais' : 'vezes pelos tribunais')"></span>
+                </span>
+                <template x-if="it.raiz_cnpj">
+                  <span class="flex items-center gap-2">
+                    <span aria-hidden="true">·</span>
+                    <span>CNPJ <span class="font-mono text-fg" x-text="fmtRaiz(it.raiz_cnpj)"></span></span>
+                  </span>
+                </template>
+                <template x-if="!it.raiz_cnpj">
+                  <span class="flex items-center gap-2">
+                    <span aria-hidden="true">·</span>
+                    <span>sem CNPJ no cadastro do tribunal</span>
+                  </span>
+                </template>
+              </div>
+
+              {% comment %} Uma linha de cadastro = o acervo viu este nome UMA
+                 vez. Não invalida a entidade; muda o quanto dá pra confiar, e
+                 isso é dito ali mesmo, não escondido. {% endcomment %}
+              <p class="mt-1 text-sm text-fg-muted" x-show="poucaAtestacao(it)" x-cloak>
+                O acervo viu este nome uma vez só: pode ser uma faceta de outra entidade maior.
+                Confira a ficha antes de usar.
+              </p>
+              <p class="mt-1 text-sm text-fg-muted" x-show="temCnpjErrado(it)" x-cloak>
+                Inclui <span class="font-mono text-fg" x-text="fmt(it.n_documentos_secundarios)"></span>
+                <span x-text="Number(it.n_documentos_secundarios) === 1 ? 'CNPJ que o tribunal digitou errado' : 'CNPJs que os tribunais digitaram errado'"></span>
+                e que juntamos aqui — a ficha lista quais.
+              </p>
+            </div>
+
+            <div class="text-right shrink-0">
+              {% comment %} Dois elementos e não uma classe condicional: "não
+                 contamos ainda" é PALAVRA e não cabe no corpo de número —
+                 misturar text-xl e text-sm no mesmo nó depende da ordem do CSS.
+              {% endcomment %}
+              <div class="text-xl font-mono text-fg" x-show="!semContagem(it)"
+                   x-text="processosLabel(it)"></div>
+              <div class="text-sm text-mission-fg italic" x-show="semContagem(it)" x-cloak>
+                não contamos ainda
+              </div>
+              <div class="text-xs text-fg-muted uppercase tracking-wide mt-0.5">processos</div>
+            </div>
+          </div>
+        </a>
+      </li>
+    </template>
+  </ol>
+
+  {# ---- paginação por cursor ---- #}
+  <div class="flex flex-col items-center gap-2" x-show="!loading && itens.length" x-cloak>
+    <button type="button" @click="carregarMais()" x-show="cursor" :disabled="carregandoMais"
+            class="text-sm px-4 py-2 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted disabled:cursor-wait focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      <span x-show="!carregandoMais">Carregar mais entidades</span>
+      <span x-show="carregandoMais" x-cloak class="font-mono">acquiring signal…</span>
+    </button>
+    <p class="text-sm text-fg-muted" x-show="!cursor" x-cloak>
+      Fim da lista.
+    </p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,1307 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+{% load voyager_extras %}
+
+{% block title %}{% if nome_canonico %}{{ nome_canonico }}{% else %}Entidade{% endif %} — Voyager{% endblock %}
+
+{% block content %}
+{% comment %}
+FICHA DE UMA ENTIDADE do cadastro canônico (`voyager-entidades`).
+
+- Shell puro: todo número vem de GET /dashboard/api/entidades/<id>/ (contrato no
+  topo de `search/agg_entidade.py`). A view não toca no ES — se o índice cair, a
+  PÁGINA ainda abre e quem fala é o card de erro com "Tentar de novo".
+- Padrões da casa que NÃO podem regredir:
+  * `setOption(opts, true)` direto — NUNCA `setupChart`, que faz JSON.stringify
+    das opções e DESCARTA os formatters (o tooltip cai em "series0");
+  * no resize a página REPINTA (não só `resize()`): repintar é o que garante que
+    o mapeamento de cor e os formatters sobrevivem a arrastar a janela;
+  * explicação em `.voy-tip` (hover + foco + TAP), nunca `title=`;
+  * cor de texto por token do tema, nunca hex inline (hex só na paleta do
+    canvas do ECharts, que não entende classe Tailwind);
+  * comentário de várias linhas SÓ na tag `comment` do Django — o lexer não usa
+    DOTALL e cerquilha atravessando linha VAZA literal na tela;
+  * `text-base` aqui é COR (o token `base` é o fundo da página), não tamanho.
+
+DUAS DECISÕES DE DESENHO QUE VÊM DO DADO:
+
+ 1. A JUSTIÇA FEDERAL SAI DO GRÁFICO DE ESTADOS. Medido no INSS (13/08/2026):
+    4.212.666 dos 4.402.239 processos estão em `FED` — 95,7%. Processo federal
+    é multi-UF e não é um estado; deixá-lo na mesma barra achata os 26 estados
+    restantes num traço e faz o leitor concluir "o INSS quase não aparece em
+    MG". Vira um bloco próprio, com o percentual escrito.
+ 2. O BLOCO DE IDENTIDADE É AUDITORIA, NÃO ENFEITE. As grafias que a entidade
+    unifica e os `documentos_secundarios` (CNPJs que tribunais digitaram errado
+    e que fundimos nesta entidade) ficam na tela porque alguém precisa poder
+    conferir a fusão — falso-merge num cadastro de devedores é irreversível pra
+    quem consome.
+{% endcomment %}
+
+<script>
+  // Identidade + rotas resolvidas pelo Django (sem hardcode de path no JS).
+  window.ENTIDADE_ID = "{{ entidade_id|escapejs }}";
+  window.ENTIDADE_NOME = "{{ nome_canonico|escapejs }}";
+  window.ENTIDADE_URLS = {
+    // '__ID__' é trocado em runtime — a rota continua resolvida pelo `url` tag.
+    // Argumento POSICIONAL de propósito: assim o template não depende do nome
+    // do kwarg escolhido no urls.py.
+    dados: "{% url 'dashboard:entidades-ficha' '__ID__' %}",
+    lista: "{% url 'dashboard:entidades' %}",
+    mapa: "{% url 'dashboard:comercial-mapa-page' %}",
+  };
+
+  // Glossário canônico. As frases de `volume`, `potencial`, `confirmado`,
+  // `cobertura` e `todos` são LITERALMENTE as do mapa e as da página do estado:
+  // o mesmo número não pode ganhar duas explicações em três telas.
+  // Régua: <=140 caracteres, 1 frase, zero jargão interno.
+  // `volume` (a contagem do estado) NÃO entra: o número desta ficha é outro —
+  // processos em que ESTE NOME aparece —, e reaproveitar a frase daria a mesma
+  // explicação a dois números diferentes, que é exatamente o erro que a régua
+  // de copy compartilhada existe pra evitar.
+  //
+  // `confirmado` e `todos` são IDÊNTICAS às do mapa e às da página do estado —
+  // descrevem o mesmo fato sobre um processo, então a frase é a mesma. Já
+  // `potencial` e `cobertura` diziam "este estado" (o sujeito daquelas telas);
+  // aqui o sujeito é a ENTIDADE, e copiar a frase ao pé da letra colocaria uma
+  // afirmação FALSA na tela. Consistência de copy vale muito, mas não vale
+  // mentir: trocamos o sujeito e mantivemos a estrutura e o tom.
+  window.GLOSSARIO = {
+    potencial:  'Processos cujas publicações citam precatório. Indício forte, não certeza. "Não analisado" = ainda não lemos estes processos.',
+    confirmado: 'A nossa IA leu o processo e confirmou que é precatório. Mais certeiro que os possíveis e, por isso, um número menor.',
+    cobertura:  'Quanto dos processos desta entidade já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem.',
+    todos:      'Processos que citam precatório nas publicações ou que a nossa IA confirmou. Quem está nos dois conta uma vez: não é a soma.',
+    // Chaves NOVAS desta tela.
+    processos:  'Em quantos processos o nome desta entidade aparece nas publicações, em qualquer lado do processo.',
+    valorCausa: 'Soma do valor da causa publicado pelos tribunais. É o valor da ação, não o valor do precatório.',
+    tribunais:  'Em quantos tribunais diferentes esta entidade aparece na nossa base.',
+  };
+
+  // ---------------------------------------------------------------------------
+  // FORMATAÇÃO pt-BR — helpers LOCAIS (o fmtCompact() global devolve "1.2M",
+  // em inglês, e é consumido por outras páginas: não pode ser alterado aqui).
+  // ---------------------------------------------------------------------------
+  const _ESCALA_BRL = [[1e12, 'tri'], [1e9, 'bi'], [1e6, 'mi'], [1e3, 'mil']];
+  function _num1(v, k) {
+    return (v / k).toFixed(1).replace(/\.0$/, '').replace('.', ',');
+  }
+  // 0 é "não informado" (o tribunal não publicou), NUNCA "R$ 0" — que o leitor
+  // entende como "não tem dinheiro".
+  function fmtBRL(v) {
+    if (v === null || v === undefined || v === '') return 'não informado';
+    v = Number(v);
+    if (!isFinite(v) || v === 0) return 'não informado';
+    const a = Math.abs(v);
+    for (const [k, suf] of _ESCALA_BRL) {
+      if (a >= k) return 'R$ ' + _num1(v, k) + ' ' + suf;
+    }
+    return 'R$ ' + v.toLocaleString('pt-BR', {maximumFractionDigits: 0});
+  }
+  function fmtQtdCompacta(n) {
+    const v = Number(n) || 0, a = Math.abs(v);
+    if (a >= 1e6) return _num1(v, 1e6) + ' mi';
+    if (a >= 1e3) return _num1(v, 1e3) + ' mil';
+    return String(Math.round(v));
+  }
+  // 0 -> "0%"; 0<n<0,1 -> "menos de 0,1%"; senão 1 casa com VÍRGULA e sem ",0".
+  function fmtPct(v) {
+    const n = Number(v);
+    if (v === null || v === undefined || !isFinite(n)) return null;
+    if (n === 0) return '0%';
+    if (n > 0 && n < 0.1) return 'menos de 0,1%';
+    return n.toFixed(1).replace(/\.0$/, '').replace('.', ',') + '%';
+  }
+  // Cor de token do design system pro CANVAS do ECharts (o gráfico não entende
+  // classe Tailwind). Segue o tema porque lê a var CSS viva.
+  function corToken(nome, fallback) {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+      return v ? 'rgb(' + v + ')' : fallback;
+    } catch (e) { return fallback; }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PALETA DAS SÉRIES — contraste MEDIDO (WCAG) sobre o fundo do card nos dois
+  // temas: card escuro = rgb(17,17,18), card claro = branco puro. Toda cor tem
+  // >=3:1 (piso de objeto gráfico) e as usadas em TEXTO de rótulo têm >=4,5:1.
+  // Mesmas famílias dos tokens da casa (mission / pale-blue / info / accent).
+  //   escuro: mission-fg 11,2:1 · pale-blue 8,6:1 · sky-300 10,4:1 · emerald-300 12,0:1
+  //   claro:  orange-700 5,2:1 · blue-600 5,2:1 · sky-700 5,4:1 · emerald-700 5,3:1
+  // ---------------------------------------------------------------------------
+  const CORES_SERIE = {
+    dark:  {uf: '#6ee7b7', ano: '#93c5fd', tribunal: '#7dd3fc', classif: '#fdba74'},
+    light: {uf: '#047857', ano: '#2563eb', tribunal: '#0369a1', classif: '#c2410c'},
+  };
+  const CORES_CLASSIF = {
+    dark:  {PRECATORIO: '#fdba74', PRE_PRECATORIO: '#fcd34d',
+            DIREITO_CREDITORIO: '#6ee7b7', NAO_LEAD: '#a1a1aa', _outro: '#93c5fd'},
+    light: {PRECATORIO: '#c2410c', PRE_PRECATORIO: '#b45309',
+            DIREITO_CREDITORIO: '#047857', NAO_LEAD: '#475569', _outro: '#2563eb'},
+  };
+  // Rótulo humano do nível — o enum cru ("PRE_PRECATORIO") é jargão de banco.
+  const ROTULO_CLASSIF = {
+    PRECATORIO: 'Precatório',
+    PRE_PRECATORIO: 'Pré-precatório',
+    DIREITO_CREDITORIO: 'Direito creditório',
+    NAO_LEAD: 'Não é lead',
+  };
+  // Nome por extenso da UF: sigla é jargão de eixo, não rótulo de gráfico.
+  const NOME_UF = {
+    AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia',
+    CE: 'Ceará', DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás',
+    MA: 'Maranhão', MT: 'Mato Grosso', MS: 'Mato Grosso do Sul',
+    MG: 'Minas Gerais', PA: 'Pará', PB: 'Paraíba', PR: 'Paraná',
+    PE: 'Pernambuco', PI: 'Piauí', RJ: 'Rio de Janeiro',
+    RN: 'Rio Grande do Norte', RS: 'Rio Grande do Sul', RO: 'Rondônia',
+    RR: 'Roraima', SC: 'Santa Catarina', SP: 'São Paulo', SE: 'Sergipe',
+    TO: 'Tocantins', FED: 'Justiça Federal',
+  };
+
+  function fichaEntidade() {
+    return {
+      // ---- identidade ----
+      id: window.ENTIDADE_ID || '',
+      nome: window.ENTIDADE_NOME || '',
+
+      // ---- dados ----
+      dados: null,
+      loading: true,
+      erro: null,
+      erroDetalhe: null,
+      naoEncontrada: false,
+
+      _seq: 0,
+      grafiasAbertas: false,
+
+      async init() {
+        // A view manda o id no contexto; se algum dia ela não mandar, a URL
+        // ainda tem — a página não pode ficar inerte por causa disso.
+        if (!this.id) this.id = this.idDaUrl();
+        await this.carregar();
+        this.observarTema();
+        this.observarJanela();
+      },
+      idDaUrl() {
+        try {
+          const partes = window.location.pathname.split('/').filter(Boolean);
+          return decodeURIComponent(partes[partes.length - 1] || '');
+        } catch (e) { return ''; }
+      },
+
+      async carregar() {
+        const seq = ++this._seq;
+        this.loading = true;
+        this.erro = null;
+        this.erroDetalhe = null;
+        this.naoEncontrada = false;
+        this.mostrarCarregandoNosGraficos();
+        try {
+          const url = window.ENTIDADE_URLS.dados.replace('__ID__', encodeURIComponent(this.id));
+          const resp = await fetch(url, {
+            credentials: 'same-origin', headers: {'Accept': 'application/json'},
+          });
+          const json = await resp.json();
+          if (seq !== this._seq) return;        // resposta fora de ordem: descarta
+          if (resp.status === 404) {
+            this.naoEncontrada = true;
+            this.dados = null;
+            this.loading = false;
+            return;
+          }
+          if (!resp.ok) throw new Error(json.erro || ('HTTP ' + resp.status));
+          this.dados = json;
+          const e = this.entidade();
+          if (e && e.nome_canonico) this.nome = e.nome_canonico;
+          this.loading = false;
+          this.pintar();
+        } catch (e) {
+          if (seq !== this._seq) return;
+          this.erro = 'Não conseguimos carregar a ficha desta entidade.';
+          this.erroDetalhe = String(e.message || e);
+          this.dados = null;
+          this.loading = false;
+        }
+      },
+
+      // ---- leitura do payload ----
+      // Leitura TOLERANTE: as expressões `x-text` do Alpine são avaliadas mesmo
+      // com o elemento escondido por x-show, então nada aqui pode estourar
+      // antes da 1ª resposta chegar.
+      entidade() { return (this.dados && this.dados.entidade) || null; },
+      resumo() { return (this.dados && this.dados.resumo) || null; },
+      bloco(nome) { return (this.dados && this.dados[nome]) || null; },
+      itens(nome) {
+        const b = this.bloco(nome);
+        return (b && b.itens) || [];
+      },
+      val(nome, chave) {
+        const b = this.bloco(nome);
+        const v = b ? b[chave] : null;
+        return (v === null || v === undefined) ? 0 : v;
+      },
+      // Primeiro valor NÃO nulo entre várias chaves candidatas do resumo.
+      // Existe porque o resumo é servido por outro módulo: se ele chamar o
+      // campo de `volume` ou de `n_processos`, a ficha lê os dois em vez de
+      // exibir 0 — que aqui seria uma mentira, não um default.
+      dePrimeiro(obj, chaves) {
+        if (!obj) return null;
+        for (const k of chaves) {
+          const v = obj[k];
+          if (v !== null && v !== undefined) return v;
+        }
+        return null;
+      },
+      temDados() { return !!this.dados && !this.erro && !this.naoEncontrada; },
+
+      resVolume() { return this.dePrimeiro(this.resumo(), ['processos', 'volume', 'n_processos']); },
+      resPossiveis() { return this.dePrimeiro(this.resumo(), ['possiveis', 'potencial']); },
+      resConfirmados() { return this.dePrimeiro(this.resumo(), ['confirmados', 'confirmado']); },
+      resTodos() { return this.dePrimeiro(this.resumo(), ['todos']); },
+      resValor() { return this.dePrimeiro(this.resumo(), ['valor', 'valor_causa']); },
+      resTribunais() { return this.dePrimeiro(this.resumo(), ['tribunais', 'n_tribunais']); },
+      resCobertura() { return this.dePrimeiro(this.resumo(), ['cobertura_pct']); },
+
+      // A contagem PODE não existir: 959 mil entidades do cadastro nunca foram
+      // contadas. Ausente = "não contamos ainda", JAMAIS 0.
+      volumeDesconhecido() {
+        const v = this.resVolume();
+        return v === null || v === undefined;
+      },
+      // "possíveis" DESCONHECIDO = o backfill do sinal não passou por aqui.
+      possiveisDesconhecido() {
+        const r = this.resumo();
+        if (!r) return true;
+        return this.resPossiveis() === null || r.sinal_processado === false;
+      },
+      cobDesconhecida() { return this.resCobertura() === null; },
+      cobLabel() {
+        const p = fmtPct(this.resCobertura());
+        return p === null ? 'não sabemos ainda' : p;
+      },
+      // valor_causa é ESPARSO (~2,8% da base): se ninguém publicou valor, o card
+      // de R$ não é desenhado — um "R$ 0" gigante leria como "não há dinheiro".
+      temValor() {
+        const r = this.resumo();
+        if (!r) return false;
+        const cob = r.cobertura_valor || {};
+        const pct = (cob.pct === null || cob.pct === undefined) ? null : Number(cob.pct);
+        return Number(this.resValor() || 0) > 0 && (pct === null || pct > 0);
+      },
+      coberturaValorPct() {
+        const r = this.resumo();
+        const cob = (r && r.cobertura_valor) || {};
+        return fmtPct(cob.pct);
+      },
+      // `tem_sinal_precatorio` só foi computado em ~3,4% da base, e quase sempre
+      // onde é TRUE. Então "165.790 possíveis de 4.402.239 processos (3,8%)" é
+      // uma leitura ERRADA: o número é um PISO (quantos já sabemos que citam
+      // precatório), não uma proporção. A frase abaixo é o que impede isso.
+      coberturaSinalPct() {
+        const r = this.resumo();
+        const cob = (r && r.cobertura_sinal) || {};
+        return fmtPct(cob.pct);
+      },
+      sinalEhPiso() {
+        const r = this.resumo();
+        if (!r || this.possiveisDesconhecido()) return false;
+        const cob = r.cobertura_sinal || {};
+        const pct = Number(cob.pct);
+        return isFinite(pct) && pct < 99.5;
+      },
+
+      // ---- como o número foi obtido (auditoria da consulta) ----
+      consulta() { return (this.dados && this.dados.consulta) || null; },
+      nGrafiasDaConsulta() {
+        const c = this.consulta();
+        return Number(c && c.n_grafias) || 0;
+      },
+      grafiasDescartadas() {
+        const c = this.consulta();
+        return Number(c && c.grafias_descartadas) || 0;
+      },
+      consultaTruncada() {
+        const c = this.consulta();
+        return !!(c && c.truncado);
+      },
+
+      // ---- identidade / auditoria ----
+      nVariantes() {
+        const e = this.entidade();
+        return Number(e && e.n_variantes) || 0;
+      },
+      nPartes() {
+        const e = this.entidade();
+        return Number(e && e.n_partes) || 0;
+      },
+      provada() {
+        const e = this.entidade();
+        return !!e && e.chave === 'cnpj';
+      },
+      entePublico() {
+        const e = this.entidade();
+        return !!(e && e.eh_ente_publico);
+      },
+      poucaAtestacao() { return this.nPartes() > 0 && this.nPartes() < 2; },
+      grafias() {
+        const e = this.entidade();
+        if (!e) return [];
+        return e.variantes || e.grafias || e.grafias_exemplo || [];
+      },
+      // A lista pode ser uma AMOSTRA (o build guarda no máximo 300 grafias e o
+      // endpoint pode cortar). Dizer "104 grafias" e listar 3 sem avisar seria
+      // deixar o leitor achar que viu tudo.
+      grafiasParciais() {
+        const g = this.grafias();
+        return this.nVariantes() > g.length;
+      },
+      documentos() {
+        const e = this.entidade();
+        return (e && e.documentos) || [];
+      },
+      documentosSecundarios() {
+        const e = this.entidade();
+        return (e && e.documentos_secundarios) || [];
+      },
+      nDocumentos() {
+        const e = this.entidade();
+        const n = e && e.n_documentos;
+        return (n === null || n === undefined) ? this.documentos().length : Number(n);
+      },
+      documentosParciais() { return this.nDocumentos() > this.documentos().length; },
+      // CNPJ completo (14 dígitos) formatado; CPF não entra no cadastro.
+      fmtDoc(d) {
+        const s = String(d || '').replace(/\D/g, '');
+        if (s.length !== 14) return String(d || '');
+        return s.slice(0, 2) + '.' + s.slice(2, 5) + '.' + s.slice(5, 8)
+             + '/' + s.slice(8, 12) + '-' + s.slice(12);
+      },
+      fmtRaiz(r) {
+        const d = String(r || '').replace(/\D/g, '');
+        if (d.length !== 8) return '';
+        return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8);
+      },
+      raiz() {
+        const e = this.entidade();
+        return (e && e.raiz_cnpj) || '';
+      },
+
+      // ---- a Justiça Federal fica FORA do gráfico de estados ----
+      itensUf() { return this.itens('por_uf').filter(i => i.uf !== 'FED'); },
+      bucketFED() { return this.itens('por_uf').find(i => i.uf === 'FED') || null; },
+      volumeUfTotal() {
+        return this.itens('por_uf').reduce((a, i) => a + (Number(i.volume) || 0), 0);
+      },
+      pctFED() {
+        const f = this.bucketFED(), t = this.volumeUfTotal();
+        if (!f || !t) return null;
+        return fmtPct(100 * (Number(f.volume) || 0) / t);
+      },
+      ufVazio() { return this.temDados() && this.itensUf().length === 0; },
+
+      // ---- helpers de UI ----
+      fmt(v) { return fmt(Number(v) || 0); },
+      fmtBRL(v) { return fmtBRL(v); },
+      fmtPct(v) { return fmtPct(v); },
+      glos(k) { return (window.GLOSSARIO && window.GLOSSARIO[k]) || ''; },
+      nomeUf(sigla) { return NOME_UF[sigla] || sigla; },
+      alturaBarras(n, minimo) {
+        const base = (minimo || 220);
+        return Math.max(base, Math.min(560, 70 + (n || 0) * 26));
+      },
+      geradoLegivel() {
+        if (!this.dados || !this.dados.gerado_em) return '';
+        try {
+          const d = new Date(this.dados.gerado_em);
+          const hora = d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+          const hoje = new Date();
+          if (d.toDateString() === hoje.toDateString()) return 'hoje às ' + hora;
+          const dia = d.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
+          return dia + ' às ' + hora;
+        } catch (e) { return this.dados.gerado_em; }
+      },
+      // O mapa comercial recorta por `entidade_id` (o OR das grafias exatas) e
+      // recebe também o nome, as grafias e a contagem pra escrever a linha
+      // "Entidade do cadastro: X" sem uma segunda consulta.
+      urlMapa() {
+        const p = new URLSearchParams();
+        p.set('entidade_id', this.id);
+        if (this.nome) p.set('parte', this.nome);
+        if (this.nVariantes()) p.set('n_variantes', String(this.nVariantes()));
+        const v = this.resVolume();
+        if (v !== null && v !== undefined) p.set('n_processos', String(v));
+        return window.ENTIDADE_URLS.mapa + '?' + p.toString();
+      },
+
+      // ---- cobertura, por bloco ----
+      cobertura(nome) {
+        const b = this.bloco(nome);
+        return (b && b.cobertura_amostra) || null;
+      },
+      coberturaPct(nome) {
+        const c = this.cobertura(nome);
+        return c ? Number(c.pct || 0) : 0;
+      },
+      coberturaParcial(nome) { return this.coberturaPct(nome) < 99.5; },
+      coberturaCritica(nome) { return this.coberturaPct(nome) < 60; },
+      frasePorque(nome) {
+        const mapa = {
+          por_uf: 'nos outros ainda não sabemos em que estado o processo corre',
+          por_tribunal: 'nos outros o tribunal não veio preenchido',
+          por_ano: 'nos outros o número do processo não trouxe o ano',
+          por_classificacao: 'os outros ainda não passaram pela nossa IA',
+        };
+        return mapa[nome] || 'os outros não têm este dado preenchido';
+      },
+      textoCobertura(nome) {
+        const c = this.cobertura(nome);
+        if (!c) return '';
+        const pct = fmtPct(c.pct) || '0%';
+        const total = Number(c.total_do_escopo) || 0;
+        const com = Number(c.docs_com_o_campo) || 0;
+        let txt;
+        if (!this.coberturaParcial(nome)) {
+          txt = 'Desenhado sobre os ' + fmt(total) + ' processos desta entidade — nenhum ficou de fora.';
+        } else {
+          txt = 'Desenhado sobre ' + fmt(com) + ' de ' + fmt(total)
+              + ' processos desta entidade, ou seja ' + pct + '. Faltam '
+              + fmt(Math.max(0, total - com)) + ': ' + this.frasePorque(nome) + '.';
+        }
+        // A cobertura de `por_uf` conta a Justiça Federal (ela É um bucket de
+        // `uf`), mas as BARRAS não a desenham. Sem esta ressalva a frase
+        // "nenhum ficou de fora" logo acima de 9 barras que somam 4% do total
+        // vira uma contradição na mesma tela.
+        if (nome === 'por_uf' && this.bucketFED()) {
+          txt += ' A Justiça Federal está nessa conta, mas fora das barras — o número dela'
+               + ' fica no bloco acima.';
+        }
+        return txt;
+      },
+
+      // ---- tema e janela ----
+      // Não existe evento 'voy:theme' no base.html: o toggle só mexe na classe
+      // `dark` do <html> e o initAllCharts() ignora estes gráficos (sem
+      // data-echart, de propósito). Observamos a classe.
+      observarTema() {
+        const html = document.documentElement;
+        let ultimo = html.classList.contains('dark');
+        new MutationObserver(() => {
+          const agora = html.classList.contains('dark');
+          if (agora !== ultimo) { ultimo = agora; this.pintar(); }
+        }).observe(html, {attributes: true, attributeFilter: ['class']});
+      },
+      // No resize a página REPINTA (debounce 120ms), não só redimensiona:
+      // `resize()` sozinho reaproveita a opção anterior e é assim que série com
+      // mapeamento de cor perde a paleta (medido no mapa comercial, 12/08).
+      observarJanela() {
+        let t = null;
+        window.addEventListener('resize', () => {
+          clearTimeout(t);
+          t = setTimeout(() => this.pintar(), 120);
+        });
+      },
+      escuro() { return document.documentElement.classList.contains('dark'); },
+      cores() { return this.escuro() ? CORES_SERIE.dark : CORES_SERIE.light; },
+
+      // ---- render dos gráficos ----
+      // NÃO usar setupChart: ele faz JSON.stringify(opts) pro data-echart e
+      // JSON.stringify DESCARTA funções — matava os formatters e o ECharts caía
+      // no tooltip default ("series0").
+      _instancia(el) {
+        if (!el) return null;
+        const isDark = this.escuro();
+        let chart = echarts.getInstanceByDom(el);
+        // o tema é fixado no init() do ECharts: reusar a instância depois do
+        // toggle manteria o tema velho.
+        if (chart && el._voyTema !== (isDark ? 'dark' : 'light')) {
+          chart.dispose();
+          chart = null;
+        }
+        if (!chart) {
+          chart = echarts.init(el, isDark ? 'dark' : undefined);
+          el._voyTema = isDark ? 'dark' : 'light';
+        }
+        return chart;
+      },
+      _aplicar(el, opts) {
+        const chart = this._instancia(el);
+        if (!chart) return;
+        chart.hideLoading();
+        chart.setOption(opts, true);
+        chart.resize();
+      },
+      _refs() { return ['chUf', 'chAno', 'chTribunal', 'chClassif']; },
+      mostrarCarregandoNosGraficos() {
+        for (const r of this._refs()) {
+          const el = this.$refs[r];
+          if (!el) continue;
+          const c = echarts.getInstanceByDom(el);
+          if (!c) continue;   // 1ª carga: quem cobre é o skeleton do card
+          c.showLoading('default', {
+            text: 'acquiring signal',
+            color: corToken('--c-mission', 'rgb(234,88,12)'),
+            textColor: corToken('--c-fg-muted', 'rgb(161,161,170)'),
+            maskColor: this.escuro() ? 'rgba(9,9,11,0.55)' : 'rgba(248,250,252,0.7)',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 12,
+            zlevel: 10,
+          });
+        }
+      },
+
+      _baseOpts() {
+        const isDark = this.escuro();
+        return {
+          backgroundColor: 'transparent',
+          textStyle: {fontFamily: 'Manrope, sans-serif', fontSize: 12},
+          tooltip: {
+            confine: true,
+            backgroundColor: isDark ? 'rgba(10,10,11,0.94)' : 'rgba(255,255,255,0.98)',
+            borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+            textStyle: {color: isDark ? '#e4e4e7' : '#27272a', fontSize: 12},
+          },
+        };
+      },
+      // Linha de contexto do tooltip. Cor por TOKEN (nunca opacidade: quem não
+      // enxerga transparência lê o texto apagado como se não existisse).
+      _linhaSecundaria(texto) {
+        if (!texto) return '';
+        const cor = corToken('--c-fg-muted', 'rgb(161,161,170)');
+        return '<span style="color:' + cor + '">' + texto + '</span>';
+      },
+      _pctDo(v, total) {
+        if (!total) return '';
+        const p = fmtPct(100 * (Number(v) || 0) / total);
+        return p === null ? '' : p + ' dos processos desta entidade';
+      },
+
+      pintar() {
+        if (!this.temDados()) return;
+        // $nextTick: os cards só existem depois que o x-show libera — pintar
+        // antes desenharia num container 0x0.
+        this.$nextTick(() => {
+          this.pintarUf();
+          this.pintarAno();
+          this.pintarTribunal();
+          this.pintarClassificacao();
+        });
+      },
+
+      // Barra horizontal padrão. O ECharts empilha o eixo Y de baixo pra cima,
+      // então invertemos a lista pra o MAIOR ficar em cima — que é como se lê
+      // um ranking.
+      _barrasHorizontais(el, rotulos, dados, nomeSerie, formatterTooltip, larguraRotulo) {
+        const base = this._baseOpts();
+        const c = chartGridColors();
+        const corTexto = corToken('--c-fg', this.escuro() ? 'rgb(244,244,245)' : 'rgb(15,23,42)');
+        const opts = Object.assign({}, base, {
+          tooltip: Object.assign({}, base.tooltip, {
+            trigger: 'axis',
+            axisPointer: {type: 'shadow'},
+            formatter: formatterTooltip,
+          }),
+          grid: {left: 8, right: 72, top: 8, bottom: 8, containLabel: true},
+          xAxis: {
+            type: 'value',
+            // `splitNumber` baixo + `hideOverlap`: com o default os rótulos do
+            // eixo colavam ("5 mil10 mil15 mil") num card estreito.
+            splitNumber: 4,
+            axisLabel: {color: c.axisLabel, fontSize: 12, hideOverlap: true,
+                        formatter: fmtQtdCompacta},
+            splitLine: {lineStyle: {color: c.splitLine}},
+          },
+          yAxis: {
+            type: 'category',
+            data: rotulos.slice().reverse(),
+            axisLabel: {
+              color: c.axisLabel, fontSize: 12,
+              // nome comprido é cortado com reticência e sai INTEIRO no tooltip
+              width: larguraRotulo || 190, overflow: 'truncate', ellipsis: '…',
+            },
+            axisLine: {lineStyle: {color: c.axisLine}},
+            axisTick: {show: false},
+          },
+          series: [{
+            // série NOMEADA: sem isso o tooltip de fallback diz "series0"
+            name: nomeSerie,
+            type: 'bar',
+            data: dados.slice().reverse(),
+            barMaxWidth: 20,
+            label: {
+              show: true, position: 'right', color: corTexto, fontSize: 12,
+              fontFamily: 'JetBrains Mono, monospace',
+              formatter: (p) => fmtQtdCompacta(p.value),
+            },
+          }],
+        });
+        this._aplicar(el, opts);
+      },
+
+      pintarUf() {
+        const itens = this.itensUf();
+        if (!itens.length) return;   // quem fala é o estado vazio, não um gráfico fantasma
+        const self = this;
+        const total = this.volumeUfTotal();
+        const cor = this.cores().uf;
+        const rotulos = itens.map(i => this.nomeUf(i.uf));
+        const dados = itens.map(i => ({
+          value: Number(i.volume) || 0,
+          itemStyle: {color: cor, borderRadius: [0, 3, 3, 0]},
+        }));
+        this._barrasHorizontais(
+          this.$refs.chUf, rotulos, dados, 'Processos',
+          function (ps) {
+            const p = ps[0];
+            return '<b>' + p.name + '</b><br/>' + fmt(p.value) + ' processos<br/>'
+                 + self._linhaSecundaria(self._pctDo(p.value, total));
+          });
+      },
+
+      pintarAno() {
+        const itens = this.itens('por_ano');
+        if (!itens.length) return;
+        const self = this;
+        const base = this._baseOpts();
+        const c = chartGridColors();
+        const cor = this.cores().ano;
+        const total = itens.reduce((a, i) => a + (Number(i.volume) || 0), 0);
+        const opts = Object.assign({}, base, {
+          tooltip: Object.assign({}, base.tooltip, {
+            trigger: 'axis',
+            axisPointer: {type: 'line'},
+            formatter: function (ps) {
+              const p = ps[0];
+              return '<b>' + p.name + '</b><br/>' + fmt(p.value) + ' processos<br/>'
+                   + self._linhaSecundaria(self._pctDo(p.value, total));
+            },
+          }),
+          grid: {left: 8, right: 16, top: 12, bottom: 8, containLabel: true},
+          xAxis: {
+            type: 'category',
+            boundaryGap: false,
+            data: itens.map(i => String(i.ano)),
+            axisLabel: {color: c.axisLabel, fontSize: 12, hideOverlap: true},
+            axisLine: {lineStyle: {color: c.axisLine}},
+            axisTick: {show: false},
+          },
+          yAxis: {
+            type: 'value',
+            splitNumber: 4,
+            axisLabel: {color: c.axisLabel, fontSize: 12, hideOverlap: true,
+                        formatter: fmtQtdCompacta},
+            splitLine: {lineStyle: {color: c.splitLine}},
+          },
+          series: [{
+            name: 'Processos',
+            type: 'line',
+            smooth: false,
+            symbol: 'circle',
+            symbolSize: 7,
+            data: itens.map(i => Number(i.volume) || 0),
+            lineStyle: {color: cor, width: 2},
+            itemStyle: {color: cor},
+            areaStyle: {color: cor, opacity: 0.12},
+          }],
+        });
+        this._aplicar(this.$refs.chAno, opts);
+      },
+
+      pintarTribunal() {
+        const itens = this.itens('por_tribunal').slice(0, 15);
+        if (!itens.length) return;
+        const self = this;
+        const total = this.itens('por_tribunal')
+          .reduce((a, i) => a + (Number(i.volume) || 0), 0);
+        const cor = this.cores().tribunal;
+        const rotulos = itens.map(i => i.tribunal);
+        const dados = itens.map(i => ({
+          value: Number(i.volume) || 0,
+          itemStyle: {color: cor, borderRadius: [0, 3, 3, 0]},
+        }));
+        this._barrasHorizontais(
+          this.$refs.chTribunal, rotulos, dados, 'Processos',
+          function (ps) {
+            const p = ps[0];
+            return '<b>' + p.name + '</b><br/>' + fmt(p.value) + ' processos<br/>'
+                 + self._linhaSecundaria(self._pctDo(p.value, total));
+          }, 140);
+      },
+
+      pintarClassificacao() {
+        const itens = this.itens('por_classificacao');
+        if (!itens.length) return;
+        const self = this;
+        const paleta = this.escuro() ? CORES_CLASSIF.dark : CORES_CLASSIF.light;
+        const total = itens.reduce((a, i) => a + (Number(i.volume) || 0), 0);
+        const rotulos = itens.map(i => ROTULO_CLASSIF[i.classificacao] || i.classificacao);
+        const dados = itens.map(i => ({
+          value: Number(i.volume) || 0,
+          itemStyle: {color: paleta[i.classificacao] || paleta._outro, borderRadius: [0, 3, 3, 0]},
+        }));
+        this._barrasHorizontais(
+          this.$refs.chClassif, rotulos, dados, 'Processos',
+          function (ps) {
+            const p = ps[0];
+            return '<b>' + p.name + '</b><br/>' + fmt(p.value) + ' processos<br/>'
+                 + self._linhaSecundaria(self._pctDo(p.value, total));
+          }, 190);
+      },
+    };
+  }
+</script>
+
+<div id="pagina-entidade" x-data="fichaEntidade()" x-init="init()" class="space-y-6">
+
+  {# ---- navegação + carimbo ---- #}
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+      <a href="{% url 'dashboard:entidades' %}"
+         class="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg rounded-md px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        {% voy_icon "constellation" "w-4 h-4 shrink-0" %}
+        <span>Todas as entidades</span>
+      </a>
+      <a href="{% url 'dashboard:comercial-mapa-page' %}"
+         class="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg rounded-md px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        {% voy_icon "trajectory" "w-4 h-4 shrink-0" %}
+        <span>Mapa de Precatórios</span>
+      </a>
+    </div>
+    <span class="text-xs text-fg-muted font-mono" x-show="geradoLegivel()" x-cloak>
+      atualizado <span x-text="geradoLegivel()"></span>
+    </span>
+  </div>
+
+  {# ---- entidade inexistente (404 do endpoint), dito com palavra ---- #}
+  <div x-show="naoEncontrada" x-cloak class="card p-6 flex flex-col items-start gap-3">
+    {% voy_icon "signal-lost" "w-6 h-6 text-danger" %}
+    <h2 class="text-lg font-semibold text-fg">Não encontramos esta entidade no cadastro.</h2>
+    <p class="text-sm text-fg-muted max-w-xl">
+      O endereço aponta para <span class="font-mono text-fg break-all" x-text="id"></span>, que não
+      está no cadastro. O cadastro é reconstruído de tempos em tempos e uma entidade pode ter sido
+      fundida noutra — procure pelo nome na lista.
+    </p>
+    <a href="{% url 'dashboard:entidades' %}"
+       class="text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      Ir para a lista de entidades
+    </a>
+  </div>
+
+  {# ---- erro de infra: mensagem humana + tentar de novo ---- #}
+  <div x-show="erro" x-cloak class="card p-6 flex flex-col items-start gap-2">
+    {% voy_icon "signal-lost" "w-6 h-6 text-danger" %}
+    <span class="text-xs font-mono uppercase tracking-widest text-danger">signal lost</span>
+    <h2 class="text-lg font-semibold text-fg" x-text="erro"></h2>
+    <p class="text-sm text-fg-muted max-w-xl">
+      O buscador que alimenta esta ficha não respondeu. Os dados não sumiram — só não
+      conseguimos ler agora.
+    </p>
+    <span class="text-xs font-mono text-fg-muted" x-text="erroDetalhe"></span>
+    <button type="button" @click="carregar()"
+            class="mt-1 text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      Tentar de novo
+    </button>
+  </div>
+
+  {# ---- skeleton da 1ª carga ---- #}
+  <div x-show="loading" class="space-y-6">
+    <div class="card p-5">
+      <div class="skeleton h-7 w-96 max-w-full rounded"></div>
+      <div class="skeleton h-4 w-72 max-w-full rounded mt-3"></div>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+      <template x-for="i in 6" :key="i">
+        <div class="card p-4">
+          <div class="skeleton h-3 w-24 rounded"></div>
+          <div class="skeleton h-7 w-20 rounded mt-2"></div>
+        </div>
+      </template>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <template x-for="i in 4" :key="i">
+        <div class="card p-4">
+          <div class="skeleton h-4 w-44 rounded"></div>
+          <div class="relative chart-cell mt-3" style="height: 260px;">
+            <div class="chart-skeleton">
+              <div class="pulsar-mark">acquiring signal</div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  {# ---- CABEÇALHO DA IDENTIDADE ---- #}
+  <div class="card p-5" x-show="dados" x-cloak>
+    <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+      <div class="min-w-0 flex-1">
+        <h1 class="text-2xl font-semibold text-fg break-words" x-text="nome"></h1>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <template x-if="entePublico()">
+            <span class="inline-flex items-center gap-1 rounded-full border border-info/40 bg-info/10 px-2 py-0.5 text-xs text-fg">
+              {% voy_icon "mission-tag" "w-3 h-3 shrink-0" %}
+              <span>ente público</span>
+            </span>
+          </template>
+          {% comment %} A confiança da fusão fica no CABEÇALHO, não num rodapé:
+             `cnpj` é identidade provada por documento; `nome` é semelhança de
+             grafia, e dois homônimos de cidades diferentes podem ter colado.
+          {% endcomment %}
+          <template x-if="provada()">
+            <span class="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs text-fg">
+              {% voy_icon "circle-check" "w-3 h-3 shrink-0" %}
+              <span>CNPJ <span class="font-mono" x-text="fmtRaiz(raiz())"></span></span>
+            </span>
+          </template>
+          <template x-if="!provada()">
+            <span class="inline-flex items-center gap-1 rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-xs text-fg">
+              {% voy_icon "info" "w-3 h-3 shrink-0" %}
+              <span>juntado pelo nome, sem CNPJ no cadastro</span>
+            </span>
+          </template>
+        </div>
+        <p class="mt-2 text-sm text-fg-muted">
+          <span class="font-mono text-fg" x-text="fmt(nVariantes())"></span>
+          <span x-text="nVariantes() === 1 ? ' grafia conhecida' : ' grafias juntadas em um nome só'"></span>
+          ·
+          <span class="font-mono text-fg" x-text="fmt(nPartes())"></span>
+          <span x-text="nPartes() === 1 ? ' linha de cadastro' : ' linhas de cadastro'"></span>
+        </p>
+        <p class="mt-1.5 text-sm text-fg" x-show="poucaAtestacao()" x-cloak>
+          Uma linha só de cadastro: o acervo viu este nome uma vez. Trate os números abaixo como indício.
+        </p>
+      </div>
+
+      <a :href="urlMapa()"
+         class="inline-flex items-center gap-2 rounded-lg border border-mission/50 bg-mission/10 px-3 py-2 text-sm text-fg hover:bg-mission/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        {% voy_icon "trajectory" "w-4 h-4 shrink-0" %}
+        <span>Ver esta entidade no mapa</span>
+      </a>
+    </div>
+
+    {% comment %} As duas armadilhas do número, VISÍVEIS. A primeira muda o
+       SENTIDO (é busca por texto em qualquer polo, não vínculo estruturado); a
+       segunda impede ler ausência como zero. {% endcomment %}
+    <p class="mt-4 text-sm text-fg-muted leading-relaxed max-w-4xl">
+      Os números desta ficha contam os processos em que o nome desta entidade aparece
+      <b class="text-fg">como ele foi escrito na publicação</b>, em
+      <b class="text-fg">qualquer lado do processo</b> — quem cobra e quem é cobrado.
+      Não é um vínculo estruturado do tribunal, e nome genérico puxa processo dos outros.
+    </p>
+  </div>
+
+  {# ---- KPIs ---- #}
+  <div x-show="dados" x-cloak>
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div class="card p-4">
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-processos">
+            Processos
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-processos" x-text="glos('processos')"></span>
+          </button>
+        </div>
+        {% comment %} Dois elementos e não uma classe condicional: "não contamos
+           ainda" é PALAVRA (o desconhecido nunca vira 0) e não cabe no corpo de
+           número — misturar text-xl e text-sm no mesmo nó depende da ordem do
+           CSS gerado. {% endcomment %}
+        <div class="text-xl font-mono text-fg mt-1" x-show="!volumeDesconhecido()"
+             x-text="fmt(resVolume())"></div>
+        <div class="text-sm mt-1 text-mission-fg italic" x-show="volumeDesconhecido()" x-cloak>não contamos ainda</div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs uppercase tracking-wide text-mission-fg">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-possiveis">
+            Possíveis precatórios
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-possiveis" x-text="glos('potencial')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono mt-1 text-mission-fg" x-show="!possiveisDesconhecido()"
+             x-text="fmt(resPossiveis())"></div>
+        <div class="text-sm mt-1 text-mission-fg italic" x-show="possiveisDesconhecido()" x-cloak>ainda não analisado</div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs uppercase tracking-wide text-accent-fg">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-confirmados">
+            Confirmados pela IA
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-confirmados" x-text="glos('confirmado')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono mt-1 text-accent-fg" x-text="fmt(resConfirmados())"></div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs uppercase tracking-wide text-pale-blue">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-todos">
+            Possíveis ou confirmados
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-todos" x-text="glos('todos')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono mt-1 text-pale-blue" x-text="fmt(resTodos())"></div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-tribunais">
+            Tribunais
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-tribunais" x-text="glos('tribunais')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono text-fg mt-1" x-text="fmt(resTribunais())"></div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-cobertura">
+            Já analisado
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below tip-right" role="tooltip" id="tip-cobertura" x-text="glos('cobertura')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono text-fg mt-1" x-show="!cobDesconhecida()" x-text="cobLabel()"></div>
+        <div class="text-sm text-fg-muted italic mt-1" x-show="cobDesconhecida()" x-cloak>não sabemos ainda</div>
+      </div>
+    </div>
+
+    {% comment %} O "possíveis" é um PISO, não uma fatia. O sinal de precatório
+       só foi computado em ~3,4% da base (3,8% dentro do INSS) e quase sempre
+       onde ele é verdadeiro — dividir 165.790 por 4.402.239 e ler "3,8% dos
+       processos do INSS são precatório" é errado por construção. {% endcomment %}
+    <p class="mt-3 text-sm text-fg-muted max-w-4xl" x-show="sinalEhPiso()" x-cloak>
+      Os <b class="text-fg">possíveis precatórios</b> são um <b class="text-fg">piso</b>, não uma
+      fatia: só lemos as publicações de
+      <b class="text-fg" x-text="coberturaSinalPct()"></b> dos processos desta entidade em busca
+      dessa menção. Há mais lá fora — não divida um número pelo outro.
+    </p>
+
+    {% comment %} Card de R$ SÓ quando alguém publicou valor. `valor_causa` está
+       preenchido em ~2,8% da base: um "R$ 0" gigante seria lido como "não há
+       dinheiro aqui", que é falso — o tribunal apenas não publicou. {% endcomment %}
+    <div class="card p-4 mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2" x-show="temValor()" x-cloak>
+      <div>
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-valor">
+            Valor da causa informado
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-valor" x-text="glos('valorCausa')"></span>
+          </button>
+        </div>
+        <div class="text-xl font-mono text-fg mt-1" x-text="fmtBRL(resValor())"></div>
+      </div>
+      <p class="text-sm text-fg-muted max-w-2xl">
+        É o valor <b class="text-fg">da causa</b>, não o valor do precatório — os dois raramente
+        coincidem.
+        <span x-show="coberturaValorPct()" x-cloak>
+          E só <b class="text-fg" x-text="coberturaValorPct()"></b> dos processos desta entidade
+          trazem esse valor publicado: a soma acima é só desses.
+        </span>
+      </p>
+    </div>
+  </div>
+
+  {# ---- GRÁFICOS ---- #}
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start" x-show="dados" x-cloak>
+
+    {# ---------- onde estão (por estado) ---------- #}
+    <div class="card p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "trajectory" "w-4 h-4 text-accent-fg shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">Em que estados</h3>
+      </div>
+      <p class="text-xs text-fg-muted mb-2">
+        Onde correm os processos em que este nome aparece. A Justiça Federal não é um estado
+        e fica no bloco abaixo.
+      </p>
+
+      {% comment %} A Justiça Federal SAI do gráfico: medido no INSS
+         (13/08/2026) ela é 95,7% dos processos, e mantê-la na mesma barra
+         achata os 26 estados num traço. Vira número próprio, com o percentual
+         escrito — sem isso o leitor conclui "esta entidade quase não aparece em
+         MG". {% endcomment %}
+      <div class="mb-3 rounded-md border border-info/40 bg-info/10 px-2.5 py-2 text-sm text-fg"
+           x-show="bucketFED()" x-cloak>
+        <b class="font-semibold">Justiça Federal:</b>
+        <span class="font-mono" x-text="fmt(bucketFED() ? bucketFED().volume : 0)"></span> processos
+        <span x-show="pctFED()" x-cloak>(<span x-text="pctFED()"></span> do total desta entidade)</span>.
+        Processo federal corre em vários estados ao mesmo tempo, por isso ele não entra no
+        gráfico ao lado.
+      </div>
+
+      <div class="mb-2 text-sm rounded-md px-2.5 py-2 flex items-start gap-2"
+           :class="coberturaCritica('por_uf') ? 'border border-warning/50 bg-warning/10 text-fg' : 'text-fg-muted'"
+           x-show="cobertura('por_uf')">
+        <template x-if="coberturaCritica('por_uf')">
+          {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+        </template>
+        <span x-text="textoCobertura('por_uf')"></span>
+      </div>
+
+      <div x-show="ufVazio()" x-cloak
+           class="rounded-lg border border-border bg-surface/50 px-4 py-6 flex flex-col items-start gap-2">
+        {% voy_icon "constellation" "w-6 h-6 text-fg-muted" %}
+        <h4 class="text-sm font-semibold text-fg">Nenhum processo estadual aqui.</h4>
+        <p class="text-sm text-fg-muted max-w-2xl">
+          Todos os processos desta entidade estão na Justiça Federal, ou ainda não sabemos em que
+          estado eles correm. Vazio aqui não quer dizer que ela não litiga nos estados.
+        </p>
+      </div>
+
+      <div class="relative chart-cell" x-show="!ufVazio()"
+           :style="'height:' + alturaBarras(itensUf().length, 260) + 'px'">
+        <div x-ref="chUf" class="absolute inset-0"></div>
+      </div>
+    </div>
+
+    {# ---------- ao longo do tempo ---------- #}
+    <div class="card p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "calendar" "w-4 h-4 text-pale-blue shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">Ao longo do tempo</h3>
+      </div>
+      <p class="text-xs text-fg-muted mb-2">
+        Em que ano começaram os processos em que este nome aparece. O ano vem do número do
+        processo — em regra, o ano em que ele começou.
+      </p>
+
+      <div class="mb-2 text-sm rounded-md px-2.5 py-2 flex items-start gap-2"
+           :class="coberturaCritica('por_ano') ? 'border border-warning/50 bg-warning/10 text-fg' : 'text-fg-muted'"
+           x-show="cobertura('por_ano')">
+        <template x-if="coberturaCritica('por_ano')">
+          {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+        </template>
+        <span x-text="textoCobertura('por_ano')"></span>
+      </div>
+
+      <div class="relative chart-cell" style="height: 300px;">
+        <div x-ref="chAno" class="absolute inset-0"></div>
+      </div>
+
+      {% comment %} O ano mais recente é sempre PARCIAL (o ano corrente ainda
+         não acabou) e a curva cai no fim — sem esta linha o leitor lê queda de
+         litígio onde há só calendário. {% endcomment %}
+      <p class="mt-2 text-sm text-fg-muted">
+        O ano corrente ainda está em curso: a última ponta da linha é um ano incompleto, não
+        uma queda.
+      </p>
+
+      <p class="mt-1 text-sm text-fg-muted" x-show="val('por_ano', 'fora_da_faixa') > 0" x-cloak>
+        <span class="font-mono text-fg" x-text="fmt(val('por_ano', 'fora_da_faixa'))"></span>
+        processos ficaram fora do gráfico porque o número do processo traz um ano impossível
+        (por exemplo 9400) — é erro de cadastro na origem, não processo antigo.
+      </p>
+    </div>
+
+    {# ---------- tribunais ---------- #}
+    <div class="card p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "probe" "w-4 h-4 text-info shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">Em que tribunais</h3>
+      </div>
+      <p class="text-xs text-fg-muted mb-2">
+        Os tribunais em que este nome mais aparece, do maior para o menor. Mostramos os 15
+        maiores.
+      </p>
+
+      <div class="mb-2 text-sm rounded-md px-2.5 py-2 flex items-start gap-2"
+           :class="coberturaCritica('por_tribunal') ? 'border border-warning/50 bg-warning/10 text-fg' : 'text-fg-muted'"
+           x-show="cobertura('por_tribunal')">
+        <template x-if="coberturaCritica('por_tribunal')">
+          {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+        </template>
+        <span x-text="textoCobertura('por_tribunal')"></span>
+      </div>
+
+      <div class="mb-2 text-sm text-fg-muted" x-show="itens('por_tribunal').length > 15" x-cloak>
+        Mostrando os <span class="font-mono text-fg">15</span> maiores de
+        <span class="font-mono text-fg" x-text="fmt(itens('por_tribunal').length)"></span>
+        tribunais desta entidade.
+      </div>
+
+      <div class="relative chart-cell"
+           :style="'height:' + alturaBarras(Math.min(15, itens('por_tribunal').length), 260) + 'px'">
+        <div x-ref="chTribunal" class="absolute inset-0"></div>
+      </div>
+    </div>
+
+    {# ---------- o que a IA classificou ---------- #}
+    <div class="card p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% voy_icon "gem" "w-4 h-4 text-mission shrink-0" %}
+        <h3 class="text-[1rem] font-semibold text-fg">O que a nossa IA classificou</h3>
+      </div>
+      <p class="text-xs text-fg-muted mb-2">
+        O veredito da IA para os processos em que este nome aparece.
+      </p>
+
+      <div class="mb-2 text-sm rounded-md px-2.5 py-2 flex items-start gap-2"
+           :class="coberturaCritica('por_classificacao') ? 'border border-warning/50 bg-warning/10 text-fg' : 'text-fg-muted'"
+           x-show="cobertura('por_classificacao')">
+        <template x-if="coberturaCritica('por_classificacao')">
+          {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+        </template>
+        <span x-text="textoCobertura('por_classificacao')"></span>
+      </div>
+
+      <div class="relative chart-cell"
+           :style="'height:' + alturaBarras(itens('por_classificacao').length, 220) + 'px'">
+        <div x-ref="chClassif" class="absolute inset-0"></div>
+      </div>
+
+      <p class="mt-2 text-sm text-fg-muted" x-show="val('por_classificacao', 'sem_dado') > 0" x-cloak>
+        <span class="font-mono text-fg" x-text="fmt(val('por_classificacao', 'sem_dado'))"></span>
+        processos ainda não passaram pela IA — ficam fora do gráfico, não viram “não é lead”.
+      </p>
+    </div>
+  </div>
+
+  {# ---- IDENTIDADE / AUDITORIA (a fusão, aberta pra conferência) ---- #}
+  <div class="card p-4" x-show="dados" x-cloak>
+    <div class="flex items-center gap-2 mb-1">
+      {% voy_icon "constellation" "w-4 h-4 text-fg-muted shrink-0" %}
+      <h3 class="text-[1rem] font-semibold text-fg">Identidade: o que foi juntado aqui</h3>
+    </div>
+    <p class="text-sm text-fg-muted mb-4 max-w-4xl">
+      Esta entidade é o resultado de uma fusão automática de linhas de cadastro dos tribunais.
+      Juntar duas entidades erradas é irreversível para quem consome o número — então a fusão
+      fica aberta aqui, para conferência.
+    </p>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+
+      {# ---------- grafias ---------- #}
+      <div>
+        <h4 class="text-sm font-semibold text-fg">
+          Como os tribunais escrevem este nome
+          <span class="font-mono text-fg-muted" x-text="'(' + fmt(nVariantes()) + ')'"></span>
+        </h4>
+        <p class="text-sm text-fg-muted mt-1">
+          Todas estas grafias contam para os números acima. É por isso que a busca por uma
+          delas dá um número menor que o desta ficha.
+        </p>
+
+        <ul class="mt-2 space-y-1" x-show="grafias().length" x-cloak>
+          <template x-for="(g, i) in (grafiasAbertas ? grafias() : grafias().slice(0, 8))" :key="g + ':' + i">
+            <li class="text-sm text-fg break-words flex items-start gap-2">
+              <span class="text-fg-muted font-mono shrink-0" aria-hidden="true">·</span>
+              <span x-text="g"></span>
+            </li>
+          </template>
+        </ul>
+        <button type="button" @click="grafiasAbertas = !grafiasAbertas"
+                x-show="grafias().length > 8" x-cloak
+                :aria-expanded="grafiasAbertas ? 'true' : 'false'"
+                class="mt-2 text-sm text-fg-muted hover:text-fg underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <span x-show="!grafiasAbertas" x-text="'Ver as ' + fmt(grafias().length) + ' grafias'"></span>
+          <span x-show="grafiasAbertas" x-cloak>Mostrar menos</span>
+        </button>
+
+        {% comment %} O build guarda no máximo 300 grafias por entidade e o
+           endpoint pode cortar mais. Listar 3 e dizer "104" sem avisar deixaria
+           o leitor achar que viu tudo. {% endcomment %}
+        <p class="mt-2 text-sm text-fg-muted" x-show="grafiasParciais()" x-cloak>
+          Esta é uma <b class="text-fg">amostra</b>: a entidade tem
+          <span class="font-mono text-fg" x-text="fmt(nVariantes())"></span> grafias e a lista
+          acima traz <span class="font-mono text-fg" x-text="fmt(grafias().length)"></span>.
+        </p>
+        <p class="mt-2 text-sm text-fg-muted" x-show="!grafias().length" x-cloak>
+          O cadastro não devolveu a lista de grafias desta entidade.
+        </p>
+      </div>
+
+      {# ---------- documentos ---------- #}
+      <div class="space-y-5">
+        <div>
+          <h4 class="text-sm font-semibold text-fg">CNPJs desta entidade</h4>
+          <p class="text-sm text-fg-muted mt-1" x-show="provada()" x-cloak>
+            Agrupados pela raiz <span class="font-mono text-fg" x-text="fmtRaiz(raiz())"></span> —
+            os 8 primeiros dígitos, que identificam a pessoa jurídica. Matriz e filiais entram
+            como uma entidade só.
+          </p>
+          <p class="text-sm text-fg-muted mt-1" x-show="!provada()" x-cloak>
+            O cadastro do tribunal não trouxe CNPJ para este nome — o que é a regra em
+            município, estado e fazenda pública. A fusão aqui foi feita pela grafia do nome.
+          </p>
+
+          <ul class="mt-2 flex flex-wrap gap-1.5" x-show="documentos().length" x-cloak>
+            <template x-for="d in documentos()" :key="d">
+              <li class="font-mono text-sm text-fg rounded border border-border bg-surface px-2 py-0.5"
+                  x-text="fmtDoc(d)"></li>
+            </template>
+          </ul>
+          <p class="mt-2 text-sm text-fg-muted" x-show="documentosParciais()" x-cloak>
+            São <span class="font-mono text-fg" x-text="fmt(nDocumentos())"></span> CNPJs no total
+            (as filiais); acima estão os primeiros.
+          </p>
+        </div>
+
+        {% comment %} O PRODUTO DA AUDITORIA. `documentos_secundarios` são CNPJs
+           que o tribunal digitou ERRADO e que fundimos nesta entidade (decisão
+           12 de `search/entidades.py`: dominância + minoria de 1 linha + grafia
+           idêntica). São a evidência do erro de cadastro — e a resposta pra
+           quem procurar por aquele CNPJ e cair aqui. Esconder isso tornaria a
+           fusão inauditável. {% endcomment %}
+        <div x-show="documentosSecundarios().length" x-cloak>
+          <h4 class="text-sm font-semibold text-fg">CNPJs digitados errado e fundidos aqui</h4>
+          <p class="text-sm text-fg-muted mt-1">
+            O tribunal cadastrou este mesmo nome sob um CNPJ que não é dele. Fundimos porque a
+            grafia é idêntica à desta entidade e cada um destes aparece uma única vez no acervo,
+            contra as
+            <span class="font-mono text-fg" x-text="fmt(nPartes())"></span> linhas daqui. Eles
+            <b class="text-fg">não</b> são CNPJs desta pessoa jurídica: ficam listados como
+            evidência do erro.
+          </p>
+          <ul class="mt-2 flex flex-wrap gap-1.5">
+            <template x-for="d in documentosSecundarios()" :key="'sec-' + d">
+              <li class="font-mono text-sm text-fg rounded border border-warning/50 bg-warning/10 px-2 py-0.5"
+                  x-text="fmtDoc(d)"></li>
+            </template>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="text-sm font-semibold text-fg">Como esta entidade foi montada</h4>
+          <p class="text-sm text-fg-muted mt-1" x-show="provada()" x-cloak>
+            Pela <b class="text-fg">raiz do CNPJ</b> — identidade provada por documento. É o
+            agrupamento mais confiável do cadastro.
+          </p>
+          <p class="text-sm text-fg-muted mt-1" x-show="!provada()" x-cloak>
+            Pelo <b class="text-fg">nome normalizado</b> — heurística de grafia. Dois homônimos
+            em cidades diferentes (dois “Fundo Municipal de Saúde”, por exemplo) podem ter
+            colado num nome só. Confira as grafias ao lado antes de usar o número.
+          </p>
+        </div>
+
+        {% comment %} COMO O NÚMERO FOI OBTIDO. Não é o mesmo que "como a
+           entidade foi montada": aqui é a CONSULTA que produziu os processos —
+           quantas grafias entraram na busca, quantas foram podadas por casarem
+           demais e se o conjunto foi truncado. Sem isto, a diferença entre o
+           número desta ficha e o de uma busca por uma grafia só fica sem
+           explicação. {% endcomment %}
+        <div x-show="consulta()" x-cloak>
+          <h4 class="text-sm font-semibold text-fg">Como este número foi obtido</h4>
+          <p class="text-sm text-fg-muted mt-1">
+            Procuramos, nas publicações, qualquer uma das
+            <span class="font-mono text-fg" x-text="fmt(nGrafiasDaConsulta())"></span>
+            <span x-text="nGrafiasDaConsulta() === 1 ? 'grafia usada na busca' : 'grafias usadas na busca'"></span>,
+            como frase inteira. Buscar uma grafia só dá um número menor — é a mesma entidade,
+            escrita de outro jeito.
+          </p>
+          <p class="text-sm text-fg-muted mt-1" x-show="grafiasDescartadas() > 0" x-cloak>
+            <span class="font-mono text-fg" x-text="fmt(grafiasDescartadas())"></span>
+            <span x-text="grafiasDescartadas() === 1 ? 'grafia ficou de fora da busca' : 'grafias ficaram de fora da busca'"></span>
+            por serem curtas ou genéricas demais: elas trariam processos de terceiros junto.
+          </p>
+          <p class="text-sm text-fg-muted mt-1" x-show="consultaTruncada()" x-cloak>
+            A entidade tem grafias demais para caberem todas numa consulta só, então o número
+            acima é um <b class="text-fg">piso</b>: pode haver processo com uma grafia que ficou
+            de fora.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
