@@ -575,10 +575,31 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
             roam: false,
             data: data,
             nameProperty: 'name',
-            label: {show: false},
+            {% comment %} Sigla SEMPRE visível — antes só aparecia no hover, e
+               quem não conhece o desenho do Brasil de cor não sabia que estado
+               estava olhando (e no touch não há hover nenhum).
+               O `p.name` do nosso GeoJSON JÁ É a sigla ("SP") — o nome por
+               extenso vem de `UF_NOMES` quando precisa. Ainda bem: "Rio Grande
+               do Norte" não caberia dentro do RN.
+               Contorno na fonte (`textBorder`) em vez de cor fixa: o mapa tem 4
+               tons de laranja/azul por baixo, e qualquer cor chapada some em
+               metade deles. Com o contorno a sigla é legível sobre qualquer
+               faixa, nos dois temas.
+            {% endcomment %}
+            label: {
+              show: true,
+              formatter: (p) => p.name || '',
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: 10,
+              color: isDark ? '#fff' : '#18181b',
+              textBorderColor: isDark ? 'rgba(0,0,0,.75)' : 'rgba(255,255,255,.85)',
+              textBorderWidth: 2.5,
+            },
+            labelLayout: {hideOverlap: true},   // DF/SE/AL se sobrepõem no Sudeste
             emphasis: {
-              label: {show: true, color: isDark ? '#fff' : '#111',
-                      fontFamily: 'JetBrains Mono, monospace', fontSize: 11},
+              label: {show: true, fontSize: 12, fontWeight: 'bold',
+                      color: isDark ? '#fff' : '#111',
+                      fontFamily: 'JetBrains Mono, monospace'},
               itemStyle: {areaColor: isDark ? '#f59e0b' : '#fbbf24'},
             },
             select: {

@@ -905,3 +905,24 @@ def test_entidade_id_nao_vira_chip(html):
     ini = html.find('_ROTULOS_FILTRO')
     fim = html.find('chipsFiltros()', ini)
     assert 'entidade_id' not in html[ini:fim]
+
+
+def test_siglas_sempre_visiveis_no_mapa(html):
+    """A sigla do estado não pode depender de hover.
+
+    Antes só aparecia no `emphasis` — quem não sabe o desenho do Brasil de cor
+    não sabia que estado estava olhando, e em touch não existe hover.
+    """
+    ini = html.find("type: 'map'")
+    fim = html.find('itemStyle:', ini)
+    bloco = html[ini:fim]
+    assert 'label: {show: false}' not in bloco, 'o rótulo voltou a depender de hover'
+    assert 'show: true,' in bloco
+    assert 'formatter: (p) => p.name' in bloco, 'o rótulo tem que ser a SIGLA'
+    # contorno em vez de cor chapada: o mapa tem 4 tons por baixo e qualquer
+    # cor fixa some em metade deles
+    assert 'textBorderColor' in bloco and 'textBorderWidth' in bloco
+    # DF/SE/AL se sobrepõem no Sudeste/Nordeste
+    assert 'hideOverlap: true' in bloco
+    # e o hover continua destacando
+    assert 'emphasis:' in bloco
