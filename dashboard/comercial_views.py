@@ -20,7 +20,12 @@ from django.shortcuts import render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
-from search import agg_comercial, agg_estado as agg_estado_svc, entidades as entidades_svc
+from search import (
+    agg_comercial,
+    agg_entidade as agg_entidade_svc,
+    agg_estado as agg_estado_svc,
+    entidades as entidades_svc,
+)
 from search.client import get_es, index_name
 
 logger = logging.getLogger('voyager.comercial.views')
@@ -306,4 +311,56 @@ def entidades_autocomplete(request):
         cache.set(chave_cache, payload, ENTIDADES_CACHE_TTL)
     except Exception:
         pass                                 # cache é otimização, não requisito
+    return _json(payload)
+
+
+# --------------------------------------------------------------------------- #
+# TELAS DE ENTIDADES — ranking ("quem mais litiga") e ficha de UMA entidade
+# --------------------------------------------------------------------------- #
+# Mesmo padrão do resto do módulo: a view só faz parse → serviço → JsonResponse.
+# TODA a lógica (query, honestidade, cache, contrato) mora em
+# `search/agg_entidade.py`, e o CONTRATO JSON completo está documentado lá.
+
+
+@login_required
+@require_GET
+def entidades_ranking(request):
+    """GET /dashboard/api/entidades/ — ranking de entidades ("quem deve").
+
+    Querystring: `q, ente, min_partes, contadas, ordenar, n, cursor, offset`
+    (ver contrato no topo de `search/agg_entidade.py`). NÃO aceita `uf` — o
+    porquê, medido, está documentado no mesmo lugar.
+    Cursor forjado/corrompido → 400; ES fora → 503. Nunca 500 cru.
+    """
+    opcoes = agg_entidade_svc.parse_ranking(request.GET)
+    try:
+        payload = agg_entidade_svc.ranking_entidades(opcoes)
+    except agg_entidade_svc.CursorInvalido as exc:
+        return _json({'erro': str(exc) or 'cursor inválido'}, status=400)
+    except Exception:
+        logger.exception('entidades_ranking: falha ao consultar o índice de entidades',
+                         extra={'opcoes': opcoes})
+        return _json({'erro': 'falha ao consultar o índice de entidades'}, status=503)
+    return _json(payload)
+
+
+@login_required
+@require_GET
+def entidades_ficha(request, entidade_id):
+    """GET /dashboard/api/entidades/<entidade_id>/ — ficha de UMA entidade.
+
+    `<entidade_id>` é o `_id` do índice (`cnpj:29979036` | `nome:<sha1>`).
+    Aceita os MESMOS filtros do mapa (`agg_comercial.parse_filtros`); `parte` e
+    `entidade_id` da querystring são ignorados (quem manda é a rota).
+    Entidade inexistente → 404; ES fora → 503. Nunca 500 cru.
+    """
+    filtros = agg_comercial.parse_filtros(request.GET)
+    try:
+        payload = agg_entidade_svc.ficha_entidade(entidade_id, filtros)
+    except agg_entidade_svc.EntidadeNaoEncontrada:
+        return _json({'erro': f'entidade não encontrada: {entidade_id}'}, status=404)
+    except Exception:
+        logger.exception('entidades_ficha: falha na agregação ES',
+                         extra={'entidade_id': entidade_id, 'filtros': filtros})
+        return _json({'erro': 'falha ao consultar o índice de busca'}, status=503)
     return _json(payload)

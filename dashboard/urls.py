@@ -101,6 +101,14 @@ urlpatterns = [
     # consumir o mesmo endpoint).
     path('api/entidades/autocomplete', comercial_views.entidades_autocomplete,
          name='entidades-autocomplete'),
+    # TELAS DE ENTIDADES ("quem deve") — contrato em search/agg_entidade.py.
+    # A rota do ranking vem DEPOIS do autocomplete de propósito: `<str:...>`
+    # casaria "autocomplete" como se fosse um entidade_id (o Django resolve na
+    # ordem, então o autocomplete continua ganhando).
+    path('api/entidades/', comercial_views.entidades_ranking,
+         name='entidades-ranking'),
+    path('api/entidades/<str:entidade_id>/', comercial_views.entidades_ficha,
+         name='entidades-ficha'),
     path('jobs/<str:job_id>/status/', views.job_status, name='job-status'),
     path('wizard/', views.WizardView.as_view(), name='wizard'),
     path('wizard/count/', views.WizardCountView.as_view(), name='wizard-count'),
