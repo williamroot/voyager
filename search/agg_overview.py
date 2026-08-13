@@ -115,7 +115,8 @@ import logging
 
 from django.core.cache import cache
 
-from search.geo import UF_FEDERAL, uf_do_tribunal
+from search.geo import (UF_FEDERAL, fonte_publica_valor, uf_do_tribunal,
+                       uf_tem_fonte_de_valor)
 
 logger = logging.getLogger('voyager.comercial.agg')
 
@@ -548,6 +549,13 @@ def _enriquecer_buckets(buckets: list, campo: str, cobertura_map: dict) -> list:
         chave = b[campo]
         cob = cobertura_map.get(chave)
         b['cobertura_pct'] = cob
+        # R$ ZERO tem DUAS causas e a tela precisa separá-las: ou a fonte deste
+        # tribunal não publica valor (não adianta esperar — o PJe não expõe o
+        # campo em tribunal nenhum, medido em 27 processos reais), ou publica e
+        # nós ainda não buscamos. Sem esta marca, "valor não informado" lê como
+        # "o tribunal não informou" e culpa quem não tem culpa.
+        b['fonte_publica_valor'] = (uf_tem_fonte_de_valor(chave) if campo == 'uf'
+                                    else fonte_publica_valor(chave))
         dens_por_lente, score_por_lente = {}, {}
         for lente, campo_alvo in SCORE_POR_LENTE.items():
             dens, score = calcular_score_foco(

@@ -795,3 +795,51 @@ def test_tokens_precisam_caber_em_UMA_grafia(mock_es):
     ]}}
     out = agg.resolver_texto({'parte': 'fazenda gado'})
     assert '_variantes' not in out, 'juntou tokens de grafias diferentes'
+
+
+# --------------------------------------------------------------------------- #
+# "sem valor" tem DUAS causas — e a tela precisa saber qual
+# --------------------------------------------------------------------------- #
+def test_bucket_diz_se_a_fonte_publica_valor():
+    """Distinguir "o tribunal não publica" de "ainda não buscamos".
+
+    Medido em 13/08/2026 no HTML cru de 27 processos reais: o PJe consulta
+    pública NÃO expõe valor da causa em tribunal nenhum (TJMG, TRF1/3/5, TJRJ,
+    TJMA, TJPE, TJCE, TJAP, TJRO, TJDFT). Sem esta marca, a tela diz "valor não
+    informado" e o usuário entende "o tribunal não informou" — culpando quem
+    não tem culpa e sugerindo que basta esperar.
+    """
+    out = agg._enriquecer_buckets([
+        {'uf': 'SP', 'volume': 100, 'valor': 5.0, 'potencial': 1,
+         'confirmado': 0, 'todos': 1},
+        {'uf': 'MG', 'volume': 100, 'valor': 0.0, 'potencial': 1,
+         'confirmado': 0, 'todos': 1},
+        {'uf': 'FED', 'volume': 100, 'valor': 0.0, 'potencial': 1,
+         'confirmado': 0, 'todos': 1},
+    ], 'uf', {})
+    por_uf = {b['uf']: b for b in out}
+    assert por_uf['SP']['fonte_publica_valor'] is True       # e-SAJ publica
+    assert por_uf['MG']['fonte_publica_valor'] is False      # PJe não expõe
+    assert por_uf['FED']['fonte_publica_valor'] is False     # TRFs são PJe
+
+
+def test_marca_vale_por_TRIBUNAL_no_drill_down():
+    """No drill-down a chave é o tribunal, não a UF — a régua muda junto."""
+    out = agg._enriquecer_buckets([
+        {'tribunal': 'TJSP', 'volume': 10, 'valor': 1.0, 'potencial': 1,
+         'confirmado': 0, 'todos': 1},
+        {'tribunal': 'TJMG', 'volume': 10, 'valor': 0.0, 'potencial': 1,
+         'confirmado': 0, 'todos': 1},
+    ], 'tribunal', {})
+    por_trib = {b['tribunal']: b for b in out}
+    assert por_trib['TJSP']['fonte_publica_valor'] is True
+    assert por_trib['TJMG']['fonte_publica_valor'] is False
+
+
+def test_tribunal_desconhecido_e_conservador():
+    """TJ novo cai em False: a tela diz "esta fonte não publica" em vez de
+    prometer um número que talvez nunca venha."""
+    from search.geo import fonte_publica_valor
+    assert fonte_publica_valor('TJXX') is False
+    assert fonte_publica_valor('') is False
+    assert fonte_publica_valor(None) is False
