@@ -1,5 +1,48 @@
 # Copy deck — Mapa de Precatórios (`/dashboard/overview/mapa/`)
 
+> ## ⚠️ ADENDO 13/08/2026 — o R$ vazio tem DUAS causas (revoga parte deste deck)
+>
+> Este deck manda escrever **`não informado`** com a explicação *"o tribunal
+> ainda não publicou o valor destes processos"* (§2.4, §3.G, §3.H, §3.K item 4,
+> §4 `valor`). **Está errado**, e do jeito mais caro: promete um número que não
+> vem.
+>
+> Medido em 13/08/2026 no HTML cru de **27 processos reais**: a consulta pública
+> do **PJe não expõe valor da causa em tribunal nenhum** — a página traz 6 campos
+> (número, distribuição, classe, assunto, jurisdição, órgão julgador) e a string
+> "valor" não aparece uma vez sequer. Não é falta de parser: o ramo que leria o
+> valor existe no `BasePjeEnricher` e nunca dispara.
+>
+> | | |
+> |---|---|
+> | **Publicam** | e-SAJ (TJSP, TJAL, TJAC) · REST próprio (TJPA, TJMT) |
+> | **Não publicam** | TJMG, TJRJ, TJMA, TJPE, TJCE, TJAP, TJRO, TJDFT, TRF1/3/5 … |
+> | Cobertura no índice | 2.025.273 de 71,18M docs = **2,8%**; só **5 das 28** UFs |
+>
+> Logo, "não informado" precisa virar **duas** frases, e a diferença é **quem tem
+> a bola**:
+>
+> | Dado | Frase | Por quê |
+> |---|---|---|
+> | `fonte_publica_valor: false` | **"este tribunal não publica esse valor"** (curto: `R$ não publicado pelo tribunal`) | Definitivo. Não há o que buscar: o campo não existe na fonte. |
+> | `fonte_publica_valor: true` e vazio | **"ainda não buscamos esse valor"** (curto: `R$ ainda não buscado`) | Lacuna NOSSA, tem fila, some quando a busca passar. |
+> | sem a marca (cache velho) | `não informado` | Não afirmamos causa que não medimos. |
+>
+> A marca vem do backend em **cada bucket** (`search/agg_overview.py`, derivada
+> de `search/geo.py::TRIBUNAIS_COM_VALOR`) — por UF no mapa, por tribunal no
+> drill-down. As telas servidas por `agg_estado`/`agg_entidade` não a recebem e
+> carregam uma cópia da lista no template, **pinada por teste** contra
+> `search.geo` (`tests/test_overview_estado_page.py`).
+>
+> Consequências que também revogam o deck:
+> - **modo R$ do mapa**: quem não publica ganhou **faixa própria (hachura)**, não
+>   o cinza de "ainda não analisado" nem a faixa mais baixa da escala;
+> - **ordem "Valor R$" do ranking**: quem está sem valor não recebe
+>   `prioridade 0` (isso afirma "é o pior da lista") — recebe `sem valor
+>   publicado` / `valor ainda não buscado`, e barra vazia;
+> - os avisos do modo R$ e da ordem por R$ dizem, em texto visível, que a
+>   comparação é entre **5 estados que publicam e 23 que não**.
+
 **Autor:** UX Writer. **Escopo:** só microcopy. **Não editar o template a partir daqui sem ler a seção 6.**
 **Arquivo alvo da implementação:** `dashboard/templates/dashboard/comercial_mapa.html` (+ 1 linha em `base.html`, nav).
 **Público:** comercial e executivos, sem background jurídico nem técnico.

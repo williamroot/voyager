@@ -56,7 +56,14 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
   // interno. As CHAVES são estáveis de propósito (nenhum glos('...') muda).
   window.GLOSSARIO = {
     volume:     'Processos deste estado que já estão na nossa base. O tribunal tem mais — estes são os que temos.',
-    valor:      'Soma dos valores publicados pelos tribunais. "Não informado" quer dizer que o tribunal não publicou, não que falte dinheiro.',
+    {% comment %} O R$ vazio tem DUAS causas e a frase antiga ("o tribunal não
+       publicou") descrevia as duas como se fossem uma pendência. Medido em
+       13/08/2026 no HTML cru de 27 processos reais: a consulta pública do PJe
+       NÃO EXPÕE valor da causa em tribunal nenhum — a página traz 6 campos e a
+       string "valor" não aparece uma vez sequer. Publicam só e-SAJ (TJSP, TJAL,
+       TJAC) e dois portais próprios (TJPA, TJMT): 5 estados de 27. Nos outros
+       não há busca pendente, há um campo que não existe. {% endcomment %}
+    valor:      'Soma do valor publicado pelos tribunais. A maior parte deles não publica esse número — onde não publica, não há o que buscar.',
     potencial:  'Processos cujas publicações citam precatório. Indício forte, não certeza. "Não analisado" = ainda não lemos este estado.',
     confirmado: 'A nossa IA leu o processo e confirmou que é precatório. Mais certeiro que os possíveis e, por isso, um número menor.',
     cobertura:  'Quanto deste estado já passou pela nossa análise a fundo. Perto de 0% é território praticamente virgem.',
@@ -71,6 +78,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     // vez. Medido no nosso índice em 12/08/2026: dos 47.720 confirmados pela IA,
     // só 6.421 também têm o sinal no texto — somar contaria esses em dobro.
     todos:      'Processos que citam precatório nas publicações ou que a nossa IA confirmou. Quem está nos dois conta uma vez: não é a soma.',
+    // As duas causas do R$ vazio, cada uma com a sua palavra. A diferença é
+    // quem tem a bola: "não publica" é definitivo (não adianta esperar);
+    // "ainda não buscamos" é fila NOSSA.
+    semFonte:      'A consulta pública deste tribunal não traz o valor da causa. Não é fila nossa: o número não existe na fonte.',
+    valorPendente: 'Aqui o tribunal publica o valor da causa — nós é que ainda não buscamos o destes processos.',
   };
 
   // ---------------------------------------------------------------------------
@@ -329,9 +341,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       //  - modo Quantidade/Possíveis: sinal não processado (potencial null ou
       //    sinal_processado false) — achado do QA: SP com 4,2M processos
       //    aparecia como "Potencial: 0" = mentira material;
-      //  - modo R$: valor 0 = o tribunal NÃO PUBLICOU o valor. Pintar na faixa
-      //    mais baixa diria "quase nenhum dinheiro aqui", que é falso. O rótulo
-      //    da faixa cinza muda de acordo (ver `rotuloSemDado`).
+      //  - modo R$: valor 0. Pintar na faixa mais baixa diria "quase nenhum
+      //    dinheiro aqui", que é falso — a causa é sempre a ausência do dado.
+      //    E a ausência tem DOIS motivos, que a tela separa: a fonte não
+      //    publica (faixa hachurada, ver `decalSemFonte`) ou publica e ainda
+      //    não buscamos (cinza chapado, ver `rotuloSemDado`).
       // Confirmados = 0 é zero DE VERDADE e entra na escala (faixa mais baixa).
       // Modo TODOS (união possível ∪ confirmado): o backend manda `todos` SEMPRE
       // numérico, inclusive onde o sinal do texto não foi processado — ali o
@@ -372,8 +386,23 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       // do filtro. Quando as duas causas convivem (AP tem processo do INSS mas
       // o sinal nunca foi lido lá), a frase diz as duas — inventar uma só seria
       // escolher qual mentira contar.
+      // No modo R$ o cinza chapado deixou de carregar as duas causas: quem NÃO
+      // PUBLICA saiu para uma faixa própria (hachurada, ver `rotuloSemFonte`),
+      // porque em 23 dos 28 buckets a causa é essa — chamar tudo de "valor não
+      // informado" fazia a maioria do mapa parecer trabalho nosso atrasado.
       rotuloSemDado() {
-        if (this.metricMode === 'valor') return 'valor não informado';
+        if (this.metricMode === 'valor') {
+          // o cinza chapado do modo R$ só pode se dizer "lacuna nossa" quando
+          // existe estado que PUBLICA e está sem valor; senão ele é o vazio do
+          // filtro ou um bucket sem marca de fonte, e culpar a nossa fila ali
+          // seria o mesmo erro com o sinal trocado
+          if (this.pendenteNa(this.ufsGeo()) > 0) {
+            return this.temFiltro()
+              ? 'ainda não buscamos, ou sem processo com estes filtros'
+              : 'o tribunal publica, mas ainda não buscamos';
+          }
+          return this.temFiltro() ? 'sem processo com estes filtros' : 'sem valor informado';
+        }
         const naoLido = this.sinalMode === 'potencial'
           && this.ufsGeo().some(b => this.potDesconhecido(b));
         if (this.temFiltro()) {
@@ -382,6 +411,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         }
         if (this.sinalMode === 'todos') return 'sem processo na nossa base';
         return 'ainda não analisado';
+      },
+      //: a faixa HACHURADA do modo R$ (só existe quando há estado sem fonte)
+      rotuloSemFonte() { return 'o tribunal não publica valor da causa'; },
+      mostrarFaixaSemFonte() {
+        return this.metricMode === 'valor' && this.ufsSemFonte() > 0;
       },
       // A união só existe se o backend mandou o campo. O endpoint tem cache de
       // 2min por combinação de filtro: logo após o deploy uma resposta antiga
@@ -448,6 +482,12 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         const isDark = document.documentElement.classList.contains('dark');
         return isDark ? 'rgba(63,63,70,0.55)' : 'rgba(203,213,225,0.75)';
       },
+      //: cor do risco da hachura — a MESMA do `decalSemFonte` do canvas, pra
+      //: legenda e mapa não divergirem (o swatch é a chave de leitura do mapa)
+      corHachura() {
+        const isDark = document.documentElement.classList.contains('dark');
+        return isDark ? 'rgba(228,228,231,0.38)' : 'rgba(39,39,42,0.34)';
+      },
       calcularFaixas(valores) {
         const vals = valores
           .filter(v => v !== null && v !== undefined && isFinite(v))
@@ -492,14 +532,31 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         const geo = this.ufsGeo();
         const c = chartGridColors();
         const isDark = document.documentElement.classList.contains('dark');
-        const data = geo.map(b => ({
-          name: b.uf,
-          value: this.metricaDe(b),
-          bucket: b,
-        }));
+        const emR$ = this.metricMode === 'valor';
+        {% comment %} HACHURA pros estados cujo tribunal não publica valor.
+           Por quê uma faixa PRÓPRIA e não o mesmo cinza: no modo R$ o cinza
+           chapado é lido como "vocês não buscaram" — e essa leitura está errada
+           em 23 dos 28 buckets, onde a fonte simplesmente não tem o campo.
+           Por quê hachura e não um segundo tom de cinza: dois cinzas chapados
+           lado a lado no mesmo mapa não se distinguem a um metro de distância
+           (e somem no daltonismo); hachura é FORMA, é a convenção cartográfica
+           de "não se aplica", e sobrevive aos dois temas.
+           Só é aplicada no modo R$: no modo Quantidade este estado tem dado
+           normal e hachurá-lo seria inventar um vazio. {% endcomment %}
+        const decalSemFonte = {
+          symbol: 'rect',
+          color: isDark ? 'rgba(228,228,231,0.38)' : 'rgba(39,39,42,0.34)',
+          dashArrayX: [1, 0],
+          dashArrayY: [2, 4],
+          rotation: -Math.PI / 4,
+        };
+        const data = geo.map(b => {
+          const d = {name: b.uf, value: this.metricaDe(b), bucket: b};
+          if (emR$ && this.fonteSemValor(b)) d.itemStyle = {decal: decalSemFonte};
+          return d;
+        });
         // recalculadas a cada pintura => acompanham filtros E toggles
         this.faixas = this.calcularFaixas(data.map(d => d.value));
-        const emR$ = this.metricMode === 'valor';
         const corSemDado = this.corSemDado();
         const corPossivel = corToken('--c-mission-fg', 'rgb(253,186,116)');
         const corConfirmado = corToken('--c-accent-fg', 'rgb(110,231,183)');
@@ -561,7 +618,9 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                 : '';
               return '<b>' + nome + ' (' + b.uf + ')</b><br/>'
                 + 'Processos na base: ' + fmt(b.volume) + '<br/>'
-                + 'Valor informado: ' + fmtBRL(b.valor) + '<br/>'
+                {% comment %} a CAUSA do vazio, não só o vazio: "não informado"
+                   no estado que nunca publica lê como pendência nossa. {% endcomment %}
+                + 'Valor informado: ' + self.valorLabel(b) + '<br/>'
                 + pot + '<br/>'
                 + '<span style="color:' + corConfirmado + '">Confirmados pela IA: ' + fmt(b.confirmado) + '</span><br/>'
                 + uniao
@@ -1213,7 +1272,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         quantidade: {t: 'Volume', d: 'quantos processos, em número absoluto',
                      c: 'É a contagem direta, sem dividir pelo tamanho do estado.'},
         valor: {t: 'Valor R$', d: 'quanto o tribunal já publicou em R$',
-                c: 'Soma do valor da causa publicado — só dos processos que trazem esse valor.'},
+                c: 'Soma do valor da causa publicado. Só uma minoria dos tribunais publica esse número — quem não publica fica fora desta comparação, e não por valer menos.'},
       },
       valorDe(b) { return Number(b && b.valor) || 0; },
       // valor de comparação da ordem ativa — a lista, a barra e o rótulo usam
@@ -1275,7 +1334,15 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         // ordenando por quantidade de confirmados ou por R$, o número existe
         // mesmo sem o sinal do texto ter sido lido — "não medida" só é verdade
         // quando a régua depende do sinal
-        if (this.ordemRanking === 'valor') return false;
+        if (this.ordemRanking === 'valor') {
+          // ...MAS a régua do R$ depende de haver valor. Sem valor, "prioridade
+          // 0" afirma "este é o pior da lista" quando o certo é "não dá pra
+          // medir" — e vale para as DUAS causas: o tribunal que não publica
+          // (23 dos 28 buckets) e o que publica sem que a gente tenha buscado.
+          // Quem recebe a nota é só quem tem número. A CAUSA de não ter vai no
+          // rótulo (ver `prioridadeLabel`).
+          return !this.temValor(b);
+        }
         return this.sinalMode === 'potencial' && this.potDesconhecido(b);
       },
       prioridadeEm(b, lista) {
@@ -1287,20 +1354,83 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       },
       prioridadeLabel(b, lista) {
         const p = this.prioridadeEm(b, lista);
-        return p === null ? 'prioridade não medida' : ('prioridade ' + p);
+        if (p !== null) return 'prioridade ' + p;
+        // a CAUSA de não ter nota muda com a ordem E, dentro do R$, com a
+        // fonte: "não publica" é definitivo, "não buscado" é fila nossa. Por
+        // concentração, o que falta é o sinal que ainda não lemos.
+        if (this.ordemRanking !== 'valor') return 'prioridade não medida';
+        return this.fonteComValor(b) ? 'valor ainda não buscado' : 'sem valor publicado';
       },
       barraPct(b, lista) {
         // a barra desenha a MESMA métrica que ordenou a lista — senão o 1º
         // lugar aparece com a barra mais curta que o 3º
+        // Sem nota (fonte não publica), a barra fica VAZIA e não no mínimo de
+        // 3%: 3% desenha "quase nada", que aqui seria uma medição inventada.
+        if (this.prioridadeIndisponivel(b)) return 0;
         const max = Math.max(1e-9, ...(lista || []).map(x => this.metricaOrdem(x)));
         return Math.max(3, 100 * this.metricaOrdem(b) / max);
       },
       // Quantos itens da lista estão sem valor publicado. Serve pra dizer UMA
       // vez "o tribunal não informou" em vez de repetir "R$ 0" em 10 linhas.
       semValor(lista) {
-        return (lista || []).filter(b => !b.valor || Number(b.valor) === 0).length;
+        return (lista || []).filter(b => !this.temValor(b)).length;
       },
-      temValor(b) { return !!b.valor && Number(b.valor) > 0; },
+      temValor(b) { return !!b && !!b.valor && Number(b.valor) > 0; },
+
+      // ---- R$ VAZIO: DUAS causas, dois textos ------------------------------
+      // `fonte_publica_valor` vem em CADA bucket (por UF no mapa, por tribunal
+      // no drill-down), calculado no backend a partir de
+      // `search/geo.py::TRIBUNAIS_COM_VALOR`.
+      //   false → a consulta pública daquele tribunal NÃO EXPÕE valor da causa.
+      //           Medido 13/08/2026 no HTML cru de 27 processos reais: o PJe
+      //           traz 6 campos e a string "valor" não aparece nenhuma vez.
+      //           Não existe busca pendente — o campo não existe na fonte.
+      //   true  → publica, e o vazio é lacuna NOSSA.
+      //   undefined → payload velho do cache de 2min do endpoint. Aí não
+      //           afirmamos nem uma coisa nem outra: chutar a causa errada é
+      //           exatamente o defeito que estas frases existem pra consertar.
+      fonteSemValor(b) { return !!b && b.fonte_publica_valor === false; },
+      fonteComValor(b) { return !!b && b.fonte_publica_valor === true; },
+      // frase por extenso (tooltip do mapa, card federal, mini-KPI do drill)
+      valorLabel(b) {
+        if (this.temValor(b)) return fmtBRL(b.valor);
+        if (this.fonteSemValor(b)) {
+          return (b && b.uf === 'FED')
+            ? 'os tribunais federais não publicam esse valor'
+            : 'este tribunal não publica esse valor';
+        }
+        if (this.fonteComValor(b)) return 'ainda não buscamos esse valor';
+        return 'não informado';
+      },
+      // frase curta: linha de ranking, onde divide a linha com a cobertura
+      valorCurto(b) {
+        if (this.temValor(b)) return fmtBRL(b.valor);
+        if (this.fonteSemValor(b)) return 'R$ não publicado pelo tribunal';
+        if (this.fonteComValor(b)) return 'R$ ainda não buscado';
+        return 'R$ não informado';
+      },
+      // explicação da frase acima (.voy-tip) — segue a causa, não o rótulo
+      glosValor(b) {
+        if (this.fonteSemValor(b)) return this.glos('semFonte');
+        if (this.fonteComValor(b)) return this.glos('valorPendente');
+        return this.glos('valor');
+      },
+      //: quantos itens da lista têm/não têm FONTE de valor (não confundir com
+      //: ter ou não ter valor: são perguntas diferentes)
+      semFonteNa(lista) { return (lista || []).filter(b => this.fonteSemValor(b)).length; },
+      comFonteNa(lista) { return (lista || []).filter(b => this.fonteComValor(b)).length; },
+      //: publica E está vazio = a fila é nossa
+      pendenteNa(lista) {
+        return (lista || []).filter(b => this.fonteComValor(b) && !this.temValor(b)).length;
+      },
+      ufsSemFonte() { return this.semFonteNa(this.ufsGeo()); },
+      ufsComFonte() { return this.comFonteNa(this.ufsGeo()); },
+      //: mini-KPI do drill: o número é o do /tribunais, a CAUSA do vazio vem do
+      //: bucket da UF (que o /mapa já trouxe) — mesma verdade, uma fonte só
+      valorDrill() {
+        if (this.temValor(this.drillTotal)) return fmtBRL(this.drillTotal.valor);
+        return this.valorLabel(this.bucketSel());
+      },
       geradoLegivel() {
         if (!this.geradoEm) return '';
         try {
@@ -1769,7 +1899,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           {% comment %} VISÍVEL, não tooltip: o filtro exclui silenciosamente todo processo com
              valor não informado (a maior parte da base). Sem esta frase o
              comercial conclui "não tem nada acima de R$ 1 mi nesse estado". {% endcomment %}
-          <span id="aviso-valor" class="text-xs text-fg-muted flex-1 min-w-[14rem]">Filtra pelo valor publicado pelo tribunal. Processo sem valor informado fica de fora do resultado.</span>
+          <span id="aviso-valor" class="text-xs text-fg-muted flex-1 min-w-[14rem]">Filtra pelo valor publicado pelo tribunal. Processo sem valor informado fica de fora do resultado. Como a maioria dos tribunais não publica esse valor, o filtro apaga estados inteiros do mapa.</span>
         </div>
       </div>
     </div>
@@ -1825,6 +1955,13 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           </div>
           <div class="mt-1.5 text-xl font-mono text-fg leading-none"
                x-text="total ? fmtBRL(total.valor) : '—'"></div>
+          {% comment %} O total é a soma de TODO mundo, mas só uma minoria dos
+             tribunais publica valor — sem esta linha o número lê como "o
+             acervo inteiro vale isso". Cabe aqui de graça: o bloco do herói (à
+             esquerda) é ~50px mais alto que este, então a linha não empurra o
+             mapa (medido: começa a 319px, igual). {% endcomment %}
+          <div class="mt-1 text-xs text-fg-muted" x-show="ufsSemFonte() > 0" x-cloak
+               x-text="'só ' + ufsComFonte() + ' de ' + ufsGeo().length + ' estados publicam esse valor'"></div>
         </div>
       </div>
 
@@ -1838,9 +1975,25 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
     </div>
 
     {% comment %} aviso do modo R$: fica colado nos números porque é deles que
-       ele fala (o mapa pinta dinheiro, os números seguem a lente). {% endcomment %}
-    <p class="text-xs text-fg-muted" x-show="metricMode==='valor'" x-cloak>
-      O mapa está pintando por R$. A lente segue valendo para os números e para o “Ataque primeiro”.
+       ele fala (o mapa pinta dinheiro, os números seguem a lente).
+       A partir de 13/08/2026 ele carrega a ARMADILHA do modo: o mapa em R$
+       compara 5 estados que publicam contra 23 que não publicam. Alagoas
+       aparece em 1º com R$ 1,3 tri por ser um dos poucos que abre o número —
+       não por ter mais crédito que Minas. Sem esta frase o ranking em R$ é uma
+       pegadinha, e ela precisa ser TEXTO VISÍVEL: quem lê o mapa e tira a
+       conclusão não passa o mouse em nada antes.
+       Só aparece no modo R$, então não entra na altura da tela no modo padrão
+       (o mapa começa a 319px — geometria medida que não pode regredir).
+    {% endcomment %}
+    <p class="text-xs text-fg flex items-start gap-1.5 px-2 py-1.5 rounded border border-warning/40 bg-warning/10"
+       x-show="metricMode==='valor'" x-cloak>
+      {% voy_icon "anomaly" "w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" %}
+      <span>
+        Mapa por R$: só <b x-text="ufsComFonte()"></b> dos <b x-text="ufsGeo().length"></b> estados
+        têm tribunal que publica o valor da causa. Os <b>hachurados</b> não entram na comparação — a
+        cor mais forte é de quem publica, não de quem tem mais crédito.
+        <span class="text-fg-muted">A lente segue valendo para os números e para o “Ataque primeiro”.</span>
+      </span>
     </p>
 
     {# ---- bloco didático "Como ler estes números" — nível de PÁGINA ---- #}
@@ -1874,9 +2027,21 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                   :style="'background:' + corSemDado()" aria-hidden="true"></span>Ainda não analisado — </dt>
           <dd class="inline text-fg-muted">O cinza do mapa: não lemos as publicações deste estado. O número é desconhecido, não é zero.</dd>
         </div>
+        {% comment %} Este item era o buraco: dizia “o tribunal não publicou”
+           para os DOIS vazios, e o leitor entendia “ainda não publicou”. Agora
+           são duas entradas, uma por causa, e a primeira diz o tamanho real do
+           problema (5 estados de 27) — sem isso o leitor supõe que o normal é
+           ter valor e que a falta é exceção. É o inverso. {% endcomment %}
         <div>
           <dt class="inline font-semibold text-fg">Valor informado — </dt>
-          <dd class="inline text-fg-muted">Soma dos valores publicados pelos tribunais. “Não informado” = o tribunal não publicou. Não é falta de dinheiro.</dd>
+          <dd class="inline text-fg-muted">Soma do valor da causa que os tribunais publicam. Só 5 dos 27 estados publicam esse número: a soma nunca é do país inteiro, e falta de valor não é falta de dinheiro.</dd>
+        </div>
+        <div>
+          <dt class="inline font-semibold text-fg">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm align-middle mr-1 border border-border"
+                  :style="'background:' + corSemDado() + '; background-image: repeating-linear-gradient(-45deg, ' + corHachura() + ' 0 1.5px, transparent 1.5px 4px)'"
+                  aria-hidden="true"></span>O tribunal não publica valor — </dt>
+          <dd class="inline text-fg-muted">A hachura do mapa no modo R$: a consulta pública daquele tribunal não traz o campo de valor. Não é busca nossa atrasada — o número não existe na fonte. Onde ele existe e ainda não buscamos, a tela diz “ainda não buscamos”.</dd>
         </div>
         <div>
           <dt class="inline font-semibold text-fg">Já analisado — </dt>
@@ -1952,7 +2117,7 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
          RO/RN/TO/RR na cor do zero ao lado do PR. Recalculadas a cada filtro
          e a cada toggle. {% endcomment %}
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3" x-show="faixas.length" x-cloak
-           role="img" :aria-label="'Escala de cor por faixas: ' + faixas.map(f => f.rotulo).join(', ') + '; cinza: ' + rotuloSemDado()">
+           role="img" :aria-label="'Escala de cor por faixas: ' + faixas.map(f => f.rotulo).join(', ') + '; cinza: ' + rotuloSemDado() + (mostrarFaixaSemFonte() ? '; hachurado: ' + rotuloSemFonte() : '')">
         <span class="text-xs text-fg-muted">Cor mais forte = mais</span>
         <template x-for="f in faixas" :key="f.rotulo">
           {% comment %} borda no swatch: sem ela a faixa mais escura (no tema
@@ -1965,6 +2130,15 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         <span class="inline-flex items-center gap-1.5 text-xs text-fg-muted">
           <span class="inline-block w-3 h-3 rounded-sm shrink-0 border border-border" :style="'background:' + corSemDado()"></span>
           <span x-text="rotuloSemDado()"></span>
+        </span>
+        {% comment %} A faixa da HACHURA. O swatch repete o desenho do canvas
+           com um gradiente repetido a -45°, no mesmo ângulo e no mesmo passo do
+           `decalSemFonte` — se o quadradinho não parecer com o estado pintado,
+           a legenda não cumpre função nenhuma. {% endcomment %}
+        <span class="inline-flex items-center gap-1.5 text-xs text-fg" x-show="mostrarFaixaSemFonte()" x-cloak>
+          <span class="inline-block w-3 h-3 rounded-sm shrink-0 border border-border"
+                :style="'background:' + corSemDado() + '; background-image: repeating-linear-gradient(-45deg, ' + corHachura() + ' 0 1.5px, transparent 1.5px 4px)'"></span>
+          <span x-text="rotuloSemFonte()"></span>
         </span>
       </div>
 
@@ -2038,7 +2212,12 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
             </button>
           </span>
           <span class="text-fg-muted">Processos na base: <span class="font-mono text-fg" x-text="fmt(bucketFED().volume)"></span></span>
-          <span class="text-fg-muted">Valor informado: <span class="font-mono text-fg" x-text="fmtBRL(bucketFED().valor)"></span></span>
+          {% comment %} TRF1/3/5 são PJe e não publicam valor (medido: 0 de 2.000
+             na amostra de prod) — "não informado" aqui culparia a nossa fila
+             por um campo que a fonte não tem. {% endcomment %}
+          <span class="text-fg-muted">Valor informado:
+            <span class="font-mono" :class="temValor(bucketFED()) ? 'text-fg' : 'text-fg-muted italic'"
+                  x-text="valorLabel(bucketFED())"></span></span>
           <span class="text-mission-fg">Possíveis:
             <span class="font-mono" :class="potDesconhecido(bucketFED()) ? 'italic' : ''"
                   x-text="potDesconhecido(bucketFED()) ? 'ainda não analisado' : fmt(bucketFED().potencial)"></span></span>
@@ -2115,6 +2294,20 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           {% voy_icon "anomaly" "w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" %}
           <span x-text="avisoParcial()"></span>
         </p>
+        {% comment %} A ordem por R$ é a mais perigosa das três: ela compara 5
+           estados que publicam o valor da causa com 23 que não publicam, e os
+           23 vão pro fim da lista como se valessem zero. O aviso só existe
+           nesta ordem — repeti-lo nas outras duas seria ruído. {% endcomment %}
+        <p x-show="ordemRanking === 'valor' && ufsSemFonte() > 0" x-cloak
+           class="text-xs mb-3 px-2 py-1.5 rounded border border-warning/40 bg-warning/10 text-fg flex items-start gap-1.5">
+          {% voy_icon "anomaly" "w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" %}
+          <span>
+            Esta ordem só compara os <b x-text="ufsComFonte()"></b> estados cujo tribunal publica o
+            valor da causa. Os outros <b x-text="ufsSemFonte()"></b> caem para o fim da lista sem
+            terem sido comparados — lá o número não existe na fonte, o que não quer dizer que valham
+            menos. Quem lidera aqui lidera por publicar.
+          </span>
+        </p>
         <div x-show="loading" class="text-xs text-fg-muted font-mono">carregando o ranking…</div>
         <div x-show="vazioPorFiltro()" x-cloak class="text-xs text-fg-muted">
           Nenhum estado tem dado com os filtros atuais.
@@ -2150,11 +2343,13 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                   <span class="text-accent-fg" x-text="fmt(b.confirmado) + ' confirmados'"></span>
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono text-fg-muted">
-                  {% comment %} valor 0 = "não informado"; repetir "R$ 0" em 10 linhas é ruído
-                     — a lista diz UMA vez, abaixo, quantos estão sem valor. {% endcomment %}
-                  <template x-if="temValor(b)">
-                    <span x-text="fmtBRL(b.valor)"></span>
-                  </template>
+                  {% comment %} Antes a linha de R$ SUMIA quando não havia valor e
+                     um rodapé dizia "o tribunal ainda não informou" — as duas
+                     coisas erradas de uma vez: o vazio virava ausência e a causa
+                     virava pendência nossa. Agora a linha fica sempre e diz QUAL
+                     dos dois vazios é. Ocupa a mesma linha da cobertura, então
+                     não cresce a altura do painel. {% endcomment %}
+                  <span :class="temValor(b) ? '' : 'italic'" x-text="valorCurto(b)"></span>
                   {% comment %} a cobertura ganhou moldura porque deixou de ser
                      nota de rodapé: ela saiu da fórmula e passou a ser a
                      bandeira que decide "vale reatacar um estado que já
@@ -2165,8 +2360,19 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
             </li>
           </template>
         </ol>
+        {% comment %} O rodapé antigo (“o valor ainda não foi informado pelo
+           tribunal”) juntava os dois vazios numa frase que descrevia o mais
+           raro dos dois. Agora ele SEPARA e conta cada causa; some quando não
+           há nenhuma. {% endcomment %}
         <p class="mt-2 text-xs text-fg-muted" x-show="semValor(topScore(10)) > 0" x-cloak>
-          Em <b x-text="semValor(topScore(10))"></b> destes estados o valor ainda não foi informado pelo tribunal — por isso a linha de valor não aparece.
+          <span x-show="semFonteNa(topScore(10)) > 0">
+            Em <b x-text="semFonteNa(topScore(10))"></b> destes estados o tribunal não publica o valor
+            da causa: não há o que buscar.
+          </span>
+          <span x-show="pendenteNa(topScore(10)) > 0">
+            Em <b x-text="pendenteNa(topScore(10))"></b> o tribunal publica e nós é que ainda não
+            buscamos.
+          </span>
         </p>
       </div>
 
@@ -2195,7 +2401,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
           </div>
           <div class="p-2 rounded bg-surface/60 border border-border">
             <div class="text-fg-muted">Valor informado</div>
-            <div class="font-mono text-fg" x-text="fmtBRL(drillTotal ? drillTotal.valor : 0)"></div>
+            {% comment %} o `total` do drill não carrega a marca da fonte (é a
+               soma do estado); a marca vem do bucket da UF, que já está na
+               mão — foi o /mapa que o trouxe. {% endcomment %}
+            <div class="font-mono" :class="temValor(drillTotal) ? 'text-fg' : 'text-fg-muted italic'"
+                 x-text="valorDrill()"></div>
           </div>
         </div>
 
@@ -2265,16 +2475,23 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
                    :class="densidadePct(t) === null ? 'text-fg-muted italic' : 'text-mission-fg'"
                    x-text="densLabel(t)"></div>
               <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono text-fg-muted">
-                <template x-if="temValor(t)">
-                  <span x-text="fmtBRL(t.valor)"></span>
-                </template>
+                {% comment %} aqui a marca é POR TRIBUNAL (o backend calcula por
+                   sigla no drill-down): dentro do mesmo estado pode haver um
+                   tribunal que publica e outro que não. {% endcomment %}
+                <span :class="temValor(t) ? '' : 'italic'" x-text="valorCurto(t)"></span>
                 <span class="rounded border border-border px-1.5 py-0.5" x-text="cobLabel(t)"></span>
               </div>
             </li>
           </template>
         </ol>
         <p class="mt-2 text-xs text-fg-muted" x-show="tribunais.length && semValor(tribunais) > 0" x-cloak>
-          Em <b x-text="semValor(tribunais)"></b> destes tribunais o valor ainda não foi informado — por isso a linha de valor não aparece.
+          <span x-show="semFonteNa(tribunais) > 0">
+            <b x-text="semFonteNa(tribunais)"></b> <span x-text="semFonteNa(tribunais) === 1 ? 'destes tribunais não publica' : 'destes tribunais não publicam'"></span>
+            o valor da causa na consulta pública: não há o que buscar.
+          </span>
+          <span x-show="pendenteNa(tribunais) > 0">
+            Em <b x-text="pendenteNa(tribunais)"></b> o tribunal publica e nós é que ainda não buscamos.
+          </span>
         </p>
       </div>
 

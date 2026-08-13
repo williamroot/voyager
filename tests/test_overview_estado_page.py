@@ -205,14 +205,57 @@ def test_ano_fora_da_faixa_e_contado_e_explicado(html):
 def test_valor_da_causa_some_quando_ninguem_publicou(html):
     """`valor_causa` é esparso: 0% em MG, RO e federal (medido 12/08/2026).
 
-    Um "R$ 0" em corpo de KPI seria lido como "não há dinheiro aqui". O card só
-    existe quando alguém publicou valor — e diz que é o valor DA CAUSA.
+    Um "R$ 0" em corpo de KPI seria lido como "não há dinheiro aqui". O NÚMERO
+    só aparece quando alguém publicou valor — e a tela diz que é o valor DA
+    CAUSA. (O card em si deixou de sumir: ver o teste seguinte.)
     """
     assert 'temValor' in html
     assert 'cobertura_valor' in html
     assert 'x-show="dados && temValor()"' in html
     assert 'não o valor do precatório' in html
     assert 'R$ 0' not in CODIGO
+
+
+def test_sem_valor_a_pagina_diz_a_CAUSA(html):
+    """Sumir com o card não responde nada — e a pergunta foi feita em voz alta.
+
+    O dono abriu Minas Gerais (51,5% já analisado), viu a ausência de valor e
+    perguntou "por que os valores não foram informados?". A leitura natural é
+    "o tribunal não publicou ainda" ou "vocês não buscaram", e as duas estavam
+    erradas: medido em 13/08/2026 no HTML cru de 27 processos, a consulta
+    pública do PJe NÃO TEM o campo de valor — não há o que buscar. Onde a fonte
+    publica (e-SAJ e 2 portais próprios) e o valor falta, aí sim a fila é nossa.
+    As duas causas são opostas; a tela tem que escolher a certa.
+    """
+    assert 'estadoSemFonte' in html and 'estadoComFontePendente' in html
+    assert 'o tribunal daqui não publica esse valor' in html
+    assert 'ainda não buscamos esse valor' in html
+    assert 'não há o que buscar' in html
+    assert 'a lacuna é' in html and 'nossa' in html
+    # e o filtro de valor avisa que, nesses estados, ele zera a página
+    assert 'qualquer faixa deixa esta página vazia' in html
+
+
+def test_lista_de_quem_publica_valor_nao_pode_derivar(html):
+    """PINO DE DRIFT da cópia client-side de `search.geo.TRIBUNAIS_COM_VALOR`.
+
+    A marca `fonte_publica_valor` existe no payload do MAPA (calculada no
+    backend), mas os endpoints desta página e da ficha de entidade
+    (`agg_estado` / `agg_entidade`) não a carregam — e este agente não pode
+    tocar em `search/*`. A saída foi uma lista no template. Duplicar verdade é
+    ruim; o que torna aceitável é ESTE teste: no dia em que um tribunal novo
+    passar a publicar valor em `search/geo.py`, as duas cópias falham aqui em
+    vez de mentirem em silêncio na tela.
+    """
+    from search.geo import TRIBUNAIS_COM_VALOR
+
+    esperado = sorted(TRIBUNAIS_COM_VALOR)
+    linha = "window.TRIBUNAIS_COM_VALOR = ['" + "', '".join(esperado) + "'];"
+
+    ficha_src = (TPL_DIR / 'entidade.html').read_text(encoding='utf-8')
+    for nome, src in (('overview_estado.html', TEMPLATE_SRC),
+                      ('entidade.html', ficha_src)):
+        assert linha in src, f'{nome}: lista fora de sincronia com search/geo.py'
 
 
 def test_desconhecido_vira_palavra_nunca_zero(html):

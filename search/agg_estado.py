@@ -199,7 +199,8 @@ from search.agg_overview import (
     build_filter_clauses,
     parse_filtros,  # noqa: F401  — reexport: as views usam o MESMO parser do mapa
 )
-from search.geo import UF_DO_TRIBUNAL, UF_FEDERAL
+from search.geo import (UF_DO_TRIBUNAL, UF_FEDERAL, fonte_publica_valor,
+                       uf_tem_fonte_de_valor)
 from tribunals.estagio import RE_ENTE_PUBLICO
 
 logger = logging.getLogger('voyager.comercial.agg_estado')
@@ -759,6 +760,14 @@ def agg_estado(uf: str, filtros: dict | None = None,
         'cobertura_pct': _cobertura_por_uf().get(uf),
         'tribunais': len(tribunais),
         'tribunais_siglas': tribunais,
+        # A FONTE deste estado publica valor da causa? Sem isto, a página diz
+        # "valor não informado" e o usuário entende "o tribunal não informou" —
+        # quando o PJe consulta pública não expõe o campo em tribunal nenhum
+        # (medido em 27 processos reais, 13/08/2026). `false` = definitivo, não
+        # há o que buscar; `true` e vazio = a lacuna é nossa.
+        'fonte_publica_valor': uf_tem_fonte_de_valor(uf),
+        'tribunais_que_publicam': sorted(t for t in tribunais
+                                         if fonte_publica_valor(t)),
         'escopo_volume': total_escopo,
         'cobertura_valor': _cobertura_amostra(
             'valor_causa', _dc(a_estado, 'valor_conhecido'),

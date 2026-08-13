@@ -74,7 +74,18 @@ DUAS DECISÕES DE DESENHO QUE VÊM DO DADO:
     processos:  'Em quantos processos o nome desta entidade aparece nas publicações, em qualquer lado do processo.',
     valorCausa: 'Soma do valor da causa publicado pelos tribunais. É o valor da ação, não o valor do precatório.',
     tribunais:  'Em quantos tribunais diferentes esta entidade aparece na nossa base.',
+    semFonte:   'A consulta pública destes tribunais não traz o valor da causa. Não é fila nossa: o número não existe na fonte.',
   };
+
+  {% comment %} ---- QUEM PUBLICA VALOR DA CAUSA -------------------------------
+     Medido em 13/08/2026 no HTML cru de 27 processos reais: a consulta pública
+     do PJe não expõe valor da causa em tribunal nenhum. Publicam só o e-SAJ
+     (TJSP, TJAL, TJAC) e dois portais próprios (TJPA, TJMT).
+     A ficha é servida por `search/agg_entidade.py`, que não carrega a marca
+     `fonte_publica_valor` (quem carrega é o endpoint do mapa) — daí a cópia
+     aqui, PINADA por teste contra `search.geo.TRIBUNAIS_COM_VALOR`.
+     FONTE DE VERDADE: `search/geo.py::TRIBUNAIS_COM_VALOR`. {% endcomment %}
+  window.TRIBUNAIS_COM_VALOR = ['TJAC', 'TJAL', 'TJMT', 'TJPA', 'TJSP'];
 
   // ---------------------------------------------------------------------------
   // FORMATAÇÃO pt-BR — helpers LOCAIS (o fmtCompact() global devolve "1.2M",
@@ -290,6 +301,38 @@ DUAS DECISÕES DE DESENHO QUE VÊM DO DADO:
         const r = this.resumo();
         const cob = (r && r.cobertura_valor) || {};
         return fmtPct(cob.pct);
+      },
+
+      // ---- POR QUE não há valor: a fonte ou nós? ---------------------------
+      // Sumir com o card não responde nada. A entidade aparece em N tribunais e
+      // a pergunta é quantos deles PUBLICAM o valor da causa: se nenhum, não há
+      // o que buscar (e nenhuma fila resolve); se algum, a lacuna é nossa.
+      tribunaisDaEntidade() {
+        const r = this.resumo();
+        return (r && r.tribunais_siglas) || [];
+      },
+      publica(sigla) {
+        return (window.TRIBUNAIS_COM_VALOR || []).indexOf((sigla || '').toUpperCase()) >= 0;
+      },
+      tribunaisQuePublicam() { return this.tribunaisDaEntidade().filter(t => this.publica(t)); },
+      nTribunaisConhecidos() { return this.tribunaisDaEntidade().length; },
+      entidadeSemFonte() {
+        return this.nTribunaisConhecidos() > 0 && this.tribunaisQuePublicam().length === 0;
+      },
+      entidadeComFontePendente() {
+        return this.tribunaisQuePublicam().length > 0 && !this.temValor();
+      },
+      //: a soma existe, mas nasce só de uma parte dos tribunais — e a outra
+      //: parte NUNCA vai entrar, o que é diferente de "falta buscar"
+      entidadeFonteParcial() {
+        const q = this.tribunaisQuePublicam().length;
+        return this.temValor() && q > 0 && q < this.nTribunaisConhecidos();
+      },
+      fraseQuePublicam() {
+        const l = this.tribunaisQuePublicam();
+        if (l.length <= 1) return l.join('');
+        if (l.length <= 4) return l.slice(0, -1).join(', ') + ' e ' + l[l.length - 1];
+        return l.length + ' deles';
       },
       // `tem_sinal_precatorio` só foi computado em ~3,4% da base, e quase sempre
       // onde é TRUE. Então "165.790 possíveis de 4.402.239 processos (3,8%)" é
@@ -998,6 +1041,44 @@ DUAS DECISÕES DE DESENHO QUE VÊM DO DADO:
           E só <b class="text-fg" x-text="coberturaValorPct()"></b> dos processos desta entidade
           trazem esse valor publicado: a soma acima é só desses.
         </span>
+        {% comment %} o teto da soma não é a nossa fila: os tribunais que não
+           publicam o campo nunca vão entrar nela. {% endcomment %}
+        <span x-show="entidadeFonteParcial()" x-cloak>
+          Dos <b class="text-fg" x-text="nTribunaisConhecidos()"></b> tribunais onde ela aparece, só
+          <b class="text-fg" x-text="fraseQuePublicam()"></b> publica esse campo — o resto fica de fora
+          da soma para sempre, não por fila nossa.
+        </span>
+      </p>
+    </div>
+
+    {% comment %} ---- O CARD QUE FALTAVA ---------------------------------------
+       Sem valor, o card sumia e a ficha não dizia nada — o leitor conclui "não
+       buscaram". Em quase todo tribunal isso é falso: a consulta pública não
+       tem o campo. As duas causas são opostas (definitiva × fila nossa) e cada
+       uma tem a sua frase. Sem `tribunais_siglas` não afirmamos nenhuma.
+    {% endcomment %}
+    <div class="card p-4 mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2"
+         x-show="temDados() && !temValor() && (entidadeSemFonte() || entidadeComFontePendente())" x-cloak>
+      <div>
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-sem-valor">
+            Valor da causa
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-sem-valor"
+                  x-text="entidadeSemFonte() ? glos('semFonte') : glos('valorCausa')"></span>
+          </button>
+        </div>
+        <div class="text-sm text-fg-muted italic mt-1"
+             x-text="entidadeSemFonte() ? 'os tribunais dela não publicam esse valor' : 'ainda não buscamos esse valor'"></div>
+      </div>
+      <p class="text-sm text-fg-muted max-w-3xl" x-show="entidadeSemFonte()" x-cloak>
+        Nenhum dos <b class="text-fg" x-text="nTribunaisConhecidos()"></b> tribunais onde esta entidade
+        aparece publica o valor da causa na consulta pública — conferimos no HTML dos processos, o campo
+        não existe lá. Não é busca nossa atrasada: <b class="text-fg">não há o que buscar</b>.
+      </p>
+      <p class="text-sm text-fg-muted max-w-3xl" x-show="!entidadeSemFonte()" x-cloak>
+        <b class="text-fg" x-text="fraseQuePublicam()"></b> publica o valor da causa — nós é que ainda
+        não trouxemos o destes processos. Aqui a lacuna é <b class="text-fg">nossa</b>.
       </p>
     </div>
   </div>

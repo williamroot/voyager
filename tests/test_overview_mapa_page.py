@@ -128,7 +128,14 @@ def test_glossario_canonico(html):
     assert 'window.GLOSSARIO' in html
     # trechos-chave de cada texto do glossário reescrito (1 por métrica)
     assert 'O tribunal tem mais — estes são os que temos' in html        # volume
-    assert 'não que falte dinheiro' in html                              # valor
+    # ⚠️ o texto de `valor` MUDOU em 13/08/2026. O antigo ("não informado quer
+    # dizer que o tribunal não publicou") descrevia as duas causas do vazio como
+    # se fossem uma pendência do tribunal. Medido: o PJe da consulta pública não
+    # expõe valor da causa em tribunal NENHUM (27 processos reais, 0 ocorrência
+    # da string "valor" no HTML) — só e-SAJ e 2 portais próprios publicam, 5 UFs.
+    assert 'onde não publica, não há o que buscar' in html               # valor
+    assert 'o número não existe na fonte' in html                        # semFonte
+    assert 'nós é que ainda não buscamos' in html                        # valorPendente
     assert 'Indício forte, não certeza' in html                          # potencial
     assert 'bateu o martelo' in html or 'Mais certeiro que os possíveis' in html
     assert 'território praticamente virgem' in html                      # cobertura
@@ -160,7 +167,12 @@ def test_ajuda_como_ler_no_nivel_da_pagina(html):
     assert 'ofício requisitório ou RPV' in html                 # Possíveis
     assert 'entra aqui por engano' in html                      # Possíveis
     assert 'A nossa IA leu o processo e bateu o martelo' in html  # Confirmados
-    assert 'Não é falta de dinheiro' in html                    # Valor informado
+    # Valor informado: a entrada deixou de dizer só "não é falta de dinheiro" e
+    # passou a dizer o TAMANHO do buraco (5 de 27 publicam) + a entrada nova da
+    # hachura, que é o vazio DEFINITIVO (a fonte não tem o campo).
+    assert 'Só 5 dos 27 estados publicam esse número' in html   # Valor informado
+    assert 'falta de valor não é falta de dinheiro' in html
+    assert 'O tribunal não publica valor — ' in html            # faixa hachurada
     assert 'onde atacar primeiro' in html                       # Prioridade
 
     # frase de leitura automática, na copy nova
@@ -235,10 +247,14 @@ def test_escala_de_cor_por_faixas_com_legenda_html(html):
     assert 'Cor mais forte = mais' in html
     assert "'até '" in html and "'mais de '" in html
     # o vazio da escala é dito com PALAVRA, e varia com a métrica ativa —
-    # três causas diferentes, três frases (nunca o mesmo rótulo pra tudo)
-    assert "return 'valor não informado'" in html          # modo R$
+    # causas diferentes, frases diferentes (nunca o mesmo rótulo pra tudo)
+    assert "'o tribunal publica, mas ainda não buscamos'" in html   # modo R$
     assert "return 'sem processo na nossa base'" in html   # modo Todos
     assert "return 'ainda não analisado'" in html          # modo Possíveis
+    # e no modo R$ o vazio DEFINITIVO ganhou faixa própria (hachura): o cinza
+    # chapado sozinho dizia "vocês não buscaram" para 23 dos 28 buckets
+    assert 'rotuloSemFonte' in html and 'mostrarFaixaSemFonte' in html
+    assert 'o tribunal não publica valor da causa' in html
 
 
 def test_legenda_nao_filtra_nem_sequestra_scroll(html):
@@ -484,9 +500,19 @@ def test_sem_opacidade_em_texto_e_piso_de_12px(html):
 
 
 def test_ruido_do_ranking_removido(html):
-    """`R$ 0` repetido em 10 linhas é ruído: a lista diz UMA vez."""
+    """A linha de R$ diz QUAL vazio é — e o rodapé conta cada causa.
+
+    Antes a linha SUMIA quando não havia valor e o rodapé dizia "o valor ainda
+    não foi informado pelo tribunal": as duas coisas erradas de uma vez. O
+    sumiço vira ausência (o leitor não sabe que faltou algo) e o "ainda não
+    informado" promete um número que, em 23 dos 28 buckets, nunca vem — a
+    consulta pública daqueles tribunais não tem o campo.
+    """
     assert 'temValor' in html and 'semValor' in html
-    assert 'o valor ainda não foi informado pelo tribunal' in html
+    assert 'valorCurto' in html and 'semFonteNa' in html and 'pendenteNa' in html
+    assert 'o tribunal não publica o valor' in html
+    assert 'o tribunal publica e nós é que ainda não buscamos' in html
+    assert 'o valor ainda não foi informado pelo tribunal' not in html
 
 
 def test_comentario_de_template_nao_vaza_na_tela(html):
@@ -976,6 +1002,88 @@ def test_ataque_primeiro_tem_3_criterios_de_ordem(html):
     assert '100 * this.metricaOrdem(b) / max' in html
 
 
-def test_ordem_por_valor_nao_diz_prioridade_nao_medida(html):
-    """Ordenando por R$, o número existe mesmo sem o sinal do texto ter sido lido."""
-    assert "if (this.ordemRanking === 'valor') return false;" in html
+def test_ordem_por_valor_so_pontua_quem_tem_valor(html):
+    """Ordenando por R$ a régua é OUTRA — e sem valor não há nota.
+
+    O sinal do texto não importa aqui (por isso a regra antiga devolvia sempre
+    `false`), MAS quem está sem valor não pode receber "prioridade 0": isso
+    afirma "é o pior da lista" quando o certo é "não dá pra medir". São 23 dos
+    28 buckets — a maioria da lista ganharia uma nota inventada.
+    O RÓTULO é que separa as duas causas do vazio.
+    """
+    assert "if (this.ordemRanking === 'valor') {" in html
+    assert 'return !this.temValor(b);' in html
+    # o rótulo diz a causa certa, em vez de "prioridade não medida"
+    assert "'valor ainda não buscado' : 'sem valor publicado'" in html
+    # barra vazia (não o mínimo de 3%, que desenharia "quase nada")
+    assert 'if (this.prioridadeIndisponivel(b)) return 0;' in html
+
+
+# --------------------------------------------------------------------------- #
+# R$ VAZIO: a fonte não publica × nós não buscamos
+# --------------------------------------------------------------------------- #
+def test_valor_vazio_diz_qual_dos_dois_vazios_e(html):
+    """"Valor informado: não informado" mentia por omissão.
+
+    Medido em 13/08/2026 (27 processos reais, HTML cru): a consulta pública do
+    PJe não expõe valor da causa em tribunal NENHUM — a página tem 6 campos e a
+    string "valor" não aparece uma vez. Publicam só e-SAJ (TJSP/TJAL/TJAC) e 2
+    portais próprios (TJPA/TJMT): 5 UFs de 27, 2,8% dos 71,18M docs. Logo, na
+    esmagadora maioria dos buckets "não informado" NÃO é fila nossa — é um
+    campo que não existe. O backend marca cada bucket com `fonte_publica_valor`
+    e a tela escolhe a frase a partir dele; sem a marca (payload velho do cache
+    de 2min) ela não afirma nenhuma das duas.
+    """
+    assert 'fonte_publica_valor' in html
+    assert 'fonteSemValor' in html and 'fonteComValor' in html
+    # as duas frases, por extenso e curtas
+    assert 'este tribunal não publica esse valor' in html
+    assert 'ainda não buscamos esse valor' in html
+    assert 'R$ não publicado pelo tribunal' in html
+    assert 'R$ ainda não buscado' in html
+    # federal no plural (são TRF1/3/5, não "o tribunal")
+    assert 'os tribunais federais não publicam esse valor' in html
+    # sem marca não se inventa causa
+    assert "return 'não informado';" in html
+    # o tooltip do choropleth passou a usar a frase com causa
+    assert "'Valor informado: ' + self.valorLabel(b)" in html
+
+
+def test_modo_reais_avisa_que_compara_5_com_23(html):
+    """O modo R$ e a ordem por R$ comparam quem publica com quem não publica.
+
+    Alagoas lidera com R$ 1,3 tri por ser um dos poucos que abre o número, não
+    por ter mais crédito — sem isso escrito na tela, o ranking é uma armadilha.
+    E tem que ser TEXTO VISÍVEL: quem olha o mapa e conclui não passa o mouse
+    em nada antes.
+    """
+    # aviso do modo R$ (mapa) — com a contagem tirada dos próprios buckets
+    assert 'Mapa por R$: só' in html
+    assert "x-text=\"ufsComFonte()\"" in html and "x-text=\"ufsGeo().length\"" in html
+    assert 'não entram na comparação' in html
+    assert 'cor mais forte é de quem publica, não de quem tem mais crédito' in html
+    # aviso da ORDEM por R$ (ranking "Ataque primeiro")
+    assert "ordemRanking === 'valor' && ufsSemFonte() > 0" in html
+    assert 'Esta ordem só compara os' in html
+    assert 'Quem lidera aqui lidera por publicar' in html
+    # KPI global qualificado: a soma nunca é do país inteiro
+    assert "' estados publicam esse valor'" in html
+
+
+def test_quem_nao_publica_tem_faixa_propria_no_mapa(html):
+    """Faixa PRÓPRIA (hachura), não "R$ 0" nem o mesmo cinza.
+
+    Três motivos, medidos: (1) na escala de cor, valor 0 na faixa mais baixa
+    diria "quase nenhum dinheiro aqui" — falso; (2) o cinza chapado já significa
+    "ainda não analisado/buscamos", e 23 dos 28 buckets cairiam nele, jogando
+    na nossa conta um vazio que é da fonte; (3) dois cinzas chapados não se
+    distinguem a um metro nem no daltonismo. Hachura é FORMA — a convenção
+    cartográfica de "não se aplica" — e sobrevive aos dois temas.
+    """
+    assert 'decalSemFonte' in html
+    assert 'rotation: -Math.PI / 4' in html
+    # só no modo R$: no modo Quantidade o estado tem dado normal
+    assert "if (emR$ && this.fonteSemValor(b)) d.itemStyle = {decal: decalSemFonte};" in html
+    # a legenda repete o desenho do canvas (mesmo ângulo, mesmo passo)
+    assert 'repeating-linear-gradient(-45deg' in html
+    assert 'corHachura' in html

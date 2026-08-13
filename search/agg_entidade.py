@@ -289,6 +289,7 @@ import logging
 from django.core.cache import cache
 
 from search import entidades as ent
+from search.geo import fonte_publica_valor
 from search.agg_overview import (
     _agora_iso,
     _metric_subaggs,
@@ -1087,6 +1088,14 @@ def ficha_entidade(entidade_id: str, filtros: dict | None = None) -> dict:
         'sinal_processado': bool(sinal_conhecido),
         'tribunais': len(buckets_trib),
         'tribunais_siglas': [b['key'] for b in buckets_trib],
+        # Quais dos tribunais desta entidade PUBLICAM valor da causa. O resto
+        # fica fora da soma para sempre — não por fila nossa: o PJe consulta
+        # pública não expõe o campo (medido em 27 processos reais). Sem isto a
+        # ficha diz "valor não informado" e sugere lacuna que não existe.
+        'tribunais_que_publicam': sorted(
+            b['key'] for b in buckets_trib if fonte_publica_valor(b['key'])),
+        'fonte_publica_valor': any(
+            fonte_publica_valor(b['key']) for b in buckets_trib),
         # % já validado, PONDERADO pelos processos da entidade em cada tribunal
         # (não é média simples: 95% dos processos do INSS estão em 3 TRFs).
         # Vem do cache do warm — nunca recomputa, nunca toca o Postgres.

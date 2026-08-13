@@ -60,7 +60,23 @@ PÁGINA DEDICADA DE UM ESTADO (Mapa Comercial).
     // palavra, às do mapa — o mesmo número não pode ganhar duas explicações).
     tribunais:  'Quantos tribunais deste estado já têm processo na nossa base.',
     valorCausa: 'Soma do valor da causa publicado pelos tribunais. É o valor da ação, não o valor do precatório.',
+    semFonte:   'A consulta pública deste tribunal não traz o valor da causa. Não é fila nossa: o número não existe na fonte.',
   };
+
+  {% comment %} ---- QUEM PUBLICA VALOR DA CAUSA -------------------------------
+     Medido em 13/08/2026 no HTML cru de 27 processos reais: a consulta pública
+     do PJe NÃO EXPÕE valor da causa em tribunal nenhum (traz 6 campos, e a
+     string "valor" não aparece uma vez sequer). Publicam só o e-SAJ (TJSP,
+     TJAL, TJAC) e dois portais próprios (TJPA, TJMT).
+
+     Por que a lista está AQUI e não no payload: o endpoint desta página
+     (`search/agg_estado.py`) não carrega a marca — quem carrega é o do mapa
+     (`fonte_publica_valor` em cada bucket). Duplicar a verdade é ruim, então a
+     cópia é PINADA por teste: `tests/test_overview_estado_page.py` compara esta
+     lista com `search.geo.TRIBUNAIS_COM_VALOR` e falha no dia em que um
+     tribunal novo entrar lá e não aqui.
+     FONTE DE VERDADE: `search/geo.py::TRIBUNAIS_COM_VALOR`. {% endcomment %}
+  window.TRIBUNAIS_COM_VALOR = ['TJAC', 'TJAL', 'TJMT', 'TJPA', 'TJSP'];
 
   // ---------------------------------------------------------------------------
   // FORMATAÇÃO pt-BR — mesmas regras do mapa (helpers LOCAIS desta página)
@@ -337,12 +353,62 @@ PÁGINA DEDICADA DE UM ESTADO (Mapa Comercial).
         return p === null ? 'não sabemos ainda' : p;
       },
       // valor_causa é ESPARSO: se ninguém publicou valor neste estado, o card de
-      // R$ não é desenhado (um "R$ 0" gigante leria como "não há dinheiro aqui").
+      // R$ não mostra número (um "R$ 0" gigante leria como "não há dinheiro
+      // aqui") — mas TAMBÉM não some: quem some não explica nada, e o dono
+      // clicou em Minas justamente pra saber por que não havia valor.
       temValor() {
         const r = this.resumo();
         if (!r) return false;
         const cob = r.cobertura_valor || {};
         return Number(cob.pct || 0) > 0 && Number(r.valor || 0) > 0;
+      },
+
+      // ---- POR QUE não há valor: a fonte ou nós? ---------------------------
+      // Duas causas, duas frases. `TRIBUNAIS_COM_VALOR` é a cópia pinada por
+      // teste de `search/geo.py` (ver o comentário na declaração).
+      tribunaisDoEstado() {
+        const r = this.resumo();
+        return (r && r.tribunais_siglas) || [];
+      },
+      publica(sigla) {
+        return (window.TRIBUNAIS_COM_VALOR || []).indexOf((sigla || '').toUpperCase()) >= 0;
+      },
+      tribunaisQuePublicam() { return this.tribunaisDoEstado().filter(t => this.publica(t)); },
+      //: nenhum tribunal deste estado publica ⇒ não há o que buscar
+      estadoSemFonte() {
+        const t = this.tribunaisDoEstado();
+        return t.length > 0 && this.tribunaisQuePublicam().length === 0;
+      },
+      //: publica e está vazio ⇒ a fila é nossa
+      estadoComFontePendente() {
+        return this.tribunaisQuePublicam().length > 0 && !this.temValor();
+      },
+      //: soma que existe, mas nem todo tribunal do estado alimenta
+      estadoFonteParcial() {
+        const q = this.tribunaisQuePublicam().length;
+        return this.temValor() && q > 0 && q < this.tribunaisDoEstado().length;
+      },
+      listaQuePublica() {
+        const l = this.tribunaisQuePublicam();
+        if (l.length <= 1) return l.join('');
+        return l.slice(0, -1).join(', ') + ' e ' + l[l.length - 1];
+      },
+      //: "do TJMG" / "dos tribunais daqui (TRF1, TRF3, TRF5)" — a camada
+      //: federal tem vários e "do TRF1, TRF3, TRF5" não é português
+      fraseTribunais() {
+        const t = this.tribunaisDoEstado();
+        if (t.length === 1) return 'do ' + t[0];
+        if (t.length <= 4) return 'dos tribunais daqui (' + t.join(', ') + ')';
+        return 'dos ' + t.length + ' tribunais daqui';
+      },
+      //: os estados do país inteiro que publicam (sigla do TJ menos o "TJ") —
+      //: derivado da MESMA lista, pra frase não envelhecer sozinha
+      ufsQuePublicam() {
+        return (window.TRIBUNAIS_COM_VALOR || []).map(t => t.slice(2)).sort();
+      },
+      fraseUfsQuePublicam() {
+        const l = this.ufsQuePublicam();
+        return l.slice(0, -1).join(', ') + ' e ' + l[l.length - 1];
       },
 
       // ---- a lente ----
@@ -929,7 +995,12 @@ PÁGINA DEDICADA DE UM ESTADO (Mapa Comercial).
         {% comment %} VISÍVEL, não tooltip: o filtro exclui silenciosamente todo processo com
            valor não informado (a maior parte da base). Sem esta frase o comercial conclui
            "não tem nada acima de R$ 1 mi nesse estado". {% endcomment %}
-        <span id="aviso-valor" class="text-xs text-fg-muted">Filtra pelo valor publicado pelo tribunal. Processo sem valor informado fica de fora do resultado.</span>
+        <span id="aviso-valor" class="text-xs text-fg-muted">Filtra pelo valor publicado pelo tribunal. Processo sem valor informado fica de fora do resultado.
+          {% comment %} num estado cujo tribunal não publica valor, este filtro
+             zera a tela inteira — e o resultado vazio seria lido como "não há
+             processo nessa faixa aqui". {% endcomment %}
+          <b class="text-fg" x-show="estadoSemFonte()" x-cloak>Como o tribunal daqui não publica esse valor, qualquer faixa deixa esta página vazia.</b>
+        </span>
       </div>
       <div class="flex items-end">
         <button type="button" @click="limparFiltros()" x-show="temFiltro()" x-cloak
@@ -1071,6 +1142,50 @@ PÁGINA DEDICADA DE UM ESTADO (Mapa Comercial).
         É o valor <b class="text-fg">da causa</b>, não o valor do precatório. E só
         <b class="text-fg" x-text="fmtPct(resumo() && resumo().cobertura_valor ? resumo().cobertura_valor.pct : 0)"></b>
         dos processos deste estado trazem esse valor publicado — a soma acima é só desses.
+        {% comment %} quando parte dos tribunais do estado não publica, a soma
+           tem um teto que não é o nosso trabalho: aqueles processos nunca vão
+           entrar. Dizer isso evita a conclusão "falta buscar o resto". {% endcomment %}
+        <span x-show="estadoFonteParcial()" x-cloak>
+          Neste estado, só <b class="text-fg" x-text="listaQuePublica()"></b> publica esse campo:
+          os processos dos outros tribunais ficam de fora da soma para sempre, não por fila nossa.
+        </span>
+      </p>
+    </div>
+
+    {% comment %} ---- O CARD QUE FALTAVA ---------------------------------------
+       Antes, sem valor, o card inteiro SUMIA — e sumir não explica nada. O dono
+       abriu Minas Gerais (51,5% já analisado) e ficou com a pergunta: "por que
+       os valores não foram informados?". As duas respostas possíveis são
+       opostas, e a tela precisa escolher a certa:
+         - o tribunal não publica  → definitivo, não há o que buscar;
+         - publica e não buscamos  → lacuna nossa, tem fila.
+       Sem `tribunais_siglas` (estado vazio no recorte) não afirmamos nenhuma
+       das duas: o card não aparece, como antes.
+    {% endcomment %}
+    <div class="card p-4 mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2"
+         x-show="dados && !temValor() && (estadoSemFonte() || estadoComFontePendente())" x-cloak>
+      <div>
+        <div class="text-xs text-fg-muted uppercase tracking-wide">
+          <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-sem-valor">
+            Valor da causa
+            {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
+            <span class="voy-tip-body tip-below" role="tooltip" id="tip-sem-valor"
+                  x-text="estadoSemFonte() ? glos('semFonte') : glos('valorCausa')"></span>
+          </button>
+        </div>
+        <div class="text-sm text-fg-muted italic mt-1"
+             x-text="estadoSemFonte() ? 'o tribunal daqui não publica esse valor' : 'ainda não buscamos esse valor'"></div>
+      </div>
+      <p class="text-sm text-fg-muted max-w-3xl" x-show="estadoSemFonte()" x-cloak>
+        A consulta pública <b class="text-fg" x-text="fraseTribunais()"></b>
+        não traz o campo de valor da causa — conferimos no HTML dos processos, ele não existe lá.
+        Não é uma busca nossa atrasada: <b class="text-fg">não há o que buscar</b>. No país inteiro só
+        <b class="text-fg" x-text="fraseUfsQuePublicam()"></b> publicam esse número.
+      </p>
+      <p class="text-sm text-fg-muted max-w-3xl" x-show="!estadoSemFonte()" x-cloak>
+        <b class="text-fg" x-text="listaQuePublica()"></b> publica o valor da causa — nós é que ainda
+        não trouxemos o destes processos. Aqui a lacuna é <b class="text-fg">nossa</b>, e some quando a
+        busca passar por este estado.
       </p>
     </div>
   </div>
