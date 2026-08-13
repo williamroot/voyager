@@ -15,7 +15,7 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TRF6 | E-PROC | **Não (só DJEN+Datajud ativos desde 2026-05-24)** | Mesmo cenário do TRF2. |
 | TJSP | e-SAJ | **Sim** (2026-05-24) | `enrichers/esaj.py::TjspEnricher` (subclasse de `BaseEsajEnricher`, não herda BasePjeEnricher). HTTP puro (sem Selenium): `open.do` → `search.do?NUMPROC` (302) → `show.do` → parse. Selectors portados de `ESAJSPProcessDataProcessor` do JURISCOPE. Limitação: e-SAJ público mascara CPF/CNPJ, então `documento` fica vazio (OAB e nome são preservados). |
 | TJAL | e-SAJ | **Sim / ativo** (2026-05-30; ativado 2026-05-31) | `enrichers/esaj.py::TjalEnricher` (subclasse de `BaseEsajEnricher`). Mesmo software/fluxo do TJSP, host `www2.tjal.jus.br`. Teste e2e em `tests/test_enricher_tjal.py`. **Roteia pelo pool ProxyScrape** (`PREFER_CORTEX=False` desde 2026-06-17 — o pool responde ~37% dos IPs; antes era Cortex-only por premissa equivocada). `worker_tjal` em 24 réplicas. Ver `.ia/DECISIONS.md` ADR-021. |
-| TJMG | PJe consulta pública (sem login) | **Sim** | `enrichers/tjmg.py` (subclasse) — `pje.tjmg.jus.br/pje/...` |
+| TJMG | PJe consulta pública (sem login) | **Sim** | `enrichers/tjmg.py` (subclasse) — `pje-consulta-publica.tjmg.jus.br/pje/...`. **Sem `valor_causa`** — a fonte não publica (ver §"Valor da causa"). |
 | TJDFT | PJe SPA Angular + REST API (sem login) | **Sim** (2026-05-26) | `enrichers/tjdft.py` (classe própria, não herda BasePjeEnricher). API REST Spring Boot em `pje-consultapublica-api.tjdft.jus.br/v1/`. CPF/CNPJ sem máscara. Limitação: rota `/dados` não expõe `valor_causa`. |
 | TJCE | PJe clássico (sem login) | **Sim** (2026-06-29) | `enrichers/tjce.py` (subclasse) — host `pje-consulta.tjce.jus.br`, path `/pje1grau/`. reCaptcha `if(false)`. |
 | TJAP | PJe clássico (sem login) | **Sim** (2026-06-29) | `enrichers/tjap.py` (subclasse) — `pje.tjap.jus.br`, path `/1g/`. |
@@ -118,6 +118,47 @@ WITH transaction.atomic:
 - hCaptcha presente no JS mas com flag `if (false)` — desabilitado.
 - jsessionid é mantido pelo `requests.Session` (cookie automático).
 - Path varia por TRF: TRF1 usa `/consultapublica/`, TRF3 usa `/pje/`. `DETALHE_PATH` parametriza.
+
+## Valor da causa — quem publica e quem não (probe 2026-08-13)
+
+`Process.valor_causa` **só se preenche onde a fonte manda o campo**. Medição
+por sistema (amostra dos 2.000 `ok` mais recentes por tribunal, em prod):
+
+| Sistema | Tribunais | Campo na fonte | Cobertura medida |
+|---|---|---|---|
+| Portal REST próprio | TJPA | `valorCausaFormatado` | 2000/2000 (17% são `0,00`) |
+| SPA + REST | TJMT | `valorCausa` | 1903/2000 |
+| e-SAJ | TJSP, TJAL, TJAC | `#valorAcaoProcesso` | TJSP 991/2000 · TJAL 1557/2000 |
+| **PJe consulta pública** | **TJMG, TRF1, TRF3, TRF5, TJMA, TJCE, TJAP, TJPE, TJRJ, TJRO** | **não existe** | **0/2000 (TJMG e TRF3 conferidos)** |
+| PJe SPA/REST | TJDFT | não existe em `/dados` | 0 |
+
+**O PJe consulta pública não publica valor da causa — em nenhum tribunal.**
+Conferido no HTML cru do detalhe de 6 processos TJMG (JEC, comum, inventário e
+3 execuções fiscais) + 2 do TRF3: a string `valor` **não aparece nenhuma vez**
+na página. O `propertyView` do PJe entrega só Número, Data da Distribuição,
+Classe Judicial, Assunto, Jurisdição, Órgão Julgador (e às vezes Processo
+referência). O ramo `'valor' in chave and 'causa' in chave` de
+`BasePjeEnricher._extrair_dados` é, na prática, **código morto** — fica pra
+quando algum PJe passar a expor.
+
+Não adianta trocar de fonte pra MG:
+- **Datajud** (`api_publica_tjmg`): `valorCausa` **não existe no schema** —
+  0/20 docs aleatórios e 0/9 dirigidos (exec. fiscal, cumprimento, comum). O
+  `_meta_updates_from_source` de `datajud/ingestion.py` já lê o campo; nunca
+  acha. Idem TRF3/TJSP/TJMT/TJPA no Datajud.
+- **Portal legado `www4.tjmg.jus.br/juridico/sf/proc_resultado.jsp`**: HTTP 401
+  + captcha numérico (DWR `ValidacaoCaptchaAction`, input `captcha_text`) —
+  exigiria captcha-solver por processo.
+
+⇒ MG aparecer como "valor não informado" no mapa está **correto**: o tribunal
+não publica. Reprocessar o que já baixamos preenche **0** processos. Fixtures da
+evidência e teste-canário (falha se o TJMG passar a publicar):
+`tests/test_enricher_tjmg.py` + `tests/fixtures/tjmg/`.
+
+> **`0,00` ≠ ausente.** Onde a fonte manda o campo, `parse_valor_brl('R$ 0,00')`
+> devolve `Decimal('0')` e o drainer grava 0 (TJPA: 336/2000; TJMT: 74/2000).
+> Filtro/mapa que trata `valor_causa=0` como "informado" mostra "R$ 0,00" na
+> ficha. Ausência real é `NULL`.
 
 ## Documentos mascarados
 
