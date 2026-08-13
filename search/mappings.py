@@ -182,8 +182,24 @@ ENTIDADE_MAPPING = {
             "variantes_n":     {"type": "integer"},
             "n_variantes":     {"type": "integer"},
             "variantes_truncadas": {"type": "boolean"},    # bateu MAX_VARIANTES
+            # a frase do nome não identifica ninguém: 1 token sem atestação de
+            # cadastro ("JOSÉ", 2 linhas, casava 1.796.174 processos) ou grafia
+            # truncada num conectivo ("MUNICIPIO DE", 467.493). Fica no índice
+            # pra auditoria, mas FORA do escopo de contagem e do autocomplete
+            # (search/entidades.py::nome_suspeito, decisão 13).
+            # Ausente = índice construído antes desta decisão: continua valendo.
+            "nome_suspeito":   {"type": "boolean"},
+            "nome_suspeito_motivo": {"type": "keyword"},   # token_unico|truncado
             "documentos":      {"type": "keyword"},        # CNPJs formatados (sem mascarados)
             "n_documentos":    {"type": "integer"},
+            # CNPJs que o tribunal digitou ERRADO pra esta entidade (decisão
+            # 12). SEPARADOS de `documentos` — não são desta PJ — e guardados
+            # porque são a evidência do erro de cadastro do tribunal.
+            "documentos_secundarios": {"type": "keyword"},
+            "n_documentos_secundarios": {"type": "integer"},
+            # `entidade_id` de cada entidade-CNPJ engolida pela decisão 12 —
+            # o id é determinístico, então a fusão é auditável e reversível
+            "entidades_absorvidas": {"type": "keyword"},
             # linhas cujo CNPJ veio MASCARADO (LGPD do tribunal) e por isso NÃO
             # fundiram por raiz — auditoria da decisão de não fundir por máscara
             "documentos_mascarados": {"type": "integer"},

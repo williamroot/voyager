@@ -799,3 +799,353 @@ def test_resumo_reporta_taxa_de_fusao_e_procedencia():
     assert r['entidades'] == 2
     assert r['entidades_por_chave'] == {'cnpj': 1, 'nome': 1}
     assert r['taxa_fusao_pct'] == pytest.approx(100 * (1 - 2 / 19), abs=0.01)
+
+
+# --------------------------------------------------------------------------- #
+# 8. Consolidação cnpj→cnpj — o INSS quintuplicado (decisão 12)
+# --------------------------------------------------------------------------- #
+#: o defeito medido no índice de 12/08: o top-5 de "quem mais litiga no Brasil"
+#: era CINCO vezes o INSS. A autarquia (raiz 29.979.036, 764 linhas) e mais 4
+#: entidades de UMA linha, mesmo nome canônico, CNPJs que o tribunal digitou
+#: errado. Três deles são CNPJs perfeitamente formados (DV válido) — só não são
+#: do INSS —, então dígito verificador não é o discriminante; cadastro é.
+CNPJS_ERRADOS_INSS = ['03.500.696/0001-03', '03.500.708/0001-08',
+                      '03.500.738/0001-06', '24.403.442/3617-22']
+
+
+def _inss_quintuplicado(n_linhas=40):
+    """O líder com `n_linhas` linhas + os 4 CNPJs errados com 1 linha cada.
+
+    40 e não 30 porque `DOMINANCIA_MIN` é sobre o TOTAL do grupo: com 4 minorias
+    de 1 linha, 30/34 = 0,88 não passa. É a propriedade que salva o homônimo —
+    quanto mais gente compartilha o nome, mais o líder precisa dominar (no dado
+    real o INSS é 764/768 = 0,995)."""
+    return ([_linha('INSTITUTO NACIONAL DO SEGURO SOCIAL', CNPJS_INSS[0], 'CNPJ',
+                    pid=1000 + i) for i in range(n_linhas)]
+            + [_linha('INSTITUTO NACIONAL DO SEGURO SOCIAL', doc, 'CNPJ',
+                      pid=2000 + i)
+               for i, doc in enumerate(CNPJS_ERRADOS_INSS)])
+
+
+def test_consolidacao_cnpj_funde_o_inss_quintuplicado():
+    """5 entidades de chave `cnpj`, mesmo nome, 30/1/1/1/1 linhas → UMA."""
+    agg = _agregar(_inss_quintuplicado())
+    assert len(agg.grupos) == 5                      # o defeito, antes
+    r = agg.consolidar_cnpj()
+    assert r == {'fundidos': 1, 'absorvidas': 4, 'linhas': 4,
+                 'homonimos_preservados': 0}
+    docs = _docs(agg)
+    assert set(docs) == {'cnpj:29979036'}            # o INSS, uma vez só
+    doc = docs['cnpj:29979036']
+    assert doc['n_partes'] == 44                     # 40 + as 4 linhas erradas
+    assert doc['nome_canonico'] == 'INSTITUTO NACIONAL DO SEGURO SOCIAL'
+
+
+def test_consolidacao_cnpj_nao_joga_fora_o_cnpj_errado():
+    """O CNPJ errado é EVIDÊNCIA do erro de cadastro do tribunal — alguém vai
+    auditar. Ele sai de `documentos` (não é desta PJ) e vai pra
+    `documentos_secundarios`, e o id da entidade engolida fica registrado."""
+    agg = _agregar(_inss_quintuplicado())
+    agg.consolidar_cnpj()
+    doc = _docs(agg)['cnpj:29979036']
+    assert doc['documentos'] == [CNPJS_INSS[0]]                  # só o CNPJ real
+    assert doc['documentos_secundarios'] == sorted(CNPJS_ERRADOS_INSS)
+    assert doc['n_documentos_secundarios'] == 4
+    assert doc['entidades_absorvidas'] == sorted(
+        ['cnpj:03500696', 'cnpj:03500708', 'cnpj:03500738', 'cnpj:24403442'])
+    assert doc['grupos_absorvidos'] == 4
+    # nenhum CNPJ errado pode vazar pra lista que responde "qual é o CNPJ desta
+    # entidade" — senão o cadastro passa a mentir com a autoridade do índice
+    assert not set(doc['documentos']) & set(doc['documentos_secundarios'])
+
+
+# --- os casos NEGATIVOS: o que NÃO pode fundir ----------------------------- #
+def test_consolidacao_cnpj_preserva_homonimo_legitimo():
+    """85 "FUNDO MUNICIPAL DE SAÚDE" (medido no índice real), um por município,
+    cada um com seu CNPJ e UMA linha de cadastro.
+
+    É o falso-merge da decisão 7 em escala: fundir mataria 84 entidades reais.
+    O discriminante é o PERFIL — template replicado é PLANO (ninguém domina),
+    entidade com typo é PICO. Aqui não há líder, então abstém.
+    """
+    linhas = [_linha('FUNDO MUNICIPAL DE SAUDE',
+                     f'{10 + i:02d}.111.222/0001-33', 'CNPJ', pid=100 + i)
+              for i in range(85)]
+    agg = _agregar(linhas)
+    assert len(agg.grupos) == 85
+    r = agg.consolidar_cnpj()
+    assert r['fundidos'] == 0 and r['absorvidas'] == 0
+    assert r['homonimos_preservados'] == 1           # 1 grupo, 85 sobreviventes
+    assert len(agg.grupos) == 85
+
+
+def test_consolidacao_cnpj_nao_deixa_a_sa_comer_a_me():
+    """`normalizar_nome` diz que "DROGARIA SAO PAULO S.A" e "DROGARIA SAO PAULO
+    LTDA - ME" são o mesmo nome (ela descarta forma societária) — e a rede S.A.
+    DOMINA a ME de 1 linha. Só que uma ME não é a S.A.
+
+    É por isso que a 3ª prova é `mesma_grafia` e não "mesmo nome normalizado":
+    medido, 18 das 35 minorias dos grupos dominados têm grafia diferente, e é lá
+    que moram as MEs ("LOJAS AVENIDA LTDA - ME", "CARAMURU ALIMENTOS LTDA - ME").
+    """
+    linhas = ([_linha('DROGARIA SAO PAULO S.A', '61.412.110/0001-01', 'CNPJ',
+                      pid=10 + i) for i in range(23)]
+              + [_linha('DROGARIA SAO PAULO LTDA - ME', '02.450.244/0001-02',
+                        'CNPJ', pid=99)])
+    agg = _agregar(linhas)
+    # mesma chave de fusão por nome: é exatamente por isso que o caso é perigoso
+    assert (ent.normalizar_nome('DROGARIA SAO PAULO S.A')
+            == ent.normalizar_nome('DROGARIA SAO PAULO LTDA - ME'))
+    assert agg.consolidar_cnpj()['absorvidas'] == 0
+    assert len(agg.grupos) == 2                      # a ME sobreviveu
+
+
+def test_consolidacao_cnpj_exige_minoria_sem_atestacao():
+    """CNPJ com 2 linhas de cadastro não é erro de digitação: é uma entidade que
+    o acervo registrou duas vezes de forma independente. Abstém (o líder domina,
+    mas a minoria tem atestação)."""
+    linhas = ([_linha('BANCO FULANO S.A', '90.400.888/0001-42', 'CNPJ',
+                      pid=10 + i) for i in range(50)]
+              + [_linha('BANCO FULANO S.A', '33.517.640/0001-43', 'CNPJ',
+                        pid=200 + i) for i in range(2)])
+    agg = _agregar(linhas)
+    assert agg.consolidar_cnpj()['absorvidas'] == 0
+    assert len(agg.grupos) == 2
+
+
+def test_consolidacao_cnpj_exige_lider_dominante():
+    """Sem dominância não há fusão, mesmo com grafia idêntica e minoria de 1
+    linha: 5 entidades de 1 linha cada é um template, não uma entidade com typo.
+    Como o vice tem ao menos 1 linha, o líder precisa de ≥10 pra passar."""
+    linhas = [_linha('CONDOMINIO EDIFICIO SAO JOSE',
+                     f'{20 + i:02d}.777.888/0001-99', 'CNPJ', pid=300 + i)
+              for i in range(5)]
+    agg = _agregar(linhas)
+    assert agg.consolidar_cnpj()['fundidos'] == 0
+    # e com 9 linhas no líder ainda não passa (9 < 10 × 1)
+    agg9 = _agregar([_linha('X TRANSPORTES LTDA', '11.222.333/0001-44', 'CNPJ',
+                            pid=400 + i) for i in range(9)]
+                    + [_linha('X TRANSPORTES LTDA', '55.666.777/0001-88',
+                              'CNPJ', pid=500)])
+    assert agg9.consolidar_cnpj()['fundidos'] == 0
+
+
+def test_consolidacao_cnpj_roda_antes_e_desambigua_o_nome():
+    """A ordem importa: cnpj→cnpj primeiro DESAMBIGUA o nome→cnpj.
+
+    Com os 4 CNPJs errados no páreo, um grupo-por-nome "INSTITUTO NACIONAL
+    SEGURO SOCIAL" enxerga 5 candidatos; depois da fusão sobra 1, e o que era
+    empate técnico vira alvo único.
+    """
+    linhas = (_inss_quintuplicado()
+              + [_linha('Instituto Nacional do Seguro Social',
+                        tipo='desconhecido', pid=3000 + i) for i in range(4)])
+    agg = _agregar(linhas)
+    agg.consolidar_cnpj()
+    assert agg.consolidar()['fundidos'] == 1
+    docs = _docs(agg)
+    assert set(docs) == {'cnpj:29979036'}
+    assert docs['cnpj:29979036']['n_partes'] == 48           # 40 + 4 + 4
+
+
+# --------------------------------------------------------------------------- #
+# 9. Nome suspeito — a frase que não identifica ninguém (decisão 13)
+# --------------------------------------------------------------------------- #
+def test_nome_suspeito_corta_o_primeiro_nome_solto():
+    """"JOSÉ" — 2 linhas de cadastro — marcava 1.796.174 processos, porque
+    `match_phrase` de UM token casa todo José do país. Cadastro truncado com
+    cara de maior devedor do Brasil."""
+    assert ent.nome_suspeito('JOSÉ', 2) == (True, ent.SUSPEITO_TOKEN_UNICO)
+    for nome in ('ANTONIO', 'João', 'ANA', 'FRANCISCO', 'Fernando', 'THIAGO'):
+        assert ent.nome_suspeito(nome, 2)[0], nome
+    # e o fragmento de marca, que também é cadastro truncado
+    for nome in ('GOL', 'ITAUCARD', 'SICOOB'):
+        assert ent.nome_suspeito(nome, 2)[0], nome
+
+
+def test_nome_suspeito_nao_derruba_entidade_curta_legitima():
+    """O caso NEGATIVO que define o critério: se derrubar PETROBRAS ou ITAÚ, o
+    critério está errado.
+
+    Duas defesas, as duas medidas: (a) no dado do tribunal a empresa grande vem
+    com a forma societária colada, então a FRASE tem 2+ tokens e nem chega ao
+    teste de 1 token; (b) quem é de 1 token mesmo ("INSS" 53 linhas, "UNIAO" 58)
+    é atestado pelo cadastro.
+    """
+    for nome in ('PETROLEO BRASILEIRO S A PETROBRAS', 'ITAU UNIBANCO S.A',
+                 'AMERICANAS S.A', 'CLARO S.A', 'VALE S.A', 'TIM S A'):
+        assert ent.nome_suspeito(nome, 2) == (False, ''), nome
+    # 1 token de verdade, mas o cadastro atesta
+    assert ent.nome_suspeito('INSS', 53) == (False, '')
+    assert ent.nome_suspeito('UNIAO', 58) == (False, '')
+    # …e o mesmo nome sem atestação nenhuma NÃO passa (é o corte, não o nome)
+    assert ent.nome_suspeito('UNIAO', 1)[0]
+
+
+def test_nome_suspeito_pega_a_grafia_truncada_no_conectivo():
+    """"MUNICIPIO DE" (467.493 processos, 2 linhas) é o cadastro cortado no
+    meio. Nome legítimo não termina em conectivo — é fato sintático, então não
+    tem escape por atestação."""
+    assert ent.nome_suspeito('MUNICIPIO DE', 2) == (True, ent.SUSPEITO_TRUNCADO)
+    assert ent.nome_suspeito('MUNICIPIO DE', 500) == (True, ent.SUSPEITO_TRUNCADO)
+    for nome in ('CONSELHO REGIONAL DE MEDICINA VETERINARIA DO ESTADO DO',
+                 'JOONGBO QUIMICA DO BRASIL LTDA EM', 'MUNICIPIO DE TRIZIDELA DO'):
+        assert ent.nome_suspeito(nome, 4)[0], nome
+    # o nome COMPLETO é intocado
+    assert ent.nome_suspeito('MUNICIPIO DE ARARAS', 2) == (False, '')
+    assert ent.nome_suspeito('ESTADO DO PARA', 21) == (False, '')
+
+
+def test_nome_suspeito_ignora_o_papel_do_pje():
+    """"JOSÉ (EXECUTADO(A))" é o mesmo "JOSÉ" — a comparação passa pelo
+    `limpar_rotulo` antes, senão o carimbo do cartório disfarçaria o defeito."""
+    assert ent.nome_suspeito('JOSÉ (EXECUTADO(A))', 2)[0]
+    assert ent.nome_suspeito('MUNICIPIO DE (REQUERIDO(A))', 2)[0]
+
+
+def test_doc_do_build_marca_o_nome_suspeito():
+    docs = _docs(_agregar([_linha('JOSÉ', tipo='pj'), _linha('JOSÉ', tipo='pj')]))
+    doc = next(iter(docs.values()))
+    assert doc['nome_suspeito'] is True
+    assert doc['nome_suspeito_motivo'] == ent.SUSPEITO_TOKEN_UNICO
+    # o suspeito NÃO some do índice: ele fica pra auditoria do cadastro
+    assert doc['nome_canonico'] == 'JOSÉ' and doc['n_partes'] == 2
+
+    limpo = next(iter(_docs(_agregar(
+        [_linha('MUNICIPIO DE ARARAS', tipo='desconhecido')] * 2)).values()))
+    assert limpo['nome_suspeito'] is False and limpo['nome_suspeito_motivo'] == ''
+
+
+def test_escopo_contagem_exclui_nome_suspeito():
+    """Contar "JOSÉ" produz 1.796.174 — um número que não é de ninguém, e que
+    gravado coloca cadastro truncado no top-10 de quem mais litiga."""
+    escopo = ent.escopo_contagem()['bool']
+    assert escopo['filter'] == [
+        {'bool': {'must_not': [{'term': {'nome_suspeito': True}}]}}]
+    # `term` e não `exists`: doc SEM o campo (índice anterior à decisão 13)
+    # continua no escopo — a migração é aditiva, ninguém some por falta de campo
+    assert escopo['minimum_should_match'] == 1
+    faltantes = ent.escopo_contagem(somente_faltantes=True)['bool']
+    assert faltantes['must_not'] == [{'exists': {'field': 'n_processos'}}]
+    assert faltantes['filter'] == escopo['filter']
+
+
+def test_autocomplete_exclui_nome_suspeito_sem_mexer_no_ranking():
+    """A exclusão é de HITS (`post_filter`), não de escopo de score: o
+    `function_score` calibrado (texto × prevalência × atestação) segue sendo a
+    raiz da query, do jeito que todo consumidor a inspeciona."""
+    body = ent.query_autocomplete('jose')
+    assert body['post_filter'] == {
+        'bool': {'must_not': [{'term': {'nome_suspeito': True}}]}}
+    assert 'function_score' in body['query']
+    assert 'dis_max' in body['query']['function_score']['query']
+
+
+# --------------------------------------------------------------------------- #
+# 10. `fundir_doc` — a correção ES→ES tem que dar o MESMO resultado do build
+# --------------------------------------------------------------------------- #
+def _sem_data(doc):
+    return {k: v for k, v in doc.items() if k != 'atualizado_em'}
+
+
+def test_fundir_doc_bate_com_o_build():
+    """A correção do índice existente (`manage.py corrigir_indice_entidades`)
+    não pode divergir do build — senão o índice corrigido e o índice
+    reconstruído seriam dois produtos diferentes com o mesmo nome."""
+    linhas = _inss_quintuplicado()
+
+    pelo_build = _agregar(linhas)
+    pelo_build.consolidar_cnpj()
+    esperado = _docs(pelo_build)['cnpj:29979036']
+
+    sem_fusao = _docs(_agregar(linhas))               # como está no índice hoje
+    lider = sem_fusao['cnpj:29979036']
+    absorvidos = [d for i, d in sem_fusao.items() if i != 'cnpj:29979036']
+    obtido = ent.fundir_doc(lider, absorvidos, '2026-08-12T00:00:00+00:00')
+
+    assert _sem_data(obtido) == _sem_data(esperado)
+
+
+def test_fundir_doc_preserva_a_contagem_quando_o_or_nao_muda():
+    """O INSS tem que sair da fusão com os MESMOS 4.402.239 processos: as 4
+    linhas absorvidas repetem a grafia que já estava lá, então o OR de
+    `match_phrase` é idêntico e o número continua valendo."""
+    sem_fusao = _docs(_agregar(_inss_quintuplicado()))
+    lider = {**sem_fusao['cnpj:29979036'], 'n_processos': 4_402_239,
+             'n_processos_em': '2026-08-12T00:00:00+00:00'}
+    absorvidos = [d for i, d in sem_fusao.items() if i != 'cnpj:29979036']
+
+    novo = ent.fundir_doc(lider, absorvidos)
+    assert novo['variantes_busca'] == lider['variantes_busca']
+    assert novo['n_processos'] == 4_402_239
+    assert novo['n_variantes'] == lider['n_variantes']      # nenhuma grafia nova
+
+
+def test_fundir_doc_descarta_a_contagem_velha_quando_o_or_muda():
+    """Se o conjunto de grafias buscáveis mudou, o número anterior é passado.
+    Ausência ("não contamos") é honesta; número velho não é — e o campo ausente
+    faz a entidade virar `--somente-faltantes` do contador, que a recompõe."""
+    lider = {'entidade_id': 'cnpj:11111111', 'nome_canonico': 'FULANO LTDA',
+             'variantes': ['FULANO LTDA'], 'variantes_n': [12],
+             'variantes_busca': ['FULANO LTDA'], 'n_partes': 12,
+             'n_processos': 999, 'n_processos_em': '2026-08-12T00:00:00+00:00'}
+    absorvido = {'entidade_id': 'cnpj:22222222', 'nome_canonico': 'FULANO LTDA',
+                 'variantes': ['Fulano Ltda'], 'variantes_n': [1],
+                 'variantes_busca': ['Fulano Ltda'], 'n_partes': 1,
+                 'documentos': ['22.222.222/0001-22']}
+    novo = ent.fundir_doc(lider, [absorvido])
+    assert novo['n_partes'] == 13
+    assert 'n_processos' not in novo and 'n_processos_em' not in novo
+    assert novo['documentos_secundarios'] == ['22.222.222/0001-22']
+    assert novo['entidades_absorvidas'] == ['cnpj:22222222']
+
+
+def test_fundir_doc_reavalia_o_nome_suspeito():
+    """A fusão muda `n_partes`, e `n_partes` é o que atesta um nome de 1 token:
+    3 linhas + 2 absorvidas = 5, e o nome deixa de ser suspeito."""
+    lider = {'entidade_id': 'cnpj:1', 'nome_canonico': 'SIGLA',
+             'variantes': ['SIGLA'], 'variantes_n': [3], 'n_partes': 3,
+             'variantes_busca': ['SIGLA'], 'nome_suspeito': True,
+             'nome_suspeito_motivo': ent.SUSPEITO_TOKEN_UNICO}
+    outros = [{'entidade_id': f'cnpj:{i}', 'nome_canonico': 'SIGLA',
+               'variantes': ['SIGLA'], 'variantes_n': [1], 'n_partes': 1}
+              for i in (2, 3)]
+    novo = ent.fundir_doc(lider, outros)
+    assert novo['n_partes'] == 5
+    assert novo['nome_suspeito'] is False
+
+
+# --------------------------------------------------------------------------- #
+# 11. Build incremental (`--merge-es`) não pode desfazer as decisões 12 e 13
+# --------------------------------------------------------------------------- #
+def test_merge_incremental_preserva_a_prova_da_fusao_e_reavalia_o_suspeito():
+    """O top-up diário lê só as linhas NOVAS e mescla com o doc indexado. Duas
+    armadilhas, as duas com dado do índice real:
+
+      * a consolidação cnpj→cnpj só roda no build COMPLETO (precisa da base
+        inteira em memória), então a prova que ela deixou (`documentos_
+        secundarios`, `entidades_absorvidas`) só existe no doc ANTIGO —
+        sobrescrever com as listas vazias do lote apagaria a evidência do erro
+        de cadastro do tribunal;
+      * `nome_suspeito` é função de `n_partes`, e o lote enxerga só as linhas
+        novas: sem reavaliar depois da soma, 1 linha nova marcaria o "INSS" (53
+        linhas no índice) como cadastro truncado.
+    """
+    from search.management.commands.construir_indice_entidades import Command
+
+    doc_novo = next(iter(_docs(_agregar(
+        [_linha('INSS', '77.923.652/0001-01', 'CNPJ')])).values()))
+    assert doc_novo['nome_suspeito'] is True          # 1 linha: o LOTE não atesta
+
+    antigo = {'n_partes': 52, 'variantes': ['INSS'], 'documentos': [],
+              'documentos_mascarados': 0, 'eh_ente_publico': True,
+              'grupos_absorvidos': 2,
+              'documentos_secundarios': ['03.500.696/0001-03'],
+              'entidades_absorvidas': ['cnpj:03500696']}
+    doc = Command()._mesclar(doc_novo, antigo)
+
+    assert doc['n_partes'] == 53
+    assert doc['nome_suspeito'] is False              # o índice atesta: 53 linhas
+    assert doc['documentos_secundarios'] == ['03.500.696/0001-03']
+    assert doc['entidades_absorvidas'] == ['cnpj:03500696']
+    assert doc['grupos_absorvidos'] == 2

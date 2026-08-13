@@ -126,7 +126,10 @@ grafias de nome**. Nenhuma delas é o INSS; todas são. Digitar "INSS" não acha
 | `variantes_n[]` | integer | frequência de cada grafia (mesma ordem) |
 | `variantes_busca[]` | text + `.autocomplete` | **PRECISÃO** — só as grafias com peso (o autocomplete busca aqui) |
 | `n_variantes`, `variantes_truncadas` | integer, boolean | tamanho / bateu `MAX_VARIANTES` (300) |
+| `nome_suspeito`, `nome_suspeito_motivo` | boolean, keyword | a frase não identifica ninguém: `token_unico` \| `truncado` (decisão 13). **Fora da contagem e do autocomplete.** Ausente = índice anterior à decisão |
 | `documentos[]`, `n_documentos` | keyword, integer | CNPJs formatados (mascarados NÃO entram) |
+| `documentos_secundarios[]`, `n_documentos_secundarios` | keyword, integer | CNPJs que o tribunal digitou ERRADO pra esta entidade (decisão 12) — evidência do erro, nunca "o CNPJ dela" |
+| `entidades_absorvidas[]` | keyword | `entidade_id` de cada entidade-CNPJ engolida (decisão 12) — auditoria e reversão |
 | `documentos_mascarados` | integer | linhas com CNPJ mascarado que não fundiram por raiz |
 | `tipo` | keyword | `pj`\|`desconhecido`\|… (o dominante do grupo) |
 | `eh_ente_publico`, `ente_publico_por_complemento` | boolean | `agg_estado.eh_ente_publico` (RE_ENTE_PUBLICO + complemento) |
@@ -239,6 +242,61 @@ grafias de nome**. Nenhuma delas é o INSS; todas são. Digitar "INSS" não acha
 11. **Placeholder não é entidade.** "INFORMAÇÃO PROTEGIDA" (segredo de justiça)
    somava 4.212 linhas e era a MAIOR entidade do índice — NULL disfarçado no
    topo do autocomplete. `NOMES_PLACEHOLDER` corta.
+12. **Consolidação cnpj→cnpj: o CNPJ que o tribunal digitou errado.** O top-5 de
+   "quem mais litiga no Brasil" era **cinco vezes o INSS** — a autarquia (raiz
+   29.979.036, 764 linhas) e mais 4 entidades de UMA linha, mesmo nome
+   canônico, penduradas em CNPJs errados. A decisão 9 não resolve: os dois
+   lados já têm chave `cnpj`. Só que fundir por nome mataria homônimo legítimo
+   — medido, **6.925 nomes normalizados são compartilhados por 2+ entidades de
+   CNPJ** (15.917 entidades), e a maioria é template replicado: 85 "FUNDO
+   MUNICIPAL DE SAÚDE", 46 "IGREJA EVANGÉLICA ASSEMBLEIA DE DEUS", 44 "SERVIÇO
+   AUTÔNOMO DE ÁGUA E ESGOTO", 12 "CONDOMÍNIO EDIFÍCIO SÃO JOSÉ".
+   **O discriminante é o perfil de cadastro**: template replicado é PLANO (85
+   entidades × 1 linha — ninguém domina), entidade com typo é PICO (764 × 1·1·
+   1·1). Três provas, todas necessárias (`entidades.consolidacao_cnpj`):
+   (a) **dominância** ≥90% das linhas e ≥10× o segundo — sozinha derruba 6.899
+   dos 6.925 grupos, e como o vice tem ≥1 linha o líder precisa de ≥10;
+   (b) **minoria de 1 linha** (sem atestação independente);
+   (c) **grafia IDÊNTICA** (`mesma_grafia`, não `normalizar_nome`) — é o que
+   impede a S.A. de comer a ME: `normalizar_nome` descarta forma societária, e
+   sem essa prova "DROGARIA SAO PAULO LTDA - ME" seria engolida pela "DROGARIA
+   SAO PAULO S.A", assim como "LOJAS AVENIDA LTDA - ME" e "CARAMURU ALIMENTOS
+   LTDA - ME". Resultado medido: **14 grupos, 20 entidades absorvidas, 6.910
+   homônimos preservados**.
+   **DV de CNPJ não serve de discriminante** — medido: dos 4 CNPJs errados do
+   INSS, TRÊS têm dígito verificador VÁLIDO (03.500.696/0001-03 é um CNPJ
+   perfeitamente formado, só não é do INSS). DV não separa typo de entidade
+   alheia; cadastro separa.
+   O CNPJ errado **não é jogado fora**: vai pra `documentos_secundarios` (e o id
+   da entidade engolida pra `entidades_absorvidas`), que é o que torna a fusão
+   auditável e reversível.
+13. **Frase que não identifica ninguém não conta processo** (`nome_suspeito`).
+   "JOSÉ" — 2 linhas de cadastro, uma grafia só — aparecia com **1.796.174**
+   processos: `match_phrase` de UM token casa todo José do país. "MUNICIPIO DE"
+   (cadastro cortado no meio) marcava 467.493. A poda de sub-frase não pega
+   isso — ela compara grafias DENTRO da mesma entidade, e aqui a entidade tem
+   uma grafia só. Dois motivos:
+   * `token_unico` — grafia de 1 token com menos de `NOME_1TOKEN_MIN_LINHAS`
+     (=5) linhas de cadastro. **O corte é por ATESTAÇÃO, não por tamanho do
+     nome**: "INSS" (53 linhas) e "UNIAO" (58) ficam. PETROBRAS e ITAÚ não
+     correm risco e não por sorte — no dado do tribunal a empresa grande vem
+     com a forma societária colada ("PETROLEO BRASILEIRO S A PETROBRAS", "ITAU
+     UNIBANCO S.A", "AMERICANAS S.A", "CLARO S.A"), então a FRASE tem 2+ tokens
+     e nem chega ao teste. Medido: das 1.141.630 entidades, só **535** têm
+     grafia de 1 token, e **518** caem.
+   * `truncado` — a grafia termina em conectivo ("MUNICIPIO DE", "…LTDA EM",
+     "…DO ESTADO DO"). Fato sintático, sem escape por atestação: **117**
+     entidades, a maior com 4 linhas de cadastro.
+   **O que se perde ao marcar os borderline (3-4 linhas): nada.** Medido caso a
+   caso — em 11 de 12 a organização também está no índice pelo nome COMPLETO e
+   com mais cadastro (CAPEMISA 4→13 linhas, BANPARÁ 3→38, DECOLAR 4→13, TNT
+   4→24, SELECON 4→5, IPSEMG 9 bare→12 completo, ALIEXPRESS 3→4). E o bare
+   costuma reivindicar MAIS processos que a entidade real (Decolar 3.394 vs
+   2.863; SELECON 653 vs 192; TNT 267 vs 137) — que é a promiscuidade da frase
+   medida em números.
+   O suspeito **fica no índice** (alguém pode auditar o cadastro do tribunal);
+   ele só sai do `escopo_contagem` e do autocomplete (`post_filter`), e perde
+   `n_processos` — ausência é "não contamos", que é a verdade.
 
 ### Como se consome (enquanto o nested não está reindexado)
 
@@ -260,6 +318,45 @@ es.count(index='voyager-processos',
 Quem exibe "N processos" tem que ler `n_processos` como **tri-estado**:
 número = medido; `None`/ausente = fora do escopo da contagem (mostre "—", não
 "0"); `0` = medido e vazio. E `n_processos_em` diz a idade do número.
+
+### Corrigir um índice já construído (decisões 12 e 13)
+
+As duas correções são do BUILD — um índice novo já sai correto. Pra consertar um
+índice **existente** sem reconstruir (que custa ~5 min lendo 16,7M linhas do
+**Postgres de produção** + ~11 min de escrita, e ainda apaga `n_processos` de
+182k entidades, obrigando a recontar), existe o passe **ES→ES**:
+
+```bash
+# ensaio: monta o plano inteiro e mostra o que faria. Não escreve nada.
+manage.py corrigir_indice_entidades --indice entidades-teste --dry-run
+manage.py corrigir_indice_entidades --indice entidades-teste
+# 2 líderes ficam sem n_processos (o OR mudou) — a retomada barata recompõe:
+manage.py contar_processos_entidades --indice entidades-teste --somente-faltantes
+```
+
+Mesma decisão do build (`entidades.consolidacao_cnpj` / `entidades.nome_suspeito`
+/ `entidades.fundir_doc`), **zero Postgres**, idempotente (rodar 2× encontra 0 a
+fazer). Medido em 13/08/2026 sobre as 1.141.630 entidades: **120 s**, 236
+requisições ao ES, **pico de 0,87 s**, CPU do nó 3-8%, **zero rejeição** de
+thread pool. Uma varredura de `search_after` com `_source` de 5 campos monta o
+plano em memória ANTES de qualquer escrita — por isso o `--dry-run` é fiel.
+
+Resultado: 1.141.630 → **1.141.610** entidades (20 absorvidas), **635** marcadas
+como suspeitas, **9,88 milhões** de processos-fantasma removidos de 161
+contagens. O top-10 por `n_processos` passou a ter o INSS **uma vez só** e
+perdeu "JOSÉ", "ANTONIO", "Fazenda", "João", "ANA", "FRANCISCO", "MUNICIPIO DE",
+"Fernando", "ANDRÉ", "Rafael" e "THIAGO".
+
+**O que ficou de fora (residual conhecido).** 58 entidades com ≤4 linhas de
+cadastro ainda reivindicam ≥50k processos, e nenhuma cai nas decisões 12/13:
+são nomes institucionais GENÉRICOS de 2+ tokens, corretamente separados porque
+são entidades diferentes — "POLICIA CIVIL" (3 CNPJs, 157.903 cada),
+"PROCURADORIA GERAL DO ESTADO"/"DO MUNICIPIO" (um por UF/município), "UNIÃO
+FEDERAL" (2 CNPJs de 1 linha, sem dominante pra decidir qual é o certo) — e
+facetas do INSS ("CEAB - INSS", "Procuradoria da CEAB-DJ INSS"), que a atestação
+da decisão 8c já resolve no ranking. Fundi-las seria falso-merge; o que resolve
+de verdade é trocar o OR de `match_phrase` por filtro em
+`participacoes.parte_id`/`documento` quando o reindex do nested fechar.
 
 ### Contagem de processos (`n_processos`)
 

@@ -39,7 +39,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
-from search.entidades import INDICE, Agregador, nome_canonico
+from search.entidades import INDICE, Agregador, nome_canonico, nome_suspeito
 from search.mappings import ENTIDADE_MAPPING
 from tribunals.models import Parte
 
@@ -108,9 +108,13 @@ class Command(BaseCommand):
         # aponta pra EXATAMENTE um CNPJ" não é verificável.
         if opts['merge_es']:
             self.stdout.write(self.style.WARNING(
-                'Build incremental (--merge-es): consolidação nome→cnpj PULADA '
+                'Build incremental (--merge-es): consolidação PULADA '
                 '(exige a base inteira em memória pra provar unicidade).'))
         else:
+            # cnpj→cnpj ANTES de nome→cnpj: decide sobre evidência de CNPJ pura
+            # e ainda desambigua o passo seguinte (o INSS tinha 6 candidatos-
+            # CNPJ pro nome; depois desta passada sobram 2). Ver decisão 12.
+            agg.consolidar_cnpj()
             agg.consolidar()
         resumo = agg.resumo()
         self._relatorio(resumo, leitura)
@@ -252,6 +256,14 @@ class Command(BaseCommand):
           f'chave nome {r["entidades_por_chave"]["nome"]:,})')
         w(f'  taxa de fusão ........ {r["taxa_fusao_pct"]}% '
           f'({r["linhas_por_entidade"]} linhas de Parte por entidade)')
+        w(f'  nome suspeito ........ {r["nomes_suspeitos"]:,} '
+          f'({r["nomes_suspeitos_por_motivo"]}) → no índice, mas FORA '
+          'da contagem e do autocomplete')
+        if 'consolidados_cnpj_em_cnpj' in r:
+            w(f'  consolidação cnpj→cnpj {r["consolidados_cnpj_em_cnpj"]:,} grupos '
+              f'({r["consolidacao_cnpj_entidades"]:,} entidades · '
+              f'{r["consolidacao_cnpj_linhas"]:,} linhas) · '
+              f'{r["consolidacao_cnpj_homonimos"]:,} homônimos PRESERVADOS')
         if 'consolidados_nome_em_cnpj' in r:
             w(f'  consolidação nome→cnpj {r["consolidados_nome_em_cnpj"]:,} grupos '
               f'({r["consolidacao_linhas"]:,} linhas) · '
@@ -300,16 +312,34 @@ class Command(BaseCommand):
         variantes = list(dict.fromkeys(list(doc['variantes'])
                                        + list(antigo.get('variantes') or [])))
         documentos = sorted(set(doc['documentos']) | set(antigo.get('documentos') or []))
+        # a consolidação cnpj→cnpj (decisão 12) roda só no build COMPLETO, então
+        # a prova que ela deixou está no doc ANTIGO — sobrescrever com as listas
+        # vazias do lote incremental apagaria a evidência do erro de cadastro do
+        # tribunal e faria a entidade absorvida "ressuscitar" sem rastro.
+        secundarios = sorted(set(doc['documentos_secundarios'])
+                             | set(antigo.get('documentos_secundarios') or []))
+        absorvidas = sorted(set(doc['entidades_absorvidas'])
+                            | set(antigo.get('entidades_absorvidas') or []))
         doc = dict(doc)
         doc['variantes'] = variantes
         doc['n_variantes'] = len(variantes)
         doc['documentos'] = documentos
         doc['n_documentos'] = len(documentos)
+        doc['documentos_secundarios'] = secundarios
+        doc['n_documentos_secundarios'] = len(secundarios)
+        doc['entidades_absorvidas'] = absorvidas
+        doc['grupos_absorvidos'] = max(int(doc['grupos_absorvidos']),
+                                       int(antigo.get('grupos_absorvidos') or 0))
         doc['n_partes'] = doc['n_partes'] + int(antigo.get('n_partes') or 0)
         doc['documentos_mascarados'] = (doc['documentos_mascarados']
                                         + int(antigo.get('documentos_mascarados') or 0))
         doc['eh_ente_publico'] = bool(doc['eh_ente_publico']
                                       or antigo.get('eh_ente_publico'))
+        # `nome_suspeito` é função de `n_partes`, e `n_partes` acabou de mudar:
+        # sem reavaliar, um top-up de 1 linha marcaria o "INSS" (53 linhas no
+        # índice) como suspeito, porque o LOTE viu só 1.
+        doc['nome_suspeito'], doc['nome_suspeito_motivo'] = nome_suspeito(
+            doc['nome_canonico'], doc['n_partes'])
         return doc
 
     def _gravar(self, agg, opts):

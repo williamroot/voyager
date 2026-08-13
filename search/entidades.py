@@ -140,6 +140,28 @@ DECISÕES (o porquê de cada uma)
    grupo-por-CNPJ **e** aponta pra um CNPJ inequívoco (único, ou dominante por
    `DOMINANCIA_MIN`/`DOMINANCIA_FATOR`). Homônimo de verdade fica separado.
 
+12. CNPJ ERRADO DO TRIBUNAL → FUNDE NA DOMINANTE (consolidação cnpj→cnpj)
+   ----------------------------------------------------------------------
+   A decisão 9 funde nome→cnpj, mas o INSS aparecia CINCO vezes no top-5 de
+   "quem mais litiga" com os dois lados já em chave `cnpj`: a autarquia (764
+   linhas) e 4 entidades de 1 linha com o MESMO nome, penduradas em CNPJs que o
+   tribunal digitou errado. Fundir por nome, porém, mataria homônimo legítimo —
+   85 "FUNDO MUNICIPAL DE SAÚDE", 46 "IGREJA EVANGÉLICA ASSEMBLEIA DE DEUS",
+   12 "CONDOMÍNIO EDIFÍCIO SÃO JOSÉ", cada um com seu CNPJ. O discriminante é o
+   PERFIL DE CADASTRO: template replicado é PLANO (85 × 1 linha), entidade com
+   typo é PICO (764 × 1·1·1·1). Três provas — dominância, minoria de 1 linha e
+   grafia IDÊNTICA (não "nome normalizado igual", senão a S.A. come a ME). Ver
+   `consolidacao_cnpj`: 25 grupos fundidos, 6.900 homônimos preservados.
+
+13. FRASE QUE NÃO IDENTIFICA NINGUÉM NÃO CONTA PROCESSO
+   ----------------------------------------------------
+   "JOSÉ" — 2 linhas de cadastro, nenhuma outra grafia — aparecia com
+   **1.796.174** processos, porque `match_phrase` de UM token casa todo José do
+   país. "MUNICIPIO DE" (cadastro cortado no meio) marcava 467.493. Não é
+   entidade: é cadastro truncado com cara de devedor gigante. `nome_suspeito`
+   corta os dois — e o corte é por ATESTAÇÃO, não por tamanho do nome, senão
+   levaria "INSS" (53 linhas) e "UNIAO" (58) junto. Ver `nome_suspeito`.
+
 O QUE É O PRODUTO
 =================
 `variantes[]` (ordenado por frequência desc). É ele que vira a query: um OR de
@@ -368,6 +390,47 @@ def limpar_rotulo(nome: str | None) -> str:
     return ' '.join(tokens).strip(' -–—/|:;,')
 
 
+def _tokens_grafia(grafia: str) -> tuple:
+    """Tokens de IDENTIDADE de uma grafia — o que o `match_phrase` enxerga.
+
+    Segue o `portuguese_asciifolding` (standard + asciifolding, SEM stopword —
+    "DO" é token pro ES), mas passa antes pelo `limpar_rotulo`, que descasca o
+    papel processual que o PJe cola no nome. Sem isso "FULANO SA - FALIDA" seria
+    sub-frase de "FULANO SA - FALIDA (EXECUTADO(A))" e a poda comeria o nome
+    LIMPO em favor da variante decorada — um subregistro sistemático em toda
+    entidade que o cartório carimbou com o papel.
+    """
+    return tuple(_RE_NAO_ALNUM.sub(
+        ' ', _sem_acento(limpar_rotulo(grafia)).upper()).split())
+
+
+def _e_sub_frase(menor: tuple, maior: tuple) -> bool:
+    """`menor` é uma sequência CONTÍGUA e estritamente menor dentro de `maior`.
+
+    É a relação que o `match_phrase` enxerga: quem procura a frase curta pega
+    todo documento que contém a longa.
+    """
+    if not menor or len(menor) >= len(maior):
+        return False
+    return any(maior[i:i + len(menor)] == menor
+               for i in range(len(maior) - len(menor) + 1))
+
+
+def mesma_grafia(a: str | None, b: str | None) -> bool:
+    """Duas grafias são a MESMA modulo caixa, acento, pontuação e papel do PJe.
+
+    `'Instituto Nacional do Seguro Social'` ≡ `'INSTITUTO NACIONAL DO SEGURO
+    SOCIAL'` ≡ `'INSTITUTO NACIONAL DO SEGURO SOCIAL (REQUERIDO(A))'`, e
+    `'BANCO SANTANDER S.A'` ≡ `'BANCO SANTANDER S/A'` (a barra e o ponto são
+    ruído de digitação, não identidade).
+
+    NÃO é `normalizar_nome`: aquela é chave de FUSÃO e descarta forma societária
+    e sigla, então ela diz que `'DROGARIA SAO PAULO S.A'` e `'DROGARIA SAO PAULO
+    LTDA - ME'` são o mesmo nome — e uma ME não é a S.A. (ver decisão 12).
+    """
+    return bool(_tokens_grafia(a or '')) and _tokens_grafia(a or '') == _tokens_grafia(b or '')
+
+
 def nome_canonico(variantes: dict[str, int]) -> str:
     """Rótulo humano da entidade: a grafia MAIS FREQUENTE (decisão 5).
 
@@ -382,6 +445,69 @@ def nome_canonico(variantes: dict[str, int]) -> str:
         key=lambda kv: (-kv[1], kv[0].isupper(), -len(kv[0]), kv[0]),
     )[0][0]
     return limpar_rotulo(escolhida) or escolhida
+
+
+# --------------------------------------------------------------------------- #
+# Nome SUSPEITO — a frase não identifica ninguém (decisão 13)
+# --------------------------------------------------------------------------- #
+#: quantas linhas de cadastro INDEPENDENTES um nome de UM TOKEN precisa pra ser
+#: tratado como identidade. Medido no índice de 12/08 (1.141.630 entidades):
+#: só 535 têm grafia canônica de 1 token de verdade, e o corte em 5 deixa de
+#: fora 518 delas — todo primeiro nome do país ("JOSÉ" 2 linhas/1.796.174
+#: processos, "ANTONIO" 2/1.137.932, "ANA", "FRANCISCO", "João"…) e todo
+#: fragmento de marca ("GOL" 2, "ITAUCARD" 2, "SICOOB" 3) — e preserva as duas
+#: entidades de 1 token que são REAIS: "INSS" (53 linhas) e "UNIAO" (58).
+NOME_1TOKEN_MIN_LINHAS = 5
+
+SUSPEITO_TOKEN_UNICO = 'token_unico'
+SUSPEITO_TRUNCADO = 'truncado'
+
+
+def nome_suspeito(nome: str | None, n_partes: int = 0) -> tuple[bool, str]:
+    """(a frase não identifica ninguém?, motivo). Ver decisão 13.
+
+    Duas patologias, as duas MEDIDAS no índice real de 12/08/2026:
+
+    1. `token_unico` — "JOSÉ" (2 linhas de cadastro) marcava **1.796.174**
+       processos e entrava no top-10 de "quem mais litiga no Brasil". Não é
+       entidade: é cadastro truncado. `match_phrase` de UM token casa qualquer
+       ocorrência dele em `partes`, então a frase mede a popularidade da
+       PALAVRA, não o tamanho de quem deve. Um token só vale como identidade
+       quando o cadastro o repete (`NOME_1TOKEN_MIN_LINHAS`) — foi assim que
+       "INSS" (53) e "UNIAO" (58) ficaram e "GOL" (2) saiu.
+
+       A poda de sub-frase (`grafias_para_contagem`) NÃO pega isso: ela compara
+       grafias DENTRO da mesma entidade, e aqui a entidade inteira tem uma
+       grafia só.
+
+       PETROBRAS e ITAÚ não correm risco, e não por sorte: no dado do tribunal
+       eles vêm com a forma societária colada ("PETROLEO BRASILEIRO S A
+       PETROBRAS", "ITAU UNIBANCO S.A", "AMERICANAS S.A", "CLARO S.A"), o que
+       faz a frase ter 2+ tokens e sair deste teste. Nome de empresa grande
+       raramente é uma palavra nua no cadastro; primeiro nome de pessoa é.
+
+    2. `truncado` — a grafia TERMINA em conectivo ("MUNICIPIO DE",
+       "…LTDA EM", "CONSELHO REGIONAL DE MEDICINA VETERINARIA DO ESTADO DO"):
+       o cartório cortou o nome no meio (ou o campo do tribunal estourou).
+       "MUNICIPIO DE" sozinho marcava **467.493** processos. É fato sintático,
+       não estatístico — um nome legítimo não termina em "DE" —, então não tem
+       escape por atestação. Medido: 104 entidades no índice inteiro, a maior
+       com 4 linhas de cadastro, nenhuma legítima (o único falso-positivo é a
+       forma societária norueguesa "AS" em "CGG INVEST AS", 1 linha, zero
+       processo).
+
+    O suspeito NÃO é apagado: ele fica no índice com a flag (alguém pode querer
+    auditar o cadastro do tribunal), só sai do `escopo_contagem` e do
+    autocomplete. Falso-split é barato; inventar 1,8 MI de processos não é.
+    """
+    toks = _tokens_grafia(nome or '')
+    if not toks:
+        return False, ''
+    if toks[-1] in _STOPWORDS:
+        return True, SUSPEITO_TRUNCADO
+    if len(toks) == 1 and (n_partes or 0) < NOME_1TOKEN_MIN_LINHAS:
+        return True, SUSPEITO_TOKEN_UNICO
+    return False, ''
 
 
 # --------------------------------------------------------------------------- #
@@ -463,13 +589,90 @@ VARIANTE_BUSCA_TOP_SEMPRE = 3
 DOMINANCIA_MIN = 0.9
 DOMINANCIA_FATOR = 10
 
+#: consolidação cnpj→cnpj (decisão 12): quantas linhas de cadastro o CNPJ
+#: minoritário pode ter pra ainda ser tratado como ERRO DE DIGITAÇÃO do
+#: tribunal. UMA. Um CNPJ que aparece uma vez na vida do acervo não tem
+#: atestação nenhuma; a partir de duas, a entidade existe de forma independente
+#: e a fusão vira aposta. Medido: dos 26 grupos que passam a dominância, 25 têm
+#: TODAS as minorias com 1 linha — a única exceção é o Santander (uma minoria
+#: de 2 linhas), que fica de fora sem custo porque a grafia dela difere.
+CNPJ_ERRADO_MAX_LINHAS = 1
+
+
+def consolidacao_cnpj(candidatos) -> tuple | None:
+    """Entre entidades de chave `cnpj` que compartilham o nome normalizado,
+    quais são o MESMO devedor com o CNPJ digitado errado? (decisão 12)
+
+    `candidatos`: `[(ident, n_partes, nome_canonico)]` — funciona tanto sobre os
+    `Grupo` do build quanto sobre os `_source` de um índice já construído (é a
+    mesma decisão nos dois lados; ver `manage.py corrigir_indice_entidades`).
+    Devolve `(ident_do_lider, [idents_absorvidos])` ou `None` (abstém).
+
+    O PROBLEMA, medido no índice de 12/08: o top-5 de "quem mais litiga no
+    Brasil" era CINCO vezes o INSS — a autarquia (raiz 29.979.036, 764 linhas de
+    cadastro) e mais quatro entidades de UMA linha cada, com o MESMO nome
+    canônico, penduradas em CNPJs que o tribunal digitou errado (03.500.696,
+    03.500.708, 03.500.738, 24.403.442). A consolidação nome→cnpj (decisão 9)
+    não resolve: os dois lados já têm chave `cnpj`.
+
+    POR QUE NÃO BASTA "MESMO NOME": 6.925 nomes normalizados são compartilhados
+    por 2+ entidades de CNPJ (15.917 entidades). A MAIORIA é homônimo LEGÍTIMO —
+    85 "FUNDO MUNICIPAL DE SAÚDE", 46 "IGREJA EVANGÉLICA ASSEMBLEIA DE DEUS",
+    44 "SERVIÇO AUTÔNOMO DE ÁGUA E ESGOTO", 12 "CONDOMÍNIO EDIFÍCIO SÃO JOSÉ",
+    cada um seu município e seu CNPJ. Fundir por nome mataria 8.992 entidades
+    reais. É o falso-merge da decisão 7, em escala.
+
+    O DISCRIMINANTE É O PERFIL DE CADASTRO, e ele separa os dois casos sozinho:
+
+        template replicado  →  PLANO   (85 entidades × 1 linha cada)
+        entidade + typo     →  PICO    (764 linhas × 1 · 1 · 1 · 1)
+
+    Daí as três provas, todas necessárias:
+      1. **dominância** — o líder tem ≥ `DOMINANCIA_MIN` das linhas do grupo E
+         ≥ `DOMINANCIA_FATOR`× o segundo (os mesmos números já calibrados na
+         decisão 9). Sozinha ela derruba 6.899 dos 6.925 grupos: num grupo
+         plano ninguém domina. Como o vice tem ao menos 1 linha, o líder precisa
+         de ≥10 — nenhum grupo de condomínio/fundo municipal chega perto;
+      2. **minoria sem atestação** — cada absorvido tem ≤
+         `CNPJ_ERRADO_MAX_LINHAS` linha de cadastro;
+      3. **grafia idêntica** (`mesma_grafia`, não `normalizar_nome`) — é o que
+         impede a S.A. de comer a ME. Medido: das 35 minorias dos grupos
+         dominados, 18 têm grafia DIFERENTE do líder, e é lá que moram
+         "DROGARIA SAO PAULO LTDA - ME" (≠ "DROGARIA SAO PAULO S.A"), "LOJAS
+         AVENIDA LTDA - ME", "CARAMURU ALIMENTOS LTDA - ME" e "INSTITUTO
+         NACIONAL DO SEGURO SOCIAL - CUIABÁ" — que `normalizar_nome` colapsa
+         (descarta forma societária e sigla) mas que NÃO são a mesma pessoa
+         jurídica. Sem esta prova a regra viraria um gerador de falso-merge.
+
+    O que a regra NÃO tenta: adivinhar qual CNPJ é o certo pelo dígito
+    verificador. Medido — dos 4 CNPJs errados do INSS, TRÊS têm DV válido
+    (03.500.696/0001-03 é um CNPJ perfeitamente formado, só não é do INSS). DV
+    não distingue typo de entidade alheia; cadastro distingue.
+    """
+    candidatos = [c for c in candidatos if c[1] is not None]
+    if len(candidatos) < 2:
+        return None
+    ordenados = sorted(candidatos, key=lambda c: (-c[1], str(c[0])))
+    lider, vice = ordenados[0], ordenados[1]
+    total = sum(c[1] for c in ordenados)
+    if not total or lider[1] / total < DOMINANCIA_MIN:
+        return None
+    if lider[1] < DOMINANCIA_FATOR * vice[1]:
+        return None
+    absorvidos = [c[0] for c in ordenados[1:]
+                  if c[1] <= CNPJ_ERRADO_MAX_LINHAS and mesma_grafia(c[2], lider[2])]
+    if not absorvidos:
+        return None
+    return lider[0], absorvidos
+
 
 class Grupo:
     """Uma entidade em construção. `__slots__` porque são ~1M destes em memória."""
 
     __slots__ = ('chave', 'valor', 'variantes', 'documentos', 'tipos',
                  'n_partes', 'mascarados', 'variantes_descartadas',
-                 'documentos_descartados', 'menor_parte_id', 'absorvidos')
+                 'documentos_descartados', 'menor_parte_id', 'absorvidos',
+                 'documentos_secundarios', 'absorvidos_ids')
 
     def __init__(self, chave: str, valor: str):
         self.chave = chave                 # 'cnpj' | 'nome'
@@ -484,6 +687,13 @@ class Grupo:
         self.menor_parte_id = None
         #: grupos-por-nome absorvidos na consolidação (auditoria)
         self.absorvidos = 0
+        #: CNPJs que o tribunal digitou ERRADO pra esta entidade (decisão 12).
+        #: Não entram em `documentos[]` — não são desta PJ —, mas não se joga
+        #: fora: são a evidência do erro de cadastro, e alguém vai querer
+        #: auditar (ou explicar por que a busca por aquele CNPJ cai aqui).
+        self.documentos_secundarios: dict[str, int] = {}
+        #: `entidade_id` de cada entidade-CNPJ engolida (auditoria/reversão)
+        self.absorvidos_ids: list[str] = []
 
     def somar(self, parte_id, nome, documento, tipo):
         self.n_partes += 1
@@ -533,6 +743,26 @@ class Grupo:
                 self.documentos_descartados += n
         for tipo, n in outro.tipos.items():
             self.tipos[tipo] = self.tipos.get(tipo, 0) + n
+        for doc, n in outro.documentos_secundarios.items():
+            self.documentos_secundarios[doc] = (
+                self.documentos_secundarios.get(doc, 0) + n)
+        self.absorvidos_ids.extend(outro.absorvidos_ids)
+
+    def absorver_cnpj_errado(self, outro: 'Grupo'):
+        """Engole uma entidade-CNPJ que é ESTA, com o CNPJ digitado errado.
+
+        Igual a `absorver` em tudo (variantes, linhas, tipos), MENOS nos
+        documentos: o CNPJ do absorvido não é desta pessoa jurídica, então ele
+        vai pra `documentos_secundarios` — evidência do erro do tribunal — e
+        nunca pra `documentos[]`, que responde "qual é o CNPJ desta entidade".
+        """
+        errados = outro.documentos
+        outro.documentos = {}
+        self.absorver(outro)
+        for doc, n in errados.items():
+            self.documentos_secundarios[doc] = (
+                self.documentos_secundarios.get(doc, 0) + n)
+        self.absorvidos_ids.append(entidade_id(outro.chave, outro.valor))
 
 
 def entidade_id(chave: str, valor: str) -> str:
@@ -598,6 +828,53 @@ class Agregador:
             self.grupos[(chave, valor)] = g
         g.somar(parte_id, (nome or '').strip(), documento, tipo or '')
         return True
+
+    # -- consolidação cnpj → cnpj -------------------------------------------- #
+    def consolidar_cnpj(self) -> dict:
+        """Funde entidades-CNPJ que são a MESMA, com o CNPJ digitado errado.
+
+        Roda ANTES da consolidação nome→cnpj de propósito, por dois motivos:
+          * a decisão é tomada sobre evidência de CNPJ pura, antes de as linhas
+            sem documento (que entram por nome) mexerem nas contagens;
+          * ela DESAMBIGUA o passo seguinte. O nome "INSTITUTO NACIONAL SEGURO
+            SOCIAL" tinha 6 candidatos-CNPJ; depois desta passada sobram 2, e o
+            grupo-por-nome que estava empatado passa a ter um alvo dominante.
+
+        Critério e medições: ver `consolidacao_cnpj`.
+        """
+        por_nome: dict[str, list] = {}
+        for chave, grupo in self.grupos.items():
+            if chave[0] != 'cnpj':
+                continue
+            canonico = nome_canonico(grupo.variantes)
+            norm = normalizar_nome(canonico)
+            if norm:
+                por_nome.setdefault(norm, []).append(
+                    (chave, grupo.n_partes, canonico))
+
+        fundidos = absorvidas = linhas = 0
+        preservados = 0
+        for candidatos in por_nome.values():
+            if len(candidatos) < 2:
+                continue
+            decisao = consolidacao_cnpj(candidatos)
+            if decisao is None:
+                preservados += 1          # homônimo legítimo: abstém (decisão 7)
+                continue
+            alvo, engolidos = decisao
+            fundidos += 1
+            for chave in engolidos:
+                grupo = self.grupos.pop(chave)
+                linhas += grupo.n_partes
+                self.grupos[alvo].absorver_cnpj_errado(grupo)
+                absorvidas += 1
+
+        self.stats['consolidados_cnpj_em_cnpj'] = fundidos
+        self.stats['consolidacao_cnpj_entidades'] = absorvidas
+        self.stats['consolidacao_cnpj_linhas'] = linhas
+        self.stats['consolidacao_cnpj_homonimos'] = preservados
+        return {'fundidos': fundidos, 'absorvidas': absorvidas,
+                'linhas': linhas, 'homonimos_preservados': preservados}
 
     # -- consolidação nome → cnpj -------------------------------------------- #
     def consolidar(self) -> dict:
@@ -677,14 +954,21 @@ class Agregador:
     def resumo(self) -> dict:
         """Números do build (o que vai pro relatório)."""
         por_chave = {'cnpj': 0, 'nome': 0}
-        for (chave, _), _g in self.grupos.items():
+        suspeitos: dict[str, int] = {}
+        for (chave, _), g in self.grupos.items():
             por_chave[chave] += 1
+            ok, motivo = nome_suspeito(nome_canonico(g.variantes), g.n_partes)
+            if ok:
+                suspeitos[motivo] = suspeitos.get(motivo, 0) + 1
         entidades = len(self.grupos)
         dentro = self.stats['dentro']
         return {
             **self.stats,
             'entidades': entidades,
             'entidades_por_chave': por_chave,
+            # decisão 13 — entram no índice, mas fora da contagem/autocomplete
+            'nomes_suspeitos': sum(suspeitos.values()),
+            'nomes_suspeitos_por_motivo': suspeitos,
             # taxa de fusão = quanto do fatiamento do Postgres foi desfeito
             'taxa_fusao_pct': round(100.0 * (1 - entidades / dentro), 2) if dentro else 0.0,
             'linhas_por_entidade': round(dentro / entidades, 2) if entidades else 0.0,
@@ -726,13 +1010,18 @@ def grupo_to_doc(g: Grupo, agora: str) -> dict:
             ente = True
             por_complemento = por_complemento and comp
     tipo = sorted(g.tipos.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] if g.tipos else ''
+    rotulo = nome_canonico(g.variantes)
+    suspeito, motivo = nome_suspeito(rotulo, g.n_partes)
     return {
         'entidade_id': entidade_id(g.chave, g.valor),
         'chave': g.chave,                       # procedência: 'cnpj' (provada) | 'nome' (heurística)
         'raiz_cnpj': g.valor if g.chave == 'cnpj' else None,
-        'nome_canonico': nome_canonico(g.variantes),
-        'nome_normalizado': g.valor if g.chave == 'nome' else normalizar_nome(
-            nome_canonico(g.variantes)),
+        'nome_canonico': rotulo,
+        'nome_normalizado': g.valor if g.chave == 'nome' else normalizar_nome(rotulo),
+        # a frase não identifica ninguém (decisão 13) — fica no índice pra
+        # auditoria, mas fora do escopo de contagem e do autocomplete
+        'nome_suspeito': suspeito,
+        'nome_suspeito_motivo': motivo,
         'variantes': [nome for nome, _ in variantes],
         # frequência de cada grafia, MESMA ORDEM de `variantes`. Serve pro
         # consumidor cortar cauda ("só as grafias com ≥ N linhas") antes de
@@ -746,11 +1035,19 @@ def grupo_to_doc(g: Grupo, agora: str) -> dict:
         'variantes_truncadas': bool(g.variantes_descartadas),
         'documentos': documentos,
         'n_documentos': len(documentos),
+        # CNPJs que o tribunal digitou ERRADO pra esta entidade (decisão 12).
+        # Ficam SEPARADOS de `documentos` — não são desta PJ — mas não se joga
+        # fora: é a evidência do erro de cadastro do tribunal.
+        'documentos_secundarios': sorted(g.documentos_secundarios),
+        'n_documentos_secundarios': len(g.documentos_secundarios),
         # linhas cujo CNPJ veio MASCARADO e por isso não fundiu por raiz
         'documentos_mascarados': g.mascarados,
         'tipo': tipo,
         # grupos-por-nome absorvidos na consolidação (0 = nunca foi consolidado)
         'grupos_absorvidos': g.absorvidos,
+        # `entidade_id` de cada entidade-CNPJ engolida pela decisão 12 —
+        # auditável e reversível (o id é determinístico)
+        'entidades_absorvidas': sorted(g.absorvidos_ids),
         'eh_ente_publico': ente,
         'ente_publico_por_complemento': bool(ente and por_complemento),
         # proxy de prevalência — NÃO é contagem de processos (decisão 6)
@@ -758,6 +1055,79 @@ def grupo_to_doc(g: Grupo, agora: str) -> dict:
         'parte_id_min': g.menor_parte_id,
         'atualizado_em': agora,
     }
+
+
+def fundir_doc(lider: dict, absorvidos: list, agora: str | None = None) -> dict:
+    """Aplica num doc JÁ INDEXADO a fusão cnpj→cnpj do build (decisão 12).
+
+    Existe pra que a correção do índice atual não exija reconstruí-lo: um
+    rebuild custa ~17 min relendo 16,7M linhas do Postgres de PRODUÇÃO e ainda
+    APAGA `n_processos` das 182k entidades contadas (o `_bulk` do build usa
+    `index`), obrigando a recontar. Esta função faz a mesma fusão lendo só o ES
+    — é `manage.py corrigir_indice_entidades` quem a chama, com a MESMA decisão
+    (`consolidacao_cnpj`) que o build usa.
+
+    Contrato com a contagem: `n_processos` do líder é PRESERVADO quando o OR não
+    muda, e REMOVIDO quando `variantes_busca` muda — porque aí o número virou
+    passado, e ausência ("não contamos") é honesta enquanto zero e número velho
+    não são. Removido, a entidade vira "faltante" e
+    `contar_processos_entidades --somente-faltantes` a recompõe de graça.
+    """
+    variantes = dict(zip(lider.get('variantes') or [],
+                         lider.get('variantes_n') or []))
+    documentos_2 = set(lider.get('documentos_secundarios') or [])
+    absorvidas_ids = set(lider.get('entidades_absorvidas') or [])
+    n_partes = int(lider.get('n_partes') or 0)
+    mascarados = int(lider.get('documentos_mascarados') or 0)
+    grupos = int(lider.get('grupos_absorvidos') or 0)
+    ente = bool(lider.get('eh_ente_publico'))
+    truncadas = bool(lider.get('variantes_truncadas'))
+
+    for outro in absorvidos:
+        for nome, n in zip(outro.get('variantes') or [],
+                           outro.get('variantes_n') or []):
+            if nome in variantes:
+                variantes[nome] += n
+            elif len(variantes) < MAX_VARIANTES:
+                variantes[nome] = n
+            else:
+                truncadas = True
+        documentos_2 |= set(outro.get('documentos') or [])
+        documentos_2 |= set(outro.get('documentos_secundarios') or [])
+        absorvidas_ids |= {outro['entidade_id']}
+        absorvidas_ids |= set(outro.get('entidades_absorvidas') or [])
+        n_partes += int(outro.get('n_partes') or 0)
+        mascarados += int(outro.get('documentos_mascarados') or 0)
+        grupos += 1 + int(outro.get('grupos_absorvidos') or 0)
+        ente = ente or bool(outro.get('eh_ente_publico'))
+
+    pares = sorted(variantes.items(), key=lambda kv: (-kv[1], kv[0]))
+    busca = variantes_de_busca(pares, n_partes)
+    rotulo = lider.get('nome_canonico') or ''
+    suspeito, motivo = nome_suspeito(rotulo, n_partes)
+
+    novo = {
+        **lider,
+        'variantes': [n for n, _ in pares],
+        'variantes_n': [c for _, c in pares],
+        'n_variantes': len(pares),
+        'variantes_busca': busca,
+        'variantes_truncadas': truncadas,
+        'documentos_secundarios': sorted(documentos_2),
+        'n_documentos_secundarios': len(documentos_2),
+        'entidades_absorvidas': sorted(absorvidas_ids),
+        'grupos_absorvidos': grupos,
+        'documentos_mascarados': mascarados,
+        'eh_ente_publico': ente,
+        'n_partes': n_partes,
+        'nome_suspeito': suspeito,
+        'nome_suspeito_motivo': motivo,
+        'atualizado_em': agora or datetime.now(timezone.utc).isoformat(),
+    }
+    if busca != (lider.get('variantes_busca') or []):
+        novo.pop('n_processos', None)          # o OR mudou: o número envelheceu
+        novo.pop('n_processos_em', None)
+    return novo
 
 
 # --------------------------------------------------------------------------- #
@@ -924,6 +1294,23 @@ def query_autocomplete(termo: str, tamanho: int = 10,
                           'filter': [{'term': {'eh_ente_publico': True}}]}}
     return {
         'size': tamanho,
+        # NOME SUSPEITO FORA DA LISTA (decisão 13): "JOSÉ" (2 linhas de
+        # cadastro) e "MUNICIPIO DE" não são entidade — são cadastro truncado.
+        #
+        # `post_filter` e não `bool.must_not` em volta do `function_score` de
+        # propósito: o `function_score` é a RAIZ da query e o ranking calibrado
+        # (texto × prevalência × atestação) mora nele; embrulhá-lo num `bool`
+        # mudaria a forma da query pra todo mundo que a consome e a inspeciona,
+        # sem ganho nenhum — a exclusão aqui é de HITS, não de escopo de score,
+        # e o conjunto excluído (≈600 de 1,14M) não tem seletividade que
+        # justifique filtrar antes. `post_filter` é exatamente isso: o ES coleta
+        # o top-N já entre os que passam, então `size=10` devolve 10 não-
+        # suspeitos.
+        #
+        # `must_not term` (e não `must exists=false`): doc SEM o campo — índice
+        # construído antes desta decisão — continua aparecendo. Migração aditiva.
+        'post_filter': {'bool': {
+            'must_not': [{'term': {'nome_suspeito': True}}]}},
         'query': {
             'function_score': {
                 'query': query,
@@ -1012,40 +1399,25 @@ def escopo_contagem(min_partes: int = CONTAGEM_MIN_PARTES,
 
     `somente_faltantes` pula quem já tem `n_processos` — é a retomada barata de
     uma passada interrompida, e o que torna re-rodar o comando quase de graça.
+
+    NOME SUSPEITO NUNCA É CONTADO (decisão 13). O `filter` de exclusão vale pros
+    dois caminhos e não é opcional: contar "JOSÉ" custa uma varredura pra
+    produzir 1.796.174 — um número que não é de ninguém e que, gravado, coloca
+    um cadastro truncado no top-10 de "quem mais litiga no Brasil". Como é
+    `must_not exists`… não: é `must_not term`, então documento SEM o campo
+    (índice construído antes desta decisão) continua no escopo — a migração é
+    aditiva, ninguém some por falta de campo.
     """
     deve: list = [{'range': {'n_partes': {'gte': min_partes}}}]
     if incluir_ente_publico:
         deve.append({'term': {'eh_ente_publico': True}})
-    bool_query: dict = {'should': deve, 'minimum_should_match': 1}
+    bool_query: dict = {
+        'should': deve, 'minimum_should_match': 1,
+        'filter': [{'bool': {'must_not': [{'term': {'nome_suspeito': True}}]}}],
+    }
     if somente_faltantes:
         bool_query['must_not'] = [{'exists': {'field': 'n_processos'}}]
     return {'bool': bool_query}
-
-
-def _tokens_grafia(grafia: str) -> tuple:
-    """Tokens de IDENTIDADE de uma grafia, pra comparar uma com a outra.
-
-    Segue o `portuguese_asciifolding` (standard + asciifolding, SEM stopword —
-    "DO" é token pro ES), mas passa antes pelo `limpar_rotulo`, que descasca o
-    papel processual que o PJe cola no nome. Sem isso "FULANO SA - FALIDA" seria
-    sub-frase de "FULANO SA - FALIDA (EXECUTADO(A))" e a poda comeria o nome
-    LIMPO em favor da variante decorada — um subregistro sistemático em toda
-    entidade que o cartório carimbou com o papel.
-    """
-    return tuple(_RE_NAO_ALNUM.sub(
-        ' ', _sem_acento(limpar_rotulo(grafia)).upper()).split())
-
-
-def _e_sub_frase(menor: tuple, maior: tuple) -> bool:
-    """`menor` é uma sequência CONTÍGUA e estritamente menor dentro de `maior`.
-
-    É a relação que o `match_phrase` enxerga: quem procura a frase curta pega
-    todo documento que contém a longa.
-    """
-    if not menor or len(menor) >= len(maior):
-        return False
-    return any(maior[i:i + len(menor)] == menor
-               for i in range(len(maior) - len(menor) + 1))
 
 
 def grafias_para_contagem(grafias, ocorrencias=None) -> list:
