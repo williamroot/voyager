@@ -20,7 +20,7 @@ DRF read-only sob `/api/v1/`. Auth via API key (`Authorization: Api-Key <key>`).
 | GET | `/api/v1/leads/stats/` | Métricas agregadas pro cliente |
 | GET | `/api/v1/busca/processos/<cnj>/` | **Busca v1 (ES)** — doc completo por CNJ exato |
 | GET | `/api/v1/busca/processos/<cnj>/movimentacoes/` | Movs do processo (cursor search_after) |
-| GET | `/api/v1/busca/processos/` | Busca parte/advogado/valor + filtros combinados |
+| GET | `/api/v1/busca/processos/` | Busca parte/advogado/valor/documento/OAB/vara + filtros |
 | GET | `/api/v1/busca/movimentacoes/` | Full-text no body + highlight (ver seção Busca v1) |
 | GET | `/api/v1/health/` | Readiness rico (503 se lag >36h em algum ativo) |
 | GET | `/api/v1/health/liveness/` | Liveness simples (200 sempre se up) |
@@ -241,14 +241,62 @@ curl -sH 'X-API-Key: K' 'https://voyager.was.dev.br/api/v1/busca/movimentacoes/?
  "filtros": {"tribunal": ["TJSP"], "publicado_gte": "2026-07-01", "q": "precatório"}}
 ```
 
+### Filtros ESTRUTURADOS (13/08/2026) — documento, OAB, vara, CNJ
+
+Aditivos, aceitos também em `/busca/processos/` (sem breaking change):
+
+| Param | Campo ES | Nota |
+|---|---|---|
+| `cnj=` | `proc` (term) | com ou sem máscara |
+| `documento=` | `participacoes.documento` (nested) | CPF/CNPJ digitado de qualquer jeito |
+| `documento_raiz=1` | idem, `prefix` na raiz | CNPJ: matriz + filiais |
+| `documento_parciais=1` | idem, `terms` LGPD | inclui `872.***.***-97` etc. |
+| `documento_forcar=1` | — | aceita DV inválido |
+| `parte_polo=` `parte_papel=` | `participacoes.polo/papel` | move `parte=` pro nested |
+| `oab=` | `participacoes.oab` | `SP123456`/`123456/SP`/`sp 123.456` |
+| `vara=` | regexp em `orgao_julgador` OU `juizo` | acento- e caixa-insensível |
+| `vara_exata=` | term nos mesmos campos | valor do autocomplete |
+
+**A máscara é do ÍNDICE.** Medido: `term participacoes.documento =
+"29979036000140"` → **0 docs**; `"29.979.036/0001-40"` → **23.217**. `regexp` de
+11/14 dígitos puros → 0. Por isso `normalizar_documento` gera a forma mascarada
+canônica. DV inválido é **400** (`cpf_dv_invalido`), não "0 resultados".
+
 ### Limitações (ago/2026)
 
-- `parte`/`advogado` = match textual em campo concatenado (sem polo/CPF/CNPJ).
-  Upgrade: nested `participacoes` já está no mapping, mas cobertura prod = 0 até
-  reindex; aí entram `parte_polo=`/`parte_documento=`/`oab=` sem breaking change.
+- **Cobertura dos campos estruturados** (medido em 71.308.806 processos):
+  `partes`/`advs` 100% · `orgao_julgador` não-vazio **25,09%** · `juizo`
+  não-vazio **1,82%** · `participacoes.nome` **1,90%** ·
+  `participacoes.documento` **0,14%** · `participacoes.oab` **0,067%**.
+  Buscar por CPF e achar 0 NÃO é "não tem processo". Quem serve TELA usa
+  `/dashboard/api/busca/processos/`, que devolve essa cobertura no payload.
 - Campos novos (data_autuacao, segredo_justica, enriquecido, assunto_codigo...)
   só existem em docs reindexados pós-7d03bab — filtrar por eles restringe ao subset.
 - `valor_causa` tem outliers de digitação (o serviço não higieniza).
+
+## Busca de processos da TELA (`/dashboard/api/busca/*`)
+
+JSON interno (**sessão logada**, `@require_GET`). Mesmo serviço da v1
+(`search/busca_api.py`) + envelope de honestidade em `search/busca_ui.py`
+(contrato completo no docstring de lá). Views: `dashboard/busca_views.py`.
+
+| Método | Path | Descrição |
+|---|---|---|
+| GET | `/dashboard/api/busca/processos/` | Busca completa + `cobertura` + `avisos` |
+| GET | `/dashboard/api/busca/varas/?q=` | Autocomplete de vara/órgão julgador |
+
+Aceita TODOS os params da v1 mais `q=` (caixa única: detecta CNJ / CPF / CNPJ /
+raiz / OAB / nome e ecoa em `interpretacao`). Além do envelope v1, a resposta
+traz `cobertura` (quanto da base cada critério alcança), `documento`
+(alternativas contadas: raiz do CNPJ, mascarados por LGPD) e `avisos` (frases
+prontas). Erros 400 vêm com `mensagem` humana; ES fora → 503. Cache 60 s por
+querystring; cobertura cacheada 6 h; varas 15 min.
+
+**Latência medida no ES de prod (13/08/2026, frio/morno):** CNJ exato 10/10 ms ·
+nome "INSTITUTO NACIONAL DO SEGURO SOCIAL" (4.403.363 hits) 91/86 ms · CNPJ do
+INSS nas 3 grafias 37-47 ms · OAB 27/24 ms · vara+tribunal 98/80 ms ·
+autocomplete de vara 14-347 ms (termo genérico "vara civel" 902 ms frio, 18 ms
+morno). Pico observado: **1.690 ms** na medição de cobertura (1× a cada 6 h).
 
 ## Mapa Comercial — agregações ES (`/dashboard/api/overview/*`)
 

@@ -31,6 +31,17 @@ Auth: igual aos demais endpoints externos — `HasAPIKeyOrBearer`
      parte      match AND no campo text `partes`  (nomes concatenados)
      advogado   match AND no campo text `advs`    (aceita nome ou nº OAB)
    Filtros combinados (todos opcionais):
+     cnj                 CNJ exato (term em `proc`; aceita com/sem máscara)
+     documento           CPF/CNPJ da parte (nested) — normaliza máscara nos DOIS
+                         sentidos e valida DV. Ver "DOCUMENTO" abaixo.
+     documento_raiz      bool: expande CNPJ pra raiz (matriz + filiais)
+     documento_parciais  bool: inclui os documentos MASCARADOS compatíveis
+     parte_polo          keyword ativo|passivo|outros (nested)
+     parte_papel         keyword AUTOR|EXECUTADO|… (nested)
+     oab                 nº OAB do advogado (nested, normalizado p/ `UF12345`)
+     vara                texto livre da vara/juízo — regexp acento/caixa-
+                         insensível em `orgao_julgador` OU `juizo`
+     vara_exata          valor exato de `orgao_julgador`/`juizo` (do autocomplete)
      tribunal            keyword; CSV pra vários (TJSP,TJRJ ⇒ terms)
      uf                  keyword (SP)
      ano_min/ano_max     int, ano_cnj (clamp [1990, ano atual])
@@ -78,14 +89,59 @@ Entradas recuperáveis degradam limpo: ano clampado, valor negativo ignorado,
 enum desconhecido cai no default, size clampado em [1, 100].
 
 --------------------------------------------------------------------------------
+DOCUMENTO (CPF/CNPJ) — a máscara é do ÍNDICE, não do usuário
+--------------------------------------------------------------------------------
+Medido no ES de prod em 13/08/2026, sobre as 302.609 participações que têm
+`participacoes.documento` preenchido:
+
+    108.892  CNPJ canônico mascarado    29.979.036/0001-40
+    108.826  CPF  canônico mascarado    038.499.054-11
+     32.468  CPF  LGPD                  040.***.***-**
+     30.348  CPF  LGPD                  136.XXX.XXX-XX
+     14.023  CPF  LGPD com DV           872.***.***-97   ← revela 3 dígitos + DV
+      7.500  CNPJ LGPD                  29.9**.***/****-**
+        436  CNPJ LGPD                  00.3XX.XXX/XXXX-XX
+        116  lixo (18-20 dígitos colados, ex. CNPJ+sufixo)
+
+`regexp` de 11 e de 14 dígitos puros devolveu **ZERO**: NENHUM documento está
+gravado sem máscara. Quem digita `29979036000140` acha 0 e quem digita
+`29.979.036/0001-40` acha 23.217 — daí `normalizar_documento`, que joga a
+entrada pra dígitos, valida o DV e GERA a forma mascarada canônica (mais os
+dígitos crus, pelos 116 do lixo).
+
+Expansões (nunca ligadas por padrão — abster > chutar):
+- `documento_raiz`: CNPJ vira `prefix` na raiz de 8 dígitos (`29.979.036/`),
+  unindo matriz e filiais. Medido: 23.217 → 27.044 processos (+16,5%), 11 ms.
+- `documento_parciais`: inclui as formas LGPD compatíveis. Elas NÃO provam
+  identidade — `038.***.***-**` casa 1 CPF em 1.000. A de DV
+  (`872.***.***-97`) casa ~1 em 100.000, mas ainda é indício, não prova.
+
+DV inválido é ERRO DE ENTRADA (400 `cpf_dv_invalido`/`cnpj_dv_invalido`), não
+"não encontrado" — a tela precisa dizer coisas diferentes. Medido em 8.000
+documentos distintos do índice: 1 (0,014%) tem DV inválido, então recusar não
+esconde acervo. Pra esse resíduo existe `documento_forcar=1`.
+
+--------------------------------------------------------------------------------
 LIMITAÇÕES HONESTAS (estado ago/2026)
 --------------------------------------------------------------------------------
-- `parte`/`advogado` são MATCH TEXTUAL num campo concatenado ("Fulano, Sicrano").
-  Sem polo, sem CPF/CNPJ, sem match exato de pessoa. Upgrade planejado: o mapping
-  já tem o nested `participacoes` {nome, nome.raw, documento, oab, tipo, polo,
-  papel, eh_advogado} (agente ES-SCHEMA), mas a cobertura em prod é 0 até o
-  reindex dos 71M docs. Quando coberto, os params ganham `parte_polo=`,
-  `parte_documento=` e `oab=` via nested query — sem breaking change nos atuais.
+- **Cobertura dos campos estruturados é baixa e a resposta tem que dizer isso.**
+  Medido em 13/08/2026 sobre 71.308.806 processos:
+  `partes`/`advs` (texto) 100% · `participacoes.nome` 1,90% ·
+  `orgao_julgador` não-vazio 25,09% · `juizo` não-vazio 1,82% ·
+  `participacoes.documento` 0,14% · `participacoes.oab` 0,067%.
+  Buscar por CPF e achar 0 NÃO significa "essa pessoa não tem processo" —
+  significa que 99,86% da base não tem documento indexado. Quem serve tela usa
+  `search.busca_ui.buscar_processos_ui`, que carrega essa cobertura no payload.
+- `parte`/`advogado` são MATCH TEXTUAL num campo concatenado ("Fulano, Sicrano"):
+  100% de cobertura, zero estrutura (sem polo, sem pessoa exata). O caminho
+  estruturado (`participacoes`) existe e é aceito, mas vale 1,9% da base — por
+  isso `parte` sozinho continua indo pro campo texto, e só migra pro nested
+  quando o cliente pede polo/papel (aí a resposta avisa a troca de escopo).
+- `vara`/`vara_exata` batem em `orgao_julgador` OU `juizo`. `orgao_julgador`
+  EXISTE em 100% dos docs mas é STRING VAZIA em 74,9% deles (53.417.123);
+  `juizo` existe em 6,3% e 70,9% desses são vazios. Vazio nunca casa uma regexp
+  com conteúdo, então o filtro se auto-exclui — mas o universo pesquisável é
+  17,9M (orgão) + 1,3M (juízo), não 71M.
 - Campos novos do mapping (data_autuacao, segredo_justica, enriquecido,
   assunto_codigo, tem_ente_publico_passivo) só existem em docs REINDEXADOS após
   o commit 7d03bab — em prod hoje `data_autuacao` tem cobertura 0 e
@@ -211,6 +267,206 @@ def normalizar_cnj(cnj):
 
 
 # --------------------------------------------------------------------------- #
+# Documento da parte (CPF/CNPJ) — máscara nos dois sentidos + DV
+# --------------------------------------------------------------------------- #
+_RE_NAO_DIGITO = re.compile(r'\D')
+
+#: pesos do 1º e do 2º dígito verificador do CNPJ
+_PESOS_CNPJ_1 = (5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2)
+_PESOS_CNPJ_2 = (6,) + _PESOS_CNPJ_1
+
+
+def _dv_cpf_ok(d: str) -> bool:
+    """Dígito verificador do CPF. Repetido (111.111.111-11) é inválido de fato."""
+    if len(d) != 11 or len(set(d)) == 1:
+        return False
+    for n in (9, 10):
+        soma = sum(int(d[i]) * ((n + 1) - i) for i in range(n))
+        if (soma * 10) % 11 % 10 != int(d[n]):
+            return False
+    return True
+
+
+def _dv_cnpj_ok(d: str) -> bool:
+    if len(d) != 14 or len(set(d)) == 1:
+        return False
+    for pesos, n in ((_PESOS_CNPJ_1, 12), (_PESOS_CNPJ_2, 13)):
+        soma = sum(int(d[i]) * pesos[i] for i in range(n))
+        resto = soma % 11
+        if (0 if resto < 2 else 11 - resto) != int(d[n]):
+            return False
+    return True
+
+
+def mascarar_cpf(d: str) -> str:
+    return f'{d[0:3]}.{d[3:6]}.{d[6:9]}-{d[9:11]}'
+
+
+def mascarar_cnpj(d: str) -> str:
+    return f'{d[0:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:14]}'
+
+
+def normalizar_documento(bruto, forcar=False) -> dict:
+    """Normaliza CPF/CNPJ digitado de QUALQUER jeito pras formas do índice.
+
+    O índice guarda SÓ a forma mascarada (medido: 0 documentos com 11/14 dígitos
+    puros), então a normalização é digitar→dígitos→máscara canônica. Devolve
+    também a raiz do CNPJ e as formas LGPD compatíveis, pro chamador decidir
+    quanto quer esticar (nenhuma delas entra por padrão).
+
+    `forcar=True` aceita DV inválido (0,014% do índice tem — ver docstring do
+    módulo). Comprimento errado NUNCA passa: não é CPF nem CNPJ, ponto.
+
+    Levanta BuscaParamError: 'documento_invalido' | 'cpf_dv_invalido' |
+    'cnpj_dv_invalido'.
+    """
+    s = (bruto or '').strip()
+    if not s:
+        raise BuscaParamError('documento_invalido')
+    digitos = _RE_NAO_DIGITO.sub('', s)
+
+    if len(digitos) == 8:                    # raiz de CNPJ: só matriz+filiais
+        raiz = digitos
+        return {
+            'entrada': s, 'digitos': digitos, 'tipo': 'raiz_cnpj',
+            'mascarado': f'{raiz[0:2]}.{raiz[2:5]}.{raiz[5:8]}',
+            'dv_valido': None, 'raiz': raiz,
+            'raiz_prefixo': f'{raiz[0:2]}.{raiz[2:5]}.{raiz[5:8]}/',
+            'termos_exatos': [],
+            'termos_parciais': [f'{raiz[0:2]}.{raiz[2]}**.***/****-**',
+                                f'{raiz[0:2]}.{raiz[2]}XX.XXX/XXXX-XX'],
+        }
+
+    if len(digitos) == 11:
+        valido = _dv_cpf_ok(digitos)
+        if not valido and not forcar:
+            raise BuscaParamError('cpf_dv_invalido')
+        mascarado = mascarar_cpf(digitos)
+        return {
+            'entrada': s, 'digitos': digitos, 'tipo': 'cpf',
+            'mascarado': mascarado, 'dv_valido': valido,
+            'raiz': None, 'raiz_prefixo': None,
+            'termos_exatos': [mascarado, digitos],
+            # ordem = da mais informativa pra menos: a de DV revela 3 dígitos +
+            # os 2 verificadores; as outras, só os 3 primeiros
+            'termos_parciais': [f'{digitos[0:3]}.***.***-{digitos[9:11]}',
+                                f'{digitos[0:3]}.***.***-**',
+                                f'{digitos[0:3]}.XXX.XXX-XX'],
+        }
+
+    if len(digitos) == 14:
+        valido = _dv_cnpj_ok(digitos)
+        if not valido and not forcar:
+            raise BuscaParamError('cnpj_dv_invalido')
+        mascarado = mascarar_cnpj(digitos)
+        raiz = digitos[0:8]
+        return {
+            'entrada': s, 'digitos': digitos, 'tipo': 'cnpj',
+            'mascarado': mascarado, 'dv_valido': valido,
+            'raiz': raiz, 'raiz_prefixo': f'{raiz[0:2]}.{raiz[2:5]}.{raiz[5:8]}/',
+            'termos_exatos': [mascarado, digitos],
+            'termos_parciais': [f'{digitos[0:2]}.{digitos[2]}**.***/****-**',
+                                f'{digitos[0:2]}.{digitos[2]}XX.XXX/XXXX-XX'],
+        }
+
+    raise BuscaParamError('documento_invalido')
+
+
+#: como o documento é ecoado no payload (o dict inteiro tem termos de query)
+_DOC_ECO = ('entrada', 'tipo', 'digitos', 'mascarado', 'dv_valido', 'raiz')
+
+
+# --------------------------------------------------------------------------- #
+# OAB — o índice grava `PE23255` (UF colada, sem separador, caixa alta)
+# --------------------------------------------------------------------------- #
+_RE_OAB_UF_DEPOIS = re.compile(r'^(\d+[A-Z]?)([A-Z]{2})$')
+
+
+def normalizar_oab(bruto):
+    """'sp 123.456' | '123456/SP' | 'SP123456' → 'SP123456'. Inválido ⇒ None.
+
+    Formato medido no índice: sigla da UF + número, sem separador, às vezes com
+    sufixo de letra (`CE5864A`). Zeros à esquerda NÃO são removidos — o índice
+    tem os dois jeitos e inventar normalização aqui perderia acervo.
+    """
+    s = re.sub(r'[^0-9A-Za-z]', '', (bruto or '')).upper()
+    if not s or not any(c.isdigit() for c in s):
+        return None
+    m = _RE_OAB_UF_DEPOIS.match(s)           # '123456SP' → 'SP123456'
+    if m:
+        return f'{m.group(2)}{m.group(1)}'
+    return s
+
+
+# --------------------------------------------------------------------------- #
+# Vara / juízo — keyword cru, então regexp acento- e caixa-insensível
+# --------------------------------------------------------------------------- #
+#: `orgao_julgador` e `juizo` são keyword SEM analyzer: convivem "VARA DE
+#: EXECUCAO FISCAL" (TRF1, caixa alta sem acento) e "1ª Vara de Execução Fiscal
+#: do DF". Uma classe de caracteres por letra acentuável resolve os dois de uma
+#: vez — medido: `.*[eéèêẽ]x[eéèêẽ][cç]…` devolve 341.697 = 313.105 (com acento)
+#: + 28.592 (sem), em 28 ms frio / 8 ms morno.
+_CLASSES_ACENTO = {
+    'a': 'aáàâãäªAÁÀÂÃÄ', 'e': 'eéèêëEÉÈÊË', 'i': 'iíìîïIÍÌÎÏ',
+    'o': 'oóòôõöºOÓÒÔÕÖ', 'u': 'uúùûüUÚÙÛÜ', 'c': 'cçCÇ', 'n': 'nñNÑ',
+}
+#: metacaracteres da regexp do Lucene (a sintaxe é a dele, não a do Python)
+_REGEXP_ESCAPAR = set('.?+*|{}[]()"\\#@&<>~')
+
+VARA_MIN_CARACTERES = 3
+VARA_CAMPOS = ('orgao_julgador', 'juizo')
+
+
+def regexp_contendo(termo: str) -> str:
+    """Texto livre → regexp Lucene que casa a SUBSTRING, ignorando acento e caixa.
+
+    Cada token vira um trecho e os tokens são unidos por `.*` — digitar mais
+    palavras ESTREITA ("vara federal campinas" casa "5ª Vara Federal de
+    Campinas"). Sem tokens úteis ⇒ None (o chamador não filtra).
+    """
+    tokens = [t for t in re.split(r'\s+', (termo or '').strip()) if t]
+    if not tokens:
+        return None
+    partes = []
+    for tok in tokens:
+        buf = []
+        for ch in tok:
+            classe = _CLASSES_ACENTO.get(ch.lower())
+            if classe:
+                buf.append(f'[{classe}]')
+            elif ch in _REGEXP_ESCAPAR:
+                buf.append('\\' + ch)
+            else:
+                buf.append(ch)
+        partes.append(''.join(buf))
+    return '.*' + '.*'.join(partes) + '.*'
+
+
+def clausula_vara(termo: str, campos=VARA_CAMPOS):
+    """`vara=` (texto livre) → should sobre `orgao_julgador` e `juizo`.
+
+    String vazia se auto-exclui: a regexp sempre tem conteúdo literal, e o
+    documento com `juizo: ""` (3.169.792 deles) nunca casa. Não precisa de
+    `must_not term ""` — que custaria uma cláusula a mais em toda busca.
+    """
+    rx = regexp_contendo(termo)
+    if not rx:
+        return None
+    return {'bool': {'should': [
+        {'regexp': {c: {'value': rx, 'case_insensitive': True}}} for c in campos
+    ], 'minimum_should_match': 1}}
+
+
+def clausula_vara_exata(valor: str, campos=VARA_CAMPOS):
+    """Valor vindo do autocomplete → term exato. Vazio é recusado (casaria 74,9%)."""
+    v = (valor or '').strip()
+    if not v:
+        return None
+    return {'bool': {'should': [{'term': {c: v}} for c in campos],
+                     'minimum_should_match': 1}}
+
+
+# --------------------------------------------------------------------------- #
 # Cursor opaco (search_after)
 # --------------------------------------------------------------------------- #
 def encode_cursor(sort_values) -> str:
@@ -238,10 +494,47 @@ def decode_cursor(cursor):
 def parse_filtros_processos(qd) -> dict:
     """Extrai e SANEIA filtros de processos de um dict-like (request.GET).
 
-    Nunca levanta: inválido é clampado/descartado. Devolve só o efetivamente usado.
+    Recuperável é clampado/descartado (ano fora da janela, valor negativo, data
+    lixo). Levanta BuscaParamError só no que é ERRO DE ENTRADA e não tem
+    degradação honesta: CNJ malformado, CPF/CNPJ com DV inválido ou comprimento
+    impossível — devolver "0 resultados" nesses casos seria mentir sobre o
+    acervo. As views mapeiam pra 400.
     """
     g = qd.get
     filtros: dict = {}
+
+    cnj = (g('cnj') or '').strip()
+    if cnj:
+        filtros['cnj'] = normalizar_cnj(cnj)          # inválido ⇒ 400
+
+    documento = (g('documento') or '').strip()
+    if documento:
+        forcar = _to_bool(g('documento_forcar')) is True
+        filtros['documento'] = normalizar_documento(documento, forcar=forcar)
+        if _to_bool(g('documento_raiz')) is True:
+            filtros['documento_raiz'] = True
+        if _to_bool(g('documento_parciais')) is True:
+            filtros['documento_parciais'] = True
+
+    polo = (g('parte_polo') or '').strip().lower()
+    if polo in ('ativo', 'passivo', 'outros'):
+        filtros['parte_polo'] = polo
+
+    papel = (g('parte_papel') or '').strip().upper()
+    if papel:
+        filtros['parte_papel'] = papel
+
+    oab = normalizar_oab(g('oab'))
+    if oab:
+        filtros['oab'] = oab
+
+    vara_exata = (g('vara_exata') or '').strip()
+    if vara_exata:
+        filtros['vara_exata'] = vara_exata
+    else:
+        vara = ' '.join((g('vara') or '').split())[:120]
+        if len(vara) >= VARA_MIN_CARACTERES:
+            filtros['vara'] = vara
 
     tribunal = (g('tribunal') or '').strip().upper()
     if tribunal:
@@ -297,9 +590,73 @@ def parse_filtros_processos(qd) -> dict:
     return filtros
 
 
-def build_clauses_processos(filtros: dict) -> list:
+def clausula_nested_parte(filtros: dict, nome=None):
+    """Cláusula nested da PARTE (documento + polo + papel [+ nome]).
+
+    Tudo num nested SÓ de propósito: "documento X no polo passivo" tem que ser a
+    MESMA participação. Dois nested separados casariam o documento numa parte e
+    o polo em outra do mesmo processo — falso positivo silencioso.
+    """
+    inner: list = []
+
+    doc = filtros.get('documento')
+    if doc:
+        should = []
+        if doc['termos_exatos']:
+            should.append({'terms': {'participacoes.documento': doc['termos_exatos']}})
+        if doc.get('raiz_prefixo') and (filtros.get('documento_raiz')
+                                        or doc['tipo'] == 'raiz_cnpj'):
+            should.append({'prefix': {'participacoes.documento': doc['raiz_prefixo']}})
+        if filtros.get('documento_parciais') and doc['termos_parciais']:
+            should.append({'terms': {'participacoes.documento': doc['termos_parciais']}})
+        if not should:                    # raiz sem expansão: nada pesquisável
+            return None
+        inner.append({'bool': {'should': should, 'minimum_should_match': 1}})
+
+    if filtros.get('parte_polo'):
+        inner.append({'term': {'participacoes.polo': filtros['parte_polo']}})
+    if filtros.get('parte_papel'):
+        inner.append({'term': {'participacoes.papel': filtros['parte_papel']}})
+    if nome:
+        inner.append({'match': {'participacoes.nome': {'query': nome,
+                                                       'operator': 'and'}}})
+    if not inner:
+        return None
+    return {'nested': {'path': 'participacoes',
+                       'query': {'bool': {'filter': inner}}}}
+
+
+def clausula_nested_advogado(filtros: dict):
+    """OAB é de OUTRA pessoa que não a parte — nested próprio (ver acima)."""
+    if not filtros.get('oab'):
+        return None
+    return {'nested': {'path': 'participacoes', 'query': {'bool': {'filter': [
+        {'term': {'participacoes.oab': filtros['oab']}},
+    ]}}}}
+
+
+def build_clauses_processos(filtros: dict, nome_parte=None) -> list:
     """Traduz filtros saneados em cláusulas `filter` (sem scoring — cacheável)."""
     clauses: list = []
+
+    if filtros.get('cnj'):
+        clauses.append({'term': {'proc': filtros['cnj']}})
+
+    nested_parte = clausula_nested_parte(filtros, nome=nome_parte)
+    if nested_parte:
+        clauses.append(nested_parte)
+    nested_adv = clausula_nested_advogado(filtros)
+    if nested_adv:
+        clauses.append(nested_adv)
+
+    if filtros.get('vara_exata'):
+        c = clausula_vara_exata(filtros['vara_exata'])
+        if c:
+            clauses.append(c)
+    elif filtros.get('vara'):
+        c = clausula_vara(filtros['vara'])
+        if c:
+            clauses.append(c)
 
     trib = filtros.get('tribunal')
     if trib:
@@ -528,6 +885,91 @@ def movimentacoes_por_cnj(cnj: str, size=MOVS_SIZE_DEFAULT, cursor=None) -> dict
     return pagina
 
 
+def montar_query_processos(parte=None, advogado=None, filtros=None):
+    """Monta a `query` ES da busca de processos. Reusada pela v1 e pela tela.
+
+    Devolve (query, tem_texto, parte_escopo):
+    - `parte` sozinho vai pro campo TEXTO `partes` (100% de cobertura);
+    - `parte` COM `parte_polo`/`parte_papel` migra pro nested `participacoes.nome`
+      — polo/papel só existem lá — e o escopo cai pra 1,9% da base. Quem chama
+      recebe `parte_escopo` justamente pra avisar o usuário da troca.
+    """
+    filtros = filtros or {}
+    nested_parte = bool(parte) and bool(filtros.get('parte_polo')
+                                        or filtros.get('parte_papel'))
+    must = []
+    if parte and not nested_parte:
+        must.append(_match_and('partes', parte))
+    if advogado:
+        must.append(_match_and('advs', advogado))
+
+    bool_q: dict = {}
+    if must:
+        bool_q['must'] = must
+    clauses = build_clauses_processos(filtros,
+                                      nome_parte=parte if nested_parte else None)
+    if clauses:
+        bool_q['filter'] = clauses
+
+    query = {'bool': bool_q} if bool_q else {'match_all': {}}
+    escopo = 'nested' if nested_parte else ('texto' if parte else None)
+    return query, bool(must), escopo
+
+
+def montar_body_processos(parte=None, advogado=None, filtros=None, ordenar=None,
+                          size=SIZE_DEFAULT, cursor=None, total_exato=True):
+    """Corpo da busca de processos. Devolve (body, ordenar_efetivo, parte_escopo).
+
+    `total_exato=False` é pra quem vai contar numa sub-busca separada: MEDIDO no
+    ES de prod (13/08) na busca do INSS (4,4M hits), `size=20 + sort +
+    track_total_hits` custa 1.053-1.094 ms; a MESMA página sem a flag custa
+    68-76 ms e a contagem `size:0` em filter context custa 170 ms frio / 1 ms
+    morno. Num `_msearch` as duas viram 281 ms frio / ~110 ms morno, com o total
+    exato preservado. Contar 4,4M docs é barato; contar E ordenar no mesmo
+    request é que não é (a contagem exaustiva desliga o block-max WAND).
+    """
+    size = clamp_size(size)
+    query, tem_texto, escopo = montar_query_processos(parte, advogado, filtros)
+    ordenar_efetivo, sort = sort_processos(ordenar, tem_texto=tem_texto)
+
+    body = {
+        'size': size,
+        'sort': sort,
+        'query': query,
+        'timeout': ES_QUERY_TIMEOUT,
+    }
+    if total_exato:
+        # Sem isto o ES para de contar em 10.000 e devolve
+        # {"value": 10000, "relation": "gte"} — a busca por "Instituto Nacional
+        # do Seguro Social" dizia "10.000+" quando são 4.403.363 processos.
+        # "10 mil ou mais" e "4,4 milhões" levam a decisões comerciais opostas.
+        body['track_total_hits'] = True
+    # NÃO mandar `track_scores` aqui. Ele era "explícito por clareza" e custava
+    # 17×: medido em 13/08/2026 na busca do INSS (página de 20, sort por
+    # _score), took = 68-76 ms sem flag nenhuma, 1.245-1.293 ms com
+    # `track_scores`, 1.053-1.094 ms com `track_total_hits`, 1.293-1.376 ms com
+    # as duas. Qualquer uma das duas desliga o block-max WAND (o ES passa a
+    # pontuar TODOS os 4,4M em vez de pular o não-competitivo). Os 5 primeiros
+    # hits e seus scores são idênticos com e sem a flag — ela não trazia nada.
+    after = decode_cursor(cursor)
+    if after:
+        body['search_after'] = after
+    return body, ordenar_efetivo, escopo
+
+
+def body_contagem_processos(parte=None, advogado=None, filtros=None) -> dict:
+    """Sub-busca de CONTAGEM (size 0, filter context, sem sort): total exato barato."""
+    query, _tem_texto, _escopo = montar_query_processos(parte, advogado, filtros)
+    # tudo em filter: contagem não precisa de score, e sem scoring o ES conta
+    # por bitset (medido: 195 ms na busca do INSS, 1 ms morno)
+    if 'bool' in query and query['bool'].get('must'):
+        b = dict(query['bool'])
+        b['filter'] = list(b.get('filter') or []) + list(b.pop('must'))
+        query = {'bool': b}
+    return {'size': 0, 'track_total_hits': True, 'query': query,
+            'timeout': ES_QUERY_TIMEOUT}
+
+
 def buscar_processos(parte=None, advogado=None, filtros=None, ordenar=None,
                      size=SIZE_DEFAULT, cursor=None) -> dict:
     """Busca de processos: texto (partes/advs) + filtros combinados + ordenação.
@@ -536,42 +978,8 @@ def buscar_processos(parte=None, advogado=None, filtros=None, ordenar=None,
     """
     filtros = filtros or {}
     size = clamp_size(size)
-    must = []
-    if parte:
-        must.append(_match_and('partes', parte))
-    if advogado:
-        must.append(_match_and('advs', advogado))
-
-    ordenar_efetivo, sort = sort_processos(ordenar, tem_texto=bool(must))
-
-    bool_q: dict = {}
-    if must:
-        bool_q['must'] = must
-    clauses = build_clauses_processos(filtros)
-    if clauses:
-        bool_q['filter'] = clauses
-
-    body = {
-        'size': size,
-        'sort': sort,
-        'timeout': ES_QUERY_TIMEOUT,
-        # Sem isto o ES para de contar em 10.000 e devolve
-        # {"value": 10000, "relation": "gte"} — a busca por "Instituto Nacional
-        # do Seguro Social" dizia "10.000+" quando são 4.402.239 processos.
-        # "10 mil ou mais" e "4,4 milhões" levam a decisões comerciais opostas.
-        # Custa uma contagem exata por busca; num índice de 71M com filtro por
-        # termo o ES resolve por bitset, não por varredura.
-        'track_total_hits': True,
-    }
-    if bool_q:
-        body['query'] = {'bool': bool_q}
-    else:
-        body['query'] = {'match_all': {}}
-    if ordenar_efetivo == 'relevancia':
-        body['track_scores'] = True   # sort por _score já traz; explícito por clareza
-    after = decode_cursor(cursor)
-    if after:
-        body['search_after'] = after
+    body, ordenar_efetivo, _escopo = montar_body_processos(
+        parte, advogado, filtros, ordenar, size, cursor)
 
     resp = _executar('processos', body)
     pagina = _montar_pagina(resp, size)
@@ -633,8 +1041,16 @@ def buscar_movimentacoes(q=None, filtros=None, ordenar=None,
 
 
 def _ecoar_filtros(filtros: dict, **extras) -> dict:
-    """Ecoa filtros saneados + critérios textuais efetivamente aplicados."""
+    """Ecoa filtros saneados + critérios textuais efetivamente aplicados.
+
+    O `documento` sai enxuto: o dict interno carrega os termos de query (formas
+    mascaradas, raiz, parciais LGPD) que são detalhe de implementação — o
+    cliente quer saber o que ENTENDEMOS do que ele digitou.
+    """
     out = dict(filtros)
+    doc = out.get('documento')
+    if isinstance(doc, dict):
+        out['documento'] = {k: doc.get(k) for k in _DOC_ECO}
     for k, v in extras.items():
         if v:
             out[k] = v

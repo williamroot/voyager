@@ -3,6 +3,7 @@ from django.urls import path
 from django.views.generic.base import RedirectView
 
 from . import views
+from . import busca_views
 from . import overview_views
 from . import showcase_analise
 from . import showcase_chunks
@@ -102,6 +103,12 @@ urlpatterns = [
     # consumir o mesmo endpoint).
     path('api/entidades/autocomplete', overview_views.entidades_autocomplete,
          name='entidades-autocomplete'),
+    # BUSCA DE PROCESSOS — contrato JSON completo em search/busca_ui.py.
+    # Reusa o mesmo serviço da API externa /api/v1/busca/* (search/busca_api.py);
+    # o que muda aqui é o envelope de cobertura ("CPF varre 0,14% da base").
+    path('api/busca/processos/', busca_views.busca_processos,
+         name='busca-processos'),
+    path('api/busca/varas/', busca_views.busca_varas, name='busca-varas'),
     # TELAS DE ENTIDADES ("quem deve") — contrato em search/agg_entidade.py.
     # A rota do ranking vem DEPOIS do autocomplete de propósito: `<str:...>`
     # casaria "autocomplete" como se fosse um entidade_id (o Django resolve na

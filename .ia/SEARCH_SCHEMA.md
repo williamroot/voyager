@@ -76,10 +76,58 @@ Cardinalidade por doc é pequena (mediana <10 participações; limite ES
 `ParteTribunal`/`PartePapel` — se um dia precisar sair do PG, aí sim nasce o
 `voyager-partes` (parte → stats), sem conflito com o nested.
 
-Limitações conhecidas do nested: `documento` pode vir MASCARADO
-(`639.XXX.XXX-XX` — TRF3); busca por CPF exato não acha a versão mascarada
-(dedupe disso é no Postgres). O vínculo advogado→representado
+#### `participacoes.documento` — taxonomia MEDIDA das grafias (13/08/2026)
+
+O campo é `keyword` e guarda o documento **SEMPRE mascarado**. Varrido o índice
+inteiro (302.609 participações com o campo preenchido, de 6,6M):
+
+| forma | n | exemplo |
+|---|---|---|
+| CNPJ canônico | 108.892 | `29.979.036/0001-40` |
+| CPF canônico | 108.826 | `038.499.054-11` |
+| CPF LGPD | 32.468 | `040.***.***-**` |
+| CPF LGPD | 30.348 | `136.XXX.XXX-XX` |
+| CPF LGPD **com DV** | 14.023 | `872.***.***-97` (3 dígitos + verificadores) |
+| CNPJ LGPD | 7.500 | `29.9**.***/****-**` |
+| CNPJ LGPD | 436 | `00.3XX.XXX/XXXX-XX` |
+| lixo | 116 | `14921092000157131436` (18-20 dígitos colados) |
+
+**`regexp` de 11 e de 14 dígitos puros devolve ZERO.** Não existe documento sem
+máscara no índice: quem digita `29979036000140` acha 0 e quem digita
+`29.979.036/0001-40` acha 23.217. Quem consome tem de gerar a forma mascarada
+canônica — `search.busca_api.normalizar_documento` faz isso (entrada→dígitos→
+máscara), valida o DV e devolve também a raiz e as formas LGPD compatíveis.
+
+`prefix` na raiz do CNPJ (`29.979.036/`) une matriz e filiais: 23.217 → **27.044**
+processos (+16,5%), custo 11 ms frio / 1 ms morno.
+
+DV como filtro de entrada é seguro: em 8.000 documentos distintos varridos,
+**1** (0,014%) tem DV inválido — recusar entrada malformada não esconde acervo.
+Já `documentos_secundarios` (`.ia` decisão 12) lembra que DV VÁLIDO não prova
+identidade: 3 dos 4 CNPJs errados do INSS têm DV perfeito.
+
+Limitações conhecidas do nested: o vínculo advogado→representado
 (`ProcessoParte.representa`) não é modelado no ES (consultar no PG pelo id).
+`participacoes.oab` grava `PE23255` (UF colada, sem separador, às vezes com
+sufixo de letra: `CE5864A`).
+
+#### `orgao_julgador` / `juizo` — a vara, e a armadilha da string vazia
+
+Medido em 71.308.806 processos: `orgao_julgador` **existe em 100%** dos docs mas
+é **STRING VAZIA em 53.417.123** deles (74,9%) → universo real **17.891.683
+(25,09%)**, 29.488 grafias distintas. `juizo` existe em 4.469.787 (6,3%) e
+3.169.792 desses são vazios → **1.299.995 (1,82%)**, 1.270 grafias.
+Contar `exists` nesses campos MEDE 100% e mente por construção.
+
+São `keyword` sem analyzer, e as grafias são incompatíveis entre tribunais
+("VARA DE EXECUCAO FISCAL…" no TRF1, "1ª Vara de Execução Fiscal do DF" no
+TJDFT). Busca por vara = `regexp` com classe de caracteres por letra acentuável
++ `case_insensitive` (`search.busca_api.regexp_contendo`): `.*[eéèêë]x[eéèêë]
+[cç][uúùûü][cç][aáàâãä][oóòôõö] fiscal.*` devolve **341.697** = 313.105 (com
+acento) + 28.592 (sem), em **28 ms frio / 8 ms morno**. A regexp sempre tem
+conteúdo literal, então o doc com campo vazio se auto-exclui do filtro.
+`terms` agg SOLTO nesses campos custa **5,1 s** — autocomplete só com o regexp
+na frente (73 ms frio / 13 ms morno).
 
 ## voyager-movimentacoes
 
