@@ -59,7 +59,7 @@ português — a fonte da verdade continua sendo o número do payload.
     // Argumento POSICIONAL de propósito: assim o template não depende do nome
     // do kwarg escolhido no urls.py.
     ficha: "{% url 'dashboard:entidade' '__ID__' %}",
-    mapa: "{% url 'dashboard:comercial-mapa-page' %}",
+    mapa: "{% url 'dashboard:overview-mapa-page' %}",
   };
 
   // Esta tela NÃO tem glossário de tooltip, de propósito. Tudo o que muda a
@@ -374,7 +374,7 @@ português — a fonte da verdade continua sendo o número do payload.
 
   {# ---- navegação + carimbo ---- #}
   <div class="flex flex-wrap items-center justify-between gap-3">
-    <a href="{% url 'dashboard:comercial-mapa-page' %}"
+    <a href="{% url 'dashboard:overview-mapa-page' %}"
        class="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg rounded-md px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
       {% voy_icon "trajectory" "w-4 h-4 shrink-0" %}
       <span>Voltar ao Mapa de Precatórios</span>

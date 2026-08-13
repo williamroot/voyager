@@ -41,7 +41,7 @@ pytestmark = pytest.mark.django_db
 User = get_user_model()
 
 URL_NAME = 'dashboard:entidades-autocomplete'
-PAGINA = 'dashboard:comercial-mapa-page'
+PAGINA = 'dashboard:overview-mapa-page'
 
 #: cache local: o teste não pode depender do Redis do ambiente nem sujar chave
 #: compartilhada — e o TTL do endpoint é justamente uma das garantias testadas.
@@ -134,7 +134,7 @@ def test_termo_curto_nao_toca_no_es(logado, termo):
     A guarda é do BACKEND (a do browser é conveniência): quem chamar o endpoint
     na mão também não derruba o cluster.
     """
-    with patch('dashboard.comercial_views.get_es') as get_es:
+    with patch('dashboard.overview_views.get_es') as get_es:
         resp = logado.get(reverse(URL_NAME), {'q': termo})
         assert not get_es.called, 'termo curto foi ao Elasticsearch'
     assert resp.status_code == 200
@@ -155,7 +155,7 @@ def test_busca_valida_usa_o_servico_e_o_indice_do_setting(logado):
     """
     es = MagicMock()
     es.search.return_value = _resposta_es(DOC_INSS)
-    with patch('dashboard.comercial_views.get_es', return_value=es):
+    with patch('dashboard.overview_views.get_es', return_value=es):
         resp = logado.get(reverse(URL_NAME), {'q': 'inss'})
     assert resp.status_code == 200
     _args, kwargs = es.search.call_args
@@ -169,7 +169,7 @@ def test_busca_valida_usa_o_servico_e_o_indice_do_setting(logado):
 def test_item_traz_o_que_a_ui_mostra(logado):
     es = MagicMock()
     es.search.return_value = _resposta_es(DOC_INSS)
-    with patch('dashboard.comercial_views.get_es', return_value=es):
+    with patch('dashboard.overview_views.get_es', return_value=es):
         item = logado.get(reverse(URL_NAME), {'q': 'inss'}).json()['itens'][0]
 
     assert item['entidade_id'] == 'cnpj:29979036'
@@ -199,7 +199,7 @@ def test_n_processos_ausente_vira_null_nunca_zero(logado):
     es = MagicMock()
     es.search.return_value = _resposta_es(DOC_INSS, {**DOC_INSS,
                                                     'entidade_id': 'x', 'n_processos': None})
-    with patch('dashboard.comercial_views.get_es', return_value=es):
+    with patch('dashboard.overview_views.get_es', return_value=es):
         dados = logado.get(reverse(URL_NAME), {'q': 'inss'}).json()
     assert [i['n_processos'] for i in dados['itens']] == [None, None]
     assert dados['contagem_processos_disponivel'] is False
@@ -216,7 +216,7 @@ def test_n_processos_presente_passa_como_numero(logado):
         {**DOC_INSS, 'n_processos': 4418191},
         {**DOC_INSS, 'entidade_id': 'nome:zzz', 'n_processos': 0},
     )
-    with patch('dashboard.comercial_views.get_es', return_value=es):
+    with patch('dashboard.overview_views.get_es', return_value=es):
         dados = logado.get(reverse(URL_NAME), {'q': 'inss'}).json()
     assert [i['n_processos'] for i in dados['itens']] == [4418191, 0]
     assert dados['contagem_processos_disponivel'] is True
@@ -225,7 +225,7 @@ def test_n_processos_presente_passa_como_numero(logado):
 def test_es_fora_vira_503_e_nao_500(logado):
     es = MagicMock()
     es.search.side_effect = RuntimeError('connection refused')
-    with patch('dashboard.comercial_views.get_es', return_value=es):
+    with patch('dashboard.overview_views.get_es', return_value=es):
         resp = logado.get(reverse(URL_NAME), {'q': 'inss'})
     assert resp.status_code == 503
     assert 'erro' in resp.json()
@@ -235,7 +235,7 @@ def test_cache_curto_por_termo(logado):
     """Digitação repetida não repete a query — e o cache é declarado no payload."""
     es = MagicMock()
     es.search.return_value = _resposta_es(DOC_INSS)
-    with patch('dashboard.comercial_views.get_es', return_value=es):
+    with patch('dashboard.overview_views.get_es', return_value=es):
         primeira = logado.get(reverse(URL_NAME), {'q': 'inss'}).json()
         segunda = logado.get(reverse(URL_NAME), {'q': 'INSS'}).json()   # caixa não importa
         assert es.search.call_count == 1
@@ -256,7 +256,7 @@ def test_n_e_clampado(logado, bruto, esperado):
     params = {'q': 'inss'}
     if bruto is not None:
         params['n'] = bruto
-    with patch('dashboard.comercial_views.get_es', return_value=es):
+    with patch('dashboard.overview_views.get_es', return_value=es):
         logado.get(reverse(URL_NAME), params)
     assert es.search.call_args.kwargs['size'] == esperado
 
@@ -264,7 +264,7 @@ def test_n_e_clampado(logado, bruto, esperado):
 def test_filtro_de_ente_publico(logado):
     es = MagicMock()
     es.search.return_value = _resposta_es()
-    with patch('dashboard.comercial_views.get_es', return_value=es):
+    with patch('dashboard.overview_views.get_es', return_value=es):
         logado.get(reverse(URL_NAME), {'q': 'fazenda', 'ente': '1'})
     query = es.search.call_args.kwargs['query']['function_score']['query']
     assert query['bool']['filter'] == [{'term': {'eh_ente_publico': True}}]
@@ -274,9 +274,9 @@ def test_redis_fora_nao_derruba_o_autocomplete(logado):
     """Cache é otimização: Redis fora degrada pra consulta direta, não pra erro."""
     es = MagicMock()
     es.search.return_value = _resposta_es(DOC_INSS)
-    with patch('dashboard.comercial_views.get_es', return_value=es), \
-         patch('dashboard.comercial_views.cache.get', side_effect=RuntimeError('redis down')), \
-         patch('dashboard.comercial_views.cache.set', side_effect=RuntimeError('redis down')):
+    with patch('dashboard.overview_views.get_es', return_value=es), \
+         patch('dashboard.overview_views.cache.get', side_effect=RuntimeError('redis down')), \
+         patch('dashboard.overview_views.cache.set', side_effect=RuntimeError('redis down')):
         resp = logado.get(reverse(URL_NAME), {'q': 'inss'})
     assert resp.status_code == 200
     assert len(resp.json()['itens']) == 1

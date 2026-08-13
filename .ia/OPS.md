@@ -702,7 +702,7 @@ repõe é um job de scheduler que só roda de 6 em 6 horas.
 
 Cura: `docker exec voyager-web-1 python manage.py shell -c "from dashboard
 import tasks; tasks.warm_cobertura_enriquecimento()"` (rode **detached**, leva
-~1min e tem lock próprio). Confirme com `agg_comercial._cobertura_por_uf()`
+~1min e tem lock próprio). Confirme com `agg_overview._cobertura_por_uf()`
 devolvendo 28 UFs.
 
 Em vez de limpar tudo, apague a chave específica —

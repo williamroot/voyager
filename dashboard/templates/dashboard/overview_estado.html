@@ -8,7 +8,7 @@
 {% comment %}
 PÁGINA DEDICADA DE UM ESTADO (Mapa Comercial).
 - Abre em aba nova a partir do drill-down do mapa, carregando os MESMOS filtros.
-- Shell puro: todo número vem de GET /dashboard/api/comercial/estado/<uf>/
+- Shell puro: todo número vem de GET /dashboard/api/overview/estado/<uf>/
   (contrato completo no topo de `search/agg_estado.py`).
 - ECharts local (base.html) — CSP: zero CDN, zero URL externa.
 - Padrões herdados do mapa e que NÃO podem regredir:
@@ -42,8 +42,8 @@ PÁGINA DEDICADA DE UM ESTADO (Mapa Comercial).
   window.ESTADO_NOME = "{{ uf_nome|escapejs }}";
   window.ESTADO_URLS = {
     // '__UF__' é trocado em runtime — a rota é resolvida pelo `url` tag mesmo assim.
-    dados: "{% url 'dashboard:comercial-estado' uf='__UF__' %}",
-    mapa: "{% url 'dashboard:comercial-mapa-page' %}",
+    dados: "{% url 'dashboard:overview-estado' uf='__UF__' %}",
+    mapa: "{% url 'dashboard:overview-mapa-page' %}",
   };
 
   // Glossário canônico. As frases de `volume`, `valor`, `potencial`,

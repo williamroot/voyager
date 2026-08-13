@@ -148,8 +148,8 @@ def _limpa_cache():
 # --------------------------------------------------------------------------- #
 def test_reexporta_parse_filtros_do_mapa():
     """A ficha usa os MESMOS filtros do mapa — reuso, não cópia."""
-    from search import agg_comercial
-    assert ae.parse_filtros is agg_comercial.parse_filtros
+    from search import agg_overview
+    assert ae.parse_filtros is agg_overview.parse_filtros
 
 
 def test_reusa_o_dono_do_cadastro_para_montar_o_or():
@@ -459,7 +459,7 @@ def test_body_da_ficha_e_or_de_match_phrase_com_total_exato():
 
 
 def test_body_da_ficha_aplica_os_filtros_do_mapa():
-    from search.agg_comercial import parse_filtros
+    from search.agg_overview import parse_filtros
     filtros = parse_filtros(_qd(uf='SP', ano_min='2024'))
     clausulas = ae.build_body_ficha(INSS, filtros)['query']['bool']['filter']
     assert {'term': {'uf': 'SP'}} in clausulas
@@ -561,7 +561,7 @@ def test_ficha_expoe_a_auditoria_da_fusao(mock_es):
 @patch('search.agg_entidade.get_es')
 def test_ficha_com_filtro_traz_o_denominador_da_entidade_inteira(mock_es):
     """"23.795 de 4.402.239" só existe com a 2ª sub-busca (msearch)."""
-    from search.agg_comercial import parse_filtros
+    from search.agg_overview import parse_filtros
     es = _mock_es(search=_resp_ranking([INSS]),
                   msearch=[_resp_ficha(total=23795),
                            {'hits': {'total': {'value': 4402239}}}])
@@ -577,7 +577,7 @@ def test_ficha_com_filtro_traz_o_denominador_da_entidade_inteira(mock_es):
 @patch('search.agg_entidade.get_es')
 def test_ficha_ignora_parte_e_entidade_id_da_querystring(mock_es):
     """Quem manda é a rota — senão a ficha do INSS mostraria outra entidade."""
-    from search.agg_comercial import parse_filtros
+    from search.agg_overview import parse_filtros
     mock_es.return_value = _mock_es(search=_resp_ranking([INSS]),
                                     msearch=[_resp_ficha()])
     filtros = parse_filtros(_qd(parte='caixa', entidade_id='cnpj:00360305'))

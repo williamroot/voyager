@@ -56,7 +56,7 @@ Objeto BUCKET (unidade de resposta, mesma forma pra UF e tribunal):
                                //   sobre números que já vieram no bucket.
     }
 
-1) GET /dashboard/api/comercial/mapa
+1) GET /dashboard/api/overview/mapa
    → {
        "ufs":   [ <bucket com "uf">, ... ],   // ordenado por score_foco desc
        "total": { "volume", "valor", "potencial", "confirmado" },  // sem uf
@@ -64,7 +64,7 @@ Objeto BUCKET (unidade de resposta, mesma forma pra UF e tribunal):
        "gerado_em": "2026-08-11T12:00:00+00:00"
      }
 
-2) GET /dashboard/api/comercial/tribunais?uf=SP
+2) GET /dashboard/api/overview/tribunais?uf=SP
    → {
        "uf": "SP",
        "tribunais": [ <bucket com "tribunal">, ... ],  // score_foco desc
@@ -74,7 +74,7 @@ Objeto BUCKET (unidade de resposta, mesma forma pra UF e tribunal):
      }
    `uf` é obrigatório aqui (400 se ausente/ inválido).
 
-3) GET /dashboard/api/comercial/top?metric=score&n=10&lente=todos
+3) GET /dashboard/api/overview/top?metric=score&n=10&lente=todos
    → {
        "metric": "score",       // score | volume | valor | potencial | confirmado | todos
        "lente": "todos",        // potencial | confirmado | todos — só afeta metric=score;
@@ -567,7 +567,7 @@ def get_es():
     """Wrapper lazy do cliente ES (evita importar `elasticsearch` no import do módulo).
 
     Existe como atributo de módulo pra ser mockável nos testes
-    (`@patch('search.agg_comercial.get_es')`) sem exigir o pacote elasticsearch.
+    (`@patch('search.agg_overview.get_es')`) sem exigir o pacote elasticsearch.
     """
     from search.client import get_es as _get_es
     return _get_es()

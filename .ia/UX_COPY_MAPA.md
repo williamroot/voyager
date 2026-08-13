@@ -1,4 +1,4 @@
-# Copy deck — Mapa de Precatórios (`/dashboard/comercial/mapa/`)
+# Copy deck — Mapa de Precatórios (`/dashboard/overview/mapa/`)
 
 **Autor:** UX Writer. **Escopo:** só microcopy. **Não editar o template a partir daqui sem ler a seção 6.**
 **Arquivo alvo da implementação:** `dashboard/templates/dashboard/comercial_mapa.html` (+ 1 linha em `base.html`, nav).

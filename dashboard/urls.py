@@ -1,8 +1,9 @@
 from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
+from django.views.generic.base import RedirectView
 
 from . import views
-from . import comercial_views
+from . import overview_views
 from . import showcase_analise
 from . import showcase_chunks
 from . import showcase_export
@@ -86,33 +87,56 @@ urlpatterns = [
     path('api/chart/<str:key>/', views.chart_data, name='api-chart'),
 
     # Mapa Comercial de Precatórios — agregações ES (choropleth + drill-down + ranking)
-    path('comercial/mapa/', comercial_views.comercial_mapa_page, name='comercial-mapa-page'),
-    path('api/comercial/mapa', comercial_views.comercial_mapa, name='comercial-mapa'),
-    path('api/comercial/tribunais', comercial_views.comercial_tribunais, name='comercial-tribunais'),
-    path('api/comercial/top', comercial_views.comercial_top, name='comercial-top'),
+    path('overview/mapa/', overview_views.comercial_mapa_page, name='overview-mapa-page'),
+    path('api/overview/mapa', overview_views.comercial_mapa, name='overview-mapa'),
+    path('api/overview/tribunais', overview_views.comercial_tribunais, name='overview-tribunais'),
+    path('api/overview/top', overview_views.comercial_top, name='overview-top'),
     # página dedicada por ESTADO (aggs "explodidas" da UF) — contrato em search/agg_estado.py
-    path('comercial/estado/<str:uf>/', comercial_views.comercial_estado_page,
-         name='comercial-estado-page'),
-    path('api/comercial/estado/<str:uf>/', comercial_views.comercial_estado,
-         name='comercial-estado'),
+    path('overview/estado/<str:uf>/', overview_views.comercial_estado_page,
+         name='overview-estado-page'),
+    path('api/overview/estado/<str:uf>/', overview_views.comercial_estado,
+         name='overview-estado'),
     # autocomplete de ENTIDADE canônica (índice `voyager-entidades*`) — alimenta
-    # o filtro "Parte / entidade" do mapa. Fora de `api/comercial/` de propósito:
+    # o filtro "Parte / entidade" do mapa. Fora de `api/overview/` de propósito:
     # o cadastro de entidades não é do mapa, é do produto (listagem e busca vão
     # consumir o mesmo endpoint).
-    path('api/entidades/autocomplete', comercial_views.entidades_autocomplete,
+    path('api/entidades/autocomplete', overview_views.entidades_autocomplete,
          name='entidades-autocomplete'),
     # TELAS DE ENTIDADES ("quem deve") — contrato em search/agg_entidade.py.
     # A rota do ranking vem DEPOIS do autocomplete de propósito: `<str:...>`
     # casaria "autocomplete" como se fosse um entidade_id (o Django resolve na
     # ordem, então o autocomplete continua ganhando).
+    # ---- REDIRECTS das URLs antigas (`comercial/*` → `overview/*`) ----------
+    # O módulo se chamava "comercial" até 13/08/2026. Links salvos, a showcase e
+    # o /extrair apontam pros paths velhos; rename sem redirect quebra em
+    # silêncio — quem clica vê 404 e não sabe por quê. `permanent=False` de
+    # propósito: 301 fica no cache do browser PRA SEMPRE e, se um dia
+    # revertermos, não há como desfazer na máquina de quem já acessou.
+    path('comercial/mapa/', RedirectView.as_view(pattern_name='dashboard:overview-mapa-page',
+                                                 permanent=False, query_string=True)),
+    path('comercial/estado/<str:uf>/', RedirectView.as_view(
+        pattern_name='dashboard:overview-estado-page', permanent=False, query_string=True)),
+    path('comercial/entidades/', RedirectView.as_view(
+        pattern_name='dashboard:entidades', permanent=False, query_string=True)),
+    path('comercial/entidade/<str:entidade_id>/', RedirectView.as_view(
+        pattern_name='dashboard:entidade', permanent=False, query_string=True)),
+    path('api/comercial/mapa', RedirectView.as_view(
+        pattern_name='dashboard:overview-mapa', permanent=False, query_string=True)),
+    path('api/comercial/tribunais', RedirectView.as_view(
+        pattern_name='dashboard:overview-tribunais', permanent=False, query_string=True)),
+    path('api/comercial/top', RedirectView.as_view(
+        pattern_name='dashboard:overview-top', permanent=False, query_string=True)),
+    path('api/comercial/estado/<str:uf>/', RedirectView.as_view(
+        pattern_name='dashboard:overview-estado', permanent=False, query_string=True)),
+
     # TELAS (shell HTML) — vêm antes dos endpoints por legibilidade; não há
     # colisão: estas são `comercial/entidade*`, aquelas `api/entidades/*`.
-    path('comercial/entidades/', comercial_views.entidades_page, name='entidades'),
-    path('comercial/entidade/<str:entidade_id>/', comercial_views.entidade_page,
+    path('overview/entidades/', overview_views.entidades_page, name='entidades'),
+    path('overview/entidade/<str:entidade_id>/', overview_views.entidade_page,
          name='entidade'),
-    path('api/entidades/', comercial_views.entidades_ranking,
+    path('api/entidades/', overview_views.entidades_ranking,
          name='entidades-ranking'),
-    path('api/entidades/<str:entidade_id>/', comercial_views.entidades_ficha,
+    path('api/entidades/<str:entidade_id>/', overview_views.entidades_ficha,
          name='entidades-ficha'),
     path('jobs/<str:job_id>/status/', views.job_status, name='job-status'),
     path('wizard/', views.WizardView.as_view(), name='wizard'),

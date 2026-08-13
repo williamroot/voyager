@@ -118,10 +118,10 @@ Loop do general (por fase): `despacha → coleta → roda gate → (falhou? re-d
 ### Agente 2 — BACKEND (agregação + score)  [Fase C]
 **Missão:** serviço + endpoints que servem o mapa a partir do ES.
 **Entregáveis:**
-- `search/agg_comercial.py`: funções de agregação ES parametrizadas por filtros
+- `search/agg_overview.py`: funções de agregação ES parametrizadas por filtros
   (uf, tribunal, natureza?, faixa de valor, ano, classificacao, tem_sinal).
-- Endpoints REST (`dashboard/` ou `search/`): `/api/comercial/mapa` (agregado por UF),
-  `/api/comercial/tribunais?uf=` (drill-down), `/api/comercial/top?metric=` (ranking),
+- Endpoints REST (`dashboard/` ou `search/`): `/api/overview/mapa` (agregado por UF),
+  `/api/overview/tribunais?uf=` (drill-down), `/api/overview/top?metric=` (ranking),
   todos com querystring de filtros. Cache warm (5min) pros agregados globais.
 - Cálculo do **score de foco** (densidade × valor × (1−cobertura)) por UF/tribunal.
 - Contrato JSON versionado (documentado no topo do arquivo) — o Agente 3 consome isso.
@@ -223,19 +223,19 @@ doc no ES (o `_update` do sync ignora doc ausente). O reindex faseado do SEARCH_
 - **Fase B** 🟢 rodando (ES-DATA): mapping aplicado; `uf` populando via update_by_query.
 - **Fase C** ✅ concluída (BACKEND; commit a7acb75). Gate do general PASS: 24 testes,
   `manage.py check` limpo, índice ES reconciliado com `search/client.py`. Endpoints
-  `/dashboard/api/comercial/{mapa,tribunais,top}` login-gated; contrato no topo de
-  `search/agg_comercial.py`. Pendência de infra: pacote `elasticsearch` no ambiente
+  `/dashboard/api/overview/{mapa,tribunais,top}` login-gated; contrato no topo de
+  `search/agg_overview.py`. Pendência de infra: pacote `elasticsearch` no ambiente
   que roda o web em prod (dev container não tem; testes rodam sem, por design).
 - **Fase D** ✅ concluída (FRONTEND). Gate do general PASS: `check` limpo, 5 testes,
   zero URL externa no template (CSP ok — ECharts + GeoJSON servidos por `{% static %}`),
-  GeoJSON dos 27 estados (simplificado, 144KB). Página `/dashboard/comercial/mapa/`
+  GeoJSON dos 27 estados (simplificado, 144KB). Página `/dashboard/overview/mapa/`
   (choropleth ECharts + toggles Volume↔R$ / Potencial↔Confirmado + drill-down + filtros +
   Top-N "ataque primeiro" + legenda honesta com cobertura null explícita). FED fora do
   choropleth (bloco separado). Link no nav de topo.
 - **Deploy** ✅ FEITO (rebuild web no .103, prod em 9ca1df9). readiness 200; 4 rotas
   respondem 302 (login) sem 500; smoke real no shell de prod: `agg_por_uf({})` bate no ES
   (200), volume 71.083.438 / R$ 2,88 tri / confirmado 35.231. Cobertura cache warmado (59
-  tribunais). Página `/dashboard/comercial/mapa/` no ar.
+  tribunais). Página `/dashboard/overview/mapa/` no ar.
 - **Camadas de dado — estado ao vivo (honesto):**
   - ✅ **volume, R$, confirmado, cobertura** funcionando agora.
   - ⏳ **potencial = 0** até sincronizar `tem_sinal_precatorio` Postgres→ES (espera o

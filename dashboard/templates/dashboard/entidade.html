@@ -47,7 +47,7 @@ DUAS DECISÕES DE DESENHO QUE VÊM DO DADO:
     // do kwarg escolhido no urls.py.
     dados: "{% url 'dashboard:entidades-ficha' '__ID__' %}",
     lista: "{% url 'dashboard:entidades' %}",
-    mapa: "{% url 'dashboard:comercial-mapa-page' %}",
+    mapa: "{% url 'dashboard:overview-mapa-page' %}",
   };
 
   // Glossário canônico. As frases de `volume`, `potencial`, `confirmado`,
@@ -758,7 +758,7 @@ DUAS DECISÕES DE DESENHO QUE VÊM DO DADO:
         {% voy_icon "constellation" "w-4 h-4 shrink-0" %}
         <span>Todas as entidades</span>
       </a>
-      <a href="{% url 'dashboard:comercial-mapa-page' %}"
+      <a href="{% url 'dashboard:overview-mapa-page' %}"
          class="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg rounded-md px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
         {% voy_icon "trajectory" "w-4 h-4 shrink-0" %}
         <span>Mapa de Precatórios</span>

@@ -1,6 +1,6 @@
-"""Testes do serviço de agregação do Mapa Comercial (search/agg_comercial.py).
+"""Testes do serviço de agregação do Mapa Comercial (search/agg_overview.py).
 
-Não dependem de ES real: mockam o cliente (`search.agg_comercial.get_es`) e o
+Não dependem de ES real: mockam o cliente (`search.agg_overview.get_es`) e o
 cache de cobertura. Cobrem: montagem do corpo ES (asserts no body), cálculo do
 score de foco, parse/saneamento dos filtros e filtros combinados.
 """
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from search import agg_comercial as agg
+from search import agg_overview as agg
 
 
 # --------------------------------------------------------------------------- #
@@ -261,8 +261,8 @@ def test_score_foco_volume_zero_nao_div0():
 # --------------------------------------------------------------------------- #
 # agg_por_uf (fim-a-fim com ES + cobertura mockados)
 # --------------------------------------------------------------------------- #
-@patch('search.agg_comercial._cobertura_por_uf')
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview._cobertura_por_uf')
+@patch('search.agg_overview.get_es')
 def test_agg_por_uf_monta_query_e_calcula_score(mock_get_es, mock_cob):
     es = MagicMock()
     # 1ª chamada: terms; 2ª chamada: total
@@ -304,8 +304,8 @@ def test_agg_por_uf_monta_query_e_calcula_score(mock_get_es, mock_cob):
     assert out['total']['confirmado'] == 60
 
 
-@patch('search.agg_comercial._cobertura_por_tribunal')
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview._cobertura_por_tribunal')
+@patch('search.agg_overview.get_es')
 def test_agg_tribunais_aplica_uf(mock_get_es, mock_cob):
     es = MagicMock()
     es.search.side_effect = [
@@ -329,7 +329,7 @@ def test_agg_tribunais_aplica_uf(mock_get_es, mock_cob):
     assert out['tribunais'][0]['cobertura_pct'] == 30.0
 
 
-@patch('search.agg_comercial.agg_por_uf')
+@patch('search.agg_overview.agg_por_uf')
 def test_ranking_top_ordena_por_metric(mock_agg):
     mock_agg.return_value = {
         'ufs': [
@@ -352,7 +352,7 @@ def test_ranking_top_ordena_por_metric(mock_agg):
     assert r3['metric'] == 'score'
 
 
-@patch('search.agg_comercial.agg_por_uf')
+@patch('search.agg_overview.agg_por_uf')
 def test_ranking_top_clampa_n(mock_agg):
     mock_agg.return_value = {'ufs': [], 'gerado_em': 'x'}
     assert agg.ranking_top('score', 0, {})['n'] == 1
@@ -448,7 +448,7 @@ def test_score_lente_potencial_none_nao_quebra():
     assert b['score_por_lente']['confirmado'] > 0
 
 
-@patch('search.agg_comercial.agg_por_uf')
+@patch('search.agg_overview.agg_por_uf')
 def test_ranking_top_reordena_por_lente(mock_agg):
     mock_agg.return_value = {
         'ufs': [
@@ -467,7 +467,7 @@ def test_ranking_top_reordena_por_lente(mock_agg):
     assert r['lente'] == 'potencial' and r['ranking'][0]['uf'] == 'RO'
 
 
-@patch('search.agg_comercial.agg_por_uf')
+@patch('search.agg_overview.agg_por_uf')
 def test_ranking_top_payload_velho_sem_score_por_lente(mock_agg):
     """Cache de 2min pós-deploy pode devolver bucket sem `score_por_lente`."""
     mock_agg.return_value = {
@@ -478,7 +478,7 @@ def test_ranking_top_payload_velho_sem_score_por_lente(mock_agg):
     assert r['ranking'][0]['uf'] == 'RO'      # cai pro score_foco, não quebra
 
 
-@patch('search.agg_comercial.agg_por_uf')
+@patch('search.agg_overview.agg_por_uf')
 def test_ranking_top_metric_potencial_none_nao_quebra(mock_agg):
     """Ordenar por `potencial` com UF não processada (None) não pode dar TypeError."""
     mock_agg.return_value = {
@@ -604,7 +604,7 @@ def test_entidade_tem_precedencia_sobre_texto_livre():
     assert any('bool' in c for c in cl)
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_resolver_entidade_indice_fora_nao_derruba_o_mapa(mock_es):
     """Índice de entidades fora ⇒ perde o refinamento, NÃO devolve 503.
 
@@ -620,7 +620,7 @@ def test_resolver_entidade_indice_fora_nao_derruba_o_mapa(mock_es):
     assert any('match' in c for c in agg.build_filter_clauses(out))
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_resolver_entidade_cacheia(mock_es):
     from django.core.cache import cache as _c
     _c.clear()
@@ -657,7 +657,7 @@ def test_tokens_ignora_conectivos():
     assert agg._tokens('uniao federal') == {'UNIAO', 'FEDERAL'}
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_texto_resolve_para_entidade_e_usa_as_grafias(mock_es):
     """"uniao federal" digitado vira as GRAFIAS da União Federal.
 
@@ -679,7 +679,7 @@ def test_texto_resolve_para_entidade_e_usa_as_grafias(mock_es):
     assert all('match_phrase' in c for c in should)
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_texto_nao_resolve_quando_o_nome_nao_contem_tudo(mock_es):
     """Só adivinha com certeza: TODOS os tokens têm que estar no nome canônico.
 
@@ -696,7 +696,7 @@ def test_texto_nao_resolve_quando_o_nome_nao_contem_tudo(mock_es):
     assert any('match' in c for c in agg.build_filter_clauses(out))
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_indice_de_entidades_fora_nao_quebra_o_texto(mock_es):
     from django.core.cache import cache as _c
     _c.clear()
@@ -716,7 +716,7 @@ def test_eco_esconde_variantes_mas_mostra_a_entidade():
     assert eco['parte'] == 'uniao federal'
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_texto_escolhe_a_MAIOR_entidade_candidata(mock_es):
     """Digitar "inss" tem que dar o INSS, não o "Gerente Executivo do INSS".
 
@@ -739,7 +739,7 @@ def test_texto_escolhe_a_MAIOR_entidade_candidata(mock_es):
     assert out['_entidade_resolvida']['entidade_id'] == 'cnpj:29979036'
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_n_processos_manda_sobre_n_partes(mock_es):
     """Quando a contagem real existe, ela decide — n_partes é só o desempate."""
     from django.core.cache import cache as _c
@@ -754,7 +754,7 @@ def test_n_processos_manda_sobre_n_partes(mock_es):
     assert out['_entidade_resolvida']['entidade_id'] == 'b'
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_sigla_casa_pela_variante_nao_pelo_canonico(mock_es):
     """"inss" tem que achar o INSS mesmo o nome canônico não tendo a sigla.
 
@@ -781,7 +781,7 @@ def test_sigla_casa_pela_variante_nao_pelo_canonico(mock_es):
     assert out['_entidade_resolvida']['entidade_id'] == 'cnpj:29979036'
 
 
-@patch('search.agg_comercial.get_es')
+@patch('search.agg_overview.get_es')
 def test_tokens_precisam_caber_em_UMA_grafia(mock_es):
     """Não vale juntar token de grafias diferentes da mesma entidade."""
     from django.core.cache import cache as _c

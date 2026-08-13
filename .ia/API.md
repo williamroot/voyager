@@ -250,25 +250,25 @@ curl -sH 'X-API-Key: K' 'https://voyager.was.dev.br/api/v1/busca/movimentacoes/?
   só existem em docs reindexados pós-7d03bab — filtrar por eles restringe ao subset.
 - `valor_causa` tem outliers de digitação (o serviço não higieniza).
 
-## Mapa Comercial — agregações ES (`/dashboard/api/comercial/*`)
+## Mapa Comercial — agregações ES (`/dashboard/api/overview/*`)
 
 JSON interno do dashboard (**sessão logada**, não API key). 100% Elasticsearch —
 nenhuma leitura no Postgres (só o cache de cobertura). Contrato completo no topo
-de `search/agg_comercial.py` (mapa) e `search/agg_estado.py` (página de estado).
+de `search/agg_overview.py` (mapa) e `search/agg_estado.py` (página de estado).
 
 | Método | Path | Descrição |
 |---|---|---|
-| GET | `/dashboard/api/comercial/mapa` | Agregado por UF + total + score de foco |
-| GET | `/dashboard/api/comercial/tribunais?uf=SP` | Drill-down por tribunal da UF |
-| GET | `/dashboard/api/comercial/top?metric=score&n=10` | Ranking Top-N por UF |
-| GET | `/dashboard/api/comercial/estado/<uf>/` | **Página dedicada do estado** (blocos "explodidos") |
+| GET | `/dashboard/api/overview/mapa` | Agregado por UF + total + score de foco |
+| GET | `/dashboard/api/overview/tribunais?uf=SP` | Drill-down por tribunal da UF |
+| GET | `/dashboard/api/overview/top?metric=score&n=10` | Ranking Top-N por UF |
+| GET | `/dashboard/api/overview/estado/<uf>/` | **Página dedicada do estado** (blocos "explodidos") |
 
 Filtros (querystring, comuns aos 4): `uf, tribunal, classificacao,
 tipo(potencial|confirmado), tem_sinal, ano_min, ano_max, valor_min, valor_max,
-codigo_classe, natureza` — saneados em `agg_comercial.parse_filtros` (ano futuro
+codigo_classe, natureza` — saneados em `agg_overview.parse_filtros` (ano futuro
 clampa, valor negativo cai fora, enum desconhecido vira default; nunca 500).
 
-### `GET /dashboard/api/comercial/estado/<uf>/`
+### `GET /dashboard/api/overview/estado/<uf>/`
 
 `<uf>` = 27 siglas + `FED`. UF inválida → **400**; ES fora → **503**.
 Param extra: `metrica=possiveis|confirmados|todos` (default `todos`) — a LENTE

@@ -1,7 +1,7 @@
 """Testes da API de Busca v1 (search/busca_api.py + api/busca_views.py).
 
 Não dependem de ES real: mockam o cliente (`search.busca_api.get_es`), padrão
-de `test_agg_comercial.py`. Cobrem: saneamento de params, montagem do corpo ES
+de `test_agg_overview.py`. Cobrem: saneamento de params, montagem do corpo ES
 (asserts no body), paginação search_after (cursor opaco), cada endpoint REST,
 filtros combinados e degradação limpa (400/404/503, nunca 500).
 """

@@ -1,11 +1,11 @@
 """Endpoints REST do Mapa Comercial de Precatórios.
 
 Views JSON que servem o mapa (choropleth + drill-down + ranking) a partir do
-serviço de agregação `search.agg_comercial` (100% Elasticsearch). Todos os
+serviço de agregação `search.agg_overview` (100% Elasticsearch). Todos os
 endpoints exigem sessão logada — é dado sensível de negócio.
 
 O CONTRATO JSON completo (request/response) está documentado no topo de
-`search/agg_comercial.py`. Estas views só fazem: parse dos filtros → chamada do
+`search/agg_overview.py`. Estas views só fazem: parse dos filtros → chamada do
 serviço → `JsonResponse`. Erros de infra (ES fora) viram 503 (nunca 500 cru);
 `uf` ausente no drill-down vira 400.
 """
@@ -21,7 +21,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
 from search import (
-    agg_comercial,
+    agg_overview,
     agg_entidade as agg_entidade_svc,
     agg_estado as agg_estado_svc,
     entidades as entidades_svc,
@@ -40,10 +40,10 @@ def _json(payload, status=200):
 @login_required
 @require_GET
 def comercial_mapa_page(request):
-    """GET /dashboard/comercial/mapa/ — página HTML do Mapa Comercial.
+    """GET /dashboard/overview/mapa/ — página HTML do Mapa Comercial.
 
     Só renderiza o shell; TODOS os dados vêm dos 3 endpoints JSON
-    (`comercial-mapa`/`comercial-tribunais`/`comercial-top`) via fetch no browser.
+    (`overview-mapa`/`overview-tribunais`/`overview-top`) via fetch no browser.
     Nenhuma query pesada aqui — o Postgres não é tocado.
 
     `@never_cache` (padrão já usado em dashboard/views.py): sem ele o browser
@@ -52,14 +52,14 @@ def comercial_mapa_page(request):
     mostrava textos já removidos há 3 deploys). A página é toda dinâmica e o
     payload é pequeno; cachear HTML aqui não economiza nada e esconde correção.
     """
-    return render(request, 'dashboard/comercial_mapa.html')
+    return render(request, 'dashboard/overview_mapa.html')
 
 
 @never_cache
 @login_required
 @require_GET
 def comercial_estado_page(request, uf):
-    """GET /dashboard/comercial/estado/<uf>/ — página dedicada de UM estado.
+    """GET /dashboard/overview/estado/<uf>/ — página dedicada de UM estado.
 
     Mesmo padrão do `comercial_mapa_page`: só renderiza o shell, ZERO query
     (nem Postgres nem ES). Todos os números vêm do endpoint JSON
@@ -74,7 +74,7 @@ def comercial_estado_page(request, uf):
     em memória, sem I/O.
     """
     sigla = (uf or '').strip().upper()
-    return render(request, 'dashboard/comercial_estado.html', {
+    return render(request, 'dashboard/overview_estado.html', {
         'uf': sigla,
         'uf_nome': agg_estado_svc.UF_NOME.get(sigla, ''),
     })
@@ -83,10 +83,10 @@ def comercial_estado_page(request, uf):
 @login_required
 @require_GET
 def comercial_mapa(request):
-    """GET /dashboard/api/comercial/mapa — agregado por UF + total + score de foco."""
-    filtros = agg_comercial.parse_filtros(request.GET)
+    """GET /dashboard/api/overview/mapa — agregado por UF + total + score de foco."""
+    filtros = agg_overview.parse_filtros(request.GET)
     try:
-        payload = agg_comercial.agg_por_uf(filtros)
+        payload = agg_overview.agg_por_uf(filtros)
     except Exception:
         logger.exception('comercial_mapa: falha na agregação ES', extra={'filtros': filtros})
         return _json({'erro': 'falha ao consultar o índice de busca'}, status=503)
@@ -96,15 +96,15 @@ def comercial_mapa(request):
 @login_required
 @require_GET
 def comercial_tribunais(request):
-    """GET /dashboard/api/comercial/tribunais?uf=SP — drill-down por tribunal."""
-    filtros = agg_comercial.parse_filtros(request.GET)
+    """GET /dashboard/api/overview/tribunais?uf=SP — drill-down por tribunal."""
+    filtros = agg_overview.parse_filtros(request.GET)
     uf = filtros.get('uf')
     if not uf:
         return _json({'erro': 'parâmetro uf é obrigatório'}, status=400)
     # `uf` já está nos filtros; agg_tribunais reforça — remove p/ não duplicar semântica
     filtros_sem_uf = {k: v for k, v in filtros.items() if k != 'uf'}
     try:
-        payload = agg_comercial.agg_tribunais(uf, filtros_sem_uf)
+        payload = agg_overview.agg_tribunais(uf, filtros_sem_uf)
     except Exception:
         logger.exception('comercial_tribunais: falha na agregação ES',
                          extra={'uf': uf, 'filtros': filtros})
@@ -115,14 +115,14 @@ def comercial_tribunais(request):
 @login_required
 @require_GET
 def comercial_estado(request, uf):
-    """GET /dashboard/api/comercial/estado/<uf>/ — página dedicada de um estado.
+    """GET /dashboard/api/overview/estado/<uf>/ — página dedicada de um estado.
 
-    Mesmos filtros do mapa (`agg_comercial.parse_filtros`) + `metrica`
+    Mesmos filtros do mapa (`agg_overview.parse_filtros`) + `metrica`
     (possiveis|confirmados|todos). O `uf` da querystring é ignorado — manda o da
     rota. Contrato JSON completo no topo de `search/agg_estado.py`.
     UF inválida → 400; ES fora → 503 (nunca 500 cru).
     """
-    filtros = agg_comercial.parse_filtros(request.GET)
+    filtros = agg_overview.parse_filtros(request.GET)
     metrica = request.GET.get('metrica', agg_estado_svc.METRICA_DEFAULT)
     try:
         payload = agg_estado_svc.agg_estado(uf, filtros, metrica)
@@ -138,12 +138,12 @@ def comercial_estado(request, uf):
 @login_required
 @require_GET
 def comercial_top(request):
-    """GET /dashboard/api/comercial/top?metric=score&n=10 — ranking Top-N por UF."""
-    filtros = agg_comercial.parse_filtros(request.GET)
+    """GET /dashboard/api/overview/top?metric=score&n=10 — ranking Top-N por UF."""
+    filtros = agg_overview.parse_filtros(request.GET)
     metric = request.GET.get('metric', 'score')
     n = request.GET.get('n', 10)
     try:
-        payload = agg_comercial.ranking_top(metric, n, filtros)
+        payload = agg_overview.ranking_top(metric, n, filtros)
     except Exception:
         logger.exception('comercial_top: falha na agregação ES',
                          extra={'metric': metric, 'filtros': filtros})
@@ -326,7 +326,7 @@ def entidades_autocomplete(request):
 @login_required
 @require_GET
 def entidades_page(request):
-    """GET /dashboard/comercial/entidades/ — ranking de entidades ("quem deve").
+    """GET /dashboard/overview/entidades/ — ranking de entidades ("quem deve").
 
     Só o shell; os dados vêm de `entidades-ranking` via fetch. `@never_cache`
     pelo mesmo motivo das outras telas: sem ele o browser serve o HTML do disco
@@ -339,7 +339,7 @@ def entidades_page(request):
 @login_required
 @require_GET
 def entidade_page(request, entidade_id):
-    """GET /dashboard/comercial/entidade/<entidade_id>/ — ficha de UMA entidade.
+    """GET /dashboard/overview/entidade/<entidade_id>/ — ficha de UMA entidade.
 
     `entidade_id` vai pro contexto porque o template monta a URL da API com ele
     (o template tem fallback lendo a própria URL, mas depender disso deixaria a
@@ -376,11 +376,11 @@ def entidades_ficha(request, entidade_id):
     """GET /dashboard/api/entidades/<entidade_id>/ — ficha de UMA entidade.
 
     `<entidade_id>` é o `_id` do índice (`cnpj:29979036` | `nome:<sha1>`).
-    Aceita os MESMOS filtros do mapa (`agg_comercial.parse_filtros`); `parte` e
+    Aceita os MESMOS filtros do mapa (`agg_overview.parse_filtros`); `parte` e
     `entidade_id` da querystring são ignorados (quem manda é a rota).
     Entidade inexistente → 404; ES fora → 503. Nunca 500 cru.
     """
-    filtros = agg_comercial.parse_filtros(request.GET)
+    filtros = agg_overview.parse_filtros(request.GET)
     try:
         payload = agg_entidade_svc.ficha_entidade(entidade_id, filtros)
     except agg_entidade_svc.EntidadeNaoEncontrada:

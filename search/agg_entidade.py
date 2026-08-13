@@ -15,7 +15,7 @@ número da lista bater com o número da ficha.
 
 Reusa de `search.entidades` (o dono do cadastro): `grafias_para_contagem`
 (poda de over-match), `query_variantes` (o OR), `funcoes_prevalencia` (o ranking
-calibrado do autocomplete). Reusa de `search.agg_comercial`: `parse_filtros`,
+calibrado do autocomplete). Reusa de `search.agg_overview`: `parse_filtros`,
 `build_filter_clauses`, `_metric_subaggs`. Reusa de `search.agg_estado`:
 `_cobertura_amostra`, `_bloco_terms`, `_bloco_ano`, `_total_hits`, `_dc`. Mesma
 semântica das outras telas do módulo comercial, zero divergência de número.
@@ -109,7 +109,7 @@ CONTRATO JSON — 2. GET /dashboard/api/entidades/<entidade_id>/     (FICHA)
 `<entidade_id>` é o `_id` do índice: `cnpj:29979036` ou `nome:<sha1[:20]>`.
 Entidade inexistente ⇒ **404** `{"erro": ...}`. ES fora ⇒ **503**. Nunca 500 cru.
 
-QUERYSTRING — os MESMOS filtros do mapa (`agg_comercial.parse_filtros`):
+QUERYSTRING — os MESMOS filtros do mapa (`agg_overview.parse_filtros`):
 `uf, tribunal, classificacao, tipo(potencial|confirmado), tem_sinal, ano_min,
 ano_max, valor_min, valor_max, codigo_classe, natureza`.
 `parte` e `entidade_id` da querystring são IGNORADOS — quem manda é a rota.
@@ -261,7 +261,7 @@ O custo, medido em 13/08/2026 contra o ES de prod:
 
 Então NÃO oferecemos `uf` no ranking. Quem quer "quem deve neste estado" já tem
 a resposta pronta e barata na página de estado:
-`GET /dashboard/api/comercial/estado/<uf>/` → bloco `por_entidade_devedora`
+`GET /dashboard/api/overview/estado/<uf>/` → bloco `por_entidade_devedora`
 (agregação nested no polo passivo). Ela tem outro limite, declarado lá: o nested
 `participacoes` é parcial. São dois recortes honestos e diferentes — o front deve
 mandar o usuário pra lá em vez de fingir um filtro que a gente não mediu.
@@ -289,7 +289,7 @@ import logging
 from django.core.cache import cache
 
 from search import entidades as ent
-from search.agg_comercial import (
+from search.agg_overview import (
     _agora_iso,
     _metric_subaggs,
     build_filter_clauses,
@@ -351,7 +351,7 @@ _TRIBUNAIS_TERMS_SIZE = 60
 _ANOS_TERMS_SIZE = 100
 _CLASSIF_TERMS_SIZE = 20
 
-#: TTLs no padrão do agg_comercial/agg_estado
+#: TTLs no padrão do agg_overview/agg_estado
 CACHE_TTL = 300
 CACHE_TTL_FILTRADO = 120
 #: o cadastro da entidade só muda no rebuild do índice (raro) — 1h é folgado
@@ -368,7 +368,7 @@ class CursorInvalido(ValueError):
 
 
 # --------------------------------------------------------------------------- #
-# Cliente ES (wrappers lazy/mockáveis — mesmo padrão do agg_comercial)
+# Cliente ES (wrappers lazy/mockáveis — mesmo padrão do agg_overview)
 # --------------------------------------------------------------------------- #
 def get_es():
     from search.client import get_es as _get_es
@@ -383,7 +383,7 @@ def index_name(suffix: str) -> str:
 def indice_entidades() -> str:
     """Índice de entidades ATIVO (hoje ainda o de teste, via setting).
 
-    Mesma fonte que `agg_comercial._indice_entidades` e o autocomplete usam:
+    Mesma fonte que `agg_overview._indice_entidades` e o autocomplete usam:
     promover o índice é trocar `ENTIDADES_INDICE_SUFIXO` no ambiente, sem deploy.
     """
     from django.conf import settings
@@ -519,14 +519,14 @@ def _cobertura_ponderada(buckets_tribunal: list):
     """% enriquecido dos processos DESTA entidade, ponderado por tribunal.
 
     Reusa o mesmo cache de `dashboard.queries.cobertura_enriquecimento_data`
-    que o mapa e a página de estado usam (via `agg_comercial`). É leitura de
+    que o mapa e a página de estado usam (via `agg_overview`). É leitura de
     cache — **nunca** recomputa e nunca toca o Postgres; cache frio ⇒ `None`
     ("não sabemos ainda"), que é o que a UI escreve.
 
     Ponderado e não média simples: 95,7% dos processos do INSS estão em 3 TRFs;
     uma média simples deixaria um tribunal com 12 processos pesar igual.
     """
-    from search.agg_comercial import _cobertura_por_tribunal
+    from search.agg_overview import _cobertura_por_tribunal
     try:
         mapa = _cobertura_por_tribunal()
     except Exception:                       # cache/Redis fora não derruba a ficha
@@ -914,7 +914,7 @@ def ranking_entidades(filtros: dict | None = None,
                            '("(REQUERIDO(A))") — fora da lista'),
             'uf': ('o ranking NÃO filtra por UF (entidade não tem UF; '
                    'o custo medido é ~16h de ES). Para "quem deve neste '
-                   'estado", use /dashboard/api/comercial/estado/<uf>/'),
+                   'estado", use /dashboard/api/overview/estado/<uf>/'),
         },
         'nota': nota_ranking(contadas, total),
     }

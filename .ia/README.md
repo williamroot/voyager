@@ -24,7 +24,7 @@ Esta pasta concentra a documentação **destilada** do projeto — o que um enge
 | [`JURIMETRIA.md`](JURIMETRIA.md) | Plano/arquitetura de jurimetria (tracks processual, resultado, precatório) + estado dos dados |
 | [`ACCOUNTS.md`](ACCOUNTS.md) | Antes de mexer em convites, sistema de cadastro, captura de IP |
 | [`DASHBOARD.md`](DASHBOARD.md) | Antes de criar páginas, alterar tema, adicionar componentes |
-| [`COMERCIAL_MAPA.md`](COMERCIAL_MAPA.md) | Módulo comercial: mapa de precatórios do Brasil (ES), agentes + general, validações |
+| [`OVERVIEW_MAPA.md`](OVERVIEW_MAPA.md) | Módulo **Overview** (ex-"comercial", renomeado em 13/08/2026): mapa de precatórios, página por estado, entidades ("quem deve") |
 | [`SEARCH_SCHEMA.md`](SEARCH_SCHEMA.md) | Schema canônico dos índices ES (processos/movimentações), write-through, plano de reindex — **antes de adicionar campo em doc builder** |
 | [`API.md`](API.md) | Antes de criar/alterar endpoints REST |
 | [`PATTERNS.md`](PATTERNS.md) | Sempre: padrões de código, anti-padrões, decisões idiomáticas |

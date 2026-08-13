@@ -1,4 +1,4 @@
-"""Testes da PÁGINA DEDICADA DE UM ESTADO (dashboard/comercial_estado.html).
+"""Testes da PÁGINA DEDICADA DE UM ESTADO (dashboard/overview_estado.html).
 
 A view (`comercial_estado_page`) só renderiza o shell — todo número vem do
 endpoint `comercial-estado` via fetch no browser, então este teste NÃO precisa
@@ -35,10 +35,10 @@ pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 
-URL_NAME = 'dashboard:comercial-estado-page'
+URL_NAME = 'dashboard:overview-estado-page'
 TPL_DIR = Path(dashboard.__file__).parent / 'templates' / 'dashboard'
-TEMPLATE_SRC = (TPL_DIR / 'comercial_estado.html').read_text(encoding='utf-8')
-MAPA_SRC = (TPL_DIR / 'comercial_mapa.html').read_text(encoding='utf-8')
+TEMPLATE_SRC = (TPL_DIR / 'overview_estado.html').read_text(encoding='utf-8')
+MAPA_SRC = (TPL_DIR / 'overview_mapa.html').read_text(encoding='utf-8')
 
 
 def _sem_comentarios(src: str) -> str:
@@ -76,7 +76,7 @@ def html(user):
 # Rota, gate e shell
 # --------------------------------------------------------------------------- #
 def test_url_resolve():
-    assert reverse(URL_NAME, kwargs={'uf': 'SP'}) == '/dashboard/comercial/estado/SP/'
+    assert reverse(URL_NAME, kwargs={'uf': 'SP'}) == '/dashboard/overview/estado/SP/'
 
 
 def test_anon_redireciona_login(client):
@@ -487,7 +487,7 @@ def test_mapa_tem_link_para_a_pagina_do_estado():
     """O drill-down do mapa abre a página do estado em ABA NOVA, com os filtros
     e a lente atuais — quem filtrou por ano espera chegar filtrado."""
     assert 'urlPaginaEstado' in MAPA_SRC
-    assert 'comercial-estado-page' in MAPA_SRC
+    assert 'overview-estado-page' in MAPA_SRC
     assert 'Ver página completa de ' in MAPA_SRC
     assert 'target="_blank" rel="noopener"' in MAPA_SRC
     assert 'metricaDaLente' in MAPA_SRC

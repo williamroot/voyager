@@ -144,8 +144,8 @@ def test_normalizar_metrica_default_e_saneamento():
 
 def test_reexporta_parse_filtros_do_mapa():
     """Os filtros são os MESMOS do mapa — reuso, não cópia."""
-    from search import agg_comercial
-    assert ae.parse_filtros is agg_comercial.parse_filtros
+    from search import agg_overview
+    assert ae.parse_filtros is agg_overview.parse_filtros
 
 
 # --------------------------------------------------------------------------- #
@@ -567,21 +567,21 @@ def _request_fake(**params):
 
 
 def test_view_uf_invalida_400():
-    from dashboard import comercial_views as cv
+    from dashboard import overview_views as cv
     resp = cv.comercial_estado.__wrapped__.__wrapped__(_request_fake(), 'XX')
     assert resp.status_code == 400
 
 
 @patch('search.agg_estado.agg_estado', side_effect=ConnectionError('ES fora'))
 def test_view_es_fora_503(_mock):
-    from dashboard import comercial_views as cv
+    from dashboard import overview_views as cv
     resp = cv.comercial_estado.__wrapped__.__wrapped__(_request_fake(), 'SP')
     assert resp.status_code == 503
 
 
 @patch('search.agg_estado.agg_estado')
 def test_view_passa_filtros_e_metrica(mock_agg):
-    from dashboard import comercial_views as cv
+    from dashboard import overview_views as cv
     mock_agg.return_value = {'uf': 'SP'}
     req = _request_fake(metrica='possiveis', ano_min='2020', uf='RJ')
     resp = cv.comercial_estado.__wrapped__.__wrapped__(req, 'SP')
@@ -594,6 +594,6 @@ def test_view_passa_filtros_e_metrica(mock_agg):
 
 def test_rota_resolve():
     from django.urls import resolve, reverse
-    url = reverse('dashboard:comercial-estado', kwargs={'uf': 'SP'})
-    assert url.endswith('/api/comercial/estado/SP/')
+    url = reverse('dashboard:overview-estado', kwargs={'uf': 'SP'})
+    assert url.endswith('/api/overview/estado/SP/')
     assert resolve(url).func.__name__ == 'comercial_estado'

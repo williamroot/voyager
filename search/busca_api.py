@@ -111,7 +111,7 @@ SIZE_DEFAULT = 20
 SIZE_MAX = 100
 MOVS_SIZE_DEFAULT = 50
 
-#: janela de plausibilidade pro ano_cnj (mesma do agg_comercial)
+#: janela de plausibilidade pro ano_cnj (mesma do agg_overview)
 ANO_MIN_PLAUSIVEL = 1990
 
 #: timeout da query no lado do ES (o client já tem request_timeout do settings)

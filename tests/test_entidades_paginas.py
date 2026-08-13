@@ -58,8 +58,8 @@ User = get_user_model()
 TPL_DIR = Path(dashboard.__file__).parent / 'templates' / 'dashboard'
 RANKING_SRC = (TPL_DIR / 'entidades.html').read_text(encoding='utf-8')
 FICHA_SRC = (TPL_DIR / 'entidade.html').read_text(encoding='utf-8')
-MAPA_SRC = (TPL_DIR / 'comercial_mapa.html').read_text(encoding='utf-8')
-ESTADO_SRC = (TPL_DIR / 'comercial_estado.html').read_text(encoding='utf-8')
+MAPA_SRC = (TPL_DIR / 'overview_mapa.html').read_text(encoding='utf-8')
+ESTADO_SRC = (TPL_DIR / 'overview_estado.html').read_text(encoding='utf-8')
 
 ID_EXEMPLO = 'cnpj:29979036'
 
@@ -106,8 +106,8 @@ def _registrar_shim():
         return render(request, 'dashboard/entidade.html', {'entidade_id': entidade_id})
 
     durls.urlpatterns += [
-        path('comercial/entidades/', _ranking, name='entidades'),
-        path('comercial/entidade/<str:entidade_id>/', _ficha, name='entidade'),
+        path('overview/entidades/', _ranking, name='entidades'),
+        path('overview/entidade/<str:entidade_id>/', _ficha, name='entidade'),
     ]
     clear_url_caches()
 
@@ -716,7 +716,7 @@ def test_mapa_tem_link_para_a_lista_de_entidades():
     u = _G().objects.create_user(username='ponte_mapa', password='x')
     c = _C(SERVER_NAME='localhost')
     c.force_login(u)
-    corpo = c.get(reverse('dashboard:comercial-mapa-page')).content.decode()
+    corpo = c.get(reverse('dashboard:overview-mapa-page')).content.decode()
     assert reverse('dashboard:entidades') in corpo
     assert 'Todas as entidades' in corpo
 

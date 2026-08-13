@@ -1,4 +1,4 @@
-"""Testes da PÁGINA do Mapa de Precatórios (dashboard/comercial_mapa.html).
+"""Testes da PÁGINA do Mapa de Precatórios (dashboard/overview_mapa.html).
 
 A view (`comercial_mapa_page`) só renderiza o shell HTML — todos os dados vêm
 dos 3 endpoints JSON via fetch no browser, então este teste NÃO precisa de ES.
@@ -24,14 +24,14 @@ pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 
-URL_NAME = 'dashboard:comercial-mapa-page'
+URL_NAME = 'dashboard:overview-mapa-page'
 
 #: fonte do template — usada nas asserções ESTRUTURAIS (ex.: "não chama o
 #: setupChart da casa", "não sobrou title="), que não dá pra fazer no HTML
 #: renderizado porque o base.html define `function setupChart(el, opts)` e usa
 #: `title=` legítimo em outros lugares (nav, botões do layout).
 TEMPLATE_SRC = (
-    Path(dashboard.__file__).parent / 'templates' / 'dashboard' / 'comercial_mapa.html'
+    Path(dashboard.__file__).parent / 'templates' / 'dashboard' / 'overview_mapa.html'
 ).read_text(encoding='utf-8')
 
 
@@ -69,7 +69,7 @@ def html(user):
 
 
 def test_url_resolve():
-    assert reverse(URL_NAME) == '/dashboard/comercial/mapa/'
+    assert reverse(URL_NAME) == '/dashboard/overview/mapa/'
 
 
 def test_anon_redireciona_login(client):
@@ -658,7 +658,7 @@ def test_pagina_nao_cacheia_no_browser(client, django_user_model):
     """
     u = django_user_model.objects.create_user('cachetest', password='x', is_staff=True)
     client.force_login(u)
-    r = client.get('/dashboard/comercial/mapa/')
+    r = client.get('/dashboard/overview/mapa/')
     assert r.status_code == 200
     cc = r.headers.get('Cache-Control', '')
     assert 'no-store' in cc or 'no-cache' in cc, f'Cache-Control fraco: {cc!r}'

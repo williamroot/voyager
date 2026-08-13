@@ -1,18 +1,18 @@
 """Agregações da PÁGINA DE ESTADO do Mapa Comercial — 100% Elasticsearch.
 
-O usuário clica num estado no mapa (`/dashboard/comercial/mapa/`) e abre a página
+O usuário clica num estado no mapa (`/dashboard/overview/mapa/`) e abre a página
 dedicada daquele estado, que "explode" os dados: tipo de processo, ano, tribunal,
 entidade devedora e classificação. Toda leitura é do índice `voyager-processos`
 — NUNCA do Postgres (é o gargalo de prod). Única exceção: a **cobertura**
 (% validado), que vem do cache já existente (`dashboard.queries.
-cobertura_enriquecimento_data`) via `agg_comercial._cobertura_por_{uf,tribunal}`.
+cobertura_enriquecimento_data`) via `agg_overview._cobertura_por_{uf,tribunal}`.
 
-Reusa de `search.agg_comercial`: `parse_filtros` (mesmos filtros do mapa),
+Reusa de `search.agg_overview`: `parse_filtros` (mesmos filtros do mapa),
 `build_filter_clauses`, `_metric_subaggs` (volume/valor/possíveis/confirmados/
 união) e as funções de cobertura. Mesma semântica, zero divergência de número.
 
 ================================================================================
-CONTRATO JSON — GET /dashboard/api/comercial/estado/<uf>/
+CONTRATO JSON — GET /dashboard/api/overview/estado/<uf>/
 ================================================================================
 Login obrigatório (`@login_required`), `@require_GET`, `application/json`.
 
@@ -22,7 +22,7 @@ ES indisponível ⇒ **503** `{"erro": ...}`. Nunca 500 cru.
 
 QUERYSTRING
 -----------
-Aceita **exatamente os mesmos filtros do mapa** (ver `agg_comercial.parse_filtros`):
+Aceita **exatamente os mesmos filtros do mapa** (ver `agg_overview.parse_filtros`):
 `tribunal, classificacao, tipo(potencial|confirmado), tem_sinal, ano_min, ano_max,
 valor_min, valor_max, codigo_classe, natureza`. O filtro `uf` da querystring é
 IGNORADO — quem manda é o `<uf>` da rota.
@@ -188,7 +188,7 @@ import unicodedata
 
 from django.core.cache import cache
 
-from search.agg_comercial import (
+from search.agg_overview import (
     ANO_MIN_PLAUSIVEL,
     CLASSIF_CONFIRMADO,
     _agora_iso,
@@ -208,7 +208,7 @@ logger = logging.getLogger('voyager.comercial.agg_estado')
 METRICAS = ('possiveis', 'confirmados', 'todos')
 METRICA_DEFAULT = 'todos'
 
-#: TTLs no padrão do agg_comercial: 5min pro caso default, 2min quando filtrado
+#: TTLs no padrão do agg_overview: 5min pro caso default, 2min quando filtrado
 CACHE_TTL = 300
 CACHE_TTL_FILTRADO = 120
 _CACHE_PREFIX = 'comercial:agg:estado'
@@ -572,7 +572,7 @@ def build_body_escopo(uf: str, filtros: dict, metrica: str) -> dict:
 # Execução
 # --------------------------------------------------------------------------- #
 def get_es():
-    """Wrapper lazy/mockável do cliente ES (mesmo padrão do agg_comercial)."""
+    """Wrapper lazy/mockável do cliente ES (mesmo padrão do agg_overview)."""
     from search.client import get_es as _get_es
     return _get_es()
 
@@ -673,7 +673,7 @@ def _bloco_terms(buckets: list, chave: str, preenchidos: int,
 
 
 def _metricas_do_bucket(b: dict) -> dict:
-    """Métricas de um bucket (mesma semântica de `agg_comercial._parse_buckets`)."""
+    """Métricas de um bucket (mesma semântica de `agg_overview._parse_buckets`)."""
     sinal_conhecido = _dc(b, 'sinal_conhecido')
     possiveis = _dc(b, 'potencial')
     return {
@@ -716,7 +716,7 @@ def agg_estado(uf: str, filtros: dict | None = None,
 
     Levanta `UfInvalida` (→ 400 na view) pra UF fora do conjunto válido; qualquer
     falha de ES sobe como exceção (→ 503 na view). Cache curto por
-    (uf + metrica + filtros), no padrão do `agg_comercial`.
+    (uf + metrica + filtros), no padrão do `agg_overview`.
     """
     uf = normalizar_uf(uf)
     metrica = normalizar_metrica(metrica)

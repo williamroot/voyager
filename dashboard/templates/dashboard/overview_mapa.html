@@ -30,12 +30,12 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
 
   // Endpoints resolvidos via url tag (nomes reais, evita hardcode de path).
   window.COMERCIAL_URLS = {
-    mapa: "{% url 'dashboard:comercial-mapa' %}",
-    tribunais: "{% url 'dashboard:comercial-tribunais' %}",
-    top: "{% url 'dashboard:comercial-top' %}",
+    mapa: "{% url 'dashboard:overview-mapa' %}",
+    tribunais: "{% url 'dashboard:overview-tribunais' %}",
+    top: "{% url 'dashboard:overview-top' %}",
     // Página dedicada do estado (abre em aba nova). '__UF__' é trocado em
     // runtime — a rota continua resolvida pelo Django, sem path hardcoded.
-    estadoPage: "{% url 'dashboard:comercial-estado-page' uf='__UF__' %}",
+    estadoPage: "{% url 'dashboard:overview-estado-page' uf='__UF__' %}",
     // autocomplete do cadastro canônico de entidades (1,14M entidades)
     entidades: "{% url 'dashboard:entidades-autocomplete' %}",
   };
