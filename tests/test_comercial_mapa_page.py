@@ -388,7 +388,9 @@ def test_tooltip_rico_sem_setupchart(html):
 def test_prioridade_0_100_substitui_score_cru(html):
     """`0.0142` é ilegível e sem âncora; `prioridade 87` é comparável."""
     assert 'prioridadeEm' in html and 'prioridadeLabel' in html
-    assert 'Math.round(100 * this.scoreDe(b) / max)' in html
+    # a nota segue a ORDEM ativa (concentração/quantidade/valor), não só a
+    # densidade — ordenando por R$, prioridade 100 é de quem tem mais dinheiro
+    assert 'Math.round(100 * this.metricaOrdem(b) / max)' in html
     assert 'prioridade não medida' in html
     assert 'toFixed(4)' not in CODIGO, 'voltou o score cru de 4 casas'
     # explicação de que a escala é relativa à lista filtrada
@@ -814,14 +816,19 @@ def test_ataque_primeiro_descreve_densidade_e_nao_a_formula_antiga(html):
     publicado valor menor que o de Alagoas. Dizer "muito precatório, COM VALOR,
     e que quase não olhamos ainda" passou a ser mentira sobre a própria lista.
     """
-    assert 'onde a maior fatia dos processos cita precatório' in html
+    # a frase agora vem do critério escolhido (o texto fixo virava mentira ao
+    # ordenar por quantidade ou valor)
+    assert 'rotuloOrdem()' in html
+    assert 'que fatia dos processos do estado cita precatório' in html
     assert 'com valor, e que quase não olhamos ainda' not in CODIGO
     assert 'muito precatório em relação ao total E pouco explorado' not in CODIGO
     assert 'o estado mais promissor da lista' not in CODIGO
     # o tooltip da prioridade diz O QUE é 100 e como refazer a conta
     assert 'comparando só os estados desta lista' in html          # segue relativo
-    assert '100 = a maior fatia da lista' in html
+    assert '100 = o maior no critério escolhido' in html
+    # a conta é a do critério ativo — cada ordem explica a sua
     assert 'A conta é possíveis ÷ processos do estado.' in html
+    assert 'contaOrdem()' in html
     # glossário canônico acompanha (fonte única de explicação)
     assert 'que fatia dos processos do estado cita precatório' in html
 
@@ -949,3 +956,26 @@ def test_prioridade_do_tribunal_nao_e_tautologica(html):
     assert 'único tribunal do estado' in html
     assert "x-show=\"tribunais.length > 1\"" in html
     assert "prioridadeLabel(t, tribunais) + ' entre os daqui'" in html
+
+
+def test_ataque_primeiro_tem_3_criterios_de_ordem(html):
+    """"Onde atacar" tem mais de uma resposta certa — quem escolhe é o dono.
+
+    Medido em prod (13/08/2026), São Paulo está em 21º por concentração, 7º por
+    volume e 2º por valor. Ordenar só por concentração escondia o maior mercado
+    de precatório do país da lista que se chama "Ataque primeiro".
+    """
+    assert 'ordemRanking' in html
+    assert 'Critério de ordenação dos estados' in html
+    assert "'Concentração'" in html and "'Volume'" in html and "'Valor R$'" in html
+    # "Volume", não "Quantidade": o card do mapa já tem um toggle
+    # "Quantidade ↔ R$" e dois botões iguais com sentidos diferentes é armadilha
+    assert "quantidade: {t: 'Quantidade'" not in html
+    # a lista, a barra e a nota usam a MESMA métrica da ordem ativa
+    assert 'metricaOrdem(b) - this.metricaOrdem(a)' in html
+    assert '100 * this.metricaOrdem(b) / max' in html
+
+
+def test_ordem_por_valor_nao_diz_prioridade_nao_medida(html):
+    """Ordenando por R$, o número existe mesmo sem o sinal do texto ter sido lido."""
+    assert "if (this.ordemRanking === 'valor') return false;" in html

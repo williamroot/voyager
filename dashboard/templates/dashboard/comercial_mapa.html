@@ -145,7 +145,9 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
 
       // ---- toggles ----
       metricMode: 'volume',   // 'volume' | 'valor'
-      sinalMode: 'potencial', // 'potencial' | 'confirmado' | 'todos' (união)
+      sinalMode: 'potencial',
+      //: ordem do "Ataque primeiro": densidade | quantidade | valor
+      ordemRanking: 'densidade', // 'potencial' | 'confirmado' | 'todos' (união)
 
       // ---- filtros ----
       // `parte` primeiro de propósito: é o filtro que responde a pergunta que
@@ -1157,9 +1159,39 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       },
       // Top-N pela lente ativa. `ufs` chega ordenado por score_foco (possíveis),
       // então reordenamos aqui — o payload já traz TODAS as UFs, não há refetch.
+      // ---- ORDEM do "Ataque primeiro" -------------------------------------
+      // São três perguntas comerciais diferentes, e a lista só respondia a
+      // primeira. Medido em prod (13/08/2026), SÃO PAULO está em:
+      //    concentração ... 21º de 28   (só 1,7% dos processos dele citam precatório)
+      //    quantidade .....  7º         (70.259 possíveis)
+      //    valor ..........  2º         (R$ 1,3 tri publicado pelo tribunal)
+      // Ordenar só por concentração escondia o maior mercado do país. O
+      // ranking não estava errado — é que existe mais de uma pergunta certa, e
+      // quem escolhe é quem vai atacar.
+      _ORDENS: {
+        densidade: {t: 'Concentração', d: 'que fatia dos processos do estado cita precatório',
+                    c: 'A conta é possíveis ÷ processos do estado.'},
+        // "Volume", não "Quantidade": o card do mapa já tem um toggle
+        // "Quantidade ↔ R$" (o que ele PINTA), e dois botões com o mesmo
+        // rótulo e sentidos diferentes na mesma tela é armadilha.
+        quantidade: {t: 'Volume', d: 'quantos processos, em número absoluto',
+                     c: 'É a contagem direta, sem dividir pelo tamanho do estado.'},
+        valor: {t: 'Valor R$', d: 'quanto o tribunal já publicou em R$',
+                c: 'Soma do valor da causa publicado — só dos processos que trazem esse valor.'},
+      },
+      valorDe(b) { return Number(b && b.valor) || 0; },
+      // valor de comparação da ordem ativa — a lista, a barra e o rótulo usam
+      // ESTE mesmo número, senão a ordem diz uma coisa e a barra desenha outra
+      metricaOrdem(b) {
+        if (this.ordemRanking === 'quantidade') return this.metricaDe(b) || 0;
+        if (this.ordemRanking === 'valor') return this.valorDe(b);
+        return this.scoreDe(b);
+      },
+      rotuloOrdem() { return (this._ORDENS[this.ordemRanking] || {}).d || ''; },
+      contaOrdem() { return (this._ORDENS[this.ordemRanking] || {}).c || ''; },
       topScore(n) {
         return (this.ufs || []).slice()
-          .sort((a, b) => this.scoreDe(b) - this.scoreDe(a))
+          .sort((a, b) => this.metricaOrdem(b) - this.metricaOrdem(a))
           .slice(0, n || 8);
       },
       // maior score entre os buckets (pra barra relativa)
@@ -1204,20 +1236,28 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
       // mesmo sem o sinal ter sido lido (SP tem potencial null e 4.378
       // confirmados — dizer "não medida" ali seria esconder dado que temos).
       prioridadeIndisponivel(b) {
+        // ordenando por quantidade de confirmados ou por R$, o número existe
+        // mesmo sem o sinal do texto ter sido lido — "não medida" só é verdade
+        // quando a régua depende do sinal
+        if (this.ordemRanking === 'valor') return false;
         return this.sinalMode === 'potencial' && this.potDesconhecido(b);
       },
       prioridadeEm(b, lista) {
         if (this.prioridadeIndisponivel(b)) return null;
-        const max = Math.max(0.0001, ...(lista || []).map(x => this.scoreDe(x)));
-        return Math.round(100 * this.scoreDe(b) / max);
+        // segue a ORDEM ativa: ordenando por valor, prioridade 100 é de quem
+        // tem mais R$ — não de quem tem mais concentração
+        const max = Math.max(1e-9, ...(lista || []).map(x => this.metricaOrdem(x)));
+        return Math.round(100 * this.metricaOrdem(b) / max);
       },
       prioridadeLabel(b, lista) {
         const p = this.prioridadeEm(b, lista);
         return p === null ? 'prioridade não medida' : ('prioridade ' + p);
       },
       barraPct(b, lista) {
-        const max = Math.max(0.0001, ...(lista || []).map(x => this.scoreDe(x)));
-        return Math.max(3, 100 * this.scoreDe(b) / max);
+        // a barra desenha a MESMA métrica que ordenou a lista — senão o 1º
+        // lugar aparece com a barra mais curta que o 3º
+        const max = Math.max(1e-9, ...(lista || []).map(x => this.metricaOrdem(x)));
+        return Math.max(3, 100 * this.metricaOrdem(b) / max);
       },
       // Quantos itens da lista estão sem valor publicado. Serve pra dizer UMA
       // vez "o tribunal não informou" em vez de repetir "R$ 0" em 10 linhas.
@@ -1977,16 +2017,35 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
            do país, saía em 21º por já termos olhado 24% dele). Agora a lista
            responde UMA pergunta, e o quanto já olhamos vira bandeira na linha.
         {% endcomment %}
+        {% comment %} Seletor de ORDEM: "onde atacar" tem mais de uma resposta
+           certa e quem escolhe é quem vai atacar. Medido em prod (13/08/2026),
+           São Paulo é 21º em concentração, 7º em quantidade e 2º em valor —
+           ordenar só por concentração escondia o maior mercado do país.
+        {% endcomment %}
+        <div class="flex flex-wrap items-center gap-2 mb-2">
+          <span class="text-xs text-fg-muted">Ordenar por:</span>
+          <div class="inline-flex rounded-md border border-border overflow-hidden text-xs"
+               role="group" aria-label="Critério de ordenação dos estados">
+            <template x-for="(m, k) in _ORDENS" :key="k">
+              <button type="button" @click="ordemRanking = k"
+                      :aria-pressed="ordemRanking === k"
+                      :class="ordemRanking === k ? 'bg-mission-fg text-surface' : 'text-fg-muted hover:text-fg'"
+                      class="px-2.5 py-1 border-l border-border first:border-l-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base"
+                      x-text="m.t"></button>
+            </template>
+          </div>
+        </div>
         <p class="text-xs text-fg-muted mb-2">
           Estados em ordem de
           <button type="button" class="voy-tip voy-tip-underline" aria-describedby="tip-prioridade">
             prioridade
             {% voy_icon "info" "w-3.5 h-3.5 shrink-0 ml-1" %}
             <span class="voy-tip-body tip-right" role="tooltip" id="tip-prioridade">
-              Escala de 0 a 100 comparando só os estados desta lista, com os filtros atuais. 100 = a maior fatia da lista. A conta é possíveis ÷ processos do estado.
+              <span>Escala de 0 a 100 comparando só os estados desta lista, com os filtros atuais. 100 = o maior no critério escolhido acima.</span>
+              <span x-text="' ' + contaOrdem()"></span>
             </span>
           </button>:
-          onde a maior fatia dos processos cita precatório. Clique para ver os tribunais.
+          <span x-text="rotuloOrdem()"></span>. Clique para ver os tribunais.
         </p>
         {# aviso honesto: ainda não lemos as publicações de todos os estados #}
         {% comment %} O texto era `text-warning` sobre `bg-warning/10`: 2,86:1 medido
