@@ -70,7 +70,7 @@ from search.entidades import (INDICE, consolidacao_cnpj, fundir_doc,
 #: o mínimo que as duas decisões precisam pra serem TOMADAS (os docs completos
 #: dos que vão fundir vêm depois, por `_mget`)
 FONTE_PLANO = ['entidade_id', 'chave', 'nome_canonico', 'nome_normalizado',
-               'n_partes', 'nome_suspeito', 'n_processos']
+               'n_partes', 'n_partes_absorvidas', 'nome_suspeito', 'n_processos']
 
 #: `_source` completo de quem vai fundir — `fundir_doc` reescreve o doc inteiro
 FONTE_FUSAO = ['entidade_id', 'chave', 'raiz_cnpj', 'nome_canonico',
@@ -220,8 +220,15 @@ class Command(BaseCommand):
             # o build e a correção. Usa-se o que está gravado, com fallback.
             norm = d.get('nome_normalizado') or normalizar_nome(d.get('nome_canonico'))
             if norm:
+                # a dominância é sobre a atestação PRÓPRIA — `n_partes` inclui o
+                # cadastro que veio das facetas absorvidas (decisão 14), e
+                # cadastro emprestado não prova identidade. Medido: sem o
+                # desconto, a "SECRETARIA DE SAÚDE" (19 linhas próprias, 208
+                # depois de absorver facetas) engolia 3 secretarias municipais
+                # de 1 linha, que são entidades DIFERENTES.
                 por_nome.setdefault(norm, []).append(
-                    (d['entidade_id'], d.get('n_partes') or 0,
+                    (d['entidade_id'],
+                     (d.get('n_partes') or 0) - (d.get('n_partes_absorvidas') or 0),
                      d.get('nome_canonico') or ''))
 
         plano, self.homonimos = [], 0

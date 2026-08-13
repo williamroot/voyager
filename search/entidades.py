@@ -162,6 +162,27 @@ DECISÕES (o porquê de cada uma)
    corta os dois — e o corte é por ATESTAÇÃO, não por tamanho do nome, senão
    levaria "INSS" (53 linhas) e "UNIAO" (58) junto. Ver `nome_suspeito`.
 
+14. FACETA NÃO É DEVEDOR NOVO — o setor interno funde no órgão documentado
+   -------------------------------------------------------------------------
+   Contadas as 182k entidades, o top-20 de "quem mais deve" saiu com **oito**
+   linhas do INSS e três da União: a autarquia, a sigla, "CEAB - INSS",
+   "CEAB-DJ INSS", "Procuradoria da CEAB-DJ INSS"… Nenhuma é falsa — `n_processos`
+   mede uma FRASE, e o CEAB é setor do INSS —, mas a tela precisa de uma linha
+   por devedor. Duas regras fecham isso, as duas conservadoras:
+
+   * `consolidar_grafia` — a decisão 12 sem exigir CNPJ dos DOIS lados. As três
+     "UNIÃO FEDERAL" (119 linhas + 1 + 1, todas com 1.232.679) viram uma.
+   * `plano_facetas` — funde quem NÃO tem CNPJ próprio na entidade PROVADA por
+     CNPJ cujo nome inteiro está dentro do nome dela (ou de quem ela é a sigla
+     atestada), se essa for a ÚNICA dona possível e dominar o cadastro em 10×.
+     A prova que sustenta o número: toda grafia CONTADA da faceta contém uma
+     grafia da dona, então o OR da dona já casa todos os processos dela.
+   Os cortes que evitam o falso-merge (todos medidos): dona nunca é ente
+   TERRITORIAL (senão o Estado engole o Ministério Público de Contas e o
+   sindicato dos servidores), faceta nunca é PJ ASSOCIATIVA, e dona ambígua
+   abstém — é isto que mantém "INSS Procuradoria-Geral Federal" fora da fusão,
+   já que INSS e PGF são órgãos diferentes.
+
 O QUE É O PRODUTO
 =================
 `variantes[]` (ordenado por frequência desc). É ele que vira a query: um OR de
@@ -666,13 +687,272 @@ def consolidacao_cnpj(candidatos) -> tuple | None:
     return lider[0], absorvidos
 
 
+# --------------------------------------------------------------------------- #
+# Faceta — o setor interno que entra na lista como se fosse outro devedor
+# (decisão 14)
+# --------------------------------------------------------------------------- #
+#: ente TERRITORIAL nunca é dona de faceta. O nome de um território é
+#: complemento no nome de milhares de instituições que NÃO são ele — medido no
+#: índice de 13/08: sem este corte, "SINDICATO DOS TRABALHADORES … DO ESTADO DE
+#: SÃO PAULO", "CONSELHO REGIONAL DE ENG … DO ESTADO DE GOIÁS", "COOPERATIVA
+#: HABITACIONAL … DO ESTADO DE SP" e "MINISTÉRIO PÚBLICO DE CONTAS DO ESTADO DO
+#: PARÁ" eram engolidos pelo Estado. 2.306 fusões a menos, todas erradas.
+RE_ENTE_TERRITORIAL = re.compile(
+    r'^(ESTADOS?|MUNICIPIOS?|PREFEITURA|DISTRITO FEDERAL|UNIAO|GOVERNO|FAZENDA)\b')
+
+#: pessoa jurídica ASSOCIATIVA nunca é faceta de quem ela menciona: sindicato,
+#: associação e cooperativa são PJ próprias por definição legal, e o nome delas
+#: cita o órgão dos associados ("SINDICATO NACIONAL DOS SERVIDORES DO MINISTÉRIO
+#: PÚBLICO DA UNIÃO", "ASSERJUP - Associação dos Servidores do Poder
+#: Judiciário"). `FUNDACAO` entra pelo mesmo motivo — fundação é PJ própria
+#: (Código Civil art. 62) e a de assistência aos servidores leva o nome do órgão
+#: ("Fundação Assistencial dos Servidores do Ministério da Fazenda"). Medido: 57
+#: fusões a menos, todas erradas.
+RE_PJ_ASSOCIATIVA = re.compile(
+    r'\b(SINDICATO|ASSOCIACAO|COOPERATIVA|FEDERACAO|CONFEDERACAO|FUNDACAO)\b')
+
+#: sigla de menos de 3 letras não identifica ninguém (e as de 2 são o par UF)
+SIGLA_MIN_LETRAS = 3
+
+
+def sigla_de(nome_normalizado: str | None) -> str:
+    """Iniciais do nome normalizado — `INSTITUTO NACIONAL SEGURO SOCIAL` → `INSS`.
+
+    Roda sobre `normalizar_nome`, que já tirou conectivo, então "do"/"de" não
+    entram na sigla (é como o cartório a escreve). Nome de um token só não tem
+    sigla: ela seria a própria letra inicial.
+    """
+    tokens = (nome_normalizado or '').split()
+    if len(tokens) < 2:
+        return ''
+    return ''.join(t[0] for t in tokens)
+
+
+def sigla_atestada(nome_normalizado: str | None, variantes) -> bool:
+    """O CADASTRO da entidade declara essa sigla? (prova de posse da sigla)
+
+    Verdadeiro quando existe uma grafia dela que CONTÉM a sigla e ainda assim
+    normaliza pra mesma chave — ou seja, o `normalizar_nome` tratou a sigla como
+    sigla ("INSTITUTO NACIONAL DO SEGURO SOCIAL **- INSS**" → `INSTITUTO
+    NACIONAL SEGURO SOCIAL`). É o tribunal, não nós, dizendo que INSS é o apelido
+    daquela autarquia.
+    """
+    sigla = sigla_de(nome_normalizado)
+    if len(sigla) < SIGLA_MIN_LETRAS:
+        return False
+    return any(sigla in _tokens_grafia(v)
+               and normalizar_nome(v) == nome_normalizado
+               for v in (variantes or []))
+
+
+def _norm_doc(doc: dict) -> str:
+    return (doc.get('nome_normalizado')
+            or normalizar_nome(doc.get('nome_canonico')) or '')
+
+
+def pode_ser_dona(doc: dict) -> bool:
+    """A entidade pode ABSORVER facetas? Só PJ provada por CNPJ e não-territorial.
+
+    `chave='cnpj'` é a única identidade PROVADA por documento (decisão 3). O
+    balde genérico — "MINISTÉRIO PÚBLICO", "DEFENSORIA PÚBLICA", "FAZENDA
+    NACIONAL", "RECEITA FEDERAL" — é justamente o que nunca ganhou CNPJ do
+    tribunal, e é ele que engoliria o MPF, a DPMG e a PGFN se pudesse ser dona.
+    Medido: exigir CNPJ na dona derruba 8.220 fusões, e as que caem são as
+    erradas.
+    """
+    return (doc.get('chave') == 'cnpj'
+            and not doc.get('nome_suspeito')
+            and not RE_ENTE_TERRITORIAL.match(_norm_doc(doc)))
+
+
+def pode_ser_faceta(doc: dict) -> bool:
+    """A entidade pode ser ABSORVIDA? Só quem NÃO tem CNPJ próprio.
+
+    É a assimetria que define a regra: só se funde numa entidade documentada
+    quem o tribunal nunca documentou. Ter CNPJ próprio é ser outra pessoa
+    jurídica — é o que separa "BANCO BRADESCO FINANCIAMENTOS S.A." do Bradesco,
+    a "DROGARIA SÃO PAULO LTDA - ME" da S.A., a Procuradoria-Geral Federal do
+    INSS e um município homônimo do outro.
+    """
+    return (doc.get('chave') == 'nome'
+            and not doc.get('nome_suspeito')
+            and not RE_PJ_ASSOCIATIVA.search(_norm_doc(doc)))
+
+
+def _grafias_or(doc: dict) -> set:
+    """Tuplas de token das grafias que ENTRAM NA CONTAGEM (o OR medido)."""
+    variantes = doc.get('variantes') or []
+    ocorrencias = dict(zip(variantes, doc.get('variantes_n') or []))
+    return {t for t in (_tokens_grafia(g)
+                        for g in grafias_para_contagem(variantes, ocorrencias))
+            if t}
+
+
+def _grafias_todas(doc: dict) -> set:
+    return {t for t in (_tokens_grafia(g) for g in (doc.get('variantes') or []))
+            if t}
+
+
+def plano_facetas(docs, fator: int = DOMINANCIA_FATOR) -> tuple:
+    """Quem é FACETA de quem (decisão 14). `docs` = `_source` das entidades.
+
+    Devolve `({entidade_id_da_faceta: entidade_id_da_dona}, stats)`.
+
+    O DEFEITO, medido no índice de 13/08/2026: o top-20 de "quem mais deve"
+    tinha **oito** linhas do INSS e três da União —
+
+        4.402.239  INSTITUTO NACIONAL DO SEGURO SOCIAL   (cnpj, 768 linhas)
+        4.255.175  INSS                                  (cnpj,  53)
+        4.174.336  INSTITUTO NACIONAL DO SEGURO SOCIAL INSS  (nome, 22)
+        2.087.983  CEAB - INSS                           (nome,   4)
+        1.180.434  CEAB-DJ INSS                          (nome,   6)
+        1.175.484  Procuradoria da CEAB-DJ INSS          (nome,   1)
+          957.081  INSTITUTO … - INSS PROCURADORIA REGIONAL (nome, 1)
+          910.851  CEAB INSS                             (nome,   2)
+
+    Nenhuma delas é falsa: `n_processos` mede uma FRASE, e o CEAB é setor do
+    INSS. A tela, porém, precisa de uma linha por devedor.
+
+    O CRITÉRIO, em uma frase: **funde-se uma entidade sem CNPJ próprio na
+    entidade provada por CNPJ cujo NOME INTEIRO está dentro do nome dela (ou de
+    quem ela é a sigla atestada), quando essa é a única dona possível e domina o
+    cadastro em ≥ `fator`×.**
+
+    As provas, e por que cada uma é necessária:
+
+    1. **Léxica** — o nome canônico da dona é frase CONTÍGUA dentro do nome
+       canônico da faceta ("INSS" ⊂ "CEAB - INSS"). Não é semelhança: é
+       continência, a mesma relação que o `match_phrase` enxerga.
+    2. **Contenção do conjunto** — TODA grafia contada da faceta contém uma
+       grafia da dona, logo o OR da dona já casa 100% dos processos da faceta.
+       A fusão não pode inventar processo: o número da dona não muda por causa
+       de quem ela absorveu (só por grafia que a poda dela tinha cortado).
+    3. **Assimetria de documento** — a faceta não tem CNPJ (`chave='nome'`) e a
+       dona tem (`pode_ser_dona`/`pode_ser_faceta`). Quem o tribunal documentou
+       nunca é engolido; e o balde genérico sem CNPJ nunca engole ninguém.
+    4. **Dona única** — se duas donas ELEGÍVEIS casam e não resolvem na mesma
+       raiz, abstém. É o que salva o caso adversarial do enunciado: "INSS
+       Procuradoria-Geral Federal" (1 linha, 994.913 processos) casa o INSS
+       (raiz 29.979.036) E a Procuradoria-Geral Federal (raiz 05.489.410), que
+       são órgãos DIFERENTES — abstém, e a linha continua no índice.
+    5. **Dominância** — a dona precisa de ≥ `fator`× as linhas de cadastro da
+       faceta (o mesmo `DOMINANCIA_FATOR` das decisões 9 e 12), medida contra a
+       RAIZ da cadeia (o CEAB é faceta do "INSS", que é sigla do INSTITUTO).
+
+    Medido no índice real: 10.584 fusões em 164 donas, contra 7.404 abstenções
+    por dona ambígua e 5.818 por falta de dominância — 55% do que a continência
+    sozinha sugeriria é recusado.
+    """
+    docs = [d for d in docs if not d.get('nome_suspeito')]
+    por_id = {d['entidade_id']: d for d in docs}
+
+    # nome canônico → quem se chama exatamente assim
+    por_nome: dict = {}
+    for d in docs:
+        toks = _tokens_grafia(d.get('nome_canonico') or '')
+        if toks:
+            por_nome.setdefault(toks, []).append(d['entidade_id'])
+
+    donas: dict = {}
+    for d in docs:
+        if not pode_ser_faceta(d):
+            continue
+        toks = _tokens_grafia(d.get('nome_canonico') or '')
+        candidatas = set()
+        total = len(toks)
+        for i in range(total):
+            for j in range(i + 1, total + 1):
+                if j - i == total:               # a frase INTEIRA não é sub-frase
+                    continue
+                for outro in por_nome.get(toks[i:j], ()):
+                    if outro != d['entidade_id']:
+                        candidatas.add(outro)
+        for outro in candidatas:
+            alvo = por_id[outro]
+            if pode_ser_dona(alvo) and _contem_conjunto(d, alvo):
+                donas.setdefault(d['entidade_id'], set()).add(outro)
+
+    # sigla: a entidade que é SÓ a sigla de outra (a que o cadastro da outra
+    # declara) — é o elo que liga "INSS" ao "INSTITUTO NACIONAL DO SEGURO SOCIAL"
+    por_sigla: dict = {}
+    for d in docs:
+        if not pode_ser_dona(d):
+            continue
+        norma = _norm_doc(d)
+        if sigla_atestada(norma, d.get('variantes')):
+            por_sigla.setdefault(sigla_de(norma), set()).add(d['entidade_id'])
+    for d in docs:
+        toks = _tokens_grafia(d.get('nome_canonico') or '')
+        if len(toks) != 1:
+            continue                                  # o nome é SÓ a sigla
+        candidatas = {p for p in por_sigla.get(toks[0], ()) if p != d['entidade_id']}
+        if len(candidatas) == 1:
+            donas.setdefault(d['entidade_id'], set()).update(candidatas)
+
+    memo: dict = {}
+    stats = {'ambiguo': 0, 'sem_dominancia': 0}
+
+    def raiz(x, pilha=frozenset()):
+        if x in memo:
+            return memo[x]
+        if x in pilha:
+            return x                                   # ciclo: para aqui
+        candidatas = donas.get(x)
+        if not candidatas:
+            memo[x] = x
+            return x
+        raizes = {raiz(c, pilha | {x}) for c in candidatas}
+        raizes.discard(x)
+        if len(raizes) != 1:
+            stats['ambiguo'] += 1
+            memo[x] = x
+            return x
+        alvo = next(iter(raizes))
+        if _n_partes_proprias(por_id[alvo]) < fator * (por_id[x].get('n_partes') or 0):
+            stats['sem_dominancia'] += 1
+            memo[x] = x
+            return x
+        memo[x] = alvo
+        return alvo
+
+    plano = {x: raiz(x) for x in donas}
+    plano = {x: r for x, r in plano.items() if r != x}
+    stats['fundidas'] = len(plano)
+    stats['donas'] = len(set(plano.values()))
+    return plano, stats
+
+
+def _n_partes_proprias(doc: dict) -> int:
+    """Linhas de cadastro que a entidade tem POR SI — sem as que ela absorveu.
+
+    A dominância é sobre atestação PRÓPRIA, senão a regra vira uma bola de neve:
+    medido na 2ª passada do índice real, a "SECRETARIA DE SAÚDE" (19 linhas
+    próprias) saiu da 1ª com 146 e, na rodada seguinte, esse cadastro emprestado
+    já lhe dava dominância sobre a "Secretaria de Saúde do Estado de Pernambuco"
+    — que não é ela. Com as linhas próprias a passada converge e o comando vira
+    idempotente. Doc sem o campo (índice antigo) vale `n_partes`: migração
+    aditiva.
+    """
+    return ((doc.get('n_partes') or 0)
+            - (doc.get('n_partes_absorvidas') or 0))
+
+
+def _contem_conjunto(faceta: dict, dona: dict) -> bool:
+    """Prova 2: o OR da `dona` casa TODO processo que o OR da `faceta` casa."""
+    do_filho, da_dona = _grafias_or(faceta), _grafias_todas(dona)
+    if not do_filho or not da_dona:
+        return False
+    return all(any(_e_sub_frase(g, f) for g in da_dona) for f in do_filho)
+
+
 class Grupo:
     """Uma entidade em construção. `__slots__` porque são ~1M destes em memória."""
 
     __slots__ = ('chave', 'valor', 'variantes', 'documentos', 'tipos',
                  'n_partes', 'mascarados', 'variantes_descartadas',
                  'documentos_descartados', 'menor_parte_id', 'absorvidos',
-                 'documentos_secundarios', 'absorvidos_ids')
+                 'documentos_secundarios', 'absorvidos_ids',
+                 'partes_absorvidas')
 
     def __init__(self, chave: str, valor: str):
         self.chave = chave                 # 'cnpj' | 'nome'
@@ -687,6 +967,9 @@ class Grupo:
         self.menor_parte_id = None
         #: grupos-por-nome absorvidos na consolidação (auditoria)
         self.absorvidos = 0
+        #: linhas de cadastro que vieram de OUTRA entidade absorvida — é o que
+        #: permite medir dominância pela atestação PRÓPRIA (ver decisão 14)
+        self.partes_absorvidas = 0
         #: CNPJs que o tribunal digitou ERRADO pra esta entidade (decisão 12).
         #: Não entram em `documentos[]` — não são desta PJ —, mas não se joga
         #: fora: são a evidência do erro de cadastro, e alguém vai querer
@@ -720,6 +1003,7 @@ class Grupo:
     def absorver(self, outro: 'Grupo'):
         """Engole outro grupo (consolidação nome→cnpj). Respeita os tetos."""
         self.n_partes += outro.n_partes
+        self.partes_absorvidas += outro.n_partes
         self.mascarados += outro.mascarados
         self.variantes_descartadas += outro.variantes_descartadas
         self.documentos_descartados += outro.documentos_descartados
@@ -932,6 +1216,62 @@ class Agregador:
         return {'fundidos': fundidos, 'linhas': linhas_fundidas,
                 'ambiguos': ambiguos}
 
+    # -- consolidação por grafia idêntica, CRUZANDO as chaves ---------------- #
+    def consolidar_grafia(self) -> dict:
+        """A mesma decisão 12, agora sem exigir que os dois lados tenham CNPJ.
+
+        O DEFEITO que ela fecha, medido no índice de 13/08: "UNIÃO FEDERAL"
+        aparecia TRÊS vezes no top-11 de quem mais deve, com o MESMO número
+        (1.232.679) — o grupo-por-nome de 119 linhas e dois grupos-por-CNPJ de
+        UMA linha cada. A decisão 12 não pega (os dois pequenos não se dominam
+        entre si, 1 contra 1) e a decisão 9 também não (ela só funde nome→cnpj, e
+        aqui o alvo seria ambíguo: dois CNPJs empatados). Direção faltando: o
+        cadastro ATESTADO está do lado do NOME.
+
+        Critério: idêntico ao da decisão 12 (`consolidacao_cnpj`) — dominância,
+        minoria de ≤ `CNPJ_ERRADO_MAX_LINHAS` linha e grafia IDÊNTICA. Só o
+        conjunto de candidatos muda: entram os grupos-por-nome.
+
+        Medido no índice inteiro: **7 grupos** disparam — UNIÃO FEDERAL, UNIÃO,
+        ESTADO DE ALAGOAS, MUNICÍPIO DE JUIZ DE FORA, DE BELO HORIZONTE, DE
+        POÇOS DE CALDAS e DE CONTAGEM. Nenhum é homônimo: cada um é uma entidade
+        ÚNICA no país cujo CNPJ o tribunal digitou uma vez só. Os 6.912 grupos de
+        homônimo legítimo (85 "FUNDO MUNICIPAL DE SAÚDE", 44 "SERVIÇO AUTÔNOMO DE
+        ÁGUA E ESGOTO"…) continuam preservados: num grupo plano ninguém domina.
+
+        Roda DEPOIS de `consolidar` de propósito — é a rede que apara o que a
+        consolidação nome→cnpj recusou por ambiguidade.
+        """
+        por_nome: dict[str, list] = {}
+        for chave, grupo in self.grupos.items():
+            norm = normalizar_nome(nome_canonico(grupo.variantes))
+            if norm:
+                por_nome.setdefault(norm, []).append(
+                    (chave, grupo.n_partes, nome_canonico(grupo.variantes)))
+
+        fundidos = absorvidas = linhas = preservados = 0
+        for candidatos in por_nome.values():
+            if len(candidatos) < 2 or not any(c[0][0] == 'nome' for c in candidatos):
+                continue                       # cnpj↔cnpj já é a decisão 12
+            decisao = consolidacao_cnpj(candidatos)
+            if decisao is None:
+                preservados += 1
+                continue
+            alvo, engolidos = decisao
+            fundidos += 1
+            for chave in engolidos:
+                grupo = self.grupos.pop(chave)
+                linhas += grupo.n_partes
+                self.grupos[alvo].absorver_cnpj_errado(grupo)
+                absorvidas += 1
+
+        self.stats['consolidados_grafia'] = fundidos
+        self.stats['consolidacao_grafia_entidades'] = absorvidas
+        self.stats['consolidacao_grafia_linhas'] = linhas
+        self.stats['consolidacao_grafia_homonimos'] = preservados
+        return {'fundidos': fundidos, 'absorvidas': absorvidas,
+                'linhas': linhas, 'homonimos_preservados': preservados}
+
     def _alvo_dominante(self, alvos: list):
         """O CNPJ inequívoco entre candidatos homônimos — ou `None` (abstém)."""
         if len(alvos) == 1:
@@ -1052,6 +1392,9 @@ def grupo_to_doc(g: Grupo, agora: str) -> dict:
         'ente_publico_por_complemento': bool(ente and por_complemento),
         # proxy de prevalência — NÃO é contagem de processos (decisão 6)
         'n_partes': g.n_partes,
+        # quantas dessas linhas vieram de quem foi absorvido — a dominância da
+        # decisão 14 é sobre atestação PRÓPRIA (ver `_n_partes_proprias`)
+        'n_partes_absorvidas': g.partes_absorvidas,
         'parte_id_min': g.menor_parte_id,
         'atualizado_em': agora,
     }
@@ -1078,6 +1421,7 @@ def fundir_doc(lider: dict, absorvidos: list, agora: str | None = None) -> dict:
     documentos_2 = set(lider.get('documentos_secundarios') or [])
     absorvidas_ids = set(lider.get('entidades_absorvidas') or [])
     n_partes = int(lider.get('n_partes') or 0)
+    absorvidas_partes = int(lider.get('n_partes_absorvidas') or 0)
     mascarados = int(lider.get('documentos_mascarados') or 0)
     grupos = int(lider.get('grupos_absorvidos') or 0)
     ente = bool(lider.get('eh_ente_publico'))
@@ -1097,6 +1441,7 @@ def fundir_doc(lider: dict, absorvidos: list, agora: str | None = None) -> dict:
         absorvidas_ids |= {outro['entidade_id']}
         absorvidas_ids |= set(outro.get('entidades_absorvidas') or [])
         n_partes += int(outro.get('n_partes') or 0)
+        absorvidas_partes += int(outro.get('n_partes') or 0)
         mascarados += int(outro.get('documentos_mascarados') or 0)
         grupos += 1 + int(outro.get('grupos_absorvidos') or 0)
         ente = ente or bool(outro.get('eh_ente_publico'))
@@ -1120,6 +1465,9 @@ def fundir_doc(lider: dict, absorvidos: list, agora: str | None = None) -> dict:
         'documentos_mascarados': mascarados,
         'eh_ente_publico': ente,
         'n_partes': n_partes,
+        # quantas dessas linhas vieram de quem foi absorvido — é o que permite
+        # medir a dominância pela atestação PRÓPRIA (ver `_n_partes_proprias`)
+        'n_partes_absorvidas': absorvidas_partes,
         'nome_suspeito': suspeito,
         'nome_suspeito_motivo': motivo,
         'atualizado_em': agora or datetime.now(timezone.utc).isoformat(),

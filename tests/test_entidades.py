@@ -1149,3 +1149,265 @@ def test_merge_incremental_preserva_a_prova_da_fusao_e_reavalia_o_suspeito():
     assert doc['documentos_secundarios'] == ['03.500.696/0001-03']
     assert doc['entidades_absorvidas'] == ['cnpj:03500696']
     assert doc['grupos_absorvidos'] == 2
+
+
+# --------------------------------------------------------------------------- #
+# 12. Consolidação por GRAFIA IDÊNTICA cruzando as chaves (decisão 14, parte 1)
+# --------------------------------------------------------------------------- #
+def test_consolidar_grafia_funde_as_tres_uniao_federal():
+    """O defeito medido em 13/08: "UNIÃO FEDERAL" ocupava as posições 9, 10 e 11
+    do top-11 de quem mais deve, as três com o MESMO 1.232.679 — o grupo por
+    NOME (119 linhas) e dois grupos por CNPJ de UMA linha cada.
+
+    A decisão 12 não pega (os dois pequenos não se dominam, 1 contra 1) e a
+    decisão 9 também não (dois CNPJs empatados = alvo ambíguo). A direção que
+    faltava: o cadastro atestado está do lado do NOME.
+    """
+    linhas = ([_linha('UNIAO FEDERAL', tipo='desconhecido', pid=100 + i)
+               for i in range(119)]
+              + [_linha('UNIÃO FEDERAL', '09.631.973/0001-93', 'CNPJ', pid=900)]
+              + [_linha('UNIÃO FEDERAL', '00.394.411/0001-09', 'CNPJ', pid=901)])
+    agg = _agregar(linhas)
+    assert len(agg.grupos) == 3, 'o defeito, antes'
+    assert agg.consolidar_cnpj()['fundidos'] == 0     # 1 contra 1: sem pico
+    assert agg.consolidar()['fundidos'] == 0          # alvo ambíguo: abstém
+
+    r = agg.consolidar_grafia()
+    assert r == {'fundidos': 1, 'absorvidas': 2, 'linhas': 2,
+                 'homonimos_preservados': 0}
+    docs = _docs(agg)
+    assert len(docs) == 1, 'a União Federal é UMA linha na tela'
+    doc = next(iter(docs.values()))
+    assert doc['chave'] == 'nome'                     # o líder é quem tem cadastro
+    assert doc['n_partes'] == 121
+    # os CNPJs não somem: viram evidência, com os ids pra reverter
+    assert doc['documentos_secundarios'] == ['00.394.411/0001-09',
+                                             '09.631.973/0001-93']
+    assert doc['entidades_absorvidas'] == ['cnpj:00394411', 'cnpj:09631973']
+
+
+def test_consolidar_grafia_preserva_o_homonimo_de_municipio():
+    """O caso ADVERSARIAL: "MUNICIPIO DE SAO JOSE" existe em várias UFs com
+    CNPJs distintos, e um grupo por NOME (as linhas que o tribunal mandou sem
+    documento) coabita com eles.
+
+    Fundir daria uma linha só e mataria municípios reais. O perfil salva: com 6
+    minorias, o líder precisaria de ≥54 linhas pra dominar 90% — e mesmo assim
+    ainda passaria a exigir 10× o vice. Aqui ninguém domina, então abstém.
+    """
+    linhas = ([_linha('MUNICIPIO DE SAO JOSE', tipo='desconhecido', pid=10 + i)
+               for i in range(30)]
+              + [_linha('MUNICIPIO DE SAO JOSE', f'{82 + i:02d}.821.000/0001-{i:02d}',
+                        'CNPJ', pid=200 + i) for i in range(6)])
+    agg = _agregar(linhas)
+    assert len(agg.grupos) == 7
+    r = agg.consolidar_grafia()
+    assert r['fundidos'] == 0
+    assert r['homonimos_preservados'] == 1
+    assert len(agg.grupos) == 7, 'nenhum município homônimo pode sumir'
+
+
+def test_consolidar_grafia_nao_deixa_a_sa_comer_a_me_pelo_lado_do_nome():
+    """A 3ª prova continua sendo `mesma_grafia`, não "mesmo nome normalizado":
+    um grupo-por-nome grande com a grafia da S.A. não pode engolir a ME de 1
+    linha só porque `normalizar_nome` descarta a forma societária."""
+    linhas = ([_linha('DROGARIA SAO PAULO S.A', tipo='pj', pid=10 + i)
+               for i in range(40)]
+              + [_linha('DROGARIA SAO PAULO LTDA - ME', '02.450.244/0001-02',
+                        'CNPJ', pid=99)])
+    agg = _agregar(linhas)
+    assert agg.consolidar_grafia()['absorvidas'] == 0
+    assert len(agg.grupos) == 2
+
+
+# --------------------------------------------------------------------------- #
+# 13. FACETAS — o setor interno não é devedor novo (decisão 14, parte 2)
+# --------------------------------------------------------------------------- #
+def _ent(eid, chave, nome, n_partes, variantes=None, ns=None, suspeito=False):
+    """Um `_source` de entidade no formato que `plano_facetas` consome."""
+    variantes = variantes or [nome]
+    return {'entidade_id': eid, 'chave': chave, 'nome_canonico': nome,
+            'nome_normalizado': ent.normalizar_nome(nome), 'n_partes': n_partes,
+            'nome_suspeito': suspeito, 'variantes': variantes,
+            'variantes_n': ns or [n_partes] + [1] * (len(variantes) - 1)}
+
+
+#: o dado real de 13/08: a autarquia, a sigla e os setores do INSS
+INSS_AUTARQUIA = _ent(
+    'cnpj:29979036', 'cnpj', 'INSTITUTO NACIONAL DO SEGURO SOCIAL', 768,
+    ['INSTITUTO NACIONAL DO SEGURO SOCIAL',
+     'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS'], [614, 17])
+INSS_SIGLA = _ent('cnpj:77923652', 'cnpj', 'INSS', 53, ['INSS'], [53])
+PGF = _ent('cnpj:05489410', 'cnpj', 'PROCURADORIA-GERAL FEDERAL', 31,
+           ['PROCURADORIA-GERAL FEDERAL'], [31])
+
+
+def test_faceta_funde_o_setor_interno_do_inss():
+    """As 6 linhas do INSS no top-20 viram uma. "CEAB - INSS" casa a sigla, que
+    é do INSTITUTO — a dominância é medida contra a RAIZ da cadeia (768), não
+    contra o elo do meio."""
+    docs = [INSS_AUTARQUIA, INSS_SIGLA, PGF,
+            _ent('nome:a', 'nome', 'INSTITUTO NACIONAL DO SEGURO SOCIAL INSS', 22),
+            _ent('nome:b', 'nome', 'CEAB - INSS', 4),
+            _ent('nome:c', 'nome', 'CEAB-DJ INSS', 6),
+            _ent('nome:d', 'nome', 'Procuradoria da CEAB-DJ INSS', 1),
+            _ent('nome:e', 'nome', 'GERENTE EXECUTIVO DO INSS EM CARUARU/PE', 1)]
+    plano, stats = ent.plano_facetas(docs)
+
+    assert set(plano) == {'nome:a', 'nome:b', 'nome:c', 'nome:d', 'nome:e',
+                          'cnpj:77923652'}
+    assert set(plano.values()) == {'cnpj:29979036'}, 'tudo na autarquia'
+    assert stats['fundidas'] == 6 and stats['donas'] == 1
+
+
+def test_faceta_abstem_quando_o_nome_cita_dois_orgaos_diferentes():
+    """O caso ADVERSARIAL do enunciado. "INSS Procuradoria-Geral Federal" (1
+    linha, 994.913 processos) casa o INSS **e** a Procuradoria-Geral Federal —
+    que coabitam em milhões de processos e são órgãos DIFERENTES, cada um com
+    seu CNPJ. Sobreposição alta não é identidade: abstém."""
+    docs = [INSS_AUTARQUIA, INSS_SIGLA, PGF,
+            _ent('nome:x', 'nome', 'INSS Procuradoria-Geral Federal', 1)]
+    plano, stats = ent.plano_facetas(docs)
+    assert 'nome:x' not in plano
+    assert stats['ambiguo'] == 1
+    # e a PGF nunca é engolida pelo INSS: ela tem CNPJ próprio
+    assert 'cnpj:05489410' not in plano
+
+
+def test_faceta_nao_engole_quem_tem_cnpj_proprio():
+    """Matriz × filial × ME, e banco × financeira do mesmo grupo: a assimetria
+    de documento é o corte. Ter CNPJ próprio é ser outra pessoa jurídica —
+    mesmo com o nome inteiro da outra dentro do seu e mesmo dominada 40×."""
+    docs = [
+        _ent('cnpj:60746948', 'cnpj', 'BANCO BRADESCO S.A', 1200),
+        _ent('cnpj:07207996', 'cnpj', 'BANCO BRADESCO FINANCIAMENTOS S.A', 30),
+        _ent('cnpj:61412110', 'cnpj', 'DROGARIA SAO PAULO S.A', 400),
+        _ent('cnpj:02450244', 'cnpj', 'DROGARIA SAO PAULO LTDA - ME', 1),
+    ]
+    plano, _ = ent.plano_facetas(docs)
+    assert plano == {}, 'nenhuma PJ documentada pode ser absorvida'
+    assert ent.pode_ser_faceta(docs[1]) is False
+
+
+def test_faceta_nunca_tem_ente_territorial_como_dona():
+    """Medido: sem este corte o Estado engolia o Ministério Público de Contas, o
+    CREA, a companhia estadual de habitação e o sindicato dos servidores — o
+    nome de um TERRITÓRIO é complemento no nome de milhares de instituições que
+    não são ele. 2.306 fusões a menos, todas erradas."""
+    estado = _ent('cnpj:05054861', 'cnpj', 'ESTADO DO PARA', 21)
+    docs = [estado,
+            _ent('nome:mpc', 'nome',
+                 'MINISTERIO PUBLICO DE CONTAS DO ESTADO DO PARA', 1),
+            _ent('nome:crea', 'nome',
+                 'CONSELHO REGIONAL DE ENGENHARIA DO ESTADO DO PARA', 1)]
+    assert ent.pode_ser_dona(estado) is False
+    assert ent.plano_facetas(docs)[0] == {}
+    for nome in ('MUNICIPIO DE SAO PAULO', 'Prefeitura de Osasco',
+                 'DISTRITO FEDERAL', 'UNIAO FEDERAL',
+                 'FAZENDA PUBLICA DO ESTADO DE SAO PAULO'):
+        assert ent.pode_ser_dona(_ent('cnpj:x', 'cnpj', nome, 500)) is False
+
+
+def test_faceta_nao_engole_pj_associativa():
+    """Sindicato, associação e cooperativa são PJ próprias por definição legal, e
+    o nome delas CITA o órgão dos associados. Medido: "SINDICATO NACIONAL DOS
+    SERVIDORES DO MINISTÉRIO PÚBLICO DA UNIÃO" e "ASSERJUP - Associação dos
+    Servidores…" estavam sendo engolidos pelo MPU."""
+    mpu = _ent('cnpj:26989715', 'cnpj', 'MINISTERIO PUBLICO DA UNIAO', 70)
+    docs = [mpu,
+            _ent('nome:s', 'nome',
+                 'SINDICATO NACIONAL DOS SERVIDORES DO MINISTERIO PUBLICO DA '
+                 'UNIAO', 1),
+            _ent('nome:c', 'nome',
+                 'COOPERATIVA DE CREDITO DOS SERVIDORES DO MINISTERIO PUBLICO '
+                 'DA UNIAO', 1),
+            # o setor interno, esse sim, funde
+            _ent('nome:o', 'nome',
+                 'Corregedoria do MINISTERIO PUBLICO DA UNIAO', 1)]
+    plano, _ = ent.plano_facetas(docs)
+    assert set(plano) == {'nome:o'}
+
+
+def test_faceta_exige_dominancia_de_cadastro():
+    """Sem 10× de diferença de cadastro não há fusão: duas entidades atestadas de
+    forma parecida são duas entidades, mesmo com uma citando a outra. É o que
+    mantém "Procuradoria da Fazenda Nacional" (20 linhas) fora da "FAZENDA
+    NACIONAL" (33) e o MPF fora do balde "MINISTÉRIO PÚBLICO"."""
+    dona = _ent('cnpj:1', 'cnpj', 'AGENCIA NACIONAL DE MINERACAO', 21)
+    docs = [dona, _ent('nome:p', 'nome',
+                       'Procuradoria da AGENCIA NACIONAL DE MINERACAO', 3)]
+    plano, stats = ent.plano_facetas(docs)
+    assert plano == {} and stats['sem_dominancia'] == 1
+    # com a mesma faceta em 1 linha (21 ≥ 10×1), passa
+    docs[1] = _ent('nome:p', 'nome',
+                   'Procuradoria da AGENCIA NACIONAL DE MINERACAO', 1)
+    assert ent.plano_facetas(docs)[0] == {'nome:p': 'cnpj:1'}
+
+
+def test_faceta_exige_que_o_or_da_dona_ja_case_os_processos_dela():
+    """A prova que sustenta o número: TODA grafia contada da faceta contém uma
+    grafia da dona, então o `match_phrase` da dona já casa 100% dos processos da
+    faceta e a fusão não pode inventar processo.
+
+    Medido no índice real: "Central de Análise de Benefício - Ceab/Inss" ficou
+    de fora por causa de UMA grafia com o typo "Ceab/INS" — que não contém
+    "INSS" e portanto casa processos que o INSS não casaria. Abster > chutar.
+    """
+    dona = _ent('cnpj:29979036', 'cnpj', 'INSS', 500, ['INSS'], [500])
+    limpa = _ent('nome:ok', 'nome', 'CEAB - INSS', 4,
+                 ['CEAB - INSS', 'CEAB/INSS'], [3, 1])
+    com_typo = _ent('nome:typo', 'nome', 'CEAB - INSS', 4,
+                    ['CEAB - INSS', 'CEAB - INS'], [3, 3])
+    assert ent.plano_facetas([dona, limpa])[0] == {'nome:ok': 'cnpj:29979036'}
+    assert ent.plano_facetas([dona, com_typo])[0] == {}
+
+
+def test_sigla_precisa_ser_atestada_pelo_cadastro_da_dona():
+    """A sigla só liga "INSS" ao "INSTITUTO NACIONAL DO SEGURO SOCIAL" porque o
+    cadastro da autarquia DECLARA a sigla ("… - INSS" normaliza pra mesma
+    chave). Sem essa prova, uma sigla genérica ("DER") arrastaria a homônima de
+    outro estado."""
+    assert ent.sigla_de('INSTITUTO NACIONAL SEGURO SOCIAL') == 'INSS'
+    assert ent.sigla_de('CAIXA ECONOMICA FEDERAL') == 'CEF'
+    assert ent.sigla_de('INSS') == '', 'um token só não tem sigla'
+    assert ent.sigla_atestada(
+        'INSTITUTO NACIONAL SEGURO SOCIAL',
+        ['INSTITUTO NACIONAL DO SEGURO SOCIAL',
+         'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS']) is True
+    assert ent.sigla_atestada(
+        'INSTITUTO NACIONAL SEGURO SOCIAL',
+        ['INSTITUTO NACIONAL DO SEGURO SOCIAL']) is False
+    # "DER-DF" não é SÓ a sigla (o sufixo discrimina): não funde no DER do Ceará
+    der_ce = _ent('cnpj:1', 'cnpj', 'Departamento Estadual de Rodovias - DER', 40)
+    der_df = _ent('nome:df', 'nome', 'DER-DF', 2)
+    assert ent.plano_facetas([der_ce, der_df])[0] == {}
+
+
+def test_faceta_ignora_nome_suspeito():
+    """Cadastro truncado (decisão 13) não entra na conta: nem como dona — não é
+    entidade — nem como faceta."""
+    dona = _ent('cnpj:1', 'cnpj', 'MINISTERIO PUBLICO', 500, suspeito=True)
+    docs = [dona, _ent('nome:x', 'nome', 'MINISTERIO PUBLICO DE MINAS', 1)]
+    assert ent.plano_facetas(docs)[0] == {}
+
+
+def test_dominancia_da_faceta_e_sobre_a_atestacao_PROPRIA():
+    """A bola de neve: sem descontar o que já foi absorvido, a fusão de uma
+    rodada vira dominância emprestada na rodada seguinte.
+
+    Medido no índice real: a "SECRETARIA DE SAÚDE" (19 linhas PRÓPRIAS) saiu da
+    1ª passada com 146 e, na 2ª, esse cadastro emprestado lhe deu dominância
+    sobre secretarias municipais de saúde de 1 linha — que são outras entidades.
+    Com `n_partes_absorvidas` a passada converge.
+    """
+    dona = _ent('cnpj:1', 'cnpj', 'SECRETARIA DE SAUDE', 146)
+    dona['n_partes_absorvidas'] = 127
+    faceta = _ent('nome:x', 'nome',
+                  'Pregoeiro da SECRETARIA DE SAUDE de Uberlandia', 5)
+    assert ent.plano_facetas([dona, faceta])[0] == {}, 'cadastro emprestado'
+    dona['n_partes_absorvidas'] = 0
+    assert ent.plano_facetas([dona, faceta])[0] == {'nome:x': 'cnpj:1'}
+    # e o doc fundido publica o campo, pra que a decisão sobreviva ao índice
+    doc = ent.fundir_doc(_ent('cnpj:1', 'cnpj', 'X SA', 40),
+                         [_ent('nome:y', 'nome', 'Procuradoria - X SA', 2)])
+    assert doc['n_partes'] == 42 and doc['n_partes_absorvidas'] == 2

@@ -129,7 +129,8 @@ grafias de nome**. Nenhuma delas é o INSS; todas são. Digitar "INSS" não acha
 | `nome_suspeito`, `nome_suspeito_motivo` | boolean, keyword | a frase não identifica ninguém: `token_unico` \| `truncado` (decisão 13). **Fora da contagem e do autocomplete.** Ausente = índice anterior à decisão |
 | `documentos[]`, `n_documentos` | keyword, integer | CNPJs formatados (mascarados NÃO entram) |
 | `documentos_secundarios[]`, `n_documentos_secundarios` | keyword, integer | CNPJs que o tribunal digitou ERRADO pra esta entidade (decisão 12) — evidência do erro, nunca "o CNPJ dela" |
-| `entidades_absorvidas[]` | keyword | `entidade_id` de cada entidade-CNPJ engolida (decisão 12) — auditoria e reversão |
+| `entidades_absorvidas[]` | keyword | `entidade_id` de cada entidade engolida (decisões 12 e 14) — auditoria e reversão |
+| `n_partes_absorvidas` | integer | quantas de `n_partes` vieram de entidade ABSORVIDA. A dominância das decisões 12 e 14 é sobre a atestação **própria** (`n_partes` − este) — sem o desconto, o cadastro emprestado numa passada vira dominância emprestada na seguinte. Ausente = 0 |
 | `documentos_mascarados` | integer | linhas com CNPJ mascarado que não fundiram por raiz |
 | `tipo` | keyword | `pj`\|`desconhecido`\|… (o dominante do grupo) |
 | `eh_ente_publico`, `ente_publico_por_complemento` | boolean | `agg_estado.eh_ente_publico` (RE_ENTE_PUBLICO + complemento) |
@@ -353,10 +354,72 @@ são nomes institucionais GENÉRICOS de 2+ tokens, corretamente separados porque
 são entidades diferentes — "POLICIA CIVIL" (3 CNPJs, 157.903 cada),
 "PROCURADORIA GERAL DO ESTADO"/"DO MUNICIPIO" (um por UF/município), "UNIÃO
 FEDERAL" (2 CNPJs de 1 linha, sem dominante pra decidir qual é o certo) — e
-facetas do INSS ("CEAB - INSS", "Procuradoria da CEAB-DJ INSS"), que a atestação
-da decisão 8c já resolve no ranking. Fundi-las seria falso-merge; o que resolve
-de verdade é trocar o OR de `match_phrase` por filtro em
-`participacoes.parte_id`/`documento` quando o reindex do nested fechar.
+facetas do INSS ("CEAB - INSS", "Procuradoria da CEAB-DJ INSS") — estas últimas
+resolvidas depois pela **decisão 14** (abaixo).
+
+### Decisão 14 — faceta não é devedor novo (`consolidar_entidades`)
+
+Contadas as 182.026 entidades do escopo, o top-20 de "quem mais deve" abria com
+**oito** linhas do INSS e **três** da União. Nenhuma errada: `n_processos` mede
+uma FRASE, e "CEAB - INSS" é setor do INSS. Mas a tela precisa de uma linha por
+devedor.
+
+**O critério, em uma frase:** funde-se uma entidade **sem CNPJ próprio** na
+entidade **provada por CNPJ** cujo nome inteiro está dentro do nome dela (ou de
+quem ela é a **sigla atestada**), quando essa é a **única** dona possível e
+**domina** o cadastro próprio em 10×.
+
+As provas (`entidades.plano_facetas`), todas necessárias:
+
+1. **léxica** — o nome canônico da dona é frase CONTÍGUA dentro do da faceta;
+2. **contenção do conjunto** — TODA grafia contada da faceta contém uma grafia
+   da dona, então o OR da dona já casa 100% dos processos dela e a fusão não
+   inventa processo (medido: o INSS saiu da fusão com os MESMOS 4.402.239);
+3. **assimetria de documento** — `pode_ser_faceta` exige `chave='nome'` e
+   `pode_ser_dona` exige `chave='cnpj'`. Quem o tribunal documentou nunca é
+   engolido (Bradesco × Bradesco Financiamentos, S.A. × ME, INSS × PGF,
+   município homônimo), e o balde genérico sem CNPJ nunca engole ninguém
+   (o MPF não vira "MINISTÉRIO PÚBLICO", a DPMG não vira "DEFENSORIA PÚBLICA");
+4. **dona única** — 2 donas elegíveis com raízes diferentes ⇒ abstém. É o que
+   mantém "INSS Procuradoria-Geral Federal" (994.913) fora da fusão;
+5. **dominância** sobre `n_partes` − `n_partes_absorvidas`;
+6. **cortes de classe**: `RE_ENTE_TERRITORIAL` (Estado/Município/DF/União nunca
+   é dona — o nome de um território é complemento em milhares de instituições
+   que não são ele) e `RE_PJ_ASSOCIATIVA` (sindicato/associação/cooperativa/
+   fundação são PJ próprias e citam o órgão dos associados).
+
+```bash
+manage.py consolidar_entidades --indice entidades-teste --dry-run
+manage.py consolidar_entidades --indice entidades-teste --verificar
+manage.py contar_processos_entidades --indice entidades-teste --somente-faltantes
+```
+
+O comando ainda **recusa antes de escrever** qualquer fusão que faria o número
+do líder encolher (`_recusar_quem_encolhe`): a poda de `grafias_para_contagem`
+derruba a grafia curta quando a longa que a engole é ao menos tão frequente, e
+toda grafia de faceta é uma versão longa da grafia da dona — numa dona de
+cadastro raso o empate 1×1 tira o nome real do OR. Medido: 6 recusas de 164.
+
+**Resultado medido (13/08/2026, `voyager-entidades-teste`):** 1.141.610 →
+1.131.058 entidades; 6 grupos por grafia idêntica cruzando chaves + 10.516
+facetas em 164 donas; **13.222 abstenções** (7.404 por dona ambígua, 5.818 por
+dominância). Top-20: INSS **1×** (4.402.239, inalterado), União Federal **1×**.
+Homônimos cnpj↔cnpj preservados 6.912 → **6.906**; os 6 grupos que saíram são
+pares de CNPJ de 1 linha da MESMA entidade única (União Federal, Estado de
+Alagoas, municípios de Juiz de Fora, Belo Horizonte, Poços de Caldas e
+Contagem), nenhum homônimo entre UFs. Custo no ES: 300 requisições, **pico
+1,19 s**.
+
+**Residual conhecido.** (a) "Central de Análise de Benefício - Ceab/Inss"
+(910.751) abstém por causa de UMA grafia com o typo "Ceab/INS", que não contém
+"INSS"; (b) donas que são balde genérico COM CNPJ ("MINISTÉRIO PÚBLICO
+ESTADUAL", "SECRETARIA DE SAÚDE") absorvem variantes territoriais de baixo
+volume — o corte territorial só pega a dona, não a faceta; (c) o comando não é
+idempotente no sentido forte: fundir remove donas possíveis e pode desempatar um
+caso antes ambíguo na rodada seguinte — rode uma vez por build e leia o
+`--dry-run` antes de repetir. O que resolve tudo isso de vez é trocar o OR de
+`match_phrase` por filtro em `participacoes.parte_id`/`documento` quando o
+reindex do nested fechar.
 
 ### Contagem de processos (`n_processos`)
 

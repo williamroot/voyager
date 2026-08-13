@@ -215,6 +215,11 @@ ENTIDADE_MAPPING = {
             # autocomplete de "inss". Continua no doc como fallback de ranking
             # (ver `n_processos`) e como âncora de auditoria do build.
             "n_partes":        {"type": "integer"},
+            # quantas de `n_partes` vieram de entidade ABSORVIDA. A dominância
+            # da decisão 14 é sobre atestação PRÓPRIA (`n_partes` menos este) —
+            # sem isso a fusão vira bola de neve: o cadastro emprestado pela 1ª
+            # passada dava dominância a quem não a tinha na 2ª.
+            "n_partes_absorvidas": {"type": "integer"},
             # A contagem REAL: quantos docs de `voyager-processos` casam o OR de
             # `match_phrase` das `variantes_busca` (search/entidades.py::
             # query_contagem). Medido: INSS = 4.402.239 contra 764 `n_partes`.
