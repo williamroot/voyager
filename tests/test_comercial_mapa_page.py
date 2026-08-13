@@ -926,3 +926,26 @@ def test_siglas_sempre_visiveis_no_mapa(html):
     assert 'hideOverlap: true' in bloco
     # e o hover continua destacando
     assert 'emphasis:' in bloco
+
+
+def test_painel_do_estado_diz_a_posicao_nacional(html):
+    """Clicar num estado fora do top-10 deixava a pergunta óbvia sem resposta.
+
+    O painel mostrava os números do estado e o "Ataque primeiro" ao lado exibia
+    OUTROS 10 — sem nada dizendo onde aquele estado está na lista.
+    """
+    assert 'posicaoNacional' in html
+    assert 'na lista "Ataque primeiro"' in html
+    assert "x-text=\"'Está em ' + posicaoNacional() + '.'\"" in html
+
+
+def test_prioridade_do_tribunal_nao_e_tautologica(html):
+    """"prioridade 100" num estado de UM tribunal não diz nada.
+
+    Pior: colidia na mesma tela com a prioridade NACIONAL do mesmo estado (SP
+    aparecia como "prioridade 15" no tooltip do mapa e "TJSP prioridade 100" no
+    painel). São réguas diferentes; agora a tela diz qual é qual.
+    """
+    assert 'único tribunal do estado' in html
+    assert "x-show=\"tribunais.length > 1\"" in html
+    assert "prioridadeLabel(t, tribunais) + ' entre os daqui'" in html

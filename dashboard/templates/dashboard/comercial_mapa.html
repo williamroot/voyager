@@ -1325,6 +1325,24 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         }
         return nome + ': ' + frase + tom;
       },
+      // POSIÇÃO NACIONAL do estado selecionado.
+      // Sem isto, clicar num estado fora do top-10 deixava a pergunta óbvia sem
+      // resposta ("cadê o SP na lista?"): o painel mostrava só os números dele,
+      // e o "Ataque primeiro" ao lado exibe outros 10. Pior, o painel mostrava
+      // "TJSP prioridade 100" (régua interna do estado) enquanto o tooltip do
+      // mesmo SP dizia "prioridade 15" (régua nacional) — dois números pro
+      // mesmo estado, sem nada ligando um ao outro.
+      posicaoNacional() {
+        const b = this.bucketSel();
+        if (!b || this.prioridadeIndisponivel(b)) return '';
+        const lista = (this.ufs || []).slice()
+          .sort((a, c) => this.scoreDe(c) - this.scoreDe(a));
+        const i = lista.findIndex(x => x.uf === b.uf);
+        if (i < 0) return '';
+        const p = this.prioridadeEm(b, this.ufs);
+        return (i + 1) + 'º de ' + lista.length + ' na lista "Ataque primeiro"'
+             + (p === null ? '' : ' (prioridade ' + p + ')');
+      },
     };
   }
 </script>
@@ -2072,6 +2090,11 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
         <p x-show="insightUf()" x-cloak
            class="mb-3 text-sm leading-snug text-fg px-2.5 py-2 rounded-md border border-mission/30 bg-mission/10">
           <span x-text="insightUf()"></span>
+          {% comment %} responde a pergunta que o painel criava: "e cadê este
+             estado na lista ao lado?" {% endcomment %}
+          <span x-show="posicaoNacional()" x-cloak
+                class="block mt-1 font-mono text-xs text-fg-muted"
+                x-text="'Está em ' + posicaoNacional() + '.'"></span>
         </p>
 
         {% comment %} Porta pra página dedicada do estado: mesma seleção, mesmos
@@ -2099,8 +2122,20 @@ Mapa de Precatórios (Agente 3 — FRONTEND).
               <div class="flex items-center gap-2">
                 <span class="text-xs font-mono text-fg-muted w-6 shrink-0 text-right" x-text="(i+1)+'.'"></span>
                 <span class="font-semibold text-fg" x-text="t.tribunal"></span>
+                {% comment %} A prioridade AQUI é relativa aos tribunais DESTE
+                   estado — régua diferente da do "Ataque primeiro", que compara
+                   os 27. Com um tribunal só, "prioridade 100" é tautologia (é o
+                   melhor de uma lista de um) e colidia na mesma tela com o
+                   "prioridade 15" NACIONAL do mesmo SP: dois números diferentes
+                   pro mesmo estado, sem nada explicando.
+                   Some quando não há com quem comparar; quando há, o rótulo diz
+                   qual é a régua.
+                {% endcomment %}
                 <span class="ml-auto text-xs font-mono text-mission-fg shrink-0"
-                      x-text="prioridadeLabel(t, tribunais)"></span>
+                      x-show="tribunais.length > 1" x-cloak
+                      x-text="prioridadeLabel(t, tribunais) + ' entre os daqui'"></span>
+                <span class="ml-auto text-xs font-mono text-fg-muted shrink-0"
+                      x-show="tribunais.length === 1" x-cloak>único tribunal do estado</span>
               </div>
               <div class="mt-1 flex flex-wrap items-center gap-x-2 text-xs font-mono">
                 <span class="text-fg-muted" x-text="fmt(t.volume) + ' processos'"></span>
