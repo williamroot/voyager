@@ -53,7 +53,13 @@
             <div><span class="text-fg-subtle">itens:</span> <span x-text="resultados.djen.itens"></span></div>
           </div>
           <details class="text-xs" :open="resultados.djen.itens > 0">
-            <summary class="cursor-pointer text-fg-soft">amostra ({{ '{{' }} resultados.djen.amostra?.length || 0 {{ '}}' }} primeiros)</summary>
+            {% comment %} `{{ '{{' }}` quebra o template: o lexer do Django fecha o token
+             no PRIMEIRO `}}` e sobra uma aspa solta (TemplateSyntaxError, 500 na
+             página inteira). E o escape nunca serviu pra nada — Alpine não
+             interpola `{{ }}` em texto, isso é Vue. O certo é `x-text`.
+          {% endcomment %}
+          <summary class="cursor-pointer text-fg-soft">amostra (<span
+            x-text="(resultados.djen.amostra?.length || 0) + ' primeiros'"></span>)</summary>
             <pre class="bg-bg-subtle border border-border rounded p-2 mt-1 overflow-auto text-[0.7rem] max-h-96"
                  x-text="JSON.stringify(resultados.djen.amostra, null, 2)"></pre>
           </details>
