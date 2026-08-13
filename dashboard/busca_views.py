@@ -14,7 +14,9 @@ import logging
 
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.views.decorators.cache import never_cache
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
 from search import busca_ui
@@ -123,3 +125,17 @@ def busca_varas(request):
         except Exception:
             pass
     return _json({**payload, 'cache': False})
+
+
+@never_cache
+@login_required
+@require_GET
+def busca_page(request):
+    """GET /dashboard/busca/ — a tela de busca de processos.
+
+    Shell puro: todo o dado vem de `busca-processos` e `busca-varas` por fetch,
+    e o estado da busca vive na querystring (busca compartilhável, botão voltar
+    funcionando). `@never_cache` é o padrão da casa — sem ele o browser serve o
+    HTML do disco e o usuário continua vendo a versão anterior ao deploy.
+    """
+    return render(request, 'dashboard/busca.html')

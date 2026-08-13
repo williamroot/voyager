@@ -106,6 +106,7 @@ urlpatterns = [
     # BUSCA DE PROCESSOS — contrato JSON completo em search/busca_ui.py.
     # Reusa o mesmo serviço da API externa /api/v1/busca/* (search/busca_api.py);
     # o que muda aqui é o envelope de cobertura ("CPF varre 0,14% da base").
+    path('busca/', busca_views.busca_page, name='busca'),
     path('api/busca/processos/', busca_views.busca_processos,
          name='busca-processos'),
     path('api/busca/varas/', busca_views.busca_varas, name='busca-varas'),

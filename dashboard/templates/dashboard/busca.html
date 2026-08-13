@@ -1,0 +1,1734 @@
+{% extends 'dashboard/base.html' %}
+{% load static %}
+{% load voyager_extras %}
+
+{% block title %}Busca de processos{% endblock %}
+
+{% block content %}
+{% comment %}
+BUSCA DE PROCESSOS — o formulário do PJe, corrigido.
+
+O usuário pediu explicitamente: "se baseie como funciona a busca do PJe, mas
+MELHORE a interface". O que a busca do PJe faz, e o que esta tela faz no lugar:
+
+  PJe                                    | aqui
+  ---------------------------------------|-------------------------------------
+  8 campos vazios, escolha um            | UM campo: cole o que tiver
+  exige 1º/2º grau ANTES de saber onde   | não existe; a base é uma só
+  erra em máscara de documento           | máscara e dígitos são a MESMA busca
+  "0 resultados" seco                    | diz POR QUÊ e o que fazer
+  não guarda a busca                     | o estado inteiro vive na querystring
+  tabela crua                            | cartão com hierarquia + selos
+
+PADRÕES HERDADOS das telas irmãs (`entidades.html`, `overview_mapa.html`) e que
+NÃO podem regredir:
+  * explicação em `.voy-tip` (hover + foco + TAP), NUNCA `title=`;
+  * cor por token do tema, nunca hex inline; `text-base` aqui é COR (o token
+    `base` é o fundo da página), não tamanho — título usa `text-[1rem]`;
+  * comentário de várias linhas SÓ em `{% templatetag openblock %} comment {% templatetag closeblock %}`: o lexer do Django não usa
+    DOTALL e cerquilha atravessando linha VAZA literal na tela;
+  * combobox com `aria-activedescendant` (o foco nunca sai do campo);
+  * o link é o estado da tela (querystring), F5 e back funcionam.
+
+AS QUATRO HONESTIDADES DESTA TELA. Todas medidas no índice REAL de produção em
+13/08/2026, sobre 71.181.213 processos — não são enfeite, sem elas a tela mente:
+
+ 1. CPF/CNPJ da parte existe em 0,14% dos processos (102.622 docs). Buscar por
+    documento varre um centésimo da base. Achar ZERO ali NÃO é "essa pessoa não
+    tem processo" — é "o tribunal não informou o documento em 99,86% dos casos".
+    A tela escreve isso ANTES da busca (no interpretador) e DEPOIS (no vazio).
+ 2. O documento está gravado COM MÁSCARA no índice: `29.979.036/0001-40` acha
+    23.217 e `29979036000140` acha ZERO. Quem digita sem ponto não tem culpa
+    disso. O backend normaliza os dois lados; a tela nunca pede formato.
+ 3. VARA existe em 1,8% dos processos (o campo aparece em 6,3%, mas 71% desses
+    são string vazia). Filtrar por vara descarta 98,2% da base — o painel diz o
+    preço ANTES do clique e o vazio oferece tirar o filtro.
+ 4. VALOR DA CAUSA existe em 2,8%. Filtrar por faixa de valor descarta 97,2%, e
+    ausência de valor não é "processo de R$ 0".
+    (Cobertura de 100%: CNJ, nome da parte, advogado, tribunal, UF, ano, classe
+    e classificação. Última movimentação: 99,6%.)
+
+DETECÇÃO DE TIPO — por que no cliente:
+  detectar o que foi colado é aritmética de dígito verificador, custa
+  microssegundos e tem que responder ENQUANTO se digita. A busca custa uma
+  query em 71M documentos e por isso só sai no Enter. O backend continua sendo
+  a autoridade: se a resposta trouxer `interpretacao`, ela sobrepõe a nossa
+  (campo `_interpBackend`) — a tela só adianta o palpite.
+
+CONTRATO CONSUMIDO (o backend é de outro agente; ver relatório):
+  GET <BUSCA_URLS.api>?<filtros>&cursor=&tamanho=
+  → { interpretacao{tipo,valido,motivo,termo_normalizado,alternativas[]},
+      total{value,relation}, resultados[...doc ES do processo...],
+      proximo_cursor, cobertura{campo:{docs,total,pct}},
+      diagnostico{causa,filtros_caros[],...}, gerado_em, tempo_ms }
+  Alias tolerados (a tela lê os dois): resultados|results, proximo_cursor|
+  next_cursor, total como objeto OU inteiro. Se `cobertura` não vier, a tela cai
+  nos números medidos e rotula a origem.
+{% endcomment %}
+
+{% include 'dashboard/_partials/page_header.html' with title='Busca de processos' subtitle='<span class="block max-w-3xl">Cole o número do processo, o nome da parte, o CPF/CNPJ ou a OAB. A tela descobre o que é — você não precisa escolher o campo, nem o grau, nem o formato.</span>' %}
+
+{% url 'dashboard:busca-processos' as busca_api_url %}
+{% url 'dashboard:busca-varas' as busca_varas_url %}
+{% url 'dashboard:consulta-rapida' as consulta_rapida_url %}
+<script>
+  // Rotas resolvidas pelo Django (sem hardcode de path no JS). `{% templatetag openblock %} url ... as %}`
+  // NÃO levanta NoReverseMatch — devolve string vazia — então o `default` cobre
+  // a janela em que a rota ainda não subiu e some sozinho quando ela entrar.
+  window.BUSCA_URLS = {
+    api: "{{ busca_api_url|default:'/dashboard/api/busca/processos/' }}",
+    varas: "{{ busca_varas_url|default:'/dashboard/api/busca/varas/' }}",
+    // O id é trocado em runtime; a rota continua resolvida pelo `url` tag.
+    processo: "{% url 'dashboard:processo-detail' 987654321 %}",
+    consultaRapida: "{{ consulta_rapida_url }}",
+  };
+  window.BUSCA_PROCESSO_TOKEN = '987654321';
+
+  // ---------------------------------------------------------------------------
+  // COBERTURA MEDIDA no índice de produção em 13/08/2026 (71.181.213 processos).
+  // É FALLBACK: se o payload trouxer `cobertura`, ela ganha. Ter o número aqui
+  // é o que permite a tela ser honesta mesmo quando o backend ainda não manda o
+  // bloco — e o rótulo diz de onde veio.
+  // ---------------------------------------------------------------------------
+  // As CHAVES são as do índice (as mesmas que o backend usa em
+  // `cobertura.campos`), não apelidos da tela — assim o payload sobrepõe item a
+  // item, sem tabela de tradução que envelhece calada.
+  window.BUSCA_COBERTURA_MEDIDA = {
+    total: 71181213,
+    'participacoes.documento': {docs: 102622, pct: 0.14},
+    'participacoes.oab': {docs: 47846, pct: 0.07},
+    'participacoes.nome': {docs: 1357285, pct: 1.9},
+    // "Vara" são DOIS campos com alcances muito diferentes, e a tela mostra os
+    // dois: o `orgao_julgador` costuma trazer o órgão em sentido largo, e o
+    // `juizo` é a vara propriamente dita. Fundir num número só (ou mostrar só o
+    // maior) faria a tela prometer um alcance que o filtro não tem.
+    'orgao_julgador': {docs: 17891683, pct: 25.1},
+    'juizo': {docs: 1299995, pct: 1.8},
+    'valor_causa': {docs: 1993074, pct: 2.8},
+    'ultima_movimentacao_em': {docs: 70896488, pct: 99.6},
+  };
+</script>
+<script>
+  // ===========================================================================
+  // DETECÇÃO DE TIPO — aritmética pura, roda a cada tecla.
+  // ===========================================================================
+  const BUSCA_UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS',
+                     'MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC',
+                     'SE','SP','TO'];
+
+  function _digitos(s) { return String(s || '').replace(/\D/g, ''); }
+
+  function cpfValido(d) {
+    if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+    let s = 0;
+    for (let i = 0; i < 9; i++) s += (+d[i]) * (10 - i);
+    let r = (s * 10) % 11; if (r === 10) r = 0;
+    if (r !== +d[9]) return false;
+    s = 0;
+    for (let i = 0; i < 10; i++) s += (+d[i]) * (11 - i);
+    r = (s * 10) % 11; if (r === 10) r = 0;
+    return r === +d[10];
+  }
+
+  function cnpjValido(d) {
+    if (d.length !== 14 || /^(\d)\1{13}$/.test(d)) return false;
+    const calc = (len) => {
+      let p = len - 7, s = 0;
+      for (let i = 0; i < len; i++) { s += (+d[i]) * p--; if (p < 2) p = 9; }
+      const r = s % 11;
+      return r < 2 ? 0 : 11 - r;
+    };
+    return calc(12) === +d[12] && calc(13) === +d[13];
+  }
+
+  // CNJ (Res. CNJ 65/2008): NNNNNNN-DD.AAAA.J.TR.OOOO. O par DD é o resto de
+  // 97 do resto do número — é o que permite dizer "esse número tem dígito
+  // errado" ANTES de gastar a query, coisa que o PJe não faz.
+  function cnjValido(d) {
+    if (d.length !== 20) return false;
+    const dv = +d.slice(7, 9);
+    const base = d.slice(0, 7) + d.slice(9) + '00';
+    let r = 0;
+    for (let i = 0; i < base.length; i++) r = (r * 10 + (+base[i])) % 97;
+    return (98 - r) === dv;
+  }
+
+  function fmtCnjDigitos(d) {
+    if (!d || d.length !== 20) return d || '';
+    return d.slice(0, 7) + '-' + d.slice(7, 9) + '.' + d.slice(9, 13) + '.' +
+           d.slice(13, 14) + '.' + d.slice(14, 16) + '.' + d.slice(16);
+  }
+  function fmtCpf(d) {
+    return d.slice(0, 3) + '.' + d.slice(3, 6) + '.' + d.slice(6, 9) + '-' + d.slice(9);
+  }
+  function fmtCnpj(d) {
+    return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8) + '/' +
+           d.slice(8, 12) + '-' + d.slice(12);
+  }
+
+  function parseOab(s) {
+    const t = String(s || '').trim().replace(/^oab[\s\/:.-]*/i, '');
+    let m = t.match(/^([a-zA-Z]{2})[\s\/:.\-]*([\d.]{3,9})$/);
+    if (m && BUSCA_UFS.indexOf(m[1].toUpperCase()) >= 0) {
+      return {uf: m[1].toUpperCase(), numero: _digitos(m[2])};
+    }
+    m = t.match(/^([\d.]{3,9})[\s\/:.\-]*([a-zA-Z]{2})$/);
+    if (m && BUSCA_UFS.indexOf(m[2].toUpperCase()) >= 0) {
+      return {uf: m[2].toUpperCase(), numero: _digitos(m[1])};
+    }
+    return null;
+  }
+
+  function detectarTipo(bruto) {
+    const s = String(bruto || '').trim().replace(/\s+/g, ' ');
+    if (!s) return {tipo: 'vazio'};
+
+    const oab = parseOab(s);
+    if (oab && oab.numero.length >= 3 && oab.numero.length <= 7) {
+      return {tipo: 'oab', uf: oab.uf, numero: oab.numero,
+              formatado: 'OAB/' + oab.uf + ' ' + oab.numero, valido: true};
+    }
+    // Só vira documento se NÃO houver letra: "José 123" é nome, não CPF.
+    const soNumero = /^[\d.\-\/\s]+$/.test(s);
+    const d = _digitos(s);
+    if (soNumero && d.length) {
+      if (d.length === 20) {
+        return {tipo: 'cnj', digitos: d, formatado: fmtCnjDigitos(d), valido: cnjValido(d)};
+      }
+      if (d.length === 14) {
+        return {tipo: 'cnpj', digitos: d, formatado: fmtCnpj(d), valido: cnpjValido(d)};
+      }
+      if (d.length === 11) {
+        return {tipo: 'cpf', digitos: d, formatado: fmtCpf(d), valido: cpfValido(d)};
+      }
+      return {tipo: 'numero', digitos: d, formatado: d, valido: false};
+    }
+    return {tipo: 'nome', texto: s, valido: true};
+  }
+  window.detectarTipo = detectarTipo;
+
+  function buscaProcessos() {
+    return {
+      // ---- entrada ----
+      q: '',
+      modo: 'auto',            // 'auto' | cnj | cpf | cnpj | oab | parte | advogado | texto
+      detectado: {tipo: 'vazio'},
+      filtros: {tribunal: '', uf: '', ano_min: '', ano_max: '', classe: '',
+                classificacao: '', vara: '', valor_min: '', valor_max: ''},
+      ordenar: 'relevancia',
+      filtrosAbertos: false,
+
+      // ---- saída ----
+      resposta: null,
+      itens: [],
+      cursor: null,
+      total: null,
+      totalRelacao: 'eq',
+      tempoMs: null,
+      cobertura: null,
+      docInfo: null,          // bloco `documento` do payload (raiz, parciais, DV)
+      avisos: [],             // avisos prontos do backend, com números ao vivo
+      recusa: null,           // 400: o CRITÉRIO foi recusado, não a infra
+      doCache: false,         // a resposta veio do cache do backend
+      // Expansões de documento — off por padrão. Norma da casa: abster >
+      // chutar. Matriz+filiais e documento mascarado por sigilo são INDÍCIO,
+      // não prova de identidade: só entram quando o usuário aceita a oferta.
+      expandir: {raiz: false, parciais: false, forcar: false},
+      varaExata: '',          // valor exato vindo do autocomplete de vara
+      _interpBackend: null,
+      carregando: false,
+      carregandoMais: false,
+      erro: null,
+      erroDetalhe: null,
+      _seq: 0,
+      _buscado: null,          // o critério que gerou a resposta na tela
+
+      ANO_ATUAL: new Date().getFullYear(),
+      TAMANHO: 20,
+
+      ORDENS: [
+        {chave: 'relevancia', rotulo: 'Relevância', soTexto: true},
+        {chave: 'recente', rotulo: 'Movimentação', soTexto: false},
+        {chave: 'valor_desc', rotulo: 'Maior valor', soTexto: false},
+      ],
+      CLASSIFICACOES: [
+        {valor: '', rotulo: 'Qualquer'},
+        {valor: 'PRECATORIO', rotulo: 'Precatório'},
+        {valor: 'PRE_PRECATORIO', rotulo: 'Pré-precatório'},
+        {valor: 'DIREITO_CREDITORIO', rotulo: 'Direito creditório'},
+      ],
+      EXEMPLOS: [
+        {rotulo: 'Número do processo (CNJ)', q: '1105916-36.2026.8.26.0053',
+         nota: 'Com ou sem máscara. A tela confere o dígito verificador na hora.'},
+        {rotulo: 'Nome da parte', q: 'Maria de Souza',
+         nota: 'Busca no nome como o tribunal publicou. Cobre 100% da base.'},
+        {rotulo: 'CNPJ', q: '29.979.036/0001-40',
+         nota: 'Varre os 0,14% de processos que têm documento gravado.'},
+        {rotulo: 'OAB do advogado', q: 'OAB/SP 123456',
+         nota: 'Aceita SP123456, 123456/SP e OAB/SP 123.456.'},
+      ],
+
+      // ------------------------------------------------------------------
+      // ciclo de vida
+      // ------------------------------------------------------------------
+      init() {
+        this.lerQuerystring();
+        this.detectado = detectarTipo(this.q);
+        window.addEventListener('popstate', () => {
+          this.lerQuerystring();
+          this.detectado = detectarTipo(this.q);
+          if (this.temCriterio()) this.carregar(false); else this.zerarResposta();
+        });
+        if (this.temCriterio()) this.carregar(false);
+      },
+
+      lerQuerystring() {
+        const p = new URLSearchParams(window.location.search);
+        this.q = (p.get('q') || '').slice(0, 160);
+        const m = (p.get('tipo') || 'auto').trim();
+        this.modo = ['auto', 'cnj', 'cpf', 'cnpj', 'oab', 'parte', 'advogado', 'texto']
+          .indexOf(m) >= 0 ? m : 'auto';
+        Object.keys(this.filtros).forEach((k) => {
+          this.filtros[k] = (p.get(k) || '').slice(0, 120);
+        });
+        const o = (p.get('ordenar') || '').trim();
+        if (this.ORDENS.some((x) => x.chave === o)) this.ordenar = o;
+        if (this.nFiltros() > 0) this.filtrosAbertos = true;
+      },
+
+      // A barra de endereços É o estado da tela: F5, back/forward e link
+      // compartilhado trazem a MESMA busca. O cursor fica de fora — é
+      // paginação, não critério.
+      paramsDoCriterio() {
+        const p = new URLSearchParams();
+        const t = this.qNorm();
+        if (t) p.set('q', t);
+        if (this.modo !== 'auto') p.set('tipo', this.modo);
+        Object.keys(this.filtros).forEach((k) => {
+          const v = String(this.filtros[k] || '').trim();
+          if (v) p.set(k, v);
+        });
+        if (this.ordenar !== 'relevancia') p.set('ordenar', this.ordenar);
+        return p;
+      },
+      sincronizarUrl(push) {
+        try {
+          const qs = this.paramsDoCriterio().toString();
+          const url = window.location.pathname + (qs ? '?' + qs : '');
+          if (url === window.location.pathname + window.location.search) return;
+          if (push) window.history.pushState(null, '', url);
+          else window.history.replaceState(null, '', url);
+        } catch (e) { /* navegador sem history API — a página segue funcionando */ }
+      },
+
+      qNorm() { return String(this.q || '').trim().replace(/\s+/g, ' '); },
+      tipoEfetivo() { return this.modo === 'auto' ? this.detectado.tipo : this.modo; },
+      temCriterio() { return !!this.qNorm() || this.nFiltros() > 0; },
+
+      // ------------------------------------------------------------------
+      // interação
+      // ------------------------------------------------------------------
+      aoDigitar() {
+        // Detectar é grátis e responde a cada tecla; BUSCAR custa uma query em
+        // 71M documentos e por isso só sai no Enter. Trocar o texto derruba um
+        // modo escolhido à mão (ele foi escolhido para OUTRO texto).
+        const antes = this.detectado.tipo;
+        this.detectado = detectarTipo(this.q);
+        if (this.detectado.tipo !== antes) this.modo = 'auto';
+      },
+      aoEscape() {
+        if (this.qNorm()) { this.limparTudo(); return; }
+        this.$refs.campo.blur();
+      },
+      usarModo(m) {
+        if (this.modo === m) return;
+        this.modo = m;
+        if (this.resposta || this.qNorm()) this.buscar();
+      },
+      usarExemplo(e) {
+        this.q = e.q;
+        this.modo = 'auto';
+        this.detectado = detectarTipo(this.q);
+        this.$refs.campo.focus();
+      },
+      buscar() {
+        if (!this.temCriterio()) { this.zerarResposta(); this.sincronizarUrl(false); return; }
+        this.cursor = null;
+        this.sincronizarUrl(true);
+        this.carregar(false);
+      },
+      carregarMais() { if (this.cursor && !this.carregandoMais) this.carregar(true); },
+      trocarOrdem(o) { if (this.ordenar !== o) { this.ordenar = o; this.buscar(); } },
+      ordemDisponivel(o) { return !o.soTexto || ['nome', 'texto'].indexOf(this.tipoEfetivo()) >= 0; },
+      trocarClassificacao(v) {
+        this.filtros.classificacao = (this.filtros.classificacao === v) ? '' : v;
+        this.buscar();
+      },
+      limparTudo() {
+        this.q = '';
+        this.modo = 'auto';
+        this.detectado = {tipo: 'vazio'};
+        Object.keys(this.filtros).forEach((k) => { this.filtros[k] = ''; });
+        this.zerarResposta();
+        this.sincronizarUrl(true);
+        this.$refs.campo.focus();
+      },
+      limparFiltros() {
+        Object.keys(this.filtros).forEach((k) => { this.filtros[k] = ''; });
+        this.varaExata = '';
+        if (this.temCriterio()) this.buscar();
+        else { this.zerarResposta(); this.sincronizarUrl(true); }
+      },
+      tirarFiltro(chave) {
+        if (chave === 'ano') { this.filtros.ano_min = ''; this.filtros.ano_max = ''; }
+        else if (chave === 'valor') { this.filtros.valor_min = ''; this.filtros.valor_max = ''; }
+        else this.filtros[chave] = '';
+        if (chave === 'vara') this.varaExata = '';
+        if (this.temCriterio()) this.buscar();
+        else { this.zerarResposta(); this.sincronizarUrl(true); }
+      },
+
+      // ------------------------------------------------------------------
+      // AUTOCOMPLETE DE VARA — combobox, mesmo padrão do mapa.
+      // `orgao_julgador`/`juizo` são keyword crua com 29.488 grafias
+      // incompatíveis entre tribunais: sem escolher da lista o usuário CHUTA e
+      // recebe zero achando que o processo não existe. Cada opção vem com o nº
+      // de processos, então dá pra ver que "5ª Vara Federal de Campinas" tem
+      // 19.382 e a homônima de outro tribunal, 12.
+      // ------------------------------------------------------------------
+      acAberto: false, acItens: [], acIdx: -1, acBuscou: false, acLoading: false,
+      _acTimer: null, _acSeq: 0,
+      acOptId(i) { return 'vara-opt-' + i; },
+      acAtivoId() { return this.acAberto && this.acIdx >= 0 ? this.acOptId(this.acIdx) : ''; },
+      aoDigitarVara() {
+        // Escolher da lista fixa o valor EXATO; digitar de novo o desfaz — senão
+        // a tela filtraria por uma vara que não é mais a que está escrita.
+        this.varaExata = '';
+        clearTimeout(this._acTimer);
+        this._acTimer = setTimeout(() => this.buscarVaras(), 350);
+      },
+      async buscarVaras() {
+        const termo = String(this.filtros.vara || '').trim();
+        if (termo.length < 3) { this.acAberto = false; this.acItens = []; return; }
+        const seq = ++this._acSeq;
+        this.acLoading = true;
+        try {
+          const url = window.BUSCA_URLS.varas + '?q=' + encodeURIComponent(termo) + '&n=12';
+          const r = await fetch(url, {credentials: 'same-origin',
+                                      headers: {'Accept': 'application/json'}});
+          const j = await r.json();
+          if (seq !== this._acSeq) return;
+          this.acItens = (j.itens || []).slice(0, 12);
+          this.acBuscou = true;
+          this.acIdx = -1;
+          this.acAberto = true;
+        } catch (e) {
+          if (seq !== this._acSeq) return;
+          this.acAberto = false;                 // autocomplete é conveniência:
+          this.acItens = [];                     // se falhar, o texto livre segue
+        } finally {
+          if (seq === this._acSeq) this.acLoading = false;
+        }
+      },
+      acDesce() { if (this.acItens.length) { this.acAberto = true; this.acIdx = Math.min(this.acIdx + 1, this.acItens.length - 1); } },
+      acSobe() { if (this.acItens.length) this.acIdx = Math.max(this.acIdx - 1, -1); },
+      acEnter() {
+        if (this.acAberto && this.acIdx >= 0) { this.escolherVara(this.acItens[this.acIdx]); return; }
+        this.acAberto = false;
+        this.buscar();
+      },
+      escolherVara(it) {
+        if (!it) return;
+        this.filtros.vara = it.valor;
+        this.varaExata = it.valor;
+        this.acAberto = false;
+        this.buscar();
+      },
+      acResumo() {
+        if (!this.acAberto) return '';
+        if (!this.acItens.length) return 'Nenhuma vara com esse nome no índice.';
+        return this.acItens.length + ' varas sugeridas. Use as setas para escolher.';
+      },
+      zerarResposta() {
+        this.resposta = null; this.itens = []; this.cursor = null;
+        this.total = null; this.tempoMs = null; this.erro = null;
+        this._interpBackend = null; this.docInfo = null; this.avisos = [];
+        this.recusa = null; this._buscado = null; this.doCache = false;
+        this.expandir = {raiz: false, parciais: false, forcar: false};
+      },
+
+      // ------------------------------------------------------------------
+      // rede
+      // ------------------------------------------------------------------
+      // Params da BUSCA (≠ params da URL): aqui o termo já vai roteado pro
+      // campo certo. É este mapeamento que substitui os 8 campos do PJe.
+      paramsDaBusca(comCursor) {
+        const p = new URLSearchParams();
+        const t = this.qNorm();
+        const tipo = this.tipoEfetivo();
+        const det = this.detectado;
+        if (t) {
+          if (this.modo === 'auto') {
+            // CAIXA ÚNICA: o backend detecta e diz o que entendeu em
+            // `interpretacao`. Mandar `q` cru (e não o nosso palpite roteado) é
+            // o que mantém UMA autoridade sobre a interpretação — a nossa
+            // detecção existe pra responder na hora, não pra decidir a query.
+            p.set('q', t);
+          } else if (tipo === 'cnj') p.set('cnj', det.digitos || _digitos(t));
+          else if (tipo === 'cpf' || tipo === 'cnpj') p.set('documento', t);
+          else if (tipo === 'oab') p.set('oab', det.uf ? (det.uf + det.numero) : t);
+          else if (tipo === 'advogado') p.set('advogado', t);
+          else if (tipo === 'texto') p.set('parte', t);
+          else p.set('parte', t);
+        }
+        // Expansões de documento: NUNCA automáticas (abster > chutar). Só
+        // entram quando o usuário aceita a oferta feita no zero explicado.
+        if (this.expandir.raiz) p.set('documento_raiz', '1');
+        if (this.expandir.parciais) p.set('documento_parciais', '1');
+        if (this.expandir.forcar) p.set('documento_forcar', '1');
+
+        const F = {tribunal: 'tribunal', uf: 'uf', ano_min: 'ano_min', ano_max: 'ano_max',
+                   classe: 'codigo_classe', classificacao: 'classificacao',
+                   vara: 'vara', valor_min: 'valor_min', valor_max: 'valor_max'};
+        Object.keys(this.filtros).forEach((k) => {
+          const v = String(this.filtros[k] || '').trim();
+          if (!v) return;
+          // Classe digitada como texto não é código TPU: só vai como
+          // `codigo_classe` quando for número.
+          if (k === 'classe' && !/^\d+$/.test(v)) return;
+          p.set(F[k] || k, v);
+        });
+        // Vara escolhida do autocomplete vence o texto livre: é o valor EXATO
+        // do índice, entre 29.488 grafias incompatíveis entre tribunais.
+        if (this.varaExata) { p.set('vara_exata', this.varaExata); p.delete('vara'); }
+        // "Relevância" sem texto é ordenar pela relevância de nada — cai em
+        // "recente", que é o default honesto de uma busca sem termo.
+        const ord = this.ORDENS.find((o) => o.chave === this.ordenar);
+        p.set('ordenar', (ord && this.ordemDisponivel(ord)) ? this.ordenar : 'recente');
+        p.set('size', String(this.TAMANHO));
+        if (comCursor && this.cursor) p.set('cursor', this.cursor);
+        return p;
+      },
+
+      async carregar(anexar) {
+        const seq = ++this._seq;
+        if (anexar) this.carregandoMais = true; else this.carregando = true;
+        this.erro = null; this.erroDetalhe = null;
+        const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+        try {
+          const url = window.BUSCA_URLS.api + '?' + this.paramsDaBusca(!!anexar).toString();
+          const resp = await fetch(url, {
+            credentials: 'same-origin', headers: {'Accept': 'application/json'},
+          });
+          const json = await resp.json();
+          if (seq !== this._seq) return;          // resposta fora de ordem: descarta
+          // 400 é CRÍTERIO recusado (dígito verificador que não fecha, cursor
+          // velho), não infra fora do ar. Confundir os dois faria a tela dizer
+          // "o acervo caiu" quando quem errou foi a digitação — que é
+          // exatamente a confusão que o PJe produz.
+          if (resp.status === 400) {
+            this.recusa = {codigo: json.erro || 'parametro_invalido',
+                           mensagem: json.mensagem || ''};
+            this.itens = []; this.cursor = null; this.resposta = null;
+            if (!anexar) this._buscado = {q: this.qNorm(), tipo: this.tipoEfetivo()};
+            return;
+          }
+          if (!resp.ok) throw new Error(json.mensagem || json.erro || ('HTTP ' + resp.status));
+          this.recusa = null;
+          // Aliases tolerados: o contrato ainda está assentando e a tela não
+          // pode morrer se o nome do campo mudar de lado.
+          const novos = json.resultados || json.results || [];
+          this.itens = anexar ? this.itens.concat(novos) : novos;
+          const tot = json.total;
+          if (tot && typeof tot === 'object') {
+            this.total = Number(tot.value);
+            this.totalRelacao = tot.relation || 'eq';
+          } else if (tot !== null && tot !== undefined) {
+            this.total = Number(tot); this.totalRelacao = 'eq';
+          } else { this.total = novos.length; this.totalRelacao = 'eq'; }
+          this.cursor = json.proximo_cursor || json.next_cursor || null;
+          this.cobertura = json.cobertura || null;
+          this._interpBackend = json.interpretacao || null;
+          this.docInfo = json.documento || null;
+          this.avisos = json.avisos || [];
+          const t1 = (window.performance && performance.now) ? performance.now() : Date.now();
+          const ms = (json.levou_ms !== undefined && json.levou_ms !== null)
+            ? json.levou_ms : json.tempo_ms;
+          this.tempoMs = (ms !== undefined && ms !== null)
+            ? Math.round(ms) : Math.round(t1 - t0);
+          // `cache: true` = a resposta veio da janela curta de cache do
+          // backend. 54ms morno contra 945ms frio é uma diferença que o
+          // operador percebe; dizer de onde veio evita a leitura "a busca é
+          // sempre instantânea".
+          this.doCache = !!json.cache;
+          this.resposta = json;
+          if (!anexar) this._buscado = {q: this.qNorm(), tipo: this.tipoEfetivo()};
+        } catch (e) {
+          if (seq !== this._seq) return;
+          this.erro = 'Não conseguimos consultar o acervo agora.';
+          this.erroDetalhe = String((e && e.message) || e);
+          if (!anexar) { this.itens = []; this.cursor = null; this.resposta = null; }
+        } finally {
+          if (seq === this._seq) { this.carregando = false; this.carregandoMais = false; }
+        }
+      },
+
+      estado() {
+        if (this.erro) return 'erro';
+        if (this.carregando && !this.itens.length) return 'carregando';
+        if (this.recusa) return 'vazio';        // critério recusado: mesmo lugar, outro diagnóstico
+        if (this.resposta && this.itens.length) return 'ok';
+        if (this.resposta) return 'vazio';
+        return 'inicial';
+      },
+
+      // ------------------------------------------------------------------
+      // interpretação (o que a tela entendeu) — o backend sobrepõe se falar
+      // ------------------------------------------------------------------
+      interp() {
+        const b = this._interpBackend;
+        const d = this.docInfo;
+        // Validade: o `documento.dv_valido` do payload é a palavra final; sem
+        // ele vale a nossa aritmética, que é a mesma conta.
+        let valido = this.detectado.valido !== false;
+        if (d && d.dv_valido !== undefined && d.dv_valido !== null) valido = !!d.dv_valido;
+        if (this.recusa && /dv_invalido|invalido/.test(this.recusa.codigo)) valido = false;
+        if (b && b.tipo) {
+          return {tipo: b.tipo, valido: valido,
+                  formatado: b.valor || this.detectado.formatado || '',
+                  doBackend: true};
+        }
+        return {tipo: this.tipoEfetivo(), valido: valido,
+                formatado: this.detectado.formatado || '', doBackend: false};
+      },
+      rotuloModo(t) {
+        return ({cnj: 'número do processo', cpf: 'CPF', cnpj: 'CNPJ', oab: 'OAB',
+                 nome: 'nome da parte', parte: 'nome da parte', advogado: 'advogado',
+                 texto: 'texto da publicação', numero: 'texto'})[t] || 'texto';
+      },
+      interpIcone() {
+        const i = this.interp();
+        if (!i.valido) return 'anomaly';
+        if (i.tipo === 'cnj') return 'dossier';
+        if (i.tipo === 'oab' || i.tipo === 'advogado') return 'scale';
+        return 'users';
+      },
+      interpClasse() {
+        return this.interp().valido
+          ? 'border-border bg-surface/50'
+          : 'border-danger/50 bg-danger/10';
+      },
+      interpTitulo() {
+        const i = this.interp();
+        if (!i.valido && i.tipo === 'cnj') return 'Isto tem 20 dígitos, mas não é um CNJ válido:';
+        if (!i.valido && i.tipo === 'cpf') return 'Isto tem 11 dígitos, mas não é um CPF válido:';
+        if (!i.valido && i.tipo === 'cnpj') return 'Isto tem 14 dígitos, mas não é um CNPJ válido:';
+        if (i.tipo === 'numero') return 'Isto é só um número solto:';
+        // Modo escolhido à mão diz "você escolheu"; modo automático diz "isto
+        // é" — a tela nunca finge que adivinhou o que o usuário mandou.
+        if (this.modo !== 'auto') {
+          return 'Você escolheu buscar por ' + this.rotuloModo(i.tipo) + ':';
+        }
+        return ({
+          cnj: 'Isto é um número de processo (CNJ) — vou buscar o processo:',
+          cpf: 'Isto é um CPF — vou buscar pelo documento da parte:',
+          cnpj: 'Isto é um CNPJ — vou buscar pelo documento da parte:',
+          oab: 'Isto é uma inscrição na OAB — vou buscar pelo advogado:',
+          texto: 'Vou buscar no texto das publicações:',
+        })[i.tipo] || 'Isto é um nome — vou buscar pela parte:';
+      },
+      interpValor() {
+        const i = this.interp();
+        return i.formatado || this.qNorm();
+      },
+      interpDetalhe() {
+        const i = this.interp();
+        if (!i.valido && i.tipo === 'cnj') {
+          return 'O dígito verificador não confere. Quase sempre é um dígito trocado na cópia — '
+               + 'confira antes de concluir que o processo não existe. Se quiser, busco assim mesmo.';
+        }
+        if (!i.valido && (i.tipo === 'cpf' || i.tipo === 'cnpj')) {
+          return 'O dígito verificador não confere: este número não existe como documento. '
+               + 'Não é o mesmo que "não encontrado" — é erro de digitação.';
+        }
+        if (i.tipo === 'numero') {
+          const n = (this.detectado.digitos || '').length;
+          return 'São ' + n + ' dígitos: não é CNJ (20), CPF (11) nem CNPJ (14). '
+               + 'Vou procurar como texto — ou escolha outro campo aqui embaixo.';
+        }
+        if (i.tipo === 'cnj') {
+          return 'Dígito verificador confere. Máscara é indiferente: com ou sem ponto acha o mesmo.';
+        }
+        if (i.tipo === 'nome' || i.tipo === 'parte') {
+          return 'Um nome pode ser de parte ou de advogado — se eu errei, corrija aqui embaixo '
+               + 'sem apagar o que você digitou.';
+        }
+        if (i.tipo === 'oab') {
+          return 'Número e UF reconhecidos. Aceito SP123456, 123456/SP e OAB/SP 123.456.';
+        }
+        return '';
+      },
+      // Alternativas que fazem sentido pro que foi digitado — não um menu fixo.
+      alternativas() {
+        const t = this.detectado.tipo;
+        if (t === 'vazio') return [];
+        if (t === 'nome') {
+          return [{modo: 'advogado', rotulo: 'advogado'},
+                  {modo: 'texto', rotulo: 'texto da publicação'}];
+        }
+        if (t === 'oab') {
+          return [{modo: 'parte', rotulo: 'nome da parte'},
+                  {modo: 'texto', rotulo: 'texto da publicação'}];
+        }
+        if (t === 'cnj') return [{modo: 'texto', rotulo: 'texto da publicação'}];
+        if (t === 'cpf' || t === 'cnpj') {
+          return [{modo: 'parte', rotulo: 'nome da parte'},
+                  {modo: 'texto', rotulo: 'texto da publicação'}];
+        }
+        return [{modo: 'parte', rotulo: 'nome da parte'},
+                {modo: 'oab', rotulo: 'OAB'},
+                {modo: 'texto', rotulo: 'texto da publicação'}];
+      },
+
+      // ------------------------------------------------------------------
+      // cobertura (payload manda; senão, o número medido — com a origem dita)
+      // ------------------------------------------------------------------
+      coberturaTotal() {
+        const c = this.cobertura;
+        if (c && c.total_processos) return Number(c.total_processos);
+        return window.BUSCA_COBERTURA_MEDIDA.total;
+      },
+      // `campo` é a chave DO ÍNDICE (`participacoes.documento`,
+      // `orgao_julgador`…), a mesma que o backend usa — sem tabela de tradução
+      // no meio, que envelheceria calada quando um lado mudasse.
+      coberturaDe(campo) {
+        const campos = (this.cobertura && this.cobertura.campos) || {};
+        const c = campos[campo];
+        if (c && (c.pct !== undefined || c.docs !== undefined)) {
+          const total = this.coberturaTotal();
+          const docs = (c.docs !== undefined && c.docs !== null) ? Number(c.docs) : null;
+          const pct = (c.pct !== undefined && c.pct !== null)
+            ? Number(c.pct) : (docs !== null && total ? (docs * 100) / total : 0);
+          return {docs: docs !== null ? docs : Math.round((pct / 100) * total),
+                  pct: pct, rotulo: c.rotulo || '', usado: !!c.usado};
+        }
+        const f = window.BUSCA_COBERTURA_MEDIDA[campo] || {docs: 0, pct: 0};
+        return {docs: f.docs, pct: f.pct, rotulo: '', usado: false};
+      },
+      // O campo mais estreito da consulta É o teto do resultado. O backend já
+      // calcula qual é; é o número que explica o zero antes de qualquer outra
+      // hipótese.
+      limitante() {
+        const l = this.cobertura && this.cobertura.limitante;
+        return (l && l.campo) ? l : null;
+      },
+      fmtPct(v) {
+        const n = Number(v);
+        if (!isFinite(n)) return '—';
+        if (n === 0) return '0%';
+        if (n > 0 && n < 0.1) return 'menos de 0,1%';
+        return n.toFixed(n < 10 ? 2 : 1).replace(/[.,]?0+$/, '').replace('.', ',') + '%';
+      },
+      pctDe(campo) { return this.fmtPct(this.coberturaDe(campo).pct); },
+      pctDocumento() { return this.pctDe('participacoes.documento'); },
+      avisaCoberturaDocumento() {
+        const t = this.tipoEfetivo();
+        return (t === 'cpf' || t === 'cnpj') && this.interp().valido;
+      },
+      linhasCobertura() {
+        const L = [
+          {chave: 'cnj', rotulo: 'CNJ', pct: 100},
+          {chave: 'parte', rotulo: 'Nome da parte', pct: 100},
+          {chave: 'advogado', rotulo: 'Advogado', pct: 100},
+          {chave: 'classificacao', rotulo: 'Classificação', pct: 100},
+          {chave: 'ultima_movimentacao_em', rotulo: 'Última mov.',
+           pct: this.coberturaDe('ultima_movimentacao_em').pct},
+          {chave: 'valor_causa', rotulo: 'Valor da causa', pct: this.coberturaDe('valor_causa').pct},
+          {chave: 'orgao_julgador', rotulo: 'Órgão julgador',
+           pct: this.coberturaDe('orgao_julgador').pct},
+          {chave: 'juizo', rotulo: 'Vara (juízo)', pct: this.coberturaDe('juizo').pct},
+          {chave: 'participacoes.documento', rotulo: 'CPF/CNPJ',
+           pct: this.coberturaDe('participacoes.documento').pct},
+        ];
+        return L.map((l) => Object.assign({}, l, {pctLabel: this.fmtPct(l.pct)}));
+      },
+      // Número velho IDENTIFICADO vale mais que campo ausente — e mais ainda
+      // que número velho passando por atual.
+      origemCobertura() {
+        const c = this.cobertura;
+        if (c && c.medido_em) {
+          return 'Percentuais medidos no índice em ' + String(c.medido_em).slice(0, 10) + '.';
+        }
+        if (c) return 'Percentuais lidos do índice nesta consulta.';
+        return 'Percentuais medidos no índice de produção em 13/08/2026 — esta consulta ainda '
+             + 'não trouxe o bloco de cobertura.';
+      },
+
+      // ------------------------------------------------------------------
+      // chips de filtro
+      // ------------------------------------------------------------------
+      chips() {
+        const f = this.filtros, out = [];
+        if (f.tribunal) out.push({chave: 'tribunal', rotulo: 'tribunal: ' + f.tribunal});
+        if (f.uf) out.push({chave: 'uf', rotulo: 'UF: ' + f.uf.toUpperCase()});
+        if (f.ano_min || f.ano_max) {
+          out.push({chave: 'ano', rotulo: 'ano: ' + (f.ano_min || '…') + '–' + (f.ano_max || '…')});
+        }
+        if (f.classe) out.push({chave: 'classe', rotulo: 'classe: ' + f.classe});
+        if (f.classificacao) {
+          const c = this.CLASSIFICACOES.find((x) => x.valor === f.classificacao);
+          out.push({chave: 'classificacao', rotulo: c ? c.rotulo : f.classificacao});
+        }
+        if (f.vara) out.push({chave: 'vara', rotulo: 'vara: ' + f.vara});
+        if (f.valor_min || f.valor_max) {
+          out.push({chave: 'valor', rotulo: 'valor: ' + (f.valor_min || '…') + '–' + (f.valor_max || '…')});
+        }
+        return out;
+      },
+      nFiltros() { return this.chips().length; },
+
+      // ------------------------------------------------------------------
+      // resultado
+      // ------------------------------------------------------------------
+      fmt(n) { return fmt(Number(n) || 0); },
+      fmtCnj(v) {
+        const d = _digitos(v);
+        return d.length === 20 ? fmtCnjDigitos(d) : (v || '—');
+      },
+      fmtBRL(v) {
+        const n = Number(v);
+        if (!isFinite(n)) return '—';
+        return n.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL',
+                                          maximumFractionDigits: 0});
+      },
+      chaveItem(it) { return String(it.id || it.proc || Math.random()); },
+      urlProcesso(it) {
+        if (!it.id) return '#';
+        return window.BUSCA_URLS.processo.replace(window.BUSCA_PROCESSO_TOKEN, String(it.id));
+      },
+      _participacoes(it) {
+        const p = it.participacoes;
+        return Array.isArray(p) ? p.filter((x) => x && !x.eh_advogado) : [];
+      },
+      temPolos(it) {
+        return this._participacoes(it).some((x) => x.polo === 'ativo' || x.polo === 'passivo');
+      },
+      polo(it, qual) {
+        const nomes = this._participacoes(it)
+          .filter((x) => x.polo === qual).map((x) => x.nome).filter(Boolean);
+        if (!nomes.length) return '—';
+        if (nomes.length <= 3) return nomes.join(' · ');
+        return nomes.slice(0, 3).join(' · ') + ' · e mais ' + (nomes.length - 3);
+      },
+      partesTexto(it) {
+        const p = it.partes;
+        const s = Array.isArray(p) ? p.join(', ') : String(p || '');
+        return s.length > 220 ? s.slice(0, 220) + '…' : s;
+      },
+      varaDe(it) {
+        const v = String(it.orgao_julgador || it.juizo || '').trim();
+        return v || '';
+      },
+      _diasDesde(iso) {
+        if (!iso) return null;
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return null;
+        return Math.floor((Date.now() - d.getTime()) / 86400000);
+      },
+      movRecente(it) {
+        const d = this._diasDesde(it.ultima_movimentacao_em);
+        return d !== null && d <= 30;
+      },
+      ultimaMovFrase(it) {
+        const iso = it.ultima_movimentacao_em;
+        if (!iso) return 'sem data de última movimentação';
+        const d = this._diasDesde(iso);
+        const data = new Date(iso).toLocaleDateString('pt-BR');
+        if (d === null) return 'última movimentação em ' + String(iso).slice(0, 10);
+        if (d <= 0) return 'movimentado hoje';
+        if (d === 1) return 'movimentado ontem';
+        if (d < 30) return 'movimentado há ' + d + ' dias';
+        if (d < 365) return 'movimentado há ' + Math.round(d / 30) + ' meses (' + data + ')';
+        return 'parado desde ' + data;
+      },
+      tituloResultado() {
+        const n = this.total;
+        if (n === null) return 'Processos';
+        const mais = this.totalRelacao === 'gte';
+        if (n === 1 && !mais) return '1 processo';
+        return (mais ? 'mais de ' : '') + fmt(n) + ' processos';
+      },
+      notaTotalAproximado() {
+        if (this.totalRelacao !== 'gte') return '';
+        return 'O acervo para de contar em ' + fmt(this.total) + ' — o número exato sairia caro '
+             + 'e não mudaria a decisão. Estreite o critério se precisar do total exato.';
+      },
+      resumoAcessivel() {
+        if (this.carregando) return 'Buscando…';
+        if (this.erro) return this.erro;
+        if (!this.resposta) {
+          return this.detectado.tipo === 'vazio' ? ''
+            : this.interpTitulo() + ' ' + this.interpValor();
+        }
+        if (!this.itens.length) return 'Nenhum processo encontrado. ' + this.vazioResumo();
+        return this.tituloResultado() + ' encontrados, mostrando ' + this.itens.length + '.';
+      },
+
+      // ------------------------------------------------------------------
+      // ZERO EXPLICADO — o coração do que a busca do PJe não faz
+      // ------------------------------------------------------------------
+      vazioResumo() {
+        const b = this._buscado || {q: this.qNorm(), tipo: this.tipoEfetivo()};
+        const alvo = this.rotuloModo(b.tipo);
+        const filtros = this.nFiltros();
+        let s = b.q ? ('Procuramos “' + b.q + '” como ' + alvo + '.')
+                    : 'Procuramos com os filtros escolhidos.';
+        if (filtros) s += ' Com ' + filtros + (filtros === 1 ? ' filtro' : ' filtros') + ' aplicado'
+                       + (filtros === 1 ? '' : 's') + '.';
+        return s + ' Abaixo, o que pode ter acontecido — em ordem de probabilidade.';
+      },
+      diagnosticos() {
+        const out = [];
+        const i = this.interp();
+        const tipo = this.tipoEfetivo();
+        const f = this.filtros;
+
+        // 1. o termo não é válido: não adianta procurar melhor
+        if (!i.valido && (tipo === 'cpf' || tipo === 'cnpj')) {
+          out.push({
+            chave: 'dv', grave: true,
+            titulo: 'O dígito verificador não confere. ',
+            texto: 'Este número não existe como ' + tipo.toUpperCase() + ' — é erro de digitação, '
+                 + 'não ausência de processo. Ainda assim, 0,014% do índice tem documento com '
+                 + 'dígito quebrado (o tribunal digitou errado), então dá para insistir.',
+            acoes: [{tipo: 'foco', rotulo: 'Corrigir o número'},
+                    {tipo: 'forcar', rotulo: 'Buscar assim mesmo'}],
+          });
+        }
+        if (!i.valido && tipo === 'cnj') {
+          out.push({
+            chave: 'dv-cnj', grave: true,
+            titulo: 'O dígito verificador do CNJ não confere. ',
+            texto: 'Quase sempre é um dígito trocado na cópia. Confira o número na origem antes '
+                 + 'de concluir que o processo não existe.',
+            acoes: [{tipo: 'foco', rotulo: 'Corrigir o número'}],
+          });
+        }
+
+        // 2. documento: a armadilha nº 1 desta base
+        if ((tipo === 'cpf' || tipo === 'cnpj') && i.valido) {
+          const c = this.coberturaDe('participacoes.documento');
+          out.push({
+            chave: 'cobertura-doc', grave: true,
+            titulo: 'Zero aqui não quer dizer “essa pessoa não tem processo”. ',
+            texto: 'Buscamos nos ' + fmt(c.docs) + ' processos que têm CPF/CNPJ gravado — '
+                 + this.fmtPct(c.pct) + ' da base. Nos outros 99% o tribunal simplesmente não '
+                 + 'informou o documento, e o processo dessa pessoa pode estar lá. '
+                 + 'O nome cobre 100% do acervo.',
+            acoes: [{tipo: 'nome', rotulo: 'Buscar pelo nome'}],
+          });
+        }
+
+        // 2b. o acervo SABE de alternativas para este documento e as oferece —
+        // sem aplicar nenhuma por conta própria (abster > chutar).
+        const alt = (this.docInfo && this.docInfo.alternativas) || {};
+        if (alt.raiz && !this.expandir.raiz) {
+          out.push({
+            chave: 'alt-raiz', grave: false,
+            titulo: 'Matriz e filiais somam ' + fmt(alt.raiz) + ' processos. ',
+            texto: 'O CNPJ exato que você digitou não achou nada, mas a raiz '
+                 + (this.docInfo.raiz || '') + ' (a mesma pessoa jurídica, outras unidades) '
+                 + 'achou. Não expandimos sozinhos: matriz e filial são CNPJs diferentes.',
+            acoes: [{tipo: 'expandir-raiz', rotulo: 'Incluir matriz e filiais'}],
+          });
+        }
+        if (alt.parciais && !this.expandir.parciais) {
+          out.push({
+            chave: 'alt-parciais', grave: false,
+            titulo: fmt(alt.parciais) + ' processos têm o documento MASCARADO por sigilo. ',
+            texto: 'São compatíveis com o que você digitou (formato 872.***.***-97). É '
+                 + 'indício, não prova de identidade: qualquer documento com esses dígitos '
+                 + 'visíveis casaria. Por isso só entram se você pedir.',
+            acoes: [{tipo: 'expandir-parciais', rotulo: 'Incluir os mascarados'}],
+          });
+        }
+
+        // 2c. o campo mais estreito da consulta é o teto do resultado
+        const lim = this.limitante();
+        if (lim && lim.campo !== 'participacoes.documento') {
+          out.push({
+            chave: 'limitante', grave: true,
+            titulo: 'O campo mais estreito desta busca é ' + (lim.rotulo || lim.campo) + '. ',
+            texto: 'Ele existe em ' + fmt(lim.docs) + ' processos (' + this.fmtPct(lim.pct)
+                 + ' da base) — nenhum resultado pode passar disso, por mais amplo que seja '
+                 + 'o resto do critério.',
+            acoes: [],
+          });
+        }
+
+        // 3. filtros caros: o preço medido, com o botão que resolve
+        const caros = [];
+        if (f.vara) caros.push({chave: 'vara', rotulo: 'vara'});
+        if (f.valor_min || f.valor_max) caros.push({chave: 'valor', rotulo: 'valor da causa'});
+        caros.forEach((c) => {
+          let texto;
+          if (c.chave === 'vara') {
+            const o = this.coberturaDe('orgao_julgador'), j = this.coberturaDe('juizo');
+            texto = 'Vara alcança ' + fmt(o.docs) + ' processos (' + this.fmtPct(o.pct)
+                  + ') pelo órgão julgador e ' + fmt(j.docs) + ' (' + this.fmtPct(j.pct)
+                  + ') pelo juízo. Nos demais o campo veio VAZIO do tribunal — e processo '
+                  + 'sem vara indexada não entra neste filtro, mesmo existindo.';
+          } else {
+            const cov = this.coberturaDe('valor_causa');
+            texto = 'Esse campo só existe em ' + this.fmtPct(cov.pct) + ' dos processos ('
+                  + fmt(cov.docs) + '), então ele sozinho descarta o resto da base — '
+                  + 'inclusive processos que casam com tudo o mais que você pediu.';
+          }
+          out.push({
+            chave: 'caro-' + c.chave, grave: true,
+            titulo: 'O filtro de ' + c.rotulo + ' é caro. ',
+            texto: texto,
+            acoes: [{tipo: 'tirar', chave: c.chave, rotulo: 'Tirar o filtro de ' + c.rotulo}],
+          });
+        });
+
+        // 4. demais filtros somados
+        const outros = this.chips().filter((c) => c.chave !== 'vara' && c.chave !== 'valor');
+        if (outros.length >= 2) {
+          out.push({
+            chave: 'muitos-filtros', grave: false,
+            titulo: 'São ' + this.chips().length + ' filtros ao mesmo tempo. ',
+            texto: 'Todos precisam bater no mesmo processo. Tire um de cada vez para descobrir '
+                 + 'qual está cortando.',
+            acoes: [{tipo: 'limpar-filtros', rotulo: 'Limpar todos os filtros'}],
+          });
+        }
+
+        // 5. CNJ válido e ausente: o acervo não é o país inteiro
+        if (tipo === 'cnj' && i.valido) {
+          out.push({
+            chave: 'cnj-fora', grave: false,
+            titulo: 'O número é válido, mas este processo não está no nosso acervo. ',
+            texto: 'Cobrimos os tribunais que ingerimos do diário oficial — não o Judiciário '
+                 + 'inteiro, e não desde sempre. Dá para consultar este CNJ ao vivo no '
+                 + 'DJEN e no Datajud.',
+            acoes: [{tipo: 'copiar', rotulo: 'Copiar o número'},
+                    {tipo: 'consulta-rapida', rotulo: 'Consultar ao vivo'}],
+          });
+        }
+
+        // 6. nome: grafia do tribunal
+        if ((tipo === 'nome' || tipo === 'parte' || tipo === 'advogado') && this.qNorm()) {
+          out.push({
+            chave: 'grafia', grave: false,
+            titulo: 'Guardamos o nome como o tribunal publicou. ',
+            texto: 'Abreviação, nome social e acento entram do jeito que vieram. Tente menos '
+                 + 'palavras (só o sobrenome mais raro) — quanto mais palavras, mais exigente '
+                 + 'fica a busca.',
+            acoes: [{tipo: 'foco', rotulo: 'Ajustar o nome'}]
+                   .concat(tipo === 'advogado' ? [] : [{tipo: 'advogado', rotulo: 'Buscar como advogado'}]),
+          });
+        }
+
+        // 7. o critério foi RECUSADO pelo acervo (400) — a mensagem é dele
+        if (this.recusa) {
+          out.unshift({
+            chave: 'recusa', grave: true,
+            titulo: 'O acervo recusou o critério. ',
+            texto: this.recusa.mensagem || ('Código: ' + this.recusa.codigo),
+            acoes: [{tipo: 'foco', rotulo: 'Corrigir'}],
+          });
+        }
+
+        if (!out.length) {
+          out.push({
+            chave: 'nada', grave: false,
+            titulo: 'O critério é válido e a base respondeu. ',
+            texto: 'Simplesmente não há processo que case com ele. Tente um critério mais amplo.',
+            acoes: [{tipo: 'foco', rotulo: 'Mudar a busca'}],
+          });
+        }
+        return out;
+      },
+      rodarAcao(a) {
+        if (a.tipo === 'foco') { this.$refs.campo.focus(); this.$refs.campo.select(); return; }
+        if (a.tipo === 'tirar') { this.tirarFiltro(a.chave); return; }
+        if (a.tipo === 'limpar-filtros') { this.limparFiltros(); return; }
+        if (a.tipo === 'advogado') { this.usarModo('advogado'); return; }
+        if (a.tipo === 'expandir-raiz') { this.expandir.raiz = true; this.buscar(); return; }
+        if (a.tipo === 'expandir-parciais') { this.expandir.parciais = true; this.buscar(); return; }
+        if (a.tipo === 'forcar') { this.expandir.forcar = true; this.buscar(); return; }
+        if (a.tipo === 'nome') {
+          // Não dá para derivar um nome de um CPF: limpamos o campo e devolvemos
+          // o foco, em vez de fingir uma busca que não temos como montar.
+          this.q = ''; this.modo = 'auto'; this.detectado = {tipo: 'vazio'};
+          this.zerarResposta(); this.sincronizarUrl(true);
+          this.$refs.campo.focus();
+          return;
+        }
+        if (a.tipo === 'copiar') {
+          const d = this.detectado.formatado || this.qNorm();
+          if (window.copyToClipboard) window.copyToClipboard(d, 'Número do processo');
+          return;
+        }
+        if (a.tipo === 'consulta-rapida') {
+          const u = window.BUSCA_URLS.consultaRapida;
+          if (u) window.location.href = u + '?cnj=' + encodeURIComponent(this.detectado.formatado || this.qNorm());
+          return;
+        }
+      },
+    };
+  }
+</script>
+
+<div id="pagina-busca" x-data="buscaProcessos()" x-init="init()" class="space-y-5">
+
+  {% comment %} ---------------------------------------------------------------
+     COCKPIT — um card só: campo + interpretação + filtros.
+     Eram três blocos empilhados e o 1º resultado começava abaixo da dobra em
+     1366x768. O produto desta tela é a LISTA; o cabeçalho é meio, não fim.
+  --------------------------------------------------------------------------- {% endcomment %}
+  <div class="card p-4 space-y-3">
+
+    {# ---- o campo único ---- #}
+    <div class="flex flex-col gap-1.5">
+      <label for="busca-q" class="text-xs text-fg-muted uppercase tracking-wide">
+        O que você tem em mãos
+      </label>
+      <div class="flex flex-wrap items-stretch gap-2">
+        <div class="relative flex-1 min-w-[18rem]">
+          {% comment %} `name="q"` de propósito: o atalho global `/` do
+             `base.html` procura `input[name="q"], input[name="cnj"]`. Trocar o
+             nome quebraria o atalho SEM erro nenhum no console. {% endcomment %}
+          <input id="busca-q" name="q" type="search" x-model="q" maxlength="160"
+                 x-ref="campo"
+                 @input="aoDigitar()"
+                 @keydown.enter.prevent="buscar()"
+                 @keydown.escape.prevent.stop="aoEscape()"
+                 autocomplete="off" spellcheck="false" autocapitalize="off"
+                 role="combobox" aria-autocomplete="none" aria-haspopup="false"
+                 aria-controls="busca-interpretacao"
+                 :aria-expanded="detectado.tipo !== 'vazio' ? 'true' : 'false'"
+                 aria-describedby="busca-ajuda-campo"
+                 placeholder="1105916-36.2026.8.26.0053 · Maria de Souza · 29.979.036/0001-40 · OAB/SP 123456"
+                 class="w-full bg-surface border border-border rounded-lg pl-10 pr-10 py-3 text-[1rem] text-fg placeholder:text-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none">
+            {% voy_icon "search" "w-4 h-4" %}
+          </span>
+          <button type="button" @click="limparTudo()" x-show="q" x-cloak
+                  aria-label="Limpar a busca (Esc)"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            {% voy_icon "clear" "w-4 h-4" %}
+          </button>
+        </div>
+        {% comment %} NÃO usa `.btn-primary`: medido em browser, a classe do
+           `base.html` (fundo emerald-500 + `color: var(--c-base)`) dá
+           2,42:1 no tema claro — reprova AA em qualquer tamanho. O tratamento
+           que a casa mediu como AA-safe é tinta + `text-fg` (11,9:1), o mesmo
+           dos botões ativos do mapa. {% endcomment %}
+        <button type="button" @click="buscar()" :disabled="carregando"
+                class="shrink-0 px-5 py-3 rounded-lg border border-accent/60 bg-accent/20 text-fg font-semibold text-sm transition-colors hover:bg-accent/30 disabled:cursor-wait focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <span x-show="!carregando">Buscar</span>
+          <span x-show="carregando" x-cloak class="font-mono text-xs uppercase tracking-widest">acquiring…</span>
+        </button>
+      </div>
+      <p id="busca-ajuda-campo" class="text-xs text-fg-muted">
+        <span class="kbd">/</span> foca aqui · <span class="kbd">Enter</span> busca ·
+        <span class="kbd">Esc</span> limpa. Máscara é indiferente: com ou sem ponto acha o mesmo.
+      </p>
+    </div>
+
+    {% comment %} ---------------------------------------------------------------
+       O INTERPRETADOR — a peça central desta tela.
+       O PJe faz o usuário escolher o campo antes de saber o que tem em mãos; e
+       quando ele escolhe errado, o formulário não avisa: devolve vazio. Aqui a
+       tela diz em português o que entendeu, com o número já formatado, ANTES de
+       gastar a query — e oferece corrigir sem apagar nada.
+    --------------------------------------------------------------------------- {% endcomment %}
+    <div id="busca-interpretacao" x-show="detectado.tipo !== 'vazio'" x-cloak
+         class="rounded-lg border px-3 py-2.5 space-y-2"
+         :class="interpClasse()">
+      <div class="flex items-start gap-2">
+        {% comment %} Um ícone por família de interpretação, cada um com o seu
+           `x-show`: nada de innerHTML pra montar SVG. O sprite tem 41 símbolos e
+           um alias inexistente vira QUADRADO VAZIO sem erro no console — estes
+           quatro (`dossier`, `users`, `scale`, `anomaly`) foram conferidos no
+           `voyager-icons.svg`. {% endcomment %}
+        <span class="shrink-0 mt-0.5" x-show="interpIcone() === 'dossier'">
+          {% voy_icon "dossier" "w-4 h-4 text-mission" %}
+        </span>
+        <span class="shrink-0 mt-0.5" x-show="interpIcone() === 'users'" x-cloak>
+          {% voy_icon "users" "w-4 h-4 text-mission" %}
+        </span>
+        <span class="shrink-0 mt-0.5" x-show="interpIcone() === 'scale'" x-cloak>
+          {% voy_icon "scale" "w-4 h-4 text-mission" %}
+        </span>
+        <span class="shrink-0 mt-0.5" x-show="interpIcone() === 'anomaly'" x-cloak>
+          {% voy_icon "anomaly" "w-4 h-4 text-danger" %}
+        </span>
+        <div class="min-w-0 flex-1 space-y-1">
+          <p class="text-sm text-fg leading-snug">
+            <span x-text="interpTitulo()"></span>
+            <span class="font-mono text-fg" x-show="interpValor()" x-text="interpValor()"></span>
+          </p>
+          <p class="text-sm text-fg-muted leading-snug" x-show="interpDetalhe()" x-cloak
+             x-text="interpDetalhe()"></p>
+        </div>
+      </div>
+
+      {% comment %} CORRIGIR — o usuário sempre pode discordar do detector. Um
+         nome pode ser de parte OU de advogado, e nenhuma heurística resolve
+         isso: quem sabe é quem digitou. Sem esta fileira, a detecção
+         automática seria uma gaiola pior que os 8 campos do PJe.
+      {% endcomment %}
+      <div class="flex flex-wrap items-center gap-1.5" x-show="alternativas().length" x-cloak>
+        <span class="text-xs text-fg-muted">buscar como:</span>
+        <button type="button" @click="usarModo('auto')"
+                :aria-pressed="modo === 'auto' ? 'true' : 'false'"
+                :class="modo === 'auto' ? 'border-accent bg-accent/15 text-fg font-semibold' : 'border-border text-fg-muted hover:text-fg hover:bg-muted/40'"
+                class="rounded-full border px-2.5 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <span x-text="rotuloModo(detectado.tipo)"></span>
+          <span class="text-fg-muted">(automático)</span>
+        </button>
+        <template x-for="a in alternativas()" :key="a.modo">
+          <button type="button" @click="usarModo(a.modo)"
+                  :aria-pressed="modo === a.modo ? 'true' : 'false'"
+                  :class="modo === a.modo ? 'border-mission bg-mission/15 text-fg font-semibold' : 'border-border text-fg-muted hover:text-fg hover:bg-muted/40'"
+                  class="rounded-full border px-2.5 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base"
+                  x-text="a.rotulo"></button>
+        </template>
+      </div>
+
+      {% comment %} O aviso de cobertura do documento aparece ANTES da busca,
+         não só no vazio: quem procura por CPF precisa saber que está varrendo
+         0,14% da base ENQUANTO espera, senão lê o zero como ausência de
+         processo. É a honestidade nº 1 desta tela.
+      {% endcomment %}
+      <p x-show="avisaCoberturaDocumento()" x-cloak
+         class="text-sm text-fg flex items-start gap-1.5 rounded border border-warning/50 bg-warning/10 px-2 py-1.5">
+        {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+        <span>
+          Só <b x-text="pctDocumento()"></b> dos processos têm o CPF/CNPJ da parte gravado
+          (<span class="font-mono" x-text="fmt(coberturaDe('participacoes.documento').docs)"></span> de
+          <span class="font-mono" x-text="fmt(coberturaTotal())"></span>).
+          Não achar aqui <b>não</b> quer dizer que a pessoa não tem processo — quer dizer que o
+          tribunal não informou o documento. O nome acha muito mais.
+        </span>
+      </p>
+    </div>
+
+    {# ---- filtros avançados: painel, não a cara da tela ---- #}
+    <div class="border-t border-border pt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <button type="button" @click="filtrosAbertos = !filtrosAbertos"
+              :aria-expanded="filtrosAbertos ? 'true' : 'false'" aria-controls="busca-filtros"
+              class="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg rounded-md px-1.5 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        {% voy_icon "calibrate" "w-4 h-4 shrink-0" %}
+        <span class="font-medium">Filtros avançados</span>
+        <span class="text-xs font-mono text-mission-fg" x-show="nFiltros() > 0" x-cloak
+              x-text="'(' + nFiltros() + ')'"></span>
+        <svg class="w-3.5 h-3.5 transition-transform" :class="filtrosAbertos ? 'rotate-90' : ''"
+             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+
+      {# chips do que está ativo — visível mesmo com o painel fechado #}
+      <div class="flex flex-wrap items-center gap-1.5" x-show="chips().length" x-cloak>
+        <template x-for="c in chips()" :key="c.chave">
+          <button type="button" @click="tirarFiltro(c.chave)"
+                  :aria-label="'Remover filtro ' + c.rotulo"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-mission/40 bg-mission/10 px-2.5 py-1 text-xs text-fg hover:border-mission focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            <span x-text="c.rotulo"></span>
+            {% voy_icon "clear" "w-3 h-3 shrink-0" %}
+          </button>
+        </template>
+        <button type="button" @click="limparFiltros()"
+                class="text-xs text-fg-muted hover:text-fg underline decoration-dotted underline-offset-2 rounded px-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          limpar filtros
+        </button>
+      </div>
+
+      <div class="ml-auto flex items-center gap-2" x-show="!!resposta" x-cloak>
+        <span id="lbl-ordem" class="text-xs text-fg-muted uppercase tracking-wide">Ordem</span>
+        <div class="inline-flex rounded-lg border border-border overflow-hidden text-sm"
+             role="group" aria-labelledby="lbl-ordem">
+          <template x-for="(o, i) in ORDENS" :key="o.chave">
+            {% comment %} Ativo = tinta + `text-fg`. Medido no mapa:
+               `bg-mission text-white` dá 3,54:1 no claro (reprova AA); com
+               `text-fg` sobre a mesma tinta dá 11,9:1 e a família de cor
+               continua codificando o estado. {% endcomment %}
+            <button type="button" @click="trocarOrdem(o.chave)"
+                    x-show="ordemDisponivel(o)"
+                    :aria-pressed="ordenar === o.chave ? 'true' : 'false'"
+                    :class="[ordenar === o.chave ? 'bg-mission/20 text-fg font-semibold' : 'text-fg-muted hover:text-fg hover:bg-muted/40', i ? 'border-l border-border' : '']"
+                    class="px-2.5 py-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base"
+                    x-text="o.rotulo"></button>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <div id="busca-filtros" x-show="filtrosAbertos" x-cloak
+         class="border-t border-border pt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-3">
+
+      <div class="flex flex-col gap-1.5">
+        <label for="f-tribunal" class="text-xs text-fg-muted uppercase tracking-wide">Tribunal</label>
+        <input id="f-tribunal" type="text" x-model="filtros.tribunal" maxlength="120"
+               @keydown.enter.prevent="buscar()"
+               placeholder="TJSP  ·  vários: TJSP,TRF3"
+               autocomplete="off" spellcheck="false"
+               class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        <span class="text-xs text-fg-muted">Sigla. Existe em todos os processos.</span>
+      </div>
+
+      <div class="flex flex-col gap-1.5">
+        <label for="f-uf" class="text-xs text-fg-muted uppercase tracking-wide">Estado (UF)</label>
+        <input id="f-uf" type="text" x-model="filtros.uf" maxlength="2"
+               @keydown.enter.prevent="buscar()"
+               placeholder="SP" autocomplete="off" spellcheck="false"
+               class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg uppercase focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        <span class="text-xs text-fg-muted">Estado do tribunal, não da parte.</span>
+      </div>
+
+      <div class="flex flex-col gap-1.5">
+        <span id="lbl-ano" class="text-xs text-fg-muted uppercase tracking-wide">Ano do processo</span>
+        <div class="flex items-center gap-2" role="group" aria-labelledby="lbl-ano">
+          <input type="number" x-model="filtros.ano_min" min="1990" :max="ANO_ATUAL"
+                 @keydown.enter.prevent="buscar()" aria-label="Ano mínimo" placeholder="de"
+                 class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg font-mono focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <span class="text-fg-muted text-sm" aria-hidden="true">até</span>
+          <input type="number" x-model="filtros.ano_max" min="1990" :max="ANO_ATUAL"
+                 @keydown.enter.prevent="buscar()" aria-label="Ano máximo" placeholder="até"
+                 class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg font-mono focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        </div>
+        <span class="text-xs text-fg-muted">Ano que está no próprio número CNJ.</span>
+      </div>
+
+      <div class="flex flex-col gap-1.5">
+        <label for="f-classe" class="text-xs text-fg-muted uppercase tracking-wide">Classe</label>
+        <input id="f-classe" type="text" x-model="filtros.classe" maxlength="120"
+               @keydown.enter.prevent="buscar()"
+               placeholder="Cumprimento de sentença" autocomplete="off"
+               class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        <span class="text-xs text-fg-muted">Nome ou código TPU.</span>
+      </div>
+
+      <div class="flex flex-col gap-1.5">
+        <span id="lbl-classif" class="text-xs text-fg-muted uppercase tracking-wide">Classificação</span>
+        <div class="flex flex-wrap gap-1.5" role="group" aria-labelledby="lbl-classif">
+          <template x-for="c in CLASSIFICACOES" :key="c.valor">
+            <button type="button" @click="trocarClassificacao(c.valor)"
+                    :aria-pressed="filtros.classificacao === c.valor ? 'true' : 'false'"
+                    :class="filtros.classificacao === c.valor ? 'border-mission bg-mission/15 text-fg font-semibold' : 'border-border text-fg-muted hover:text-fg hover:bg-muted/40'"
+                    class="rounded-full border px-2.5 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base"
+                    x-text="c.rotulo"></button>
+          </template>
+        </div>
+      </div>
+
+      {% comment %} VARA e VALOR ficam JUNTOS e MARCADOS: são os dois filtros
+         que descartam quase toda a base (1,8% e 2,8% de cobertura medidos). O
+         preço vai ao lado do campo, antes do clique — no PJe o usuário descobre
+         isso pelo resultado vazio, e conclui que o processo não existe.
+      {% endcomment %}
+      <div class="flex flex-col gap-1.5">
+        <label for="f-vara" class="text-xs text-fg-muted uppercase tracking-wide flex items-center gap-1.5">
+          <span>Vara / órgão julgador</span>
+          <button type="button" class="voy-tip" aria-label="Ajuda: cobertura do campo vara"
+                  aria-describedby="tip-vara">
+            {% voy_icon "info" "w-3.5 h-3.5" %}
+            <span class="voy-tip-body" role="tooltip" id="tip-vara">
+              Vara são <strong>dois campos</strong> com alcances diferentes: o órgão julgador
+              (largo) e o juízo (a vara mesmo). Nos demais processos o tribunal mandou o campo
+              em branco — e processo sem vara indexada não entra neste filtro,
+              <strong>mesmo existindo</strong>.
+            </span>
+          </button>
+        </label>
+        {% comment %} COMBOBOX (mesmo padrão do mapa): o campo continua de texto
+           livre, e ganhou a lista de varas REAIS do índice com a contagem ao
+           lado. `orgao_julgador` é keyword crua com 29.488 grafias
+           incompatíveis entre tribunais — sem escolher da lista o usuário chuta
+           a grafia, recebe zero e conclui que o processo não existe. O foco
+           NUNCA sai do campo (`aria-activedescendant`), que é o que faz ↑ ↓
+           Enter funcionarem enquanto se digita. {% endcomment %}
+        <div class="relative" @click.outside="acAberto = false">
+          <input id="f-vara" type="text" x-model="filtros.vara" maxlength="120"
+                 @input="aoDigitarVara()"
+                 @keydown.enter.prevent="acEnter()"
+                 @keydown.arrow-down.prevent="acDesce()"
+                 @keydown.arrow-up.prevent="acSobe()"
+                 @keydown.escape.stop="acAberto = false"
+                 @keydown.tab="acAberto = false"
+                 role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
+                 aria-controls="ac-varas"
+                 :aria-expanded="acAberto ? 'true' : 'false'"
+                 :aria-activedescendant="acAtivoId()"
+                 placeholder="3ª Vara da Fazenda Pública" autocomplete="off" spellcheck="false"
+                 class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <div x-show="acAberto" x-cloak
+               class="absolute left-0 right-0 z-30 mt-1 rounded-md border border-border bg-surface shadow-lg">
+            <ul id="ac-varas" role="listbox" aria-label="Varas sugeridas"
+                class="max-h-64 overflow-y-auto py-1">
+              <template x-for="(it, i) in acItens" :key="it.valor + i">
+                <li :id="acOptId(i)" role="option"
+                    :aria-selected="acIdx === i ? 'true' : 'false'"
+                    @click="escolherVara(it)" @mousemove="acIdx = i"
+                    :class="acIdx === i ? 'bg-mission/10 border-l-2 border-mission' : 'border-l-2 border-transparent'"
+                    class="px-3 py-2 cursor-pointer">
+                  <span class="block text-sm text-fg break-words" x-text="it.valor"></span>
+                  <span class="block text-xs text-fg-muted">
+                    <span class="font-mono" x-text="fmt(it.processos)"></span> processos
+                  </span>
+                </li>
+              </template>
+            </ul>
+            <p x-show="acBuscou && !acLoading && !acItens.length" x-cloak
+               class="px-3 py-2 text-xs text-fg">
+              Nenhuma vara com esse nome no índice. Dá para filtrar pelo texto assim mesmo.
+            </p>
+          </div>
+          <p class="sr-only" aria-live="polite" x-text="acResumo()"></p>
+        </div>
+        <span class="text-xs text-mission-fg">
+          Alcança <b x-text="pctDe('orgao_julgador')"></b> dos processos pelo órgão julgador e
+          <b x-text="pctDe('juizo')"></b> pelo juízo — nos demais o campo veio vazio do tribunal.
+        </span>
+        <span class="text-xs text-accent-fg" x-show="varaExata" x-cloak>
+          Vara escolhida da lista: o filtro usa o valor exato do índice.
+        </span>
+      </div>
+
+      <div class="flex flex-col gap-1.5 sm:col-span-2">
+        <span id="lbl-valor" class="text-xs text-fg-muted uppercase tracking-wide flex items-center gap-1.5">
+          <span>Valor da causa (R$)</span>
+          <button type="button" class="voy-tip" aria-label="Ajuda: cobertura do valor da causa"
+                  aria-describedby="tip-valor">
+            {% voy_icon "info" "w-3.5 h-3.5" %}
+            <span class="voy-tip-body" role="tooltip" id="tip-valor">
+              Existe em <strong>2,8%</strong> dos processos. É o valor <strong>da causa</strong>
+              (o que se pediu), não o valor do crédito — e inclui erro de digitação do tribunal.
+              Processo sem valor não é processo de R$ 0.
+            </span>
+          </button>
+        </span>
+        <div class="flex items-center gap-2" role="group" aria-labelledby="lbl-valor">
+          <input type="number" x-model="filtros.valor_min" min="0" step="1000"
+                 @keydown.enter.prevent="buscar()" aria-label="Valor mínimo" placeholder="mínimo"
+                 class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg font-mono focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          <span class="text-fg-muted text-sm" aria-hidden="true">até</span>
+          <input type="number" x-model="filtros.valor_max" min="0" step="1000"
+                 @keydown.enter.prevent="buscar()" aria-label="Valor máximo" placeholder="máximo"
+                 class="w-full bg-surface border border-border rounded-md px-2.5 py-2 text-sm text-fg font-mono focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        </div>
+        <span class="text-xs text-mission-fg">
+          Existe em <b x-text="pctDe('valor_causa')"></b> dos processos — filtrar aqui descarta o resto.
+        </span>
+      </div>
+
+      <div class="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2 pt-1">
+        <button type="button" @click="buscar()"
+                class="px-4 py-2 rounded-lg border border-accent/60 bg-accent/20 text-fg font-semibold text-sm transition-colors hover:bg-accent/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          Aplicar filtros
+        </button>
+        <button type="button" @click="limparFiltros()" x-show="nFiltros() > 0" x-cloak
+                class="text-sm px-3 py-2 rounded-lg border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+          Limpar filtros
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# leitor de tela: interpretação e contagem não são anunciadas sozinhas #}
+  <p class="sr-only" aria-live="polite" x-text="resumoAcessivel()"></p>
+
+  {% comment %} =================== ESTADO 1: VAZIO INICIAL ===================
+     Nada digitado ainda. Em vez de uma tela morta (ou pior, uma lista aleatória
+     de 71M processos), ela ENSINA o que dá pra colar — cada exemplo preenche o
+     campo e o detector responde na hora, que é a melhor demonstração possível
+     do que a tela faz de diferente.
+  ================================================================== {% endcomment %}
+  <div x-show="estado() === 'inicial'" x-cloak class="space-y-4">
+    <div class="card p-5 space-y-4">
+      <div class="flex items-start gap-3">
+        {% voy_icon "search" "w-5 h-5 shrink-0 mt-0.5 text-mission" %}
+        <div class="space-y-1">
+          <h2 class="text-[1rem] font-semibold text-fg">Cole o que você tem. A tela descobre o resto.</h2>
+          <p class="text-sm text-fg-muted max-w-3xl">
+            Não existe “escolher 1º ou 2º grau” aqui — a base é uma só, com
+            <span class="font-mono text-fg" x-text="fmt(coberturaTotal())"></span> processos de
+            todos os tribunais que acompanhamos. Ponto, traço e barra são indiferentes.
+          </p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <template x-for="e in EXEMPLOS" :key="e.q">
+          <button type="button" @click="usarExemplo(e)"
+                  class="text-left rounded-lg border border-border bg-surface/50 px-3 py-2.5 hover:border-fg-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+            <span class="block text-xs text-fg-muted uppercase tracking-wide" x-text="e.rotulo"></span>
+            <span class="block font-mono text-sm text-fg break-all mt-0.5" x-text="e.q"></span>
+            <span class="block text-xs text-fg-muted mt-1" x-text="e.nota"></span>
+          </button>
+        </template>
+      </div>
+    </div>
+
+    {% comment %} O QUE A BASE TEM — a régua de honestidade, na entrada e não
+       escondida num rodapé. Sem ela o operador presume que todo campo cobre
+       tudo (é o que o formulário do PJe sugere ao mostrar 8 campos iguais) e
+       lê cada zero como ausência de processo.
+    {% endcomment %}
+    <div class="card p-5 space-y-3">
+      <h2 class="text-[1rem] font-semibold text-fg">O que a base tem — e o que ela não tem</h2>
+      <p class="text-sm text-fg-muted max-w-3xl">
+        Medido no índice de produção, sobre
+        <span class="font-mono text-fg" x-text="fmt(coberturaTotal())"></span> processos.
+        Um campo com pouca cobertura não é um campo ruim: é um campo que só responde por
+        uma fatia da base — e achar zero nele nunca significa que o processo não existe.
+      </p>
+      <ul class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+        <template x-for="l in linhasCobertura()" :key="l.chave">
+          <li class="flex items-center gap-3">
+            <span class="w-28 shrink-0 text-sm text-fg" x-text="l.rotulo"></span>
+            <span class="flex-1 h-2 rounded-full bg-muted overflow-hidden" aria-hidden="true">
+              <span class="block h-full rounded-full"
+                    :class="l.pct >= 90 ? 'bg-pulsar' : (l.pct >= 10 ? 'bg-warning' : 'bg-mission')"
+                    :style="'width: ' + Math.max(l.pct, 0.6) + '%'"></span>
+            </span>
+            <span class="w-16 shrink-0 text-right font-mono text-sm"
+                  :class="l.pct >= 90 ? 'text-pulsar-fg' : 'text-mission-fg'"
+                  x-text="l.pctLabel"></span>
+          </li>
+        </template>
+      </ul>
+      <p class="text-sm text-fg-muted max-w-3xl" x-text="origemCobertura()"></p>
+    </div>
+  </div>
+
+  {% comment %} =================== ESTADO 2: CARREGANDO =====================
+     Skeleton com a FORMA do cartão de resultado, nunca um spinner solto: o
+     operador já sabe onde o CNJ e as partes vão aparecer.
+  ================================================================== {% endcomment %}
+  <div x-show="estado() === 'carregando'" x-cloak class="space-y-2" aria-hidden="true">
+    <template x-for="i in 6" :key="i">
+      <div class="card p-4 space-y-2">
+        <div class="skeleton h-4 w-64 max-w-full rounded"></div>
+        <div class="skeleton h-3 w-96 max-w-full rounded"></div>
+        <div class="skeleton h-3 w-80 max-w-full rounded"></div>
+      </div>
+    </template>
+  </div>
+
+  {# =================== ESTADO: ERRO DE INFRA =================== #}
+  <div x-show="estado() === 'erro'" x-cloak class="card p-6 flex flex-col items-start gap-2">
+    {% voy_icon "signal-lost" "w-6 h-6 text-danger" %}
+    <span class="text-xs font-mono uppercase tracking-widest text-danger">signal lost</span>
+    <h2 class="text-lg font-semibold text-fg">Não conseguimos consultar o acervo agora.</h2>
+    <p class="text-sm text-fg-muted max-w-xl">
+      O índice que responde a esta busca não respondeu. Os processos não sumiram — só não
+      conseguimos ler neste momento.
+    </p>
+    <span class="text-xs font-mono text-fg-muted" x-text="erroDetalhe"></span>
+    <button type="button" @click="buscar()"
+            class="mt-1 text-sm px-3 py-1.5 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+      Tentar de novo
+    </button>
+  </div>
+
+  {% comment %} =============== ESTADO 4: ZERO, EXPLICADO ====================
+     O pior defeito da busca do PJe é o "0 resultados" seco: ele não distingue
+     "você digitou errado" de "o filtro é caro demais" de "o dado não existe na
+     base" de "esse processo realmente não está aqui". São quatro conclusões
+     opostas e o operador tem que adivinhar. Cada uma tem aqui um diagnóstico
+     com o número que o sustenta e um botão que resolve.
+  ================================================================== {% endcomment %}
+  <div x-show="estado() === 'vazio'" x-cloak class="card p-6 space-y-4">
+    <div class="flex items-start gap-3">
+      {% voy_icon "radar" "w-6 h-6 shrink-0 text-mission" %}
+      <div class="space-y-1">
+        <h2 class="text-lg font-semibold text-fg">Nenhum processo com esse critério.</h2>
+        <p class="text-sm text-fg-muted max-w-3xl" x-text="vazioResumo()"></p>
+      </div>
+    </div>
+
+    <ol class="space-y-3">
+      <template x-for="d in diagnosticos()" :key="d.chave">
+        <li class="rounded-lg border px-3 py-2.5"
+            :class="d.grave ? 'border-warning/50 bg-warning/10' : 'border-border bg-surface/50'">
+          <p class="text-sm text-fg leading-snug">
+            <b x-text="d.titulo"></b>
+            <span class="text-fg-muted" x-text="d.texto"></span>
+          </p>
+          <div class="mt-2 flex flex-wrap gap-2" x-show="d.acoes && d.acoes.length" x-cloak>
+            <template x-for="a in d.acoes" :key="a.rotulo">
+              <button type="button" @click="rodarAcao(a)"
+                      class="text-xs px-2.5 py-1.5 rounded-md border border-border bg-card text-fg hover:border-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base"
+                      x-text="a.rotulo"></button>
+            </template>
+          </div>
+        </li>
+      </template>
+    </ol>
+  </div>
+
+  {% comment %} =============== ESTADO 3: COM RESULTADO ======================
+     Hierarquia, não tabela crua. A ordem de leitura de um operador é:
+       1. é este processo mesmo?     → CNJ, grande, monoespaçado
+       2. de quem é?                 → partes, com polo quando o tribunal mandou
+       3. onde e o quê?              → tribunal · vara · classe · ano
+       4. está vivo? quanto vale?    → última movimentação · nº de movs · valor
+     Os selos (precatório confirmado / possível) ficam na 1ª linha porque são o
+     motivo de a maioria das buscas existir neste produto.
+  ================================================================== {% endcomment %}
+  <div x-show="estado() === 'ok'" x-cloak class="space-y-3">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="text-lg font-semibold text-fg" x-text="tituloResultado()"></h2>
+      <span class="text-sm text-fg-muted">
+        mostrando <span class="font-mono text-fg" x-text="fmt(itens.length)"></span>
+        <span x-show="tempoMs !== null" x-cloak>
+          · <span class="font-mono" x-text="tempoMs + 'ms'"></span>
+          <span x-show="doCache" x-cloak>(do cache)</span>
+        </span>
+      </span>
+    </div>
+
+    <p class="text-sm text-fg-muted max-w-4xl" x-show="notaTotalAproximado()" x-cloak
+       x-text="notaTotalAproximado()"></p>
+
+    {% comment %} AVISOS DO ACERVO — as ressalvas que o backend monta com o
+       número ao vivo (uma por armadilha ATIVA na consulta: cobertura do campo
+       usado, matriz+filiais disponíveis, documento mascarado por sigilo). Ficam
+       JUNTO do resultado, não só no vazio: uma lista de 12 processos vinda de
+       um campo que cobre 0,14% da base precisa dizer isso enquanto está sendo
+       lida — é aí que a decisão é tomada. {% endcomment %}
+    <ul class="space-y-1" x-show="avisos.length" x-cloak aria-label="Ressalvas desta busca">
+      <template x-for="a in avisos.slice(0, 3)" :key="a.codigo">
+        <li class="flex items-start gap-1.5 text-sm text-fg-muted">
+          {% voy_icon "info" "w-3.5 h-3.5 shrink-0 mt-0.5 text-pale-blue" %}
+          <span x-text="a.mensagem"></span>
+        </li>
+      </template>
+    </ul>
+
+    <ol class="space-y-2" aria-label="Processos encontrados">
+      <template x-for="it in itens" :key="chaveItem(it)">
+        <li>
+          <a :href="urlProcesso(it)"
+             class="card block p-4 hover:border-fg-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+
+            {# 1. identidade #}
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span class="font-mono text-[1rem] font-semibold text-fg break-all"
+                    x-text="fmtCnj(it.proc)"></span>
+              {% comment %} SELOS — um bloco por estado, com `x-show` próprio.
+                 São o motivo de a maioria das buscas deste produto existir, por
+                 isso ficam na linha do CNJ e não num rodapé. "Possível" e
+                 "confirmado" são coisas DIFERENTES e a tela nunca funde as duas:
+                 `classificacao=PRECATORIO` é veredito do classificador;
+                 `tem_sinal_precatorio` é só um sinal encontrado na publicação.
+              {% endcomment %}
+              <span x-show="it.classificacao === 'PRECATORIO'" x-cloak
+                    class="inline-flex items-center gap-1 rounded-full border border-mission/50 bg-mission/10 px-2 py-0.5 text-xs text-fg">
+                {% voy_icon "gem" "w-3 h-3 shrink-0 text-mission" %}
+                <span>precatório</span>
+              </span>
+              <span x-show="it.classificacao === 'PRE_PRECATORIO'" x-cloak
+                    class="inline-flex items-center gap-1 rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-xs text-fg">
+                {% voy_icon "hourglass" "w-3 h-3 shrink-0 text-warning" %}
+                <span>pré-precatório</span>
+              </span>
+              <span x-show="it.classificacao === 'DIREITO_CREDITORIO'" x-cloak
+                    class="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs text-fg">
+                {% voy_icon "sprout" "w-3 h-3 shrink-0 text-accent-fg" %}
+                <span>direito creditório</span>
+              </span>
+              <span x-show="it.tem_sinal_precatorio && it.classificacao !== 'PRECATORIO'" x-cloak
+                    class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-xs text-fg">
+                {% voy_icon "radar" "w-3 h-3 shrink-0 text-fg-muted" %}
+                <span>sinal de precatório</span>
+              </span>
+              <span x-show="it.segredo_justica" x-cloak
+                    class="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-fg">
+                {% voy_icon "ban" "w-3 h-3 shrink-0 text-fg-muted" %}
+                <span>segredo de justiça</span>
+              </span>
+            </div>
+
+            {# 2. partes #}
+            <div class="mt-2" x-show="temPolos(it)" x-cloak>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                <div>
+                  <span class="text-xs text-fg-muted uppercase tracking-wide">polo ativo</span>
+                  <p class="text-sm text-fg break-words" x-text="polo(it, 'ativo')"></p>
+                </div>
+                <div>
+                  <span class="text-xs text-fg-muted uppercase tracking-wide">polo passivo</span>
+                  <p class="text-sm text-fg break-words" x-text="polo(it, 'passivo')"></p>
+                </div>
+              </div>
+            </div>
+            {% comment %} SEM polo estruturado o cartão NÃO inventa lados: mostra
+               a lista como o tribunal publicou e diz que é assim. O nested
+               `participacoes` existe no mapping mas a cobertura em prod ainda é
+               ~0 — fingir "autor × réu" a partir da ordem da string seria
+               inventar o dado mais importante do cartão. {% endcomment %}
+            <div class="mt-2" x-show="!temPolos(it) && partesTexto(it)" x-cloak>
+              <span class="text-xs text-fg-muted uppercase tracking-wide">partes</span>
+              <p class="text-sm text-fg break-words" x-text="partesTexto(it)"></p>
+              <p class="text-xs text-fg-muted">
+                como vieram na publicação — este tribunal não separou os polos.
+              </p>
+            </div>
+
+            {# 3. onde e o quê #}
+            <div class="mt-2 text-sm text-fg-muted flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span class="font-medium text-fg" x-text="it.tribunal || '—'"></span>
+              <template x-if="it.uf">
+                <span class="flex items-center gap-2"><span aria-hidden="true">·</span><span x-text="it.uf"></span></span>
+              </template>
+              <template x-if="varaDe(it)">
+                <span class="flex items-center gap-2"><span aria-hidden="true">·</span><span x-text="varaDe(it)"></span></span>
+              </template>
+              <template x-if="it.classe_nome">
+                <span class="flex items-center gap-2"><span aria-hidden="true">·</span><span x-text="it.classe_nome"></span></span>
+              </template>
+              <template x-if="it.ano_cnj">
+                <span class="flex items-center gap-2"><span aria-hidden="true">·</span><span class="font-mono" x-text="it.ano_cnj"></span></span>
+              </template>
+            </div>
+
+            {# 4. está vivo? quanto vale? #}
+            <div class="mt-1 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span :class="movRecente(it) ? 'text-pulsar-fg' : 'text-fg-muted'"
+                    x-text="ultimaMovFrase(it)"></span>
+              <template x-if="it.total_movimentacoes">
+                <span class="flex items-center gap-2 text-fg-muted">
+                  <span aria-hidden="true">·</span>
+                  <span><span class="font-mono text-fg" x-text="fmt(it.total_movimentacoes)"></span> movimentações</span>
+                </span>
+              </template>
+              <template x-if="it.valor_causa">
+                <span class="flex items-center gap-2 text-fg-muted">
+                  <span aria-hidden="true">·</span>
+                  <span>causa de <span class="font-mono text-fg" x-text="fmtBRL(it.valor_causa)"></span></span>
+                </span>
+              </template>
+            </div>
+          </a>
+        </li>
+      </template>
+    </ol>
+
+    {# paginação por cursor #}
+    <div class="flex flex-col items-center gap-2">
+      <button type="button" @click="carregarMais()" x-show="cursor" x-cloak :disabled="carregandoMais"
+              class="text-sm px-4 py-2 rounded-md border border-border text-fg-muted hover:text-fg hover:border-fg-muted disabled:cursor-wait focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ring-offset-2 ring-offset-base">
+        <span x-show="!carregandoMais">Carregar mais processos</span>
+        <span x-show="carregandoMais" x-cloak class="font-mono">acquiring signal…</span>
+      </button>
+      <p class="text-sm text-fg-muted" x-show="!cursor" x-cloak>Fim da lista.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

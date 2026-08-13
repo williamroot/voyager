@@ -619,7 +619,7 @@
 
       {# ---- Tribunais & Processos ---- #}
       <div class="nav-group"
-           x-data="navGroup('tribunais', {% if '/dashboard/tribunais' in request.path or '/dashboard/processos' in request.path or '/dashboard/consulta-rapida' in request.path %}true{% else %}false{% endif %})"
+           x-data="navGroup('tribunais', {% if '/dashboard/tribunais' in request.path or '/dashboard/processos' in request.path or '/dashboard/busca' in request.path or '/dashboard/consulta-rapida' in request.path %}true{% else %}false{% endif %})"
            :class="{ open: open, 'nav-anim': anim }">
         <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
           {% voy_icon "trajectory" "w-3.5 h-3.5" %} Tribunais &amp; Processos
@@ -628,6 +628,22 @@
         <div class="nav-group-items">
           <div class="nav-group-inner">
             <div class="nav-group-list">
+              {% comment %} BUSCAR PROCESSO — primeiro item do grupo: é a tela
+                 que um operador usa o dia inteiro, e "Processos" (a listagem
+                 filtrada) não responde "onde está ESTE processo/pessoa".
+                 `{% templatetag openblock %} url ... as %}` NÃO levanta NoReverseMatch — devolve string
+                 vazia — então o `if` cobre a janela em que a rota ainda não
+                 existe e some sozinho quando ela entrar. O alias `search` foi
+                 conferido no sprite: ícone inexistente vira QUADRADO VAZIO,
+                 sem erro nenhum no console. {% endcomment %}
+              {% url 'dashboard:busca' as busca_url %}
+              {% if busca_url %}
+              <a href="{{ busca_url }}" class="nav-item {% if request.path == busca_url %}active{% endif %}">
+                {% voy_icon "search" "w-4 h-4" %}
+                <span class="nav-label">Buscar processo</span>
+                <span class="nav-tag" aria-hidden="true">✨</span>
+              </a>
+              {% endif %}
               <a href="{{ tribunais_url }}" class="nav-item {% if request.path == tribunais_url %}active{% endif %}">
                 {% voy_icon "trajectory" "w-4 h-4" %}
                 Tribunais
