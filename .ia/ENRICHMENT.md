@@ -617,3 +617,72 @@ TJMT, TJCE) — Juriscope não cobre esses.
   tribunais datajud — TJPR tem 4,2M classificados mas **lead=0** (sem datajud o
   classificador não acha precatório: chicken-egg). Pré-filtro real = flag DJEN-texto
   denormalizado + backfill (migration + scan de movimentações) → item próprio.
+
+---
+
+## Valor da causa: onde existe e onde NÃO existe (triagem 2026-08-13)
+
+**Pergunta que motivou.** Só 5 UFs têm `valor_causa` no ES; TJRJ (3,46M), TJMA
+(2,70M), TJPE, TJCE e TJAP estão em 0,0%. Hipótese inicial: "falta parser nesses
+enrichers" (os arquivos `enrichers/tjrj.py` etc. não mencionam "valor").
+
+**Veredicto: a hipótese é FALSA — e escrever parser não preencheria nada.**
+
+`BasePjeEnricher._extrair_dados` (`enrichers/pje.py`, ramo
+`elif 'valor' in chave and 'causa' in chave`) **já** extrai o valor; os 5
+enrichers são subclasses de 13 linhas e herdam isso. O ramo nunca dispara porque
+**a consulta pública do PJe clássico não publica o valor da causa**.
+
+### Quem publica o valor é o SISTEMA, não o tribunal
+
+| Sistema | Campo na fonte | Valor? | Tribunais |
+|---|---|---|---|
+| e-SAJ | `#valorAcaoProcesso` (só 1º grau/cpopg) | **Sim** | TJSP, TJAL, TJAC |
+| REST próprio (TJPA) | `valorCausaFormatado` | **Sim** | TJPA |
+| REST próprio (TJMT) | `valorCausa` | **Sim** | TJMT |
+| **PJe consulta pública** (clássico e SPA) | — não existe — | **Não** | TJRJ, TJMA, TJPE, TJCE, TJAP, TJMG, TJRO, TRF1, TRF3, TRF5, TJDFT |
+| **Datajud** (API CNJ) | `valorCausa` **ausente do `_source`** | **Não** | todos os acima |
+
+O detalhe do PJe consulta pública expõe exatamente 6 campos em `div.propertyView`:
+Número Processo · Data da Distribuição · Classe Judicial · Assunto · Jurisdição ·
+Órgão Julgador. Fim. A string "valor" **não aparece uma única vez** no HTML
+inteiro (70–140 KB por página).
+
+### Evidência (probes reais, 2026-08-13)
+
+- **16 processos reais** buscados ao vivo pelo próprio enricher (search + detalhe,
+  via Cortex), 5 tribunais: `ocorrencias_de_"valor"_no_HTML_CRU = 0` em **todos**.
+  Fixtures de detalhe reais no repo pros 5 (TJPE/TJAP capturadas nesta triagem).
+- **Datajud**: 14 CNJ dos 5 tribunais → `valorCausa=None` e a chave sequer existe
+  no `_source` (`['@timestamp','assuntos','classe','dataAjuizamento',...]`).
+- **Prod, amostra por `(tribunal, -id)` com LIMIT** (nunca `valor_causa__isnull`
+  solto — vira seq scan no tabelão): 0/300 com valor em TJRJ, TJMA, TJPE, TJCE,
+  TJAP **e também em TRF1, TRF3, TJMG** (mesma base PJe). Contraprova no mesmo
+  corte: TJPA 300/300, TJMT 288/300, TJSP 183/300.
+
+⇒ O ramo de valor em `pje.py` é **código morto em todos os PJe**. Mantido de
+propósito: se um tribunal passar a publicar, ele volta a funcionar sozinho.
+
+### Quanto custaria obter mesmo assim
+
+Não sai de graça: exigiria **uma requisição extra por processo** num sistema
+*diferente* (portal legado do tribunal), cada um com layout próprio e captcha.
+Para TJRJ+TJMA isso é ~6,2M requisições adicionais sob o mesmo orçamento de
+proxy/WAF que hoje já limita o enriquecimento básico — e reprocessar o que já
+temos **não preencheria um único registro**, porque o dado nunca esteve no
+payload. Só faz sentido com decisão explícita de custo (captcha-solver + scraper
+novo por tribunal), não como conserto de parser.
+
+### Onde vale investir (se o objetivo é cobertura de valor)
+
+Nos tribunais **e-SAJ e REST próprio** — é onde o dado existe. TJSP está em
+183/300 (~61%): fechar essa lacuna (2º grau não traz valor; ver §cpopg/cposg)
+rende mais que qualquer coisa nos 5 PJe.
+
+### Regressão
+
+`tests/test_valor_causa_pje.py` trava a constatação com as fixtures reais dos 5:
+se algum tribunal passar a publicar o valor, o teste de ausência quebra e avisa
+que dá pra ligar a extração. Cobre também o formato BR do `parse_valor_brl`
+(milhar `.` vs decimal `,` — inverter erra por 1000×) e o contrato
+**sem valor → `None`, nunca `Decimal('0')`** (0 afirmaria "a causa vale R$ 0,00").
