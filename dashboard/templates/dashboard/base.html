@@ -463,6 +463,21 @@
         <span class="nav-label">Overview</span>
         <span class="nav-tag" title="novo">✨</span>
       </a>
+      {% comment %} Entidades ("quem deve") no menu, e não só por link dentro do
+         mapa: a tela ficou invisível pra quem não entra no mapa primeiro — o
+         dono perguntou "cadê a tela de entidades?" com ela no ar. `startswith`
+         em vez de `==` porque a ficha (`/overview/entidade/<id>/`) tem que
+         acender o mesmo item do menu. {% endcomment %}
+      {% url 'dashboard:entidades' as entidades_url %}
+      <a href="{{ entidades_url }}" class="nav-item {% if '/overview/entidade' in request.path %}active{% endif %}">
+        {% comment %} "users": o sprite não tem "share"/"building" — ícone
+           inexistente vira um QUADRADO VAZIO no menu, sem erro nenhum no
+           console. Entidade aqui é pessoa jurídica; "users" é o mais próximo
+           do que existe. {% endcomment %}
+        {% voy_icon "users" "w-4 h-4" %}
+        <span class="nav-label">Entidades</span>
+        <span class="nav-tag" title="novo">✨</span>
+      </a>
       <a href="{{ overview_url }}" class="nav-item {% if request.path == overview_url %}active{% endif %}">
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral
