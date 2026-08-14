@@ -174,6 +174,19 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Watchdog da varredura: devolve pra fila o tribunal que ficou órfão quando
+    # um worker morreu. Precisa existir porque o RQ só declara abandono quando o
+    # job estoura o próprio timeout — e o nosso é de 24h. Sem isto, um deploy no
+    # meio da varredura para o TJSP por um dia sem ninguém ver.
+    from datajud.jobs import tick_varredura_watchdog
+    scheduler.add_job(
+        tick_varredura_watchdog.delay,
+        'interval',
+        minutes=5,
+        id='varredura_watchdog',
+        replace_existing=True,
+    )
+
     # Re-treino semanal do modelo de sobrevivência DC→precatório (freshness):
     # KM numpy sobre dados frescos → reescreve surv_strata.json (serving recarrega
     # por mtime). Domingo 03:17 (off-hours), fila default.

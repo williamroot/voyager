@@ -304,3 +304,51 @@ def hidratar_processo(cnj: str) -> dict:
     """Esqueleto → processo de verdade (fila MANUAL: tem gente esperando)."""
     from .hidratacao import hidratar_cnj
     return hidratar_cnj(cnj)
+
+
+@job('varredura', timeout=300)
+def tick_varredura_watchdog(heartbeat_max: int = 120) -> dict:
+    """Devolve pra fila a varredura que ficou órfã quando um worker morreu.
+
+    O RQ só considera um job abandonado quando ele estoura o PRÓPRIO timeout —
+    e o nosso é de 24h, porque varrer o TJSP é trabalho de horas. Resultado sem
+    este tick: um `docker compose up -d` no meio da varredura deixa o maior
+    tribunal do país parado por um dia inteiro, e ninguém percebe, porque na
+    fila ele aparece como "rodando".
+
+    Foi exatamente o que aconteceu em 14/08/2026 ao subir a frota de 4 pra 8
+    réplicas: 8 tribunais (TJSP à frente) viraram fantasma no StartedJobRegistry.
+
+    Órfão = job no StartedJobRegistry cujo worker não bate o coração há
+    `heartbeat_max` segundos.
+    """
+    from django.utils import timezone as djtz
+    from rq import Worker
+    from rq.registry import StartedJobRegistry
+
+    fila = django_rq.get_queue('varredura')
+    registro = StartedJobRegistry(queue=fila)
+    agora = djtz.now()
+
+    vivos = set()
+    for w in Worker.all(connection=fila.connection):
+        bat = w.last_heartbeat
+        if not bat:
+            continue
+        idade = (agora - bat.replace(tzinfo=agora.tzinfo)).total_seconds()
+        if idade <= heartbeat_max:
+            jid = w.get_current_job_id()
+            if jid:
+                vivos.add(jid)
+
+    orfaos = [j for j in registro.get_job_ids() if j not in vivos]
+    for jid in orfaos:
+        registro.remove(jid)
+        sigla = jid.split(':')[-1]
+        # re-enfileira do watermark: com o checkpoint a cada 20 páginas, o
+        # retrabalho é de minutos, não da varredura inteira
+        fila.enqueue(varrer_acervo, sigla, job_id=jid, retry=DATAJUD_RETRY)
+    if orfaos:
+        logger.warning('varredura: %d órfãos devolvidos pra fila: %s',
+                       len(orfaos), [j.split(':')[-1] for j in orfaos])
+    return {'orfaos': [j.split(':')[-1] for j in orfaos], 'total': len(orfaos)}
