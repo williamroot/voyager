@@ -604,9 +604,16 @@ def _indice_entidades() -> str:
     ruim de prevalência e o índice não foi promovido. Promover = trocar o
     setting, sem deploy de código.
     """
+    # UMA fonte de verdade: `ENTIDADES_INDICE_SUFIXO` (settings), o mesmo que
+    # `agg_entidade` e o autocomplete leem. Eu tinha criado um segundo setting
+    # (`ENTIDADES_INDICE`) aqui e ele ficou apontando pro índice de TESTE
+    # depois da promoção — duas telas lendo índices diferentes, sem erro
+    # nenhum, é o tipo de divergência que só aparece quando os números não
+    # batem e ninguém sabe por quê.
     from django.conf import settings
-    nome = getattr(settings, 'ENTIDADES_INDICE', None) or 'voyager-entidades-teste'
-    return nome
+    from search import entidades as _ent
+    sufixo = getattr(settings, 'ENTIDADES_INDICE_SUFIXO', None) or _ent.INDICE
+    return f'voyager-{sufixo}'
 
 
 def resolver_entidade(filtros: dict) -> dict:

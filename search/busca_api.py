@@ -825,6 +825,58 @@ def entre_aspas(texto: str):
     return None
 
 
+_RE_TERMOS = re.compile(r'"([^"]+)"|\u201c([^\u201d]+)\u201d|(\S+)')
+
+
+def separar_termos(texto: str) -> list:
+    """Quebra a busca em termos, respeitando aspas.
+
+        '"William Alves de Souza" Santander'
+        → [('frase', 'William Alves de Souza'), ('termos', 'Santander')]
+
+    É o que permite achar UM processo específico: "sou eu E é contra o banco X".
+    Sem isso, a busca inteira vira uma frase só e não acha nada — o usuário
+    tenta a coisa mais natural do mundo e recebe zero.
+
+    As palavras SOLTAS entre as frases são agrupadas num termo só, porque
+    "Santander S.A." solto deve ser um AND de duas palavras, não duas
+    condições independentes.
+    """
+    frases, soltas = [], []
+    for m in _RE_TERMOS.finditer(texto or ''):
+        aspas = m.group(1) or m.group(2)
+        if aspas:
+            if aspas.strip():
+                frases.append(('frase', aspas.strip()))
+        elif m.group(3):
+            soltas.append(m.group(3))
+    if soltas:
+        frases.append(('termos', ' '.join(soltas)))
+    return frases
+
+
+def clausulas_texto(campo: str, texto: str) -> list:
+    """Uma cláusula por termo — todas obrigatórias (E, não OU).
+
+    Cada frase entre aspas vira `match_phrase`; o resto vira `match` AND. Como
+    todas entram em `must`, o processo precisa satisfazer TODAS: é assim que
+    "eu E o banco" acha o processo certo em vez de todo processo meu ou todo
+    processo do banco.
+    """
+    termos = separar_termos(texto)
+    if not termos:
+        return []
+    if len(termos) == 1 and termos[0][0] == 'termos':
+        return [{'match': {campo: {'query': termos[0][1], 'operator': 'and'}}}]
+    out = []
+    for tipo, valor in termos:
+        if tipo == 'frase':
+            out.append({'match_phrase': {campo: valor}})
+        else:
+            out.append({'match': {campo: {'query': valor, 'operator': 'and'}}})
+    return out
+
+
 def _match_and(campo: str, texto: str) -> dict:
     """Frase exata quando vem entre aspas; senão, match com AND.
 
@@ -929,9 +981,9 @@ def montar_query_processos(parte=None, advogado=None, filtros=None):
                                         or filtros.get('parte_papel'))
     must = []
     if parte and not nested_parte:
-        must.append(_match_and('partes', parte))
+        must.extend(clausulas_texto('partes', parte))
     if advogado:
-        must.append(_match_and('advs', advogado))
+        must.extend(clausulas_texto('advs', advogado))
 
     bool_q: dict = {}
     if must:

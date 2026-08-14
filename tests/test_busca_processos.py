@@ -659,3 +659,47 @@ def test_aspas_curvas_do_word_tambem_valem():
     assert entre_aspas("'William Alves'") == 'William Alves'
     assert entre_aspas('""') is None          # aspas vazias não viram frase
     assert entre_aspas('"') is None
+
+
+# --------------------------------------------------------------------------- #
+# busca COMPOSTA: "eu" E "o banco" — achar UM processo, não todos os meus
+# --------------------------------------------------------------------------- #
+def test_frase_mais_termo_viram_duas_condicoes():
+    """`"William Alves de Souza" Santander` = frase E termo, ambos obrigatórios.
+
+    É o caso mais natural que existe ("quero MEU processo contra o banco") e
+    antes não funcionava: a busca inteira virava UMA frase
+    ("William Alves de Souza Santander"), que não existe em lugar nenhum, e o
+    usuário recebia zero sem entender por quê.
+    """
+    from search.busca_api import clausulas_texto, separar_termos
+    t = separar_termos('"William Alves de Souza" Santander')
+    assert t == [('frase', 'William Alves de Souza'), ('termos', 'Santander')]
+
+    cl = clausulas_texto('partes', '"William Alves de Souza" Santander')
+    assert len(cl) == 2
+    assert cl[0]['match_phrase']['partes'] == 'William Alves de Souza'
+    assert cl[1]['match']['partes']['query'] == 'Santander'
+
+
+def test_duas_frases_exatas():
+    """Dá pra exigir DUAS pessoas exatas no mesmo processo."""
+    from search.busca_api import clausulas_texto
+    cl = clausulas_texto('partes', '"Maria Silva" "Banco do Brasil"')
+    assert len(cl) == 2
+    assert all('match_phrase' in c for c in cl)
+
+
+def test_palavras_soltas_continuam_um_and_so():
+    """"Santander S.A." solto é UM and de duas palavras, não duas condições —
+    senão a busca simples ficaria mais restritiva do que era."""
+    from search.busca_api import clausulas_texto
+    cl = clausulas_texto('partes', 'William Alves de Souza')
+    assert len(cl) == 1
+    assert cl[0]['match']['partes']['operator'] == 'and'
+
+
+def test_aspas_curvas_tambem_compoem():
+    from search.busca_api import separar_termos
+    assert separar_termos('“Maria Silva” Bradesco') == [
+        ('frase', 'Maria Silva'), ('termos', 'Bradesco')]

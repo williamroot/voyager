@@ -56,6 +56,7 @@
             'fg-subtle': 'rgb(var(--c-fg-subtle) / <alpha-value>)',
             accent:    'rgb(var(--c-accent) / <alpha-value>)',
             'accent-fg': 'rgb(var(--c-accent-fg) / <alpha-value>)',
+            'on-accent': 'rgb(var(--c-on-accent) / <alpha-value>)',
             danger:    'rgb(var(--c-danger) / <alpha-value>)',
             warning:   'rgb(var(--c-warning) / <alpha-value>)',
             info:      'rgb(var(--c-info) / <alpha-value>)',
@@ -103,6 +104,10 @@
       --c-fg-subtle: 113 113 122;   /* zinc-500 */
       --c-accent:    16 185 129;    /* emerald-500 */
       --c-accent-fg: 110 231 183;   /* emerald-300 */
+      /* texto SOBRE o accent. NÃO inverte com o tema, porque o accent também
+         não inverte (é emerald-500 nos dois). Usar `--c-base` aqui dava
+         slate-50 sobre emerald no tema claro = 2,42:1, reprovado em AA. */
+      --c-on-accent: 9 9 11;        /* zinc-950 → 7,84:1 sobre emerald-500 */
       --c-danger:    244 63 94;     /* rose-500 */
       --c-warning:   245 158 11;    /* amber-500 */
       --c-info:      14 165 233;    /* sky-500 */
@@ -124,6 +129,7 @@
       --c-fg-muted:  71 85 105;     /* slate-600 — texto secundário legível */
       --c-fg-subtle: 100 116 139;   /* slate-500 — texto muted (mais escuro que zinc) */
       --c-accent:    16 185 129;    /* emerald-500 */
+      --c-on-accent: 9 9 11;        /* zinc-950: o accent NÃO inverte, o texto sobre ele também não */
       --c-accent-fg: 4 120 87;      /* emerald-700 — mais escuro p/ contraste em fundo claro */
       --c-danger:    220 38 38;     /* red-600 */
       --c-warning:   217 119 6;     /* amber-600 */
@@ -303,7 +309,10 @@
 
     .btn-primary {
       background: rgb(var(--c-accent));
-      color: rgb(var(--c-base));
+      /* `--c-base` INVERTE com o tema e o accent NÃO: no claro dava slate-50
+         sobre emerald-500 = 2,42:1, reprovado em AA — e afetava TODA página
+         que usa a classe. `--c-on-accent` é fixo escuro: 7,84:1 nos dois. */
+      color: rgb(var(--c-on-accent));
       font-weight: 600;
       border-radius: 0.5rem;
       padding: 0.5rem 1.25rem;
