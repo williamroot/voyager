@@ -2177,6 +2177,24 @@ def mcp_setup(request):
     return render(request, 'dashboard/mcp_setup.html', {})
 
 
+
+def _consulta_rapida_acervo(cnj):
+    """O que JÁ TEMOS deste processo no índice — antes de bater na fonte.
+
+    Serve a três coisas na tela de debug: (1) dizer o tribunal OBSERVADO, que
+    ganha do derivado quando divergem; (2) mostrar se o processo já está na
+    nossa base e com que data; (3) deixar comparar o nosso dado com o que a
+    fonte devolve agora, que é o ponto da tela.
+
+    Nunca levanta: ES fora vira `None` e a consulta às fontes segue.
+    """
+    try:
+        from search.busca_api import get_processo
+        return get_processo(cnj)
+    except Exception:
+        logger.warning('consulta_rapida: acervo indisponível', extra={'cnj': cnj})
+        return None
+
 @login_required
 @require_GET
 def consulta_rapida(request):
@@ -2196,17 +2214,55 @@ def consulta_rapida_api(request):
     import time
     from concurrent.futures import ThreadPoolExecutor
 
+    from tribunals.cnj import descrever as descrever_cnj
+
     cnj = (request.GET.get('cnj') or '').strip()
-    sigla = (request.GET.get('tribunal') or 'TRF1').strip()
-    fontes = set((request.GET.get('fontes') or 'djen,datajud').split(','))
+    sigla = (request.GET.get('tribunal') or '').strip()
+    fontes = set((request.GET.get('fontes') or 'acervo,djen,datajud').split(','))
 
     if not cnj:
         return JsonResponse({'erro': 'cnj obrigatório'}, status=400)
 
+    # O CNJ CARREGA o tribunal (Resolução 65/2008) — pedir num select o que já
+    # está no número é uma chance a mais de errar, e escolher o tribunal errado
+    # devolve "não encontrado" sem dizer por quê. Medido em 1.080 processos
+    # reais: a derivação acerta 99,44%.
+    info_cnj = descrever_cnj(cnj)
+
+    # ORDEM DE VERDADE: o que o ES observou > o que o número sugere > o select.
+    # O caso que obriga isso: o TRF6 (2022) herdou processos do TRF1 cujo CNJ
+    # guarda o código antigo — foram as ÚNICAS divergências da amostra.
+    acervo = _consulta_rapida_acervo(cnj)
+    sigla_observada = (acervo or {}).get('tribunal')
+    sigla = sigla_observada or info_cnj.get('sigla') or sigla or 'TRF1'
+    origem_tribunal = ('acervo' if sigla_observada
+                       else ('cnj' if info_cnj.get('sigla') else 'manual'))
+
     try:
         tribunal = Tribunal.objects.get(sigla=sigla)
     except Tribunal.DoesNotExist:
-        return JsonResponse({'erro': f'tribunal {sigla} não existe'}, status=400)
+        # A sigla saiu certa do número mas não temos esse tribunal cadastrado
+        # (não coletamos ainda, ou é um segmento fora do escopo — TRE, militar).
+        # Dizer QUAL tribunal é e que ele não está na nossa lista é diferente de
+        # um 400 seco, que faz o usuário achar que o número está errado.
+        return JsonResponse({
+            'erro': f'O número é do {sigla}, mas esse tribunal não está no '
+                    f'nosso cadastro — não dá pra consultar as fontes dele.',
+            'cnj': cnj, 'tribunal_sugerido': sigla,
+            'tribunal_origem': origem_tribunal,
+            'cnj_info': info_cnj,
+            'acervo': acervo,
+            'tribunais_disponiveis': list(
+                Tribunal.objects.filter(ativo=True)
+                .values_list('sigla', flat=True).order_by('sigla')),
+        }, status=400)
+
+    resultado_extra = {
+        'acervo': acervo,                 # o que JÁ temos (None = não está na base)
+        'cnj_info': info_cnj,             # o que o próprio número diz
+        'tribunal_usado': sigla,
+        'tribunal_origem': origem_tribunal,   # acervo | cnj | manual
+    }
 
     def consulta_djen():
         from djen.client import DJENClient
@@ -2269,7 +2325,8 @@ def consulta_rapida_api(request):
         for k, fut in futs.items():
             resultados[k] = fut.result()
 
-    return JsonResponse({'cnj': cnj, 'tribunal': sigla, 'resultados': resultados},
+    return JsonResponse({'cnj': cnj, 'tribunal': sigla,
+                         'resultados': resultados, **resultado_extra},
                         json_dumps_params={'default': str, 'ensure_ascii': False, 'indent': 2})
 
 

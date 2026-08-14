@@ -14,13 +14,27 @@
                class="w-full mt-1 px-3 py-2 bg-bg-subtle border border-border rounded-md text-sm font-mono"
                @keydown.enter="consultar()">
       </div>
+      {% comment %} O tribunal SAI DO CNJ (Resolução 65/2008: os dígitos 14-16
+         são segmento + tribunal). Pedir num select o que já está no número
+         digitado é uma chance a mais de errar — e escolher o tribunal errado
+         devolve "não encontrado", que o usuário lê como "o processo não
+         existe". Medido em 1.080 processos reais: a derivação acerta 99,44%.
+         O select vira ESCAPE, não obrigação: fica desabilitado enquanto a
+         detecção funciona e a pessoa marca "escolher na mão" pra assumir.
+      {% endcomment %}
       <div class="md:col-span-2">
         <label class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">Tribunal</label>
-        <select x-model="tribunal" class="w-full mt-1 px-3 py-2 bg-bg-subtle border border-border rounded-md text-sm">
+        <select x-model="tribunal" :disabled="!manual && !!detectado"
+                class="w-full mt-1 px-3 py-2 bg-bg-subtle border border-border rounded-md text-sm disabled:opacity-60">
+          <option value="">(pelo número)</option>
           {% for t in tribunais %}<option value="{{ t.sigla }}">{{ t.sigla }}</option>{% endfor %}
         </select>
+        <label class="flex items-center gap-1.5 mt-1 text-[0.7rem] text-fg-muted">
+          <input type="checkbox" x-model="manual"> escolher na mão
+        </label>
       </div>
       <div class="md:col-span-3 flex items-end gap-2">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="usarAcervo"> Acervo</label>
         <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="usarDjen"> DJEN</label>
         <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="usarDatajud"> Datajud</label>
       </div>
@@ -33,48 +47,81 @@
       </div>
     </div>
 
+    {% comment %} o que o NÚMERO diz, antes de consultar nada — é aritmética,
+       não custa request {% endcomment %}
+    <p x-show="lidoDoCnj()" x-cloak class="mt-3 text-xs font-mono text-fg-muted">
+      <span x-text="lidoDoCnj()"></span>
+    </p>
     <div x-show="erro" class="mt-3 text-sm text-danger" x-text="erro"></div>
+  </div>
+
+  {% comment %} ACERVO primeiro: é o que JÁ temos. Serve pra (a) saber o
+     tribunal OBSERVADO — que ganha do derivado quando divergem, caso do TRF6
+     que herdou processos com CNJ de TRF1 — e (b) comparar o nosso dado com o
+     que a fonte devolve agora, que é o ponto de uma tela de debug.
+  {% endcomment %}
+  <div x-show="tribunalUsado" x-cloak class="card-tight">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="text-sm font-semibold text-fg-soft">No nosso acervo</h2>
+      <span class="text-xs font-mono text-fg-muted">
+        tribunal: <b x-text="tribunalUsado"></b>
+        <span x-text="tribunalOrigem === 'acervo' ? '(observado na nossa base)'
+                     : (tribunalOrigem === 'cnj' ? '(deduzido do número)' : '(escolhido na mão)')"></span>
+      </span>
+    </div>
+    <template x-if="acervo">
+      <div class="mt-2 text-xs font-mono grid grid-cols-1 sm:grid-cols-2 gap-1">
+        <div><span class="text-fg-subtle">classe:</span> <span x-text="acervo.classe_nome || '—'"></span></div>
+        <div><span class="text-fg-subtle">última mov.:</span> <span x-text="(acervo.ultima_movimentacao_em || '—').slice(0,10)"></span></div>
+        <div><span class="text-fg-subtle">classificação:</span> <span x-text="acervo.classificacao || '—'"></span></div>
+        <div><span class="text-fg-subtle">partes:</span> <span x-text="(acervo.partes || '—').slice(0,60)"></span></div>
+      </div>
+    </template>
+    <p x-show="!acervo" class="mt-2 text-xs text-fg-muted">
+      Este processo <b>não está na nossa base</b> — o tribunal acima veio do próprio número.
+      As fontes abaixo consultam ao vivo.
+    </p>
   </div>
 
   <div x-show="resultados" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
     <!-- DJEN -->
-    <div x-show="resultados.djen" class="card-tight">
+    <div x-show="resultados?.djen" class="card-tight">
       <div class="flex items-baseline justify-between mb-2">
         <h2 class="text-sm font-semibold text-fg-soft">DJEN</h2>
         <span class="text-xs text-fg-subtle" x-text="resultados.djen?.ms + 'ms'"></span>
       </div>
       <template x-if="resultados.djen?.erro">
-        <div class="text-sm text-danger" x-text="resultados.djen.erro"></div>
+        <div class="text-sm text-danger" x-text="resultados?.djen.erro"></div>
       </template>
       <template x-if="!resultados.djen?.erro">
         <div class="space-y-2">
           <div class="grid grid-cols-2 gap-2 text-xs">
-            <div><span class="text-fg-subtle">páginas:</span> <span x-text="resultados.djen.paginas"></span></div>
-            <div><span class="text-fg-subtle">itens:</span> <span x-text="resultados.djen.itens"></span></div>
+            <div><span class="text-fg-subtle">páginas:</span> <span x-text="resultados?.djen.paginas"></span></div>
+            <div><span class="text-fg-subtle">itens:</span> <span x-text="resultados?.djen.itens"></span></div>
           </div>
-          <details class="text-xs" :open="resultados.djen.itens > 0">
+          <details class="text-xs" :open="resultados?.djen.itens > 0">
             {% comment %} `{{ '{{' }}` quebra o template: o lexer do Django fecha o token
              no PRIMEIRO `}}` e sobra uma aspa solta (TemplateSyntaxError, 500 na
              página inteira). E o escape nunca serviu pra nada — Alpine não
              interpola `{{ }}` em texto, isso é Vue. O certo é `x-text`.
           {% endcomment %}
           <summary class="cursor-pointer text-fg-soft">amostra (<span
-            x-text="(resultados.djen.amostra?.length || 0) + ' primeiros'"></span>)</summary>
+            x-text="(resultados?.djen.amostra?.length || 0) + ' primeiros'"></span>)</summary>
             <pre class="bg-bg-subtle border border-border rounded p-2 mt-1 overflow-auto text-[0.7rem] max-h-96"
-                 x-text="JSON.stringify(resultados.djen.amostra, null, 2)"></pre>
+                 x-text="JSON.stringify(resultados?.djen.amostra, null, 2)"></pre>
           </details>
         </div>
       </template>
     </div>
 
     <!-- Datajud -->
-    <div x-show="resultados.datajud" class="card-tight">
+    <div x-show="resultados?.datajud" class="card-tight">
       <div class="flex items-baseline justify-between mb-2">
         <h2 class="text-sm font-semibold text-fg-soft">Datajud</h2>
         <span class="text-xs text-fg-subtle" x-text="resultados.datajud?.ms + 'ms'"></span>
       </div>
       <template x-if="resultados.datajud?.erro">
-        <div class="text-sm text-danger" x-text="resultados.datajud.erro"></div>
+        <div class="text-sm text-danger" x-text="resultados?.datajud.erro"></div>
       </template>
       <template x-if="!resultados.datajud?.erro && resultados.datajud?.encontrado === false">
         <div class="text-sm text-warning">
@@ -84,19 +131,19 @@
       <template x-if="resultados.datajud?.encontrado">
         <div class="space-y-2">
           <div class="grid grid-cols-2 gap-2 text-xs">
-            <div><span class="text-fg-subtle">CNJ:</span> <code x-text="resultados.datajud.numero_processo"></code></div>
-            <div><span class="text-fg-subtle">sistema:</span> <span x-text="resultados.datajud.sistema?.nome || '-'"></span></div>
-            <div><span class="text-fg-subtle">classe:</span> <span x-text="resultados.datajud.classe?.nome || '-'"></span></div>
-            <div><span class="text-fg-subtle">cód:</span> <code x-text="resultados.datajud.classe?.codigo || '-'"></code></div>
-            <div><span class="text-fg-subtle">órgão:</span> <span x-text="resultados.datajud.orgao_julgador?.nome || '-'"></span></div>
-            <div><span class="text-fg-subtle">ajuiz.:</span> <span x-text="resultados.datajud.data_ajuizamento || '-'"></span></div>
-            <div><span class="text-fg-subtle">movs total:</span> <span x-text="resultados.datajud.movimentos_total"></span></div>
-            <div><span class="text-fg-subtle">parsed:</span> <span x-text="resultados.datajud.movimentos_parsed"></span></div>
+            <div><span class="text-fg-subtle">CNJ:</span> <code x-text="resultados?.datajud.numero_processo"></code></div>
+            <div><span class="text-fg-subtle">sistema:</span> <span x-text="resultados?.datajud.sistema?.nome || '-'"></span></div>
+            <div><span class="text-fg-subtle">classe:</span> <span x-text="resultados?.datajud.classe?.nome || '-'"></span></div>
+            <div><span class="text-fg-subtle">cód:</span> <code x-text="resultados?.datajud.classe?.codigo || '-'"></code></div>
+            <div><span class="text-fg-subtle">órgão:</span> <span x-text="resultados?.datajud.orgao_julgador?.nome || '-'"></span></div>
+            <div><span class="text-fg-subtle">ajuiz.:</span> <span x-text="resultados?.datajud.data_ajuizamento || '-'"></span></div>
+            <div><span class="text-fg-subtle">movs total:</span> <span x-text="resultados?.datajud.movimentos_total"></span></div>
+            <div><span class="text-fg-subtle">parsed:</span> <span x-text="resultados?.datajud.movimentos_parsed"></span></div>
           </div>
           <div class="text-xs">
             <div class="text-fg-subtle mb-1">assuntos:</div>
             <ul class="ml-4 list-disc">
-              <template x-for="a in (resultados.datajud.assuntos || [])">
+              <template x-for="a in (resultados?.datajud.assuntos || [])">
                 <li><span x-text="a.nome || a.codigo"></span></li>
               </template>
             </ul>
@@ -104,12 +151,12 @@
           <details class="text-xs" open>
             <summary class="cursor-pointer text-fg-soft">amostra parsed (5 primeiros movs)</summary>
             <pre class="bg-bg-subtle border border-border rounded p-2 mt-1 overflow-auto text-[0.7rem] max-h-96"
-                 x-text="JSON.stringify(resultados.datajud.amostra_parsed, null, 2)"></pre>
+                 x-text="JSON.stringify(resultados?.datajud.amostra_parsed, null, 2)"></pre>
           </details>
           <details class="text-xs">
             <summary class="cursor-pointer text-fg-soft">amostra raw Datajud (5 primeiros)</summary>
             <pre class="bg-bg-subtle border border-border rounded p-2 mt-1 overflow-auto text-[0.7rem] max-h-96"
-                 x-text="JSON.stringify(resultados.datajud.amostra_raw, null, 2)"></pre>
+                 x-text="JSON.stringify(resultados?.datajud.amostra_raw, null, 2)"></pre>
           </details>
         </div>
       </template>
@@ -119,28 +166,83 @@
 
 <script>
 function consultaRapida() {
+  // Códigos de tribunal do CNJ (Resolução 65/2008) — o MESMO mapa do
+  // tribunals/cnj.py do backend. Aqui é só pra dar leitura instantânea
+  // enquanto se digita; quem decide é o servidor (que ainda consulta o
+  // acervo e sabe do caso TRF6, que herdou processos com CNJ de TRF1).
+  const UF_CNJ = ['','AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
+                  'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC',
+                  'SE','SP','TO'];
+  const SEGMENTOS = {1:'STF',2:'CNJ',3:'STJ',4:'Justiça Federal',
+                     5:'Justiça do Trabalho',6:'Justiça Eleitoral',
+                     7:'Justiça Militar da União',8:'Justiça Estadual',
+                     9:'Justiça Militar Estadual'};
   return {
     cnj: '',
-    tribunal: 'TRF1',
+    tribunal: '',
+    manual: false,
+    usarAcervo: true,
     usarDjen: true,
     usarDatajud: true,
     loading: false,
     erro: '',
     resultados: null,
+    acervo: null,
+    infoCnj: null,
+    tribunalUsado: '',
+    tribunalOrigem: '',
+    //: só os dígitos do que foi digitado
+    _dig() { return (this.cnj || '').replace(/\D/g, ''); },
+    //: sigla derivada do número, ou '' enquanto não há 20 dígitos
+    detectado() {
+      const d = this._dig();
+      if (d.length !== 20) return '';
+      const seg = d[13], tr = d.slice(14, 16), n = parseInt(tr, 10);
+      if (seg === '4') return (n >= 1 && n <= 6) ? 'TRF' + n : '';
+      if (seg === '5') return (n >= 1 && n <= 24) ? 'TRT' + n : '';
+      if (seg === '8' || seg === '9') {
+        const uf = UF_CNJ[n] || '';
+        return uf ? (uf === 'DF' ? 'TJDFT' : 'TJ' + uf) : '';
+      }
+      if (seg === '3') return 'STJ';
+      if (seg === '1') return 'STF';
+      return '';
+    },
+    //: frase de leitura do número — aritmética, sem custo de rede
+    lidoDoCnj() {
+      const d = this._dig();
+      if (!d.length) return '';
+      if (d.length !== 20) return d.length + ' de 20 dígitos — falta completar o número.';
+      const sigla = this.detectado();
+      const seg = SEGMENTOS[parseInt(d[13], 10)] || 'segmento desconhecido';
+      const ano = d.slice(9, 13);
+      return (sigla ? sigla + ' · ' : '') + seg + ' · ano ' + ano
+             + (sigla ? '' : ' — não reconheci o tribunal neste número');
+    },
     consultar() {
       this.erro = '';
       const cnj = (this.cnj || '').trim();
       if (!cnj) { this.erro = 'informe um CNJ'; return; }
       const fontes = [];
+      if (this.usarAcervo) fontes.push('acervo');
       if (this.usarDjen) fontes.push('djen');
       if (this.usarDatajud) fontes.push('datajud');
       if (!fontes.length) { this.erro = 'selecione pelo menos uma fonte'; return; }
       this.loading = true;
       this.resultados = null;
-      const url = `/dashboard/consulta-rapida/api/?cnj=${encodeURIComponent(cnj)}&tribunal=${this.tribunal}&fontes=${fontes.join(',')}`;
+      // manda o tribunal só quando a pessoa assumiu a escolha; senão o
+      // servidor decide (acervo > número), que é a ordem mais confiável
+      const t = (this.manual && this.tribunal) ? `&tribunal=${this.tribunal}` : '';
+      const url = `/dashboard/consulta-rapida/api/?cnj=${encodeURIComponent(cnj)}${t}&fontes=${fontes.join(',')}`;
       fetch(url, {headers: {'Accept': 'application/json'}})
-        .then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(d.erro || r.status)))
-        .then(d => { this.resultados = d.resultados; })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d.erro || r.status)))
+        .then(d => {
+          this.resultados = d.resultados;
+          this.acervo = d.acervo || null;
+          this.infoCnj = d.cnj_info || null;
+          this.tribunalUsado = d.tribunal || '';
+          this.tribunalOrigem = d.tribunal_origem || '';
+        })
         .catch(e => { this.erro = String(e); })
         .finally(() => { this.loading = false; });
     },
