@@ -126,6 +126,15 @@ Fila RQ dedicada `varredura` (timeout 24h) — separada da `datajud` porque uma
 varredura de tribunal grande é job de horas e empurraria pro fim da fila as
 sincronizações por processo, que atendem usuário.
 
+### Checkpoint (por que o watermark é salvo no meio)
+
+Varrer o TJSP é job de **horas**. O watermark era gravado só no fim, e um
+restart de worker — ou o `AbandonedJobError` que o RQ dá quando o container
+morre — jogava fora todo o progresso. Aconteceu com o TJMG em 14/08/2026, no
+deploy que subiu a frota de 4 pra 8 réplicas. Agora `varrer_tribunal` salva o
+cursor **a cada 20 páginas** (200k docs ≈ 2 min de trabalho em risco). Vale só
+na passada completa: a filtrada não pode tocar o watermark.
+
 ## Runbook
 
 ```bash

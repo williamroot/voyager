@@ -251,3 +251,36 @@ def test_passada_filtrada_nao_salva_watermark(sem_es, monkeypatch):
     # de propósito (`gte`, não `gt`), então o número é teto, nunca contagem. A
     # contagem exata é um `_count` no próprio índice.
     assert t.datajud_varredura_docs >= 4
+
+
+@pytest.mark.django_db
+def test_checkpoint_salva_o_cursor_no_meio_do_caminho(sem_es, monkeypatch):
+    """Varrer o TJSP é um job de HORAS. Sem checkpoint, um restart de worker
+    joga fora o progresso todo e a próxima passada recomeça do zero — foi o que
+    aconteceu com o TJMG em 14/08/2026 no deploy que subiu a frota.
+
+    O contrato: o cursor tem que estar gravado ANTES do job terminar.
+    """
+    from tribunals.models import Tribunal
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJMG', defaults={'nome': 'TJ Minas', 'sigla_djen': 'TJMG'})
+    Tribunal.objects.filter(pk=t.pk).update(datajud_varredura_cursor=None)
+
+    docs = [src(i, 1000 + i) for i in range(70)]      # 24 páginas de 3
+    pronta = varredura(docs, sem_es)
+
+    # explode DEPOIS do checkpoint da 20ª página: simula o worker morrendo
+    original = pronta._gravar
+    def morre_no_meio(hits):
+        if pronta.paginas > 21:
+            raise RuntimeError('worker morreu')
+        return original(hits)
+    pronta._gravar = morre_no_meio
+    monkeypatch.setattr(V, 'Varredura', lambda *a, **k: pronta)
+
+    with pytest.raises(RuntimeError):
+        V.varrer_tribunal('TJMG')
+
+    t.refresh_from_db()
+    assert t.datajud_varredura_cursor, 'progresso perdido: cursor não foi salvo'
+    assert t.datajud_varredura_cursor > 1000

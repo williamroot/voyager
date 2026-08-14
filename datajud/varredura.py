@@ -334,7 +334,7 @@ class Varredura:
                 cursor = ultimo             # relê a cauda de propósito (idempotente)
 
             if on_page:
-                on_page(self)
+                on_page(self, cursor)
 
         dt = time.monotonic() - t0
         return {
@@ -360,8 +360,25 @@ def varrer_tribunal(sigla: str, retomar: bool = True, max_paginas: int | None = 
     cursor = trib.datajud_varredura_cursor if retomar else 0
     v = Varredura(trib.sigla)
     Tribunal.objects.filter(pk=trib.pk).update(datajud_varredura_status='rodando')
+
+    # CHECKPOINT periódico. Sem isto, o watermark só era salvo no fim — e a
+    # varredura do TJSP é um job de HORAS: um restart de worker (ou o
+    # AbandonedJobError que o RQ dá quando o container morre) jogava fora todo o
+    # progresso e a próxima passada recomeçava do zero. Aconteceu com o TJMG em
+    # 14/08/2026, no deploy que subiu a frota de 4 pra 8 réplicas.
+    # A cada 20 páginas = 200k docs ≈ 2 min de trabalho é o que se arrisca perder.
+    # Só faz sentido na passada COMPLETA: filtrada não pode tocar o watermark.
+    def checkpoint(v_, cursor_atual, _cada=20):
+        if filtro or v_.paginas % _cada:
+            return
+        Tribunal.objects.filter(pk=trib.pk).update(
+            datajud_varredura_cursor=cursor_atual,
+            datajud_varredura_em=djtz.now(),
+            datajud_varredura_status=f'rodando ({v_.lidos:,} lidos)')
+
     try:
-        resumo = v.rodar(cursor=cursor, max_paginas=max_paginas, filtro=filtro)
+        resumo = v.rodar(cursor=cursor, max_paginas=max_paginas, filtro=filtro,
+                         on_page=checkpoint)
     except Exception as e:
         Tribunal.objects.filter(pk=trib.pk).update(
             datajud_varredura_status=f'erro: {str(e)[:80]}',
