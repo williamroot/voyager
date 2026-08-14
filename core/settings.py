@@ -258,6 +258,14 @@ DATAJUD_ENQUEUE_ENABLED = env.bool('DATAJUD_ENQUEUE_ENABLED', default=True)
 # Teto GLOBAL de requisições/min ao Datajud (token-bucket Redis em datajud.ratelimit).
 # A APIKey pública é compartilhada e tem rate limit global; <=0 desliga o limite.
 DATAJUD_RATE_LIMIT_RPM = env.int('DATAJUD_RATE_LIMIT_RPM', default=100)
+# Cota SEPARADA da varredura em massa do acervo (datajud/varredura.py), pega
+# ANTES da global. Dimensionamento medido: cada requisição leva ~8s, então uma
+# réplica faz ~7,5 req/min — 8 réplicas ≈ 60 rpm. Somado ao consumo real do
+# sync por processo (~26 rpm, média de 30 dias), dá 86 dos 100 globais: usa o
+# que sobra sem estrangular quem atende usuário. Subir daqui exige subir também
+# o teto global, e aí o risco passa a ser a APIKey COMPARTILHADA do CNJ, que já
+# nos derrubou uma vez (incidente 2026-07-02).
+DATAJUD_VARREDURA_RPM = env.int('DATAJUD_VARREDURA_RPM', default=40)
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)

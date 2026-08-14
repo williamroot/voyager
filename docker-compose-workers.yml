@@ -297,17 +297,20 @@ services:
     image: voyager-web:prod
     command: python manage.py rqworker varredura
     env_file: .env
+    environment:
+      # Chapa máxima SEM estourar a APIKey compartilhada: 8 réplicas × ~7,5
+      # req/min ≈ 60 rpm. Com o sync por processo consumindo ~26 rpm, ficam 86
+      # dos 100 globais. Este é o teto seguro — passar dele exige subir também
+      # DATAJUD_RATE_LIMIT_RPM, e o risco vira a chave do CNJ (incidente
+      # 2026-07-02: _search pendurado, fila em 63M jobs).
+      - DATAJUD_VARREDURA_RPM=60
     volumes:
       - .:/app
     # Cada job segura uma página de 10k docs em memória (~4MB de JSON) e faz
     # bulk no ES; 512m é folgado.
     mem_limit: 512m
     deploy:
-      # 4 e não mais: cada requisição ao Datajud leva ~8s, então 4 réplicas dão
-      # ~30 req/min — abaixo do teto de 40 (DATAJUD_VARREDURA_RPM) e com folga
-      # pro incremental diário. Subir isso não acelera: o gargalo passa a ser a
-      # cota da APIKey pública, que é COMPARTILHADA com o enriquecimento.
-      replicas: 4
+      replicas: 8
     restart: unless-stopped
 
   worker_classificacao:
