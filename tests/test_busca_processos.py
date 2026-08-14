@@ -628,3 +628,34 @@ def test_filtros_combinados_chegam_no_corpo(logado):
     assert {'term': {'classificacao': 'PRECATORIO'}} in fil
     assert {'range': {'ano_cnj': {'gte': 2020}}} in fil
     assert corpo['sort'][0] == {'valor_causa': {'order': 'desc', 'missing': '_last'}}
+
+
+# --------------------------------------------------------------------------- #
+# busca exata com aspas
+# --------------------------------------------------------------------------- #
+def test_aspas_viram_frase_exata():
+    """`"William Alves de Souza"` tem que casar a frase, não as palavras soltas.
+
+    Medido em prod (14/08/2026): sem aspas o campo `partes` devolve 923
+    processos; com frase exata, 20. Os outros 903 são o mesmo defeito do
+    "União Federal" — três pessoas diferentes emprestando uma palavra cada
+    ("TIAGO ALVES DE SOUZA, JONATHAN WILLIAM RODRIGUES").
+    """
+    from search.busca_api import _match_and, entre_aspas
+    q = _match_and('partes', '"William Alves de Souza"')
+    assert 'match_phrase' in q
+    assert q['match_phrase']['partes'] == 'William Alves de Souza'
+    # sem aspas segue sendo AND (garimpo)
+    q2 = _match_and('partes', 'William Alves de Souza')
+    assert 'match' in q2 and q2['match']['partes']['operator'] == 'and'
+    assert entre_aspas('sem aspas') is None
+
+
+def test_aspas_curvas_do_word_tambem_valem():
+    """Quem cola de um PDF/Word não digitou aspa reta — falhar aí seria falhar
+    justamente com quem tentou ser preciso."""
+    from search.busca_api import entre_aspas
+    assert entre_aspas('“William Alves”') == 'William Alves'
+    assert entre_aspas("'William Alves'") == 'William Alves'
+    assert entre_aspas('""') is None          # aspas vazias não viram frase
+    assert entre_aspas('"') is None

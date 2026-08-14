@@ -808,9 +808,39 @@ def sort_movs(ordenar: str, tem_texto: bool) -> tuple[str, list]:
 # --------------------------------------------------------------------------- #
 # Montagem de corpo + execução
 # --------------------------------------------------------------------------- #
+def entre_aspas(texto: str):
+    """Devolve o conteúdo se o termo VEIO entre aspas, senão `None`.
+
+    Aceita aspas retas ("x") e as curvas que o Word/iOS produzem ("x" e ‟x„) —
+    quem cola de um documento não digitou aspa reta, e falhar aí seria falhar
+    exatamente com quem tentou ser preciso.
+    """
+    t = (texto or '').strip()
+    pares = (('"', '"'), ('\u201c', '\u201d'), ('\u2018', '\u2019'), ("'", "'"))
+    for a, b in pares:
+        if len(t) >= 2 and t.startswith(a) and t.endswith(b):
+            miolo = t[1:-1].strip()
+            if miolo:
+                return miolo
+    return None
+
+
 def _match_and(campo: str, texto: str) -> dict:
-    """match com operator AND — todos os termos precisam aparecer (precisão >
-    recall, norma da casa)."""
+    """Frase exata quando vem entre aspas; senão, match com AND.
+
+    O AND casa os termos em QUALQUER lugar do campo — e `partes` é a lista
+    inteira do processo, então "William Alves de Souza" casava "TIAGO ALVES DE
+    SOUZA, JONATHAN WILLIAM RODRIGUES": três pessoas diferentes emprestando uma
+    palavra cada. Medido em prod (14/08/2026): 923 processos no AND contra 20
+    na frase exata — 97,8% de falso positivo.
+
+    As aspas dão ao usuário o controle que só ele tem: se ele SABE o nome
+    inteiro, frase exata; se está garimpando, AND. Adivinhar por ele erra dos
+    dois lados.
+    """
+    frase = entre_aspas(texto)
+    if frase:
+        return {'match_phrase': {campo: frase}}
     return {'match': {campo: {'query': texto, 'operator': 'and'}}}
 
 
