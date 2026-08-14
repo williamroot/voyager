@@ -293,6 +293,23 @@ services:
       replicas: 24
     restart: unless-stopped
 
+  worker_varredura:
+    image: voyager-web:prod
+    command: python manage.py rqworker varredura
+    env_file: .env
+    volumes:
+      - .:/app
+    # Cada job segura uma página de 10k docs em memória (~4MB de JSON) e faz
+    # bulk no ES; 512m é folgado.
+    mem_limit: 512m
+    deploy:
+      # 4 e não mais: cada requisição ao Datajud leva ~8s, então 4 réplicas dão
+      # ~30 req/min — abaixo do teto de 40 (DATAJUD_VARREDURA_RPM) e com folga
+      # pro incremental diário. Subir isso não acelera: o gargalo passa a ser a
+      # cota da APIKey pública, que é COMPARTILHADA com o enriquecimento.
+      replicas: 4
+    restart: unless-stopped
+
   worker_classificacao:
     image: voyager-web:prod
     command: python manage.py rqworker classificacao
