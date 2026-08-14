@@ -224,6 +224,12 @@ RQ_QUEUES = {
     'pdf_download':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,  **_RQ_CONN},
     # Monitoramento push — varredura diária + webhook delivery.
     'monitoring':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,  **_RQ_CONN},
+    # Varredura do acervo declarado ao CNJ (Datajud → voyager-acervo). Fila
+    # SEPARADA da `datajud` de propósito: uma varredura de tribunal grande é um
+    # job de horas, e na mesma fila ela empurraria pro fim da linha as
+    # sincronizações por processo, que atendem usuário. Timeout longo porque o
+    # job é justamente "varre o TJSP inteiro" — retomável pelo watermark.
+    'varredura':      {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 86400, **_RQ_CONN},
 
 }
 

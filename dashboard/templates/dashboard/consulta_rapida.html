@@ -3,6 +3,9 @@
 {% block title %}Consulta rápida{% endblock %}
 {% block content %}
 <div x-data="consultaRapida()" class="space-y-4">
+  {# A página é toda GET; este form existe só pra emitir o token que a          #}
+  {# hidratação (POST) precisa — ela escreve na base, então não pode ser GET.   #}
+  <form class="hidden">{% csrf_token %}</form>
   <div class="card-tight">
     <h1 class="text-lg font-semibold text-fg-soft mb-1">Consulta rápida</h1>
     <p class="text-xs text-fg-subtle mb-4">Debug de DJEN/Datajud em tempo real. Não persiste nada.</p>
@@ -77,10 +80,53 @@
         <div><span class="text-fg-subtle">partes:</span> <span x-text="(acervo.partes || '—').slice(0,60)"></span></div>
       </div>
     </template>
-    <p x-show="!acervo" class="mt-2 text-xs text-fg-muted">
+    <p x-show="!acervo && !esqueleto" class="mt-2 text-xs text-fg-muted">
       Este processo <b>não está na nossa base</b> — o tribunal acima veio do próprio número.
       As fontes abaixo consultam ao vivo.
     </p>
+
+    {% comment %}
+      "Não está na nossa base" tinha dois significados colados: NÃO EXISTE e
+      EXISTE MAS NUNCA CHEGOU ATÉ NÓS. A ingestão é DJEN (publicação em diário),
+      e 81%-96% do acervo declarado ao CNJ nunca teve publicação. Quando o
+      esqueleto aparece, a tela precisa dizer as duas coisas na mesma frase: o
+      processo existe E o que temos dele é incompleto — sem parte e sem valor,
+      porque o Datajud não expõe esses campos.
+    {% endcomment %}
+    <template x-if="!acervo && esqueleto">
+      <div class="mt-2">
+        <p class="text-xs text-fg-soft">
+          Existe no <b>acervo declarado ao CNJ</b>, mas ainda não está na nossa base —
+          provavelmente nunca teve publicação no DJEN, que é a nossa porta de entrada.
+        </p>
+        <div class="mt-2 text-xs font-mono grid grid-cols-1 sm:grid-cols-2 gap-1">
+          <div><span class="text-fg-subtle">classe:</span> <span x-text="esqueleto.classe_nome || '—'"></span></div>
+          <div><span class="text-fg-subtle">órgão:</span> <span x-text="esqueleto.orgao_nome || '—'"></span></div>
+          <div><span class="text-fg-subtle">ajuizado:</span> <span x-text="(esqueleto.ajuizado_em || '—').slice(0,10)"></span></div>
+          <div><span class="text-fg-subtle">atualizado:</span> <span x-text="(esqueleto.atualizado_em || '—').slice(0,10)"></span></div>
+          <div><span class="text-fg-subtle">assunto:</span> <span x-text="(esqueleto.assunto_nomes || ['—']).join(', ')"></span></div>
+          <div><span class="text-fg-subtle">sistema:</span> <span x-text="(esqueleto.sistema || '—') + ' · ' + (esqueleto.formato || '')"></span></div>
+        </div>
+        <p class="mt-2 text-xs text-fg-muted">
+          <b>Sem parte e sem valor</b>: o acervo do CNJ não publica esses campos.
+          Hidratar busca os movimentos e pede as partes ao tribunal.
+        </p>
+        <button type="button" @click="hidratar()" :disabled="hidratando"
+                class="btn-primary mt-3 text-xs">
+          <span x-show="!hidratando">Trazer para a nossa base</span>
+          <span x-show="hidratando" x-cloak>hidratando…</span>
+        </button>
+        <template x-if="hidratado">
+          <p class="mt-2 text-xs font-mono text-fg-soft">
+            <span x-text="hidratado.estado === 'criado' ? 'criado na base' : hidratado.estado"></span>
+            · <span x-text="hidratado.movimentos_novos + ' movimentos'"></span>
+            · <span x-text="hidratado.enricher_enfileirado
+                            ? 'partes/valor: na fila do enricher'
+                            : 'partes/valor: NÃO virão (tribunal sem enricher)'"></span>
+          </p>
+        </template>
+      </div>
+    </template>
   </div>
 
   <div x-show="resultados" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -188,6 +234,11 @@ function consultaRapida() {
     erro: '',
     resultados: null,
     acervo: null,
+    //: existe no acervo declarado ao CNJ, mas não no nosso — só esqueleto
+    //: (o Datajud não expõe parte nem valor)
+    esqueleto: null,
+    hidratando: false,
+    hidratado: null,
     infoCnj: null,
     tribunalUsado: '',
     tribunalOrigem: '',
@@ -230,6 +281,7 @@ function consultaRapida() {
       if (!fontes.length) { this.erro = 'selecione pelo menos uma fonte'; return; }
       this.loading = true;
       this.resultados = null;
+      this.hidratado = null;
       // manda o tribunal só quando a pessoa assumiu a escolha; senão o
       // servidor decide (acervo > número), que é a ordem mais confiável
       const t = (this.manual && this.tribunal) ? `&tribunal=${this.tribunal}` : '';
@@ -239,12 +291,29 @@ function consultaRapida() {
         .then(d => {
           this.resultados = d.resultados;
           this.acervo = d.acervo || null;
+          this.esqueleto = d.esqueleto || null;
           this.infoCnj = d.cnj_info || null;
           this.tribunalUsado = d.tribunal || '';
           this.tribunalOrigem = d.tribunal_origem || '';
         })
         .catch(e => { this.erro = String(e); })
         .finally(() => { this.loading = false; });
+    },
+    //: puxa o processo pra dentro: cria, busca movimentos no Datajud e pede
+    //: partes/valor ao enricher do tribunal (quando existe um)
+    hidratar() {
+      this.hidratando = true;
+      this.hidratado = null;
+      fetch('/dashboard/consulta-rapida/hidratar/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json',
+                  'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || ''},
+        body: JSON.stringify({cnj: (this.cnj || '').trim()}),
+      })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d.erro || r.status)))
+        .then(d => { this.hidratado = d; })
+        .catch(e => { this.erro = String(e); })
+        .finally(() => { this.hidratando = false; });
     },
   };
 }

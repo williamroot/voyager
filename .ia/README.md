@@ -10,6 +10,7 @@ Esta pasta concentra a documentação **destilada** do projeto — o que um enge
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Antes de modificar a estrutura geral, adicionar app, mexer em fluxos |
 | [`DATA_MODEL.md`](DATA_MODEL.md) | Antes de criar/alterar models ou migrations |
 | [`INGESTION.md`](INGESTION.md) | Antes de mexer em DJEN, jobs, scheduler, proxies |
+| [`ACERVO_CNJ.md`](ACERVO_CNJ.md) | **Completude do acervo**: por que só tínhamos 13% do país, varredura do Datajud (esqueleto nacional) e hidratação |
 | [`ENRICHMENT.md`](ENRICHMENT.md) | Antes de adicionar enricher de tribunal novo (PJe ou outro sistema) |
 | [`CLASSIFICACAO.md`](CLASSIFICACAO.md) | Antes de mexer em classificação ML de leads, modelo, features, API Juriscope |
 | [`EXTRACAO_ROADMAP.md`](EXTRACAO_ROADMAP.md) | Plano faseado de qualidade+throughput da extração (multi-GPU, sub-janela, join, gestor orientado a eventos) |

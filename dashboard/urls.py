@@ -50,6 +50,8 @@ urlpatterns = [
     path('workers/', views.workers, name='workers'),
     path('consulta-rapida/', views.consulta_rapida, name='consulta-rapida'),
     path('consulta-rapida/api/', views.consulta_rapida_api, name='consulta-rapida-api'),
+    path('consulta-rapida/hidratar/', views.consulta_rapida_hidratar,
+         name='consulta-rapida-hidratar'),
     path('api/', views.api_docs, name='api-docs'),
     path('mcp/', views.mcp_setup, name='mcp-setup'),
     # IA LABS — Centro de Inteligência Voyager (landing hub das ferramentas de IA)

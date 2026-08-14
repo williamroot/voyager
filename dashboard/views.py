@@ -2195,6 +2195,23 @@ def _consulta_rapida_acervo(cnj):
         logger.warning('consulta_rapida: acervo indisponível', extra={'cnj': cnj})
         return None
 
+
+def _consulta_rapida_esqueleto(cnj):
+    """Fora do acervo rico, o processo ainda pode estar no ACERVO DECLARADO ao CNJ.
+
+    Sem isto, "não está na nossa base" é ambíguo: o usuário não distingue *não
+    existe* de *existe e nunca chegou até nós*. O esqueleto (classe, órgão,
+    datas — sem parte nem valor, que o Datajud não expõe) já responde a
+    diferença, e é ele que habilita a hidratação.
+    """
+    try:
+        from search.busca_api import get_esqueleto
+        return get_esqueleto(cnj)
+    except Exception:
+        logger.warning('consulta_rapida: acervo-cnj indisponível', extra={'cnj': cnj})
+        return None
+
+
 @login_required
 @require_GET
 def consulta_rapida(request):
@@ -2202,6 +2219,38 @@ def consulta_rapida(request):
     return render(request, 'dashboard/consulta_rapida.html', {
         'tribunais': Tribunal.objects.filter(ativo=True),
     })
+
+
+@login_required
+@require_POST
+def consulta_rapida_hidratar(request):
+    """Traz pra dentro um processo que existe no CNJ mas não no nosso acervo.
+
+    POST (e não GET) porque isto ESCREVE: cria o `Process`, puxa movimentos do
+    Datajud e enfileira o enricher. É síncrono de propósito — a criação e os
+    movimentos levam ~2s e quem clicou está olhando; o que é lento (partes e
+    valor, via scraping do tribunal) vai pra fila e a resposta diz isso.
+    """
+    import json as _json
+    try:
+        corpo = _json.loads(request.body or '{}')
+    except ValueError:
+        return JsonResponse({'erro': 'corpo inválido'}, status=400)
+
+    cnj = (corpo.get('cnj') or '').strip()
+    if not cnj:
+        return JsonResponse({'erro': 'informe o CNJ'}, status=400)
+
+    from datajud.hidratacao import hidratar_cnj
+    try:
+        out = hidratar_cnj(cnj)
+    except Exception as e:  # noqa: BLE001 — a tela precisa do motivo, não de um 500 seco
+        logger.exception('hidratação falhou', extra={'cnj': cnj})
+        return JsonResponse({'erro': str(e)[:300]}, status=502)
+
+    if out.get('estado') in ('cnj_invalido', 'tribunal_desconhecido'):
+        return JsonResponse({'erro': out['estado'], **out}, status=400)
+    return JsonResponse(out)
 
 
 @login_required
@@ -2233,9 +2282,12 @@ def consulta_rapida_api(request):
     # O caso que obriga isso: o TRF6 (2022) herdou processos do TRF1 cujo CNJ
     # guarda o código antigo — foram as ÚNICAS divergências da amostra.
     acervo = _consulta_rapida_acervo(cnj)
-    sigla_observada = (acervo or {}).get('tribunal')
+    # fora do acervo rico, o esqueleto do CNJ ainda observa o tribunal — e
+    # observação ganha de derivação (o caso TRF6/TRF1 abaixo)
+    esq = None if acervo else _consulta_rapida_esqueleto(cnj)
+    sigla_observada = (acervo or esq or {}).get('tribunal')
     sigla = sigla_observada or info_cnj.get('sigla') or sigla or 'TRF1'
-    origem_tribunal = ('acervo' if sigla_observada
+    origem_tribunal = (('acervo' if acervo else 'esqueleto') if sigla_observada
                        else ('cnj' if info_cnj.get('sigla') else 'manual'))
 
     try:
@@ -2259,9 +2311,13 @@ def consulta_rapida_api(request):
 
     resultado_extra = {
         'acervo': acervo,                 # o que JÁ temos (None = não está na base)
+        # esqueleto = existe no acervo declarado ao CNJ mas não no nosso. Só é
+        # preenchido quando `acervo` é None: são estados excludentes, e mandar os
+        # dois faria a tela ter que escolher qual acreditar.
+        'esqueleto': esq,
         'cnj_info': info_cnj,             # o que o próprio número diz
         'tribunal_usado': sigla,
-        'tribunal_origem': origem_tribunal,   # acervo | cnj | manual
+        'tribunal_origem': origem_tribunal,   # acervo | esqueleto | cnj | manual
     }
 
     def consulta_djen():

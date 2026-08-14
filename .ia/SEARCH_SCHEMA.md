@@ -1,5 +1,10 @@
 # Schema canônico do Elasticsearch
 
+> Além de `voyager-processos` e `voyager-movimentacoes`, existe
+> **`voyager-acervo`** — o esqueleto nacional vindo do Datajud (343M docs
+> previstos, sem parte/valor/movimento). Schema e o porquê do índice separado
+> em [`ACERVO_CNJ.md`](ACERVO_CNJ.md) e `search/mappings.py::ACERVO_MAPPING`.
+
 Fonte de verdade dos índices ES (VM dedicada `192.168.30.128:9200`, ES 8.19).
 Postgres continua sendo a fonte de verdade dos DADOS; o ES é a camada de
 leitura/busca/agregação (o Postgres de prod é contido — ver COMERCIAL_MAPA.md).

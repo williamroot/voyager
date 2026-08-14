@@ -105,12 +105,19 @@ class DatajudClient:
             return cortex, 'cortex'
         return None, 'direct'
 
-    def _post(self, sigla_tribunal: str, body: dict) -> dict:
-        """POST no índice do tribunal com rotação automática de proxies."""
+    def _post(self, sigla_tribunal: str, body: dict, cota: str = 'global') -> dict:
+        """POST no índice do tribunal com rotação automática de proxies.
+
+        `cota='varredura'` usa a cota separada da puxada em massa (ver
+        `datajud.ratelimit.acquire_varredura`) — 34 mil requisições em série não
+        podem comer os tokens de quem está atendendo usuário.
+        """
         # Rate-limit GLOBAL por chave (a APIKey pública é compartilhada; sem pacing
         # os workers estouram a quota do CNJ e o _search passa a pendurar).
-        from datajud.ratelimit import acquire
-        if not acquire(max_wait=30.0):
+        from datajud.ratelimit import acquire, acquire_varredura
+        ok = (acquire_varredura(max_wait=120.0) if cota == 'varredura'
+              else acquire(max_wait=30.0))
+        if not ok:
             raise DatajudClientError('rate-limit local do Datajud (sem token em 30s)')
         url = f'{self.BASE_URL}/{index_for(sigla_tribunal)}/_search'
         tentados: set = set()

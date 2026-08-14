@@ -244,3 +244,68 @@ ENTIDADE_MAPPING = {
         }
     },
 }
+
+# --------------------------------------------------------------------------- #
+# voyager-acervo — ESQUELETO nacional vindo do Datajud (api_publica_*)
+# --------------------------------------------------------------------------- #
+# Por que um índice separado, e não `voyager-processos`:
+#
+#   - a natureza do dado é OUTRA. Aqui não há parte, advogado, valor nem texto
+#     de publicação — o Datajud não expõe nada disso (medido 14/08/2026: o
+#     `_source` tem numeroProcesso, classe, assuntos, orgaoJulgador,
+#     dataAjuizamento, grau, sistema, formato, nivelSigilo, movimentos). Misturar
+#     no índice rico faria 343M docs ocos diluírem a busca por nome/documento,
+#     que é o que o usuário mais usa;
+#   - a ORDEM DE GRANDEZA é outra: 343M contra 71M. Um índice à parte pode ser
+#     tunado (menos réplica, refresh lento, força bruta de escrita) e, no limite,
+#     desligado sem tocar no acervo rico;
+#   - a PROCEDÊNCIA precisa ficar visível na tela: "existe no CNJ" ≠ "temos o
+#     processo". Índice separado torna essa distinção estrutural, não uma flag
+#     que alguém esquece de filtrar.
+#
+# `movimentos` NÃO entra: são ~73 por processo (~15KB/doc). Em 343M seriam ~10
+# bilhões de linhas — o índice de movimentações já tem 1,16B ocupando 684GB.
+# Movimento vem na HIDRATAÇÃO, por CNJ, só pra quem interessa.
+#
+# _id do doc = campo `id` do Datajud (`TJMG_G1_50002930420188130134`), que já
+# embute tribunal+grau+CNJ. Isso dá idempotência de graça: reprocessar a mesma
+# janela sobrescreve em vez de duplicar — e a varredura DEPENDE disso, porque
+# pagina por `@timestamp` (que empata) relendo a cauda de propósito.
+ACERVO_MAPPING = {
+    "settings": {
+        **ANALYZER_SETTINGS,
+        # escrita em massa: refresh preguiçoso e sem réplica durante a carga.
+        # (réplica se liga depois; este índice é 100% reconstruível da fonte)
+        "index": {
+            "number_of_replicas": 0,
+            "refresh_interval": "60s",
+        },
+    },
+    "mappings": {
+        "properties": {
+            "proc":            {"type": "keyword"},        # CNJ formatado (mesma chave de voyager-processos)
+            "proc_digits":     {"type": "keyword"},        # CNJ só dígitos (busca colável)
+            "tribunal":        {"type": "keyword"},
+            "uf":              {"type": "keyword"},        # derivada do próprio CNJ (tribunals/cnj.py)
+            "grau":            {"type": "keyword"},        # G1 | G2 | JE | TR
+            "sistema":         {"type": "keyword"},        # PJe | SAJ | Projudi | Eproc…
+            "formato":         {"type": "keyword"},        # Eletrônico | Físico
+            "sigilo":          {"type": "integer"},
+            "classe_codigo":   {"type": "keyword"},
+            "classe_nome":     {"type": "keyword"},
+            "assunto_codigos": {"type": "keyword"},
+            "assunto_nomes":   {"type": "text", "analyzer": "portuguese_asciifolding",
+                                "fields": {"raw": {"type": "keyword", "ignore_above": 256}}},
+            "orgao_codigo":    {"type": "keyword"},
+            "orgao_nome":      {"type": "keyword"},
+            "municipio_ibge":  {"type": "keyword"},
+            "ajuizado_em":     {"type": "date"},
+            "atualizado_em":   {"type": "date"},           # = @timestamp do Datajud (cursor da varredura)
+            "ano_cnj":         {"type": "integer"},
+            # preenchido pela varredura comparando com voyager-processos:
+            # False = só esqueleto (a tela precisa dizer isso ao usuário)
+            "no_acervo":       {"type": "boolean"},
+            "varrido_em":      {"type": "date"},
+        }
+    },
+}

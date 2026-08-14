@@ -948,6 +948,41 @@ def get_processo(cnj: str):
     return hits[0].get('_source') if hits else None
 
 
+def get_esqueleto(cnj: str):
+    """O processo no ACERVO DECLARADO ao CNJ (`voyager-acervo`), pra quando ele
+    não está no nosso acervo rico.
+
+    Existe porque "não achei" tinha dois significados colados num só: *não
+    existe* e *existe, mas nunca passou pela nossa porta de entrada*. A ingestão
+    é DJEN — publicação em diário —, e medimos que 81% a 96% do acervo declarado
+    ao CNJ nunca teve publicação (processo parado, físico, em sistema que publica
+    em diário próprio, ou com intimação pessoal/portal). Devolver o esqueleto
+    troca um beco sem saída por "existe, e dá pra ir buscar".
+
+    O que volta aqui é ESQUELETO de verdade: sem parte, sem advogado, sem valor
+    — o Datajud não expõe esses campos. Quem exibir tem que dizer isso; por isso
+    o `_so_esqueleto` vem no próprio documento, e não como convenção implícita.
+    """
+    cnj = normalizar_cnj(cnj)
+    body = {
+        'size': 1,
+        'query': {'bool': {'filter': [{'term': {'proc': cnj}}]}},
+        'sort': [{'atualizado_em': {'order': 'desc'}}],
+        'timeout': ES_QUERY_TIMEOUT,
+    }
+    try:
+        resp = _executar('acervo', body)
+    except Exception:  # noqa: BLE001 — índice ausente num ambiente não pode derrubar a busca
+        return None
+    hits = resp.get('hits', {}).get('hits', [])
+    if not hits:
+        return None
+    doc = dict(hits[0].get('_source') or {})
+    doc['_fonte'] = 'acervo_cnj'
+    doc['_so_esqueleto'] = True
+    return doc
+
+
 def movimentacoes_por_cnj(cnj: str, size=MOVS_SIZE_DEFAULT, cursor=None) -> dict:
     """Movimentações de um processo, paginadas por search_after (publish_date desc)."""
     cnj = normalizar_cnj(cnj)

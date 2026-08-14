@@ -1,5 +1,11 @@
 # Ingestão DJEN
 
+> ⚠️ **O DJEN é a porta ESTREITA.** Ele é veículo de *comunicação*: só entra
+> processo que teve intimação publicada em diário. Medido em 14/08/2026, isso
+> nos dava **~13% do acervo declarado ao CNJ** (343M docs). A segunda porta —
+> varredura do Datajud, que traz o esqueleto do resto — está em
+> [`ACERVO_CNJ.md`](ACERVO_CNJ.md).
+
 ## API DJEN
 
 ```

@@ -518,3 +518,52 @@ O Voyager usava busca híbrida Postgres (tsquery + ILIKE GIN trigram). Pra ser
 - Reindex backfill de ~600M movs pode levar dias (throttle + batch).
 - PDF storage cresce ~550MB/dia (política de retenção futura).
 - API de busca tem SPOF em single node ES (mitigar com cluster em prod).
+
+## ADR-029: segunda porta de entrada — varredura do Datajud (esqueleto nacional)
+
+**Data**: 2026-08-14
+
+### Contexto
+A base sempre teve UMA porta: o DJEN. Só que o DJEN é veículo de **comunicação**
+(Res. CNJ 455/2022), não cadastro de processo — entra quem teve intimação
+publicada em diário. Medimos a consequência com amostra aleatória de 300 CNJs
+por tribunal, conferida um a um: falta de **81% (TRF1) a 96% (TJSP)**; o CNJ
+declara **343.235.554** processos contra os 71,4M que tínhamos. No recorte que é
+o produto (classe 12078, Cumprimento contra a Fazenda) a cobertura era **5,2% no
+TJSP**. O gatilho foi concreto: `5229078-89.2022.8.13.0024` existe no Datajud com
+10 movimentos e tem ZERO publicação no DJEN — nunca teve como entrar.
+
+O Datajud já era usado, mas só como ENRIQUECEDOR de CNJ que já conhecíamos:
+pra perguntar por um processo, era preciso já tê-lo. Ovo e galinha.
+
+### Decisão
+1. **Varredura em massa do Datajud** (`datajud/varredura.py`) como segunda porta,
+   gravando num índice ES **separado** (`voyager-acervo`), não no Postgres.
+2. **Só esqueleto**: sem movimentos. O Datajud não tem parte nem valor, e os
+   movimentos (~73/processo) inviabilizariam o volume (343M × 73 ≈ 10B linhas).
+3. **Índice separado, não `voyager-processos`**: a procedência precisa ficar
+   estrutural. "Existe no CNJ" ≠ "temos o processo" — misturar faria 343M docs
+   ocos diluírem a busca por nome/documento, que é a mais usada.
+4. **Enriquecer é escolhido, nunca automático**: a 112.820 processos/dia e com
+   enricher em 16 dos 60 tribunais, varrer tudo levaria 8 anos. O esqueleto
+   (classe/assunto/órgão) é o instrumento pra priorizar sem gastar requisição.
+5. **Cota própria** (`DATAJUD_VARREDURA_RPM`, default 40) pega ANTES da global:
+   34 mil requisições em série não podem faminar quem atende usuário.
+
+### Alternativas descartadas
+- **Ingerir tudo no Postgres**: a base já é I/O-bound com 71M processos e 1,16B
+  movimentações (326 GB); somar 343M seria trocar um problema por outro maior.
+- **Índice único com flag `so_esqueleto`**: uma flag que alguém esquece de
+  filtrar vira dado errado na tela. Índice separado erra alto, não baixo.
+- **`search_after` pra paginar**: o Datajud só ordena por `@timestamp`, que
+  empata — `search_after` puro PULA documento silenciosamente. Ver ACERVO_CNJ.md.
+
+### Consequências
+- +77 GB no ES (medido: ~225 B/doc). Cabem nos 718 GB livres.
+- A busca por CNJ passa a ter dois resultados possíveis, e a tela tem que dizer
+  qual é qual — "sem parte e sem valor" é parte do contrato, não rodapé.
+- Ganhamos watermark incremental de graça (`@timestamp` = última atualização):
+  a completude se mantém viva em vez de virar foto de um dia.
+- Passa a existir "hidratação" como conceito: processo pode estar na base em
+  dois estados (esqueleto, completo), e isso vira dívida de UX em toda tela que
+  listar processo.

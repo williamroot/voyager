@@ -2,13 +2,14 @@
 import logging
 
 from .client import get_es, index_name
-from .mappings import MOV_MAPPING, PROC_MAPPING
+from .mappings import ACERVO_MAPPING, MOV_MAPPING, PROC_MAPPING
 
 logger = logging.getLogger('voyager.search')
 
 INDEXES = {
     'movimentacoes': MOV_MAPPING,
     'processos': PROC_MAPPING,
+    'acervo': ACERVO_MAPPING,
 }
 
 

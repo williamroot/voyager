@@ -234,3 +234,73 @@ def datajud_queue_watch() -> dict:
             f'{depth:,}', f'{DATAJUD_QUEUE_CEILING:,}', f'{DATAJUD_REFILL_HIGH_WATER:,}',
         )
     return estado
+
+
+# --------------------------------------------------------------------------- #
+# Varredura do acervo declarado ao CNJ (F1-F5 do plano de completude)
+# --------------------------------------------------------------------------- #
+# Contexto: a ingestão sempre foi DJEN-only, e o DJEN é veículo de COMUNICAÇÃO —
+# processo sem publicação nunca entrou. Medido em 14/08/2026: temos ~13% do
+# acervo declarado ao CNJ (343M docs). Ver datajud/varredura.py.
+
+#: kill switch por tribunal (mesma ideia do `enrich_pausados`): põe a sigla aqui
+#: e a varredura vira no-op sem precisar de deploy. Existe porque a APIKey do
+#: Datajud é COMPARTILHADA — se o CNJ começar a estrangular, tem que dar pra
+#: parar em segundos, não em minutos.
+VARREDURA_PAUSADOS_KEY = 'varredura:pausados'
+
+
+def varredura_pausados() -> set[str]:
+    from django.core.cache import cache
+    return set(cache.get(VARREDURA_PAUSADOS_KEY) or [])
+
+
+def set_varredura_pausados(siglas: set[str]) -> None:
+    from django.core.cache import cache
+    cache.set(VARREDURA_PAUSADOS_KEY, sorted(siglas), timeout=None)
+
+
+@job('varredura', timeout=86400)
+def varrer_acervo(sigla: str, max_paginas: int | None = None,
+                  do_zero: bool = False) -> dict:
+    """Varre um tribunal inteiro. Retomável: o watermark fica no `Tribunal`."""
+    if sigla.upper() in varredura_pausados():
+        logger.info('varredura %s pausada — no-op', sigla)
+        return {'tribunal': sigla.upper(), 'estado': 'pausado'}
+    from .varredura import varrer_tribunal
+    return varrer_tribunal(sigla, retomar=not do_zero, max_paginas=max_paginas)
+
+
+@job('varredura', timeout=3600)
+def tick_varredura_incremental() -> dict:
+    """Passada incremental: só o que nasceu ou mudou desde o último cursor.
+
+    É isto que mantém a completude VIVA — sem ele, a puxada de 343M vira uma
+    foto de um dia. Barato porque o `@timestamp` do Datajud é a data da última
+    atualização: `gte watermark` devolve poucos milhares por tribunal/dia.
+
+    Só entra tribunal que já teve a varredura COMPLETA (tem cursor). Rodar o
+    incremental antes da varredura completa faria o cursor pular pro presente e
+    o histórico nunca ser varrido — perda silenciosa, o pior tipo.
+    """
+    from tribunals.models import Tribunal
+    pausados = varredura_pausados()
+    fila = django_rq.get_queue('varredura')
+    enfileirados = []
+    for sigla in (Tribunal.objects.filter(ativo=True)
+                  .exclude(datajud_varredura_cursor=None)
+                  .order_by('sigla').values_list('sigla', flat=True)):
+        if sigla in pausados:
+            continue
+        # job_id determinístico: se a passada anterior ainda roda, não duplica
+        fila.enqueue(varrer_acervo, sigla, job_id=f'varr:{sigla}',
+                     retry=DATAJUD_RETRY)
+        enfileirados.append(sigla)
+    return {'enfileirados': enfileirados, 'total': len(enfileirados)}
+
+
+@job('manual', timeout=600)
+def hidratar_processo(cnj: str) -> dict:
+    """Esqueleto → processo de verdade (fila MANUAL: tem gente esperando)."""
+    from .hidratacao import hidratar_cnj
+    return hidratar_cnj(cnj)

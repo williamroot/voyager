@@ -33,6 +33,19 @@ class Tribunal(models.Model):
     backfill_concluido_em = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # -- varredura do acervo declarado ao CNJ (Datajud) --------------------- #
+    # O cursor é o `@timestamp` do Datajud em epoch MILISSEGUNDOS — que lá é a
+    # data da última atualização do processo. Guardá-lo dá duas coisas de graça:
+    # retomada (a puxada de 343M não recomeça do zero se cair) e sync
+    # incremental (a passada seguinte pede `gte cursor` e traz só o que mudou).
+    # Ver `datajud/varredura.py`.
+    datajud_varredura_cursor = models.BigIntegerField(null=True, blank=True)
+    datajud_varredura_em = models.DateTimeField(null=True, blank=True)
+    # ESCRITAS acumuladas, não documentos distintos: a paginação relê a cauda de
+    # propósito, então isto é um teto. A contagem exata é `_count` no índice.
+    datajud_varredura_docs = models.BigIntegerField(default=0)
+    datajud_varredura_status = models.CharField(max_length=100, blank=True, default='')
+
     class Meta:
         ordering = ['sigla']
 

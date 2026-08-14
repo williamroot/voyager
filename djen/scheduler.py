@@ -159,6 +159,21 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Completude do acervo (F5): passada incremental na varredura do Datajud.
+    # Diária e de madrugada porque é a hora em que a APIKey compartilhada do CNJ
+    # está mais folgada — e porque o incremental é pequeno (só o que mudou desde
+    # o watermark), diferente da varredura completa, que é evento único por
+    # tribunal. Só toca tribunal que já tem cursor. Ver datajud/varredura.py.
+    from datajud.jobs import tick_varredura_incremental
+    scheduler.add_job(
+        tick_varredura_incremental.delay,
+        'cron',
+        hour=2,
+        minute=20,
+        id='varredura_incremental',
+        replace_existing=True,
+    )
+
     # Re-treino semanal do modelo de sobrevivência DC→precatório (freshness):
     # KM numpy sobre dados frescos → reescreve surv_strata.json (serving recarrega
     # por mtime). Domingo 03:17 (off-hours), fila default.
