@@ -478,6 +478,19 @@
         <span class="nav-label">Entidades</span>
         <span class="nav-tag" title="novo">✨</span>
       </a>
+      {% comment %} BUSCAR PROCESSO no topo, não dentro do grupo colapsável
+         "Tribunais & Processos": é a tela que um operador usa o dia inteiro, e
+         atrás de um accordion ela só existe pra quem já sabe que existe.
+         Ícone `search` conferido no sprite — nome inexistente vira QUADRADO
+         VAZIO, sem erro no console. {% endcomment %}
+      {% url 'dashboard:busca' as busca_url %}
+      {% if busca_url %}
+      <a href="{{ busca_url }}" class="nav-item {% if request.path == busca_url %}active{% endif %}">
+        {% voy_icon "search" "w-4 h-4" %}
+        <span class="nav-label">Buscar processo</span>
+        <span class="nav-tag" aria-hidden="true">✨</span>
+      </a>
+      {% endif %}
       <a href="{{ overview_url }}" class="nav-item {% if request.path == overview_url %}active{% endif %}">
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral
@@ -628,22 +641,6 @@
         <div class="nav-group-items">
           <div class="nav-group-inner">
             <div class="nav-group-list">
-              {% comment %} BUSCAR PROCESSO — primeiro item do grupo: é a tela
-                 que um operador usa o dia inteiro, e "Processos" (a listagem
-                 filtrada) não responde "onde está ESTE processo/pessoa".
-                 `{% templatetag openblock %} url ... as %}` NÃO levanta NoReverseMatch — devolve string
-                 vazia — então o `if` cobre a janela em que a rota ainda não
-                 existe e some sozinho quando ela entrar. O alias `search` foi
-                 conferido no sprite: ícone inexistente vira QUADRADO VAZIO,
-                 sem erro nenhum no console. {% endcomment %}
-              {% url 'dashboard:busca' as busca_url %}
-              {% if busca_url %}
-              <a href="{{ busca_url }}" class="nav-item {% if request.path == busca_url %}active{% endif %}">
-                {% voy_icon "search" "w-4 h-4" %}
-                <span class="nav-label">Buscar processo</span>
-                <span class="nav-tag" aria-hidden="true">✨</span>
-              </a>
-              {% endif %}
               <a href="{{ tribunais_url }}" class="nav-item {% if request.path == tribunais_url %}active{% endif %}">
                 {% voy_icon "trajectory" "w-4 h-4" %}
                 Tribunais
