@@ -284,3 +284,43 @@ def test_checkpoint_salva_o_cursor_no_meio_do_caminho(sem_es, monkeypatch):
     t.refresh_from_db()
     assert t.datajud_varredura_cursor, 'progresso perdido: cursor não foi salvo'
     assert t.datajud_varredura_cursor > 1000
+
+
+def test_cota_cheia_nao_mata_job_de_horas(sem_es, monkeypatch):
+    """Cota compartilhada esgotada é aperto de SEGUNDOS; o job é de HORAS.
+
+    Em 14-15/08/2026, 28 varreduras morreram porque o cliente levantava na
+    primeira negativa do token global. Como repetir página é de graça (a
+    paginação é idempotente), o certo é esperar e insistir.
+    """
+    from datajud.client import DatajudClientError
+    monkeypatch.setattr(V.time, 'sleep', lambda s: None)   # sem esperar de verdade
+
+    docs = [src(i, 1000 + i) for i in range(5)]
+    v = varredura(docs, sem_es)
+    original = v.client._post
+    chamadas = {'n': 0}
+
+    def nega_duas_vezes(sigla, body, cota=None):
+        chamadas['n'] += 1
+        if chamadas['n'] <= 2:
+            raise DatajudClientError('rate-limit local do Datajud (sem token)')
+        return original(sigla, body, cota=cota)
+
+    v.client._post = nega_duas_vezes
+    r = v.rodar()
+    assert len(sem_es.docs) == 5, 'perdeu docs por causa de cota momentânea'
+    assert r['esperas'] == 2, 'não registrou a espera pela cota'
+
+
+def test_erro_que_nao_e_cota_sobe_na_hora(sem_es, monkeypatch):
+    """Insistir só vale pra cota. Um 400 de query malformada tem que estourar
+    na primeira, senão a varredura fica 12 tentativas repetindo o mesmo erro."""
+    from datajud.client import DatajudClientError
+    monkeypatch.setattr(V.time, 'sleep', lambda s: None)
+    v = varredura([src(1, 1000)], sem_es)
+    def sempre_400(sigla, body, cota=None):
+        raise DatajudClientError('Datajud 400: Fielddata is disabled')
+    v.client._post = sempre_400
+    with pytest.raises(DatajudClientError):
+        v.rodar()

@@ -306,7 +306,11 @@ def hidratar_processo(cnj: str) -> dict:
     return hidratar_cnj(cnj)
 
 
-@job('varredura', timeout=300)
+# Fila `default`, NÃO `varredura`: um vigia enfileirado atrás de quem ele vigia
+# nunca roda. Os 8 slots da varredura ficam ocupados por jobs de HORAS, então o
+# watchdog empilhou 20 execuções sem executar nenhuma (visto em 15/08/2026) —
+# ele existia no papel e não no relógio.
+@job('default', timeout=300)
 def tick_varredura_watchdog(heartbeat_max: int = 120) -> dict:
     """Devolve pra fila a varredura que ficou órfã quando um worker morreu.
 

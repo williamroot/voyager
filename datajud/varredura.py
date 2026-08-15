@@ -71,6 +71,11 @@ PAGINA = 10_000
 #: de quanto dá pra ver dentro de UM milissegundo antes de precisar fatiar.
 TETO_JANELA = 10_000
 
+#: quantas vezes insistir quando a cota compartilhada do Datajud está cheia.
+#: Repetir página é de graça (a paginação é idempotente), e desistir na primeira
+#: negativa mataria um job de horas por um aperto de segundos.
+TENTATIVAS_COTA = 12
+
 #: `movimentos` fica DE FORA: são ~73 por processo (~15KB), o que faria cada
 #: página pesar ~150MB em vez de ~4MB. Movimento vem na hidratação, por CNJ.
 CAMPOS = [
@@ -173,8 +178,36 @@ class Varredura:
         self.gravados = 0
         self.perdidos = 0        # docs que um empate de ms nos impediu de ver
         self.paginas = 0
+        self.esperas = 0         # quantas vezes a cota compartilhada segurou
 
     # -- Datajud ----------------------------------------------------------- #
+
+    def _pedir(self, body: dict) -> dict:
+        """Requisição ao Datajud tolerante a cota esgotada.
+
+        A cota é compartilhada com o sync por processo, então em pico o token
+        global demora mais que a espera máxima e o cliente levanta. Deixar isso
+        subir MATA um job de horas por um aperto de segundos — foi o que
+        aconteceu em 14-15/08/2026: 28 varreduras derrubadas por rate-limit.
+
+        Como a paginação é idempotente (relê a cauda, `_id` do Datajud), repetir
+        a mesma página é de graça. Espera e insiste; só desiste depois de
+        `TENTATIVAS_COTA`, aí sim deixando o job falhar pro watchdog retomar do
+        checkpoint.
+        """
+        from .client import DatajudClientError
+        for tentativa in range(1, TENTATIVAS_COTA + 1):
+            try:
+                return self.client._post(self.sigla, body, cota='varredura')
+            except DatajudClientError as e:
+                if 'rate-limit' not in str(e) or tentativa == TENTATIVAS_COTA:
+                    raise
+                espera = min(60, 5 * tentativa)
+                self.esperas += 1
+                logger.info('varredura %s: cota cheia, esperando %ss (%d/%d)',
+                            self.sigla, espera, tentativa, TENTATIVAS_COTA)
+                time.sleep(espera)
+        raise AssertionError('inalcançável')
 
     def _buscar(self, query: dict, size: int | None = None,
                 desde: int = 0) -> list[dict]:
@@ -187,12 +220,11 @@ class Varredura:
         }
         if not desde:
             body.pop('from')
-        d = self.client._post(self.sigla, body, cota='varredura')
+        d = self._pedir(body)
         return (d.get('hits') or {}).get('hits') or []
 
     def _contar(self, query: dict) -> int:
-        d = self.client._post(self.sigla, {'size': 0, 'track_total_hits': True,
-                                           'query': query}, cota='varredura')
+        d = self._pedir({'size': 0, 'track_total_hits': True, 'query': query})
         return ((d.get('hits') or {}).get('total') or {}).get('value') or 0
 
     # -- escrita ----------------------------------------------------------- #
@@ -271,10 +303,10 @@ class Varredura:
                 lidos += self._varrer_recorte(q)
                 continue
             # nem por grau coube: fatia por classe
-            d = self.client._post(self.sigla, {
+            d = self._pedir({
                 'size': 0, 'query': q,
                 'aggs': {'c': {'terms': {'field': 'classe.codigo', 'size': 500}}},
-            }, cota='varredura')
+            })
             cobertos = 0
             for b in (d.get('aggregations') or {}).get('c', {}).get('buckets', []):
                 qc = {'bool': {'must': [base], 'filter': [
@@ -340,7 +372,8 @@ class Varredura:
         return {
             'tribunal': self.sigla, 'cursor': cursor, 'paginas': self.paginas,
             'lidos': self.lidos, 'gravados': self.gravados,
-            'perdidos': self.perdidos, 'segundos': round(dt, 1),
+            'perdidos': self.perdidos, 'esperas': self.esperas,
+            'segundos': round(dt, 1),
             'docs_por_s': round(self.lidos / dt, 1) if dt else 0,
             'parou_por': parou_por,
         }
