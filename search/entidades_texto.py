@@ -110,6 +110,62 @@ def oabs(texto: str) -> list[str]:
     return achadas
 
 
+#: nome que vem ANTES do "(OAB ...)" — na prática todo advogado publicado vem
+#: nessa forma. Para em delimitador (`:`, `,`, `;`, `-`, `>`) pra não engolir o
+#: rótulo ("ADVOGADO(A):") nem o texto anterior.
+_RE_ADV_NOME = re.compile(
+    r'([A-ZÀ-Ÿ][A-Za-zÀ-ÿ\'`.\s]{4,70}?)\s*[(\[]?\s*OAB', re.U)
+_RE_CORTE = re.compile(r'.*[:;,>\-–]\s*', re.S)
+_RUIDO = frozenset({'ADVOGADO', 'ADVOGADA', 'ADV', 'ADVOGADO(A)', 'ADVOGADOS',
+                    'ADVOGADA(O)', 'DR', 'DRA', 'PROCURADOR', 'PROCURADORA',
+                    'INTIMAÇÃO', 'INTIMACAO', 'REQUERENTE', 'REQUERIDO',
+                    'EXEQUENTE', 'EXECUTADO', 'AUTOR', 'RÉU', 'REU'})
+#: ligam sobrenomes ("Souza DE Oliveira") — sozinhos não iniciam nome
+_CONECTIVOS = frozenset({'de', 'da', 'do', 'dos', 'das', 'e'})
+
+
+def advogados(texto: str) -> list[str]:
+    """Nomes de advogados citados, tirados do trecho que antecede a OAB.
+
+    Vale porque a busca por NOME de advogado tem hoje 18,6% de cobertura (vem do
+    enricher, via `ProcessoParte`) e o texto da publicação alcança 42,2% dos
+    processos. Só extrai quando há OAB ao lado: sem essa âncora, qualquer nome
+    em caixa alta da publicação viraria advogado.
+
+    O recorte anda de TRÁS PRA FRENTE a partir da OAB, aceitando só peça de
+    nome. Sem isso, "Intimação do advogado SICRANO PEREIRA (OAB/MG 45678)"
+    devolveria a frase inteira como nome — o delimitador nem sempre existe.
+    """
+    achados = []
+    for m in _RE_ADV_NOME.finditer(texto):
+        bruto = _RE_CORTE.sub('', m.group(1)).strip(' .\'`')
+        peças = []
+        for tok in reversed(re.split(r'\s+', bruto)):
+            t = tok.strip(" .'`")
+            if not t:
+                continue
+            if t.upper() in _RUIDO:
+                break                       # bateu no rótulo: acabou o nome
+            if t.lower() in _CONECTIVOS:
+                peças.append(t)             # "de", "da", "dos" ligam sobrenomes
+                continue
+            if not (t.isupper() or t[:1].isupper()) or not t[:1].isalpha():
+                break                       # palavra comum: o nome começa depois
+            peças.append(t)
+            if len(peças) >= 8:             # nome brasileiro não passa disso
+                break
+        nome = ' '.join(reversed(peças)).strip()
+        while nome and nome.split()[0].lower() in _CONECTIVOS:
+            nome = nome.split(' ', 1)[1] if ' ' in nome else ''
+        if len(nome) < 5 or len(nome.split()) < 2:
+            continue                        # nome de advogado tem sobrenome
+        if nome not in achados:
+            achados.append(nome)
+            if len(achados) >= MAX_POR_CAMPO:
+                break
+    return achados
+
+
 def documentos(texto: str) -> list[str]:
     """CPF/CNPJ citados, mascarados, **com DV conferido**.
 
@@ -170,6 +226,7 @@ def extrair(texto: str) -> dict:
         return {}
     saida = {
         'oabs': oabs(limpo),
+        'advogados': advogados(limpo),
         'documentos': documentos(limpo),
         'cnjs_citados': cnjs(limpo),
         'valores_citados': valores(limpo),

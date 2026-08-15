@@ -107,3 +107,37 @@ def test_doc_builder_nao_cita_o_proprio_processo():
 
     so_proprio = _entidades_do_texto(f'Intimação nos autos {proprio}.', proprio)
     assert 'cnjs_citados' not in so_proprio
+
+
+def test_nome_do_advogado_sai_junto_com_a_oab():
+    """Busca por NOME de advogado tem 18,6% de cobertura (vem do enricher); o
+    texto da publicação alcança 42,2% dos processos. O nome vem colado na OAB.
+    """
+    assert E.advogados(E.limpar(PJE)) == ['PALOMA MACIEL PANIZZI',
+                                          'JAILSON NERES FERREIRA']
+    assert E.advogados(ESAJ) == ['FULANO DE TAL', 'BELTRANO DA SILVA']
+    assert E.advogados(COLON) == ['RENATA GUARANA', 'RICARDO ULLMANN']
+
+
+def test_nome_nao_engole_a_frase_em_volta():
+    """Sem delimitador antes do nome, o recorte tem que andar de trás pra frente
+    aceitando só peça de nome — senão vem 'Intimação do advogado SICRANO'.
+    """
+    assert E.advogados('Intimação do advogado SICRANO PEREIRA '
+                       '(OAB/MG 45678) para manifestar-se') == ['SICRANO PEREIRA']
+    # `BARRA` tem só um nome — e nome sem sobrenome é recusado de propósito
+    assert E.advogados(BARRA) == []
+    assert E.advogados('fica intimada a parte por seu patrono '
+                       'Joao Alves de Souza (OAB SP111222)') == ['Joao Alves de Souza']
+
+
+def test_nome_precisa_de_sobrenome():
+    """Um token só quase sempre é rótulo mal recortado, não advogado."""
+    assert E.advogados('DR (OAB SP123456)') == []
+    assert E.advogados('ADVOGADO (OAB SP123456)') == []
+
+
+def test_sem_oab_nao_ha_advogado():
+    """A OAB é a âncora. Sem ela, qualquer nome em caixa alta da publicação
+    (parte, juiz, vara) viraria advogado."""
+    assert E.advogados('REQUERENTE: MARIA DA SILVA SANTOS') == []

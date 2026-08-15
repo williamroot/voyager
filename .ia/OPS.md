@@ -651,6 +651,58 @@ Otimizações se apertar:
 - Particionar `tribunals_movimentacao` por mês (planejado)
 - Cold storage de movs >2 anos pra outra tabela ou S3
 
+## VM do Elasticsearch — acesso e expansão de disco
+
+**Não há SSH na VM do ES** (`192.168.30.128`) — `root`, `ubuntu`, `elastic` e
+`debian` dão `Permission denied`. O caminho é pelo **hipervisor**:
+
+```bash
+ssh root@179.127.17.228          # Proxmox — acesso por chave já configurado
+qm list                          # VM 101 = voyager-search (o nó ES)
+qm agent 101 ping                # guest-agent ativo ⇒ dá pra executar dentro
+qm guest exec 101 -- /bin/bash -c "df -hT /"
+```
+
+`qm guest exec` devolve JSON com `out-data`; para ler bonito:
+
+```bash
+ssh root@179.127.17.228 'qm guest exec 101 -- /bin/bash -c "COMANDO"' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['out-data'])"
+```
+
+### Expandir o disco (feito em 15/08/2026: 1,5 TB → 3 TB)
+
+O dado do ES fica na **raiz** (`/dev/sda2`, ext4, GPT). Depois de aumentar o
+disco no Proxmox, o guest **não** cresce sozinho: a GPT continua descrevendo o
+disco antigo (`last-lba` velho), então `lsblk` mostra `sda 3T` mas `sda2 1.5T`.
+
+```bash
+# tudo ONLINE — não para o ES, não precisa reboot
+qm guest exec 101 -- /bin/bash -c "sfdisk -d /dev/sda > /root/sda-tabela-\$(date +%F).bak"
+qm guest exec 101 -- /bin/bash -c "growpart --dry-run /dev/sda 2"   # confere antes
+qm guest exec 101 -- /bin/bash -c "growpart /dev/sda 2"             # arruma a GPT + estica
+qm guest exec 101 --timeout 900 -- /bin/bash -c "resize2fs /dev/sda2"
+```
+
+Antes de mexer, confirme que o ext4 aceita crescer montado:
+
+```bash
+tune2fs -l /dev/sda2 | grep -iE "reserved gdt|filesystem features"
+```
+
+`resize_inode` + `Reserved GDT blocks: 1024` (com bloco de 4K) dão folga até
+~8 TiB online. Sem `resize_inode`, seria preciso desmontar — ou seja, parar o ES.
+
+**Conferir pelo lado do ES** (ele relê o filesystem sem restart):
+
+```bash
+curl -s 192.168.30.128:9200/_nodes/stats/fs?pretty | grep -A2 total_in_bytes
+```
+
+> `cluster/health` volta **yellow** nesse nó e isso é normal: é um nó único, e as
+> réplicas não podem ser alocadas nele mesmo. Yellow aqui não é sintoma de
+> problema de disco — não confundir os dois durante uma operação.
+
 ## Migrar dados local → prod
 
 `pg_dump` custom format streamado direto pro postgres do servidor:
