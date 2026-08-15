@@ -112,6 +112,8 @@ urlpatterns = [
     path('api/busca/processos/', busca_views.busca_processos,
          name='busca-processos'),
     path('api/busca/varas/', busca_views.busca_varas, name='busca-varas'),
+    # busca NO TEXTO das publicações — o acervo de conteúdo que a tela não via
+    path('api/busca/conteudo/', busca_views.busca_conteudo, name='busca-conteudo'),
     # TELAS DE ENTIDADES ("quem deve") — contrato em search/agg_entidade.py.
     # A rota do ranking vem DEPOIS do autocomplete de propósito: `<str:...>`
     # casaria "autocomplete" como se fosse um entidade_id (o Django resolve na

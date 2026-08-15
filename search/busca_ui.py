@@ -666,3 +666,57 @@ def _cache():
         return cache
     except Exception:
         return None
+
+
+# --------------------------------------------------------------------------- #
+# Busca NO CONTEÚDO das publicações
+# --------------------------------------------------------------------------- #
+#: O texto sempre esteve indexado (`body`, analisado com português+asciifolding)
+#: e servido pela API externa — mas a TELA nunca o consultou: ela só olha o
+#: índice de processos. Medido em 15/08/2026 no índice de 1,16 bilhão de
+#: publicações:
+#:
+#:     "poder judiciário"  94.065.570 docs
+#:     "sentença"          61.747.787
+#:     "precatório"         3.086.016
+#:
+#: Ou seja, havia um acervo de texto inteiro fora do alcance de quem usa o
+#: sistema. Isto aqui só abre a porta que já existia.
+#:
+#: A composição do que está lá dentro (amostra de 1.000 publicações) importa pra
+#: tela não prometer o que não tem:
+#:     82,9%  rótulo de andamento (≤120 caracteres: "Conclusão · para despacho")
+#:     13,0%  publicação de verdade (>600)
+#:      3,6%  peça longa (>3.000)
+#: Buscar "sentença" acha o texto da sentença publicada — não o PDF dela, que
+#: temos como LINK em 15,5% dos casos e nunca baixamos.
+CONTEUDO_TTL = 60
+
+
+def buscar_conteudo_ui(q=None, filtros=None, ordenar=None, size=None, cursor=None):
+    """Full-text nas publicações, com o mesmo envelope honesto da busca de processos.
+
+    Diferente de `buscar_processos_ui`, aqui a unidade do resultado é a
+    PUBLICAÇÃO (com trecho destacado), não o processo — é o que permite
+    responder "onde apareceu esta palavra".
+    """
+    filtros = filtros or {}
+    pagina = ba.buscar_movimentacoes(q=q, filtros=filtros, ordenar=ordenar,
+                                     size=size or 20, cursor=cursor)
+    pagina['cobertura'] = {
+        'aviso': ('A maior parte do acervo são rótulos de andamento curtos; '
+                  'o texto integral de peças aparece em parte das publicações.'),
+    }
+    return pagina
+
+
+def buscar_conteudo_da_querystring(qs):
+    """Params: q (texto), tribunal, proc, publicado_gte/lte, ordenar, size, cursor."""
+    filtros = ba.parse_filtros_movs(qs)
+    return buscar_conteudo_ui(
+        q=(qs.get('q') or '').strip(),
+        filtros=filtros,
+        ordenar=qs.get('ordenar'),
+        size=qs.get('size'),
+        cursor=qs.get('cursor'),
+    )

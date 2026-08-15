@@ -78,6 +78,7 @@ CONTRATO CONSUMIDO (o backend é de outro agente; ver relatório):
   window.BUSCA_URLS = {
     api: "{{ busca_api_url|default:'/dashboard/api/busca/processos/' }}",
     varas: "{{ busca_varas_url|default:'/dashboard/api/busca/varas/' }}",
+    conteudo: "{{ busca_conteudo_url|default:'/dashboard/api/busca/conteudo/' }}",
     // O id é trocado em runtime; a rota continua resolvida pelo `url` tag.
     processo: "{% url 'dashboard:processo-detail' 987654321 %}",
     consultaRapida: "{{ consulta_rapida_url }}",
@@ -212,6 +213,9 @@ CONTRATO CONSUMIDO (o backend é de outro agente; ver relatório):
       // ---- entrada ----
       q: '',
       modo: 'auto',            // 'auto' | cnj | cpf | cnpj | oab | parte | advogado | texto
+      //: ONDE procurar — eixo diferente de `modo` (que é COMO interpretar).
+      //: 'processos' = índice de processos · 'conteudo' = texto das publicações
+      escopo: 'processos',
       detectado: {tipo: 'vazio'},
       filtros: {tribunal: '', uf: '', ano_min: '', ano_max: '', classe: '',
                 classificacao: '', vara: '', valor_min: '', valor_max: ''},
@@ -339,6 +343,14 @@ CONTRATO CONSUMIDO (o backend é de outro agente; ver relatório):
       aoEscape() {
         if (this.qNorm()) { this.limparTudo(); return; }
         this.$refs.campo.blur();
+      },
+      //: onde procurar (índice de processos × índice de publicações)
+      usarEscopo(e) {
+        if (this.escopo === e) return;
+        this.escopo = e;
+        this.cursor = null;
+        if (this.qNorm()) this.buscar();
+        else this.zerarResposta();
       },
       usarModo(m) {
         if (this.modo === m) return;
@@ -516,7 +528,12 @@ CONTRATO CONSUMIDO (o backend é de outro agente; ver relatório):
         this.erro = null; this.erroDetalhe = null;
         const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
         try {
-          const url = window.BUSCA_URLS.api + '?' + this.paramsDaBusca(!!anexar).toString();
+          //: cada escopo tem seu índice e seu endpoint. `conteudo` manda só
+          //: `q` + filtros que o índice de publicações entende (tribunal, proc,
+          //: datas) — mandar `documento`/`oab` ali daria 400 sem motivo.
+          const base = (this.escopo === 'conteudo')
+            ? window.BUSCA_URLS.conteudo : window.BUSCA_URLS.api;
+          const url = base + '?' + this.paramsDaBusca(!!anexar).toString();
           const resp = await fetch(url, {
             credentials: 'same-origin', headers: {'Accept': 'application/json'},
           });
@@ -1095,6 +1112,45 @@ CONTRATO CONSUMIDO (o backend é de outro agente; ver relatório):
       <label for="busca-q" class="text-xs text-fg-muted uppercase tracking-wide">
         O que você tem em mãos
       </label>
+
+      {% comment %}
+        Onde procurar. Os dois modos batem em ÍNDICES DIFERENTES e respondem a
+        perguntas diferentes — por isso a escolha é explícita, e não um "modo
+        esperto" que adivinha:
+
+          Processos  → quem é parte, qual o número, qual documento (índice de
+                       processos; a unidade do resultado é o PROCESSO)
+          No texto   → onde essa palavra apareceu (índice de 1,16 bilhão de
+                       publicações; a unidade é a PUBLICAÇÃO, com trecho)
+
+        O texto sempre esteve indexado e nenhuma tela o consultava. Medido:
+        94 milhões de publicações citam "poder judiciário", 61,7 milhões citam
+        "sentença".
+      {% endcomment %}
+      {# `escopo` e não `modo`: `modo` já existe e diz como INTERPRETAR o que #}
+      {# foi digitado (auto/nome/texto). Aqui é ONDE procurar — outro eixo.    #}
+      <div class="flex gap-1 mb-1" role="group" aria-label="Onde procurar">
+        <button type="button" @click="usarEscopo('processos')"
+                :aria-pressed="escopo === 'processos'"
+                :class="escopo === 'processos'
+                  ? 'bg-accent text-[rgb(var(--c-on-accent))] border-accent'
+                  : 'bg-surface text-fg-muted border-border hover:text-fg'"
+                class="px-3 py-1.5 text-xs rounded-md border transition-colors">
+          Processos
+        </button>
+        <button type="button" @click="usarEscopo('conteudo')"
+                :aria-pressed="escopo === 'conteudo'"
+                :class="escopo === 'conteudo'
+                  ? 'bg-accent text-[rgb(var(--c-on-accent))] border-accent'
+                  : 'bg-surface text-fg-muted border-border hover:text-fg'"
+                class="px-3 py-1.5 text-xs rounded-md border transition-colors">
+          No texto das publicações
+        </button>
+      </div>
+      <p x-show="escopo === 'conteudo'" x-cloak class="text-xs text-fg-muted">
+        Procura a palavra dentro do texto publicado no diário — o resultado é a
+        <b>publicação</b>, com o trecho em destaque.
+      </p>
       <div class="flex flex-wrap items-stretch gap-2">
         <div class="relative flex-1 min-w-[18rem]">
           {% comment %} `name="q"` de propósito: o atalho global `/` do

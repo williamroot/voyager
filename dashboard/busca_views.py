@@ -91,6 +91,45 @@ def busca_processos(request):
 
 @login_required
 @require_GET
+def busca_conteudo(request):
+    """GET /dashboard/api/busca/conteudo/ — full-text NO TEXTO das publicações.
+
+    A tela só sabia buscar processos (nome de parte, documento, CNJ). O texto
+    das publicações estava indexado desde sempre e servido pela API externa, mas
+    nenhuma tela o consultava: 94 milhões de publicações citam "poder
+    judiciário", 61,7 milhões citam "sentença", e nada disso era alcançável por
+    quem usa o sistema.
+
+    Unidade do resultado é a PUBLICAÇÃO, com trecho destacado — é o que responde
+    "onde apareceu esta palavra", diferente da busca de processos.
+    """
+    chave = _chave_cache('busca_conteudo', request)
+    try:
+        cacheado = cache.get(chave)
+    except Exception:
+        cacheado = None
+    if cacheado is not None:
+        return _json({**cacheado, 'cache': True})
+
+    try:
+        payload = busca_ui.buscar_conteudo_da_querystring(request.GET)
+    except BuscaParamError as e:
+        return _erro(str(e))
+    except Exception:
+        logger.exception('busca_conteudo: falha ao consultar o índice',
+                         extra={'qs': request.META.get('QUERY_STRING', '')[:500]})
+        return _json({'erro': 'elasticsearch_indisponivel',
+                      'mensagem': 'O índice de busca não respondeu. Tente de novo '
+                                  'em instantes.'}, status=503)
+    try:
+        cache.set(chave, payload, busca_ui.CONTEUDO_TTL)
+    except Exception:
+        pass
+    return _json({**payload, 'cache': False})
+
+
+@login_required
+@require_GET
 def busca_varas(request):
     """GET /dashboard/api/busca/varas/?q=&n= — autocomplete de vara/órgão julgador.
 
@@ -138,4 +177,9 @@ def busca_page(request):
     funcionando). `@never_cache` é o padrão da casa — sem ele o browser serve o
     HTML do disco e o usuário continua vendo a versão anterior ao deploy.
     """
-    return render(request, 'dashboard/busca.html')
+    from django.urls import reverse
+    return render(request, 'dashboard/busca.html', {
+        'busca_api_url': reverse('dashboard:busca-processos'),
+        'busca_varas_url': reverse('dashboard:busca-varas'),
+        'busca_conteudo_url': reverse('dashboard:busca-conteudo'),
+    })
