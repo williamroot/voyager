@@ -378,6 +378,11 @@ ZORDON_API_KEY = env('ZORDON_API_KEY', default='')
 ELASTICSEARCH_URL = env('ELASTICSEARCH_URL', default='http://elasticsearch:9200')
 ELASTICSEARCH_INDEX_PREFIX = env('ELASTICSEARCH_INDEX_PREFIX', default='voyager')
 ES_TIMEOUT = env.int('ES_TIMEOUT', default=30)
+# Espelho de escrita durante migração de índice: `origem:destino[,origem:destino]`.
+# Ex.: 'movimentacoes:movimentacoes-v2' faz todo write-through cair nos DOIS.
+# Sem isto, a janela da migração (horas de publicação + updates de
+# enriquecimento) se perde no cutover. Ver search/client.py::indices_espelho.
+ES_INDICE_ESPELHO = env('ES_INDICE_ESPELHO', default='')
 # Sufixo do índice canônico de ENTIDADES (o autocomplete de "quem deve").
 # `voyager-entidades` é um ALIAS apontando pro índice versionado
 # (`voyager-entidades-v1`, 1.131.058 entidades, promovido em 14/08/2026).

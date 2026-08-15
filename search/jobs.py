@@ -5,7 +5,7 @@ from django.db.models import Prefetch
 
 from tribunals.models import Movimentacao, Process, ProcessoParte
 
-from .client import get_es, index_name
+from .client import get_es, index_name, indices_espelho
 from .documents import movimentacao_to_doc, processo_to_doc
 
 logger = logging.getLogger('voyager.search.jobs')
@@ -21,7 +21,8 @@ def indexar_movimentacao(mov_pk: int):
     try:
         es = get_es()
         doc = movimentacao_to_doc(mov)
-        es.index(index=index_name('movimentacoes'), id=mov.id, document=doc)
+        for indice in indices_espelho('movimentacoes'):
+            es.index(index=indice, id=mov.id, document=doc)
         logger.debug('Movimentacao %s indexada', mov_pk)
     except Exception as e:
         logger.error('Erro indexando Movimentacao %s: %s', mov_pk, e)
@@ -31,7 +32,8 @@ def desindexar_movimentacao(mov_id: int):
     """Remove uma Movimentacao do ES pelo id. Idempotente."""
     try:
         es = get_es()
-        es.delete(index=index_name('movimentacoes'), id=mov_id, ignore=[404])
+        for indice in indices_espelho('movimentacoes'):
+            es.delete(index=indice, id=mov_id, ignore=[404])
         logger.debug('Movimentacao %s desindexada', mov_id)
     except Exception as e:
         logger.error('Erro desindexando Movimentacao %s: %s', mov_id, e)
