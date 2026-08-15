@@ -122,13 +122,17 @@ VARAS_N_MAX = 50
 #: Cobertura medida à mão no ES de prod em 13/08/2026 — fallback quando a
 #: medição ao vivo falha. Mentir por omissão é pior que mostrar número velho.
 COBERTURA_FALLBACK = {
-    'total': 71_308_806,
+    'total': 71_441_064,
     'participacoes.documento': 102_622,
-    'participacoes.nome': 1_357_285,
-    'participacoes.oab': 47_846,
+    'participacoes.nome': 1_553_522,
+    'participacoes.oab': 183_531,
     'orgao_julgador': 17_891_683,
     'juizo': 1_299_995,
-    'medido_em': '2026-08-13',
+    # medidos por amostra de 1.000 docs em 15/08/2026 (±2,5pp)
+    'partes': 14_573_977,      # 20,4%
+    'advs': 13_288_038,        # 18,6%
+    'amostrado': ['partes', 'advs'],
+    'medido_em': '2026-08-15',
     'ao_vivo': False,
 }
 
@@ -144,8 +148,24 @@ ROTULOS_CAMPO = {
 }
 
 #: campos com cobertura TOTAL — entram no payload pra tela poder dizer
-#: "este critério vale pra base inteira" em vez de omitir
-COBERTURA_TOTAL = ('partes', 'advs', 'proc')
+#: "este critério vale pra base inteira" em vez de omitir.
+#:
+#: ⚠️ `partes` e `advs` SAÍRAM daqui em 15/08/2026. Eles eram dados como 100%
+#: porque a medição usava `exists`, e o Elasticsearch trata **string vazia como
+#: valor presente** — o mesmo erro que o `_nao_vazio` abaixo já corrigia pro
+#: `orgao_julgador`, mas que não dá pra aplicar em campo `text` (`term: ''` não
+#: casa nada num campo analisado, então o `must_not` não remove ninguém).
+#: Medido por amostragem aleatória de 1.000 docs: `advs` 18,6% · `partes` 20,4%.
+#: A consequência era concreta: quem buscava advogado via OAB ou nome recebia
+#: uma fração dos processos com a tela afirmando cobertura total.
+COBERTURA_TOTAL = ('proc',)
+
+#: Campos `text` cuja cobertura só dá pra medir por AMOSTRA (ver acima).
+#: 1.000 docs ⇒ margem de ~±2,5pp, que é irrelevante pra decisão que a tela
+#: informa ("dá pra confiar neste critério?").
+COBERTURA_AMOSTRADA = ('partes', 'advs')
+COBERTURA_AMOSTRA_N = 250          # por semente
+COBERTURA_AMOSTRA_SEEDS = (11, 22, 33, 44)
 
 
 # --------------------------------------------------------------------------- #
@@ -174,12 +194,40 @@ def _bodies_cobertura() -> list:
     ]
 
 
+def _amostrar_texto(campos, total) -> dict:
+    """Cobertura de campo `text` por amostra aleatória.
+
+    Não existe contagem exata barata: `exists` conta string vazia como valor, e
+    `regexp: .+` num campo analisado percorre o dicionário de termos inteiro de
+    71M docs. Amostrar 1.000 documentos custa 4 requisições e responde a mesma
+    pergunta com margem de ±2,5pp.
+    """
+    cheios = {c: 0 for c in campos}
+    vistos = 0
+    for seed in COBERTURA_AMOSTRA_SEEDS:
+        corpo = {
+            'size': COBERTURA_AMOSTRA_N, '_source': list(campos),
+            'query': {'function_score': {
+                'query': {'match_all': {}},
+                'random_score': {'seed': seed, 'field': '_seq_no'}}},
+        }
+        resp = _msearch([corpo])[0]
+        for h in resp.get('hits', {}).get('hits', []):
+            vistos += 1
+            for c in campos:
+                if (h.get('_source', {}).get(c) or '').strip():
+                    cheios[c] += 1
+    if not vistos:
+        return {}
+    return {c: int(total * cheios[c] / vistos) for c in campos}
+
+
 def medir_cobertura() -> dict:
-    """Mede a cobertura no índice (1 `_msearch`, 6 contagens). 1,7 s frio."""
+    """Mede a cobertura no índice: contagem exata onde dá, amostra onde não dá."""
     respostas = _msearch(_bodies_cobertura())
     valores = [r.get('hits', {}).get('total', {}).get('value', 0) for r in respostas]
     total, doc, nome, oab, orgao, juizo = valores
-    return {
+    medida = {
         'total': total,
         'participacoes.documento': doc,
         'participacoes.nome': nome,
@@ -189,6 +237,12 @@ def medir_cobertura() -> dict:
         'medido_em': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'ao_vivo': True,
     }
+    try:
+        medida.update(_amostrar_texto(COBERTURA_AMOSTRADA, total))
+        medida['amostrado'] = list(COBERTURA_AMOSTRADA)
+    except Exception:  # noqa: BLE001 — sem amostra a tela ainda mostra o resto
+        logger.warning('cobertura: amostragem de campo texto falhou')
+    return medida
 
 
 def cobertura_indice(forcar=False) -> dict:
@@ -240,6 +294,9 @@ def montar_cobertura(campos_usados) -> dict:
             'docs': docs,
             'pct': _pct(docs, total),
             'usado': True,
+            # número de amostra ≠ contagem: a tela pode escrever "≈" e não
+            # prometer precisão que a medição não tem
+            'estimado': campo in (cob.get('amostrado') or ()),
         }
     limitante = None
     if campos:

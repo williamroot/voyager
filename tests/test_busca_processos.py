@@ -104,21 +104,17 @@ def cache_local():
 
 @pytest.fixture(autouse=True)
 def cobertura_fixa():
-    """Cobertura estável nos testes = os números medidos em 13/08/2026.
+    """Cobertura estável nos testes = o fallback medido, sem inventar número.
 
     Sem isto cada teste dispararia a medição (e, sem ES, o fallback) — travar
     aqui deixa as asserções de porcentagem legíveis e determinísticas.
+
+    Usa `COBERTURA_FALLBACK` em vez de uma cópia: em 15/08/2026 a cópia
+    envelheceu e os testes passaram a afirmar uma cobertura que o código já não
+    servia (partes/advs como 100%, que era o bug).
     """
-    with patch.object(ui, 'cobertura_indice', return_value={
-        'total': 71_308_806,
-        'participacoes.documento': 102_622,
-        'participacoes.nome': 1_357_285,
-        'participacoes.oab': 47_846,
-        'orgao_julgador': 17_891_683,
-        'juizo': 1_299_995,
-        'medido_em': '2026-08-13',
-        'ao_vivo': False,
-    }):
+    with patch.object(ui, 'cobertura_indice',
+                      return_value=dict(ui.COBERTURA_FALLBACK)):
         yield
 
 
@@ -366,7 +362,10 @@ def test_autocomplete_de_vara_descarta_a_string_vazia():
         out = ui.sugerir_varas('campinas')
     assert [i['valor'] for i in out['itens']] == ['1ª Vara Cível',
                                                   '5ª Vara Federal de Campinas']
-    assert out['cobertura']['orgao_julgador']['pct'] == pytest.approx(25.09, abs=0.01)
+    # derivado das constantes, não copiado: número copiado envelhece calado
+    esperado = 100.0 * (ui.COBERTURA_FALLBACK['orgao_julgador']
+                        / ui.COBERTURA_FALLBACK['total'])
+    assert out['cobertura']['orgao_julgador']['pct'] == pytest.approx(esperado, abs=0.01)
 
 
 def test_autocomplete_de_vara_nao_toca_no_es_com_termo_curto():
@@ -501,26 +500,44 @@ def test_cobertura_de_documento_no_payload():
     campo = out['cobertura']['campos']['participacoes.documento']
     assert campo['docs'] == 102_622
     assert campo['pct'] == pytest.approx(0.144, abs=0.001)
-    assert out['cobertura']['total_processos'] == 71_308_806
+    assert out['cobertura']['total_processos'] == ui.COBERTURA_FALLBACK['total']
     assert out['cobertura']['limitante']['campo'] == 'participacoes.documento'
 
 
 def test_cobertura_limitante_e_o_campo_mais_estreito():
-    """Combinando nome (100%) com OAB (0,067%), quem manda no universo é a OAB."""
+    """Combinando nome com OAB, quem manda no universo é a OAB (0,26%)."""
     with patch('search.busca_api.get_es', return_value=_es_busca(total=3)):
         out = ui.buscar_processos_ui(
             parte='fulano',
             filtros=ba.parse_filtros_processos(_qd(oab='SP123456')))
-    assert out['cobertura']['campos']['partes']['pct'] == 100.0
     assert out['cobertura']['limitante']['campo'] == 'participacoes.oab'
 
 
-def test_busca_por_nome_nao_leva_aviso_de_cobertura():
-    """`partes` cobre 100% da base: ressalva aqui seria ruído."""
+def test_nenhum_campo_texto_se_declara_total():
+    """Regressão de 15/08/2026: `partes` e `advs` eram servidos como 100%.
+
+    A medição usava `exists`, e o ES conta STRING VAZIA como valor presente.
+    Medido por amostra: advs 18,6% · partes 20,4%. O efeito era o usuário buscar
+    advogado e receber uma fração dos processos com a tela jurando cobertura
+    total — pior que não ter o filtro.
+    """
+    assert 'partes' not in ui.COBERTURA_TOTAL
+    assert 'advs' not in ui.COBERTURA_TOTAL
+    with patch('search.busca_api.get_es', return_value=_es_busca(total=3)):
+        out = ui.buscar_processos_ui(parte='fulano')
+    campo = out['cobertura']['campos'].get('partes')
+    assert campo is None or campo['pct'] < 100.0
+
+
+def test_busca_por_nome_declara_o_universo_que_alcanca():
+    """`partes` cobre ~20% da base — a tela tem que dizer, não omitir.
+
+    Antes este teste exigia o silêncio ("partes cobre 100%"), o que era o bug.
+    """
     with patch('search.busca_api.get_es', return_value=_es_busca(total=4_403_363)):
         out = ui.buscar_processos_ui(parte='INSTITUTO NACIONAL DO SEGURO SOCIAL')
-    assert out['avisos'] == []
-    assert out['cobertura']['limitante'] is None
+    lim = out['cobertura']['limitante']
+    assert lim is None or lim['pct'] < 100.0
 
 
 def test_polo_move_a_busca_do_nome_para_o_nested_e_avisa():
@@ -567,7 +584,8 @@ def test_cobertura_cai_no_fallback_medido_quando_o_es_falha():
     with patch.object(ui, 'medir_cobertura', side_effect=RuntimeError('ES fora')):
         cob = ui.cobertura_indice(forcar=True)
     assert cob['total'] == ui.COBERTURA_FALLBACK['total']
-    assert cob['ao_vivo'] is False and cob['medido_em'] == '2026-08-13'
+    assert cob['ao_vivo'] is False
+    assert cob['medido_em'] == ui.COBERTURA_FALLBACK['medido_em']
 
 
 # --------------------------------------------------------------------------- #

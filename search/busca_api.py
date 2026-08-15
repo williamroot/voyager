@@ -125,15 +125,22 @@ esconde acervo. Pra esse resíduo existe `documento_forcar=1`.
 LIMITAÇÕES HONESTAS (estado ago/2026)
 --------------------------------------------------------------------------------
 - **Cobertura dos campos estruturados é baixa e a resposta tem que dizer isso.**
-  Medido em 13/08/2026 sobre 71.308.806 processos:
-  `partes`/`advs` (texto) 100% · `participacoes.nome` 1,90% ·
-  `orgao_julgador` não-vazio 25,09% · `juizo` não-vazio 1,82% ·
-  `participacoes.documento` 0,14% · `participacoes.oab` 0,067%.
+  Medido em 15/08/2026 sobre 71.441.064 processos:
+  `partes` 20,4% · `advs` 18,6% (amostra de 1.000 docs, ±2,5pp) ·
+  `participacoes.nome` 2,17% · `orgao_julgador` não-vazio 25,04% ·
+  `juizo` não-vazio 1,82% · `participacoes.documento` 0,14% ·
+  `participacoes.oab` 0,26%.
+  ⚠️ Até 15/08/2026 `partes`/`advs` eram dados como 100%: a medição usava
+  `exists`, e o ES conta STRING VAZIA como valor presente. Campo `text` não
+  aceita o truque do `must_not term ''` (num campo analisado, '' não casa
+  nada), então a cobertura deles é medida por AMOSTRA.
   Buscar por CPF e achar 0 NÃO significa "essa pessoa não tem processo" —
   significa que 99,86% da base não tem documento indexado. Quem serve tela usa
   `search.busca_ui.buscar_processos_ui`, que carrega essa cobertura no payload.
 - `parte`/`advogado` são MATCH TEXTUAL num campo concatenado ("Fulano, Sicrano"):
-  100% de cobertura, zero estrutura (sem polo, sem pessoa exata). O caminho
+  ~20% de cobertura (só processo que passou pelo enricher tem `ProcessoParte`,
+  que é de onde o campo é serializado), zero estrutura (sem polo, sem pessoa
+  exata). O caminho
   estruturado (`participacoes`) existe e é aceito, mas vale 1,9% da base — por
   isso `parte` sozinho continua indo pro campo texto, e só migra pro nested
   quando o cliente pede polo/papel (aí a resposta avisa a troca de escopo).
