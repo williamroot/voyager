@@ -48,6 +48,18 @@ MOV_MAPPING = {
             # CNJ só dígitos (20) — busca "colável": aceita o número com ou sem
             # máscara. Derivado no doc builder (não exige reanalyzer no índice).
             "proc_digits":     {"type": "keyword"},
+            # -- entidades EXTRAÍDAS do `body` (search/entidades_texto.py) ---- #
+            # A OAB sempre esteve aqui dentro, escrita no texto da publicação, e
+            # a busca alcançava 0,26% da base porque só olhava o que o enricher
+            # trouxe. Medido: 22% dos processos têm publicação citando OAB.
+            # `keyword` e não `text`: o valor é normalizado (`SP123456`), então
+            # o que se quer é igualdade exata e agregação — não relevância.
+            # Campos ESPARSOS de propósito: só existem onde há entidade. Em 1,16B
+            # docs, gravar lista vazia custaria disco e faria `exists` mentir.
+            "oabs":            {"type": "keyword"},
+            "documentos":      {"type": "keyword"},   # CPF/CNPJ com DV conferido
+            "cnjs_citados":    {"type": "keyword"},   # outros processos citados
+            "valores_citados": {"type": "double"},
         }
     },
 }

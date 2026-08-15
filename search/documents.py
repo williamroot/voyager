@@ -81,6 +81,27 @@ def _periodico_slugs(tribunal_id: str) -> dict:
     }
 
 
+def _entidades_do_texto(texto, numero_cnj):
+    """Entidades extraídas do corpo da publicação (OAB, CPF/CNPJ, CNJ, valores).
+
+    A OAB sempre esteve escrita aqui dentro; a busca é que só olhava o que o
+    enricher trazia (0,26% da base). Ver `search/entidades_texto.py`.
+
+    O CNJ do PRÓPRIO processo é removido de `cnjs_citados`: toda publicação cita
+    o número dela mesma, e mantê-lo transformaria o campo "processos citados"
+    num campo "este processo" — inútil pra achar incidente vinculado, que é
+    justamente pra isso que ele serve.
+    """
+    from search.entidades_texto import extrair
+    ent = extrair(texto or '')
+    citados = [c for c in ent.get('cnjs_citados', []) if c != numero_cnj]
+    if citados:
+        ent['cnjs_citados'] = citados
+    else:
+        ent.pop('cnjs_citados', None)
+    return ent
+
+
 def movimentacao_to_doc(mov: Movimentacao) -> dict:
     """Monta o documento ES no formato Jusbrasil/Digesto."""
     proc = mov.processo
@@ -115,6 +136,7 @@ def movimentacao_to_doc(mov: Movimentacao) -> dict:
         'tipo_documento': mov.tipo_documento,
         'nome_orgao': mov.nome_orgao,
         **slugs,
+        **_entidades_do_texto(mov.texto, proc.numero_cnj),
     }
 
 
@@ -122,6 +144,10 @@ def movimentacao_to_doc_sem_partes(mov: Movimentacao) -> dict:
     """Versão sem query de ProcessoParte — mais rápida pra backfill inicial.
 
     As partes podem ser reindexadas depois via reindex sem --sem-partes.
+
+    As ENTIDADES do texto entram aqui também: elas não dependem de
+    `ProcessoParte` (saem do próprio corpo da publicação), e é justamente esta
+    variante que roda no backfill em massa.
     """
     proc = mov.processo
     source_id = _source_id_for(mov.tribunal_id)
@@ -154,6 +180,8 @@ def movimentacao_to_doc_sem_partes(mov: Movimentacao) -> dict:
         'tipo_documento': mov.tipo_documento,
         'nome_orgao': mov.nome_orgao,
         **slugs,
+        **_entidades_do_texto(mov.texto, proc.numero_cnj),
+       
     }
 
 
