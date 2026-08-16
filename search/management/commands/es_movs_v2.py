@@ -225,29 +225,43 @@ class Command(BaseCommand):
         isso a amostra compara o `_source` inteiro de documentos sorteados.
         """
         self.es.indices.refresh(index=self.v2)
-        c1 = self.es.count(index=self.v1)['count']
-        c2 = self.es.count(index=self.v2)['count']
+        c1 = self.es.count(index=self.v1, request_timeout=180)['count']
+        c2 = self.es.count(index=self.v2, request_timeout=180)['count']
         self.stdout.write(f'contagem: v1 {c1:,} · v2 {c2:,} · diferença {c1-c2:+,}')
 
         divergentes = iguais = ausentes = 0
+        exemplo = None
         for seed in (1, 2, 3, 4):
-            r = self.es.search(index=self.v1, size=125, query={
+            r = self.es.search(index=self.v1, size=125, request_timeout=180, query={
                 'function_score': {'query': {'match_all': {}},
                                    'random_score': {'seed': seed, 'field': '_seq_no'}}})
-            for h in r['hits']['hits']:
-                try:
-                    d2 = self.es.get(index=self.v2, id=h['_id'])['_source']
-                except Exception:  # noqa: BLE001
+            hits = r['hits']['hits']
+            if not hits:
+                continue
+            # `_mget` e não 500 `get`: com o nó em merge pós-cópia, uma chamada
+            # por doc estoura o timeout do cliente antes de terminar a amostra.
+            got = self.es.mget(index=self.v2, request_timeout=180,
+                               body={'ids': [h['_id'] for h in hits]})
+            no_v2 = {d['_id']: d.get('_source') for d in got['docs'] if d.get('found')}
+            for h in hits:
+                d2 = no_v2.get(h['_id'])
+                if d2 is None:
                     ausentes += 1
                     continue
                 # o v2 tem campos A MAIS (as entidades): compara só os do v1
-                if all(d2.get(k) == v for k, v in h['_source'].items()):
-                    iguais += 1
-                else:
+                dif = [k for k, v in h['_source'].items() if d2.get(k) != v]
+                if dif:
                     divergentes += 1
+                    if exemplo is None:
+                        exemplo = (h['_id'], dif[:4])
+                else:
+                    iguais += 1
         self.stdout.write(f'amostra de 500: {iguais} idênticos · '
                           f'{divergentes} divergentes · {ausentes} ausentes no v2')
-        ent = self.es.count(index=self.v2, query={'exists': {'field': 'oabs'}})['count']
+        if exemplo:
+            self.stdout.write(f'  1º divergente: {exemplo[0]} campos={exemplo[1]}')
+        ent = self.es.count(index=self.v2, request_timeout=180,
+                            query={'exists': {'field': 'oabs'}})['count']
         self.stdout.write(f'docs com OAB extraída no v2: {ent:,}')
         veredito = (c2 >= c1 * 0.999 and divergentes == 0 and ausentes == 0)
         self.stdout.write(self.style.SUCCESS('GATE OK — pode finalizar')
