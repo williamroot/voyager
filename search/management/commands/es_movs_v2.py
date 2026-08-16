@@ -83,6 +83,9 @@ class Command(BaseCommand):
         p.add_argument('--lote', type=int, default=2000)
         p.add_argument('--max-docs', type=int, default=None,
                        help='teto de docs na passada de entidades (teste)')
+        p.add_argument('--faixa', type=int, default=None,
+                       help='qual faixa de id processar (0-based) — paraleliza '
+                            'a passada de entidades em N processos')
 
     def handle(self, *a, **o):
         self.es = get_es()
@@ -180,12 +183,25 @@ class Command(BaseCommand):
         lidos = atualizados = 0
         cursor = None
         t0 = time.time()
+
+        # Uma passada só leria ~250M docs em série (35h medidas). Fatiar por
+        # faixa de id deixa rodar N processos ao mesmo tempo, cada um dono da
+        # sua faixa — sem coordenação e sem risco de dois escreverem o mesmo doc.
+        query = FILTRO_ENTIDADES
+        rotulo = ''
+        if o['faixa'] is not None:
+            ini, fim = self._faixas_de_id(o['faixas'])[o['faixa']]
+            query = {'bool': {'must': [FILTRO_ENTIDADES],
+                              'filter': [{'range': {'id': {'gte': ini, 'lt': fim}}}]}}
+            rotulo = f'[faixa {o["faixa"]}/{o["faixas"]}] '
+            self.stdout.write(f'{rotulo}id[{ini:,} … {fim:,})')
+
         while True:
             corpo = {'size': o['lote'], '_source': ['body', 'proc'],
-                     'sort': [{'id': 'asc'}], 'query': FILTRO_ENTIDADES}
+                     'sort': [{'id': 'asc'}], 'query': query}
             if cursor:
                 corpo['search_after'] = cursor
-            r = self.es.search(index=self.v2, body=corpo, request_timeout=180)
+            r = self.es.search(index=self.v2, body=corpo, request_timeout=300)
             hits = r['hits']['hits']
             if not hits:
                 break
@@ -208,14 +224,15 @@ class Command(BaseCommand):
                 ok, _erros = bulk(self.es, acoes, raise_on_error=False,
                                   request_timeout=180)
                 atualizados += ok
-            if lidos % 50_000 < o['lote']:
+            if lidos % 100_000 < o['lote']:
                 dt = time.time() - t0
-                self.stdout.write(f'  {lidos:,} lidos · {atualizados:,} com entidade '
-                                  f'· {lidos/dt:,.0f} docs/s')
+                self.stdout.write(f'  {rotulo}{lidos:,} lidos · {atualizados:,} '
+                                  f'com entidade · {lidos/dt:,.0f} docs/s', ending='\n')
+                self.stdout.flush()
             if o['max_docs'] and lidos >= o['max_docs']:
                 break
         self.stdout.write(self.style.SUCCESS(
-            f'entidades: {lidos:,} lidos, {atualizados:,} atualizados '
+            f'{rotulo}entidades: {lidos:,} lidos, {atualizados:,} atualizados '
             f'em {(time.time()-t0)/3600:.1f}h'))
 
     def _conferir(self, o):
