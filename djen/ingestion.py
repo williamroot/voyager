@@ -86,6 +86,12 @@ def chunk_dates(start: date, end: date, days: int = 30) -> Iterator[tuple[date, 
 # Quando bate, chunks com volume alto perdem dados — split adaptativo resolve.
 DJEN_HARD_CAP = 10_000
 
+#: Teto de SANIDADE por fatia de UF — não é o limite da API, é proteção contra
+#: laço infinito se a API entrar em loop. Alto de propósito: o teto anterior era
+#: 10 páginas e cortava o TJSP pela metade em silêncio. Atingi-lo é ERRO logado,
+#: não caminho normal. Medido: `ufOab=SP` no TJSP passa de 10 páginas todo dia.
+MAX_PAGINAS_UF = 500
+
 
 def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
                   client: DJENClient | None = None,
@@ -185,8 +191,29 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
     cnjs_tocados: set[str] = set()
 
     def _fetch_uf(uf: str) -> list[dict]:
+        """Pagina uma fatia de UF ATÉ ESGOTAR.
+
+        ⚠️ Aqui morava a maior perda de acervo do sistema. A linha era
+        `for pagina in range(1, 11)` — teto de 10 páginas × 1000 = **10.000
+        itens por UF**, com o comentário "nenhum UF chega perto". A premissa era
+        falsa: no TJSP, `ufOab=SP` passa MUITO disso, e a fatia era decapitada
+        em silêncio (run `success`, zero alerta).
+
+        Medido em 17/08/2026, TJSP no dia 2025-07-21:
+            Postgres (o que coletamos) ......... 117.215 publicações
+            API paginando até esgotar .......... 208.000+ (piso, a sonda parou)
+        Ou seja: **43,6% do dia perdido**, todo dia, desde que o TJSP entrou no
+        DJEN. Conferido fatia a fatia: `ufOab=SP` e `ufOab=MG` devolvem dado na
+        página 11 — exatamente a que o teto cortava.
+
+        O laço agora termina onde tem que terminar: quando a página volta
+        incompleta. O teto de sanidade continua existindo (uma API em loop não
+        pode nos prender), mas é ALTO e, se for atingido, vira alerta — nunca
+        mais um corte mudo.
+        """
         items = []
-        for pagina in range(1, 11):  # max 10 × 1000 = 10k por UF (nenhum UF chega perto)
+        pagina = 1
+        while pagina <= MAX_PAGINAS_UF:
             payload = client._fetch(
                 tribunal.sigla_djen, dia, dia,
                 pagina=pagina, itens_por_pagina=1000,
@@ -195,7 +222,17 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
             page = payload.get('items') or []
             items.extend(page)
             if len(page) < 1000:
-                break
+                return items
+            pagina += 1
+        # Chegou no teto de sanidade: a fatia PODE estar truncada. Isso é
+        # exceção e tem que gritar — foi o silêncio que custou 43,6% do TJSP.
+        logger.error(
+            'djen UF %s/%s dia=%s ATINGIU o teto de %d páginas (%d itens) — '
+            'a fatia pode estar truncada',
+            tribunal.sigla, uf, dia, MAX_PAGINAS_UF, len(items),
+        )
+        run.erros.append({'erro': 'uf_teto_paginas', 'uf': uf,
+                          'paginas': MAX_PAGINAS_UF, 'itens': len(items)})
         return items
 
     try:
