@@ -1,0 +1,114 @@
+{
+ "dados": {
+  "dataPublicacao": "2026-08-14T00:00:00",
+  "cadernos": [
+   {
+    "secoes": [
+     {
+      "descricao": "Governo do Estado",
+      "paginaInicial": 1
+     },
+     {
+      "descricao": "Secretaria de Estado de Governo",
+      "paginaInicial": 11
+     },
+     {
+      "descricao": "Secretaria de Estado de Casa Civil",
+      "paginaInicial": 11
+     },
+     {
+      "descricao": "Advocacia-Geral do Estado",
+      "paginaInicial": 11
+     },
+     {
+      "descricao": "Polícia Militar de Minas Gerais",
+      "paginaInicial": 11
+     },
+     {
+      "descricao": "Polícia Civil do Estado de Minas Gerais",
+      "paginaInicial": 11
+     },
+     {
+      "descricao": "Corpo de Bombeiros Militar de Minas Gerais",
+      "paginaInicial": 12
+     },
+     {
+      "descricao": "Secretaria de Estado de Agricultura, Pecuária e Abastecimento",
+      "paginaInicial": 12
+     },
+     {
+      "descricao": "Secretaria de Estado de Cultura e Turismo",
+      "paginaInicial": 13
+     },
+     {
+      "descricao": "Secretaria de Estado de Desenvolvimento Econômico",
+      "paginaInicial": 13
+     },
+     {
+      "descricao": "Secretaria de Estado de Fazenda",
+      "paginaInicial": 13
+     },
+     {
+      "descricao": "Secretaria de Estado de Justiça e Segurança Pública",
+      "paginaInicial": 15
+     },
+     {
+      "descricao": "Secretaria de Estado de Infraestrutura, Mobilidade e Parcerias",
+      "paginaInicial": 15
+     },
+     {
+      "descricao": "Secretaria de Estado de Meio Ambiente e Desenvolvimento Sustentável",
+      "paginaInicial": 18
+     },
+     {
+      "descricao": "Secretaria de Estado de Planejamento e Gestão",
+      "paginaInicial": 20
+     },
+     {
+      "descricao": "Secretaria de Estado de Saúde",
+      "paginaInicial": 30
+     },
+     {
+      "descricao": "Secretaria de Estado de Educação",
+      "paginaInicial": 32
+     },
+     {
+      "descricao": "Editais e Avisos",
+      "paginaInicial": 41
+     }
+    ],
+    "id": 330783,
+    "descricao": "Diário do Executivo",
+    "ordem": 100
+   },
+   {
+    "secoes": [],
+    "id": 330784,
+    "descricao": "Diário dos Municípios Mineiros",
+    "ordem": 200
+   },
+   {
+    "secoes": [
+     {
+      "descricao": "Entidades de Direito Público",
+      "paginaInicial": 1
+     },
+     {
+      "descricao": "Particulares e Pessoas Físicas",
+      "paginaInicial": 1
+     }
+    ],
+    "id": 330785,
+    "descricao": "Diário de Terceiros",
+    "ordem": 300
+   }
+  ],
+  "arquivoCadernoPrincipal": {
+   "arquivo": "<base64 3521764 chars — PDF extraido p/ mg_2026-08-14_executivo.pdf>",
+   "pagina": 1,
+   "totalPaginas": 57,
+   "arquivoUnico": true,
+   "descricaoCaderno": "Diário do Executivo"
+  }
+ }
+}

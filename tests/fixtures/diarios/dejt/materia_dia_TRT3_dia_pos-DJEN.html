@@ -1,0 +1,747 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd" >
+<html xmlns="http://www.w3.org/1999/xhtml" lang="pt-br">
+<head>
+&#9;<title>Pesquisas &gt; Di&aacute;rios &gt; Pesquisa Avan&ccedil;ada
+&#9;</title>
+
+&#9;<link class="component" href="/dejt/f/a4j/s/3_3_3.Finalorg/richfaces/renderkit/html/css/basic_classes.xcss/DATB/eAF7sqpgb-jyGdIAFrMEaw__" rel="stylesheet" type="text/css" /><link class="component" href="/dejt/f/a4j/s/3_3_3.Finalorg/richfaces/renderkit/html/css/extended_classes.xcss/DATB/eAF7sqpgb-jyGdIAFrMEaw__" media="rich-extended-skinning" rel="stylesheet" type="text/css" /><script src="/dejt/f/a4j/g/3_3_3.Finalorg.ajax4jsf.javascript.AjaxScript" type="text/javascript"></script><script src="/dejt/f/a4j/g/3_3_3.Finalorg/richfaces/renderkit/html/scripts/jquery/jquery.js" type="text/javascript"></script><script type="text/javascript">window.RICH_FACES_EXTENDED_SKINNING_ON=true;</script><script src="/dejt/f/a4j/g/3_3_3.Finalorg/richfaces/renderkit/html/scripts/skinning.js" type="text/javascript"></script><link href="/dejt/fontawesome/css/fontawesome.css" rel="stylesheet">
+  &#9;<link href="/dejt/fontawesome/css/regular.css" rel="stylesheet">
+  &#9;<link href="/dejt/fontawesome/css/solid.css" rel="stylesheet">
+
+&#9;<link rel="shortcut icon" href="/dejt/dejt.ico">
+&#9;
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/azul/pele.css" type="text/css" charset="UTF-8">
+&#9;
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/jquery/jquery.autocomplete.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/jquery/thickbox.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/css/ui.jqgrid.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/plc.geral.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/app.geral.css" type="text/css" charset="UTF-8">
+&#9;
+&#9;<script type="text/javascript" charset="UTF-8">
+		function setContextPath() {
+			plcGeral.contextPath = "/dejt";
+			plcGeral.parcialAjaxUsa = false;
+		}
+	</script>
+&#9;
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery-1.4.2.min.js"></script>
+&#9;<script src="/dejt/plc/javascript/PlcGeral.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/ui/jquery-ui-min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/cookie/jquery.cookie.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/ui/i18n/ui.datepicker-pt-BR.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.bgiframe.min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.ajaxQueue.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.autocomplete.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.autogrow.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.maskinput.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/js/i18n/grid.locale-pt-br.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/js/jquery.jqGrid.min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/starRating/jquery.starRating.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/fckeditor/fckeditor.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/app.comuns.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/app.geral.js?v=7.6.0-3"></script>
+&#9;
+&#9;<script type="text/javascript">
+	  jQuery(function(){
+			jQuery("a.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+			jQuery("span.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+			jQuery("button.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+		});
+	</script>
+</head>
+
+<body id="corpo_geral" onload="iniciarPagina();" onkeydown="return executarAcaoFuncoes(event);">
+
+<style type="text/css">
+#simplemodal-container a.modalCloseImg {
+	background: none;
+	right: -14px;
+	width: 22px;
+	height: 26px;
+	filter: progid :     DXImageTransform.Microsoft.AlphaImageLoader (   
+				   src =     'img/x.png', sizingMethod =     'scale' );
+}
+
+a.dcontexto {
+	position: relative;
+	font: 12px arial, verdana, helvetica, sans-serif;
+	padding: 0;
+	text-decoration: none;
+}
+
+a.dcontexto:hover {
+	background: transparent;
+}
+
+a.dcontexto tooltip {
+	display: none
+}
+
+a.dcontexto:hover tooltip {
+	display: block;
+	position: absolute;
+	width: 400px;
+	top: 20px;
+	right-align: justify;
+	left: 0;
+	font: 12px arial, verdana, helvetica, sans-serif;
+	padding: 5px 10px;
+	border: 1px solid #999;
+	background: #FFF8DC;
+	color: #000;
+}
+</style>
+
+
+&#9;<link href="/dejt/plc/javascript-w2/jquery/tooltip/jquery.tooltip.css" rel="stylesheet" type="text/css" media="screen">
+
+&#9;<link href="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/css/basic.css" rel="stylesheet" type="text/css" media="screen">
+&#9;&#9;<!-- 
+	<link href='/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/css/demo.css' 
+		rel='stylesheet' type='text/css' media='screen' />
+		 -->
+
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/js/jquery.simplemodal.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/js/basic.js"></script>
+&#9;
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.tooltip.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.bgiframe.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.delegate.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.dimensions.js"></script>&#9;
+&#9;&#9;&#9;
+
+<div id="app">
+&#9;<div id="plc-topo" class="ui-widget ui-widget-header ui-corner-top plc-topo     plc-topo-classico">
+&#9;&#9;<style>
+    	.logo {
+    		display: inline-block;
+    	}
+    	</style>&#9;
+&#9;&#9;
+&#9;&#9;<!-- default -->
+&#9;&#9;
+&#9;&#9;<!-- caminho da imagem conforme servidor de aplicacao -->
+&#9;&#9;&#9;<div id="nomeEmpresa" class="plc-topo-empresa">
+&#9;&#9;&#9;&#9;<a class="logo navigate" href="/dejt">
+&#9;&#9;&#9;&#9;&#9;<img class="plc-imagem" src="/dejt/topo-logo-empresa.png" alt="Di&aacute;rio Eletr&ocirc;nico da Justi&ccedil;a do Trabalho">
+&#9;&#9;&#9;&#9;</a>
+&#9;&#9;&#9;</div></div>
+&#9;
+&#9;<div class="ui-widget-header" style="clear:both; font-weight:normal; line-height:16px; border-bottom: 1px dashed #C2CED1; background: transparent;">&#9;
+&#9;</div>
+&#9;&#9;<script language="javascript">
+
+
+		
+				//<![CDATA[
+				/* Fix Menus Antigos! */
+				jQuery(function(){
+					var lis = [];
+					jQuery('div.plc-menu').children().each(function(){
+						var it = jQuery(this);
+						if (it.is('a')) {
+							it.attr('class', '');
+							var li = jQuery('<li/>');
+							var ul = it.next();
+							li.append(it.remove());
+							if (ul.is('ul')) {
+								li.append(ul.css('class', 'ui-state-hover').remove());
+							}
+							lis.push(li.get());
+						} else if (it.is('li')) {
+							lis.push(this);
+						}
+					});
+					if (jQuery('div.plc-menu > ul').length == 0) {
+						jQuery('div.plc-menu').append('<ul/>');
+					}
+					jQuery.each(lis, function(){
+						jQuery('div.plc-menu > ul').append(this);
+					})
+				});
+				//]]>
+				</script>
+&#9;&#9;<div id="plc-menu-classico" class="ui-widget      ui-widget-header      plc-menu      plc-menu-classico ui-state-active"><ul><li><span class="af_outputLabel">Acesso Restrito</span><ul><li><a class="menuItem navigate" href="/dejt/f/m/login">Efetuar Login</a></li></ul></li><li><span class="af_outputLabel">Servi&ccedil;os</span><ul><li><a class="menuItem navigate" href="/dejt/f/n/cadastroadvogadocon">Advogado, cadastre-se aqui</a></li><li><a class="menuItem navigate" href="/dejt/f/n/autenticacaodiariocon">Aferir Autenticidade de Di&aacute;rios</a></li><li><a class="menuItem navigate" href="/dejt/f/n/esqueciminhasenhacon">Esqueceu Sua Senha?</a></li><li><a class="menuItem navigate" href="/dejt/f/n/faleconoscocon">Fale Conosco</a></li><li><a class="menuItem navigate" href="/dejt/f/n/consultaferiadocon">Feriados</a></li><li><a class="menuItem navigate" href="/dejt/f/n/legislacao">Legisla&ccedil;&atilde;o</a></li><li><a class="menuItem navigate" href="/dejt/f/n/manual">Manuais</a></li><li><a class="menuItem navigate" href="/dejt/f/n/ocorrencias">Ocorr&ecirc;ncias</a></li></ul></li></ul>
+
+<!-- Pesquisa se existe solicitações pendentes para advogado -->
+&#9;&#9;&#9;
+&#9;&#9;&#9;<script type="text/javascript">
+			//<![CDATA[
+				if (false) {
+					jQuery(function () {
+						jQuery('#plc-menu-classico').find('a').each(function(){
+							var href = jQuery(this).attr('href');
+							if (href && href != '#') {
+								jQuery(this).attr("href", "javascript: jQuery.plc.parcialAjaxCorpo('" + href + "')");
+							}
+						});
+					});
+				}
+			//]]>
+			</script>
+&#9;&#9;&#9;
+&#9;&#9;</div>
+
+
+
+
+<div id="plc-corpo" class="ui-widget ui-widget-content plc-corpo             plc-corpo-classico      ">
+&#9;
+&#9;<script type="text/javascript">
+	//<![CDATA[
+		setTecnologia('Facelets');
+
+		if (ExpYes){
+			jQuery(function () {
+				jQuery(".plc-fieldset").each (function () {
+					jQuery(this).after('<span style="height:10px">&nbsp;</span>');
+				});
+			});
+		}
+		
+	//]]>
+	</script><script type="text/javascript">var _AdfWindowOpenError='Foi detectado um bloqueador de janela pop-up no seu browser. Esses bloqueadores interferem na operação desta aplicação. Desative seu bloqueador de pop-ups ou permita popups a partir deste site.';</script><script type="text/javascript" src="/dejt/adf/jsLibs/Common1_2_13.js"></script><form id="corpo:formulario" name="corpo:formulario" onkeydown="return executarAcaoFuncoes(event)" method="POST" onkeypress="return _submitOnEnter(event,'corpo:formulario');" action="/dejt/f/n/materiapublicadacon"><span id="corpo:formulario:ajaxPanel" class="af_panelGroupLayout"><span id="corpo:formulario:ajaxMensagem" class="af_panelGroupLayout">
+&#9;<div>
+&#9;</div></span><span id="corpo:formulario:ajaxAcoes" class="af_panelGroupLayout">
+&#9;
+&#9;
+&#9;<div id="tituloPagina" class="ui-widget-content ui-corner-all plc-topo-titulo"><label style="font-size: 20px;">
+Pesquisas &gt; Di&aacute;rios &gt; Pesquisa Avan&ccedil;ada</label></div>
+
+
+&#9;<div id="plc-corpo-acao" class="plc-corpo-acao"></div>
+&#9;<div id="plc-corpo-acao-personalisado" class="plc-corpo-acao-generico">
+&#9;
+&#9;<div id="plc-corpo-acao-generico" class="plc-corpo-acao-generico"><script type="text/javascript">var _pprUpDatemode=false;function _adfspu(f,v,e,s,o){_pprUpdateMode=true;if(!o)o=new Object();if(e)o.event=e;if(s)o.source=s;_submitPartialChange(f,v,o);}</script><button id="corpo:formulario:botaoAcaoRecuperaPorDemanda" name="corpo:formulario:botaoAcaoRecuperaPorDemanda" type="button" onclick="TrPage._autoSubmit('corpo:formulario','corpo:formulario:botaoAcaoRecuperaPorDemanda',event,1);return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="ui-helper-hidden af_commandButton"><table><tr></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoAcaoRecuperaPorDemanda" type="text/javascript">
+</script>
+<!-- /Mostra botao? -->
+&#9;<div id="plc-ajuda" class="plc-painel" style="visibility: hidden">
+&#9;&#9;<h1 style="text-align:center;">Ajuda
+&#9;&#9;&#9;<span class="fechar" onclick="janelaPainel(document.getElementById('plc-ajuda'));">X</span>
+&#9;&#9;</h1>
+&#9;</div> 
+&#9;
+&#9;<script>
+	//<![CDATA[
+		trataExibicaoComponenteData();
+	//]]>
+	</script>
+&#9;
+&#9;</div>
+
+&#9;&#9;<div id="plc-corpo-acao-generico" class="plc-corpo-acao-complemento">
+
+&#9;&#9;&#9;<!-- Scripts para exibir a popup do PDF com dados do tribunal --><button id="corpo:formulario:botaoRecuperaUnidadePorTribunalSelecionado" name="corpo:formulario:botaoRecuperaUnidadePorTribunalSelecionado" type="button" title="???jcompany.evt.vincular.estrutura???" onclick="return _chain('A4J.AJAX.Submit(\'corpo:formulario\',event,{\'similarityGroupingId\':\'corpo:formulario:j_id74\',\'oncomplete\':function(request,event,data){startLoadingAjax(false);},\'parameters\':{\'corpo:formulario:j_id74\':\'corpo:formulario:j_id74\'} } )','submitForm(\'corpo:formulario\',1,{source:\'corpo:formulario:botaoRecuperaUnidadePorTribunalSelecionado\'});return false;',this,event,true)" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton" style="display:none;visibility:hidden;width:0px;height:0px;"><table><tr><td><div class="plc-corpo-acao-t">???jcompany.evt.vincular.estrutura???</div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoRecuperaUnidadePorTribunalSelecionado" type="text/javascript">
+</script>
+
+
+
+&#9;&#9;&#9;<!-- Publicar Materia XML -->
+
+&#9;&#9;&#9;<!-- publicamateriaman -->
+
+&#9;&#9;&#9;<!-- publicamateriaavulsaconfirmacaoman --><input id="corpo:formulario:confirma" name="corpo:formulario:confirma" onclick="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:confirma','parameters':{'corpo:formulario:confirma':'corpo:formulario:confirma'} } );return false;" style="display: none;" type="button">
+
+&#9;&#9;</div></div></span>
+&#9;&#9;&#9;&#9;
+&#9;&#9;&#9;&#9;<!-- INI --><span id="corpo:formulario:ajaxFormulario" class="af_panelGroupLayout">
+&#9;&#9;&#9;
+&#9;&#9;&#9;<div id="plc-form-basico">
+&#9;&#9;&#9;&#9;<div id="materiapublicadaArg" class="plc-form-basico-topo">
+
+<div style="float:right" class="manter-usuario-acoes"><button id="corpo:formulario:botaoAcaoVoltar" name="corpo:formulario:botaoAcaoVoltar" type="button" title="Voltar" onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:botaoAcaoVoltar'});return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-caret-left"></span></div></td><td><div class="plc-corpo-acao-t">Voltar</div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoAcaoVoltar" type="text/javascript">
+</script>
+<button id="corpo:formulario:botaoAcaoLimparArgs_LIMPAR_ARGS" name="corpo:formulario:botaoAcaoLimparArgs_LIMPAR_ARGS" type="button" title="Limpar" onclick="TrPage._autoSubmit('corpo:formulario','corpo:formulario:botaoAcaoLimparArgs_LIMPAR_ARGS',event,1);return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-eraser"></span></div></td><td><div class="plc-corpo-acao-t">Limpar</div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoAcaoLimparArgs_LIMPAR_ARGS" type="text/javascript">
+</script>
+<button id="corpo:formulario:botaoAcaoPesquisar" name="corpo:formulario:botaoAcaoPesquisar" type="button" title="Pesquisar" onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:botaoAcaoPesquisar'});return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-magnifying-glass"></span></div></td><td><div class="plc-corpo-acao-t">Pesquisar</div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoAcaoPesquisar" type="text/javascript">
+setBotaoAcaoEnter('botaoAcaoPesquisar');
+regBotaoEvento('botaoAcaoPesquisar','PESQUISAR');
+</script>
+
+&#9;&#9;
+&#9;<button class="botao-acao-imprimir" onclick="setBotaoAcao(getBotaoArray('IMPRIMIR'));chamarImpressao('/dejt/f/fcls/geralImpressao.xhtml?evento=Imprimir&amp;impIntel=S',document.title,'impressao');return false;">
+&#9;&#9;<span class="fa-solid fa-print"></span>
+&#9;</button>
+</div><fieldset class="plc-fieldset"><legend class="plc-fieldset-legend">Informe os argumentos de pesquisa e clique em Pesquisar</legend><table class="plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" colspan="2"><span id="corpo:formulario:j_id90" class="bordaTipoCaderno"><span class="tipo-caderno af_selectOneRadio p_AFRequired" style=""><span id="corpo:formulario:tipoCaderno" title="Tipo de Caderno" class="af_selectOneRadio_content"><fieldset style="border:none;margin:0px;padding:0px;"><legend class="p_OraHiddenLabel">Tipo de Caderno</legend><input type="radio" name="corpo:formulario:tipoCaderno" id="corpo:formulario:tipoCaderno:_0" value="0" onclick="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:j_id91','control':this,'parameters':{'corpo:formulario:j_id91':'corpo:formulario:j_id91','ajaxSingle':'corpo:formulario:tipoCaderno'} } )"><label for="corpo:formulario:tipoCaderno:_0">Administrativo</label><input type="radio" name="corpo:formulario:tipoCaderno" id="corpo:formulario:tipoCaderno:_1" value="1" checked onclick="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:j_id91','control':this,'parameters':{'corpo:formulario:j_id91':'corpo:formulario:j_id91','ajaxSingle':'corpo:formulario:tipoCaderno'} } )"><label for="corpo:formulario:tipoCaderno:_1">Judici&aacute;rio</label></fieldset></span></span><script id="avaliar:corpo:formulario:tipoCaderno" type="text/javascript">validacaoCriaCampo("corpo:formulario:tipoCaderno","obrigatorio",'null{propTitulo} é obrigatório(a)', 'PARAM_0', 'null', 'PARAM_3', '1')</script></span></td></tr><tr><td class="celulaFormulario"><span class="af_outputLabel">Data Inicial de Disponibiliza&ccedil;&atilde;o</span></td><td class="celulaFormulario"><span class="af_outputLabel">Data Final de Disponibiliza&ccedil;&atilde;o</span></td></tr><tr><td class="celulaFormulario">
+&#9;&#9;&#9;<span class="p_AFRequired"><script type="text/javascript">var _locale='pt-BR';var _tLocale='pt-BR';</script><script type="text/javascript" src="/dejt/adf/jsLibs/resources/LocaleElements_pt_BR1_2_13.js?loc=pt_BR"></script><script type="text/javascript">var _df2DYS=1950;</script><script type="text/javascript">var _uixLocaleTZ=-180;</script><span class="af_inputDate" style="float: left;"><input id="corpo:formulario:dataPublicacaoINI" name="corpo:formulario:dataPublicacaoINI" title="Data de Disponibiliza&ccedil;&atilde;o" onkeyup="return validaCaracter(this, event, 'D');" onkeypress="formataDataComMascara('corpo:formulario:dataPublicacaoINI',event,'dd/MM/yyyy');" onblur="_dfb(this)" onchange="passaData();" class="af_inputDate_content" size="8" maxlength="8" type="text" value="13/08/2026"></span>
+<script id="avaliar:dataPublicacaoINIcorpo:formulario:dataPublicacaoINIjcompany.erros.data0" type="text/javascript">
+validacaoCriaCampo("corpo:formulario:dataPublicacaoINI","data",'{0} não é uma data válida.', 'PARAM_0', 'null', 'PARAM_3', '1')</script>
+
+<script type="text/javascript" id="avaliar:corpo:formulario:dataPublicacaoINI:2578065353904214">
+jQuery(function(){
+	setTimeout(function(){
+		var input = 'corpo:formulario:dataPublicacaoINI' && document.getElementById('corpo:formulario:dataPublicacaoINI');
+		var meses = '' || '1';
+		if (input && jQuery(input).is("input:enabled")) {
+			jQuery(input).datepicker({
+				numberOfMonths: parseInt(meses), // Multiplos meses no calendario
+				changeMonth: true,
+				changeYear: true,
+				showOn: 'button',
+				buttonText: '<span class="fa-regular fa-calendar-days" style="font-size: 1.8rem; color: #8B9DA9;"></span>',
+				showButtonPanel: true
+			});
+			var trigger = jQuery(input).next();
+			if (trigger.is('.ui-datepicker-trigger')) {
+				// desabilita o Foco quando ocorrer a tabulaï¿½ï¿½o.
+				trigger.addClass('ui-state-default');
+				trigger.addClass('plc-botao');
+				trigger.attr('tabIndex', -1);
+			}
+		}
+	}, 200);
+});
+jQuery(function(){
+	setTimeout(function(){/* ajuda: http://digitalbush.com/projects/masked-input-plugin */
+		var input = 'corpo:formulario:dataPublicacaoINI' && document.getElementById('corpo:formulario:dataPublicacaoINI');
+		if (input) {
+			// Retira as funções de máscara do componente.
+			if (input.onkeypress) {
+				input.onkeypress = null;
+			}
+			if (input.onkeyup) {
+				input.onkeyup = null;
+			}
+			if (input.onkeydown) {
+				input.onkeydown = null;
+			}
+			if (jQuery(input).attr("id").indexOf('PadraoGeral') > 0) {
+				jQuery(input).unmask().mask('D9/M9/9999');
+			} else if (jQuery(input).attr("id").indexOf('PadraoDiaMes') > 0) {
+				jQuery(input).unmask().mask('D9/M9');
+			} else {
+				jQuery(input).unmask().mask('D9/M9/Y999');
+			}
+		}
+	}, 200);
+});
+</script>
+ 
+&#9;&#9;&#9;&#9;<label class="p_OraHiddenLabel" for="corpo:formulario:dataPublicacaoINI">dataIni</label>
+&#9;&#9;&#9;</span></td><td class="celulaFormulario">
+&#9;&#9;&#9;<span class="p_AFRequired"><span class="af_inputDate" style="float: left;"><input id="corpo:formulario:dataPublicacaoFIM" name="corpo:formulario:dataPublicacaoFIM" title="Data de Disponibiliza&ccedil;&atilde;o" onkeyup="return validaCaracter(this, event, 'D');" onkeypress="formataDataComMascara('corpo:formulario:dataPublicacaoFIM',event,'dd/MM/yyyy');" onblur="_dfb(this)" class="af_inputDate_content" size="8" maxlength="8" type="text" value="13/08/2026"></span>
+<script id="avaliar:dataPublicacaoFIMcorpo:formulario:dataPublicacaoFIMjcompany.erros.data0" type="text/javascript">
+validacaoCriaCampo("corpo:formulario:dataPublicacaoFIM","data",'{0} não é uma data válida.', 'PARAM_0', 'null', 'PARAM_3', '1')</script>
+
+<script type="text/javascript" id="avaliar:corpo:formulario:dataPublicacaoFIM:2578065354644156">
+jQuery(function(){
+	setTimeout(function(){
+		var input = 'corpo:formulario:dataPublicacaoFIM' && document.getElementById('corpo:formulario:dataPublicacaoFIM');
+		var meses = '' || '1';
+		if (input && jQuery(input).is("input:enabled")) {
+			jQuery(input).datepicker({
+				numberOfMonths: parseInt(meses), // Multiplos meses no calendario
+				changeMonth: true,
+				changeYear: true,
+				showOn: 'button',
+				buttonText: '<span class="fa-regular fa-calendar-days" style="font-size: 1.8rem; color: #8B9DA9;"></span>',
+				showButtonPanel: true
+			});
+			var trigger = jQuery(input).next();
+			if (trigger.is('.ui-datepicker-trigger')) {
+				// desabilita o Foco quando ocorrer a tabulaï¿½ï¿½o.
+				trigger.addClass('ui-state-default');
+				trigger.addClass('plc-botao');
+				trigger.attr('tabIndex', -1);
+			}
+		}
+	}, 200);
+});
+jQuery(function(){
+	setTimeout(function(){/* ajuda: http://digitalbush.com/projects/masked-input-plugin */
+		var input = 'corpo:formulario:dataPublicacaoFIM' && document.getElementById('corpo:formulario:dataPublicacaoFIM');
+		if (input) {
+			// Retira as funções de máscara do componente.
+			if (input.onkeypress) {
+				input.onkeypress = null;
+			}
+			if (input.onkeyup) {
+				input.onkeyup = null;
+			}
+			if (input.onkeydown) {
+				input.onkeydown = null;
+			}
+			if (jQuery(input).attr("id").indexOf('PadraoGeral') > 0) {
+				jQuery(input).unmask().mask('D9/M9/9999');
+			} else if (jQuery(input).attr("id").indexOf('PadraoDiaMes') > 0) {
+				jQuery(input).unmask().mask('D9/M9');
+			} else {
+				jQuery(input).unmask().mask('D9/M9/Y999');
+			}
+		}
+	}, 200);
+});
+</script>
+ 
+&#9;&#9;&#9;&#9;<label class="p_OraHiddenLabel" for="corpo:formulario:dataPublicacaoFIM"></label>
+&#9;&#9;&#9;</span></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">&Oacute;rg&atilde;o</span>
+&#9;&#9;&#9;<span class="p_AFRequired"><select id="corpo:formulario:tribunal" name="corpo:formulario:tribunal" size="1" onchange="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:j_id110','control':this,'parameters':{'corpo:formulario:j_id110':'corpo:formulario:j_id110','ajaxSingle':'corpo:formulario:tribunal'} } )">&#9;<option value="org.jboss.seam.ui.NoSelectionConverter.noSelectionValue">[Selecione]</option>
+&#9;<option value="0">TST</option>
+&#9;<option value="1">TRT 1&ordf; Regi&atilde;o</option>
+&#9;<option value="2">TRT 2&ordf; Regi&atilde;o</option>
+&#9;<option value="3" selected>TRT 3&ordf; Regi&atilde;o</option>
+&#9;<option value="4">TRT 4&ordf; Regi&atilde;o</option>
+&#9;<option value="5">TRT 5&ordf; Regi&atilde;o</option>
+&#9;<option value="6">TRT 6&ordf; Regi&atilde;o</option>
+&#9;<option value="7">TRT 7&ordf; Regi&atilde;o</option>
+&#9;<option value="8">TRT 8&ordf; Regi&atilde;o</option>
+&#9;<option value="9">TRT 9&ordf; Regi&atilde;o</option>
+&#9;<option value="10">TRT 10&ordf; Regi&atilde;o</option>
+&#9;<option value="11">TRT 11&ordf; Regi&atilde;o</option>
+&#9;<option value="12">TRT 12&ordf; Regi&atilde;o</option>
+&#9;<option value="13">TRT 13&ordf; Regi&atilde;o</option>
+&#9;<option value="14">TRT 14&ordf; Regi&atilde;o</option>
+&#9;<option value="15">TRT 15&ordf; Regi&atilde;o</option>
+&#9;<option value="16">TRT 16&ordf; Regi&atilde;o</option>
+&#9;<option value="17">TRT 17&ordf; Regi&atilde;o</option>
+&#9;<option value="18">TRT 18&ordf; Regi&atilde;o</option>
+&#9;<option value="19">TRT 19&ordf; Regi&atilde;o</option>
+&#9;<option value="20">TRT 20&ordf; Regi&atilde;o</option>
+&#9;<option value="21">TRT 21&ordf; Regi&atilde;o</option>
+&#9;<option value="22">TRT 22&ordf; Regi&atilde;o</option>
+&#9;<option value="23">TRT 23&ordf; Regi&atilde;o</option>
+&#9;<option value="24">TRT 24&ordf; Regi&atilde;o</option>
+&#9;<option value="28">CSJT</option>
+&#9;<option value="29">ENAMAT</option>
+</select><label for="corpo:formulario:tribunal" class="p_OraHiddenLabel">
+Tribunal</label>
+&#9;&#9;&#9;</span></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">Unidade Publicadora</span><select id="corpo:formulario:cmbUnidadePublicadora" name="corpo:formulario:cmbUnidadePublicadora" size="1" onchange="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:j_id118','control':this,'parameters':{'corpo:formulario:j_id118':'corpo:formulario:j_id118','ajaxSingle':'corpo:formulario:cmbUnidadePublicadora'} } )">&#9;<option value="org.jboss.seam.ui.NoSelectionConverter.noSelectionValue">Todas</option>
+</select><label for="corpo:formulario:cmbUnidadePublicadora" class="p_OraHiddenLabel">
+UnidadePublicadora</label></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">Tipo | Subtipo de Mat&eacute;ria</span><span class="af_selectOneChoice"><select id="corpo:formulario:cmbTipoMateria" name="corpo:formulario:cmbTipoMateria" class="af_selectOneChoice_content"><option value="">Todos</option></select></span></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">N&uacute;mero do Processo</span><script type="text/javascript">//<![CDATA[
+  jQuery(document).ready(function() {
+	var selector = "#corpo\\:formulario\\:numeroProcesso";
+	try {
+		selector = eval("#corpo\\:formulario\\:numeroProcesso");
+	} catch (e) {}
+	jQuery(selector).mask('9999999-99.9999.9.99.9999', {placeholder:'_'});
+ });
+//]]></script><input id="corpo:formulario:numeroProcesso" type="text" name="corpo:formulario:numeroProcesso" value="" style="width: 30ch"></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">Nome do Advogado</span><span class="af_inputText" style="float: left;"><input id="corpo:formulario:adv" name="corpo:formulario:adv" title="Nome do Advogado" class="af_inputText_content" size="50" maxlength="200" type="text"></span></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">Ordem dos Resultados</span><select id="corpo:formulario:orderByUsuario" name="corpo:formulario:orderByUsuario" size="1">&#9;<option value="unidade">Unidade Publicadora / Data de Disponibiliza&ccedil;&atilde;o</option>
+&#9;<option value="disponibilizacao" selected>Data de Disponibiliza&ccedil;&atilde;o / Unidade Publicadora</option>
+</select></td></tr></table></fieldset>
+
+<script type="text/javascript">
+var $jQuery = jQuery.noConflict();
+
+function passaData(){
+	document.getElementById('corpo:formulario:dataPublicacaoFIM').value = document.getElementById('corpo:formulario:dataPublicacaoINI').value;
+}
+
+setTimeout(()=>{
+	document.getElementById('corpo:formulario:tipoCaderno:_0').focus()
+}, 1000)
+</script>
+&#9;&#9;&#9;&#9;</div>
+&#9;&#9;&#9;&#9;
+&#9;&#9;&#9;&#9;<div id="materiapublicadaNav" class="plc-navegacao"><input type="hidden" id="corpo:formulario:ordenacaoPlc" name="corpo:formulario:ordenacaoPlc" value="">
+&#9;
+&#9;
+&#9;
+&#9;<input type="hidden" id="navDe" name="navDe" value="1">
+&#9;<!-- INICIALIZACAO -->
+
+&#9;<!--
+				movido para inputGeralPaginacaoLogicaItens
+				
+				<plcf:escondido id="ordenacaoPlc" value=""/>
+				
+				<input type="hidden" id="navDe" name="navDe"
+					value="1" />
+
+				<c:if test="false">
+					<input type="hidden" id="mcPlc" name="mcPlc" value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="mfPlc" name="mfPlc" value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="modoJanelaPlc" name="modoJanelaPlc"
+						value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="indMultiSelPlc" name="indMultiSelPlc"
+						value="" />
+				</c:if>
+			
+			--><table class="plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario"></td><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;1  at&eacute;  18  de 18</td></tr></table>
+&#9;&#9;&#9;&#9;</div>
+&#9;&#9;&#9;&#9;
+&#9;&#9;&#9;&#9;<div id="materiapublicadaCon" class="plc-form-basico-sel">
+
+&#9;<style type="text/css">
+		div#tabelaResultadoMateriaPublicada span.af_outputLabel {
+			font-weight: bold !important;
+		}
+		.toolTipProcesso {
+			cursor: pointer;
+			font-weight: bold;
+		}
+		.link-download {
+			cursor: pointer;
+			display: inline-block;
+		}
+	</style>
+
+&#9;<div id="tabelaResultadoMateriaPublicada"><fieldset class="plc-fieldset"><legend class="plc-fieldset-legend">Matérias</legend><table class="plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><table class="plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">1. Ata - Ata de Sess&atilde;o</td></tr><tr><td class="campo" style="text-align: left">Secretaria da D&eacute;cima Primeira Turma.</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 164. C&oacute;d. 297296971. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:0:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:0:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:0:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">2. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da D&eacute;cima Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0010564-49.2019.5.03.0071, 0011402-24.2021.5.03.0070<span class="toolTipProcesso" title="Processos:<br/&gt;0010564-49.2019.5.03.0071<br/&gt;0011402-24.2021.5.03.0070<br/&gt;0010886-39.2024.5.03.0089<br/&gt;0011077-08.2024.5.03.0179<br/&gt;0010172-81.2025.5.03.0077<br/&gt;0010032-08.2026.5.03.0014<br/&gt;0010068-24.2026.5.03.0055<br/&gt;0010206-49.2025.5.03.0144<br/&gt;0010215-28.2026.5.03.0030<br/&gt;0010331-89.2026.5.03.0044<br/&gt;0010373-63.2026.5.03.0069<br/&gt;0010409-81.2025.5.03.0153<br/&gt;0010430-41.2025.5.03.0029<br/&gt;0010538-45.2025.5.03.0102<br/&gt;0010801-79.2026.5.03.0187<br/&gt;0011369-81.2026.5.03.0030<br/&gt;0011477-21.2025.5.03.0168<br/&gt;0011495-57.2025.5.03.0163<br/&gt;0012026-45.2025.5.03.0131<br/&gt;0012333-33.2025.5.03.0055<br/&gt;0012969-54.2025.5.03.0069<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 116. C&oacute;d. 297296985. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:1:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:1:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:1:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">3. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da D&eacute;cima Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0001533-29.2013.5.03.0034, 0010724-65.2015.5.03.0087<span class="toolTipProcesso" title="Processos:<br/&gt;0001533-29.2013.5.03.0034<br/&gt;0010724-65.2015.5.03.0087<br/&gt;0010753-15.2018.5.03.0054<br/&gt;0010325-66.2021.5.03.0009<br/&gt;0010824-45.2021.5.03.0140<br/&gt;0011525-20.2023.5.03.0048<br/&gt;0011317-49.2023.5.03.0173<br/&gt;0010029-07.2024.5.03.0052<br/&gt;0010341-23.2024.5.03.0168<br/&gt;0010442-40.2024.5.03.0110<br/&gt;0010671-27.2024.5.03.0101<br/&gt;0010503-59.2024.5.03.0025<br/&gt;0011018-82.2024.5.03.0029<br/&gt;0010671-26.2024.5.03.0069<br/&gt;0011320-28.2024.5.03.0089<br/&gt;0011729-84.2024.5.03.0030<br/&gt;0012167-96.2024.5.03.0067<br/&gt;0011418-02.2024.5.03.0028<br/&gt;0010871-82.2024.5.03.0085<br/&gt;0010256-87.2025.5.03.0140<br/&gt;0010033-21.2026.5.03.0037<br/&gt;0010097-59.2026.5.03.0060<br/&gt;0010109-94.2026.5.03.0150<br/&gt;0010154-69.2026.5.03.0095<br/&gt;0010196-69.2026.5.03.0176<br/&gt;0010203-70.2025.5.03.0152<br/&gt;0010247-88.2026.5.03.0044<br/&gt;0010305-74.2026.5.03.0082<br/&gt;0010527-44.2025.5.03.0028<br/&gt;0010528-79.2026.5.03.0097<br/&gt;0010539-90.2026.5.03.0006<br/&gt;0010589-27.2025.5.03.0047<br/&gt;0010756-05.2026.5.03.0178<br/&gt;0010803-34.2025.5.03.0171<br/&gt;0010836-65.2025.5.03.0028<br/&gt;0010854-47.2025.5.03.0138<br/&gt;0010887-57.2025.5.03.0002<br/&gt;0010970-08.2025.5.03.0056<br/&gt;0011022-44.2025.5.03.0075<br/&gt;0011042-30.2025.5.03.0012<br/&gt;0011053-71.2025.5.03.0008<br/&gt;0011092-12.2025.5.03.0156<br/&gt;0011240-87.2025.5.03.0070<br/&gt;0011350-08.2025.5.03.0096<br/&gt;0011378-03.2025.5.03.0087<br/&gt;0011428-87.2025.5.03.0100<br/&gt;0011463-80.2025.5.03.0089<br/&gt;0011502-82.2025.5.03.0055<br/&gt;0011564-61.2025.5.03.0043<br/&gt;0011619-39.2025.5.03.0034<br/&gt;0011631-87.2025.5.03.0055<br/&gt;0011631-88.2025.5.03.0087<br/&gt;0011696-39.2025.5.03.0134<br/&gt;0011718-21.2025.5.03.0030<br/&gt;0011738-95.2025.5.03.0164<br/&gt;0011754-35.2025.5.03.0104<br/&gt;0011827-10.2025.5.03.0103<br/&gt;0011904-67.2025.5.03.0087<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 120. C&oacute;d. 297296988. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:2:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:2:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:2:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">4. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da D&eacute;cima Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0010951-31.2025.5.03.0014</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 133. C&oacute;d. 297296989. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:3:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:3:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:3:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">5. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da D&eacute;cima Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0117700-60.2006.5.03.0104, 0010849-05.2014.5.03.0043<span class="toolTipProcesso" title="Processos:<br/&gt;0117700-60.2006.5.03.0104<br/&gt;0010849-05.2014.5.03.0043<br/&gt;0010051-78.2015.5.03.0182<br/&gt;0011028-13.2015.5.03.0104<br/&gt;0012320-80.2017.5.03.0098<br/&gt;0010213-59.2018.5.03.0185<br/&gt;0010996-94.2018.5.03.0009<br/&gt;0010620-55.2019.5.03.0080<br/&gt;0011250-56.2019.5.03.0163<br/&gt;0010458-74.2020.5.03.0064<br/&gt;0010614-55.2020.5.03.0034<br/&gt;0010272-73.2023.5.03.0152<br/&gt;0010044-30.2024.5.03.0131<br/&gt;0010379-06.2024.5.03.0016<br/&gt;0010573-18.2024.5.03.0012<br/&gt;0011323-54.2024.5.03.0033<br/&gt;0011578-77.2024.5.03.0173<br/&gt;0011602-80.2024.5.03.0149<br/&gt;0010065-64.2025.5.03.0165<br/&gt;0010100-67.2025.5.03.0183<br/&gt;0010030-22.2026.5.03.0084<br/&gt;0010051-63.2026.5.03.0030<br/&gt;0010132-09.2025.5.03.0010<br/&gt;0010133-31.2026.5.03.0051<br/&gt;0010220-67.2026.5.03.0186<br/&gt;0010294-14.2026.5.03.0060<br/&gt;0010328-13.2026.5.03.0052<br/&gt;0010331-13.2026.5.03.0037<br/&gt;0010333-54.2026.5.03.0078<br/&gt;0010346-27.2026.5.03.0022<br/&gt;0010375-40.2026.5.03.0099<br/&gt;0010391-97.2026.5.03.0097<br/&gt;0010394-77.2026.5.03.0024<br/&gt;0010496-81.2026.5.03.0030<br/&gt;0010577-04.2025.5.03.0050<br/&gt;0010578-42.2025.5.03.0097<br/&gt;0010604-98.2025.5.03.0013<br/&gt;0010645-49.2025.5.03.0083<br/&gt;0010655-82.2026.5.03.0043<br/&gt;0010663-54.2026.5.03.0077<br/&gt;0010728-16.2025.5.03.0164<br/&gt;0010769-26.2025.5.03.0182<br/&gt;0010787-86.2025.5.03.0072<br/&gt;0010945-98.2025.5.03.0054<br/&gt;0010949-59.2025.5.03.0144<br/&gt;0011019-11.2025.5.03.0004<br/&gt;0011020-54.2025.5.03.0017<br/&gt;0011208-79.2025.5.03.0168<br/&gt;0011368-56.2025.5.03.0087<br/&gt;0011392-43.2025.5.03.0036<br/&gt;0011420-45.2025.5.03.0057<br/&gt;0011505-16.2025.5.03.0062<br/&gt;0011579-80.2025.5.03.0091<br/&gt;0011643-47.2025.5.03.0073<br/&gt;0011846-64.2025.5.03.0087<br/&gt;0011915-17.2025.5.03.0178<br/&gt;0013261-39.2025.5.03.0069<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 134. C&oacute;d. 297296990. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:4:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:4:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:4:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">6. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da D&eacute;cima Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0206600-27.2003.5.03.0103, 0011117-35.2019.5.03.0059<span class="toolTipProcesso" title="Processos:<br/&gt;0206600-27.2003.5.03.0103<br/&gt;0011117-35.2019.5.03.0059<br/&gt;0010118-83.2020.5.03.0112<br/&gt;0010445-92.2021.5.03.0047<br/&gt;0011146-75.2024.5.03.0038<br/&gt;0011700-45.2024.5.03.0091<br/&gt;0011036-44.2024.5.03.0081<br/&gt;0011574-61.2024.5.03.0069<br/&gt;0011342-43.2024.5.03.0168<br/&gt;0010031-04.2025.5.03.0064<br/&gt;0010670-13.2025.5.03.0164<br/&gt;0010077-17.2026.5.03.0174<br/&gt;0010109-17.2026.5.03.0014<br/&gt;0010214-70.2025.5.03.0097<br/&gt;0010251-46.2026.5.03.0135<br/&gt;0010278-40.2026.5.03.0099<br/&gt;0010338-74.2025.5.03.0187<br/&gt;0010338-98.2026.5.03.0006<br/&gt;0010345-19.2025.5.03.0041<br/&gt;0010351-97.2026.5.03.0103<br/&gt;0010423-25.2026.5.03.0058<br/&gt;0010454-88.2025.5.03.0152<br/&gt;0010477-74.2026.5.03.0095<br/&gt;0010539-50.2026.5.03.0084<br/&gt;0010540-75.2026.5.03.0006<br/&gt;0010554-20.2026.5.03.0019<br/&gt;0010646-63.2025.5.03.0138<br/&gt;0010655-15.2026.5.03.0033<br/&gt;0010656-72.2025.5.03.0182<br/&gt;0010678-87.2025.5.03.0164<br/&gt;0010755-68.2025.5.03.0141<br/&gt;0010764-52.2026.5.03.0187<br/&gt;0010834-95.2025.5.03.0028<br/&gt;0010885-87.2025.5.03.0002<br/&gt;0010926-43.2025.5.03.0135<br/&gt;0011001-95.2025.5.03.0163<br/&gt;0011016-42.2025.5.03.0138<br/&gt;0011018-09.2025.5.03.0042<br/&gt;0011020-25.2025.5.03.0059<br/&gt;0011030-91.2025.5.03.0084<br/&gt;0011087-46.2025.5.03.0105<br/&gt;0011141-71.2025.5.03.0053<br/&gt;0011194-19.2025.5.03.0064<br/&gt;0011301-17.2025.5.03.0144<br/&gt;0011359-39.2025.5.03.0073<br/&gt;0011457-94.2025.5.03.0082<br/&gt;0011510-22.2025.5.03.0035<br/&gt;0011604-37.2025.5.03.0142<br/&gt;0011743-09.2025.5.03.0103<br/&gt;0011762-54.2025.5.03.0187<br/&gt;0011957-48.2025.5.03.0087<br/&gt;0012118-38.2025.5.03.0029<br/&gt;0012224-19.2025.5.03.0055<br/&gt;0012688-32.2025.5.03.0091<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 147. C&oacute;d. 297296992. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:5:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:5:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:5:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">7. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da D&eacute;cima Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0011556-08.2025.5.03.0036</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 158. C&oacute;d. 297296993. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:6:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:6:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:6:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">8. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da D&eacute;cima Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0242800-46.1997.5.03.0005, 0011415-97.2018.5.03.0144<span class="toolTipProcesso" title="Processos:<br/&gt;0242800-46.1997.5.03.0005<br/&gt;0011415-97.2018.5.03.0144<br/&gt;0010384-95.2021.5.03.0060<br/&gt;0011031-97.2022.5.03.0111<br/&gt;0011266-13.2023.5.03.0149<br/&gt;0010330-97.2024.5.03.0069<br/&gt;0011719-24.2024.5.03.0100<br/&gt;0011064-26.2024.5.03.0044<br/&gt;0010981-74.2024.5.03.0152<br/&gt;0010168-32.2025.5.03.0178<br/&gt;0010003-42.2026.5.03.0083<br/&gt;0010008-85.2026.5.03.0076<br/&gt;0010021-54.2026.5.03.0183<br/&gt;0010155-90.2026.5.03.0180<br/&gt;0010176-11.2026.5.03.0069<br/&gt;0010186-98.2026.5.03.0184<br/&gt;0010305-48.2026.5.03.0026<br/&gt;0010321-77.2026.5.03.0001<br/&gt;0010459-77.2026.5.03.0184<br/&gt;0010464-34.2026.5.03.0044<br/&gt;0010566-37.2025.5.03.0094<br/&gt;0010586-83.2026.5.03.0129<br/&gt;0010626-78.2025.5.03.0039<br/&gt;0010726-29.2026.5.03.0029<br/&gt;0010798-81.2025.5.03.0148<br/&gt;0011024-41.2025.5.03.0163<br/&gt;0011186-74.2025.5.03.0021<br/&gt;0011309-70.2025.5.03.0054<br/&gt;0011335-28.2025.5.03.0035<br/&gt;0012244-69.2025.5.03.0100<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 158. C&oacute;d. 297296994. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:7:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:7:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:7:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">9. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Quarta Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0010614-93.2016.5.03.0099, 0011137-91.2016.5.03.0039<span class="toolTipProcesso" title="Processos:<br/&gt;0010614-93.2016.5.03.0099<br/&gt;0011137-91.2016.5.03.0039<br/&gt;0010230-24.2022.5.03.0131<br/&gt;0010689-26.2022.5.03.0034<br/&gt;0010871-97.2022.5.03.0135<br/&gt;0010087-17.2024.5.03.0082<br/&gt;0010592-85.2024.5.03.0024<br/&gt;0010853-05.2024.5.03.0039<br/&gt;0011077-16.2025.5.03.0165<br/&gt;0010838-76.2025.5.03.0079<br/&gt;0011019-65.2025.5.03.0180<br/&gt;0010010-72.2026.5.03.0135<br/&gt;0010027-29.2026.5.03.0129<br/&gt;0010043-49.2026.5.03.0107<br/&gt;0010068-83.2026.5.03.0003<br/&gt;0010094-86.2026.5.03.0066<br/&gt;0010221-05.2026.5.03.0137<br/&gt;0010267-66.2026.5.03.0113<br/&gt;0010292-49.2026.5.03.0026<br/&gt;0010299-47.2026.5.03.0024<br/&gt;0010322-16.2026.5.03.0178<br/&gt;0010371-69.2026.5.03.0174<br/&gt;0010376-94.2025.5.03.0152<br/&gt;0010448-82.2026.5.03.0108<br/&gt;0010531-10.2026.5.03.0105<br/&gt;0010549-20.2026.5.03.0044<br/&gt;0010576-89.2026.5.03.0080<br/&gt;0010585-80.2026.5.03.0038<br/&gt;0010664-68.2025.5.03.0111<br/&gt;0010678-89.2025.5.03.0131<br/&gt;0010790-30.2025.5.03.0011<br/&gt;0010836-24.2025.5.03.0074<br/&gt;0010851-16.2025.5.03.0034<br/&gt;0010872-94.2025.5.03.0097<br/&gt;0010882-57.2026.5.03.0145<br/&gt;0010897-59.2025.5.03.0016<br/&gt;0010943-73.2025.5.03.0040<br/&gt;0010966-97.2025.5.03.0111<br/&gt;0010975-62.2025.5.03.0013<br/&gt;0010984-29.2025.5.03.0173<br/&gt;0010986-65.2026.5.03.0075<br/&gt;0011121-18.2025.5.03.0009<br/&gt;0011215-51.2025.5.03.0110<br/&gt;0011224-04.2025.5.03.0113<br/&gt;0011225-21.2025.5.03.0167<br/&gt;0011298-41.2025.5.03.0054<br/&gt;0011358-70.2025.5.03.0100<br/&gt;0011391-70.2025.5.03.0129<br/&gt;0011601-77.2025.5.03.0079<br/&gt;0011990-18.2025.5.03.0029<br/&gt;0012043-55.2025.5.03.0075<br/&gt;0012054-68.2025.5.03.0145<br/&gt;0013087-87.2025.5.03.0050<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 70. C&oacute;d. 297296964. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:8:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:8:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:8:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">10. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Quarta Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0131200-16.2008.5.03.0108, 0002153-25.2013.5.03.0104<span class="toolTipProcesso" title="Processos:<br/&gt;0131200-16.2008.5.03.0108<br/&gt;0002153-25.2013.5.03.0104<br/&gt;0012221-52.2015.5.03.0043<br/&gt;0011651-91.2016.5.03.0185<br/&gt;0011287-92.2017.5.03.0021<br/&gt;0010449-11.2022.5.03.0075<br/&gt;0010482-87.2024.5.03.0153<br/&gt;0010872-83.2024.5.03.0015<br/&gt;0011948-43.2024.5.03.0145<br/&gt;0010126-51.2025.5.03.0026<br/&gt;0010145-71.2026.5.03.0010<br/&gt;0010045-19.2026.5.03.0010<br/&gt;0010102-25.2026.5.03.0111<br/&gt;0010148-59.2026.5.03.0096<br/&gt;0010237-19.2026.5.03.0020<br/&gt;0010291-61.2026.5.03.0027<br/&gt;0010316-96.2026.5.03.0149<br/&gt;0010323-11.2026.5.03.0110<br/&gt;0010351-93.2026.5.03.0072<br/&gt;0010368-55.2026.5.03.0032<br/&gt;0010373-21.2026.5.03.0180<br/&gt;0010461-77.2026.5.03.0077<br/&gt;0010614-50.2026.5.03.0097<br/&gt;0010635-45.2025.5.03.0005<br/&gt;0010636-59.2026.5.03.0081<br/&gt;0010644-78.2026.5.03.0067<br/&gt;0010655-05.2026.5.03.0101<br/&gt;0010699-98.2025.5.03.0023<br/&gt;0010702-40.2025.5.03.0092<br/&gt;0010705-72.2026.5.03.0055<br/&gt;0010737-05.2026.5.03.0079<br/&gt;0010813-83.2025.5.03.0040<br/&gt;0010816-25.2026.5.03.0033<br/&gt;0010842-76.2025.5.03.0156<br/&gt;0010898-88.2025.5.03.0066<br/&gt;0010992-69.2025.5.03.0152<br/&gt;0011063-47.2025.5.03.0160<br/&gt;0011095-27.2025.5.03.0039<br/&gt;0011105-27.2025.5.03.0183<br/&gt;0011117-35.2025.5.03.0185<br/&gt;0011178-34.2025.5.03.0139<br/&gt;0011186-86.2025.5.03.0114<br/&gt;0011233-38.2025.5.03.0186<br/&gt;0011247-97.2025.5.03.0064<br/&gt;0011491-39.2025.5.03.0092<br/&gt;0011519-58.2025.5.03.0075<br/&gt;0011660-07.2025.5.03.0163<br/&gt;0011673-20.2025.5.03.0029<br/&gt;0011679-43.2025.5.03.0153<br/&gt;0012022-66.2025.5.03.0144<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 83. C&oacute;d. 297296966. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:9:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:9:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:9:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">11. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Quarta Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0010258-45.2026.5.03.0165</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 93. C&oacute;d. 297296968. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:10:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:10:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:10:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">12. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Quarta Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000091-64.2015.5.03.0064, 0010854-37.2023.5.03.0164<span class="toolTipProcesso" title="Processos:<br/&gt;0000091-64.2015.5.03.0064<br/&gt;0010854-37.2023.5.03.0164<br/&gt;0011501-29.2024.5.03.0089<br/&gt;0010923-32.2025.5.03.0089<br/&gt;0010003-53.2026.5.03.0047<br/&gt;0010006-60.2026.5.03.0062<br/&gt;0010024-36.2026.5.03.0077<br/&gt;0010084-30.2026.5.03.0070<br/&gt;0010195-51.2026.5.03.0090<br/&gt;0010268-50.2026.5.03.0178<br/&gt;0010274-17.2025.5.03.0041<br/&gt;0010321-09.2026.5.03.0056<br/&gt;0010337-87.2026.5.03.0144<br/&gt;0010361-93.2026.5.03.0022<br/&gt;0010384-67.2026.5.03.0142<br/&gt;0010413-31.2026.5.03.0009<br/&gt;0010424-48.2026.5.03.0110<br/&gt;0010427-04.2026.5.03.0142<br/&gt;0010433-08.2026.5.03.0143<br/&gt;0010437-02.2026.5.03.0028<br/&gt;0010442-06.2025.5.03.0110<br/&gt;0010445-73.2026.5.03.0029<br/&gt;0010474-27.2026.5.03.0061<br/&gt;0010647-80.2025.5.03.0095<br/&gt;0010668-94.2025.5.03.0147<br/&gt;0010697-53.2025.5.03.0048<br/&gt;0010707-42.2026.5.03.0055<br/&gt;0010783-19.2026.5.03.0103<br/&gt;0010821-42.2026.5.03.0164<br/&gt;0010846-06.2026.5.03.0148<br/&gt;0010871-41.2025.5.03.0055<br/&gt;0010898-19.2025.5.03.0089<br/&gt;0010981-12.2025.5.03.0129<br/&gt;0011022-51.2025.5.03.0105<br/&gt;0011028-31.2025.5.03.0017<br/&gt;0011051-32.2025.5.03.0031<br/&gt;0011104-64.2025.5.03.0014<br/&gt;0011151-04.2025.5.03.0090<br/&gt;0011166-73.2025.5.03.0186<br/&gt;0011182-02.2025.5.03.0065<br/&gt;0011263-47.2025.5.03.0033<br/&gt;0011299-53.2025.5.03.0142<br/&gt;0011370-88.2025.5.03.0034<br/&gt;0011497-57.2025.5.03.0056<br/&gt;0011555-06.2025.5.03.0074<br/&gt;0011632-29.2025.5.03.0134<br/&gt;0011785-72.2025.5.03.0163<br/&gt;0011792-78.2025.5.03.0029<br/&gt;0012049-90.2025.5.03.0098<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 93. C&oacute;d. 297296972. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:11:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:11:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:11:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">13. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Quarta Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0010761-92.2017.5.03.0032, 0010758-81.2022.5.03.0091<span class="toolTipProcesso" title="Processos:<br/&gt;0010761-92.2017.5.03.0032<br/&gt;0010758-81.2022.5.03.0091<br/&gt;0010912-54.2023.5.03.0030<br/&gt;0011046-32.2023.5.03.0111<br/&gt;0011723-02.2023.5.03.0131<br/&gt;0010089-92.2024.5.03.0144<br/&gt;0010280-70.2024.5.03.0037<br/&gt;0010341-55.2024.5.03.0028<br/&gt;0010687-97.2024.5.03.0030<br/&gt;0010996-98.2024.5.03.0069<br/&gt;0010712-11.2024.5.03.0063<br/&gt;0010040-91.2025.5.03.0087<br/&gt;0010093-97.2025.5.03.0111<br/&gt;0011078-77.2025.5.03.0075<br/&gt;0010021-79.2026.5.03.0110<br/&gt;0010021-29.2026.5.03.0062<br/&gt;0010057-58.2026.5.03.0131<br/&gt;0010085-61.2026.5.03.0087<br/&gt;0010095-67.2026.5.03.0035<br/&gt;0010105-10.2026.5.03.0004<br/&gt;0010134-64.2026.5.03.0132<br/&gt;0010134-52.2026.5.03.0136<br/&gt;0010275-27.2026.5.03.0183<br/&gt;0010319-76.2026.5.03.0076<br/&gt;0010326-59.2026.5.03.0079<br/&gt;0010335-44.2026.5.03.0136<br/&gt;0010400-75.2026.5.03.0027<br/&gt;0010459-14.2026.5.03.0011<br/&gt;0010487-10.2025.5.03.0013<br/&gt;0010535-65.2026.5.03.0002<br/&gt;0010573-82.2025.5.03.0141<br/&gt;0010580-92.2026.5.03.0059<br/&gt;0010581-88.2025.5.03.0099<br/&gt;0010602-19.2026.5.03.0038<br/&gt;0010621-45.2026.5.03.0096<br/&gt;0010632-30.2026.5.03.0143<br/&gt;0010632-58.2026.5.03.0069<br/&gt;0010706-91.2025.5.03.0055<br/&gt;0010723-95.2025.5.03.0001<br/&gt;0010757-21.2025.5.03.0179<br/&gt;0010796-63.2025.5.03.0164<br/&gt;0010891-13.2026.5.03.0050<br/&gt;0010938-83.2025.5.03.0094<br/&gt;0010996-36.2026.5.03.0164<br/&gt;0011042-61.2025.5.03.0034<br/&gt;0011051-07.2025.5.03.0007<br/&gt;0011064-15.2025.5.03.0101<br/&gt;0011079-66.2025.5.03.0009<br/&gt;0011212-14.2025.5.03.0105<br/&gt;0011301-49.2025.5.03.0101<br/&gt;0011345-46.2025.5.03.0173<br/&gt;0011427-10.2025.5.03.0163<br/&gt;0011505-38.2025.5.03.0087<br/&gt;0011565-13.2025.5.03.0054<br/&gt;0011589-75.2025.5.03.0075<br/&gt;0011672-66.2025.5.03.0148<br/&gt;0011732-88.2025.5.03.0067<br/&gt;0011905-15.2025.5.03.0067<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 104. C&oacute;d. 297296984. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:12:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:12:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:12:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">14. Ata - Ata da Sess&atilde;o Ordin&aacute;ria do dia 05.08.2026 - 4&ordf; Turma</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Quarta Turma.</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 69. C&oacute;d. 297297213. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:13:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:13:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:13:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">15. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Segunda Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0011615-52.2015.5.03.0163, 0010392-24.2019.5.03.0034<span class="toolTipProcesso" title="Processos:<br/&gt;0011615-52.2015.5.03.0163<br/&gt;0010392-24.2019.5.03.0034<br/&gt;0010211-91.2019.5.03.0173<br/&gt;0011956-30.2019.5.03.0069<br/&gt;0010271-13.2021.5.03.0038<br/&gt;0010311-98.2021.5.03.0036<br/&gt;0010581-35.2022.5.03.0183<br/&gt;0010632-73.2023.5.03.0098<br/&gt;0010353-42.2024.5.03.0037<br/&gt;0011026-02.2024.5.03.0145<br/&gt;0010556-46.2024.5.03.0023<br/&gt;0011213-57.2024.5.03.0097<br/&gt;0010126-26.2025.5.03.0099<br/&gt;0012202-47.2025.5.03.0091<br/&gt;0010524-77.2025.5.03.0032<br/&gt;0010500-30.2025.5.03.0103<br/&gt;0010294-28.2025.5.03.0002<br/&gt;0010745-04.2025.5.03.0083<br/&gt;0010005-88.2026.5.03.0090<br/&gt;0010149-27.2026.5.03.0037<br/&gt;0010151-44.2026.5.03.0183<br/&gt;0010156-10.2026.5.03.0137<br/&gt;0010193-33.2026.5.03.0106<br/&gt;0010215-35.2026.5.03.0157<br/&gt;0010278-43.2025.5.03.0077<br/&gt;0010290-82.2026.5.03.0025<br/&gt;0010299-58.2026.5.03.0182<br/&gt;0010339-96.2026.5.03.0034<br/&gt;0010346-42.2026.5.03.0017<br/&gt;0010414-11.2026.5.03.0043<br/&gt;0010442-05.2026.5.03.0099<br/&gt;0010472-72.2026.5.03.0056<br/&gt;0010478-66.2026.5.03.0028<br/&gt;0010491-10.2026.5.03.0014<br/&gt;0010499-24.2026.5.03.0131<br/&gt;0010512-66.2025.5.03.0031<br/&gt;0010521-82.2025.5.03.0013<br/&gt;0010537-24.2026.5.03.0135<br/&gt;0010549-84.2025.5.03.0131<br/&gt;0010553-73.2026.5.03.0168<br/&gt;0010558-78.2026.5.03.0012<br/&gt;0010581-92.2026.5.03.0054<br/&gt;0010592-14.2025.5.03.0004<br/&gt;0010624-77.2026.5.03.0038<br/&gt;0010643-73.2025.5.03.0182<br/&gt;0010719-28.2026.5.03.0129<br/&gt;0010733-66.2025.5.03.0187<br/&gt;0010796-26.2026.5.03.0165<br/&gt;0010801-81.2025.5.03.0036<br/&gt;0010802-97.2026.5.03.0079<br/&gt;0010830-87.2025.5.03.0083<br/&gt;0010844-50.2025.5.03.0090<br/&gt;0010872-51.2026.5.03.0100<br/&gt;0010908-77.2025.5.03.0052<br/&gt;0010921-70.2025.5.03.0054<br/&gt;0010956-51.2025.5.03.0144<br/&gt;0010967-79.2025.5.03.0112<br/&gt;0010972-29.2025.5.03.0136<br/&gt;0010995-14.2025.5.03.0026<br/&gt;0011009-81.2025.5.03.0063<br/&gt;0011034-24.2026.5.03.0075<br/&gt;0011139-30.2025.5.03.0012<br/&gt;0011155-06.2025.5.03.0037<br/&gt;0011180-92.2025.5.03.0142<br/&gt;0011217-42.2025.5.03.0006<br/&gt;0011227-07.2025.5.03.0097<br/&gt;0011265-91.2025.5.03.0073<br/&gt;0011371-79.2025.5.03.0032<br/&gt;0011380-33.2025.5.03.0067<br/&gt;0011400-79.2025.5.03.0081<br/&gt;0011458-87.2025.5.03.0144<br/&gt;0011510-60.2025.5.03.0087<br/&gt;0011626-22.2025.5.03.0037<br/&gt;0011674-11.2025.5.03.0027<br/&gt;0011690-61.2025.5.03.0092<br/&gt;0011746-80.2025.5.03.0129<br/&gt;0011778-63.2025.5.03.0104<br/&gt;0011779-48.2025.5.03.0104<br/&gt;0011930-51.2025.5.03.0027<br/&gt;0013278-75.2025.5.03.0069<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 1. C&oacute;d. 297297242. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:14:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:14:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:14:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">16. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Segunda Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0080500-64.2009.5.03.0152, 0184000-41.1996.5.03.0108<span class="toolTipProcesso" title="Processos:<br/&gt;0080500-64.2009.5.03.0152<br/&gt;0184000-41.1996.5.03.0108<br/&gt;0010780-41.2015.5.03.0009<br/&gt;0011202-69.2016.5.03.0077<br/&gt;0010398-27.2017.5.03.0058<br/&gt;0010418-88.2019.5.03.0109<br/&gt;0011286-80.2017.5.03.0030<br/&gt;0010166-90.2021.5.03.0020<br/&gt;0010407-18.2021.5.03.0003<br/&gt;0010516-07.2021.5.03.0076<br/&gt;0010382-90.2022.5.03.0028<br/&gt;0010346-30.2022.5.03.0034<br/&gt;0010619-05.2022.5.03.0003<br/&gt;0010134-49.2023.5.03.0171<br/&gt;0010682-06.2023.5.03.0129<br/&gt;0010662-38.2023.5.03.0186<br/&gt;0010116-58.2024.5.03.0182<br/&gt;0010553-82.2024.5.03.0026<br/&gt;0010911-93.2024.5.03.0140<br/&gt;0011458-92.2024.5.03.0089<br/&gt;0010260-15.2026.5.03.0165<br/&gt;0010021-42.2026.5.03.0090<br/&gt;0010117-73.2026.5.03.0020<br/&gt;0010125-45.2026.5.03.0054<br/&gt;0010133-06.2026.5.03.0027<br/&gt;0010140-44.2026.5.03.0141<br/&gt;0010160-11.2026.5.03.0052<br/&gt;0010160-02.2026.5.03.0055<br/&gt;0010187-11.2026.5.03.0111<br/&gt;0010216-91.2026.5.03.0004<br/&gt;0010227-51.2026.5.03.0027<br/&gt;0010232-83.2026.5.03.0153<br/&gt;0010232-78.2026.5.03.0090<br/&gt;0010248-96.2026.5.03.0004<br/&gt;0010266-96.2026.5.03.0108<br/&gt;0010276-96.2026.5.03.0058<br/&gt;0010280-98.2026.5.03.0005<br/&gt;0010290-43.2026.5.03.0038<br/&gt;0010305-70.2026.5.03.0051<br/&gt;0010330-17.2026.5.03.0073<br/&gt;0010336-88.2026.5.03.0084<br/&gt;0010339-78.2026.5.03.0137<br/&gt;0010350-76.2026.5.03.0018<br/&gt;0010436-94.2026.5.03.0067<br/&gt;0010463-45.2026.5.03.0110<br/&gt;0010475-33.2026.5.03.0054<br/&gt;0010490-16.2026.5.03.0114<br/&gt;0010490-97.2026.5.03.0087<br/&gt;0010545-23.2026.5.03.0063<br/&gt;0010551-84.2026.5.03.0142<br/&gt;0010562-92.2026.5.03.0052<br/&gt;0010579-95.2025.5.03.0042<br/&gt;0010591-86.2026.5.03.0006<br/&gt;0010652-67.2025.5.03.0139<br/&gt;0010670-35.2025.5.03.0092<br/&gt;0010677-34.2025.5.03.0025<br/&gt;0010687-61.2026.5.03.0084<br/&gt;0010692-26.2026.5.03.0103<br/&gt;0010766-20.2025.5.03.0005<br/&gt;0010799-94.2026.5.03.0095<br/&gt;0010816-09.2026.5.03.0103<br/&gt;0010820-70.2025.5.03.0171<br/&gt;0010841-29.2025.5.03.0015<br/&gt;0010902-03.2025.5.03.0139<br/&gt;0010904-33.2026.5.03.0043<br/&gt;0010958-13.2025.5.03.0179<br/&gt;0010984-44.2026.5.03.0092<br/&gt;0011044-07.2025.5.03.0139<br/&gt;0011081-18.2025.5.03.0112<br/&gt;0011098-76.2025.5.03.0040<br/&gt;0011170-39.2025.5.03.0145<br/&gt;0011187-09.2025.5.03.0167<br/&gt;0011231-28.2025.5.03.0167<br/&gt;0011347-51.2025.5.03.0129<br/&gt;0011460-91.2025.5.03.0068<br/&gt;0011662-71.2025.5.03.0067<br/&gt;0011686-35.2025.5.03.0056<br/&gt;0011710-63.2025.5.03.0056<br/&gt;0011937-57.2025.5.03.0087<br/&gt;0012066-42.2025.5.03.0029<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 17. C&oacute;d. 297297274. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:15:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:15:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:15:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">17. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Segunda Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0080000-24.2004.5.03.0103, 0100400-16.2001.5.03.0022<span class="toolTipProcesso" title="Processos:<br/&gt;0080000-24.2004.5.03.0103<br/&gt;0100400-16.2001.5.03.0022<br/&gt;0011497-77.2015.5.03.0098<br/&gt;0012266-92.2015.5.03.0031<br/&gt;0011266-97.2016.5.03.0168<br/&gt;0011930-32.2016.5.03.0103<br/&gt;0011609-52.2017.5.03.0041<br/&gt;0010758-18.2018.5.03.0028<br/&gt;0011092-78.2018.5.03.0084<br/&gt;0011207-70.2019.5.03.0050<br/&gt;0010457-09.2019.5.03.0102<br/&gt;0010235-17.2020.5.03.0034<br/&gt;0010866-03.2021.5.03.0041<br/&gt;0010160-31.2022.5.03.0026<br/&gt;0010131-49.2022.5.03.0165<br/&gt;0010892-20.2022.5.03.0185<br/&gt;0010046-22.2023.5.03.0038<br/&gt;0010204-70.2023.5.03.0105<br/&gt;0011084-73.2023.5.03.0069<br/&gt;0010886-31.2023.5.03.0006<br/&gt;0010943-74.2024.5.03.0148<br/&gt;0010837-84.2024.5.03.0028<br/&gt;0010923-95.2024.5.03.0144<br/&gt;0010785-02.2024.5.03.0186<br/&gt;0010764-05.2024.5.03.0096<br/&gt;0011049-20.2024.5.03.0024<br/&gt;0010079-90.2025.5.03.0054<br/&gt;0010110-27.2025.5.03.0114<br/&gt;0010826-26.2025.5.03.0091<br/&gt;0010286-54.2025.5.03.0001<br/&gt;0010465-83.2025.5.03.0034<br/&gt;0010388-69.2026.5.03.0089<br/&gt;0010145-44.2026.5.03.0019<br/&gt;0010203-46.2026.5.03.0181<br/&gt;0010218-57.2026.5.03.0167<br/&gt;0010244-45.2026.5.03.0041<br/&gt;0010244-93.2026.5.03.0025<br/&gt;0010259-31.2026.5.03.0003<br/&gt;0010282-37.2026.5.03.0080<br/&gt;0010293-32.2026.5.03.0156<br/&gt;0010309-58.2026.5.03.0132<br/&gt;0010315-26.2026.5.03.0145<br/&gt;0010324-80.2026.5.03.0082<br/&gt;0010333-43.2026.5.03.0114<br/&gt;0010359-58.2025.5.03.0055<br/&gt;0010371-85.2026.5.03.0007<br/&gt;0010395-11.2026.5.03.0041<br/&gt;0010412-28.2026.5.03.0015<br/&gt;0010432-58.2026.5.03.0099<br/&gt;0010453-07.2026.5.03.0108<br/&gt;0010503-56.2026.5.03.0165<br/&gt;0010506-32.2026.5.03.0061<br/&gt;0010523-69.2026.5.03.0093<br/&gt;0010586-70.2026.5.03.0004<br/&gt;0010590-08.2026.5.03.0134<br/&gt;0010602-15.2026.5.03.0104<br/&gt;0010606-96.2026.5.03.0057<br/&gt;0010616-20.2026.5.03.0097<br/&gt;0010636-42.2025.5.03.0098<br/&gt;0010697-92.2025.5.03.0035<br/&gt;0010763-58.2026.5.03.0093<br/&gt;0010822-69.2025.5.03.0129<br/&gt;0010890-03.2025.5.03.0005<br/&gt;0010914-66.2025.5.03.0058<br/&gt;0010938-17.2025.5.03.0019<br/&gt;0011074-96.2025.5.03.0024<br/&gt;0011105-92.2025.5.03.0032<br/&gt;0011149-61.2025.5.03.0178<br/&gt;0011171-41.2025.5.03.0010<br/&gt;0011221-21.2025.5.03.0187<br/&gt;0011226-17.2025.5.03.0034<br/&gt;0011302-76.2025.5.03.0087<br/&gt;0011330-68.2025.5.03.0079<br/&gt;0011426-41.2025.5.03.0093<br/&gt;0011457-97.2025.5.03.0081<br/&gt;0011614-78.2025.5.03.0143<br/&gt;0011750-34.2025.5.03.0092<br/&gt;0012101-80.2025.5.03.0100<br/&gt;0012938-34.2025.5.03.0069<br/&gt;0013272-68.2025.5.03.0069<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 33. C&oacute;d. 297297280. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:16:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:16:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:16:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">18. Pauta - Pauta de Julgamento</td></tr><tr><td class="campo" style="text-align: left">Secretaria da Segunda Turma.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0001418-49.2011.5.03.0140, 0000160-86.2011.5.03.0048<span class="toolTipProcesso" title="Processos:<br/&gt;0001418-49.2011.5.03.0140<br/&gt;0000160-86.2011.5.03.0048<br/&gt;0010670-92.2017.5.03.0099<br/&gt;0010583-70.2019.5.03.0163<br/&gt;0010632-37.2022.5.03.0089<br/&gt;0010638-23.2022.5.03.0096<br/&gt;0010268-03.2023.5.03.0163<br/&gt;0010377-34.2023.5.03.0028<br/&gt;0010649-05.2023.5.03.0068<br/&gt;0011381-94.2023.5.03.0032<br/&gt;0010837-51.2024.5.03.0039<br/&gt;0011191-25.2024.5.03.0153<br/&gt;0010111-89.2025.5.03.0153<br/&gt;0010112-25.2025.5.03.0040<br/&gt;0011325-07.2025.5.03.0092<br/&gt;0010005-45.2026.5.03.0072<br/&gt;0010013-55.2026.5.03.0061<br/&gt;0010015-91.2026.5.03.0039<br/&gt;0010023-17.2026.5.03.0056<br/&gt;0010050-95.2026.5.03.0186<br/&gt;0010054-95.2026.5.03.0069<br/&gt;0010070-40.2026.5.03.0072<br/&gt;0010093-83.2026.5.03.0169<br/&gt;0010112-75.2026.5.03.0012<br/&gt;0010145-39.2026.5.03.0150<br/&gt;0010148-07.2026.5.03.0178<br/&gt;0010171-94.2026.5.03.0131<br/&gt;0010195-92.2026.5.03.0044<br/&gt;0010222-35.2026.5.03.0025<br/&gt;0010238-30.2026.5.03.0076<br/&gt;0010240-21.2026.5.03.0069<br/&gt;0010241-72.2026.5.03.0144<br/&gt;0010252-69.2025.5.03.0069<br/&gt;0010275-31.2026.5.03.0020<br/&gt;0010311-15.2026.5.03.0007<br/&gt;0010319-40.2026.5.03.0185<br/&gt;0010341-34.2025.5.03.0153<br/&gt;0010359-60.2026.5.03.0043<br/&gt;0010385-71.2026.5.03.0168<br/&gt;0010399-62.2026.5.03.0004<br/&gt;0010424-83.2026.5.03.0163<br/&gt;0010476-09.2026.5.03.0057<br/&gt;0010482-67.2026.5.03.0040<br/&gt;0010488-51.2025.5.03.0156<br/&gt;0010494-40.2026.5.03.0183<br/&gt;0010500-05.2025.5.03.0079<br/&gt;0010528-89.2026.5.03.0029<br/&gt;0010546-88.2026.5.03.0004<br/&gt;0010556-34.2026.5.03.0069<br/&gt;0010607-45.2026.5.03.0069<br/&gt;0010608-43.2026.5.03.0097<br/&gt;0010609-86.2025.5.03.0089<br/&gt;0010672-18.2026.5.03.0044<br/&gt;0010689-89.2026.5.03.0097<br/&gt;0010738-54.2025.5.03.0069<br/&gt;0010795-42.2025.5.03.0079<br/&gt;0010818-16.2025.5.03.0005<br/&gt;0010843-60.2026.5.03.0048<br/&gt;0010878-36.2026.5.03.0075<br/&gt;0010888-53.2025.5.03.0160<br/&gt;0010950-73.2025.5.03.0102<br/&gt;0011007-78.2025.5.03.0074<br/&gt;0011058-63.2025.5.03.0018<br/&gt;0011069-25.2025.5.03.0105<br/&gt;0011078-04.2025.5.03.0164<br/&gt;0011127-43.2025.5.03.0100<br/&gt;0011170-59.2025.5.03.0009<br/&gt;0011177-16.2025.5.03.0053<br/&gt;0011199-91.2025.5.03.0015<br/&gt;0011212-20.2025.5.03.0006<br/&gt;0011287-10.2025.5.03.0087<br/&gt;0011295-02.2025.5.03.0082<br/&gt;0011388-89.2025.5.03.0073<br/&gt;0011405-77.2025.5.03.0089<br/&gt;0011440-43.2025.5.03.0087<br/&gt;0011712-93.2025.5.03.0036<br/&gt;0011748-42.2025.5.03.0067<br/&gt;0011792-68.2025.5.03.0097<br/&gt;0011839-35.2025.5.03.0067<br/&gt;0012104-41.2025.5.03.0098<br/&gt;">(...)</span></td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 3&ordf; Regi&atilde;o   do dia <span style="font-weight: bold;">13/08/2026</span>. P&aacute;g. 52. C&oacute;d. 297297286. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:17:j_id180'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-file-lines iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar Texto]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:17:j_id183'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-regular fa-file-pdf iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Visualizar PDF]</a><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:17:j_id186'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta"></i>
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;[Di&aacute;rio]</a></td></tr></table></table></fieldset>
+&#9;
+&#9;<script type="text/javascript">
+		var $j = jQuery.noConflict();
+		
+		$j(function() {
+			$j('.toolTipProcesso').tooltip({
+				bodyHandler: function() {
+					return this.tooltipText;
+				}
+			});
+		});
+	</script>
+&#9;
+&#9;</div>
+&#9;&#9;&#9;&#9;</div>
+&#9;&#9;&#9;&#9;
+&#9;&#9;&#9;&#9;<div id="materiapublicadaInferiorNav" class="plc-navegacao">
+&#9;<!-- INICIALIZACAO -->
+
+&#9;<!--
+				movido para inputGeralPaginacaoLogicaItens
+				
+				<plcf:escondido id="ordenacaoPlc" value=""/>
+				
+				<input type="hidden" id="navDe" name="navDe"
+					value="1" />
+
+				<c:if test="false">
+					<input type="hidden" id="mcPlc" name="mcPlc" value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="mfPlc" name="mfPlc" value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="modoJanelaPlc" name="modoJanelaPlc"
+						value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="indMultiSelPlc" name="indMultiSelPlc"
+						value="" />
+				</c:if>
+			
+			--><table class="plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario"></td><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;1  at&eacute;  18  de 18</td></tr></table>
+&#9;&#9;&#9;&#9;</div>
+&#9;&#9;&#9;</div>
+&#9;&#9;&#9;&#9;&#9;&#9;<script type="text/javascript">
+							//<![CDATA[
+							setAlertaAlteracao("","");
+							//]]>
+						</script> 
+&#9;<div id="plc-auxiliar" class="plc-auxiliar">
+&#9;&#9;
+&#9;&#9;<input type="hidden" id="detCorrPlc" name="detCorrPlc" value="">
+&#9;&#9;
+&#9;&#9;<input type="hidden" id="tabCorrPlc" name="tabCorrPlc" value="">
+&#9;&#9;
+&#9;&#9;<input type="hidden" id="detCorrPlcPaginado" name="detCorrPlcPaginado" value="">&#9;&#9;
+&#9;&#9;
+&#9;&#9;<input type="hidden" name="exibeEdDocPlc" value="">
+&#9;&#9;
+&#9;&#9;<input id="corpo:formulario:indExcDetPlc" type="hidden" name="indExcDetPlc">&#9;&#9;&#9;
+&#9;</div>
+
+ &#9;<script type="text/javascript">
+ 	//<![CDATA[
+	setTimeout(setUpOnFocusHandlers, 0);
+	setCampoFocus('');
+ 	setTimeout(moverFoco, 0);
+ 	setTimeout(function(){
+		escrevePlcAfter(jQuery('span'),'p_AFRequired','Este campo é obrigatório. Preencha-o antes de gravar.', '/dejt/plc/midia/ico_obrig.png')
+	}, 0);
+	//]]>		
+	</script></span>
+&#9;&#9;&#9;&#9;<!-- FIM --></span><input type="hidden" name="org.apache.myfaces.trinidad.faces.FORM" value="corpo:formulario"><input type="hidden" name="_noJavaScript" value="false"><span id="tr_corpo:formulario_Postscript"><input type="hidden" name="javax.faces.ViewState" value="!9xijjhiu5"><input type="hidden" name="source"><script type="text/javascript">TrPage.getInstance()._addResetFields('corpo:formulario',["source"]);</script><script type="text/javascript">if(window['_dfs'] == undefined){window['_dfs']=new Object();}if(window['_dl'] == undefined){window['_dl']=new Object();}_dfs["corpo:formulario:dataPublicacaoINI"]='dd/MM/yyyy';_dl["corpo:formulario:dataPublicacaoINI"]=null;_dfs["corpo:formulario:dataPublicacaoFIM"]='dd/MM/yyyy';_dl["corpo:formulario:dataPublicacaoFIM"]=null;function _corpo_formularioValidator(f,s){return true;}</script></span><script type="text/javascript">_submitFormCheck();</script></form><span id="corpo:ajaxlogQA" class="af_panelGroupLayout"></span>
+&#9;&#9;
+&#9;&#9;<div class="clear"> </div>&#9;</div><div class="clear"></div>
+&#9;<div id="plc-rodape" class="ui-widget ui-widget-header ui-corner-bottom plc-rodape plc-rodape-classico">
+&#9;
+&#9;<div class="plc-rodape-complemento-empresa">
+&#9;&#9;<div id="plc-rodape-complemento" class="plc-rodape-complemento"><p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p style="text-align: center;">Conselho Superior da Justi&ccedil;a do Trabalho - Endere&ccedil;o: SAFS - Qd 8, Conj A, Sala A5.71</p>
+<p style="text-align: center;">CEP 70.070-943 - Tel.: (61) 3043-4005 / 3043-3804</p>
+&#9;&#9;</div>
+&#9;&#9;<p><span class="af_outputLabel" style="display: inline">dejt</span>-<span class="af_outputLabel" style="display: inline">7.6.0-3</span>
+&#9;&#9;&#9;  
+&#9;&#9;&#9;(<span class="af_outputLabel" style="display: inline">master</span>)
+&#9;&#9;&#9;
+&#9;&#9;</p>
+&#9;</div>
+
+ &#9;<!--  psiu -->
+&#9;&#9;<script id="psiu-feedback" src="https://psiu.jt.jus.br/assets/js/psiu-feedback.js" data-produto="b2775866-bced-4bf4-a7aa-278d7f926f41" data-assets="https%3A%2F%2Fpsiu.jt.jus.br%2Fassets" data-api="https%3A%2F%2Fpsiu-backend.jt.jus.br%2Fapi"></script>
+
+&#9;<!-- reCaptcha v3 --><form id="rodape" name="rodape" style="margin:0px" method="POST" onkeypress="return _submitOnEnter(event,'rodape');" action="/dejt/f/n/materiapublicadacon">
+&#9;&#9;&#9;<h1 style="visibility:hidden;width:1px;height:1px;"><button id="plc-acao-desconecta" name="plc-acao-desconecta" type="button" title="Desconectar" onclick="submitForm('rodape',1,{source:'plc-acao-desconecta'});return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="display:none af_commandButton"><table><tr><td><div class="plc-corpo-acao-t">Desconectar</div></td></tr></table></button>
+<script id="avaliar:plc-acao-desconecta" type="text/javascript">
+</script>
+ 
+&#9;&#9;&#9;</h1><input type="hidden" name="org.apache.myfaces.trinidad.faces.FORM" value="rodape"><input type="hidden" name="_noJavaScript" value="false"><span id="tr_rodape_Postscript"><input type="hidden" name="javax.faces.ViewState" value="!9xijjhiu5"><script type="text/javascript">function _rodapeValidator(f,s){return true;}</script></span><script type="text/javascript">_submitFormCheck();</script></form>&#9;
+&#9;
+&#9;&#9;<div id="plc-rodape-timeout" class="plc-rodape-timeout" title="Tempo restante de inatividade para que sua sess&atilde;o seja encerrada, seguido do tempo padr&atilde;o da sesss&atilde;o">
+&#9;&#9;&#9;<span class="ico iTempologado"></span> Tempo sessao: <em>30.0m</em>
+&#9;&#9;</div>
+&#9;&#9;<div id="plc-rodape-timeout" class="plc-rodape-timeout" title="Tempo restante de inatividade para que sua sess&atilde;o seja encerrada, seguido do tempo padr&atilde;o da sesss&atilde;o"> 
+&#9;        <span class="ico iHoralogin"></span> Hora login: <em>15:13</em>
+&#9;&#9;</div></div><script language="javascript" type="text/javascript">
+//<![CDATA[
+function faceletsDebug(URL) { day = new Date(); id = day.getTime(); eval("page" + id + " = window.open(URL, '" + id + "', 'toolbar=0,scrollbars=1,location=0,statusbar=0,menubar=0,resizable=1,width=800,height=600,left = 240,top = 212');"); };var faceletsOrigKeyup = document.onkeyup; document.onkeyup = function(e) { if (window.event) e = window.event; if (String.fromCharCode(e.keyCode) == 'D' & e.shiftKey & e.ctrlKey) faceletsDebug('/dejt/f/n/materiapublicadacon?facelets.ui.DebugOutput=1784327836429'); else if (faceletsOrigKeyup) faceletsOrigKeyup(e); };
+//]]>
+</script>
+</div>
+
+
+
+
+
+</body>
+<!--/f:view-->
+</html>

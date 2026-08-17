@@ -1,0 +1,1 @@
+{"errors":[{"internalCode":"999.001","userMessage":"deve ser menor ou igual a 500","moreDetails":"Erro de validação genérico.","targetName":"quantidade"}],"httpCode":422}

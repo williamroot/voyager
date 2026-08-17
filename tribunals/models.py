@@ -446,6 +446,14 @@ class IngestionRun(models.Model):
     ]
 
     tribunal = models.ForeignKey(Tribunal, on_delete=models.PROTECT, related_name='runs')
+    # QUAL PORTA trouxe estes itens. Até 08/2026 só existia uma (o DJEN), então
+    # o default preserva a história inteira sem backfill. A partir das fontes de
+    # diário próprio (DJE/TJSP, DEJT, STF — ver `diarios/base.py`) o mesmo
+    # tribunal passa a ter runs de origens diferentes, e SEM este campo o
+    # backfill do DJEN pularia o dia como "já coberto" ao ver um run de outra
+    # fonte na mesma janela. Toda leitura que mede saúde/cobertura do DJEN tem
+    # que filtrar fonte='djen'.
+    fonte = models.CharField(max_length=16, default='djen', db_index=True)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_RUNNING)
@@ -463,6 +471,7 @@ class IngestionRun(models.Model):
             models.Index(fields=['tribunal', '-started_at']),
             models.Index(fields=['status', '-started_at']),
             models.Index(fields=['tribunal', 'janela_inicio', 'janela_fim']),
+            models.Index(fields=['fonte', 'tribunal', 'janela_inicio']),
         ]
 
 

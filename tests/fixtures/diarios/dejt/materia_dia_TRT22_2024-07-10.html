@@ -1,0 +1,703 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd" >
+<html xmlns="http://www.w3.org/1999/xhtml" lang="pt-br">
+<head>
+&#9;<title>Pesquisas &gt; Di&aacute;rios &gt; Pesquisa Avan&ccedil;ada
+&#9;</title>
+
+&#9;<link class="component" href="/dejt/f/a4j/s/3_3_3.Finalorg/richfaces/renderkit/html/css/basic_classes.xcss/DATB/eAF7sqpgb-jyGdIAFrMEaw__" rel="stylesheet" type="text/css" /><link class="component" href="/dejt/f/a4j/s/3_3_3.Finalorg/richfaces/renderkit/html/css/extended_classes.xcss/DATB/eAF7sqpgb-jyGdIAFrMEaw__" media="rich-extended-skinning" rel="stylesheet" type="text/css" /><script src="/dejt/f/a4j/g/3_3_3.Finalorg.ajax4jsf.javascript.AjaxScript" type="text/javascript"></script><script src="/dejt/f/a4j/g/3_3_3.Finalorg/richfaces/renderkit/html/scripts/jquery/jquery.js" type="text/javascript"></script><script type="text/javascript">window.RICH_FACES_EXTENDED_SKINNING_ON=true;</script><script src="/dejt/f/a4j/g/3_3_3.Finalorg/richfaces/renderkit/html/scripts/skinning.js" type="text/javascript"></script><link href="/dejt/fontawesome/css/fontawesome.css" rel="stylesheet">
+  &#9;<link href="/dejt/fontawesome/css/regular.css" rel="stylesheet">
+  &#9;<link href="/dejt/fontawesome/css/solid.css" rel="stylesheet">
+
+&#9;<link rel="shortcut icon" href="/dejt/dejt.ico">
+&#9;
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/azul/pele.css" type="text/css" charset="UTF-8">
+&#9;
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/jquery/jquery.autocomplete.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/jquery/thickbox.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/css/ui.jqgrid.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/plc.geral.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/app.geral.css" type="text/css" charset="UTF-8">
+&#9;
+&#9;<script type="text/javascript" charset="UTF-8">
+		function setContextPath() {
+			plcGeral.contextPath = "/dejt";
+			plcGeral.parcialAjaxUsa = false;
+		}
+	</script>
+&#9;
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery-1.4.2.min.js"></script>
+&#9;<script src="/dejt/plc/javascript/PlcGeral.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/ui/jquery-ui-min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/cookie/jquery.cookie.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/ui/i18n/ui.datepicker-pt-BR.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.bgiframe.min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.ajaxQueue.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.autocomplete.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.autogrow.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.maskinput.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/js/i18n/grid.locale-pt-br.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/js/jquery.jqGrid.min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/starRating/jquery.starRating.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/fckeditor/fckeditor.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/app.comuns.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/app.geral.js?v=7.6.0-3"></script>
+&#9;
+&#9;<script type="text/javascript">
+	  jQuery(function(){
+			jQuery("a.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+			jQuery("span.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+			jQuery("button.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+		});
+	</script>
+</head>
+
+<body id="corpo_geral" onload="iniciarPagina();" onkeydown="return executarAcaoFuncoes(event);">
+
+<style type="text/css">
+#simplemodal-container a.modalCloseImg {
+	background: none;
+	right: -14px;
+	width: 22px;
+	height: 26px;
+	filter: progid :     DXImageTransform.Microsoft.AlphaImageLoader (   
+				   src =     'img/x.png', sizingMethod =     'scale' );
+}
+
+a.dcontexto {
+	position: relative;
+	font: 12px arial, verdana, helvetica, sans-serif;
+	padding: 0;
+	text-decoration: none;
+}
+
+a.dcontexto:hover {
+	background: transparent;
+}
+
+a.dcontexto tooltip {
+	display: none
+}
+
+a.dcontexto:hover tooltip {
+	display: block;
+	position: absolute;
+	width: 400px;
+	top: 20px;
+	right-align: justify;
+	left: 0;
+	font: 12px arial, verdana, helvetica, sans-serif;
+	padding: 5px 10px;
+	border: 1px solid #999;
+	background: #FFF8DC;
+	color: #000;
+}
+</style>
+
+
+&#9;<link href="/dejt/plc/javascript-w2/jquery/tooltip/jquery.tooltip.css" rel="stylesheet" type="text/css" media="screen">
+
+&#9;<link href="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/css/basic.css" rel="stylesheet" type="text/css" media="screen">
+&#9;&#9;<!-- 
+	<link href='/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/css/demo.css' 
+		rel='stylesheet' type='text/css' media='screen' />
+		 -->
+
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/js/jquery.simplemodal.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/js/basic.js"></script>
+&#9;
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.tooltip.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.bgiframe.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.delegate.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.dimensions.js"></script>&#9;
+&#9;&#9;&#9;
+
+<div id="app">
+&#9;<div id="plc-topo" class="ui-widget ui-widget-header ui-corner-top plc-topo     plc-topo-classico">
+&#9;&#9;<style>
+    	.logo {
+    		display: inline-block;
+    	}
+    	</style>&#9;
+&#9;&#9;
+&#9;&#9;<!-- default -->
+&#9;&#9;
+&#9;&#9;<!-- caminho da imagem conforme servidor de aplicacao -->
+&#9;&#9;&#9;<div id="nomeEmpresa" class="plc-topo-empresa">
+&#9;&#9;&#9;&#9;<a class="logo navigate" href="/dejt">
+&#9;&#9;&#9;&#9;&#9;<img class="plc-imagem" src="/dejt/topo-logo-empresa.png" alt="Di&aacute;rio Eletr&ocirc;nico da Justi&ccedil;a do Trabalho">
+&#9;&#9;&#9;&#9;</a>
+&#9;&#9;&#9;</div></div>
+&#9;
+&#9;<div class="ui-widget-header" style="clear:both; font-weight:normal; line-height:16px; border-bottom: 1px dashed #C2CED1; background: transparent;">&#9;
+&#9;</div>
+&#9;&#9;<script language="javascript">
+
+
+		
+				//<![CDATA[
+				/* Fix Menus Antigos! */
+				jQuery(function(){
+					var lis = [];
+					jQuery('div.plc-menu').children().each(function(){
+						var it = jQuery(this);
+						if (it.is('a')) {
+							it.attr('class', '');
+							var li = jQuery('<li/>');
+							var ul = it.next();
+							li.append(it.remove());
+							if (ul.is('ul')) {
+								li.append(ul.css('class', 'ui-state-hover').remove());
+							}
+							lis.push(li.get());
+						} else if (it.is('li')) {
+							lis.push(this);
+						}
+					});
+					if (jQuery('div.plc-menu > ul').length == 0) {
+						jQuery('div.plc-menu').append('<ul/>');
+					}
+					jQuery.each(lis, function(){
+						jQuery('div.plc-menu > ul').append(this);
+					})
+				});
+				//]]>
+				</script>
+&#9;&#9;<div id="plc-menu-classico" class="ui-widget      ui-widget-header      plc-menu      plc-menu-classico ui-state-active"><ul><li><span class="af_outputLabel">Acesso Restrito</span><ul><li><a class="menuItem navigate" href="/dejt/f/m/login">Efetuar Login</a></li></ul></li><li><span class="af_outputLabel">Servi&ccedil;os</span><ul><li><a class="menuItem navigate" href="/dejt/f/n/cadastroadvogadocon">Advogado, cadastre-se aqui</a></li><li><a class="menuItem navigate" href="/dejt/f/n/autenticacaodiariocon">Aferir Autenticidade de Di&aacute;rios</a></li><li><a class="menuItem navigate" href="/dejt/f/n/esqueciminhasenhacon">Esqueceu Sua Senha?</a></li><li><a class="menuItem navigate" href="/dejt/f/n/faleconoscocon">Fale Conosco</a></li><li><a class="menuItem navigate" href="/dejt/f/n/consultaferiadocon">Feriados</a></li><li><a class="menuItem navigate" href="/dejt/f/n/legislacao">Legisla&ccedil;&atilde;o</a></li><li><a class="menuItem navigate" href="/dejt/f/n/manual">Manuais</a></li><li><a class="menuItem navigate" href="/dejt/f/n/ocorrencias">Ocorr&ecirc;ncias</a></li></ul></li></ul>
+
+<!-- Pesquisa se existe solicitações pendentes para advogado -->
+&#9;&#9;&#9;
+&#9;&#9;&#9;<script type="text/javascript">
+			//<![CDATA[
+				if (false) {
+					jQuery(function () {
+						jQuery('#plc-menu-classico').find('a').each(function(){
+							var href = jQuery(this).attr('href');
+							if (href && href != '#') {
+								jQuery(this).attr("href", "javascript: jQuery.plc.parcialAjaxCorpo('" + href + "')");
+							}
+						});
+					});
+				}
+			//]]>
+			</script>
+&#9;&#9;&#9;
+&#9;&#9;</div>
+
+
+
+
+<div id="plc-corpo" class="ui-widget ui-widget-content plc-corpo             plc-corpo-classico      ">
+&#9;
+&#9;<script type="text/javascript">
+	//<![CDATA[
+		setTecnologia('Facelets');
+
+		if (ExpYes){
+			jQuery(function () {
+				jQuery(".plc-fieldset").each (function () {
+					jQuery(this).after('<span style="height:10px">&nbsp;</span>');
+				});
+			});
+		}
+		
+	//]]>
+	</script><script type="text/javascript">var _AdfWindowOpenError='Foi detectado um bloqueador de janela pop-up no seu browser. Esses bloqueadores interferem na operação desta aplicação. Desative seu bloqueador de pop-ups ou permita popups a partir deste site.';</script><script type="text/javascript" src="/dejt/adf/jsLibs/Common1_2_13.js"></script><form id="corpo:formulario" name="corpo:formulario" onkeydown="return executarAcaoFuncoes(event)" method="POST" onkeypress="return _submitOnEnter(event,'corpo:formulario');" action="/dejt/f/n/materiapublicadacon"><span id="corpo:formulario:ajaxPanel" class="af_panelGroupLayout"><span id="corpo:formulario:ajaxMensagem" class="af_panelGroupLayout">
+&#9;<div>
+&#9;</div></span><span id="corpo:formulario:ajaxAcoes" class="af_panelGroupLayout">
+&#9;
+&#9;
+&#9;<div id="tituloPagina" class="ui-widget-content ui-corner-all plc-topo-titulo"><label style="font-size: 20px;">
+Pesquisas &gt; Di&aacute;rios &gt; Pesquisa Avan&ccedil;ada</label></div>
+
+
+&#9;<div id="plc-corpo-acao" class="plc-corpo-acao"></div>
+&#9;<div id="plc-corpo-acao-personalisado" class="plc-corpo-acao-generico">
+&#9;
+&#9;<div id="plc-corpo-acao-generico" class="plc-corpo-acao-generico"><script type="text/javascript">var _pprUpDatemode=false;function _adfspu(f,v,e,s,o){_pprUpdateMode=true;if(!o)o=new Object();if(e)o.event=e;if(s)o.source=s;_submitPartialChange(f,v,o);}</script><button id="corpo:formulario:botaoAcaoRecuperaPorDemanda" name="corpo:formulario:botaoAcaoRecuperaPorDemanda" type="button" onclick="TrPage._autoSubmit('corpo:formulario','corpo:formulario:botaoAcaoRecuperaPorDemanda',event,1);return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="ui-helper-hidden af_commandButton"><table><tr></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoAcaoRecuperaPorDemanda" type="text/javascript">
+</script>
+<!-- /Mostra botao? -->
+&#9;<div id="plc-ajuda" class="plc-painel" style="visibility: hidden">
+&#9;&#9;<h1 style="text-align:center;">Ajuda
+&#9;&#9;&#9;<span class="fechar" onclick="janelaPainel(document.getElementById('plc-ajuda'));">X</span>
+&#9;&#9;</h1>
+&#9;</div> 
+&#9;
+&#9;<script>
+	//<![CDATA[
+		trataExibicaoComponenteData();
+	//]]>
+	</script>
+&#9;
+&#9;</div>
+
+&#9;&#9;<div id="plc-corpo-acao-generico" class="plc-corpo-acao-complemento">
+
+&#9;&#9;&#9;<!-- Scripts para exibir a popup do PDF com dados do tribunal --><button id="corpo:formulario:botaoRecuperaUnidadePorTribunalSelecionado" name="corpo:formulario:botaoRecuperaUnidadePorTribunalSelecionado" type="button" title="???jcompany.evt.vincular.estrutura???" onclick="return _chain('A4J.AJAX.Submit(\'corpo:formulario\',event,{\'similarityGroupingId\':\'corpo:formulario:j_id74\',\'oncomplete\':function(request,event,data){startLoadingAjax(false);},\'parameters\':{\'corpo:formulario:j_id74\':\'corpo:formulario:j_id74\'} } )','submitForm(\'corpo:formulario\',1,{source:\'corpo:formulario:botaoRecuperaUnidadePorTribunalSelecionado\'});return false;',this,event,true)" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton" style="display:none;visibility:hidden;width:0px;height:0px;"><table><tr><td><div class="plc-corpo-acao-t">???jcompany.evt.vincular.estrutura???</div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoRecuperaUnidadePorTribunalSelecionado" type="text/javascript">
+</script>
+
+
+
+&#9;&#9;&#9;<!-- Publicar Materia XML -->
+
+&#9;&#9;&#9;<!-- publicamateriaman -->
+
+&#9;&#9;&#9;<!-- publicamateriaavulsaconfirmacaoman --><input id="corpo:formulario:confirma" name="corpo:formulario:confirma" onclick="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:confirma','parameters':{'corpo:formulario:confirma':'corpo:formulario:confirma'} } );return false;" style="display: none;" type="button">
+
+&#9;&#9;</div></div></span>
+&#9;&#9;&#9;&#9;
+&#9;&#9;&#9;&#9;<!-- INI --><span id="corpo:formulario:ajaxFormulario" class="af_panelGroupLayout">
+&#9;&#9;&#9;
+&#9;&#9;&#9;<div id="plc-form-basico">
+&#9;&#9;&#9;&#9;<div id="materiapublicadaArg" class="plc-form-basico-topo">
+
+<div style="float:right" class="manter-usuario-acoes"><button id="corpo:formulario:botaoAcaoVoltar" name="corpo:formulario:botaoAcaoVoltar" type="button" title="Voltar" onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:botaoAcaoVoltar'});return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-caret-left"></span></div></td><td><div class="plc-corpo-acao-t">Voltar</div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoAcaoVoltar" type="text/javascript">
+</script>
+<button id="corpo:formulario:botaoAcaoLimparArgs_LIMPAR_ARGS" name="corpo:formulario:botaoAcaoLimparArgs_LIMPAR_ARGS" type="button" title="Limpar" onclick="TrPage._autoSubmit('corpo:formulario','corpo:formulario:botaoAcaoLimparArgs_LIMPAR_ARGS',event,1);return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-eraser"></span></div></td><td><div class="plc-corpo-acao-t">Limpar</div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoAcaoLimparArgs_LIMPAR_ARGS" type="text/javascript">
+</script>
+<button id="corpo:formulario:botaoAcaoPesquisar" name="corpo:formulario:botaoAcaoPesquisar" type="button" title="Pesquisar" onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:botaoAcaoPesquisar'});return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-magnifying-glass"></span></div></td><td><div class="plc-corpo-acao-t">Pesquisar</div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:botaoAcaoPesquisar" type="text/javascript">
+setBotaoAcaoEnter('botaoAcaoPesquisar');
+regBotaoEvento('botaoAcaoPesquisar','PESQUISAR');
+</script>
+
+&#9;&#9;
+&#9;<button class="botao-acao-imprimir" onclick="setBotaoAcao(getBotaoArray('IMPRIMIR'));chamarImpressao('/dejt/f/fcls/geralImpressao.xhtml?evento=Imprimir&amp;impIntel=S',document.title,'impressao');return false;">
+&#9;&#9;<span class="fa-solid fa-print"></span>
+&#9;</button>
+</div><fieldset class="plc-fieldset"><legend class="plc-fieldset-legend">Informe os argumentos de pesquisa e clique em Pesquisar</legend><table class="plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" colspan="2"><span id="corpo:formulario:j_id90" class="bordaTipoCaderno"><span class="tipo-caderno af_selectOneRadio p_AFRequired" style=""><span id="corpo:formulario:tipoCaderno" title="Tipo de Caderno" class="af_selectOneRadio_content"><fieldset style="border:none;margin:0px;padding:0px;"><legend class="p_OraHiddenLabel">Tipo de Caderno</legend><input type="radio" name="corpo:formulario:tipoCaderno" id="corpo:formulario:tipoCaderno:_0" value="0" onclick="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:j_id91','control':this,'parameters':{'corpo:formulario:j_id91':'corpo:formulario:j_id91','ajaxSingle':'corpo:formulario:tipoCaderno'} } )"><label for="corpo:formulario:tipoCaderno:_0">Administrativo</label><input type="radio" name="corpo:formulario:tipoCaderno" id="corpo:formulario:tipoCaderno:_1" value="1" checked onclick="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:j_id91','control':this,'parameters':{'corpo:formulario:j_id91':'corpo:formulario:j_id91','ajaxSingle':'corpo:formulario:tipoCaderno'} } )"><label for="corpo:formulario:tipoCaderno:_1">Judici&aacute;rio</label></fieldset></span></span><script id="avaliar:corpo:formulario:tipoCaderno" type="text/javascript">validacaoCriaCampo("corpo:formulario:tipoCaderno","obrigatorio",'null{propTitulo} é obrigatório(a)', 'PARAM_0', 'null', 'PARAM_3', '1')</script></span></td></tr><tr><td class="celulaFormulario"><span class="af_outputLabel">Data Inicial de Disponibiliza&ccedil;&atilde;o</span></td><td class="celulaFormulario"><span class="af_outputLabel">Data Final de Disponibiliza&ccedil;&atilde;o</span></td></tr><tr><td class="celulaFormulario">
+&#9;&#9;&#9;<span class="p_AFRequired"><script type="text/javascript">var _locale='pt-BR';var _tLocale='pt-BR';</script><script type="text/javascript" src="/dejt/adf/jsLibs/resources/LocaleElements_pt_BR1_2_13.js?loc=pt_BR"></script><script type="text/javascript">var _df2DYS=1950;</script><script type="text/javascript">var _uixLocaleTZ=-180;</script><span class="af_inputDate" style="float: left;"><input id="corpo:formulario:dataPublicacaoINI" name="corpo:formulario:dataPublicacaoINI" title="Data de Disponibiliza&ccedil;&atilde;o" onkeyup="return validaCaracter(this, event, 'D');" onkeypress="formataDataComMascara('corpo:formulario:dataPublicacaoINI',event,'dd/MM/yyyy');" onblur="_dfb(this)" onchange="passaData();" class="af_inputDate_content" size="8" maxlength="8" type="text" value="10/07/2024"></span>
+<script id="avaliar:dataPublicacaoINIcorpo:formulario:dataPublicacaoINIjcompany.erros.data0" type="text/javascript">
+validacaoCriaCampo("corpo:formulario:dataPublicacaoINI","data",'{0} não é uma data válida.', 'PARAM_0', 'null', 'PARAM_3', '1')</script>
+
+<script type="text/javascript" id="avaliar:corpo:formulario:dataPublicacaoINI:2581013302877221">
+jQuery(function(){
+	setTimeout(function(){
+		var input = 'corpo:formulario:dataPublicacaoINI' && document.getElementById('corpo:formulario:dataPublicacaoINI');
+		var meses = '' || '1';
+		if (input && jQuery(input).is("input:enabled")) {
+			jQuery(input).datepicker({
+				numberOfMonths: parseInt(meses), // Multiplos meses no calendario
+				changeMonth: true,
+				changeYear: true,
+				showOn: 'button',
+				buttonText: '<span class="fa-regular fa-calendar-days" style="font-size: 1.8rem; color: #8B9DA9;"></span>',
+				showButtonPanel: true
+			});
+			var trigger = jQuery(input).next();
+			if (trigger.is('.ui-datepicker-trigger')) {
+				// desabilita o Foco quando ocorrer a tabulaï¿½ï¿½o.
+				trigger.addClass('ui-state-default');
+				trigger.addClass('plc-botao');
+				trigger.attr('tabIndex', -1);
+			}
+		}
+	}, 200);
+});
+jQuery(function(){
+	setTimeout(function(){/* ajuda: http://digitalbush.com/projects/masked-input-plugin */
+		var input = 'corpo:formulario:dataPublicacaoINI' && document.getElementById('corpo:formulario:dataPublicacaoINI');
+		if (input) {
+			// Retira as funções de máscara do componente.
+			if (input.onkeypress) {
+				input.onkeypress = null;
+			}
+			if (input.onkeyup) {
+				input.onkeyup = null;
+			}
+			if (input.onkeydown) {
+				input.onkeydown = null;
+			}
+			if (jQuery(input).attr("id").indexOf('PadraoGeral') > 0) {
+				jQuery(input).unmask().mask('D9/M9/9999');
+			} else if (jQuery(input).attr("id").indexOf('PadraoDiaMes') > 0) {
+				jQuery(input).unmask().mask('D9/M9');
+			} else {
+				jQuery(input).unmask().mask('D9/M9/Y999');
+			}
+		}
+	}, 200);
+});
+</script>
+ 
+&#9;&#9;&#9;&#9;<label class="p_OraHiddenLabel" for="corpo:formulario:dataPublicacaoINI">dataIni</label>
+&#9;&#9;&#9;</span></td><td class="celulaFormulario">
+&#9;&#9;&#9;<span class="p_AFRequired"><span class="af_inputDate" style="float: left;"><input id="corpo:formulario:dataPublicacaoFIM" name="corpo:formulario:dataPublicacaoFIM" title="Data de Disponibiliza&ccedil;&atilde;o" onkeyup="return validaCaracter(this, event, 'D');" onkeypress="formataDataComMascara('corpo:formulario:dataPublicacaoFIM',event,'dd/MM/yyyy');" onblur="_dfb(this)" class="af_inputDate_content" size="8" maxlength="8" type="text" value="10/07/2024"></span>
+<script id="avaliar:dataPublicacaoFIMcorpo:formulario:dataPublicacaoFIMjcompany.erros.data0" type="text/javascript">
+validacaoCriaCampo("corpo:formulario:dataPublicacaoFIM","data",'{0} não é uma data válida.', 'PARAM_0', 'null', 'PARAM_3', '1')</script>
+
+<script type="text/javascript" id="avaliar:corpo:formulario:dataPublicacaoFIM:2581013303600989">
+jQuery(function(){
+	setTimeout(function(){
+		var input = 'corpo:formulario:dataPublicacaoFIM' && document.getElementById('corpo:formulario:dataPublicacaoFIM');
+		var meses = '' || '1';
+		if (input && jQuery(input).is("input:enabled")) {
+			jQuery(input).datepicker({
+				numberOfMonths: parseInt(meses), // Multiplos meses no calendario
+				changeMonth: true,
+				changeYear: true,
+				showOn: 'button',
+				buttonText: '<span class="fa-regular fa-calendar-days" style="font-size: 1.8rem; color: #8B9DA9;"></span>',
+				showButtonPanel: true
+			});
+			var trigger = jQuery(input).next();
+			if (trigger.is('.ui-datepicker-trigger')) {
+				// desabilita o Foco quando ocorrer a tabulaï¿½ï¿½o.
+				trigger.addClass('ui-state-default');
+				trigger.addClass('plc-botao');
+				trigger.attr('tabIndex', -1);
+			}
+		}
+	}, 200);
+});
+jQuery(function(){
+	setTimeout(function(){/* ajuda: http://digitalbush.com/projects/masked-input-plugin */
+		var input = 'corpo:formulario:dataPublicacaoFIM' && document.getElementById('corpo:formulario:dataPublicacaoFIM');
+		if (input) {
+			// Retira as funções de máscara do componente.
+			if (input.onkeypress) {
+				input.onkeypress = null;
+			}
+			if (input.onkeyup) {
+				input.onkeyup = null;
+			}
+			if (input.onkeydown) {
+				input.onkeydown = null;
+			}
+			if (jQuery(input).attr("id").indexOf('PadraoGeral') > 0) {
+				jQuery(input).unmask().mask('D9/M9/9999');
+			} else if (jQuery(input).attr("id").indexOf('PadraoDiaMes') > 0) {
+				jQuery(input).unmask().mask('D9/M9');
+			} else {
+				jQuery(input).unmask().mask('D9/M9/Y999');
+			}
+		}
+	}, 200);
+});
+</script>
+ 
+&#9;&#9;&#9;&#9;<label class="p_OraHiddenLabel" for="corpo:formulario:dataPublicacaoFIM"></label>
+&#9;&#9;&#9;</span></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">&Oacute;rg&atilde;o</span>
+&#9;&#9;&#9;<span class="p_AFRequired"><select id="corpo:formulario:tribunal" name="corpo:formulario:tribunal" size="1" onchange="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:j_id110','control':this,'parameters':{'corpo:formulario:j_id110':'corpo:formulario:j_id110','ajaxSingle':'corpo:formulario:tribunal'} } )">&#9;<option value="org.jboss.seam.ui.NoSelectionConverter.noSelectionValue">[Selecione]</option>
+&#9;<option value="0">TST</option>
+&#9;<option value="1">TRT 1&ordf; Regi&atilde;o</option>
+&#9;<option value="2">TRT 2&ordf; Regi&atilde;o</option>
+&#9;<option value="3">TRT 3&ordf; Regi&atilde;o</option>
+&#9;<option value="4">TRT 4&ordf; Regi&atilde;o</option>
+&#9;<option value="5">TRT 5&ordf; Regi&atilde;o</option>
+&#9;<option value="6">TRT 6&ordf; Regi&atilde;o</option>
+&#9;<option value="7">TRT 7&ordf; Regi&atilde;o</option>
+&#9;<option value="8">TRT 8&ordf; Regi&atilde;o</option>
+&#9;<option value="9">TRT 9&ordf; Regi&atilde;o</option>
+&#9;<option value="10">TRT 10&ordf; Regi&atilde;o</option>
+&#9;<option value="11">TRT 11&ordf; Regi&atilde;o</option>
+&#9;<option value="12">TRT 12&ordf; Regi&atilde;o</option>
+&#9;<option value="13">TRT 13&ordf; Regi&atilde;o</option>
+&#9;<option value="14">TRT 14&ordf; Regi&atilde;o</option>
+&#9;<option value="15">TRT 15&ordf; Regi&atilde;o</option>
+&#9;<option value="16">TRT 16&ordf; Regi&atilde;o</option>
+&#9;<option value="17">TRT 17&ordf; Regi&atilde;o</option>
+&#9;<option value="18">TRT 18&ordf; Regi&atilde;o</option>
+&#9;<option value="19">TRT 19&ordf; Regi&atilde;o</option>
+&#9;<option value="20">TRT 20&ordf; Regi&atilde;o</option>
+&#9;<option value="21">TRT 21&ordf; Regi&atilde;o</option>
+&#9;<option value="22" selected>TRT 22&ordf; Regi&atilde;o</option>
+&#9;<option value="23">TRT 23&ordf; Regi&atilde;o</option>
+&#9;<option value="24">TRT 24&ordf; Regi&atilde;o</option>
+&#9;<option value="28">CSJT</option>
+&#9;<option value="29">ENAMAT</option>
+</select><label for="corpo:formulario:tribunal" class="p_OraHiddenLabel">
+Tribunal</label>
+&#9;&#9;&#9;</span></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">Unidade Publicadora</span><select id="corpo:formulario:cmbUnidadePublicadora" name="corpo:formulario:cmbUnidadePublicadora" size="1" onchange="A4J.AJAX.Submit('corpo:formulario',event,{'similarityGroupingId':'corpo:formulario:j_id118','control':this,'parameters':{'corpo:formulario:j_id118':'corpo:formulario:j_id118','ajaxSingle':'corpo:formulario:cmbUnidadePublicadora'} } )">&#9;<option value="org.jboss.seam.ui.NoSelectionConverter.noSelectionValue">Todas</option>
+</select><label for="corpo:formulario:cmbUnidadePublicadora" class="p_OraHiddenLabel">
+UnidadePublicadora</label></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">Tipo | Subtipo de Mat&eacute;ria</span><span class="af_selectOneChoice"><select id="corpo:formulario:cmbTipoMateria" name="corpo:formulario:cmbTipoMateria" class="af_selectOneChoice_content"><option value="">Todos</option></select></span></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">N&uacute;mero do Processo</span><script type="text/javascript">//<![CDATA[
+  jQuery(document).ready(function() {
+	var selector = "#corpo\\:formulario\\:numeroProcesso";
+	try {
+		selector = eval("#corpo\\:formulario\\:numeroProcesso");
+	} catch (e) {}
+	jQuery(selector).mask('9999999-99.9999.9.99.9999', {placeholder:'_'});
+ });
+//]]></script><input id="corpo:formulario:numeroProcesso" type="text" name="corpo:formulario:numeroProcesso" value="" style="width: 30ch"></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">Nome do Advogado</span><span class="af_inputText" style="float: left;"><input id="corpo:formulario:adv" name="corpo:formulario:adv" title="Nome do Advogado" class="af_inputText_content" size="50" maxlength="200" type="text"></span></td></tr><tr><td class="celulaFormulario" colspan="2"><span class="af_outputLabel">Ordem dos Resultados</span><select id="corpo:formulario:orderByUsuario" name="corpo:formulario:orderByUsuario" size="1">&#9;<option value="unidade">Unidade Publicadora / Data de Disponibiliza&ccedil;&atilde;o</option>
+&#9;<option value="disponibilizacao" selected>Data de Disponibiliza&ccedil;&atilde;o / Unidade Publicadora</option>
+</select></td></tr></table></fieldset>
+
+<script type="text/javascript">
+var $jQuery = jQuery.noConflict();
+
+function passaData(){
+	document.getElementById('corpo:formulario:dataPublicacaoFIM').value = document.getElementById('corpo:formulario:dataPublicacaoINI').value;
+}
+
+setTimeout(()=>{
+	document.getElementById('corpo:formulario:tipoCaderno:_0').focus()
+}, 1000)
+</script>
+&#9;&#9;&#9;&#9;</div>
+&#9;&#9;&#9;&#9;
+&#9;&#9;&#9;&#9;<div id="materiapublicadaNav" class="plc-navegacao"><input type="hidden" id="corpo:formulario:ordenacaoPlc" name="corpo:formulario:ordenacaoPlc" value="">
+&#9;
+&#9;
+&#9;
+&#9;<input type="hidden" id="navDe" name="navDe" value="1">
+&#9;<!-- INICIALIZACAO -->
+
+&#9;<!--
+				movido para inputGeralPaginacaoLogicaItens
+				
+				<plcf:escondido id="ordenacaoPlc" value=""/>
+				
+				<input type="hidden" id="navDe" name="navDe"
+					value="1" />
+
+				<c:if test="false">
+					<input type="hidden" id="mcPlc" name="mcPlc" value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="mfPlc" name="mfPlc" value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="modoJanelaPlc" name="modoJanelaPlc"
+						value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="indMultiSelPlc" name="indMultiSelPlc"
+						value="" />
+				</c:if>
+			
+			--><table class="plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario"><button type="button" onclick="return _chain('jQuery(\'#navDe\').val(\'21\');','TrPage._autoSubmit(\'corpo:formulario\',\'corpo:formulario:j_id250\',event,1);return false;',this,event,true)" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-caret-right"></span></div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:j_id250" type="text/javascript">
+setBotaoAcaoEnter('j_id250');
+regBotaoEvento('j_id250','PESQUISAR');
+</script>
+<button type="button" onclick="return _chain('jQuery(\'#navDe\').val(\'881\');','TrPage._autoSubmit(\'corpo:formulario\',\'corpo:formulario:j_id251\',event,1);return false;',this,event,true)" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-forward-step"></span></div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:j_id251" type="text/javascript">
+setBotaoAcaoEnter('j_id251');
+regBotaoEvento('j_id251','PESQUISAR');
+</script>
+</td><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;1  at&eacute;  20  de 885</td></tr></table>
+&#9;&#9;&#9;&#9;</div>
+&#9;&#9;&#9;&#9;
+&#9;&#9;&#9;&#9;<div id="materiapublicadaCon" class="plc-form-basico-sel">
+
+&#9;<style type="text/css">
+		div#tabelaResultadoMateriaPublicada span.af_outputLabel {
+			font-weight: bold !important;
+		}
+		.toolTipProcesso {
+			cursor: pointer;
+			font-weight: bold;
+		}
+		.link-download {
+			cursor: pointer;
+			display: inline-block;
+		}
+	</style>
+
+&#9;<div id="tabelaResultadoMateriaPublicada"><fieldset class="plc-fieldset"><legend class="plc-fieldset-legend">Matérias</legend><table class="plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><table class="plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">1. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000933-60.2019.5.22.0101</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 382. C&oacute;d. 294260252. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:0:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 382 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">2. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0088234-18.2023.5.22.0000</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 384. C&oacute;d. 294260818. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:1:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 384 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">3. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000323-84.2022.5.22.0005</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 386. C&oacute;d. 294260834. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:2:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 386 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">4. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000323-84.2022.5.22.0005</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 389. C&oacute;d. 294260849. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:3:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 389 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">5. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000380-65.2023.5.22.0103</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 392. C&oacute;d. 294260863. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:4:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 392 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">6. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000089-17.2022.5.22.0001</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 395. C&oacute;d. 294260879. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:5:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 395 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">7. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000380-65.2023.5.22.0103</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 400. C&oacute;d. 294260898. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:6:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 400 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">8. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000498-53.2023.5.22.0002</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 404. C&oacute;d. 294260916. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:7:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 404 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">9. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000862-47.2022.5.22.0006</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 409. C&oacute;d. 294260933. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:8:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 409 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">10. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000375-46.2023.5.22.0005</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 411. C&oacute;d. 294260949. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:9:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 411 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">11. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000905-87.2022.5.22.0004</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 415. C&oacute;d. 294260967. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:10:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 415 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">12. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000990-67.2022.5.22.0006</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 419. C&oacute;d. 294260986. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:11:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 419 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">13. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0001026-21.2022.5.22.0003</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 426. C&oacute;d. 294261004. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:12:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 426 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">14. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0001026-21.2022.5.22.0003</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 430. C&oacute;d. 294261020. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:13:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 430 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">15. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0001026-21.2022.5.22.0003</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 433. C&oacute;d. 294261038. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:14:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 433 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">16. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0001026-21.2022.5.22.0003</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 437. C&oacute;d. 294261054. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:15:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 437 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">17. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000968-75.2023.5.22.0005</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 440. C&oacute;d. 294261069. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:16:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 440 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">18. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000968-75.2023.5.22.0005</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 442. C&oacute;d. 294261096. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:17:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 442 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">19. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000153-60.2023.5.22.0108</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 443. C&oacute;d. 294261110. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:18:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 443 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table><table class="plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario" style="font-weight: bold; text-align: left">20. Notifica&ccedil;&atilde;o<span style="font-weight: normal !important;"> - (sem t&iacute;tulo)</span></td></tr><tr><td class="campo" style="text-align: left">An&aacute;lise de Recurso.</td></tr><tr style="text-align: left"><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;Processo(s):0000031-71.2023.5.22.0003</td></tr><tr><td class="campo" style="text-align: left">Ref.: <span style="font-weight: bold;">Cad. Judici&aacute;rio </span>do TRT 22&ordf; Regi&atilde;o  do dia <span style="font-weight: bold;">10/07/2024</span>. P&aacute;g. 445. C&oacute;d. 294261127. </td></tr><tr><td class="campo linha-links" style="font-weight: bold; text-align: left;"><a onclick="submitForm('corpo:formulario',1,{source:'corpo:formulario:plcLogicaItens:19:j_id189'});return false;" class="link-download navigate OraLink" href="#">
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;Consulte a mat&eacute;ria na p&aacute;gina 445 do PDF do DEJT:
+&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;<i class="fa-solid fa-newspaper iconsulta" style="margin-left:0"></i></a></td></tr></table></table></fieldset>
+&#9;
+&#9;<script type="text/javascript">
+		var $j = jQuery.noConflict();
+		
+		$j(function() {
+			$j('.toolTipProcesso').tooltip({
+				bodyHandler: function() {
+					return this.tooltipText;
+				}
+			});
+		});
+	</script>
+&#9;
+&#9;</div>
+&#9;&#9;&#9;&#9;</div>
+&#9;&#9;&#9;&#9;
+&#9;&#9;&#9;&#9;<div id="materiapublicadaInferiorNav" class="plc-navegacao">
+&#9;<!-- INICIALIZACAO -->
+
+&#9;<!--
+				movido para inputGeralPaginacaoLogicaItens
+				
+				<plcf:escondido id="ordenacaoPlc" value=""/>
+				
+				<input type="hidden" id="navDe" name="navDe"
+					value="1" />
+
+				<c:if test="false">
+					<input type="hidden" id="mcPlc" name="mcPlc" value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="mfPlc" name="mfPlc" value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="modoJanelaPlc" name="modoJanelaPlc"
+						value="" />
+				</c:if>
+				<c:if test="false">
+					<input type="hidden" id="indMultiSelPlc" name="indMultiSelPlc"
+						value="" />
+				</c:if>
+			
+			--><table class="plc-table-tabsel delimitador tabelaSelecao" summary="" border="0" cellspacing="0" cellpadding="0"><tr><td class="celulaFormulario"><button type="button" onclick="return _chain('jQuery(\'#navDe\').val(\'21\');','TrPage._autoSubmit(\'corpo:formulario\',\'corpo:formulario:j_id252\',event,1);return false;',this,event,true)" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-caret-right"></span></div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:j_id252" type="text/javascript">
+setBotaoAcaoEnter('j_id252');
+regBotaoEvento('j_id252','PESQUISAR');
+</script>
+<button type="button" onclick="return _chain('jQuery(\'#navDe\').val(\'881\');','TrPage._autoSubmit(\'corpo:formulario\',\'corpo:formulario:j_id253\',event,1);return false;',this,event,true)" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="botao_menu ui-state-default plc-botao af_commandButton"><table><tr><td><div class="plc-corpo-acao-i"><span class="fa-solid fa-forward-step"></span></div></td></tr></table></button>
+<script id="avaliar:corpo:formulario:j_id253" type="text/javascript">
+setBotaoAcaoEnter('j_id253');
+regBotaoEvento('j_id253','PESQUISAR');
+</script>
+</td><td class="celulaFormulario">
+&#9;&#9;&#9;&#9;&#9;&#9;1  at&eacute;  20  de 885</td></tr></table>
+&#9;&#9;&#9;&#9;</div>
+&#9;&#9;&#9;</div>
+&#9;&#9;&#9;&#9;&#9;&#9;<script type="text/javascript">
+							//<![CDATA[
+							setAlertaAlteracao("","");
+							//]]>
+						</script> 
+&#9;<div id="plc-auxiliar" class="plc-auxiliar">
+&#9;&#9;
+&#9;&#9;<input type="hidden" id="detCorrPlc" name="detCorrPlc" value="">
+&#9;&#9;
+&#9;&#9;<input type="hidden" id="tabCorrPlc" name="tabCorrPlc" value="">
+&#9;&#9;
+&#9;&#9;<input type="hidden" id="detCorrPlcPaginado" name="detCorrPlcPaginado" value="">&#9;&#9;
+&#9;&#9;
+&#9;&#9;<input type="hidden" name="exibeEdDocPlc" value="">
+&#9;&#9;
+&#9;&#9;<input id="corpo:formulario:indExcDetPlc" type="hidden" name="indExcDetPlc">&#9;&#9;&#9;
+&#9;</div>
+
+ &#9;<script type="text/javascript">
+ 	//<![CDATA[
+	setTimeout(setUpOnFocusHandlers, 0);
+	setCampoFocus('');
+ 	setTimeout(moverFoco, 0);
+ 	setTimeout(function(){
+		escrevePlcAfter(jQuery('span'),'p_AFRequired','Este campo é obrigatório. Preencha-o antes de gravar.', '/dejt/plc/midia/ico_obrig.png')
+	}, 0);
+	//]]>		
+	</script></span>
+&#9;&#9;&#9;&#9;<!-- FIM --></span><input type="hidden" name="org.apache.myfaces.trinidad.faces.FORM" value="corpo:formulario"><input type="hidden" name="_noJavaScript" value="false"><span id="tr_corpo:formulario_Postscript"><input type="hidden" name="javax.faces.ViewState" value="!uk0y1c2mp"><input type="hidden" name="source"><script type="text/javascript">TrPage.getInstance()._addResetFields('corpo:formulario',["source"]);</script><script type="text/javascript">if(window['_dfs'] == undefined){window['_dfs']=new Object();}if(window['_dl'] == undefined){window['_dl']=new Object();}_dfs["corpo:formulario:dataPublicacaoINI"]='dd/MM/yyyy';_dl["corpo:formulario:dataPublicacaoINI"]=null;_dfs["corpo:formulario:dataPublicacaoFIM"]='dd/MM/yyyy';_dl["corpo:formulario:dataPublicacaoFIM"]=null;function _corpo_formularioValidator(f,s){return true;}</script></span><script type="text/javascript">_submitFormCheck();</script></form><span id="corpo:ajaxlogQA" class="af_panelGroupLayout"></span>
+&#9;&#9;
+&#9;&#9;<div class="clear"> </div>&#9;</div><div class="clear"></div>
+&#9;<div id="plc-rodape" class="ui-widget ui-widget-header ui-corner-bottom plc-rodape plc-rodape-classico">
+&#9;
+&#9;<div class="plc-rodape-complemento-empresa">
+&#9;&#9;<div id="plc-rodape-complemento" class="plc-rodape-complemento"><p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p style="text-align: center;">Conselho Superior da Justi&ccedil;a do Trabalho - Endere&ccedil;o: SAFS - Qd 8, Conj A, Sala A5.71</p>
+<p style="text-align: center;">CEP 70.070-943 - Tel.: (61) 3043-4005 / 3043-3804</p>
+&#9;&#9;</div>
+&#9;&#9;<p><span class="af_outputLabel" style="display: inline">dejt</span>-<span class="af_outputLabel" style="display: inline">7.6.0-3</span>
+&#9;&#9;&#9;  
+&#9;&#9;&#9;(<span class="af_outputLabel" style="display: inline">master</span>)
+&#9;&#9;&#9;
+&#9;&#9;</p>
+&#9;</div>
+
+ &#9;<!--  psiu -->
+&#9;&#9;<script id="psiu-feedback" src="https://psiu.jt.jus.br/assets/js/psiu-feedback.js" data-produto="b2775866-bced-4bf4-a7aa-278d7f926f41" data-assets="https%3A%2F%2Fpsiu.jt.jus.br%2Fassets" data-api="https%3A%2F%2Fpsiu-backend.jt.jus.br%2Fapi"></script>
+
+&#9;<!-- reCaptcha v3 --><form id="rodape" name="rodape" style="margin:0px" method="POST" onkeypress="return _submitOnEnter(event,'rodape');" action="/dejt/f/n/materiapublicadacon">
+&#9;&#9;&#9;<h1 style="visibility:hidden;width:1px;height:1px;"><button id="plc-acao-desconecta" name="plc-acao-desconecta" type="button" title="Desconectar" onclick="submitForm('rodape',1,{source:'plc-acao-desconecta'});return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="display:none af_commandButton"><table><tr><td><div class="plc-corpo-acao-t">Desconectar</div></td></tr></table></button>
+<script id="avaliar:plc-acao-desconecta" type="text/javascript">
+</script>
+ 
+&#9;&#9;&#9;</h1><input type="hidden" name="org.apache.myfaces.trinidad.faces.FORM" value="rodape"><input type="hidden" name="_noJavaScript" value="false"><span id="tr_rodape_Postscript"><input type="hidden" name="javax.faces.ViewState" value="!uk0y1c2mp"><script type="text/javascript">function _rodapeValidator(f,s){return true;}</script></span><script type="text/javascript">_submitFormCheck();</script></form>&#9;
+&#9;
+&#9;&#9;<div id="plc-rodape-timeout" class="plc-rodape-timeout" title="Tempo restante de inatividade para que sua sess&atilde;o seja encerrada, seguido do tempo padr&atilde;o da sesss&atilde;o">
+&#9;&#9;&#9;<span class="ico iTempologado"></span> Tempo sessao: <em>30.0m</em>
+&#9;&#9;</div>
+&#9;&#9;<div id="plc-rodape-timeout" class="plc-rodape-timeout" title="Tempo restante de inatividade para que sua sess&atilde;o seja encerrada, seguido do tempo padr&atilde;o da sesss&atilde;o"> 
+&#9;        <span class="ico iHoralogin"></span> Hora login: <em>16:02</em>
+&#9;&#9;</div></div><script language="javascript" type="text/javascript">
+//<![CDATA[
+function faceletsDebug(URL) { day = new Date(); id = day.getTime(); eval("page" + id + " = window.open(URL, '" + id + "', 'toolbar=0,scrollbars=1,location=0,statusbar=0,menubar=0,resizable=1,width=800,height=600,left = 240,top = 212');"); };var faceletsOrigKeyup = document.onkeyup; document.onkeyup = function(e) { if (window.event) e = window.event; if (String.fromCharCode(e.keyCode) == 'D' & e.shiftKey & e.ctrlKey) faceletsDebug('/dejt/f/n/materiapublicadacon?facelets.ui.DebugOutput=1784327837767'); else if (faceletsOrigKeyup) faceletsOrigKeyup(e); };
+//]]>
+</script>
+</div>
+
+
+
+
+
+</body>
+<!--/f:view-->
+</html>

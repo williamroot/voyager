@@ -54,6 +54,27 @@ voyager/
 │                 - jobs.py: varredura_diaria (ES) + entregar_detection (HMAC)
 │                 - payload.py: build_recorte_payload (schema Jusbrasil)
 │                 - scheduler.py: cron 05:00
+├── diarios/       Diários oficiais ALÉM do DJEN (3ª porta do acervo).
+│                 Contrato + runner compartilhados; cada fonte é dona do seu
+│                 diretório e não encosta na de outra. Ver .ia/DIARIOS.md.
+│                 - base.py: ColetorDiario (ABC), UnidadeColeta, SessaoDiario,
+│                   external_id namespaceado + fingerprint, validadores de
+│                   "HTTP 200 que não é dado", runner, registro auto-descoberto
+│                 - models.py: EdicaoDiario (catálogo + watermark por unidade)
+│                 - jobs.py: catalogar/coletar/tick (fila `diarios`)
+│                 - fontes/<slug>/: tjsp_dje, dejt, stf
+│                 - management/commands/diarios_pausar.py: KILL SWITCH por fonte
+│                 Agendamento no fim de djen/scheduler.py, atrás de
+│                 DIARIOS_SCHEDULER_ENABLED (nasce DESLIGADO: o backfill é da
+│                 ordem de centenas de milhões de linhas).
+├── diarios_entes/ Diários oficiais de ENTES DEVEDORES (Executivo estadual e
+│                 municipal): Querido Diário + DOE-SP. App separado porque tem
+│                 model PRÓPRIO — publicação do Executivo não tem tribunal e
+│                 Movimentacao.tribunal é FK NOT NULL. É sinal de DESFECHO
+│                 (o ente convocou/pagou), não porta de acervo.
+│                 - models.py: PublicacaoOficial
+│                 - management/commands/entes_frescor.py: selo de frescor por
+│                   município (o campo `level` da API do QD mente)
 ├── mcp_server/    MCP (Model Context Protocol) server pra LLMs/agentes.
 │                 - server.py: HTTP/JSON-RPC 2.0 (12 tools, resources, SSE)
 │                 - delegates.py: lógica de cada tool (reusa api/ e search/)

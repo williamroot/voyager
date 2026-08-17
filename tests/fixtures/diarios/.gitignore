@@ -1,0 +1,24 @@
+# Fixtures PESADAS dos diários — ficam fora do git de propósito.
+#
+# Elas são os cadernos inteiros sobre os quais rodam os gates de volume (≥95%
+# das 16.717 matérias do TRT3, cobertura de CNJ do caderno do TJSP). Juntas
+# passam de 75 MB, e repositório não é object storage: quem for rodar o gate
+# baixa de novo com os scripts de sonda deste diretório.
+#
+# ⚠️ As fixtures OBRIGATÓRIAS (pequenas) continuam versionadas, e é deliberado:
+# sem elas o teste FALHA em vez de pular. Em 16/08/2026 a verificação
+# adversarial escondeu `stf_proc_ARE1617690.html` e a suíte respondeu
+# "18 passed, 8 skipped" — verde, com o núcleo do resolvedor de CNJ desligado.
+# `test_diario_stf.py::FIXTURES_OBRIGATORIAS` existe pra impedir isso.
+# Ver README.md deste diretório pra lista completa.
+
+# regra: nada acima de ~1 MB entra. Como .gitignore não sabe tamanho, a lista
+# é explícita — e ficar explícita é bom: obriga a decidir a cada fixture nova.
+dejt/trt3_2024-07-10_jud.pdf
+dejt/trt22_2024-07-10_jud.pdf
+tjsp_esaj/caderno12_20250721.pdf
+tjsp_esaj/caderno12_20250721.txt
+stj_stf/djen_stj_amostra200_2026-08-13.json
+stj_stf/stf_dje_41_2022-03-03.pdf
+stj_stf/stf_publicacoes_2026-08-13_q200.json
+doe_entes/mg_2026-08-14_executivo.pdf

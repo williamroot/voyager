@@ -2,9 +2,19 @@
 
 > ⚠️ **O DJEN é a porta ESTREITA.** Ele é veículo de *comunicação*: só entra
 > processo que teve intimação publicada em diário. Medido em 14/08/2026, isso
-> nos dava **~13% do acervo declarado ao CNJ** (343M docs). A segunda porta —
-> varredura do Datajud, que traz o esqueleto do resto — está em
-> [`ACERVO_CNJ.md`](ACERVO_CNJ.md).
+> nos dava **~13% do acervo declarado ao CNJ** (343M docs).
+>
+> As outras duas portas:
+> - **Varredura do Datajud** — o *esqueleto* nacional (sem parte, sem valor):
+>   [`ACERVO_CNJ.md`](ACERVO_CNJ.md).
+> - **Diários próprios** — texto verbatim de *antes* de o tribunal aderir ao
+>   DJEN (o TJSP só entrou em **14/03/2025**, a Justiça do Trabalho em
+>   **01/08/2024**, e o STF nunca entrou): [`DIARIOS.md`](DIARIOS.md).
+>
+> **Cuidado ao mexer em cobertura/lag:** desde 2026-08-16 `IngestionRun` tem o
+> campo `fonte` (default `'djen'`) e TODA query de cobertura do DJEN filtra por
+> ele. Sem esse filtro, um run do DJE/TJSP no dia X faz o `_dia_coberto` do DJEN
+> pular a ingestão daquele dia — perda silenciosa. Ver `DIARIOS.md` §3.
 
 ## API DJEN
 

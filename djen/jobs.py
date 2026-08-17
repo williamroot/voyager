@@ -12,6 +12,12 @@ from .proxies import ProxyScrapePool
 
 logger = logging.getLogger('voyager.djen.jobs')
 
+# Desde 08/2026 o mesmo tribunal pode ter IngestionRun de OUTRAS portas (DJE
+# próprio do TJSP, DEJT, STF — ver `diarios/base.py`). Toda leitura de
+# COBERTURA daqui tem que ser restrita ao DJEN: sem isto, um run do diário
+# próprio na mesma janela faria o backfill do DJEN pular o dia como coberto.
+FONTE = 'djen'
+
 
 @job('djen_ingestion', timeout=300)
 def run_daily_ingestion(tribunal_sigla: str) -> dict:
@@ -75,7 +81,7 @@ def run_backfill(tribunal_sigla: str, force_inicio: str | None = None) -> dict:
     client = DJENClient()
     for chunk_inicio, chunk_fim in chunks:
         ja_ok = IngestionRun.objects.filter(
-            tribunal=t, status=IngestionRun.STATUS_SUCCESS,
+            tribunal=t, fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
             janela_inicio=chunk_inicio, janela_fim=chunk_fim,
         ).exists()
         if ja_ok:
@@ -84,7 +90,7 @@ def run_backfill(tribunal_sigla: str, force_inicio: str | None = None) -> dict:
         # Retenta chunks que falharam antes — apaga IngestionRun(status=failed) anteriores
         # da mesma janela pra começar limpo.
         deletados, _ = IngestionRun.objects.filter(
-            tribunal=t, status=IngestionRun.STATUS_FAILED,
+            tribunal=t, fonte=FONTE, status=IngestionRun.STATUS_FAILED,
             janela_inicio=chunk_inicio, janela_fim=chunk_fim,
         ).delete()
         if deletados:
@@ -101,7 +107,7 @@ def run_backfill(tribunal_sigla: str, force_inicio: str | None = None) -> dict:
 
     todos_ok = all(
         IngestionRun.objects.filter(
-            tribunal=t, status=IngestionRun.STATUS_SUCCESS,
+            tribunal=t, fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
             janela_inicio=ci, janela_fim=cf,
         ).exists()
         for ci, cf in chunks
@@ -250,7 +256,7 @@ def watchdog_ingestao() -> dict:
         hoje = date.today()
         ultima = (
             IngestionRun.objects.filter(
-                tribunal=t, status=IngestionRun.STATUS_SUCCESS,
+                tribunal=t, fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
                 janela_fim__gte=hoje - timedelta(days=1),
             ).order_by('-finished_at').first()
         )
@@ -409,7 +415,7 @@ def _run_tem_dados(v) -> bool:
 
 def _dia_coberto(tribunal: Tribunal, dia: date) -> bool:
     qs = IngestionRun.objects.filter(
-        tribunal=tribunal, status=IngestionRun.STATUS_SUCCESS,
+        tribunal=tribunal, fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
         janela_inicio__lte=dia, janela_fim__gte=dia,
     ).values('movimentacoes_novas', 'movimentacoes_duplicadas', 'paginas_lidas')
     horizonte = date.today() - timedelta(days=tribunal.overlap_dias)
@@ -423,7 +429,7 @@ def _dias_cobertos(tribunal: Tribunal, ini: date, fim: date) -> set[date]:
     recente (hoje - overlap_dias), exige run com dados; fim de semana e dias
     antigos: qualquer success (DJEN não publica sáb/dom)."""
     runs = list(IngestionRun.objects.filter(
-        tribunal=tribunal, status=IngestionRun.STATUS_SUCCESS,
+        tribunal=tribunal, fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
         janela_inicio__lte=fim, janela_fim__gte=ini,
     ).values('janela_inicio', 'janela_fim', 'movimentacoes_novas',
              'movimentacoes_duplicadas', 'paginas_lidas'))

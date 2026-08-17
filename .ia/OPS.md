@@ -205,7 +205,15 @@ manual           — UI clicks (alta prioridade)
 datajud          — Datajud sync per-CNJ
 classificacao    — batch ML (TIMEOUT 4h)
 leads_consumo    — consumo Juriscope async (POST /leads/consumed/, idempotente por lote_id)
+diarios          — coleta de diários próprios (DJE/TJSP, DEJT, STF, DOEs de entes)
 ```
+
+> **`diarios` ainda NÃO tem worker em prod** (agosto/2026). A fila é separada de
+> propósito: a unidade de trabalho é um caderno de até 2.001 páginas / 62 MB, e
+> um job desses na fila do DJEN empurraria a fronteira diária para o fim da
+> linha. O agendamento nasce desligado (`DIARIOS_SCHEDULER_ENABLED=False`) e há
+> **kill switch por fonte**: `manage.py diarios_pausar --tudo` para em segundos,
+> sem deploy. Runbook completo em [`DIARIOS.md`](DIARIOS.md).
 
 > **Removida:** fila `warm` foi eliminada em 2026-05-06. Warm jobs rodam inline
 > no scheduler. Não existe mais `worker_warm` nem entrada `warm` em `RQ_QUEUES`.
@@ -272,6 +280,28 @@ docker compose exec web python manage.py djen_backfill TRF2
 # 4. Acompanha
 docker compose exec web python manage.py djen_status
 ```
+
+## Diários próprios (3ª porta) — parar e ver
+
+Runbook completo em [`DIARIOS.md`](DIARIOS.md); aqui só o que se digita às 3h da
+manhã quando alguém do outro lado reclama:
+
+```bash
+# PARAR AGORA (efeito em segundos, chave no Redis, sem deploy)
+docker compose exec web python manage.py diarios_pausar --tudo
+docker compose exec web python manage.py diarios_pausar dejt        # ou só uma fonte
+docker compose exec web python manage.py diarios_pausar --listar
+docker compose exec web python manage.py diarios_pausar --religar --tudo
+
+# Ver o estado do catálogo/coleta por fonte
+docker compose exec web python manage.py diarios_status
+```
+
+Sintoma que mais engana: `por_status.inexistente` crescendo numa fonte que vinha
+bem **não** é feriado forense em série — é o layout da fonte tendo mudado. É o
+mesmo erro que o `_dia_coberto` do DJEN já pagou, e por isso `inexistente` é
+status **terminal**: ele não é retentado, e uma fonte inteira pode se marcar como
+"não existe" com o `IngestionRun` verde. Ver `DIARIOS.md` §4 e §8.
 
 Quando `backfill_concluido_em` ficar setado, o cron diário começa a rodar automaticamente (escalonado).
 

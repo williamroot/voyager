@@ -1,0 +1,19 @@
+HTTP/2 301 
+server: awselb/2.0
+date: Sun, 16 Aug 2026 18:06:21 GMT
+content-type: text/html
+content-length: 134
+location: https://dejt.jt.jus.br:443/dejt/
+
+HTTP/2 200 
+date: Sun, 16 Aug 2026 18:06:21 GMT
+content-type: text/html;charset=ISO-8859-1
+server: Apache-Coyote/1.1
+x-powered-by: Servlet 2.4; JBoss-4.3.0.GA_CP09 (build: SVNTag=JBPAPP_4_3_0_GA_CP09 date=201011090309)/JBossWeb-2.0
+set-cookie: JSESSIONID=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws; Path=/dejt; Secure
+x-powered-by: JSF/1.2
+set-cookie: AWSALBAPP-0=AAAAAAAAAADUjRplZ+fkpQdTiGViK+1wr/PSfEwdmiIi0ql/qh41AE4W6VrySW5cX88F/WtpKv9MSIE2AAlo+hM4HMnIOUPfXywKQin+ltUUweGgP/HqR0nGDkimupP0KMa7hVdI5TBEpAs=; Expires=Sun, 23 Aug 2026 18:06:21 GMT; Path=/; SameSite=None; Secure
+set-cookie: AWSALBAPP-1=_remove_; Expires=Sun, 23 Aug 2026 18:06:21 GMT; Path=/; SameSite=None; Secure
+set-cookie: AWSALBAPP-2=_remove_; Expires=Sun, 23 Aug 2026 18:06:21 GMT; Path=/; SameSite=None; Secure
+set-cookie: AWSALBAPP-3=_remove_; Expires=Sun, 23 Aug 2026 18:06:21 GMT; Path=/; SameSite=None; Secure
+

@@ -1,0 +1,11 @@
+HTTP/2 200 
+date: Sun, 16 Aug 2026 18:06:43 GMT
+content-type: text/html;charset=UTF-8
+server: Apache-Coyote/1.1
+x-powered-by: Servlet 2.4; JBoss-4.3.0.GA_CP09 (build: SVNTag=JBPAPP_4_3_0_GA_CP09 date=201011090309)/JBossWeb-2.0
+x-powered-by: JSF/1.2
+set-cookie: AWSALBAPP-0=AAAAAAAAAAA5meHS0gtJbQoV6tgUSGF8jM7qSB6HYJRBbHx3bnBRjITzr3gnWCkyvrO+8PzCdggL0/Hu3qWZ9mdfXr6koeJGrANw4POefgpOVzu2hwi6xDnVmhnd6pN1y+2Yc9pHOUTmt3M=; Expires=Sun, 23 Aug 2026 18:06:43 GMT; Path=/; SameSite=None; Secure
+set-cookie: AWSALBAPP-1=_remove_; Expires=Sun, 23 Aug 2026 18:06:43 GMT; Path=/; SameSite=None; Secure
+set-cookie: AWSALBAPP-2=_remove_; Expires=Sun, 23 Aug 2026 18:06:43 GMT; Path=/; SameSite=None; Secure
+set-cookie: AWSALBAPP-3=_remove_; Expires=Sun, 23 Aug 2026 18:06:43 GMT; Path=/; SameSite=None; Secure
+

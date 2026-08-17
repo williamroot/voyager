@@ -398,4 +398,54 @@ def create_scheduler() -> BlockingScheduler:
     from monitoring.scheduler import register_monitoring_jobs
     register_monitoring_jobs(scheduler)
 
+    # ── DIÁRIOS PRÓPRIOS (terceira porta: DJE/TJSP, DEJT, STF, DOEs) ─────────
+    # DESLIGADO POR PADRÃO (`DIARIOS_SCHEDULER_ENABLED=False`), e isso é
+    # decisão, não esquecimento. Um único caderno-dia do DJE/TJSP rendeu 29.136
+    # movimentações; o backfill completo é da ordem de centenas de milhões de
+    # linhas contra um Postgres que a própria documentação classifica como
+    # disk-I/O-bound (ver DB_CONTENCAO em OPS.md). Ligar isso em série é decisão
+    # de arquitetura — particionamento/recorte —, não efeito colateral de deploy.
+    #
+    # Quando ligar: `DIARIOS_SCHEDULER_ENABLED=1` +
+    # `DIARIOS_FONTES_AGENDADAS=stf` (uma fonte por vez). Para parar sem deploy:
+    # `manage.py diarios_pausar --tudo`. Runbook em .ia/DIARIOS.md.
+    if getattr(settings, 'DIARIOS_SCHEDULER_ENABLED', False):
+        from diarios.jobs import catalogar_fronteira, tick_todas
+
+        # Tick: alimenta a fila `diarios` com unidades pendentes. Teto por fonte
+        # (WATERMARK_POR_FONTE=200) já vem do job — o cron só bate na porta.
+        # 10 min é a mesma cadência do `tick_backfill_retroativo` do DJEN, e por
+        # isso mesmo: a unidade aqui é um caderno de minutos, não uma página.
+        scheduler.add_job(
+            tick_todas.delay,
+            'interval',
+            minutes=10,
+            id='diarios_tick_todas',
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        # Fronteira: recataloga os últimos 7 dias das fontes cuja janela alcança
+        # hoje (STF é fluxo corrente; DEJT ainda publica pauta/ata; os DOEs são
+        # diários). A folga de 7 dias é o que torna o corte do dia AINDA ABERTO
+        # (ver `ColetorSTF.catalogar`) seguro: o dia entra amanhã, sem buraco.
+        # 05:40 é depois do refresh das MVs (03:00) e antes do pico de uso.
+        scheduler.add_job(
+            catalogar_fronteira.delay,
+            'cron',
+            hour=5,
+            minute=40,
+            args=[7],
+            id='diarios_catalogar_fronteira',
+            replace_existing=True,
+            misfire_grace_time=3600,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info('agendado diarios: tick_todas (10min) + catalogar_fronteira (05:40) — '
+                    'fontes=%s', getattr(settings, 'DIARIOS_FONTES_AGENDADAS', []) or 'todas')
+    else:
+        logger.info('diarios: agendamento DESLIGADO (DIARIOS_SCHEDULER_ENABLED=0) — '
+                    'coleta só por `manage.py diarios_coletar`')
+
     return scheduler

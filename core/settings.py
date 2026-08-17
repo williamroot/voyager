@@ -40,6 +40,14 @@ INSTALLED_APPS = [
     'pdf_storage',
     'monitoring',
     'mcp_server',
+    # Diários oficiais além do DJEN (DJE/TJSP, DEJT, STF, DOEs de entes).
+    # Contrato + runner compartilhados em `diarios/base.py`; cada fonte vive
+    # em `diarios/fontes/<slug>/`.
+    'diarios',
+    # Diários oficiais de ENTES DEVEDORES (Executivo estadual/municipal).
+    # App separado porque tem model próprio: publicação do Executivo não tem
+    # tribunal, e `Movimentacao.tribunal` é FK NOT NULL.
+    'diarios_entes',
 ]
 
 MIDDLEWARE = [
@@ -230,6 +238,11 @@ RQ_QUEUES = {
     # sincronizações por processo, que atendem usuário. Timeout longo porque o
     # job é justamente "varre o TJSP inteiro" — retomável pelo watermark.
     'varredura':      {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 86400, **_RQ_CONN},
+    # Coleta de diários próprios (DJE/TJSP, DEJT, STF, DOEs). Fila SEPARADA da
+    # djen_* de propósito: a unidade aqui é um caderno de até 2.001 páginas /
+    # 62 MB, e um job desses na fila do DJEN empurraria a fronteira diária pro
+    # fim da linha. Timeout longo porque baixar+segmentar um caderno é minutos.
+    'diarios':        {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 7200,  **_RQ_CONN},
 
 }
 
@@ -266,6 +279,59 @@ DATAJUD_RATE_LIMIT_RPM = env.int('DATAJUD_RATE_LIMIT_RPM', default=100)
 # o teto global, e aí o risco passa a ser a APIKey COMPARTILHADA do CNJ, que já
 # nos derrubou uma vez (incidente 2026-07-02).
 DATAJUD_VARREDURA_RPM = env.int('DATAJUD_VARREDURA_RPM', default=40)
+
+# ── DIÁRIOS PRÓPRIOS (terceira porta) ─────────────────────────────────────────
+# Todas com default no código (`getattr(settings, ..., default)`), então nada
+# quebra se faltarem. Ficam aqui para serem AJUSTÁVEIS POR ENV, sem deploy — que
+# é o que importa quando o servidor do outro lado começa a sofrer. Ver .ia/DIARIOS.md.
+#
+# TETO DE CONDUTA: nenhuma dessas fontes tem rate limit, WAF ou robots.txt. O
+# servidor NÃO vai nos defender de nós mesmos (o CSJT roda um JBoss de 2010); o
+# teto é auto-imposto e é a diferença entre backfill e negação de serviço
+# acidental. Os números são os medidos por fonte no recon de 16/08/2026.
+DIARIOS_USER_AGENT = env('DIARIOS_USER_AGENT',
+                         default='voyager-ops/1.0 (+https://voyager.was.dev.br)')
+DIARIOS_TIMEOUT_CONNECT = env.int('DIARIOS_TIMEOUT_CONNECT', default=15)
+# 180s: um caderno do DEJT tem 62 MB e um do TJSP, 15 MB.
+DIARIOS_TIMEOUT_READ = env.int('DIARIOS_TIMEOUT_READ', default=180)
+# Requisições/segundo POR FONTE (lidas por `SessaoDiario` via DIARIOS_RPS_<SLUG>).
+DIARIOS_RPS_TJSP_DJE = env.float('DIARIOS_RPS_TJSP_DJE', default=1.0)
+DIARIOS_RPS_DEJT = env.float('DIARIOS_RPS_DEJT', default=0.5)
+DIARIOS_RPS_STF = env.float('DIARIOS_RPS_STF', default=1.0)
+# Portal legado do STF (IIS/ASP) — sessão e breaker próprios: é ele que dita o
+# ritmo real da fonte (~590 GETs por dia útil com cache frio).
+DIARIOS_RPS_STF_PORTAL = env.float('DIARIOS_RPS_STF_PORTAL', default=0.8)
+DIARIOS_RPS_QD_MUNICIPAL = env.float('DIARIOS_RPS_QD_MUNICIPAL', default=1.0)
+DIARIOS_RPS_DOE_SP = env.float('DIARIOS_RPS_DOE_SP', default=2.0)
+# Circuit-breaker por fonte (mesma mecânica do djen/client.py, que curou o
+# incidente 2026-07-10 em que NÓS éramos parte da sobrecarga).
+DIARIOS_CIRCUITO_LIMIAR = env.int('DIARIOS_CIRCUITO_LIMIAR', default=15)
+DIARIOS_CIRCUITO_JANELA = env.int('DIARIOS_CIRCUITO_JANELA', default=120)
+DIARIOS_CIRCUITO_COOLDOWN = env.int('DIARIOS_CIRCUITO_COOLDOWN', default=300)
+# Piso do gate de cobertura contra o gabarito da própria fonte. Baixar isto é
+# aceitar gravar meia edição — só com medição na mão.
+DIARIOS_COBERTURA_MINIMA = env.float('DIARIOS_COBERTURA_MINIMA', default=0.95)
+# DEJT: primeira data cujo caderno o segmentador atual sabe ler (migração ao
+# PJe). Antes disso a matéria é prosa corrida numerada e a cobertura medida cai
+# a 0-72% — o coletor ABSTÉM antes do download. Baixar esta data quando o parser
+# da era antiga existir recataloga as ~47 mil edições pré-2018 de uma vez.
+DIARIOS_DEJT_SEGMENTAVEL_DESDE = env('DIARIOS_DEJT_SEGMENTAVEL_DESDE', default='2018-01-01')
+# DEJT: se um dia precisar de proxy, TEM que ser 'preso' — a sessão é sticky no
+# ALB e a conversa Seam de 3 passos morre se o IP mudar no meio.
+DIARIOS_DEJT_MODO_PROXY = env('DIARIOS_DEJT_MODO_PROXY', default='direto')
+# STF: bundle TLS com o intermediário AlphaSSL 2025 + raiz GlobalSign R6 (a
+# máquina não tem a raiz e o `verify` padrão falha). O intermediário expira em
+# 21/05/2027 — nesse dia o coletor falha ALTO (SSLError), e a troca é por env,
+# sem deploy. Vazio = usa o bundle embarcado em diarios/fontes/stf/ca_stf.pem.
+DIARIOS_STF_CA_BUNDLE = env('DIARIOS_STF_CA_BUNDLE', default='')
+# Liga o agendamento automático (tick + catalogar_fronteira) no scheduler.
+# DESLIGADO por padrão de propósito: o backfill destas fontes é da ordem de
+# centenas de milhões de linhas contra um Postgres já disk-I/O-bound, e quem
+# decide começar é gente, não deploy. Ver runbook em .ia/DIARIOS.md.
+DIARIOS_SCHEDULER_ENABLED = env.bool('DIARIOS_SCHEDULER_ENABLED', default=False)
+# Fontes que o scheduler pode tocar quando ligado (vazio = todas as registradas).
+# É o recorte ANTES do kill switch: serve para ligar uma fonte por vez.
+DIARIOS_FONTES_AGENDADAS = env.list('DIARIOS_FONTES_AGENDADAS', default=[])
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)

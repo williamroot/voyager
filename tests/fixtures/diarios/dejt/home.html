@@ -1,0 +1,430 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd" >
+<html xmlns="http://www.w3.org/1999/xhtml" lang="pt-br">
+<head>
+&#9;<title>Di&aacute;rio Eletr&ocirc;nico da Justi&ccedil;a do Trabalho 
+&#9;</title>
+
+&#9;<link class="component" href="/dejt/f/a4j/s/3_3_3.Finalorg/richfaces/renderkit/html/css/basic_classes.xcss/DATB/eAF7sqpgb-jyGdIAFrMEaw__;jsessionid=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws" rel="stylesheet" type="text/css" /><link class="component" href="/dejt/f/a4j/s/3_3_3.Finalorg/richfaces/renderkit/html/css/extended_classes.xcss/DATB/eAF7sqpgb-jyGdIAFrMEaw__;jsessionid=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws" media="rich-extended-skinning" rel="stylesheet" type="text/css" /><script type="text/javascript">window.RICH_FACES_EXTENDED_SKINNING_ON=true;</script><script src="/dejt/f/a4j/g/3_3_3.Finalorg/richfaces/renderkit/html/scripts/skinning.js" type="text/javascript"></script><link href="/dejt/fontawesome/css/fontawesome.css" rel="stylesheet">
+  &#9;<link href="/dejt/fontawesome/css/regular.css" rel="stylesheet">
+  &#9;<link href="/dejt/fontawesome/css/solid.css" rel="stylesheet">
+
+&#9;<link rel="shortcut icon" href="/dejt/dejt.ico">
+&#9;
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/azul/pele.css" type="text/css" charset="UTF-8">
+&#9;
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/jquery/jquery.autocomplete.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/jquery/thickbox.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/css/ui.jqgrid.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/plc.geral.css" type="text/css" charset="UTF-8">
+&#9;<link rel="StyleSheet" href="/dejt/plc/css-w2/app.geral.css" type="text/css" charset="UTF-8">
+&#9;
+&#9;<script type="text/javascript" charset="UTF-8">
+		function setContextPath() {
+			plcGeral.contextPath = "/dejt";
+			plcGeral.parcialAjaxUsa = false;
+		}
+	</script>
+&#9;
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery-1.4.2.min.js"></script>
+&#9;<script src="/dejt/plc/javascript/PlcGeral.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/ui/jquery-ui-min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/cookie/jquery.cookie.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/ui/i18n/ui.datepicker-pt-BR.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.bgiframe.min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.ajaxQueue.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.autocomplete.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.autogrow.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.maskinput.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/js/i18n/grid.locale-pt-br.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jqGrid-3.6.4/js/jquery.jqGrid.min.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/starRating/jquery.starRating.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/fckeditor/fckeditor.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/app.comuns.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/app.geral.js?v=7.6.0-3"></script>
+&#9;
+&#9;<script type="text/javascript">
+	  jQuery(function(){
+			jQuery("a.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+			jQuery("span.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+			jQuery("button.ui-state-default").hover(
+				function(){ jQuery(this).addClass("ui-state-hover"); },
+				function(){ jQuery(this).removeClass("ui-state-hover"); }
+			)
+		});
+	</script>
+
+<style type="text/css">
+plc-botao {
+	outline: 0;
+	margin: 0 4px 0 0;
+	padding: .4em 1em;
+	text-decoration: none !important;
+	cursor: pointer;
+	position: relative;
+	text-align: center;
+	zoom: 1;
+}
+
+div.home {
+	width: 100%;
+
+}
+
+div.home-coluna-esq {
+	float: left;
+	width: 5%;
+	padding: 2px;
+	margin-left: 10px;
+}
+
+div.home-coluna-dir {
+	float: left;
+	width: 95%;
+	padding: 2px;
+	margin: 30px;
+}
+
+a.plc-botao-quiosque {
+	outline: 0;
+	margin: 4px 4px 0 0;
+	padding: .4em 1em;
+	text-decoration: none !important;
+	width: 80%;
+	height: 32px;
+	font: bold 180% Arial, Tahoma, sans-serif;
+	display: block;
+}
+
+div.home-area-banners-pesquisar-diarios {
+	width: 100%;
+	text-align: center;
+	font-size: large;
+	font-weight: bold;
+}
+
+img.home-banner-pesquisar-diarios {
+	margin: 1em;
+}
+
+.banner {
+	display: inline-block;
+}
+
+div.home-titulo {
+	font-weight: bold;
+	margin: 10px 0 10px 0;
+}
+
+div.home-subtitulo {
+	margin-bottom: 10px;
+}
+
+div.home-subtopico {
+	float: left;
+	margin-top: 10px;
+}
+
+div.home-subtopico-esq {
+	width: 20px;
+	vertical-align: middle;
+	float: left;
+	text-align: right;
+}
+
+div.home-subtopico-dir {
+	margin-left: 25px;
+	padding-left: 5px;
+	border-left: 2px solid rgb(153, 153, 153);
+	min-width: 400px;
+}
+
+div.home-subtitulo-rodape {
+	margin: 200px 0 10px 20px;
+}
+
+div.home-browser-esq {
+	float: left;
+	margin-left: 25px;
+	width: 300px;
+	padding: 2px;
+}
+
+div.home-browser-dir {
+	float: left;
+	padding: 2px;
+}
+
+*+html div.home-subtitulo-rodape {
+	margin: 100px 0 10px 20px !important;
+}
+</style>
+</head>
+
+<body id="corpo_geral" onload="iniciarPagina();" onkeydown="return executarAcaoFuncoes(event);">
+
+<style type="text/css">
+#simplemodal-container a.modalCloseImg {
+	background: none;
+	right: -14px;
+	width: 22px;
+	height: 26px;
+	filter: progid :     DXImageTransform.Microsoft.AlphaImageLoader (   
+				   src =     'img/x.png', sizingMethod =     'scale' );
+}
+
+a.dcontexto {
+	position: relative;
+	font: 12px arial, verdana, helvetica, sans-serif;
+	padding: 0;
+	text-decoration: none;
+}
+
+a.dcontexto:hover {
+	background: transparent;
+}
+
+a.dcontexto tooltip {
+	display: none
+}
+
+a.dcontexto:hover tooltip {
+	display: block;
+	position: absolute;
+	width: 400px;
+	top: 20px;
+	right-align: justify;
+	left: 0;
+	font: 12px arial, verdana, helvetica, sans-serif;
+	padding: 5px 10px;
+	border: 1px solid #999;
+	background: #FFF8DC;
+	color: #000;
+}
+</style>
+
+
+&#9;<link href="/dejt/plc/javascript-w2/jquery/tooltip/jquery.tooltip.css" rel="stylesheet" type="text/css" media="screen">
+
+&#9;<link href="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/css/basic.css" rel="stylesheet" type="text/css" media="screen">
+&#9;&#9;<!-- 
+	<link href='/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/css/demo.css' 
+		rel='stylesheet' type='text/css' media='screen' />
+		 -->
+
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/js/jquery.simplemodal.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/jquery.simplemodal-1.4.1/js/basic.js"></script>
+&#9;
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.tooltip.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.bgiframe.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.delegate.js"></script>
+&#9;<script src="/dejt/plc/javascript-w2/jquery/tooltip/jquery.dimensions.js"></script>&#9;
+&#9;&#9;&#9;
+
+<div id="app">
+&#9;<div id="plc-topo" class="ui-widget ui-widget-header ui-corner-top plc-topo     plc-topo-classico">
+&#9;&#9;<style>
+    	.logo {
+    		display: inline-block;
+    	}
+    	</style>&#9;
+&#9;&#9;
+&#9;&#9;<!-- default -->
+&#9;&#9;
+&#9;&#9;<!-- caminho da imagem conforme servidor de aplicacao -->
+&#9;&#9;&#9;<div id="nomeEmpresa" class="plc-topo-empresa">
+&#9;&#9;&#9;&#9;<a class="logo navigate" href="/dejt">
+&#9;&#9;&#9;&#9;&#9;<img class="plc-imagem" src="/dejt/topo-logo-empresa.png" alt="Di&aacute;rio Eletr&ocirc;nico da Justi&ccedil;a do Trabalho">
+&#9;&#9;&#9;&#9;</a>
+&#9;&#9;&#9;</div></div>
+&#9;
+&#9;<div class="ui-widget-header" style="clear:both; font-weight:normal; line-height:16px; border-bottom: 1px dashed #C2CED1; background: transparent;">&#9;
+&#9;</div>
+&#9;&#9;<script language="javascript">
+
+
+		
+				//<![CDATA[
+				/* Fix Menus Antigos! */
+				jQuery(function(){
+					var lis = [];
+					jQuery('div.plc-menu').children().each(function(){
+						var it = jQuery(this);
+						if (it.is('a')) {
+							it.attr('class', '');
+							var li = jQuery('<li/>');
+							var ul = it.next();
+							li.append(it.remove());
+							if (ul.is('ul')) {
+								li.append(ul.css('class', 'ui-state-hover').remove());
+							}
+							lis.push(li.get());
+						} else if (it.is('li')) {
+							lis.push(this);
+						}
+					});
+					if (jQuery('div.plc-menu > ul').length == 0) {
+						jQuery('div.plc-menu').append('<ul/>');
+					}
+					jQuery.each(lis, function(){
+						jQuery('div.plc-menu > ul').append(this);
+					})
+				});
+				//]]>
+				</script>
+&#9;&#9;<div id="plc-menu-classico" class="ui-widget      ui-widget-header      plc-menu      plc-menu-classico ui-state-active"><ul><li><span class="af_outputLabel">Acesso Restrito</span><ul><li><a class="menuItem navigate" href="/dejt/f/m/login">Efetuar Login</a></li></ul></li><li><span class="af_outputLabel">Servi&ccedil;os</span><ul><li><a class="menuItem navigate" href="/dejt/f/n/cadastroadvogadocon">Advogado, cadastre-se aqui</a></li><li><a class="menuItem navigate" href="/dejt/f/n/autenticacaodiariocon">Aferir Autenticidade de Di&aacute;rios</a></li><li><a class="menuItem navigate" href="/dejt/f/n/esqueciminhasenhacon">Esqueceu Sua Senha?</a></li><li><a class="menuItem navigate" href="/dejt/f/n/faleconoscocon">Fale Conosco</a></li><li><a class="menuItem navigate" href="/dejt/f/n/consultaferiadocon">Feriados</a></li><li><a class="menuItem navigate" href="/dejt/f/n/legislacao">Legisla&ccedil;&atilde;o</a></li><li><a class="menuItem navigate" href="/dejt/f/n/manual">Manuais</a></li><li><a class="menuItem navigate" href="/dejt/f/n/ocorrencias">Ocorr&ecirc;ncias</a></li></ul></li></ul>
+
+<!-- Pesquisa se existe solicitações pendentes para advogado -->
+&#9;&#9;&#9;
+&#9;&#9;&#9;<script type="text/javascript">
+			//<![CDATA[
+				if (false) {
+					jQuery(function () {
+						jQuery('#plc-menu-classico').find('a').each(function(){
+							var href = jQuery(this).attr('href');
+							if (href && href != '#') {
+								jQuery(this).attr("href", "javascript: jQuery.plc.parcialAjaxCorpo('" + href + "')");
+							}
+						});
+					});
+				}
+			//]]>
+			</script>
+&#9;&#9;&#9;
+&#9;&#9;</div>
+
+
+
+
+<div id="plc-corpo" class="ui-widget ui-widget-content plc-corpo             plc-corpo-classico      ">
+<div class="home">
+&#9;<div class="home-coluna-dir">
+&#9;&#9;<span style="display: none;">DEJT-TRT12-OK</span>
+&#9;&#9;&#9;
+&#9;&#9;&#9;<div style="clear: both;"></div>
+
+&#9;&#9;&#9;<div class="home-area-banners-pesquisar-diarios"><a href="f/n/diariocon;jsessionid=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws?pesquisacaderno=J&amp;evento=y" class="navigate banner"><img src="/dejt/img/home-banner-pesquisar-diarios-jud.png;jsessionid=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws" alt="Ler Cadernos Judici&aacute;rios" title="Ler Cadernos Judici&aacute;rios" class="home-banner-pesquisar-diarios"></a><a href="f/n/diariocon;jsessionid=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws?pesquisacaderno=A&amp;evento=y" class="navigate banner"><img src="/dejt/img/home-banner-pesquisar-diarios-adm.png;jsessionid=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws" alt="Ler Cadernos Administrativos" title="Ler Cadernos Administrativos" class="home-banner-pesquisar-diarios"></a>
+&#9;&#9;&#9;</div>
+
+&#9;&#9;&#9;<div class="home-titulo" style="clear: both;"> 
+&#9;&#9;&#9;</div>
+
+&#9;&#9;&#9;<div><p>&nbsp;</p>
+<p style="text-align: center;"><span style="font-size: medium;"><span style="color: #000000;"><br />
+</span></span></p>
+<p><span style="font-size: medium;"> </span></p>
+<p><span style="font-size: medium;"> </span></p>
+<p><span style="font-size: medium;"> </span></p>
+<p><span style="font-size: medium;"><span style="color: #000000;"> </span></span></p>
+<p><span style="font-size: medium;"> </span></p>
+<p><span style="font-size: medium;"> </span></p>
+<p><span style="font-size: medium;"> </span></p>
+<p style="text-align: center;"><span style="font-size: medium;"><span style="color: #000000;"><strong>Atendimento ao usu&aacute;rio do DEJT:</strong></span></span></p>
+<p style="text-align: center;">&nbsp;</p>
+<p style="text-align: justify;"><span style="font-size: medium;"><span style="color: #000000;">Telefone:<strong> 0800 644 3444 </strong>(para demandas dos Tribunais Regionais do Trabalho, advogados e sociedade em geral)</span></span></p>
+<p style="text-align: justify;"><span style="font-size: medium;"><span style="color: #000000;">Ramal: <strong> 4040 </strong>(para demandas internas do Tribunal Superior do Trabalho, Conselho Superior  da Justi&ccedil;a do Trabalho e Escola Nacional de Forma&ccedil;&atilde;o e Aperfei&ccedil;oamento de  Magistrados do Trabalho)</span></span></p>
+<div style="padding: 0px; margin: 0px; border: 0px; outline: 0px; background-image: initial; background-position: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial;">
+<div style="color: rgb(106, 112, 117); font-family: Tahoma, sans-serif; font-size: 1.05em; padding: 0px; margin: 0px; border: 0px; outline: 0px; background-image: initial; background-position: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial;">&nbsp;</div>
+<div class="gmail_default" style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; padding: 0px; margin: 0px; border: 0px; outline: 0px; background-image: initial; background-position: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; text-align: center;">&nbsp;________________________________________________________________________________________________________________</div>
+<span style="text-align: center; font-size: medium;"><span style="font-size: large;">
+<p class="MsoNormal" style="margin-bottom: 0.0001pt; text-align: justify; line-height: normal;">&nbsp;</p>
+</span></span>
+<div class="gmail_default" style="padding: 0px; margin: 0px; border: 0px; outline: 0px; background-image: initial; background-position: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; text-align: center;"><span style="font-size: medium;"><span style="font-family: Arial;"><span style="font-size: large;">
+<p dir="ltr" style="line-height:1.7999999999999998;text-align: justify;background-color:#ffffff;margin-top:10pt;margin-bottom:0pt;"><span style="background-color: rgb(255, 255, 0);"><b><span style="font-size: 12pt; font-family: Arial, &quot;sans-serif&quot;; color: black; letter-spacing: 0.55pt; border: 1pt none windowtext; padding: 0cm;">26/11/2025 &ndash; Publica&ccedil;&otilde;es de mat&eacute;rias judiciais e administrativas na Justi&ccedil;a do Trabalho.</span></b></span></p>
+</span></span></span>
+<p class="MsoNormal" style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin-bottom: 0.0001pt; text-align: justify; line-height: normal;"><span style="font-family: Arial, &quot;sans-serif&quot;; color: rgb(106, 112, 117); letter-spacing: 0.55pt; border: 1pt none windowtext; padding: 0cm; background-image: initial; background-position: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial;"><o:p></o:p></span></p>
+<p class="MsoNormal" style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin-bottom: 0.0001pt; text-align: justify; line-height: normal; background-image: initial; background-position: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial;"><span style="font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;&#10;mso-fareast-font-family:&quot;Times New Roman&quot;;color:#6A7075;letter-spacing:.55pt;&#10;mso-fareast-language:PT-BR">&nbsp;<o:p></o:p></span></p>
+<p style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin: 12pt 0cm; text-align: justify;"><span style="font-size:12.5pt;font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;&#10;color:black;letter-spacing:.55pt">A partir de 1&ordm; de agosto de 2024, a Justi&ccedil;a do Trabalho passou a adotar o Di&aacute;rio de Justi&ccedil;a Eletr&ocirc;nico Nacional (DJEN) como o instrumento oficial de publica&ccedil;&atilde;o dos atos judiciais enviados pelo Processo Judicial Eletr&ocirc;nico (PJe), em cumprimento &agrave; Resolu&ccedil;&atilde;o CNJ n.&ordm; 455/2022.</span><o:p></o:p></p>
+<p style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin: 12pt 0cm; text-align: justify;"><span style="white-space-collapse: preserve;"><span style="font-size:12.5pt;font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:black;&#10;letter-spacing:.55pt">Com a implanta&ccedil;&atilde;o do DJEN, foram substitu&iacute;dos os Cadernos Judici&aacute;rios do Di&aacute;rio Eletr&ocirc;nico da Justi&ccedil;a do Trabalho (DEJT) para a publica&ccedil;&atilde;o de ac&oacute;rd&atilde;os, senten&ccedil;as, decis&otilde;es, despachos, editais, intima&ccedil;&otilde;es, notifica&ccedil;&otilde;es, bem como de listas de distribui&ccedil;&atilde;o e redistribui&ccedil;&atilde;o de processos.</span><o:p></o:p></span></p>
+<p style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin: 12pt 0cm; text-align: justify;"><span style="white-space-collapse: preserve;"><span style="font-size:12.5pt;font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:black;&#10;letter-spacing:.55pt">As atas e pautas das sess&otilde;es de julgamento dos Tribunais Regionais do Trabalho continuam a ser publicadas&nbsp; nos Cadernos Judici&aacute;rios do DEJT at&eacute; a migra&ccedil;&atilde;o desses conte&uacute;dos para o DJEN.</span><o:p></o:p></span></p>
+<p style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin: 12pt 0cm; text-align: justify;"><span style="white-space-collapse: preserve;"><span style="font-size:12.5pt;font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:black;&#10;letter-spacing:.55pt">O DEJT permanece como instrumento de publica&ccedil;&atilde;o dos atos da Escola Nacional de Forma&ccedil;&atilde;o e Aperfei&ccedil;oamento de Magistrados do Trabalho (Enamat), bem como dos atos de gest&atilde;o administrativa do Tribunal Superior do Trabalho (TST), do Conselho Superior da Justi&ccedil;a do Trabalho (CSJT) e dos Tribunais Regionais do Trabalho (TRTs) nos respectivos Cadernos Administrativos</span><o:p></o:p></span></p>
+<p style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin: 12pt 0cm; text-align: justify;"><span style="white-space-collapse: preserve;"><span style="font-size:12.5pt;font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:black;&#10;letter-spacing:.55pt">As emendas regimentais, atos, resolu&ccedil;&otilde;es, portarias, atas solenes, designa&ccedil;&otilde;es, cancelamentos de sess&otilde;es, comunicados, autoriza&ccedil;&otilde;es de afastamento e outros atos judiciais e das corregedorias da Justi&ccedil;a do Trabalho que contenham formato n&atilde;o recepcionado pela plataforma do DJEN s&atilde;o publicadas nos Cadernos Administrativos do DEJT.</span><o:p></o:p></span></p>
+<p style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin: 12pt 0cm; text-align: justify;"><span style="white-space-collapse: preserve;"><span style="font-size:12.5pt;font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:black;&#10;letter-spacing:.55pt">As mat&eacute;rias do DJEN s&atilde;o disponibilizadas de segunda a sexta-feira, a partir de 0h, exceto em feriados nacionais e regionais registrados no sistema processual, e podem ser consultadas no endere&ccedil;o:https://comunica.pje.jus.br</span><o:p></o:p></span></p>
+<p style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin: 12pt 0cm; text-align: justify;"><span style="white-space-collapse: preserve;"><span style="font-size:12.5pt;font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:black;&#10;letter-spacing:.55pt">A utiliza&ccedil;&atilde;o do DJEN &eacute; regulamentada pelo Ato Conjunto TST.CSJT.GP n&ordm; 77/2023, e sua ado&ccedil;&atilde;o refor&ccedil;a o compromisso da Justi&ccedil;a do Trabalho com a inova&ccedil;&atilde;o, efici&ecirc;ncia, transpar&ecirc;ncia e agilidade na comunica&ccedil;&atilde;o dos atos processuais, em alinhamento &agrave;s diretrizes do Conselho Nacional de Justi&ccedil;a.</span></span></p>
+<p style="color: rgb(34, 34, 34); font-family: Tahoma, sans-serif; font-size: 1.05em; margin: 12pt 0cm; text-align: justify;"><span style="white-space-collapse: preserve;"><o:p></o:p></span></p>
+</div>
+<div class="gmail_default" style="padding: 0px; margin: 0px; border: 0px; outline: 0px; background-image: initial; background-position: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial;"><span id="docs-internal-guid-39699eba-7fff-a515-1ea8-3ac5b886e12f">
+<p style="margin-top:12.0pt;margin-right:0cm;margin-bottom:12.0pt;margin-left:&#10;0cm;text-align:justify"><span style="font-family: Arial, &quot;sans-serif&quot;; font-size: 12.5pt; letter-spacing: 0.55pt; background-color: transparent; color: rgb(34, 34, 34); white-space-collapse: preserve;">Eventuais d&uacute;vidas podem ser sanadas, mediante </span><span style="background-color: transparent; color: rgb(34, 34, 34); white-space-collapse: preserve; font-family: Arial, &quot;sans-serif&quot;; font-size: 12.5pt; letter-spacing: 0.55pt;">o encaminhamento de mensagem para o e-mail: </span><a href="mailto:dejt@csjt.jus.br" style="background-color: transparent; white-space-collapse: preserve; font-family: Arial, &quot;sans-serif&quot;; font-size: 12.5pt; letter-spacing: 0.55pt;"><strong><span style="color: rgb(0, 0, 0);">dejt@csjt.jus.br</span></strong></a><strong><span style="color: rgb(0, 0, 0);"><span style="background-color: transparent; white-space-collapse: preserve; font-family: Arial, &quot;sans-serif&quot;; font-size: 12.5pt; letter-spacing: 0.55pt;">.</span><span style="background-color: transparent; font-family: Arial, sans-serif; font-size: 12pt; white-space-collapse: preserve;"> </span></span></strong></p>
+<div><span style="font-size: 12pt; font-family: Arial, sans-serif; color: rgb(34, 34, 34); background-color: transparent; font-variant-numeric: normal; font-variant-east-asian: normal; font-variant-alternates: normal; font-variant-position: normal; vertical-align: baseline; white-space-collapse: preserve;"> </span></div>
+</span>
+<div>&nbsp;</div>
+</div>
+</div>
+<p>&nbsp;</p>
+&#9;&#9;&#9;</div>
+
+&#9;&#9;&#9;<div class="home-subtopico">
+&#9;&#9;&#9;&#9;<div class="home-subtopico-esq"></div>
+&#9;&#9;&#9;&#9;<div class="home-subtopico-dir"></div>
+&#9;&#9;&#9;</div>
+
+&#9;&#9;&#9;<div class="home-subtopico">
+&#9;&#9;&#9;&#9;<div class="home-subtopico-esq"></div>
+&#9;&#9;&#9;&#9;<div class="home-subtopico-dir"></div>
+&#9;&#9;&#9;</div>
+
+&#9;&#9;&#9;<div class="home-subtopico">
+&#9;&#9;&#9;&#9;<div class="home-subtopico-esq"></div>
+&#9;&#9;&#9;&#9;<div class="home-subtopico-dir"></div>
+&#9;&#9;&#9;</div>
+
+&#9;&#9;&#9;<div class="home-subtopico">
+&#9;&#9;&#9;&#9;<div class="home-subtopico-esq"></div>
+&#9;&#9;&#9;&#9;<div class="home-subtopico-dir"></div>
+&#9;&#9;&#9;</div>
+
+&#9;&#9;&#9;<div></div>
+
+&#9;&#9;</div>
+&#9;</div>&#9;</div><div class="clear"></div>
+&#9;<div id="plc-rodape" class="ui-widget ui-widget-header ui-corner-bottom plc-rodape plc-rodape-classico">
+&#9;
+&#9;<div class="plc-rodape-complemento-empresa">
+&#9;&#9;<div id="plc-rodape-complemento" class="plc-rodape-complemento"><p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p style="text-align: center;">Conselho Superior da Justi&ccedil;a do Trabalho - Endere&ccedil;o: SAFS - Qd 8, Conj A, Sala A5.71</p>
+<p style="text-align: center;">CEP 70.070-943 - Tel.: (61) 3043-4005 / 3043-3804</p>
+&#9;&#9;</div>
+&#9;&#9;<p><span class="af_outputLabel" style="display: inline">dejt</span>-<span class="af_outputLabel" style="display: inline">7.6.0-3</span>
+&#9;&#9;&#9;  
+&#9;&#9;&#9;(<span class="af_outputLabel" style="display: inline">master</span>)
+&#9;&#9;&#9;
+&#9;&#9;</p>
+&#9;</div>
+
+ &#9;<!--  psiu -->
+&#9;&#9;<script id="psiu-feedback" src="https://psiu.jt.jus.br/assets/js/psiu-feedback.js" data-produto="b2775866-bced-4bf4-a7aa-278d7f926f41" data-assets="https%3A%2F%2Fpsiu.jt.jus.br%2Fassets" data-api="https%3A%2F%2Fpsiu-backend.jt.jus.br%2Fapi"></script>
+
+&#9;<!-- reCaptcha v3 --><script type="text/javascript">var _AdfWindowOpenError='Foi detectado um bloqueador de janela pop-up no seu browser. Esses bloqueadores interferem na operação desta aplicação. Desative seu bloqueador de pop-ups ou permita popups a partir deste site.';</script><script type="text/javascript" src="/dejt/adf/jsLibs/Common1_2_13.js;jsessionid=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws"></script><form id="rodape" name="rodape" style="margin:0px" method="POST" onkeypress="return _submitOnEnter(event,'rodape');" action="/dejt/f/inicial.xhtml;jsessionid=AC4D10511B2887C53B13AAA64AF0097D.dejt-ip-10-200-16-194.production.aws">
+&#9;&#9;&#9;<h1 style="visibility:hidden;width:1px;height:1px;"><button id="plc-acao-desconecta" name="plc-acao-desconecta" type="button" title="Desconectar" onclick="submitForm('rodape',1,{source:'plc-acao-desconecta'});return false;" onmouseout="this.className='botao_menu ui-state-default plc-botao'" onmouseover="this.className='botao_menu2 ui-state-hover plc-botao'" class="display:none af_commandButton"><table><tr><td><div class="plc-corpo-acao-t">Desconectar</div></td></tr></table></button>
+<script id="avaliar:plc-acao-desconecta" type="text/javascript">
+</script>
+ 
+&#9;&#9;&#9;</h1><input type="hidden" name="org.apache.myfaces.trinidad.faces.FORM" value="rodape"><input type="hidden" name="_noJavaScript" value="false"><span id="tr_rodape_Postscript"><input type="hidden" name="javax.faces.ViewState" value="!x18yeerk9"><script type="text/javascript">function _rodapeValidator(f,s){return true;}</script></span><script type="text/javascript">_submitFormCheck();</script></form>&#9;
+&#9;
+&#9;&#9;<div id="plc-rodape-timeout" class="plc-rodape-timeout" title="Tempo restante de inatividade para que sua sess&atilde;o seja encerrada, seguido do tempo padr&atilde;o da sesss&atilde;o">
+&#9;&#9;&#9;<span class="ico iTempologado"></span> Tempo sessao: <em>30.0m</em>
+&#9;&#9;</div>
+&#9;&#9;<div id="plc-rodape-timeout" class="plc-rodape-timeout" title="Tempo restante de inatividade para que sua sess&atilde;o seja encerrada, seguido do tempo padr&atilde;o da sesss&atilde;o"> 
+&#9;        <span class="ico iHoralogin"></span> Hora login: <em>15:06</em>
+&#9;&#9;</div></div><script language="javascript" type="text/javascript">
+//<![CDATA[
+function faceletsDebug(URL) { day = new Date(); id = day.getTime(); eval("page" + id + " = window.open(URL, '" + id + "', 'toolbar=0,scrollbars=1,location=0,statusbar=0,menubar=0,resizable=1,width=800,height=600,left = 240,top = 212');"); };var faceletsOrigKeyup = document.onkeyup; document.onkeyup = function(e) { if (window.event) e = window.event; if (String.fromCharCode(e.keyCode) == 'D' & e.shiftKey & e.ctrlKey) faceletsDebug('/dejt/f/inicial.xhtml?facelets.ui.DebugOutput=1784327836189'); else if (faceletsOrigKeyup) faceletsOrigKeyup(e); };
+//]]>
+</script>
+</div>
+
+
+
+
+
+</body>
+<!--/f:view-->
+</html>

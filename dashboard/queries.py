@@ -912,8 +912,12 @@ def runs_recentes(limit=30):
 
 
 def cobertura_temporal(tribunal):
+    # fonte='djen': desde 08/2026 o mesmo tribunal pode ter runs de outras
+    # portas (DJE próprio/DEJT — ver diarios/base.py). Misturar aqui pintaria
+    # de verde janelas que o DJEN nunca cobriu.
     runs = (
-        IngestionRun.objects.filter(tribunal=tribunal, status=IngestionRun.STATUS_SUCCESS)
+        IngestionRun.objects.filter(tribunal=tribunal, fonte='djen',
+                                    status=IngestionRun.STATUS_SUCCESS)
         .order_by('janela_inicio').values('janela_inicio', 'janela_fim')
     )
     return {
@@ -1781,6 +1785,7 @@ def pipeline_saude_grid(dias=30, tribunais=None):
     djen_qs = (
         IngestionRun.objects
         .filter(
+            fonte='djen',   # a linha 'DJEN' do gráfico é só do DJEN
             status=IngestionRun.STATUS_SUCCESS,
             janela_inicio=F('janela_fim'),
             janela_inicio__gte=inicio,

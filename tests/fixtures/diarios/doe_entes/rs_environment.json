@@ -1,0 +1,5 @@
+{
+  "production": true,
+  "restEndPoint": "https://doe-backend.pro.rs.gov.br/",
+  "doeEndPoint": "https://secweb.procergs.com.br/doe/"
+}
