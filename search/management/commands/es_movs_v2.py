@@ -249,7 +249,13 @@ class Command(BaseCommand):
         divergentes = iguais = ausentes = 0
         exemplo = None
         for seed in (1, 2, 3, 4):
-            r = self.es.search(index=self.v1, size=125, request_timeout=180, query={
+            # Sorteia do V2 e confere no V1 — não o contrário. O v1 é um shard
+            # único de 685 GB; `function_score`+`random_score` nele custa
+            # minutos sob carga e estourou o timeout do cliente duas vezes. O v2
+            # tem 16 shards e responde o mesmo sorteio em segundos. A direção não
+            # muda o que o gate prova (contagem já é idêntica; aqui se afere
+            # FIDELIDADE campo a campo).
+            r = self.es.search(index=self.v2, size=125, request_timeout=180, query={
                 'function_score': {'query': {'match_all': {}},
                                    'random_score': {'seed': seed, 'field': '_seq_no'}}})
             hits = r['hits']['hits']
@@ -257,16 +263,20 @@ class Command(BaseCommand):
                 continue
             # `_mget` e não 500 `get`: com o nó em merge pós-cópia, uma chamada
             # por doc estoura o timeout do cliente antes de terminar a amostra.
-            got = self.es.mget(index=self.v2, request_timeout=180,
+            got = self.es.mget(index=self.v1, request_timeout=180,
                                body={'ids': [h['_id'] for h in hits]})
-            no_v2 = {d['_id']: d.get('_source') for d in got['docs'] if d.get('found')}
+            no_v1 = {d['_id']: d.get('_source') for d in got['docs'] if d.get('found')}
+            ENTIDADES = {'oabs', 'advogados', 'documentos', 'cnjs_citados',
+                         'valores_citados'}
             for h in hits:
-                d2 = no_v2.get(h['_id'])
-                if d2 is None:
+                d1 = no_v1.get(h['_id'])
+                if d1 is None:
                     ausentes += 1
                     continue
-                # o v2 tem campos A MAIS (as entidades): compara só os do v1
-                dif = [k for k, v in h['_source'].items() if d2.get(k) != v]
+                # o v2 tem campos A MAIS (as entidades extraídas): compara só o
+                # que existe nos dois
+                dif = [k for k, v in h['_source'].items()
+                       if k not in ENTIDADES and d1.get(k) != v]
                 if dif:
                     divergentes += 1
                     if exemplo is None:
