@@ -241,7 +241,10 @@ class Command(BaseCommand):
         Contagem igual não prova cópia fiel (poderia copiar docs errados), por
         isso a amostra compara o `_source` inteiro de documentos sorteados.
         """
-        self.es.indices.refresh(index=self.v2)
+        # `refresh` num índice de 16 shards sob escrita pesada leva MINUTOS, e
+        # sem `request_timeout` ele herda o ES_TIMEOUT de 30s do settings — foi
+        # o que derrubou o gate três vezes. 600s aqui é espera, não lentidão.
+        self.es.indices.refresh(index=self.v2, request_timeout=600)
         c1 = self.es.count(index=self.v1, request_timeout=180)['count']
         c2 = self.es.count(index=self.v2, request_timeout=180)['count']
         self.stdout.write(f'contagem: v1 {c1:,} · v2 {c2:,} · diferença {c1-c2:+,}')
