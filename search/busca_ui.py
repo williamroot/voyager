@@ -166,6 +166,9 @@ COBERTURA_TOTAL = ('proc',)
 COBERTURA_AMOSTRADA = ('partes', 'advs')
 COBERTURA_AMOSTRA_N = 250          # por semente
 COBERTURA_AMOSTRA_SEEDS = (11, 22, 33, 44)
+#: teto de espera da amostragem. Curto de propósito: é estimativa exibida num
+#: rodapé, e o custo de errar pra mais é o site fora do ar (aconteceu).
+AMOSTRA_TIMEOUT = 5
 
 
 # --------------------------------------------------------------------------- #
@@ -197,6 +200,16 @@ def _bodies_cobertura() -> list:
 def _amostrar_texto(campos, total) -> dict:
     """Cobertura de campo `text` por amostra aleatória.
 
+    ⚠️ ISTO DERRUBOU O SITE em 17/08/2026 (502 em loop). `function_score` com
+    `random_score` sobre 71M docs custa segundos QUANDO O CLUSTER ESTÁ FOLGADO;
+    com o ES em forcemerge de um índice de 985 GB, passou do timeout do gunicorn
+    e o worker foi morto — repetidamente, porque a medição roda no caminho da
+    requisição quando o cache está frio.
+
+    Duas defesas agora: `request_timeout` curto (o dado é ESTIMATIVA — não vale
+    um worker) e falha silenciosa que devolve o fallback. Cobertura é enfeite
+    honesto na resposta; nunca pode ser o que derruba a busca.
+
     Não existe contagem exata barata: `exists` conta string vazia como valor, e
     `regexp: .+` num campo analisado percorre o dicionário de termos inteiro de
     71M docs. Amostrar 1.000 documentos custa 4 requisições e responde a mesma
@@ -211,7 +224,7 @@ def _amostrar_texto(campos, total) -> dict:
                 'query': {'match_all': {}},
                 'random_score': {'seed': seed, 'field': '_seq_no'}}},
         }
-        resp = _msearch([corpo])[0]
+        resp = _msearch([corpo], request_timeout=AMOSTRA_TIMEOUT)[0]
         for h in resp.get('hits', {}).get('hits', []):
             vistos += 1
             for c in campos:
@@ -240,8 +253,15 @@ def medir_cobertura() -> dict:
     try:
         medida.update(_amostrar_texto(COBERTURA_AMOSTRADA, total))
         medida['amostrado'] = list(COBERTURA_AMOSTRADA)
-    except Exception:  # noqa: BLE001 — sem amostra a tela ainda mostra o resto
-        logger.warning('cobertura: amostragem de campo texto falhou')
+    except Exception:  # noqa: BLE001 — cobertura NUNCA pode derrubar a busca
+        # Cai no número medido à mão em vez de omitir o campo: a tela precisa
+        # dizer alguma coisa, e "número velho identificado" vale mais que
+        # silêncio (mesma regra do COBERTURA_FALLBACK).
+        logger.warning('cobertura: amostragem de campo texto falhou — usando fallback')
+        for c in COBERTURA_AMOSTRADA:
+            medida.setdefault(c, COBERTURA_FALLBACK.get(c))
+        medida['amostrado'] = list(COBERTURA_AMOSTRADA)
+        medida['amostra_degradada'] = True
     return medida
 
 
@@ -641,14 +661,19 @@ def buscar_da_querystring(qd) -> dict:
 # --------------------------------------------------------------------------- #
 # Wrappers lazy (mockáveis nos testes, mesmo padrão de busca_api)
 # --------------------------------------------------------------------------- #
-def _msearch(bodies: list) -> list:
-    """1 round-trip HTTP, N sub-buscas em paralelo no ES (padrão do agg_estado)."""
+def _msearch(bodies: list, request_timeout=None) -> list:
+    """1 round-trip HTTP, N sub-buscas em paralelo no ES (padrão do agg_estado).
+
+    `request_timeout` existe pra quem pode DESISTIR: a amostragem de cobertura
+    é estimativa de rodapé e não vale segurar um worker de gunicorn até ele ser
+    morto — foi assim que o site caiu em 17/08/2026."""
     es = ba.get_es()
     payload: list = []
     for b in bodies:
         payload.append({})
         payload.append(b)
-    resp = es.msearch(index=ba.index_name('processos'), body=payload)
+    kw = {'request_timeout': request_timeout} if request_timeout else {}
+    resp = es.msearch(index=ba.index_name('processos'), body=payload, **kw)
     if hasattr(resp, 'body'):
         resp = dict(resp.body)
     respostas = resp.get('responses') or []
