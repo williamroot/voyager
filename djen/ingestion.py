@@ -92,6 +92,11 @@ DJEN_HARD_CAP = 10_000
 #: não caminho normal. Medido: `ufOab=SP` no TJSP passa de 10 páginas todo dia.
 MAX_PAGINAS_UF = 500
 
+#: quantas páginas ficam em voo entre os fetchers e quem grava. É o TETO DE
+#: MEMÓRIA do dia: 8 páginas × 1000 publicações com texto ≈ 30 MB, contra os
+#: 400+ MB que a versão acumuladora exigia (e que matou os workers com OOM).
+PAGINAS_EM_VOO = 8
+
 
 def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
                   client: DJENClient | None = None,
@@ -190,7 +195,7 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
     )
     cnjs_tocados: set[str] = set()
 
-    def _fetch_uf(uf: str) -> list[dict]:
+    def _iter_paginas_uf(uf: str):
         """Pagina uma fatia de UF ATÉ ESGOTAR.
 
         ⚠️ Aqui morava a maior perda de acervo do sistema. A linha era
@@ -211,8 +216,8 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
         pode nos prender), mas é ALTO e, se for atingido, vira alerta — nunca
         mais um corte mudo.
         """
-        items = []
         pagina = 1
+        vistos = 0
         while pagina <= MAX_PAGINAS_UF:
             payload = client._fetch(
                 tribunal.sigla_djen, dia, dia,
@@ -220,51 +225,67 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
                 extra_params={'ufOab': uf},
             )
             page = payload.get('items') or []
-            items.extend(page)
+            if page:
+                yield page                 # entrega e ESQUECE: quem grava é o consumidor
+            vistos += len(page)
             if len(page) < 1000:
-                return items
+                return
             pagina += 1
         # Chegou no teto de sanidade: a fatia PODE estar truncada. Isso é
         # exceção e tem que gritar — foi o silêncio que custou 43,6% do TJSP.
         logger.error(
             'djen UF %s/%s dia=%s ATINGIU o teto de %d páginas (%d itens) — '
             'a fatia pode estar truncada',
-            tribunal.sigla, uf, dia, MAX_PAGINAS_UF, len(items),
+            tribunal.sigla, uf, dia, MAX_PAGINAS_UF, vistos,
         )
         run.erros.append({'erro': 'uf_teto_paginas', 'uf': uf,
-                          'paginas': MAX_PAGINAS_UF, 'itens': len(items)})
-        return items
+                          'paginas': MAX_PAGINAS_UF, 'itens': vistos})
 
     try:
-        all_items: list[dict] = []
-        seen_ids: set = set()
+        # STREAMING, não acumulação. A versão anterior juntava TODOS os itens
+        # das 27 UFs numa lista e só então gravava. Com o teto de 10 páginas
+        # isso cabia (~117k itens); sem o teto, o TJSP traz 208k+ publicações
+        # com o TEXTO inteiro dentro — os workers morreram com signal 9 (OOM),
+        # e o watchdog registrou "worker crashou" em 8 dos 30 dias do backfill.
+        #
+        # Agora as páginas viajam por uma fila LIMITADA: os fetchers produzem,
+        # a thread principal grava e descarta. O pico de memória passa a ser o
+        # tamanho da fila, não o tamanho do dia — e o dedupe continua garantido
+        # pelo uniq (tribunal, external_id) do banco, que é onde ele sempre
+        # esteve de verdade.
+        import queue as _queue
+
+        paginas = _queue.Queue(maxsize=PAGINAS_EM_VOO)
         uf_erros: list[str] = []
+        total_itens = 0
+        FIM = object()
+
+        def _produz(uf: str):
+            try:
+                for page in _iter_paginas_uf(uf):
+                    paginas.put(page)
+            except Exception as exc:
+                uf_erros.append(uf)
+                run.erros.append({'erro': 'uf_fetch', 'uf': uf, 'detalhe': str(exc)[:200]})
+                logger.warning('falha ao coletar uf=%s: %s', uf, str(exc)[:120])
 
         with ThreadPoolExecutor(max_workers=8) as pool:
-            futs = {pool.submit(_fetch_uf, uf): uf for uf in UF_OABS}
-            for fut in as_completed(futs):
-                uf = futs[fut]
-                try:
-                    uf_items = fut.result()
-                    novos_uf = 0
-                    for it in uf_items:
-                        item_id = it.get('id')
-                        if item_id not in seen_ids:
-                            seen_ids.add(item_id)
-                            all_items.append(it)
-                            novos_uf += 1
-                    logger.debug('uf=%s → %d itens (%d únicos novos)', uf, len(uf_items), novos_uf)
-                except Exception as exc:
-                    uf_erros.append(uf)
-                    run.erros.append({'erro': 'uf_fetch', 'uf': uf, 'detalhe': str(exc)[:200]})
-                    logger.warning('falha ao coletar uf=%s: %s', uf, str(exc)[:120])
+            futs = [pool.submit(_produz, uf) for uf in UF_OABS]
+            pool.submit(lambda: ([f.result() for f in futs], paginas.put(FIM)))
+            while True:
+                page = paginas.get()
+                if page is FIM:
+                    break
+                total_itens += len(page)
+                for i in range(0, len(page), BATCH_SIZE):
+                    _process_page(page[i:i + BATCH_SIZE], tribunal, run, cnjs_tocados)
 
         if uf_erros:
             logger.warning('djen UF strategy: %d UFs falharam: %s', len(uf_erros), uf_erros)
 
         logger.info(
-            'djen UF strategy %s %s → %d itens únicos (%d UFs, %d erros)',
-            tribunal.sigla, dia, len(all_items), len(UF_OABS), len(uf_erros),
+            'djen UF strategy %s %s → %d itens em fluxo (%d UFs, %d erros)',
+            tribunal.sigla, dia, total_itens, len(UF_OABS), len(uf_erros),
         )
 
         # Falha o run se a coleta foi degradada demais — antes, qualquer
@@ -275,13 +296,10 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
             raise RuntimeError(
                 f'UF strategy degradada: {len(uf_erros)}/{len(UF_OABS)} UFs falharam'
             )
-        if not all_items and uf_erros:
+        if not total_itens and uf_erros:
             raise RuntimeError(
                 f'UF strategy: zero itens coletados com {len(uf_erros)} UFs em erro'
             )
-
-        for i in range(0, len(all_items), BATCH_SIZE):
-            _process_page(all_items[i:i + BATCH_SIZE], tribunal, run, cnjs_tocados)
 
         if cnjs_tocados:
             _atualizar_resumo_processos(tribunal, cnjs_tocados)
