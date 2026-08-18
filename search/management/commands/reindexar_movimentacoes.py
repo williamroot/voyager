@@ -34,6 +34,13 @@ class Command(BaseCommand):
                             help='Serializa partes (mais lento; default do backfill é SEM partes).')
         parser.add_argument('--checkpoint', type=str, default='/app/media/reindex_mov_checkpoint.txt',
                             help='Arquivo que persiste o último id (resume).')
+        # Faixa de id: é o que permite SHARDAR. Um processo só fez 438 docs/s
+        # medidos — 179 milhões nesse ritmo são 4,7 dias. Cada shard leva a sua
+        # faixa e o seu checkpoint, sem coordenação e sem escrever no mesmo doc.
+        parser.add_argument('--desde-id', type=int, default=0,
+                            help='Só ids > este (o checkpoint vence se for maior).')
+        parser.add_argument('--ate-id', type=int, default=0,
+                            help='Para neste id (0 = vai até o fim da tabela).')
 
     def _load_ckpt(self, path):
         try:
@@ -63,10 +70,18 @@ class Command(BaseCommand):
         if options['desde']:
             base = base.filter(data_disponibilizacao__gte=options['desde'])
 
-        total = _estimativa_count()
-        last_pk = self._load_ckpt(ckpt)
+        ate = options.get('ate_id') or 0
+        if ate:
+            base = base.filter(id__lte=ate)
+
+        # o checkpoint vence o --desde-id: relançar um shard tem que CONTINUAR,
+        # não voltar pro começo da faixa (foi o defeito que fez a extração de
+        # entidades nunca convergir — ver es_movs_v2)
+        last_pk = max(self._load_ckpt(ckpt), options.get('desde_id') or 0)
+        total = _janela_count(last_pk, ate) if (ate or last_pk) else _estimativa_count()
         self.stdout.write(f'Reindexando ~{total:,} movimentações (batch={bs}, sleep={slp}s, '
-                          f'com_partes={com_partes}) → {idx} | retomando de id>{last_pk}')
+                          f'com_partes={com_partes}) → {idx} | de id>{last_pk}'
+                          + (f' até {ate:,}' if ate else ''))
         self.stdout.flush()
 
         sess = requests.Session()
@@ -105,6 +120,22 @@ class Command(BaseCommand):
                 time.sleep(slp)
 
         self.stdout.write(self.style.SUCCESS(f'Fim desta execução: {enviados:,} docs (último id={last_pk}).'))
+
+
+def _janela_count(desde: int, ate: int) -> int:
+    """COUNT exato da faixa de id. É a PK, então é varredura de índice e é barato
+    — e um ETA calculado sobre a tabela inteira mentiria por ordens de grandeza
+    quando o shard cuida de 3% dela."""
+    try:
+        with connection.cursor() as c:
+            if ate:
+                c.execute('SELECT count(*) FROM tribunals_movimentacao WHERE id > %s AND id <= %s',
+                          [desde, ate])
+            else:
+                c.execute('SELECT count(*) FROM tribunals_movimentacao WHERE id > %s', [desde])
+            return int(c.fetchone()[0])
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 def _estimativa_count() -> int:
