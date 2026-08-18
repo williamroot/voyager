@@ -109,10 +109,30 @@ quando a MV está defasada, mostra o **último snapshot conhecido** (janela anco
 
 Coração da ingestão. Pra uma janela `(data_inicio, data_fim)`:
 
-**Cap rígido de 10k**: A DJEN para de paginar em 100 pgs × 100 = 10.000 itens por janela. Estratégia adaptativa em duas camadas:
+**O dia sai FLAT** (desde 18/08/2026). `iter_pages` pagina até a página voltar
+incompleta, sem teto — medido no TJSP: 262 páginas, 261.076 itens, ids todos
+distintos, zero página incompleta no meio.
 
-- **Multi-dia que capou** (`paginas_lidas == 100 && novas+dup >= 10k && days >= 1`): divide em 2 metades e re-processa recursivamente, propagando `forcar_uf_em_1d=True`.
-- **1-dia**: probe via `count_only`. Se `count >= 10k` OU se vier de split (`forcar_uf_em_1d=True`), vai direto pra `_ingest_day_por_uf` (paraleliza por 27 `ufOab`). A flag existe porque `count_only` pode mentir sob WAF/proxy ruim — payload truncado com `count` pequeno faria o caminho normal re-cap ar e perder dados.
+⚠️ **Não existe "cap rígido de 10k".** O `count` da DJEN satura em 10.000 porque
+por baixo é o `max_result_window` do Elasticsearch: é um **PISO** ("tem pelo
+menos 10 mil"), não um teto de paginação. Construir lógica em cima dele foi a
+origem das duas maiores perdas de acervo do projeto.
+
+O caminho antigo — fatiar o dia em 27 requisições por `ufOab` — está atrás da
+escotilha `DJEN_ESTRATEGIA_UF` (padrão OFF) porque tem **defeito próprio**:
+
+- **é cego a publicação sem advogado com OAB.** Provado na unidade em cinco
+  tribunais: TJPE 2025-08-13 tem 2.853 itens sem OAB e são exatamente as 2.853
+  que faltavam; TJMA 911 = 911; TJRN, STJ e TJPB idem. 2% a 10% de todo dia
+  acima de 10.000 — e o conserto do teto de páginas (17/08) NÃO recupera esses;
+- **custa 27× mais requisição** à API do CNJ (rate-limit de 20/s);
+- **uma fatia perdida derrubava o dia inteiro em silêncio** — ver abaixo.
+
+**Fatia perdida = run FAILED.** O limiar era 14 de 27 fatias, o que trata a
+fatia do DF (77% do dia no TJDFT) igual à de um estado com 40 itens. Resultado
+medido: 1.232 runs `success` com `uf_fetch` dentro, cobrindo 1.165
+dias-tribunal — e `_dia_coberto` pula dia com run `success`, então esses dias
+ficariam fora de qualquer backfill futuro. Hoje uma fatia basta pra falhar.
 
 1. Cria `IngestionRun(status='running')`
 2. `for items in client.iter_pages(...)`: chama `_process_page(items, tribunal, run, cnjs_tocados)`
