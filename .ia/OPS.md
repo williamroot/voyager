@@ -1328,3 +1328,33 @@ olhar. É perda de cobertura silenciosa — o defeito nº 1 da lista do CLAUDE.m
 ssh ubuntu@192.168.30.102 'docker exec voyager-worker_djen_audit-1 sh -c "ulimit -n"'   # 65536
 ssh ubuntu@192.168.30.102 'docker logs --since 1h voyager-worker_djen_audit-1 2>&1 | grep -c "Errno 24"'  # 0
 ```
+
+### Passada de entidades do índice de busca — operar
+
+A extração de OAB/CPF/CNPJ/CNJ do texto das publicações (`es_movs_v2
+--entidades`) é **retomável**: todo doc lido recebe o carimbo `ents_v`, então
+morrer e terminar se tratam igual — relançar continua de onde parou.
+
+```bash
+# ver o que falta (o número que importa)
+curl -s -X POST 'http://192.168.30.128:9200/voyager-movimentacoes/_count' \
+  -H 'Content-Type: application/json' \
+  -d '{"query":{"bool":{"must_not":[{"exists":{"field":"ents_v"}}],
+       "filter":[{"bool":{"should":[{"match_phrase":{"body":"OAB"}},
+       {"match_phrase":{"body":"CPF"}},{"match_phrase":{"body":"CNPJ"}},
+       {"match":{"body":"advogado"}},{"match_phrase":{"body":"R$"}}],
+       "minimum_should_match":1}}]}}}'
+
+# lançar N faixas em paralelo, com relançamento automático (host .103)
+nohup ~/voyager/scripts/entidades_supervisor.sh "0 1 2 3 4 5 6 7" \
+      > /tmp/entidades_super.log 2>&1 &
+tail -f /tmp/entidades_f0.log
+```
+
+⚠️ **Não passe de ~8 faixas simultâneas.** Com 16 o circuit-breaker do ES
+estourou (heap 7,6 GB de 7,5 GB de limite) e 4 faixas morreram de uma vez. O nó
+é único e também serve a busca de produção.
+
+**Carimbo retroativo.** Os docs processados antes do carimbo existir foram
+marcados por `_update_by_query` server-side (`ctx._source.ents_v = 1` onde já
+havia alguma entidade). Sem isso a passada releria 21M docs à toa.
