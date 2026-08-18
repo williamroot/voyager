@@ -8,6 +8,11 @@ def _client():
     c.PAGE_SIZE = 1000
     c.page_sleep = 0
     c.max_retries = 5
+    # janela 1 = paginação serial. Estes testes contam REQUISIÇÃO por requisição
+    # pra provar o downshift, e uma janela paralela pediria páginas além do fim
+    # (baratas, mas ruído aqui). O paralelismo tem suíte própria em
+    # tests/test_djen_paginacao_paralela.py.
+    c.paginas_paralelas = 1
     return c
 
 

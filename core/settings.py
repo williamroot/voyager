@@ -264,6 +264,11 @@ DJEN_USER_AGENT = env('DJEN_USER_AGENT', default='voyager-ingestion/0.1')
 # dia grande). Ver o comentário de ESTRATEGIA_UF em djen/ingestion.py.
 DJEN_ESTRATEGIA_UF = env.bool('DJEN_ESTRATEGIA_UF', default=False)
 
+# Páginas do MESMO dia buscadas em paralelo por `iter_pages`. Serial, um dia de
+# TJSP são 262 requisições em fila indiana (163 min medidos). 8 é o mesmo teto
+# em voo dos fetchers de UF, e fica muito abaixo do rate-limit de 20/s do CNJ.
+DJEN_PAGINAS_PARALELAS = env.int('DJEN_PAGINAS_PARALELAS', default=8)
+
 # Proxies
 PROXYSCRAPE_API_KEY = env('PROXYSCRAPE_API_KEY', default='')
 # API key alternativa para workers Datajud numa máquina específica.

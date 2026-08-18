@@ -1,6 +1,7 @@
 import logging
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from typing import Iterator, Optional
 
@@ -109,6 +110,11 @@ class DJENClient:
         self.timeout = (settings.DJEN_REQUEST_TIMEOUT_CONNECT, settings.DJEN_REQUEST_TIMEOUT_READ)
         self.user_agent = settings.DJEN_USER_AGENT
         self.pool = pool or ProxyScrapePool.singleton()
+        #: quantas páginas do MESMO dia são buscadas ao mesmo tempo. A página é
+        #: offset puro, então paralelizar não muda o resultado — só o relógio
+        #: (medido: 262 páginas do TJSP em 163 min serial). Teto de memória é
+        #: esta janela, não o dia.
+        self.paginas_paralelas = getattr(settings, 'DJEN_PAGINAS_PARALELAS', 8)
         self.session = sessao_rotativa()   # cache de proxies limitado — ver AdaptadorProxyLimitado
         # Quando True (cliques manuais via fila `manual`), tenta Cortex
         # primeiro — proxy residencial premium, success rate muito maior
@@ -142,41 +148,73 @@ class DJENClient:
         Ao reduzir, retoma do mesmo offset de itens (não do mesmo número de
         página): re-busca a partir de `floor(itens_lidos / novo_size)`, então
         nunca pula itens; no máximo re-entrega alguns já vistos, que o ingest
-        deduplica por id (bulk_create ignore_conflicts)."""
+        deduplica por id (bulk_create ignore_conflicts).
+
+        Pagina em JANELA PARALELA (`DJEN_PAGINAS_PARALELAS`, 8 por padrão). Serial,
+        um dia de TJSP são 262 requisições em sequência: 163 minutos medidos, e a
+        recuperação nacional (3.688 dias-tribunal na fase de maior valor) daria 52
+        dias de fila com 8 workers. A página é um offset puro, então buscar 8 de
+        cada vez é seguro e não muda o resultado — só o relógio. O pico de memória
+        continua limitado: são `janela` páginas em voo, não o dia inteiro.
+
+        De brinde, a janela dá uma checagem que a versão serial não podia fazer:
+        se uma página vier incompleta (sinal de fim) mas uma página POSTERIOR da
+        mesma janela trouxer dado, o "fim" era mentira — e isso vira ERRO em vez
+        de um `return` discreto, que é como este projeto já perdeu 43,6% do TJSP.
+        """
         pagina = 1
         page_size = self.PAGE_SIZE
         itens_lidos = 0
-        while True:
-            try:
-                # Em page size grande, desiste cedo do 5xx (max_5xx=2) pra
-                # reduzir rápido em vez de insistir minutos no offset pesado.
-                # No piso, usa o budget normal de retries.
-                payload = self._fetch(
-                    sigla_djen, data_inicio, data_fim, pagina,
-                    itens_por_pagina=page_size,
-                    max_5xx=(2 if page_size > self.MIN_PAGE_SIZE else None),
-                )
-            except DjenServerError:
-                if page_size > self.MIN_PAGE_SIZE:
-                    novo = max(self.MIN_PAGE_SIZE, page_size // 5)
-                    logger.warning(
-                        'DJEN 5xx em %s page_size=%d (offset~%d) → reduzindo p/ %d e retomando',
-                        sigla_djen, page_size, itens_lidos, novo,
-                    )
-                    page_size = novo
-                    pagina = itens_lidos // page_size + 1
-                    continue
-                raise
-            items = payload.get('items') or []
-            if not items:
-                return
-            yield items
-            itens_lidos += len(items)
-            # Última página tem menos que page_size: chegou ao fim da janela.
-            if len(items) < page_size:
-                return
-            pagina += 1
-            time.sleep(self.page_sleep)
+        janela = max(1, self.paginas_paralelas)
+        with ThreadPoolExecutor(max_workers=janela) as pool:
+            while True:
+                try:
+                    # Em page size grande, desiste cedo do 5xx (max_5xx=2) pra
+                    # reduzir rápido em vez de insistir minutos no offset pesado.
+                    # No piso, usa o budget normal de retries.
+                    futuros = [
+                        pool.submit(
+                            self._fetch, sigla_djen, data_inicio, data_fim, n,
+                            itens_por_pagina=page_size,
+                            max_5xx=(2 if page_size > self.MIN_PAGE_SIZE else None),
+                        )
+                        for n in range(pagina, pagina + janela)
+                    ]
+                    payloads = [f.result() for f in futuros]
+                except DjenServerError:
+                    if page_size > self.MIN_PAGE_SIZE:
+                        novo = max(self.MIN_PAGE_SIZE, page_size // 5)
+                        logger.warning(
+                            'DJEN 5xx em %s page_size=%d (offset~%d) → reduzindo p/ %d e retomando',
+                            sigla_djen, page_size, itens_lidos, novo,
+                        )
+                        page_size = novo
+                        pagina = itens_lidos // page_size + 1
+                        continue
+                    raise
+
+                acabou_em = None
+                for i, payload in enumerate(payloads):
+                    items = payload.get('items') or []
+                    if not items:
+                        if acabou_em is None:
+                            acabou_em = i
+                        continue
+                    if acabou_em is not None:
+                        raise DjenClientError(
+                            f'{sigla_djen} {data_inicio}: página {pagina + acabou_em} '
+                            f'sinalizou fim mas a {pagina + i} trouxe {len(items)} itens — '
+                            f'paginação inconsistente, o dia NÃO pode contar como coberto'
+                        )
+                    yield items
+                    itens_lidos += len(items)
+                    # Página menor que o page size: chegou ao fim da janela.
+                    if len(items) < page_size:
+                        acabou_em = i
+                if acabou_em is not None:
+                    return
+                pagina += janela
+                time.sleep(self.page_sleep)
 
     def _fetch(self, sigla_djen: str, data_inicio: date, data_fim: date, pagina: int,
                itens_por_pagina: int = 1000, extra_params: Optional[dict] = None,
