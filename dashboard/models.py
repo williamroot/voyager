@@ -130,3 +130,98 @@ class ShowcaseAnalise(models.Model):
 
     def __str__(self) -> str:
         return f'{self.arquivo} · {self.versao} · {self.criado_em:%Y-%m-%d %H:%M}'
+
+
+class NotaAcompanhamento(models.Model):
+    """Diário de bordo do produto: descoberta, decisão, incidente, entrega.
+
+    POR QUE ISTO EXISTE, e não um changelog em Markdown:
+
+    O que este projeto produz de mais valioso não é código — é **descoberta
+    medida**. Em uma semana de agosto/2026 apareceram: só tínhamos 13% do acervo
+    nacional; uma linha (`range(1, 11)`) decapitava 43,6% do TJSP todo dia há 17
+    meses; 94 milhões de publicações estavam indexadas e fora do alcance da
+    tela. Cada uma dessas frases custou horas de medição e vale mais que a
+    correção que veio depois — porque a correção se lê no código, e a descoberta
+    se perde.
+
+    Regras do modelo (que o formulário e a tela cobram):
+
+    - `numeros` é onde mora a prova. Nota de descoberta SEM número medido é
+      opinião com data. O princípio nº 1 do projeto é completude, e completude
+      só se demonstra com o antes/depois.
+    - `data_evento` ≠ `criado_em`: a descoberta acontece quando a medição fecha,
+      não quando alguém teve tempo de escrever. O filtro por período usa a
+      primeira; ordenar pela segunda contaria a história errada.
+    - `impacto` é sobre o ACERVO e o usuário, não sobre esforço. Corrigir uma
+      linha que devolve 217 mil publicações por dia é impacto alto; refatorar
+      três arquivos sem mudar dado é baixo.
+    """
+
+    TIPO_DESCOBERTA = 'descoberta'
+    TIPO_FEATURE = 'feature'
+    TIPO_INCIDENTE = 'incidente'
+    TIPO_DECISAO = 'decisao'
+    TIPO_MEDICAO = 'medicao'
+    TIPO_CHOICES = [
+        (TIPO_DESCOBERTA, 'Descoberta'),
+        (TIPO_FEATURE, 'Entrega'),
+        (TIPO_INCIDENTE, 'Incidente'),
+        (TIPO_DECISAO, 'Decisão'),
+        (TIPO_MEDICAO, 'Medição'),
+    ]
+
+    IMPACTO_ALTO = 'alto'
+    IMPACTO_MEDIO = 'medio'
+    IMPACTO_BAIXO = 'baixo'
+    IMPACTO_CHOICES = [
+        (IMPACTO_ALTO, 'Alto'),
+        (IMPACTO_MEDIO, 'Médio'),
+        (IMPACTO_BAIXO, 'Baixo'),
+    ]
+
+    titulo = models.CharField(max_length=200)
+    tipo = models.CharField(max_length=16, choices=TIPO_CHOICES, default=TIPO_DESCOBERTA)
+    impacto = models.CharField(max_length=8, choices=IMPACTO_CHOICES, default=IMPACTO_MEDIO)
+
+    #: uma frase que se entende sozinha na timeline, sem abrir o corpo
+    resumo = models.CharField(max_length=400)
+    #: o relato inteiro: o que foi medido, como, e o que decorre disso
+    corpo = models.TextField(blank=True, default='')
+
+    #: a PROVA. Lista de {"rotulo", "antes", "depois", "unidade"} ou
+    #: {"rotulo", "valor"} — a tela renderiza as duas formas. Fica em JSON e não
+    #: em tabela filha porque cada descoberta mede uma coisa diferente e
+    #: normalizar isso viraria um esquema que ninguém preenche.
+    numeros = models.JSONField(default=list, blank=True)
+
+    #: onde conferir: commit, arquivo de `.ia/`, ADR, URL
+    referencias = models.JSONField(default=list, blank=True)
+
+    #: sistema/módulo tocado — vira chip de filtro na tela
+    area = models.CharField(max_length=60, blank=True, default='')
+
+    #: QUANDO ACONTECEU (não quando foi escrito) — é o eixo da timeline
+    data_evento = models.DateField()
+
+    autor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                              null=True, blank=True, related_name='notas_acompanhamento')
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-data_evento', '-criado_em']
+        indexes = [
+            models.Index(fields=['-data_evento']),
+            models.Index(fields=['tipo', '-data_evento']),
+        ]
+        verbose_name = 'nota de acompanhamento'
+        verbose_name_plural = 'notas de acompanhamento'
+
+    def __str__(self) -> str:
+        return f'{self.data_evento} · {self.titulo}'
+
+    @property
+    def tem_prova(self) -> bool:
+        """Descoberta sem número medido é opinião com data — a tela marca isso."""
+        return bool(self.numeros)

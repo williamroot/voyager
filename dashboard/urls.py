@@ -3,6 +3,7 @@ from django.urls import path
 from django.views.generic.base import RedirectView
 
 from . import views
+from . import acompanhamento_views
 from . import busca_views
 from . import overview_views
 from . import showcase_analise
@@ -52,6 +53,12 @@ urlpatterns = [
     path('consulta-rapida/api/', views.consulta_rapida_api, name='consulta-rapida-api'),
     path('consulta-rapida/hidratar/', views.consulta_rapida_hidratar,
          name='consulta-rapida-hidratar'),
+    # Acompanhamento — diário de bordo do produto (descobertas medidas,
+    # decisões, incidentes, entregas). Login-gated: tem número de acervo e
+    # relato de incidente lá dentro.
+    path('acompanhamento/', acompanhamento_views.acompanhamento, name='acompanhamento'),
+    path('acompanhamento/<int:pk>/', acompanhamento_views.acompanhamento_nota,
+         name='acompanhamento-nota'),
     path('api/', views.api_docs, name='api-docs'),
     path('mcp/', views.mcp_setup, name='mcp-setup'),
     # IA LABS — Centro de Inteligência Voyager (landing hub das ferramentas de IA)

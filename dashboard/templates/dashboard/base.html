@@ -504,6 +504,18 @@
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral
       </a>
+      {% comment %} Acompanhamento: o diário de bordo do produto. Fica no
+         primeiro nível porque descoberta que ninguém lê não vale nada — e o
+         ícone `trajectory` está conferido no sprite (nome inexistente rende
+         QUADRADO VAZIO, sem erro no console). {% endcomment %}
+      {% url 'dashboard:acompanhamento' as acomp_url %}
+      {% if acomp_url %}
+      <a href="{{ acomp_url }}" class="nav-item {% if '/dashboard/acompanhamento' in request.path %}active{% endif %}">
+        {% voy_icon "trajectory" "w-4 h-4" %}
+        <span class="nav-label">Acompanhamento</span>
+        <span class="nav-tag" aria-hidden="true">✨</span>
+      </a>
+      {% endif %}
 
       {# ---- 🚀 IA LABS — Centro de Inteligência (grupo premium) ---- #}
       <div class="nav-group nav-group-premium"

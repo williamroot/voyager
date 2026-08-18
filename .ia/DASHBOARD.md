@@ -721,3 +721,39 @@ def minha_lista(request):
 - Paginação não recarrega filtros nem charts
 - Falha no queryset não derruba a página inteira — overlay de erro localizado
 - URL bookmark-friendly: `?page=5&tribunal=TRF1` continua funcionando direto
+
+
+## Acompanhamento — o diário de bordo do produto
+
+`/dashboard/acompanhamento/` (login-gated). Model `dashboard.NotaAcompanhamento`.
+
+**Por que existe, e não um changelog em Markdown:** o que este projeto produz de
+mais valioso não é código, é **descoberta medida**. "Só tínhamos 13% do acervo
+nacional", "uma linha decapitava 43,6% do TJSP por 17 meses", "94 milhões de
+publicações indexadas e fora do alcance da tela" — cada uma custou horas de
+sonda, e a correção que veio depois se lê no código, mas a descoberta se perde.
+
+**As três regras que o modelo cobra:**
+
+| campo | regra |
+|---|---|
+| `numeros` | é onde mora a PROVA. Nota de descoberta sem número medido é opinião com data — a tela marca isso explicitamente |
+| `data_evento` | ≠ `criado_em`. A descoberta acontece quando a medição fecha, não quando alguém teve tempo de escrever. O filtro de período usa a primeira |
+| `impacto` | é sobre o ACERVO e o usuário, não sobre esforço. Corrigir uma linha que devolve 217 mil publicações/dia é alto; refatorar três arquivos sem mudar dado é baixo |
+
+`numeros` aceita duas formas, e a tela renderiza as duas:
+`{"rotulo", "antes", "depois", "unidade", "nota"}` (o antes/depois é o que
+convence) ou `{"rotulo", "valor", "unidade"}`.
+
+**Detalhe de implementação que já mordeu:** a contagem dos chips por tipo é feita
+DENTRO do período mas **antes** do filtro de tipo. Contar depois faria
+"Incidente (3)" mostrar 3 só porque o filtro de incidente está ligado — contagem
+circular que engana quem lê.
+
+Semear/atualizar as notas de agosto/2026: `manage.py acompanhamento_semear`
+(idempotente por título + data).
+
+> ⚠️ Gate de browser: `uppercase` do Tailwind **muda o `innerText`**. Um teste
+> que compara texto de label com caixa vai reprovar a tela por engano — compare
+> em minúsculas. E `.first` num dia com várias notas pega qualquer uma; navegue
+> pelo href.

@@ -262,3 +262,16 @@ def visible_pages(page):
         out.append(p)
         prev = p
     return out
+
+
+@register.filter
+def dic(mapa, chave):
+    """`{{ meu_dict|dic:"chave" }}` — o Django não deixa indexar dict por variável.
+
+    Devolve string vazia (e não `None`) quando a chave falta: no template,
+    `None` renderiza como "None" e apareceria dentro do chip de contagem.
+    """
+    if not hasattr(mapa, 'get'):
+        return ''
+    valor = mapa.get(chave)
+    return '' if valor is None else valor

@@ -1,0 +1,116 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}{{ nota.titulo }} — Acompanhamento{% endblock %}
+
+{% block content %}
+{% comment %}
+Página de UMA nota: o relato inteiro.
+
+A timeline mostra o resumo; aqui mora o corpo — como foi medido, o que decorre,
+e onde conferir. `linebreaks` no corpo em vez de markdown: o valor da nota é o
+texto, não a formatação, e um render de markdown seria dependência nova (e
+superfície de XSS) por ganho cosmético.
+{% endcomment %}
+
+<div class="space-y-5 max-w-4xl">
+
+  <a href="{% url 'dashboard:acompanhamento' %}"
+     class="inline-flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg transition-colors">
+    {% voy_icon "retrograde" "w-3.5 h-3.5" %} voltar ao acompanhamento
+  </a>
+
+  <article class="card-tight">
+    <div class="flex items-start gap-3">
+      <div class="shrink-0 mt-1">
+        {% if nota.tipo == 'descoberta' %}{% voy_icon "telescope" "w-6 h-6 text-mission" %}
+        {% elif nota.tipo == 'incidente' %}{% voy_icon "anomaly" "w-6 h-6 text-danger" %}
+        {% elif nota.tipo == 'feature' %}{% voy_icon "gem" "w-6 h-6 text-accent" %}
+        {% elif nota.tipo == 'decisao' %}{% voy_icon "calibrate" "w-6 h-6 text-info" %}
+        {% else %}{% voy_icon "radar" "w-6 h-6 text-fg-muted" %}{% endif %}
+      </div>
+      <div class="flex-1">
+        <h1 class="text-xl font-semibold text-fg">{{ nota.titulo }}</h1>
+        <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <time datetime="{{ nota.data_evento|date:'Y-m-d' }}" class="font-mono text-fg-muted">
+            {{ nota.data_evento|date:"d/m/Y" }}
+          </time>
+          <span class="text-fg-subtle">{{ nota.get_tipo_display }}</span>
+          {% if nota.area %}<span class="text-fg-subtle">· {{ nota.area }}</span>{% endif %}
+          {% if nota.impacto == 'alto' %}
+            <span class="px-2 py-0.5 rounded bg-mission/10 border border-mission/30 text-mission-fg">
+              impacto alto
+            </span>
+          {% endif %}
+          {% if nota.autor %}<span class="text-fg-subtle">· {{ nota.autor.get_username }}</span>{% endif %}
+        </div>
+        <p class="mt-3 text-[1rem] text-fg-soft">{{ nota.resumo }}</p>
+      </div>
+    </div>
+  </article>
+
+  {% if nota.numeros %}
+    <div class="card-tight">
+      <h2 class="text-sm font-semibold text-fg-soft mb-3">A prova</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {% for m in nota.numeros %}
+          <div class="px-3 py-2.5 rounded-lg bg-surface border border-border">
+            <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">{{ m.rotulo }}</div>
+            {% if m.antes %}
+              <div class="font-mono text-[1rem] mt-0.5">
+                <span class="text-fg-subtle">{{ m.antes }}</span>
+                <span class="text-fg-subtle mx-1.5">→</span>
+                <span class="text-mission-fg font-semibold">{{ m.depois }}</span>
+                {% if m.unidade %}<span class="text-fg-subtle text-xs ml-1">{{ m.unidade }}</span>{% endif %}
+              </div>
+            {% else %}
+              <div class="font-mono text-[1rem] mt-0.5 text-fg">{{ m.valor }}
+                {% if m.unidade %}<span class="text-fg-subtle text-xs ml-1">{{ m.unidade }}</span>{% endif %}
+              </div>
+            {% endif %}
+            {% if m.nota %}<div class="text-xs text-fg-subtle mt-1">{{ m.nota }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if nota.corpo %}
+    <div class="card-tight">
+      <h2 class="text-sm font-semibold text-fg-soft mb-3">O relato</h2>
+      <div class="text-sm text-fg-muted leading-relaxed whitespace-pre-line">{{ nota.corpo }}</div>
+    </div>
+  {% endif %}
+
+  {% if nota.referencias %}
+    <div class="card-tight">
+      <h2 class="text-sm font-semibold text-fg-soft mb-2">Onde conferir</h2>
+      <ul class="space-y-1">
+        {% for r in nota.referencias %}
+          <li class="text-xs font-mono text-fg-muted flex items-start gap-2">
+            <span class="text-fg-subtle mt-0.5">›</span>
+            <span>{{ r }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {% if vizinhas %}
+    <div class="card-tight">
+      <h2 class="text-sm font-semibold text-fg-soft mb-2">Antes disso</h2>
+      <ul class="space-y-1.5">
+        {% for v in vizinhas %}
+          <li class="text-sm">
+            <a href="{% url 'dashboard:acompanhamento-nota' v.pk %}"
+               class="text-fg-muted hover:text-accent-fg transition-colors">
+              <span class="font-mono text-xs text-fg-subtle mr-2">{{ v.data_evento|date:"d/m" }}</span>
+              {{ v.titulo }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
