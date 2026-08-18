@@ -1358,3 +1358,30 @@ estourou (heap 7,6 GB de 7,5 GB de limite) e 4 faixas morreram de uma vez. O nó
 **Carimbo retroativo.** Os docs processados antes do carimbo existir foram
 marcados por `_update_by_query` server-side (`ctx._source.ents_v = 1` onde já
 havia alguma entidade). Sem isso a passada releria 21M docs à toa.
+
+### Deadlock entre workers de backfill no `bulk_create` (18/08/2026)
+
+Com 8 workers recuperando dias do MESMO tribunal em paralelo:
+
+```
+deadlock detected
+DETAIL: Process A waits for ShareLock on transaction X; blocked by process B.
+        Process B waits for ShareLock on transaction Y; blocked by process A.
+CONTEXT: while inserting index tuple in relation "tribunals_process"
+```
+
+`cnjs_pagina` é `set`, então a ordem de inserção variava a cada processo.
+Bastavam dois lotes com CNJs em comum, inseridos em ordens opostas, pra fechar o
+ciclo de espera no índice único. O run falha corretamente (não é perda
+silenciosa) — mas joga fora a coleta do dia inteiro: 24 páginas do TJSP
+2023-08-24 se perderam assim.
+
+**Cura:** ordem total igual em todo mundo — `sorted()` nos CNJs e sort por
+`external_id` nas movimentações (o único `(tribunal, external_id)` tem o mesmo
+problema). Sem ordem comum não existe ciclo.
+
+**Conferir depois de mexer em concorrência de ingestão:**
+```python
+R.objects.filter(status='failed', erros__icontains='deadlock',
+                 started_at__gte=<agora-1h>).count()   # tem que ficar em 0
+```
