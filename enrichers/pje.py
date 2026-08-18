@@ -21,7 +21,7 @@ import requests
 from bs4 import BeautifulSoup
 from django.utils import timezone
 
-from djen.proxies import ProxyScrapePool, cortex_proxy_url
+from djen.proxies import ProxyScrapePool, cortex_proxy_url, sessao_rotativa
 from tribunals.models import Process
 
 from . import stream
@@ -113,7 +113,7 @@ class BasePjeEnricher:
         if not (self.BASE_URL and self.LIST_URL and self.DETALHE_PATH and self.TRIBUNAL_SIGLA):
             raise NotImplementedError('Subclasse deve definir BASE_URL/LIST_URL/DETALHE_PATH/TRIBUNAL_SIGLA')
         self.pool = pool or ProxyScrapePool.singleton()
-        self.session = requests.Session()
+        self.session = sessao_rotativa()   # cache de proxies limitado — ver AdaptadorProxyLimitado
         self.session.headers.update(DEFAULT_HEADERS)
         if self.USER_AGENT:
             self.session.headers['User-Agent'] = self.USER_AGENT

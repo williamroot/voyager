@@ -31,7 +31,7 @@ import requests
 from bs4 import BeautifulSoup
 from django.utils import timezone
 
-from djen.proxies import ProxyScrapePool, cortex_proxy_url
+from djen.proxies import ProxyScrapePool, cortex_proxy_url, sessao_rotativa
 from tribunals.models import Process
 
 from . import stream
@@ -86,7 +86,7 @@ class BaseEsajEnricher:
             )
         self.OPEN_URL = f'{self.BASE_URL}/cpopg/open.do'
         self.SEARCH_URL = f'{self.BASE_URL}/cpopg/search.do'
-        self.session = requests.Session()
+        self.session = sessao_rotativa()   # cache de proxies limitado — ver AdaptadorProxyLimitado
         self.session.headers.update(DEFAULT_HEADERS)
         self.timeout = (10, 60)
         self.logger = logging.getLogger(self.LOG_NAME)

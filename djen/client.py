@@ -7,7 +7,7 @@ from typing import Iterator, Optional
 import requests
 from django.conf import settings
 
-from .proxies import ProxyScrapePool
+from .proxies import ProxyScrapePool, sessao_rotativa
 
 logger = logging.getLogger('voyager.djen.client')
 
@@ -109,7 +109,7 @@ class DJENClient:
         self.timeout = (settings.DJEN_REQUEST_TIMEOUT_CONNECT, settings.DJEN_REQUEST_TIMEOUT_READ)
         self.user_agent = settings.DJEN_USER_AGENT
         self.pool = pool or ProxyScrapePool.singleton()
-        self.session = requests.Session()
+        self.session = sessao_rotativa()   # cache de proxies limitado — ver AdaptadorProxyLimitado
         # Quando True (cliques manuais via fila `manual`), tenta Cortex
         # primeiro — proxy residencial premium, success rate muito maior
         # que pool ProxyScrape rotativo. Click do user retorna em ~3-10s

@@ -46,7 +46,7 @@ from typing import Optional
 import requests
 from django.utils import timezone
 
-from djen.proxies import ProxyScrapePool, cortex_proxy_url
+from djen.proxies import ProxyScrapePool, cortex_proxy_url, sessao_rotativa
 from tribunals.models import Process
 
 from . import stream
@@ -129,7 +129,7 @@ class TjpaEnricher:
     RATE_LIMIT_BACKOFF = 1.5
 
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
-        self.session = requests.Session()
+        self.session = sessao_rotativa()   # cache de proxies limitado — ver AdaptadorProxyLimitado
         self.session.headers.update(DEFAULT_HEADERS)
         self.logger = logging.getLogger(self.LOG_NAME)
         # Pool ProxyScrape p/ paralelizar IPs; Cortex (residencial) como fallback

@@ -1290,3 +1290,41 @@ backfill Fase 0 (1×) e o reindex TJSP (2×) nesta sessão. Regra: antes de rest
 web, `docker top voyager-web-1 | grep -E 'backfill|reindex'`; se houver job, esperar ou
 relançar depois (comandos são resumíveis: backfill é idempotente, reindex tem
 `--desde-id`; lance com `> /tmp/<job>.log 2>&1` pra ter o checkpoint).
+
+### Incidente: `Errno 24` (FDs) por cache de proxy — coleta caindo em silêncio (2026-08-17)
+
+**Sintoma.** `worker_djen_audit` no `.102` morrendo em
+`ProxyError(... NewConnectionError(... [Errno 24] Too many open files))`, e
+**2.981 `IngestionRun` marcados `failed` pelo watchdog** na mesma janela de 7
+dias ("status=running sem finished_at por >1h — worker crashou"). Nenhum OOM no
+`dmesg`, RAM folgada — não era memória.
+
+**Causa.** `session.get(url, proxies={...})` faz a `requests` guardar um
+ProxyManager **por URL de proxy** em `adapter.proxy_manager` — um dict que
+nunca encolhe. Giramos sobre centenas de IPs do pool; cada IP queimado deixa
+seu conjunto de conexões pendurado. Com `nofile=1024` (default do Docker) o
+processo esgota os descritores e passa a falhar **todo** request seguinte,
+inclusive os que iriam pra proxy saudável. Em `_ingest_day_por_uf` são 8
+fetchers de UF dividindo UMA sessão — 8× mais rápido pra estourar.
+
+Por que é grave e não é "só um erro": a falha some dentro do retry, o run vira
+`failed`, o watchdog anota, e o dia fica **coletado pela metade** sem ninguém
+olhar. É perda de cobertura silenciosa — o defeito nº 1 da lista do CLAUDE.md.
+
+**Cura (as duas metades, ambas necessárias).**
+1. `djen.proxies.sessao_rotativa()` — sessão com `AdaptadorProxyLimitado`, um
+   LRU de `MAX_PROXY_MANAGERS=32` que fecha o pool do proxy mais antigo.
+   Todo cliente que manda `proxies=` usa ela (djen, datajud, enrichers PJe/
+   e-SAJ/TJMT/TJPA, diários). `tests/test_proxy_fd_leak.py` barra a volta do
+   `requests.Session()` cru por varredura do fonte.
+2. `ulimits.nofile: 65536` nos 20 services de worker que fazem HTTP externo
+   (`docker-compose-workers.yml`). Só `worker_ingestion` tinha — alguém já
+   havia batido nisso antes e consertou um serviço só.
+
+⚠️ Mudança de `ulimits` **exige recriar o container** (`up -d`, não `restart`).
+
+**Como conferir depois:**
+```bash
+ssh ubuntu@192.168.30.102 'docker exec voyager-worker_djen_audit-1 sh -c "ulimit -n"'   # 65536
+ssh ubuntu@192.168.30.102 'docker logs --since 1h voyager-worker_djen_audit-1 2>&1 | grep -c "Errno 24"'  # 0
+```

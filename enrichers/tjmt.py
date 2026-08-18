@@ -65,7 +65,7 @@ from typing import Optional
 import requests
 from django.utils import timezone
 
-from djen.proxies import ProxyScrapePool, cortex_proxy_url
+from djen.proxies import ProxyScrapePool, cortex_proxy_url, sessao_rotativa
 from tribunals.models import Process
 
 from . import stream
@@ -179,7 +179,7 @@ class TjmtEnricher:
     _POLO_MAP = {'ativo': 'ativo', 'passivo': 'passivo'}
 
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
-        self.session = requests.Session()
+        self.session = sessao_rotativa()   # cache de proxies limitado — ver AdaptadorProxyLimitado
         self.session.headers.update(DEFAULT_HEADERS)
         self.logger = logging.getLogger(self.LOG_NAME)
         # Pool ProxyScrape pra paralelizar IPs; Cortex (residencial) como

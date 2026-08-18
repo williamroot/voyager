@@ -264,3 +264,60 @@ def cortex_proxy_url(pool: Optional['ProxyScrapePool'] = None) -> Optional[str]:
     if pool and pool.cortex_is_bad():
         return None
     return settings.CORTEX_PROXY_URL
+
+
+#: quantos ProxyManagers uma sessão pode carregar antes de descartar o mais
+#: antigo. 32 é folgado pro uso real (uma janela costuma sair em poucos proxies
+#: bons) e baixo o bastante pra caber com sobra em 1024 descritores.
+MAX_PROXY_MANAGERS = 32
+
+
+class AdaptadorProxyLimitado(requests.adapters.HTTPAdapter):
+    """HTTPAdapter cujo cache de proxies não cresce sem fim.
+
+    `session.get(url, proxies={...})` faz a `requests` guardar um ProxyManager
+    **por URL de proxy** num dict (`adapter.proxy_manager`) que nunca encolhe —
+    é cache, não pool. Com rotação sobre centenas de IPs queimados, um job longo
+    acumula um conjunto de conexões por IP morto e estoura o limite de
+    descritores do processo.
+
+    O `Errno 24` que sai daí não falha *uma página*: falha todo request seguinte
+    do worker, inclusive os que iriam pra proxies saudáveis. Ou seja, vira perda
+    de cobertura silenciosa — exatamente o defeito que este projeto menos tolera
+    (ver COMPLETUDE no CLAUDE.md). Medido em 17/08/2026 nos workers `.102`:
+    `worker_djen_audit` (nofile=1024, o default do Docker) morrendo em
+    `ProxyError(... [Errno 24] Too many open files)` durante a auditoria do
+    TJSP, e 2.981 runs marcados `failed` pelo watchdog na mesma janela.
+
+    Descarta o menos-recentemente-usado. Fechar um pool não derruba request em
+    voo: `HTTPConnectionPool.close()` esvazia a fila de conexões OCIOSAS, e a
+    conexão que outra thread pegou emprestada não está nessa fila (importa
+    porque `_ingest_day_por_uf` compartilha uma sessão entre 8 fetchers).
+    """
+
+    def proxy_manager_for(self, proxy, **kwargs):
+        with _LOCK_PROXY_MANAGERS:
+            gerentes = self.proxy_manager
+            if proxy in gerentes:
+                gerentes[proxy] = gerentes.pop(proxy)   # renova no LRU
+            elif len(gerentes) >= MAX_PROXY_MANAGERS:
+                velho = next(iter(gerentes))
+                gerentes.pop(velho).clear()
+                logger.debug('proxy manager descartado (LRU cheio): %s', velho)
+        return super().proxy_manager_for(proxy, **kwargs)
+
+
+_LOCK_PROXY_MANAGERS = threading.Lock()
+
+
+def sessao_rotativa() -> requests.Session:
+    """Sessão para quem gira proxy a cada request. Use no lugar de `Session()`.
+
+    O mesmo adaptador serve http e https de propósito: o orçamento de conexões
+    é um só, e o proxy é o mesmo dos dois lados.
+    """
+    sessao = requests.Session()
+    adaptador = AdaptadorProxyLimitado()
+    sessao.mount('http://', adaptador)
+    sessao.mount('https://', adaptador)
+    return sessao

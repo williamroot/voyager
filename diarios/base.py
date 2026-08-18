@@ -62,6 +62,7 @@ from django.utils import timezone
 # `Movimentacao`. Criar um dataclass gêmeo aqui só criaria duas verdades sobre
 # o mesmo model. Coletor novo produz ParsedItem, ponto.
 from djen.parser import ParsedItem, normalizar_cnj  # noqa: F401 (reexport proposital)
+from djen.proxies import sessao_rotativa
 from tribunals.models import IngestionRun, Movimentacao, Process, Tribunal, ano_cnj_from_numero
 
 logger = logging.getLogger('voyager.diarios.base')
@@ -454,7 +455,7 @@ class SessaoDiario:
             int(getattr(settings, 'DIARIOS_TIMEOUT_READ', 180)),  # PDF de 62 MB
         )
         self.breaker = CircuitBreaker(fonte)
-        self.session = requests.Session()
+        self.session = sessao_rotativa()   # cache de proxies limitado — ver AdaptadorProxyLimitado
         self._proxy_preso: str | None = None
         self._ultimo_request = 0.0
 

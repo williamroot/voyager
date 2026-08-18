@@ -23,7 +23,7 @@ from typing import Iterator, Optional
 import requests
 from django.conf import settings
 
-from djen.proxies import ProxyScrapePool, cortex_proxy_url
+from djen.proxies import ProxyScrapePool, cortex_proxy_url, sessao_rotativa
 
 logger = logging.getLogger('voyager.datajud.client')
 
@@ -81,7 +81,7 @@ class DatajudClient:
             self.pool = pool
         self.api_key = api_key or getattr(settings, 'DATAJUD_API_KEY', None) or DEFAULT_API_KEY
         self.prefer_cortex = prefer_cortex
-        self.session = requests.Session()
+        self.session = sessao_rotativa()   # cache de proxies limitado — ver AdaptadorProxyLimitado
         self.session.headers.update({
             'Authorization': self.api_key,
             'Content-Type': 'application/json',

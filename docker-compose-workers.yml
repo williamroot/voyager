@@ -31,6 +31,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy:
       # 2026-05-14: 60 → 90 → 120 → 40 (realocação: TRF3/TJMG são bottleneck,
@@ -49,6 +56,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 512m
     deploy:
       # 2026-06-08: 10 → 6 (pós-OOM).
@@ -62,6 +76,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy:
       # 2026-05-14: 50 → 90 → 120 → 160 → 180 (pós-resize 32→56GB VM).
@@ -76,6 +97,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy:
       # Ramp 10 → 60 em 2026-05-20 após validar enriquecimento OK em prod
@@ -91,6 +119,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy:
       # 2026-05-14: 50 → 90 → 120 → 160 → 180. Bottleneck upstream PJe.
@@ -105,6 +140,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy:
       # Ramp inicial 10 réplicas (mesmo critério do TRF5 no 1º deploy:
@@ -121,6 +163,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 640m
     deploy:
       # 2026-05-24: criado com 60 réplicas. e-SAJ é HTTP puro (sem Selenium);
@@ -138,6 +187,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 512m
     deploy:
       # Ramp inicial 10 réplicas (mesmo critério do TJMA/TRF5 1º deploy).
@@ -161,6 +217,13 @@ services:
     command: python manage.py rqworker enrich_tjce
     env_file: .env
     volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy: {replicas: 16}  # PJe clássico, ~1,5M @ 3% (rebalance 2026-07-02: 4→16)
     restart: unless-stopped
@@ -170,6 +233,13 @@ services:
     command: python manage.py rqworker enrich_tjap
     env_file: .env
     volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy: {replicas: 8}   # PJe clássico, ~235k @ 13% (rebalance 2026-07-02: 2→8)
     restart: unless-stopped
@@ -179,6 +249,13 @@ services:
     command: python manage.py rqworker enrich_tjpe
     env_file: .env
     volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy: {replicas: 14}  # PJe clássico, ~1,47M @ 8% (rebalance 2026-07-02: 3→14)
     restart: unless-stopped
@@ -188,6 +265,13 @@ services:
     command: python manage.py rqworker enrich_tjrj
     env_file: .env
     volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy: {replicas: 24}  # PJe clássico, 3,3M @ 1% / 6,86M na fila (rebalance 2026-07-02: 2→24 — maior backlog)
     restart: unless-stopped
@@ -197,6 +281,13 @@ services:
     command: python manage.py rqworker enrich_tjro
     env_file: .env
     volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 768m
     deploy: {replicas: 5}   # PJe clássico, ~327k @ 5% — host 403 a datacenter IP, cap baixo (rebalance 2026-07-02: 1→5)
     restart: unless-stopped
@@ -206,6 +297,13 @@ services:
     command: python manage.py rqworker enrich_tjac
     env_file: .env
     volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 640m
     deploy: {replicas: 5}   # e-SAJ, ~111k @ 22% (rebalance 2026-07-02: 2→5)
     restart: unless-stopped
@@ -215,6 +313,13 @@ services:
     command: python manage.py rqworker enrich_tjmt
     env_file: .env
     volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 512m
     deploy: {replicas: 14}  # REST (SPA), ~2,1M @ 17% (rebalance 2026-07-02: 4→14)
     restart: unless-stopped
@@ -224,6 +329,13 @@ services:
     command: python manage.py rqworker enrich_tjpa
     env_file: .env
     volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 512m
     deploy: {replicas: 8}   # REST (consilium), ~2,1M @ 1% — throttle 429, cap baixo (rebalance 2026-07-02: 4→8)
     restart: unless-stopped
@@ -234,6 +346,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 640m
     deploy:
       # TJAL roda o MESMO e-SAJ do TJSP (HTTP puro, 2 requests/job: open.do +
@@ -283,6 +402,13 @@ services:
     env_file: .env
     volumes:
       - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 512m
     deploy:
       # Datajud é leve (1 request HTTP por processo).
@@ -308,6 +434,13 @@ services:
       - .:/app
     # Cada job segura uma página de 10k docs em memória (~4MB de JSON) e faz
     # bulk no ES; 512m é folgado.
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 512m
     deploy:
       replicas: 8
@@ -350,6 +483,13 @@ services:
     volumes:
       - .:/app
     # Download de PDFs (requests.get + save no MinIO). 512m chega.
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     mem_limit: 512m
     deploy:
       # 4 réplicas — não compete com a DJEN (cada PDF é 1 GET).
