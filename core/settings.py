@@ -258,6 +258,12 @@ DJEN_PAGE_SLEEP_SECONDS = env.float('DJEN_PAGE_SLEEP_SECONDS', default=1.0)
 DJEN_MAX_RETRIES = env.int('DJEN_MAX_RETRIES', default=5)
 DJEN_USER_AGENT = env('DJEN_USER_AGENT', default='voyager-ingestion/0.1')
 
+# Escotilha do caminho antigo de coleta: fatiar o dia por `ufOab` (27 requisições).
+# Padrão OFF desde 18/08/2026 — a paginação flat (`iter_pages`) esgota o dia sem
+# teto, e o fatiamento é cego a publicação sem advogado com OAB (2-10% de todo
+# dia grande). Ver o comentário de ESTRATEGIA_UF em djen/ingestion.py.
+DJEN_ESTRATEGIA_UF = env.bool('DJEN_ESTRATEGIA_UF', default=False)
+
 # Proxies
 PROXYSCRAPE_API_KEY = env('PROXYSCRAPE_API_KEY', default='')
 # API key alternativa para workers Datajud numa máquina específica.

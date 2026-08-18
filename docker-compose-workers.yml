@@ -468,12 +468,16 @@ services:
     env_file: .env
     volumes:
       - .:/app
-    # Indexação ES é leve (1 doc por job, bulk via signal). 512m chega.
-    mem_limit: 512m
+    # Cada job agora carrega um LOTE (500 movs) em vez de uma. 512m não cabe
+    # o lote + o texto das publicações; 1g com folga.
+    mem_limit: 1g
     deploy:
-      # 8 réplicas — acompanha a ingestão DJEN (11M movs/dia).
-      # Se lag crescer (fila > 100k), escalar.
-      replicas: 8
+      # 8 → 24 em 18/08/2026. O gatilho documentado aqui era "fila > 100k";
+      # ela estava em 1.825.123, ou seja 18× o gatilho, e SUBINDO — o índice
+      # corria ~178 milhões de docs atrás do Postgres. O dreno por réplica é
+      # o mesmo; o que muda é que cada job passou a valer 500 publicações
+      # (search/jobs.py::indexar_movimentacoes_bulk).
+      replicas: 24
     restart: unless-stopped
 
   worker_pdf_download:

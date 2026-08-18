@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Iterator
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Max, Min
 from django.utils import timezone
@@ -82,9 +83,29 @@ def chunk_dates(start: date, end: date, days: int = 30) -> Iterator[tuple[date, 
         cur = chunk_end + timedelta(days=1)
 
 
-# DJEN tem cap rígido de 10k itens por janela (paginação atinge em 10 pgs × 1000).
-# Quando bate, chunks com volume alto perdem dados — split adaptativo resolve.
+# O `count` da DJEN satura em 10.000 — mas isso é o `max_result_window` do
+# Elasticsearch por baixo, ou seja um PISO ("tem pelo menos 10 mil"), NÃO um
+# teto de paginação. Continua servindo de gatilho de "dia grande"; não serve
+# mais de justificativa pra fatiar.
 DJEN_HARD_CAP = 10_000
+
+#: Fatiar o dia por `ufOab` (27 requisições) foi a resposta à crença de que a
+#: API capava em 10.000. Medição de 18/08/2026 nos 59 tribunais derrubou a
+#: crença — `iter_pages` pagina até esgotar (TJSP: 262 páginas, 261.076 itens,
+#: zero duplicata) — e mostrou que o fatiamento tem defeito PRÓPRIO, que o
+#: conserto do teto de páginas não fecha:
+#:
+#:   1. é CEGO a publicação sem advogado com OAB. Provado na unidade em cinco
+#:      tribunais: TJPE 2025-08-13 tem 2.853 itens sem OAB e são exatamente as
+#:      2.853 que faltavam; TJMA 2026-08-13, 911 = 911; TJRN, STJ e TJPB idem.
+#:      São 2% a 10% de TODO dia acima de 10.000;
+#:   2. custa 27× mais requisição à API do CNJ (que tem rate-limit de 20/s);
+#:   3. um erro de fatia vira `success` (limiar de 14/27) e o dia fica marcado
+#:      como coberto pra sempre — TJDFT gravou 4.005 de 12.479 assim.
+#:
+#: Fica no código como escotilha (`DJEN_ESTRATEGIA_UF=1`) porque é caminho
+#: testado em produção, mas o padrão é a paginação flat.
+ESTRATEGIA_UF = getattr(settings, 'DJEN_ESTRATEGIA_UF', False)
 
 #: Teto de SANIDADE por fatia de UF — não é o limite da API, é proteção contra
 #: laço infinito se a API entrar em loop. Alto de propósito: o teto anterior era
@@ -117,8 +138,8 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
     """
     client = client or DJENClient()
 
-    # Probe antecipado: dia único com CAP vai direto pra estratégia UF.
-    if data_inicio == data_fim:
+    # Probe antecipado: dia único com CAP ia pra estratégia UF. Ver ESTRATEGIA_UF.
+    if data_inicio == data_fim and ESTRATEGIA_UF:
         if forcar_uf_em_1d:
             logger.info('djen single-day forçando UF strategy (split de janela capada)', extra={
                 'tribunal': tribunal.sigla, 'dia': str(data_inicio),
@@ -288,17 +309,18 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
             tribunal.sigla, dia, total_itens, len(UF_OABS), len(uf_erros),
         )
 
-        # Falha o run se a coleta foi degradada demais — antes, qualquer
-        # combinação de UFs com erro virava success silencioso, mascarando
-        # perda total de dados em ondas de WAF.
-        limiar_erros = max(1, len(UF_OABS) // 2)  # >=14/27 UFs falhando
-        if len(uf_erros) >= limiar_erros:
+        # QUALQUER fatia perdida falha o run. O limiar anterior era 14 de 27, e
+        # contar fatias trata a fatia da capital igual à do estado que responde
+        # 40 itens — mas a distribuição é tudo menos uniforme: no TJDFT a fatia
+        # DF é 77% do dia, no TRT5 a BA é 92% do tribunal. Os dois gravaram
+        # `success` com o grosso do dia faltando (TJDFT: 4.005 de 12.479), e
+        # `_dia_coberto` pula dia com run success — ou seja, o dia truncado
+        # ficava marcado como coberto PARA SEMPRE. Perder 1 de 27 é perder o
+        # dia até prova em contrário, e a prova custa uma re-coleta barata.
+        if uf_erros:
             raise RuntimeError(
-                f'UF strategy degradada: {len(uf_erros)}/{len(UF_OABS)} UFs falharam'
-            )
-        if not total_itens and uf_erros:
-            raise RuntimeError(
-                f'UF strategy: zero itens coletados com {len(uf_erros)} UFs em erro'
+                f'UF strategy: {len(uf_erros)}/{len(UF_OABS)} fatias falharam '
+                f'({", ".join(sorted(uf_erros)[:8])}) — dia NÃO pode contar como coberto'
             )
 
         if cnjs_tocados:

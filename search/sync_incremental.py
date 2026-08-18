@@ -66,13 +66,21 @@ def _enfileirar_processos(pks: list[int]) -> int:
 
 
 def _enfileirar_movs(pks: list[int]) -> int:
+    """Enfileira em LOTE, igual aos processos.
+
+    Enfileirava um job por publicação. Com 50.000 movs de teto por tick, isso
+    são 50.000 jobs a cada 10 minutos (300 mil/h) contra um dreno medido de
+    ~200 mil/h — a fila só podia crescer, e cresceu: 1,68 milhão em 18/08/2026,
+    com o índice ~178 milhões de docs atrás do Postgres. Em lote de 500 o mesmo
+    tick vira 100 jobs.
+    """
     if not pks:
         return 0
     try:
         import django_rq
         q = django_rq.get_queue('es_index')
-        for pk in pks:
-            q.enqueue('search.jobs.indexar_movimentacao', pk)
+        for i in range(0, len(pks), CHUNK):
+            q.enqueue('search.jobs.indexar_movimentacoes_bulk', pks[i:i + CHUNK])
     except Exception:  # noqa: BLE001
         logger.warning('enqueue movs falhou (%d pks)', len(pks), exc_info=True)
         return 0

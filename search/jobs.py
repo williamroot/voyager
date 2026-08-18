@@ -28,6 +28,49 @@ def indexar_movimentacao(mov_pk: int):
         logger.error('Erro indexando Movimentacao %s: %s', mov_pk, e)
 
 
+def indexar_movimentacoes_bulk(mov_pks: list[int]):
+    """Indexa N Movimentacao num único `_bulk`. Molde do `indexar_processos_bulk`.
+
+    Por que existe: `indexar_movimentacao` é UM job por publicação — um SELECT
+    no Postgres e um `es.index()` por item. Medido em 18/08/2026, com só a
+    recuperação do TJSP rodando, a fila `es_index` estava em **1,68 milhão e
+    subindo** (dreno ~200 mil/h contra injeção em burst), e o índice já corria
+    ~178 milhões de documentos atrás do Postgres.
+
+    Isso não é lentidão, é a terceira perda da tabela do CLAUDE.md se repetindo:
+    dado coletado que a tela não enxerga vale zero. Com 212 milhões de
+    publicações pra recuperar, coletar sem indexar em lote é enterrar 212
+    milhões.
+
+    Idempotente (`index` by `_id`), como o de processos.
+    """
+    if not mov_pks:
+        return
+    movs = (Movimentacao.objects
+            .filter(pk__in=mov_pks)
+            .select_related('processo', 'tribunal'))
+    ops = []
+    indices = list(indices_espelho('movimentacoes'))
+    for mov in movs:
+        doc = movimentacao_to_doc(mov)
+        for indice in indices:
+            ops.append({'index': {'_index': indice, '_id': mov.id}})
+            ops.append(doc)
+    if not ops:
+        return
+    try:
+        es = get_es()
+        resp = es.bulk(operations=ops)
+        if resp.get('errors'):
+            erros = [it for it in resp.get('items', [])
+                     if it.get('index', {}).get('status', 200) >= 300]
+            logger.error('indexar_movimentacoes_bulk: %d/%d docs com erro (ex: %s)',
+                         len(erros), len(movs), erros[:1])
+    except Exception as e:  # noqa: BLE001
+        logger.error('Erro no bulk de %d movimentações: %s', len(mov_pks), e)
+        raise      # deixa o RQ registrar no failed registry — perda silenciosa não
+
+
 def desindexar_movimentacao(mov_id: int):
     """Remove uma Movimentacao do ES pelo id. Idempotente."""
     try:
