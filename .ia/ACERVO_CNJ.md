@@ -275,3 +275,28 @@ Cinco relatórios tropeçaram nele. **Não é o teto** — são dias sem run nen
 | TJSP | ~360 dias com run num período de ~750 dias úteis | ? |
 
 Provavelmente vale mais que os 212M do teto. É missão própria.
+
+
+### 1.232 runs verdes escondiam fatia perdida (18/08/2026)
+
+O defeito nº 3 da Fase 0 não era hipótese: era estado de produção. Varrendo
+`IngestionRun` com `fonte='djen'` e `status='success'`:
+
+    runs success com erro de fatia dentro ....... 1.232  (todos `uf_fetch`)
+    dias-tribunal marcados como cobertos ........ 1.165
+
+    TJDFT 293 · TJMA 84 · TJMT 84 · TJPR 62 · TJRJ 59 · TJGO 57
+    TRF4 45 · TRT2 40 · TRT3 34 · TJPE 30 · TJSP 30 · TJAM 26 · TJMG 26 …
+
+`_dia_coberto` pula qualquer dia com run `success`, então esses 1.165 dias
+ficariam fora de QUALQUER backfill futuro — inclusive o dos 212M.
+
+Reclassificados para `failed` com a marca `reclass_fatia_perdida_2026-08-18`
+acrescentada em `erros` (o motivo original fica). Não é reescrever história: o
+run falhou mesmo — perdeu fatia e gravou o dia pela metade. O que era mentira
+era o `status`.
+
+**Como conferir se voltou a acontecer:**
+```python
+R.objects.filter(fonte='djen', status='success').exclude(erros=[])  # tem que dar 0
+```
