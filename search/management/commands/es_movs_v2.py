@@ -55,6 +55,14 @@ SHARDS = 16
 #: tem lixo (mínimo 0021-10-13, máximo 2400-01-01).
 FAIXAS = 32
 
+#: carimbo de "este doc já passou pela extração de entidades". Existe pra a
+#: passada ser RETOMÁVEL: sem ele, um processo morto obriga a reler a faixa
+#: inteira, e com 126M docs no alvo a passada nunca termina. Guardar a VERSÃO
+#: (e não `true`) deixa refazer a extração quando as regras mudarem: basta
+#: filtrar por `ents_v < N` em vez de `must_not exists`.
+CAMPO_MARCA = 'ents_v'
+MARCA_VERSAO = 1
+
 #: só entra na passada de entidades o doc que o índice invertido já diz que
 #: menciona algo extraível. Evita ler 1,16B docs pra achar 153M.
 FILTRO_ENTIDADES = {
@@ -126,7 +134,10 @@ class Command(BaseCommand):
             f'{self.v2} criado — {SHARDS} shards, modo carga (sem refresh/réplica)'))
 
     def _faixas_de_id(self, n):
-        a = self.es.search(index=self.v1, size=0, aggs={
+        # depois do --cutover o v1 não existe mais; as faixas passam a sair do
+        # próprio v2 (mesmo domínio de `id`, é cópia fiel).
+        origem = self.v1 if self.es.indices.exists(index=self.v1) else self.v2
+        a = self.es.search(index=origem, size=0, aggs={
             'min': {'min': {'field': 'id'}}, 'max': {'max': {'field': 'id'}}})
         lo = int(a['aggregations']['min']['value'])
         hi = int(a['aggregations']['max']['value']) + 1
@@ -187,14 +198,26 @@ class Command(BaseCommand):
         # Uma passada só leria ~250M docs em série (35h medidas). Fatiar por
         # faixa de id deixa rodar N processos ao mesmo tempo, cada um dono da
         # sua faixa — sem coordenação e sem risco de dois escreverem o mesmo doc.
-        query = FILTRO_ENTIDADES
+        # RETOMÁVEL. A primeira versão relia a faixa inteira a cada lançamento:
+        # com 126M docs no alvo e o processo morrendo por circuit-breaker do ES,
+        # cada relançamento refazia o já feito e a passada nunca convergia —
+        # medido em 17/08, 17,4M de 126M depois de várias tentativas.
+        # Agora TODO doc lido recebe `ents_v`, inclusive o que não rendeu
+        # entidade nenhuma: é o carimbo de "já passei por aqui". Quem tem o
+        # carimbo sai do alvo, então relançar continua de onde parou — sem
+        # cursor em arquivo, sem coordenação, e sem confiar em `search_after`
+        # de um processo que já morreu.
+        filtros = [{'bool': {'must_not': {'exists': {'field': CAMPO_MARCA}}}}]
         rotulo = ''
         if o['faixa'] is not None:
             ini, fim = self._faixas_de_id(o['faixas'])[o['faixa']]
-            query = {'bool': {'must': [FILTRO_ENTIDADES],
-                              'filter': [{'range': {'id': {'gte': ini, 'lt': fim}}}]}}
+            filtros.append({'range': {'id': {'gte': ini, 'lt': fim}}})
             rotulo = f'[faixa {o["faixa"]}/{o["faixas"]}] '
             self.stdout.write(f'{rotulo}id[{ini:,} … {fim:,})')
+        query = {'bool': {'must': [FILTRO_ENTIDADES], 'filter': filtros}}
+
+        falta = self.es.count(index=self.v2, query=query, request_timeout=300)['count']
+        self.stdout.write(f'{rotulo}faltam {falta:,} docs nesta faixa')
 
         while True:
             corpo = {'size': o['lote'], '_source': ['body', 'proc'],
@@ -217,9 +240,11 @@ class Command(BaseCommand):
                     ent['cnjs_citados'] = citados
                 else:
                     ent.pop('cnjs_citados', None)
-                if ent:
-                    acoes.append({'_op_type': 'update', '_index': self.v2,
-                                  '_id': h['_id'], 'doc': ent})
+                # o carimbo vai SEMPRE, mesmo sem entidade — é ele que faz a
+                # passada ser retomável (ver o comentário do filtro acima)
+                ent[CAMPO_MARCA] = MARCA_VERSAO
+                acoes.append({'_op_type': 'update', '_index': self.v2,
+                              '_id': h['_id'], 'doc': ent})
             if acoes:
                 ok, _erros = bulk(self.es, acoes, raise_on_error=False,
                                   request_timeout=180)

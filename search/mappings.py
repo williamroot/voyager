@@ -60,6 +60,15 @@ MOV_MAPPING = {
             "documentos":      {"type": "keyword"},   # CPF/CNPJ com DV conferido
             "cnjs_citados":    {"type": "keyword"},   # outros processos citados
             "valores_citados": {"type": "double"},
+            # nome de advogado é o único destes que se procura por PEDAÇO
+            # ("Silva", "Souza Lima") — daí `text` com subcampo exato pra
+            # agregação. Estava vindo por mapping dinâmico, ou seja, era
+            # acidente e não decisão; declarado pra não mudar sozinho.
+            "advogados":       {"type": "text", "analyzer": "portuguese_asciifolding",
+                                "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
+            # carimbo da passada de entidades — ver es_movs_v2.CAMPO_MARCA.
+            # `short` porque é versão de regra, não dado do processo.
+            "ents_v":          {"type": "short"},
         }
     },
 }
