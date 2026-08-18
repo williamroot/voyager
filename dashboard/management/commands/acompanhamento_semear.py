@@ -240,6 +240,70 @@ NOTAS = [
         ],
         'referencias': ['.ia/OPS.md', 'search/busca_ui.py'],
     },
+    {
+        'titulo': 'A coleta caía por falta de descritor, não por proxy ruim',
+        'tipo': N.TIPO_DESCOBERTA, 'impacto': N.IMPACTO_ALTO,
+        'area': 'ingestão', 'data_evento': D(2026, 8, 17),
+        'resumo': 'Um cache de proxy que nunca encolhe estourava o limite de arquivos '
+                  'abertos do worker — e a partir daí TODO request falhava, inclusive '
+                  'os que iriam pra proxy saudável.',
+        'corpo': (
+            'O sintoma era ruído comum: 403, rotação de proxy, "proxy ruim". Debaixo '
+            'dele, `[Errno 24] Too many open files` — e 2.981 IngestionRun marcados '
+            '`failed` pelo watchdog em 7 dias. Sem OOM e com RAM sobrando: não era '
+            'memória, era descritor.\n\n'
+            'Causa: `session.get(proxies=...)` faz a requests guardar um pool de '
+            'conexões POR URL de proxy, num dicionário que nunca encolhe. Giramos '
+            'sobre centenas de IPs; cada IP queimado deixava as conexões dele '
+            'penduradas. Com nofile=1024 (o default do Docker) o processo esgotava e '
+            'passava a falhar tudo. Na coleta por UF são 8 fetchers dividindo a MESMA '
+            'sessão — 8× mais rápido pra estourar.\n\n'
+            'O que faz isso ser grave: a falha some dentro do retry, o run vira '
+            '`failed`, e o dia fica coletado pela metade sem ninguém olhar. É perda '
+            'de cobertura silenciosa — o defeito nº 1 da lista.\n\n'
+            'Cura em duas metades: sessão com cache de proxy limitado (LRU de 32, '
+            'fechando o pool mais antigo) em todos os clientes que giram proxy, e '
+            'nofile=65536 nos 20 workers que fazem HTTP externo. Só um serviço tinha '
+            'o limite alto — alguém já havia batido nisto e consertado um só.'
+        ),
+        'numeros': [
+            {'rotulo': 'runs derrubados pelo watchdog', 'valor': '2.981',
+             'unidade': 'em 7 dias'},
+            {'rotulo': 'limite de arquivos abertos', 'antes': '1.024', 'depois': '65.536',
+             'nota': 'em 20 dos 24 serviços de worker'},
+            {'rotulo': 'Errno 24 depois do deploy', 'valor': '0', 'unidade': 'em 40 min'},
+        ],
+        'referencias': ['djen/proxies.py', 'tests/test_proxy_fd_leak.py',
+                        '.ia/OPS.md', 'commit e3edba0'],
+    },
+    {
+        'titulo': 'A extração de entidades não convergia porque recomeçava do zero',
+        'tipo': N.TIPO_DESCOBERTA, 'impacto': N.IMPACTO_ALTO,
+        'area': 'busca', 'data_evento': D(2026, 8, 17),
+        'resumo': 'Sem carimbo de "já processei", cada morte do processo jogava fora o '
+                  'trabalho: 17,4M de 126M documentos depois de várias tentativas.',
+        'corpo': (
+            'A passada que extrai OAB, CPF/CNPJ e CNJ do texto das publicações guardava '
+            'o cursor só na memória do processo. Quando o Elasticsearch abria o '
+            'circuit-breaker e matava a passada, o relançamento recomeçava a faixa '
+            'inteira. Com 126M documentos no alvo, isso nunca termina.\n\n'
+            'O caso que ninguém pensa: o documento que NÃO rende entidade nenhuma. Ele '
+            'não ganhava campo algum, então voltava pra fila em toda passada, pra '
+            'sempre. Agora todo documento lido recebe `ents_v` — inclusive esse — e '
+            'quem tem o carimbo sai do alvo.\n\n'
+            'Conferido contra o índice real: a faixa 0 tinha 2.739.487 pendentes, rodei '
+            '20.000, sobraram 2.716.764, e a chamada seguinte não repetiu nenhum.'
+        ),
+        'numeros': [
+            {'rotulo': 'alvo da extração', 'valor': '126,0M', 'unidade': 'docs',
+             'nota': 'os que o índice diz citar OAB/CPF/CNPJ/R$'},
+            {'rotulo': 'já extraído', 'valor': '17,4M', 'unidade': 'docs (13,8%)'},
+            {'rotulo': 'retrabalho por relançamento', 'antes': 'faixa inteira',
+             'depois': 'zero'},
+        ],
+        'referencias': ['search/management/commands/es_movs_v2.py',
+                        'search/mappings.py', 'commit 9ed0204'],
+    },
 ]
 
 
