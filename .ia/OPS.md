@@ -1425,3 +1425,54 @@ for i in 0 1 2 3 4 5; do tail -1 /tmp/reindex_s$i.log; done
 Medido: 438 docs/s com um processo (4,7 dias), **~4.100/s com 6 shards**.
 
 ⚠️ **Nunca mais leia "fila zerada" como "índice completo".** Leia a fronteira.
+
+### Sem RAM pra comprar: encolher o working set (18/08/2026)
+
+O banco tem **1,7 TB** e ~22 GB de cache — working set **14× maior que a RAM**,
+cache hit de **82%** no heap, e **41 de 44** queries ativas esperando I/O. O
+disco entrega 2 GB/s (é NVMe, é rápido): o problema nunca foi vazão, foi **o
+tamanho do que precisa caber na memória**.
+
+Sem RAM nova, o ganho vem de tirar leitura do sistema, não de aumentar cache.
+`pg_stat_statements` mostrou onde ela estava:
+
+| GB do disco | chamadas | o quê |
+|---:|---:|---|
+| 436.191 | 6.476 | fila do reclassificador (**67 GB por chamada**) |
+| 393.605 | 33.420 | contador do dashboard |
+| 247.732 | 15.735 | gráfico diário do dashboard |
+
+**Consertos (migration `tribunals/0050_indices_io`):**
+
+* índice **parcial** pra fila do reclassificador. A condição de um índice
+  parcial aceita comparação entre colunas da mesma linha — é o que resolve
+  `classificacao_em < ultima_movimentacao_em`, que nenhum B-tree comum indexa.
+  Ocupa **56 MB** porque guarda só as linhas pendentes;
+* índice composto `(classificacao, criada_em)` no log — igualdade primeiro,
+  faixa depois;
+* drop de 19 GB de índice com **zero** scans na vida do banco.
+
+**Medido depois, com EXPLAIN ANALYZE em produção:**
+
+```
+fila do reclassificador ... 3,8 MB e 144 ms    (era 67 GB)
+contador do dashboard ..... 32 KB e 1,7 ms
+gráfico diário ............ 56 KB e 0,07 ms
+```
+
+**Runbook — sempre nesta ordem.** `CREATE/DROP INDEX CONCURRENTLY` espera TODAS
+as transações abertas, e o reclassificador segura transações de ~37 min. Ignorar
+isso derrubou o site por 50 minutos em 10/08:
+
+```bash
+# 1. parar quem segura transação longa
+docker compose -f docker-compose-prod.yml stop scheduler          # .103
+docker compose -f docker-compose-workers.yml stop worker_classificacao   # .102
+# 2. cancelar SELECT longo (read-only, o job re-tenta) e CONFERIR que zerou
+#    pg_cancel_backend(pid) para xact_start < now() - interval '30 seconds'
+# 3. criar/dropar CONCURRENTLY, com o site sob observação
+# 4. religar scheduler + worker_classificacao
+```
+
+**Como achar o próximo:** `pg_stat_statements` ordenado por `shared_blks_read`.
+Query que lê dezenas de GB por chamada é falta de índice, não falta de hardware.
