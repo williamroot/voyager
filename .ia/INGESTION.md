@@ -128,6 +128,15 @@ escotilha `DJEN_ESTRATEGIA_UF` (padrão OFF) porque tem **defeito próprio**:
 - **custa 27× mais requisição** à API do CNJ (rate-limit de 20/s);
 - **uma fatia perdida derrubava o dia inteiro em silêncio** — ver abaixo.
 
+**Janela paralela** (`DJEN_PAGINAS_PARALELAS`, 8). A página é offset puro, então
+buscar 8 de cada vez não muda o que volta — só o relógio. Serial, o canário do
+TJSP (261.076 publicações) levou 163 minutos: 1,61 pg/min. O teto de memória
+continua sendo a janela em voo, nunca o dia (acumular o dia matou os workers com
+OOM em 17/08).
+
+A janela também enxerga o que a versão serial não podia: **página incompleta
+seguida de página com dado = paginação mentiu**, e isso é ERRO, não `return`.
+
 **Fatia perdida = run FAILED.** O limiar era 14 de 27 fatias, o que trata a
 fatia do DF (77% do dia no TJDFT) igual à de um estado com 40 itens. Resultado
 medido: 1.232 runs `success` com `uf_fetch` dentro, cobrindo 1.165
