@@ -304,6 +304,71 @@ NOTAS = [
         'referencias': ['search/management/commands/es_movs_v2.py',
                         'search/mappings.py', 'commit 9ed0204'],
     },
+    {
+        'titulo': '212 milhões de publicações recuperáveis — medido nos 59 tribunais',
+        'tipo': N.TIPO_DESCOBERTA, 'impacto': N.IMPACTO_ALTO,
+        'area': 'ingestão', 'data_evento': D(2026, 8, 18),
+        'resumo': 'Sondando a API de cada tribunal até esgotar e comparando com o que '
+                  'temos: 41 de 59 sangram, e o buraco vale +16% do acervo.',
+        'corpo': (
+            'A pergunta era simples: quanto o teto de páginas por UF custou em cada '
+            'tribunal? A resposta exigiu paginar a API na força bruta, tribunal a '
+            'tribunal, e comparar com a nossa base pela régua certa.\n\n'
+            'TJSP perde 84,7% de cada dia útil (64,9 milhões recuperáveis). TJPR 73,8% '
+            '(38,8M). TJMG 70,1% (20,1M). Dezoito tribunais foram descartados COM '
+            'PROVA — e o padrão dos descartes é estrutural, não sorte: STJ e TST são '
+            'nacionais, com o volume espalhado pelas 27 seccionais; os TRTs pequenos '
+            'nunca cruzaram 10.000 num dia.\n\n'
+            'Dois avisos que valem mais que o ranking. Primeiro, a régua canônica é o '
+            'Postgres filtrado ao DJEN: o Elasticsearch infla (mistura movimento do '
+            'Datajud — 4,7× no TJMG) e desinfla (lag do reindexador), e medir por ele '
+            'sem filtro de tipo erra em até 15×. Segundo, existe um buraco SEPARADO e '
+            'provavelmente maior: dias que nunca foram ingeridos. O TRF1 tem 710 de '
+            '1.480 dias úteis com menos de 100 publicações — num deles a API entrega '
+            '53.919 e nós temos 9.'
+        ),
+        'numeros': [
+            {'rotulo': 'recuperável', 'valor': '212.504.437', 'unidade': 'publicações',
+             'nota': '+16% sobre 1,344 bilhão'},
+            {'rotulo': 'tribunais medidos', 'antes': '1', 'depois': '59'},
+            {'rotulo': 'sangram', 'valor': '41', 'unidade': 'de 59'},
+            {'rotulo': 'dias-tribunal a refazer', 'valor': '12.934'},
+        ],
+        'referencias': ['.ia/ACERVO_CNJ.md', 'scripts/backfill_dias_capados.py'],
+    },
+    {
+        'titulo': 'A coleta fatiada era cega a 15,7% de cada dia',
+        'tipo': N.TIPO_DESCOBERTA, 'impacto': N.IMPACTO_ALTO,
+        'area': 'ingestão', 'data_evento': D(2026, 8, 18),
+        'resumo': 'O canário leu um dia inteiro do TJSP direto da API: 261.076 de '
+                  '261.076. Dessas, 41.057 o caminho antigo nunca teve como ver.',
+        'corpo': (
+            'Fatiar o dia em 27 requisições por estado da OAB respondia a uma crença: '
+            '"a API capa em 10.000". A crença caiu — o 10.000 é o limite de janela do '
+            'Elasticsearch por baixo, ou seja um PISO, e a paginação vai até o fim '
+            '(262 páginas, todos os ids distintos).\n\n'
+            'Pior: fatiar por OAB só enxerga publicação que cita advogado com OAB. '
+            'Isso foi provado na unidade em cinco tribunais antes do canário — no TJPE '
+            'as 2.853 publicações sem OAB de um dia eram exatamente as 2.853 que '
+            'faltavam. O canário mediu num dia completo do maior tribunal do país: '
+            '15,7%, bem acima dos 2-10% estimados.\n\n'
+            'O primeiro canário REPROVOU, e reprovou provando outro defeito ao vivo: '
+            'rodou com o código antigo, a fatia de SP levou 403 após 51 rotações de '
+            'proxy, e o run gravou "sucesso" com 30,6% do dia. Fui atrás do saldo '
+            'disso no histórico: 1.232 runs verdes escondendo fatia perdida, cobrindo '
+            '1.165 dias que o sistema considerava cobertos para sempre.'
+        ),
+        'numeros': [
+            {'rotulo': 'canário', 'valor': '261.076 de 261.076', 'unidade': '(100,0%)'},
+            {'rotulo': 'cegueira do caminho antigo', 'valor': '15,7', 'unidade': '% do dia',
+             'nota': '41.057 publicações num dia só'},
+            {'rotulo': 'runs verdes que mentiam', 'valor': '1.232',
+             'unidade': 'cobrindo 1.165 dias'},
+            {'rotulo': 'requisições à API por dia', 'antes': '27×', 'depois': '1×'},
+        ],
+        'referencias': ['djen/ingestion.py', 'djen/client.py',
+                        'tests/test_djen_coleta_flat.py', 'commit cfe3084'],
+    },
 ]
 
 
