@@ -171,3 +171,107 @@ livre pro enriquecimento, que é quem atende usuário.
 - **STF e TRT3** falharam na contagem (404 e rate-limit). Reconferir.
 - O `search_by_date` de `datajud/client.py` ordena por `_id` e portanto
   **nunca funcionou** — está morto, não é caminho de código vivo.
+
+---
+
+## Medição nacional do teto por UF — 59 tribunais (18/08/2026)
+
+Um general e 11 agentes mediram **todos** os tribunais: para cada um, sondaram a
+API paginando na força bruta até esgotar e compararam com o que temos.
+
+**212.504.437 publicações recuperáveis** em **12.934 dias-tribunal**, sobre uma
+base de 1,344 bilhão de movimentações — **+16% do acervo**. 41 de 59 tribunais
+sangram; 18 descartados COM PROVA.
+
+### Como um dia afetado é identificado
+
+Assinatura do caminho fatiado: run de janela de 1 dia, `fonte='djen'`,
+`status='success'`, ≥9.000 itens e **razão itens/página < 700**. O caminho por
+UF grava em lotes de `BATCH_SIZE=500` e cada uma das 27 fatias termina numa
+página parcial, então a média cai pra ~490-500/pg; o caminho flat dá ~990-1000.
+
+### Ranking (recuperável estimado)
+
+| tribunal | perda média/dia | recuperável |
+|---|---|---|
+| TJSP | 84.7% | 64.895.691 |
+| TJPR | 73.8% | 38.807.963 |
+| TJMG | 70.1% | 20.054.027 |
+| TRT2 | 61.3% | 14.599.568 |
+| TJRS | 66.5% | 11.709.666 |
+| TJGO | 64.0% | 11.055.268 |
+| TJRJ | 36.4% | 9.779.900 |
+| TJBA | 49.6% | 8.157.297 |
+| TJSC | 54.9% | 7.627.068 |
+| TRT15 | 40.4% | 5.491.200 |
+| TRF3 | 27.9% | 4.013.425 |
+| TRT1 | 29.6% | 3.462.830 |
+| TRT3 | 29.8% | 2.955.367 |
+| TRT4 | 25.6% | 2.667.080 |
+| TJAM | 25.6% | 1.269.615 |
+| TJMT | 8.5% | 863.224 |
+| TJPE | 20.4% | 812.345 |
+| TRT9 | 17.8% | 734.000 |
+| TJRR | 32.9% | 620.000 |
+| TRF4 | 9.4% | 606.811 |
+| TJCE | 11.6% | 459.862 |
+| TRF6 | 18.4% | 372.220 |
+| TJAP | 28.6% | 310.000 |
+| TJMA | 7.2% | 270.628 |
+| TJSE | 10.3% | 216.095 |
+| TJMS | 12.4% | 210.786 |
+| TRF2 | 10.6% | 183.233 |
+| TJTO | 6.4% | 103.000 |
+| TJAL | 0.6% | 43.281 |
+| TRT6 | 12.1% | 28.000 |
+| TJRN | 9.1% | 23.453 |
+| TJDFT | 0.4% | 19.000 |
+| TRT7 | 41.9% | 18.000 |
+| TRT5 | 5.1% | 18.000 |
+| TRT12 | 0.9% | 14.000 |
+| TJPI | 2.7% | 8.288 |
+| STJ | 0.3% | 7.455 |
+| TRT11 | 7.0% | 6.114 |
+| TRT19 | 4.8% | 3.196 |
+| TRT17 | 4.8% | 3.081 |
+| TJRO | 0.0% | 2.300 |
+| TRT10 | 7.0% | 1.700 |
+| TRT18 | 0.0% | 400 |
+**Sem perda pelo teto (18):** TJPA, TJPB, TJES, TJAC, TRF5, TST, TRT8, TRT13,
+TRT14, TRT16, TRT20, TRT21, TRT22, TRT23, TRT24 — mais TRF1 (perdia, mas
+incremento atribuível = 0), TJPE e TJMA (o teto não cortava; perdem pelo buraco
+do sem-OAB).
+
+O padrão dos descartes é estrutural: TST e STJ são nacionais (volume espalhado
+pelas 27 seccionais); TRF5 reparte entre seis OABs; os TRTs pequenos nunca
+cruzaram 10.000 num dia. ⚠️ O **TJPA é limpo por sorte de volume** — pico
+histórico 9.948, a 5% do gatilho. No dia em que cruzar 10.000 começa a perder
+~7% em silêncio. Vigiar.
+
+### ⚠️ A régua canônica é o Postgres djen-only
+
+O ES mente dos DOIS lados e as duas mentiras são grandes:
+
+* **infla** — a tabela `Movimentacao` mistura DJEN com Datajud, então `_count`
+  cru no TJMG em 2025-08-13 dá 347.526 contra os 73.386 que a API inteira
+  entrega no dia (4,7×). Sem filtrar `tipo_comunicacao` aos tipos que o DJEN
+  entrega, a cobertura sai inflada em até 15×;
+* **desinfla** — o lag do reindexador: TJSE tem agosto/2025 com 127 docs, TJRN
+  2026-08-12 com zero.
+
+Medir cobertura do DJEN pelo ES sem filtro de tipo é medir errado.
+
+### Buraco MAIOR, e separado deste: dias que nunca foram ingeridos
+
+Cinco relatórios tropeçaram nele. **Não é o teto** — são dias sem run nenhum:
+
+| tribunal | evidência | ordem de grandeza |
+|---|---|---|
+| TRF1 | 710 de 1.480 dias úteis com <100 publicações; em 2025-08-13 a API entrega 53.919 e temos **9** | 18-35 M |
+| TRF5 | 1.037 de 1.393 dias com <100; jan/2025 com 22 de 23 dias vazios | dezenas de M |
+| TJTO | 2025 **inteiro** zerado (163/163 dias úteis), ~6.000/dia | ~930 k |
+| TJRO | 2021, 2022 e 2023 inteiros zerados (781 dias úteis) | ? |
+| TJRS | grosso de 2023-2024 sem run de 1 dia | ? |
+| TJSP | ~360 dias com run num período de ~750 dias úteis | ? |
+
+Provavelmente vale mais que os 212M do teto. É missão própria.
