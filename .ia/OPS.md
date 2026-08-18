@@ -1385,3 +1385,43 @@ problema). Sem ordem comum não existe ciclo.
 R.objects.filter(status='failed', erros__icontains='deadlock',
                  started_at__gte=<agora-1h>).count()   # tem que ficar em 0
 ```
+
+### 179 milhões fora do índice com a fila em ZERO (18/08/2026)
+
+**O sintoma era a ausência de sintoma.** A fila `es_index` marcava 0 e eu tinha
+reportado "drenou, está em dia". Estava errado.
+
+**Como medir de verdade** (contagem própria não prova nada — compare os dois
+lados na MESMA faixa de id, que é a PK e portanto barata):
+
+```python
+# 10 janelas de 200k ids espalhadas pelo espaço todo
+SELECT count(*) FROM tribunals_movimentacao WHERE id BETWEEN %s AND %s
+POST /voyager-movimentacoes/_count  {"query":{"range":{"id":{"gte":a,"lte":b}}}}
+```
+
+Resultado: 9 de 10 janelas **idênticas**; a décima (a mais recente) 100% ausente.
+O buraco não estava espalhado pela história — estava todo na CAUDA. Busca binária
+achou a fronteira em **id 1.273.045.248**; acima dela, 190.320.885 no Postgres
+contra 10.830.272 no ES → **179.490.613 publicações fora da busca**.
+
+**Duas causas, e as duas precisam de conserto:**
+
+1. `LIMITE_MOVS_NOVAS = 50.000` com tick de 10 min = teto de 300 mil/h, contra
+   uma ingestão que sob recuperação escreve muito mais. Teto que corta calado —
+   a regra nº 2 do CLAUDE.md. Corrigido: teto de 400k, freio pela FILA
+   (`FILA_ES_ALTA`), e atingir o teto virou ERRO **com o tamanho do atraso**.
+2. O watermark estava em 1.506.901.808, MUITO à frente da cobertura real: ele
+   avançou sobre jobs que foram enfileirados e nunca chegaram ao ES (purga de
+   fila, falhas). Subir o teto **não** recupera isso — precisa de reindex.
+
+**Fechar o buraco** (`scripts/` não versiona isto; é operação pontual):
+
+```bash
+# 6 shards sobre [fronteira, topo], cada um com checkpoint próprio
+nohup ~/reindex_shards.sh > /tmp/reindex_shards_super.log 2>&1 &
+for i in 0 1 2 3 4 5; do tail -1 /tmp/reindex_s$i.log; done
+```
+Medido: 438 docs/s com um processo (4,7 dias), **~4.100/s com 6 shards**.
+
+⚠️ **Nunca mais leia "fila zerada" como "índice completo".** Leia a fronteira.
