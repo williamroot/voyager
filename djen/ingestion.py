@@ -377,9 +377,16 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | Non
             Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs_pagina)
             .values_list('numero_cnj', 'pk')
         )
+        # ORDENADO por CNJ de propósito. `cnjs_pagina` é set, então a ordem de
+        # inserção variava por processo — e dois workers inserindo CNJs
+        # sobrepostos em ordens diferentes travam um no outro no índice único.
+        # Medido em 18/08/2026, com 8 workers de backfill no mesmo tribunal:
+        #   deadlock detected ... while inserting index tuple in "tribunals_process"
+        # O run falha (certo, não é perda silenciosa), mas joga fora a coleta do
+        # dia inteiro. Ordem total igual em todo mundo = sem ciclo de espera.
         novos_processos = [
             Process(tribunal=tribunal, numero_cnj=c, ano_cnj=ano_cnj_from_numero(c))
-            for c in cnjs_pagina - existentes_cnj.keys()
+            for c in sorted(cnjs_pagina - existentes_cnj.keys())
         ]
         if novos_processos:
             Process.objects.bulk_create(novos_processos, ignore_conflicts=True, batch_size=BATCH_SIZE)
@@ -418,6 +425,9 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | Non
                 tribunal=tribunal,
                 **kwargs,
             ))
+        # mesma razão do sort acima: o único (tribunal, external_id) também
+        # deadlocka se dois workers inserirem em ordens diferentes
+        movs.sort(key=lambda m: m.external_id)
         Movimentacao.objects.bulk_create(movs, ignore_conflicts=True, batch_size=BATCH_SIZE)
 
         # Métrica aproximada: TOCTOU possível entre SELECT e bulk_create. Documentado:
