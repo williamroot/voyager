@@ -92,6 +92,7 @@ def _entidades_do_texto(texto, numero_cnj):
     num campo "este processo" — inútil pra achar incidente vinculado, que é
     justamente pra isso que ele serve.
     """
+    from search.management.commands.es_movs_v2 import CAMPO_MARCA, MARCA_VERSAO
     from search.entidades_texto import extrair
     ent = extrair(texto or '')
     citados = [c for c in ent.get('cnjs_citados', []) if c != numero_cnj]
@@ -99,6 +100,11 @@ def _entidades_do_texto(texto, numero_cnj):
         ent['cnjs_citados'] = citados
     else:
         ent.pop('cnjs_citados', None)
+    # mesmo carimbo da passada em massa: quem já saiu daqui com as entidades
+    # extraídas não precisa ser relido por ela. Sem isto, todo doc indexado pelo
+    # write-through voltava pra fila da extração — trabalho refeito em cima de
+    # 126 milhões de documentos.
+    ent[CAMPO_MARCA] = MARCA_VERSAO
     return ent
 
 
