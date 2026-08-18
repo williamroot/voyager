@@ -34,7 +34,15 @@ logger = logging.getLogger('voyager.search.sync')
 #: fica MUITO abaixo disso por ciclo de 10min; a folga é pra recuperar atraso.
 LIMITE_PROC_NOVOS = 20_000
 LIMITE_PROC_ATUALIZADOS = 10_000
-LIMITE_MOVS_NOVAS = 50_000
+#: 50.000 por tick de 10 min = 300 mil/h, e a ingestão sob recuperação escreve
+#: MUITO mais. O teto virou corte mudo: 179.490.613 publicações no banco e fora
+#: do índice, com a fila `es_index` marcando zero. Agora o teto é alto e quem
+#: segura o ritmo é a fila (FILA_ES_ALTA) — atingi-lo é ERRO registrado.
+LIMITE_MOVS_NOVAS = 400_000
+
+#: acima disso o tick não empurra mais: o gargalo é o dreno, e engordar a fila
+#: não aumenta vazão nenhuma — só esconde o atraso num número maior.
+FILA_ES_ALTA = 150_000
 
 #: tamanho do bulk enfileirado (o job `indexar_processos_bulk` faz 1 _bulk).
 CHUNK = 500
@@ -156,8 +164,33 @@ def sync_processos_atualizados() -> dict:
     return {'atualizados': n, 'wm': str(cache.get(_WM_PROC_TS))}
 
 
+def _fila_es() -> int:
+    """Tamanho da fila `es_index`. -1 se não der pra ler (nunca derruba o tick)."""
+    try:
+        import django_rq
+        return django_rq.get_queue('es_index').count
+    except Exception:  # noqa: BLE001
+        return -1
+
+
 def sync_movimentacoes_novas() -> dict:
-    """Movimentações novas da ingestão (bulk_create não dispara signal)."""
+    """Movimentações novas da ingestão (bulk_create não dispara signal).
+
+    O TETO DAQUI JÁ FOI UM CORTE MUDO. Com `LIMITE_MOVS_NOVAS = 50.000` e tick
+    de 10 minutos, o máximo que este sync consegue indexar são 300 mil/h. Durante
+    a recuperação do acervo a ingestão escreve muito mais que isso, e o watermark
+    simplesmente não acompanha: o resto fica ESPERANDO, não perdido — mas fora do
+    alcance da busca, que dá no mesmo pra quem procura.
+
+    Medido em 18/08/2026 por amostragem dos dois lados: abaixo do watermark, 9 de
+    9 janelas de id conferem EXATAMENTE com o Postgres; acima dele havia
+    **179.490.613 publicações fora do índice**. E o sintoma era uma fila `es_index`
+    zerada — "run verde, log limpo, número redondo", os três da tabela do
+    CLAUDE.md ao mesmo tempo.
+
+    Agora: teto alto (a indexação em lote aguenta), auto-freio pela fila em vez
+    de por um número fixo, e o atraso vira ERRO registrado em vez de silêncio.
+    """
     wm = cache.get(_WM_MOV_ID)
     if wm is None:
         wm = Movimentacao.objects.order_by('-id').values_list('id', flat=True).first() or 0
@@ -165,13 +198,34 @@ def sync_movimentacoes_novas() -> dict:
         logger.info('sync_es: watermark de movimentação ancorado em id=%s', wm)
         return {'movs': 0, 'wm': wm, 'ancorou': True}
 
+    # Auto-freio: quem manda no ritmo é o dreno, não um número fixo. Se a fila
+    # já está cheia, empurrar mais só aumenta o tamanho da fila — não a vazão.
+    fila = _fila_es()
+    if fila > FILA_ES_ALTA:
+        logger.info('sync_es: fila em %d (>%d), pulando o tick', fila, FILA_ES_ALTA)
+        return {'movs': 0, 'wm': wm, 'fila': fila, 'pulou': True}
+
     pks = list(Movimentacao.objects.filter(id__gt=wm).order_by('id')
                .values_list('id', flat=True)[:LIMITE_MOVS_NOVAS])
     if not pks:
         return {'movs': 0, 'wm': wm}
     n = _enfileirar_movs(pks)
     cache.set(_WM_MOV_ID, pks[-1], None)
-    return {'movs': n, 'wm': pks[-1]}
+
+    saida = {'movs': n, 'wm': pks[-1], 'fila': fila}
+    # Bateu o teto: existe mais coisa esperando do que coube neste tick. Isso é
+    # ALERTA, nunca um `return` discreto — é assim que 179 milhões ficaram fora
+    # do índice sem ninguém ver.
+    if len(pks) >= LIMITE_MOVS_NOVAS:
+        topo = Movimentacao.objects.order_by('-id').values_list('id', flat=True).first() or 0
+        atraso = topo - pks[-1]
+        saida['atraso_ids'] = atraso
+        logger.error(
+            'sync_es: tick ATINGIU o teto de %d — ainda faltam ~%d ids pra alcançar '
+            'o banco (watermark=%d, topo=%d). A busca NÃO enxerga esse resto.',
+            LIMITE_MOVS_NOVAS, atraso, pks[-1], topo,
+        )
+    return saida
 
 
 def tick_sync_es_incremental() -> dict:
