@@ -146,16 +146,55 @@ def reprocessar_janela(tribunal_sigla: str, inicio: str, fim: str) -> dict:
     de dia 1-dia faz iter_pages normal e termina cedo com `pgs=1 dup=100`,
     deixando 10k+ movs perdidas mesmo após o "success".
     """
+    from .client import DjenBusyError
     from .ingestion import ingest_window
     inicio_d = date.fromisoformat(inicio)
     fim_d = date.fromisoformat(fim)
     t = Tribunal.objects.get(sigla=tribunal_sigla)
     logger.info('reprocessar_janela inicio %s %s→%s', tribunal_sigla, inicio, fim)
-    run = ingest_window(t, inicio_d, fim_d, forcar_uf_em_1d=(inicio_d == fim_d))
+    try:
+        run = ingest_window(t, inicio_d, fim_d, forcar_uf_em_1d=(inicio_d == fim_d))
+    except DjenBusyError:
+        # CIRCUITO ABERTO NÃO É FALHA DO DIA — é "volte mais tarde".
+        #
+        # Medido em 19/08/2026, e foi o pior estrago do dia: com o circuito
+        # aberto, cada job saía da fila, via o circuito e morria em
+        # MILISSEGUNDOS. A fila inteira drenou — **9.724 dias viraram 10.325
+        # falhas em 25 minutos**, sem uma única publicação coletada. Uma janela
+        # de 5 minutos de proteção apagou dias de trabalho enfileirado.
+        #
+        # A própria exceção já dizia isso no docstring ("os jobs devem tratar
+        # como 'adiar', não como erro fatal") — só que ninguém tratava.
+        # Reenfileirar com atraso mantém o dia vivo e deixa o circuito cumprir o
+        # papel dele, que é dar tempo pro CNJ respirar.
+        _reenfileirar_adiado(tribunal_sigla, inicio, fim)
+        return {'status': 'adiado', 'motivo': 'djen_circuito_aberto',
+                'janela': f'{inicio}→{fim}'}
     return {
         'run_id': run.pk, 'novas': run.movimentacoes_novas,
         'pgs': run.paginas_lidas, 'janela': f'{inicio}→{fim}',
     }
+
+
+#: espera antes de tentar de novo quando o circuito está aberto. Acima do
+#: cooldown do breaker (`DJEN_CIRCUIT_COOLDOWN`, 300s), com folga aleatória pra
+#: que os N jobs adiados não voltem todos no mesmo segundo — que é exatamente
+#: como se reabre um circuito que acabou de fechar.
+ESPERA_CIRCUITO = 330
+
+
+def _reenfileirar_adiado(sigla: str, inicio: str, fim: str) -> None:
+    import random
+    from datetime import timedelta
+
+    import django_rq
+    espera = ESPERA_CIRCUITO + random.randint(0, 120)
+    django_rq.get_queue('djen_backfill').enqueue_in(
+        timedelta(seconds=espera), 'djen.jobs.reprocessar_janela', sigla, inicio, fim,
+        job_id=f'adiado:{sigla}:{inicio}', job_timeout=21600,
+    )
+    logger.warning('djen circuito aberto — %s %s adiado em %ds (dia NÃO perdido)',
+                   sigla, inicio, espera)
 
 
 @job('manual', timeout=300)
