@@ -463,6 +463,56 @@ NOTAS = [
         ],
         'referencias': ['scripts/backfill_dias_capados.py', '.ia/ACERVO_CNJ.md'],
     },
+    {
+        'titulo': 'Balanço de 12h: 14,4 milhões de publicações e o buraco do índice fechando',
+        'tipo': N.TIPO_MEDICAO, 'impacto': N.IMPACTO_ALTO,
+        'area': 'ingestão', 'data_evento': D(2026, 8, 19),
+        'resumo': 'Primeira noite com a Fase 2 nos nove tribunais e a reindexação em '
+                  'paralelo. 760 dias recuperados e +184 milhões de documentos que '
+                  'saíram da invisibilidade.',
+        'corpo': (
+            'COLETA — 12 horas de recuperação nacional:\n\n'
+            '  760 dias-tribunal concluídos\n'
+            '  14.382.811 publicações novas (1,20 milhão por hora)\n\n'
+            'O ritmo cai ao longo da janela (287 mil/h na última hora) porque os '
+            'tribunais de dias grandes drenaram primeiro — TJGO fechou 309 dias, '
+            'TJMG 142 — e sobrou o que ainda não começou. Continuam na fila 3.436 '
+            'dias, liderados por TRF3 (969), TJMG (452), TJRJ (390), TJRS (300).\n\n'
+            'ÍNDICE DE BUSCA — o número que mais importa aqui:\n\n'
+            '  1.170.836.739  →  1.355.067.329 documentos\n\n'
+            'São +184 milhões de publicações que já estavam no banco e simplesmente '
+            'não eram alcançáveis pela busca. Quatro dos seis shards de reindexação '
+            'já terminaram; os outros fecham em algumas horas.\n\n'
+            'ENTIDADES — e uma correção de método. A primeira leitura deu 205% de '
+            'cobertura, o que é impossível: eu estava dividindo pelo alvo medido '
+            'ANTES de a recuperação e a reindexação trazerem publicação nova. '
+            'Remedido contra o índice de hoje, o alvo são 178.672.695 documentos '
+            '(os que citam OAB, CPF, CNPJ ou valor) e faltam 60.972.152 — 65,9% '
+            'coberto. O alvo CRESCEU de 126 para 178,7 milhões justamente porque '
+            'estamos coletando mais; é a métrica acompanhando o acervo maior, não '
+            'uma regressão.\n\n'
+            'O QUE NÃO ESTÁ BOM: 153 falhas em 12 horas, e 70 delas são deadlock no '
+            'insert em lote. O conserto de ontem (ordenar as chaves antes de '
+            'inserir) reduziu mas não eliminou — com 14 workers no mesmo tribunal a '
+            'chance de colisão voltou a subir. Nenhum dia se perde (o watchdog novo '
+            'devolve, e devolveu 36 na primeira execução), mas cada deadlock queima '
+            'um dia inteiro de coleta. Falta ordenar também o catálogo de classes e '
+            'o update de resumo dos processos, que tocam as mesmas linhas.'
+        ),
+        'numeros': [
+            {'rotulo': 'publicações recuperadas', 'valor': '14.382.811', 'unidade': 'em 12h',
+             'nota': '760 dias-tribunal, 1,20M/h'},
+            {'rotulo': 'documentos no índice de busca',
+             'antes': '1,171 bi', 'depois': '1,355 bi',
+             'nota': '+184 milhões que estavam fora de alcance'},
+            {'rotulo': 'entidades extraídas', 'valor': '117,7M de 178,7M',
+             'unidade': '(65,9%)', 'nota': 'alvo remedido; o antigo dava 205%'},
+            {'rotulo': 'dias ainda na fila', 'valor': '3.436'},
+            {'rotulo': 'falhas por deadlock', 'valor': '70', 'unidade': 'em 12h',
+             'nota': 'não perde dado, mas queima o dia'},
+        ],
+        'referencias': ['djen/jobs.py', 'search/management/commands/es_movs_v2.py'],
+    },
 ]
 
 
