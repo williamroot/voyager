@@ -393,7 +393,11 @@ services:
     mem_limit: 1g
     deploy:
       # 2026-05-24: 4 → 8 — backfill simultâneo de 3 tribunais novos (TRF2/4/6).
-      replicas: 8
+      # 2026-08-19: 8 → 14 — com os índices de I/O no lugar, o gargalo deixou de
+      # ser o banco (2 GB/s → 33 MB/s de leitura) e passou a ser a coleta. Load
+      # da .102 caiu de 33 pra 13,6 em 24 vCPU. Teto em 14 e não mais: são 1 GB
+      # cada, e a máquina tinha 16 GB livres — 14 deixa ~10 de folga.
+      replicas: 14
     restart: unless-stopped
 
   worker_datajud:
