@@ -369,6 +369,100 @@ NOTAS = [
         'referencias': ['djen/ingestion.py', 'djen/client.py',
                         'tests/test_djen_coleta_flat.py', 'commit cfe3084'],
     },
+    {
+        'titulo': 'O gargalo não era hardware: era 1,25 PB de disco lido por 4 queries',
+        'tipo': N.TIPO_DESCOBERTA, 'impacto': N.IMPACTO_ALTO,
+        'area': 'banco', 'data_evento': D(2026, 8, 18),
+        'resumo': 'Sem RAM pra comprar, medimos ONDE a leitura estava. Quatro '
+                  'queries respondiam por 1,25 petabyte — e três eram falta de índice.',
+        'corpo': (
+            'A coleta tinha parado: zero dia recuperado por hora. O diagnóstico '
+            'começou pelo óbvio — o banco tem 1,7 TB e só ~22 GB de cache, ou seja '
+            'um conjunto de trabalho 14 vezes maior que a memória. O cache hit '
+            'estava em 82% (o saudável é acima de 99%) e 41 das 44 consultas ativas '
+            'esperavam disco.\n\n'
+            'A conclusão fácil seria "falta RAM". Mas o disco é NVMe e estava '
+            'entregando 2 GB/s — não era lentidão, era saturação. Então a pergunta '
+            'certa virou outra: quem está lendo tanto?\n\n'
+            'O `pg_stat_statements` respondeu, e a resposta não era a ingestão nem a '
+            'reindexação:\n\n'
+            '  436.191 GB em 6.476 chamadas — a fila do reclassificador\n'
+            '  393.605 GB em 33.420 chamadas — o contador do dashboard\n'
+            '  247.732 GB em 15.735 chamadas — o gráfico diário do dashboard\n'
+            '  179.779 GB em 664.017 chamadas — a fila do enriquecimento\n\n'
+            'A do reclassificador lia 67 GB POR CHAMADA. O motivo é sutil: ela '
+            'compara duas colunas da mesma linha (a classificação está mais velha '
+            'que a última movimentação?), e nenhum índice comum cobre isso — então '
+            'ela varria os 108 GB da tabela de processos e ordenava. Toda vez.\n\n'
+            'A cura foi um índice PARCIAL. A condição de um índice parcial aceita '
+            'comparação entre colunas, então dá pra indexar exatamente "as linhas '
+            'que ainda precisam ser classificadas" — que são uma fração minúscula. '
+            'Ele ocupa 56 MB. Mais um índice composto para as duas consultas do '
+            'dashboard, e o descarte de 19 GB de índice que tinha ZERO leituras na '
+            'vida inteira do banco e mesmo assim era pago em cada gravação.\n\n'
+            'A operação tinha um risco conhecido: criar índice numa tabela quente '
+            'espera TODAS as transações abertas terminarem, e o reclassificador '
+            'segura transações de 37 minutos. Foi exatamente isso que derrubou o '
+            'site por 50 minutos em 10/08. Então a ordem foi: parar quem segura '
+            'transação, cancelar as consultas longas, conferir que chegou a zero, '
+            'criar, religar. O site respondeu 200 em todas as amostras.'
+        ),
+        'numeros': [
+            {'rotulo': 'leitura de disco do banco', 'antes': '2.007 MB/s', 'depois': '33 MB/s',
+             'nota': 'e com MAIS carga rodando em cima'},
+            {'rotulo': 'consultas esperando disco', 'antes': '41 de 44', 'depois': '2 de 8'},
+            {'rotulo': 'fila do reclassificador', 'antes': '67 GB', 'depois': '3,8 MB',
+             'nota': 'de 2.260 s para 144 ms'},
+            {'rotulo': 'contador do dashboard', 'antes': '11,8 GB', 'depois': '32 KB',
+             'unidade': 'por chamada'},
+            {'rotulo': 'índice que resolveu', 'valor': '56', 'unidade': 'MB',
+             'nota': 'parcial: guarda só as linhas pendentes'},
+        ],
+        'referencias': ['tribunals/migrations/0050_indices_io.py', '.ia/OPS.md',
+                        'commit 9fff9c3'],
+    },
+    {
+        'titulo': 'Fase 2 da recuperação: 9 tribunais, 3.693 dias na fila',
+        'tipo': N.TIPO_FEATURE, 'impacto': N.IMPACTO_ALTO,
+        'area': 'ingestão', 'data_evento': D(2026, 8, 19),
+        'resumo': 'Com o banco respirando, a recuperação saiu do TJSP sozinho para '
+                  'os nove tribunais onde o crédito contra a Fazenda nasce e é pago.',
+        'corpo': (
+            'A ordem não é por volume — é por densidade creditória dividida pelo '
+            'custo de fila. O TRF3 vale "só" 4 milhões de publicações e entra em '
+            'segundo lugar porque é a Justiça Federal de São Paulo: precatório e '
+            'RPV federais contra a União e o INSS valem mais, por publicação, que '
+            'intimação cível de qualquer outro lugar.\n\n'
+            'Dito com todas as letras: o TJPR é o segundo do país em volume bruto '
+            '(38,8 milhões recuperáveis) e ficou de fora desta onda por decisão de '
+            'negócio, não por medição. O mercado de precatório do Paraná é uma '
+            'fração do de SP, MG e RJ, e os 1.209 dias dele seriam quatro semanas '
+            'da fila que entregam TJSP e TRF3 inteiros. Se a prioridade comercial '
+            'mudar, ele sobe sem discussão — a medição dele é sólida.\n\n'
+            'Como os dias são escolhidos: pela ASSINATURA do caminho antigo. A '
+            'coleta fatiada gravava em lotes de 500, e cada uma das 27 fatias '
+            'terminava numa página parcial — então a média cai para ~490-500 itens '
+            'por página. O caminho novo dá ~990-1000. Qualquer dia com mais de '
+            '9.000 publicações e razão abaixo de 700 foi coletado pelo caminho '
+            'capado. O identificador do job é determinístico, então re-disparar não '
+            'duplica, e o script guarda o run mais recente de cada dia — dia já '
+            'refeito não volta para a fila.\n\n'
+            'A ingestão foi de 8 para 14 workers no mesmo movimento: com os índices '
+            'de I/O no lugar, o gargalo deixou de ser o banco e passou a ser a '
+            'coleta.'
+        ),
+        'numeros': [
+            {'rotulo': 'tribunais na fila', 'antes': '1', 'depois': '9'},
+            {'rotulo': 'dias-tribunal enfileirados', 'valor': '3.693',
+             'nota': '325 do TJSP + 3.368 dos outros oito'},
+            {'rotulo': 'já capturado nesses dias', 'valor': '71,9M', 'unidade': 'publicações',
+             'nota': 'o recuperável é múltiplo disso'},
+            {'rotulo': 'workers de ingestão', 'antes': '8', 'depois': '14'},
+            {'rotulo': 'ritmo medido', 'valor': '7,0M', 'unidade': 'publicações novas / 6h',
+             'nota': 'só o TJSP, antes de escalar'},
+        ],
+        'referencias': ['scripts/backfill_dias_capados.py', '.ia/ACERVO_CNJ.md'],
+    },
 ]
 
 
