@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from tribunals.models import IngestionRun, Movimentacao, Process, Tribunal, ano_cnj_from_numero
 
-from .client import DJENClient
+from .client import DjenBusyError, DJENClient, circuit_is_open
 from .parser import parse_item
 
 logger = logging.getLogger('voyager.djen.ingestion')
@@ -160,12 +160,22 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
     t0 = time.monotonic()
     logger.info('ingest_window inicio %s %s→%s run_id=%d', tribunal.sigla, data_inicio, data_fim, run.pk)
     try:
+        # Circuito aberto não é tentativa: é "nem chegamos a tentar". Sem isto o
+        # run fica `failed` e polui a métrica de saúde — em 19/08 foram 4.153
+        # runs marcados como falha que na verdade eram jobs ADIADOS, e isso
+        # esconde as falhas de verdade no meio do ruído. O run é apagado porque
+        # nada foi lido: não há o que auditar nele.
+        if circuit_is_open():
+            run.delete()
+            raise DjenBusyError('DJEN circuito aberto — dia adiado, nada coletado')
         for items in client.iter_pages(tribunal.sigla_djen, data_inicio, data_fim):
             _process_page(items, tribunal, run, cnjs_tocados)
         if cnjs_tocados:
             _atualizar_resumo_processos(tribunal, cnjs_tocados)
             _enfileirar_todos_enrichments(tribunal, cnjs_tocados)
         run.status = IngestionRun.STATUS_SUCCESS
+    except DjenBusyError:
+        raise                       # já apagou o run acima; o job adia e volta
     except Exception as exc:
         run.status = IngestionRun.STATUS_FAILED
         run.erros.append({'erro': 'execucao', 'detalhe': str(exc)[:500]})
@@ -532,9 +542,8 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
     # (o processo já fica 'pendente'; nada se perde). LLEN é O(1), e ainda
     # cacheamos a decisão por 30s pra não consultar o Redis a cada processo.
     if enriq_eligiveis and tribunal.sigla in TRIBUNAIS_COM_ENRICHER:
-        from django.core.cache import cache as _cache
-
         import django_rq as _drq
+        from django.core.cache import cache as _cache
 
         from enrichers.jobs import QUEUE_HIGH_WATER, enqueue_enriquecimento, queue_for
         gate_key = f'enrich:gate:{tribunal.sigla}'
@@ -564,8 +573,8 @@ def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
     datajud_enq = 0
     if datajud_eligiveis and datajud_on:
         import django_rq
-        from datajud.jobs import (DATAJUD_RETRY, _fila_datajud_cheia,
-                                  datajud_sync_bulk)
+
+        from datajud.jobs import DATAJUD_RETRY, _fila_datajud_cheia, datajud_sync_bulk
         queue = django_rq.get_queue('datajud')
         # BOUND (faltava): sem isto o auto-enqueue diário empurrava sem teto e a
         # fila virava o monstro do 02/07 (63M jobs). Mesmo high-water do refill.
