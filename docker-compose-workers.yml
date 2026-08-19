@@ -379,7 +379,13 @@ services:
 
   worker_ingestion:
     image: voyager-web:prod
-    command: python manage.py rqworker djen_ingestion djen_backfill
+    # --with-scheduler é OBRIGATÓRIO aqui: `reprocessar_janela` usa
+    # `enqueue_in` pra ADIAR o dia quando o circuito do DJEN abre, e o RQ só
+    # promove job agendado se algum worker estiver rodando o scheduler. Sem
+    # isto o adiamento vira limbo — medido em 19/08/2026: 4.189 dias venceram
+    # a hora e ficaram parados no ScheduledJobRegistry, sem virar falha e sem
+    # voltar pra fila. Pior que falhar, porque nenhum alarme dispara.
+    command: python manage.py rqworker --with-scheduler djen_ingestion djen_backfill
     env_file: .env
     volumes:
       - .:/app
