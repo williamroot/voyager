@@ -1,6 +1,7 @@
 import logging
 from datetime import date, timedelta
 
+from django.db.models import F, Max
 from django.utils import timezone
 from django_rq import job
 
@@ -312,11 +313,94 @@ def watchdog_ingestao() -> dict:
             're_backfill': re_backfill, 're_daily': re_daily,
         })
 
+    recuperados = ressuscitar_dias_de_recuperacao()
+
     return {
         'zumbis_matados': n_zumbis,
         're_backfill': re_backfill,
         're_daily': re_daily,
+        'dias_recuperacao_reenfileirados': recuperados,
     }
+
+
+#: quantos dias o watchdog devolve por tique. Teto pra não inundar a fila num
+#: incidente grande; atingi-lo é ERRO logado, nunca corte mudo.
+RECUP_POR_TIQUE = 200
+
+#: até onde olhar pra trás. Além disso é backfill histórico, não incidente.
+RECUP_JANELA_DIAS = 7
+
+
+def ressuscitar_dias_de_recuperacao() -> int:
+    """Devolve pra fila o dia de recuperação que falhou e ficou órfão.
+
+    O watchdog antigo cuidava do fluxo diário e do backfill por tribunal, mas
+    NÃO dos dias avulsos da recuperação do acervo (`reprocessar_janela`, os
+    `f2:<SIGLA>:<dia>`). Um deles que falhasse por deadlock, 403 ou timeout
+    simplesmente ficava `failed` para sempre — ninguém reenfileirava.
+
+    Medido em 19/08/2026: 4 dias do TJSP parados assim, cada um valendo ~176 mil
+    publicações. Não é perda de dado (o run registra o motivo), é perda de
+    trabalho — e some no meio de milhares de runs.
+
+    Não mexe em dia que já voltou sozinho: pula o que tem `success` mais recente
+    que a falha, e o que já está na fila, agendado ou em execução.
+    """
+    import django_rq
+
+    fila = django_rq.get_queue('djen_backfill')
+    ocupados = set(fila.job_ids)
+    try:
+        from rq.registry import ScheduledJobRegistry, StartedJobRegistry
+        ocupados |= set(ScheduledJobRegistry(queue=fila).get_job_ids())
+        ocupados |= set(StartedJobRegistry(queue=fila).get_job_ids())
+    except Exception:  # noqa: BLE001 — registro fora não pode derrubar o tique
+        pass
+
+    desde = timezone.now() - timedelta(days=RECUP_JANELA_DIAS)
+    falhos = (IngestionRun.objects
+              .filter(fonte=FONTE, status=IngestionRun.STATUS_FAILED,
+                      started_at__gte=desde)
+              .exclude(janela_inicio=None)
+              .filter(janela_inicio=F('janela_fim'))
+              .values('tribunal__sigla', 'janela_inicio')
+              .annotate(ultima_falha=Max('started_at')))
+
+    # um SELECT só pra saber quem já foi refeito depois da falha
+    sucessos = {
+        (r['tribunal__sigla'], r['janela_inicio']): r['quando']
+        for r in (IngestionRun.objects
+                  .filter(fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
+                          started_at__gte=desde)
+                  .filter(janela_inicio=F('janela_fim'))
+                  .values('tribunal__sigla', 'janela_inicio')
+                  .annotate(quando=Max('started_at')))
+    }
+
+    candidatos = []
+    for r in falhos:
+        chave = (r['tribunal__sigla'], r['janela_inicio'])
+        ok = sucessos.get(chave)
+        if ok and ok > r['ultima_falha']:
+            continue                                   # já foi refeito
+        dia = r['janela_inicio'].isoformat()
+        if f'f2:{chave[0]}:{dia}' in ocupados or f'adiado:{chave[0]}:{dia}' in ocupados:
+            continue                                   # já está a caminho
+        candidatos.append((chave[0], dia))
+
+    for sigla, dia in candidatos[:RECUP_POR_TIQUE]:
+        fila.enqueue('djen.jobs.reprocessar_janela', sigla, dia, dia,
+                     job_id=f'f2:{sigla}:{dia}', job_timeout=21600)
+
+    if len(candidatos) > RECUP_POR_TIQUE:
+        logger.error(
+            'watchdog: %d dias de recuperação órfãos, devolvi só %d neste tique — '
+            'o resto volta nos próximos, mas esse número alto é sintoma',
+            len(candidatos), RECUP_POR_TIQUE,
+        )
+    elif candidatos:
+        logger.warning('watchdog devolveu %d dias de recuperação órfãos', len(candidatos))
+    return min(len(candidatos), RECUP_POR_TIQUE)
 
 
 def _coletar_args(queue) -> set[str]:
