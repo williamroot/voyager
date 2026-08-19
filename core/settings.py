@@ -265,8 +265,16 @@ DJEN_USER_AGENT = env('DJEN_USER_AGENT', default='voyager-ingestion/0.1')
 DJEN_ESTRATEGIA_UF = env.bool('DJEN_ESTRATEGIA_UF', default=False)
 
 # Páginas do MESMO dia buscadas em paralelo por `iter_pages`. Serial, um dia de
-# TJSP são 262 requisições em fila indiana (163 min medidos). 8 é o mesmo teto
-# em voo dos fetchers de UF, e fica muito abaixo do rate-limit de 20/s do CNJ.
+# TJSP são 262 requisições em fila indiana (163 min medidos).
+#
+# ⚠️ O QUE IMPORTA PRO CNJ É O PRODUTO `réplicas × páginas`, não este número
+# sozinho. Medido em 19/08/2026: 8 workers × 8 páginas = 64 concorrentes
+# funcionava; subir pra 14 workers sem mexer aqui deu 112 e a API respondeu 5xx
+# em massa — o circuit-breaker abriu e derrubou 648 dias em 25 minutos (sem
+# perder dado: viram `failed` e voltam pra fila, mas é trabalho jogado fora e é
+# martelar o CNJ). Com 14 workers o valor certo é 4, que devolve 56.
+#
+#   REGRA: réplicas de worker_ingestion × DJEN_PAGINAS_PARALELAS <= 64
 DJEN_PAGINAS_PARALELAS = env.int('DJEN_PAGINAS_PARALELAS', default=8)
 
 # Proxies

@@ -297,3 +297,25 @@ Volume típico:
 - ~10.000 movs por chunk de 30d em TRFs medianos
 - Backfill TRF1 completo (5 anos): ~6-8h
 - Backfill TJSP completo: estimado 3-5 dias (volume ~5x maior)
+
+### ⚠️ Teto de concorrência contra a API do CNJ
+
+O que a DJEN enxerga é o **produto** `réplicas de worker_ingestion ×
+DJEN_PAGINAS_PARALELAS`, não cada fator isolado. Medido em 19/08/2026:
+
+| réplicas | páginas | concorrentes | resultado |
+|---:|---:|---:|---|
+| 8 | 8 | 64 | ✅ funcionava |
+| 14 | 8 | **112** | 🔴 5xx em massa → circuit-breaker abriu, **648 dias derrubados em 25 min** |
+| 14 | 4 | 56 | ✅ |
+
+**Regra: mantenha o produto em 64 ou menos.** Ao escalar `worker_ingestion`,
+ajuste `DJEN_PAGINAS_PARALELAS` na mesma proporção.
+
+Não há perda de dado quando isso acontece — o circuit-breaker é a proteção
+funcionando, os runs viram `failed` e voltam pra fila. Mas é trabalho jogado
+fora, e é martelar um serviço público.
+
+**Sintoma:** `IngestionRun.erros` com `DJEN circuito aberto (sobrecarregado)`.
+**Cura:** baixar o produto, `cache.delete('djen:circuit_open')` +
+`cache.delete('djen:5xx_recent')`, e reenfileirar os dias derrubados.
