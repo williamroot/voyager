@@ -1476,3 +1476,36 @@ docker compose -f docker-compose-workers.yml stop worker_classificacao   # .102
 
 **Como achar o próximo:** `pg_stat_statements` ordenado por `shared_blks_read`.
 Query que lê dezenas de GB por chamada é falta de índice, não falta de hardware.
+
+### `enqueue_in` sem scheduler = limbo silencioso (19/08/2026)
+
+Adiar um job com `enqueue_in` só funciona se **algum worker daquela fila** rodar
+com `--with-scheduler`. O RQ não promove agendado sozinho: sem scheduler, o
+`ScheduledJobRegistry` só cresce.
+
+Medido: **4.189 dias de recuperação com a hora vencida, parados**. Não viraram
+falha — e é por isso que foi pior que falhar:
+
+* nenhum alarme dispara (não há `failed` pra contar);
+* o watchdog não pega, porque ele PULA quem está agendado de propósito, pra não
+  duplicar o que já está a caminho;
+* a fila fica curta e parece saudável.
+
+O conserto anterior (adiar em vez de matar o dia) trocou "morrer" por "sumir em
+silêncio", que é exatamente o padrão que este projeto persegue.
+
+**Cura:** `command: python manage.py rqworker --with-scheduler djen_ingestion
+djen_backfill` no `worker_ingestion`. Ao subir, ele drena o registro sozinho —
+a fila saltou de 2.768 pra 6.936 em segundos.
+
+**Conferir depois de qualquer mudança em worker que use `enqueue_in`:**
+```python
+from rq.registry import ScheduledJobRegistry
+reg = ScheduledJobRegistry(queue=get_queue('djen_backfill'))
+# quantos já venceram e continuam parados? tem que ser ~0
+sum(1 for j in reg.get_job_ids()[:500]
+    if (reg.get_scheduled_time(j) - now).total_seconds() < -60)
+```
+
+⚠️ Regra geral: **toda fila que recebe `enqueue_in` precisa de um worker com
+`--with-scheduler`.** Hoje é só a `djen_backfill`.
