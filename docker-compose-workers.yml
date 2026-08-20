@@ -523,3 +523,51 @@ services:
       # 2 réplicas — varredura é diária, webhook delivery é esporádico.
       replicas: 2
     restart: unless-stopped
+
+  # ---- Diários próprios (3ª porta do acervo — .ia/DIARIOS.md) ----
+  # Adicionado 2026-08-20. Sobe DESLIGADO na prática: o agendamento é o
+  # `DIARIOS_SCHEDULER_ENABLED` (default False) no scheduler do .103, então
+  # enquanto ninguém ligar a chave este worker fica ocioso na fila vazia.
+  # A fila `diarios` é separada da `djen_*` de propósito (core/settings.py):
+  # a unidade de trabalho aqui é um CADERNO INTEIRO, e um job desses na fila
+  # da ingestão empurraria a fronteira diária pro fim da linha.
+  worker_diarios:
+    image: voyager-web:prod
+    command: python manage.py rqworker diarios
+    env_file: .env
+    volumes:
+      - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24, inclusive
+    # o que iria pra proxy saudável — perda de cobertura silenciosa.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # mem_limit 1g — a conta, com números MEDIDOS em 20/08/2026:
+    #   · baseline de um rqworker Django nesta VM: 213-311 MiB
+    #     (`docker stats` dos worker_ingestion, mesma imagem)
+    #   · pico do pipeline no MAIOR caderno conhecido (DJE/TJSP Capital Parte I
+    #     de 12/03/2025, 36 MB / 4.229 páginas), rodando o segmentador REAL:
+    #     125 MB com PyMuPDF (era 406 MB com pypdf — ADR-031)
+    #   ⇒ ~311 + 125 ≈ 436 MB de pico esperado. 1g é 2,3× isso.
+    # A folga NÃO é gordura: o `dejt` usa a MESMA fila e o segmentador dele
+    # ainda é pypdf acumulando o texto das 13.853 páginas numa lista, com
+    # cadernos que passam de 100 MB — isso NÃO foi medido. Enquanto não for,
+    # o teto de 1g é o que transforma "estourou a RAM" em morte de container
+    # (RQ re-enfileira) em vez de OOM de host (incidente 2026-06-08).
+    mem_limit: 1g
+    deploy:
+      # 2 réplicas — conservador de propósito, e o gargalo é CPU, não rede:
+      #   · 1 caderno = 44,8 s de CPU medidos (16,3 s de extração PyMuPDF +
+      #     ~30 s de segmentação); o download leva 0,2-1,2 s e o teto de
+      #     conduta é DIARIOS_RPS_TJSP_DJE=1,0 req/s.
+      #   · 2 réplicas ocupam ~2 dos 24 vCPU da .102, que já roda 14 workers
+      #     de ingestão + 24 de es_index com load average 12.
+      #   · RAM: 2 × 1g = 2 GiB dos ~15 GiB disponíveis (`free -h`, 20/08).
+      #   · vazão: ~160 cadernos/h. O backfill do tjsp-dje é da ordem de
+      #     37 mil cadernos (4.162 edições × ~9) ≈ 460 h de CPU ⇒ ~10 dias
+      #     com 2 réplicas. Escalar isso é decisão DEPOIS de medir o efeito
+      #     no Postgres (já disk-I/O-bound), não antes: §5.2 do DIARIOS.md.
+      replicas: 2
+    restart: unless-stopped
