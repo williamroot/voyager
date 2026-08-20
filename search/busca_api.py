@@ -903,9 +903,10 @@ def _match_and(campo: str, texto: str) -> dict:
     return {'match': {campo: {'query': texto, 'operator': 'and'}}}
 
 
-def _executar(indice: str, body: dict) -> dict:
+def _executar(indice: str, body: dict, request_timeout=None) -> dict:
     es = get_es()
-    resp = es.search(index=index_name(indice), body=body)
+    kw = {'request_timeout': request_timeout} if request_timeout else {}
+    resp = es.search(index=index_name(indice), body=body, **kw)
     if hasattr(resp, 'body'):          # ES 8 devolve AttrDict
         resp = dict(resp.body)
     elif not isinstance(resp, dict):
@@ -1163,6 +1164,63 @@ def buscar_movimentacoes(q=None, filtros=None, ordenar=None,
     })
     return pagina
 
+
+
+# --------------------------------------------------------------------------- #
+# Busca textual PARA A TELA: devolve PKs, não documentos
+# --------------------------------------------------------------------------- #
+IDS_TEXTO_TETO = 2_000
+IDS_TEXTO_TIMEOUT = 10
+
+
+class BuscaIndisponivelError(RuntimeError):
+    """O ES não respondeu. Quem chama NÃO pode cair pro Postgres."""
+
+
+def ids_por_texto(q: str, tribunais=None, teto: int = IDS_TEXTO_TETO) -> dict:
+    """PKs de `Movimentacao` cujo texto casa com `q`, do mais recente pro mais antigo.
+
+    Existe porque a tela de movimentações fazia `texto__icontains` direto no
+    Postgres. A coluna `texto` não tem índice de busca em produção — o
+    `mov_texto_trgm` está declarado no model e ausente do banco —, então aquilo
+    era Seq Scan em 1,39 bilhão de linhas (815 GB) dentro do caminho da
+    requisição. O índice que serve pra isso é este aqui, e foi pra isso que os
+    179 milhões de publicações que faltavam entraram nele.
+
+    O teto é ALERTA, não corte mudo: quem chama recebe `truncado` e o total
+    aproximado, e tem que dizer isso na tela.
+    """
+    from elasticsearch import ApiError, TransportError
+
+    q = (q or '').strip()
+    if not q:
+        return {'ids': [], 'total': 0, 'truncado': False}
+
+    clauses = build_clauses_movs({'tribunal': list(tribunais or [])})
+    bool_q = {'must': [_match_and('body', q)]}
+    if clauses:
+        bool_q['filter'] = clauses
+    body = {
+        'size': teto,
+        'query': {'bool': bool_q},
+        # A tela é cronológica (order_by('-id')); ordenar por score aqui
+        # entregaria uma lista que a tela reordena e embaralha.
+        'sort': [{'publish_date': {'order': 'desc', 'missing': '_last'}}, {'id': 'desc'}],
+        '_source': ['id'],
+        # `true` mandaria contar todos os casamentos de um termo comum em 1,4 bi
+        # de docs. O que a tela precisa saber é só se passou do teto.
+        'track_total_hits': teto + 1,
+        'timeout': ES_QUERY_TIMEOUT,
+    }
+    try:
+        resp = _executar('movimentacoes', body, request_timeout=IDS_TEXTO_TIMEOUT)
+    except (ApiError, TransportError, OSError) as e:
+        raise BuscaIndisponivelError(str(e)) from e
+
+    hits = resp.get('hits', {}).get('hits', [])
+    ids = [h['_source']['id'] for h in hits if h.get('_source', {}).get('id')]
+    total = (resp.get('hits', {}).get('total') or {}).get('value', len(ids))
+    return {'ids': ids, 'total': total, 'truncado': total > teto}
 
 def _ecoar_filtros(filtros: dict, **extras) -> dict:
     """Ecoa filtros saneados + critérios textuais efetivamente aplicados.

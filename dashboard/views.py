@@ -1390,6 +1390,39 @@ def parte_detail(request, pk):
     })
 
 
+def _ids_da_busca_textual(q, tribunais):
+    """PKs que casam com `q`, pelo Elasticsearch. Devolve `(ids|None, aviso)`.
+
+    A busca textual sai do Postgres e vai pro ES — o ES resolve o texto e
+    devolve chaves primárias, o Postgres só hidrata por PK.
+
+    Isto era `qs.filter(texto__icontains=q)`. A coluna `texto` não tem índice de
+    busca: `mov_texto_trgm` estava declarado no model e ausente do banco. Sem
+    tribunal, EXPLAIN dá Seq Scan de custo 111.195.298 sobre 1,39 bilhão de
+    linhas / 815 GB — dentro do caminho da requisição, no mesmo banco que a
+    ingestão martela. Nunca foi chamado em produção (`pg_stat_statements` desde
+    14/05 não registra a query), mas estava a uma querystring de distância.
+
+    `None` = não deu pra buscar; quem chama NÃO filtra e mostra o aviso. Cair
+    pro Postgres aqui reabriria o buraco justamente quando o banco é a última
+    coisa que aguenta.
+    """
+    from search.busca_api import BuscaIndisponivelError, ids_por_texto
+    try:
+        achado = ids_por_texto(q, tribunais=tribunais)
+    except BuscaIndisponivelError:
+        logger.exception('busca textual: ES indisponível q=%r', q[:80])
+        return None, ('Busca por texto indisponível agora (índice fora do ar). '
+                      'Os outros filtros continuam valendo.')
+    if not achado['truncado']:
+        return achado['ids'], ''
+    # Teto é alerta, nunca corte mudo.
+    aviso = (f"Mais de {achado['total'] - 1:,} publicações casam com “{q}”. "
+             f"Mostrando as {len(achado['ids']):,} mais recentes — filtre por "
+             'tribunal para estreitar.').replace(',', '.')
+    return achado['ids'], aviso
+
+
 @login_required
 @require_GET
 def movimentacoes(request):
@@ -1432,8 +1465,11 @@ def movimentacoes(request):
         qs = qs.filter(nome_classe__in=classes_filtro); has_filter = True
     if so_ativos:
         qs = qs.filter(ativo=True); has_filter = True
+    aviso_busca = ''
     if q and len(q) >= 3:
-        qs = qs.filter(texto__icontains=q); has_filter = True
+        ids, aviso_busca = _ids_da_busca_textual(q, tribunais_filtro)
+        if ids is not None:
+            qs = qs.filter(pk__in=ids); has_filter = True
     if com_link == 'sim':
         qs = qs.exclude(link='')
         has_filter = True
@@ -1458,6 +1494,7 @@ def movimentacoes(request):
         **base_ctx,
         'page': page,
         'movimentacoes': page.object_list,
+        'aviso_busca': aviso_busca,
     })
 
 

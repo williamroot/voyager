@@ -1,5 +1,4 @@
 from django.conf import settings
-from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 from django.db.models import Q, UniqueConstraint
@@ -428,10 +427,23 @@ class Movimentacao(models.Model):
             models.Index(fields=['tribunal', '-data_disponibilizacao']),
             models.Index(fields=['inserido_em']),
             models.Index(fields=['tribunal', 'ativo']),
-            models.Index(fields=['hash']),
             models.Index(fields=['classe']),
-            GinIndex(fields=['search_vector'], name='mov_search_vector_gin'),
-            GinIndex(name='mov_texto_trgm', fields=['texto'], opclasses=['gin_trgm_ops']),
+            # NÃO declarar índice em `hash`, `texto` ou `search_vector`.
+            #
+            # Os três estavam declarados aqui e NENHUM existe no banco (conferido
+            # por coluna em pg_index, 20/08/2026). Índice declarado e ausente é
+            # pior que índice ausente: o model vira documentação falsa, e foi
+            # exatamente lendo esta lista que `diarios/base.py` afirmou que
+            # `hash` "já é indexada" e nasceu varrendo 73 milhões de custo por
+            # lote, e que `api/filters.py` afirmou que o ILIKE usava trigram.
+            #
+            # E criá-los seria pior ainda: GIN trigram sobre 815 GB de `texto`,
+            # GIN sobre uma `search_vector` que 99,8% das linhas têm NULL (sem
+            # trigger que preencha), btree sobre `hash` em 1,39B de linhas num
+            # Postgres que a casa já classifica como disk-I/O-bound.
+            #
+            # Busca textual é no Elasticsearch (`search/busca_api.ids_por_texto`),
+            # que é onde o índice de verdade está. Ver migration 0051.
         ]
 
 

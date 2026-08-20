@@ -76,6 +76,20 @@ class MovimentacaoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     def get_serializer_class(self):
         return MovimentacaoDetailSerializer if self.action == 'retrieve' else MovimentacaoListSerializer
 
+    def list(self, request, *args, **kwargs):
+        """Idêntico ao padrão, mas confessa quando a busca bateu o teto.
+
+        `?q=` resolve no Elasticsearch e traz no máximo `IDS_TEXTO_TETO` PKs.
+        Devolver a página sem dizer isso é o corte mudo do `range(1, 11)` de
+        novo: o cliente recebe 50 resultados de 2.000 recortados de 400.000 e
+        não tem como saber a diferença.
+        """
+        resp = super().list(request, *args, **kwargs)
+        teto = getattr(request, 'busca_teto', None)
+        if teto and isinstance(resp.data, dict):
+            resp.data['busca_teto'] = teto
+        return resp
+
 
 class IngestionRunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = IngestionRun.objects.select_related('tribunal').all()

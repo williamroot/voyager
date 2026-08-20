@@ -1,9 +1,21 @@
-from django.contrib.postgres.search import SearchQuery, SearchRank
 from django_filters import rest_framework as filters
+from rest_framework import status
+from rest_framework.exceptions import APIException
 
 from tribunals.models import IngestionRun, Movimentacao, Process
 
 MIN_SEARCH_LENGTH = 3
+
+
+class BuscaIndisponivel(APIException):
+    """503, não 500: o índice de texto caiu, não o nosso código.
+
+    Importa para quem está de plantão — 500 entra na fila de "quebramos algo" e
+    503 entra na de "dependência fora do ar", que é o que de fato aconteceu.
+    """
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = 'Busca por texto indisponível: índice fora do ar.'
+    default_code = 'busca_texto_indisponivel'
 
 
 class ProcessFilter(filters.FilterSet):
@@ -43,18 +55,54 @@ class MovimentacaoFilter(filters.FilterSet):
         fields = []
 
     def filter_search(self, qs, name, value):
+        """Busca no texto das publicações — pelo Elasticsearch, não pelo Postgres.
+
+        MEDIDO em 20/08/2026, e os dois caminhos que estavam aqui eram ruins de
+        formas diferentes:
+
+        * `texto__icontains`: a coluna `texto` não tem índice de busca. O
+          `mov_texto_trgm` está declarado no model e **ausente do banco** — em
+          `tribunals_movimentacao` existem 9 índices e nenhum cobre `texto`.
+          Sem recorte, EXPLAIN dá Seq Scan de custo 111.195.298 sobre 1,39
+          bilhão de linhas (815 GB), no caminho da requisição.
+
+        * `search_vector` + `SearchRank`: pior, porque respondia. A coluna
+          existe, o índice GIN não, **e não há trigger que a preencha**. Por
+          amostra: cheia nas linhas até `id≈4.876.372` (13/03/2024), NULL da
+          metade da tabela em diante. São 2.753.688 linhas de 1.385.659.648 —
+          **0,199% do acervo**. Uma busca de 3+ palavras varria 0,2% do país e
+          devolvia "encontrei isto" sem uma palavra sobre os outros 99,8%.
+
+        O índice que serve pra isto é o `voyager-movimentacoes-v2`, e foi
+        exatamente pra isto que os 179.490.613 documentos que faltavam entraram
+        nele em 18/08. O ES resolve o texto e devolve PKs; o Postgres só hidrata
+        por chave primária.
+        """
+        from search.busca_api import BuscaIndisponivelError, ids_por_texto
+
         value = (value or '').strip()
         if len(value) < MIN_SEARCH_LENGTH:
             return qs
-        if len(value.split()) >= 3:
-            query = SearchQuery(value, config='portuguese', search_type='websearch')
-            return (
-                qs.filter(search_vector=query)
-                .annotate(rank=SearchRank('search_vector', query))
-                .order_by('-rank', '-data_disponibilizacao')
-            )
-        # Para termos curtos, ILIKE %x% usa o índice GIN trigram (gin_trgm_ops).
-        return qs.filter(texto__icontains=value).order_by('-data_disponibilizacao')
+
+        tribunais = [t for t in (self.data.get('tribunal'),) if t]
+        tribunais += [t for t in (self.data.get('tribunal__in') or '').split(',') if t]
+        try:
+            achado = ids_por_texto(value, tribunais=tribunais)
+        except BuscaIndisponivelError as e:
+            # Cair pro Postgres seria trocar "não consigo responder" por uma
+            # resposta errada — e ainda por cima varrendo 815 GB pra errar.
+            raise BuscaIndisponivel from e
+
+        if self.request is not None and achado['truncado']:
+            # Teto é alerta, nunca corte mudo: o viewset devolve isto no corpo.
+            self.request.busca_teto = {
+                'truncado': True,
+                'devolvidas': len(achado['ids']),
+                'ao_menos': achado['total'],
+                'dica': 'filtre por tribunal ou data para estreitar a busca',
+            }
+        # a ordenação final é do CursorPagination (-data_disponibilizacao, -id)
+        return qs.filter(pk__in=achado['ids'])
 
 
 class IngestionRunFilter(filters.FilterSet):

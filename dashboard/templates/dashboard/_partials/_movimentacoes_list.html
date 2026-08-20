@@ -1,5 +1,10 @@
 {% load voyager_extras %}
 <div id="movs-list">
+  {% if aviso_busca %}
+    <div class="card-tight mb-3 border-warning/30 bg-warning/10 text-warning text-xs leading-relaxed">
+      {{ aviso_busca }}
+    </div>
+  {% endif %}
   <div class="space-y-2">
     {% for m in movimentacoes %}
       <div class="card-tight hover:border-border transition-colors">

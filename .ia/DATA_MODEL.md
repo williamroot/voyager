@@ -95,20 +95,43 @@ ativo                    bool       default True
 data_cancelamento        datetime  NULL
 motivo_cancelamento      text
 
-search_vector            tsvector NULL          atualizado por trigger SQL
+search_vector            tsvector NULL          ⚠️ MORTA — ver abaixo
 
 constraint:  unique(tribunal, external_id)      idempotência da ingestão
-indexes:     (processo, -data_disp),
-             (tribunal, -data_disp),
-             inserido_em, (tribunal, ativo), hash,
-             search_vector (GIN), texto (GIN gin_trgm_ops)
+indexes:     mov_processo_data_disp_idx   (processo, -data_disp)
+             mov_tribunal_data_disp_idx   (tribunal, -data_disp)
+             mov_tribunal_ativo_idx       (tribunal, ativo)
+             mov_inserido_tribunal_idx    (inserido_em, tribunal)
+             mov_data_disp_btree          (data_disp)
+             mov_ativo_idx                (ativo)
+             mov_cancelados_partial       parcial
+             uniq_mov_tribunal_extid      (tribunal, external_id)
 ```
 
-**Trigger**: `mov_search_vector_trg` (BEFORE INSERT/UPDATE) constrói tsvector ponderado:
-- A: tipo_comunicacao + nome_classe
-- B: nome_orgao
-- C: texto
-- Config: `portuguese`, com `unaccent`
+**Não existe índice em `texto`, `search_vector` nem `hash`** — a lista acima é o
+`pg_index` de 20/08/2026, conferido coluna a coluna, e são os 8 índices + a PK
+que a tabela tem.
+
+Esta seção afirmava o contrário até 20/08/2026: listava `hash`, `search_vector
+(GIN)` e `texto (GIN gin_trgm_ops)`, e descrevia um trigger
+`mov_search_vector_trg` que **nunca existiu no banco**. O model declarava os três
+índices, também sem que existissem. Foi essa documentação que dois trechos de
+código independentes leram e repetiram como certeza:
+
+| onde | o que afirmava | o que era |
+|---|---|---|
+| `api/filters.py` | "ILIKE %x% usa o índice GIN trigram" | Seq Scan, custo 111.195.298, 1,39B linhas / 815 GB |
+| `diarios/base.py` | `hash` "já existe e já é indexada" | custo 73.427.276 por lote, no caminho de ESCRITA |
+
+E a `search_vector` é pior que um índice faltando: a coluna existe, **não há
+trigger que a preencha** e ela está NULL em 99,8% da tabela — cheia só até
+`id≈4.876.372` (13/03/2024), 2.753.688 linhas de 1.385.659.648. A busca da API
+com 3+ palavras usava `SearchRank` sobre ela: varria 0,2% do acervo e devolvia
+"encontrei isto", sem uma palavra sobre os outros 99,8%.
+
+**Busca textual é no Elasticsearch** (`search/busca_api.ids_por_texto` →
+`voyager-movimentacoes-v2`), que é onde o índice existe de verdade e que desde
+18/08 tem o acervo inteiro. Ver ADR-032 e migration `0051_indices_fantasma`.
 
 ## IngestionRun
 
