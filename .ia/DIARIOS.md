@@ -365,43 +365,44 @@ Ingestão é append-only; conflito quem resolve é a leitura.
    porque quem enfileira é o agendamento, e ele continua desligado. Medido logo
    após subir: 113 MiB de RSS em repouso, fila em 0 job, `Listening on
    diarios...` nos dois containers.
-4. **BLOQUEANTE — o índice de `Movimentacao.hash` NÃO EXISTE em produção.**
-   Achado do canário de 20/08/2026, confirmado duas vezes por gente diferente.
-   `tribunals/models.py` DECLARA `models.Index(fields=['hash'])`, mas
-   `pg_indexes` lista **9 índices** em `tribunals_movimentacao` e **nenhum**
-   tem `hash` na chave. `makemigrations --check` não pega isso nunca: ele
-   compara o model com o ESTADO DAS MIGRATIONS, jamais com o banco.
+4. **RESOLVIDO (20/08/2026) — o índice de `hash` não existe, e não vai ser
+   criado.** O canário estava certo no diagnóstico e o desbloqueio veio por
+   outro caminho, porque o problema era maior do que a falta de índice.
 
-   Por que isso é bloqueante para os diários, e não uma lentidão qualquer:
-   `diarios/base.py::coletar_unidade` chama `espelhadas_no_lote()` **antes de
-   cada lote persistido** (lote = 500), e essa função faz
-   `Movimentacao.filter(tribunal=…, hash__in=[…]).count()`. Sem índice de
-   `hash`, o plano medido em produção é:
+   O que o canário mediu: `tribunals/models.py` DECLARAVA
+   `models.Index(fields=['hash'])`, `pg_indexes` lista 9 índices em
+   `tribunals_movimentacao` e nenhum tem `hash` na chave; `makemigrations
+   --check` nunca pega isso (compara o model com o ESTADO DAS MIGRATIONS, jamais
+   com o banco). Plano medido: `Parallel Index Scan using
+   mov_inserido_tribunal_idx` varrendo TODO o TJSP, custo 73.427.276 — e um lote
+   de 11 hashes ficou **313 s** ativo em `pg_stat_activity` sem terminar.
 
-   ```
-   Parallel Index Scan using mov_inserido_tribunal_idx
-     Index Cond: tribunal_id = 'TJSP'      ← varre TODO o TJSP
-     Filter:     hash = ANY (...)
-   custo estimado 73.265.231
-   ```
+   O que faltava descobrir: **a métrica não podia acertar nem com índice.**
+   `fingerprint_ato` devolve sha1 — 40 caracteres. O `hash` das linhas do DJEN é
+   o opaco da API — 30 (`djen/parser.py:243`; por amostra em prod, onde não é
+   vazio, `len=30`). Uma string de 40 nunca é igual a uma de 30, então
+   `hash__in=[…]` casava com NADA: `espelhadas` era **0 por construção**. Criar
+   o índice teria tornado rápida uma resposta errada — e `espelhadas=0` lê-se "o
+   diário próprio não repete o DJEN", que é o oposto da verdade.
 
-   Tamanho real da tabela, medido (e não os "~65M" que a documentação repetia):
-   **1.385.659.648 linhas** (`reltuples`), **815 GB** de heap, **1.613 GB** com
-   índices. No canário, um lote de **11 hashes** ficou **313 s** ativo em
-   `pg_stat_activity` com 5 backends paralelos e não terminou. O caderno do
-   gate tem 29 mil itens ⇒ ~59 lotes ⇒ o banco ficaria horas nisso.
+   O teste que cobria isso construía o item do DJEN COM o fingerprint, que é o
+   que a produção não faz: validava uma ficção montada para a métrica passar.
 
-   Duas decisões humanas, nesta ordem, antes de qualquer coleta:
-   · **`espelhadas_no_lote()` deve existir por lote?** Ela é MÉTRICA, não dado
-     ("não altera a gravação", diz a própria docstring), está no caminho da
-     gravação e não tem teto de espera — o formato exato da regra nº 7 do
-     `CLAUDE.md`, que já derrubou o site uma vez. O barato é medir sobreposição
-     por amostra, depois, fora do caminho crítico.
-   · **Criar o índice** (`CREATE INDEX CONCURRENTLY` em 815 GB, com o Postgres
-     já disk-I/O-bound) é obra própria, com janela e acompanhamento — não é
-     coisa de canário. Vale conferir junto os outros índices que o model
-     declara e o banco não tem: `mov_search_vector_gin`, `mov_texto_trgm` e o
-     de `classe`.
+   **Decidido:** parear por `(processo, data)` — o único par que os dois
+   veículos de fato compartilham, já que o texto verbatim difere de propósito —
+   usando `mov_processo_data_disp_idx`, que existe. Mais `statement_timeout` de
+   3 s (métrica nunca segura escrita) e abstenção explícita: estourou, devolve
+   `None`, o runner marca `>=` no log e `espelhadas_parcial` no retorno. Nunca 0.
+
+   Medido em produção, lote de 200 de linhas reais do TJSP: **1,16 s**, contra
+   os 313 s que não terminavam. Ver ADR-033.
+
+   Os índices declarados-e-ausentes `mov_search_vector_gin` e `mov_texto_trgm`
+   foram removidos do model pela migration `0051_indices_fantasma` (só de
+   estado, `database_operations=[]`) — ver ADR-032, que também tirou a busca por
+   texto do Postgres. O de `classe` continua declarado e ausente; é o único que
+   sobrou e não morde ninguém hoje.
+
 5. **Decidir §5.1 (CNJ de origem)** antes de ligar `stf` ou o STJ.
 6. **Medir sobreposição com o acervo de produção** (§2) antes de dimensionar —
    com um primeiro número já na mão, do canário: no dia 12/03/2025 o DJEN já
@@ -422,7 +423,7 @@ ao vivo e o que cada linha tem que devolver:
 | 4 | `diarios_coletar tjsp-dje --de 2025-03-12 --ate 2025-03-12 --dry-run` | **4.162** edições em **1** request | **passou** |
 | 5 | `--catalogar`, duas vezes | 1ª: 8 unidades novas · 2ª: **0** novas (idempotente) | **passou** |
 | 6 | coleta do caderno **12** de 12/03/2025 (Capital Parte I, 4.229 págs) | **≥32.000** CNJs distintos pela regex ESTRITA (offline deu 32.366) e cobertura **≥95%** (offline: 99,751%) | **NÃO MEDIDO** — travou no passo 7 |
-| 7 | `espelhadas_no_lote()` antes de cada lote | tem que ser **instantâneo** | **REPROVOU**: 313 s ativo para 11 hashes, sem índice de `hash` (pré-requisito 4) |
+| 7 | `espelhadas_no_lote()` antes de cada lote | tem que ser **instantâneo** | **passou** (20/08, depois do fix): lote de 200 do TJSP em **1,16 s**, pareando por `(processo, data)`. Antes: 313 s para 11 hashes, e a resposta era 0 por construção — ver pré-requisito 4 |
 | 8 | conferência dos dois lados no mesmo dia | movs `tjsp-dje` antes = depois; DJEN **62.849** antes = depois; atos espelhados = 0; `external_id` repetido = 0 | **passou** (nada foi gravado) |
 | 9 | site durante a coleta | **200** em toda amostra | **1 falha em 161** amostras (HTTP 520 às 20:32:21, 11,79 s). Não atribuído à coleta: o log do nginx da origem tem buraco de 23 s no horário, ou seja o pedido nunca chegou lá. Causa **não provada** — fica registrado como não provado |
 
