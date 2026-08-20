@@ -729,3 +729,99 @@ ordem de leitura e desmontaria o formato `lista`.
 - **Deploy**: rebuild obrigatório de `web` **e** dos workers; nenhum host tem
   `pymupdf` hoje e o import é tardio, então sem rebuild a fonte levanta
   `RuntimeError` legível na coleta (não some do registro em silêncio).
+
+## ADR-032: busca textual sai do Postgres e vai pro Elasticsearch (2026-08-20)
+
+**Contexto.** `tribunals_movimentacao` tem 1.385.659.648 linhas e 815 GB só na
+coluna `texto`. O model declarava três índices — `mov_texto_trgm` (GIN trigram),
+`mov_search_vector_gin` e um btree em `hash` — e o `.ia/DATA_MODEL.md` descrevia
+até o trigger que manteria a `search_vector`. **Nenhum dos três existe no banco,
+e o trigger nunca existiu.** Conferido coluna a coluna em `pg_index`: a tabela
+tem 8 índices e a PK, e nenhum cobre `texto`, `search_vector` ou `hash`.
+
+O estrago não foi a lentidão; foi a crença. Três trechos independentes leram a
+declaração e escreveram a mentira como certeza:
+
+| onde | afirmava | medido |
+|---|---|---|
+| `api/filters.py` | "ILIKE %x% usa o índice GIN trigram" | Seq Scan, custo **111.195.298** |
+| `diarios/base.py::fingerprint_ato` | `hash` "já existe e já é indexada" | custo **73.427.276** por lote, no caminho de ESCRITA |
+| `.ia/DATA_MODEL.md` | trigger `mov_search_vector_trg` | não existe |
+
+E o pior caso não era o lento, era o que **respondia**: a busca da API com 3+
+palavras usava `search_vector` + `SearchRank`. A coluna existe, ninguém a
+preenche, e ela está NULL em 99,8% da tabela — cheia só até `id≈4.876.372`
+(13/03/2024), 2.753.688 linhas de 1.385.659.648. Uma busca de três palavras
+varria **0,199% do país** e devolvia "encontrei isto" com run verde e log limpo.
+É a terceira linha da tabela do CLAUDE.md acontecendo de novo, com a diferença
+de que desta vez ninguém tinha pisado nela: `pg_stat_statements` (desde 14/05)
+não registra uma única chamada. Era dívida a uma querystring de distância.
+
+**Decisão.** A busca por texto é do Elasticsearch. `search/busca_api.ids_por_texto`
+consulta o `voyager-movimentacoes-v2` — que desde 18/08 tem o acervo inteiro,
+depois dos 179.490.613 documentos que faltavam — e devolve **PKs**; o Postgres só
+hidrata por chave primária. Os dois caminhos alcançáveis por HTTP (`?q=` da tela,
+`?q=` da API) passam por lá.
+
+**Por que não criar os índices.** GIN trigram sobre 815 GB de `texto`; GIN sobre
+uma `search_vector` que está vazia em 99,8% das linhas (indexar o vazio); btree
+em `hash` sobre 1,39B de linhas num Postgres que a casa já classifica como
+disk-I/O-bound, para parear campos que nem casam entre si — o fingerprint é sha1
+de 40 chars e o `hash` do DJEN é o opaco da API, de 30. O índice que serve para
+isso já existe e está no ES.
+
+**Consequências.**
+- `0051_indices_fantasma`: migration **só de estado** (`database_operations=[]`).
+  O banco já estava certo; quem mentia era o model.
+- Teto de 2.000 PKs por busca, com `truncado` no retorno — a tela mostra faixa
+  amarela e a API devolve `busca_teto` no corpo. Teto é alerta, nunca corte mudo.
+- ES fora do ar **não cai pro Postgres**: a tela avisa e a API devolve erro.
+  Trocar "não sei" por resposta errada, varrendo 815 GB para errar, é o pior dos
+  dois mundos.
+- `tests/test_busca_texto_no_es.py` varre o código-fonte (por AST, ignorando
+  docstrings) e falha se `texto__icontains`/`search_vector` voltarem ao caminho
+  da requisição. Comentário não segura regressão.
+- A coluna `search_vector` **fica**. Derrubá-la em 1,39B de linhas é decisão de
+  operação, não de refactor, e ninguém mais a consulta. Está marcada como morta
+  no `DATA_MODEL.md`.
+
+## ADR-033: sobreposição entre portas se mede por (processo, data) (2026-08-20)
+
+**Contexto.** `diarios/base.py::espelhadas_no_lote` responde "quantos atos deste
+lote a outra porta já tinha trazido" — é a régua do princípio nº 5, medir a
+completude dos dois lados. Ela rodava a cada lote da ingestão de diários, que
+acabou de ser ligada nos 59 tribunais.
+
+Estava errada de duas formas ao mesmo tempo, e as duas passavam verdes:
+
+1. **Não podia acertar.** Comparava `fingerprint_ato` — sha1, **40 chars** — com
+   `Movimentacao.hash`, que nas linhas do DJEN é o hash opaco da API, **30 chars**
+   (`djen/parser.py:243`; medido por amostra em prod: onde não é vazio, len=30).
+   Uma string de 40 nunca é igual a uma de 30 ⇒ o resultado era **0 por
+   construção**. E `espelhadas=0` lê-se "o diário próprio não repete o DJEN", que
+   é a conclusão oposta da verdade, dita com a autoridade de um número.
+2. **Custava caro pra errar.** `hash` não tem índice (ADR-032). EXPLAIN do lote
+   de 200: custo **73.427.276** no TJSP, **6.980.195** até no TJAC — por lote,
+   dentro do caminho de escrita, sem teto de espera.
+
+O teste que a cobria construía o item do DJEN **com o fingerprint**, que é
+justamente o que a produção não faz. Ele não validava a métrica; validava uma
+ficção montada para ela passar.
+
+**Decisão.** Parear por `(processo, data_disponibilizacao)` — o único par que os
+dois veículos de fato compartilham, já que o texto verbatim difere entre eles de
+propósito. Usa `mov_processo_data_disp_idx`, que existe.
+
+**Consequências.**
+- A métrica é declaradamente **aproximada e por cima**: dois atos distintos do
+  mesmo processo no mesmo dia contam como um espelhamento. Superestimar
+  sobreposição erra pro lado seguro; subestimar venderia ineditismo que não temos.
+- `statement_timeout` de 3s: métrica **nunca** segura escrita. Estourou, devolve
+  `None` — e `None` não vira 0. O runner marca o total com `>=` no log e
+  `espelhadas_parcial` no retorno.
+- Fuso: a data sai de `timezone.localdate()`, não de `.date()`. O ORM converte
+  para `America/Sao_Paulo` antes de truncar, e extrair em UTC punha o lote de
+  meia-noite no dia anterior do outro lado — perdendo exatamente a sobreposição
+  que a métrica veio buscar.
+- `tests/test_diarios_espelhadas.py` trava a regressão: há um teste que falha se
+  a coluna `hash` voltar ao SQL da métrica.

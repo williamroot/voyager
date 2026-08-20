@@ -55,7 +55,7 @@ from datetime import date, datetime
 
 import requests
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 # Reuso deliberado: o `ParsedItem` do DJEN JÁ é a forma exata de uma
@@ -153,9 +153,16 @@ def id_bloco_impresso(fonte: str, *coordenada: object, texto: str) -> str:
 def fingerprint_ato(cnj: str, quando: date | datetime, texto: str) -> str:
     """Impressão digital do ATO, independente do veículo que o publicou.
 
-    Vai em `Movimentacao.hash` (coluna que já existe e já é indexada). Serve
-    para a pergunta "esta publicação do DJE/TJSP é o mesmo ato que aquela do
-    DJEN?" — que é a pergunta da deduplicação entre portas.
+    Vai em `Movimentacao.hash` — coluna que existe e **NÃO é indexada**. O
+    `models.Index(fields=['hash'])` está declarado no model e ausente do banco
+    (conferido em `pg_indexes`, 20/08/2026: 9 índices na tabela, nenhum em
+    `hash`). A frase anterior aqui dizia "já existe e já é indexada", e foi ela
+    que fez `espelhadas_no_lote` nascer varrendo a fatia inteira do tribunal a
+    cada lote. Quem for consultar por `hash` em volume: não dá, e criar o índice
+    em 1,39B de linhas não é decisão de docstring.
+
+    Serve para a pergunta "esta publicação do DJE/TJSP é o mesmo ato que aquela
+    do DJEN?" — que é a pergunta da deduplicação entre portas.
 
     RESSALVA HONESTA, para não vender o que não entrega: as ~1,39B de linhas
     legadas do DJEN têm em `hash` o hash OPACO da própria API, não este. Logo
@@ -780,17 +787,86 @@ class ColetorDiario(ABC):
 #     do external_id já discrimina, e `meio_completo` já dá o rótulo humano.
 #   · NÃO apagar/atualizar a linha do DJEN quando o diário próprio trouxer o
 #     mesmo ato. Ingestão é append-only; quem resolve conflito é a leitura.
-def espelhadas_no_lote(itens: list[ItemDiario], tribunal: Tribunal) -> int:
-    """Quantos itens do lote já existem no banco com o MESMO fingerprint, por
-    outra porta. É métrica de sobreposição — não altera a gravação."""
-    hashes = [i.hash for i in itens if i.hash]
-    if not hashes:
+ESPELHADAS_TIMEOUT = '3s'
+
+
+def espelhadas_no_lote(itens: list[ItemDiario], tribunal: Tribunal) -> int | None:
+    """Quantos atos do lote a outra porta JÁ tinha trazido. `None` = não sei.
+
+    Isto media por `hash` e era duas coisas erradas ao mesmo tempo (medido em
+    20/08/2026, com a ingestão de diários já ligada nos 59 tribunais):
+
+    1. **Não podia acertar.** `fingerprint_ato` devolve sha1 — 40 caracteres.
+       O `hash` das linhas do DJEN, quando não é vazio, tem 30: é o hash opaco
+       da API (`djen/parser.py:243`). Uma string de 40 nunca é igual a uma de
+       30, então `hash__in=[...]` casava com NADA. A métrica retornava 0 por
+       construção, e 0 aqui lê-se "o diário próprio não repete o DJEN" — a
+       conclusão oposta da verdade, com a autoridade de um número.
+       O teste não pegava porque construía o item do DJEN COM o fingerprint,
+       que é o que a produção não faz.
+
+    2. **Custava caro pra errar.** `hash` não tem índice — o
+       `models.Index(fields=['hash'])` está declarado no model e ausente do
+       banco. EXPLAIN do lote de 200: custo 73.427.276 no TJSP (varredura da
+       fatia inteira do tribunal), 6.980.195 até no TJAC. Por lote, dentro do
+       caminho de escrita, sem teto de espera.
+
+    O par que os dois veículos REALMENTE compartilham é (processo, data): o
+    mesmo ato, publicado no mesmo dia, com textos verbatim diferentes. É por aí
+    que a `janela_*` já deduplica, e é o que `mov_processo_data_disp_idx` — que
+    existe — sabe responder.
+
+    Continua sendo APROXIMAÇÃO, e por cima: dois atos distintos do mesmo
+    processo no mesmo dia contam como um espelhamento. Isso é dito aqui e no
+    log; superestimar sobreposição erra pro lado seguro (subestimar venderia
+    ineditismo que não temos).
+    """
+    from django.db import OperationalError
+    from django.utils import timezone as _tz
+
+    if not itens:
         return 0
+
+    por_data: dict = {}
+    for i in itens:
+        if not i.cnj or not i.data_disponibilizacao:
+            continue
+        d = i.data_disponibilizacao
+        # `localdate`, não `.date()`: o `__date` do ORM converte pra
+        # America/Sao_Paulo antes de truncar. Extrair a data em UTC aqui faria
+        # o lote de meia-noite cair no dia anterior do outro lado, e a métrica
+        # perderia justamente a sobreposição que veio buscar.
+        por_data.setdefault(_tz.localdate(d) if _tz.is_aware(d) else d, set()).add(i.cnj)
+    if not por_data:
+        return 0
+
+    cnjs = {c for grupo in por_data.values() for c in grupo}
+    por_cnj = dict(Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
+                   .values_list('numero_cnj', 'pk'))
+    if not por_cnj:
+        return 0                      # nenhum processo do lote é conhecido ⇒ tudo inédito
+
     ext_ids = {i.external_id for i in itens}
-    return (Movimentacao.objects
-            .filter(tribunal=tribunal, hash__in=hashes)
-            .exclude(external_id__in=ext_ids)
-            .count())
+    total = 0
+    try:
+        with transaction.atomic():
+            # Métrica NUNCA segura escrita: teto de espera explícito. Estourou,
+            # a resposta é "não sei" — nunca 0. (CLAUDE.md, regras 6 e 7.)
+            with connection.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = %s", [ESPELHADAS_TIMEOUT])
+            for dia, grupo in por_data.items():
+                pks = [por_cnj[c] for c in grupo if c in por_cnj]
+                if not pks:
+                    continue
+                total += (Movimentacao.objects
+                          .filter(processo_id__in=pks, data_disponibilizacao__date=dia)
+                          .exclude(external_id__in=ext_ids)
+                          .values('processo_id').distinct().count())
+    except OperationalError:
+        logger.warning('espelhadas_no_lote: %s em %s itens (%s) — abstendo',
+                       ESPELHADAS_TIMEOUT, len(itens), tribunal.sigla)
+        return None
+    return total
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -946,20 +1022,31 @@ def coletar_unidade(coletor: ColetorDiario, edicao, sobrepor: bool = False,  # n
 
     t0 = time.monotonic()
     novas = dup = espelhadas = 0
+    # `espelhadas` é aproximação e pode se abster (timeout). Somar None daria
+    # TypeError; tratar None como 0 seria pior — venderia ineditismo não medido.
+    espelhadas_parcial = False
     buffer: list[ItemDiario] = []
     try:
         for item in coletor.coletar(unidade):
             buffer.append(item)
             if len(buffer) >= lote:
                 if tribunal is not None:
-                    espelhadas += espelhadas_no_lote(buffer, tribunal)
+                    e = espelhadas_no_lote(buffer, tribunal)
+                    if e is None:
+                        espelhadas_parcial = True
+                    else:
+                        espelhadas += e
                 n, d = coletor.persistir(buffer, unidade, run)
                 novas += n
                 dup += d
                 buffer = []
         if buffer:
             if tribunal is not None:
-                espelhadas += espelhadas_no_lote(buffer, tribunal)
+                e = espelhadas_no_lote(buffer, tribunal)
+                if e is None:
+                    espelhadas_parcial = True
+                else:
+                    espelhadas += e
             n, d = coletor.persistir(buffer, unidade, run)
             novas += n
             dup += d
@@ -1028,11 +1115,15 @@ def coletar_unidade(coletor: ColetorDiario, edicao, sobrepor: bool = False,  # n
         logger.exception('coleta falhou %s/%s', coletor.slug, edicao.chave)
         raise
 
-    logger.info('coleta %s/%s → novas=%d dup=%d espelhadas=%d %ds',
-                coletor.slug, edicao.chave, novas, dup, espelhadas,
+    # `≥` quando algum lote se absteve: o número é PISO, não total. Imprimir
+    # `espelhadas=0` sobre uma medição incompleta é o número redondo de sempre.
+    logger.info('coleta %s/%s → novas=%d dup=%d espelhadas%s%d %ds',
+                coletor.slug, edicao.chave, novas, dup,
+                '>=' if espelhadas_parcial else '=', espelhadas,
                 int(time.monotonic() - t0))
     return {'chave': edicao.chave, 'novas': novas, 'duplicadas': dup,
-            'espelhadas': espelhadas, 'run_id': run.pk if run else None}
+            'espelhadas': espelhadas, 'espelhadas_parcial': espelhadas_parcial,
+            'run_id': run.pk if run else None}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

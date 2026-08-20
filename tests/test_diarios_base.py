@@ -236,18 +236,30 @@ def test_persistir_e_idempotente_e_portas_coexistem():
     assert (novas, dup) == (0, 1)
     assert Movimentacao.objects.filter(tribunal=t).count() == 1
 
-    # o mesmo ato pelo DJEN (external_id nu, sem prefixo) entra ao lado
+    # O mesmo ato pelo DJEN (external_id nu, sem prefixo) entra ao lado.
+    #
+    # ATENÇÃO ao `hash` daqui: 30 caracteres opacos, que é o que
+    # `djen/parser.py:243` põe de verdade (`str(item.get('hash'))`), NÃO um
+    # `fingerprint_ato`. Este teste construía o item com o fingerprint e por
+    # isso afirmava, verde, que a métrica de sobreposição funcionava — quando em
+    # produção ela não podia funcionar: sha1 tem 40 chars e nunca é igual a 30.
+    # Se alguém trocar isto por `fingerprint_ato` de novo, o teste volta a
+    # provar uma ficção.
     do_djen = ParsedItem(
         cnj=cnj, external_id='695042804', data_disponibilizacao=quando, texto=texto,
-        hash=fingerprint_ato(cnj, quando, texto),
+        hash='7e9MjpmEYnBUkdVulTlPJE8Yqr',
         meio='D', meio_completo='Diário de Justiça Eletrônico Nacional',
     )
-    assert espelhadas_no_lote([do_djen], t) == 1, 'o fingerprint tem que revelar a sobreposição'
+    # A sobreposição é revelada pelo par (processo, data) — o único que os dois
+    # veículos compartilham de fato. O ato do diário próprio já está gravado.
+    assert espelhadas_no_lote([do_djen], t) == 1, 'a sobreposição entre portas tem que aparecer'
     novas, dup = persistir_movimentacoes([do_djen], t, None)
     assert (novas, dup) == (1, 0)
     assert Movimentacao.objects.filter(tribunal=t).count() == 2
-    # ...e a leitura consegue deduplicar por (processo, hash)
-    assert Movimentacao.objects.filter(tribunal=t).values('hash').distinct().count() == 1
+    # ...e a leitura NÃO consegue deduplicar por `hash`: os dois veículos
+    # guardam coisas diferentes ali (fingerprint sha1 vs hash opaco da API).
+    # Deixado explícito porque a versão anterior deste teste afirmava o oposto.
+    assert Movimentacao.objects.filter(tribunal=t).values('hash').distinct().count() == 2
 
 
 @pytest.mark.django_db
