@@ -357,6 +357,20 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # Completude do acervo — mede os DOIS lados (nosso número vs o que a fonte
+    # declara) fora do caminho da requisição. É caro (conta 1,39 bilhão de docs
+    # no ES + agrega IngestionRun), por isso 30 min e nunca no hot path.
+    from dashboard.completude_warm import warm_completude
+    scheduler.add_job(
+        warm_completude.delay,
+        'interval',
+        minutes=30,
+        id='warm_completude',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Comparação shadow (T19) — cron diário 04:00. Compara Process.classificacao
     # (versão ativa) contra ClassificacaoShadowLog (versão shadow) das últimas
     # 24h e grava .ia/SHADOW_COMPARISON_YYYYMMDD.md.

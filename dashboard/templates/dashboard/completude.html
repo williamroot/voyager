@@ -1,0 +1,241 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Completude do acervo{% endblock %}
+
+{% block content %}
+{% comment %}
+COMPLETUDE — a única tela que compara os DOIS lados.
+
+Toda outra tela mede contagem própria. Esta põe o nosso número ao lado do número
+da FONTE, com a data em que a fonte foi medida — porque "temos 1,39 bilhão" não
+diz nada sobre completude, e foi exatamente esse tipo de número redondo que
+escondeu três perdas grandes neste projeto.
+
+Onde não existe gabarito externo, a tela DIZ que não existe em vez de inventar
+denominador. Abster > chutar.
+
+Padrões herdados (não regredir):
+  * comentário multilinha só na tag `comment` — o lexer do Django não usa DOTALL
+    e cerquilha atravessando linha VAZA literal na tela;
+  * `text-base` aqui é COR (o token `base` é o fundo), não tamanho — título de
+    card usa `text-[1rem]`;
+  * texto corrido em `-fg` (mission-fg, accent-fg): a var sem sufixo é cor de
+    marca e não cumpre 4,5:1 no tema claro;
+  * explicação em `.voy-tip`, nunca `title=`.
+{% endcomment %}
+
+<div class="space-y-5">
+
+  <div class="card-tight">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 class="text-lg font-semibold text-fg-soft flex items-center gap-2">
+          {% voy_icon "telescope" "w-5 h-5 text-mission" %}
+          Completude do acervo
+        </h1>
+        <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+          O que temos <b>contra o que a fonte declara</b>. Contagem própria não
+          prova cobertura — só a diferença prova. Onde não há gabarito externo,
+          esta tela diz que não há.
+        </p>
+      </div>
+      {% if medido_em %}
+        <div class="text-right">
+          <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">medido em</div>
+          <div class="text-sm font-mono text-fg-muted">{{ medido_em|date:"d/m H:i" }}</div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if pendente %}
+    <div class="card-tight text-center py-10">
+      {% voy_icon "radar" "w-6 h-6 text-fg-muted mx-auto" %}
+      <p class="mt-3 text-sm text-fg-muted">Medindo pela primeira vez.</p>
+      <p class="text-xs text-fg-subtle mt-1">
+        A medição é cara (conta 1,39 bilhão de documentos) e roda fora do caminho
+        da requisição. Volte em alguns minutos.
+      </p>
+    </div>
+  {% endif %}
+
+  {% comment %} ── as três portas ─────────────────────────────────────────── {% endcomment %}
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    {% for p in portas %}
+      <div class="card-tight">
+        <div class="flex items-start justify-between gap-2">
+          <h2 class="text-[1rem] font-semibold text-fg">{{ p.nome }}</h2>
+          {% if p.idade_medicao > 30 %}
+            <span class="voy-tip text-[0.7rem] px-2 py-0.5 rounded bg-warn/10
+                         border border-warn/30 text-warn-fg shrink-0"
+                  aria-describedby="tip-idade-{{ p.slug }}">
+              {{ p.idade_medicao }}d
+              <span class="voy-tip-body" role="tooltip" id="tip-idade-{{ p.slug }}">
+                A medição da fonte tem {{ p.idade_medicao }} dias. Número declarado
+                envelhece — vale remedir antes de decidir em cima dele.
+              </span>
+            </span>
+          {% endif %}
+        </div>
+        <p class="text-xs text-fg-subtle mt-1">{{ p.papel }}</p>
+
+        <div class="mt-4 space-y-2">
+          <div class="flex items-baseline justify-between">
+            <span class="text-xs text-fg-subtle">temos</span>
+            <span class="font-mono text-[1.25rem] text-fg">
+              {% if p.temos %}{{ p.temos|format_int }}{% else %}—{% endif %}
+            </span>
+          </div>
+
+          {% if p.sem_gabarito %}
+            <div class="text-xs text-fg-subtle border-t border-border pt-2">
+              {% voy_icon "info" "w-3 h-3 inline -mt-0.5" %}
+              sem total declarado pela fonte — a completude aqui se mede
+              <b>dia a dia</b>, não por um número único
+            </div>
+          {% else %}
+            <div class="flex items-baseline justify-between">
+              <span class="text-xs text-fg-subtle">a fonte declara</span>
+              <span class="font-mono text-sm text-fg-muted">{{ p.declarado|format_int }}</span>
+            </div>
+            {% if p.lacuna %}
+              <div class="flex items-baseline justify-between border-t border-border pt-2">
+                <span class="text-xs text-fg-subtle">lacuna</span>
+                <span class="font-mono text-sm text-danger">{{ p.lacuna|format_int }}</span>
+              </div>
+              <div class="h-1.5 rounded bg-surface overflow-hidden">
+                <div class="h-full bg-mission" style="width: {{ p.pct|floatformat:0 }}%"></div>
+              </div>
+              <div class="text-right text-xs font-mono text-mission-fg">
+                {{ p.pct|floatformat:1 }}%
+              </div>
+            {% endif %}
+          {% endif %}
+
+          {% if p.recuperavel %}
+            <div class="border-t border-border pt-2">
+              <div class="flex items-baseline justify-between">
+                <span class="text-xs text-fg-subtle">recuperável (já medido)</span>
+                <span class="font-mono text-sm text-warn-fg">{{ p.recuperavel|format_int }}</span>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+
+        <details class="mt-3">
+          <summary class="text-xs text-fg-subtle cursor-pointer hover:text-fg">como foi medido</summary>
+          <p class="text-xs text-fg-muted mt-2 leading-relaxed">{{ p.como }}</p>
+          <p class="text-[0.7rem] font-mono text-fg-subtle mt-1">
+            {{ p.medido_em|date:"d/m/Y" }} · {{ p.ref }}
+          </p>
+        </details>
+      </div>
+    {% endfor %}
+  </div>
+
+  {% comment %} ── recuperação do DJEN, por tribunal ───────────────────────── {% endcomment %}
+  {% if recuperacao %}
+  <div class="card-tight">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-[1rem] font-semibold text-fg-soft">Recuperação do teto por UF — Fase 2</h2>
+        <p class="text-xs text-fg-subtle mt-1 max-w-3xl">
+          Dias grandes coletados pelo caminho fatiado, que vinham pela metade.
+          <b>Duas réguas de propósito</b>: nenhuma sozinha é honesta — a razão
+          itens/página tem falso positivo (o downshift de 5xx derruba a razão de
+          um dia que saiu flat), e a data do run subestima (dia que já era bom
+          nunca precisou ser refeito). A verdade está entre as duas.
+        </p>
+      </div>
+      <div class="text-right shrink-0">
+        <div class="text-2xl font-mono text-mission">
+          {{ resumo_recup.pct_corte|floatformat:1 }}–{{ resumo_recup.pct_flat|floatformat:1 }}%
+        </div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">
+          {{ resumo_recup.alvo|format_int }} dias no alvo
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-[0.7rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+            <th class="py-2 pr-3">tribunal</th>
+            <th class="py-2 pr-3 text-right">dias no alvo</th>
+            <th class="py-2 pr-3 text-right">refeitos (razão)</th>
+            <th class="py-2 pr-3 text-right">refeitos (data)</th>
+            <th class="py-2 pr-3 text-right">falta</th>
+            <th class="py-2 text-right">recuperável</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in recuperacao %}
+            <tr class="border-b border-border/50">
+              <td class="py-2 pr-3 font-medium text-fg">{{ r.sigla }}</td>
+              <td class="py-2 pr-3 text-right font-mono text-fg-muted">{{ r.alvo|format_int }}</td>
+              <td class="py-2 pr-3 text-right font-mono text-mission-fg">
+                {{ r.flat|format_int }} <span class="text-fg-subtle">({{ r.pct_flat|floatformat:0 }}%)</span>
+              </td>
+              <td class="py-2 pr-3 text-right font-mono text-fg-muted">
+                {{ r.pos_corte|format_int }} <span class="text-fg-subtle">({{ r.pct_corte|floatformat:0 }}%)</span>
+              </td>
+              <td class="py-2 pr-3 text-right font-mono text-danger">{{ r.falta|format_int }}</td>
+              <td class="py-2 text-right font-mono text-warn-fg">{{ r.recuperavel|format_int }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% comment %} ── diários ────────────────────────────────────────────────── {% endcomment %}
+  <div class="card-tight">
+    <h2 class="text-[1rem] font-semibold text-fg-soft">Diários próprios — a terceira porta</h2>
+    <p class="text-xs text-fg-subtle mt-1 max-w-3xl">
+      Uma edição <b>resolvida</b> é aquela cuja resposta já sabemos: coletada,
+      vazia, inexistente (feriado forense — nunca mais tentar) ou sem dado
+      aproveitável. <b>Pendente e falha</b> é que são buraco de verdade. Contar
+      recesso como lacuna seria inventar um problema.
+    </p>
+
+    {% if diarios %}
+      <div class="mt-4 space-y-3">
+        {% for f in diarios %}
+          <div class="p-3 rounded-lg bg-surface border border-border">
+            <div class="flex flex-wrap items-baseline justify-between gap-2">
+              <span class="font-medium text-fg">{{ f.slug }}</span>
+              <span class="text-xs font-mono text-fg-subtle">
+                {{ f.de|date:"d/m/Y" }} → {{ f.ate|date:"d/m/Y" }}
+              </span>
+            </div>
+            <div class="mt-2 h-1.5 rounded bg-base overflow-hidden">
+              <div class="h-full bg-mission" style="width: {{ f.pct|floatformat:0 }}%"></div>
+            </div>
+            <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              <span class="text-mission-fg font-mono">{{ f.resolvidas|format_int }} resolvidas</span>
+              <span class="text-fg-muted font-mono">{{ f.pendentes|format_int }} pendentes</span>
+              {% if f.falhas %}
+                <span class="text-danger font-mono">{{ f.falhas|format_int }} falhas</span>
+              {% endif %}
+              <span class="text-fg-subtle font-mono">de {{ f.total|format_int }}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-4 p-4 rounded-lg bg-surface border border-border text-center">
+        <p class="text-sm text-fg-muted">Nenhuma edição catalogada ainda.</p>
+        <p class="text-xs text-fg-subtle mt-1 max-w-xl mx-auto">
+          Os coletores existem e estão testados, mas a porta ainda não foi
+          aberta em produção. O DJE do TJSP sozinho cobre
+          <b>2007-10-01 → 2025-03-13</b> — o período em que o TJSP não existia
+          no DJEN. São ~4.162 edições × 9 cadernos.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -2,7 +2,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 from django.views.generic.base import RedirectView
 
-from . import views
+from . import views, completude_views
 from . import acompanhamento_views
 from . import busca_views
 from . import overview_views
@@ -56,6 +56,9 @@ urlpatterns = [
     # Acompanhamento — diário de bordo do produto (descobertas medidas,
     # decisões, incidentes, entregas). Login-gated: tem número de acervo e
     # relato de incidente lá dentro.
+    # Completude do acervo — a única tela que compara os DOIS lados (o nosso
+    # número contra o que a fonte declara). Ver dashboard/completude_views.py.
+    path('completude/', completude_views.completude, name='completude'),
     path('acompanhamento/', acompanhamento_views.acompanhamento, name='acompanhamento'),
     path('acompanhamento/<int:pk>/', acompanhamento_views.acompanhamento_nota,
          name='acompanhamento-nota'),
