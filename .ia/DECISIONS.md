@@ -644,3 +644,88 @@ uma sigla inventada). O buraco é **temporal**, não geográfico.
 - `achar_cnjs` passou a conferir **dígito verificador** e adjacência de dígito: a
   tolerância a espaço (que recupera 8% dos processos escondidos pelo kerning)
   também decapitava número maior e devolvia o CNJ de OUTRO processo.
+
+---
+
+## ADR-031: extrator de PDF do DJE/TJSP — PyMuPDF no lugar do pypdf (2026-08-20)
+
+### Contexto
+O `tjsp-dje` é a maior das três portas: 4.162 edições × ~9 cadernos ≈ 37 mil
+cadernos, de 567 a 4.229 páginas cada. O caderno baixa em 0,2-1,2 s e o `rps`
+é 1,0 — ou seja, o gargalo desta fonte **não é rede, é CPU de extração**.
+
+Medido em 20/08/2026 no caderno 3 (Capital Parte I) de 12/03/2025 — 36 MB,
+4.229 páginas, contando CNJ **distinto** com a regex ESTRITA sobre o texto:
+
+| extrator | tempo | CNJs distintos |
+|---|---|---|
+| PyMuPDF (MuPDF/C) | 16,3 s | 32.366 |
+| pdftotext (poppler) | 17,3 s | 32.366 |
+| pypdf 5.1.0 | 184,0 s | 27.483 (**-15,1%**) |
+
+A causa dos 15,1% está medida: o pypdf insere espaço espúrio no meio do próprio
+número (`1127986- 08.2023.8.26.0100`). Nas mesmas 600 páginas, 1.198 CNJs
+quebrados contra 314 do MuPDF. É o **mesmo** defeito que produzia
+'Estado de S ão Paulo' e 'Banco Rodoben s S/A' no `texto` verbatim — que o
+`pdf.py` e este documento atribuíam ao PDF ("kerning por caractere no operador
+`TJ`", "consertar seria chutar em cima de documento oficial"). **Estava errado:
+era do extrator.**
+
+### Decisão
+Trocar o extrator **apenas do `tjsp-dje`** (`diarios/fontes/tjsp_dje/pdf.py`)
+por PyMuPDF 1.24.14. `pypdf` **continua** no `requirements.txt`: o DEJT
+(`segmentador.py`, outline do PDF) e o `dashboard/chat_arquivos.py` usam.
+
+O `visitor_text` do pypdf (chamado por trecho desenhado) foi trocado por
+`page.get_text('dict', sort=False)`, e não por `'blocks'`: 'blocks' devolve o
+texto já colado, **sem o tamanho da fonte** — que é a tese inteira deste módulo
+(título de seção × corpo × mobília só se distinguem por corpo de fonte). 'dict'
+desce até o `span`, com `size` (já com a escala do text matrix aplicada, o que
+resolve o `Tf=1` do e-SAJ) e `origin`. O agrupamento por linha de base continua
+sendo nosso, porque a grade de distribuição vem em **duas colunas** e só a fusão
+por Y mantém `PROCESSO :` e o valor na mesma linha; `sort=True` reordenaria para
+ordem de leitura e desmontaria o formato `lista`.
+
+### Alternativas descartadas
+- **`pdftotext` (poppler)**: mesma velocidade, mas não devolve tamanho de fonte
+  nenhum. Sem ele não há hierarquia de seção — o coletor viraria regex sobre
+  linha solta, que é o erro que cola o ato de um processo no do vizinho.
+- **`pypdfium2` (BSD, o que evitaria a AGPL)**: lê 567 páginas em 2,3 s, mas
+  `FPDFText_GetFontSize` devolve **1.0 para todos os caracteres** deste PDF — a
+  mesma armadilha do `Tf=1`. Exigiria reconstruir a escada de tamanhos a partir
+  da altura da caixa do glifo, ou seja, inventar o dado que o segmentador usa
+  para decidir. Fica registrado como saída se a licença virar problema.
+- **Trocar o DEJT na mesma mudança**: o ganho lá é maior (229 s por caderno-dia,
+  gargalo declarado da fonte), mas o uso é outro (`extract_text()` achatado +
+  `outline`/`get_destination_page_number` → `doc.get_toc`) e o risco é outro
+  (`nome_orgao`, `tipo_comunicacao`). Outra mudança, outro gate.
+- **Manter o pypdf e "juntar" as palavras por heurística**: adivinhação em cima
+  de documento oficial, e nome de parte é o que menos aceita chute.
+
+### Consequências
+- **O ganho NÃO é cobertura de CNJ, e o commit não pode dizer que é.** Rodando o
+  segmentador real sobre o caderno de 4.229 páginas, os dois extratores acham os
+  **mesmos 32.575 CNJs**, fecham os **mesmos 29.106 blocos** e dão a **mesma
+  cobertura (99,751%)**, com os mesmos formatos e `sem_cnj=69` — porque a
+  `CNJ_TOLERANTE` já absorvia o espaço espúrio. Diferença de CNJ aproveitado nos
+  dois sentidos: **zero**.
+- O ganho real é: **6,4× de CPU** (192,1 s → 30,1 s de segmentação), **3,2× de
+  RAM** (pico de RSS 406 MB → 125 MB) e **qualidade do verbatim** ('Paul o'
+  579 → 0, 'S ão' 27 → 0; CNJ partido 516/9,84% → 215/4,10%, e os 215 restantes
+  são quebra de LINHA real, verdade impressa). Em backfill: ~2.000 h de CPU
+  contra ~310 h.
+- **Idempotência**: `external_id` e `hash` são sha1 **do texto**, e o MuPDF
+  quebra linha de forma levemente diferente (320.099 contra 321.811 linhas no
+  mesmo caderno) ⇒ **todo `external_id` muda**. Recoletar unidade já coletada
+  gravaria de novo em vez de contar `dup`. A janela para trocar era agora:
+  produção tem **0 `IngestionRun` não-DJEN e 0 `EdicaoDiario`**. Depois do
+  backfill, esta troca deixa de ser barata.
+- **Licença**: PyMuPDF é **AGPL-3.0** (ou comercial da Artifex). O Voyager é
+  serviço em rede proprietário; a AGPL alcança quem oferece o serviço pela rede.
+  A dependência é **interna** (worker de coleta, não servida ao usuário), mas
+  isso é mitigação, não parecer. Se a avaliação jurídica reprovar, a saída é o
+  `pypdfium2` com a escada reconstruída pela caixa do glifo — trabalho de dias,
+  não de meses.
+- **Deploy**: rebuild obrigatório de `web` **e** dos workers; nenhum host tem
+  `pymupdf` hoje e o import é tardio, então sem rebuild a fonte levanta
+  `RuntimeError` legível na coleta (não some do registro em silêncio).

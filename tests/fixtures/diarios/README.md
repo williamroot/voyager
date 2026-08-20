@@ -42,6 +42,7 @@ dejt/trt3_2024-07-10_jud.pdf            62,7 MB   gate das 16.717 matérias
 dejt/trt22_2024-07-10_jud.pdf            2,9 MB   gate das 885 matérias
 dejt/trt3_2026-08-13_jud.pdf             0,7 MB   caderno pós-DJEN (corte de 870x)
 tjsp_esaj/caderno12_20250721.pdf         4,0 MB   gate de cobertura de CNJ (2025)
+tjsp_esaj/caderno3_capital_parteI_*      36 MB    canário do extrator: ≥32.000 CNJs
 tjsp_esaj/caderno12_20250721.txt         3,7 MB   texto extraído do anterior
 tjsp_esaj/caderno20_capital_parteII_*    ~1 MB
 stj_stf/djen_stj_amostra200_*.json       2,8 MB   prova de que o STJ é DJEN puro

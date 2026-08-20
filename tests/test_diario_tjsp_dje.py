@@ -21,6 +21,7 @@ Dois princípios organizam o arquivo:
 """
 
 import os
+import re
 from datetime import date
 
 import pytest
@@ -149,22 +150,107 @@ def test_urls_sao_as_coordenadas_da_fonte():
 # ═════════════════════════════════════════════════════════════════════════════
 FIXTURE_2015 = 'caderno12_20150715_p96-125.pdf'   # 30 páginas reais do caderno 12
 FIXTURE_2025 = 'caderno12_20250721.pdf'           # caderno inteiro, 567 páginas
+FIXTURE_PARTE2 = 'caderno20_capital_parteII_20250721.pdf'   # 33 págs, versionada
 
 
 @pytest.mark.skipif(not tem(FIXTURE_2015), reason='fixture do caderno de 2015 ausente')
 def test_linhas_trazem_o_tamanho_e_a_hierarquia_de_secao():
-    """No caderno real: corpo 8.0, cabeçalho de página 5.5, rodapé 7.0,
-    número da página 1.0 e título de vara 11.0. É essa escala que permite
-    fechar bloco na virada de vara."""
+    """No caderno real: corpo 8.0, cabeçalho de página 5.5, rodapé e número da
+    página 7.0 e título de vara 11.0. É essa escala que permite fechar bloco na
+    virada de vara.
+
+    O balde 1.0 que este teste exigia até 20/08/2026 NÃO existe mais, e a
+    ausência dele é correta: era artefato do `abs(tm[0]) or tamanho_fonte` do
+    pypdf no número da página (texto rotacionado, cujo text matrix não carrega
+    a escala). O MuPDF reporta o número da página com o tamanho real, 7.0.
+    Efeito funcional zero — 1.0 e 7.0 são ambos `< corpo`, ou seja, mobília.
+    """
     corpo = ler_bytes(FIXTURE_2015)
     leitor = pdf.abrir(corpo)
-    assert pdf.tamanho_do_corpo(leitor) == 8.0
+    try:
+        assert pdf.tamanho_do_corpo(leitor) == 8.0
+    finally:
+        pdf.fechar(leitor)
 
     pagina = list(pdf.paginas(corpo))[1]
     tamanhos = {linha.tamanho for linha in pagina.linhas}
-    assert {1.0, 5.5, 7.0, 8.0, 11.0} <= tamanhos
+    assert {5.5, 7.0, 8.0, 11.0} <= tamanhos
+    assert 1.0 not in tamanhos, 'o balde 1.0 era defeito do extrator, não do caderno'
     titulos = [linha.texto for linha in pagina.linhas if linha.tamanho == 11.0]
     assert titulos == ['1ª Vara Cível']
+
+
+@pytest.mark.skipif(not tem(FIXTURE_2015), reason='fixture do caderno de 2015 ausente')
+def test_linhas_saem_de_cima_para_baixo():
+    """Trava a ORDEM de leitura da página — o footgun nº 1 da troca de extrator.
+
+    O pypdf ordenava por `tm[5]` DECRESCENTE (espaço PDF: Y cresce para cima);
+    no MuPDF `origin[1]` cresce para BAIXO. Manter o `reverse=True` na troca
+    leria o caderno de trás para frente, e o resultado seria plausível: as
+    linhas continuam legíveis, o gate de cobertura continua alto (o CNJ segue
+    dentro de ALGUM bloco) e o despacho de um processo é atribuído ao vizinho.
+    É exatamente o erro silencioso que o projeto proíbe, então ele é travado
+    aqui e não no gate.
+    """
+    pagina = list(pdf.paginas(ler_bytes(FIXTURE_2015)))[1]
+    textos = [linha.texto for linha in pagina.linhas]
+
+    assert 'Diário da Justiça Eletrônico' in textos[0], 'cabeçalho é a 1ª linha'
+    assert textos[-1].startswith('Publicação Oficial do Tribunal de Justiça'), 'rodapé é a última'
+
+    # e dentro da página o título da vara vem ANTES do que corre debaixo dele
+    titulo = textos.index('1ª Vara Cível')
+    juizo = textos.index('JUÍZO DE DIREITO DA 1ª VARA CÍVEL')
+    assert titulo < juizo
+
+
+@pytest.mark.skipif(not tem(FIXTURE_PARTE2), reason='fixture da parte II ausente')
+def test_texto_verbatim_nao_tem_o_espaco_esporio_do_kerning():
+    """O 'São Paul o' NÃO era do PDF — era do extrator.
+
+    Este módulo afirmou por meses que o espaço espúrio vinha do próprio
+    documento (justificação com kerning por caractere no operador `TJ`) e que
+    consertá-lo seria chutar em cima de texto oficial. Medido nesta MESMA
+    fixture em 20/08/2026: pypdf produz 'Paul o' 95 vezes, MuPDF produz 0. No
+    caderno inteiro de 21/07/2025 são 579 → 0 e 'S ão' 27 → 0.
+
+    Importa porque o `texto` é o produto: ele é gravado verbatim em
+    `Movimentacao.texto`, indexado no ES e lido pelo extrator de autos. Nome de
+    parte partido ao meio não é achado de busca.
+    """
+    texto = '\n'.join(pagina.texto for pagina in pdf.paginas(ler_bytes(FIXTURE_PARTE2)))
+
+    assert 'Paulo' in texto
+    assert 'Paul o' not in texto
+    assert 'S ão' not in texto
+
+
+@pytest.mark.parametrize('corpo', [b'%PDF-1.4\ntruncado aqui', b'', b'<html>nao sou pdf</html>'])
+def test_pdf_que_nao_abre_vira_resposta_invalida(corpo):
+    """PDF truncado é ERRO DA FONTE, não falha nossa — e o runner trata os dois
+    de forma diferente. Sem este mapeamento a mensagem crua do MuPDF ('Failed to
+    open stream') viraria `falha` genérica e o caderno seria retentado 5 vezes
+    para dar o mesmo resultado."""
+    with pytest.raises(RespostaInvalida, match='não abre como PDF'):
+        pdf.abrir(corpo)
+
+
+@pytest.mark.skipif(not tem(FIXTURE_2015), reason='fixture do caderno de 2015 ausente')
+def test_paginas_fecha_o_documento_quando_o_consumidor_desiste(monkeypatch):
+    """O `Document` do MuPDF é memória NATIVA: o GC do Python não a devolve na
+    hora. E o consumidor desiste do generator no caminho normal — o gate de
+    cobertura levanta `ColetorError` no meio da iteração. Sem o `finally`, um
+    backfill de ~37 mil cadernos vaza 36 MB de cada vez."""
+    abertos = []
+    abrir_real = pdf.abrir
+    monkeypatch.setattr(pdf, 'abrir', lambda corpo: abertos.append(abrir_real(corpo)) or abertos[-1])
+
+    paginas = pdf.paginas(ler_bytes(FIXTURE_2015))
+    next(paginas)
+    assert abertos and not abertos[0].is_closed
+    paginas.close()                       # o que o `for` faz ao ser abandonado
+
+    assert abertos[0].is_closed
 
 
 @pytest.mark.skipif(not tem(FIXTURE_2015), reason='fixture do caderno de 2015 ausente')
@@ -452,7 +538,10 @@ def test_cnj_do_bloco_ignora_processo_citado_no_corpo():
 # ── o gate mecânico: cobertura dos CNJs impressos ───────────────────────────
 def _cobertura(corpo: bytes) -> tuple[float, int, int]:
     leitor = pdf.abrir(corpo)
-    tamanho = pdf.tamanho_do_corpo(leitor)
+    try:
+        tamanho = pdf.tamanho_do_corpo(leitor)
+    finally:
+        pdf.fechar(leitor)
     no_texto: set[str] = set()
     em_bloco: set[str] = set()
     blocos = 0
@@ -481,6 +570,29 @@ def test_cobertura_de_cnjs_no_caderno_12_de_2025():
     assert total > 4000, f'o caderno tem milhares de CNJs, achei {total}'
     assert blocos > 3000
     assert cobertura >= 0.95, f'cobertura {cobertura:.1%} de {total} CNJs'
+
+
+@pytest.mark.skipif(not tem(FIXTURE_2025), reason='fixture de 4 MB não commitada')
+def test_o_numero_do_processo_nao_sai_partido_ao_meio():
+    """O outro lado do gate: não basta o CNJ ser ACHADO pela regex tolerante,
+    ele precisa sair inteiro para servir de dado.
+
+    Medido no mesmo caderno em 20/08/2026 (tolerante = 5.243 nos dois):
+    pypdf achava 4.727 pela regex ESTRITA — 516 números (9,84%) partidos por
+    kerning ('1127986- 08.2023.8.26.0100'). Com MuPDF são 5.028 estritos e 215
+    (4,10%) partidos, e a amostra desses 215 mostra que são quebra de LINHA
+    real ('0002419-\\n32.2023.8.26.0278'), ou seja verdade impressa. A margem
+    do teto (300) é folga para o caderno mudar de paginação, não para o
+    extrator piorar.
+    """
+    texto = '\n'.join(pagina.texto for pagina in pdf.paginas(ler_bytes(FIXTURE_2025)))
+    estrita = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
+
+    tolerantes = len(CNJ_TOLERANTE.findall(texto))
+    partidos = tolerantes - len(estrita.findall(texto))
+
+    assert tolerantes > 5000
+    assert partidos < 300, f'{partidos} CNJs partidos — o pypdf partia 516, o MuPDF parte 215'
 
 
 @pytest.mark.skipif(not tem(FIXTURE_2015), reason='fixture do caderno de 2015 ausente')

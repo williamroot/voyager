@@ -1,7 +1,7 @@
 # Diários oficiais além do DJEN — a terceira porta
 
-> **Estado em 16/08/2026:** código escrito, validado contra as fontes reais no
-> stack **dev**, com 169 testes verdes. **Não está ligado em produção** e o
+> **Estado em 20/08/2026:** código escrito, validado contra as fontes reais no
+> stack **dev**, com 187 testes verdes. **Não está ligado em produção** e o
 > agendamento nasce DESLIGADO (`DIARIOS_SCHEDULER_ENABLED=False`). O que falta
 > para ligar está em [§8 Runbook — ligar em produção](#8-runbook--ligar-em-produção).
 
@@ -36,7 +36,7 @@ Tudo abaixo é MEDIDO contra a fonte viva em 16/08/2026, não estimado.
 | **NÃO dá** | **partes no formato `ato`** (a relação de intimações da 1ª instância — 22.339 dos 28.083 blocos): não há marcador entre a última parte e o despacho, e chutar produziria "Vistos" como nome de parte. O nome fica no texto, para o extrator de autos resolver |
 | **NÃO dá** | o **caderno 5** (Editais e Leilões, `cdCaderno=14`) — fica fora do catálogo. Medido: o segmentador cobre 4,7% dos CNJs dele contra 99,7% no caderno 12. Coletar assim seria gravar lacuna e chamar de acervo |
 | **NÃO dá** | a **era pré-CNJ**. 15/06/2009 → 0 CNJ e 8.862 números antigos; 15/06/2010 → idem. A unidade fecha como `sem_aproveit` (ver §4). O penhasco é **2010→2011**, não 2012→2013: 15/06/2011 rendeu 18.449 itens a 99,5% e 15/06/2012, 16.205 a 99,6% |
-| **Texto** | carrega o espaço espúrio do PDF ("Estado de S ão Paulo") e ele vaza para nome de parte/classe. É do próprio PDF (kerning por caractere); a defesa é a `CNJ_TOLERANTE`. "Consertar" seria adivinhar em cima de documento oficial |
+| **Texto** | limpo desde **20/08/2026**. O espaço espúrio ("Estado de S ão Paulo", "Banco Rodoben s S/A") **não era do PDF**, era do extrator: trocado o pypdf pelo PyMuPDF, `Paul o` some de 579 ocorrências para 0 e `S ão` de 27 para 0 no caderno de 21/07/2025. A `CNJ_TOLERANTE` continua sendo a defesa (4,10% dos CNJs ainda saem partidos, agora por quebra de LINHA real, que é verdade impressa). Ver ADR-031 |
 | **Achado operacional** | **o arquivo do e-SAJ está FECHADO**: a última edição é a 4247, de 2025-07-22, e `datasSemDiario` lista os 390 dias seguintes. É backfill **finito**, sem fronteira diária |
 
 ### `dejt` — Diário Eletrônico da Justiça do Trabalho (TST + 24 TRTs)
@@ -50,7 +50,7 @@ Tudo abaixo é MEDIDO contra a fonte viva em 16/08/2026, não estimado.
 | **NÃO dá** | `link` (não existe URL estável), `data_envio`, `id_orgao`, e **polo em papel recursal** (num recurso a fonte não diz de que lado está — o `papel` vai verbatim) |
 | **NÃO dá** | CSJT e ENAMAT (1.072 + 67 edições): publicam no DEJT mas não existem como `Tribunal` no Voyager. Ficam contados no log |
 | **Achado** | cadernos de 2008-2012 vêm embrulhados em **PKCS#7** com `Content-Type: application/pdf` mentindo. `desembrulhar_assinatura()` recorta do `%PDF` ao `%%EOF`. NÃO validamos a assinatura |
-| **Custo** | o gargalo é **CPU de extração de texto**, não rede: 229 s para extrair o texto de um caderno-dia do TRT3 e 6,6 s para segmentar. É trabalho de frota |
+| **Custo** | o gargalo é **CPU de extração de texto**, não rede: 229 s para extrair o texto de um caderno-dia do TRT3 e 6,6 s para segmentar. É trabalho de frota. O DEJT **continua no pypdf** — a troca por PyMuPDF do `tjsp-dje` (ADR-031) não foi estendida aqui: o uso é outro (`extract_text()` achatado + `outline`) e o risco é em `nome_orgao`/`tipo_comunicacao`. Ganho estimado maior que o do TJSP; é outra mudança, com outro gate |
 
 ### `stf` — DJe do STF (API JSON de digital.stf.jus.br)
 
@@ -295,15 +295,19 @@ Ingestão é append-only; conflito quem resolve é a leitura.
 
 **Pré-requisitos que ainda não estão prontos:**
 
-1. **`pypdf` NÃO está na imagem.** `docker run --rm --entrypoint python
-   voyagerdev-web -c 'import pypdf'` → `ModuleNotFoundError`, embora
-   `requirements.txt` declare `pypdf==5.1.0` desde antes deste trabalho. Sem
-   rebuild, `tjsp-dje` e `dejt` levantam `RuntimeError` com mensagem explícita na
-   coleta (o import é tardio e embrulhado de propósito, para não sumir do
-   registro em silêncio no `apps.py`). **Bloqueia deploy dessas duas fontes.**
-2. **Migrations a aplicar:** `diarios/0001_initial`, `diarios_entes/0001_initial`,
-   `tribunals/0048_ingestionrun_fonte` (índice `CONCURRENTLY`, `atomic=False`),
-   `tribunals/0049_stj_horizonte_djen`.
+1. **`pymupdf` NÃO está na imagem — rebuild de `web` E dos workers.**
+   Conferido em 20/08/2026 no `voyager-web-1` de prod (192.168.30.103):
+   `import pypdf` → 5.1.0 (o pré-requisito antigo, "pypdf não está na imagem",
+   estava **desatualizado**), `import pymupdf` → `ModuleNotFoundError`. Desde a
+   ADR-031 o `tjsp-dje` lê o caderno com PyMuPDF, então sem rebuild ele levanta
+   `RuntimeError` com mensagem explícita na coleta (o import é tardio e
+   embrulhado de propósito, para não sumir do registro em silêncio no
+   `apps.py`). **Bloqueia deploy do `tjsp-dje`.** O `dejt` segue no pypdf e não
+   é afetado.
+2. **Migrations: aplicadas.** Conferido em prod em 20/08/2026 —
+   `diarios/0001_initial`, `diarios_entes/0001_initial`,
+   `tribunals/0048_ingestionrun_fonte` e `tribunals/0049_stj_horizonte_djen`
+   aparecem `[X]` no `showmigrations`. Nada a rodar aqui.
 3. **Worker da fila `diarios`** (não existe hoje). Fila separada de propósito: a
    unidade aqui é um caderno de até 2.001 páginas / 62 MB, e um job desses na
    fila do DJEN empurraria a fronteira diária para o fim da linha.
@@ -359,7 +363,7 @@ fonte; `janela_*` com data medida; zero alteração em arquivo alheio.
 
 | Fonte | Gate mecânico | Resultado |
 |---|---|---|
-| `tjsp-dje` | catálogo = 4.162 edições em 1 request; ≥95% dos CNJs tolerantes segmentados | **99,1%** (2025), **99,7%** (2015), **96,1%** (caderno 11). 32 testes |
+| `tjsp-dje` | catálogo = 4.162 edições em 1 request; ≥95% dos CNJs tolerantes segmentados; **canário do extrator**: ≥32.000 CNJs distintos pela regex ESTRITA no caderno de 4.229 páginas | **99,1%** (2025), **99,7%** (2015), **96,1%** (caderno 11), **99,751%** (Capital Parte I de 12/03/2025, 4.229 páginas). Canário reconferido em 20/08/2026 no container de dev, mesmo arquivo, dois extratores: PyMuPDF **32.366** estritos / 32.575 tolerantes / 44,8 s / RSS 185 MB contra pypdf **27.483** / 32.575 / 184,1 s / RSS 425 MB; por linha, **23** com CNJ partido contra **5.866**. 39 + 11 testes |
 | `dejt` | ≥95% das 16.717 matérias que a fonte declara para o TRT3 em 10/07/2024; prova de que não usa `j_id` literal | **18.768** (112%). 57 testes |
 | `stf` | 1 dia útil em ≤2 requests; `total` == ids distintos; resolver devolve `0000876-17.2013.8.16.0021` para `ARE 1617690`; publicação sem CNJ não é gravada | passou. 29 testes |
 | `diarios_entes` | model próprio; `Terms` contra `SearchTerms` (117 contra 487.579); rejeição da SPA do RS; os 3 CNJs de Maceió | passou. 25 testes |
@@ -386,6 +390,9 @@ Registradas para não virarem surpresa. Nenhuma bloqueia, todas custam.
 | `dejt` | só o caderno **Judiciário** foi validado; o Administrativo está suportado no código e não foi medido |
 | `tjsp-dje` | `nome_orgao` sem comarca em 26% de um caderno do interior ("VARA ÚNICA" solto) |
 | `tjsp-dje` | nome de advogado sujo em 8 de 5.390 quando a inscrição tem letra colada ("99999D/SP - Defensoria...") |
+| `tjsp-dje` | a troca de extrator (ADR-031) muda o `texto` (quebra de linha diferente) e portanto **todo `external_id`/`hash`**: recoletar unidade já coletada com pypdf GRAVA DE NOVO em vez de contar `dup`. Em prod é inócuo (0 `IngestionRun` não-djen, 0 `EdicaoDiario`); no **dev** há 5 unidades `tjsp-dje` `ok` e 140.313 movimentações do extrator antigo — purgar antes de recoletar |
+| `tjsp-dje` | PyMuPDF é **AGPL-3.0** (ou licença comercial da Artifex) num serviço em rede proprietário. Uso é interno (worker de coleta), o que mitiga mas não é parecer jurídico. Saída BSD se reprovar: `pypdfium2` com a escada de tamanhos reconstruída da caixa do glifo (ADR-031) |
+| `tjsp-dje` | `conferir_data` é **no-op no caderno grande**: a página 1 do Capital Parte I é capa e não tem 'Disponibilização:', e o coletor confere só a PRIMEIRA página. A única defesa contra 'baixei o dia errado' não dispara justamente onde mais importa. Pré-existente, não introduzido pela ADR-031 |
 | `tjsp-dje` | `numero_comunicacao` guarda o número **como impresso** (com sufixo de incidente e número antigo entre parênteses) — uso diferente do campo em relação ao DJEN, que guarda inteiro |
 | `qd-municipal` | um CNJ da tabela de Maceió está grafado com ponto no lugar do hífen **no original** e não é achado. É erro da fonte; corrigir seria chutar em cima de número de processo |
 | `diarios_entes` | não emite `SchemaDriftAlert` (a tabela exige `tribunal` NOT NULL e esta fonte não tem tribunal). O drift vira exceção alta + log |
@@ -403,5 +410,6 @@ Registradas para não virarem surpresa. Nenhuma bloqueia, todas custam.
 | `diarios_entes/` | app próprio dos DOEs de entes |
 | `djen/scheduler.py` (fim do arquivo) | agendamento, atrás de `DIARIOS_SCHEDULER_ENABLED` |
 | `core/settings.py` | bloco `DIÁRIOS PRÓPRIOS` |
-| `tests/test_diarios_base.py` + `test_diario_{tjsp_dje,dejt,stf}.py` + `test_diarios_entes.py` | 169 testes (26 do contrato + 32 tjsp-dje + 57 dejt + 29 stf + 25 entes) |
+| `tests/test_diarios_base.py` + `test_diario_{tjsp_dje,dejt,stf}.py` + `test_diarios_entes.py` | 176 testes (26 do contrato + 39 tjsp-dje + 57 dejt + 29 stf + 25 entes) |
+| `tests/test_diarios_pymupdf.py` | 11 testes que travam a ADR-031: fluxo (não acúmulo), CNJ inteiro e erro explícito sem a lib. O canário do caderno de 36 MB **pula** sem a fixture pesada `tjsp_esaj/caderno3_capital_parteI_20250312.pdf` (fora do git, ver `tests/fixtures/diarios/README.md`) |
 | `.ia/DECISIONS.md` ADR-030 | por que a terceira porta, e o que foi recusado |

@@ -173,7 +173,16 @@ class ColetorDjeTjsp(ColetorDiario):
         quando = timezone.make_aware(datetime.combine(unidade.data, time.min))
         meio_completo = f'DJE/TJSP (e-SAJ) — {rotulo_caderno}'[:120]
 
-        tamanho_corpo = pdf.tamanho_do_corpo(pdf.abrir(corpo))
+        # O `Document` do MuPDF é memória NATIVA (fora do heap do Python): o GC
+        # não a devolve na hora. Aqui ele serve só para medir a moda do corpo nas
+        # 12 primeiras páginas — `paginas()` abre o seu próprio, então este tem
+        # que ser fechado ANTES, senão o caderno inteiro fica mapeado duas vezes
+        # durante toda a segmentação.
+        leitor = pdf.abrir(corpo)
+        try:
+            tamanho_corpo = pdf.tamanho_do_corpo(leitor)
+        finally:
+            pdf.fechar(leitor)
         cnjs_no_texto: set[str] = set()
         cnjs_em_bloco: set[str] = set()
         contagem = {'blocos': 0, 'itens': 0, 'sem_cnj': 0, 'outro_tribunal': 0}
