@@ -516,6 +516,19 @@
         <span class="nav-tag" aria-hidden="true">✨</span>
       </a>
       {% endif %}
+      {% comment %} Completude: a única tela que compara os DOIS lados — o nosso
+         número contra o que a fonte declara. Fica no primeiro nível pelo mesmo
+         motivo do Acompanhamento: a régua que ninguém abre não mede nada, e o
+         princípio nº 1 do projeto é justamente esse. Ícone `scale` (balança)
+         conferido no sprite — nome inexistente rende QUADRADO VAZIO, sem erro
+         no console. {% endcomment %}
+      {% url 'dashboard:completude' as compl_url %}
+      {% if compl_url %}
+      <a href="{{ compl_url }}" class="nav-item {% if '/dashboard/completude' in request.path %}active{% endif %}">
+        {% voy_icon "scale" "w-4 h-4" %}
+        <span class="nav-label">Completude</span>
+      </a>
+      {% endif %}
 
       {# ---- 🚀 IA LABS — Centro de Inteligência (grupo premium) ---- #}
       <div class="nav-group nav-group-premium"
