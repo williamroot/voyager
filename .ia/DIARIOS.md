@@ -314,6 +314,14 @@ Ingestão é append-only; conflito quem resolve é a leitura.
    `ModuleNotFoundError`), e o round-trip do módulo do coletor devolve
    `1127986-08.2023.8.26.0100` inteiro, sem o espaço espúrio.
 
+   Detalhe que assusta quem for conferir: os **outros ~238 containers da `.102`
+   continuam sem `pymupdf`**, porque foram criados ANTES do rebuild e um
+   container vive na imagem que o criou. Isso é inócuo (só o `worker_diarios`
+   lê caderno) e some sozinho no próximo `up -d --force-recreate`. Recriar 240
+   workers no meio do voo só para uniformizar seria trocar um não-problema por
+   uma janela de fila parada. A verificação que vale é na imagem:
+   `docker run --rm --entrypoint python voyager-web:prod -c 'import pymupdf'`.
+
    **Pendente na `.103`** (`voyager-web-1` ainda dá `ModuleNotFoundError`).
    Não foi feito de propósito: o `web` de lá roda `migrate --noinput` no boot
    (o que esta casa proíbe fazer por deploy) e o checkout tem alteração não
