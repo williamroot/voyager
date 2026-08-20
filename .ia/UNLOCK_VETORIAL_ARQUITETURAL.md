@@ -221,19 +221,81 @@ raspar teto). PQ está coberto pelo LanceDB hoje sem GPU. **Não é a aposta ago
 
 ---
 
+## §3b. Caminho 3b — Elasticsearch como store vetorial (`dense_vector` + kNN)
+
+> Avaliado em **20/08/2026**, a pedido. Não estava no estudo original de 27/07, que
+> comparou LanceDB, Qdrant/Milvus, truncagem do bge-m3 e GPU-CAGRA. Medições do nó
+> colhidas ao vivo contra `192.168.30.128:9200`.
+
+**Ideia:** o vetor sai do Postgres e vai pro Elasticsearch que **já temos**, usando
+`dense_vector` com `hnsw`/`int8_hnsw`. O apelo é forte e legítimo: o ES tem FTS, kNN e
+**RRF nativos**, então a busca híbrida deixaria de cruzar dois sistemas — que é
+exatamente o custo do Caminho 1a (LanceDB serve só o ANN, o RRF/FTS/rerank ficam no PG).
+
+**Estado do nosso ES (medido, 20/08/2026):**
+
+```
+voyager-es-01 ..... 1 nó · heap 8 GB · RAM total 22,9 GB
+já carrega ........ 1,39 bilhão de docs, 1,3 TB (voyager-movimentacoes-v2)
+versão ............ 8.14.0
+campos vetoriais .. NENHUM (conferido em movimentacoes-v2, processos, acervo, entidades)
+```
+
+**Por que NÃO — a aritmética de RAM, que é a causa-raiz do §0:**
+
+O HNSW do Lucene também quer o grafo em memória/page cache. Com bge-m3 **1024d**:
+
+| representação | 31M chunks (hoje) | 85M (full-corpus) |
+|---|---:|---:|
+| `float32` | 127 GB | **348 GB** |
+| `float16` (≈ halfvec) | 63,5 GB | 174 GB |
+| `int8_hnsw` | 31,7 GB | 87 GB |
+
+A linha `float16` de **63,5 GB bate com os 58 GB medidos** do `chunk_emb_hnsw_half` — a
+conta fecha com a realidade, então as outras linhas são confiáveis.
+
+**Nenhuma delas cabe em 22,9 GB.** Mover pro ES seria trocar um host de **76 GB** por um
+de **22,9 GB**, mantendo o mesmo regime RAM-bound e ainda disputando page cache com 1,3 TB
+de índice textual que hoje funciona. É levar o problema de mudança, não resolvê-lo.
+
+**E a quantização cairia na armadilha já medida.** `int8_hnsw`/BBQ é o caminho óbvio pra
+caber — mas §0 registra que quantização binária no bge-m3 deu **overlap@8 0,49** no corpus
+cheio, por causa medida (o sign-bit não acompanha o cosine deste modelo; o vizinho
+verdadeiro nem entra no candidate-set). BBQ é mais sofisticado que sign-bit puro, então
+não é impossível — mas a prior é ruim e teria que passar o **mesmo gate de 0,90** que já
+derrubou duas tentativas.
+
+**GPU vector indexing do ES não muda nada disto:** exige **ES 9.4** (estamos em 8.14),
+licença **Enterprise**, GPU NVIDIA Ampere+ com 8 GB+ e cuVS — e, por projeto, acelera
+**só a construção** do índice HNSW, não a busca. Nosso gargalo é índice-maior-que-a-RAM,
+não tempo de build.
+
+**O que mudaria o veredito:** um **cluster ES novo e dimensionado** (2-3 nós dedicados com
+128 GB+, separados do nó textual). Aí a conta fecha e o argumento de unificar a busca
+híbrida passa a valer de verdade. Só que o custo fica **acima** do LanceDB — que é
+biblioteca embarcada e disk-first por projeto, sem daemon nem cluster — e ainda somaria o
+upgrade 8.14 → 9.4.
+
+**Veredito §3b:** **descartado hoje** pelo mesmo motivo do §0 — não ataca a causa-raiz.
+**Reabrir** se e somente se houver cluster ES dedicado por outra razão de negócio; aí o
+ES vira candidato legítimo, porque resolve o único ponto fraco reconhecido do LanceDB
+(busca híbrida cruzando dois sistemas).
+
+---
+
 ## §4. Comparação lado a lado
 
-| Critério | **1a. LanceDB** | 1b. Qdrant/Milvus | **2. Truncar bge-m3** | 3. GPU-CAGRA |
-|---|---|---|---|---|
-| Sobe o teto de escrita? | **Sim** (disk-first, não RAM-bound) | Sim (server on-disk) | Só se recall passar (RRESUSCITA PG) | Sim (build GPU) |
-| Escala pro full-corpus 85M? | **Sim** | Sim | Talvez (índice menor) | Sim |
-| Muda contrato de embedding? | **Não** (bge-m3 1024d fica) | Não | **Sim** se re-embedar (só truncar=não) | Não |
-| Preserva RRF+FTS+rerank pt-BR? | **Sim** (serve só ANN → RRF do PG) | Sim (idem) | **Sim** (fica no PG) | Sim (idem) |
-| Peças móveis novas | Baixo (lib embarcada) | Alto (daemon/cluster) | **Zero** (fica no PG) | Alto (GPU+store) |
-| Recall = risco? | Médio (PQ+refine ≠ sign-bit; gate decide) | Médio-alto (BQ=mesmo que falhou) | **Alto** (bge-m3 sem MRL) + SBQ incerto | Médio (CAGRA+refine) |
-| Reversível até cutover? | **Sim** (dual-write + flag) | Sim | Sim (aditivo) | Sim |
-| Esforço | Médio (sync+desnorm) | Alto | Baixo (truncar) / Proibitivo (re-embed) | Alto |
-| Veredito | **RECOMENDADO** | descartado (peso) | side-quest barato p/ fechar | futuro/condicional |
+| Critério | **1a. LanceDB** | 1b. Qdrant/Milvus | **2. Truncar bge-m3** | 3. GPU-CAGRA | **3b. Elasticsearch** |
+|---|---|---|---|---|---|
+| Sobe o teto de escrita? | **Sim** (disk-first, não RAM-bound) | Sim (server on-disk) | Só se recall passar (RRESUSCITA PG) | Sim (build GPU) | **Não** (mesmo regime, com 1/3 da RAM) |
+| Escala pro full-corpus 85M? | **Sim** | Sim | Talvez (índice menor) | Sim | **Não** no nó atual (348 GB f32 vs 22,9 GB) |
+| Muda contrato de embedding? | **Não** (bge-m3 1024d fica) | Não | **Sim** se re-embedar (só truncar=não) | Não | Não |
+| Preserva RRF+FTS+rerank pt-BR? | **Sim** (serve só ANN → RRF do PG) | Sim (idem) | **Sim** (fica no PG) | Sim (idem) | **Sim, e unifica** (RRF nativo — o ponto forte) |
+| Peças móveis novas | Baixo (lib embarcada) | Alto (daemon/cluster) | **Zero** (fica no PG) | Alto (GPU+store) | Médio (upgrade 9.4 + Enterprise p/ GPU) |
+| Recall = risco? | Médio (PQ+refine ≠ sign-bit; gate decide) | Médio-alto (BQ=mesmo que falhou) | **Alto** (bge-m3 sem MRL) + SBQ incerto | Médio (CAGRA+refine) | **Alto** (int8/BBQ ≈ o que reprovou a 0,49) |
+| Reversível até cutover? | **Sim** (dual-write + flag) | Sim | Sim (aditivo) | Sim | Sim |
+| Esforço | Médio (sync+desnorm) | Alto | Baixo (truncar) / Proibitivo (re-embed) | Alto | Alto (migrar 31M→85M chunks + cluster novo) |
+| Veredito | **RECOMENDADO** | descartado (peso) | side-quest barato p/ fechar | futuro/condicional | **descartado** (só com cluster dedicado) |
 
 ---
 
