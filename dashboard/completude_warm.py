@@ -38,6 +38,18 @@ def _contar_es(indice: str, corpo: dict | None = None) -> int | None:
         return None
 
 
+def _contar_diarios() -> int | None:
+    """Publicações que entraram pela terceira porta. `None` = app não migrado."""
+    try:
+        from django.db.models import Sum
+
+        from diarios.models import EdicaoDiario as E
+        n = E.objects.aggregate(n=Sum('itens_gravados'))['n']
+        return int(n or 0)
+    except Exception:  # noqa: BLE001 — app pode não estar migrado ainda
+        return None
+
+
 def _recuperacao_por_tribunal() -> tuple[list, dict]:
     """Quanto da recuperação do DJEN já foi refeito, POR TRIBUNAL.
 
@@ -130,8 +142,13 @@ def warm_completude() -> dict:
     try:
         dados['portas']['djen'] = {'temos': _contar_es('movimentacoes')}
         dados['portas']['datajud'] = {'temos': _contar_es('acervo')}
-        dados['portas']['diarios'] = {'temos': _contar_es('movimentacoes', {
-            'query': {'terms': {'source': ['tjsp-dje', 'dejt', 'stf']}}})}
+        # Diários NÃO se conta pelo ES: `periodico_diario_slug` está preenchido
+        # em TODAS as 1,4 bilhão de publicações (o doc builder usa a sigla do
+        # tribunal como fallback), então filtrar por ele contaria o acervo
+        # inteiro. A fonte de verdade é o próprio coletor — `itens_gravados` do
+        # EdicaoDiario, que é "quantas linhas desta unidade estão no banco",
+        # semântica escolhida de propósito para não zerar ao reprocessar.
+        dados['portas']['diarios'] = {'temos': _contar_diarios()}
         dados['recuperacao'], dados['resumo_recup'] = _recuperacao_por_tribunal()
         dados['diarios'] = _diarios()
         cache.set(CACHE_KEY, dados, timeout=TTL)
