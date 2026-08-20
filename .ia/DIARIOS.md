@@ -1,9 +1,11 @@
 # Diários oficiais além do DJEN — a terceira porta
 
 > **Estado em 20/08/2026:** código escrito, validado contra as fontes reais no
-> stack **dev**, com 187 testes verdes. **Não está ligado em produção** e o
-> agendamento nasce DESLIGADO (`DIARIOS_SCHEDULER_ENABLED=False`). O que falta
-> para ligar está em [§8 Runbook — ligar em produção](#8-runbook--ligar-em-produção).
+> stack **dev**, com 187 testes verdes. **Não está ligado em produção**: o
+> agendamento continua DESLIGADO (`DIARIOS_SCHEDULER_ENABLED=False`) e nada foi
+> coletado. A INFRA da `.102`, sim, já está de pé — `pymupdf` na imagem e o
+> `worker_diarios` (2 réplicas) ocioso na fila vazia. O que ainda falta para
+> ligar está em [§8 Runbook — ligar em produção](#8-runbook--ligar-em-produção).
 
 > **Por que existe:** a ingestão é DJEN-only e o DJEN é veículo de **comunicação**
 > (Res. CNJ 455/2022). Medido por amostra de 300 CNJs por tribunal (15-16/08/2026),
@@ -293,24 +295,56 @@ Ingestão é append-only; conflito quem resolve é a leitura.
 
 ## 8. Runbook — ligar em produção
 
-**Pré-requisitos que ainda não estão prontos:**
+**Estado dos pré-requisitos — conferido em produção em 20/08/2026:**
 
-1. **`pymupdf` NÃO está na imagem — rebuild de `web` E dos workers.**
-   Conferido em 20/08/2026 no `voyager-web-1` de prod (192.168.30.103):
-   `import pypdf` → 5.1.0 (o pré-requisito antigo, "pypdf não está na imagem",
-   estava **desatualizado**), `import pymupdf` → `ModuleNotFoundError`. Desde a
-   ADR-031 o `tjsp-dje` lê o caderno com PyMuPDF, então sem rebuild ele levanta
-   `RuntimeError` com mensagem explícita na coleta (o import é tardio e
-   embrulhado de propósito, para não sumir do registro em silêncio no
-   `apps.py`). **Bloqueia deploy do `tjsp-dje`.** O `dejt` segue no pypdf e não
-   é afetado.
-2. **Migrations: aplicadas.** Conferido em prod em 20/08/2026 —
-   `diarios/0001_initial`, `diarios_entes/0001_initial`,
-   `tribunals/0048_ingestionrun_fonte` e `tribunals/0049_stj_horizonte_djen`
-   aparecem `[X]` no `showmigrations`. Nada a rodar aqui.
-3. **Worker da fila `diarios`** (não existe hoje). Fila separada de propósito: a
-   unidade aqui é um caderno de até 2.001 páginas / 62 MB, e um job desses na
-   fila do DJEN empurraria a fronteira diária para o fim da linha.
+1. **`pymupdf` na imagem: FEITO na `.102`, PENDENTE na `.103`.**
+   O caso desta casa é **híbrido, e é isso que confunde**: o compose monta
+   `.:/app` (o CÓDIGO é hot-deploy por bind mount, `git pull` basta), mas a
+   dependência Python mora em `site-packages` DENTRO da imagem — `pip install`
+   dentro do container morreria no primeiro `up -d --force-recreate`. Logo:
+   `pymupdf==1.24.14` entra por `requirements.txt` + **rebuild da imagem**, e
+   cada host constrói a sua (`build:` existe nos dois composes).
+
+   Feito na `.102` (`voyager-workers`), onde a fila `diarios` roda:
+   ```bash
+   ssh ubuntu@192.168.30.102 'cd ~/voyager && git pull --ff-only && \
+     docker compose -f docker-compose-workers.yml build worker_trf1'   # único serviço com build:
+   ```
+   Conferido no container vivo: `import pymupdf` → **1.24.14** (antes:
+   `ModuleNotFoundError`), e o round-trip do módulo do coletor devolve
+   `1127986-08.2023.8.26.0100` inteiro, sem o espaço espúrio.
+
+   **Pendente na `.103`** (`voyager-web-1` ainda dá `ModuleNotFoundError`).
+   Não foi feito de propósito: o `web` de lá roda `migrate --noinput` no boot
+   (o que esta casa proíbe fazer por deploy) e o checkout tem alteração não
+   commitada. Enquanto não for feito, **rodar a coleta manual pelo container da
+   `.102`**, não pelo `web`:
+   ```bash
+   ssh ubuntu@192.168.30.102 'docker exec voyager-worker_diarios-1 python manage.py diarios_coletar tjsp-dje ...'
+   ```
+   Quando for a hora (deploy normal, com o `.103` alinhado à `main`):
+   ```bash
+   ssh ubuntu@192.168.30.103 'cd ~/voyager && git pull --ff-only && \
+     docker compose -f docker-compose-prod.yml build web && \
+     docker compose -f docker-compose-prod.yml up -d'
+   ```
+   O `dejt` segue no pypdf e não depende disto.
+2. **Migrations: aplicadas, nada pendente.** Conferido em 20/08/2026 pelo
+   worker da `.102` (`showmigrations`, jamais pelo boot do `web`):
+   `diarios/0001_initial` **[X]**, `diarios_entes/0001_initial` **[X]**,
+   e as dependências `tribunals/0048_ingestionrun_fonte` **[X]** /
+   `0049_stj_horizonte_djen` **[X]** / `0050_indices_io` **[X]**.
+   `makemigrations --check` nos três apps: *No changes detected*. Nota para
+   quem for aplicar em outro ambiente: as duas `0001_initial` são atômicas
+   (CreateModel puro, sem `CONCURRENTLY`), mas a `tribunals/0048` de que elas
+   dependem é `atomic = False` + `AddIndexConcurrently` — não pode ser
+   embrulhada em transação.
+3. **Worker da fila `diarios`: NO AR na `.102`, ocioso.** 2 réplicas,
+   `mem_limit 1g`, `nofile 65536` (`worker_diarios` em
+   `docker-compose-workers.yml`, com a conta numérica no comentário). Ocioso
+   porque quem enfileira é o agendamento, e ele continua desligado. Medido logo
+   após subir: 113 MiB de RSS em repouso, fila em 0 job, `Listening on
+   diarios...` nos dois containers.
 4. **Decidir §5.1 (CNJ de origem)** antes de ligar `stf` ou o STJ.
 5. **Medir sobreposição com o acervo de produção** (§2) antes de dimensionar.
 

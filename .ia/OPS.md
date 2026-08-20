@@ -96,7 +96,20 @@ worker_datajud         24       512m      datajud
 worker_ingestion        8       1g        djen_ingestion + djen_backfill
 worker_default          2       512m      default
 worker_classificacao    8       1g        classificacao  (carrega modelo ML)
+worker_diarios          2       1g        diarios        (3ª porta — ver nota abaixo)
 ```
+
+> **`worker_diarios` (2026-08-20)** — consumidor da fila `diarios` (DJE/TJSP,
+> DEJT, STF). Sobe **OCIOSO de propósito**: quem enfileira é o agendamento, que
+> continua atrás de `DIARIOS_SCHEDULER_ENABLED` (default `False`). A unidade de
+> trabalho é um CADERNO inteiro — por isso fila separada da `djen_*`: um job
+> desses na fila da ingestão empurraria a fronteira diária pro fim da linha.
+> Dimensionamento medido em 20/08/2026 (a conta completa está no comentário do
+> `docker-compose-workers.yml`): 44,8 s de CPU por caderno de 4.229 páginas,
+> pico de 125 MB de RSS no pipeline, 113 MiB em repouso ⇒ `mem_limit 1g` e 2
+> réplicas (2 dos 24 vCPU da `.102`, que já roda com load average 12).
+> **Só existe na `.102`.** Requer `pymupdf` na imagem — o `.103` ainda não tem
+> (ver `.ia/DIARIOS.md` §8).
 
 Total por host: **320 containers** (304 + tjal 8→24 em 2026-06-17). Com os 2 hosts (`.102` + `.104`): ~640 workers RQ.
 
