@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db.models import Count, Exists, Max, OuterRef, Q
+from django.db.models import Case, Count, Exists, IntegerField, Max, OuterRef, Q, Value, When
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
@@ -1390,7 +1390,24 @@ def parte_detail(request, pk):
     })
 
 
-def _ids_da_busca_textual(q, tribunais):
+# Janelas oferecidas na busca por texto. Os números são a mediana medida no
+# cluster (20/08/2026, frase de 3 palavras, `voyager-movimentacoes-v2`, 1,4 bi de
+# docs): 31d=2,52s · 365d=7,72s · sem janela=8,07s — e com tribunal junto, 31d
+# cai pra 0,37s. Não é preferência de UX: é o que cabe numa requisição.
+JANELAS_BUSCA = ((31, '31 dias'), (90, '90 dias'), (365, '12 meses'), (0, 'tudo'))
+JANELA_BUSCA_PADRAO = 31
+
+
+def _janela_da_busca(request) -> int:
+    """Dias de janela da busca por texto. Só valores da lista; 0 = tudo."""
+    try:
+        dias = int(request.GET.get('dias', JANELA_BUSCA_PADRAO))
+    except (TypeError, ValueError):
+        return JANELA_BUSCA_PADRAO
+    return dias if dias in dict(JANELAS_BUSCA) else JANELA_BUSCA_PADRAO
+
+
+def _ids_da_busca_textual(q, tribunais, dias):
     """PKs que casam com `q`, pelo Elasticsearch. Devolve `(ids|None, aviso)`.
 
     A busca textual sai do Postgres e vai pro ES — o ES resolve o texto e
@@ -1398,33 +1415,60 @@ def _ids_da_busca_textual(q, tribunais):
 
     Isto era `qs.filter(texto__icontains=q)`. A coluna `texto` não tem índice de
     busca: `mov_texto_trgm` estava declarado no model e ausente do banco. Sem
-    tribunal, EXPLAIN dá Seq Scan de custo 111.195.298 sobre 1,39 bilhão de
+    recorte, EXPLAIN dá Seq Scan de custo 111.195.298 sobre 1,39 bilhão de
     linhas / 815 GB — dentro do caminho da requisição, no mesmo banco que a
     ingestão martela. Nunca foi chamado em produção (`pg_stat_statements` desde
     14/05 não registra a query), mas estava a uma querystring de distância.
+
+    Duas coisas o usuário precisa ouvir, e as duas estão no aviso:
+
+      · a lista vem por RELEVÂNCIA, não cronológica (por isso o `Case/When` em
+        quem chama). Cronológico no ES custa 20,76 s contra 0,99 s por score;
+      · a busca tem JANELA, e qual é. Buscar 1,4 bilhão de documentos sem
+        recorte custa 8,07 s de mediana e estoura o teto de espera com
+        frequência — não é um índice que responde texto livre nacional dentro
+        de uma requisição.
 
     `None` = não deu pra buscar; quem chama NÃO filtra e mostra o aviso. Cair
     pro Postgres aqui reabriria o buraco justamente quando o banco é a última
     coisa que aguenta.
     """
+    import datetime
+
+    from django.utils import timezone
+
     from search.busca_api import BuscaIndisponivelError, ids_por_texto
+
+    de = ate = None
+    if dias:
+        ate = timezone.localdate()
+        de = ate - datetime.timedelta(days=dias)
+    rotulo = dict(JANELAS_BUSCA).get(dias, f'{dias} dias')
     try:
-        achado = ids_por_texto(q, tribunais=tribunais)
-    except BuscaIndisponivelError:
-        logger.exception('busca textual: ES indisponível q=%r', q[:80])
+        achado = ids_por_texto(q, tribunais=tribunais, de=de, ate=ate)
+    except BuscaIndisponivelError as e:
+        logger.warning('busca textual q=%r janela=%s: %s', q[:80], rotulo, e)
+        if e.demorou:
+            return None, ('A busca demorou mais que o limite e foi interrompida. '
+                          'Escolha uma janela menor ou um tribunal — os outros '
+                          'filtros continuam valendo.')
         return None, ('Busca por texto indisponível agora (índice fora do ar). '
                       'Os outros filtros continuam valendo.')
-    if not achado['truncado']:
-        return achado['ids'], ''
-    # Teto é alerta, nunca corte mudo.
-    aviso = (f"Mais de {achado['total'] - 1:,} publicações casam com “{q}”. "
-             f"Mostrando as {len(achado['ids']):,} mais recentes — filtre por "
-             'tribunal para estreitar.').replace(',', '.')
-    return achado['ids'], aviso
+
+    escopo = 'em todo o acervo' if not dias else f'nos últimos {rotulo}'
+    if not achado['ids']:
+        return [], f'Nenhuma publicação com “{q}” {escopo}. Tente uma janela maior.'
+    achou = f"{len(achado['ids']):,}".replace(',', '.')
+    if achado['truncado']:
+        # Teto é alerta, nunca corte mudo.
+        total = f"{achado['total'] - 1:,}".replace(',', '.')
+        return achado['ids'], (f'Mais de {total} publicações com “{q}” {escopo}. '
+                               f'Mostrando as {achou} mais relevantes — estreite '
+                               'por tribunal ou por janela.')
+    return achado['ids'], (f'{achou} publicações com “{q}” {escopo}, '
+                           'ordenadas por relevância.')
 
 
-@login_required
-@require_GET
 def movimentacoes(request):
     tribunais_filtro = _split_csv(request.GET.get('tribunal'))
     tipos_filtro = _split_csv(request.GET.get('tipo'))
@@ -1433,6 +1477,7 @@ def movimentacoes(request):
     so_ativos = request.GET.get('ativos', '1') == '1'
     q = (request.GET.get('q') or '').strip()
     com_link = request.GET.get('com_link')
+    dias_busca = _janela_da_busca(request)
 
     base_ctx = {
         'tribunais': Tribunal.objects.all(),
@@ -1444,6 +1489,8 @@ def movimentacoes(request):
         'classe_filtro': ','.join(classes_filtro),
         'so_ativos': so_ativos,
         'com_link': com_link or '',
+        'janelas_busca': JANELAS_BUSCA,
+        'dias_busca': dias_busca,
     }
 
     if not _is_htmx(request):
@@ -1467,9 +1514,13 @@ def movimentacoes(request):
         qs = qs.filter(ativo=True); has_filter = True
     aviso_busca = ''
     if q and len(q) >= 3:
-        ids, aviso_busca = _ids_da_busca_textual(q, tribunais_filtro)
+        ids, aviso_busca = _ids_da_busca_textual(q, tribunais_filtro, dias_busca)
         if ids is not None:
-            qs = qs.filter(pk__in=ids); has_filter = True
+            # Preserva a ordem de relevância que o ES devolveu — `order_by('-id')`
+            # da tela reordenaria pra cronológico e o aviso viraria mentira.
+            ordem = Case(*[When(pk=pk, then=Value(i)) for i, pk in enumerate(ids)],
+                         output_field=IntegerField())
+            qs = qs.filter(pk__in=ids).order_by(ordem); has_filter = True
     if com_link == 'sim':
         qs = qs.exclude(link='')
         has_filter = True

@@ -770,6 +770,40 @@ disk-I/O-bound, para parear campos que nem casam entre si — o fingerprint é s
 de 40 chars e o `hash` do DJEN é o opaco da API, de 30. O índice que serve para
 isso já existe e está no ES.
 
+**O que a medição no cluster obrigou a mudar no desenho.** A primeira versão
+disto ordenava por `publish_date` "porque a tela é cronológica", sem janela.
+Medido em produção (mediana de 3, frase de 3 palavras):
+
+| consulta | mediana |
+|---|---|
+| sort por data, sem filtro | **20,76 s** |
+| sort por score, sem filtro | 8,07 s |
+| + tribunal TJSP | 4,44 s |
+| + janela de 31 dias | 2,52 s |
+| **+ TJSP e janela de 31 dias** | **0,37 s** |
+| + janela de 365 dias | 7,72 s |
+
+Ordenar 1,4 bilhão de documentos por data obriga o ES a tocar todos os
+casamentos; por score ele termina cedo. Daí a ordem ser de RELEVÂNCIA — e a tela
+DIZER isso, porque lista ordenada por um critério e rotulada com outro é mentira
+barata.
+
+E a causa da lentidão restante não é CPU nem a forma da consulta: com o cluster
+em `cpu=2%`, `load1=6,77`, fila de busca zerada e zero rejeições, a mesma
+consulta repetida três vezes dá **9,28 → 3,95 → 0,79 s**. É I/O: 1,3 TB de
+índice num nó só, e as postings do termo não cabem no page cache. A média
+histórica do cluster é 0,35 s/query (1.043.283 s em 3.011.643 consultas) — o que
+custa é o termo FRIO.
+
+Consequência prática: busca por texto tem **janela** (padrão 31 dias, chips na
+tela, `busca_janela` ecoado na API) e teto de espera de 12 s. Primeira busca de
+um termo raro pode estourar; a segunda é sub-segundo. O aviso diz "demorou e foi
+interrompida — estreite", nunca "fora do ar", que mandaria o plantão procurar no
+lugar errado.
+
+O lever de capacidade, se essa cauda incomodar, é RAM/disco no nó do ES — não
+mais índice.
+
 **Consequências.**
 - `0051_indices_fantasma`: migration **só de estado** (`database_operations=[]`).
   O banco já estava certo; quem mentia era o model.

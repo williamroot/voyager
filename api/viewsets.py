@@ -79,15 +79,21 @@ class MovimentacaoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     def list(self, request, *args, **kwargs):
         """Idêntico ao padrão, mas confessa quando a busca bateu o teto.
 
-        `?q=` resolve no Elasticsearch e traz no máximo `IDS_TEXTO_TETO` PKs.
+        `?q=` resolve no Elasticsearch, com dois recortes que o cliente não
+        pediu e precisa conhecer: o teto de PKs (`busca_teto`) e a janela padrão
+        de datas (`busca_janela`, quando ele não mandou as suas).
+
         Devolver a página sem dizer isso é o corte mudo do `range(1, 11)` de
-        novo: o cliente recebe 50 resultados de 2.000 recortados de 400.000 e
-        não tem como saber a diferença.
+        novo: o cliente recebe 50 resultados de 500, recortados de 400.000 num
+        recorte de 31 dias, e não tem como saber a diferença.
         """
         resp = super().list(request, *args, **kwargs)
-        teto = getattr(request, 'busca_teto', None)
-        if teto and isinstance(resp.data, dict):
-            resp.data['busca_teto'] = teto
+        if not isinstance(resp.data, dict):
+            return resp
+        for campo in ('busca_teto', 'busca_janela'):
+            valor = getattr(request, campo, None)
+            if valor:
+                resp.data[campo] = valor
         return resp
 
 

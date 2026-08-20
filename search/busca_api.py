@@ -1169,16 +1169,38 @@ def buscar_movimentacoes(q=None, filtros=None, ordenar=None,
 # --------------------------------------------------------------------------- #
 # Busca textual PARA A TELA: devolve PKs, não documentos
 # --------------------------------------------------------------------------- #
-IDS_TEXTO_TETO = 2_000
-IDS_TEXTO_TIMEOUT = 10
+# MEDIDO no cluster de produção em 20/08/2026 (mediana de 3, `voyager-movimentacoes`
+# = alias para `voyager-movimentacoes-v2`, 1,4 bi de docs em 16 shards):
+#
+#     sort por data, sem filtro, size=200 ....... 20,76 s   ← inviável
+#     sort por score, size=200 ...................  0,99 s
+#     sort por score, size=500 ...................  1,06 s
+#     sort por score, size=2000 ..................  2,41 s
+#     sort por score, termo raro, size=200 ....... 10,54 s   ← a cauda existe
+#
+# Ordenar 1,4 bilhão de docs por data obriga o ES a tocar TODOS os casamentos;
+# por score ele termina cedo (block-max WAND). O teto de 500 fica na parte plana
+# da curva e ainda dá 10 páginas de 50.
+IDS_TEXTO_TETO = 500
+IDS_TEXTO_TIMEOUT = 12
 
 
 class BuscaIndisponivelError(RuntimeError):
-    """O ES não respondeu. Quem chama NÃO pode cair pro Postgres."""
+    """O ES não respondeu a tempo. Quem chama NÃO pode cair pro Postgres.
+
+    `demorou=True` quando estourou o teto de espera — que é diferente de estar
+    fora do ar, e a tela precisa dizer qual dos dois foi. "Fora do ar" quando o
+    índice só está lento manda o plantão procurar no lugar errado.
+    """
+
+    def __init__(self, msg, demorou=False):
+        super().__init__(msg)
+        self.demorou = demorou
 
 
-def ids_por_texto(q: str, tribunais=None, teto: int = IDS_TEXTO_TETO) -> dict:
-    """PKs de `Movimentacao` cujo texto casa com `q`, do mais recente pro mais antigo.
+def ids_por_texto(q: str, tribunais=None, de=None, ate=None,
+                  teto: int = IDS_TEXTO_TETO) -> dict:
+    """PKs de `Movimentacao` cujo texto casa com `q`, **em ordem de relevância**.
 
     Existe porque a tela de movimentações fazia `texto__icontains` direto no
     Postgres. A coluna `texto` não tem índice de busca em produção — o
@@ -1187,25 +1209,46 @@ def ids_por_texto(q: str, tribunais=None, teto: int = IDS_TEXTO_TETO) -> dict:
     requisição. O índice que serve pra isso é este aqui, e foi pra isso que os
     179 milhões de publicações que faltavam entraram nele.
 
+    RECORTE NÃO É OPCIONAL na prática. Medido no cluster, mediana de 3, com a
+    frase "honorários advocatícios sucumbenciais":
+
+        sem recorte ..................  8,07 s
+        + tribunal TJSP ..............  4,44 s
+        + janela de 31 dias ..........  2,52 s
+        + TJSP e janela de 31 dias ...  0,37 s
+        + janela de 365 dias .........  7,72 s
+
+    Um índice de 1,4 bilhão de documentos não responde texto livre nacional
+    dentro de uma requisição. Quem chama escolhe a janela e DIZ qual usou.
+
+    A ordem é de RELEVÂNCIA, não cronológica, e quem mostra tem que dizer isso —
+    lista ordenada por um critério e rotulada com outro é mentira barata. A
+    medição acima explica por quê: cronológico custa 20 s, relevância custa 1 s.
+
     O teto é ALERTA, não corte mudo: quem chama recebe `truncado` e o total
     aproximado, e tem que dizer isso na tela.
     """
-    from elasticsearch import ApiError, TransportError
+    from elasticsearch import ApiError, ConnectionTimeout, TransportError
 
     q = (q or '').strip()
     if not q:
         return {'ids': [], 'total': 0, 'truncado': False}
 
-    clauses = build_clauses_movs({'tribunal': list(tribunais or [])})
+    filtros = {'tribunal': list(tribunais or [])}
+    if de:
+        filtros['publicado_gte'] = de.isoformat() if hasattr(de, 'isoformat') else de
+    if ate:
+        filtros['publicado_lte'] = ate.isoformat() if hasattr(ate, 'isoformat') else ate
+    clauses = build_clauses_movs(filtros)
     bool_q = {'must': [_match_and('body', q)]}
     if clauses:
         bool_q['filter'] = clauses
     body = {
         'size': teto,
         'query': {'bool': bool_q},
-        # A tela é cronológica (order_by('-id')); ordenar por score aqui
-        # entregaria uma lista que a tela reordena e embaralha.
-        'sort': [{'publish_date': {'order': 'desc', 'missing': '_last'}}, {'id': 'desc'}],
+        # `_score` primeiro, `id` como desempate estável. Ordenar por
+        # `publish_date` aqui custava 20,76 s — ver a medição no topo.
+        'sort': ['_score', {'id': 'desc'}],
         '_source': ['id'],
         # `true` mandaria contar todos os casamentos de um termo comum em 1,4 bi
         # de docs. O que a tela precisa saber é só se passou do teto.
@@ -1214,6 +1257,8 @@ def ids_por_texto(q: str, tribunais=None, teto: int = IDS_TEXTO_TETO) -> dict:
     }
     try:
         resp = _executar('movimentacoes', body, request_timeout=IDS_TEXTO_TIMEOUT)
+    except ConnectionTimeout as e:
+        raise BuscaIndisponivelError(str(e), demorou=True) from e
     except (ApiError, TransportError, OSError) as e:
         raise BuscaIndisponivelError(str(e)) from e
 

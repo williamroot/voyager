@@ -101,14 +101,35 @@ def test_teto_e_alerta_nunca_corte_mudo():
     assert r['truncado'] is True, 'bateu o teto e não avisou'
 
 
-def test_ordena_por_data_e_nao_por_score():
-    """A tela é cronológica; devolver por relevância seria embaralhar."""
+def test_ordena_por_relevancia_e_nao_por_data():
+    """Cronologico aqui custa 20 s; relevancia custa 1 s. Medido, nao suposto.
+
+    A primeira versao disto ordenava por `publish_date` "porque a tela e
+    cronologica". Medido no cluster de producao, mediana de 3: sort por data sem
+    filtro = 20,76 s; por score = 0,99 s. Ordenar 1,4 bilhao de docs por data
+    obriga o ES a tocar TODOS os casamentos; por score ele termina cedo.
+
+    A tela paga esse preco preservando a ordem do ES e DIZENDO que a ordem e de
+    relevancia — lista ordenada por um criterio e rotulada com outro e mentira.
+    """
     from search.busca_api import ids_por_texto
     with patch('search.busca_api._executar', return_value=_resposta_es(1, 1)) as ex:
         ids_por_texto('x')
     corpo = ex.call_args.args[1]
-    assert corpo['sort'][0] == {'publish_date': {'order': 'desc', 'missing': '_last'}}
-    assert corpo['_source'] == ['id'], 'trazer o body inteiro de 2.000 hits é desperdício'
+    assert corpo['sort'][0] == '_score'
+    assert corpo['sort'][1] == {'id': 'desc'}, 'sem desempate estavel a paginacao embaralha'
+    assert corpo['_source'] == ['id'], 'trazer o body inteiro de 500 hits e desperdicio'
+
+
+def test_timeout_e_distinguido_de_indice_fora_do_ar():
+    """"Fora do ar" quando esta so lento manda o plantao procurar no lugar errado."""
+    from elasticsearch import ConnectionTimeout
+
+    from search.busca_api import BuscaIndisponivelError, ids_por_texto
+    with patch('search.busca_api._executar', side_effect=ConnectionTimeout('lento')), \
+         pytest.raises(BuscaIndisponivelError) as e:
+        ids_por_texto('x')
+    assert e.value.demorou is True
 
 
 def test_tem_teto_de_espera():
@@ -173,3 +194,60 @@ def test_termo_curto_continua_ignorado():
     from api.filters import MovimentacaoFilter
     qs = Movimentacao.objects.all()
     assert MovimentacaoFilter().filter_search(qs, 'q', 'ab') is qs
+
+
+# --------------------------------------------------------------------------- #
+# Janela: 1,4 bilhão de docs não responde texto livre nacional numa requisição
+# --------------------------------------------------------------------------- #
+def test_janela_vira_clausula_de_range():
+    import datetime
+
+    from search.busca_api import ids_por_texto
+    with patch('search.busca_api._executar', return_value=_resposta_es(1, 1)) as ex:
+        ids_por_texto('x', tribunais=['TJSP'],
+                      de=datetime.date(2026, 7, 20), ate=datetime.date(2026, 8, 20))
+    filtros = ex.call_args.args[1]['query']['bool']['filter']
+    assert {'term': {'tribunal': 'TJSP'}} in filtros
+    assert {'range': {'publish_date': {'gte': '2026-07-20', 'lte': '2026-08-20'}}} in filtros
+
+
+@pytest.mark.django_db
+def test_api_sem_datas_usa_janela_padrao_E_CONFESSA():
+    """Estreitar em silêncio seria entregar um recorte como se fosse o acervo.
+
+    Medido no cluster: sem janela, a mediana é 8,07 s e o teto de espera estoura
+    com frequência. A janela padrão é necessária — mas tem que aparecer na
+    resposta, e é o que `busca_janela` faz.
+    """
+    from unittest.mock import Mock
+
+    from tribunals.models import Movimentacao
+
+    from api.filters import JANELA_BUSCA_PADRAO_DIAS, MovimentacaoFilter
+    f = MovimentacaoFilter(data={}, request=Mock(spec=[]))
+    with patch('search.busca_api.ids_por_texto',
+               return_value={'ids': [], 'total': 0, 'truncado': False}) as ip:
+        f.filter_search(Movimentacao.objects.all(), 'q', 'precatório')
+
+    assert ip.call_args.kwargs['de'] is not None, 'buscou 1,4 bi sem janela'
+    assert (ip.call_args.kwargs['ate'] - ip.call_args.kwargs['de']).days == JANELA_BUSCA_PADRAO_DIAS
+    assert f.request.busca_janela['dias'] == JANELA_BUSCA_PADRAO_DIAS, 'estreitou calado'
+
+
+@pytest.mark.django_db
+def test_api_respeita_a_janela_que_o_cliente_mandou():
+    from unittest.mock import Mock
+
+    from tribunals.models import Movimentacao
+
+    from api.filters import MovimentacaoFilter
+    f = MovimentacaoFilter(
+        data={'data_disponibilizacao__gte': '2024-01-01',
+              'data_disponibilizacao__lte': '2024-03-01'},
+        request=Mock(spec=[]))
+    with patch('search.busca_api.ids_por_texto',
+               return_value={'ids': [], 'total': 0, 'truncado': False}) as ip:
+        f.filter_search(Movimentacao.objects.all(), 'q', 'precatório')
+
+    assert ip.call_args.kwargs['de'] == '2024-01-01'
+    assert not hasattr(f.request, 'busca_janela'), 'anunciou padrão que não aplicou'

@@ -1,3 +1,6 @@
+import datetime
+
+from django.utils import timezone
 from django_filters import rest_framework as filters
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -5,6 +8,7 @@ from rest_framework.exceptions import APIException
 from tribunals.models import IngestionRun, Movimentacao, Process
 
 MIN_SEARCH_LENGTH = 3
+JANELA_BUSCA_PADRAO_DIAS = 31
 
 
 class BuscaIndisponivel(APIException):
@@ -86,13 +90,30 @@ class MovimentacaoFilter(filters.FilterSet):
 
         tribunais = [t for t in (self.data.get('tribunal'),) if t]
         tribunais += [t for t in (self.data.get('tribunal__in') or '').split(',') if t]
+        de = self.data.get('data_disponibilizacao__gte')
+        ate = self.data.get('data_disponibilizacao__lte')
+        janela_padrao = not de and not ate
+        if janela_padrao:
+            # Sem janela, a mediana medida no cluster é 8,07 s e o teto de espera
+            # estoura com frequência — 1,4 bilhão de documentos não respondem
+            # texto livre nacional dentro de uma requisição. A janela padrão é
+            # ECOADA na resposta (`busca_janela`): estreitar em silêncio seria
+            # entregar um recorte como se fosse o acervo.
+            ate = timezone.localdate()
+            de = ate - datetime.timedelta(days=JANELA_BUSCA_PADRAO_DIAS)
         try:
-            achado = ids_por_texto(value, tribunais=tribunais)
+            achado = ids_por_texto(value, tribunais=tribunais, de=de, ate=ate)
         except BuscaIndisponivelError as e:
             # Cair pro Postgres seria trocar "não consigo responder" por uma
             # resposta errada — e ainda por cima varrendo 815 GB pra errar.
             raise BuscaIndisponivel from e
 
+        if self.request is not None and janela_padrao:
+            self.request.busca_janela = {
+                'de': str(de), 'ate': str(ate), 'dias': JANELA_BUSCA_PADRAO_DIAS,
+                'motivo': ('busca sem data_disponibilizacao__gte/__lte usa janela '
+                           'padrão; passe as datas para ampliar'),
+            }
         if self.request is not None and achado['truncado']:
             # Teto é alerta, nunca corte mudo: o viewset devolve isto no corpo.
             self.request.busca_teto = {
