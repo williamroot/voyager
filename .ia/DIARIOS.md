@@ -146,7 +146,7 @@ está errado** — abrir discussão, não acrescentar `if slug ==`.
 
 | Peça existente | Como é reusada |
 |---|---|
-| `Movimentacao` | destino de todas as fontes com tribunal. Sem coluna nova (são ~65M linhas num Postgres disk-I/O-bound) |
+| `Movimentacao` | destino de todas as fontes com tribunal. Sem coluna nova (medido em 20/08/2026: **1,39 BILHÃO** de linhas, 815 GB de heap, num Postgres disk-I/O-bound — a doc dizia "~65M", 21× defasado) |
 | `IngestionRun` | 1 run por unidade, agora com **`fonte`** (migration `tribunals/0048`) |
 | `Process` | criado por CNJ inédito, igual ao DJEN |
 | `ProxyScrapePool` | `SessaoDiario` usa o mesmo pool — mas **nenhuma** fonte precisou de proxy (todas responderam de IP datacenter sem 403) |
@@ -218,7 +218,7 @@ verde. Os dois fatos agora são distintos, e o motivo fica escrito no
    `Segredo de Justiça`/`Sigiloso`, com corpo completo — a API pública serve, mas
    ela mesma marca a confidencialidade. Entrar no mesmo pool buscável sem
    tratamento merece decisão explícita.
-4. **`texto` do STF é XHTML**, não texto puro como as ~65M linhas do DJEN: 24%
+4. **`texto` do STF é XHTML**, não texto puro como as ~1,39B linhas do DJEN: 24%
    do documento é `<head>`+CSS. Isso vaza HOJE para o CSV/XLSX do cliente
    (`dashboard/views.py`, `ultima_mov_texto = texto[:500]`), para o painel de
    movimentações e para o índice do ES (que não tem `html_strip`). Ou o coletor
@@ -274,7 +274,7 @@ Três camadas, da mais barata para a mais cara. **Só a primeira é obrigatória
    `2008-06-09 → 2024-07-31`. No caso normal a interseção é vazia e **não há o
    que deduplicar**.
 2. **Namespace no `external_id`** — `<slug>:<coordenada>-<sha1_12(texto)>`. O
-   DJEN é o namespace **legado, sem prefixo** (re-prefixar 65M linhas quebraria a
+   DJEN é o namespace **legado, sem prefixo** (re-prefixar 1,39B linhas quebraria a
    idempotência da ingestão corrente). O hash do CONTEÚDO, em vez do ordinal do
    bloco, é o que impede a re-segmentação de duplicar a edição inteira.
 3. **Fingerprint** — `Movimentacao.hash = fingerprint_ato(cnj, data, texto)`
@@ -294,6 +294,14 @@ Ingestão é append-only; conflito quem resolve é a leitura.
 ---
 
 ## 8. Runbook — ligar em produção
+
+> **Veredito do canário de 20/08/2026: NÃO PASSOU — e o motivo não é o PDF.**
+> A troca do extrator está de pé e conferida em produção; o que impede ligar é
+> um índice AUSENTE no banco (pré-requisito 4). O gate dos 32.366 CNJs nunca
+> chegou a ser medido ao vivo: a coleta travou ANTES, no `SELECT` de
+> sobreposição. Nada foi persistido, nada duplicou com o DJEN, e o `tjsp-dje`
+> está PAUSADO no kill switch — estado mais conservador que o inicial, de
+> propósito. Reverter é `manage.py diarios_pausar --religar tjsp-dje`.
 
 **Estado dos pré-requisitos — conferido em produção em 20/08/2026:**
 
@@ -324,8 +332,12 @@ Ingestão é append-only; conflito quem resolve é a leitura.
 
    **Pendente na `.103`** (`voyager-web-1` ainda dá `ModuleNotFoundError`).
    Não foi feito de propósito: o `web` de lá roda `migrate --noinput` no boot
-   (o que esta casa proíbe fazer por deploy) e o checkout tem alteração não
-   commitada. Enquanto não for feito, **rodar a coleta manual pelo container da
+   (o que esta casa proíbe fazer por deploy) e o checkout tem arquivos soltos.
+   Conferido em 20/08/2026: os soltos da tela de completude (`completude_*.py`,
+   `completude.html`, `dashboard/urls.py`) são **byte a byte iguais** ao que já
+   está na `main` (md5 confere) — foram hot-deploy por cópia, não trabalho
+   perdido. O `git pull --ff-only` lá é seguro; o que ele arrasta junto é o
+   deploy da tela de completude, que é outra mudança. Enquanto não for feito, **rodar a coleta manual pelo container da
    `.102`**, não pelo `web`:
    ```bash
    ssh ubuntu@192.168.30.102 'docker exec voyager-worker_diarios-1 python manage.py diarios_coletar tjsp-dje ...'
@@ -353,8 +365,99 @@ Ingestão é append-only; conflito quem resolve é a leitura.
    porque quem enfileira é o agendamento, e ele continua desligado. Medido logo
    após subir: 113 MiB de RSS em repouso, fila em 0 job, `Listening on
    diarios...` nos dois containers.
-4. **Decidir §5.1 (CNJ de origem)** antes de ligar `stf` ou o STJ.
-5. **Medir sobreposição com o acervo de produção** (§2) antes de dimensionar.
+4. **BLOQUEANTE — o índice de `Movimentacao.hash` NÃO EXISTE em produção.**
+   Achado do canário de 20/08/2026, confirmado duas vezes por gente diferente.
+   `tribunals/models.py` DECLARA `models.Index(fields=['hash'])`, mas
+   `pg_indexes` lista **9 índices** em `tribunals_movimentacao` e **nenhum**
+   tem `hash` na chave. `makemigrations --check` não pega isso nunca: ele
+   compara o model com o ESTADO DAS MIGRATIONS, jamais com o banco.
+
+   Por que isso é bloqueante para os diários, e não uma lentidão qualquer:
+   `diarios/base.py::coletar_unidade` chama `espelhadas_no_lote()` **antes de
+   cada lote persistido** (lote = 500), e essa função faz
+   `Movimentacao.filter(tribunal=…, hash__in=[…]).count()`. Sem índice de
+   `hash`, o plano medido em produção é:
+
+   ```
+   Parallel Index Scan using mov_inserido_tribunal_idx
+     Index Cond: tribunal_id = 'TJSP'      ← varre TODO o TJSP
+     Filter:     hash = ANY (...)
+   custo estimado 73.265.231
+   ```
+
+   Tamanho real da tabela, medido (e não os "~65M" que a documentação repetia):
+   **1.385.659.648 linhas** (`reltuples`), **815 GB** de heap, **1.613 GB** com
+   índices. No canário, um lote de **11 hashes** ficou **313 s** ativo em
+   `pg_stat_activity` com 5 backends paralelos e não terminou. O caderno do
+   gate tem 29 mil itens ⇒ ~59 lotes ⇒ o banco ficaria horas nisso.
+
+   Duas decisões humanas, nesta ordem, antes de qualquer coleta:
+   · **`espelhadas_no_lote()` deve existir por lote?** Ela é MÉTRICA, não dado
+     ("não altera a gravação", diz a própria docstring), está no caminho da
+     gravação e não tem teto de espera — o formato exato da regra nº 7 do
+     `CLAUDE.md`, que já derrubou o site uma vez. O barato é medir sobreposição
+     por amostra, depois, fora do caminho crítico.
+   · **Criar o índice** (`CREATE INDEX CONCURRENTLY` em 815 GB, com o Postgres
+     já disk-I/O-bound) é obra própria, com janela e acompanhamento — não é
+     coisa de canário. Vale conferir junto os outros índices que o model
+     declara e o banco não tem: `mov_search_vector_gin`, `mov_texto_trgm` e o
+     de `classe`.
+5. **Decidir §5.1 (CNJ de origem)** antes de ligar `stf` ou o STJ.
+6. **Medir sobreposição com o acervo de produção** (§2) antes de dimensionar —
+   com um primeiro número já na mão, do canário: no dia 12/03/2025 o DJEN já
+   tem **62.849** movimentações do TJSP (39.405 CNJs distintos) DENTRO da
+   janela que o coletor declara exclusiva (2007-10-01 → 2025-03-13). O DJEN
+   cobre o TJSP desde **2023-08-14**; a borda superior da janela do §7 está
+   errada e precisa recuar antes de qualquer backfill que atravesse 2023.
+
+**Canário em produção — o gate NUMÉRICO para quem repetir (20/08/2026).**
+Não é "rodou sem estourar": é bater número por número. O que já foi conferido
+ao vivo e o que cada linha tem que devolver:
+
+| # | Passo | Gate — o número exato | Estado em 20/08/2026 |
+|---|---|---|---|
+| 1 | `diarios_pausar --listar` / `--pausar` / `--religar` | a fonte aparece e some da lista de pausadas; 5 fontes registradas | **passou** |
+| 2 | `showmigrations` + `migrate --plan` **pelo worker**, nunca pelo boot do `web` | `No planned migration operations`; `diarios/0001` e `diarios_entes/0001` `[X]`; `tribunals/0048-0049-0050` `[X]` | **passou** (0 pendentes, nada aplicado) |
+| 3 | worker da fila `diarios` | 2 réplicas `Up`, `Listening on diarios...`, `import pymupdf` → **1.24.14**, fila em 0 | **passou** |
+| 4 | `diarios_coletar tjsp-dje --de 2025-03-12 --ate 2025-03-12 --dry-run` | **4.162** edições em **1** request | **passou** |
+| 5 | `--catalogar`, duas vezes | 1ª: 8 unidades novas · 2ª: **0** novas (idempotente) | **passou** |
+| 6 | coleta do caderno **12** de 12/03/2025 (Capital Parte I, 4.229 págs) | **≥32.000** CNJs distintos pela regex ESTRITA (offline deu 32.366) e cobertura **≥95%** (offline: 99,751%) | **NÃO MEDIDO** — travou no passo 7 |
+| 7 | `espelhadas_no_lote()` antes de cada lote | tem que ser **instantâneo** | **REPROVOU**: 313 s ativo para 11 hashes, sem índice de `hash` (pré-requisito 4) |
+| 8 | conferência dos dois lados no mesmo dia | movs `tjsp-dje` antes = depois; DJEN **62.849** antes = depois; atos espelhados = 0; `external_id` repetido = 0 | **passou** (nada foi gravado) |
+| 9 | site durante a coleta | **200** em toda amostra | **1 falha em 161** amostras (HTTP 520 às 20:32:21, 11,79 s). Não atribuído à coleta: o log do nginx da origem tem buraco de 23 s no horário, ou seja o pedido nunca chegou lá. Causa **não provada** — fica registrado como não provado |
+
+Como contar `tjsp-dje` no banco sem derrubar nada: **não** use
+`external_id LIKE 'tjsp-dje:%'` — a coluna está em collation `en_US.UTF-8`, o
+`LIKE` não usa o índice e a consulta estoura o `statement_timeout` (testado).
+Use a faixa, que casa com `uniq_mov_tribunal_extid`:
+`WHERE tribunal_id='TJSP' AND external_id >= 'tjsp-dje:' AND external_id < 'tjsp-dje;'`
+(voltou em milissegundos). Triangule sempre com `EdicaoDiario.itens_gravados` e
+com `IngestionRun.exclude(fonte='djen')`, porque contagem de um lado só não
+prova nada.
+
+**Quanto custa o backfill, com o número medido — e por que a conta de CPU é a
+parte fácil.** O catálogo devolve **4.162 edições** e o único dia catalogado ao
+vivo (12/03/2025) tem **8 cadernos** ⇒ ~**33 mil cadernos**. Custo por caderno,
+medido no MAIOR conhecido (Capital Parte I, 36 MB, 4.229 págs): **16,3 s** só de
+extração PyMuPDF, **44,8 s** de extração + segmentação, **67,2 s** rodando o
+coletor real do repo. Extrapolando o maior caderno para todos (superestima, a
+média não foi medida) e com as 2 réplicas de hoje:
+
+| a 16,3 s (só extração) | a 44,8 s (pipeline) | a 67,2 s (coletor real) |
+|---|---|---|
+| 151 h CPU ⇒ **~3,1 dias** | 414 h CPU ⇒ **~8,6 dias** | 621 h CPU ⇒ **~13 dias** |
+
+O gargalo REAL não é esse. É o banco: (a) `espelhadas_no_lote()` sem índice de
+`hash` levou 313 s para **11** hashes — nessa taxa o backfill não termina nunca;
+(b) o caderno medido produz **29.037** itens, e mesmo supondo média de 1/4 disso
+são ~**240 milhões** de linhas novas num Postgres que já tem 1,39B linhas e
+1,6 TB, disk-I/O-bound. **Decidir o recorte de volume (§5.2) e o destino do
+`espelhadas_no_lote()` vem ANTES de qualquer conta de CPU.**
+
+**Zumbicida:** `watchdog_ingestao` (`djen/jobs.py:255`) **não filtra por fonte**.
+Run de diário abortado que ficar `running` vira "worker crashou" em 1 h — causa
+FALSA no histórico. Ao abortar uma coleta à mão, feche o `IngestionRun` você
+mesmo, com a causa real em `erros`.
 
 **Sequência sugerida — uma fonte por vez, começando pela menor:**
 
@@ -405,7 +508,7 @@ fonte; `janela_*` com data medida; zero alteração em arquivo alheio.
 
 | Fonte | Gate mecânico | Resultado |
 |---|---|---|
-| `tjsp-dje` | catálogo = 4.162 edições em 1 request; ≥95% dos CNJs tolerantes segmentados; **canário do extrator**: ≥32.000 CNJs distintos pela regex ESTRITA no caderno de 4.229 páginas | **99,1%** (2025), **99,7%** (2015), **96,1%** (caderno 11), **99,751%** (Capital Parte I de 12/03/2025, 4.229 páginas). Canário reconferido em 20/08/2026 no container de dev, mesmo arquivo, dois extratores: PyMuPDF **32.366** estritos / 32.575 tolerantes / 44,8 s / RSS 185 MB contra pypdf **27.483** / 32.575 / 184,1 s / RSS 425 MB; por linha, **23** com CNJ partido contra **5.866**. 39 + 11 testes |
+| `tjsp-dje` | catálogo = 4.162 edições em 1 request; ≥95% dos CNJs tolerantes segmentados; **canário do extrator**: ≥32.000 CNJs distintos pela regex ESTRITA no caderno de 4.229 páginas | **99,1%** (2025), **99,7%** (2015), **96,1%** (caderno 11), **99,751%** (Capital Parte I de 12/03/2025, 4.229 páginas). Canário reconferido em 20/08/2026 **no container de dev** (em PRODUÇÃO ele nunca chegou a rodar — a coleta travou antes, §8), mesmo arquivo, dois extratores: PyMuPDF **32.366** estritos / 32.575 tolerantes / 44,8 s / RSS 185 MB contra pypdf **27.483** / 32.575 / 184,1 s / RSS 425 MB; por linha, **23** com CNJ partido contra **5.866**. 39 + 11 testes |
 | `dejt` | ≥95% das 16.717 matérias que a fonte declara para o TRT3 em 10/07/2024; prova de que não usa `j_id` literal | **18.768** (112%). 57 testes |
 | `stf` | 1 dia útil em ≤2 requests; `total` == ids distintos; resolver devolve `0000876-17.2013.8.16.0021` para `ARE 1617690`; publicação sem CNJ não é gravada | passou. 29 testes |
 | `diarios_entes` | model próprio; `Terms` contra `SearchTerms` (117 contra 487.579); rejeição da SPA do RS; os 3 CNJs de Maceió | passou. 25 testes |
@@ -439,6 +542,10 @@ Registradas para não virarem surpresa. Nenhuma bloqueia, todas custam.
 | `qd-municipal` | um CNJ da tabela de Maceió está grafado com ponto no lugar do hífen **no original** e não é achado. É erro da fonte; corrigir seria chutar em cima de número de processo |
 | `diarios_entes` | não emite `SchemaDriftAlert` (a tabela exige `tribunal` NOT NULL e esta fonte não tem tribunal). O drift vira exceção alta + log |
 | todas | `janela_horaria` é **declarativa**: o runner não a lê. O teto real é `rps` + kill switch |
+| todas | **`espelhadas_no_lote()` está no caminho da gravação, é métrica, e não tem teto de espera.** Roda antes de cada lote de 500 e faz `count()` por `hash` em 1,39B linhas SEM índice de `hash` (§8, pré-requisito 4): 313 s medidos para 11 hashes. Formato exato da regra nº 7 do `CLAUDE.md` |
+| todas | o índice de `hash` declarado em `tribunals/models.py` **não existe no banco** — e `makemigrations --check` nunca pega, porque compara model com migrations, não com o banco. Mesma coisa em `mov_search_vector_gin`, `mov_texto_trgm` e no índice de `classe` |
+| `tjsp-dje` | `janela_fim = 2025-03-13` está **errada nessa borda**: o DJEN cobre o TJSP desde **2023-08-14** e já tem 62.849 movimentações só no dia 12/03/2025. A janela de exclusividade do §7 sobrepõe ~19 meses com o DJEN |
+| todas | `watchdog_ingestao` (`djen/jobs.py:255`) **não filtra por fonte**: run de diário deixado `running` vira "worker crashou" em 1 h — causa falsa no histórico |
 
 ---
 

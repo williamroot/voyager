@@ -82,10 +82,15 @@ BATCH_SIZE = 500
 # segunda porta seria silenciosamente engolida pelo ignore_conflicts.
 #
 # REGRA: todo coletor NOVO prefixa `<slug>:`; o DJEN é o namespace LEGADO e
-# continua sem prefixo — são ~65 milhões de linhas em produção, e re-prefixar
-# quebraria a idempotência de toda a ingestão corrente (a re-ingestão passaria
-# a duplicar tudo). Legado sem prefixo, novo com prefixo, e o prefixo vira o
-# discriminador de leitura: `external_id LIKE 'tjsp-dje:%'`.
+# continua sem prefixo — são ~1,39 BILHÃO de linhas em produção (medido em
+# 20/08/2026; o "65 milhões" que esta linha dizia estava 21× defasado), e
+# re-prefixar quebraria a idempotência de toda a ingestão corrente (a
+# re-ingestão passaria a duplicar tudo). Legado sem prefixo, novo com prefixo,
+# e o prefixo vira o discriminador de leitura — mas NÃO por `LIKE`: a coluna
+# está em collation `en_US.UTF-8`, `external_id LIKE 'tjsp-dje:%'` não usa
+# índice nenhum e estoura o statement_timeout (medido). O que usa o índice
+# `uniq_mov_tribunal_extid` é a FAIXA:
+#     tribunal_id = 'TJSP' AND external_id >= 'tjsp-dje:' AND external_id < 'tjsp-dje;'
 FONTE_DJEN = 'djen'
 
 #: `Movimentacao.external_id` é CharField(max_length=64). O truncamento
@@ -152,7 +157,7 @@ def fingerprint_ato(cnj: str, quando: date | datetime, texto: str) -> str:
     para a pergunta "esta publicação do DJE/TJSP é o mesmo ato que aquela do
     DJEN?" — que é a pergunta da deduplicação entre portas.
 
-    RESSALVA HONESTA, para não vender o que não entrega: as ~65M de linhas
+    RESSALVA HONESTA, para não vender o que não entrega: as ~1,39B de linhas
     legadas do DJEN têm em `hash` o hash OPACO da própria API, não este. Logo
     este fingerprint só casa entre fontes NOVAS, ou depois de um backfill de
     fingerprint que ninguém aprovou. A dedupe entre DJEN e diário próprio é
@@ -770,7 +775,7 @@ class ColetorDiario(ABC):
 #     e é exatamente por isso que a camada (1) é a que decide.
 #
 # O QUE NÃO FAZER, e por quê:
-#   · NÃO adicionar coluna `fonte` em `Movimentacao`: são ~65M de linhas num
+#   · NÃO adicionar coluna `fonte` em `Movimentacao`: são ~1,39B de linhas num
 #     Postgres que a documentação já classifica como disk-I/O-bound. O prefixo
 #     do external_id já discrimina, e `meio_completo` já dá o rótulo humano.
 #   · NÃO apagar/atualizar a linha do DJEN quando o diário próprio trouxer o

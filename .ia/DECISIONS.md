@@ -600,7 +600,7 @@ uma sigla inventada). O buraco é **temporal**, não geográfico.
    fonte declara o período em que é a única porta, medido contra o DJEN. No caso
    normal a interseção é vazia. Namespace no `external_id` e `fingerprint_ato`
    são camadas 2 e 3, para o que coexiste.
-5. **Sem coluna `fonte` em `Movimentacao`** (são ~65M linhas num Postgres já
+5. **Sem coluna `fonte` em `Movimentacao`** (medido 20/08/2026: 1,39B linhas / 815 GB num Postgres já
    disk-I/O-bound) — o prefixo do `external_id` discrimina. **Com** coluna
    `fonte` em `IngestionRun`, porque sem ela um run do DJE/TJSP fazia o
    `_dia_coberto` do DJEN pular o dia: perda silenciosa.
