@@ -227,7 +227,16 @@ RQ_QUEUES = {
     'leads_consumo':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 1800,  **_RQ_CONN},
     # Indexação Elasticsearch — write-through de Movimentacao/Process.
     # Fila dedicada pra não competir com default/ingestion.
-    'es_index':       {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 120,  **_RQ_CONN},
+    #
+    # 120 -> 600 em 21/08/2026. Os 120 s vinham de quando o job era UMA
+    # publicação; hoje ele carrega um LOTE de 500, e um `_bulk` de 500
+    # documentos leva 4,13 s medidos — mas o lote com texto grande (caderno de
+    # diário) leva muito mais, e ao estourar o teto do ES ele ainda é dividido
+    # e reenviado (search/jobs.py::_enviar_bulk). Medido no FailedJobRegistry
+    # em 21/08/2026: 8 dos 91 jobs de movimentação mortos eram exatamente
+    # `JobTimeoutException` de 120 s. Job morto no registry não é retentado por
+    # ninguém — vira publicação fora da busca, em silêncio.
+    'es_index':       {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,  **_RQ_CONN},
     # Download de PDFs da DJEN (Movimentacao.link → MinIO).
     'pdf_download':   {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,  **_RQ_CONN},
     # Monitoramento push — varredura diária + webhook delivery.
@@ -351,6 +360,22 @@ DIARIOS_SCHEDULER_ENABLED = env.bool('DIARIOS_SCHEDULER_ENABLED', default=False)
 # Fontes que o scheduler pode tocar quando ligado (vazio = todas as registradas).
 # É o recorte ANTES do kill switch: serve para ligar uma fonte por vez.
 DIARIOS_FONTES_AGENDADAS = env.list('DIARIOS_FONTES_AGENDADAS', default=[])
+# Entrega ao índice NA HORA da gravação, em lote de 500 (diarios/base.py::
+# _entregar_ao_indice). LIGADO por padrão: sem isto a linha coletada só chega
+# ao Elasticsearch quando o poller de 10 minutos passar por ela, e foi assim
+# que 27.619 das 220.544 linhas do DJE/TJSP de 12/03/2025 ficaram fora do
+# índice com a edição marcada `ok` (medido em 21/08/2026).
+# Desligar é decisão de DIMENSIONAMENTO de backfill, não de correção: o poller
+# reindexa as mesmas linhas depois, e o custo do trabalho dobrado, medido, é
+# 4,13 s por lote de 500 documentos. Com o gate (`DIARIOS_GATE_INDICE_ENABLED`)
+# ligado, desligar isto continua sendo seguro — só fica lento.
+DIARIOS_INDEXAR_AO_GRAVAR = env.bool('DIARIOS_INDEXAR_AO_GRAVAR', default=True)
+# Gate de completude do índice (job `diarios.jobs.conferir_indice`): conta os
+# dois lados do (tribunal, dia) e re-enfileira o que faltar. LIGADO por padrão
+# e, de propósito, FORA do `DIARIOS_SCHEDULER_ENABLED` — hoje a coleta acontece
+# à mão por `manage.py diarios_coletar`, e um gate que só roda com o
+# agendamento ligado não teria pego o caso que o criou.
+DIARIOS_GATE_INDICE_ENABLED = env.bool('DIARIOS_GATE_INDICE_ENABLED', default=True)
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)

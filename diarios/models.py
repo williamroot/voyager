@@ -65,6 +65,24 @@ class EdicaoDiario(models.Model):
     tentativas = models.PositiveIntegerField(default=0)
     ultimo_erro = models.TextField(blank=True)
     coletado_em = models.DateTimeField(null=True, blank=True)
+
+    # ── GATE DE ÍNDICE ───────────────────────────────────────────────────────
+    # "Coletada" e "buscável" eram a mesma palavra e não são a mesma coisa.
+    # Medido em 21/08/2026: os 8 cadernos do DJE/TJSP de 12/03/2025 fecharam
+    # `ok` com 220.544 linhas gravadas enquanto 27.619 delas ainda estavam FORA
+    # do Elasticsearch, esperando o poller de 10 minutos. Nada no banco dizia
+    # isso. Agora diz — e `None` aqui significa NÃO CONFERIDO, não "zero".
+    #
+    # O sufixo `_no_dia` não é enfeite: a régua mede o (tribunal, DIA) inteiro,
+    # porque recortar UMA edição exigiria filtrar por prefixo de `external_id`
+    # e o EXPLAIN em produção deu 29,2 s / 65.846 blocos lidos do disco para um
+    # único caderno. Ler estes campos como "faltam N NESTA edição" é erro de
+    # leitura — as 8 edições de um mesmo dia compartilham o mesmo número.
+    indice_conferido_em = models.DateTimeField(null=True, blank=True)
+    indice_no_es_no_dia = models.IntegerField(null=True, blank=True)
+    indice_faltando_no_dia = models.IntegerField(null=True, blank=True)
+    indice_reenfileiradas = models.IntegerField(null=True, blank=True)
+
     ingestion_run = models.ForeignKey(
         'tribunals.IngestionRun', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='edicoes',
@@ -93,6 +111,22 @@ class EdicaoDiario(models.Model):
             chave=self.chave, data=self.data, tribunal_sigla=self.tribunal_id,
             rotulo=self.rotulo, meta=self.meta or {},
         )
+
+    def carimbar_indice(self, *, no_es: int | None, faltando: int | None,
+                        reenfileiradas: int | None = None) -> None:
+        """Grava o resultado do gate de índice num único UPDATE.
+
+        `faltando=None` é abstenção — a régua não conseguiu medir um dos lados
+        (ES fora, `statement_timeout` no PG). Gravar 0 nesse caso seria dizer
+        "o dia está fechado" sem ter olhado, que é exatamente o número redondo
+        contra o qual este projeto foi escrito.
+        """
+        self.indice_conferido_em = timezone.now()
+        self.indice_no_es_no_dia = no_es
+        self.indice_faltando_no_dia = faltando
+        self.indice_reenfileiradas = reenfileiradas
+        self.save(update_fields=['indice_conferido_em', 'indice_no_es_no_dia',
+                                 'indice_faltando_no_dia', 'indice_reenfileiradas'])
 
     def marcar(self, status: str, *, itens_gravados: int = 0, itens_duplicados: int = 0,
                itens_esperados: int | None = None, erro: str = '',

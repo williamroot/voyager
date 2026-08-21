@@ -1,11 +1,15 @@
 # Diários oficiais além do DJEN — a terceira porta
 
-> **Estado em 20/08/2026:** código escrito, validado contra as fontes reais no
-> stack **dev**, com 187 testes verdes. **Não está ligado em produção**: o
-> agendamento continua DESLIGADO (`DIARIOS_SCHEDULER_ENABLED=False`) e nada foi
-> coletado. A INFRA da `.102`, sim, já está de pé — `pymupdf` na imagem e o
-> `worker_diarios` (2 réplicas) ocioso na fila vazia. O que ainda falta para
-> ligar está em [§8 Runbook — ligar em produção](#8-runbook--ligar-em-produção).
+> **Estado em 21/08/2026:** o agendamento continua DESLIGADO
+> (`DIARIOS_SCHEDULER_ENABLED=False`), mas **a primeira coleta real em produção
+> aconteceu**, à mão: os 8 cadernos do DJE/TJSP de 12/03/2025, **220.544
+> linhas**. A INFRA da `.102` está de pé (`pymupdf` na imagem, `worker_diarios`
+> com 2 réplicas). O que ainda falta para ligar o agendamento está em
+> [§8 Runbook — ligar em produção](#8-runbook--ligar-em-produção).
+>
+> Essa primeira coleta revelou o buraco que **§12** documenta: a edição fechava
+> `ok` e as linhas ficavam FORA do Elasticsearch, esperando um poller de 10
+> minutos. **Coletado não era buscável, e nada no sistema dizia isso.**
 
 > **Por que existe:** a ingestão é DJEN-only e o DJEN é veículo de **comunicação**
 > (Res. CNJ 455/2022). Medido por amostra de 300 CNJs por tribunal (15-16/08/2026),
@@ -588,6 +592,8 @@ Registradas para não virarem surpresa. Nenhuma bloqueia, todas custam.
 | todas | o índice de `hash` declarado em `tribunals/models.py` **não existe no banco** — e `makemigrations --check` nunca pega, porque compara model com migrations, não com o banco. Mesma coisa em `mov_search_vector_gin`, `mov_texto_trgm` e no índice de `classe` |
 | `tjsp-dje` | `janela_fim = 2025-03-13` está **errada nessa borda**: o DJEN cobre o TJSP desde **2023-08-14** e já tem 62.849 movimentações só no dia 12/03/2025. A janela de exclusividade do §7 sobrepõe ~19 meses com o DJEN |
 | todas | `watchdog_ingestao` (`djen/jobs.py:255`) **não filtra por fonte**: run de diário deixado `running` vira "worker crashou" em 1 h — causa falsa no histórico |
+| todas | **o gate de índice (§12) mede o (tribunal, DIA), não a edição.** Um dia do DJE/TJSP são 8 cadernos e os 8 compartilham o mesmo número — por isso os campos se chamam `indice_*_no_dia`. Recortar por edição custaria 29,2 s e 65.846 blocos lidos do disco por caderno (`EXPLAIN` em produção do `LIKE 'tjsp-dje:4161-12-%'`), e a alternativa barata seria um campo novo no doc do ES, com mapping e plano de reindex de 1,4 bilhão de documentos |
+| todas | o gate REPARA (re-enfileira) o que falta, mas **não prova que o reparo drenou**: ele carimba a edição na passada em que enfileirou. Quem quiser a prova roda `manage.py diarios_conferir_indice --tribunal X --dia D --so-medir` depois — que é exatamente o que fecha o dia 12/03/2025 em 0 |
 
 ---
 
@@ -595,12 +601,137 @@ Registradas para não virarem surpresa. Nenhuma bloqueia, todas custam.
 
 | Arquivo | O quê |
 |---|---|
-| `diarios/base.py` | contrato, runner, dedupe, kill switch, `dv_cnj_valido` |
-| `diarios/models.py`, `diarios/jobs.py` | watermark e fila |
+| `diarios/base.py` | contrato, runner, dedupe, kill switch, `dv_cnj_valido`, **entrega ao índice** (`_entregar_ao_indice`) |
+| `diarios/indice.py` | **gate de completude do índice** (§12): `conferir_dia` (os dois lados), `reparar_dia` (re-enfileira só o que falta) |
+| `diarios/management/commands/diarios_conferir_indice.py` | entrada manual do gate — `--tribunal X --dia D`, `--so-medir` |
+| `diarios/models.py`, `diarios/jobs.py` | watermark, fila e o job `conferir_indice` (cron 15 min) |
 | `diarios/fontes/{tjsp_dje,dejt,stf}/` | uma fonte por diretório |
 | `diarios_entes/` | app próprio dos DOEs de entes |
 | `djen/scheduler.py` (fim do arquivo) | agendamento, atrás de `DIARIOS_SCHEDULER_ENABLED` |
 | `core/settings.py` | bloco `DIÁRIOS PRÓPRIOS` |
 | `tests/test_diarios_base.py` + `test_diario_{tjsp_dje,dejt,stf}.py` + `test_diarios_entes.py` | 176 testes (26 do contrato + 39 tjsp-dje + 57 dejt + 29 stf + 25 entes) |
 | `tests/test_diarios_pymupdf.py` | 11 testes que travam a ADR-031: fluxo (não acúmulo), CNJ inteiro e erro explícito sem a lib. O canário do caderno de 36 MB **pula** sem a fixture pesada `tjsp_esaj/caderno3_capital_parteI_20250312.pdf` (fora do git, ver `tests/fixtures/diarios/README.md`) |
+| `tests/test_diarios_indice.py` | 14 testes do gate de índice: entrega no `on_commit`, fila morta derruba a coleta, abstenção nunca vira 0, teto é ERRO, `_bulk` por bytes e o 413, watermark que não anda no erro |
 | `.ia/DECISIONS.md` ADR-030 | por que a terceira porta, e o que foi recusado |
+
+---
+
+## 12. O gate de índice — "coletado" não é "buscável"
+
+**O incidente que criou esta seção, medido em produção em 21/08/2026.** Logo
+depois da primeira coleta real (os 8 cadernos do DJE/TJSP de 12/03/2025,
+220.544 linhas), a conferência dos dois lados do MESMO dia deu:
+
+    TJSP, 12/03/2025
+      Postgres ....... 283.393
+      Elasticsearch .. 255.709
+      FORA do índice .  27.684   (9,8% do dia)
+
+E o número não se movia entre duas medições. As 8 edições estavam
+`status=ok`, `itens_gravados=220.544`. Run verde, log limpo, número redondo —
+os três da tabela do `CLAUDE.md` de uma vez.
+
+### A causa, reconstruída à unidade
+
+`persistir_movimentacoes` grava por `bulk_create`, que **não dispara
+`post_save`**, logo o write-through de `search/signals.py` nunca é acionado. A
+docstring dizia que "a indexação é feita depois, em lote, por `reindexar_*`" —
+comando que ninguém rodava para edição coletada. Na prática, a ÚNICA coisa que
+levava essas linhas ao índice era o poller `search/sync_incremental.py`: de 10
+em 10 minutos, keyset por `id > watermark`.
+
+O log do scheduler tem a prova (horários em -03):
+
+| tick | movs enfileiradas | watermark deixado |
+|---|---|---|
+| 21:33:37 | 96.117 | 1.662.856.501 |
+| 21:41:38 | 75.096 | **1.663.688.937** |
+| 21:53:01 | 35.379 | 1.665.564.574 |
+
+A coleta terminou às **21:44:43** com `id` máximo **1.664.109.049**. Linhas do
+diário acima do watermark de 21:41:38: **27.619**. Somadas a 65 de resíduo
+antigo do DJEN no mesmo dia, dão **27.684** — o número relatado, exato.
+
+O tick das 21:53:01 as enfileirou e o buraco fechou sozinho. Quem mediu duas
+vezes com poucos minutos entre as medições viu o mesmo número porque **entre
+ticks de um poller nada se move** — não porque estivesse parado.
+
+**Foi ESPERA, não perda.** Conferido depois, id a id: 220.544 de 220.544 no
+índice. E a corrida do watermark (linha que commita depois da leitura do tick
+e fica abaixo dele para sempre) **não mordeu** aqui: em 5 de 5 faixas de id
+medidas, PG = ES = o que o tick enfileirou, diferença 0. Os saltos grandes de
+`id` entre ticks são valor de sequência queimado por `ignore_conflicts`, não
+linha invisível.
+
+### Por que isso é um buraco mesmo tendo fechado sozinho
+
+1. **Nada afirmava que a edição era buscável.** Se o poller estivesse desligado
+   (`sync_es:off`), freado (`FILA_ES_ALTA`), ou se a chave do watermark sumisse
+   do cache — ele **re-ancora no TOPO** e o que ficou abaixo nunca mais é lido
+   —, a edição continuaria dizendo `ok`.
+2. **A espera é ilimitada por construção.** Durante a recuperação nacional do
+   DJEN o watermark corre atrás de milhões de ids; um caderno coletado entra no
+   FIM dessa fila. Aqui foram ~9 minutos; no meio de um backfill, não é.
+3. **O poller engolia falha de enfileiramento e avançava o watermark assim
+   mesmo.** Um soluço do Redis apagava do índice, para sempre, a leva inteira
+   daquele tick — com um `WARNING` no log. Corrigido: erro no enqueue **não
+   move** o watermark.
+
+### O que passou a existir
+
+| Camada | Onde | O que faz |
+|---|---|---|
+| **Entrega na gravação** | `diarios/base.py::_entregar_ao_indice` | cada lote de 500 gravado é enfileirado na hora em `es_index` (`transaction.on_commit`) — 441 jobs para um dia, não 220.544. NÃO é religar o `post_save` |
+| **Gate mecânico do lote** | `persistir_movimentacoes` | toda linha que o lote diz ter gravado tem que ter pk; falta vira ERRO em `IngestionRun.erros`. Fila fora do ar **derruba a coleta** em vez de calar |
+| **Gate dos dois lados** | `diarios/indice.py` + job `diarios.jobs.conferir_indice` (cron 15 min) | conta PG e ES do (tribunal, dia) com a MESMA janela, re-enfileira só o que falta, carimba `EdicaoDiario.indice_*_no_dia`. Abstenção explícita: ES mudo ⇒ `None`, nunca 0, e sem carimbo |
+| **`_bulk` por bytes** | `search/jobs.py::_enviar_bulk` | o lote fecha por TAMANHO, e um `413` divide ao meio e reenvia em vez de morrer no `FailedJobRegistry` |
+
+Chaves novas em `core/settings.py`: `DIARIOS_INDEXAR_AO_GRAVAR` (default `True`)
+e `DIARIOS_GATE_INDICE_ENABLED` (default `True`, e **fora** do
+`DIARIOS_SCHEDULER_ENABLED` de propósito: a coleta de hoje é manual, e um gate
+que só rodasse com o agendamento ligado não teria pego o caso que o criou).
+
+### O segundo buraco, achado na mesma medição
+
+O `FailedJobRegistry` da fila `es_index` tinha **91 jobs
+`indexar_movimentacoes_bulk`** parados: **83 com `ApiError(413)`** (corpo acima
+do `http.max_content_length` do ES, porque o lote era contado em DOCUMENTOS e
+não em BYTES) e 8 com `JobTimeoutException` de 120 s. Eles referenciam **45.500
+publicações**, das quais **45.313 estavam fora do índice** — e ninguém
+reprocessa o `FailedJobRegistry`. Um teto que existia do lado do ES era um
+**corte mudo do nosso lado**.
+
+Corrigido em três frentes: lote por bytes (20 MB), divisão automática no 413, e
+`DEFAULT_TIMEOUT` da fila `es_index` de 120 s → 600 s (os 120 s vinham de
+quando o job era UMA publicação).
+
+### Custo, medido, para quem for dimensionar o backfill
+
+| medida | valor |
+|---|---|
+| `SELECT` dos pks por `external_id` (lote de 500, índice único) | **0,072 s** |
+| `_bulk` de 500 documentos no ES | **4,13 s** |
+| `terms` count de 220.544 ids no ES (23 perguntas) | **~1 s** |
+| `LIKE 'tjsp-dje:4161-12-%'` num dia do TJSP (`EXPLAIN` real) | **29,2 s**, 65.846 blocos lidos do disco ⇒ **descartado** como caminho do gate |
+
+A entrega na gravação faz o poller reindexar as mesmas linhas depois — trabalho
+dobrado, medido em 4,13 s por lote de 500. Para o backfill inteiro do DJE isso
+é da ordem de ~22 h de frota, contra os ~13 dias do backfill. Se um dia esse
+overhead incomodar, `DIARIOS_INDEXAR_AO_GRAVAR=0` desliga e o gate continua
+sendo a rede de segurança — fica lento, não fica errado.
+
+### Como conferir um dia à mão
+
+```bash
+manage.py diarios_conferir_indice --tribunal TJSP --dia 2025-03-12 --so-medir
+manage.py diarios_conferir_indice --tribunal TJSP --dia 2025-03-12   # mede E repara
+manage.py diarios_conferir_indice --fonte tjsp-dje --carencia-min 0  # tudo pendente
+```
+
+⚠️ **Não conte `tjsp-dje` por faixa de `external_id` no ORM.** O
+`external_id__gte='tjsp-dje:'` + `__lt='tjsp-dje;'` que esta doc sugeria para
+SQL cru devolve **0** pelo ORM: a coluna está em collation `en_US.UTF-8`, que
+ignora pontuação no nível primário, e `'tjsp-dje;'` compara como `tjspdje` —
+menor que qualquer `tjsp-dje:4161…`. Medido em 21/08/2026: a faixa devolveu 0
+onde o `LIKE` devolveu 220.544. Ancore SEMPRE por `tribunal` +
+`data_disponibilizacao` e use `LIKE` como FILTRO, nunca como caminho de acesso.

@@ -885,6 +885,50 @@ def espelhadas_no_lote(itens: list[ItemDiario], tribunal: Tribunal) -> int | Non
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. PERSISTÊNCIA — o mesmo Movimentacao, o mesmo IngestionRun
 # ─────────────────────────────────────────────────────────────────────────────
+#: Lote enfileirado por job de indexação. É o mesmo 500 do
+#: `search.jobs.indexar_movimentacoes_bulk` e do `sync_incremental`.
+CHUNK_ES = 500
+
+
+def _entregar_ao_indice(pks: list[int]) -> int:
+    """Enfileira a indexação EM LOTE das linhas recém-gravadas. Propaga erro.
+
+    Por que existe (medido em 21/08/2026, TJSP 12/03/2025): as 220.544 linhas
+    dos 8 cadernos do DJE chegaram ao Elasticsearch APENAS pelo poller
+    `search/sync_incremental.py`, que roda de 10 em 10 minutos e avança um
+    watermark por `id`. Entre o fim da coleta (21:44:43) e o tick seguinte
+    (21:53:01), **27.619** linhas ficaram acima do watermark — coletadas,
+    gravadas, invisíveis para a busca, com a edição marcada `ok`. Quem mediu no
+    meio dessa janela viu o mesmo número duas vezes e leu "parado", porque
+    entre ticks de um poller nada se move mesmo.
+
+    Depender só do poller é frágil por três motivos, todos concretos:
+      · o watermark mora no `django.core.cache`; se a chave sumir, ele
+        RE-ANCORA NO TOPO e tudo que ficou abaixo nunca mais é lido;
+      · ele tem freio por tamanho de fila (`FILA_ES_ALTA`) e kill-switch
+        (`sync_es:off`) — ambos legítimos, ambos invisíveis para o coletor;
+      · durante a recuperação nacional do DJEN o watermark corre atrás de
+        milhões de ids, e um caderno coletado entra no FIM dessa fila.
+
+    NÃO é religar o `post_save` (`search/signals.py`): aquilo enfileiraria UM
+    job por publicação — 220.544 jobs para um dia, contra 441 aqui. O lote é a
+    diferença entre write-through e negação de serviço na própria fila.
+
+    Propaga a exceção de propósito: fila fora do ar significa que a edição NÃO
+    foi entregue ao índice, e engolir isso é a perda silenciosa que este
+    projeto paga caro. A coleta falha, a edição volta a `pendente/falha` e é
+    retentada — re-coletar é idempotente (`ignore_conflicts` + external_id
+    determinístico).
+    """
+    if not pks:
+        return 0
+    import django_rq
+    fila = django_rq.get_queue('es_index')
+    for i in range(0, len(pks), CHUNK_ES):
+        fila.enqueue('search.jobs.indexar_movimentacoes_bulk', pks[i:i + CHUNK_ES])
+    return len(pks)
+
+
 def persistir_movimentacoes(itens: list[ItemDiario], tribunal: Tribunal,
                             run: IngestionRun | None) -> tuple[int, int]:
     """Grava um lote de ParsedItem como Movimentacao. Devolve (novas, duplicadas).
@@ -897,9 +941,17 @@ def persistir_movimentacoes(itens: list[ItemDiario], tribunal: Tribunal,
         processos inéditos encheria as filas (já aconteceu: TJRO 3,6M / TJRJ
         2,6M em 2026-07-11). Quem quiser enriquecer o que veio do diário faz
         isso por um comando separado, com teto.
-      · `bulk_create` NÃO dispara post_save ⇒ o write-through do Elasticsearch
-        (search/signals.py) não é acionado. Isso é intencional para o volume
-        histórico; a indexação é feita depois, em lote, por `reindexar_*`.
+      · `bulk_create` NÃO dispara post_save ⇒ o write-through por signal
+        (search/signals.py, um job POR LINHA) não é acionado, e isso continua
+        sendo intencional para o volume histórico. Mas a frase que estava aqui
+        — "a indexação é feita depois, em lote, por `reindexar_*`" — era falsa
+        na prática: ninguém rodava `reindexar_*` para edição coletada, e as
+        linhas só chegavam ao índice quando o poller de 10 minutos
+        (`search/sync_incremental.py`) passasse por elas. Medido em 21/08/2026:
+        27.619 das 220.544 linhas do dia 12/03/2025 do TJSP ficaram fora do
+        índice esperando o próximo tick, com a edição marcada `ok`. Agora o
+        próprio lote é ENTREGUE ao índice aqui, em lote de 500, no `on_commit`
+        — ver `_entregar_ao_indice`.
       · idempotência total: `ignore_conflicts=True` sobre
         UniqueConstraint(tribunal, external_id). Re-coletar uma edição é seguro.
     """
@@ -946,6 +998,30 @@ def persistir_movimentacoes(itens: list[ItemDiario], tribunal: Tribunal,
                 kwargs['classe_id'] = i.codigo_classe
             movs.append(Movimentacao(processo_id=por_cnj[i.cnj], tribunal=tribunal, **kwargs))
         Movimentacao.objects.bulk_create(movs, ignore_conflicts=True, batch_size=BATCH_SIZE)
+
+        # ENTREGA AO ÍNDICE — o lote inteiro, novas E pré-existentes.
+        #
+        # `bulk_create(ignore_conflicts=True)` não devolve pk no Postgres, então
+        # os pks vêm de um SELECT pelo índice único `uniq_mov_tribunal_extid`.
+        # Custo medido em produção (21/08/2026, lote de 500 do TJSP): **0,072 s**
+        # — três ordens de grandeza abaixo dos 4,13 s que o próprio `_bulk` de
+        # 500 documentos leva. Re-indexar as pré-existentes é de propósito: numa
+        # re-coleta o texto pode ter mudado (a troca de extrator da ADR-031 muda
+        # a quebra de linha) e a indexação é idempotente por `_id`.
+        if getattr(settings, 'DIARIOS_INDEXAR_AO_GRAVAR', True):
+            pks = list(Movimentacao.objects
+                       .filter(tribunal=tribunal, external_id__in=ext_ids)
+                       .values_list('id', flat=True))
+            if len(pks) != len(set(ext_ids)):
+                # Gate mecânico e barato: toda linha que este lote diz ter
+                # gravado tem que ter pk. Falta aqui é ERRO registrado no run —
+                # nunca um número a menos passando despercebido.
+                msg = (f'entrega ao índice INCOMPLETA: {len(pks)} pks para '
+                       f'{len(set(ext_ids))} external_id do lote')
+                logger.error('%s (%s)', msg, tribunal.sigla)
+                if run is not None:
+                    run.erros.append({'erro': 'indice_lote_incompleto', 'detalhe': msg})
+            transaction.on_commit(lambda: _entregar_ao_indice(pks))
 
         # `set(ext_ids)`, não `len(ext_ids)`: o lote pode trazer o MESMO
         # external_id duas vezes quando o diário imprime o mesmo ato duas vezes

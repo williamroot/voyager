@@ -462,4 +462,32 @@ def create_scheduler() -> BlockingScheduler:
         logger.info('diarios: agendamento DESLIGADO (DIARIOS_SCHEDULER_ENABLED=0) — '
                     'coleta só por `manage.py diarios_coletar`')
 
+    # Gate de completude do ÍNDICE — FORA do `if DIARIOS_SCHEDULER_ENABLED`, e
+    # isso é a lição inteira deste job. A coleta de diário hoje acontece à MÃO
+    # (`manage.py diarios_coletar`) com o agendamento desligado; um gate que só
+    # rodasse junto com o agendamento não teria pego o caso que o criou:
+    # 27.619 das 220.544 linhas do DJE/TJSP de 12/03/2025 fora do índice, com
+    # as 8 edições marcadas `ok` (medido em 21/08/2026).
+    #
+    # Custo em repouso: UMA query barata (edição `ok` sem carimbo de
+    # conferência). Sem edição coletada, não faz nada. Vai para a fila
+    # `default` com `job_id` fixo — nunca para a `diarios`, que num backfill
+    # tem 200 cadernos à frente, e nunca para a fila da ingestão.
+    if getattr(settings, 'DIARIOS_GATE_INDICE_ENABLED', True):
+        from diarios.jobs import agendar_conferencia_indice
+
+        scheduler.add_job(
+            agendar_conferencia_indice,
+            'interval',
+            minutes=15,
+            id='diarios_conferir_indice',
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info('agendado diarios_conferir_indice (15min) — gate de índice')
+    else:
+        logger.warning('diarios: GATE DE ÍNDICE DESLIGADO — edição coletada pode '
+                       'ficar fora da busca sem ninguém saber')
+
     return scheduler

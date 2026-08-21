@@ -59,17 +59,15 @@ PADRAO_SINAL = r'precat[óo]rio|of[íi]cio requisit[óo]rio|\mrpv\M|requisi[çc]
 
 
 def _enfileirar_processos(pks: list[int]) -> int:
-    """Enfileira indexação bulk na fila es_index. Best-effort (nunca propaga)."""
+    """Enfileira indexação bulk na fila es_index. PROPAGA erro de propósito."""
     if not pks:
         return 0
-    try:
-        import django_rq
-        q = django_rq.get_queue('es_index')
-        for i in range(0, len(pks), CHUNK):
-            q.enqueue('search.jobs.indexar_processos_bulk', pks[i:i + CHUNK])
-    except Exception:  # noqa: BLE001 — fila fora não pode derrubar o tick
-        logger.warning('enqueue es_index falhou (%d pks)', len(pks), exc_info=True)
-        return 0
+    # PROPAGA — ver o comentário em `_enfileirar_movs`. Quem chama é que decide
+    # o que fazer com o watermark, e a decisão certa é NÃO avançar.
+    import django_rq
+    q = django_rq.get_queue('es_index')
+    for i in range(0, len(pks), CHUNK):
+        q.enqueue('search.jobs.indexar_processos_bulk', pks[i:i + CHUNK])
     return len(pks)
 
 
@@ -84,14 +82,15 @@ def _enfileirar_movs(pks: list[int]) -> int:
     """
     if not pks:
         return 0
-    try:
-        import django_rq
-        q = django_rq.get_queue('es_index')
-        for i in range(0, len(pks), CHUNK):
-            q.enqueue('search.jobs.indexar_movimentacoes_bulk', pks[i:i + CHUNK])
-    except Exception:  # noqa: BLE001
-        logger.warning('enqueue movs falhou (%d pks)', len(pks), exc_info=True)
-        return 0
+    # PROPAGA. A versão anterior engolia a exceção e devolvia 0 — e quem chama
+    # avançava o watermark logo em seguida, incondicionalmente. Ou seja: um
+    # soluço do Redis no meio de um tick apagava do índice, PARA SEMPRE, todas
+    # as publicações daquela leva: o keyset só anda pra frente e ninguém
+    # revisita. Perda silenciosa com log de WARNING, que é o pior formato.
+    import django_rq
+    q = django_rq.get_queue('es_index')
+    for i in range(0, len(pks), CHUNK):
+        q.enqueue('search.jobs.indexar_movimentacoes_bulk', pks[i:i + CHUNK])
     return len(pks)
 
 
@@ -133,7 +132,13 @@ def sync_processos_novos() -> dict:
     # ordem importa: computa o sinal ANTES de indexar, senão o doc vai pro ES
     # com tem_sinal_precatorio=NULL e só corrige no próximo toque do processo.
     n_sinal = computar_sinal(pks)
-    n = _enfileirar_processos(pks)
+    try:
+        n = _enfileirar_processos(pks)
+    except Exception:      # mesma regra das movimentações:
+        # a fila cair não derruba o tick, MAS o watermark não anda.
+        logger.error('sync_es: enqueue de %d processos FALHOU — watermark '
+                     'permanece em %s.', len(pks), wm, exc_info=True)
+        return {'novos': 0, 'sinal': n_sinal, 'wm': wm, 'erro_enqueue': True}
     cache.set(_WM_PROC_ID, pks[-1], None)
     return {'novos': n, 'sinal': n_sinal, 'wm': pks[-1]}
 
@@ -152,7 +157,12 @@ def sync_processos_atualizados() -> dict:
 
     pks = list(Process.objects.filter(atualizado_em__gt=wm).order_by('atualizado_em')
                .values_list('id', flat=True)[:LIMITE_PROC_ATUALIZADOS])
-    n = _enfileirar_processos(pks)
+    try:
+        n = _enfileirar_processos(pks)
+    except Exception:      # ver acima: watermark NÃO anda no erro.
+        logger.error('sync_es: enqueue de %d processos atualizados FALHOU — '
+                     'watermark permanece em %s.', len(pks), wm, exc_info=True)
+        return {'atualizados': 0, 'wm': str(wm), 'erro_enqueue': True}
     # avança só até onde leu: se bateu o teto, o próximo tick continua daqui.
     if len(pks) < LIMITE_PROC_ATUALIZADOS:
         cache.set(_WM_PROC_TS, agora, None)
@@ -209,7 +219,15 @@ def sync_movimentacoes_novas() -> dict:
                .values_list('id', flat=True)[:LIMITE_MOVS_NOVAS])
     if not pks:
         return {'movs': 0, 'wm': wm}
-    n = _enfileirar_movs(pks)
+    try:
+        n = _enfileirar_movs(pks)
+    except Exception:      # fila fora não derruba o tick...
+        # ...mas o WATERMARK NÃO ANDA. Avançar aqui seria dar por indexadas
+        # publicações que ninguém enfileirou, e o keyset nunca volta atrás.
+        logger.error('sync_es: enqueue de %d movimentações FALHOU — watermark '
+                     'permanece em %s; o próximo tick refaz esta leva.',
+                     len(pks), wm, exc_info=True)
+        return {'movs': 0, 'wm': wm, 'erro_enqueue': True}
     cache.set(_WM_MOV_ID, pks[-1], None)
 
     saida = {'movs': n, 'wm': pks[-1], 'fila': fila}

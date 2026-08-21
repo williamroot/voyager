@@ -568,7 +568,8 @@ não é verificável sem a base toda em memória.
 | Caminho de escrita | Dispara indexação ES? | Via |
 |---|---|---|
 | `Movimentacao.save()` / delete | ✅ | signal → fila `es_index` (worker na .102) |
-| Ingestão DJEN (`bulk_create`) | ❌ signal não dispara | **tail do `reindexar_movimentacoes`** (keyset + checkpoint) |
+| Ingestão DJEN (`bulk_create`) | ❌ signal não dispara | **tail do `reindexar_movimentacoes`** (keyset + checkpoint) + `sync_es_incremental` |
+| **Diários próprios** (`diarios/base.py::persistir_movimentacoes`, `bulk_create`) | ❌ signal não dispara | ✅ **enfileira o lote na hora** (`_entregar_ao_indice`, `on_commit`, 500 por job) + **gate `diarios.jobs.conferir_indice`** que confere PG×ES do dia e repara. Ver `.ia/DIARIOS.md` §12 |
 | `Process.save()` (apply_event, classificação por save, admin) | ✅ | signal |
 | Ingestão DJEN (Process novo via `bulk_create`) | ❌ | **reindex incremental `--desde-id`** (cron sugerido) |
 | Drainer `apply_batch` (`bulk_update`/`bulk_create`) | ✅ | enqueue explícito `search.jobs.indexar_processos_bulk` no fim do batch (fix 2026-08) |
@@ -633,3 +634,42 @@ em LOTE e não disparam signal — eram buracos por onde o ES envelhecia:
 - 1º tick **ancora** os watermarks no topo (não reprocessa a base — pra isso existe o
   `reindexar_processos`). Tetos por tick, kill-switch `cache.set('sync_es:off', True)`,
   bloco que falha não derruba o tick. 7 testes em `tests/test_sync_incremental.py`.
+
+### Três coisas que este poller NÃO é (21/08/2026)
+
+Aprendidas medindo a primeira coleta real de diário próprio — os 8 cadernos do
+DJE/TJSP de 12/03/2025, 220.544 linhas (`.ia/DIARIOS.md` §12):
+
+1. **Não é write-through, é POLLER.** Entre um tick e o seguinte, nada se move.
+   Uma coleta que termina às 21:44:43 fica esperando o tick das 21:53:01 — e
+   quem mediu duas vezes dentro dessa janela leu "parado" onde era "espera".
+   Foram **27.619** publicações fora do índice, com a edição marcada `ok`.
+   Quem escreve em lote e precisa de garantia **enfileira o próprio lote**;
+   depender só daqui é depender de um watermark em cache, de um freio por
+   tamanho de fila e de um kill-switch — três coisas invisíveis para quem
+   escreveu o dado.
+2. **Não perdoa falha de enqueue.** Até 21/08/2026 `_enfileirar_movs` engolia a
+   exceção, devolvia 0, e quem chamava avançava o watermark **assim mesmo**. O
+   keyset só anda pra frente: um soluço do Redis apagava do índice, para
+   sempre, a leva inteira daquele tick, com um `WARNING` no log. Agora o erro
+   propaga e o **watermark não anda**.
+3. **A "corrida do watermark" não é o que parece.** Um salto de 1,48 milhão de
+   `id` num tick que enfileirou só 23.598 linhas assusta, mas foi medido: em
+   5 de 5 faixas, PG = ES = o que o tick enfileirou. O buraco de `id` é valor
+   de sequência queimado por `bulk_create(ignore_conflicts=True)`, não linha
+   invisível.
+
+### O `_bulk` fecha por BYTES, não só por documento
+
+`search/jobs.py::indexar_movimentacoes_bulk` montava um `_bulk` com 500
+documentos, e o texto de uma publicação não tem tamanho fixo. Medido em
+21/08/2026 no `FailedJobRegistry` da fila `es_index`: **91 jobs mortos**, 83
+deles `ApiError(413)` (corpo acima do `http.max_content_length` do ES, 100 MB
+por default) e 8 `JobTimeoutException`. Eles referenciavam **45.500**
+publicações, **45.313 fora do índice** — e **ninguém reprocessa o
+`FailedJobRegistry`**. Um teto do lado do ES virou corte mudo do nosso lado.
+
+Agora: `BULK_MAX_BYTES = 20 MB` fecha o lote por tamanho, `413` **divide ao
+meio e reenvia** (`_enviar_bulk`), documento que sozinho não cabe vira ERRO
+registrado, e o `DEFAULT_TIMEOUT` da fila `es_index` subiu de 120 s para 600 s
+(os 120 s eram de quando o job valia UMA publicação).

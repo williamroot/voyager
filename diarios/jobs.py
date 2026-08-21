@@ -9,6 +9,7 @@ um job diferente, ela provavelmente está querendo furar um teto.
 import logging
 from datetime import date, timedelta
 
+from django.utils import timezone
 from django_rq import job
 
 from .base import ColetaPausada, FonteOcupada, catalogar_fonte, coletar_unidade, listar, obter
@@ -119,6 +120,130 @@ def fontes_agendadas() -> list[str]:
 def tick_todas() -> dict:
     """Um tick por fonte agendada. É o único cron de coleta que precisa existir."""
     return {f: tick(f) for f in fontes_agendadas()}
+
+
+#: Carência antes de conferir uma edição recém-coletada. A entrega ao índice é
+#: assíncrona (fila `es_index`) e o dreno leva minutos: conferir na hora só
+#: mediria a profundidade da fila e re-enfileiraria tudo de novo. Medido em
+#: 21/08/2026: um `_bulk` de 500 documentos leva 4,13 s, e 220.544 linhas viram
+#: 441 jobs.
+CARENCIA_GATE_MIN = 20
+#: Quantos (tribunal, dia) distintos por passada. Cada um custa duas contagens
+#: baratas; só o que acusar diferença paga o reparo, que é caro.
+LOTE_GATE = 20
+
+
+@job('default', timeout=3600)
+def conferir_indice(fonte: str | None = None, limite: int = LOTE_GATE,
+                    carencia_min: int = CARENCIA_GATE_MIN, reparar: bool = True) -> dict:
+    """Gate de completude do ÍNDICE: o dia coletado fecha contra o ES, ou não?
+
+    O buraco que este job existe para fechar, medido em produção em 21/08/2026:
+    os 8 cadernos do DJE/TJSP de 12/03/2025 fecharam `ok` com **220.544** linhas
+    gravadas enquanto **27.619** delas ainda estavam FORA do Elasticsearch. O
+    coletor não sabia, o `IngestionRun` não sabia, a tela não sabia. A única
+    coisa que levava aquelas linhas ao índice era um poller de 10 minutos.
+
+    Aqui a régua mede OS DOIS LADOS (regra nº 5) e a diferença vira ERRO
+    registrado (regra nº 2) — e, quando `reparar=True`, vira também re-enfileiramento
+    do que falta. Abstenção é explícita: se o ES ou o Postgres não responderem
+    dentro do teto, o campo fica `None` e a edição NÃO recebe carimbo — nunca 0.
+
+    Idempotente: só olha edição `ok` ainda não conferida, agrupada por
+    (tribunal, dia) para não pagar a mesma medição 8 vezes no mesmo dia.
+    """
+    from .indice import conferir_dia, gate_ativo, reparar_dia
+
+    if not gate_ativo():
+        return {'skip': 'gate desligado (DIARIOS_GATE_INDICE_ENABLED=0)'}
+
+    corte = timezone.now() - timedelta(minutes=carencia_min)
+    qs = (EdicaoDiario.objects
+          .filter(status=EdicaoDiario.OK, indice_conferido_em__isnull=True,
+                  tribunal__isnull=False, coletado_em__lte=corte)
+          .exclude(itens_gravados=0))
+    if fonte:
+        qs = qs.filter(fonte=fonte)
+    # `.order_by()` NUA antes do distinct: `EdicaoDiario.Meta` tem
+    # `ordering = ['-data', 'chave']` e o Django injeta as colunas do ORDER BY
+    # no SELECT DISTINCT — sem isto o DISTINCT vale para a tupla inteira e
+    # devolve uma linha por EDIÇÃO, que foi o bug dos "8 cartões iguais".
+    dias = list(qs.order_by().values_list('tribunal_id', 'data').distinct()[:limite])
+
+    saida: dict = {'dias': [], 'conferidos': 0, 'com_buraco': 0, 'abstidos': 0,
+                   'reenfileiradas': 0}
+    for tribunal_id, dia in dias:
+        medida = conferir_dia(tribunal_id, dia)
+        faltando = medida['faltando']
+        reenfileiradas = None
+        if faltando is None:
+            # Não sei ≠ está fechado. Sem carimbo: a próxima passada tenta de novo.
+            saida['abstidos'] += 1
+            logger.warning('gate índice: ABSTENÇÃO em %s %s (pg=%s es=%s)',
+                           tribunal_id, dia, medida['pg'], medida['es'])
+            saida['dias'].append(medida)
+            continue
+        if faltando:
+            saida['com_buraco'] += 1
+            logger.error(
+                'gate índice: %s %s tem %d linhas FORA do índice (PG=%d, ES=%d, %.2f%%). '
+                'Coletado não é buscável — %s.',
+                tribunal_id, dia, faltando, medida['pg'], medida['es'],
+                100.0 * faltando / (medida['pg'] or 1),
+                'reparando' if reparar else 'reparo DESLIGADO nesta passada',
+            )
+            if not reparar:
+                # Achou buraco e não vai consertar ⇒ NÃO carimba. Carimbar aqui
+                # tiraria o dia da fila do gate para sempre, com o buraco
+                # aberto — "conferido" viraria selo de qualidade sobre perda.
+                saida['dias'].append(medida)
+                continue
+            rep = reparar_dia(tribunal_id, dia)
+            medida['reparo'] = rep
+            reenfileiradas = rep['enfileiradas']
+            saida['reenfileiradas'] += reenfileiradas
+            if rep['teto_atingido']:
+                # Teto = alerta. Sem carimbo: o dia continua em dívida.
+                saida['dias'].append(medida)
+                continue
+        edicoes = EdicaoDiario.objects.filter(
+            status=EdicaoDiario.OK, indice_conferido_em__isnull=True,
+            tribunal_id=tribunal_id, data=dia,
+        )
+        if fonte:
+            edicoes = edicoes.filter(fonte=fonte)
+        for e in edicoes:
+            e.carimbar_indice(no_es=medida['es'], faltando=faltando,
+                              reenfileiradas=reenfileiradas)
+        saida['conferidos'] += 1
+        saida['dias'].append(medida)
+
+    if saida['dias']:
+        logger.info('gate índice: %s', saida)
+    return saida
+
+
+def agendar_conferencia_indice() -> dict:
+    """Enfileira UMA conferência, com `job_id` fixo. Chamado inline pelo cron.
+
+    O `job_id` determinístico é o que impede empilhamento: se o gate anterior
+    ainda não rodou (a fila `default` também serve o `tick` e o
+    `catalogar_fronteira`), o RQ substitui o job em vez de acrescentar mais um.
+    Mesmo truque do `dia:<fonte>:<chave>` do `tick`, pelo mesmo motivo.
+
+    Fila `default`, não `diarios`: durante um backfill a fila `diarios` tem até
+    200 cadernos à frente, cada um de dezenas de segundos. O gate atrás disso
+    demoraria horas para rodar — e gate que roda tarde é gate que não roda.
+    """
+    import django_rq
+
+    from .indice import gate_ativo
+
+    if not gate_ativo():
+        return {'skip': 'gate desligado'}
+    fila = django_rq.get_queue('default')
+    fila.enqueue(conferir_indice, job_id='diarios:conferir_indice', job_timeout=3600)
+    return {'enfileirado': True}
 
 
 @job('default', timeout=600)
