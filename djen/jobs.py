@@ -400,7 +400,8 @@ def _alerta_workers_velhos(mtime_mais_novo: float) -> dict:
     O RQ já guarda o que falta: cada worker publica `birth_date` no Redis.
     Worker que nasceu ANTES do arquivo .py mais novo do projeto está, por
     construção, rodando código velho. Custa um SMEMBERS + um HGETALL por
-    worker (a frota tem ~300 containers; medido em ~0,3s).
+    worker: medido em prod com 250 workers, o tique do watchdog subiu de 1,24s
+    para 1,38-1,42s — ~0,15s, contra um orçamento de 90s.
 
     Ressalva honesta: o mtime é o do disco DESTE host. Hosts diferentes puxam o
     repo em momentos diferentes, então isto é indício forte, não prova — por
