@@ -277,6 +277,38 @@ def test_resumo_conta_os_dois_lados(trib, fila):
 
 
 @pytest.mark.django_db
+def test_erro_do_teto_separa_os_dois_relogios(trib, fila):
+    """O tempo no ERRO é de ENFILEIRAR, e a linha tem que dizer isso.
+
+    A versão anterior dizia só "≈75 min pra drenar a esse ritmo". É o tempo de
+    encher a fila a 200/tique — não o de coletar, que é outro relógio (cada job
+    é um dia inteiro de um tribunal). Medido em 21/08/2026: em 24 minutos a
+    fila foi de 33 para 1.408 jobs `f2:` enquanto os órfãos no banco caíram só
+    de 3.007 para 3.001.
+
+    Quem lê um ERRO às 3h da manhã lê rápido: ia esperar 75 minutos, ver
+    `recuperacao.orfaos` ainda alto e concluir que o watchdog quebrou de novo.
+    As duas ideias têm que caber na MESMA linha do log — nota de rodapé em
+    outro arquivo não salva quem está lendo o alerta.
+
+    Asserção por radical (`enfileir`, `coleta`), não pela frase inteira: trava
+    o significado sem quebrar a cada reescrita de estilo.
+    """
+    for i in range(J.RECUP_POR_TIQUE + 9):
+        _run(trib, datetime.date(2025, 1, 1) + datetime.timedelta(days=i), 'failed')
+
+    with patch.object(J.logger, 'error') as erro:
+        J.ressuscitar_dias_de_recuperacao()
+
+    assert erro.called
+    molde = erro.call_args.args[0].lower()
+    assert 'enfileir' in molde, 'o tempo no ERRO não diz que é de enfileirar'
+    assert 'coleta' in molde, 'não avisa que a coleta é outro relógio'
+    assert J.RECUP_POR_TIQUE + 9 in erro.call_args.args, \
+        'gritou sem dizer quantos órfãos havia'
+
+
+@pytest.mark.django_db
 def test_dia_com_bfd_na_fila_continua_voltando(trib, fila):
     """`bfd:` NÃO ocupa o dia — e essa distinção vale 97,4% da recuperação.
 

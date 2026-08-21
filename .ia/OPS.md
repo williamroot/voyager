@@ -403,24 +403,43 @@ print(watchdog_ingestao())
 "'
 ```
 
-Output:
+Output — saída REAL de 21/08/2026, 1,38s de execução contra orçamento de 90s.
+Quem abre este runbook no meio de um incidente lê o bloco, não o parágrafo:
+**a chave de leitura está dentro dele.**
+
 ```python
-{'zumbis_matados': N, 're_backfill': [...], 're_daily': [...],
- 'dias_recuperacao_reenfileirados': 200, 'etapas_puladas': [],
+{'zumbis_matados': 4,           # runs travados >1h que o tique matou
+ 're_backfill': ['TJAM'],       # tribunais cujo tick foi reenfileirado
+ 're_daily': [],
+ 'etapas_puladas': [],          # NÃO-VAZIO = banco em contenção; o tique
+                                #   terminou pela metade (e disse o que faltou)
  'codigo': {'checado': True, 'modulos_velhos': 0, 'mtime_mais_novo': ...},
+                                # modulos_velhos > 0 = deploy que NÃO recarregou
+                                #   neste worker (ver a seção abaixo)
  'frota': {'checado': True, 'total': 250, 'velhos': 244, 'atraso_horas': 150.2},
- 'falhas_no_registry': 0,
- 'recuperacao': {'orfaos': 2574, 'devolvidos': 200, 'sobraram': 2374,
+                                # velhos alto COM atraso_horas de dias = a frota
+                                #   não reiniciou. Horas soltas após deploy = normal
+ 'falhas_no_registry': 0,       # > 200 vira ERRO: algo morrendo em série
+ 'dias_recuperacao_reenfileirados': 200,
+ 'recuperacao': {'orfaos': 2574,        # órfãos que AINDA NÃO estão a caminho
+                                        #   (o que já virou `f2:` na fila sai da conta)
+                 'devolvidos': 200,     # enfileirados NESTE tique (teto RECUP_POR_TIQUE)
+                 'sobraram': 2374,      # ficam pros próximos tiques
                  'vagas_na_fila': 7532}}
 ```
 
-(saída real de 21/08/2026, 1,38s de execução contra orçamento de 90s.)
+> ⚠️ **São DOIS relógios, e confundi-los é o erro fácil às 3h da manhã.**
+> `devolvidos`/`sobraram` medem **enfileiramento** — a 200/tique de 5 min,
+> 3.007 órfãos levam ~75 min só pra ENTRAR na fila. A **coleta** é outro
+> relógio: cada job é um dia inteiro de um tribunal, então `orfaos` no banco só
+> cai depois, bem mais devagar. Medido em 21/08: em 24 min a fila foi de 33
+> para 1.408 jobs `f2:` enquanto os órfãos no banco caíram só de 3.007 para
+> 3.001. **Fila enchendo com órfãos ainda altos é o watchdog funcionando**, não
+> quebrado. O ERRO do teto diz as duas coisas na mesma linha, de propósito.
 
-`etapas_puladas` não-vazio ⇒ banco em contenção. `modulos_velhos > 0` ⇒ deploy
-que não recarregou (abaixo). `frota.velhos` alto com `atraso_horas` de dias ⇒ a
-frota não reiniciou. `recuperacao.orfaos` conta o que ainda NÃO está a caminho
-(o que já foi enfileirado como `f2:` sai da conta); `sobraram > 0` por vários
-tiques seguidos ⇒ algo está falhando em série na `djen_backfill`.
+`sobraram > 0` por muitos tiques seguidos, com a fila já drenada, aí sim ⇒ algo
+está falhando em série na `djen_backfill` (ver o OOM do TJDFT em
+[`INGESTION.md`](INGESTION.md)).
 
 ### ⚠️ Deploy que não recarrega — worker rodando código de 7 dias atrás (21/08/2026)
 

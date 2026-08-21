@@ -697,12 +697,18 @@ def ressuscitar_dias_de_recuperacao(resumo: dict | None = None) -> int:
             len(fila), BACKFILL_WATERMARK, len(candidatos), devolvidos,
         )
     elif len(candidatos) > devolvidos:
+        # O tempo abaixo é o de ENFILEIRAR, não o de coletar. Dizer só
+        # "≈75 min pra drenar" num ERRO faz quem lê às 3h da manhã esperar 75
+        # minutos, ver `recuperacao.orfaos` ainda alto e concluir que o
+        # watchdog quebrou de novo. Os dois relógios têm que estar na MESMA
+        # linha do alerta: nota de rodapé em outro arquivo não salva ninguém.
         logger.error(
             'watchdog: %d dias de recuperação órfãos, devolvi só %d neste tique — '
-            'o resto volta nos próximos (%.0f min pra drenar a esse ritmo), mas '
-            'esse número alto é sintoma',
+            'a esse ritmo são ~%.0f min só pra ENFILEIRAR os %d. A coleta é outro '
+            'relógio: cada job é um dia inteiro de um tribunal, então `orfaos` no '
+            'banco cai bem depois da fila encher. Esse número alto é sintoma',
             len(candidatos), devolvidos,
-            (len(candidatos) / max(devolvidos, 1)) * 5,
+            (len(candidatos) / max(devolvidos, 1)) * 5, len(candidatos),
         )
     elif candidatos:
         logger.warning('watchdog devolveu %d dias de recuperação órfãos', len(candidatos))
