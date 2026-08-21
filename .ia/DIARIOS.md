@@ -748,6 +748,55 @@ registry, então a conferência id a id vale para a amostra de 511 colhida do
 log, não para os 45.313. O que se sabe dos outros é que os 91 jobs rodaram sem
 falhar — nenhum voltou para o registry.
 
+### Os 5 que sobravam, e a lição de fuso outra vez
+
+Depois de tudo fechado pela régua do dia CIVIL, a régua da janela UTC ainda
+acusava 5. **Não era resíduo do diário, e não era do dia 12/03.** Medido:
+
+    janela UTC   [12T00:00Z, 13T00:00Z) ..... PG 283.393 · ES 283.388 · fora 5
+    dia civil -03 12/03 (o que o gate mede) . PG 277.110 · ES 277.110 · fora 0
+    borda de baixo [12T00:00Z, 12T03:00Z) ... PG   7.056 · ES   7.051 · fora 5
+
+As 5 têm `data_disponibilizacao` entre 00:41 e 02:53 UTC — que em horário local
+é **21:41 a 23:53 do dia 11/03**, o dia civil ANTERIOR. O gate do dia 12 estava
+certo em dizer 0; quem estava somando dois dias diferentes era a janela UTC.
+É a mesma armadilha de fuso que já produziu um alarme falso nesta casa, agora
+do outro lado da meia-noite.
+
+E o `external_id` das 5 responde de onde vieram: **`datajud:…`**. Não são do
+diário nem do DJEN — são da varredura do Datajud, que grava `Movimentacao` por
+`bulk_create` e portanto tem exatamente a mesma doença que este documento
+descreve, sem a cura. O dia civil 11/03 tinha **39** nessa situação.
+
+Fechado rodando a mesma ferramenta no dia vizinho
+(`diarios_conferir_indice --tribunal TJSP --dia 2025-03-11`: 39 ausentes, 39
+re-enfileiradas). Resultado final, nas três réguas:
+
+    janela UTC   [12T00:00Z, 13T00:00Z) ..... PG 283.393 · ES 283.393 · fora 0
+    dia civil -03 12/03 ..................... PG 277.110 · ES 277.110 · fora 0
+    dia civil -03 11/03 ..................... PG  66.121 · ES  66.121 · fora 0
+
+**Dívida que fica registrada e NÃO foi resolvida:** o `datajud/ingestion.py`
+continua dependendo só do poller. O gate desta porta não o alcança, porque ele
+só olha dia que tem `EdicaoDiario` catalogada. Ver `.ia/SEARCH_SCHEMA.md`.
+
+### O que sobrou no `FailedJobRegistry` — e por que NÃO foi re-enfileirado
+
+Depois do reparo, restam **576** falhas, **todas** de
+`indexar_processos_bulk`, com `ValueError: Invalid attribute name:
+indexar_processos_bulk` — bug anterior e de outra natureza (o nome da função
+não resolvia no worker). Zero de movimentação.
+
+Elas referenciam **607** processos distintos, e os 607 foram conferidos —
+**não por amostra, o conjunto inteiro**: **607 no índice, 0 fora**. O
+`sync_processos_atualizados` já os pegou por outro caminho. Re-enfileirar seria
+trabalho inútil num ES de um nó só e I/O-bound. Ficam ali como evidência do bug
+que ninguém investigou ainda, e não como perda de acervo.
+
+⚠️ Ao ler esse registry: `get_job_ids()` devolve por ordem de **expiração**, não
+de tempo. Amostrar os primeiros é amostra enviesada — foi assim que dois
+alarmes falsos nasceram em 21/08/2026. Embaralhe antes, e diga o tamanho.
+
 ⚠️ **Não conte `tjsp-dje` por faixa de `external_id` no ORM.** O
 `external_id__gte='tjsp-dje:'` + `__lt='tjsp-dje;'` que esta doc sugeria para
 SQL cru devolve **0** pelo ORM: a coluna está em collation `en_US.UTF-8`, que

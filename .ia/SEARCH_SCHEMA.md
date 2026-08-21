@@ -570,6 +570,7 @@ não é verificável sem a base toda em memória.
 | `Movimentacao.save()` / delete | ✅ | signal → fila `es_index` (worker na .102) |
 | Ingestão DJEN (`bulk_create`) | ❌ signal não dispara | **tail do `reindexar_movimentacoes`** (keyset + checkpoint) + `sync_es_incremental` |
 | **Diários próprios** (`diarios/base.py::persistir_movimentacoes`, `bulk_create`) | ❌ signal não dispara | ✅ **enfileira o lote na hora** (`_entregar_ao_indice`, `on_commit`, 500 por job) + **gate `diarios.jobs.conferir_indice`** que confere PG×ES do dia e repara. Ver `.ia/DIARIOS.md` §12 |
+| **Varredura Datajud** (`datajud/ingestion.py`, `bulk_create`) | ❌ signal não dispara | ⚠️ **só o `sync_es_incremental`** — mesma dependência de poller que custou 27.619 linhas ao diário. Achado em 21/08/2026 fechando o dia 12/03/2025: as 5 publicações que faltavam na janela UTC eram `external_id='datajud:…'`, e o dia civil vizinho (11/03) tinha 39. Não foi corrigido aqui: é outro app, e o gate de diário só alcança dia que tem edição catalogada. **Dívida registrada, não resolvida.** |
 | `Process.save()` (apply_event, classificação por save, admin) | ✅ | signal |
 | Ingestão DJEN (Process novo via `bulk_create`) | ❌ | **reindex incremental `--desde-id`** (cron sugerido) |
 | Drainer `apply_batch` (`bulk_update`/`bulk_create`) | ✅ | enqueue explícito `search.jobs.indexar_processos_bulk` no fim do batch (fix 2026-08) |
