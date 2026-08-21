@@ -143,6 +143,17 @@ class EdicaoDiario(models.Model):
             self.itens_duplicados = itens_duplicados
             self.coletado_em = timezone.now()
             campos += ['itens_gravados', 'itens_duplicados', 'coletado_em']
+            # Re-coletar ZERA o carimbo do gate de índice. Uma edição recoletada
+            # é uma edição por conferir: o texto pode ter mudado (a troca de
+            # extrator da ADR-031 muda a quebra de linha e portanto o doc), e
+            # manter o "conferido" antigo seria carregar um selo de qualidade
+            # emitido sobre outro conteúdo.
+            self.indice_conferido_em = None
+            self.indice_no_es_no_dia = None
+            self.indice_faltando_no_dia = None
+            self.indice_reenfileiradas = None
+            campos += ['indice_conferido_em', 'indice_no_es_no_dia',
+                       'indice_faltando_no_dia', 'indice_reenfileiradas']
         if itens_esperados is not None:
             self.itens_esperados = itens_esperados
             campos.append('itens_esperados')

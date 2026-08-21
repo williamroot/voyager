@@ -403,3 +403,30 @@ def test_watermark_nao_anda_quando_o_enqueue_falha():
         assert cache.get(si._WM_MOV_ID) == m.id - 1, 'o watermark NÃO pode andar'
     finally:
         cache.delete(si._WM_MOV_ID)
+
+
+@pytest.mark.django_db
+def test_recoletar_zera_o_carimbo_do_gate():
+    """Edição recoletada é edição POR CONFERIR.
+
+    O texto pode ter mudado — a troca de extrator da ADR-031 muda a quebra de
+    linha e portanto o documento inteiro. Manter o "conferido" antigo seria
+    carregar um selo de qualidade emitido sobre outro conteúdo, e o gate nunca
+    mais olharia para aquele dia.
+    """
+    from diarios.models import EdicaoDiario
+    from tribunals.models import Tribunal
+
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJSP', defaults={'nome': 'TJSP', 'sigla_djen': 'TJSP'})
+    e = EdicaoDiario.objects.create(
+        fonte='tjsp-dje', chave='4161-10', data=dt.date(2025, 3, 12), tribunal=t,
+        status=EdicaoDiario.OK, itens_gravados=11)
+    e.carimbar_indice(no_es=277_110, faltando=0, reenfileiradas=None)
+    assert e.indice_conferido_em is not None
+
+    e.marcar(EdicaoDiario.OK, itens_gravados=11, itens_duplicados=11)
+    e.refresh_from_db()
+    assert e.indice_conferido_em is None
+    assert e.indice_no_es_no_dia is None
+    assert e.indice_faltando_no_dia is None
