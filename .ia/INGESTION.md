@@ -280,6 +280,31 @@ Estado dos órfãos no dia da medição (janela de 7 dias):
 `réplicas × páginas = 112` descrito acima. Não é perda de dado: é trabalho
 enfileirado que o watchdog devolve a 200/tique (≈75 min pra drenar 3.007).
 
+### O que a recuperação religada trouxe à tona: OOM no TJDFT
+
+Nos primeiros 20 minutos com o watchdog funcionando, a `djen_backfill` juntou
+11 falhas — e **9 delas são `Work-horse terminated unexpectedly; waitpid
+returned 9`**, ou seja SIGKILL por memória. Todas do **TJDFT**, e sempre nos
+dias grandes (2025-07-25, 2025-08-04, 2025-08-13, 2025-08-15, …).
+
+Não é regressão do watchdog: o censo do registry ANTES do conserto já tinha
+**134** signal-9. O que mudou é que a recuperação voltou a rodar e passou a
+exercitar o caminho caro. Faz sentido ser o TJDFT: a fatia do DF é 77% do dia
+naquele tribunal (ver acima), então é o dia mais pesado do país.
+
+**Comportamento hoje:** o work-horse morre, o run fica `running` sem
+`finished_at`, o watchdog o mata como zumbi depois de 1h e a recuperação o
+devolve no tique seguinte. Ou seja: **auto-cura para os dias que passam, e um
+laço de ~1h/dia para os que não passam**. É bounded e visível
+(`recuperacao.sobraram` parado + signal-9 no censo), não é silencioso — mas é
+trabalho queimado até alguém baixar o pico de memória de `ingest_window` nesses
+dias. Pendência registrada, não resolvida aqui.
+
+```bash
+# ver se o laço está preso em algum dia
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py djen_censo_falhas djen_backfill'
+```
+
 ## Comandos manuais
 
 ```bash
