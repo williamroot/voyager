@@ -411,6 +411,32 @@ Ingestão é append-only; conflito quem resolve é a leitura.
    cobre o TJSP desde **2023-08-14**; a borda superior da janela do §7 está
    errada e precisa recuar antes de qualquer backfill que atravesse 2023.
 
+**CUIDADO ao ler o gate 6: são duas réguas diferentes, e confundi-las custa uma
+conclusão errada.** Na primeira leitura o número parecia 80,6% e "reprovado":
+
+    itens gravados ....................... 29.033
+    processos com ato próprio ............ 26.084   ← 80,6% de 32.366
+    CNJs no TEXTO gravado (regex estrita)  32.272   ← 99,7% de 32.366
+
+O gabarito offline (32.366) conta **CNJ que aparece no PDF**. Um bloco do
+caderno é UM ato, de UM processo, mas cita outros processos no corpo ("nos autos
+nº X, referente ao processo Y"). Então `processo_id` distinto SEMPRE será menor
+que "CNJ no texto", e a diferença não é perda — é a diferença entre o ato e o que
+o ato menciona. A régua comparável ao gabarito é a que roda a MESMA regex no
+`texto` gravado.
+
+**O que a primeira coleta real revelou sobre o dia 12/03/2025:**
+
+| porta | itens | CNJs distintos |
+|---|---|---|
+| diário próprio, caderno 12 | 29.033 | 26.084 |
+| DJEN, o dia inteiro | 56.566 | 35.089 |
+
+Não é comparável ainda — caderno 12 é 1 de 8. A comparação honesta exige os 8
+cadernos do dia, e é ELA que decide se a terceira porta acrescenta acervo ou
+repete o que o DJEN já trouxe. Sem esse número, ligar o agendamento é decidir no
+escuro.
+
 **Canário em produção — o gate NUMÉRICO para quem repetir (20/08/2026).**
 Não é "rodou sem estourar": é bater número por número. O que já foi conferido
 ao vivo e o que cada linha tem que devolver:
@@ -422,7 +448,7 @@ ao vivo e o que cada linha tem que devolver:
 | 3 | worker da fila `diarios` | 2 réplicas `Up`, `Listening on diarios...`, `import pymupdf` → **1.24.14**, fila em 0 | **passou** |
 | 4 | `diarios_coletar tjsp-dje --de 2025-03-12 --ate 2025-03-12 --dry-run` | **4.162** edições em **1** request | **passou** |
 | 5 | `--catalogar`, duas vezes | 1ª: 8 unidades novas · 2ª: **0** novas (idempotente) | **passou** |
-| 6 | coleta do caderno **12** de 12/03/2025 (Capital Parte I, 4.229 págs) | **≥32.000** CNJs distintos pela regex ESTRITA (offline deu 32.366) e cobertura **≥95%** (offline: 99,751%) | **NÃO MEDIDO** — travou no passo 7 |
+| 6 | coleta do caderno **12** de 12/03/2025 (Capital Parte I, 4.229 págs) | **≥32.000** CNJs distintos pela regex ESTRITA (offline deu 32.366) e cobertura **≥95%** (offline: 99,751%) | **passou** (21/08): **32.272** CNJs distintos no texto gravado = **99,7%** do gabarito. 29.033 itens, 0 duplicados, 33,5 MB de texto, `status=ok` |
 | 7 | `espelhadas_no_lote()` antes de cada lote | tem que ser **instantâneo** | **passou** (20/08, depois do fix): lote de 200 do TJSP em **1,16 s**, pareando por `(processo, data)`. Antes: 313 s para 11 hashes, e a resposta era 0 por construção — ver pré-requisito 4 |
 | 8 | conferência dos dois lados no mesmo dia | movs `tjsp-dje` antes = depois; DJEN **62.849** antes = depois; atos espelhados = 0; `external_id` repetido = 0 | **passou** (nada foi gravado) |
 | 9 | site durante a coleta | **200** em toda amostra | **1 falha em 161** amostras (HTTP 520 às 20:32:21, 11,79 s). Não atribuído à coleta: o log do nginx da origem tem buraco de 23 s no horário, ou seja o pedido nunca chegou lá. Causa **não provada** — fica registrado como não provado |
