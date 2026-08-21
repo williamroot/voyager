@@ -1,7 +1,13 @@
 import logging
+import os
+import sys
+import time
 from datetime import date, timedelta
 
+from django.conf import settings
+from django.db import connection, transaction
 from django.db.models import F, Max
+from django.db.utils import OperationalError
 from django.utils import timezone
 from django_rq import job
 
@@ -232,95 +238,287 @@ def sync_movimentacoes_bulk(process_id: int) -> dict:
 WATCHDOG_RUN_ZOMBIE_SECONDS = 60 * 60          # IngestionRun travado >1h = zumbi
 WATCHDOG_DAILY_STALE_SECONDS = 60 * 60 * 26    # Tribunal sem run success em 26h
 
+#: Orçamento INTERNO do tique, menor que o `timeout=120` do decorador.
+#:
+#: Quando o RQ mata o job por `JobTimeoutException` ele não deixa nada: os dias
+#: já devolvidos não aparecem no log, o teto não vira ERRO, e a única marca é
+#: uma linha no FailedJobRegistry — o lugar que, medido em 21/08/2026, tinha
+#: 4.259 falhas que ninguém tinha aberto. Com orçamento interno o tique SEMPRE
+#: termina falando: diz o que fez e o que não coube.
+#:
+#: Medido em 21/08/2026 com o banco sob carga de batch: as leituras do watchdog
+#: somam 1,6s e os 200 `enqueue` custam 0,17s (0,8ms cada). 90s é ~50x a medida
+#: — não é folga pra crescer, é margem pra contenção de disco.
+WATCHDOG_ORCAMENTO_S = 90
+
+#: Teto por leitura. Todo estouro histórico do watchdog (17/08/2026: 1 watchdog
+#: + 10 `tick_backfill_retroativo` mortos em 15 minutos, todos dentro de
+#: `_dias_cobertos`) foi contenção do banco, não custo de algoritmo — no mesmo
+#: código, hoje, o pior tribunal leva 0,14s. 20s é 140x a pior medida: só
+#: dispara com o banco travado, e aí falha ALTO e rápido em vez de segurar um
+#: worker da fila `default` por 120s (foi assim que o watchdog morreu: os ticks
+#: na frente dele seguraram a fila).
+WATCHDOG_SQL_TIMEOUT_S = 20
+
+#: A partir de quantas falhas no FailedJobRegistry da `default` o watchdog
+#: grita. O registry é o cemitério que ninguém visita: em 21/08/2026 ele tinha
+#: 4.259 falhas acumuladas em 4 dias (~1.390/dia) e nada no sistema apontava
+#: pra isso. Agora aponta.
+WATCHDOG_FALHAS_ALERTA = 200
+
+#: Tolerância do detector de código velho (abaixo). Um container que sobe no
+#: mesmo minuto de um `git pull` não é defeito.
+CODIGO_VELHO_TOLERANCIA_S = 120
+
+
+def _leitura_com_teto(fn, segundos: int = WATCHDOG_SQL_TIMEOUT_S):
+    """Roda `fn()` sob `statement_timeout` de verdade.
+
+    O pgbouncer roda em transaction-mode: um `SET statement_timeout` solto vai
+    pra uma conexão e a query seguinte vai pra outra. `SET LOCAL` dentro de
+    `transaction.atomic()` vale pra TODAS as queries da transação — é o padrão
+    da casa (`dashboard/tasks.py::_with_timeout`).
+    """
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            cur.execute('SET LOCAL statement_timeout = %s', [int(segundos * 1000)])
+        return fn()
+
+
+def _inicio_do_processo() -> float | None:
+    """Epoch em que subiu o processo que tem estes módulos em memória.
+
+    O RQ forka um work-horse por job, então `/proc/self` aqui nasceu segundos
+    atrás e não serve de régua — quem carregou os módulos é o PAI (o worker).
+    Lê os dois e fica com o mais antigo. Devolve None se o /proc não colaborar
+    (o detector nunca pode derrubar o watchdog).
+    """
+    def _subiu_em(pid: int) -> float:
+        with open(f'/proc/{pid}/stat', 'rb') as f:
+            # o comm vem entre parênteses e pode conter espaços: corta pelo
+            # último ')'. Depois dele o campo [0] é o 3 do proc(5), então
+            # starttime (campo 22) fica no índice 19.
+            campos = f.read().rsplit(b')', 1)[1].split()
+        ticks = float(campos[19])
+        with open('/proc/stat') as f:
+            btime = next(float(linha.split()[1]) for linha in f
+                         if linha.startswith('btime '))
+        return btime + ticks / os.sysconf('SC_CLK_TCK')
+
+    import contextlib
+    inicios = []
+    for pid in (os.getpid(), os.getppid()):
+        # /proc é diagnóstico, não contrato: se não der, o detector se cala.
+        with contextlib.suppress(Exception):
+            inicios.append(_subiu_em(pid))
+    return min(inicios) if inicios else None
+
+
+def _alerta_codigo_velho() -> dict:
+    """O worker está executando o código que está no disco? MEÇA, não suponha.
+
+    INCIDENTE 21/08/2026 — a falha mais cara do dia e a mais silenciosa.
+
+    Os dois `worker_default` subiram em 14/08 17:40 e nunca mais reiniciaram. O
+    bind-mount `.:/app` faz o `git pull` do host aparecer dentro do container,
+    mas o processo Python já tem os módulos em memória: eles seguiram rodando o
+    `djen/` de 14/08 por SETE DIAS, com run verde e log limpo.
+
+    O que isso custou, medido por sonda dentro do próprio worker:
+
+      * `ressuscitar_dias_de_recuperacao` (deploy de 19/08) NUNCA executou —
+        `hasattr(djen.jobs, 'ressuscitar_dias_de_recuperacao') == False` no
+        worker. **3.007 dias-tribunal** ficaram `failed` sem ninguém devolver;
+      * `datajud/client.py` passou a importar `djen.proxies.sessao_rotativa`,
+        que só existia no disco. O `import datajud.jobs` quebrava DENTRO do
+        work-horse e o RQ traduzia isso pra `ValueError: Invalid attribute
+        name` — **4.247 jobs do datajud mortos em ~30 ms cada**, o
+        reabastecimento da fila datajud parado por 3 dias, e a única marca era
+        o FailedJobRegistry.
+
+    Um deploy que não recarrega é indistinguível de um deploy que funcionou.
+    Agora não é: qualquer .py do projeto mais novo que o processo vira ERRO com
+    nome e idade. Custa ~200 `os.stat` (medido <5ms).
+    """
+    inicio = _inicio_do_processo()
+    if inicio is None:
+        return {'checado': False}
+    raiz = str(getattr(settings, 'BASE_DIR', '/app'))
+    limite = inicio + CODIGO_VELHO_TOLERANCIA_S
+    velhos = []
+    for nome, mod in list(sys.modules.items()):
+        arquivo = getattr(mod, '__file__', None)
+        if not arquivo or not arquivo.startswith(raiz) or not arquivo.endswith('.py'):
+            continue
+        try:
+            mtime = os.path.getmtime(arquivo)
+        except OSError:
+            continue
+        if mtime > limite:
+            velhos.append((nome, mtime))
+    if not velhos:
+        return {'checado': True, 'modulos_velhos': 0}
+    velhos.sort(key=lambda x: -x[1])
+    atraso_h = (max(m for _, m in velhos) - inicio) / 3600
+    logger.error(
+        'watchdog: WORKER RODANDO CÓDIGO VELHO — %d módulos do projeto mudaram '
+        'no disco DEPOIS que este processo subiu (o mais novo há %.1fh): %s. '
+        'O deploy não recarregou: `docker restart` no container deste worker. '
+        'Foi assim que 3.007 dias de recuperação e 4.247 jobs do datajud '
+        'morreram em silêncio em 08/2026.',
+        len(velhos), atraso_h, ', '.join(n for n, _ in velhos[:8]),
+    )
+    return {'checado': True, 'modulos_velhos': len(velhos),
+            'atraso_horas': round(atraso_h, 1),
+            'exemplos': [n for n, _ in velhos[:8]]}
+
+
+def _alerta_registry_de_falhas(fila) -> int:
+    """Falha que ninguém olha não existe. Conta o cemitério e grita.
+
+    Medido em 21/08/2026: 4.259 falhas na `default` acumuladas em 4 dias, 99,7%
+    delas do mesmo defeito (código velho), e nada no sistema apontava. O ZCARD
+    custa microssegundos — não há desculpa pra não olhar a cada 5 minutos.
+    """
+    try:
+        from rq.registry import FailedJobRegistry
+        n = len(FailedJobRegistry(queue=fila))
+    except Exception:  # registro fora não derruba o tique
+        return -1
+    if n >= WATCHDOG_FALHAS_ALERTA:
+        logger.error(
+            'watchdog: FailedJobRegistry da fila `%s` com %d jobs (teto de '
+            'alerta %d) — alguma coisa está morrendo em série e ninguém viu. '
+            'Censo: `manage.py djen_censo_falhas %s`',
+            fila.name, n, WATCHDOG_FALHAS_ALERTA, fila.name,
+        )
+    return n
+
+
 
 @job('default', timeout=120)
 def watchdog_ingestao() -> dict:
-    """Garante que a ingestão/backfill estão progredindo. Roda em cron.
+    """Garante que a ingestão/backfill estão progredindo. Roda em cron (5min).
 
     Heals:
+      0. Grita se o worker está rodando código velho e se o cemitério de
+         falhas (FailedJobRegistry) cresceu — ver `_alerta_codigo_velho`.
       1. Marca como `failed` IngestionRun com status=running e
          finished_at NULL há mais de 1h (worker crashou).
       2. Pra cada tribunal ativo com `backfill_concluido_em IS NULL`,
-         re-enfileira `run_backfill` se não houver job dele em
-         djen_backfill (pending ou started).
+         re-enfileira `tick_backfill_retroativo` se não houver job dele em
+         execução.
       3. Pra cada tribunal com backfill concluído mas sem IngestionRun
          success nas últimas 26h, re-enfileira `run_daily_ingestion`.
+      4. Devolve pra fila os dias avulsos de recuperação que morreram órfãos.
+
+    ORÇAMENTO (21/08/2026): o job tem `timeout=120` no RQ, e morrer assim
+    apaga o relatório inteiro — foi o que aconteceu em 17/08, quando o banco
+    entrou em contenção e o watchdog virou uma linha no registry. Agora cada
+    etapa confere `WATCHDOG_ORCAMENTO_S` (90s) e, se o tempo acabar, o que
+    ficou de fora sai como ERRO **com o número real**, nunca como `return`
+    discreto (regra nº 2 do CLAUDE.md).
     """
     import django_rq
 
+    fim_do_orcamento = time.monotonic() + WATCHDOG_ORCAMENTO_S
     agora = timezone.now()
+    resultado: dict = {
+        'zumbis_matados': 0, 're_backfill': [], 're_daily': [],
+        'dias_recuperacao_reenfileirados': 0, 'etapas_puladas': [],
+    }
 
-    # 1) Zumbis
-    zumbi_cutoff = agora - timedelta(seconds=WATCHDOG_RUN_ZOMBIE_SECONDS)
-    zumbis = IngestionRun.objects.filter(
-        status=IngestionRun.STATUS_RUNNING,
-        finished_at__isnull=True,
-        started_at__lt=zumbi_cutoff,
-    )
-    n_zumbis = zumbis.update(
-        status=IngestionRun.STATUS_FAILED,
-        finished_at=agora,
-        erros=['watchdog: status=running sem finished_at por >1h — worker crashou'],
-    )
-    if n_zumbis:
-        logger.warning('watchdog matou zumbis', extra={'n': n_zumbis})
-
-    # 2 + 3) Re-enfileira backfill/daily
-    backfill_q = django_rq.get_queue('djen_backfill')
-    ingestion_q = django_rq.get_queue('djen_ingestion')
-    backfill_jobs_args = _coletar_args(backfill_q)
-    ingestion_jobs_args = _coletar_args(ingestion_q)
-
-    re_backfill = []
-    re_daily = []
-    daily_stale_cutoff = agora - timedelta(seconds=WATCHDOG_DAILY_STALE_SECONDS)
+    def _sobrou_tempo(etapa: str) -> bool:
+        if time.monotonic() < fim_do_orcamento:
+            return True
+        resultado['etapas_puladas'].append(etapa)
+        logger.error(
+            'watchdog: orçamento de %ds estourado ANTES da etapa `%s` — o tique '
+            'terminou pela metade. Etapas puladas: %s. Banco em contenção é a '
+            'causa medida (17/08/2026); confira `pg_stat_activity`.',
+            WATCHDOG_ORCAMENTO_S, etapa, resultado['etapas_puladas'],
+        )
+        return False
 
     default_q = django_rq.get_queue('default')
-    default_jobs_args = _coletar_args(default_q)
 
-    for t in Tribunal.objects.filter(ativo=True):
-        if t.backfill_concluido_em is None:
-            # Usa tick_backfill_retroativo (1 dia por run) em vez de
-            # run_backfill (30 dias por chunk). Ticks ficam na fila
-            # `default` — verificamos lá pra evitar duplicar.
-            if t.sigla not in default_jobs_args and t.sigla not in backfill_jobs_args:
-                from .jobs import tick_backfill_retroativo
-                tick_backfill_retroativo.delay(t.sigla)
-                re_backfill.append(t.sigla)
-            continue
-        # Backfill concluído — confere se daily rodou recentemente.
-        # janela_fim__gte=hoje-1 distingue daily (cobre hoje) de backfill_dia
-        # (dia histórico). Sem esse filtro, qualquer backfill_dia success
-        # mascarava o daily quebrado — visto TRF1 sem ingestão por 3 dias
-        # enquanto o tick_backfill rodava normalmente.
+    # 0) O worker está rodando o código do disco? E o cemitério, cresceu?
+    resultado['codigo'] = _alerta_codigo_velho()
+    resultado['falhas_no_registry'] = _alerta_registry_de_falhas(default_q)
+
+    # 1) Zumbis
+    if _sobrou_tempo('zumbis'):
+        zumbi_cutoff = agora - timedelta(seconds=WATCHDOG_RUN_ZOMBIE_SECONDS)
+        n_zumbis = _leitura_com_teto(lambda: IngestionRun.objects.filter(
+            status=IngestionRun.STATUS_RUNNING,
+            finished_at__isnull=True,
+            started_at__lt=zumbi_cutoff,
+        ).update(
+            status=IngestionRun.STATUS_FAILED,
+            finished_at=agora,
+            erros=['watchdog: status=running sem finished_at por >1h — worker crashou'],
+        ))
+        resultado['zumbis_matados'] = n_zumbis
+        if n_zumbis:
+            logger.warning('watchdog matou zumbis', extra={'n': n_zumbis})
+
+    # 2 + 3) Re-enfileira backfill/daily
+    if _sobrou_tempo('reenfileiramento'):
+        backfill_q = django_rq.get_queue('djen_backfill')
+        ingestion_q = django_rq.get_queue('djen_ingestion')
+        backfill_jobs_args = _coletar_args(backfill_q)
+        ingestion_jobs_args = _coletar_args(ingestion_q)
+        default_jobs_args = _coletar_args(default_q)
+
+        re_backfill = []
+        re_daily = []
+        daily_stale_cutoff = agora - timedelta(seconds=WATCHDOG_DAILY_STALE_SECONDS)
         hoje = date.today()
-        ultima = (
-            IngestionRun.objects.filter(
-                tribunal=t, fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
-                janela_fim__gte=hoje - timedelta(days=1),
-            ).order_by('-finished_at').first()
-        )
-        if (ultima is None or
-            ultima.finished_at is None or
-            ultima.finished_at < daily_stale_cutoff):
-            if t.sigla not in ingestion_jobs_args:
-                from .jobs import run_daily_ingestion
-                run_daily_ingestion.delay(t.sigla)
-                re_daily.append(t.sigla)
 
-    if re_backfill or re_daily:
-        logger.warning('watchdog re-enfileirou jobs', extra={
-            're_backfill': re_backfill, 're_daily': re_daily,
-        })
+        for t in Tribunal.objects.filter(ativo=True):
+            if t.backfill_concluido_em is None:
+                # Usa tick_backfill_retroativo (1 dia por run) em vez de
+                # run_backfill (30 dias por chunk). Ticks ficam na fila
+                # `default` — verificamos lá pra evitar duplicar.
+                if t.sigla not in default_jobs_args and t.sigla not in backfill_jobs_args:
+                    tick_backfill_retroativo.delay(t.sigla)
+                    re_backfill.append(t.sigla)
+                continue
+            # Backfill concluído — confere se daily rodou recentemente.
+            # janela_fim__gte=hoje-1 distingue daily (cobre hoje) de backfill_dia
+            # (dia histórico). Sem esse filtro, qualquer backfill_dia success
+            # mascarava o daily quebrado — visto TRF1 sem ingestão por 3 dias
+            # enquanto o tick_backfill rodava normalmente.
+            ultima = _leitura_com_teto(lambda t=t: (
+                IngestionRun.objects.filter(
+                    tribunal=t, fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
+                    janela_fim__gte=hoje - timedelta(days=1),
+                ).order_by('-finished_at').first()
+            ))
+            if (ultima is None or
+                ultima.finished_at is None or
+                ultima.finished_at < daily_stale_cutoff):
+                if t.sigla not in ingestion_jobs_args:
+                    run_daily_ingestion.delay(t.sigla)
+                    re_daily.append(t.sigla)
+            if not _sobrou_tempo('reenfileiramento (parcial)'):
+                break
 
-    recuperados = ressuscitar_dias_de_recuperacao()
+        resultado['re_backfill'] = re_backfill
+        resultado['re_daily'] = re_daily
+        if re_backfill or re_daily:
+            logger.warning('watchdog re-enfileirou jobs', extra={
+                're_backfill': re_backfill, 're_daily': re_daily,
+            })
 
-    return {
-        'zumbis_matados': n_zumbis,
-        're_backfill': re_backfill,
-        're_daily': re_daily,
-        'dias_recuperacao_reenfileirados': recuperados,
-    }
+    # 4) Dias avulsos de recuperação
+    if _sobrou_tempo('recuperacao'):
+        resumo: dict = {}
+        resultado['dias_recuperacao_reenfileirados'] = (
+            ressuscitar_dias_de_recuperacao(resumo=resumo))
+        resultado['recuperacao'] = resumo
+
+    return resultado
 
 
 #: quantos dias o watchdog devolve por tique. Teto pra não inundar a fila num
@@ -331,7 +529,7 @@ RECUP_POR_TIQUE = 200
 RECUP_JANELA_DIAS = 7
 
 
-def ressuscitar_dias_de_recuperacao() -> int:
+def ressuscitar_dias_de_recuperacao(resumo: dict | None = None) -> int:
     """Devolve pra fila o dia de recuperação que falhou e ficou órfão.
 
     O watchdog antigo cuidava do fluxo diário e do backfill por tribunal, mas
@@ -345,6 +543,19 @@ def ressuscitar_dias_de_recuperacao() -> int:
 
     Não mexe em dia que já voltou sozinho: pula o que tem `success` mais recente
     que a falha, e o que já está na fila, agendado ou em execução.
+
+    NÃO pula dia que já tem `success` antigo, e isso é deliberado — MEDIDO em
+    21/08/2026: 2.929 dos 3.007 órfãos (97,4%) têm um `success` cobrindo o dia.
+    Parece redundância e não é: a recuperação nacional existe exatamente pra
+    refazer dia que fechou `success` batendo o cap de 10k
+    (`djen_reprocessar_janelas_capped`: `paginas_lidas>=100` e
+    `novas+duplicadas>=10000`). Filtrar por "já coberto" aqui apagaria 97% do
+    trabalho de recuperação achando que estava economizando.
+
+    Pelo mesmo motivo NÃO conta como ocupado um `bfd:<sigla>:<dia>` na fila
+    (medido: 45 dos 3.007, 1,5%): `backfill_dia` faz skip em dia coberto, então
+    ele NÃO refaz o dia capado — deixar o `f2:` entrar é o certo, e o `bfd:`
+    duplicado custa um skip sem request.
     """
     import django_rq
 
@@ -358,16 +569,17 @@ def ressuscitar_dias_de_recuperacao() -> int:
         pass
 
     desde = timezone.now() - timedelta(days=RECUP_JANELA_DIAS)
-    falhos = (IngestionRun.objects
-              .filter(fonte=FONTE, status=IngestionRun.STATUS_FAILED,
-                      started_at__gte=desde)
-              .exclude(janela_inicio=None)
-              .filter(janela_inicio=F('janela_fim'))
-              .values('tribunal__sigla', 'janela_inicio')
-              .annotate(ultima_falha=Max('started_at')))
+    falhos = _leitura_com_teto(lambda: list(
+        IngestionRun.objects
+        .filter(fonte=FONTE, status=IngestionRun.STATUS_FAILED,
+                started_at__gte=desde)
+        .exclude(janela_inicio=None)
+        .filter(janela_inicio=F('janela_fim'))
+        .values('tribunal__sigla', 'janela_inicio')
+        .annotate(ultima_falha=Max('started_at'))))
 
     # um SELECT só pra saber quem já foi refeito depois da falha
-    sucessos = {
+    sucessos = _leitura_com_teto(lambda: {
         (r['tribunal__sigla'], r['janela_inicio']): r['quando']
         for r in (IngestionRun.objects
                   .filter(fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
@@ -375,7 +587,7 @@ def ressuscitar_dias_de_recuperacao() -> int:
                   .filter(janela_inicio=F('janela_fim'))
                   .values('tribunal__sigla', 'janela_inicio')
                   .annotate(quando=Max('started_at')))
-    }
+    })
 
     candidatos = []
     for r in falhos:
@@ -388,19 +600,42 @@ def ressuscitar_dias_de_recuperacao() -> int:
             continue                                   # já está a caminho
         candidatos.append((chave[0], dia))
 
-    for sigla, dia in candidatos[:RECUP_POR_TIQUE]:
+    # Teto de sanidade da fila. Não é corte mudo: se não cabe, o número real
+    # sai como ERRO. A fila `djen_backfill` é buffer de dias inteiros do DJEN e
+    # o que a API do CNJ enxerga é `réplicas x DJEN_PAGINAS_PARALELAS` (regra
+    # dura: ≤ 64) — encher o buffer não acelera nada, só esconde o tamanho do
+    # problema. Medido em 21/08/2026: fila com 592 jobs, teto 8.000.
+    vagas = max(0, BACKFILL_WATERMARK - len(fila))
+    cabe = min(RECUP_POR_TIQUE, vagas)
+
+    devolvidos = 0
+    for sigla, dia in candidatos[:cabe]:
         fila.enqueue('djen.jobs.reprocessar_janela', sigla, dia, dia,
                      job_id=f'f2:{sigla}:{dia}', job_timeout=21600)
+        devolvidos += 1
 
-    if len(candidatos) > RECUP_POR_TIQUE:
+    if resumo is not None:
+        resumo.update({'orfaos': len(candidatos), 'devolvidos': devolvidos,
+                       'sobraram': len(candidatos) - devolvidos,
+                       'vagas_na_fila': vagas})
+
+    if vagas < min(RECUP_POR_TIQUE, len(candidatos)):
+        logger.error(
+            'watchdog: fila djen_backfill sem vagas (%d jobs, teto %d) — %d dias '
+            'de recuperação órfãos esperando e só %d couberam neste tique',
+            len(fila), BACKFILL_WATERMARK, len(candidatos), devolvidos,
+        )
+    elif len(candidatos) > devolvidos:
         logger.error(
             'watchdog: %d dias de recuperação órfãos, devolvi só %d neste tique — '
-            'o resto volta nos próximos, mas esse número alto é sintoma',
-            len(candidatos), RECUP_POR_TIQUE,
+            'o resto volta nos próximos (%.0f min pra drenar a esse ritmo), mas '
+            'esse número alto é sintoma',
+            len(candidatos), devolvidos,
+            (len(candidatos) / max(devolvidos, 1)) * 5,
         )
     elif candidatos:
         logger.warning('watchdog devolveu %d dias de recuperação órfãos', len(candidatos))
-    return min(len(candidatos), RECUP_POR_TIQUE)
+    return devolvidos
 
 
 def _coletar_args(queue) -> set[str]:
@@ -480,7 +715,24 @@ def tick_backfill_retroativo(tribunal_sigla: str) -> dict:
     ini = t.data_inicio_disponivel
     total_dias = (hoje - ini).days + 1
 
-    cobertos = _dias_cobertos(t, ini, hoje)
+    # `_dias_cobertos` foi onde 10 ticks morreram em 17/08/2026 — todos em 15
+    # minutos, todos por `JobTimeoutException` de 120s, e como são 59
+    # tribunais numa fila `default` com 2 workers, eles seguraram a FIFO e
+    # levaram o `watchdog_ingestao` junto (head-of-line blocking). Não era
+    # custo de algoritmo: medido em 21/08/2026 o pior tribunal leva 0,14s e os
+    # 59 somam 1,40s. Era contenção do banco. Com teto de 20s a mesma
+    # contenção devolve o worker 6x mais rápido, e ALTO.
+    marcador = time.monotonic()
+    try:
+        cobertos = _leitura_com_teto(lambda: _dias_cobertos(t, ini, hoje))
+    except OperationalError as e:
+        logger.error(
+            'backfill %s: leitura de cobertura estourou %ds (%.1fs de relógio) — '
+            'banco em contenção, tique abortado sem enfileirar. %s',
+            tribunal_sigla, WATCHDOG_SQL_TIMEOUT_S,
+            time.monotonic() - marcador, e,
+        )
+        return {'skip': 'banco em contenção', 'segundos': round(time.monotonic() - marcador, 1)}
     # Mais recente para o mais antigo — prioriza dados frescos
     pendentes = [
         ini + timedelta(days=i)

@@ -192,13 +192,90 @@ Container `scheduler` roda `manage.py djen_register_schedules_and_run`. Na boot:
 
 ## Watchdog de ingestão
 
-`djen.jobs.watchdog_ingestao` roda a cada 5min e faz auto-heal:
+`djen.jobs.watchdog_ingestao` roda a cada 5min na fila `default` e faz auto-heal:
 
+0. **Código velho e cemitério de falhas** (21/08/2026): compara o mtime de todo
+   `.py` do projeto que está em `sys.modules` com o `starttime` do processo pai
+   e conta o `FailedJobRegistry`. Ver OPS §"Deploy que não recarrega".
 1. **Mata zumbis**: `IngestionRun.status=running` e `finished_at IS NULL` há >1h → marca FAILED + grava motivo. Worker que crashou e deixou rastro não trava o sistema.
-2. **Re-enfileira backfill**: pra cada tribunal ativo com `backfill_concluido_em IS NULL`, se nenhum job dele em `djen_backfill` (pending nem started) → `run_backfill.delay(sigla)`. Se redis perdeu state ou backfill morreu, recupera sozinho.
+2. **Re-enfileira backfill**: pra cada tribunal ativo com `backfill_concluido_em IS NULL`, se nenhum job dele em execução → `tick_backfill_retroativo.delay(sigla)`. Se redis perdeu state ou backfill morreu, recupera sozinho.
 3. **Re-enfileira daily**: pra tribunal com backfill ok mas sem `IngestionRun success` há >26h → `run_daily_ingestion.delay(sigla)`.
+4. **Ressuscita dia de recuperação órfão** (`ressuscitar_dias_de_recuperacao`).
 
 Detecção de "já tem job pra essa sigla" usa `job.args[0]` como chave — evita duplicar quando um backfill está realmente em curso.
+
+### Orçamento de tempo (21/08/2026)
+
+O job tem `timeout=120` no decorador, mas **morrer por `JobTimeoutException`
+apaga o relatório inteiro**: o que já foi feito não aparece no log, o teto não
+vira ERRO, e a única marca é uma linha no `FailedJobRegistry` — que, medido, é
+o lugar que ninguém abre (4.259 falhas acumuladas em 4 dias sem ninguém ver).
+
+Então: `WATCHDOG_ORCAMENTO_S=90` conferido antes de cada etapa, e o que não
+coube sai como ERRO em `etapas_puladas`. Toda leitura vai sob
+`SET LOCAL statement_timeout` de 20s (`_leitura_com_teto`) — `SET` solto morre
+no pgbouncer transaction-mode.
+
+Números medidos em prod (banco sob carga de batch, `tribunals_ingestionrun`
+com 207.772 linhas / 88 MB):
+
+| etapa | tempo |
+|---|---|
+| zumbis (UPDATE) | 0,02s |
+| loop de 59 tribunais (daily stale) | 0,53s |
+| agregação de `failed` de 1 dia (7d) | 0,18s → 4.244 linhas |
+| agregação de `success` de 1 dia (7d) | 0,04s → 2.013 linhas |
+| 200 `enqueue` no Redis | 0,17s (0,8 ms/job) |
+| **total** | **~1,6s** contra orçamento de 90s |
+
+Os 11 estouros históricos (17/08/2026, todos em 15 minutos: 1 watchdog + 10
+`tick_backfill_retroativo`, estes dentro de `_dias_cobertos`) **não eram custo
+de algoritmo** — no mesmo código, hoje, o pior tribunal leva 0,14s em
+`_dias_cobertos` e os 59 somam 1,40s. Era contenção de disco no Postgres. Como
+são 59 ticks numa fila com 2 workers, cada um preso 120s, eles bloquearam a
+FIFO da `default` e levaram o watchdog junto (head-of-line blocking). Com o teto
+de 20s por leitura, o tique aborta com `{'skip': 'banco em contenção'}` + ERRO e
+devolve o worker 6x mais rápido.
+
+### Dias de recuperação órfãos — o que NÃO filtrar
+
+`ressuscitar_dias_de_recuperacao` devolve o dia avulso (`f2:<SIGLA>:<dia>`) que
+ficou `failed` e nunca foi refeito. Duas armadilhas medidas em 21/08/2026, com
+os números que provam que "otimizar" ali destruiria a recuperação:
+
+* **97,4% (2.929 de 3.007) dos órfãos já têm um `success` cobrindo o dia.**
+  Isso não é redundância: a recuperação nacional existe pra refazer exatamente
+  o dia que fechou `success` batendo o cap de 10k
+  (`djen_reprocessar_janelas_capped`: `paginas_lidas>=100` e
+  `novas+duplicadas>=10000`). Filtrar por `_dia_coberto` apagaria 97% do
+  trabalho achando que estava economizando.
+* **`bfd:<sigla>:<dia>` na fila NÃO ocupa o dia** (1,5%, 45 de 3.007):
+  `backfill_dia` faz skip em dia coberto, então ele não refaz o dia capado. O
+  `f2:` tem que entrar; o `bfd:` duplicado custa um skip sem request.
+
+O critério certo de "já voltou" é temporal: `success` de 1 dia **mais recente
+que a última falha**, ou o dia já estar na fila/agendado/em execução como `f2:`
+ou `adiado:`.
+
+Estado dos órfãos no dia da medição (janela de 7 dias):
+
+| tribunal | dias órfãos |
+|---|---:|
+| TRF3 | 948 |
+| TJMG | 372 |
+| TJRJ | 334 |
+| TJRS | 286 |
+| TRF4 | 250 |
+| TJSP | 245 |
+| TRF2 | 234 |
+| TRF6 | 200 |
+| outros (7 tribunais) | 138 |
+| **total** | **3.007** |
+
+96% deles falharam em **19/08**, e em amostra ALEATÓRIA de n=120 o motivo em
+117 (97,5%) era `DJEN circuito aberto (sobrecarregado)` — o incidente de
+`réplicas × páginas = 112` descrito acima. Não é perda de dado: é trabalho
+enfileirado que o watchdog devolve a 200/tique (≈75 min pra drenar 3.007).
 
 ## Comandos manuais
 

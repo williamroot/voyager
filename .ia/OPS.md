@@ -367,24 +367,111 @@ docker compose exec web python manage.py djen_backfill TRF3
 
 ## Watchdog de ingestão
 
-Cron `*/5 * * * *` em `djen.jobs.watchdog_ingestao`. Faz auto-heal de 3 cenários:
+Cron `*/5 * * * *` em `djen.jobs.watchdog_ingestao` (fila `default`, `timeout=120`).
+Faz auto-heal de 5 cenários:
 
+0. **Código velho / cemitério cheio** (desde 21/08/2026): grita se o worker está
+   rodando código anterior ao que está no disco, e se o `FailedJobRegistry` da
+   `default` passou de `WATCHDOG_FALHAS_ALERTA` (200). Ver incidente abaixo.
 1. **Zumbis**: `IngestionRun.status=running` e `finished_at IS NULL` há mais de 1h → marca FAILED + grava motivo. Worker que crashou e deixou rastro não trava o sistema.
-2. **Backfill perdido**: pra cada tribunal ativo com `backfill_concluido_em IS NULL`, se nenhum job dele em `djen_backfill` (pending nem started) → `run_backfill.delay(sigla)`. Recupera quando redis perdeu state ou backfill morreu.
+2. **Backfill perdido**: pra cada tribunal ativo com `backfill_concluido_em IS NULL`, se nenhum job dele em execução → `tick_backfill_retroativo.delay(sigla)`. Recupera quando redis perdeu state ou backfill morreu.
 3. **Daily atrasado**: pra tribunal com backfill ok mas sem `IngestionRun success` há >26h → `run_daily_ingestion.delay(sigla)`.
+4. **Dia de recuperação órfão**: `ressuscitar_dias_de_recuperacao()` devolve pra
+   `djen_backfill` o dia avulso (`f2:<SIGLA>:<dia>`) que ficou `failed` sem
+   ninguém refazer. Teto `RECUP_POR_TIQUE=200`/tique, janela `RECUP_JANELA_DIAS=7`.
+
+**Orçamento de tempo.** O job tem `timeout=120` no RQ, mas confere internamente
+`WATCHDOG_ORCAMENTO_S=90` antes de cada etapa: se o tempo acaba, o que ficou de
+fora sai como **ERRO com o número real** (`etapas_puladas`) em vez de morrer por
+`JobTimeoutException` — que apaga o relatório inteiro. Toda leitura roda sob
+`SET LOCAL statement_timeout` de `WATCHDOG_SQL_TIMEOUT_S=20`s
+(`_leitura_com_teto`), porque o pgbouncer em transaction-mode descarta `SET`
+solto.
+
+Medido em 21/08/2026 com o banco sob carga de batch: as 4 leituras somam **1,6s**
+(zumbis 0,02s · 59 tribunais 0,53s · agregação de falhos 0,18s · de sucessos
+0,04s) e 200 `enqueue` custam **0,17s** (0,8 ms cada). Orçamento de 90s é ~50×.
 
 Rodar manualmente (heal imediato sem esperar 5min):
 ```bash
-docker compose -f docker-compose-prod.yml exec web python -c "
+ssh 100.100.144.57 'docker exec voyager-web-1 python -c "
 import django, os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE','core.settings')
+os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\",\"core.settings\")
 django.setup()
 from djen.jobs import watchdog_ingestao
 print(watchdog_ingestao())
-"
+"'
 ```
 
-Output: `{'zumbis_matados': N, 're_backfill': [...], 're_daily': [...]}`.
+Output:
+```python
+{'zumbis_matados': N, 're_backfill': [...], 're_daily': [...],
+ 'dias_recuperacao_reenfileirados': N, 'etapas_puladas': [],
+ 'codigo': {'checado': True, 'modulos_velhos': 0},
+ 'falhas_no_registry': N,
+ 'recuperacao': {'orfaos': N, 'devolvidos': N, 'sobraram': N, 'vagas_na_fila': N}}
+```
+
+`etapas_puladas` não-vazio ⇒ banco em contenção. `modulos_velhos > 0` ⇒ deploy
+que não recarregou (abaixo). `sobraram > 0` por vários tiques seguidos ⇒ algo
+está falhando em série na `djen_backfill`.
+
+### ⚠️ Deploy que não recarrega — worker rodando código de 7 dias atrás (21/08/2026)
+
+**O incidente mais silencioso do projeto até aqui.** Os dois `voyager-worker_default`
+subiram em **14/08 17:40** e nunca mais reiniciaram. O bind-mount `.:/app` faz o
+`git pull` do host aparecer dentro do container, mas o processo Python **já tem os
+módulos em memória** — `docker restart` é obrigatório e ninguém deu.
+
+Como foi provado (sonda enfileirada na própria fila, sem shell no worker):
+
+```python
+q.enqueue('builtins.eval',
+          "hasattr(__import__('djen.jobs',fromlist=['x']),"
+          "'ressuscitar_dias_de_recuperacao')")   # -> False
+q.enqueue('importlib.import_module', 'datajud.jobs')  # -> ImportError real
+```
+
+O que custou, medido:
+
+| efeito | número |
+|---|---|
+| `ressuscitar_dias_de_recuperacao` (deploy 19/08) nunca executou | **3.007** dias-tribunal `failed` parados |
+| `datajud/client.py` passou a importar `djen.proxies.sessao_rotativa` (só existia no disco) → `import datajud.jobs` quebrava no work-horse | **4.247** jobs mortos em ~30 ms, `reabastecer_fila_datajud` parado 3 dias |
+| falhas acumuladas na `default` em 4 dias | ~**1.390/dia**, ninguém viu |
+
+O RQ traduz o `ImportError` do módulo em `ValueError: Invalid attribute name: X`
+— mensagem que esconde a causa. Use a sonda `importlib.import_module` acima pra
+ver o erro de verdade.
+
+**Cura:** `docker restart` nos containers do worker. **Prevenção:** o watchdog
+agora compara o mtime de todo `.py` do projeto carregado em `sys.modules` com o
+`starttime` do processo pai (`/proc/<ppid>/stat`) e loga ERRO
+`watchdog: WORKER RODANDO CÓDIGO VELHO` com nome dos módulos e idade.
+
+```bash
+# checar a frota inteira sem reiniciar nada
+ssh 100.98.141.91 'docker logs --since 30m voyager-worker_default-1 2>&1 | grep "CÓDIGO VELHO"'
+```
+
+### Censo e limpeza do FailedJobRegistry
+
+`get_job_ids()` devolve o sorted set na ordem de **expiração**, não de tempo —
+olhar "os 5 mais recentes" aponta pro job errado (foi o que fez 11 timeouts de 4
+dias atrás parecerem "o watchdog morrendo toda vez"). Sempre censo completo:
+
+```bash
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py djen_censo_falhas'
+# depois de medir:
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py djen_censo_falhas default --apagar'
+```
+
+O comando separa **id órfão** (o hash do job expirou e sobrou o id no zset) do
+job real — medido na `djen_backfill`: 3.952 de 4.297 (92%) eram só isso. Contar
+os órfãos como falha é inventar problema.
+
+Descartar o registry não perde trabalho de ingestão: a fonte de verdade do que
+precisa voltar é `IngestionRun(status='failed')`, e quem devolve é o watchdog.
 
 ## Incidente: reabastecer saturou o DB (2026-07-01)
 
