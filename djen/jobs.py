@@ -1,3 +1,4 @@
+import collections
 import logging
 import os
 import sys
@@ -346,6 +347,7 @@ def _alerta_codigo_velho() -> dict:
     raiz = str(getattr(settings, 'BASE_DIR', '/app'))
     limite = inicio + CODIGO_VELHO_TOLERANCIA_S
     velhos = []
+    mais_novo = 0.0
     for nome, mod in list(sys.modules.items()):
         arquivo = getattr(mod, '__file__', None)
         if not arquivo or not arquivo.startswith(raiz) or not arquivo.endswith('.py'):
@@ -354,10 +356,11 @@ def _alerta_codigo_velho() -> dict:
             mtime = os.path.getmtime(arquivo)
         except OSError:
             continue
+        mais_novo = max(mais_novo, mtime)
         if mtime > limite:
             velhos.append((nome, mtime))
     if not velhos:
-        return {'checado': True, 'modulos_velhos': 0}
+        return {'checado': True, 'modulos_velhos': 0, 'mtime_mais_novo': mais_novo}
     velhos.sort(key=lambda x: -x[1])
     atraso_h = (max(m for _, m in velhos) - inicio) / 3600
     logger.error(
@@ -370,7 +373,51 @@ def _alerta_codigo_velho() -> dict:
     )
     return {'checado': True, 'modulos_velhos': len(velhos),
             'atraso_horas': round(atraso_h, 1),
+            'mtime_mais_novo': mais_novo,
             'exemplos': [n for n, _ in velhos[:8]]}
+
+
+def _alerta_workers_velhos(mtime_mais_novo: float) -> dict:
+    """O resto da FROTA também recarregou? Olha o `birth_date` de cada worker.
+
+    `_alerta_codigo_velho` só enxerga o processo onde o watchdog está rodando —
+    e o incidente de 21/08/2026 tinha DOIS grupos parados: os `worker_default`
+    (que seguraram o watchdog e o datajud) e, medidos pela mesma sonda, os
+    workers das filas `datajud` e `es_index`, que também estavam com o
+    `djen.jobs` de antes de 19/08.
+
+    O RQ já guarda o que falta: cada worker publica `birth_date` no Redis.
+    Worker que nasceu ANTES do arquivo .py mais novo do projeto está, por
+    construção, rodando código velho. Custa um SMEMBERS + um HGETALL por
+    worker (a frota tem ~300 containers; medido em ~0,3s).
+
+    Ressalva honesta: o mtime é o do disco DESTE host. Hosts diferentes puxam o
+    repo em momentos diferentes, então isto é indício forte, não prova — por
+    isso o alerta manda conferir com `docker ps` antes de reiniciar nada.
+    """
+    try:
+        import django_rq
+        from rq import Worker
+        conexao = django_rq.get_connection('default')
+        frota = Worker.all(connection=conexao)
+    except Exception:  # a frota é diagnóstico, não pode derrubar o tique
+        return {'checado': False}
+    if not mtime_mais_novo:
+        return {'checado': False}
+    limite = mtime_mais_novo - CODIGO_VELHO_TOLERANCIA_S
+    velhos = [w for w in frota
+              if w.birth_date and w.birth_date.timestamp() < limite]
+    if velhos:
+        idade_h = (mtime_mais_novo - min(w.birth_date.timestamp() for w in velhos)) / 3600
+        filas = collections.Counter(f for w in velhos for f in w.queue_names())
+        logger.error(
+            'watchdog: %d de %d workers da frota nasceram ANTES do código mais '
+            'novo do disco (o mais antigo há %.1fh) — deploy sem `docker '
+            'restart`. Filas afetadas: %s',
+            len(velhos), len(frota), idade_h,
+            ', '.join(f'{f}={n}' for f, n in filas.most_common(8)),
+        )
+    return {'checado': True, 'total': len(frota), 'velhos': len(velhos)}
 
 
 def _alerta_registry_de_falhas(fila) -> int:
@@ -444,6 +491,8 @@ def watchdog_ingestao() -> dict:
 
     # 0) O worker está rodando o código do disco? E o cemitério, cresceu?
     resultado['codigo'] = _alerta_codigo_velho()
+    resultado['frota'] = _alerta_workers_velhos(
+        resultado['codigo'].get('mtime_mais_novo', 0.0))
     resultado['falhas_no_registry'] = _alerta_registry_de_falhas(default_q)
 
     # 1) Zumbis

@@ -102,7 +102,8 @@ def test_codigo_em_dia_nao_alarma():
          patch.object(J.logger, 'error') as erro:
         r = J._alerta_codigo_velho()
 
-    assert r == {'checado': True, 'modulos_velhos': 0}
+    assert r['checado'] is True
+    assert r['modulos_velhos'] == 0
     assert not erro.called
 
 
@@ -123,6 +124,7 @@ def test_orcamento_estourado_termina_falando(trib, fila):
     """
     with patch.object(J, 'WATCHDOG_ORCAMENTO_S', -1), \
          patch.object(J, '_alerta_codigo_velho', return_value={'checado': False}), \
+         patch.object(J, '_alerta_workers_velhos', return_value={'checado': False}), \
          patch.object(J, '_alerta_registry_de_falhas', return_value=0), \
          patch.object(J.logger, 'error') as erro:
         r = J.watchdog_ingestao()
@@ -138,12 +140,57 @@ def test_orcamento_folgado_faz_o_ciclo_inteiro(trib, fila):
     dia = datetime.date(2025, 8, 7)
     _run(trib, dia, 'failed')
     with patch.object(J, '_alerta_codigo_velho', return_value={'checado': False}), \
+         patch.object(J, '_alerta_workers_velhos', return_value={'checado': False}), \
          patch.object(J, '_alerta_registry_de_falhas', return_value=0):
         r = J.watchdog_ingestao()
 
     assert r['etapas_puladas'] == []
     assert r['dias_recuperacao_reenfileirados'] == 1
     assert r['recuperacao']['orfaos'] == 1
+
+
+# ------------------------------------------------------------------- a frota
+
+def _worker_falso(nascido_em, filas=('default',)):
+    w = MagicMock()
+    w.birth_date = datetime.datetime.fromtimestamp(nascido_em, tz=datetime.UTC)
+    w.queue_names.return_value = list(filas)
+    return w
+
+
+def test_frota_com_worker_nascido_antes_do_codigo_grita():
+    """`_alerta_codigo_velho` só vê o próprio processo — a frota tem 300.
+
+    No incidente havia DOIS grupos parados: os `worker_default` (que seguraram
+    o watchdog e o datajud) e os das filas `datajud`/`es_index`. O RQ já
+    publica `birth_date` de cada worker; worker nascido antes do .py mais novo
+    está, por construção, com código velho.
+    """
+    agora = time.time()
+    frota = [_worker_falso(agora - 7 * 86400, ('datajud',)),
+             _worker_falso(agora - 7 * 86400, ('es_index',)),
+             _worker_falso(agora, ('default',))]
+    with patch('rq.Worker.all', return_value=frota), \
+         patch.object(J.logger, 'error') as erro:
+        r = J._alerta_workers_velhos(agora)
+
+    assert r == {'checado': True, 'total': 3, 'velhos': 2}
+    assert erro.called
+    assert 'datajud' in erro.call_args.args[-1], 'não disse QUAIS filas'
+
+
+def test_frota_em_dia_nao_alarma():
+    agora = time.time()
+    frota = [_worker_falso(agora), _worker_falso(agora)]
+    with patch('rq.Worker.all', return_value=frota), \
+         patch.object(J.logger, 'error') as erro:
+        assert J._alerta_workers_velhos(agora - 60)['velhos'] == 0
+    assert not erro.called
+
+
+def test_frota_sem_mtime_se_abstem():
+    """Sem régua não se mede: abster > chutar."""
+    assert J._alerta_workers_velhos(0.0) == {'checado': False}
 
 
 # ------------------------------------------------------- cemitério de falhas

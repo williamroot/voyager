@@ -444,14 +444,32 @@ O RQ traduz o `ImportError` do módulo em `ValueError: Invalid attribute name: X
 — mensagem que esconde a causa. Use a sonda `importlib.import_module` acima pra
 ver o erro de verdade.
 
-**Cura:** `docker restart` nos containers do worker. **Prevenção:** o watchdog
-agora compara o mtime de todo `.py` do projeto carregado em `sys.modules` com o
-`starttime` do processo pai (`/proc/<ppid>/stat`) e loga ERRO
-`watchdog: WORKER RODANDO CÓDIGO VELHO` com nome dos módulos e idade.
+**Cura:** `docker restart` nos containers do worker. **Prevenção:** duas
+travas novas no watchdog, uma local e uma de frota:
+
+1. `_alerta_codigo_velho` — compara o mtime de todo `.py` do projeto carregado
+   em `sys.modules` com o `starttime` do processo **pai** (`/proc/<ppid>/stat`;
+   o work-horse forkado nasceu agora e não serve de régua). ERRO
+   `watchdog: WORKER RODANDO CÓDIGO VELHO` com nome dos módulos e idade.
+2. `_alerta_workers_velhos` — o RQ já publica `birth_date` de cada worker no
+   Redis. Worker nascido antes do `.py` mais novo do disco está, por
+   construção, com código velho. ERRO `watchdog: N de M workers da frota
+   nasceram ANTES do código mais novo`, com as filas afetadas. Isto pega o
+   resto dos ~300 containers, não só o que roda o watchdog — no dia do
+   incidente os workers das filas `datajud` e `es_index` também estavam
+   parados no código de antes de 19/08.
+
+> Ressalva honesta do item 2: o mtime é o do disco do host onde o watchdog
+> roda. Hosts puxam o repo em momentos diferentes, então é **indício forte, não
+> prova** — confira com `docker ps` (coluna `Up N days`) antes de reiniciar.
 
 ```bash
-# checar a frota inteira sem reiniciar nada
-ssh 100.98.141.91 'docker logs --since 30m voyager-worker_default-1 2>&1 | grep "CÓDIGO VELHO"'
+# ver os alertas sem reiniciar nada
+ssh 100.98.141.91 'docker logs --since 30m voyager-worker_default-1 2>&1 \
+  | grep -E "CÓDIGO VELHO|nasceram ANTES"'
+
+# quem está de pé há mais tempo que o último deploy
+ssh 100.98.141.91 'docker ps --format "{{.Names}}\t{{.Status}}" | sort -k2'
 ```
 
 ### Censo e limpeza do FailedJobRegistry

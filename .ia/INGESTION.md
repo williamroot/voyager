@@ -196,7 +196,10 @@ Container `scheduler` roda `manage.py djen_register_schedules_and_run`. Na boot:
 
 0. **Código velho e cemitério de falhas** (21/08/2026): compara o mtime de todo
    `.py` do projeto que está em `sys.modules` com o `starttime` do processo pai
-   e conta o `FailedJobRegistry`. Ver OPS §"Deploy que não recarrega".
+   (`_alerta_codigo_velho`), compara o `birth_date` de TODOS os workers do RQ
+   com o `.py` mais novo do disco (`_alerta_workers_velhos` — pega os ~300
+   containers, não só o que roda o watchdog) e conta o `FailedJobRegistry`.
+   Ver OPS §"Deploy que não recarrega".
 1. **Mata zumbis**: `IngestionRun.status=running` e `finished_at IS NULL` há >1h → marca FAILED + grava motivo. Worker que crashou e deixou rastro não trava o sistema.
 2. **Re-enfileira backfill**: pra cada tribunal ativo com `backfill_concluido_em IS NULL`, se nenhum job dele em execução → `tick_backfill_retroativo.delay(sigla)`. Se redis perdeu state ou backfill morreu, recupera sozinho.
 3. **Re-enfileira daily**: pra tribunal com backfill ok mas sem `IngestionRun success` há >26h → `run_daily_ingestion.delay(sigla)`.
