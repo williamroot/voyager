@@ -728,6 +728,26 @@ manage.py diarios_conferir_indice --tribunal TJSP --dia 2025-03-12   # mede E re
 manage.py diarios_conferir_indice --fonte tjsp-dje --carencia-min 0  # tudo pendente
 ```
 
+### Validado em produção — 21/08/2026
+
+Não é "deployou": é número, dos dois lados, com a régua nova.
+
+| passo | resultado |
+|---|---|
+| `migrate diarios 0002` **pelo worker** (nunca pelo boot do `web`) | 4 `ADD COLUMN NULL`, aplicada, `[X]` |
+| gate no dia 12/03/2025, ANTES | PG **277.110** · ES **277.050** · faltando **60** |
+| reparo | 277.110 pks lidos, **60** ausentes, 60 re-enfileiradas |
+| gate no mesmo dia, DEPOIS | PG **277.110** · ES **277.110** · faltando **0** |
+| cron do scheduler (15 min), sozinho | carimbou as **8** edições às 03:17:01 UTC com `indice_no_es_no_dia=277110`, `indice_faltando_no_dia=0` |
+| re-coleta ao vivo do caderno 10 (11 itens) | `novas=0 dup=11`, e no MESMO segundo um `indexar_movimentacoes_bulk` com os 11 pks (`1662366704…`) no log do `worker_es_index` — o write-through, provado |
+| `FailedJobRegistry` da `es_index` | os 91 bulks mortos re-enfileirados: **45.313** publicações que estavam fora voltaram. Amostra de **511** pks colhida do log dos workers: **511 no índice, 0 fora**. Registry agora com **0** falhas de movimentação (as 576 restantes são de `indexar_processos_bulk`, outro bug, anterior) |
+| `_bulk` por bytes | **0** ocorrências de 413 nos 25 min seguintes (o lote por tamanho impediu antes de precisar dividir) |
+
+Ressalva honesta: a lista exata dos 45.313 pks não foi salva antes de limpar o
+registry, então a conferência id a id vale para a amostra de 511 colhida do
+log, não para os 45.313. O que se sabe dos outros é que os 91 jobs rodaram sem
+falhar — nenhum voltou para o registry.
+
 ⚠️ **Não conte `tjsp-dje` por faixa de `external_id` no ORM.** O
 `external_id__gte='tjsp-dje:'` + `__lt='tjsp-dje;'` que esta doc sugeria para
 SQL cru devolve **0** pelo ORM: a coluna está em collation `en_US.UTF-8`, que
