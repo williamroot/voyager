@@ -43,7 +43,7 @@ def _censo(fila, ids, corte, func):
                           strict=False):
             if j is None:
                 orfaos += 1        # hash do job expirou; sobrou o id no zset
-                alvos.append(jid)
+                alvos.append((jid, False))   # sem hash pra apagar
                 continue
             if func and not j.func_name.startswith(func):
                 continue
@@ -53,7 +53,7 @@ def _censo(fila, ids, corte, func):
             por_dia[j.ended_at.date().isoformat() if j.ended_at else '?'] += 1
             linhas = (j.exc_info or '').strip().splitlines()
             por_erro[linhas[-1][:100] if linhas else '<sem traceback>'] += 1
-            alvos.append(jid)
+            alvos.append((jid, True))
     return (por_func, por_dia, por_erro), alvos, orfaos
 
 
@@ -108,9 +108,11 @@ class Command(BaseCommand):
                 f'{len(alvos):,} entradas.'))
             return
 
-        for jid in alvos:
+        for jid, tem_hash in alvos:
             try:
-                registro.remove(jid, delete_job=True)
+                # órfão não tem hash: pedir `delete_job` nele só gera ruído de
+                # "No such job" — o que importa é sair do sorted set.
+                registro.remove(jid, delete_job=tem_hash)
             except Exception as e:  # 1 id ruim não pode parar a limpeza
                 self.stderr.write(f'  falhou remover {jid}: {e}')
         self.stdout.write(self.style.SUCCESS(
