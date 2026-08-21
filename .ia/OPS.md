@@ -406,15 +406,21 @@ print(watchdog_ingestao())
 Output:
 ```python
 {'zumbis_matados': N, 're_backfill': [...], 're_daily': [...],
- 'dias_recuperacao_reenfileirados': N, 'etapas_puladas': [],
- 'codigo': {'checado': True, 'modulos_velhos': 0},
- 'falhas_no_registry': N,
- 'recuperacao': {'orfaos': N, 'devolvidos': N, 'sobraram': N, 'vagas_na_fila': N}}
+ 'dias_recuperacao_reenfileirados': 200, 'etapas_puladas': [],
+ 'codigo': {'checado': True, 'modulos_velhos': 0, 'mtime_mais_novo': ...},
+ 'frota': {'checado': True, 'total': 250, 'velhos': 244, 'atraso_horas': 150.2},
+ 'falhas_no_registry': 0,
+ 'recuperacao': {'orfaos': 2574, 'devolvidos': 200, 'sobraram': 2374,
+                 'vagas_na_fila': 7532}}
 ```
 
+(saída real de 21/08/2026, 1,38s de execução contra orçamento de 90s.)
+
 `etapas_puladas` não-vazio ⇒ banco em contenção. `modulos_velhos > 0` ⇒ deploy
-que não recarregou (abaixo). `sobraram > 0` por vários tiques seguidos ⇒ algo
-está falhando em série na `djen_backfill`.
+que não recarregou (abaixo). `frota.velhos` alto com `atraso_horas` de dias ⇒ a
+frota não reiniciou. `recuperacao.orfaos` conta o que ainda NÃO está a caminho
+(o que já foi enfileirado como `f2:` sai da conta); `sobraram > 0` por vários
+tiques seguidos ⇒ algo está falhando em série na `djen_backfill`.
 
 ### ⚠️ Deploy que não recarrega — worker rodando código de 7 dias atrás (21/08/2026)
 
