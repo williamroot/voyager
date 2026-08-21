@@ -115,7 +115,13 @@ def _diarios() -> list:
         return []
 
     fontes = []
-    for slug in E.objects.values_list('fonte', flat=True).distinct():
+    # `.order_by()` NUA antes do distinct, e não é estilo: `EdicaoDiario.Meta`
+    # tem `ordering = ['-data', 'chave']`, e o Django injeta as colunas do
+    # ORDER BY no SELECT DISTINCT. Sem isto o DISTINCT vale para a TRIPLA
+    # (fonte, data, chave) e devolve uma linha por edição — a tela imprimiu 8
+    # cartões `tjsp-dje` idênticos, cada um repetindo o agregado "8 pendentes
+    # de 8", como se houvesse 64 pendências.
+    for slug in E.objects.order_by().values_list('fonte', flat=True).distinct():
         qs = E.objects.filter(fonte=slug)
         por = dict(qs.values_list('status').annotate(n=Count('id')))
         faixa = qs.aggregate(de=Min('data'), ate=Max('data'))

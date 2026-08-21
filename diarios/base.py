@@ -821,6 +821,8 @@ def espelhadas_no_lote(itens: list[ItemDiario], tribunal: Tribunal) -> int | Non
     log; superestimar sobreposição erra pro lado seguro (subestimar venderia
     ineditismo que não temos).
     """
+    import datetime
+
     from django.db import OperationalError
     from django.utils import timezone as _tz
 
@@ -858,8 +860,19 @@ def espelhadas_no_lote(itens: list[ItemDiario], tribunal: Tribunal) -> int | Non
                 pks = [por_cnj[c] for c in grupo if c in por_cnj]
                 if not pks:
                     continue
+                # RANGE no datetime cru, nunca `__date=`. O `__date` aplica
+                # `::date` na coluna e o planner perde a metade-data do
+                # `mov_processo_data_disp_idx` — sobra a metade-processo, e ele
+                # varre TODAS as movimentações dos 500 processos pra filtrar
+                # depois. Medido em produção: `__date=` 0,42 s contra 0,02 s do
+                # range, mesmo resultado (n=22). Com os processos frios em disco
+                # a diferença estoura o teto: a primeira coleta real absteve em
+                # 14 de 14 lotes.
+                ini = _tz.make_aware(datetime.datetime.combine(dia, datetime.time.min))
                 total += (Movimentacao.objects
-                          .filter(processo_id__in=pks, data_disponibilizacao__date=dia)
+                          .filter(processo_id__in=pks,
+                                  data_disponibilizacao__gte=ini,
+                                  data_disponibilizacao__lt=ini + datetime.timedelta(days=1))
                           .exclude(external_id__in=ext_ids)
                           .values('processo_id').distinct().count())
     except OperationalError:

@@ -132,3 +132,34 @@ def test_timeout_se_abstem_em_vez_de_dizer_zero(cenario):
     with patch('diarios.base.Movimentacao.objects.filter',
                side_effect=OperationalError('canceling statement due to statement timeout')):
         assert espelhadas_no_lote([_item(cnj, quando, texto)], t) is None
+
+
+@pytest.mark.django_db
+def test_nao_usa_cast_de_data_no_sql(cenario):
+    """`__date=` mata a metade-data do índice e a métrica não responde.
+
+    `mov_processo_data_disp_idx` é `(processo, -data_disponibilizacao)`. O
+    `__date` aplica `::date` NA COLUNA, o planner perde a segunda metade do
+    índice e passa a varrer todas as movimentações dos 500 processos do lote
+    para filtrar depois.
+
+    Medido em produção (21/08/2026): `__date=` 0,42 s contra 0,02 s do range no
+    datetime cru, com o MESMO resultado (n=22). E com os processos frios em
+    disco a diferença estoura o teto de 3 s — a primeira coleta real de um
+    caderno absteve em **14 de 14 lotes**, ou seja, a régua não mediu nada.
+
+    Abstenção não é falha: é o teto funcionando. Mas régua que se abstém sempre
+    é régua que não existe.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from diarios.base import espelhadas_no_lote
+    t, cnj, quando, texto = cenario
+    with CaptureQueriesContext(connection) as cap:
+        espelhadas_no_lote([_item(cnj, quando, texto)], t)
+    sql = ' '.join(q['sql'] for q in cap.captured_queries)
+    assert '::date' not in sql and 'DATE(' not in sql.upper(), (
+        'voltou o cast de data — o índice (processo, data) deixa de ser usado inteiro'
+    )
+    assert '>=' in sql and '<' in sql, 'o range no datetime cru sumiu'
