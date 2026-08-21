@@ -463,6 +463,17 @@ travas novas no watchdog, uma local e uma de frota:
 > roda. Hosts puxam o repo em momentos diferentes, então é **indício forte, não
 > prova** — confira com `docker ps` (coluna `Up N days`) antes de reiniciar.
 
+**Calibração do item 2** (medida logo após o deploy de 21/08): `Worker.all()`
+devolveu **251 workers, 244 (97%) nascidos antes do `.py` mais novo**. É
+verdade e é inútil como alarme — ninguém reinicia 250 containers a cada commit,
+e alarme sempre aceso é alarme gasto. O que separa o incidente do dia-a-dia é a
+ESCALA: os `worker_default` estavam com código de SETE dias. Por isso:
+
+| atraso do worker mais antigo | nível |
+|---|---|
+| < `FROTA_ATRASO_ALERTA_H` (72h) | WARNING — "ainda não recarregaram" |
+| ≥ 72h | **ERROR** — deploy sem restart, com as filas afetadas |
+
 ```bash
 # ver os alertas sem reiniciar nada
 ssh 100.98.141.91 'docker logs --since 30m voyager-worker_default-1 2>&1 \

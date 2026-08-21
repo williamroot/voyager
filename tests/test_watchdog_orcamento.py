@@ -174,7 +174,7 @@ def test_frota_com_worker_nascido_antes_do_codigo_grita():
          patch.object(J.logger, 'error') as erro:
         r = J._alerta_workers_velhos(agora)
 
-    assert r == {'checado': True, 'total': 3, 'velhos': 2}
+    assert r['total'] == 3 and r['velhos'] == 2
     assert erro.called
     assert 'datajud' in erro.call_args.args[-1], 'não disse QUAIS filas'
 
@@ -186,6 +186,25 @@ def test_frota_em_dia_nao_alarma():
          patch.object(J.logger, 'error') as erro:
         assert J._alerta_workers_velhos(agora - 60)['velhos'] == 0
     assert not erro.called
+
+
+def test_deploy_recente_nao_gasta_o_alarme():
+    """Medido: logo após um deploy, 244 de 251 workers estão 'atrasados'.
+
+    É verdade e é inútil como alarme — ninguém reinicia 250 containers a cada
+    commit. Abaixo de FROTA_ATRASO_ALERTA_H o aviso é WARNING; ERRO fica
+    reservado pro atraso de dias, que foi o que aconteceu de verdade.
+    """
+    agora = time.time()
+    frota = [_worker_falso(agora - 3600) for _ in range(244)]
+    with patch('rq.Worker.all', return_value=frota), \
+         patch.object(J.logger, 'error') as erro, \
+         patch.object(J.logger, 'warning') as aviso:
+        r = J._alerta_workers_velhos(agora)
+
+    assert r['velhos'] == 244
+    assert not erro.called, 'deploy de 1h atrás não pode gritar ERRO'
+    assert aviso.called, 'mas também não pode ficar mudo'
 
 
 def test_frota_sem_mtime_se_abstem():

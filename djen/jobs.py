@@ -271,6 +271,17 @@ WATCHDOG_FALHAS_ALERTA = 200
 #: mesmo minuto de um `git pull` não é defeito.
 CODIGO_VELHO_TOLERANCIA_S = 120
 
+#: A partir de quantas horas de atraso a frota vira ERRO, e não só WARNING.
+#:
+#: Calibração medida em 21/08/2026, logo após o deploy: `Worker.all()` devolveu
+#: **251 workers, 244 (97%) nascidos antes do .py mais novo do disco**. É
+#: verdade — e é inútil como alarme, porque ninguém reinicia 250 containers a
+#: cada commit; um alerta que fica sempre aceso é um alerta gasto. O que
+#: distingue o incidente é a ESCALA do atraso: os `worker_default` estavam com
+#: código de SETE DIAS. 72h passa longe de um deploy normal e pega o caso real
+#: no primeiro dia útil.
+FROTA_ATRASO_ALERTA_H = 72
+
 
 def _leitura_com_teto(fn, segundos: int = WATCHDOG_SQL_TIMEOUT_S):
     """Roda `fn()` sob `statement_timeout` de verdade.
@@ -407,17 +418,27 @@ def _alerta_workers_velhos(mtime_mais_novo: float) -> dict:
     limite = mtime_mais_novo - CODIGO_VELHO_TOLERANCIA_S
     velhos = [w for w in frota
               if w.birth_date and w.birth_date.timestamp() < limite]
-    if velhos:
-        idade_h = (mtime_mais_novo - min(w.birth_date.timestamp() for w in velhos)) / 3600
-        filas = collections.Counter(f for w in velhos for f in w.queue_names())
+    if not velhos:
+        return {'checado': True, 'total': len(frota), 'velhos': 0, 'atraso_horas': 0.0}
+
+    idade_h = (mtime_mais_novo - min(w.birth_date.timestamp() for w in velhos)) / 3600
+    filas = collections.Counter(f for w in velhos for f in w.queue_names())
+    detalhe = ', '.join(f'{f}={n}' for f, n in filas.most_common(8))
+    if idade_h >= FROTA_ATRASO_ALERTA_H:
         logger.error(
-            'watchdog: %d de %d workers da frota nasceram ANTES do código mais '
-            'novo do disco (o mais antigo há %.1fh) — deploy sem `docker '
-            'restart`. Filas afetadas: %s',
-            len(velhos), len(frota), idade_h,
-            ', '.join(f'{f}={n}' for f, n in filas.most_common(8)),
+            'watchdog: %d de %d workers da frota nasceram ANTES do código do '
+            'disco, o mais antigo há %.0fh (teto de alerta %dh) — deploy sem '
+            '`docker restart`. Filas: %s. Confira o `docker ps` antes de '
+            'reiniciar: o mtime é o do disco DESTE host.',
+            len(velhos), len(frota), idade_h, FROTA_ATRASO_ALERTA_H, detalhe,
         )
-    return {'checado': True, 'total': len(frota), 'velhos': len(velhos)}
+    else:
+        logger.warning(
+            'watchdog: %d de %d workers ainda não recarregaram (mais antigo há '
+            '%.1fh). Filas: %s', len(velhos), len(frota), idade_h, detalhe,
+        )
+    return {'checado': True, 'total': len(frota), 'velhos': len(velhos),
+            'atraso_horas': round(idade_h, 1)}
 
 
 def _alerta_registry_de_falhas(fila) -> int:
