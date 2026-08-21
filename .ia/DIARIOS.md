@@ -432,10 +432,25 @@ o ato menciona. A régua comparável ao gabarito é a que roda a MESMA regex no
 | diário próprio, caderno 12 | 29.033 | 26.084 |
 | DJEN, o dia inteiro | 56.566 | 35.089 |
 
-Não é comparável ainda — caderno 12 é 1 de 8. A comparação honesta exige os 8
-cadernos do dia, e é ELA que decide se a terceira porta acrescenta acervo ou
-repete o que o DJEN já trouxe. Sem esse número, ligar o agendamento é decidir no
-escuro.
+**Os 8 cadernos coletados (21/08/2026) — e o número que decide a terceira porta:**
+
+| | itens | processos distintos |
+|---|---|---|
+| diário próprio, os 8 cadernos | **220.544** | **207.869** |
+| DJEN, o mesmo dia | 62.849 | 39.405 |
+
+    só no diário (INÉDITOS) ..... 200.729 processos
+    só no DJEN ..................  32.265
+    nos dois ....................   7.140
+    união ................................. 240.134
+
+**A terceira porta traz 5,3× mais processos que o DJEN, e a sobreposição é de
+apenas 7.140 (3,4% da união).** As duas portas são quase disjuntas — o que é
+coerente com o que o DJEN É: veículo de COMUNICAÇÃO (só o que é dirigido a
+advogado cadastrado), não o caderno inteiro do tribunal.
+
+Num único dia de um único tribunal, 200.729 processos que o DJEN nunca contou.
+Este é o argumento da terceira porta, medido em vez de suposto.
 
 **Canário em produção — o gate NUMÉRICO para quem repetir (20/08/2026).**
 Não é "rodou sem estourar": é bater número por número. O que já foi conferido
