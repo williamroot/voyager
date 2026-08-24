@@ -529,6 +529,12 @@ class DJENClient:
                 # Backoff progressivo quando muitas rotações falham seguidas:
                 # WAF da DJEN tipicamente "abre" se pausarmos um momento.
                 if resp.status_code in (403, 429):
+                    # `stream=True` só devolve a conexão ao pool quando o corpo
+                    # é lido ou a resposta é fechada. 403 do WAF é o caso MAIS
+                    # comum e não lê corpo nenhum — sem este `close()` cada
+                    # rotação penduraria um socket, que é exatamente o
+                    # `Errno 24` de 17/08 voltando por outra porta.
+                    resp.close()
                     if using == 'pool' and proxy_url:
                         self.pool.mark_bad(proxy_url)
                     elif using == 'cortex':
@@ -565,6 +571,7 @@ class DJENClient:
                     logger.warning(
                         '⏳ %s servidor via %s → retry #%d', resp.status_code, proxy_label, server_5xx_retries,
                     )
+                    resp.close()      # idem 403: devolve a conexão antes do sleep
                     self._sleep_backoff(server_5xx_retries, factor=3.0, max_wait=180.0)
                     continue
                 if 400 <= resp.status_code < 500:
