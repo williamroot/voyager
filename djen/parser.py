@@ -36,6 +36,37 @@ OPTIONAL_KEYS = frozenset({
 CNJ_REGEX = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
 CNJ_RAW_REGEX = re.compile(r'^\d{20}$')
 
+#: Quantos itens recusados cabem, na íntegra, dentro de `IngestionRun.erros`.
+MAX_ERROS_NO_RUN = 200
+
+
+def registrar_erro_no_run(run: IngestionRun | None, dado: dict) -> None:
+    """Anota um item recusado no run SEM deixar a lista crescer com o dia.
+
+    `erros` é JSONField e é re-serializado INTEIRO a cada `run.save()`, que
+    acontece uma vez por página. Uma lista que cresce com o número de itens
+    ruins custa memória O(dia) e escrita O(páginas * itens ruins) — quadrática,
+    no caminho mais quente da ingestão, e ela vive dentro do mesmo processo que
+    o OOM killer matou 342 vezes em agosto/2026.
+
+    Guarda as primeiras `MAX_ERROS_NO_RUN` ocorrências (que é o que alguém
+    efetivamente lê) e daí em diante só o CONTADOR. O número real continua
+    registrado: teto é alerta, nunca corte mudo.
+    """
+    if run is None:
+        return
+    erros = run.erros
+    if len(erros) < MAX_ERROS_NO_RUN:
+        erros.append(dado)
+        return
+    # O contador fica sempre no fim, então achá-lo é O(1) — importa: este
+    # caminho roda uma vez por item ruim.
+    if erros and erros[-1].get('erro') == 'itens_recusados_alem_do_teto':
+        erros[-1]['total'] += 1
+        return
+    erros.append({'erro': 'itens_recusados_alem_do_teto',
+                  'teto': MAX_ERROS_NO_RUN, 'total': 1})
+
 
 @dataclass
 class ParsedItem:
@@ -191,8 +222,8 @@ def parse_item(item: dict, tribunal: Tribunal, run: IngestionRun) -> Optional[Pa
     )
     external_id = item.get('id')
     if not cnj or external_id is None:
-        run.erros.append({
-            'pagina': run.paginas_lidas,
+        registrar_erro_no_run(run, {
+            'pagina': run.paginas_lidas if run else None,
             'erro': 'cnj_indisponivel' if not cnj else 'external_id_ausente',
             'external_id': str(external_id) if external_id else None,
         })
@@ -201,8 +232,8 @@ def parse_item(item: dict, tribunal: Tribunal, run: IngestionRun) -> Optional[Pa
     dt = parse_dt(item.get('data_disponibilizacao') or item.get('datadisponibilizacao')
                   or item.get('dataDisponibilizacao'))
     if dt is None:
-        run.erros.append({
-            'pagina': run.paginas_lidas,
+        registrar_erro_no_run(run, {
+            'pagina': run.paginas_lidas if run else None,
             'erro': 'data_disponibilizacao_invalida',
             'external_id': str(external_id),
         })

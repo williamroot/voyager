@@ -1483,6 +1483,49 @@ ssh ubuntu@192.168.30.102 'docker exec voyager-worker_djen_audit-1 sh -c "ulimit
 ssh ubuntu@192.168.30.102 'docker logs --since 1h voyager-worker_djen_audit-1 2>&1 | grep -c "Errno 24"'  # 0
 ```
 
+### Incidente: OOM do work-horse na ingestão DJEN (24/08/2026) — CORRIGIDO
+
+**Sintoma.** `djen_backfill` com **703** falhas no `FailedJobRegistry`, das quais
+**342 (48,6%)** eram `Work-horse terminated unexpectedly; waitpid returned 9` —
+SIGKILL do OOM killer. 333 no **TJDFT**, 9 no TJAM; a `djen_ingestion`, 0. No
+banco, **1.876** runs do DJEN marcados pelo watchdog como "worker crashou" em 7
+dias. 197 das 342 eram o MESMO dia sendo refeito ~12×/h: morre, nunca vira
+`success`, watchdog devolve, morre de novo.
+
+**Causa (medida, não estimada).** A publicação do TJDFT tem **56 KB de texto**
+(14.651 publicações = 822,6 MB num único dia). A `itensPorPagina=1000` isso são
+55 MB de JSON por requisição; com 3 páginas paralelas e a leva anterior ainda
+viva, o pico de RSS medido foi **957 MB** contra `mem_limit: 1g`. Controle com
+`DJEN_PAGINAS_PARALELAS=1`: 640 MB. O erro era contar memória em PÁGINAS.
+
+**Cura.** `DJEN_BYTES_EM_VOO` (24 MB) passou a ser o teto, e `itensPorPagina` a
+variável de ajuste; ver [`INGESTION.md`](INGESTION.md#o-oom-do-tjdft--resolvido-em-24082026)
+para a mecânica (sonda, meia-vida, recorte de sobreposição).
+
+**Como conferir em produção:**
+
+```bash
+# 1. o cemitério — censo COMPLETO por função/exceção/dia (não "os últimos N":
+#    o registry é ordenado por EXPIRAÇÃO e ler o começo aponta pro alvo errado)
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py djen_censo_falhas djen_backfill'
+
+# 2. quem passou do alerta de RSS (700 MB) — com o número real, no run
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py shell -c "
+from tribunals.models import IngestionRun
+qs = IngestionRun.objects.filter(fonte=\"djen\", erros__contains=[{\"erro\":\"memoria_acima_do_alerta\"}])
+print(qs.count())"'
+
+# 3. o tamanho da página que a calibração escolheu naquele tribunal
+ssh 100.98.141.91 'docker logs --since 1h voyager-worker_ingestion-1 2>&1 | grep itensPorPagina | tail'
+```
+
+**Se voltar a acontecer:** o botão é `DJEN_BYTES_EM_VOO` no `.env` dos workers
+(menor = página menor = menos memória e mais requisições). Subir `mem_limit` é
+último recurso — a `.102` já travou por OOM **de host** em 2026-06-08.
+
+⚠️ `git pull` no host **não** recarrega o Python: `docker restart` nas réplicas
+de `worker_ingestion` é obrigatório (ver o incidente de 21/08 acima).
+
 ### Passada de entidades do índice de busca — operar
 
 A extração de OAB/CPF/CNPJ/CNJ do texto das publicações (`es_movs_v2

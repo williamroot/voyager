@@ -91,6 +91,91 @@ def _record_success() -> None:
         pass
 
 
+def _bytes_em_voo() -> int:
+    """TETO DE MEMÓRIA da coleta de um dia: bytes de texto em voo entre a API e
+    quem grava (ver `DJENClient.iter_pages`). Lido tarde, como os `_cb_*` acima,
+    pra que `override_settings` funcione e pra que um cliente montado sem
+    `__init__` (os dublês dos testes) continue tendo o teto."""
+    return int(getattr(settings, 'DJEN_BYTES_EM_VOO', 24 * 1024 * 1024))
+
+
+def _peso_por_item(items: list[dict]) -> int:
+    """Bytes de texto por publicação nesta página.
+
+    O `texto` é ~99% do peso de um item da DJEN (o resto são datas, siglas e
+    dois nomes), então medi-lo é medir a página. `len()` de `str` é O(1) e o
+    CPython guarda texto português em 1 byte/caractere na representação
+    compacta — o número sai em bytes com erro pequeno e para baixo, que é o
+    lado seguro pra um orçamento de memória.
+
+    Piso de 1: página de teste sem `texto` (os dublês dos testes) não pode
+    zerar o divisor e nem congelar a calibração.
+    """
+    if not items:
+        return 0
+    total = 0
+    for it in items:
+        texto = it.get('texto')
+        if isinstance(texto, str):
+            total += len(texto)
+    return max(1, total // len(items))
+
+
+#: Quanto a página pode CRESCER de uma recalibração pra outra.
+#:
+#: A sonda pesa as 100 primeiras publicações do dia, e 100 de 14 mil é amostra
+#: pequena de uma distribuição que não é nada uniforme — medido no TJDFT
+#: 2026-08-21: a sonda viu 20,5 KB por publicação e uma leva seguinte trouxe
+#: 295,7 KB, **14 vezes mais pesada**. Sem freio, a página saltava de 100 pra 797
+#: itens em cima da estimativa leve e a leva pesada chegava com 235 MB.
+#:
+#: Encolher continua imediato (o peso já foi MEDIDO, não é aposta); crescer é
+#: aposta, e aposta anda devagar.
+FATOR_CRESCIMENTO = 4
+
+
+def itens_por_pagina(sigla_djen: str, peso_item: int, janela: int, teto: int,
+                     alertas: list[dict] | None = None,
+                     anterior: int | None = None) -> int:
+    """Quantos itens cabem numa página dentro do orçamento de bytes em voo.
+
+    `janela` é quantas páginas ficam em voo ao mesmo tempo — 8 no caminho flat
+    (`DJEN_PAGINAS_PARALELAS`), 27 no caminho por UF (uma por fatia). O
+    orçamento é dividido por elas, porque é a SOMA que precisa caber no
+    `mem_limit: 1g` do worker.
+
+    Regra nº 2 do CLAUDE.md: se o piso for atingido — publicação tão pesada que
+    nem `PISO_ITENS` cabem no orçamento — isso é ERRO registrado com o número
+    real, não um encolhimento silencioso.
+    """
+    teto_api = DJENClient.PAGE_SIZE
+    piso = DJENClient.PISO_ITENS
+    if peso_item <= 0:
+        return min(teto, teto_api)
+    orcamento = _bytes_em_voo()
+    cabem = (orcamento // max(1, janela)) // peso_item
+    if cabem < piso:
+        aviso = {
+            'erro': 'orcamento_memoria_no_piso', 'tribunal': sigla_djen,
+            'peso_item_bytes': int(peso_item), 'cabem': int(cabem),
+            'piso_itens': piso, 'bytes_em_voo': orcamento, 'janela': janela,
+        }
+        if alertas is not None and aviso not in alertas:
+            alertas.append(aviso)
+            logger.error(
+                'DJEN %s: publicação de %.0f KB — no orçamento de %.0f MB ÷ %d '
+                'páginas caberiam só %d itens/página, abaixo do piso de %d. '
+                'A coleta segue no piso e o pico de memória VAI passar do '
+                'orçamento: %.0f MB em voo',
+                sigla_djen, peso_item / 1024, orcamento / 1048576,
+                janela, cabem, piso, piso * peso_item * janela / 1048576,
+            )
+    novo = int(max(piso, min(teto, teto_api, cabem)))
+    if anterior:                      # cresce devagar, encolhe na hora
+        novo = min(novo, max(piso, anterior * FATOR_CRESCIMENTO))
+    return novo
+
+
 class DJENClient:
     """Cliente HTTP da DJEN com paginação, retry exponencial e rotação de proxies."""
 
@@ -101,6 +186,21 @@ class DJENClient:
     # pesada (ver iter_pages). 100 responde 200 de forma confiável onde 1000
     # 500a (medido em TJDFT/TJ* de alto volume, 2026-06-27).
     MIN_PAGE_SIZE = 100
+    #: Tamanho da 1ª página do dia — a SONDA. Ela não existe pra coletar (o que
+    #: ela traz é re-entregue depois, já sem repetição): existe pra MEDIR quanto
+    #: pesa uma publicação deste tribunal antes de comprometer memória.
+    #:
+    #: 250 e não 100 porque 100 de 14 mil provou ser amostra ruim: no TJDFT
+    #: 2026-08-21 as 100 primeiras deram 20,5 KB por publicação e uma leva
+    #: seguinte trouxe 295,7 KB. Sozinha (a sonda não é paralela), 250
+    #: publicações são ~15 MB no caso comum e ~75 MB no pior caso conhecido —
+    #: cabe com folga no `mem_limit: 1g`, e ainda dá o fator 4 até a página cheia,
+    #: é o passo máximo de crescimento (`FATOR_CRESCIMENTO`).
+    PAGE_SIZE_SONDA = 250
+    #: Piso absoluto do tamanho de página quando o orçamento de bytes manda
+    #: encolher. Abaixo disso a página deixa de compensar a requisição — e
+    #: chegar aqui é ALERTA registrado (`self.alertas`), nunca corte mudo.
+    PISO_ITENS = 25
 
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         self.base_url = settings.DJEN_BASE_URL
@@ -126,6 +226,20 @@ class DJENClient:
         # diversifica de verdade quando o WAF bloqueia datacenter em onda.
         self.cortex_ratio = getattr(settings, 'DJEN_CORTEX_RATIO', 0.0)
 
+    @property
+    def alertas(self) -> list[dict]:
+        """Avisos que o coletor não tem como registrar sozinho — ele não conhece
+        o `IngestionRun`. `ingest_window` drena isto pra `run.erros`, porque
+        teto atingido tem que virar ERRO auditável (regra nº 2 do CLAUDE.md).
+
+        Preguiçoso de propósito: os testes montam o cliente com `__new__`, sem
+        passar pelo `__init__`, e um alerta que só existe no caminho feliz não
+        vale nada."""
+        avisos = self.__dict__.get('_alertas')
+        if avisos is None:
+            avisos = self.__dict__['_alertas'] = []
+        return avisos
+
     def count_window(self, sigla_djen: str, data_inicio: date, data_fim: date) -> int:
         """Estimativa do total de movimentações na janela.
 
@@ -138,35 +252,68 @@ class DJENClient:
         return int(payload.get('count') or 0)
 
     def iter_pages(self, sigla_djen: str, data_inicio: date, data_fim: date) -> Iterator[list[dict]]:
-        """Itera páginas até esgotar a janela. Começa em itensPorPagina=1000
-        (cap máximo da DJEN) e **reduz adaptativamente** o page size quando a
-        DJEN devolve 5xx — a API 500a ('sistema muito ocupado') em páginas
-        pesadas, sobretudo a 1ª página de janelas grandes a 1000 itens, mas o
-        mesmo offset a page size menor responde 200. Sem isso, dias de alto
-        volume nunca eram ingeridos (500 eterno na página 1).
+        """Itera páginas até esgotar a janela, com o PESO em voo limitado.
 
-        Ao reduzir, retoma do mesmo offset de itens (não do mesmo número de
-        página): re-busca a partir de `floor(itens_lidos / novo_size)`, então
-        nunca pula itens; no máximo re-entrega alguns já vistos, que o ingest
-        deduplica por id (bulk_create ignore_conflicts).
+        ── por que o tamanho da página é medido em BYTES, não em itens ──
 
-        Pagina em JANELA PARALELA (`DJEN_PAGINAS_PARALELAS`, 8 por padrão). Serial,
-        um dia de TJSP são 262 requisições em sequência: 163 minutos medidos, e a
-        recuperação nacional (3.688 dias-tribunal na fase de maior valor) daria 52
-        dias de fila com 8 workers. A página é um offset puro, então buscar 8 de
-        cada vez é seguro e não muda o resultado — só o relógio. O pico de memória
-        continua limitado: são `janela` páginas em voo, não o dia inteiro.
+        "8 páginas de 1000 publicações ≈ 30 MB" era a conta que justificava a
+        janela paralela. A conta assume que publicação tem tamanho parecido em
+        todo tribunal, e isso é falso. Medido em 24/08/2026, TJDFT 2026-08-21:
 
-        De brinde, a janela dá uma checagem que a versão serial não podia fazer:
-        se uma página vier incompleta (sinal de fim) mas uma página POSTERIOR da
-        mesma janela trouxer dado, o "fim" era mentira — e isso vira ERRO em vez
-        de um `return` discreto, que é como este projeto já perdeu 43,6% do TJSP.
+            14.651 publicações no dia .......... 822,6 MB de texto
+            ⇒ 56 KB por publicação, não ~3 KB
+
+        A `itensPorPagina=1000` isso são **55 MB de JSON por requisição**. Com
+        `DJEN_PAGINAS_PARALELAS=3` e a leva anterior ainda viva enquanto a
+        próxima é buscada, são 6 páginas ≈ 330 MB de JSON — que viram ~950 MB de
+        heap em Python (str/dict pesam ~2,5 vezes o JSON cru). Medido no mesmo
+        dia, sem gravar nada no banco: **pico de RSS 957 MB**, contra o
+        `mem_limit: 1g` do `worker_ingestion`. O OOM killer levava o work-horse
+        com SIGKILL e o dia inteiro ia junto — 342 das 703 falhas da fila
+        `djen_backfill` (48,6%) eram exatamente isso, 333 delas no TJDFT.
+
+        Então: o que fica constante aqui é o **orçamento de bytes em voo**
+        (`DJEN_BYTES_EM_VOO`, 48 MB), repartido entre as páginas paralelas. O
+        `itensPorPagina` é a variável de ajuste — para o TJDFT ele cai sozinho
+        pra ~280, para um TRF de publicação curta fica no teto de 1000.
+
+        **Isto não é teto de coleta.** A paginação continua indo até a página
+        voltar incompleta; muda só o tamanho do balde. Reintroduzir teto de
+        página é o pecado original deste projeto (43,6% do TJSP perdidos por
+        `for pagina in range(1, 11)`), e não é o que está acontecendo aqui.
+
+        ── a sonda ──
+
+        A 1ª leva vai SOZINHA e com `PAGE_SIZE_SONDA` itens: é ela que mede o
+        peso da publicação deste tribunal antes de comprometer memória. O que
+        ela traz é re-lido na leva seguinte (a paginação re-ancora por offset de
+        ITEM), então custa uma requisição pequena por dia e nunca pula item.
+
+        ── o que já existia e continua ──
+
+        * **downshift de 5xx**: a DJEN 500a ('sistema muito ocupado') em página
+          pesada; reduzindo o page size, o mesmo offset responde 200. Ao
+          reduzir, retoma de `floor(itens_lidos / novo_size)` — nunca pula item,
+          no máximo re-entrega alguns, que o ingest deduplica por id;
+        * **janela paralela** (`DJEN_PAGINAS_PARALELAS`): a página é offset
+          puro, então buscar N de cada vez não muda o que volta, só o relógio
+          (serial, um dia de TJSP são 163 min medidos);
+        * **página incompleta seguida de página com dado = ERRO**, nunca um
+          `return` discreto — é a assinatura exata do corte mudo.
         """
         pagina = 1
-        page_size = self.PAGE_SIZE
+        janela_alvo = max(1, self.paginas_paralelas)
+        # A 1ª leva é a sonda: 1 página pequena, sozinha, só pra pesar o item.
+        janela = 1
+        page_size = self.PAGE_SIZE_SONDA
         itens_lidos = 0
-        janela = max(1, self.paginas_paralelas)
-        with ThreadPoolExecutor(max_workers=janela) as pool:
+        peso_item = 0            # bytes de texto por publicação (média com meia-vida)
+        peso_leva = 0            # o máximo medido na leva corrente
+        # Teto herdado do downshift de 5xx: uma vez que a DJEN recusou página
+        # grande neste offset, o orçamento de bytes não pode reinflá-la de volta
+        # (senão os dois controles ficam em ping-pong eterno).
+        teto_5xx = self.PAGE_SIZE
+        with ThreadPoolExecutor(max_workers=janela_alvo) as pool:
             while True:
                 try:
                     # Em page size grande, desiste cedo do 5xx (max_5xx=2) pra
@@ -188,33 +335,83 @@ class DJENClient:
                             'DJEN 5xx em %s page_size=%d (offset~%d) → reduzindo p/ %d e retomando',
                             sigla_djen, page_size, itens_lidos, novo,
                         )
-                        page_size = novo
+                        page_size = teto_5xx = novo
                         pagina = itens_lidos // page_size + 1
                         continue
                     raise
 
                 acabou_em = None
-                for i, payload in enumerate(payloads):
-                    items = payload.get('items') or []
-                    if not items:
+                peso_leva = 0
+                for i in range(len(payloads)):
+                    # Tira a página do voo ANTES de entregá-la: enquanto o
+                    # consumidor grava, a leva inteira não pode continuar viva.
+                    payload, payloads[i] = payloads[i], None
+                    items = (payload or {}).get('items') or []
+                    del payload
+                    n_itens = len(items)
+                    if not n_itens:
                         if acabou_em is None:
                             acabou_em = i
                         continue
                     if acabou_em is not None:
                         raise DjenClientError(
                             f'{sigla_djen} {data_inicio}: página {pagina + acabou_em} '
-                            f'sinalizou fim mas a {pagina + i} trouxe {len(items)} itens — '
+                            f'sinalizou fim mas a {pagina + i} trouxe {n_itens} itens — '
                             f'paginação inconsistente, o dia NÃO pode contar como coberto'
                         )
-                    yield items
-                    itens_lidos += len(items)
+                    peso_leva = max(peso_leva, _peso_por_item(items))
+                    # Recorte da SOBREPOSIÇÃO. Quando o tamanho da página muda no
+                    # meio do dia (a sonda, ou o downshift de 5xx), a paginação
+                    # re-ancora por offset de ITEM e a 1ª página da nova leva
+                    # repete o que já foi entregue. O offset é conhecido
+                    # ((pagina-1) * page_size), então dá pra cortar aqui — e a
+                    # saída volta a ser EXATAMENTE o dia, em ordem e sem repetir.
+                    # Antes isso ficava por conta do dedupe do banco, o que
+                    # custava INSERT e escondia o custo do re-fetch.
+                    inicio_desta = (pagina + i - 1) * page_size
+                    if inicio_desta < itens_lidos:
+                        items = items[itens_lidos - inicio_desta:]
+                    if items:
+                        yield items
+                    del items          # a página sai da memória aqui, não no fim do dia
+                    itens_lidos = max(itens_lidos, inicio_desta + n_itens)
                     # Página menor que o page size: chegou ao fim da janela.
-                    if len(items) < page_size:
+                    if n_itens < page_size:
                         acabou_em = i
+                del payloads           # nada da leva anterior sobrevive à próxima
                 if acabou_em is not None:
                     return
+
                 pagina += janela
+                # ── recalibra o balde pelo peso medido ────────────────────────
+                # O peso da publicação varia MUITO dentro do mesmo dia: no TJDFT
+                # 2026-08-21 as levas mediram 24,6 KB, 220,4 KB, 336,3 KB e
+                # 578,8 KB por item. Guardar o MÁXIMO de todos os tempos deixa a
+                # página presa no tamanho do pior trecho até o fim do dia (28
+                # itens, 523 páginas) — seguro e lento demais. Guardar só a
+                # última leva volta a se expor inteiro a cada oscilação. O meio
+                # é MEMÓRIA COM MEIA-VIDA: o passado pesa metade a cada leva,
+                # então a página recupera o tamanho em ~4 levas em vez de nunca,
+                # e nunca de uma vez só.
+                peso_item = max(peso_leva, peso_item // 2)
+                novo = self._itens_por_pagina(sigla_djen, peso_item, janela_alvo,
+                                              teto_5xx, anterior=page_size)
+                if novo != page_size:
+                    logger.info(
+                        'DJEN %s: publicação pesa %.1f KB → itensPorPagina %d→%d '
+                        '(orçamento %.0f MB em voo ÷ %d páginas paralelas)',
+                        sigla_djen, peso_item / 1024, page_size, novo,
+                        _bytes_em_voo() / 1048576, janela_alvo,
+                    )
+                    page_size = novo
+                    pagina = itens_lidos // page_size + 1   # re-ancora por ITEM
+                janela = janela_alvo
                 time.sleep(self.page_sleep)
+
+    def _itens_por_pagina(self, sigla_djen: str, peso_item: int, janela: int,
+                          teto: int, anterior: int | None = None) -> int:
+        return itens_por_pagina(sigla_djen, peso_item, janela, teto, self.alertas,
+                                anterior=anterior)
 
     def _fetch(self, sigla_djen: str, data_inicio: date, data_fim: date, pagina: int,
                itens_por_pagina: int = 1000, extra_params: Optional[dict] = None,

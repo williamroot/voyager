@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
@@ -113,10 +114,96 @@ ESTRATEGIA_UF = getattr(settings, 'DJEN_ESTRATEGIA_UF', False)
 #: não caminho normal. Medido: `ufOab=SP` no TJSP passa de 10 páginas todo dia.
 MAX_PAGINAS_UF = 500
 
-#: quantas páginas ficam em voo entre os fetchers e quem grava. É o TETO DE
-#: MEMÓRIA do dia: 8 páginas × 1000 publicações com texto ≈ 30 MB, contra os
-#: 400+ MB que a versão acumuladora exigia (e que matou os workers com OOM).
+#: quantas páginas ficam em voo entre os fetchers e quem grava, na estratégia
+#: por UF. O teto de memória de verdade é o de BYTES (`DJEN_BYTES_EM_VOO`,
+#: aplicado em `DJENClient.iter_pages`): "8 páginas ≈ 30 MB" era uma conta que
+#: assumia publicação de ~3 KB, e o TJDFT publica de 56 KB (medido 24/08/2026).
 PAGINAS_EM_VOO = 8
+
+#: De quantos em quantos CNJs a ingestão FECHA o lote (resumo dos processos +
+#: auto-enqueue) e esquece o que já tratou.
+#:
+#: Antes, `cnjs_tocados` acumulava o dia inteiro e só era usado no fim — um
+#: `set` O(dia) vivo do começo ao fim, e um `numero_cnj__in=<todos>` de 260 mil
+#: parâmetros no TJSP. Ambos são acumulação, que é o que a regra nº 1 do
+#: CLAUDE.md proíbe, e ambos vivem no processo que o OOM killer matou 342 vezes
+#: em agosto/2026.
+#:
+#: 5.000 CNJs ≈ 600 KB e é a mesma ordem de grandeza do `IN` que um dia pequeno
+#: já fazia — nenhuma query nova fica maior do que já era. O preço é que um
+#: processo que apareça em DOIS lotes do mesmo dia é reenfileirado duas vezes;
+#: enriquecimento é idempotente e o custo é um job repetido, não um dado errado.
+CNJS_POR_LOTE = 5_000
+
+_TAM_PAGINA_SO = os.sysconf('SC_PAGE_SIZE') if hasattr(os, 'sysconf') else 4096
+
+
+def _rss_mb() -> float:
+    """RSS do processo, em MB, lido do /proc — sem dependência e sem syscall cara.
+
+    Devolve 0.0 onde /proc não existe (macOS de dev): a vigilância de memória é
+    diagnóstico, não pode ser motivo de falha da ingestão.
+    """
+    try:
+        with open('/proc/self/statm') as fh:
+            return int(fh.read().split()[1]) * _TAM_PAGINA_SO / 1048576
+    except (OSError, IndexError, ValueError):
+        return 0.0
+
+
+def _vigiar_memoria(run: IngestionRun | None) -> None:
+    """Regra nº 2 do CLAUDE.md aplicada à memória: passar do teto é ERRO
+    registrado COM O NÚMERO REAL, e não o SIGKILL calado do OOM killer.
+
+    Foi assim que 342 dias morreram até 24/08/2026: o work-horse sumia com
+    `waitpid returned 9`, o `IngestionRun` ficava `running` para sempre e só
+    uma hora depois o watchdog escrevia "worker crashou" — sem UM número que
+    dissesse quanta memória, em que página, com que tribunal. O alerta é
+    gravado na hora, porque um alerta que espera o fim do run não sobrevive à
+    morte do processo que ele descreve.
+    """
+    teto = int(getattr(settings, 'DJEN_RSS_ALERTA_MB', 700))
+    if run is None or teto <= 0:
+        return
+    rss = _rss_mb()
+    if rss < teto:
+        return
+    for e in run.erros:
+        if e.get('erro') == 'memoria_acima_do_alerta':
+            e['rss_mb'] = max(e['rss_mb'], round(rss, 1))
+            e['paginas_lidas'] = run.paginas_lidas
+            return
+    run.erros.append({'erro': 'memoria_acima_do_alerta', 'rss_mb': round(rss, 1),
+                      'teto_mb': teto, 'paginas_lidas': run.paginas_lidas})
+    logger.error(
+        'ingest_window run_id=%s: RSS %.0f MB acima do alerta de %d MB na página %d '
+        '— o processo está a caminho do OOM killer (mem_limit do worker: 1 GiB)',
+        run.pk, rss, teto, run.paginas_lidas,
+    )
+    try:
+        run.save(update_fields=['erros'])
+    except Exception:   # o alerta não pode derrubar a coleta
+        logger.warning('falha ao gravar alerta de memória no run %s', run.pk)
+
+
+def _drenar_alertas(client: DJENClient, run: IngestionRun | None) -> None:
+    """Passa pro run os avisos que o coletor não tem como registrar sozinho
+    (ele não conhece o `IngestionRun`). Ver `DJENClient.alertas`."""
+    if run is None or not getattr(client, 'alertas', None):
+        return
+    for aviso in client.alertas:
+        if aviso not in run.erros:
+            run.erros.append(aviso)
+    client.alertas.clear()
+
+
+def _fechar_lote(tribunal: Tribunal, cnjs: set[str]) -> None:
+    """Fecha um lote de CNJs: resumo dos processos + auto-enqueue. Chamado a
+    cada `CNJS_POR_LOTE` em vez de uma vez no fim do dia — ver a constante."""
+    if not cnjs:
+        return
+    _atualizar_resumo_processos(tribunal, cnjs)
+    _enfileirar_todos_enrichments(tribunal, cnjs)
 
 
 def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
@@ -168,16 +255,24 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
         if circuit_is_open():
             run.delete()
             raise DjenBusyError('DJEN circuito aberto — dia adiado, nada coletado')
+        # FLUXO, não acumulação (regra nº 1). Cada página é gravada e esquecida;
+        # os CNJs tocados saem em lotes de CNJS_POR_LOTE em vez de esperar o dia
+        # inteiro na memória. Nada aqui pode crescer com o tamanho do dia.
         for items in client.iter_pages(tribunal.sigla_djen, data_inicio, data_fim):
             _process_page(items, tribunal, run, cnjs_tocados)
-        if cnjs_tocados:
-            _atualizar_resumo_processos(tribunal, cnjs_tocados)
-            _enfileirar_todos_enrichments(tribunal, cnjs_tocados)
+            del items
+            _vigiar_memoria(run)
+            if len(cnjs_tocados) >= CNJS_POR_LOTE:
+                _fechar_lote(tribunal, cnjs_tocados)
+                cnjs_tocados = set()
+        _fechar_lote(tribunal, cnjs_tocados)
+        _drenar_alertas(client, run)
         run.status = IngestionRun.STATUS_SUCCESS
     except DjenBusyError:
         raise                       # já apagou o run acima; o job adia e volta
     except Exception as exc:
         run.status = IngestionRun.STATUS_FAILED
+        _drenar_alertas(client, run)
         run.erros.append({'erro': 'execucao', 'detalhe': str(exc)[:500]})
         logger.exception('ingestion_run failed', extra={'run_id': run.pk, 'tribunal': tribunal.sigla})
         run.finished_at = timezone.now()
@@ -249,6 +344,17 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
         """
         pagina = 1
         vistos = 0
+        # ⚠️ ESTA ESCOTILHA NÃO TEM O ORÇAMENTO DE BYTES do caminho flat (ver
+        # `DJENClient.iter_pages`). Aqui a página continua fixa em 1000 itens,
+        # e são 27 fatias em voo ao mesmo tempo: num tribunal que publica 56 KB
+        # por item (TJDFT, medido 24/08/2026) isso é da ordem de 1,5 GB. O
+        # caminho flat é o padrão desde 18/08 e foi ele que recebeu o conserto;
+        # retrofitar a calibração aqui reescreveria os quatro testes de
+        # regressão que guardam a lição das 10 páginas, num caminho DESLIGADO.
+        # Se alguém ligar `DJEN_ESTRATEGIA_UF` num tribunal pesado, é aqui que
+        # o OOM volta — o alerta de RSS abaixo grita antes, mas não impede.
+        from .client import _peso_por_item, itens_por_pagina
+        peso_item = 0
         while pagina <= MAX_PAGINAS_UF:
             payload = client._fetch(
                 tribunal.sigla_djen, dia, dia,
@@ -256,7 +362,15 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
                 extra_params={'ufOab': uf},
             )
             page = payload.get('items') or []
+            del payload
             if page:
+                novo_peso = _peso_por_item(page)
+                if novo_peso > peso_item:
+                    peso_item = novo_peso
+                    # Não muda a paginação — só DIZ, com o número medido, que a
+                    # escotilha está pedindo mais memória do que o orçamento.
+                    itens_por_pagina(tribunal.sigla_djen, peso_item, len(UF_OABS),
+                                     1000, getattr(client, 'alertas', None))
                 yield page                 # entrega e ESQUECE: quem grava é o consumidor
             vistos += len(page)
             if len(page) < 1000:
@@ -310,6 +424,11 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
                 total_itens += len(page)
                 for i in range(0, len(page), BATCH_SIZE):
                     _process_page(page[i:i + BATCH_SIZE], tribunal, run, cnjs_tocados)
+                del page
+                _vigiar_memoria(run)
+                if len(cnjs_tocados) >= CNJS_POR_LOTE:
+                    _fechar_lote(tribunal, cnjs_tocados)
+                    cnjs_tocados = set()
 
         if uf_erros:
             logger.warning('djen UF strategy: %d UFs falharam: %s', len(uf_erros), uf_erros)
@@ -333,12 +452,12 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
                 f'({", ".join(sorted(uf_erros)[:8])}) — dia NÃO pode contar como coberto'
             )
 
-        if cnjs_tocados:
-            _atualizar_resumo_processos(tribunal, cnjs_tocados)
-            _enfileirar_todos_enrichments(tribunal, cnjs_tocados)
+        _fechar_lote(tribunal, cnjs_tocados)
+        _drenar_alertas(client, run)
         run.status = IngestionRun.STATUS_SUCCESS
     except Exception as exc:
         run.status = IngestionRun.STATUS_FAILED
+        _drenar_alertas(client, run)
         run.erros.append({'erro': 'execucao_uf', 'detalhe': str(exc)[:500]})
         logger.exception('_ingest_day_por_uf failed', extra={'run_id': run.pk, 'tribunal': tribunal.sigla})
         run.finished_at = timezone.now()

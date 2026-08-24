@@ -130,9 +130,13 @@ escotilha `DJEN_ESTRATEGIA_UF` (padrão OFF) porque tem **defeito próprio**:
 
 **Janela paralela** (`DJEN_PAGINAS_PARALELAS`, 8). A página é offset puro, então
 buscar 8 de cada vez não muda o que volta — só o relógio. Serial, o canário do
-TJSP (261.076 publicações) levou 163 minutos: 1,61 pg/min. O teto de memória
-continua sendo a janela em voo, nunca o dia (acumular o dia matou os workers com
-OOM em 17/08).
+TJSP (261.076 publicações) levou 163 minutos: 1,61 pg/min.
+
+**O teto de memória é BYTE, não página** (`DJEN_BYTES_EM_VOO`, 24 MB, desde
+24/08/2026). "8 páginas × 1000 publicações ≈ 30 MB" assumia publicação de ~3 KB
+e erra por 27× no TJDFT (56 KB por publicação, medido) — foi o que matou 342
+work-horses com SIGKILL. `itensPorPagina` agora se ajusta ao peso medido do
+tribunal; a paginação continua indo até esgotar. Ver "O OOM do TJDFT" abaixo.
 
 A janela também enxerga o que a versão serial não podia: **página incompleta
 seguida de página com dado = paginação mentiu**, e isso é ERRO, não `return`.
@@ -280,29 +284,107 @@ Estado dos órfãos no dia da medição (janela de 7 dias):
 `réplicas × páginas = 112` descrito acima. Não é perda de dado: é trabalho
 enfileirado que o watchdog devolve a 200/tique (≈75 min pra drenar 3.007).
 
-### O que a recuperação religada trouxe à tona: OOM no TJDFT
+### O OOM do TJDFT — RESOLVIDO em 24/08/2026
 
-Nos primeiros 20 minutos com o watchdog funcionando, a `djen_backfill` juntou
-11 falhas — e **9 delas são `Work-horse terminated unexpectedly; waitpid
-returned 9`**, ou seja SIGKILL por memória. Todas do **TJDFT**, e sempre nos
-dias grandes (2025-07-25, 2025-08-04, 2025-08-13, 2025-08-15, …).
+**O censo, completo (não amostra).** `FailedJobRegistry.get_job_ids()` devolve o
+sorted set na ordem de EXPIRAÇÃO, então ler "os primeiros N" já apontou pro
+tribunal errado antes. Censo dos **703** ids da `djen_backfill`:
 
-Não é regressão do watchdog: o censo do registry ANTES do conserto já tinha
-**134** signal-9. O que mudou é que a recuperação voltou a rodar e passou a
-exercitar o caminho caro. Faz sentido ser o TJDFT: a fatia do DF é 77% do dia
-naquele tribunal (ver acima), então é o dia mais pesado do país.
+| classe | n | % | onde |
+|---|---:|---:|---|
+| **OOM** (`waitpid returned 9`) | **342** | 48,6% | 333 TJDFT · 9 TJAM |
+| deadlock no Postgres (`tribunals_process`) | 203 | 28,9% | TRF2 55 · TRF3 50 · TRF6 37 · TRF4 30 · TJSP 17 · TJRJ 8 |
+| id órfão (hash expirado — não é falha nova) | 131 | 18,6% | — |
+| transporte/HTTP | 14 | 2,0% | TRF1 13 |
+| timeout RQ (21.600 s) | 4 | 0,6% | TJSP 3 |
+| abandonado | 1 | 0,1% | TJDFT |
 
-**Comportamento hoje:** o work-horse morre, o run fica `running` sem
-`finished_at`, o watchdog o mata como zumbi depois de 1h e a recuperação o
-devolve no tique seguinte. Ou seja: **auto-cura para os dias que passam, e um
-laço de ~1h/dia para os que não passam**. É bounded e visível
-(`recuperacao.sobraram` parado + signal-9 no censo), não é silencioso — mas é
-trabalho queimado até alguém baixar o pico de memória de `ingest_window` nesses
-dias. Pendência registrada, não resolvida aqui.
+A `djen_ingestion` tinha **0** falhas. Dos 342 OOM, **197 são o MESMO dia**
+(`backfill_dia TJDFT 2026-08-21`, ~12 tentativas/hora ao longo de 21/08): o dia
+morria, nunca virava `success`, o watchdog reenfileirava, o dia morria de novo.
+No banco o número é maior que no registry (que expira): **1.876** runs do DJEN
+marcados `watchdog: status=running sem finished_at por >1h — worker crashou` em
+7 dias.
+
+**A causa, medida.** TJDFT 2026-08-21, paginando sem gravar nada no banco:
+
+```
+14.651 publicações no dia ............. 822,6 MB de texto
+⇒ 56 KB por publicação (a conta do código assumia ~3 KB)
+```
+
+A `itensPorPagina=1000` isso são **55 MB de JSON por requisição**. Com
+`DJEN_PAGINAS_PARALELAS=3` e a leva anterior ainda viva enquanto a próxima era
+buscada, ficavam 6 páginas co-residentes. Pico de RSS medido: **957 MB**, contra
+`mem_limit: 1g`. Controle com `DJEN_PAGINAS_PARALELAS=1` no mesmo dia: **640 MB**
+— o pico acompanha a JANELA, como a conta prevê.
+
+Não era o dia acumulado: era **a página**. O erro estava em contar memória em
+PÁGINAS, quando a publicação de um tribunal pesa 27× a de outro.
+
+**O conserto (`DJENClient.iter_pages`).** O que fica constante agora é o
+**orçamento de BYTES em voo** (`DJEN_BYTES_EM_VOO`, 24 MB), dividido pelas
+páginas paralelas; `itensPorPagina` virou a variável de ajuste.
+
+1. **sonda**: a 1ª leva vai sozinha, com `PAGE_SIZE_SONDA=250`, só pra pesar a
+   publicação daquele tribunal antes de comprometer memória;
+2. **calibração com meia-vida**: o peso varia MUITO dentro do mesmo dia (no
+   TJDFT as levas mediram 24,6 KB, 220,4 KB, 336,3 KB e 578,8 KB por item).
+   Guardar o máximo de todos os tempos prende a página no pior trecho até o fim
+   do dia (28 itens, 523 páginas — medido); guardar só a última leva re-expõe a
+   cada oscilação. O peso lembrado decai pela metade a cada leva;
+3. **crescer devagar, encolher na hora**: a página cresce no máximo
+   `FATOR_CRESCIMENTO`=4× por recalibração — encolher é reação a peso MEDIDO,
+   crescer é aposta;
+4. **recorte de sobreposição**: quando o tamanho muda, a paginação re-ancora por
+   offset de ITEM e a 1ª página da nova leva repete o que já saiu. O offset é
+   conhecido, então o trecho repetido é cortado — a saída volta a ser
+   exatamente o dia, em ordem e sem repetir (antes isso dependia do dedupe do
+   banco, o que custava INSERT);
+5. **a leva anterior morre antes da próxima nascer** (`del payloads`): a
+   co-residência caiu de 2×janela para 1×janela páginas.
+
+⚠️ **Isto não é teto de coleta.** A paginação continua indo até a página voltar
+incompleta; muda o tamanho do balde, não quantos baldes. Teto de página é o
+pecado original deste projeto (43,6% do TJSP).
+
+**Além da paginação, dois acumuladores O(dia) foram cortados:**
+
+* `cnjs_tocados` juntava o dia inteiro e só era usado no fim — um `set` vivo do
+  começo ao fim e um `numero_cnj__in=<260 mil>` no TJSP. Agora o lote fecha a
+  cada `CNJS_POR_LOTE`=5.000 (resumo + auto-enqueue) e é esquecido;
+* `IngestionRun.erros` crescia com o número de itens recusados, e é
+  re-serializada INTEIRA a cada `run.save()` — que acontece **uma vez por
+  página**. Agora guarda as primeiras `MAX_ERROS_NO_RUN`=200 e conta o resto
+  (`itens_recusados_alem_do_teto`), com o total real registrado.
+
+**Teto virou alerta (regra nº 2).** `DJEN_RSS_ALERTA_MB` (700 MB, ~70% do
+`mem_limit`): passando disso, a ingestão grava na hora, no run,
+`{"erro": "memoria_acima_do_alerta", "rss_mb": …, "paginas_lidas": …}` e loga
+ERRO. Antes o único sinal era o watchdog escrevendo "worker crashou" uma hora
+depois, sem um número. E se a publicação for tão pesada que nem
+`PISO_ITENS`=25 caibam no orçamento, isso vira
+`{"erro": "orcamento_memoria_no_piso", …}` no run — a coleta segue (dia não
+coletado é perda de acervo), mas ninguém descobre pelo SIGKILL.
+
+**A escotilha `DJEN_ESTRATEGIA_UF` NÃO recebeu a calibração.** Lá a página
+continua fixa em 1000 itens com 27 fatias em voo; ela só ganhou o alerta de RSS
+e o de orçamento. Ligá-la num tribunal pesado traz o OOM de volta.
+
+**O que sobra (não resolvido aqui):** os **203 deadlocks** em
+`tribunals_process` (28,9% das falhas). `_process_page` já insere em ordem total
+de CNJ, mas `_flush_resumo` faz `bulk_update` sem ordem definida e é o suspeito
+óbvio. É a próxima maior fonte de dia queimado.
 
 ```bash
-# ver se o laço está preso em algum dia
+# censo do cemitério (completo, por função/exceção/dia)
 ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py djen_censo_falhas djen_backfill'
+
+# quem passou do alerta de memória, com o número
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py shell -c "
+from tribunals.models import IngestionRun
+for r in IngestionRun.objects.filter(fonte=\"djen\", erros__contains=[{\"erro\":\"memoria_acima_do_alerta\"}])[:20]:
+    print(r.tribunal.sigla, r.janela_inicio, r.erros)"'
 ```
 
 ## Comandos manuais

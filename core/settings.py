@@ -286,6 +286,32 @@ DJEN_ESTRATEGIA_UF = env.bool('DJEN_ESTRATEGIA_UF', default=False)
 #   REGRA: réplicas de worker_ingestion × DJEN_PAGINAS_PARALELAS <= 64
 DJEN_PAGINAS_PARALELAS = env.int('DJEN_PAGINAS_PARALELAS', default=8)
 
+# TETO DE MEMÓRIA da coleta de um dia: bytes de TEXTO em voo entre a API e o
+# gravador, repartidos entre as `DJEN_PAGINAS_PARALELAS`. É este número que
+# `iter_pages` mantém constante — o `itensPorPagina` é a variável de ajuste.
+#
+# Por que não contar página: medido em 24/08/2026 no TJDFT 2026-08-21, uma
+# publicação tem 56 KB de texto (14.651 publicações = 822,6 MB num único dia),
+# então `itensPorPagina=1000` são 55 MB de JSON por requisição. Com 3 páginas
+# paralelas + a leva anterior ainda viva, o pico de RSS medido foi 957 MB —
+# acima do `mem_limit: 1g` do worker, e o OOM killer levava o work-horse com
+# SIGKILL (342 das 703 falhas da `djen_backfill`, 333 delas TJDFT).
+#
+# 24 MB de texto cru viram ~60-90 MB de heap (str/dict do Python pesam ~2,5× o
+# JSON cru) e somam ~200 MB com o Django carregado. A folga grande é
+# deliberada: o peso da publicação varia MUITO dentro do mesmo dia (no TJDFT
+# a sonda mediu 20,5 KB e uma leva seguinte trouxe 295,7 KB), então o orçamento
+# tem que aguentar uma previsão errada por uma leva inteira sem passar do 1g.
+# Quem grita quando não aguentar é o DJEN_RSS_ALERTA_MB abaixo.
+DJEN_BYTES_EM_VOO = env.int('DJEN_BYTES_EM_VOO', default=24 * 1024 * 1024)
+
+# A partir de quanto de RSS a ingestão GRITA (ERRO no run, com o número real)
+# em vez de esperar o SIGKILL silencioso do OOM killer. Regra nº 2 do
+# CLAUDE.md: teto é alerta, nunca corte mudo. 700 MB é ~70% do `mem_limit: 1g`
+# do `worker_ingestion` — sobra tempo de o alerta chegar ao banco antes da
+# morte. <= 0 desliga a medição.
+DJEN_RSS_ALERTA_MB = env.int('DJEN_RSS_ALERTA_MB', default=700)
+
 # Proxies
 PROXYSCRAPE_API_KEY = env('PROXYSCRAPE_API_KEY', default='')
 # API key alternativa para workers Datajud numa máquina específica.

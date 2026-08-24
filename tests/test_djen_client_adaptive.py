@@ -1,5 +1,12 @@
 """iter_pages adaptativo: reduz page size quando a DJEN devolve 5xx em página
-pesada e retoma do mesmo offset, sem pular nem (efetivamente) duplicar itens."""
+pesada e retoma do mesmo offset, sem pular nem (efetivamente) duplicar itens.
+
+Desde 24/08/2026 a 1ª página do dia é a SONDA (`PAGE_SIZE_SONDA`, 100 itens):
+ela mede quanto pesa uma publicação daquele tribunal antes de a paginação
+comprometer memória. Não é redução por 5xx e não é teto de coleta — a página
+volta ao tamanho cheio na leva seguinte quando o item é leve. Ver
+`DJENClient.iter_pages` e tests/test_djen_memoria_em_voo.py.
+"""
 from djen.client import DJENClient, DjenServerError
 
 
@@ -34,8 +41,11 @@ def test_iter_pages_reduz_em_5xx_e_cobre_tudo():
 
     # cobertura completa, em ordem, sem buraco nem duplicata
     assert [x['id'] for x in out] == list(range(250))
-    # tentou o tamanho grande antes de reduzir até o piso
-    assert (1, 1000) in calls
+    # A maior página tentada é a SONDA — desde 24/08/2026 o dia não começa mais
+    # na página cheia, ele começa medindo. O que este teste guarda é o
+    # downshift: tentou o tamanho maior antes de descer até o piso.
+    assert (1, DJENClient.PAGE_SIZE_SONDA) in calls
+    assert max(sz for _, sz in calls) == DJENClient.PAGE_SIZE_SONDA
     assert any(sz == DJENClient.MIN_PAGE_SIZE for _, sz in calls)
 
 
@@ -53,5 +63,6 @@ def test_iter_pages_sem_5xx_usa_page_size_cheio():
     out = [x for page in c.iter_pages('TJX', None, None) for x in page]
 
     assert [x['id'] for x in out] == list(range(1500))
-    # nunca reduziu: todas as chamadas a 1000
-    assert all(sz == 1000 for _, sz in calls)
+    # A sonda é a 1ª e só ela é pequena; sem 5xx, nada mais reduz.
+    assert calls[0] == (1, DJENClient.PAGE_SIZE_SONDA)
+    assert all(sz == 1000 for _, sz in calls[1:])
