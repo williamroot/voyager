@@ -569,6 +569,31 @@ esses — mais o reparo de quem aparece no diário com `total_movimentacoes=0`.
 Num dia 100% duplicado, o custo cai a zero: nem a agregação sobre
 `tribunals_movimentacao` (1,39 bi de linhas) nem o UPDATE acontecem.
 
+**Medido em produção, 24/08/2026 18:58 UTC (deploy nas 14 réplicas de
+`worker_ingestion` + nos 5 drainers de enriquecimento):**
+
+*Nível 2, prova direta.* Cinco runs `success` com `novas=0` (dia 100%
+duplicado, o caso mais comum na recuperação), amostra de 300 processos de cada:
+
+| run | tribunal/dia | publicações duplicadas | processos reescritos (de 300) |
+|---|---|---:|---:|
+| 222319 | TRF6 2025-06-10 | 14.840 | 18 |
+| 222314 | TRF4 2026-07-20 | 37.875 | 4 |
+| 222313 | TRF4 2026-07-15 | 30.950 | 7 |
+| 222312 | TRF4 2026-07-14 | 28.055 | 1 |
+| 222311 | TRF4 2026-07-06 | 38.360 | 1 |
+
+150.080 publicações reprocessadas, e a linha do processo praticamente não foi
+tocada (0,3% a 6% da amostra — e mesmo esses são processos que ganharam
+publicação nova em OUTRO dia coletado em paralelo, ou o reparo de
+`total_movimentacoes=0`). Antes, os 300 de cada amostra seriam reescritos.
+
+O custo que sumiu junto: a agregação `MIN/MAX/COUNT` sobre
+`tribunals_movimentacao` (1,39 bi de linhas) leva **0,15 s a frio / 0,07 s a
+quente por lote de 500 processos**, medido no TRF4 em produção. Um dia do TJSP
+(257.899 processos) são 516 lotes — 36 s a 77 s de leitura por passada, num
+banco que a casa já classifica como disk-I/O-bound.
+
 ⚠️ **Mudança de semântica registrada:** `Process.data_enriquecimento_djen`
 passou de "última vez que o DJEN passou por este processo" para "última vez que
 o DJEN trouxe movimentação NOVA". Quem lê o campo (ficha do processo, doc do
@@ -714,6 +739,13 @@ da Fase 2 (24/08/2026, 15h30):
   nunca precisou ser refeito. É a subestimação conhecida da régua da data.
 * **156 dias são pendência de verdade** — nunca refeitos pelo caminho novo:
   TJRS 121 · TJSP 19 · TRF3 11 · TJRJ 3 · TRF6 1 · TRF2 1.
+
+**A tela mudou por causa disto** (24/08): `_recuperacao_por_tribunal` passou a
+publicar uma TERCEIRA coluna, `nunca_refeito` (razão baixa **e** sem `success`
+pós-corte) — a única das três que pode chegar a zero. O número grande do cartão
+virou `pct_honesto` (96,0% = 3.945−156 / 3.945), com razão/data ao lado, e o
+rodapé explica o falso positivo com o número. Métrica que fica parada em 92%
+sem explicação vira ruído que ninguém mais lê.
 
 **Por que os 156 nunca voltaram:** o seletor do
 `djen_reprocessar_janelas_capped` exige `paginas_lidas >= 100` **e**

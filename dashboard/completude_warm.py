@@ -62,10 +62,31 @@ def _recuperacao_por_tribunal() -> tuple[list, dict]:
         Subestima: um dia que já era bom antes nunca precisou ser refeito.
 
     A verdade está entre as duas. Mostrar uma só seria escolher a que soa melhor.
+
+    ── por que `falta` (razão) NÃO chega a zero, medido em 24/08/2026 ──
+
+    Cruzando as duas réguas nos 3.945 dias-alvo da Fase 2:
+
+                          refeito pós-corte   NÃO refeito
+        razão >= 700            3.328              320
+        razão <  700              141              156
+
+    Os **141** da célula (razão baixa, JÁ refeito) são falso positivo puro: o
+    conserto do OOM (24/08) tornou o `itensPorPagina` DINÂMICO — num tribunal de
+    publicação pesada a página cai pra 100-300 itens por orçamento de BYTES.
+    Exemplos do próprio dia: TJGO 2026-08-24 razão 207 (62.612 itens em 302
+    páginas), TRF4 2026-08-24 razão 100, TRF2 2026-08-24 razão 439 — todos
+    coletados pelo caminho flat, hoje. **A razão passou a medir o peso da
+    publicação, não o caminho da coleta.**
+
+    Por isso a tela ganhou uma TERCEIRA coluna, `nunca_refeito` (razão baixa E
+    sem `success` pós-corte): é a única das três que pode chegar a zero, e é a
+    fila de trabalho de verdade — 156 dias, sendo 121 do TJRS.
     """
     from tribunals.models import IngestionRun as R
 
-    linhas, tot = [], {'alvo': 0, 'flat': 0, 'pos_corte': 0, 'recuperavel': 0}
+    linhas, tot = [], {'alvo': 0, 'flat': 0, 'pos_corte': 0, 'recuperavel': 0,
+                       'nunca_refeito': 0, 'falso_pos': 0}
     for sigla in M.FASE_2:
         ult = {}
         qs = (R.objects.filter(fonte='djen', tribunal__sigla=sigla)
@@ -83,20 +104,35 @@ def _recuperacao_por_tribunal() -> tuple[list, dict]:
 
         alvo = len(ult)
         flat = sum(1 for v in ult.values() if v[1] >= M.RAZAO_CAMINHO_FLAT)
-        pos = sum(1 for v in ult.values()
-                  if v[0].replace(tzinfo=None) >= M.CORTE_FLAT and v[2] == 'success')
+
+        def _refeito(v):
+            return v[0].replace(tzinfo=None) >= M.CORTE_FLAT and v[2] == 'success'
+
+        pos = sum(1 for v in ult.values() if _refeito(v))
+        # A célula que importa: razão baixa E sem run novo. As outras três
+        # combinações têm explicação conhecida (ver docstring).
+        nunca = sum(1 for v in ult.values()
+                    if v[1] < M.RAZAO_CAMINHO_FLAT and not _refeito(v))
+        falso_pos = (alvo - flat) - nunca
         rec = M.RECUPERAVEL_POR_TRIBUNAL.get(sigla, 0)
         linhas.append({
             'sigla': sigla, 'alvo': alvo, 'flat': flat, 'pos_corte': pos,
             'falta': alvo - flat, 'recuperavel': rec,
+            'nunca_refeito': nunca, 'falso_pos': falso_pos,
             'pct_flat': (100.0 * flat / alvo) if alvo else 0,
             'pct_corte': (100.0 * pos / alvo) if alvo else 0,
+            'pct_honesto': (100.0 * (alvo - nunca) / alvo) if alvo else 0,
         })
         tot['alvo'] += alvo; tot['flat'] += flat
         tot['pos_corte'] += pos; tot['recuperavel'] += rec
+        tot['nunca_refeito'] += nunca
+        tot['falso_pos'] += falso_pos
 
     tot['pct_flat'] = (100.0 * tot['flat'] / tot['alvo']) if tot['alvo'] else 0
     tot['pct_corte'] = (100.0 * tot['pos_corte'] / tot['alvo']) if tot['alvo'] else 0
+    tot['pct_honesto'] = ((100.0 * (tot['alvo'] - tot['nunca_refeito']) / tot['alvo'])
+                          if tot['alvo'] else 0)
+    tot['falta_razao'] = tot['alvo'] - tot['flat']
     return linhas, tot
 
 
