@@ -36,7 +36,9 @@ O que estes testes protegem:
      `backfill_dia` faz skip em dia coberto, e 97,4% dos órfãos estão
      "cobertos" justamente porque fecharam `success` batendo o cap de 10k.
 """
+import contextlib
 import datetime
+import os
 import time
 from unittest.mock import MagicMock, patch
 
@@ -205,6 +207,71 @@ def test_deploy_recente_nao_gasta_o_alarme():
     assert r['velhos'] == 244
     assert not erro.called, 'deploy de 1h atrás não pode gritar ERRO'
     assert aviso.called, 'mas também não pode ficar mudo'
+
+
+@contextlib.contextmanager
+def _fuso(nome):
+    """Força o fuso do PROCESSO, como o container de prod (America/Sao_Paulo).
+
+    Sem isto o teste roda em UTC e o bug de `.timestamp()` em datetime ingênuo
+    fica invisível — foi exatamente por isso que ele passou despercebido: o
+    `_worker_falso` acima constrói `birth_date` COM tzinfo, e o RQ de verdade
+    devolve SEM.
+    """
+    antigo = os.environ.get('TZ')
+    os.environ['TZ'] = nome
+    time.tzset()
+    try:
+        yield
+    finally:
+        if antigo is None:
+            os.environ.pop('TZ', None)
+        else:
+            os.environ['TZ'] = antigo
+        time.tzset()
+
+
+def test_birth_date_ingenuo_nao_pode_nascer_3h_no_futuro():
+    """O `birth_date` do RQ é UTC INGÊNUO — e o container roda em UTC-3.
+
+    MEDIDO em 24/08/2026 dentro do `voyager-web-1`: um worker que nasceu às
+    15:13:55 UTC era lido como 18:13:55 UTC (delta -10800 s), porque
+    `datetime.timestamp()` num ingênuo aplica o fuso LOCAL. O outro lado da
+    comparação é `os.path.getmtime`, que é época real.
+
+    Resultado: **ponto cego de 3h** no único alarme que existe pra pegar deploy
+    sem restart. Às 15:33 daquele dia o watchdog disse `velhos: 0` com metade
+    da frota ainda no código anterior ao `git pull` das 15:31.
+
+    O teste que já existia não pegava porque o `_worker_falso` monta o
+    `birth_date` COM tzinfo — validava uma ficção. Este monta SEM, como o RQ,
+    e força o fuso do processo pro de produção.
+    """
+    agora = time.time()
+    w = MagicMock()
+    w.birth_date = datetime.datetime.fromtimestamp(
+        agora - 3600, tz=datetime.UTC).replace(tzinfo=None)   # como o RQ devolve
+    w.queue_names.return_value = ['datajud']
+
+    with _fuso('America/Sao_Paulo'), \
+         patch('rq.Worker.all', return_value=[w]), \
+         patch.object(J.logger, 'error'), patch.object(J.logger, 'warning'):
+        r = J._alerta_workers_velhos(agora)
+
+    assert r['velhos'] == 1, 'worker de 1h atrás lido como nascido no futuro'
+    assert 0.9 < r['atraso_horas'] < 1.1, (
+        f'atraso saiu {r["atraso_horas"]}h — deveria ser ~1h '
+        f'(o bug do fuso devolvia -2h e o filtro nem chegava aqui)')
+
+
+def test_epoca_utc_e_indiferente_ao_fuso_do_processo():
+    """Mesma verdade lida em dois fusos tem que dar o mesmo número."""
+    nasceu = datetime.datetime(2026, 8, 24, 15, 13, 55, tzinfo=datetime.UTC)
+    esperado = nasceu.timestamp()
+    for fuso in ('UTC', 'America/Sao_Paulo', 'Asia/Tokyo'):
+        with _fuso(fuso):
+            assert J._epoca_utc(nasceu.replace(tzinfo=None)) == esperado, fuso
+            assert J._epoca_utc(nasceu) == esperado, fuso
 
 
 def test_frota_sem_mtime_se_abstem():

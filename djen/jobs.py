@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import time
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -388,6 +388,38 @@ def _alerta_codigo_velho() -> dict:
             'exemplos': [n for n, _ in velhos[:8]]}
 
 
+def _epoca_utc(nascimento) -> float:
+    """`birth_date` do RQ é UTC INGÊNUO — `.timestamp()` nele mente por 3h.
+
+    MEDIDO em 24/08/2026, dentro do `voyager-web-1`:
+
+        birth_date (repr)    : datetime.datetime(2026, 8, 24, 15, 13, 55, 806287)
+        TZ do container      : ('-03', '-03')  offset -3.0
+        birth_date.timestamp : 1787595235.8   -> 18:13:55 UTC
+        como UTC .timestamp  : 1787584435.8   -> 15:13:55 UTC   (o certo)
+        delta                : -10800 s
+
+    O RQ grava `birth` com `utcformat(utcnow())` e devolve um datetime SEM
+    tzinfo. `datetime.timestamp()` num ingênuo aplica o fuso LOCAL do processo,
+    e o fuso do container é `America/Sao_Paulo` (UTC-3) — então todo worker era
+    contado como nascido **3 horas no futuro**.
+
+    O outro lado da comparação (`os.path.getmtime`) é época real. O resultado
+    era um **ponto cego de 3h no alarme que existe pra pegar deploy sem
+    restart**: qualquer frota com menos de 3h de atraso lia `velhos: 0`, e
+    `atraso_horas` saía sempre 3h menor que a verdade. Foi o que aconteceu às
+    15:33 de 24/08/2026, logo depois de reciclar 240 containers: `velhos: 0`
+    com metade da frota ainda no código anterior ao `git pull` de 15:31.
+
+    O erro é conservador na direção que menos ajuda: ele ESCONDE atraso, nunca
+    inventa. Um alarme que só erra pra menos é pior que nenhum, porque dá
+    confiança falsa — o defeito exato que o princípio nº 1 do projeto proíbe.
+    """
+    if nascimento.tzinfo is None:
+        return nascimento.replace(tzinfo=UTC).timestamp()
+    return nascimento.timestamp()
+
+
 def _alerta_workers_velhos(mtime_mais_novo: float) -> dict:
     """O resto da FROTA também recarregou? Olha o `birth_date` de cada worker.
 
@@ -418,11 +450,11 @@ def _alerta_workers_velhos(mtime_mais_novo: float) -> dict:
         return {'checado': False}
     limite = mtime_mais_novo - CODIGO_VELHO_TOLERANCIA_S
     velhos = [w for w in frota
-              if w.birth_date and w.birth_date.timestamp() < limite]
+              if w.birth_date and _epoca_utc(w.birth_date) < limite]
     if not velhos:
         return {'checado': True, 'total': len(frota), 'velhos': 0, 'atraso_horas': 0.0}
 
-    idade_h = (mtime_mais_novo - min(w.birth_date.timestamp() for w in velhos)) / 3600
+    idade_h = (mtime_mais_novo - min(_epoca_utc(w.birth_date) for w in velhos)) / 3600
     filas = collections.Counter(f for w in velhos for f in w.queue_names())
     detalhe = ', '.join(f'{f}={n}' for f, n in filas.most_common(8))
     if idade_h >= FROTA_ATRASO_ALERTA_H:

@@ -859,3 +859,87 @@ propósito. Usa `mov_processo_data_disp_idx`, que existe.
   que a métrica veio buscar.
 - `tests/test_diarios_espelhadas.py` trava a regressão: há um teste que falha se
   a coluna `hash` voltar ao SQL da métrica.
+
+---
+
+## ADR-034 (PROPOSTA — não implementada): worker que se recicla quando o código muda
+
+> **Status: PROPOSTA.** Nada disto está no código. O pipeline de deploy segue
+> como está em [`DEPLOY.md`](../DEPLOY.md) até haver decisão explícita. Escrito
+> em 24/08/2026, depois de reciclar 256 workers à mão.
+
+**Contexto — o defeito é do processo de deploy, não de um container.**
+
+O `docker-compose-workers.yml` monta o repo com bind mount `.:/app`. O
+`git pull` no host aparece dentro do container **imediatamente**, e é
+exatamente isso que dá a impressão de deploy feito. Só que o processo Python já
+tem os módulos em `sys.modules`: ele segue executando o código de quando subiu,
+com run verde e log limpo. O deploy documentado hoje diz, textualmente, "nos
+hosts de workers faça apenas `git pull --ff-only`" — ou seja, **o caminho feliz
+do runbook produz a falha**.
+
+O que isso já custou, medido:
+
+| data | efeito | número |
+|---|---|---|
+| 21/08 | `ressuscitar_dias_de_recuperacao` (deploy 19/08) nunca executou | **3.007** dias-tribunal parados |
+| 21/08 | `import datajud.jobs` quebrando no work-horse (símbolo novo só no disco) | **4.247** jobs mortos, refill parado 3 dias |
+| 24/08 | frota inteira em código de 6 dias antes | **215 de 250** workers, atraso de **150,8 h** |
+
+E os dois remendos que existem hoje são **detectores**, não curas:
+`_alerta_codigo_velho` (o próprio processo) e `_alerta_workers_velhos` (a
+frota). Ambos dependem de alguém ler o log e agir — em 24/08 o alerta estava
+aceso e correto havia dias.
+
+**Proposta — o worker se aposenta sozinho.**
+
+Subclasse de `rq.Worker` que, entre jobs (no ponto onde o RQ já roda
+`run_maintenance_tasks`), compara o `mtime` de todo `.py` do projeto em
+`sys.modules` com o `starttime` do próprio processo — a mesma conta de
+`_alerta_codigo_velho`, que custa ~200 `os.stat` (medido <5 ms). Se achar
+módulo mais novo, pede **warm shutdown**: termina o job em voo e sai com 0. O
+`restart: unless-stopped` do compose sobe o processo de novo, agora lendo o
+disco atual.
+
+Três guardas, todas por causa de números medidos hoje:
+
+1. **Jitter obrigatório.** 240 workers detectando a mesma mudança no mesmo
+   segundo é a reciclagem em massa que o incidente OOM de 06/2026 proíbe.
+   Espalhar por `random.uniform(0, RECICLA_JANELA_S)` — 900 s dá ~16
+   reinícios/min, abaixo da maior onda que medimos hoje (44 containers em 95 s,
+   custo de 298 MiB de `MemAvailable`).
+2. **Cota global no Redis.** Token bucket compartilhado (o padrão já existe em
+   `datajud/ratelimit.py`): no máximo N reciclagens por minuto na frota inteira,
+   independente de quantos workers acordem juntos. Jitter sozinho não é teto.
+3. **Teto de espera, nunca corte mudo** (regra nº 2 do CLAUDE.md). Worker que
+   não consegue sair porque o job não termina registra ERRO com a idade real —
+   não fica em silêncio nem mata o job.
+
+**O que a proposta NÃO resolve, e é honesto dizer:**
+
+- **Imagem nova.** `restart` recarrega código, não imagem. Medido em 24/08: os
+  ~170 containers de enriquecimento de 18/08 rodavam a imagem `5d536a9d`,
+  anterior ao rebuild que trouxe o PyMuPDF — `import fitz` dava
+  `ModuleNotFoundError` dentro deles. Mudança de `requirements.txt` continua
+  exigindo `up --force-recreate` no runbook. A auto-reciclagem cobre o caso
+  comum (código), não o raro (dependência).
+- **`.env`.** `restart` não relê o `.env`; só `force-recreate`. Idem.
+- **Containers fora do compose.** Em 24/08 a `.103` tinha 6 workers RQ vivos
+  (`worker_leads_consumo` ×4, `worker_monitoring`, `worker_pdf_download`) de
+  12/08 que **nem apareciam** em `Worker.all()` — um deles ainda tinha
+  `search/agg_comercial.py` em `sys.modules`, arquivo apagado do disco em 13/08.
+  Auto-reciclagem os pegaria (o processo é o mesmo), mas o censo da frota não —
+  isso é problema separado.
+
+**Alternativas consideradas.**
+
+| opção | por que não é a primeira escolha |
+|---|---|
+| `rqworker --max-jobs N` (worker morre após N jobs) | recicla por VOLUME, não por mudança: fila parada nunca recarrega, e fila cheia recarrega toda hora à toa. Serve como rede de segurança grosseira, não como cura |
+| Deploy sempre com `--force-recreate` da frota inteira | é o correto e é o que fizemos hoje à mão — 240 containers em **27 min** na `.102`. Aceitável num incidente; caro demais pra ser o caminho de todo commit, e é justamente o custo que faz alguém pular a etapa |
+| Tirar o bind mount e assar o código na imagem | resolve de vez (container novo = código novo, por construção) e é o padrão certo pra prod. Mas é mudança de pipeline: exige build+push por deploy e um registry, hoje inexistente. **É a proposta de fundo**; a auto-reciclagem é o paliativo que cabe sem mexer no pipeline |
+
+**Critério pra aceitar.** Só vale se, num deploy de teste, a frota inteira
+(256 workers) chegar a `frota.velhos == 0` sem intervenção manual, com o pico
+de reinícios por minuto abaixo de 20 e `MemAvailable` na `.102` nunca abaixo
+dos 6.000 MiB que usamos como piso hoje.

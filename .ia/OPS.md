@@ -508,6 +508,170 @@ ssh 100.98.141.91 'docker logs --since 30m voyager-worker_default-1 2>&1 \
 ssh 100.98.141.91 'docker ps --format "{{.Names}}\t{{.Status}}" | sort -k2'
 ```
 
+### Reciclar a frota inteira sem derrubar produção (medido em 24/08/2026)
+
+Runbook do que fazer quando o alerta acima acende com atraso de DIAS. Todos os
+números abaixo foram medidos na `.102` (50 GiB de RAM, 24 vCPU, 240 containers)
+e na `.103` (24 GiB, 28 containers) em 24/08/2026 — não são estimativas.
+
+#### 1. Prove que o código está velho ANTES de reiniciar 240 containers
+
+`docker ps` mostra a idade do CONTAINER, não a do código que está em memória —
+e são coisas diferentes: o `git pull` no host entra pelo bind mount `.:/app`,
+o processo Python não. A prova barata é uma **sonda enfileirada na própria
+fila**, que roda dentro do work-horse e devolve o `sys.modules` real:
+
+```python
+# roda no web (.103), enfileira em TODAS as filas com at_front=True
+INICIO = ("(__import__('time').time()"
+          "-float(open('/proc/uptime').read().split()[0])"
+          "+float(open('/proc/'+str(__import__('os').getppid())+'/stat')"
+          ".read().rsplit(') ',1)[1].split()[19])"
+          "/__import__('os').sysconf('SC_CLK_TCK'))")   # start do worker PAI
+MODS = ("[(n,__import__('os').path.getmtime(m.__file__))"
+        " for n,m in list(__import__('sys').modules.items())"
+        " if getattr(m,'__file__',None) and str(m.__file__).startswith('/app/')"
+        " and str(m.__file__).endswith('.py')]")
+q.enqueue('builtins.eval', f"({INICIO},{MODS})", at_front=True, job_timeout=30)
+```
+
+Módulo com `mtime > início do processo` = código velho **em memória**. Saída
+real de 24/08, antes da reciclagem:
+
+| fila | worker nasceu | módulos velhos |
+|---|---|---|
+| `enrich_*` (16 filas), `datajud`, `pdf_download`, `varredura` | 18/08 00:29 | **14** — `core.settings`, `tribunals.models`, `djen.ingestion`, `djen.client`, `djen.jobs`, `diarios.base`, `diarios.models`, `api.*`, `dashboard.*` |
+| `classificacao`, `manual`, `monitoring` (.103) | 14/08 17:36 | **21** (os 14 acima + `enrichers.pje/esaj`, `djen.proxies`, `search.client`, …) |
+| `es_index`, `default` | 21/08 03:01 | 1–2 |
+
+> **Duas ressalvas honestas da sonda.** (a) Ela só enxerga o que o worker
+> importou **no boot**; módulo importado dentro do job é carregado fresco pelo
+> fork e não aparece — a lista é piso, não teto. (b) `at_front=True` é
+> obrigatório: `enrich_tjrj` tinha 411.603 jobs na frente. Fila cujos workers
+> estão todos ocupados (`started == réplicas`) não responde em 120 s — isso é
+> fila cheia, não worker morto.
+
+A prova mais dura veio da fila `leads_consumo`: a sonda estourou com
+`FileNotFoundError: '/app/search/agg_comercial.py'` — arquivo **renomeado em
+13/08** e ainda em `sys.modules` do worker 11 dias depois.
+
+#### 2. `up --force-recreate`, não `docker restart`
+
+`docker restart` recarrega o CÓDIGO (bind mount) mas mantém a IMAGEM do
+container. Medido: os ~170 containers de enriquecimento de 18/08 rodavam a
+imagem `5d536a9d`, anterior ao rebuild de 20/08 20:18 que trouxe o PyMuPDF —
+`import fitz` dentro deles dava `ModuleNotFoundError`. Use:
+
+```bash
+cd ~/voyager && docker compose -f docker-compose-workers.yml \
+  up -d --no-deps --force-recreate --timeout 90 worker_tjrj worker_datajud
+```
+
+- `--no-deps` — não arrasta serviço nenhum junto.
+- `--force-recreate` — pega imagem nova **e** relê o `.env` (o `restart` não relê).
+- `--timeout 90` — **este é o número que salva trabalho.** É o grace do SIGTERM,
+  e o RQ faz *warm shutdown*: termina o job em execução e só então sai. Com 90 s,
+  as 16 filas `enrich_*` (146 jobs em voo) foram recicladas com **0 jobs
+  abandonados** — `FailedJobRegistry` de todas continuou em 0. O preço é a onda
+  demorar: as ondas com jobs longos levaram 95–105 s em vez de 10 s.
+- Confira antes que `replicas:` no compose bate com o `docker ps` atual —
+  `up` aplica o compose. Em 24/08 batia em todos os 26 serviços.
+
+#### 3. Ordem e tamanho das ondas
+
+Nunca `compose restart` global (incidente OOM de 06/2026). Ondas por SERVIÇO,
+com trava de memória, nesta ordem:
+
+| # | serviços | containers |
+|---|---|---|
+| 1 | `monitoring`, `djen_audit`, `pdf_download`, `varredura` | 20 — filas ociosas, valida o procedimento |
+| 2 | `tjdft`, `tjac`, `tjro`, `tjap`, `tjpa` | 28 |
+| 3 | `tjal`, `tjma`, `tjmt`, `tjpe`, `tjce` | 68 |
+| 4 | `trf1`, `trf3`, `trf5`, `tjmg`, `tjsp` | 26 — gargalos declarados, onda própria |
+| 5 | `tjrj` (24), `datajud` (24) | 48 |
+| 6 | `es_index`, `diarios`, `classificacao` | 34 |
+| 7 | **`worker_default` SOZINHO** | 2 |
+| 8 | **`worker_ingestion` SOZINHO, `--timeout 600`** | 14 |
+
+Os passos 7 e 8 são separados **de propósito**: o `worker_ingestion` roda com
+`--with-scheduler`, obrigatório pro `enqueue_in` do adiamento por circuito
+aberto (sem ele, 4.189 dias viraram limbo em 19/08). Derrubar os dois juntos
+tira o watchdog e o scheduler do RQ ao mesmo tempo.
+
+#### 4. Trava de memória — os números medidos
+
+O medo é o OOM de host (06/2026). O que a medição mostrou é o **contrário** do
+esperado: reciclar **libera** memória, porque o processo velho devolve o que
+inchou e o swap dele volta pro pool.
+
+```
+.102 antes (14:38)  avail 15.453 MiB · used 34.733 · swap usado 7.389 · load1 9,96
+.102 depois (15:05) avail 16.472 MiB · used 33.713 · swap usado    24 · load1 7,63
+```
+
+**7,3 GiB de swap devolvidos** — os 240 workers tinham ~100 MiB paginados cada.
+Custo por onda, medido: **-64 a -426 MiB** de `MemAvailable` para ondas de 8 a
+44 containers (~10–30 MiB por container: o worker novo é residente, o velho
+estava metade em swap). Ondas de `tjdft`/`tjce`/`ingestion` deram delta
+**positivo** (o container velho estava inchado: `tjdft` a 317 MiB, `ingestion`
+a 257 MiB, contra ~120 MiB de um worker fresco).
+
+Pisos usados no script (`~/onda.sh` nos dois hosts), que ABORTAM a onda:
+
+| trava | valor | por quê |
+|---|---|---|
+| `MemAvailable` | **6.000 MiB** | a maior onda (44 containers) custa ~3,3 GiB no pior caso `mem_limit`; 6 GiB é ~2× isso |
+| `SwapFree` | **300 MiB** | swap cheio + rajada de anon = OOM de host, não de container |
+| `load1` | **40** | 24 vCPU; o normal sob carga é 8–16, e as ondas levaram a 16,6 no pico |
+
+Tempo total: **240 containers da `.102` em 27 min** (14:38→15:05), sendo 10 min
+só do `worker_ingestion` (o grace de 600 s). A `.103` (16 workers + 5 drainers
++ scheduler) levou **6 min**. Nenhuma fila parou: `djen_backfill` continuou
+drenando (3.038 → 2.103) durante a janela.
+
+#### 5. Validar — e o que NÃO acreditar
+
+```bash
+# o watchdog tem que rodar ONDE ele roda de verdade (fila default, na .102);
+# rodá-lo dentro do web (.103) mede o mtime do disco ERRADO
+docker exec -w /app voyager-web-1 python -c "
+import sys; sys.path.insert(0,'/app')
+import os,django; os.environ.setdefault('DJANGO_SETTINGS_MODULE','core.settings'); django.setup()
+import django_rq, time, json
+j = django_rq.get_queue('default').enqueue('djen.jobs.watchdog_ingestao', at_front=True)
+time.sleep(20); j.refresh(); print(json.dumps(j.result, default=str, indent=1))"
+```
+
+Resultado real de 24/08, depois das duas passadas:
+
+```
+frota: {"checado": true, "total": 256, "velhos": 0, "atraso_horas": 0.0}
+                       antes:  total 250, velhos 215, atraso_horas 150.8
+```
+
+Três coisas que enganam, e enganaram de verdade neste dia:
+
+1. **`total` sobe depois de reciclar.** Foi de 250 pra 256 porque 6 containers
+   da `.103` (`worker_leads_consumo` ×4 e os órfãos `worker_monitoring` /
+   `worker_pdf_download`, todos de 12/08 e fora do compose) **não apareciam** em
+   `Worker.all()`. Estavam vivos e consumindo fila. O censo da frota não é o
+   censo dos containers: confira `docker ps -q | wc -l` nos dois hosts.
+2. **`velhos: 0` pode ser mentira.** O `birth_date` do RQ é UTC ingênuo e o
+   container roda em UTC-3 — até 24/08 o watchdog contava todo worker como
+   nascido **3 h no futuro** (ponto cego de 3 h; `atraso_horas` sempre 3 h a
+   menos). Corrigido em `_epoca_utc`. Se você está lendo isto numa versão
+   anterior, some 3 h ao `atraso_horas` antes de acreditar.
+3. **Chegar a `velhos: 0` exige que ninguém dê `git pull` no meio.** Em 24/08
+   dois deploys entraram às 15:13 e 15:31, no meio da reciclagem, e a frota
+   voltou pra "velha" por 4 módulos. Antes da última passada, espere o disco
+   parar: `find ~/voyager -name '*.py' -newermt '-3 minutes'` tem que sair vazio.
+
+Custo total em trabalho perdido, medido nos registries antes/depois: **8 jobs**
+abandonados em ~240 reinícios (3 `djen_backfill`, 3 `leads_consumo`, 1
+`pdf_download`, 1 `default`), todos re-enfileiráveis — `enrich_*` ficou em 0
+graças ao warm shutdown. Comparar com os 3.007 dias-tribunal parados do
+incidente de 21/08 é o que dimensiona a decisão.
+
 ### Censo e limpeza do FailedJobRegistry
 
 `get_job_ids()` devolve o sorted set na ordem de **expiração**, não de tempo —
