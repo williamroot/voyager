@@ -131,8 +131,24 @@ TETO_PARADA_MS = 25_000.0
 ABORTO_FREIO_PP = 20.0
 ABORTO_PARADA_PP = 40.0
 
-#: Sleep entre blocos: começa no valor pedido e sobe até este teto quando freia.
+#: Sleep FIXO entre blocos: começa no valor pedido e sobe até este teto.
 SLEEP_MAX = 4.0
+
+#: Pausa PROPORCIONAL ao trabalho do bloco — a fração do tempo em que o backfill
+#: fica parado de propósito. Existe porque pausa fixa é um freio fraco onde mais
+#: importa: medido em produção em 24/08/2026, na faixa densa (94% ausente) um
+#: bloco de 10.000 ids custa ~12 s de trabalho, e os 4 s do `SLEEP_MAX` são só
+#: 25% de ciclo ocioso. O freio chegou ao teto dele com a busca de processos em
+#: 1.472 ms e não tinha mais o que ceder.
+#:
+#: Proporcional resolve isso sem depender do tamanho do bloco nem da densidade
+#: da faixa: `duty=1.0` significa "descanse tanto quanto trabalhou" (50% de
+#: ciclo), `duty=4.0` significa 80% ocioso. A escalada do freio anda por esta
+#: lista, e não por dobrar um número de segundos que não conhece o trabalho.
+DUTY_ESCALADA = (0.0, 0.5, 1.0, 2.0, 4.0)
+#: Teto absoluto da pausa proporcional, para um bloco patológico não parar a
+#: corrida por dez minutos sem ninguém decidir isso.
+PAUSA_PROPORCIONAL_MAX = 60.0
 #: Quanto espera quando a sonda pede PARADA, e quantas vezes tenta antes de
 #: desistir. Desistir é ERRO registrado + checkpoint salvo — dívida VISÍVEL.
 PAUSA_S = 60
@@ -364,6 +380,8 @@ class Freio:
         self.pior_proc_ms = 0.0
         self.pior_texto_ms = 0.0
         self.rodada = 0
+        #: índice em DUTY_ESCALADA. 0 = sem pausa proporcional.
+        self.nivel = 0
 
     def _medir(self) -> tuple[float, float]:
         """Mediana de 3 sondas com termos DIFERENTES: (processos_ms, conteudo_ms).
@@ -436,23 +454,37 @@ class Freio:
         if (m_proc > self.freio_proc or m_cont > self.freio_cont
                 or m_texto > self.freio_texto or aborto_pct > self.aborto_freio):
             novo = min(SLEEP_MAX, max(self.sleep, 0.05) * 2)
-            if novo != self.sleep:
+            anterior = self.nivel
+            self.nivel = min(self.nivel + 1, len(DUTY_ESCALADA) - 1)
+            if novo != self.sleep or self.nivel != anterior:
                 logger.warning(
                     'backfill processos: processos %.0f ms (limiar %.0f) · '
                     'conteúdo %.0f ms (limiar %.0f) · texto %.0f ms (limiar '
                     '%.0f) · aborto %.0f%% (limiar %.0f%%) — sleep %.2f s → '
-                    '%.2f s',
+                    '%.2f s, duty %.1fx → %.1fx (fração do tempo parado)',
                     m_proc, self.freio_proc, m_cont, self.freio_cont,
                     m_texto, self.freio_texto, aborto_pct, self.aborto_freio,
-                    self.sleep, novo)
+                    self.sleep, novo, DUTY_ESCALADA[anterior],
+                    DUTY_ESCALADA[self.nivel])
             self.sleep = novo
             self.freadas += 1
         elif (m_proc < self.freio_proc / 2 and m_cont < self.freio_cont / 2
                 and m_texto < self.freio_texto / 2
                 and aborto_pct <= self.aborto_base
-                and self.sleep > self.sleep_inicial):
+                and (self.sleep > self.sleep_inicial or self.nivel)):
             self.sleep = max(self.sleep_inicial, self.sleep / 2)
+            self.nivel = max(0, self.nivel - 1)
         return True
+
+    def pausa(self, duracao_bloco: float) -> float:
+        """Quanto parar depois de um bloco que custou `duracao_bloco` segundos.
+
+        O maior entre a pausa FIXA (o `--sleep` pedido) e a PROPORCIONAL. É a
+        proporcional que dá poder ao freio na faixa densa, onde o bloco custa
+        ~12 s e uma pausa fixa de 4 s cede só 25% do ciclo.
+        """
+        prop = DUTY_ESCALADA[self.nivel] * duracao_bloco
+        return min(max(self.sleep, prop), PAUSA_PROPORCIONAL_MAX)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -601,6 +633,7 @@ def rodar(de: int = 0, ate: int | None = None, sleep: float = 0.1,
             tot['parou_por'] = 'limite-blocos'
             break
 
+        t_bloco = time.monotonic()
         ids = _ids_do_bloco(cursor, ate, bloco)
         if ids is None:
             tot['abstidos'] += 1
@@ -636,11 +669,13 @@ def rodar(de: int = 0, ate: int | None = None, sleep: float = 0.1,
             relatar(ids[0], ids[-1], len(ids), len(faltando), n_ind,
                     time.monotonic() - t0)
 
+        duracao = time.monotonic() - t_bloco
         if tot['blocos'] % SONDA_A_CADA == 0 and not freio.avaliar():
             tot['parou_por'] = 'busca-degradada'
             break
-        if freio.sleep:
-            time.sleep(freio.sleep)
+        pausa = freio.pausa(duracao)
+        if pausa:
+            time.sleep(pausa)
 
     tot['segundos'] = round(time.monotonic() - t0, 1)
     tot['sleep_final'] = freio.sleep
@@ -650,6 +685,7 @@ def rodar(de: int = 0, ate: int | None = None, sleep: float = 0.1,
     tot['pior_processos_ms'] = freio.pior_proc_ms
     tot['pior_aborto_pct'] = freio.pior_aborto_pct
     tot['pior_texto_ms'] = freio.pior_texto_ms
+    tot['duty_final'] = DUTY_ESCALADA[freio.nivel]
     cache.set(ULTIMO, tot, 7 * 24 * 3600)
     logger.info('backfill processos: %s', {k: v for k, v in tot.items()
                                            if k != 'baseline'})

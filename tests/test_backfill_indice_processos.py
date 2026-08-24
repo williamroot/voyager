@@ -514,3 +514,58 @@ def test_limiar_operacional_pode_ser_mais_apertado_que_o_freio(caplog):
     f = bp.Freio(_base(proc=340.0), sleep_inicial=0.1, freio_proc_ms=700.0)
     assert f.freio_proc == 700.0
     assert f.parada_proc == bp.PISO_PARADA_MS, 'a PARADA declarada não muda'
+
+
+# --------------------------------------------------------------------------- #
+# 8. Pausa PROPORCIONAL — pausa fixa é freio fraco onde mais importa
+# --------------------------------------------------------------------------- #
+def test_pausa_fixa_e_freio_fraco_na_faixa_densa():
+    """Medido em produção em 24/08/2026: na faixa com 94% de ausentes um bloco
+    de 10.000 ids custa ~12 s de trabalho, e o `SLEEP_MAX` de 4 s cede só 25%
+    do ciclo. O freio chegou ao TETO dele com a busca de processos em 1.472 ms
+    e não tinha mais o que ceder.
+
+    A pausa proporcional não depende do tamanho do bloco nem da densidade da
+    faixa: `duty=1.0` é "descanse tanto quanto trabalhou".
+    """
+    f = bp.Freio(_base(), sleep_inicial=0.5)
+    assert f.pausa(12.0) == 0.5, 'sem freio, vale a pausa fixa pedida'
+
+    f.nivel = 2                      # duty 1.0x
+    assert f.pausa(12.0) == 12.0     # 50% do ciclo parado
+    f.nivel = 4                      # duty 4.0x
+    assert f.pausa(12.0) == 48.0     # 80% do ciclo parado
+    # ...e um bloco barato não vira pausa longa por causa do nível
+    assert f.pausa(0.1) == 0.5, 'a pausa fixa continua sendo o piso'
+
+
+def test_pausa_proporcional_tem_teto():
+    """Bloco patológico não pode parar a corrida por dez minutos sem decisão."""
+    f = bp.Freio(_base(), sleep_inicial=0.5)
+    f.nivel = 4
+    assert f.pausa(600.0) == bp.PAUSA_PROPORCIONAL_MAX == 60.0
+
+
+@patch('search.backfill_processos.sondar')
+def test_freio_escala_o_duty_junto_com_o_sleep(mock_sondar):
+    mock_sondar.return_value = {'processos_ms': 2_000.0, 'conteudo_ms': 50.0,
+                                'texto_ms': 50.0, 'erros': 0, 'abortos': 0,
+                                'i': 0}
+    f = bp.Freio(_base(), sleep_inicial=0.5)
+    assert bp.DUTY_ESCALADA[f.nivel] == 0.0
+    f.avaliar()
+    assert bp.DUTY_ESCALADA[f.nivel] == 0.5
+    f.avaliar()
+    assert bp.DUTY_ESCALADA[f.nivel] == 1.0
+
+
+@patch('search.backfill_processos.sondar')
+def test_busca_boa_devolve_a_vazao(mock_sondar):
+    """O freio tem de SOLTAR quando a busca melhora, senão vira teto permanente."""
+    mock_sondar.return_value = {'processos_ms': 10.0, 'conteudo_ms': 10.0,
+                                'texto_ms': 10.0, 'erros': 0, 'abortos': 0,
+                                'i': 0}
+    f = bp.Freio(_base(), sleep_inicial=0.5)
+    f.nivel, f.sleep = 3, 4.0
+    f.avaliar()
+    assert f.nivel == 2 and f.sleep == 2.0
