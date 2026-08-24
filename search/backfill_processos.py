@@ -487,24 +487,68 @@ def _topo() -> int:
 
 
 def _reparar(faltando: list[int], pk0: int, pk1: int, indexar) -> int:
-    """Indexa os ausentes deste bloco e CONTA. Diferença vira ERRO registrado.
+    """Indexa os ausentes deste bloco e CONTA. Falta vira reparo, não só log.
 
-    Bulk que aceitou menos documentos do que mandamos é exatamente o formato da
-    perda que este módulo existe para fechar. O checkpoint avança (o bloco foi
-    medido e tentado), mas o número fica no log e no relatório - dívida
-    visível, nunca `return` discreto.
+    Bulk que aceitou menos documentos do que mandamos é a perda que este módulo
+    existe para fechar — deixá-la só no log seria trocar um corte mudo por um
+    corte anotado.
+
+    O que acontece quando falta, e por quê (aconteceu em produção em
+    24/08/2026, faixa densa, `Erro no bulk de 500 processos: Connection timed
+    out`):
+
+    1. **PERGUNTA de novo ao índice.** `ConnectionTimeout` no `_bulk` NÃO é
+       prova de que o documento não entrou — o corpo pode ter sido gravado e a
+       resposta ter demorado mais que o teto do cliente. Medido no mesmo dia,
+       do lado das movimentações: de 19.758 pks em jobs mortos por
+       `ConnectionTimeout`, 3.000 amostrados deram **8 fora do índice, 0,27%**.
+       Assumir a falha e reindexar tudo é empurrar dezenas de milhares de
+       documentos num nó já saturado para recuperar quase nada.
+    2. **Enfileira só o que REALMENTE ficou fora**, na `es_index`, com a mesma
+       `gate.enfileirar_processos` dos gates do diário e do Datajud. O
+       checkpoint pode avançar porque o bloco foi medido, tentado e o resto
+       entregue a quem reprocessa — em vez de virar dívida que só um
+       re-censo acha.
+    3. Se nem perguntar for possível (ES mudo), aí sim vira ERRO registrado com
+       o número, e a dívida fica visível.
     """
     if not faltando:
         return 0
     n = 0
     for i in range(0, len(faltando), gate.CHUNK_ENFILEIRA):
         n += indexar(faltando[i:i + gate.CHUNK_ENFILEIRA]) or 0
-    if n < len(faltando):
+    if n >= len(faltando):
+        return n
+
+    try:
+        ainda = gate.ausentes_no_bloco(faltando, gate.indice_processos())
+    except Exception:      # noqa: BLE001 - ES mudo: não sabemos, e isso é dívida
         logger.error(
-            'backfill processos: bloco id %s-%s tinha %d fora do índice e só '
-            '%d entraram - %d NÃO indexados.',
-            pk0, pk1, len(faltando), n, len(faltando) - n)
-    return n
+            'backfill processos: bloco id %s-%s tinha %d fora do índice e só %d '
+            'entraram - %d NÃO indexados, e o ES não respondeu à reconferência. '
+            'Dívida VISÍVEL: rode de novo esta faixa.',
+            pk0, pk1, len(faltando), n, len(faltando) - n, exc_info=True)
+        return n
+    if not ainda:
+        # O bulk deu erro mas o documento entrou. É o caso comum do timeout.
+        logger.warning(
+            'backfill processos: bloco id %s-%s reportou %d de %d indexados, mas '
+            'a reconferência achou 0 fora — o erro foi de RESPOSTA, não de '
+            'escrita.', pk0, pk1, n, len(faltando))
+        return len(faltando)
+    try:
+        gate.enfileirar_processos(ainda)
+    except Exception:      # noqa: BLE001
+        logger.error(
+            'backfill processos: bloco id %s-%s tem %d processos fora do índice '
+            'e o enfileiramento na `es_index` FALHOU. Dívida VISÍVEL.',
+            pk0, pk1, len(ainda), exc_info=True)
+        return n
+    logger.error(
+        'backfill processos: bloco id %s-%s tinha %d fora do índice, %d entraram '
+        'no bulk e %d ficaram fora de verdade - re-enfileirados na `es_index`.',
+        pk0, pk1, len(faltando), n, len(ainda))
+    return len(faltando) - len(ainda)
 
 
 def rodar(de: int = 0, ate: int | None = None, sleep: float = 0.1,

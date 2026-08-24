@@ -168,8 +168,13 @@ def test_pg_mudo_nao_avanca_o_checkpoint(_base, _ids, _idx):
 # --------------------------------------------------------------------------- #
 # 3. Reparo incompleto é ERRO REGISTRADO, nunca silêncio (regra nº 2)
 # --------------------------------------------------------------------------- #
-def test_reparo_que_indexou_menos_do_que_faltava_grita():
-    """`_bulk` que aceita 400 de 500 é exatamente a perda que isto fecha.
+@patch('search.backfill_processos.gate.enfileirar_processos')
+@patch('search.backfill_processos.gate.ausentes_no_bloco', return_value=[3, 4])
+def test_reparo_incompleto_reconfere_e_reenfileira(mock_aus, mock_enf):
+    """`_bulk` que aceita 2 de 4 não pode virar só uma linha de log.
+
+    Aconteceu em produção em 24/08/2026, faixa densa: `Erro no bulk de 500
+    processos: Connection timed out`, e o bloco fechou com 500 fora.
 
     Espiona o logger direto: o projeto configura `voyager` com handler próprio
     e `propagate: False`, então o `caplog` do pytest não vê o registro (mesmo
@@ -177,10 +182,40 @@ def test_reparo_que_indexou_menos_do_que_faltava_grita():
     """
     with patch.object(bp.logger, 'error') as erro:
         n = bp._reparar([1, 2, 3, 4], 1, 4, lambda pks: 2)
+    # reconfere quais REALMENTE ficaram fora e enfileira só esses
+    mock_aus.assert_called_once()
+    mock_enf.assert_called_once_with([3, 4])
     assert n == 2
     assert erro.called, 'reparo incompleto silencioso'
     # o TAMANHO da perda tem de estar no registro, não só "deu ruim"
     assert 2 in erro.call_args.args
+
+
+@patch('search.backfill_processos.gate.enfileirar_processos')
+@patch('search.backfill_processos.gate.ausentes_no_bloco', return_value=[])
+def test_timeout_no_bulk_nao_significa_documento_perdido(mock_aus, mock_enf):
+    """`ConnectionTimeout` no `_bulk` NÃO prova que o documento não entrou.
+
+    Medido em 24/08/2026 do lado das movimentações: de 19.758 pks referenciados
+    por jobs mortos com `ConnectionTimeout`, 3.000 amostrados deram **8 fora do
+    índice — 0,27%**. Assumir a falha e reindexar tudo é empurrar dezenas de
+    milhares de documentos num nó já saturado para recuperar quase nada.
+    """
+    with patch.object(bp.logger, 'warning') as aviso:
+        n = bp._reparar([1, 2, 3, 4], 1, 4, lambda pks: 0)
+    assert n == 4, 'o documento entrou; o que falhou foi a RESPOSTA'
+    mock_enf.assert_not_called()
+    assert 'RESPOSTA' in aviso.call_args.args[0]
+
+
+@patch('search.backfill_processos.gate.ausentes_no_bloco',
+       side_effect=RuntimeError('ES mudo'))
+def test_reparo_incompleto_com_es_mudo_vira_divida_visivel(_aus):
+    """Sem conseguir reconferir, não inventa: registra ERRO e devolve o que sabe."""
+    with patch.object(bp.logger, 'error') as erro:
+        n = bp._reparar([1, 2, 3, 4], 1, 4, lambda pks: 2)
+    assert n == 2
+    assert 'Dívida VISÍVEL' in erro.call_args.args[0]
 
 
 # --------------------------------------------------------------------------- #
