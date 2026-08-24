@@ -1061,7 +1061,7 @@ banco nem a RAM dos workers.
 |---|---|---|---|---|
 | 1 | disco do nó de ES | `_cat/allocation` | **≥ 85%** | `watermark.low`; a 5 pontos do `high` e 10 do `flood_stage`, que vira read-only e derruba as três portas. Hoje 63%. **Guarda automática** |
 | 2 | `rejected` do pool `write` do ES | `_cat/thread_pool/write` | **> 0 e crescendo** | rejeição é documento perdido, não lentidão. Medido: 0 em 8/8 passadas, com `queue` chegando a 85 |
-| 3 | `indexar_movimentacoes_bulk` novos no `FailedJobRegistry` da `es_index` | amostra ALEATÓRIA, semente e n declarados | **> 100/h** | job morto ali é publicação gravada e invisível (§12). Medido: 26 numa amostra n=250 de 652, todas de antes; **0 novas** durante a etapa |
+| 3 | `indexar_movimentacoes_bulk` novos no `FailedJobRegistry` da `es_index` | amostra ALEATÓRIA, semente e n declarados | **> 100/h** | job morto ali é publicação gravada e invisível (§12). Medido no início (semente 7, n=250 de 652): 26 ⇒ ~68 no total; no fim (n=250 de 661): 28 ⇒ ~74. **~8-12/h**, uma ordem de grandeza abaixo do limiar. Ressalva honesta: o registry NÃO foi reprocessado — os documentos entraram assim mesmo (amostra de 3.000 pks dos jobs que estouraram: 0,27% fora), e o gate do §12 fechou o dia em 0 |
 | 4 | profundidade da fila `es_index` | `Queue('es_index').count` | **≥ 5.000** | **guarda automática**. Pico medido com 8 cadernos: 3.364 (67%) |
 | 5 | latência da busca | 8 termos, semente 42, janela 31 d | mediana **> 2 s** ou máx **> 12 s** | 12 s é o teto que a busca do site já declara. Medido em regime: p50 0,0325 s, máx 0,295 s |
 | 6 | site | `GET /dashboard/login/` | qualquer **não-200** repetido | 18/18 em 200, média 0,05-0,06 s, antes e durante |
@@ -1121,6 +1121,39 @@ manage.py diarios_conferir_indice --tribunal TJSP --dia AAAA-MM-DD --so-medir
 manage.py diarios_conferir_indice --tribunal TJSP --dia AAAA-MM-DD        # mede E repara
 ```
 
+### 13.9 O estado em que a porta ficou
+
+Não ficou "ligada e parada": ficou **andando devagar, na parte mais valiosa da
+jazida, com teto**.
+
+| item | valor |
+|---|---|
+| fonte agendada | `tjsp-dje` (única) |
+| orçamento | **8 unidades/24 h** (≈ 1 dia de cadernos) |
+| catalogado e pendente | **360 unidades** — `2025-01-01 → 2025-03-13`, o pedaço mais recente da jazida |
+| dreno projetado | ~45 dias · ~9,9 M linhas · ~10,5 GB de índice (1,0 TB livre) |
+| ordem do `tick` | mais recente → mais antigo, então o valor comercial entra primeiro |
+| coletado nesta sessão | **213.631** linhas (12/06/2024 + 1 caderno de 2009 vazio) |
+
+Duas escolhas deliberadas que quem for continuar precisa conhecer:
+
+1. **A janela catalogada é 2025-01→2025-03, não o catálogo inteiro.** Catalogar
+   as 32.616 unidades de uma vez seria enfileirar um backfill que **não cabe no
+   ES** (§13.2) e depender só do orçamento para não estourar. Catalogar em
+   fatias é a barreira mais grossa e a mais barata.
+2. **As 7 unidades pendentes de 15/06/2009 foram APAGADAS do catálogo** depois
+   do canário. Motivo com número: `492-12` provou `sem_aproveit` em 54,6 s por
+   zero linha, e deixar as outras 7 pendentes gastaria o orçamento de um dia
+   inteiro numa era que já se sabe vazia. Apagar `EdicaoDiario` é reversível —
+   um `--catalogar` do mesmo dia as recria.
+
+Provado ao vivo depois de catalogar as 360, com o orçamento já consumido:
+
+    tick_todas() → {'tjsp-dje': {'orcamento_esgotado': True, 'teto_dia': 8, 'enfileiradas': 0}}
+
+360 unidades pendentes, **0 enfileiradas**, e o motivo com o número no retorno
+do job. É o teto funcionando como alerta, não como corte mudo.
+
 **Ampliar é subir o orçamento, nunca tirar o teto** — e subir o orçamento sem
 subir `DIARIOS_FILA_ES_MAX` faz a guarda barrar (§13.5). A ordem certa de
 ampliar o `tjsp-dje` é:
@@ -1128,6 +1161,6 @@ ampliar o `tjsp-dje` é:
 1. **expandir o disco do nó de ES** (é o que barra o backfill inteiro, §13.2);
 2. subir `DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE` em passos, medindo o §13.5 entre
    cada um;
-3. catalogar **de 2011 em diante** — nunca 2007-2010, que é `sem_aproveit`
-   provado (§13.1);
+3. catalogar a fatia seguinte, **de 2011 em diante** — nunca 2007-2010, que é
+   `sem_aproveit` provado (§13.1) — e sempre em fatias, nunca o catálogo inteiro;
 4. só então pensar em réplica do `worker_diarios`.
