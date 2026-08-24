@@ -1014,28 +1014,35 @@ régua da medição inicial:
 A primeira linha é a que prova o mecanismo: aquela faixa tinha 98,49% dos
 processos fora do índice e passou a ter 0 em 3.999 amostrados.
 
-### Estado da corrida (24/08/2026, 21:10 UTC)
+### Estado da corrida (24/08/2026, 21:35 UTC)
 
-A régua repetida com `--teto-pk 104317558` reproduziu **exatamente** o mesmo
-sorteio (mesmos `existem` nas 8 faixas), que é a prova de que ela compara a
-mesma coisa:
+Contagem EXATA do próprio censo, por perna — não estimativa:
 
-| faixa de pk | fora, na medição inicial | fora, às 21:10 |
-|---|---:|---:|
-| 0–4 (3.520–65.199.793) | 0 | 0 |
-| 5 (65,2M–78,2M) | 1.559 (45,99%) | 1.313 (**38,73%**) |
-| 6 (78,2M–91,3M) | 377 (9,44%) | 377 (9,44%) |
-| 7 (91,3M–104,3M) | 2.444 (61,44%) | 2.337 (**58,75%**) |
-| **TOTAL** | 4.380 (13,99%) | **4.027 (12,87%)** |
+| perna | blocos | conferidos | fora do índice | indexados |
+|---|---:|---:|---:|---:|
+| fatia de teste (pk 100,0–100,2M) | 20 | 199.958 | 196.947 | 196.947 |
+| perna 1 (pk 65,2–65,8M) | 60 | 600.000 | 0 | 0 |
+| janelas B do A/B | 60 | 600.000 | 0 | 0 |
+| perna com `--sleep 0.5` | 511 | 5.110.000 | 1.253.476 | 1.252.976 ¹ |
+| perna com freio proporcional | 60 | 300.000 | 299.783 | 299.783 |
+| **TOTAL** | **711** | **6.809.958** | **1.750.206** | **1.749.706** |
 
-Extrapolado por densidade × largura de faixa: **14.277.984 → 13.127.270 fora do
-índice**, 1.150.714 fechados (8,1%). Régua independente e EXATA (contagem do
-próprio censo, sem estimativa): **694.325 processos indexados** em 4.550.000
-conferidos, 455 blocos. A diferença entre os dois números é o poller e o gate
-do Datajud trabalhando em paralelo — o backfill não reivindica os dois.
+¹ os 500 da diferença são o bloco cujo `_bulk` deu `Connection timed out` — e a
+reconferência mostrou que eles ENTRARAM (ver abaixo). O número efetivo é
+1.750.206.
 
-Checkpoint em `id=74.023.912`. **A corrida não termina numa sessão** — ela
-termina por retomada, que é para isso que o checkpoint existe.
+Do outro lado, o índice: `voyager-processos` (`_count`, raízes) foi de
+**87.709.209 → 89.698.048**, **+1.988.839**. A diferença para os 1.750.206 do
+censo é o poller e o gate do Datajud trabalhando em paralelo — o backfill não
+reivindica os dois números.
+
+Pela amostra por faixa (`--teto-pk 104317558`, o MESMO sorteio da medição
+inicial): **13,99% → 12,87%** fora do índice, ou **14.277.984 → 13.127.270**
+extrapolado por densidade × largura.
+
+Checkpoint em `id=74.872.182`; faltam ~29,6 milhões de pks até o topo.
+**A corrida não termina numa sessão** — termina por retomada, e é para isso que
+o checkpoint existe.
 
 ### Timeout no `_bulk` NÃO é documento perdido
 
