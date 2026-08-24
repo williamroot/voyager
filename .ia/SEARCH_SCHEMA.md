@@ -23,6 +23,27 @@ Campo sem mapping vira dynamic mapping silencioso (tipo errado pra sempre).
 | `voyager-movimentacoes` | 1,16B | `movimentacao_to_doc[_sem_partes]` | `MOV_MAPPING` |
 | `voyager-entidades` | 1,14M (build 12/08) | `search/entidades.py::grupo_to_doc` (+ `n_processos` por `contar_processos_entidades`) | `ENTIDADE_MAPPING` |
 
+> ### ⚠️ `_cat/indices` NÃO conta processos — conta documentos Lucene
+>
+> `voyager-processos` tem `participacoes` como **`nested`**, e no Lucene cada
+> objeto aninhado é um documento próprio. Medido em 24/08/2026, no mesmo
+> instante:
+>
+> | pergunta | resposta |
+> |---|---:|
+> | `_cat/indices` `docs.count` | **104.594.795** |
+> | `_count` `match_all` | **87.709.209** |
+> | diferença (filhos `nested`) | 16.885.586 |
+>
+> Naquele dia o Postgres tinha ~102 milhões de linhas em `tribunals_process`.
+> Quem contasse pelo `_cat` leria "o índice tem MAIS processos do que o banco"
+> e fecharia a investigação — enquanto **13,99% do acervo estava fora da
+> busca**. É a regra nº 3 do CLAUDE.md (desconfie de número redondo) na forma
+> mais cara: o número não inventa acervo, ele ESCONDE o buraco.
+>
+> **Toda contagem de processos usa `_count`.** O mesmo vale para
+> `voyager-movimentacoes` (`assunto_norm` também é `nested`).
+
 `_id` = pk do Postgres (idempotente). Formato compat Jusbrasil/Digesto.
 Exceção: em `voyager-entidades` o `_id` é a chave canônica (`cnpj:29979036` /
 `nome:<sha1>`) — não existe pk de "entidade" no Postgres.
@@ -573,7 +594,7 @@ não é verificável sem a base toda em memória.
 | **Porta do Datajud — movimentações** (`datajud/ingestion.py::sync_processo`, `bulk_create`) | ❌ signal não dispara | ✅ **enfileira o lote na hora** (`_entregar_ao_indice`, `on_commit`, lote de 500) + **gate `datajud.jobs.conferir_indice_datajud`** (cron 15 min) que confere a JANELA DE ESCRITA pelos dois lados e repara. Dívida de 21/08 PAGA em 24/08/2026 |
 | **Porta do Datajud — meta do `Process`** (`.update()` de classe/assunto/órgão/valor/totais) | ❌ signal não dispara **e `atualizado_em` não muda** | ✅ mesmo `_entregar_ao_indice` + `atualizado_em` carimbado à mão (o poller de processos é keyset por ele) + o mesmo gate |
 | `Process.save()` (apply_event, classificação por save, admin) | ✅ | signal |
-| Ingestão DJEN (Process novo via `bulk_create`) | ❌ | **reindex incremental `--desde-id`** (cron sugerido) |
+| Ingestão DJEN / varredura Datajud (Process novo via `bulk_create`) | ❌ signal não dispara | ✅ `sync_es_incremental` (keyset por id, daqui pra frente) + **`manage.py es_backfill_processos`** para o PASSIVO + **sentinela diária** `search.jobs.conferir_indice_processos`. Dívida de 24/08 PAGA em 24/08/2026 — ver a seção abaixo |
 | Drainer `apply_batch` (`bulk_update`/`bulk_create`) | ✅ | enqueue explícito `search.jobs.indexar_processos_bulk` no fim do batch (fix 2026-08) |
 | ProcessoParte (create/delete individual) | — sem signal DE PROPÓSITO | o processo é reindexado pelo `processo.save()` que fecha todo enriquecimento; signal por-linha multiplicaria a fila ~2N por processo |
 | Comandos de manutenção em massa (dedup_partes, recategorizar_tipo_partes, SQL cru) | ❌ | rodar `reindexar_processos` direcionado depois |
@@ -736,6 +757,129 @@ Kill switches sem deploy: `DATAJUD_INDEXAR_AO_GRAVAR=0` (para a entrega) e
 `cache['datajud:gate:ultimo']`; watermark em `cache['datajud:gate:wm']` — se
 ele sumir, o gate **re-ancora 6 h atrás e loga ERRO**, nunca no topo (re-ancorar
 no topo é o defeito do poller que custou 27.619 linhas ao diário).
+
+## O passivo do índice de processos — 14,2 milhões fora da busca (24/08/2026)
+
+Os dois gates acima (diário e Datajud) cobrem a **janela de escrita** de uma
+porta cada um: eles garantem que o que a porta grava HOJE chega ao índice. Não
+cobrem — e nunca cobriram — o que já estava gravado. Esse passivo foi medido e
+fechado em 24/08/2026.
+
+### A régua, e por que não é `reltuples − _count`
+
+`reltuples` é ESTIMATIVA do planner, e `_cat/indices` conta doc Lucene (acima).
+A régua que sustenta o número é **amostra aleatória por faixa de pk com semente
+declarada, perguntada ao ES por `_mget`** — realtime GET por `_id`, resposta
+exata por documento. 4.000 candidatos sorteados em cada oitavo do espaço de pk
+(`search/backfill_processos.py::amostrar`, seed `20260824`):
+
+| faixa de pk | existem no PG | fora do índice | % |
+|---|---:|---:|---:|
+| 3.520–13.042.773 | 3.987 | 0 | **0,00%** |
+| 13.042.774–26.082.028 | 3.984 | 0 | **0,00%** |
+| 26.082.029–39.121.283 | 3.988 | 0 | **0,00%** |
+| 39.121.284–52.160.538 | 3.993 | 0 | **0,00%** |
+| 52.160.539–65.199.793 | 3.989 | 0 | **0,00%** |
+| 65.199.794–78.239.048 | 3.390 | 1.559 | **45,99%** |
+| 78.239.049–91.278.303 | 3.992 | 377 | **9,44%** |
+| 91.278.304–104.317.558 | 3.978 | 2.444 | **61,44%** |
+| **TOTAL** | **31.301** | **4.380** | **13,99%** |
+
+Duas leituras que só a amostra dá:
+
+- **O acervo antigo está inteiro.** Zero ausentes nos cinco primeiros oitavos,
+  em 19.941 processos amostrados. O buraco é dos processos NOVOS — os da
+  varredura do Datajud e da recuperação nacional, que entraram por
+  `bulk_create`/`.update()` e portanto nunca dispararam `post_save`.
+- **O índice é subconjunto do banco.** Dos 699 pks sorteados que caíram em
+  buraco de sequência (valor queimado por `bulk_create(ignore_conflicts=True)`),
+  **0** estavam no índice. Não há doc órfão para limpar.
+
+### O backfill: censo barato, reparo caro só no que falta
+
+`manage.py es_backfill_processos` (`search/backfill_processos.py`). Ele **não**
+é o `reindexar_processos`: aquele relê 102 milhões de linhas com
+`participacoes` e `parte` para consertar 14 milhões. Aqui o censo lê só o `id`
+(index-only scan sobre a PK) e pergunta ao ES quais desses ele não tem, com
+`search/gate.py::ausentes_no_bloco` — a MESMA primitiva dos dois gates. Só o
+ausente paga a leitura cara.
+
+| medido em produção, 24/08/2026 | número |
+|---|---:|
+| censo puro (bloco de 10.000 ids, PG + ES) | **8.600 ids/s** |
+| censo + reparo (faixa com 98,49% ausente) | **863 docs/s** (196.947 em 228 s) |
+
+```bash
+manage.py es_backfill_processos --so-amostra          # a régua, sem escrever
+manage.py es_backfill_processos --sem-reparo          # censo de uma faixa
+manage.py es_backfill_processos --sleep 0.1           # a corrida (retomável)
+manage.py es_backfill_processos --zerar-checkpoint
+```
+
+Checkpoint em `cache['search:backfill_proc:wm']`, telemetria em
+`cache['search:backfill_proc:ultimo']`, e **botão de parar sem deploy**:
+`cache.set('search:backfill_proc:off', True)` — encerra na virada do bloco, com
+o checkpoint salvo.
+
+### O freio: a busca do site tem prioridade sobre o backfill
+
+O ES é de **um nó só**, 1,74 TB, heap em 71%, I/O-bound. Indexar em massa
+compete com a busca. O backfill mede a latência da busca REAL (as mesmas
+funções que a tela chama, `busca_api.buscar_processos` e `buscar_movimentacoes`)
+a cada 30 blocos e ajusta a própria vazão.
+
+**A calibração exigiu medir o que ninguém tinha medido: a mesma busca de
+conteúdo, 7 vezes seguidas, com o backfill PARADO:**
+
+    83,9 · 88,7 · 136,5 · 289,7 · 346,4 · 2.545,2 · 10.116,5 ms
+
+São dois regimes, não ruído — termo frio custa segundos, termo repetido custa
+décimos. Disso saem três decisões:
+
+1. **A sonda rotaciona 9 termos.** Repetir a mesma busca mediria "o disco já
+   tem isto em cache". Com rotação, a MEDIANA da busca de conteúdo é
+   **7.109 ms** (medida em 24/08/2026) — esse é o custo real de um termo frio.
+2. **Decide pela mediana de 3 sondas.** Um 10 s solto é normal aqui; um freio
+   que dispara por acaso é desligado pelo primeiro operador que o vê.
+3. **Limiares com piso E teto.** Só relativo não serve: 4× de 7.109 ms daria
+   28.435 ms, praticamente o `ES_TIMEOUT` do cliente — um freio calibrado ali
+   só age depois que a busca já morreu.
+
+| sonda | baseline medida | freio (dobra o sleep) | parada (pausa 60 s) |
+|---|---:|---:|---:|
+| processos (índice ESCRITO, 30 GB) | 340–498 ms | 1.000 ms (piso) | 3.000 ms (piso) |
+| conteúdo (1,74 TB, termo frio) | 6.515–7.109 ms | 13.029–14.217 ms | 25.000 ms (teto) |
+
+Vigia as duas: só o conteúdo seria vigiar o ruído; só os processos seria
+ignorar o índice grande, que divide o disco. Depois de 10 pausas de 60 s sem
+melhora a corrida **ABORTA** — com ERRO registrado e checkpoint salvo, que é
+dívida visível, não fim silencioso.
+
+**Busca que estoura o timeout conta pelo tempo que gastou, não como erro de
+medição.** Para quem está na tela, timeout não é "medição indisponível" — é a
+pior latência possível. (Na primeira execução em produção o timeout do cliente
+derrubou o comando inteiro antes do primeiro bloco.)
+
+### A sentinela — para o buraco não reabrir calado
+
+`search.jobs.conferir_indice_processos`, cron diário às 06:40
+(`SEARCH_SENTINELA_PROCESSOS_ENABLED=0` desliga). Amostra pequena (1.000
+candidatos × 8 faixas ≈ 7.800 processos, ~3 s) com a mesma régua; acima de
+**1,00%** fora do índice ela loga ERRO nomeando as piores faixas de pk.
+
+Não é um gate de porta e não substitui os dois de cima: eles pegam a escrita
+FRESCA de uma porta; ela olha o acervo INTEIRO, porque o buraco não veio de uma
+porta só — veio de todo caminho que escreve em lote. Faixa em que o ES não
+responde vira "medição INCOMPLETA", nunca "0 fora" (regra nº 6).
+
+### `indexar_processos_bulk` passou a fechar por BYTES
+
+Mesmo defeito que do lado das movimentações matou 83 jobs com `ApiError(413)` e
+deixou 45.313 publicações fora do índice (21/08/2026): o lote era contado em
+DOCUMENTOS. O doc do processo tem o mesmo formato de risco — `partes`/`advs`
+concatenam TODAS as participações. Agora fecha em 20 MB, reusa `_enviar_bulk`
+(que divide ao meio no 413) e **devolve quantos documentos o ES aceitou**;
+devolver `None` escondia a diferença entre "mandei 500" e "entraram 400".
 
 ## Plano de reindex (backfill dos campos novos)
 
