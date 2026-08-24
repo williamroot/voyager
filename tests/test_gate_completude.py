@@ -182,6 +182,16 @@ def test_tique_raciona_o_caro_e_nao_repete_o_ja_conferido(trib):
     assert chamadas['TJDFT'] in (True, False)      # sigla é args[1]
     assert fila.enqueue.call_count == 2
 
+    # dia já EM CURSO na fila não volta: a marca no Redis só nasce no fim, e a
+    # paginada de um dia grande passa dos 5 min do tique — sem isto, o mesmo
+    # `job_id` seria reenfileirado por cima do job em execução.
+    fila.reset_mock()
+    fila.job_ids = ['gate:TJDFT:2026-08-20', 'gate:TJDFT:2026-08-21']
+    with patch('django_rq.get_queue', return_value=fila):
+        assert J.conferir_dias_fechados() == 0
+    assert not fila.enqueue.called
+    fila.job_ids = []
+
     # marcado = não volta
     cache.set(J._marca_gate('TJDFT', '2026-08-20'), 'ok', 60)
     cache.set(J._marca_gate('TJDFT', '2026-08-21'), 'cap', 60)

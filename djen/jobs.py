@@ -1200,11 +1200,24 @@ def conferir_dias_fechados(resumo: dict | None = None) -> int:
         .order_by('-finished_at')[:GATE_CANDIDATOS_MAX]))
 
     fila = django_rq.get_queue('djen_audit')
+    # A marca no Redis só nasce quando a conferência TERMINA, e a paginada de um
+    # dia grande leva dezenas de minutos — mais que os 5 min do tique. Sem olhar
+    # quem já está a caminho, o mesmo dia seria reenfileirado a cada tique com o
+    # mesmo `job_id`, atropelando o hash do job em execução. Mesmo critério do
+    # `ressuscitar_dias_de_recuperacao`.
+    ocupados = set(fila.job_ids)
+    try:
+        from rq.registry import StartedJobRegistry
+        ocupados |= set(StartedJobRegistry(queue=fila).get_job_ids())
+    except Exception as exc:
+        logger.warning('gate: não li os jobs em curso da djen_audit: %s', exc)
     baratos = caros = 0
     for r in fechados:
         sigla, dia = r['tribunal__sigla'], r['janela_inicio'].isoformat()
         if cache.get(_marca_gate(sigla, dia)) is not None:
             continue
+        if f'gate:{sigla}:{dia}' in ocupados:
+            continue                       # já está a caminho
         grande = (r['movimentacoes_novas'] + r['movimentacoes_duplicadas']) >= GATE_CAP
         if grande:
             if caros >= GATE_PAGINADOS_POR_TIQUE:
