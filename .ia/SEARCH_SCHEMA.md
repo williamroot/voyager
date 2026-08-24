@@ -999,6 +999,43 @@ dentro do mesmo processo. A medição e a causa estão em
 [`PATTERNS.md` § Logs](PATTERNS.md). Já custou uma linha do tempo errada num
 relatório desta mesma tarefa.
 
+### O gate: o reparo FICOU (amostra aleatória, 24/08/2026)
+
+Indexar não é o mesmo que ficar indexado. Conferido depois, com amostra
+aleatória de 4.000 pks por faixa (seed 20260824) e `_mget` por id — a MESMA
+régua da medição inicial:
+
+| faixa tratada | pk | existem | fora do índice |
+|---|---|---:|---:|
+| fatia de reparo (196.947 docs, era **98,49% ausente**) | 100.000.001–100.200.000 | 3.999 | **0 (0,000%)** |
+| perna 1 (censo puro) | 65.199.794–65.801.230 | 3.991 | **0 (0,000%)** |
+| janelas B do A/B | 65.801.231–67.465.183 | 3.992 | **0 (0,000%)** |
+
+A primeira linha é a que prova o mecanismo: aquela faixa tinha 98,49% dos
+processos fora do índice e passou a ter 0 em 3.999 amostrados.
+
+### Runbook da corrida
+
+```bash
+# retomar (lê o checkpoint sozinho), com a política de operação
+manage.py es_backfill_processos --sleep 0.5 --freio-proc-ms 700
+
+# parar AGORA, sem deploy (encerra na virada do bloco, checkpoint salvo)
+manage.py shell -c "from django.core.cache import cache; \
+    cache.set('search:backfill_proc:off', True)"
+
+# onde parou
+manage.py shell -c "from django.core.cache import cache; \
+    print(cache.get('search:backfill_proc:wm'), cache.get('search:backfill_proc:ultimo'))"
+
+# a régua, repetindo a medição de 24/08 no MESMO espaço de pk
+manage.py es_backfill_processos --so-amostra --teto-pk 104317558
+```
+
+Se os diários (ou qualquer porta de coleta) pedirem espaço no ES, **o backfill
+cede primeiro**: ele é passivo histórico, retomável por checkpoint e sem prazo;
+coleta que não roda hoje é caderno que ninguém vai buscar de novo.
+
 ### A sentinela — para o buraco não reabrir calado
 
 `search.jobs.conferir_indice_processos`, cron diário às 06:40
