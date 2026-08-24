@@ -452,6 +452,32 @@ Quem abre este runbook no meio de um incidente lê o bloco, não o parágrafo:
 está falhando em série na `djen_backfill` (ver o OOM do TJDFT em
 [`INGESTION.md`](INGESTION.md)).
 
+### A fila conta ids, não trabalho — faxina de casca
+
+Sintoma: um tribunal não anda, a fila mostra jobs dele e o `FailedJobRegistry`
+não cresce. Meça antes de concluir qualquer coisa:
+
+```bash
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py djen_faxina_fila'
+# fila `djen_backfill`: 1.945 ids · com payload 1.601 · CASCA 344 (17,7%)
+#    adiado  TJRS      120     ← 100% do pendente do tribunal
+#    bfd     TJAM      120
+```
+
+Conserto (remove a casca e reenfileira o dia de verdade; `--frente` põe na
+frente da fila):
+
+```bash
+ssh 100.100.144.57 'docker exec voyager-web-1 \
+  python manage.py djen_faxina_fila --consertar --frente'
+```
+
+⚠️ **Cuidado com `djen_censo_falhas --apagar`**: os ids do DJEN são
+determinísticos, então o id que está no cemitério pode ser o MESMO que está
+vivo na fila. Desde 24/08 o comando se recusa a apagar o hash nesse caso (e
+diz quantos poupou) — mas versão antiga, ou limpeza feita à mão com
+`delete_job=True`, produz exatamente as 344 cascas medidas naquele dia.
+
 ### Priorizar dias na fila SEM enfileirar de novo (24/08/2026)
 
 Quando o trabalho já está enfileirado e o problema é **vazão**, reenfileirar é o

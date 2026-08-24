@@ -449,6 +449,45 @@ coletado é perda de acervo), mas ninguém descobre pelo SIGKILL.
 continua fixa em 1000 itens com 27 fatias em voo; ela só ganhou o alerta de RSS
 e o de orçamento. Ligá-la num tribunal pesado traz o OOM de volta.
 
+### O id CASCA: 344 dias parados atrás de um job que não existia (24/08/2026)
+
+A fila do RQ é uma **lista de ids** no Redis; o trabalho mora num hash separado
+(`rq:job:<id>`). Quando o hash some e o id fica, a fila continua contando o
+item — e o worker que o pega descarta **em silêncio**: sem `failed`, sem log,
+sem run.
+
+Censo da `djen_backfill` em 24/08: **344 de 1.945 ids (17,7%) eram casca.**
+
+| prefixo | tribunal | cascas |
+|---|---|---:|
+| `adiado` | TJRS | **120** — 100% do pendente do tribunal |
+| `bfd` | TJAM | 120 |
+| `bfd` | TJDFT | 73 |
+| `bfd` | TJPR | 26 |
+| `adiado` | TJRJ · TJSP | 5 |
+
+**O prejuízo não é o job perdido, é o BLOQUEIO.** O
+`ressuscitar_dias_de_recuperacao` trata como "já está a caminho" todo dia cujo
+id está na fila — justamente pra não duplicar. Com a casca lá, aqueles 120 dias
+do TJRS ficaram invisíveis pro auto-heal: a tela dizia "falta 138" e a fila
+dizia "já vai", enquanto nada acontecia. Foi por isso que o TJRS não andava.
+
+**Como o hash some.** Os ids são determinísticos, então o mesmo id vive várias
+vidas: job falha → entra no `FailedJobRegistry`; o watchdog reenfileira o MESMO
+id → hash novo, id na fila; `djen_censo_falhas --apagar` limpa o registry com
+`delete_job=True` → **apaga o hash do job que está na fila agora**.
+
+Três consertos, no mesmo commit:
+
+1. `ressuscitar_dias_de_recuperacao` só considera ocupado o id cujo hash EXISTE
+   (`_so_os_que_existem`, `Job.fetch_many` em lotes de 500 — **0,12 s** para
+   1.945 ids, contra o orçamento de 90 s do watchdog). Cascas viram ERRO logado
+   com o número;
+2. `djen_censo_falhas --apagar` nunca mais apaga hash de id que está na fila,
+   agendado ou em execução — só o desregistra;
+3. `djen_faxina_fila` mede e conserta: remove a casca e reenfileira o dia de
+   verdade (`--consertar`, opcionalmente `--frente`).
+
 ### O transporte não entrega a página — e isso matava o dia (24/08/2026)
 
 Com o OOM e o deadlock fora do caminho, os dias do TJDFT que ainda deviam

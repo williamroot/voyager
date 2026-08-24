@@ -730,6 +730,42 @@ RECUP_POR_TIQUE = 200
 RECUP_JANELA_DIAS = 7
 
 
+def _so_os_que_existem(fila, ids: set[str]) -> set[str]:
+    """Filtra ids cujo hash do job AINDA EXISTE no Redis (ver `djen_faxina_fila`).
+
+    Custo medido em 24/08/2026 na `djen_backfill` com 1.945 ids: 4 lotes de
+    `Job.fetch_many` (500 por lote), 0,12 s — dentro do orçamento de 90 s do
+    watchdog com três ordens de grandeza de folga.
+
+    Falha de leitura devolve o conjunto ORIGINAL: sem a checagem o watchdog
+    volta ao comportamento antigo (conservador, não duplica), que é o lado
+    seguro de errar.
+    """
+    if not ids:
+        return ids
+    try:
+        from rq.job import Job
+        lista = list(ids)
+        vivos = set()
+        for i in range(0, len(lista), 500):
+            pedaco = lista[i:i + 500]
+            vivos |= {jid for jid, j in zip(
+                pedaco, Job.fetch_many(pedaco, connection=fila.connection),
+                strict=False) if j is not None}
+    except Exception as exc:   # diagnóstico não pode derrubar o tique
+        logger.warning('watchdog: não conferi os hashes da fila: %s', exc)
+        return ids
+    cascas = len(ids) - len(vivos)
+    if cascas:
+        logger.error(
+            'watchdog: %d de %d ids da `djen_backfill` são CASCA (hash do job '
+            'sumiu). Eles ocupavam o dia sem executar nada — rode '
+            '`djen_faxina_fila --consertar`',
+            cascas, len(ids),
+        )
+    return vivos
+
+
 def ressuscitar_dias_de_recuperacao(resumo: dict | None = None) -> int:
     """Devolve pra fila o dia de recuperação que falhou e ficou órfão.
 
@@ -768,6 +804,16 @@ def ressuscitar_dias_de_recuperacao(resumo: dict | None = None) -> int:
         ocupados |= set(StartedJobRegistry(queue=fila).get_job_ids())
     except Exception:  # noqa: BLE001 — registro fora não pode derrubar o tique
         pass
+    # ⚠️ ID NA FILA NÃO É TRABALHO NA FILA. A fila é uma lista de ids; o job vive
+    # num hash à parte, e o hash some sem levar o id junto (o `--apagar` do
+    # censo de falhas apaga por id, e os ids aqui são determinísticos: o mesmo
+    # `bfd:<sigla>:<dia>` tem várias vidas). Um id CASCA aqui não é inofensivo —
+    # ele diz "já está a caminho" e some com o dia PARA SEMPRE, porque este é o
+    # único lugar que o devolveria. Medido em 24/08/2026: 344 de 1.945 ids
+    # (17,7%) eram casca, entre eles os 120 `adiado:TJRS:*` que eram 100% do
+    # trabalho pendente daquele tribunal — a tela dizia "falta 138" e a fila
+    # dizia "já vai", enquanto nada acontecia.
+    ocupados = _so_os_que_existem(fila, ocupados)
 
     desde = timezone.now() - timedelta(days=RECUP_JANELA_DIAS)
     falhos = _leitura_com_teto(lambda: list(

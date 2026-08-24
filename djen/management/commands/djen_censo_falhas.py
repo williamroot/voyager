@@ -108,13 +108,37 @@ class Command(BaseCommand):
                 f'{len(alvos):,} entradas.'))
             return
 
+        # ⚠️ TRAVA DE 24/08/2026 — `delete_job=True` apaga o hash POR ID, e os
+        # ids do DJEN são determinísticos (`bfd:<sigla>:<dia>`): o mesmo id que
+        # está aqui no cemitério pode já ter sido REENFILEIRADO e estar vivo na
+        # fila. Apagar o hash nesse caso deixa o id na lista sem trabalho
+        # nenhum — a "casca" que sumiu com 344 dias em 24/08 (120 deles o TJRS
+        # inteiro), invisível porque o watchdog lê a casca como "já está a
+        # caminho". Aqui a limpeza NUNCA encosta em id que está na fila,
+        # agendado ou em execução.
+        em_uso = set(fila.job_ids)
+        try:
+            from rq.registry import ScheduledJobRegistry, StartedJobRegistry
+            em_uso |= set(ScheduledJobRegistry(queue=fila).get_job_ids())
+            em_uso |= set(StartedJobRegistry(queue=fila).get_job_ids())
+        except Exception as exc:
+            self.stderr.write(f'  não li a fila (limpeza vai só desregistrar): {exc}')
+            em_uso = None
+
+        poupados = 0
         for jid, tem_hash in alvos:
             try:
+                if em_uso is None or jid in em_uso:
+                    # sem certeza, ou id vivo na fila: só sai do sorted set.
+                    registro.remove(jid, delete_job=False)
+                    poupados += tem_hash
+                    continue
                 # órfão não tem hash: pedir `delete_job` nele só gera ruído de
                 # "No such job" — o que importa é sair do sorted set.
                 registro.remove(jid, delete_job=tem_hash)
             except Exception as e:  # 1 id ruim não pode parar a limpeza
                 self.stderr.write(f'  falhou remover {jid}: {e}')
         self.stdout.write(self.style.SUCCESS(
-            f'  removidas {len(alvos):,} entradas de `{nome}`. '
+            f'  removidas {len(alvos):,} entradas de `{nome}` '
+            f'({poupados:,} com o hash PRESERVADO por estarem na fila). '
             f'Restam {len(FailedJobRegistry(queue=fila)):,}.'))

@@ -142,3 +142,41 @@ def test_teto_por_tique_grita_com_o_numero_real(trib, fila):
     assert fila.enqueue.call_count == J.RECUP_POR_TIQUE
     assert erro.called, 'bateu o teto em silêncio'
     assert J.RECUP_POR_TIQUE + 12 in erro.call_args.args, 'não disse quantos havia'
+
+
+# ─────────────────────────────────── id CASCA: o que ocupa o dia e não trabalha
+
+@pytest.mark.django_db
+def test_id_casca_na_fila_nao_ocupa_o_dia(trib, fila):
+    """A fila é lista de IDS; o job vive num hash à parte — e o hash some sozinho.
+
+    MEDIDO em 24/08/2026 na `djen_backfill`: **344 de 1.945 ids (17,7%) eram
+    casca**, entre eles os 120 `adiado:TJRS:*` que eram 100% do trabalho
+    pendente do TJRS. O id casca dizia "já está a caminho" pro watchdog, que é o
+    único lugar que devolveria aquele dia — resultado: 120 dias parados por
+    tempo indeterminado, com a fila e a tela contando os dois lados da mesma
+    ficção.
+    """
+    dia = datetime.date(2025, 8, 7)
+    _run(trib, dia, 'failed')
+    fila.job_ids = [f'f2:TJSP:{dia}']          # id na fila, hash INEXISTENTE
+
+    with patch('rq.job.Job.fetch_many', return_value=[None]):
+        n = J.ressuscitar_dias_de_recuperacao()
+
+    assert n == 1, 'a casca ocupou o dia e o dia sumiu'
+    assert fila.enqueue.called
+
+
+@pytest.mark.django_db
+def test_id_com_job_de_verdade_continua_ocupando(trib, fila):
+    """A trava não pode virar duplicação: job vivo segue sendo job vivo."""
+    dia = datetime.date(2025, 8, 7)
+    _run(trib, dia, 'failed')
+    fila.job_ids = [f'f2:TJSP:{dia}']
+
+    with patch('rq.job.Job.fetch_many', return_value=[MagicMock()]):
+        n = J.ressuscitar_dias_de_recuperacao()
+
+    assert n == 0
+    assert not fila.enqueue.called
