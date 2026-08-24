@@ -1891,6 +1891,17 @@ garantida sem depender do plano do UPDATE), retry de até 5 tentativas com
 backoff, e o número real gravado no run. Mais: só é reescrito quem ganhou
 movimentação NOVA. Detalhes e números em `INGESTION.md`.
 
+Medido em produção: 98 runs `failed` por deadlock nas 24 h anteriores ao
+deploy contra **0** nos 46 min seguintes (49 runs, 830.653 publicações), e 24
+dias-tribunal que morriam fecharam `success` na primeira passada.
+
+⚠️ **Não meça isso pelo `FailedJobRegistry`.** Os ids são determinísticos
+(`f2:`/`bfd:`), então um dia re-enfileirado renova `started_at` e MANTÉM o
+`exc_info` velho: 17 entradas pareciam falhas novas pós-deploy e todas eram
+jobs `started`/`finished` com traceback antigo. Falha real = job em estado
+`failed` COM `ended_at` posterior ao deploy — ou, mais simples, o `status` do
+`IngestionRun` no banco.
+
 **Como conferir se voltou** — os dois lados, o do banco e o do run:
 
 ```bash

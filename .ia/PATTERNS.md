@@ -63,6 +63,41 @@ UniqueConstraint(fields=['documento'], condition=~Q(documento=''), name='uniq_pa
 
 ❌ **NUNCA** `for x in qs: x.save()` em loops.
 
+### Ordem de aquisição de lock: SEMPRE por pk
+
+✅ Todo `bulk_create`/`bulk_update` de tabela escrita por mais de um worker sai
+em **ordem total** — `sorted()` na chave única no INSERT, `sort(key=pk)` no
+UPDATE. Sem ordem comum existe ciclo de espera, e o Postgres mata um dos lados.
+
+⚠️ `bulk_update` NÃO é uma transação por batch: ele envolve **todos** os
+batches num único `transaction.atomic(savepoint=False)`. Ordenar a lista é
+necessário mas não é suficiente quando o lote é grande — quem trava a linha
+dentro de um `UPDATE ... WHERE id IN (...)` é o PLANO. Quando a tabela é quente
+(`tribunals_process`, 86 M linhas, 14 réplicas de ingestão + drainers),
+o padrão da casa é:
+
+```python
+lote.sort(key=lambda o: o.pk)
+for i in range(0, len(lote), 500):
+    faixa = lote[i:i + 500]
+    with transaction.atomic():                     # uma transação POR lote
+        list(Model.objects.filter(pk__in=[o.pk for o in faixa])
+             .order_by('pk').select_for_update(no_key=True)
+             .values_list('pk', flat=True))        # trava em ordem, sem depender do plano
+        Model.objects.bulk_update(faixa, fields=CAMPOS, batch_size=len(faixa))
+```
+
+✅ Deadlock (SQLSTATE `40P01`) **pode** ser retentado — é erro transitório — com
+teto, backoff+jitter e **o número de tentativas registrado** (regra nº 2). Só
+retente quando a transação é sua (`connection.in_atomic_block` falso): o
+deadlock aborta a transação inteira, retentar dentro de uma externa só produz
+"current transaction is aborted".
+
+Medido: duas transações concorrentes sobre os mesmos 300 processos em ordens
+opostas dão **29/31/28 deadlocks** em 50 escritas sem esse padrão e **0** com
+ele. Em produção eram 203 dias de coleta queimados (28,9% do cemitério da
+`djen_backfill`). Ver `INGESTION.md` e `djen/ingestion.py::_gravar_lote_resumo`.
+
 ## Proxy / HTTP
 
 ✅ Reaproveitar `ProxyScrapePool.singleton()` + `cortex_proxy_url()` em **qualquer** cliente HTTP de tribunal/DJEN. Pool é shared via Redis.

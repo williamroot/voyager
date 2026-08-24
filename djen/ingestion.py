@@ -572,8 +572,13 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | Non
             for p in parsed if p.codigo_classe and p.nome_classe
         }
         if classes_pagina:
+            # `sorted` pela mesma razão dos CNJs e dos external_id: `classes_pagina`
+            # é set, e dois workers inserindo os mesmos códigos em ordens
+            # diferentes fecham ciclo no índice único (PK `codigo`). Nunca
+            # apareceu no censo — o catálogo é pequeno e satura rápido —, mas é
+            # o último bulk_create sem ordem no caminho quente.
             ClasseJudicial.objects.bulk_create(
-                [ClasseJudicial(codigo=c, nome=n) for c, n in classes_pagina],
+                [ClasseJudicial(codigo=c, nome=n) for c, n in sorted(classes_pagina)],
                 ignore_conflicts=True,
                 batch_size=BATCH_SIZE,
             )
