@@ -322,6 +322,16 @@ class Freio:
     Vigiar só o conteúdo seria vigiar o ruído; vigiar só os processos seria
     ignorar o índice grande, que é quem divide o disco. As duas, então.
 
+    **A sonda `texto` é vigiada pelos DOIS critérios: latência E aborto.** O
+    aborto é indicador ATRASADO — quando ele acende, a busca do usuário já
+    falhou. O número que obrigou isso, medido no A/B/A/B de 24/08/2026: na
+    janela com o backfill escrevendo, o p90 da sonda `texto` foi **11.938 ms**
+    contra o corte de 12.000 ms do `ids_por_texto`. **62 milissegundos de
+    margem.** Zero abortos aconteceram, e zero abortos é a verdade — mas a
+    distância até a primeira busca falhando não era margem, era sorte. O limiar
+    de latência dela usa a MESMA fórmula relativa das outras duas
+    (`_limiares`), não um número escolhido depois de ver o dado.
+
     Regra: a busca do site tem prioridade. Piorou ⇒ dobra a pausa. Piorou muito
     ⇒ PARA e espera. Depois de `PAUSA_TENTATIVAS` esperas sem melhora, desiste
     — com ERRO registrado e checkpoint salvo, para a corrida seguinte continuar
@@ -329,12 +339,21 @@ class Freio:
     abster é frear, nunca seguir a toda porque a medição falhou).
     """
 
-    def __init__(self, base: dict, sleep_inicial: float):
+    def __init__(self, base: dict, sleep_inicial: float,
+                 freio_proc_ms: float | None = None):
         self.base = base
         self.sleep = sleep_inicial
         self.sleep_inicial = sleep_inicial
         self.freio_proc, self.parada_proc = _limiares(base['processos_ms'])
+        if freio_proc_ms:
+            # POLÍTICA de operação, mais apertada que o limiar declarado. O
+            # freio é a última linha de defesa; se ele virar o modo normal de
+            # funcionamento, a margem some. Medido em 24/08/2026 com o backfill
+            # escrevendo: `processos` p50 = 846 ms, 85% do limiar de 1.000 ms.
+            # Aperta só o FREIO (ceder vazão), nunca a PARADA declarada.
+            self.freio_proc = min(self.freio_proc, freio_proc_ms)
         self.freio_cont, self.parada_cont = _limiares(base['conteudo_ms'])
+        self.freio_texto, self.parada_texto = _limiares(base.get('texto_ms') or 0.0)
         self.aborto_base = base.get('aborto_pct') or 0.0
         self.aborto_freio = self.aborto_base + ABORTO_FREIO_PP
         self.aborto_parada = self.aborto_base + ABORTO_PARADA_PP
@@ -343,6 +362,7 @@ class Freio:
         self.paradas = 0
         self.pior_ms = 0.0
         self.pior_proc_ms = 0.0
+        self.pior_texto_ms = 0.0
         self.rodada = 0
 
     def _medir(self) -> tuple[float, float]:
@@ -353,12 +373,13 @@ class Freio:
         backfill parar por acaso — e um freio que dispara por acaso é desligado
         pelo primeiro operador que o vê, o que é pior do que não ter freio.
         """
-        proc, cont, abortos = [], [], 0
+        proc, cont, texto, abortos = [], [], [], 0
         for _ in range(N_SONDAS_FREIO):
             self.rodada += 1
             s = sondar(self.rodada)
             proc.append(s['processos_ms'])
             cont.append(s['conteudo_ms'])
+            texto.append(s['texto_ms'])
             abortos += s['abortos']
             if s['conteudo_ms'] > TETO_ABSURDO_MS or s['erros']:
                 logger.error(
@@ -366,14 +387,14 @@ class Freio:
                     'termo %r. O timeout do próprio body é 15 s.',
                     s['conteudo_ms'], ' com ERRO' if s['erros'] else '',
                     TERMOS_CONTEUDO[self.rodada % len(TERMOS_CONTEUDO)])
-        return (_mediana(proc), _mediana(cont),
+        return (_mediana(proc), _mediana(cont), _mediana(texto),
                 100.0 * abortos / N_SONDAS_FREIO)
 
     def avaliar(self) -> bool:
         """Mede, ajusta o sleep. Devolve False se a corrida deve ABORTAR."""
         for tentativa in range(PAUSA_TENTATIVAS + 1):
             try:
-                m_proc, m_cont, aborto_pct = self._medir()
+                m_proc, m_cont, m_texto, aborto_pct = self._medir()
             except Exception:      # noqa: BLE001 — "não sei" freia, não acelera
                 logger.warning('backfill processos: sonda de latência FALHOU — '
                                'freando por precaução', exc_info=True)
@@ -383,18 +404,22 @@ class Freio:
             self.pior_ms = max(self.pior_ms, m_cont)
             self.pior_proc_ms = max(self.pior_proc_ms, m_proc)
             self.pior_aborto_pct = max(self.pior_aborto_pct, aborto_pct)
+            self.pior_texto_ms = max(self.pior_texto_ms, m_texto)
             if (m_proc < self.parada_proc and m_cont < self.parada_cont
+                    and m_texto < self.parada_texto
                     and aborto_pct < self.aborto_parada):
                 break
             self.paradas += 1
             logger.error(
                 'backfill processos: busca DEGRADADA — processos %.0f ms '
                 '(limiar %.0f, baseline %.0f) · conteúdo %.0f ms (limiar %.0f, '
-                'baseline %.0f) · buscas de texto ABORTADAS aos 12 s %.0f%% '
-                '(limiar %.0f%%, baseline %.0f%%). Pausando %d s (tentativa '
-                '%d/%d): a busca do site tem prioridade sobre o backfill.',
+                'baseline %.0f) · texto %.0f ms (limiar %.0f, baseline %.0f) · '
+                'buscas de texto ABORTADAS aos 12 s %.0f%% (limiar %.0f%%, '
+                'baseline %.0f%%). Pausando %d s (tentativa %d/%d): a busca do '
+                'site tem prioridade sobre o backfill.',
                 m_proc, self.parada_proc, self.base['processos_ms'],
                 m_cont, self.parada_cont, self.base['conteudo_ms'],
+                m_texto, self.parada_texto, self.base.get('texto_ms') or 0.0,
                 aborto_pct, self.aborto_parada, self.aborto_base,
                 PAUSA_S, tentativa + 1, PAUSA_TENTATIVAS,
             )
@@ -409,18 +434,21 @@ class Freio:
             return False
 
         if (m_proc > self.freio_proc or m_cont > self.freio_cont
-                or aborto_pct > self.aborto_freio):
+                or m_texto > self.freio_texto or aborto_pct > self.aborto_freio):
             novo = min(SLEEP_MAX, max(self.sleep, 0.05) * 2)
             if novo != self.sleep:
                 logger.warning(
                     'backfill processos: processos %.0f ms (limiar %.0f) · '
-                    'conteúdo %.0f ms (limiar %.0f) · aborto %.0f%% (limiar '
-                    '%.0f%%) — sleep %.2f s → %.2f s',
+                    'conteúdo %.0f ms (limiar %.0f) · texto %.0f ms (limiar '
+                    '%.0f) · aborto %.0f%% (limiar %.0f%%) — sleep %.2f s → '
+                    '%.2f s',
                     m_proc, self.freio_proc, m_cont, self.freio_cont,
-                    aborto_pct, self.aborto_freio, self.sleep, novo)
+                    m_texto, self.freio_texto, aborto_pct, self.aborto_freio,
+                    self.sleep, novo)
             self.sleep = novo
             self.freadas += 1
         elif (m_proc < self.freio_proc / 2 and m_cont < self.freio_cont / 2
+                and m_texto < self.freio_texto / 2
                 and aborto_pct <= self.aborto_base
                 and self.sleep > self.sleep_inicial):
             self.sleep = max(self.sleep_inicial, self.sleep / 2)
@@ -482,7 +510,7 @@ def _reparar(faltando: list[int], pk0: int, pk1: int, indexar) -> int:
 def rodar(de: int = 0, ate: int | None = None, sleep: float = 0.1,
           bloco: int = BLOCO_CENSO, reparar: bool = True,
           limite_blocos: int = 0, usar_checkpoint: bool = True,
-          relatar=None) -> dict:
+          relatar=None, freio_proc_ms: float | None = None) -> dict:
     """Percorre os pks de `de` (exclusivo) até `ate`, mede e repara.
 
     Retomável: o checkpoint em `cache[WM]` guarda o último pk cujo bloco FECHOU.
@@ -508,7 +536,7 @@ def rodar(de: int = 0, ate: int | None = None, sleep: float = 0.1,
     cursor = max(inicio, de)
 
     base = baseline()          # 9 sondas = a rotação inteira de termos
-    freio = Freio(base, sleep)
+    freio = Freio(base, sleep, freio_proc_ms=freio_proc_ms)
     logger.info('backfill processos: baseline da busca — processos %.0f ms '
                 '(freio %.0f / parada %.0f) · conteúdo %.0f ms (freio %.0f / '
                 'parada %.0f)', base['processos_ms'], freio.freio_proc,
@@ -577,6 +605,7 @@ def rodar(de: int = 0, ate: int | None = None, sleep: float = 0.1,
     tot['pior_conteudo_ms'] = freio.pior_ms
     tot['pior_processos_ms'] = freio.pior_proc_ms
     tot['pior_aborto_pct'] = freio.pior_aborto_pct
+    tot['pior_texto_ms'] = freio.pior_texto_ms
     cache.set(ULTIMO, tot, 7 * 24 * 3600)
     logger.info('backfill processos: %s', {k: v for k, v in tot.items()
                                            if k != 'baseline'})

@@ -37,6 +37,13 @@ class Command(BaseCommand):
                             help='pausa (s) entre blocos. O freio pode aumentá-la.')
         parser.add_argument('--limite-blocos', type=int, default=0,
                             help='para depois de N blocos (0 = sem limite).')
+        parser.add_argument('--freio-proc-ms', type=float, default=0.0,
+                            help='POLÍTICA de operação: cede vazão quando a busca '
+                                 'de processos passar deste p50, mesmo abaixo do '
+                                 'limiar declarado (1.000 ms). Freio é última '
+                                 'linha de defesa; operar colado nele apaga a '
+                                 'margem. Medido em 24/08/2026: 846 ms com o '
+                                 'backfill escrevendo.')
         parser.add_argument('--sem-reparo', action='store_true',
                             help='só mede; não escreve no índice.')
         parser.add_argument('--sem-checkpoint', action='store_true',
@@ -99,7 +106,8 @@ class Command(BaseCommand):
                      bloco=o['bloco'], reparar=not o['sem_reparo'],
                      limite_blocos=o['limite_blocos'],
                      usar_checkpoint=not o['sem_checkpoint'],
-                     relatar=relatar)
+                     relatar=relatar,
+                     freio_proc_ms=o['freio_proc_ms'] or None)
         if o['json']:
             self.stdout.write(json.dumps(r, default=str))
             return

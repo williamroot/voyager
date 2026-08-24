@@ -231,10 +231,10 @@ def test_bulk_de_processos_devolve_quantos_o_es_aceitou(mock_proc, _doc, _env):
 # --------------------------------------------------------------------------- #
 # 5. O freio — a busca do site tem prioridade
 # --------------------------------------------------------------------------- #
-def _base(proc=340.0, cont=7109.0, aborto_pct=0.0):
+def _base(proc=340.0, cont=7109.0, aborto_pct=0.0, texto=1662.0):
     """A baseline REAL medida em produção em 24/08/2026 (mediana de 9 sondas)."""
     return {'processos_ms': proc, 'conteudo_ms': cont, 'n': 9, 'erros': 0,
-            'abortos': 0, 'aborto_pct': aborto_pct, 'texto_ms': 0.0,
+            'abortos': 0, 'aborto_pct': aborto_pct, 'texto_ms': texto,
             'processos_amostras': [], 'conteudo_amostras': [], 'texto_amostras': [],
             'processos_max': 0, 'conteudo_max': 0}
 
@@ -260,7 +260,7 @@ def test_limiar_de_processos_tem_piso_para_nao_disparar_com_ruido():
 @patch('search.backfill_processos.sondar')
 def test_freio_dobra_o_sleep_quando_a_busca_de_processos_piora(mock_sondar):
     """O índice ESCRITO é o sinal mais sensível — merge/refresh batem nele antes."""
-    mock_sondar.return_value = {'processos_ms': 2_000.0, 'conteudo_ms': 50.0,
+    mock_sondar.return_value = {'processos_ms': 2_000.0, 'conteudo_ms': 50.0, 'texto_ms': 50.0,
                                 'erros': 0, 'abortos': 0, 'i': 0}
     f = bp.Freio(_base(), sleep_inicial=0.1)
     assert f.avaliar() is True
@@ -271,7 +271,7 @@ def test_freio_dobra_o_sleep_quando_a_busca_de_processos_piora(mock_sondar):
 @patch('search.backfill_processos.sondar')
 def test_freio_aborta_a_corrida_se_a_busca_nao_voltar(mock_sondar, _sleep):
     """Desistir é ERRO REGISTRADO + checkpoint salvo — dívida VISÍVEL."""
-    mock_sondar.return_value = {'processos_ms': 30_000.0, 'conteudo_ms': 30_000.0,
+    mock_sondar.return_value = {'processos_ms': 30_000.0, 'conteudo_ms': 30_000.0, 'texto_ms': 30_000.0,
                                 'erros': 1, 'abortos': 1, 'i': 0}
     f = bp.Freio(_base(), sleep_inicial=0.1)
     assert f.avaliar() is False
@@ -287,9 +287,12 @@ def test_uma_leitura_fria_isolada_nao_para_o_backfill(mock_sondar):
     dispara por acaso é desligado pelo primeiro operador que o vê.
     """
     mock_sondar.side_effect = [
-        {'processos_ms': 100.0, 'conteudo_ms': 30_000.0, 'erros': 0, 'abortos': 1, 'i': 0},
-        {'processos_ms': 100.0, 'conteudo_ms': 90.0, 'erros': 0, 'abortos': 0, 'i': 1},
-        {'processos_ms': 100.0, 'conteudo_ms': 120.0, 'erros': 0, 'abortos': 0, 'i': 2},
+        {'processos_ms': 100.0, 'conteudo_ms': 30_000.0, 'texto_ms': 100.0,
+         'erros': 0, 'abortos': 1, 'i': 0},
+        {'processos_ms': 100.0, 'conteudo_ms': 90.0, 'texto_ms': 100.0,
+         'erros': 0, 'abortos': 0, 'i': 1},
+        {'processos_ms': 100.0, 'conteudo_ms': 120.0, 'texto_ms': 100.0,
+         'erros': 0, 'abortos': 0, 'i': 2},
     ]
     f = bp.Freio(_base(), sleep_inicial=0.1)
     assert f.avaliar() is True
@@ -394,7 +397,8 @@ def test_freio_para_por_taxa_de_aborto_mesmo_com_latencia_boa(mock_sondar):
     exatamente enquanto a busca do usuário falha.
     """
     mock_sondar.return_value = {'processos_ms': 200.0, 'conteudo_ms': 200.0,
-                                'erros': 0, 'abortos': 1, 'i': 0}
+                                'texto_ms': 200.0, 'erros': 0, 'abortos': 1,
+                                'i': 0}
     with patch('search.backfill_processos.time.sleep'):
         f = bp.Freio(_base(aborto_pct=0.0), sleep_inicial=0.1)
         assert f.avaliar() is False      # 100% de aborto > 0% + 30 pp
@@ -407,9 +411,71 @@ def test_limiar_de_aborto_e_relativo_a_baseline_do_cluster(mock_sondar):
     condição que ele não causou. O limiar soma pontos percentuais à baseline."""
     # baseline com 33% de aborto; a corrida mantém 33% ⇒ não freia
     mock_sondar.return_value = {'processos_ms': 200.0, 'conteudo_ms': 200.0,
-                                'erros': 0, 'abortos': 0, 'i': 0}
+                                'texto_ms': 200.0, 'erros': 0, 'abortos': 0,
+                                'i': 0}
     f = bp.Freio(_base(aborto_pct=33.3), sleep_inicial=0.1)
     assert f.aborto_freio == pytest.approx(53.3)
     assert f.aborto_parada == pytest.approx(73.3)
     assert f.avaliar() is True
     assert f.freadas == 0
+
+
+def test_texto_tem_limiar_de_latencia_alem_do_de_aborto():
+    """Aborto é indicador ATRASADO: quando acende, a busca do usuário já falhou.
+
+    Medido no A/B/A/B de 24/08/2026, na janela com o backfill escrevendo: o p90
+    da sonda `texto` foi 11.938 ms contra o corte de 12.000 ms do
+    `ids_por_texto`. **62 ms de margem.** Zero abortos aconteceram — e zero
+    abortos é a verdade —, mas a distância até a primeira busca falhando não
+    era margem, era sorte.
+
+    O limiar usa a MESMA fórmula relativa das outras duas sondas, não um número
+    escolhido depois de ver o dado.
+    """
+    f = bp.Freio(_base(texto=1662.0), sleep_inicial=0.1)
+    assert (f.freio_texto, f.parada_texto) == bp._limiares(1662.0)
+
+
+@patch('search.backfill_processos.sondar')
+def test_freio_age_por_texto_lento_antes_de_haver_aborto(mock_sondar):
+    """O caso dos 62 ms: nenhuma busca abortou ainda, e o freio já cede vazão.
+
+    Com a baseline de 1.662 ms, o limiar de freio da sonda `texto` é 3.324 ms
+    (2x) — bem abaixo do corte de 12.000 ms em que a busca ABORTA. É isso que
+    faz o freio agir ANTES de existir falha, em vez de depois.
+    """
+    mock_sondar.return_value = {'processos_ms': 100.0, 'conteudo_ms': 100.0,
+                                'texto_ms': 5_000.0, 'erros': 0, 'abortos': 0,
+                                'i': 0}
+    f = bp.Freio(_base(texto=1662.0), sleep_inicial=0.1)
+    assert f.freio_texto == 3324.0 and f.parada_texto == 6648.0
+    assert f.avaliar() is True
+    assert f.freadas == 1 and f.sleep == 0.2
+    assert f.paradas == 0
+    assert f.pior_aborto_pct == 0.0, 'agiu SEM nenhum aborto ter acontecido'
+
+
+@patch('search.backfill_processos.time.sleep')
+@patch('search.backfill_processos.sondar')
+def test_texto_perto_do_corte_de_12s_para_a_corrida(mock_sondar, _sleep):
+    """11.938 ms é 62 ms do corte: nesse ponto o backfill sai da frente."""
+    mock_sondar.return_value = {'processos_ms': 100.0, 'conteudo_ms': 100.0,
+                                'texto_ms': 11_938.0, 'erros': 0, 'abortos': 0,
+                                'i': 0}
+    f = bp.Freio(_base(texto=1662.0), sleep_inicial=0.1)
+    assert f.avaliar() is False
+    assert f.paradas == bp.PAUSA_TENTATIVAS + 1
+
+
+def test_limiar_operacional_pode_ser_mais_apertado_que_o_freio(caplog):
+    """Política de operação tem de ser mais conservadora que o freio.
+
+    O freio é última linha de defesa; se ele virar o modo normal de
+    funcionamento, a margem some. Medido em 24/08/2026: com o backfill
+    escrevendo, `processos` p50 = 846 ms — 85% do limiar de 1.000 ms.
+    `--freio-proc-ms 700` aperta sem tocar no limiar declarado.
+    """
+    del caplog
+    f = bp.Freio(_base(proc=340.0), sleep_inicial=0.1, freio_proc_ms=700.0)
+    assert f.freio_proc == 700.0
+    assert f.parada_proc == bp.PISO_PARADA_MS, 'a PARADA declarada não muda'

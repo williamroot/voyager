@@ -894,6 +894,65 @@ medição.** Para quem está na tela, timeout não é "medição indisponível" 
 pior latência possível. (Na primeira execução em produção o timeout do cliente
 derrubou o comando inteiro antes do primeiro bloco.)
 
+### Quanto o backfill CUSTA à busca — A/B/A/B medido (24/08/2026)
+
+Não é de graça. Medido com **seis janelas alternadas** de 9 sondas cada, A =
+backfill parado, B = backfill escrevendo, **ordem invertida a cada rodada**
+(A,B / B,A / A,B) para o aquecimento progressivo do page cache não favorecer
+sistematicamente o segundo de cada par. Horários UTC.
+
+| janela | início | processos p50 | conteúdo p50 | texto p50 | conteúdo >12 s | **carga de terceiros** (movs/s) |
+|---|---|---:|---:|---:|---:|---:|
+| A r1 | 20:05:33 | 517 | 5.365 | 1.662 | 0 | 41,4 |
+| B r1 | 20:08:52 | 625 | 5.658 | 1.474 | 0 | 58,1 |
+| B r2 | 20:12:30 | **908** | **7.541** | **3.095** | **3** | 59,0 |
+| A r2 | 20:16:59 | 514 | 5.949 | 1.692 | 0 | 89,5 |
+| A r3 | 20:19:09 | 434 | 5.563 | 1.604 | 0 | 97,6 |
+| B r3 | 20:22:33 | **846** | **7.219** | **3.506** | **1** | 73,3 |
+
+| sonda | A (parado) | B (escrevendo) | delta |
+|---|---:|---:|---:|
+| **processos** (o índice ESCRITO) | 514 ms | 846 ms | **+64,6%** |
+| conteúdo (1,74 TB) | 5.563 ms | 7.218 ms | **+29,8%** |
+| texto (o caminho que aborta aos 12 s) | 1.662 ms | 3.095 ms | **+86,3%** |
+
+Abortos reais: **0 de 27 em A, 0 de 27 em B**. `search.rejected` = 0 nas seis.
+
+**O delta acima é PISO, não teto — a deriva foi ADVERSA.** A última coluna é o
+motivo de ela estar na tabela: a carga de terceiros (indexação em
+`voyager-movimentacoes-v2`, vinda dos diários e do Datajud) foi **maior nas
+janelas A** — mediana 89,5 docs/s contra 59,0 em B. As janelas sem backfill
+tinham MAIS concorrência e mesmo assim foram mais rápidas. Sem essa coluna, a
+comparação seria uma afirmação; com ela, é verificável.
+
+Confiança por sonda, porque ela não é a mesma: em **`processos` a separação é
+perfeita** (pior B = 625 > melhor A = 517) e as janelas A são estáveis entre si
+(517 · 514 · 434) — é a sonda mais limpa, e faz sentido, é o índice que o
+backfill escreve. Em `conteúdo` e `texto` há sobreposição (B r1 caiu dentro da
+faixa dos A's), então nessas duas o "piorou" vale menos.
+
+#### Os 62 milissegundos que mudaram o freio
+
+Nenhum limiar foi cruzado. Mas em B r2 o **p90 da sonda `texto` foi 11.938 ms
+contra o corte de 12.000 ms** do `ids_por_texto` — 62 ms de margem. Zero
+abortos aconteceram, e zero abortos é a verdade; a distância até a primeira
+busca falhando é que não era margem.
+
+Por isso a sonda `texto` passou a ser vigiada **também por latência**, com a
+mesma fórmula relativa das outras duas (`_limiares`, 2x/4x com piso e teto) —
+regra que já existia, aplicada a uma sonda que ficara de fora. Com a baseline
+de 1.662 ms isso dá freio a 3.324 ms, muito antes dos 12.000 ms em que a busca
+falha. **Aborto é indicador ATRASADO: quando acende, o usuário já não recebeu
+resultado.**
+
+#### Política de operação ≠ limiar do freio
+
+`processos` em B mediu 846 ms, **85% do limiar de freio de 1.000 ms**. Operar
+colado no freio apaga a margem e transforma a última linha de defesa no modo
+normal de funcionamento. Por isso as corridas usam
+`--freio-proc-ms 700`: cede vazão antes, sem tocar no limiar declarado (a
+PARADA continua em 3.000 ms). Política mais conservadora que o freio, sempre.
+
 ### As 652 falhas da fila `es_index` — medir antes de reprocessar
 
 Quem abrir o `FailedJobRegistry` da `es_index` vai ver centenas de jobs mortos e
