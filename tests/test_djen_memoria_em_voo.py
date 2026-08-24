@@ -400,6 +400,27 @@ def test_rss_acima_do_teto_vira_erro_no_run_na_hora(monkeypatch):
     assert run.erros[-1]['rss_mb'] == 940.0 and run.erros[-1]['paginas_lidas'] == 9
 
 
+def test_alerta_do_coletor_chega_ao_run_a_cada_pagina():
+    """O coletor não conhece o `IngestionRun`, então ele junta os avisos e quem
+    grava é a ingestão. Isso tem que acontecer A CADA PÁGINA, não no fim: o
+    aviso que mais importa é o que diz que o pico vai passar do orçamento — ou
+    seja, o aviso do run que pode não chegar ao fim."""
+    from djen import ingestion as ing
+
+    run = _RunGravavel()
+    c = _cliente(None)
+    c.alertas.append({'erro': 'resposta_acima_do_teto_de_bytes', 'bytes': 40 << 20})
+
+    ing._drenar_alertas(c, run)
+
+    assert run.erros == [{'erro': 'resposta_acima_do_teto_de_bytes', 'bytes': 40 << 20}]
+    assert run.salvou == 1, 'guardou o aviso pro fim do run'
+    assert c.alertas == [], 'não limpou — o mesmo aviso entraria de novo a cada página'
+
+    ing._drenar_alertas(c, run)          # nada novo: não regrava
+    assert run.salvou == 1
+
+
 @override_settings(DJEN_RSS_ALERTA_MB=700)
 def test_rss_abaixo_do_teto_nao_polui_o_run(monkeypatch):
     """O caminho comum não pode encher `erros` — ela é re-serializada inteira a
