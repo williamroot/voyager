@@ -74,55 +74,48 @@ class Command(BaseCommand):
         ate = (_instante(o['ate']) if o['ate']
                else timezone.now() - dt.timedelta(minutes=indice.CARENCIA_MIN))
         if ate <= desde:
-            raise CommandError(f'faixa vazia: {desde.isoformat()} → {ate.isoformat()}')
+            raise CommandError(f'faixa vazia: {desde.isoformat()} -> {ate.isoformat()}')
         reparar = not o['sem_reparo']
-        passo = dt.timedelta(minutes=o['passo_min'])
+        lados = ('movs',) if o['so_movs'] else ('processos',) if o['so_processos'] else \
+                ('movs', 'processos')
 
         self.stdout.write(
-            f'faixa de escrita: {desde.isoformat()} → {ate.isoformat()}  '
+            f'faixa de escrita: {desde.isoformat()} -> {ate.isoformat()}  '
             f'(passo {o["passo_min"]} min, reparo {"LIGADO" if reparar else "DESLIGADO"})')
         self.stdout.write(
-            f'{"janela (inserido_em)":34} {"movs_pg":>9} {"fora":>8} {"proc_pg":>9} '
+            f'{"janela (inserido_em)":36} {"movs_pg":>9} {"fora":>8} {"proc_pg":>9} '
             f'{"atrasados":>10} {"enfileirado":>12} {"s":>6}')
 
-        tot = {'movs_pg': 0, 'movs_fora': 0, 'procs_pg': 0, 'procs_atrasados': 0,
-               'enfileirado': 0, 'abstidos': 0, 'tetos': 0, 'passos': 0}
-        cursor = desde
-        while cursor < ate:
-            prox = min(cursor + passo, ate)
-            t0 = time.monotonic()
-            m = ({'pg': None, 'faltando': None, 'enfileiradas': 0, 'teto_atingido': False,
-                  'abstido': False} if o['so_processos']
-                 else indice.conferir_movs(cursor, prox, reparar=reparar))
-            p = ({'pg': None, 'atrasados': None, 'enfileirados': 0, 'teto_atingido': False,
-                  'abstido': False} if o['so_movs']
-                 else indice.conferir_processos(cursor, prox, reparar=reparar))
-            dur = time.monotonic() - t0
+        def _n(v):
+            return '       -' if v is None else f'{v:,}'.replace(',', '.')
 
-            def _n(v):
-                return '   —' if v is None else f'{v:,}'.replace(',', '.')
+        def relatar(a, b, m, p, dur):
+            """Uma linha por recorte MEDIDO — inclusive os que o teto dividiu.
 
+            Reusar `conferir_janela` (em vez de o comando ter o próprio laço) é
+            o que faz o backfill se comportar EXATAMENTE como o cron: mesma
+            divisão ao meio no teto, mesma abstenção, mesmo reparo. A primeira
+            versão tinha laço próprio, não dividia, e num recorte de pico
+            imprimiu `TETO` e mandou o operador "rodar de novo" — para bater no
+            mesmo teto de novo.
+            """
             enf = (m['enfileiradas'] or 0) + (p['enfileirados'] or 0)
             marca = ''
             if m['abstido'] or p['abstido']:
-                marca = '  ABSTIDO'
-                tot['abstidos'] += 1
+                marca += '  ABSTIDO'
             if m['teto_atingido'] or p['teto_atingido']:
-                marca += '  TETO'
-                tot['tetos'] += 1
+                marca += '  TETO (dividindo)'
+            mins = (b - a).total_seconds() / 60
             self.stdout.write(
-                f'{cursor:%Y-%m-%d %H:%M} +{o["passo_min"]:>3}min{"":10} '
+                f'{a:%Y-%m-%d %H:%M} +{mins:>6.1f}min{"":8} '
                 f'{_n(m["pg"]):>9} {_n(m["faltando"]):>8} {_n(p["pg"]):>9} '
                 f'{_n(p["atrasados"]):>10} {_n(enf):>12} {dur:>6.2f}{marca}')
-            for chave, valor in (('movs_pg', m['pg']), ('movs_fora', m['faltando']),
-                                 ('procs_pg', p['pg']), ('procs_atrasados', p['atrasados']),
-                                 ('enfileirado', enf)):
-                if valor:
-                    tot[chave] += valor
-            tot['passos'] += 1
-            cursor = prox
             if o['sleep']:
                 time.sleep(o['sleep'])
+
+        tot = indice.conferir_janela(desde, ate, reparar=reparar,
+                                     passo_min=o['passo_min'], relatar=relatar,
+                                     lados=lados)
 
         def _pt(n):
             # ponto como separador de milhar. Formatar o NÚMERO, nunca a frase
@@ -130,15 +123,19 @@ class Command(BaseCommand):
             # do texto e o resumo saía com pontos no lugar delas.
             return f'{n:,}'.replace(',', '.')
 
+        enfileirado = tot['movs_enfileiradas'] + tot['procs_enfileirados']
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS(
-            f'{tot["passos"]} passos · movimentações: {_pt(tot["movs_pg"])} conferidas, '
+            f'{tot["passos"]} recortes · movimentações: {_pt(tot["movs_pg"])} conferidas, '
             f'{_pt(tot["movs_fora"])} fora do índice · processos: '
             f'{_pt(tot["procs_pg"])} conferidos, {_pt(tot["procs_atrasados"])} com doc '
-            f'anterior à escrita · {_pt(tot["enfileirado"])} re-enfileirados'))
-        if tot['abstidos'] or tot['tetos']:
-            # Abstenção e teto NÃO são detalhe de rodapé: o trecho continua em
-            # dívida e alguém tem que rodar de novo. Regra nº 2 + nº 6.
+            f'anterior à escrita · {_pt(enfileirado)} re-enfileirados'))
+        fechou = dt.datetime.fromisoformat(tot['ate'])
+        if tot['abstidos'] or tot['teto'] or fechou < ate:
+            # Abstenção e teto NÃO são detalhe de rodapé: a faixa continua em
+            # dívida a partir de `ate` e alguém tem que rodar de novo. Regra
+            # nº 2 + nº 6.
             self.stdout.write(self.style.ERROR(
-                f'{tot["abstidos"]} passo(s) ABSTIDOS e {tot["tetos"]} com TETO atingido — '
-                'esses trechos NÃO foram conferidos. Rode-os de novo.'))
+                f'FECHOU só até {tot["ate"]} ({tot["abstidos"]} abstidos, '
+                f'teto={tot["teto"]}) — o resto da faixa NÃO foi conferido. '
+                f'Rode de novo a partir daí.'))

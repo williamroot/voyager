@@ -340,8 +340,17 @@ def conferir_processos(ini: dt.datetime, fim: dt.datetime, reparar: bool = True)
 # ─────────────────────────────────────────────────────────────────────────────
 # A passada
 # ─────────────────────────────────────────────────────────────────────────────
+#: Resultado neutro de um lado que NÃO foi medido (`lados` recortado). Não é
+#: "zero achado": é "não perguntei", e por isso não entra em total nenhum.
+_NAO_MEDIDO_MOVS = {'pg': None, 'faltando': None, 'enfileiradas': 0,
+                    'teto_atingido': False, 'abstido': False}
+_NAO_MEDIDO_PROCS = {'pg': None, 'atrasados': None, 'enfileirados': 0,
+                     'teto_atingido': False, 'abstido': False}
+
+
 def _conferir_passo(ini: dt.datetime, fim: dt.datetime, reparar: bool,
-                    total: dict) -> bool:
+                    total: dict, relatar=None,
+                    lados: tuple = ('movs', 'processos')) -> bool:
     """Confere UM recorte. Devolve True se ele FECHOU (medido dos dois lados).
 
     Bateu o teto de leitura ⇒ **divide ao meio e mede as metades**, em vez de
@@ -357,9 +366,15 @@ def _conferir_passo(ini: dt.datetime, fim: dt.datetime, reparar: bool,
     passa. Só quando nem o recorte mínimo cabe é que vira ERRO registrado e a
     janela fica em dívida.
     """
-    m = conferir_movs(ini, fim, reparar=reparar)
-    p = conferir_processos(ini, fim, reparar=reparar)
+    import time
+    t0 = time.monotonic()
+    m = (conferir_movs(ini, fim, reparar=reparar) if 'movs' in lados
+         else dict(_NAO_MEDIDO_MOVS))
+    p = (conferir_processos(ini, fim, reparar=reparar) if 'processos' in lados
+         else dict(_NAO_MEDIDO_PROCS))
     total['passos'] += 1
+    if relatar is not None:
+        relatar(ini, fim, m, p, time.monotonic() - t0)
 
     if m['teto_atingido'] or p['teto_atingido']:
         # A leitura foi truncada: estes números são "os primeiros N que o
@@ -375,8 +390,8 @@ def _conferir_passo(ini: dt.datetime, fim: dt.datetime, reparar: bool,
             )
             return False
         meio = ini + (fim - ini) / 2
-        return (_conferir_passo(ini, meio, reparar, total)
-                and _conferir_passo(meio, fim, reparar, total))
+        return (_conferir_passo(ini, meio, reparar, total, relatar, lados)
+                and _conferir_passo(meio, fim, reparar, total, relatar, lados))
 
     for chave, valor in (('movs_pg', m['pg']), ('movs_fora', m['faltando']),
                          ('movs_enfileiradas', m['enfileiradas']),
@@ -391,7 +406,8 @@ def _conferir_passo(ini: dt.datetime, fim: dt.datetime, reparar: bool,
 
 
 def conferir_janela(ini: dt.datetime, fim: dt.datetime, reparar: bool = True,
-                    passo_min: int = PASSO_MIN) -> dict:
+                    passo_min: int = PASSO_MIN, relatar=None,
+                    lados: tuple = ('movs', 'processos')) -> dict:
     """Percorre [ini, fim) em passos de `passo_min` e confere os dois lados.
 
     Devolve, além dos totais, `ate` — o instante até onde a conferência
@@ -406,7 +422,7 @@ def conferir_janela(ini: dt.datetime, fim: dt.datetime, reparar: bool = True,
     cursor = ini
     while cursor < fim:
         prox = min(cursor + passo, fim)
-        if not _conferir_passo(cursor, prox, reparar, total):
+        if not _conferir_passo(cursor, prox, reparar, total, relatar, lados):
             break
         cursor = prox
         total['ate'] = cursor.isoformat()
