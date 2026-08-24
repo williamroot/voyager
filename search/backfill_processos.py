@@ -95,18 +95,10 @@ OFF = 'search:backfill_proc:off'
 # ─────────────────────────────────────────────────────────────────────────────
 # Freio — a busca do site tem prioridade sobre o backfill, sempre
 # ─────────────────────────────────────────────────────────────────────────────
-#: Baseline medido em produção em 24/08/2026, com o backfill PARADO, 7 rodadas
-#: de cada sonda (mediana):
-#:
-#:     sonda                                     mediana   pior
-#:     processos: nested parte + filtro UF        ver `sondar()` — medido antes de cada corrida
-#:     conteúdo:  match no `body` + janela 31 d
-#:
-#: Os limiares abaixo são MÚLTIPLOS da baseline medida no início da corrida, não
-#: números absolutos: o mesmo cluster responde 9,28 s frio e 0,79 s quente para a
-#: MESMA busca (memória do projeto), então um limiar absoluto ou freia sempre ou
-#: nunca. O piso absoluto existe só para não frear por ruído quando a baseline
-#: der um número muito pequeno.
+#: Os limiares são MÚLTIPLOS da baseline medida no INÍCIO de cada corrida, não
+#: números absolutos: o mesmo cluster responde 10.116 ms frio e 83,9 ms quente
+#: para a MESMA busca (medido), então um limiar absoluto ou freia sempre ou não
+#: freia nunca. Piso e teto (abaixo) corrigem os dois extremos da baseline.
 FATOR_FREIO = 2.0        # 2x a baseline ⇒ dobra o sleep
 FATOR_PARADA = 4.0       # 4x a baseline ⇒ para e espera
 #: Pisos absolutos: sem eles, uma baseline baixinha (a busca de processos mede
@@ -122,6 +114,23 @@ PISO_PARADA_MS = 3_000.0
 TETO_FREIO_MS = 15_000.0
 TETO_PARADA_MS = 25_000.0
 
+#: Abortos, e por que eles mandam mais que a latência. O caminho
+#: `busca_api.ids_por_texto` (listagem de movimentações e o filtro `q` da API
+#: REST) tem `request_timeout=12 s` e levanta `BuscaIndisponivelError` acima
+#: disso: o usuário NÃO vê um resultado lento, vê "a busca demorou mais que o
+#: limite e foi interrompida". Latência acima de 12 s nesse caminho não é
+#: espera, é FALHA — e falha é a unidade certa do limiar.
+#:
+#: Os limiares são somados à taxa de aborto da BASELINE, não comparados com
+#: zero: se o cluster já aborta sozinho, exigir 0 faria o freio travar o
+#: backfill por uma condição que ele não causou.
+#: Com `N_SONDAS_FREIO = 3` a granularidade é de 33,3 pp, então os limiares são
+#: escolhidos para casar com ela: 1 aborto em 3 (33%) FREIA, 2 em 3 (67%) PARA.
+#: Uma busca em três falhando já é motivo para ceder vazão; duas em três é
+#: motivo para sair da frente.
+ABORTO_FREIO_PP = 20.0
+ABORTO_PARADA_PP = 40.0
+
 #: Sleep entre blocos: começa no valor pedido e sobe até este teto quando freia.
 SLEEP_MAX = 4.0
 #: Quanto espera quando a sonda pede PARADA, e quantas vezes tenta antes de
@@ -134,6 +143,10 @@ PAUSA_TENTATIVAS = 10
 #: graça, ela também disputa o mesmo disco. 30 blocos de 10.000 ids é uma
 #: avaliação a cada ~300 mil pks conferidos.
 SONDA_A_CADA = 30
+#: Quantas sondas por avaliação. Ímpar, para a mediana ser um valor medido; e a
+#: taxa de aborto sai em terços (0 / 33 / 67 / 100%), granularidade suficiente
+#: contra limiares de 15 e 30 pontos percentuais.
+N_SONDAS_FREIO = 3
 
 
 #: Termos da sonda. São ROTACIONADOS de propósito: a mesma busca repetida fica
@@ -168,13 +181,27 @@ TETO_ABSURDO_MS = 20_000.0
 def sondar(i: int = 0) -> dict:
     """Mede a latência da busca REAL — as mesmas funções que a tela chama.
 
-    Duas sondas, porque as duas doem de jeito diferente no mesmo nó:
+    TRÊS sondas, porque a tela tem três caminhos com tolerâncias DIFERENTES:
 
       · `processos` — o índice que o backfill está ESCREVENDO (30 GB). É aqui
         que a contenção de merge/refresh aparece primeiro.
+        (`dashboard/busca_views.py` → `busca_ui.buscar_processos_ui`)
       · `conteúdo`  — `voyager-movimentacoes-v2`, 1,74 TB. Não é escrito por
-        este backfill, mas divide disco, CPU e heap (medido em 71%) com ele.
-        É a busca frágil: 83,9 ms quente contra 10.116,5 ms fria, medido.
+        este backfill, mas divide disco, CPU e heap com ele. É a busca frágil:
+        83,9 ms quente contra 10.116,5 ms fria, medido. Tolera o `ES_TIMEOUT`
+        do cliente (30 s em produção).
+        (`dashboard/busca_views.py` → `busca_ui.buscar_conteudo_da_querystring`)
+      · **`texto`** — o MESMO índice pelo caminho que **ABORTA aos 12 s**
+        (`busca_api.ids_por_texto`, `IDS_TEXTO_TIMEOUT`), levantando
+        `BuscaIndisponivelError(demorou=True)`. Aqui latência alta não é
+        "usuário espera mais": é busca que **FALHA**, e a tela mostra "a busca
+        demorou mais que o limite e foi interrompida".
+        (`dashboard/views.py::1440` e `api/filters.py::105`)
+
+    A terceira existe porque medir só as duas primeiras descreve uma
+    experiência lenta onde a produção real já teria abortado — o p90 de 14,3 s
+    que a sonda de conteúdo mediu, neste caminho, é 100% de falha. **O número
+    que importa aqui é TAXA DE ABORTO, não percentil de latência.**
 
     `i` escolhe o termo da rotação — chamadas consecutivas medem buscas
     DIFERENTES, não a mesma esquentando.
@@ -193,7 +220,7 @@ def sondar(i: int = 0) -> dict:
 
     hoje = dt.date.today()
     nome, uf = TERMOS_PARTE[i % len(TERMOS_PARTE)]
-    saida: dict = {'i': i, 'erros': 0}
+    saida: dict = {'i': i, 'erros': 0, 'abortos': 0}
 
     t0 = time.monotonic()
     try:
@@ -214,6 +241,22 @@ def sondar(i: int = 0) -> dict:
         saida['erros'] += 1
         saida['erro_conteudo'] = str(e)[:120]
     saida['conteudo_ms'] = round((time.monotonic() - t0) * 1000.0, 1)
+
+    # O caminho que ABORTA: `ids_por_texto` passa `request_timeout=12 s` e
+    # levanta `BuscaIndisponivelError`. Contamos o ABORTO, não os milissegundos.
+    # `tribunais=[]` e janela de 31 d são o recorte que a própria docstring dele
+    # manda usar (sem recorte a mediana medida foi 8,07 s).
+    t0 = time.monotonic()
+    try:
+        ba.ids_por_texto(TERMOS_CONTEUDO[i % len(TERMOS_CONTEUDO)],
+                         de=hoje - dt.timedelta(days=31), ate=hoje)
+    except ba.BuscaIndisponivelError as e:
+        saida['abortos'] += 1
+        saida['texto_abortou'] = 'demorou' if getattr(e, 'demorou', False) else 'erro'
+    except Exception as e:      # noqa: BLE001 - ver docstring
+        saida['erros'] += 1
+        saida['erro_texto'] = str(e)[:120]
+    saida['texto_ms'] = round((time.monotonic() - t0) * 1000.0, 1)
     return saida
 
 
@@ -230,21 +273,31 @@ def baseline(n: int = 9, offset: int = 0) -> dict:
     é um número que nunca aconteceu — e vira um limiar que nunca freia.
     `n=9` cobre a rotação inteira uma vez.
     """
-    proc, cont, erros = [], [], 0
+    proc, cont, texto, erros, abortos = [], [], [], 0, 0
     for k in range(n):
         s = sondar(offset + k)
         proc.append(s['processos_ms'])
         cont.append(s['conteudo_ms'])
+        texto.append(s['texto_ms'])
         erros += s['erros']
+        abortos += s['abortos']
     if erros:
         # A baseline foi medida com a busca já falhando. Não invalida a
         # corrida, mas quem lê o relatório precisa saber que o "antes" já
         # estava ruim - senão o "durante" parece culpa do backfill.
         logger.warning('backfill processos: a baseline teve %d busca(s) com '
                        'ERRO/timeout em %d sondas.', erros, 2 * n)
+    if abortos:
+        # A linha de base JÁ aborta. Isso não invalida a corrida - muda o
+        # limiar: o freio compara a taxa de aborto DURANTE com esta, não com 0.
+        logger.warning('backfill processos: a baseline teve %d de %d buscas de '
+                       'texto ABORTADAS no teto de 12 s (%.1f%%).',
+                       abortos, n, 100.0 * abortos / n)
     return {'processos_ms': _mediana(proc), 'conteudo_ms': _mediana(cont),
-            'n': n, 'erros': erros, 'processos_amostras': sorted(proc),
-            'conteudo_amostras': sorted(cont),
+            'texto_ms': _mediana(texto), 'n': n, 'erros': erros,
+            'abortos': abortos, 'aborto_pct': round(100.0 * abortos / n, 1),
+            'processos_amostras': sorted(proc),
+            'conteudo_amostras': sorted(cont), 'texto_amostras': sorted(texto),
             'processos_max': max(proc), 'conteudo_max': max(cont)}
 
 
@@ -282,6 +335,10 @@ class Freio:
         self.sleep_inicial = sleep_inicial
         self.freio_proc, self.parada_proc = _limiares(base['processos_ms'])
         self.freio_cont, self.parada_cont = _limiares(base['conteudo_ms'])
+        self.aborto_base = base.get('aborto_pct') or 0.0
+        self.aborto_freio = self.aborto_base + ABORTO_FREIO_PP
+        self.aborto_parada = self.aborto_base + ABORTO_PARADA_PP
+        self.pior_aborto_pct = 0.0
         self.freadas = 0
         self.paradas = 0
         self.pior_ms = 0.0
@@ -296,25 +353,27 @@ class Freio:
         backfill parar por acaso — e um freio que dispara por acaso é desligado
         pelo primeiro operador que o vê, o que é pior do que não ter freio.
         """
-        proc, cont = [], []
-        for _ in range(3):
+        proc, cont, abortos = [], [], 0
+        for _ in range(N_SONDAS_FREIO):
             self.rodada += 1
             s = sondar(self.rodada)
             proc.append(s['processos_ms'])
             cont.append(s['conteudo_ms'])
+            abortos += s['abortos']
             if s['conteudo_ms'] > TETO_ABSURDO_MS or s['erros']:
                 logger.error(
                     'backfill processos: busca de conteúdo em %.0f ms%s — '
                     'termo %r. O timeout do próprio body é 15 s.',
                     s['conteudo_ms'], ' com ERRO' if s['erros'] else '',
                     TERMOS_CONTEUDO[self.rodada % len(TERMOS_CONTEUDO)])
-        return _mediana(proc), _mediana(cont)
+        return (_mediana(proc), _mediana(cont),
+                100.0 * abortos / N_SONDAS_FREIO)
 
     def avaliar(self) -> bool:
         """Mede, ajusta o sleep. Devolve False se a corrida deve ABORTAR."""
         for tentativa in range(PAUSA_TENTATIVAS + 1):
             try:
-                m_proc, m_cont = self._medir()
+                m_proc, m_cont, aborto_pct = self._medir()
             except Exception:      # noqa: BLE001 — "não sei" freia, não acelera
                 logger.warning('backfill processos: sonda de latência FALHOU — '
                                'freando por precaução', exc_info=True)
@@ -323,16 +382,20 @@ class Freio:
                 return True
             self.pior_ms = max(self.pior_ms, m_cont)
             self.pior_proc_ms = max(self.pior_proc_ms, m_proc)
-            if m_proc < self.parada_proc and m_cont < self.parada_cont:
+            self.pior_aborto_pct = max(self.pior_aborto_pct, aborto_pct)
+            if (m_proc < self.parada_proc and m_cont < self.parada_cont
+                    and aborto_pct < self.aborto_parada):
                 break
             self.paradas += 1
             logger.error(
                 'backfill processos: busca DEGRADADA — processos %.0f ms '
                 '(limiar %.0f, baseline %.0f) · conteúdo %.0f ms (limiar %.0f, '
-                'baseline %.0f). Pausando %d s (tentativa %d/%d): a busca do '
-                'site tem prioridade sobre o backfill.',
+                'baseline %.0f) · buscas de texto ABORTADAS aos 12 s %.0f%% '
+                '(limiar %.0f%%, baseline %.0f%%). Pausando %d s (tentativa '
+                '%d/%d): a busca do site tem prioridade sobre o backfill.',
                 m_proc, self.parada_proc, self.base['processos_ms'],
                 m_cont, self.parada_cont, self.base['conteudo_ms'],
+                aborto_pct, self.aborto_parada, self.aborto_base,
                 PAUSA_S, tentativa + 1, PAUSA_TENTATIVAS,
             )
             time.sleep(PAUSA_S)
@@ -345,17 +408,20 @@ class Freio:
             )
             return False
 
-        if m_proc > self.freio_proc or m_cont > self.freio_cont:
+        if (m_proc > self.freio_proc or m_cont > self.freio_cont
+                or aborto_pct > self.aborto_freio):
             novo = min(SLEEP_MAX, max(self.sleep, 0.05) * 2)
             if novo != self.sleep:
                 logger.warning(
                     'backfill processos: processos %.0f ms (limiar %.0f) · '
-                    'conteúdo %.0f ms (limiar %.0f) — sleep %.2f s → %.2f s',
+                    'conteúdo %.0f ms (limiar %.0f) · aborto %.0f%% (limiar '
+                    '%.0f%%) — sleep %.2f s → %.2f s',
                     m_proc, self.freio_proc, m_cont, self.freio_cont,
-                    self.sleep, novo)
+                    aborto_pct, self.aborto_freio, self.sleep, novo)
             self.sleep = novo
             self.freadas += 1
         elif (m_proc < self.freio_proc / 2 and m_cont < self.freio_cont / 2
+                and aborto_pct <= self.aborto_base
                 and self.sleep > self.sleep_inicial):
             self.sleep = max(self.sleep_inicial, self.sleep / 2)
         return True
@@ -510,6 +576,7 @@ def rodar(de: int = 0, ate: int | None = None, sleep: float = 0.1,
     tot['paradas'] = freio.paradas
     tot['pior_conteudo_ms'] = freio.pior_ms
     tot['pior_processos_ms'] = freio.pior_proc_ms
+    tot['pior_aborto_pct'] = freio.pior_aborto_pct
     cache.set(ULTIMO, tot, 7 * 24 * 3600)
     logger.info('backfill processos: %s', {k: v for k, v in tot.items()
                                            if k != 'baseline'})

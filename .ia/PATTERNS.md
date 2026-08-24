@@ -226,6 +226,56 @@ critério dos dois lados — ver `.ia/SEARCH_SCHEMA.md`.)
 
 ❌ Testes que dependem de ordem (use fixtures isoladas).
 
+## Freio por latência: meça também a FALHA, não só o relógio
+
+Todo trabalho pesado que divide recurso com o caminho da requisição (backfill de
+índice, reindex, varredura, migração de dados) precisa de um freio que mede a
+saúde do que ele pode atrapalhar e cede vazão sozinho. O erro de projeto que
+essa família de freios convida:
+
+> **Busca que aborta responde RÁPIDO.**
+
+Um freio que olha só latência lê 200 ms e conclui "está ótimo" **exatamente
+enquanto o usuário não recebe resultado nenhum** — porque o caminho real
+levantou o timeout dele e devolveu erro em 200 ms em vez de resultado em 14 s.
+Um freio de segurança cego para a falha que deveria detectar é pior do que não
+ter freio: ele dá licença para acelerar.
+
+Medido em 24/08/2026, o caso concreto: a busca de conteúdo tem DOIS caminhos com
+tolerâncias diferentes — `busca_api.buscar_movimentacoes` cai no `ES_TIMEOUT` do
+cliente (30 s) e devolve resultado lento; `busca_api.ids_por_texto` passa
+`request_timeout=IDS_TEXTO_TIMEOUT` (**12 s**) e levanta
+`BuscaIndisponivelError(demorou=True)`, e a tela mostra "a busca demorou mais
+que o limite e foi interrompida". Uma sonda que media só o primeiro descrevia
+como "p90 de 14,3 s" o que no segundo é **100% de falha**.
+
+✅ A sonda chama **as mesmas funções que a tela chama**, uma por caminho, com os
+mesmos `request_timeout`. Sonda com timeout mais folgado que a produção mede uma
+experiência que ninguém tem.
+
+✅ Onde o caminho ABORTA, o limiar é **taxa de aborto**, não percentil de
+latência. Onde ele só fica lento, é percentil.
+
+✅ Limiar **relativo à baseline medida no início da corrida**, com piso E teto.
+Só relativo não serve num cluster I/O-bound (a MESMA busca mediu 83,9 ms quente
+e 10.116,5 ms fria): 4x de uma baseline de 7,1 s daria 28 s, praticamente o
+timeout do cliente — freio calibrado ali só age depois que a busca morreu. Só
+absoluto também não serve: ou freia sempre ou não freia nunca.
+
+✅ Termos/parâmetros **rotacionados**. A mesma consulta repetida fica quente e a
+sonda passa a medir o page cache, não a latência.
+
+✅ Decisão pela **mediana de N sondas**, não por uma. Freio que dispara por acaso
+é desligado pelo primeiro operador que o vê — o que é pior do que não tê-lo.
+
+❌ Comparar uma janela ANTES com uma janela DURANTE quando a carga de terceiros
+varia no tempo: a diferença pode ser a deriva deles. **Alterne A/B/A/B** e
+compare os agregados (deriva lenta se cancela), ou caracterize a carga de cada
+janela (taxa de indexação, profundidade de fila) e reporte junto.
+
+Implementação de referência: `search/backfill_processos.py::sondar` / `Freio`,
+com os números medidos em [`SEARCH_SCHEMA.md`](SEARCH_SCHEMA.md).
+
 ## Cache versioning via INCR (não delete_pattern)
 
 ✅ Invalidar grupos de chaves de cache via versão monotônica em vez de `cache.delete_pattern`:

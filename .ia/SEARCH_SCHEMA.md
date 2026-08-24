@@ -821,6 +821,24 @@ Checkpoint em `cache['search:backfill_proc:wm']`, telemetria em
 `cache.set('search:backfill_proc:off', True)` — encerra na virada do bloco, com
 o checkpoint salvo.
 
+### O buraco é CONCENTRADO, e só o censo mostra isso
+
+A amostra por oitavo diz que a faixa 65.199.794–78.239.048 tem **45,99%** de
+ausentes. O censo dos primeiros 600.000 pks dessa mesma faixa (24/08/2026) achou
+**0 fora, em 60 blocos de 10.000**.
+
+Não é contradição: a amostra mede a EXISTÊNCIA e o TAMANHO do buraco, não a
+FORMA dele. Uma faixa com 46% de média pode ser 46% espalhado uniformemente ou
+0% num pedaço e 90% em outro — e é o segundo caso. Consequências práticas:
+
+- **Não dá para estimar o custo do backfill pela taxa média.** A vazão alterna
+  entre censo puro (3.100–8.600 ids/s medidos) e reparo (863 docs/s medidos);
+  a taxa instantânea muda uma ordem de grandeza conforme o pedaço.
+- **Um backfill "amostral" seria pior do que inútil**: reparar por amostragem
+  numa distribuição concentrada deixa buracos inteiros de pé e produz um
+  relatório verde. O censo tem de percorrer TODO pk (`gate.ausentes_no_bloco`
+  custa ~40 ms por 10.000 ids justamente para isso ser viável).
+
 ### O freio: a busca do site tem prioridade sobre o backfill
 
 O ES é de **um nó só**, 1,74 TB, heap em 71%, I/O-bound. Indexar em massa
@@ -845,13 +863,29 @@ décimos. Disso saem três decisões:
    28.435 ms, praticamente o `ES_TIMEOUT` do cliente — um freio calibrado ali
    só age depois que a busca já morreu.
 
-| sonda | baseline medida | freio (dobra o sleep) | parada (pausa 60 s) |
-|---|---:|---:|---:|
-| processos (índice ESCRITO, 30 GB) | 340–498 ms | 1.000 ms (piso) | 3.000 ms (piso) |
-| conteúdo (1,74 TB, termo frio) | 6.515–7.109 ms | 13.029–14.217 ms | 25.000 ms (teto) |
+| sonda | caminho real | tolerância | freio | parada |
+|---|---|---:|---:|---:|
+| processos (índice ESCRITO, 30 GB) | `busca_ui.buscar_processos_ui` | `ES_TIMEOUT` 30 s | 1.000 ms (piso) | 3.000 ms (piso) |
+| conteúdo (1,74 TB, termo frio) | `busca_ui.buscar_conteudo_da_querystring` | `ES_TIMEOUT` 30 s | 13.029–14.217 ms | 25.000 ms (teto) |
+| **texto** | `busca_api.ids_por_texto` (listagem de movs + filtro `q` da API) | **`IDS_TEXTO_TIMEOUT` 12 s** | **baseline +20 pp de ABORTO** | **baseline +40 pp** |
 
-Vigia as duas: só o conteúdo seria vigiar o ruído; só os processos seria
-ignorar o índice grande, que divide o disco. Depois de 10 pausas de 60 s sem
+#### A terceira sonda existe porque latência alta ali não é espera, é FALHA
+
+`ids_por_texto` passa `request_timeout=12 s` e levanta
+`BuscaIndisponivelError(demorou=True)`: acima disso o usuário **não** vê um
+resultado lento, vê "a busca demorou mais que o limite e foi interrompida".
+Medir só as duas primeiras sondas descreve como "p90 de 14,3 s" o que naquele
+caminho é **100% de falha**.
+
+E vigiar só latência tem um buraco lógico: **busca que aborta responde
+RÁPIDO.** Um freio que olhasse só o relógio leria 200 ms e concluiria "está
+ótimo" exatamente enquanto a busca do usuário falha. Por isso o limiar dessa
+sonda é **taxa de aborto**, e é relativo à baseline da própria corrida — se o
+cluster já aborta sozinho, exigir 0 travaria o backfill por uma condição que
+ele não causou. Com 3 sondas por avaliação a granularidade é 33 pp, e os
+limiares casam com ela: **1 aborto em 3 freia, 2 em 3 para**.
+
+Vigia as três, e freia por qualquer uma. Depois de 10 pausas de 60 s sem
 melhora a corrida **ABORTA** — com ERRO registrado e checkpoint salvo, que é
 dívida visível, não fim silencioso.
 
@@ -859,6 +893,52 @@ dívida visível, não fim silencioso.
 medição.** Para quem está na tela, timeout não é "medição indisponível" — é a
 pior latência possível. (Na primeira execução em produção o timeout do cliente
 derrubou o comando inteiro antes do primeiro bloco.)
+
+### As 652 falhas da fila `es_index` — medir antes de reprocessar
+
+Quem abrir o `FailedJobRegistry` da `es_index` vai ver centenas de jobs mortos e
+querer reprocessar. **Meça primeiro.** Medido em 24/08/2026, amostra ALEATÓRIA
+de n=300 com seed declarada (`get_job_ids()` ordena por EXPIRAÇÃO, não por
+tempo — isso já disparou alarme falso neste projeto):
+
+| n | job | erro | quando (UTC) |
+|---:|---|---|---|
+| 259 | `indexar_processos_bulk` | `ValueError: Invalid attribute name` | 15/08 22h |
+| 41 | `indexar_movimentacoes_bulk` | `elastic_transport.ConnectionTimeout` | 24/08 19h |
+
+Os 41 jobs de timeout referenciam **19.758 pks**. Amostrados 3.000 e
+perguntados ao ES por `_mget`: **8 fora do índice — 0,27%.**
+
+**Timeout de indexação não é erro de indexação.** O `_bulk` chegou, o ES gravou
+e a resposta demorou mais que o teto do cliente. Reprocessar os 652 empurraria
+~43 mil documentos de movimentação num nó já com fila de escrita, para
+recuperar 0,27% — o remédio que piora exatamente a doença que o causou.
+
+Régua para refazer a conta antes de qualquer decisão:
+
+```python
+from rq.registry import FailedJobRegistry
+from rq.job import Job
+import django_rq, random
+from search import gate
+from search.client import index_name
+
+q = django_rq.get_queue('es_index')
+rng = random.Random(20260824)                       # semente DECLARADA
+amostra = rng.sample(FailedJobRegistry(queue=q).get_job_ids(), 300)
+pks = [p for jid in amostra
+       for p in (Job.fetch(jid, connection=q.connection).args[0] or [])]
+gate.ausentes_no_bloco(rng.sample(pks, 3000), index_name('movimentacoes'))
+```
+
+### ⚠️ Fuso ao ler estas medições
+
+Os horários deste documento são **UTC**. O `asctime` do log do Django neste
+projeto é **-03** (America/Sao_Paulo) enquanto o relógio do host, o `mtime` dos
+arquivos, o `timezone.now()` e o `ended_at` do RQ são UTC — 3 h de divergência
+dentro do mesmo processo. A medição e a causa estão em
+[`PATTERNS.md` § Logs](PATTERNS.md). Já custou uma linha do tempo errada num
+relatório desta mesma tarefa.
 
 ### A sentinela — para o buraco não reabrir calado
 
