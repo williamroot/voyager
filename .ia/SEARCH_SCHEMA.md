@@ -670,6 +670,56 @@ ERRO registrado e dívida visível — o que exigiria 12 milhões de linhas/hora
 a collation `en_US.UTF-8` ignora pontuação e `external_id < 'datajud;'` compara
 como se fosse `datajud`, devolvendo 0 linhas. Já custou um alarme falso.
 
+### Validado em produção (24/08/2026)
+
+O que a régua mediu ANTES do deploy, no mesmo recorte e com o mesmo critério
+com que mede DEPOIS (`manage.py datajud_conferir_indice --sem-reparo`, faixa
+10:00-11:30 -03): 46.362 movimentações conferidas, 0 fora do índice (o poller
+já tinha alcançado aquelas janelas) e **7.543 de 7.543 processos (100,00%) com
+o doc anterior à escrita**.
+
+Depois de ligar a entrega na gravação, medido às 13:09 -03 por idade da
+escrita:
+
+| idade da escrita | movs conferidas | fora do índice | processos | doc atrasado |
+|---|---:|---:|---:|---:|
+| 0-3 min | 3.063 | **0** | 303 | **0** |
+| 3-6 min | 2.383 | **0** | 298 | **0** |
+| 6-10 min | 3.038 | **0** | 410 | **0** |
+| 10-15 min | 3.415 | **0** | 503 | **0** |
+| 15-30 min | 9.298 | **0** | 1.484 | **0** |
+| 30-60 min | 16.843 | **0** | 2.609 | **0** |
+| 1-2 h | 29.938 | 0 | 5.042 | 4.412 (87,5%) |
+| 2-4 h | 200.000 (teto) | - | 10.630 | 8.499 (80,0%) |
+
+As duas últimas linhas são escrita ANTERIOR ao deploy: o cron ainda estava
+alcançando aquela faixa (watermark em 11:07 UTC, avançando 60 min por passada).
+
+O gate rodou sozinho, duas passadas seguidas, sem ninguém pedir:
+
+    12:27 -03  reancorou=True  atraso 6,0 h  4 recortes
+               416.186 movs (0 fora) · 5.628 processos · 5.628 re-enfileirados
+    12:59 -03  reancorou=False atraso 5,53 h 4 recortes
+               376.220 movs (0 fora) · 4.714 processos · 4.714 re-enfileirados
+
+E o reparo dele foi conferido depois: a faixa 09:07-10:07 UTC, que ele
+consertou às 12:27, voltou a ser medida e deu **0 de 5.628 atrasados**.
+
+Backfill histórico executado (3 dias de escrita, só o lado dos processos,
+passo de 60 min, 79 recortes em menos de 3 minutos):
+
+    418.273 processos conferidos · 356.739 com doc anterior à escrita (85,3%)
+    356.739 re-enfileirados · fila `es_index` drenada a zero
+
+Conferido em seguida no mesmo recorte: **418.267 conferidos, 0 atrasados**.
+
+O `TETO` também foi visto funcionando em produção, num recorte de hora de pico:
+
+    09:00 +15,0 min  167.977 movs   1,78 s
+    09:15 +15,0 min  200.000 (TETO) 0,40 s   -> dividiu
+    09:15 + 7,5 min   86.749 movs   0,84 s
+    09:22 + 7,5 min  119.731 movs   1,07 s
+
 ### Peças e operação
 
 | peça | papel |

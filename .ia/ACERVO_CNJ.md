@@ -185,6 +185,18 @@ A cura é a mesma da terceira porta, adaptada ao que esta porta é:
 4. **backfill** por faixa explícita: `manage.py datajud_conferir_indice
    --desde … --ate …`, que não toca o watermark do cron.
 
+Validado em produção no mesmo dia: escrita de 0-60 min de idade passou de
+**100% fora do índice** (movimentações) e **100% com doc anterior à escrita**
+(processos) para **0 em 39.040 movimentações e 0 em 5.607 processos**. O cron
+rodou sozinho duas passadas seguidas (416.186 e 376.220 movimentações
+conferidas, 10.342 processos reparados) e o backfill de 3 dias fechou
+**418.273 processos conferidos, 356.739 reparados, 0 restantes**.
+
+Dívida que permanece, com o número: **22.475.738** processos já têm
+`data_enriquecimento_datajud`, e só os 3 dias mais recentes foram backfilados.
+O resto é reindex de fase 2/3 do plano de `SEARCH_SCHEMA.md`, não trabalho de
+gate — e a partir de agora ele não CRESCE mais, que era o problema.
+
 Detalhes, tabelas completas e os EXPLAIN em [`SEARCH_SCHEMA.md`](SEARCH_SCHEMA.md).
 
 ## Runbook
