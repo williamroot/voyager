@@ -452,6 +452,30 @@ Quem abre este runbook no meio de um incidente lê o bloco, não o parágrafo:
 está falhando em série na `djen_backfill` (ver o OOM do TJDFT em
 [`INGESTION.md`](INGESTION.md)).
 
+### O teto de 64 é MÁXIMO, não meta — e conferência divide a mesma banda
+
+Medido em 24/08/2026, 17:05: com a frota em **42 streams** (14 réplicas x
+`DJEN_PAGINAS_PARALELAS`=3) mais até 7 paginações do gate de completude e 3
+provas manuais (`djen_provar_dias`), a DJEN começou a devolver `500 servidor via
+cortex`, o contador de 5xx chegou a **40** e o **circuito abriu**.
+
+O que aconteceu em seguida é o conserto de 19/08 funcionando, e vale registrar
+como comportamento ESPERADO:
+
+```
+fila: 0 jobs · agendados (adiado por circuito): 358 · em execução: 0
+```
+
+**Nenhum dia foi perdido** — todos viraram `adiado:<sigla>:<dia>` com 330-450 s
+de espera, e o `djen:circuit_open` tinha TTL de 145 s quando foi conferido. O
+gate, no mesmo período, devolveu `{'skip': 'djen_circuito_aberto'}` em todas as
+conferências, **sem marcar o dia como conferido** — elas voltam sozinhas.
+
+Lição operacional: os 64 do teto são o ponto onde o estrago já é certo, não o
+alvo. Conferência (gate, provas) usa a MESMA banda da coleta, e coleta tem
+prioridade — por isso `GATE_PAGINADOS_EM_VOO`=2 e por isso a prova manual é
+serial. Se precisar rodar prova em massa, pare/reduza a frota antes.
+
 ### A fila conta ids, não trabalho — faxina de casca
 
 Sintoma: um tribunal não anda, a fila mostra jobs dele e o `FailedJobRegistry`
