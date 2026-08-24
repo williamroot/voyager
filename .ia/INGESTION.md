@@ -611,6 +611,26 @@ Num dia 100% duplicado, o custo cai a zero: nem a agregação sobre
 **Medido em produção, 24/08/2026 18:58 UTC (deploy nas 14 réplicas de
 `worker_ingestion` + nos 5 drainers de enriquecimento):**
 
+*Nível 1, o número que importa.* Nos 7 dias anteriores, **433 dias-tribunal
+distintos** foram queimados por deadlock; nas 24 h anteriores, **98 runs
+`failed`** por deadlock (18,2% de todas as falhas). Nos primeiros **46 minutos**
+depois do deploy:
+
+| | antes (24 h) | depois (46 min) |
+|---|---:|---:|
+| runs | 925 | 49 |
+| runs `failed` por deadlock | **98** | **0** |
+| runs `failed` (qualquer motivo) | 505 | **0** |
+| deadlocks vencidos pelo retry | — | 0 (nem precisou) |
+| publicações processadas | 18.809.848 | 830.653 |
+
+E, o mais concreto: **24 dias-tribunal que morriam por deadlock fecharam
+`success` na primeira passada** (TRF4 13 · TRF6 11), entre 139 s e 582 s cada.
+O censo do `FailedJobRegistry` confirma: **0 falhas REAIS** pós-deploy — as 17
+entradas com `started_at` novo são o id determinístico reaproveitado
+(`f2:`/`bfd:`) carregando `exc_info` velho, 12 delas de jobs que já estão
+`finished`. Ver a armadilha nº 2 acima.
+
 *Nível 2, prova direta.* Cinco runs `success` com `novas=0` (dia 100%
 duplicado, o caso mais comum na recuperação), amostra de 300 processos de cada:
 
@@ -739,8 +759,16 @@ tem workers próprios e ociosos, e não disputa com a ingestão.
 | caminho | quando | teto por tique | custo |
 |---|---|---|---|
 | barato (`count_window`) | `novas+dup` < 10.000 | 20 dias | 1 requisição/dia (0,66 s) |
-| caro (paginação) | `novas+dup` >= 10.000 | 1 dia | o dia inteiro |
+| caro (paginação) | `novas+dup` >= 10.000 | 1 dia/tique **e** `GATE_PAGINADOS_EM_VOO`=2 simultâneas | o dia inteiro |
 | abstenção | `count` >= 10.000 e sem paginação | — | nada é afirmado (regra nº 6) |
+
+⚠️ **Racionar por tique não racionava nada**, e isso foi medido no mesmo dia: a
+paginação de um dia leva dezenas de minutos e o tique é de 5 min, então
+"1 por tique" vira 6 simultâneas — o número de workers da `djen_audit`. Com a
+frota em 42 streams (14 x 3), mais o gate, mais as provas manuais, a DJEN
+começou a responder `500 servidor via cortex`. O teto de 64 do CNJ é sobre o
+TOTAL: conferência não pode competir com coleta pela mesma banda. Por isso o
+teto que manda é o de paginações **EM VOO** (2), não o por tique.
 
 **O custo, medido antes de ligar.** A frota fecha 50-80 dias/h (medido em
 24/08: 83 runs de 1 dia na hora das 14 h). 20 conferências baratas por tique são

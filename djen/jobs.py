@@ -1109,9 +1109,17 @@ GATE_TTL_S = 8 * 24 * 3600
 GATE_POR_TIQUE = 20
 
 #: dias GRANDES (count no teto) conferidos por paginação por tique. É o caminho
-#: caro: 1 dia do TJDFT = 59 requisições e 822,6 MB. 1 por tique = 12/h, teto de
-#: 12 dias grandes auditados por hora.
+#: caro: 1 dia do TJDFT = 59 requisições e 822,6 MB.
 GATE_PAGINADOS_POR_TIQUE = 1
+
+#: ...e o que MANDA é este: quantas paginações do gate podem estar EM VOO ao
+#: mesmo tempo. Racionar por tique não racionava nada — cada paginação leva
+#: dezenas de minutos e o tique é de 5 min, então 1/tique vira 6 simultâneas (o
+#: número de workers da `djen_audit`). MEDIDO em 24/08/2026: com a frota em 42
+#: streams (14 x 3), mais o gate, mais as provas manuais, a DJEN passou a
+#: responder `500 servidor via cortex` — o teto de 64 do CNJ é sobre o TOTAL, e
+#: conferência não pode competir com coleta pela mesma banda.
+GATE_PAGINADOS_EM_VOO = 2
 
 #: teto interno do `count` da DJEN.
 GATE_CAP = 10_000
@@ -1257,6 +1265,8 @@ def conferir_dias_fechados(resumo: dict | None = None) -> int:
         ocupados |= set(StartedJobRegistry(queue=fila).get_job_ids())
     except Exception as exc:
         logger.warning('gate: não li os jobs em curso da djen_audit: %s', exc)
+    # quantas paginações do gate já estão em voo (fila + em execução)
+    em_voo = sum(1 for j in ocupados if j.startswith('gate:'))
     baratos = caros = 0
     for r in fechados:
         sigla, dia = r['tribunal__sigla'], r['janela_inicio'].isoformat()
@@ -1266,7 +1276,8 @@ def conferir_dias_fechados(resumo: dict | None = None) -> int:
             continue                       # já está a caminho
         grande = (r['movimentacoes_novas'] + r['movimentacoes_duplicadas']) >= GATE_CAP
         if grande:
-            if caros >= GATE_PAGINADOS_POR_TIQUE:
+            if (caros >= GATE_PAGINADOS_POR_TIQUE
+                    or em_voo + caros >= GATE_PAGINADOS_EM_VOO):
                 continue          # não é corte mudo: volta no próximo tique
             caros += 1
         elif baratos >= GATE_POR_TIQUE:
@@ -1277,7 +1288,8 @@ def conferir_dias_fechados(resumo: dict | None = None) -> int:
                      job_id=f'gate:{sigla}:{dia}', job_timeout=10800)
 
     if resumo is not None:
-        resumo.update({'candidatos': len(fechados), 'baratos': baratos, 'caros': caros})
+        resumo.update({'candidatos': len(fechados), 'baratos': baratos,
+                       'caros': caros, 'paginacoes_em_voo': em_voo})
     return baratos + caros
 
 

@@ -178,9 +178,19 @@ def test_tique_raciona_o_caro_e_nao_repete_o_ja_conferido(trib):
         n = J.conferir_dias_fechados(resumo=resumo)
 
     assert n == 2 and resumo['baratos'] == 1 and resumo['caros'] == 1
+    assert resumo['paginacoes_em_voo'] == 0
     chamadas = {c.args[1]: c.args[3] for c in fila.enqueue.call_args_list}
     assert chamadas['TJDFT'] in (True, False)      # sigla é args[1]
     assert fila.enqueue.call_count == 2
+
+    # com o teto de paginações EM VOO batido, o dia grande espera — e o barato
+    # continua passando (a banda que ele usa é 1 requisição de 1 item).
+    fila.reset_mock()
+    fila.job_ids = ['gate:TRF3:2020-01-01', 'gate:TRF3:2020-01-02']
+    with patch('django_rq.get_queue', return_value=fila):
+        resumo2 = {}
+        assert J.conferir_dias_fechados(resumo=resumo2) == 1
+    assert resumo2['caros'] == 0 and resumo2['paginacoes_em_voo'] == 2
 
     # dia já EM CURSO na fila não volta: a marca no Redis só nasce no fim, e a
     # paginada de um dia grande passa dos 5 min do tique — sem isto, o mesmo
