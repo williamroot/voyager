@@ -598,13 +598,21 @@ N_AMOSTRA = 4_000
 ALERTA_FORA_PCT = 1.0
 
 
-def amostrar(faixas: int = 8, n: int = N_AMOSTRA, seed: int = SEED_PADRAO) -> dict:
+def amostrar(faixas: int = 8, n: int = N_AMOSTRA, seed: int = SEED_PADRAO,
+             teto: int | None = None) -> dict:
     """Quantos processos REAIS de cada faixa de pk estão fora do índice.
 
     Mede os dois lados com o MESMO critério (regra nº 5): os ids vêm do
     Postgres e são perguntados ao Elasticsearch um a um por `_mget`, que é
     realtime GET por `_id` — resposta exata por documento, não `_count`, não
     estimativa, sem janela de fuso para errar.
+
+    `teto` FIXA o topo do espaço de pk. Sem ele as faixas são recalculadas a
+    partir do `max(id)` do momento — e como a ingestão nunca para, a mesma
+    semente sorteia pks diferentes a cada chamada e a amostra "depois" não
+    compara com a "antes". O `max(id)` da medição de 24/08/2026 é
+    **104.317.558**: é esse o valor a passar quando o objetivo for repetir
+    aquela medição.
 
     Devolve `fora=None` na faixa em que o ES não respondeu. Nunca 0.
     """
@@ -618,6 +626,9 @@ def amostrar(faixas: int = 8, n: int = N_AMOSTRA, seed: int = SEED_PADRAO) -> di
         minpk, maxpk = cur.fetchone()
     if not maxpk:
         return {'faixas': [], 'erro': 'tabela vazia'}
+    topo_real = maxpk
+    if teto:
+        maxpk = min(maxpk, teto)
 
     rng = random.Random(seed)
     larg = (maxpk - minpk + 1) / faixas
@@ -653,7 +664,8 @@ def amostrar(faixas: int = 8, n: int = N_AMOSTRA, seed: int = SEED_PADRAO) -> di
             tot_f += len(fora)
     pct = round(100.0 * tot_f / tot_e, 2) if tot_e else None
     return {'faixas': saida, 'seed': seed, 'existem': tot_e, 'fora': tot_f,
-            'pct': pct, 'abstidos': abstidos, 'min_pk': minpk, 'max_pk': maxpk}
+            'pct': pct, 'abstidos': abstidos, 'min_pk': minpk, 'max_pk': maxpk,
+            'topo_real': topo_real, 'teto_fixado': bool(teto)}
 
 
 def conferir_indice_processos() -> dict:
@@ -667,6 +679,12 @@ def conferir_indice_processos() -> dict:
     Amostra pequena de propósito (1.000 candidatos x 8 faixas ≈ 7.800
     processos, ~3 s): a régua grande é `manage.py es_backfill_processos
     --so-amostra`. Esta só precisa acender a luz.
+
+    **Não fixa `teto` de propósito** — ao contrário da régua de antes/depois,
+    que precisa comparar o MESMO espaço de pk. A sentinela tem que enxergar
+    justamente o acervo que acabou de entrar, que é onde o buraco de
+    24/08/2026 estava (0,00% nos cinco primeiros oitavos de pk, 45,99% /
+    9,44% / 61,44% nos três últimos).
     """
     r = amostrar(faixas=8, n=1_000)
     cache.set('search:backfill_proc:amostra', r, 7 * 24 * 3600)

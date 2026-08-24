@@ -46,6 +46,11 @@ class Command(BaseCommand):
         parser.add_argument('--faixas', type=int, default=8)
         parser.add_argument('--n-amostra', type=int, default=bp.N_AMOSTRA)
         parser.add_argument('--seed', type=int, default=bp.SEED_PADRAO)
+        parser.add_argument('--teto-pk', type=int, default=0,
+                            help='fixa o topo do espaço de pk na amostra. Sem '
+                                 'ele as faixas se movem com a ingestão e a '
+                                 'amostra "depois" não compara com a "antes". '
+                                 'A medição de 24/08/2026 usou 104317558.')
         parser.add_argument('--zerar-checkpoint', action='store_true')
         parser.add_argument('--json', action='store_true')
 
@@ -56,11 +61,16 @@ class Command(BaseCommand):
             return
 
         if o['so_amostra']:
-            r = bp.amostrar(faixas=o['faixas'], n=o['n_amostra'], seed=o['seed'])
+            r = bp.amostrar(faixas=o['faixas'], n=o['n_amostra'], seed=o['seed'],
+                            teto=o['teto_pk'] or None)
             if o['json']:
                 self.stdout.write(json.dumps(r, default=str))
                 return
-            self.stdout.write(f'amostra seed={r["seed"]}  pk {r["min_pk"]:,}-{r["max_pk"]:,}')
+            self.stdout.write(
+                f'amostra seed={r["seed"]}  pk {r["min_pk"]:,}-{r["max_pk"]:,}'
+                + (f'  (teto FIXADO; topo real {r["topo_real"]:,})'
+                   if r.get('teto_fixado') else
+                   '  (teto MÓVEL - as faixas mudam com a ingestão)'))
             self.stdout.write(f'{"faixa":>5} {"pk lo":>13} {"pk hi":>13} '
                               f'{"existem":>8} {"fora":>7} {"%":>7}')
             for f in r['faixas']:

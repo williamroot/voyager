@@ -226,6 +226,70 @@ critério dos dois lados — ver `.ia/SEARCH_SCHEMA.md`.)
 
 ❌ Testes que dependem de ordem (use fixtures isoladas).
 
+### ⚠️ Verificação com INPUT VAZIO reporta SUCESSO
+
+> **"Não havia nada para checar" e "não havia nada errado" saem com a mesma
+> cara.**
+
+Medido em 24/08/2026. O `run_tests.sh` roda `docker run --rm` **sem `-i`**, e
+sem `-i` o stdin do container fica fechado: qualquer redirecionamento local
+entrega **0 byte** lá dentro. Ruff, com stdin vazio, diz "All checks passed".
+
+```bash
+# quantos bytes o container REALMENTE recebe
+$ wc -c /tmp/sched_head.py
+23526 /tmp/sched_head.py
+$ $SCRIPT sh -c 'wc -c' < /tmp/sched_head.py
+0                                          # <- sem -i
+$ docker run --rm -i ... voyager-test:local sh -c 'wc -c' < /tmp/sched_head.py
+23526                                      # <- com -i
+
+# e a consequência, o mesmo comando três vezes
+A) $SCRIPT python -m ruff check --config ruff.toml --stdin-filename djen/scheduler.py - < /tmp/sched_head.py
+   -> All checks passed!        # runner SEM -i: stdin vazio, nada foi checado
+B) docker run --rm -i ... python -m ruff check --config ruff.toml --stdin-filename djen/scheduler.py - < /tmp/sched_head.py
+   -> Found 4 errors.           # mesma entrada, com -i
+C) docker run --rm -i ... python -m ruff check --config ruff.toml --stdin-filename djen/scheduler.py - < /dev/null
+   -> All checks passed!        # stdin vazio de propósito
+```
+
+É a **regra nº 4 do CLAUDE.md aplicada à ferramenta em vez de ao dado**: assim
+como `exists` do ES conta string vazia como valor presente, um verificador com
+entrada vazia conta "sem violação" como "aprovado". E é a **regra nº 6**: uma
+ferramenta de verificação deveria SE ABSTER quando não recebeu entrada, nunca
+aprovar.
+
+✅ **Confira paridade de lint por CAMINHO de arquivo.** Para checar uma versão
+antiga, materialize-a num caminho (`git show <sha>:arq.py > /tmp/x/arq.py`) e
+rode o linter nele.
+
+✅ Se precisar de stdin, `docker run -i` **e valide que a entrada chegou**
+(`wc -c` dentro do container).
+
+### ⚠️ `ssh $X sh -c "script"` não passa o script — o shell REMOTO o re-divide
+
+Mesma doença, no scripting de operação. Com `X="ssh host docker exec cont"`, o
+`ssh` **junta os argumentos com espaço** e o shell do outro lado re-interpreta a
+linha inteira. Medido em 24/08/2026, três funções de um orquestrador quebradas
+em silêncio:
+
+| escrito | o que o remoto executou |
+|---|---|
+| `$X python manage.py shell -c "…cache.set(…)"` | `-c from`, depois `django.core.cache` como comando — o kill switch **nunca era acionado** |
+| `$XD sh -c "python manage.py cmd … > /tmp/out"` | `sh -c python` com o resto como posicionais: **`python` sem argumento**, e o `>` redirecionando no HOST, não no container |
+| contador de processos com `case "$c" in *es_backfill*)` | o próprio contador tem `es_backfill` no `cmdline` e **se conta** — nunca devolve 0 |
+
+**Nenhuma falhou com erro.** Todas devolveram vazio ou zero e o script seguiu —
+teto que vira corte mudo (regra nº 2), agora na ferramenta de medição.
+
+✅ Rode o orquestrador **no host onde `docker exec` é local**; some uma camada
+inteira de quoting.
+✅ Se o script tem de ficar do lado de cá, coloque-o **dentro do container/host**
+(`scp` + `docker cp`) e chame por caminho, sem argumentos com espaço.
+✅ Padrão de busca de processo com classe de caractere (`es_backfil[l]`) para o
+contador não se contar.
+❌ Nunca conclua "está parado" de um contador que devolveu vazio.
+
 ## Freio por latência: meça também a FALHA, não só o relógio
 
 Todo trabalho pesado que divide recurso com o caminho da requisição (backfill de
