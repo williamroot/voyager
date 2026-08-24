@@ -396,6 +396,29 @@ no banco): TJDFT 2026-08-14 — o dia que morria com `pgs=0`, ou seja antes de
 gravar UMA página — passou do ponto de morte e seguiu com pico de **311 MB**,
 30% do teto. Os `worker_ingestion` no mesmo período: 200-290 MB.
 
+**A prova, 3 h depois de subir.** Sete dias do TJDFT que morriam antes de
+gravar UMA página fecharam `success`:
+
+| dia | pgs | novas | lidas | duração |
+|---|---:|---:|---:|---:|
+| 2025-08-19 | 209 | 8.158 | 11.845 | 46 min |
+| 2025-08-15 | 161 | 9.272 | 12.247 | 39 min |
+| 2026-08-14 | 171 | 5.767 | 13.408 | 32 min |
+| 2026-08-21 | 200 | 0 | 14.651 | 41 min |
+| 2025-08-13 | 202 | 8.275 | 12.479 | 44 min |
+| 2026-07-09 | 215 | 6.940 | 11.718 | 43 min |
+| 2026-08-06 | 155 | 8.085 | 13.282 | 31 min |
+| **total** | | **46.497** | **89.630** | |
+
+Esses mesmos sete dias acumulavam **993 runs `failed` com `pgs=0`** — a
+assinatura exata do OOM, o work-horse sumindo antes da primeira gravação.
+
+E a medição dos dois lados bate ao ITEM (regra nº 5): o 2026-08-21 fechou com
+**14.651 duplicadas e zero novas**, que é exatamente o total que a sonda tinha
+medido paginando a API na força bruta (14.651 publicações, 822,6 MB de texto).
+Contagem própria e fonte no mesmo número, e nenhuma publicação a mais pra
+coletar naquele dia.
+
 **`DJEN_BYTES_EM_VOO` é o botão de VAZÃO, não o de pico.** Quem manda no pico é
 a sonda (lê 250 publicações de uma vez) e o teto de crescimento; o orçamento
 manda no tamanho da página de regime. Medido no mesmo dia: a 24 MB o pico foi
