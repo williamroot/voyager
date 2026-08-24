@@ -801,8 +801,19 @@ frente da fila e fechou `success` 21 min depois:
 
 **59.319 = 59.319.** A sonda mediu o buraco, a fila devolveu o dia, e o dia
 fechou com exatamente o número da fonte — 40.324 publicações recuperadas num
-único dia-tribunal. O 2025-10-28 seguia o mesmo caminho (36.000 lidas contra
-19.634 do run fatiado) quando a sessão terminou.
+único dia-tribunal.
+
+E o acervo é o produto (princípio nº 1), então o número que fecha a conta é o de
+publicações que NÃO existiam antes. Os dois primeiros dias do TJRS a fechar:
+
+| dia | páginas | lidas | **novas** |
+|---|---:|---:|---:|
+| 2026-03-06 | 61 | 59.319 | **23.914** |
+| 2025-09-02 | 60 | 38.084 | **23.227** |
+| | | 97.403 | **47.141** |
+
+**47.141 publicações novas em dois dias-tribunal** que a tela contava como
+`success` desde julho. Faltam 119 dias do TJRS na mesma fila.
 
 ⚠️ **Um efeito colateral apareceu aí e ficou pendente**: o mesmo dia rodou DUAS
 vezes em paralelo (o `adiado:` voltou do circuito enquanto o `f2:` ainda
