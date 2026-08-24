@@ -449,6 +449,39 @@ coletado é perda de acervo), mas ninguém descobre pelo SIGKILL.
 continua fixa em 1000 itens com 27 fatias em voo; ela só ganhou o alerta de RSS
 e o de orçamento. Ligá-la num tribunal pesado traz o OOM de volta.
 
+### O transporte não entrega a página — e isso matava o dia (24/08/2026)
+
+Com o OOM e o deadlock fora do caminho, os dias do TJDFT que ainda deviam
+morriam todos com a MESMA assinatura no `IngestionRun`:
+
+```
+24/08 15:13 failed  16 min  pgs=1  n=0 d=100
+            "erro de transporte após 8 tentativas: HTTPSConnectionPool(...)"
+23/08 21:34 failed  62 min  pgs=3  n=0 d=3000   ← watchdog: "worker crashou"
+23/08 11:26 failed  61 min  pgs=3  n=0 d=3000
+21/08 22:54 failed  62 min  pgs=3  n=0 d=3000
+… 8 tentativas seguidas, dia nenhum coletado
+```
+
+**Três páginas em uma hora não é worker crashado: é o corpo não chegando.** A
+publicação do TJDFT pesa 56 KB em média e chegou a 766,9 KB numa leva; uma
+página de 250 itens são dezenas de MB que o proxy residencial não entrega
+dentro do `read timeout` de 60 s. As 8 tentativas queimam ~10 min **no mesmo
+offset** — e aí o dia inteiro morre.
+
+O teto de bytes (`DJEN_BYTES_MAX_RESPOSTA`) não pega este caso: ele depende do
+`Content-Length`, e quem cai no meio do download não declara nada. O `iter_pages`
+tratava 5xx e teto, e deixava o erro de transporte SUBIR.
+
+O conserto é o mesmo remédio pela outra porta: `DjenTransporteError` (classe
+própria) → **encolhe a página pela metade e relê o MESMO offset**, com piso em
+`PISO_ITENS` (25) e não no `MIN_PAGE_SIZE` (100) do caminho de 5xx — 100 itens
+de 766,9 KB são 76 MB, que nenhum proxy residencial entrega em 60 s, e parar em
+100 seria desistir do dia num piso que não é piso de nada. O encolhimento é
+herdado pelo resto do dia (`teto_herdado`) e vira alerta registrado no run
+(`transporte_nao_entregou_a_pagina`, regra nº 2). Só quando nem o piso passa a
+exceção sobe — dia não coletado tem que doer.
+
 ### O deadlock em `tribunals_process` — RESOLVIDO em 24/08/2026
 
 Os **203 deadlocks** do censo (28,9% das falhas) eram a maior fonte de dia

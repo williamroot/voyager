@@ -56,6 +56,25 @@ class DjenPaginaGrandeError(DjenClientError):
         )
 
 
+class DjenTransporteError(DjenClientError):
+    """O corpo não chegou: timeout/conexão caída depois de esgotar as tentativas.
+
+    Tem classe PRÓPRIA porque o tratamento certo é o mesmo do 5xx e do teto de
+    bytes — **encolher a página e reler o MESMO offset** —, e não matar o dia.
+
+    Medido em 24/08/2026, TJDFT: a publicação pesa 56 KB em média e chega a
+    766,9 KB numa leva. Uma página de 250 itens são dezenas de MB que o proxy
+    residencial não entrega dentro do `read timeout` de 60 s; as 8 tentativas
+    queimam ~10 min sempre no mesmo offset e o dia morre com
+    `erro de transporte após 8 tentativas`. Os dias do TJDFT que ainda deviam
+    naquele dia mostravam exatamente essa assinatura: `pgs=0` ou `pgs=3` depois
+    de 60 min, oito tentativas seguidas, dia nenhum coletado.
+
+    O `Content-Length` só protege quem o declara; quem cai no meio do download
+    não declara nada. Este é o mesmo remédio pela outra porta.
+    """
+
+
 class DjenBusyError(DjenServerError):
     """Circuito ABERTO: o DJEN vinha respondendo 5xx em massa ('muito ocupado')
     e as buscas estão pausadas por um cooldown pra não martelar o servidor
@@ -373,6 +392,35 @@ class DJENClient:
                     page_size = teto_herdado = novo
                     pagina = itens_lidos // page_size + 1   # RELÊ o mesmo offset
                     continue
+                except DjenTransporteError as exc:
+                    # O corpo não chegou. Página pesada demais não volta dentro
+                    # do `read timeout` pelo proxy residencial, e insistir no
+                    # MESMO offset é como o dia do TJDFT morria: 8 tentativas,
+                    # ~10 min, `pgs=0`. Encolher e reler o mesmo offset custa
+                    # requisição, não item.
+                    # O piso aqui é o `PISO_ITENS` (25) e não o `MIN_PAGE_SIZE`
+                    # (100) do caminho de 5xx: quem não entrega o corpo está
+                    # reclamando de TAMANHO, igual ao teto de bytes. No TJDFT,
+                    # 100 itens de 766,9 KB são 76 MB — nenhum proxy residencial
+                    # entrega isso em 60 s, e parar em 100 seria desistir do dia
+                    # com um piso que não é piso de nada.
+                    if page_size > self.PISO_ITENS:
+                        novo = max(self.PISO_ITENS, page_size // 2)
+                        logger.warning(
+                            'DJEN transporte em %s page_size=%d (offset~%d) → '
+                            'reduzindo p/ %d e retomando: %s',
+                            sigla_djen, page_size, itens_lidos, novo, str(exc)[:120],
+                        )
+                        self.alertas.append({
+                            'erro': 'transporte_nao_entregou_a_pagina',
+                            'tribunal': sigla_djen, 'itens_por_pagina': page_size,
+                            'novo_itens_por_pagina': novo, 'offset': itens_lidos,
+                            'detalhe': str(exc)[:200],
+                        })
+                        page_size = teto_herdado = novo
+                        pagina = itens_lidos // page_size + 1
+                        continue
+                    raise
                 except DjenServerError:
                     if page_size > self.MIN_PAGE_SIZE:
                         novo = max(self.MIN_PAGE_SIZE, page_size // 5)
@@ -613,8 +661,9 @@ class DJENClient:
                     transport_retries, using if proxy_url else 'direct', str(exc)[:120],
                 )
                 if transport_retries >= self.max_retries:
-                    raise DjenClientError(
-                        f'erro de transporte após {self.max_retries} tentativas: {exc}'
+                    raise DjenTransporteError(
+                        f'erro de transporte após {self.max_retries} tentativas '
+                        f'(itensPorPagina={itens_por_pagina}): {exc}'
                     ) from exc
                 self._sleep_backoff(transport_retries)
                 continue
