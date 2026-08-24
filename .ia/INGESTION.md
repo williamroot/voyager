@@ -353,6 +353,18 @@ páginas paralelas; `itensPorPagina` virou a variável de ajuste.
    real vira `resposta_acima_do_teto_de_bytes` no run. No piso de itens o teto
    cede — não há como pedir menos, e dia não coletado é perda de acervo.
 
+   Visto em produção 2 minutos depois de subir, no TJDFT 2026-07-13, com o
+   número real gravado no run:
+
+   ```json
+   {"erro": "resposta_acima_do_teto_de_bytes", "teto": 33554432,
+    "bytes": 33868507, "tribunal": "TJDFT", "peso_item_bytes": 338685,
+    "itens_por_pagina": 100, "novo_itens_por_pagina": 79}
+   ```
+
+   33,87 MB numa resposta de 100 publicações (338 KB cada) recusados, página
+   encolhida pra 79, MESMO offset relido. Nenhum item a menos.
+
 ⚠️ **Isto não é teto de coleta.** A paginação continua indo até a página voltar
 incompleta; muda o tamanho do balde, não quantos baldes. Teto de página é o
 pecado original deste projeto (43,6% do TJSP).
