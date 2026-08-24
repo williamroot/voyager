@@ -162,6 +162,47 @@ def reabastecer_fila_datajud() -> dict:
     return {'enfileirados': enfileirados}
 
 
+@job('default', timeout=1800)
+def conferir_indice_datajud(reparar: bool = True) -> dict:
+    """Gate de completude do ÍNDICE da porta do Datajud (uma passada).
+
+    O buraco que este job existe para fechar, medido em produção em
+    24/08/2026: **100%** das movimentações escritas por esta porta nos últimos
+    5 minutos estavam fora do Elasticsearch, 42,27% das escritas entre 5 e 15
+    minutos, e **0 de 500** processos tocados nas últimas 2 horas tinham o
+    documento em dia com a escrita. A porta gravava e não entregava; o único
+    caminho até o índice era um poller de 10 minutos — e, do lado do
+    `Process`, nem isso (`.update()` não mexe em `atualizado_em`, que é a
+    chave do keyset daquele poller).
+
+    Mede os DOIS lados (regra nº 5), abstém em vez de chutar 0 (regra nº 6) e
+    trata teto como ERRO registrado (regra nº 2). Ver `datajud/indice.py`.
+    """
+    from .indice import tick
+    return tick(reparar=reparar)
+
+
+def agendar_conferencia_indice_datajud() -> dict:
+    """Enfileira UMA conferência, com `job_id` fixo. Chamado inline pelo cron.
+
+    `job_id` determinístico é o que impede empilhamento: se a passada anterior
+    ainda não rodou, o RQ substitui o job em vez de acrescentar mais um. Mesmo
+    truque do gate do diário, pelo mesmo motivo.
+
+    Fila `default`, nunca `datajud`: a fila da porta tem até 100 mil jobs de
+    sincronização à frente (o `DATAJUD_REFILL_HIGH_WATER`), e um gate atrás
+    disso demoraria horas para rodar. Gate que roda tarde é gate que não roda.
+    """
+    from .indice import gate_ativo
+
+    if not gate_ativo():
+        return {'skip': 'gate desligado'}
+    fila = django_rq.get_queue('default')
+    fila.enqueue(conferir_indice_datajud, job_id='datajud:conferir_indice',
+                 job_timeout=1800)
+    return {'enfileirado': True}
+
+
 @job('default', timeout=60)
 def datajud_api_healthcheck() -> dict:
     """Sonda a API pública do Datajud (_count direto, sem proxy/rate-limit) e

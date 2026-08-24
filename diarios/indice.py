@@ -47,12 +47,13 @@ from django.conf import settings
 from django.db import OperationalError, connection, transaction
 from django.utils import timezone
 
+from search import gate
 from tribunals.models import Movimentacao
 
 logger = logging.getLogger('voyager.diarios.indice')
 
 #: Teto de espera do lado do ES. Régua NUNCA segura escrita (regra nº 7).
-ES_TIMEOUT = 60
+ES_TIMEOUT = gate.ES_TIMEOUT
 #: Teto de espera do lado do Postgres, para a CONTAGEM. Medido em produção em
 #: 21/08/2026: contar o dia 12/03/2025 do TJSP (277.110 linhas) leva **3,23 s**
 #: pelo `mov_tribunal_data_disp_idx`. 120 s é folga de 37x.
@@ -67,12 +68,14 @@ PG_TIMEOUT_LEITURA = '300s'
 #: Quantos ids por pergunta ao ES. Medido: 220.544 ids em 23 perguntas = 1 s
 #: (o `terms` sobre o campo `id`, que é `long` e indexado). O default do ES
 #: para `index.max_terms_count` é 65.536 — 10.000 fica com folga larga.
-BLOCO_TERMS = 10_000
+#: Mora em `search/gate.py` desde 24/08/2026: a porta do Datajud precisou das
+#: MESMAS primitivas, e a terceira cópia é a que envelhece sozinha.
+BLOCO_TERMS = gate.BLOCO_TERMS
 #: Bloco fino do `_mget`, usado só quando um bloco grosso não bate. `_mget` é
 #: realtime GET por `_id`: dá a lista EXATA de ausentes, o `terms` só dá o total.
-BLOCO_MGET = 1_000
+BLOCO_MGET = gate.BLOCO_MGET
 #: Tamanho do lote enfileirado (o mesmo do `search.jobs.indexar_movimentacoes_bulk`).
-CHUNK_ENFILEIRA = 500
+CHUNK_ENFILEIRA = gate.CHUNK_ENFILEIRA
 
 #: Teto de linhas re-enfileiradas por chamada do reparo. Atingi-lo é ERRO
 #: registrado, jamais um `return` discreto (regra nº 2): a edição fica SEM o
@@ -104,13 +107,11 @@ def janela_do_dia(dia: dt.date) -> tuple[dt.datetime, dt.datetime]:
 
 
 def _es():
-    from search.client import get_es
-    return get_es()
+    return gate._es()
 
 
 def _indice() -> str:
-    from search.client import index_name
-    return index_name('movimentacoes')
+    return gate.indice_movs()
 
 
 def contar_no_pg(tribunal_id: str, dia: dt.date) -> int | None:
@@ -175,19 +176,11 @@ def _ausentes_no_bloco(ids: list[int]) -> list[int]:
     inteiro está lá e não se paga mais nada. Só o bloco que NÃO bate desce pro
     `_mget`, que devolve o `found` de cada id. É a diferença entre 23 perguntas
     e 221 para um dia de 220 mil linhas.
+
+    O corpo vive em `search/gate.py` desde 24/08/2026 — a porta do Datajud
+    precisou exatamente disto (ver `datajud/indice.py`).
     """
-    es = _es()
-    idx = _indice()
-    n = es.count(index=idx, query={'terms': {'id': ids}}, request_timeout=ES_TIMEOUT)['count']
-    if n == len(ids):
-        return []
-    faltam: list[int] = []
-    for i in range(0, len(ids), BLOCO_MGET):
-        fino = ids[i:i + BLOCO_MGET]
-        r = es.mget(index=idx, ids=[str(x) for x in fino], source=False,
-                    request_timeout=ES_TIMEOUT)
-        faltam.extend(int(d['_id']) for d in r['docs'] if not d.get('found'))
-    return faltam
+    return gate.ausentes_no_bloco(ids, _indice())
 
 
 def _enfileirar(pks: list[int]) -> int:
@@ -198,11 +191,7 @@ def _enfileirar(pks: list[int]) -> int:
     como conferida sem ter sido consertada — que é o buraco original com um
     carimbo de qualidade em cima.
     """
-    import django_rq
-    q = django_rq.get_queue('es_index')
-    for i in range(0, len(pks), CHUNK_ENFILEIRA):
-        q.enqueue('search.jobs.indexar_movimentacoes_bulk', pks[i:i + CHUNK_ENFILEIRA])
-    return len(pks)
+    return gate.enfileirar_movs(pks, CHUNK_ENFILEIRA)
 
 
 def reparar_dia(tribunal_id: str, dia: dt.date, teto: int = TETO_REPARO) -> dict:

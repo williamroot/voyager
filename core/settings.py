@@ -307,6 +307,24 @@ DATAJUD_RATE_LIMIT_RPM = env.int('DATAJUD_RATE_LIMIT_RPM', default=100)
 # o teto global, e aí o risco passa a ser a APIKey COMPARTILHADA do CNJ, que já
 # nos derrubou uma vez (incidente 2026-07-02).
 DATAJUD_VARREDURA_RPM = env.int('DATAJUD_VARREDURA_RPM', default=40)
+# Entrega ao índice NA HORA da gravação (datajud/ingestion.py::
+# _entregar_ao_indice). LIGADO por padrão: sem isto, o que a porta grava só
+# chega ao Elasticsearch quando o poller de 10 min passar — e, do lado do
+# `Process`, NUNCA, porque `.update()` não mexe em `atualizado_em`, que é a
+# chave do keyset daquele poller. Medido em 24/08/2026: 100% das movimentações
+# escritas nos últimos 5 min fora do índice, e 0 de 500 processos tocados nas
+# últimas 2 h com o doc em dia.
+# Desligar é decisão de DIMENSIONAMENTO (a porta escreve ~27,5 mil linhas/h e
+# toca ~5 mil processos/h), nunca de correção — com o gate ligado, desligar
+# isto deixa lento, não errado.
+DATAJUD_INDEXAR_AO_GRAVAR = env.bool('DATAJUD_INDEXAR_AO_GRAVAR', default=True)
+# Gate de completude do índice desta porta (job `datajud.jobs.
+# conferir_indice_datajud`, cron de 15 min): confere a JANELA DE ESCRITA pelos
+# dois lados e re-enfileira o que faltar. O recorte é `inserido_em` e não
+# `(tribunal, dia)` como no diário porque uma sincronização do Datajud espalha
+# linhas por décadas de `data_disponibilizacao`. Custo medido por passo de 15
+# min: 2,33 s (movimentações) + 0,29 s (processos).
+DATAJUD_GATE_INDICE_ENABLED = env.bool('DATAJUD_GATE_INDICE_ENABLED', default=True)
 
 # ── DIÁRIOS PRÓPRIOS (terceira porta) ─────────────────────────────────────────
 # Todas com default no código (`getattr(settings, ..., default)`), então nada

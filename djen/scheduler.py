@@ -490,4 +490,33 @@ def create_scheduler() -> BlockingScheduler:
         logger.warning('diarios: GATE DE ÍNDICE DESLIGADO — edição coletada pode '
                        'ficar fora da busca sem ninguém saber')
 
+    # Gate de completude do ÍNDICE da porta do DATAJUD. Job separado do gate do
+    # diário porque o recorte é outro: lá é `(tribunal, dia)`, aqui é a JANELA
+    # DE ESCRITA (`inserido_em`) — o Datajud entrega o histórico inteiro de um
+    # processo numa requisição, então uma sincronização espalha linhas por
+    # décadas de `data_disponibilizacao` e o gate do diário nunca alcançaria.
+    #
+    # O que ele fecha, medido em 24/08/2026: 100% das movimentações escritas
+    # por esta porta nos últimos 5 min fora do índice, 42,27% das de 5-15 min,
+    # e 0 de 500 processos tocados nas últimas 2 h com o doc em dia.
+    #
+    # Custo por passada, medido com EXPLAIN em produção: 2,33 s (frio) por
+    # passo de 15 min do lado das movimentações e 0,29 s do lado dos processos.
+    if getattr(settings, 'DATAJUD_GATE_INDICE_ENABLED', True):
+        from datajud.jobs import agendar_conferencia_indice_datajud
+
+        scheduler.add_job(
+            agendar_conferencia_indice_datajud,
+            'interval',
+            minutes=15,
+            id='datajud_conferir_indice',
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info('agendado datajud_conferir_indice (15min) — gate de índice')
+    else:
+        logger.warning('datajud: GATE DE ÍNDICE DESLIGADO — o que a porta grava '
+                       'pode ficar fora da busca sem ninguém saber')
+
     return scheduler

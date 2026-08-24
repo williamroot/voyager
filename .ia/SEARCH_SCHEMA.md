@@ -570,12 +570,100 @@ não é verificável sem a base toda em memória.
 | `Movimentacao.save()` / delete | ✅ | signal → fila `es_index` (worker na .102) |
 | Ingestão DJEN (`bulk_create`) | ❌ signal não dispara | **tail do `reindexar_movimentacoes`** (keyset + checkpoint) + `sync_es_incremental` |
 | **Diários próprios** (`diarios/base.py::persistir_movimentacoes`, `bulk_create`) | ❌ signal não dispara | ✅ **enfileira o lote na hora** (`_entregar_ao_indice`, `on_commit`, 500 por job) + **gate `diarios.jobs.conferir_indice`** que confere PG×ES do dia e repara. Ver `.ia/DIARIOS.md` §12 |
-| **Varredura Datajud** (`datajud/ingestion.py`, `bulk_create`) | ❌ signal não dispara | ⚠️ **só o `sync_es_incremental`** — mesma dependência de poller que custou 27.619 linhas ao diário. Achado em 21/08/2026 fechando o dia 12/03/2025: as 5 publicações que faltavam na janela UTC eram `external_id='datajud:…'`, e o dia civil vizinho (11/03) tinha 39. Não foi corrigido aqui: é outro app, e o gate de diário só alcança dia que tem edição catalogada. **Dívida registrada, não resolvida.** |
+| **Porta do Datajud — movimentações** (`datajud/ingestion.py::sync_processo`, `bulk_create`) | ❌ signal não dispara | ✅ **enfileira o lote na hora** (`_entregar_ao_indice`, `on_commit`, lote de 500) + **gate `datajud.jobs.conferir_indice_datajud`** (cron 15 min) que confere a JANELA DE ESCRITA pelos dois lados e repara. Dívida de 21/08 PAGA em 24/08/2026 |
+| **Porta do Datajud — meta do `Process`** (`.update()` de classe/assunto/órgão/valor/totais) | ❌ signal não dispara **e `atualizado_em` não muda** | ✅ mesmo `_entregar_ao_indice` + `atualizado_em` carimbado à mão (o poller de processos é keyset por ele) + o mesmo gate |
 | `Process.save()` (apply_event, classificação por save, admin) | ✅ | signal |
 | Ingestão DJEN (Process novo via `bulk_create`) | ❌ | **reindex incremental `--desde-id`** (cron sugerido) |
 | Drainer `apply_batch` (`bulk_update`/`bulk_create`) | ✅ | enqueue explícito `search.jobs.indexar_processos_bulk` no fim do batch (fix 2026-08) |
 | ProcessoParte (create/delete individual) | — sem signal DE PROPÓSITO | o processo é reindexado pelo `processo.save()` que fecha todo enriquecimento; signal por-linha multiplicaria a fila ~2N por processo |
 | Comandos de manutenção em massa (dedup_partes, recategorizar_tipo_partes, SQL cru) | ❌ | rodar `reindexar_processos` direcionado depois |
+
+## A porta do Datajud entrega ao índice (24/08/2026)
+
+A dívida registrada em 21/08/2026 nesta mesma tabela foi paga. Ela era MAIOR do
+que parecia: a porta escreve por dois caminhos e nenhum dos dois chegava ao ES.
+
+Medido em produção com amostra aleatória e `_mget` por id (resposta exata por
+documento, não estimativa), no dia em que o poller estava SAUDÁVEL — atraso de
+122.604 ids, ~1 tick:
+
+| idade da escrita | linhas datajud na janela | amostra | fora do índice |
+|---|---:|---:|---:|
+| 0-5 min | 3.088 | 3.000 | **3.000 (100,00%)** |
+| 5-15 min | 3.927 | 3.000 | 1.268 (42,27%) |
+| 15-30 min | 4.133 | 3.000 | 0 |
+| 30-60 min · 1-2 h · 2-4 h | 15.362 · 20.000+ · 20.000+ | 3.000 | 0 |
+
+Vazão da porta: **27.468 linhas/h** na última hora cheia (picos de 80.000+),
+contra 109.796/h de todas as portas somadas.
+
+E o buraco que NÃO tinha poller nenhum — `Process.objects.filter(pk=…)
+.update(...)` não dispara `post_save` **e não mexe em `atualizado_em`**, porque
+`auto_now` só roda em `Model.save()`; e `atualizado_em` é justamente a chave do
+keyset de `sync_processos_atualizados`. Critério exato: o doc está em dia com
+esta porta se `doc.enriquecido_em >= PG.data_enriquecimento_datajud`.
+
+| janela de `data_enriquecimento_datajud` | amostra | doc ausente | doc atrasado | em dia |
+|---|---:|---:|---:|---:|
+| 30-15 min | 500 | 18 | 482 | **0** |
+| 2h-30min | 500 | 57 | 443 | **0** |
+| 1d-2h | 500 | 9 | 483 | 8 (1,6%) |
+| 3d-1d | 500 | 3 | 399 | 98 (19,6%) |
+| 7d-3d | 500 | 29 | 398 | 73 (14,6%) |
+| 30d-7d | 500 | 0 | 500 | **0** |
+
+Confirmação independente, restrita aos tribunais SEM enricher (onde a classe só
+pode ter vindo do Datajud): das que têm classe no Postgres, chegaram ao índice
+**2 de 345 (0,6%)** na janela 2h-30min e 117 de 354 (33,1%) em 3d-1d.
+
+População do buraco: **22.475.738** processos com `data_enriquecimento_datajud`,
+**1.703.782** nos últimos 30 dias, **775.484** nos últimos 7, ~5.000/h.
+
+### O recorte do gate, e por que não é `(tribunal, dia)`
+
+O gate do diário recorta por `(tribunal, dia)` porque lá a unidade de coleta é
+um caderno de um dia. Aqui não serve: o Datajud devolve o histórico INTEIRO do
+processo numa requisição, então uma sincronização espalha linhas por décadas de
+`data_disponibilizacao`. O recorte que corresponde ao trabalho desta porta é a
+**janela de escrita** (`inserido_em`), e ela é barata porque o índice
+`mov_inserido_tribunal_idx (inserido_em DESC, tribunal_id)` existe de verdade
+(conferido por coluna em `pg_index`).
+
+Custo medido com `EXPLAIN (ANALYZE, BUFFERS)` em produção:
+
+| janela | linhas datajud | descartadas pelo filtro | tempo | blocos |
+|---|---:|---:|---:|---:|
+| 15 min | 4.103 | 13.529 | **2,33 s** | 5.201 |
+| 15 min (2ª vez) | 4.103 | 13.529 | 0,01 s | 5.201 (hit) |
+| 60 min | 28.983 | 78.943 | 6,64 s | 31.175 |
+| 4 h | 200.000 (TETO) | 124.950 | 8,50 s | 62.551 |
+
+Por isso o passo é de **15 min**. Comparar com o diário, onde recortar UMA
+edição custava 29,2 s e 65.846 blocos: lá o recorte teve que SUBIR para o dia;
+aqui o recorte fino é o barato. O lado dos processos usa
+`proc_datajud_em_idx (data_enriquecimento_datajud)` e custou **0,29 s** para
+1.296 processos na mesma janela de 15 min.
+
+`external_id` é filtrado com **LIKE** (`__startswith`), nunca com `__gte/__lt`:
+a collation `en_US.UTF-8` ignora pontuação e `external_id < 'datajud;'` compara
+como se fosse `datajud`, devolvendo 0 linhas. Já custou um alarme falso.
+
+### Peças e operação
+
+| peça | papel |
+|---|---|
+| `datajud/ingestion.py::_entregar_ao_indice` | entrega no `on_commit`: movimentações novas em lote + o doc do processo |
+| `datajud/indice.py` | a régua: `conferir_movs`, `conferir_processos`, `conferir_janela`, `tick` |
+| `datajud/jobs.py::conferir_indice_datajud` | o job (fila `default`, `job_id` fixo) |
+| `djen/scheduler.py` | cron de 15 min |
+| `manage.py datajud_conferir_indice --desde … --ate …` | backfill de faixa arbitrária; **não toca o watermark do cron** |
+| `search/gate.py` | primitivas compartilhadas com o gate do diário (`ausentes_no_bloco`, `enfileirar_*`) |
+
+Kill switches sem deploy: `DATAJUD_INDEXAR_AO_GRAVAR=0` (para a entrega) e
+`DATAJUD_GATE_INDICE_ENABLED=0` (para o gate). Telemetria da última passada em
+`cache['datajud:gate:ultimo']`; watermark em `cache['datajud:gate:wm']` — se
+ele sumir, o gate **re-ancora 6 h atrás e loga ERRO**, nunca no topo (re-ancorar
+no topo é o defeito do poller que custou 27.619 linhas ao diário).
 
 ## Plano de reindex (backfill dos campos novos)
 

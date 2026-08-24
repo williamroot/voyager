@@ -118,6 +118,8 @@ execução (`@timestamp` novo ≥ cursor) — é completude, não erro.
 | `datajud/varredura.py` | o puxador (`Varredura`, `varrer_tribunal`, `marcar_no_acervo`) |
 | `datajud/hidratacao.py` | esqueleto → processo real (`hidratar_cnj`, `hidratar_lote`) |
 | `datajud/jobs.py` | `varrer_acervo`, `tick_varredura_incremental`, `hidratar_processo` |
+| `datajud/ingestion.py` | `sync_processo` (movimentos por CNJ) + `_entregar_ao_indice` (write-through) |
+| `datajud/indice.py` | gate de completude do ÍNDICE desta porta (janela de escrita, dois lados) |
 | `search/mappings.py` | `ACERVO_MAPPING` — índice `voyager-acervo` |
 | `search/busca_api.py` | `get_esqueleto` — fallback da busca por CNJ |
 | `tribunals.Tribunal` | `datajud_varredura_cursor/_em/_docs/_status` (watermark) |
@@ -134,6 +136,53 @@ morre — jogava fora todo o progresso. Aconteceu com o TJMG em 14/08/2026, no
 deploy que subiu a frota de 4 pra 8 réplicas. Agora `varrer_tribunal` salva o
 cursor **a cada 20 páginas** (200k docs ≈ 2 min de trabalho em risco). Vale só
 na passada completa: a filtrada não pode tocar o watermark.
+
+## O que a porta grava tem que virar dado BUSCÁVEL (24/08/2026)
+
+A varredura enche o `voyager-acervo` direto no ES, então ela nunca teve este
+problema. Quem tinha era o **outro** caminho desta porta — `sync_processo`, que
+puxa os MOVIMENTOS por CNJ e escreve no Postgres. Ele gravava e não entregava:
+
+| o que ele escreve | por que não chegava ao índice |
+|---|---|
+| `Movimentacao` (`bulk_create`) | `bulk_create` não dispara `post_save` ⇒ o write-through de `search/signals.py` nunca rodava. Só o poller de 10 min levava as linhas ao ES |
+| meta do `Process` (`.update()` de classe/assunto/órgão/valor/totais) | `.update()` não dispara `post_save` **e não mexe em `atualizado_em`** (`auto_now` só roda em `Model.save()`) — e `atualizado_em` é a chave do keyset do poller de processos. Este não tinha poller NENHUM |
+
+Medido em produção com amostra aleatória e `_mget` por id, com o poller
+SAUDÁVEL (atraso de 122.604 ids ≈ 1 tick):
+
+- movimentações escritas há **0-5 min**: 3.000 de 3.000 fora do índice (100%);
+  há 5-15 min: 1.268 de 3.000 (42,27%); acima de 15 min: 0.
+- processos tocados nas últimas 2 h: **0 de 500** com o doc em dia
+  (critério: `doc.enriquecido_em >= PG.data_enriquecimento_datajud`).
+  Nas janelas mais antigas: 8/500 (1d-2h), 98/500 (3d-1d), 0/500 (30d-7d).
+- restrito aos tribunais SEM enricher, onde a classe só pode ter vindo daqui:
+  **2 de 345 (0,6%)** das classes gravadas chegaram ao índice na janela
+  2h-30min.
+
+Escala: a porta escreve **27.468 movimentações/h** e toca **~5.000
+processos/h**; 22.475.738 processos já têm `data_enriquecimento_datajud`
+(1.703.782 nos últimos 30 dias).
+
+A cura é a mesma da terceira porta, adaptada ao que esta porta é:
+
+1. **entrega na gravação** — `_entregar_ao_indice` no `on_commit` manda as
+   movimentações NOVAS em lote e o doc do processo para a fila `es_index`.
+   Entrega só as novas (e não o lote inteiro como no diário) porque aqui seriam
+   ~73 movimentos por processo x 5.000 sincronizações/h = 365 mil docs/h contra
+   27,5 mil que realmente mudaram — 13x — e esta porta não reescreve texto;
+2. **`atualizado_em` carimbado à mão** no `.update()`, para o poller de
+   processos passar a enxergar o que ele nunca enxergou;
+3. **gate dos dois lados** (`datajud/indice.py`, cron de 15 min) sobre a
+   **janela de escrita** (`inserido_em`), não sobre `(tribunal, dia)`: uma
+   sincronização espalha linhas por décadas de `data_disponibilizacao`, então o
+   recorte do diário nunca alcançaria esta porta. Custo medido por passo de
+   15 min: 2,33 s (movimentações, `mov_inserido_tribunal_idx`) + 0,29 s
+   (processos, `proc_datajud_em_idx`);
+4. **backfill** por faixa explícita: `manage.py datajud_conferir_indice
+   --desde … --ate …`, que não toca o watermark do cron.
+
+Detalhes, tabelas completas e os EXPLAIN em [`SEARCH_SCHEMA.md`](SEARCH_SCHEMA.md).
 
 ## Runbook
 
