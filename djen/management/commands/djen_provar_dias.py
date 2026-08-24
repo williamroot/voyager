@@ -55,10 +55,13 @@ from tribunals.models import IngestionRun, Movimentacao, Tribunal
 #: teto interno do `count` da DJEN. Chegar nele significa "≥ 10k", não "10k".
 DJEN_HARD_CAP = 10_000
 
-#: itens por página inicial da prova. Baixo de propósito: a publicação do TJDFT
-#: pesa 56 KB (medido 24/08/2026), então 250 itens já são 14 MB numa resposta.
-#: Quem paga o preço da prova é a memória de quem prova, não a do coletor.
-ITENS_INICIAL = 250
+#: itens por página inicial da prova. Baixo de propósito, e mais baixo do que a
+#: sonda do coletor (250): a publicação do TJDFT pesa 56 KB EM MÉDIA, mas houve
+#: leva de 766,9 KB por item (medido 24/08/2026) — a 250 itens isso são 192 MB
+#: numa resposta só, que o proxy residencial não entrega dentro do
+#: `read timeout` e vira rotação infinita. Quem paga o preço da prova é quem
+#: prova, e prova que não termina não prova nada.
+ITENS_INICIAL = 100
 
 #: piso do encolhimento por teto de bytes. Abaixo disso a prova custa mais
 #: requisição do que informa.
@@ -98,7 +101,8 @@ def paginar_forca_bruta(client: DJENClient, sigla_djen: str, dia: date,
     while True:
         try:
             payload = client._fetch(sigla_djen, dia, dia, pagina=pagina,
-                                    itens_por_pagina=itens)
+                                    itens_por_pagina=itens,
+                                    max_5xx=(2 if itens > ITENS_MINIMO else None))
         except DjenPaginaGrandeError:
             if itens <= ITENS_MINIMO:
                 raise
@@ -110,6 +114,18 @@ def paginar_forca_bruta(client: DJENClient, sigla_djen: str, dia: date,
             if itens <= ITENS_MINIMO:
                 raise
             itens = max(ITENS_MINIMO, itens // 5)
+            pagina = lidos // itens + 1
+            encolhimentos += 1
+            continue
+        except DjenClientError:
+            # TRANSPORTE. Página pesada demais não volta a tempo pelo proxy
+            # residencial: medido em 24/08/2026, o TJDFT a 250 itens ficou em
+            # "Max retries exceeded" + rotação de proxy 6/50, sem sair do lugar.
+            # O tamanho da página é a variável que temos — encolher e reler o
+            # MESMO offset custa requisição, não item.
+            if itens <= ITENS_MINIMO:
+                raise
+            itens = max(ITENS_MINIMO, itens // 2)
             pagina = lidos // itens + 1
             encolhimentos += 1
             continue
