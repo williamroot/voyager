@@ -41,12 +41,13 @@ O que estes testes protegem:
      cada página.
 """
 import gc
+import json
 import tracemalloc
 
 import pytest
 from django.test import override_settings
 
-from djen.client import DJENClient, itens_por_pagina
+from djen.client import DJENClient, DjenPaginaGrandeError, itens_por_pagina
 from djen.parser import MAX_ERROS_NO_RUN, registrar_erro_no_run
 
 KB = 1024
@@ -232,6 +233,104 @@ def test_orcamento_e_dividido_pela_janela_em_voo():
         por_uf = itens_por_pagina('TJDFT', 56 * KB, janela=27, teto=1000)
     assert flat > por_uf
     assert flat * 8 == pytest.approx(por_uf * 27, rel=0.05)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 4b. TETO DURO de bytes por resposta — previsão erra, teto não
+# ═════════════════════════════════════════════════════════════════════════════
+
+class _RespostaFalsa:
+    """Resposta HTTP de mentira que entrega o corpo em pedaços de 1 MB."""
+
+    def __init__(self, corpo: bytes, declara_tamanho=True):
+        self.corpo = corpo
+        self.headers = {'Content-Length': str(len(corpo))} if declara_tamanho else {}
+        self.fechada = False
+        self.baixado = 0
+
+    def iter_content(self, chunk_size=1):
+        for i in range(0, len(self.corpo), chunk_size):
+            pedaco = self.corpo[i:i + chunk_size]
+            self.baixado += len(pedaco)
+            yield pedaco
+
+    def json(self):
+        return json.loads(self.corpo)
+
+    def close(self):
+        self.fechada = True
+
+
+@override_settings(DJEN_BYTES_MAX_RESPOSTA=1 * MB)
+def test_resposta_declarada_gigante_nem_e_baixada():
+    """`Content-Length` acima do teto: o coletor nem baixa. Baixar pra depois
+    decidir é pagar a memória inteira antes de ter opinião sobre ela."""
+    c = _cliente(None)
+    resp = _RespostaFalsa(b'x' * (3 * MB))
+
+    with pytest.raises(DjenPaginaGrandeError) as e:
+        c._ler_com_teto(resp, itens_por_pagina=250)
+
+    assert e.value.declarado and resp.baixado == 0 and resp.fechada
+
+
+@override_settings(DJEN_BYTES_MAX_RESPOSTA=1 * MB)
+def test_resposta_sem_content_length_aborta_no_meio():
+    """Sem `Content-Length` (chunked), o corte é durante o download — e nada
+    além do teto fica na memória."""
+    c = _cliente(None)
+    resp = _RespostaFalsa(b'x' * (5 * MB), declara_tamanho=False)
+
+    with pytest.raises(DjenPaginaGrandeError) as e:
+        c._ler_com_teto(resp, itens_por_pagina=250)
+
+    assert not e.value.declarado
+    assert resp.baixado <= 2 * MB, f'baixou {resp.baixado} — o teto não cortou'
+
+
+@override_settings(DJEN_BYTES_MAX_RESPOSTA=1 * MB)
+def test_no_piso_de_itens_o_teto_cede_e_o_dia_e_coletado():
+    """No piso não há como pedir menos, e recusar seria deixar o dia sem
+    coletar — o pecado que este projeto não comete. Lê mesmo assim; quem avisa
+    é o DJEN_RSS_ALERTA_MB."""
+    c = _cliente(None)
+    corpo = json.dumps({'items': [{'id': 'x'}]}).encode()
+    resp = _RespostaFalsa(corpo)
+
+    assert c._ler_com_teto(resp, itens_por_pagina=DJENClient.PISO_ITENS) == {'items': [{'id': 'x'}]}
+
+
+def test_teto_de_bytes_reduz_a_pagina_e_nao_perde_item():
+    """O teste que separa "teto" de "corte": a resposta grande é RECUSADA, a
+    página encolhe e o MESMO offset é relido. O dia tem que sair inteiro, em
+    ordem — e o número real vira alerta registrado."""
+    TOTAL = 900
+
+    class ApiComPaginaGorda:
+        def __init__(self):
+            self.pedidas = []
+
+        def __call__(self, sigla, ini, fim, pagina, itens_por_pagina=1000, **kw):
+            self.pedidas.append(itens_por_pagina)
+            # Acima de 60 itens a resposta "não cabe" — 400 KB por publicação.
+            if itens_por_pagina > 60:
+                raise DjenPaginaGrandeError(itens_por_pagina * 400 * KB,
+                                            24 * MB, itens_por_pagina)
+            inicio = (pagina - 1) * itens_por_pagina
+            n = max(0, min(itens_por_pagina, TOTAL - inicio))
+            return {'items': [{'id': f'i-{inicio + k}', 'texto': 'x' * 4096}
+                              for k in range(n)]}
+
+    api = ApiComPaginaGorda()
+    c = _cliente(api, janela=4)
+
+    ids = [it['id'] for pag in c.iter_pages('TJDFT', None, None) for it in pag]
+
+    assert ids == [f'i-{i}' for i in range(TOTAL)], 'o teto virou corte de acervo'
+    assert max(api.pedidas[1:]) <= 60, 'continuou pedindo página que não cabe'
+    aviso = next(a for a in c.alertas if a['erro'] == 'resposta_acima_do_teto_de_bytes')
+    assert aviso['peso_item_bytes'] == 400 * KB
+    assert aviso['novo_itens_por_pagina'] < aviso['itens_por_pagina']
 
 
 # ═════════════════════════════════════════════════════════════════════════════

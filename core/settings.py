@@ -313,6 +313,17 @@ DJEN_PAGINAS_PARALELAS = env.int('DJEN_PAGINAS_PARALELAS', default=8)
 # sonda + o teto de crescimento.
 DJEN_BYTES_EM_VOO = env.int('DJEN_BYTES_EM_VOO', default=64 * 1024 * 1024)
 
+# TETO DURO de bytes de UMA resposta da DJEN — diferente do orçamento acima,
+# que é uma PREVISÃO (quantos itens devem caber). Previsão erra: a publicação
+# varia 38 vezes DENTRO do mesmo tribunal (TJDFT medido 24/08/2026: 20 KB numa
+# leva, 766,9 KB na outra), e com a sonda em 250 itens isso deu 192 MB de JSON
+# numa requisição só — o `worker_ingestion-10` bateu 1023 MiB de 1 GiB, a um
+# suspiro do OOM killer. Passar deste teto NÃO descarta nada: o coletor aborta
+# o download, encolhe o `itensPorPagina` e RELÊ o mesmo offset, registrando o
+# número real no run (`resposta_acima_do_teto_de_bytes`).
+# 32 MB por 3 páginas paralelas = 96 MB de JSON no pior caso => ~245 MB de heap.
+DJEN_BYTES_MAX_RESPOSTA = env.int('DJEN_BYTES_MAX_RESPOSTA', default=32 * 1024 * 1024)
+
 # A partir de quanto de RSS a ingestão GRITA (ERRO no run, com o número real)
 # em vez de esperar o SIGKILL silencioso do OOM killer. Regra nº 2 do
 # CLAUDE.md: teto é alerta, nunca corte mudo. 700 MB é ~70% do `mem_limit: 1g`

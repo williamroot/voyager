@@ -342,7 +342,16 @@ páginas paralelas; `itensPorPagina` virou a variável de ajuste.
    exatamente o dia, em ordem e sem repetir (antes isso dependia do dedupe do
    banco, o que custava INSERT);
 5. **a leva anterior morre antes da próxima nascer** (`del payloads`): a
-   co-residência caiu de 2×janela para 1×janela páginas.
+   co-residência caiu de 2×janela para 1×janela páginas;
+6. **teto DURO de bytes por resposta** (`DJEN_BYTES_MAX_RESPOSTA`, 32 MB).
+   Previsão erra e teto não: com a sonda em 250 itens e uma leva de 766,9 KB
+   por publicação, uma requisição só trouxe 192 MB de JSON e o
+   `worker_ingestion-10` bateu **1023 MiB de 1 GiB** — a um suspiro do OOM
+   killer, JÁ com a calibração ligada. Agora o coletor confere o
+   `Content-Length` (e, sem ele, aborta durante o download), encolhe o
+   `itensPorPagina` e **relê o mesmo offset**: nada é descartado, e o número
+   real vira `resposta_acima_do_teto_de_bytes` no run. No piso de itens o teto
+   cede — não há como pedir menos, e dia não coletado é perda de acervo.
 
 ⚠️ **Isto não é teto de coleta.** A paginação continua indo até a página voltar
 incompleta; muda o tamanho do balde, não quantos baldes. Teto de página é o

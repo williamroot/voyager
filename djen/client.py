@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 import time
@@ -24,6 +25,35 @@ class DjenServerError(DjenClientError):
     janelas grandes a itensPorPagina=1000; o mesmo offset a page size menor
     responde 200."""
     pass
+
+
+class DjenPaginaGrandeError(DjenClientError):
+    """A RESPOSTA passou do teto de bytes (`DJEN_BYTES_MAX_RESPOSTA`).
+
+    Não é erro do DJEN e não é dado perdido: é o coletor recusando-se a carregar
+    na memória uma página que ele já sabe que não cabe. Quem trata (`iter_pages`)
+    encolhe o `itensPorPagina` e re-busca o MESMO offset — nenhum item fica pra
+    trás, só é lido em pedaços menores.
+
+    Por que existe, medido em 24/08/2026: a calibração por peso MÉDIO acerta o
+    caso comum e erra o extremo, porque a publicação varia 38 vezes dentro do mesmo
+    tribunal (TJDFT: 20 KB numa leva, 766,9 KB na outra). Com a sonda em 250
+    itens, uma leva de 766,9 KB são 192 MB de JSON numa requisição só — o
+    `voyager-worker_ingestion-10` bateu **1023 MiB de 1 GiB** assim, a um
+    suspiro do OOM killer. Previsão não é teto; teto é teto.
+    """
+
+    def __init__(self, bytes_lidos: int, teto: int, itens_por_pagina: int,
+                 declarado: bool = False):
+        self.bytes_lidos = bytes_lidos
+        self.teto = teto
+        self.itens_por_pagina = itens_por_pagina
+        self.declarado = declarado          # veio do Content-Length, sem baixar
+        super().__init__(
+            f'resposta de {bytes_lidos / 1048576:.1f} MB acima do teto de '
+            f'{teto / 1048576:.0f} MB a itensPorPagina={itens_por_pagina}'
+            f'{" (declarado no Content-Length)" if declarado else ""}'
+        )
 
 
 class DjenBusyError(DjenServerError):
@@ -97,6 +127,13 @@ def _bytes_em_voo() -> int:
     pra que `override_settings` funcione e pra que um cliente montado sem
     `__init__` (os dublês dos testes) continue tendo o teto."""
     return int(getattr(settings, 'DJEN_BYTES_EM_VOO', 64 * 1024 * 1024))
+
+
+def _bytes_max_resposta() -> int:
+    """TETO DURO de bytes de UMA resposta da DJEN. Diferente do orçamento em
+    voo, que é uma PREVISÃO (quantos itens devem caber): este é o número que
+    não depende de acertar a previsão. Ver `DjenPaginaGrandeError`."""
+    return int(getattr(settings, 'DJEN_BYTES_MAX_RESPOSTA', 32 * 1024 * 1024))
 
 
 def _peso_por_item(items: list[dict]) -> int:
@@ -328,6 +365,12 @@ class DJENClient:
                         for n in range(pagina, pagina + janela)
                     ]
                     payloads = [f.result() for f in futuros]
+                except DjenPaginaGrandeError as grande:
+                    novo, peso_real = self._encolher_por_teto(sigla_djen, grande, page_size)
+                    peso_item = max(peso_item, peso_real)
+                    page_size = teto_5xx = novo
+                    pagina = itens_lidos // page_size + 1   # RELÊ o mesmo offset
+                    continue
                 except DjenServerError:
                     if page_size > self.MIN_PAGE_SIZE:
                         novo = max(self.MIN_PAGE_SIZE, page_size // 5)
@@ -408,6 +451,35 @@ class DJENClient:
                 janela = janela_alvo
                 time.sleep(self.page_sleep)
 
+    def _encolher_por_teto(self, sigla_djen: str, grande: DjenPaginaGrandeError,
+                           page_size: int) -> tuple[int, int]:
+        """Reage ao teto DURO de bytes: devolve (novo page_size, peso real do item).
+
+        Não é corte — o mesmo offset é relido em pedaços menores, então nenhum
+        item fica pra trás. O número real vira ERRO registrado (regra nº 2), e
+        de brinde a exceção ensina à calibração o peso que a previsão por média
+        não tinha como saber.
+        """
+        peso_real = max(1, grande.bytes_lidos // max(1, grande.itens_por_pagina))
+        novo = max(self.PISO_ITENS,
+                   min(page_size - 1, (grande.teto * 4 // 5) // peso_real))
+        aviso = {
+            'erro': 'resposta_acima_do_teto_de_bytes',
+            'tribunal': sigla_djen, 'bytes': int(grande.bytes_lidos),
+            'teto': int(grande.teto), 'itens_por_pagina': page_size,
+            'peso_item_bytes': int(peso_real), 'novo_itens_por_pagina': novo,
+        }
+        if aviso not in self.alertas:
+            self.alertas.append(aviso)
+        logger.error(
+            'DJEN %s: resposta de %.1f MB acima do teto de %.0f MB a '
+            'itensPorPagina=%d (publicação de %.0f KB) — encolhendo pra %d e '
+            'RELENDO o mesmo offset; nenhum item fica pra trás',
+            sigla_djen, grande.bytes_lidos / 1048576, grande.teto / 1048576,
+            page_size, peso_real / 1024, novo,
+        )
+        return novo, peso_real
+
     def _itens_por_pagina(self, sigla_djen: str, peso_item: int, janela: int,
                           teto: int, anterior: int | None = None) -> int:
         return itens_por_pagina(sigla_djen, peso_item, janela, teto, self.alertas,
@@ -449,7 +521,8 @@ class DJENClient:
             t0 = time.monotonic()
             try:
                 resp = self.session.get(self.base_url, params=params, headers=headers,
-                                        proxies=proxies, timeout=self.timeout)
+                                        proxies=proxies, timeout=self.timeout,
+                                        stream=True)   # o corpo é lido com teto
                 latency_ms = int((time.monotonic() - t0) * 1000)
                 proxy_label = using if proxy_url else 'direct'
                 # 403/429: IP bloqueado → marca proxy ruim e troca.
@@ -497,6 +570,9 @@ class DJENClient:
                 if 400 <= resp.status_code < 500:
                     raise DjenClientError(f'DJEN {resp.status_code}: {resp.text[:200]}')
                 resp.raise_for_status()
+                # Lê com TETO. `resp.json()` cru carrega o corpo inteiro antes
+                # de qualquer decisão nossa — e é aí que a memória some.
+                corpo = self._ler_com_teto(resp, itens_por_pagina)
                 logger.debug(
                     '✅ %s pg=%d → %d via %s %dms [rot=%d retry=%d]',
                     sigla_djen, pagina, resp.status_code, proxy_label,
@@ -508,7 +584,7 @@ class DJENClient:
                     # a degradação. Sem este par do mark_bad, o sinal de taxa
                     # de falha só sobe e nunca se desarma.
                     self.pool.mark_ok()
-                return resp.json()
+                return corpo
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError,
                     requests.exceptions.ContentDecodingError) as exc:
@@ -527,6 +603,34 @@ class DJENClient:
                     ) from exc
                 self._sleep_backoff(transport_retries)
                 continue
+
+    def _ler_com_teto(self, resp, itens_por_pagina: int) -> dict:
+        """Baixa e desserializa o corpo, abortando se passar do teto de bytes.
+
+        O teto NÃO vale quando a página já está no piso de itens: aí não há
+        como pedir menos, e recusar seria deixar o dia sem coletar — que é o
+        pecado que este projeto não comete. Nesse caso lê mesmo assim; quem
+        avisa é o `DJEN_RSS_ALERTA_MB`.
+        """
+        teto = _bytes_max_resposta()
+        if itens_por_pagina <= self.PISO_ITENS or teto <= 0:
+            return resp.json()
+
+        declarado = resp.headers.get('Content-Length')
+        if declarado and declarado.isdigit() and int(declarado) > teto:
+            resp.close()      # nem baixa: o servidor já disse que não cabe
+            raise DjenPaginaGrandeError(int(declarado), teto, itens_por_pagina,
+                                        declarado=True)
+
+        buf = bytearray()
+        for pedaco in resp.iter_content(chunk_size=1 << 20):
+            buf.extend(pedaco)
+            if len(buf) > teto:
+                lido = len(buf)
+                del buf           # solta os bytes ANTES de subir a exceção
+                resp.close()
+                raise DjenPaginaGrandeError(lido, teto, itens_por_pagina)
+        return json.loads(bytes(buf))
 
     def _pick_proxy(self, prefer_other_than: Optional[str] = None) -> tuple[Optional[str], str]:
         from .proxies import cortex_proxy_url
