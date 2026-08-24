@@ -348,9 +348,9 @@ DATAJUD_VARREDURA_RPM = env.int('DATAJUD_VARREDURA_RPM', default=40)
 # chave do keyset daquele poller. Medido em 24/08/2026: 100% das movimentações
 # escritas nos últimos 5 min fora do índice, e 0 de 500 processos tocados nas
 # últimas 2 h com o doc em dia.
-# Desligar é decisão de DIMENSIONAMENTO (a porta escreve ~27,5 mil linhas/h e
-# toca ~5 mil processos/h), nunca de correção — com o gate ligado, desligar
-# isto deixa lento, não errado.
+# Desligar é decisão de DIMENSIONAMENTO (a porta escreve 327.566 linhas/h em
+# média, pico medido de 798.824/h, e toca ~5,6 mil processos/h), nunca de
+# correção — com o gate ligado, desligar isto deixa lento, não errado.
 DATAJUD_INDEXAR_AO_GRAVAR = env.bool('DATAJUD_INDEXAR_AO_GRAVAR', default=True)
 # Gate de completude do índice desta porta (job `datajud.jobs.
 # conferir_indice_datajud`, cron de 15 min): confere a JANELA DE ESCRITA pelos

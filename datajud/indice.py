@@ -44,12 +44,38 @@ Custo medido com `EXPLAIN (ANALYZE, BUFFERS)` em produção, 24/08/2026:
     60 min            28.983                    78.943   6,64 s    31.175
     4 h              200.000 (TETO)            124.950   8,50 s    62.551
 
-Por isso o passo é de **15 minutos**. Para comparação, o gate do diário mediu
-29,2 s e 65.846 blocos para recortar UMA edição — e por isso lá o recorte subiu
-para o dia inteiro. Aqui a conta deu ao contrário: o recorte fino é o barato.
+Por isso o passo COMEÇA em **15 minutos**. Para comparação, o gate do diário
+mediu 29,2 s e 65.846 blocos para recortar UMA edição — e por isso lá o recorte
+subiu para o dia inteiro. Aqui a conta deu ao contrário: o recorte fino é o
+barato.
 
 O lado dos processos usa `proc_datajud_em_idx (data_enriquecimento_datajud)`:
 a mesma janela de 15 minutos custou **0,29 s** para 1.296 processos.
+
+## O passo é PONTO DE PARTIDA, porque a vazão varia 28x no mesmo dia
+
+Linhas que a porta escreveu, por hora cheia, medidas em 24/08/2026:
+
+    03h UTC   59.250      09h UTC  403.346
+    04h UTC  268.218      10h UTC  385.846
+    05h UTC  367.495      11h UTC  479.568
+    06h UTC  385.359      12h UTC  798.824   <- pico
+    07h UTC  360.631      13h UTC   36.464
+    08h UTC  357.186      14h UTC   28.610   <- vale
+                          média das 12 horas: 327.566
+
+Os 27.468/h da primeira medição caíram num VALE (o `reabastecer_fila_datajud`
+tinha acabado de secar). No pico, um passo de 15 minutos tem 200 mil linhas e
+bate o teto de leitura SEMPRE — e um gate que PARA no teto ficaria congelado no
+mesmo instante para sempre, que é o oposto do que ele existe para impedir. Por
+isso `_conferir_passo` **divide a janela ao meio** quando o teto aparece, do
+mesmo jeito que `search/jobs.py::_enviar_bulk` divide o `_bulk` no 413: o erro
+não é de dado, é de TAMANHO. Só o recorte MÍNIMO que ainda não cabe vira ERRO
+registrado e dívida visível.
+
+A conta do teto de 100 rpm da APIKey compartilhada fecha com isso: 5.628
+processos numa hora medida x 74 movimentos por processo = 416.186 linhas, que
+é exatamente o que o gate contou naquela hora.
 
 ## As duas regras que este módulo não negocia
 
@@ -89,8 +115,13 @@ PREFIXO = 'datajud:'
 CARENCIA_MIN = 20
 
 #: Passo do recorte — o número medido acima. Cada passo é uma pergunta ao
-#: Postgres e 1-3 ao Elasticsearch.
+#: Postgres e 1-3 ao Elasticsearch. É um ponto de PARTIDA: se o recorte não
+#: couber no teto de leitura, `_conferir_passo` divide ao meio até caber.
 PASSO_MIN = 15
+#: Recorte mínimo da divisão. Abaixo disso, teto atingido vira ERRO registrado
+#: e dívida visível. Com o teto de 200.000 ids, 1 minuto só não caberia a uma
+#: vazão de 12 milhões de linhas/hora — 15x o pico já medido (798.824/h).
+PASSO_MIN_MINIMO = 1
 
 #: Quanto de janela uma passada do cron cobre, no máximo. Com o cron de 15 min
 #: e 60 min por passada, o gate recupera 45 min de atraso a cada passada.
@@ -172,11 +203,17 @@ def conferir_movs(ini: dt.datetime, fim: dt.datetime, reparar: bool = True) -> d
         return {'pg': None, 'faltando': None, 'enfileiradas': 0,
                 'teto_atingido': False, 'abstido': True}
     if teto:
-        logger.error(
-            'gate datajud: TETO de %d ids de movimentação atingido em [%s, %s) — '
-            'a janela NÃO fechou e o watermark não passa dela.',
+        # Volta na hora, SEM medir e SEM reparar: o recorte é grande demais e
+        # os números desta leitura truncada não valem nada (são "os primeiros
+        # 200.000 que o índice devolveu"). Quem chama divide a janela ao meio
+        # e mede as metades — ver `conferir_janela`.
+        logger.warning(
+            'gate datajud: TETO de %d ids de movimentação em [%s, %s) — janela '
+            'grande demais, vai ser dividida.',
             TETO_IDS_MOVS, ini.isoformat(), fim.isoformat(),
         )
+        return {'pg': len(ids), 'faltando': None, 'enfileiradas': 0,
+                'teto_atingido': True, 'abstido': False}
     if not ids:
         return {'pg': 0, 'faltando': 0, 'enfileiradas': 0,
                 'teto_atingido': teto, 'abstido': False}
@@ -264,11 +301,15 @@ def conferir_processos(ini: dt.datetime, fim: dt.datetime, reparar: bool = True)
         return {'pg': None, 'atrasados': None, 'enfileirados': 0,
                 'teto_atingido': False, 'abstido': True}
     if teto:
-        logger.error(
-            'gate datajud: TETO de %d processos atingido em [%s, %s) — a janela '
-            'NÃO fechou e o watermark não passa dela.',
+        # Mesma regra do lado das movimentações: leitura truncada não vira
+        # medição. Volta e deixa `conferir_janela` dividir a janela.
+        logger.warning(
+            'gate datajud: TETO de %d processos em [%s, %s) — janela grande '
+            'demais, vai ser dividida.',
             TETO_IDS_PROCS, ini.isoformat(), fim.isoformat(),
         )
+        return {'pg': len(pares), 'atrasados': None, 'enfileirados': 0,
+                'teto_atingido': True, 'abstido': False}
     if not pares:
         return {'pg': 0, 'atrasados': 0, 'enfileirados': 0,
                 'teto_atingido': teto, 'abstido': False}
@@ -299,14 +340,64 @@ def conferir_processos(ini: dt.datetime, fim: dt.datetime, reparar: bool = True)
 # ─────────────────────────────────────────────────────────────────────────────
 # A passada
 # ─────────────────────────────────────────────────────────────────────────────
+def _conferir_passo(ini: dt.datetime, fim: dt.datetime, reparar: bool,
+                    total: dict) -> bool:
+    """Confere UM recorte. Devolve True se ele FECHOU (medido dos dois lados).
+
+    Bateu o teto de leitura ⇒ **divide ao meio e mede as metades**, em vez de
+    parar. Isso não é conveniência: a vazão desta porta varia 28x ao longo do
+    dia (medido em 24/08/2026, linhas escritas por hora — 28.610 às 14h UTC
+    contra **798.824** às 12h UTC, média de 327.566 nas 12 horas medidas).
+    Com um passo fixo de 15 min, a hora de pico dá 200 mil linhas por passo e
+    bate o teto SEMPRE — e um gate que para no teto ficaria congelado no mesmo
+    instante para sempre, que é o oposto do que ele existe para impedir.
+
+    É o mesmo remédio que `search/jobs.py::_enviar_bulk` já usa para o 413 do
+    Elasticsearch: o erro não é de dado, é de TAMANHO, e a mesma faixa dividida
+    passa. Só quando nem o recorte mínimo cabe é que vira ERRO registrado e a
+    janela fica em dívida.
+    """
+    m = conferir_movs(ini, fim, reparar=reparar)
+    p = conferir_processos(ini, fim, reparar=reparar)
+    total['passos'] += 1
+
+    if m['teto_atingido'] or p['teto_atingido']:
+        # A leitura foi truncada: estes números são "os primeiros N que o
+        # índice devolveu", não a janela. NÃO entram no total — quem mede são
+        # as metades.
+        if fim - ini <= dt.timedelta(minutes=PASSO_MIN_MINIMO):
+            total['teto'] = True
+            logger.error(
+                'gate datajud: TETO atingido no recorte MÍNIMO de %d min em '
+                '[%s, %s) — a janela NÃO fechou, o watermark não passa dela e '
+                'a próxima passada tem que recomeçar daqui.',
+                PASSO_MIN_MINIMO, ini.isoformat(), fim.isoformat(),
+            )
+            return False
+        meio = ini + (fim - ini) / 2
+        return (_conferir_passo(ini, meio, reparar, total)
+                and _conferir_passo(meio, fim, reparar, total))
+
+    for chave, valor in (('movs_pg', m['pg']), ('movs_fora', m['faltando']),
+                         ('movs_enfileiradas', m['enfileiradas']),
+                         ('procs_pg', p['pg']), ('procs_atrasados', p['atrasados']),
+                         ('procs_enfileirados', p['enfileirados'])):
+        if valor:
+            total[chave] += valor
+    if m['abstido'] or p['abstido']:
+        total['abstidos'] += 1
+        return False
+    return True
+
+
 def conferir_janela(ini: dt.datetime, fim: dt.datetime, reparar: bool = True,
                     passo_min: int = PASSO_MIN) -> dict:
     """Percorre [ini, fim) em passos de `passo_min` e confere os dois lados.
 
     Devolve, além dos totais, `ate` — o instante até onde a conferência
-    REALMENTE fechou. Quem chama usa isso como watermark: um passo que
-    absteve ou bateu o teto para o avanço ali mesmo, e a próxima passada
-    recomeça dele. É a diferença entre "não sei" e "está tudo certo".
+    REALMENTE fechou. Quem chama usa isso como watermark: um passo que absteve
+    (ou que nem dividido coube no teto) para o avanço ali mesmo, e a próxima
+    passada recomeça dele. É a diferença entre "não sei" e "está tudo certo".
     """
     total = {'passos': 0, 'movs_pg': 0, 'movs_fora': 0, 'movs_enfileiradas': 0,
              'procs_pg': 0, 'procs_atrasados': 0, 'procs_enfileirados': 0,
@@ -315,22 +406,7 @@ def conferir_janela(ini: dt.datetime, fim: dt.datetime, reparar: bool = True,
     cursor = ini
     while cursor < fim:
         prox = min(cursor + passo, fim)
-        m = conferir_movs(cursor, prox, reparar=reparar)
-        p = conferir_processos(cursor, prox, reparar=reparar)
-        total['passos'] += 1
-        for chave, valor in (('movs_pg', m['pg']), ('movs_fora', m['faltando']),
-                             ('movs_enfileiradas', m['enfileiradas']),
-                             ('procs_pg', p['pg']), ('procs_atrasados', p['atrasados']),
-                             ('procs_enfileirados', p['enfileirados'])):
-            if valor:
-                total[chave] += valor
-        if m['abstido'] or p['abstido']:
-            total['abstidos'] += 1
-            # Abstenção NÃO carimba: o watermark para AQUI, no início do passo
-            # que não deu para medir, e a próxima passada refaz este trecho.
-            break
-        if m['teto_atingido'] or p['teto_atingido']:
-            total['teto'] = True
+        if not _conferir_passo(cursor, prox, reparar, total):
             break
         cursor = prox
         total['ate'] = cursor.isoformat()

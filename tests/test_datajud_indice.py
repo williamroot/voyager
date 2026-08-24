@@ -218,9 +218,11 @@ def test_gate_acha_exatamente_o_que_falta_e_reenfileira_so_isso():
 @pytest.mark.django_db
 def test_gate_ignora_o_que_nao_e_desta_porta():
     """O recorte é a janela de ESCRITA da PORTA. Uma linha do DJEN na mesma
-    janela não é dívida do Datajud — e o DJEN, sob recuperação nacional,
-    escreve 109.796 linhas/h contra as 27.468/h desta porta (medido em
-    24/08/2026). Sem o filtro, o gate acusaria o país inteiro."""
+    janela não é dívida do Datajud. As duas portas escrevem na mesma tabela e
+    na mesma janela de tempo: 109.796 linhas/h de TODAS as portas somadas
+    contra 27.468/h só do Datajud numa hora medida, e 798.824/h dele sozinho
+    na hora de pico (24/08/2026). Sem o filtro, o gate cobraria do Datajud a
+    dívida da recuperação nacional do DJEN."""
     from datajud import indice
     from tribunals.models import Movimentacao, Process
 
@@ -336,6 +338,66 @@ def test_teto_de_leitura_e_erro_e_nao_corte_mudo():
          mock.patch.object(indice.gate, 'ausentes_no_bloco', return_value=[]):
         r = indice.conferir_movs(ini, fim)
     assert r['teto_atingido'] is True and r['pg'] == 2
+
+
+@pytest.mark.django_db
+def test_teto_divide_a_janela_ao_meio_em_vez_de_travar_o_gate():
+    """Teto que PARA o gate congela o watermark para sempre na hora de pico.
+
+    A vazão desta porta varia 28x no mesmo dia (medido em 24/08/2026: 28.610
+    linhas/h às 14h UTC contra 798.824/h às 12h UTC, média de 327.566 nas 12
+    horas medidas). Com passo fixo de 15 min, a hora de pico dá 200 mil linhas
+    por passo e bate o teto SEMPRE — e a versão anterior deste gate parava ali,
+    sem avançar, para todo o sempre. Mesmo remédio do 413 do `_bulk`
+    (`search/jobs.py::_enviar_bulk`): o erro é de TAMANHO, e a mesma faixa
+    dividida passa.
+    """
+    from datajud import indice
+
+    ini = timezone.now().replace(microsecond=0) - dt.timedelta(hours=1)
+    fim = ini + dt.timedelta(minutes=15)
+    teto = {'pg': 200_000, 'faltando': None, 'enfileiradas': 0,
+            'teto_atingido': True, 'abstido': False}
+    ok = {'pg': 100, 'faltando': 0, 'enfileiradas': 0, 'teto_atingido': False,
+          'abstido': False}
+    procs = {'pg': 5, 'atrasados': 0, 'enfileirados': 0, 'teto_atingido': False,
+             'abstido': False}
+    # o passo inteiro estoura; cada metade cabe
+    vistas = []
+
+    def movs(a, b, reparar=True):
+        vistas.append((b - a).total_seconds() / 60)
+        return teto if (b - a) >= dt.timedelta(minutes=15) else ok
+
+    with mock.patch.object(indice, 'conferir_movs', side_effect=movs), \
+         mock.patch.object(indice, 'conferir_processos', return_value=procs):
+        r = indice.conferir_janela(ini, fim, passo_min=15)
+    assert vistas == [15.0, 7.5, 7.5], 'dividiu ao meio uma vez e as metades couberam'
+    assert r['ate'] == fim.isoformat(), 'e a janela FECHOU — o watermark anda'
+    assert r['teto'] is False
+    assert r['movs_pg'] == 200, 'a leitura truncada NÃO entra no total; as metades entram'
+
+
+@pytest.mark.django_db
+def test_teto_no_recorte_minimo_vira_erro_e_para_o_watermark():
+    """Dividir tem fundo: se nem o recorte mínimo couber, aí sim é dívida
+    visível e o watermark NÃO passa (regra nº 2 — teto é alerta, nunca corte
+    mudo). Com o teto de 200.000 ids isso exigiria 12 milhões de linhas/hora,
+    15x o pico já medido."""
+    from datajud import indice
+
+    ini = timezone.now().replace(microsecond=0) - dt.timedelta(hours=1)
+    fim = ini + dt.timedelta(minutes=2)
+    teto = {'pg': 200_000, 'faltando': None, 'enfileiradas': 0,
+            'teto_atingido': True, 'abstido': False}
+    procs = {'pg': 5, 'atrasados': 0, 'enfileirados': 0, 'teto_atingido': False,
+             'abstido': False}
+    with mock.patch.object(indice, 'conferir_movs', return_value=teto), \
+         mock.patch.object(indice, 'conferir_processos', return_value=procs), \
+         mock.patch.object(indice, 'PASSO_MIN_MINIMO', 1):
+        r = indice.conferir_janela(ini, fim, passo_min=2)
+    assert r['teto'] is True
+    assert r['ate'] == ini.isoformat(), 'o watermark não passa por cima da dívida'
 
 
 @pytest.mark.django_db

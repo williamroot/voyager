@@ -160,9 +160,10 @@ SAUDÁVEL (atraso de 122.604 ids ≈ 1 tick):
   **2 de 345 (0,6%)** das classes gravadas chegaram ao índice na janela
   2h-30min.
 
-Escala: a porta escreve **27.468 movimentações/h** e toca **~5.000
-processos/h**; 22.475.738 processos já têm `data_enriquecimento_datajud`
-(1.703.782 nos últimos 30 dias).
+Escala: a porta escreve **327.566 movimentações/h em média** (pico medido de
+798.824/h às 12h UTC, vale de 28.610/h às 14h — 28x de amplitude) e toca
+**~5.600 processos/h**, 74 movimentos por processo; 22.475.738 processos já têm
+`data_enriquecimento_datajud` (1.703.782 nos últimos 30 dias).
 
 A cura é a mesma da terceira porta, adaptada ao que esta porta é:
 
@@ -178,7 +179,9 @@ A cura é a mesma da terceira porta, adaptada ao que esta porta é:
    sincronização espalha linhas por décadas de `data_disponibilizacao`, então o
    recorte do diário nunca alcançaria esta porta. Custo medido por passo de
    15 min: 2,33 s (movimentações, `mov_inserido_tribunal_idx`) + 0,29 s
-   (processos, `proc_datajud_em_idx`);
+   (processos, `proc_datajud_em_idx`). O passo é ponto de partida: na hora de
+   pico ele não cabe no teto de leitura e o gate **divide a janela ao meio**
+   em vez de travar — mesmo remédio do 413 do `_bulk`;
 4. **backfill** por faixa explícita: `manage.py datajud_conferir_indice
    --desde … --ate …`, que não toca o watermark do cron.
 

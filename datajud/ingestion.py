@@ -121,12 +121,14 @@ def _entregar_ao_indice(mov_pks: list[int], processo_pk: int) -> None:
         15-30 min                   4.133       3.000       0
         30-60 min                  15.362       3.000       0
 
-      Vazão da porta: **27.468 linhas/h** na última hora cheia (picos de
-      80.000+). O único caminho até o índice era o poller de 10 minutos, e
-      isso na hora em que ele estava SAUDÁVEL (atraso medido: 122.604 ids ≈
-      1 tick). Com o poller freado por `FILA_ES_ALTA`, desligado por
-      `sync_es:off`, ou com a chave de watermark perdida do cache — caso em
-      que ele RE-ANCORA NO TOPO — o que ficou abaixo não volta nunca.
+      Vazão da porta, por hora cheia no mesmo dia: **327.566 linhas/h em
+      média**, pico de **798.824/h** (12h UTC) e vale de **28.610/h** (14h
+      UTC) — 28x de amplitude. O único caminho até o índice era o poller de
+      10 minutos, e a medição acima foi feita com ele SAUDÁVEL (atraso:
+      122.604 ids ≈ 1 tick). Com o poller freado por `FILA_ES_ALTA`,
+      desligado por `sync_es:off`, ou com a chave de watermark perdida do
+      cache — caso em que ele RE-ANCORA NO TOPO — o que ficou abaixo não
+      volta nunca.
 
       PROCESSO — critério exato: o doc está em dia com esta porta se
       `doc.enriquecido_em >= PG.data_enriquecimento_datajud`.
@@ -143,16 +145,18 @@ def _entregar_ao_indice(mov_pks: list[int], processo_pk: int) -> None:
       `atualizado_em` (o `auto_now` só roda em `Model.save()`), que é
       justamente a chave do keyset de `sync_processos_atualizados`. População:
       22.475.738 processos com `data_enriquecimento_datajud`, 1.703.782 nos
-      últimos 30 dias, ~5.000/h.
+      últimos 30 dias, 5.628 numa hora medida.
 
-    Entrega só as movimentações NOVAS, e isso é medição, não descuido: o lote
-    inteiro seriam ~73 movimentos por processo (5.000 sincronizações/h x
-    73 ≈ 365 mil docs/h contra os 27,5 mil/h que realmente mudaram, 13x).
-    Diferente do diário, esta porta não reescreve texto — o `external_id` é
-    `sha1(processo, código, dataHora)` e o texto sai do MESMO movimento, então
-    re-entregar pré-existente não corrige nada. Quem cobre a entrega que
-    falhou é o gate (`datajud/indice.py`), que confere a janela de escrita
-    pelos dois lados.
+    Entrega só as movimentações NOVAS. Na PRIMEIRA sincronização de um processo
+    isso quase não muda nada (medido: 416.186 linhas para 5.628 processos numa
+    hora, 74 por processo, praticamente todas novas); o que ele evita é a
+    RE-sincronização, que é o caminho do botão manual e da hidratação — lá o
+    processo já tem os 74 movimentos, e entregar o lote inteiro reindexaria 74
+    documentos para corrigir zero. Diferente do diário, esta porta não
+    reescreve texto: o `external_id` é `sha1(processo, código, dataHora)` e o
+    texto sai do MESMO movimento, então re-entregar pré-existente não corrige
+    nada. Quem cobre a entrega que falhou é o gate (`datajud/indice.py`), que
+    confere a janela de escrita pelos dois lados.
 
     Propaga a exceção de propósito: fila fora do ar significa que a
     sincronização NÃO foi entregue ao índice. O job morre, o RQ retenta

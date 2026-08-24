@@ -502,6 +502,9 @@ def create_scheduler() -> BlockingScheduler:
     #
     # Custo por passada, medido com EXPLAIN em produção: 2,33 s (frio) por
     # passo de 15 min do lado das movimentações e 0,29 s do lado dos processos.
+    # A vazão da porta varia 28x no dia (28.610 linhas/h no vale, 798.824/h
+    # no pico), então o passo de 15 min é PONTO DE PARTIDA: quando não cabe
+    # no teto de leitura, o gate divide a janela ao meio em vez de travar.
     if getattr(settings, 'DATAJUD_GATE_INDICE_ENABLED', True):
         from datajud.jobs import agendar_conferencia_indice_datajud
 

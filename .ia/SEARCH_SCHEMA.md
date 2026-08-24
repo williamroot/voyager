@@ -594,8 +594,21 @@ documento, não estimativa), no dia em que o poller estava SAUDÁVEL — atraso 
 | 15-30 min | 4.133 | 3.000 | 0 |
 | 30-60 min · 1-2 h · 2-4 h | 15.362 · 20.000+ · 20.000+ | 3.000 | 0 |
 
-Vazão da porta: **27.468 linhas/h** na última hora cheia (picos de 80.000+),
-contra 109.796/h de todas as portas somadas.
+Vazão da porta, por hora cheia no mesmo dia — ela varia **28x**, e a primeira
+medição (27.468/h) caiu num vale:
+
+| hora (UTC) | linhas | hora (UTC) | linhas |
+|---|---:|---|---:|
+| 03h | 59.250 | 09h | 403.346 |
+| 04h | 268.218 | 10h | 385.846 |
+| 05h | 367.495 | 11h | 479.568 |
+| 06h | 385.359 | **12h** | **798.824** (pico) |
+| 07h | 360.631 | 13h | 36.464 |
+| 08h | 357.186 | **14h** | **28.610** (vale) |
+
+Média das 12 horas medidas: **327.566 linhas/h**. A conta fecha com o teto de
+100 rpm da APIKey compartilhada: 5.628 processos numa hora x 74 movimentos por
+processo = 416.186 linhas, exatamente o que o gate contou naquela hora.
 
 E o buraco que NÃO tinha poller nenhum — `Process.objects.filter(pk=…)
 .update(...)` não dispara `post_save` **e não mexe em `atualizado_em`**, porque
@@ -638,9 +651,18 @@ Custo medido com `EXPLAIN (ANALYZE, BUFFERS)` em produção:
 | 60 min | 28.983 | 78.943 | 6,64 s | 31.175 |
 | 4 h | 200.000 (TETO) | 124.950 | 8,50 s | 62.551 |
 
-Por isso o passo é de **15 min**. Comparar com o diário, onde recortar UMA
+Por isso o passo COMEÇA em **15 min**. Comparar com o diário, onde recortar UMA
 edição custava 29,2 s e 65.846 blocos: lá o recorte teve que SUBIR para o dia;
-aqui o recorte fino é o barato. O lado dos processos usa
+aqui o recorte fino é o barato.
+
+**O passo é ponto de partida, não regra.** Na hora de pico, 15 min são 200 mil
+linhas e batem o teto de leitura SEMPRE — e um gate que PARA no teto congela o
+watermark no mesmo instante para sempre, que é o oposto do que ele existe para
+impedir. `_conferir_passo` **divide a janela ao meio** quando o teto aparece,
+igual ao que `search/jobs.py::_enviar_bulk` faz com o 413 do ES: o erro não é
+de dado, é de tamanho. Só o recorte MÍNIMO (1 min) que ainda não couber vira
+ERRO registrado e dívida visível — o que exigiria 12 milhões de linhas/hora,
+15x o pico medido. O lado dos processos usa
 `proc_datajud_em_idx (data_enriquecimento_datajud)` e custou **0,29 s** para
 1.296 processos na mesma janela de 15 min.
 
