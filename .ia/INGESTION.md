@@ -348,6 +348,18 @@ páginas paralelas; `itensPorPagina` virou a variável de ajuste.
 incompleta; muda o tamanho do balde, não quantos baldes. Teto de página é o
 pecado original deste projeto (43,6% do TJSP).
 
+**Medido em produção** (24/08, container com o mesmo `mem_limit: 1g`, gravando
+no banco): TJDFT 2026-08-14 — o dia que morria com `pgs=0`, ou seja antes de
+gravar UMA página — passou do ponto de morte e seguiu com pico de **311 MB**,
+30% do teto. Os `worker_ingestion` no mesmo período: 200-290 MB.
+
+**`DJEN_BYTES_EM_VOO` é o botão de VAZÃO, não o de pico.** Quem manda no pico é
+a sonda (lê 250 publicações de uma vez) e o teto de crescimento; o orçamento
+manda no tamanho da página de regime. Medido no mesmo dia: a 24 MB o pico foi
+os mesmos 311 MB **e** a página do TJDFT desabou pro piso de 25 itens — 586
+requisições e ~3 h por dia-tribunal, o que é perda de acervo pelo relógio. O
+padrão é **64 MB**: mesmo pico, página ~2,5× maior.
+
 **Além da paginação, dois acumuladores O(dia) foram cortados:**
 
 * `cnjs_tocados` juntava o dia inteiro e só era usado no fim — um `set` vivo do

@@ -260,6 +260,59 @@ def test_erros_do_run_param_no_teto_e_o_resto_vira_contador():
     assert contador['total'] == 5_000, 'o número real tem que continuar registrado'
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# 6. Passar do teto de RSS é ERRO no run, na hora — não SIGKILL calado
+# ═════════════════════════════════════════════════════════════════════════════
+
+class _RunGravavel(_RunFalso):
+    def __init__(self):
+        super().__init__()
+        self.pk = 1
+        self.salvou = 0
+
+    def save(self, update_fields=None):
+        self.salvou += 1
+
+
+@override_settings(DJEN_RSS_ALERTA_MB=700)
+def test_rss_acima_do_teto_vira_erro_no_run_na_hora(monkeypatch):
+    """O alerta é gravado NA HORA, não no fim do run. Um alerta que espera o
+    fim não sobrevive à morte do processo que ele descreve — foi exatamente
+    assim que 342 dias morreram sem deixar um número: o único registro era o
+    watchdog escrevendo "worker crashou" uma hora depois."""
+    from djen import ingestion as ing
+
+    run = _RunGravavel()
+    run.paginas_lidas = 7
+    monkeypatch.setattr(ing, '_rss_mb', lambda: 812.4)
+
+    ing._vigiar_memoria(run)
+
+    alerta = next(e for e in run.erros if e['erro'] == 'memoria_acima_do_alerta')
+    assert alerta['rss_mb'] == 812.4 and alerta['teto_mb'] == 700
+    assert alerta['paginas_lidas'] == 7
+    assert run.salvou == 1, 'gravou só no fim — o SIGKILL leva o alerta junto'
+
+    # segunda passagem mais alta: atualiza o MÁXIMO, não duplica a entrada
+    run.paginas_lidas = 9
+    monkeypatch.setattr(ing, '_rss_mb', lambda: 940.0)
+    ing._vigiar_memoria(run)
+    assert len([e for e in run.erros if e['erro'] == 'memoria_acima_do_alerta']) == 1
+    assert run.erros[-1]['rss_mb'] == 940.0 and run.erros[-1]['paginas_lidas'] == 9
+
+
+@override_settings(DJEN_RSS_ALERTA_MB=700)
+def test_rss_abaixo_do_teto_nao_polui_o_run(monkeypatch):
+    """O caminho comum não pode encher `erros` — ela é re-serializada inteira a
+    cada página."""
+    from djen import ingestion as ing
+
+    run = _RunGravavel()
+    monkeypatch.setattr(ing, '_rss_mb', lambda: 210.0)
+    ing._vigiar_memoria(run)
+    assert run.erros == [] and run.salvou == 0
+
+
 def test_run_none_nao_explode():
     """`_process_page` roda com `run=None` no caminho por-processo
     (`ingest_processo`) — o registro de erro tem que ser no-op ali."""

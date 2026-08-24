@@ -297,13 +297,21 @@ DJEN_PAGINAS_PARALELAS = env.int('DJEN_PAGINAS_PARALELAS', default=8)
 # acima do `mem_limit: 1g` do worker, e o OOM killer levava o work-horse com
 # SIGKILL (342 das 703 falhas da `djen_backfill`, 333 delas TJDFT).
 #
-# 24 MB de texto cru viram ~60-90 MB de heap (str/dict do Python pesam ~2,5× o
-# JSON cru) e somam ~200 MB com o Django carregado. A folga grande é
-# deliberada: o peso da publicação varia MUITO dentro do mesmo dia (no TJDFT
-# a sonda mediu 20,5 KB e uma leva seguinte trouxe 295,7 KB), então o orçamento
-# tem que aguentar uma previsão errada por uma leva inteira sem passar do 1g.
-# Quem grita quando não aguentar é o DJEN_RSS_ALERTA_MB abaixo.
-DJEN_BYTES_EM_VOO = env.int('DJEN_BYTES_EM_VOO', default=24 * 1024 * 1024)
+# O fator medido é 2,55: cada byte de JSON cru vira 2,55 bytes de heap em
+# str/dict do Python ((957-114 MB)/330 MB, do incidente). Com ~130 MB de base
+# (Django + RQ carregados), 64 MB em voo dão ~295 MB de pico — foi o medido em
+# produção. Sobra folga de propósito, porque o peso da publicação varia MUITO
+# DENTRO do mesmo dia (o TJDFT 2026-08-14 mediu 24,6 KB numa leva e 423 KB na
+# seguinte): o orçamento tem que aguentar uma previsão errada por uma leva
+# inteira sem passar do 1g. Quem grita quando não aguentar é o
+# DJEN_RSS_ALERTA_MB abaixo.
+#
+# Menos que isto NÃO baixa o pico e custa acervo: a 24 MB o pico medido foi o
+# mesmo 311 MB (quem manda no pico é a sonda, que lê 250 publicações de uma
+# vez), e a página do TJDFT caía pro piso de 25 itens — 586 requisições e ~3 h
+# por dia-tribunal. O orçamento é o botão de VAZÃO; o pico quem segura é a
+# sonda + o teto de crescimento.
+DJEN_BYTES_EM_VOO = env.int('DJEN_BYTES_EM_VOO', default=64 * 1024 * 1024)
 
 # A partir de quanto de RSS a ingestão GRITA (ERRO no run, com o número real)
 # em vez de esperar o SIGKILL silencioso do OOM killer. Regra nº 2 do

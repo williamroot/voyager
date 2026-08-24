@@ -96,7 +96,7 @@ def _bytes_em_voo() -> int:
     quem grava (ver `DJENClient.iter_pages`). Lido tarde, como os `_cb_*` acima,
     pra que `override_settings` funcione e pra que um cliente montado sem
     `__init__` (os dublês dos testes) continue tendo o teto."""
-    return int(getattr(settings, 'DJEN_BYTES_EM_VOO', 24 * 1024 * 1024))
+    return int(getattr(settings, 'DJEN_BYTES_EM_VOO', 64 * 1024 * 1024))
 
 
 def _peso_por_item(items: list[dict]) -> int:

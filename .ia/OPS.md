@@ -1519,9 +1519,13 @@ print(qs.count())"'
 ssh 100.98.141.91 'docker logs --since 1h voyager-worker_ingestion-1 2>&1 | grep itensPorPagina | tail'
 ```
 
-**Se voltar a acontecer:** o botão é `DJEN_BYTES_EM_VOO` no `.env` dos workers
-(menor = página menor = menos memória e mais requisições). Subir `mem_limit` é
-último recurso — a `.102` já travou por OOM **de host** em 2026-06-08.
+**Se voltar a acontecer:** o botão é `DJEN_BYTES_EM_VOO` no `.env` dos workers.
+⚠️ Ele é botão de **VAZÃO**, não de pico: medido em 24/08, baixar de 64 MB pra
+24 MB deixou o pico IGUAL (311 MB) e derrubou a página do TJDFT pro piso de 25
+itens — 586 requisições e ~3 h para UM dia-tribunal, que é perda de acervo pelo
+relógio. Quem segura o pico é a sonda + o teto de crescimento
+(`PAGE_SIZE_SONDA`, `FATOR_CRESCIMENTO` em `djen/client.py`). Subir `mem_limit`
+é último recurso — a `.102` já travou por OOM **de host** em 2026-06-08.
 
 ⚠️ `git pull` no host **não** recarrega o Python: `docker restart` nas réplicas
 de `worker_ingestion` é obrigatório (ver o incidente de 21/08 acima).
