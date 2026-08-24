@@ -1,4 +1,5 @@
 import collections
+import json
 import logging
 import os
 import sys
@@ -6,8 +7,10 @@ import time
 from datetime import UTC, date, timedelta
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import connection, transaction
 from django.db.models import F, Max
+from django.db.models.expressions import RawSQL
 from django.db.utils import OperationalError
 from django.utils import timezone
 from django_rq import job
@@ -237,6 +240,22 @@ def sync_movimentacoes_bulk(process_id: int) -> dict:
 
 # Limites do watchdog (constantes em segundos pra deixar explícito)
 WATCHDOG_RUN_ZOMBIE_SECONDS = 60 * 60          # IngestionRun travado >1h = zumbi
+
+#: teto do run que AINDA TEM JOB VIVO no worker. "1h sem terminar = worker
+#: crashou" é falso para o dia grande: MEDIDO em 24/08/2026, de 170 runs de 1
+#: dia que fecharam `success` em 12 h, **11 (6,5%) levaram mais de 60 min** e o
+#: pior (TJSP) levou **357 min**. Todos foram marcados "worker crashou"
+#: enquanto o worker estava trabalhando, e só voltaram a `success` quando
+#: terminaram — poluindo o censo de falhas (era parte dos 640 "worker crashou"
+#: contados em 24/08) e, pior, APAGANDO os `erros` já gravados no run, que é
+#: justamente a evidência que a regra nº 2 manda preservar.
+#: O valor é o `job_timeout` do `reprocessar_janela` (21.600 s) + 1 h de folga:
+#: passou disso, nem o RQ acredita mais no job, e o run é zumbi de verdade.
+WATCHDOG_RUN_ZOMBIE_COM_JOB_S = 7 * 60 * 60
+
+#: o que fica escrito no run marcado zumbi. Constante porque é lido de volta
+#: nos censos de falha.
+MSG_ZUMBI = 'watchdog: status=running sem finished_at por >1h — worker crashou'
 WATCHDOG_DAILY_STALE_SECONDS = 60 * 60 * 26    # Tribunal sem run success em 26h
 
 #: Orçamento INTERNO do tique, menor que o `timeout=120` do decorador.
@@ -281,6 +300,34 @@ CODIGO_VELHO_TOLERANCIA_S = 120
 #: código de SETE DIAS. 72h passa longe de um deploy normal e pega o caso real
 #: no primeiro dia útil.
 FROTA_ATRASO_ALERTA_H = 72
+
+
+def _dias_com_job_vivo() -> set[tuple[str, str]]:
+    """`(sigla, dia)` dos jobs de 1 dia que estão AGORA nas mãos de um worker.
+
+    Sai de graça do próprio RQ: o job_id é determinístico (`f2:<SIGLA>:<dia>`,
+    `bfd:<SIGLA>:<dia>`, `adiado:<SIGLA>:<dia>`), então dá pra saber quem ainda
+    tem alguém trabalhando nele sem tocar no banco. São dezenas de ids (14
+    medidos em 24/08/2026, um por réplica), não milhares.
+
+    Falha de leitura do registro devolve conjunto VAZIO de propósito: sem essa
+    informação o watchdog volta ao comportamento antigo (mata o zumbi) — o
+    diagnóstico não pode virar motivo pra deixar run travado pra sempre.
+    """
+    import django_rq
+    from rq.registry import StartedJobRegistry
+
+    vivos: set[tuple[str, str]] = set()
+    for nome in ('djen_backfill', 'djen_ingestion'):
+        try:
+            fila = django_rq.get_queue(nome)
+            for jid in StartedJobRegistry(queue=fila).get_job_ids():
+                partes = jid.split(':')
+                if len(partes) >= 3 and partes[0] in ('f2', 'bfd', 'adiado'):
+                    vivos.add((partes[1], partes[2]))
+        except Exception as exc:
+            logger.warning('watchdog: não li os jobs vivos de `%s`: %s', nome, exc)
+    return vivos
 
 
 def _leitura_com_teto(fn, segundos: int = WATCHDOG_SQL_TIMEOUT_S):
@@ -497,6 +544,57 @@ def _alerta_registry_de_falhas(fila) -> int:
 
 
 
+def _matar_zumbis(agora) -> tuple[int, int]:
+    """Marca `failed` o run travado — e SÓ ele. Devolve (matados, poupados).
+
+    "status=running há mais de 1h ⇒ o worker crashou" é uma inferência, e ela é
+    falsa justamente no dia que mais importa: o dia grande. MEDIDO em
+    24/08/2026, entre os 170 runs de 1 dia que fecharam `success` em 12 h,
+    **11 (6,5%) passaram de 60 min**, o pior deles um TJSP de **357 min**. Cada
+    um foi marcado "worker crashou" com o worker trabalhando, e só voltou a
+    `success` ao terminar. O estrago é duplo: o censo de falhas fica com
+    fantasma (parte dos 640 "worker crashou" de 24/08 é isto) e o `erros` do
+    run era SOBRESCRITO, apagando o teto de bytes e o drift que aquele dia
+    tinha registrado — a evidência que a regra nº 2 manda guardar.
+
+    O desempate não custa banco: o job_id é determinístico, então quem está com
+    o dia na mão aparece no `StartedJobRegistry`. Com job vivo, o run ganha até
+    `WATCHDOG_RUN_ZOMBIE_COM_JOB_S`; sem ele, nada muda.
+    """
+    zumbi_cutoff = agora - timedelta(seconds=WATCHDOG_RUN_ZOMBIE_SECONDS)
+    vivos = _dias_com_job_vivo()
+    candidatos = _leitura_com_teto(lambda: list(IngestionRun.objects.filter(
+        status=IngestionRun.STATUS_RUNNING,
+        finished_at__isnull=True,
+        started_at__lt=zumbi_cutoff,
+    ).values('pk', 'tribunal__sigla', 'janela_inicio', 'janela_fim', 'started_at')))
+    teto_vivo = agora - timedelta(seconds=WATCHDOG_RUN_ZOMBIE_COM_JOB_S)
+    alvos, poupados = [], 0
+    for r in candidatos:
+        trabalhando = (
+            r['janela_inicio'] == r['janela_fim']
+            and (r['tribunal__sigla'], r['janela_inicio'].isoformat()) in vivos
+            and r['started_at'] > teto_vivo
+        )
+        if trabalhando:
+            poupados += 1
+            continue
+        alvos.append(r['pk'])
+    if not alvos:
+        return 0, poupados
+    # `erros` é APPEND, não substituição: o run pode já carregar o teto de
+    # bytes ou o drift daquele dia, e sobrescrever apaga a evidência.
+    matados = _leitura_com_teto(lambda: IngestionRun.objects.filter(
+        pk__in=alvos,
+    ).update(
+        status=IngestionRun.STATUS_FAILED,
+        finished_at=agora,
+        erros=RawSQL("COALESCE(erros, '[]'::jsonb) || %s::jsonb",
+                     [json.dumps([MSG_ZUMBI])]),
+    ))
+    return matados, poupados
+
+
 @job('default', timeout=120)
 def watchdog_ingestao() -> dict:
     """Garante que a ingestão/backfill estão progredindo. Roda em cron (5min).
@@ -549,21 +647,14 @@ def watchdog_ingestao() -> dict:
         resultado['codigo'].get('mtime_mais_novo', 0.0))
     resultado['falhas_no_registry'] = _alerta_registry_de_falhas(default_q)
 
-    # 1) Zumbis
+    # 1) Zumbis — mas só os que são zumbi de verdade (ver `_matar_zumbis`).
     if _sobrou_tempo('zumbis'):
-        zumbi_cutoff = agora - timedelta(seconds=WATCHDOG_RUN_ZOMBIE_SECONDS)
-        n_zumbis = _leitura_com_teto(lambda: IngestionRun.objects.filter(
-            status=IngestionRun.STATUS_RUNNING,
-            finished_at__isnull=True,
-            started_at__lt=zumbi_cutoff,
-        ).update(
-            status=IngestionRun.STATUS_FAILED,
-            finished_at=agora,
-            erros=['watchdog: status=running sem finished_at por >1h — worker crashou'],
-        ))
+        n_zumbis, poupados = _matar_zumbis(agora)
         resultado['zumbis_matados'] = n_zumbis
-        if n_zumbis:
-            logger.warning('watchdog matou zumbis', extra={'n': n_zumbis})
+        resultado['zumbis_poupados_com_job_vivo'] = poupados
+        if n_zumbis or poupados:
+            logger.warning('watchdog matou zumbis', extra={
+                'n': n_zumbis, 'poupados_com_job_vivo': poupados})
 
     # 2 + 3) Re-enfileira backfill/daily
     if _sobrou_tempo('reenfileiramento'):
@@ -620,6 +711,13 @@ def watchdog_ingestao() -> dict:
         resultado['dias_recuperacao_reenfileirados'] = (
             ressuscitar_dias_de_recuperacao(resumo=resumo))
         resultado['recuperacao'] = resumo
+
+    # 5) O dia que fechou `success` fechou ÍNTEGRO? Ninguém perguntava isso
+    #    automaticamente até 24/08/2026 — ver o bloco do gate de completude.
+    if _sobrou_tempo('gate de completude'):
+        conferencia: dict = {}
+        resultado['gate_enfileirados'] = conferir_dias_fechados(resumo=conferencia)
+        resultado['gate'] = conferencia
 
     return resultado
 
@@ -928,6 +1026,200 @@ def _dias_cobertos(tribunal: Tribunal, ini: date, fim: date) -> set[date]:
                 covered.add(d)
             d += timedelta(days=1)
     return covered
+
+
+# ─────────────────────────── Gate de completude (o dia fechou ÍNTEGRO?) ──────
+#
+# `status='success'` nunca foi prova de completude. As três perdas do CLAUDE.md
+# tinham run VERDE — o teto de 10 páginas serviu 43,6% do TJSP como sucesso por
+# 17 meses. Até 24/08/2026 nada no sistema comparava, sozinho, o que o dia
+# trouxe com o que a FONTE declara: a conferência existia só como comando
+# manual (`djen_provar_dias`, `djen_auditar_cobertura`), e comando manual é
+# coisa que ninguém roda.
+#
+# Este gate roda a cada tique do watchdog e é deliberadamente BARATO:
+#
+#   1. `count_window` (1 requisição, `itensPorPagina=1`, 0,66 s medido) diz
+#      quantas publicações a DJEN declara no dia. Confrontado com
+#      `novas + duplicadas` do run, ele pega corte mudo no MESMO dia em que
+#      acontece;
+#   2. o `count` tem TETO DE 10.000 (regra nº 3: número redondo é piso
+#      disfarçado). Acima disso ele não decide nada, e dizer "10.000 = 10.000"
+#      seria a mentira mais cara possível. Então o dia grande vai pro caminho
+#      CARO — paginar até esgotar — em dose homeopática (`GATE_PAGINADOS_POR_TIQUE`),
+#      porque cada um baixa o dia inteiro (o TJDFT 2026-08-21 são 822,6 MB).
+#
+# Divergência não vira exceção nem apaga nada: vira ERRO em `run.erros` (regra
+# nº 2, teto/anomalia é alerta auditável) e linha de log com os dois números.
+# Quem decide o que fazer é gente.
+
+#: quanto tempo um dia conferido fica marcado (Redis). Maior que a janela de
+#: recuperação de 7 dias: um dia refeito DEPOIS disso é run novo e merece
+#: conferência nova.
+GATE_TTL_S = 8 * 24 * 3600
+
+#: dias conferidos pelo caminho barato por tique de watchdog (5 min). 20/tique
+#: são 240 requisições/h contra as ~10 mil páginas/h que a frota já pede — 2,4%.
+GATE_POR_TIQUE = 20
+
+#: dias GRANDES (count no teto) conferidos por paginação por tique. É o caminho
+#: caro: 1 dia do TJDFT = 59 requisições e 822,6 MB. 1 por tique = 12/h, teto de
+#: 12 dias grandes auditados por hora.
+GATE_PAGINADOS_POR_TIQUE = 1
+
+#: teto interno do `count` da DJEN.
+GATE_CAP = 10_000
+
+#: tolerância do confronto barato. ZERO por decisão: o `count` e a paginação
+#: leem a mesma janela na mesma API, então diferença é achado, não ruído
+#: (regra nº 5). Um dia que a fonte reeditou depois da coleta aparece aqui — e
+#: aparecer é o comportamento certo.
+GATE_TOLERANCIA = 0
+
+
+def _marca_gate(sigla: str, dia_iso: str) -> str:
+    return f'djen:conferido:{sigla}:{dia_iso}'
+
+
+@job('djen_audit', timeout=10800)
+def conferir_dia_contra_fonte(tribunal_sigla: str, dia_iso: str,
+                              paginar: bool = False) -> dict:
+    """Confere UM dia fechado contra a fonte. Fila `djen_audit` de propósito.
+
+    Não disputa worker com a ingestão (a fila `djen_audit` tem workers próprios,
+    ociosos), e o que ela pede à API do CNJ é 1 requisição de 1 item — ou, no
+    caminho `paginar`, o dia inteiro, que é caro e por isso vem racionado pelo
+    watchdog.
+
+    Devolve sempre um dict com os dois lados; nunca levanta por divergência.
+    """
+    from .client import DjenBusyError
+
+    t = Tribunal.objects.get(sigla=tribunal_sigla)
+    dia = date.fromisoformat(dia_iso)
+    run = (IngestionRun.objects
+           .filter(fonte=FONTE, tribunal=t, janela_inicio=dia, janela_fim=dia,
+                   status=IngestionRun.STATUS_SUCCESS)
+           .order_by('-finished_at').first())
+    if run is None:
+        # O dia deixou de estar fechado entre o enfileiramento e agora (refeito,
+        # ou o watchdog o marcou zumbi). Não é erro: é conferência sem objeto.
+        return {'skip': 'sem success de 1 dia', 'tribunal': tribunal_sigla, 'dia': dia_iso}
+
+    lidas = run.movimentacoes_novas + run.movimentacoes_duplicadas
+    client = DJENClient()
+    try:
+        declarado = client.count_window(t.sigla_djen, dia, dia)
+    except DjenBusyError:
+        # Circuito aberto é "volte mais tarde", não resultado. Sem marca no
+        # Redis, o próximo tique reenfileira este dia.
+        return {'skip': 'djen_circuito_aberto', 'tribunal': tribunal_sigla, 'dia': dia_iso}
+
+    res = {'tribunal': tribunal_sigla, 'dia': dia_iso, 'run_id': run.pk,
+           'run_lidas': lidas, 'fonte_count': declarado, 'paginado': False}
+
+    if declarado >= GATE_CAP and paginar:
+        # Caminho caro: paginação PRÓPRIA (a do `djen_provar_dias`), de fora do
+        # `iter_pages`. Se a calibração de página do coletor voltar a cortar
+        # mudo, a conferência não repete o erro junto — ela o denuncia.
+        from djen.management.commands.djen_provar_dias import paginar_forca_bruta
+        try:
+            bruto = paginar_forca_bruta(client, t.sigla_djen, dia)
+        except Exception as exc:
+            logger.warning('gate: paginação de %s %s não concluiu: %s',
+                           tribunal_sigla, dia_iso, str(exc)[:200])
+            return res | {'skip': 'paginacao_falhou', 'detalhe': str(exc)[:200]}
+        declarado = len(bruto['ids'])
+        res |= {'paginado': True, 'fonte_paginada': declarado,
+                'requisicoes': bruto['requisicoes']}
+    elif declarado >= GATE_CAP:
+        # 10.000 é PISO, não total: com este número não dá pra afirmar nem
+        # negar integridade. Abster > chutar (regra nº 6).
+        cache.set(_marca_gate(tribunal_sigla, dia_iso), 'cap', GATE_TTL_S)
+        return res | {'veredito': 'indecidivel_no_teto_de_10k'}
+
+    gap = declarado - lidas
+    res['gap'] = gap
+    cache.set(_marca_gate(tribunal_sigla, dia_iso), 'ok' if abs(gap) <= GATE_TOLERANCIA
+              else 'gap', GATE_TTL_S)
+    if abs(gap) <= GATE_TOLERANCIA:
+        return res | {'veredito': 'integro'}
+
+    # Achado. Vai pro run (auditável depois, sem depender de log rotacionado) e
+    # pro log com os DOIS números na mesma linha.
+    marca = {'erro': 'cobertura_divergente', 'fonte': declarado, 'run': lidas,
+             'gap': gap, 'via': 'paginacao' if res['paginado'] else 'count',
+             'quando': timezone.now().isoformat()}
+    try:
+        with transaction.atomic():
+            atual = (IngestionRun.objects.select_for_update()
+                     .filter(pk=run.pk).values_list('erros', flat=True).first())
+            erros = list(atual or [])
+            if not any(isinstance(e, dict) and e.get('erro') == 'cobertura_divergente'
+                       for e in erros):
+                erros.append(marca)
+                IngestionRun.objects.filter(pk=run.pk).update(erros=erros)
+    except OperationalError as exc:            # banco em contenção não pode
+        logger.warning('gate: não gravei o achado no run %s: %s', run.pk, exc)
+    logger.error(
+        'GATE DE COMPLETUDE: %s %s fechou `success` com %d publicações mas a '
+        'fonte declara %d (gap %+d, via %s, run=%d). Regra nº 5: diferença é '
+        'achado, não ruído',
+        tribunal_sigla, dia_iso, lidas, declarado, gap,
+        'paginação' if res['paginado'] else 'count de 1 requisição', run.pk,
+    )
+    return res | {'veredito': 'divergente'}
+
+
+#: até onde o gate olha pra trás por tique. Folga de 4x sobre o cron de 5 min:
+#: um tique perdido (ou um watchdog que estourou o orçamento) não deixa dia
+#: sem conferência.
+GATE_JANELA_S = 20 * 60
+
+#: teto de linhas lidas por tique. O `LIMIT` é da leitura, não da conferência:
+#: quem passar disso volta no próximo tique com `finished_at` ainda na janela.
+GATE_CANDIDATOS_MAX = 500
+
+def conferir_dias_fechados(resumo: dict | None = None) -> int:
+    """Enfileira a conferência dos dias que fecharam desde o último tique.
+
+    Escolhe pela ponta certa: `finished_at` recente. Um dia já conferido carrega
+    marca no Redis por 8 dias — perder a marca custa uma requisição repetida,
+    não uma conferência perdida.
+    """
+    import django_rq
+
+    desde = timezone.now() - timedelta(seconds=GATE_JANELA_S)
+    fechados = _leitura_com_teto(lambda: list(
+        IngestionRun.objects
+        .filter(fonte=FONTE, status=IngestionRun.STATUS_SUCCESS,
+                finished_at__gte=desde)
+        .filter(janela_inicio=F('janela_fim'))
+        .values('tribunal__sigla', 'janela_inicio',
+                'movimentacoes_novas', 'movimentacoes_duplicadas')
+        .order_by('-finished_at')[:GATE_CANDIDATOS_MAX]))
+
+    fila = django_rq.get_queue('djen_audit')
+    baratos = caros = 0
+    for r in fechados:
+        sigla, dia = r['tribunal__sigla'], r['janela_inicio'].isoformat()
+        if cache.get(_marca_gate(sigla, dia)) is not None:
+            continue
+        grande = (r['movimentacoes_novas'] + r['movimentacoes_duplicadas']) >= GATE_CAP
+        if grande:
+            if caros >= GATE_PAGINADOS_POR_TIQUE:
+                continue          # não é corte mudo: volta no próximo tique
+            caros += 1
+        elif baratos >= GATE_POR_TIQUE:
+            continue
+        else:
+            baratos += 1
+        fila.enqueue('djen.jobs.conferir_dia_contra_fonte', sigla, dia, grande,
+                     job_id=f'gate:{sigla}:{dia}', job_timeout=10800)
+
+    if resumo is not None:
+        resumo.update({'candidatos': len(fechados), 'baratos': baratos, 'caros': caros})
+    return baratos + caros
 
 
 @job('djen_audit', timeout=3600)

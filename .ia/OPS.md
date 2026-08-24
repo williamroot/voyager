@@ -374,11 +374,22 @@ Faz auto-heal de 5 cenários:
    rodando código anterior ao que está no disco, e se o `FailedJobRegistry` da
    `default` passou de `WATCHDOG_FALHAS_ALERTA` (200). Ver incidente abaixo.
 1. **Zumbis**: `IngestionRun.status=running` e `finished_at IS NULL` há mais de 1h → marca FAILED + grava motivo. Worker que crashou e deixou rastro não trava o sistema.
+   **Exceção medida (24/08/2026)**: run cujo job ainda está no `StartedJobRegistry`
+   é POUPADO até 7h (`WATCHDOG_RUN_ZOMBIE_COM_JOB_S`). Dia grande passa de 1h com
+   frequência — 11 de 170 runs que fecharam `success` em 12h (6,5%), o pior um
+   TJSP de **357 min** —, e marcá-los "worker crashou" enchia o censo de fantasma
+   e APAGAVA os `erros` já gravados no run. O `erros` agora é append.
 2. **Backfill perdido**: pra cada tribunal ativo com `backfill_concluido_em IS NULL`, se nenhum job dele em execução → `tick_backfill_retroativo.delay(sigla)`. Recupera quando redis perdeu state ou backfill morreu.
 3. **Daily atrasado**: pra tribunal com backfill ok mas sem `IngestionRun success` há >26h → `run_daily_ingestion.delay(sigla)`.
 4. **Dia de recuperação órfão**: `ressuscitar_dias_de_recuperacao()` devolve pra
    `djen_backfill` o dia avulso (`f2:<SIGLA>:<dia>`) que ficou `failed` sem
    ninguém refazer. Teto `RECUP_POR_TIQUE=200`/tique, janela `RECUP_JANELA_DIAS=7`.
+5. **Gate de completude** (desde 24/08/2026): `conferir_dias_fechados()` pega os
+   dias que fecharam `success` desde o tique anterior e enfileira a conferência
+   contra a FONTE na fila `djen_audit` — 20 baratos (`count_window`, 1
+   requisição) e 1 caro (paginação até esgotar) por tique. Divergência vira
+   `cobertura_divergente` no `IngestionRun.erros` + ERRO no log. Detalhe e custo
+   medido em [`INGESTION.md`](INGESTION.md#success-não-é-prova--a-integridade-tem-que-ser-medida-24082026).
 
 **Orçamento de tempo.** O job tem `timeout=120` no RQ, mas confere internamente
 `WATCHDOG_ORCAMENTO_S=90` antes de cada etapa: se o tempo acaba, o que ficou de
@@ -440,6 +451,54 @@ Quem abre este runbook no meio de um incidente lê o bloco, não o parágrafo:
 `sobraram > 0` por muitos tiques seguidos, com a fila já drenada, aí sim ⇒ algo
 está falhando em série na `djen_backfill` (ver o OOM do TJDFT em
 [`INGESTION.md`](INGESTION.md)).
+
+### Provar que um dia fechou ÍNTEGRO (não só `success`)
+
+`success` diz que o coletor terminou, não que trouxe tudo. Pra provar, pagine a
+fonte na força bruta e confronte — os três lados na mesma tela:
+
+```bash
+# um dia específico
+ssh 100.100.144.57 'docker exec voyager-web-1 \
+  python -u manage.py djen_provar_dias --tribunal TJDFT --dia 2026-08-21'
+
+# amostra ALEATÓRIA (semente declarada) dos dias fechados nas últimas 24h
+ssh 100.100.144.57 'docker exec voyager-web-1 \
+  python -u manage.py djen_provar_dias --n 6 --seed 20260824 --horas 24'
+```
+
+⚠️ **É caro e demora**: a prova baixa o dia inteiro (TJDFT 2026-08-21 = 822,6 MB
+em ~250 requisições, dezenas de minutos). Rode DETACHED e leia depois — `docker
+exec` sem `-d` morre junto com a sessão ssh:
+
+```bash
+ssh 100.100.144.57 'docker exec -d voyager-web-1 sh -c \
+  "cd /app && python -u manage.py djen_provar_dias --n 6 --seed 20260824 \
+   --json /tmp/prova.json > /tmp/prova.log 2>&1"'
+ssh 100.100.144.57 'docker exec voyager-web-1 tail -30 /tmp/prova.log'
+```
+
+A prova é SERIAL (1 conexão) de propósito: o teto contra o CNJ é
+`réplicas x DJEN_PAGINAS_PARALELAS <= 64` e a frota já usa 42 (14 x 3).
+
+### O gate de completude achou divergência — e agora?
+
+```bash
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py shell -c "
+from tribunals.models import IngestionRun
+qs = IngestionRun.objects.filter(fonte=\"djen\",
+     erros__contains=[{\"erro\":\"cobertura_divergente\"}]).order_by(\"-finished_at\")[:20]
+for r in qs: print(r.tribunal_id, r.janela_inicio, r.erros[-1])"'
+```
+
+1. `gap > 0` (a fonte tem mais que nós) ⇒ o dia perdeu conteúdo. Confirme com
+   `djen_provar_dias --tribunal X --dia Y` (que também diz quanto está no BANCO)
+   e reenfileire: `f2:<SIGLA>:<dia>` via `reprocessar_janela`;
+2. `gap < 0` (temos mais que a fonte) ⇒ normal em dia reeditado pelo tribunal, ou
+   publicação que saiu do ar. Não é perda; é informação;
+3. `veredito: indecidivel_no_teto_de_10k` ⇒ o `count` bateu o teto e a
+   conferência se absteve. A paginação chega nele pelo racionamento (1/tique) ou
+   à mão, pelo comando.
 
 ### ⚠️ Deploy que não recarrega — worker rodando código de 7 dias atrás (21/08/2026)
 

@@ -131,7 +131,8 @@ def test_orcamento_estourado_termina_falando(trib, fila):
          patch.object(J.logger, 'error') as erro:
         r = J.watchdog_ingestao()
 
-    assert r['etapas_puladas'] == ['zumbis', 'reenfileiramento', 'recuperacao']
+    assert r['etapas_puladas'] == ['zumbis', 'reenfileiramento', 'recuperacao',
+                                   'gate de completude']
     assert erro.called, 'estourou o orçamento em silêncio'
     assert r['dias_recuperacao_reenfileirados'] == 0
     assert not fila.enqueue.called

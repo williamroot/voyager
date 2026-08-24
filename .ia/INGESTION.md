@@ -465,6 +465,137 @@ for r in IngestionRun.objects.filter(fonte=\"djen\", erros__contains=[{\"erro\":
     print(r.tribunal.sigla, r.janela_inicio, r.erros)"'
 ```
 
+## `success` não é prova — a integridade tem que ser MEDIDA (24/08/2026)
+
+As três perdas do CLAUDE.md tinham a mesma assinatura: **run verde, log limpo,
+número redondo**. Até 24/08/2026 nada no sistema comparava, sozinho, o que o dia
+trouxe com o que a FONTE declara — a regra nº 5 existia no papel e era exercida
+só à mão, em investigação de incidente. Comando manual é coisa que ninguém roda.
+
+### A prova de um dia: `djen_provar_dias`
+
+```bash
+# um dia (o molde: TJDFT 2026-08-21)
+manage.py djen_provar_dias --tribunal TJDFT --dia 2026-08-21
+
+# amostra ALEATÓRIA de tamanho e semente declarados entre os dias fechados
+manage.py djen_provar_dias --n 6 --seed 20260824 --horas 24 --so-recuperados
+```
+
+Ele pagina a DJEN **na força bruta** e imprime QUATRO números por dia:
+
+| número | o que é | custo |
+|---|---|---|
+| `fonte paginada` | ids DISTINTOS que a API entrega até a página vir incompleta | o dia inteiro (o TJDFT 2026-08-21 são 822,6 MB) |
+| `fonte count` | `count` com `itensPorPagina=1` | 1 requisição, **0,66 s medido** |
+| `run` | `movimentacoes_novas + movimentacoes_duplicadas` do run que fechou o dia | grátis |
+| `banco` | quantos daqueles ids existem hoje em `Movimentacao` | N/1.000 SELECTs no índice único |
+
+`run` alto com `banco` baixo é escrita perdida; `run` baixo com `fonte` alta é
+coleta cortada. Os dois morrem em silêncio sem esta conferência.
+
+⚠️ **A paginação da prova é PRÓPRIA, de fora do `iter_pages`** — usa só o
+transporte (`_fetch`: proxy, retry, circuito). Se a calibração de página do
+coletor voltar a cortar mudo, a prova não repete o erro junto: ela o denuncia.
+Provar com o mesmo código que coleta é o que faz um teto de 10 páginas
+sobreviver 17 meses.
+
+⚠️ **O `count` tem teto de 10.000** (regra nº 3: número redondo é PISO
+disfarçado). Medido: TJDFT 2026-08-21 devolve `count=10000` e a paginação
+devolve **14.651**. Acima do teto, quem decide é a paginação — ou ninguém.
+
+### O gate de completude (`conferir_dias_fechados`, etapa 5 do watchdog)
+
+A cada tique (5 min) o watchdog pega os dias de 1 dia que fecharam `success`
+desde o tique anterior e enfileira a conferência na fila **`djen_audit`** — que
+tem workers próprios e ociosos, e não disputa com a ingestão.
+
+| caminho | quando | teto por tique | custo |
+|---|---|---|---|
+| barato (`count_window`) | `novas+dup` < 10.000 | 20 dias | 1 requisição/dia (0,66 s) |
+| caro (paginação) | `novas+dup` >= 10.000 | 1 dia | o dia inteiro |
+| abstenção | `count` >= 10.000 e sem paginação | — | nada é afirmado (regra nº 6) |
+
+**O custo, medido antes de ligar.** A frota fecha 50-80 dias/h (medido em
+24/08: 83 runs de 1 dia na hora das 14 h). 20 conferências baratas por tique são
+240 requisições/h de 1 item contra as ~10 mil páginas/h que a ingestão já pede —
+**2,4%**, e nenhuma delas no caminho da requisição do site. No Postgres o gate
+lê 1 linha por dia conferido (índice `(fonte, tribunal, janela_inicio)`) e só
+ESCREVE quando acha divergência. A marca de "já conferido" mora no Redis
+(`djen:conferido:<sigla>:<dia>`, TTL 8 dias): perdê-la custa uma requisição
+repetida, não uma conferência perdida.
+
+Divergência não levanta exceção e não apaga nada: vira `{"erro":
+"cobertura_divergente", "fonte": …, "run": …, "gap": …}` no `IngestionRun.erros`
+**e** uma linha de log com os dois números. Quem decide o que fazer é gente.
+
+```bash
+# o que o gate já achou
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py shell -c "
+from tribunals.models import IngestionRun
+for r in IngestionRun.objects.filter(fonte=\"djen\",
+        erros__contains=[{\"erro\":\"cobertura_divergente\"}])[:20]:
+    print(r.tribunal_id, r.janela_inicio, r.erros[-1])"'
+```
+
+### "worker crashou" mentia em 6,5% dos casos
+
+`WATCHDOG_RUN_ZOMBIE_SECONDS` marca `failed` todo run `running` há mais de 1 h,
+com a inferência "o worker crashou". A inferência é falsa justamente no dia que
+mais importa. **Medido em 24/08/2026**: dos **170** runs de 1 dia que fecharam
+`success` em 12 h, **11 (6,5%) passaram de 60 min** e o pior — um TJSP — levou
+**357 min**. Todos foram marcados "worker crashou" com o worker trabalhando, e
+só voltaram a `success` ao terminar.
+
+O estrago era duplo: o censo de falhas ficava com fantasma (parte dos 640
+"worker crashou" contados no dia) e o `UPDATE` **sobrescrevia** `run.erros` —
+apagando o `resposta_acima_do_teto_de_bytes` e o drift daquele dia, que é a
+evidência que a regra nº 2 manda guardar.
+
+Agora `_matar_zumbis` desempata de graça: o job_id é determinístico
+(`f2:<SIGLA>:<dia>`), então quem ainda tem o dia na mão aparece no
+`StartedJobRegistry`. Com job vivo, o run ganha até
+`WATCHDOG_RUN_ZOMBIE_COM_JOB_S` (7 h = o `job_timeout` de 6 h + folga); sem ele,
+nada muda. E o `erros` virou **append** (`jsonb || jsonb`), nunca substituição.
+
+### As DUAS réguas da recuperação, reconciliadas com número
+
+A tela `/dashboard/completude/` mede a "Recuperação do teto por UF" com duas
+réguas (`dashboard/completude_warm.py::_recuperacao_por_tribunal`), de propósito:
+razão itens/página >= 700 (o dia saiu pelo caminho flat) e run `success`
+posterior ao `CORTE_FLAT` (18/08 09:48). Cruzando as duas nos **3.945 dias-alvo**
+da Fase 2 (24/08/2026, 15h30):
+
+|  | refeito pós-corte | NÃO refeito |
+|---|---:|---:|
+| **razão >= 700** | 3.328 | 320 |
+| **razão < 700** | **141** | **156** |
+
+* **141 dias (47,5% dos 297 "falta") são FALSO POSITIVO da razão.** Foram
+  refeitos pelo caminho novo e a razão continua baixa — porque o conserto do OOM
+  (24/08) tornou o `itensPorPagina` **dinâmico**: num tribunal de publicação
+  pesada a página cai pra 100-300 itens por orçamento de BYTES. Exemplos do
+  mesmo dia: TJGO 2026-08-24 razão 207 (62.612 itens em 302 páginas), TRF4
+  2026-08-24 razão 100, TRF2 2026-08-24 razão 439 — todos coletados hoje, pelo
+  caminho flat. **A régua da razão passou a medir o peso da publicação, não o
+  caminho da coleta**, e por isso a tela não pode chegar a 100% com ela.
+* **320 dias (razão alta, nunca refeitos)** são o outro lado: dia que já era bom
+  nunca precisou ser refeito. É a subestimação conhecida da régua da data.
+* **156 dias são pendência de verdade** — nunca refeitos pelo caminho novo:
+  TJRS 121 · TJSP 19 · TRF3 11 · TJRJ 3 · TRF6 1 · TRF2 1.
+
+**Por que os 156 nunca voltaram:** o seletor do
+`djen_reprocessar_janelas_capped` exige `paginas_lidas >= 100` **e**
+`novas+dup >= 10000`. O dia fatiado do TJRS tem 10-18 mil itens em **~20-37
+páginas** (as 27 fatias de UF terminam cada uma numa página parcial), então ele
+nunca foi selecionado. Medido: **187 dos 297 (63%) dias que a tela conta como
+falta estão FORA do seletor da recuperação.**
+
+E não adianta enfileirá-los de novo: conferido em 24/08, **os 156 já estão na
+fila** (120 do TJRS como `adiado:<sigla>:<dia>`, o resto como `f2:`), com
+posição mediana **638 de 1.964**. O que falta ali é VAZÃO, não descoberta —
+enfileirar de novo só duplicaria requisição contra o CNJ.
+
 ## Comandos manuais
 
 ```bash
