@@ -334,6 +334,18 @@ passadas de 60 s): índice a 103-1.268 docs/s, `write.rejected` **0** em 8/8,
 pico da fila `es_index` **3.364** (67% do teto), busca com mediana **0,0325 s**
 e pior máximo **0,295 s**, site 18/18 em HTTP 200.
 
+⚠ **`docker logs` aceita UM container.** `docker logs -f a b` falha, manda o
+`usage` pro stderr e **não devolve log nenhum** — e um `grep` em cima volta
+vazio, que se lê como "o job nunca rodou". Em 24/08 isso quase inverteu a
+conclusão sobre a 3ª porta (freada virou "morta"). Use laço, um por vez, e
+valide a sonda contra um período que você SABE ter linha:
+
+```bash
+for c in voyager-worker_default-1 voyager-worker_default-2; do
+  docker logs --since 55m $c 2>&1
+done | grep -E 'tick_todas|orçamento'
+```
+
 Sintoma que mais engana: `por_status.inexistente` crescendo numa fonte que vinha
 bem **não** é feriado forense em série — é o layout da fonte tendo mudado. É o
 mesmo erro que o `_dia_coberto` do DJEN já pagou, e por isso `inexistente` é

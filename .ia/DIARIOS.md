@@ -1147,12 +1147,65 @@ Duas escolhas deliberadas que quem for continuar precisa conhecer:
    inteiro numa era que já se sabe vazia. Apagar `EdicaoDiario` é reversível —
    um `--catalogar` do mesmo dia as recria.
 
-Provado ao vivo depois de catalogar as 360, com o orçamento já consumido:
+Provado ao vivo, e **pelo cron, não por chamada manual** — que é a diferença
+entre "a função devolve o que eu esperava" e "o sistema se segura sozinho".
+Log do `worker_default` da `.102` (horários em -03):
 
-    tick_todas() → {'tjsp-dje': {'orcamento_esgotado': True, 'teto_dia': 8, 'enfileiradas': 0}}
+    16:50:59  tick tjsp-dje: +2 enfileiradas, 2 pendentes, folga24h=2,
+              disco do ES em 63% (teto 85%); fila `es_index` com 3199 jobs (teto 5000)
+    17:01:07  WARNING  tick tjsp-dje: orçamento de 24h ESGOTADO (teto=8, coletadas=8).
+                       Nada enfileirado; as pendentes seguem pendentes.
+    17:11:41  WARNING  (idem)
+    17:21:40  WARNING  (idem)
 
-360 unidades pendentes, **0 enfileiradas**, e o motivo com o número no retorno
-do job. É o teto funcionando como alerta, não como corte mudo.
+Três ticks consecutivos do cron de 10 min recusando enfileirar, cada um com o
+número no log em nível WARNING, e as 360 unidades intactas em `pendente`. O
+tick das 16:50 mostra o outro modo do teto: `folga24h=2` cortou o lote em **2**
+de 100 — o orçamento fatia, não é só tudo-ou-nada. E na mesma linha aparece a
+guarda de fila medindo ao vivo (`3199 de 5000`) no pico da coleta.
+
+Medido de fora, o estado ficou parado em **360 pendentes / 434.179 itens de
+20:04:47 a 20:28:25 UTC** — 24 minutos, ~2,5 ticks. **Cuidado ao ler isso:**
+número parado é o sintoma que o teto funcionando e o cron MORTO compartilham.
+Quem afirmar um dos dois sem abrir o log do `worker_default` está adivinhando —
+e a §13.10 conta como essa checagem quase deu a resposta errada.
+
+### 13.10 A armadilha de sonda que quase inverteu a conclusão
+
+Registrada porque quem for conferir esta porta vai cair nela, e o erro é do
+tipo caro: ele produz um alarme falso convincente.
+
+Ao conferir se o cron estava mesmo segurando as 360 unidades, a sonda foi:
+
+```bash
+docker logs --since 45m voyager-worker_default-1 voyager-worker_default-2   # ERRADO
+```
+
+**`docker logs` aceita UM container.** Com dois nomes ele falha, escreve o
+`usage` no stderr e **não devolve uma linha de log** — e um `grep` em cima disso
+volta vazio. Vazio lido como "o `tick_todas` nunca rodou", o que levaria à
+conclusão exatamente oposta à verdade: que a porta estava morta em vez de
+freada. Os dois estados têm o MESMO sintoma de fora (número parado), e foi
+preciso o log para separá-los.
+
+O certo é um laço, um container por vez:
+
+```bash
+for c in voyager-worker_default-1 voyager-worker_default-2; do
+  ssh ubuntu@192.168.30.102 "docker logs --since 55m $c 2>&1"
+done | grep -E 'tick_todas|orçamento|BLOQUEADO'
+```
+
+Vale para toda a frota, não só aqui: a mesma linha com dois nomes já tinha
+devolvido vazio no `worker_diarios` mais cedo na mesma sessão, e ali passou
+despercebida porque o resultado esperado também era vazio. **Sonda que devolve
+vazio precisa provar que sabe devolver não-vazio** — rode-a uma vez contra um
+período em que você SABE que há linha.
+
+Corolário para os critérios do §13.7: os sinais 2, 3 e 8 são todos "conte
+ocorrências". Nenhum deles distingue *zero ocorrências* de *sonda quebrada* sem
+um controle positivo. Ao usá-los para liberar uma etapa, meça primeiro algo que
+tem que dar não-zero.
 
 **Ampliar é subir o orçamento, nunca tirar o teto** — e subir o orçamento sem
 subir `DIARIOS_FILA_ES_MAX` faz a guarda barrar (§13.5). A ordem certa de
