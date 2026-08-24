@@ -530,6 +530,20 @@ herdado pelo resto do dia (`teto_herdado`) e vira alerta registrado no run
 (`transporte_nao_entregou_a_pagina`, regra nº 2). Só quando nem o piso passa a
 exceção sobe — dia não coletado tem que doer.
 
+**Visto em produção 1 h depois de subir**, com o formato novo da mensagem (a
+antiga não dizia o tamanho da página, o que era metade do diagnóstico):
+
+```json
+{"erro": "transporte_nao_entregou_a_pagina",
+ "detalhe": "erro de transporte após 8 tentativas (itensPorPagina=100): HTTPSConnectionPool(...)"}
+```
+
+Antes disso o mesmo evento matava o dia inteiro. E a companhia dele na mesma
+janela diz onde está a próxima fronteira: 33 `orcamento_memoria_no_piso` e 25
+`resposta_acima_do_teto_de_bytes` — TJDFT/TJAM com publicação tão pesada que a
+página bate o piso de 25 itens. A coleta segue (dia não coletado é perda de
+acervo), mas ali o relógio é o gargalo, não a memória.
+
 ### O deadlock em `tribunals_process` — RESOLVIDO em 24/08/2026
 
 Os **203 deadlocks** do censo (28,9% das falhas) eram a maior fonte de dia
