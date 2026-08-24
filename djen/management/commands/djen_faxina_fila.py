@@ -104,6 +104,17 @@ class Command(BaseCommand):
                 '  dry-run — nada mexido. Use --consertar pra refazer os jobs.'))
             return
 
+        # Quem já está NAS MÃOS de um worker não pode ser refeito: o job vivo
+        # termina e grava; enfileirar o mesmo dia de novo só recria a duplicata
+        # que produz casca (ver `tick_backfill_retroativo`).
+        em_execucao = set()
+        try:
+            from rq.registry import ScheduledJobRegistry, StartedJobRegistry
+            em_execucao |= set(StartedJobRegistry(queue=q).get_job_ids())
+            em_execucao |= set(ScheduledJobRegistry(queue=q).get_job_ids())
+        except Exception as exc:
+            self.stderr.write(f'  não li os registros da fila: {exc}')
+
         refeitos = pulados = 0
         for jid in cascas:
             partes = jid.split(':')
@@ -116,7 +127,7 @@ class Command(BaseCommand):
             # `adiado:` e `f2:` são o mesmo trabalho (reprocessar o dia); refazer
             # como `f2:` unifica o id que o watchdog conhece.
             novo_id = f'{"bfd" if pref == "bfd" else "f2"}:{sigla}:{dia}'
-            if novo_id in set(q.job_ids):
+            if novo_id in set(q.job_ids) or novo_id in em_execucao:
                 pulados += 1                   # o dia já voltou por outro caminho
                 continue
             args = ((sigla, dia, dia) if func.endswith('reprocessar_janela')
