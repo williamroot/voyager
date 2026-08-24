@@ -63,10 +63,14 @@ voyager/
 │                 - models.py: EdicaoDiario (catálogo + watermark por unidade)
 │                 - jobs.py: catalogar/coletar/tick (fila `diarios`)
 │                 - fontes/<slug>/: tjsp_dje, dejt, stf
+│                 - orcamento.py: teto de unidades/24h por fonte + guarda de
+│                   disco do ES + guarda de profundidade da fila es_index
 │                 - management/commands/diarios_pausar.py: KILL SWITCH por fonte
 │                 Agendamento no fim de djen/scheduler.py, atrás de
-│                 DIARIOS_SCHEDULER_ENABLED (nasce DESLIGADO: o backfill é da
-│                 ordem de centenas de milhões de linhas).
+│                 DIARIOS_SCHEDULER_ENABLED. LIGADO em 24/08/2026 para UMA
+│                 fonte (tjsp-dje) com orçamento de 8 unidades/24h — o backfill
+│                 aberto pede ~772 GB de índice e o nó de ES tem 1,0 TB livre.
+│                 Ver .ia/DIARIOS.md §13.
 ├── diarios_entes/ Diários oficiais de ENTES DEVEDORES (Executivo estadual e
 │                 municipal): Querido Diário + DOE-SP. App separado porque tem
 │                 model PRÓPRIO — publicação do Executivo não tem tribunal e

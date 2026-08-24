@@ -99,9 +99,12 @@ worker_classificacao    8       1g        classificacao  (carrega modelo ML)
 worker_diarios          2       1g        diarios        (3ª porta — ver nota abaixo)
 ```
 
-> **`worker_diarios` (2026-08-20)** — consumidor da fila `diarios` (DJE/TJSP,
-> DEJT, STF). Sobe **OCIOSO de propósito**: quem enfileira é o agendamento, que
-> continua atrás de `DIARIOS_SCHEDULER_ENABLED` (default `False`). A unidade de
+> **`worker_diarios` (2026-08-20; agendamento LIGADO em 24/08/2026)** —
+> consumidor da fila `diarios` (DJE/TJSP, DEJT, STF). Nasceu **ocioso de
+> propósito** e passou a receber trabalho em 24/08/2026, quando
+> `DIARIOS_SCHEDULER_ENABLED=1` com `DIARIOS_FONTES_AGENDADAS=tjsp-dje` e
+> orçamento de 8 unidades/24 h. Vazão medida: **90 itens/s por réplica**
+> (213.630 itens em 2.129 s de CPU). Ver `.ia/DIARIOS.md` §13. A unidade de
 > trabalho é um CADERNO inteiro — por isso fila separada da `djen_*`: um job
 > desses na fila da ingestão empurraria a fronteira diária pro fim da linha.
 > Dimensionamento medido em 20/08/2026 (a conta completa está no comentário do
@@ -296,11 +299,22 @@ docker compose exec web python manage.py djen_status
 
 ## Diários próprios (3ª porta) — parar e ver
 
-Runbook completo em [`DIARIOS.md`](DIARIOS.md); aqui só o que se digita às 3h da
-manhã quando alguém do outro lado reclama:
+**LIGADA desde 24/08/2026**, uma fonte de cinco: `DIARIOS_SCHEDULER_ENABLED=1`,
+`DIARIOS_FONTES_AGENDADAS=tjsp-dje`, `DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE=8`
+(nos `.env` da `.102` **e** da `.103`). Runbook completo, com os números medidos
+e os 10 critérios de parada, em [`DIARIOS.md` §13](DIARIOS.md#13-ligada--o-que-foi-ligado-em-24082026-com-que-números-e-quando-desligar).
+
+Quem roda o quê: o cron `diarios_tick_todas` (10 min) vive no **scheduler da
+`.103`** e só enfileira; o `tick` em si roda no **`worker_default` da `.102`**,
+e é lá que ficam o orçamento e as guardas. Coleta é `worker_diarios` (2
+réplicas, só na `.102`). Mudou `.env`? **`up -d --force-recreate`** — `restart`
+NÃO relê o `.env`.
+
+Aqui só o que se digita às 3h da manhã quando alguém do outro lado reclama:
 
 ```bash
 # PARAR AGORA (efeito em segundos, chave no Redis, sem deploy)
+# ATENÇÃO: a fonte é POSICIONAL. `--pausar` não existe e o argparse recusa tudo.
 docker compose exec web python manage.py diarios_pausar --tudo
 docker compose exec web python manage.py diarios_pausar dejt        # ou só uma fonte
 docker compose exec web python manage.py diarios_pausar --listar
@@ -308,7 +322,17 @@ docker compose exec web python manage.py diarios_pausar --religar --tudo
 
 # Ver o estado do catálogo/coleta por fonte
 docker compose exec web python manage.py diarios_status
+
+# O sinal que aperta PRIMEIRO é o Elasticsearch, não o disco do banco nem a RAM:
+curl -s 192.168.30.128:9200/_cat/allocation?v                  # DESLIGA em >= 85%
+curl -s '192.168.30.128:9200/_cat/thread_pool/write?v'         # DESLIGA se `rejected` > 0
+#   e a fila `es_index`: teto automático em 5.000 jobs (DIARIOS_FILA_ES_MAX)
 ```
+
+Números do regime medido em 24/08/2026 com a coleta de 1 dia rodando (8
+passadas de 60 s): índice a 103-1.268 docs/s, `write.rejected` **0** em 8/8,
+pico da fila `es_index` **3.364** (67% do teto), busca com mediana **0,0325 s**
+e pior máximo **0,295 s**, site 18/18 em HTTP 200.
 
 Sintoma que mais engana: `por_status.inexistente` crescendo numa fonte que vinha
 bem **não** é feriado forense em série — é o layout da fonte tendo mudado. É o

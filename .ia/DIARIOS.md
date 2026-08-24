@@ -1,11 +1,23 @@
 # Diários oficiais além do DJEN — a terceira porta
 
-> **Estado em 21/08/2026:** o agendamento continua DESLIGADO
-> (`DIARIOS_SCHEDULER_ENABLED=False`), mas **a primeira coleta real em produção
-> aconteceu**, à mão: os 8 cadernos do DJE/TJSP de 12/03/2025, **220.544
-> linhas**. A INFRA da `.102` está de pé (`pymupdf` na imagem, `worker_diarios`
-> com 2 réplicas). O que ainda falta para ligar o agendamento está em
-> [§8 Runbook — ligar em produção](#8-runbook--ligar-em-produção).
+> **Estado em 24/08/2026: LIGADA — uma fonte de cinco.**
+> `DIARIOS_SCHEDULER_ENABLED=1` com `DIARIOS_FONTES_AGENDADAS=tjsp-dje` e
+> orçamento diário. As outras quatro continuam fora do agendamento, e cada uma
+> tem um NÚMERO que a manteve de fora — o `dejt` está literalmente fora do ar
+> (HTTP 503 em 4/4 sondas). Tudo em
+> [§13 LIGADA — o que foi ligado, com que números, e quando desligar](#13-ligada--o-que-foi-ligado-em-24082026-com-que-números-e-quando-desligar):
+> inventário medido, projeção de disco, tetos automáticos e critério de parada.
+>
+> O achado que dimensiona tudo: o backfill completo do DJE/TJSP projeta
+> **~772 GB de índice** contra **1,0 TB livre** no nó de ES ⇒ levaria o disco a
+> **88,6%**, e o `flood_stage` (95%) marca o índice `read_only_allow_delete`,
+> derrubando a escrita das **três** portas. **Ligar a fonte, sim; abrir o
+> backfill inteiro, não — antes de expandir o disco do ES.**
+
+> **Estado em 21/08/2026 (histórico):** o agendamento estava DESLIGADO, mas
+> **a primeira coleta real em produção aconteceu**, à mão: os 8 cadernos do
+> DJE/TJSP de 12/03/2025, **220.544 linhas**. A INFRA da `.102` está de pé
+> (`pymupdf` na imagem, `worker_diarios` com 2 réplicas).
 >
 > Essa primeira coleta revelou o buraco que **§12** documenta: a edição fechava
 > `ok` e as linhas ficavam FORA do Elasticsearch, esperando um poller de 10
@@ -237,6 +249,9 @@ Nenhuma dessas fontes tem rate limit, WAF ou `robots.txt`. **O servidor não vai
 nos defender de nós mesmos**: 765 GB puxados no talo de um JBoss 4.3.0.GA de 2010
 do CSJT é negação de serviço acidental. O teto é nosso.
 
+O `--pausar` NÃO existe: a fonte vai como argumento POSICIONAL, e `--pausar`
+faz o argparse recusar o comando inteiro (`unrecognized arguments`).
+
 ```bash
 # PARAR AGORA (efeito em segundos, sem deploy — chave no Redis)
 manage.py diarios_pausar --tudo
@@ -257,7 +272,10 @@ Camadas de contenção, da mais fina para a mais grossa:
 |---|---|---|
 | `rps` por fonte | `DIARIOS_RPS_<SLUG>` (tjsp-dje 1,0 · dejt 0,5 · stf 1,0 · stf-portal 0,8 · qd 1,0 · doe-sp 2,0) | ritmo |
 | circuit-breaker por fonte | `DIARIOS_CIRCUITO_*` | 15 respostas 5xx em 120 s ⇒ pausa 300 s, fast-fail sem tocar no servidor |
-| teto de fila por fonte | `WATERMARK_POR_FONTE=200` em `diarios/jobs.py` | fairness (lição do incidente 2026-07-29) |
+| teto de fila por fonte | `WATERMARK_POR_FONTE=200` em `diarios/jobs.py` | fairness (lição do incidente 2026-07-29). É PROFUNDIDADE de fila, não vazão |
+| **orçamento de vazão** | `DIARIOS_TETO_UNIDADES_DIA[_<SLUG>]` | unidades fechadas por 24 h. **`0` = SEM TETO**; para frear, `1` (§13.3) |
+| **guarda de disco do ES** | `DIARIOS_ES_DISCO_MAX_PCT` (85) | o tick para acima do `watermark.low`. Falha FECHADA |
+| **guarda da fila do índice** | `DIARIOS_FILA_ES_MAX` (5.000) | o tick para com a `es_index` funda: coletar ali produz linha gravada e não buscável. Falha FECHADA |
 | recorte de fontes agendadas | `DIARIOS_FONTES_AGENDADAS` | liga UMA fonte por vez |
 | chave geral | `DIARIOS_SCHEDULER_ENABLED` | agendamento inteiro |
 | **kill switch** | `diarios_pausar` | para tudo, em segundos |
@@ -298,6 +316,11 @@ Ingestão é append-only; conflito quem resolve é a leitura.
 ---
 
 ## 8. Runbook — ligar em produção
+
+> **Esta seção é HISTÓRICA.** O que está ligado hoje, com que orçamento e sob
+> quais critérios de parada, está em
+> [§13](#13-ligada--o-que-foi-ligado-em-24082026-com-que-números-e-quando-desligar).
+> O que segue é o canário que abriu caminho até lá, e vale pelo método.
 
 > **Veredito do canário de 20/08/2026: NÃO PASSOU — e o motivo não é o PDF.**
 > A troca do extrator está de pé e conferida em produção; o que impede ligar é
@@ -590,9 +613,12 @@ Registradas para não virarem surpresa. Nenhuma bloqueia, todas custam.
 | todas | `janela_horaria` é **declarativa**: o runner não a lê. O teto real é `rps` + kill switch |
 | todas | **`espelhadas_no_lote()` está no caminho da gravação, é métrica, e não tem teto de espera.** Roda antes de cada lote de 500 e faz `count()` por `hash` em 1,39B linhas SEM índice de `hash` (§8, pré-requisito 4): 313 s medidos para 11 hashes. Formato exato da regra nº 7 do `CLAUDE.md` |
 | todas | o índice de `hash` declarado em `tribunals/models.py` **não existe no banco** — e `makemigrations --check` nunca pega, porque compara model com migrations, não com o banco. Mesma coisa em `mov_search_vector_gin`, `mov_texto_trgm` e no índice de `classe` |
-| `tjsp-dje` | `janela_fim = 2025-03-13` está **errada nessa borda**: o DJEN cobre o TJSP desde **2023-08-14** e já tem 62.849 movimentações só no dia 12/03/2025. A janela de exclusividade do §7 sobrepõe ~19 meses com o DJEN |
+| `tjsp-dje` | `janela_fim = 2025-03-13` sobrepõe ~19 meses com o DJEN, que cobre o TJSP desde **2023-08-14** — a janela do §7 NÃO é de exclusividade nessa borda. **Mas encolhê-la seria a perda, não a cura**, e agora há número: no dia 12/06/2024, dentro da faixa sobreposta, o diário trouxe **198.695** processos contra 30.470 das outras portas, com apenas **6.711 (3,0%)** nos dois. A borda fica como está, e o que muda é a leitura: `janela_*` é *o período que a fonte está autorizada a coletar*, não *o período em que ela é a única* |
 | todas | `watchdog_ingestao` (`djen/jobs.py:255`) **não filtra por fonte**: run de diário deixado `running` vira "worker crashou" em 1 h — causa falsa no histórico |
 | todas | **o gate de índice (§12) mede o (tribunal, DIA), não a edição.** Um dia do DJE/TJSP são 8 cadernos e os 8 compartilham o mesmo número — por isso os campos se chamam `indice_*_no_dia`. Recortar por edição custaria 29,2 s e 65.846 blocos lidos do disco por caderno (`EXPLAIN` em produção do `LIKE 'tjsp-dje:4161-12-%'`), e a alternativa barata seria um campo novo no doc do ES, com mapping e plano de reindex de 1,4 bilhão de documentos |
+| todas | **`job_id` determinístico dedupa o JOB no RQ, não a ENTRADA na lista da fila.** O `tick` reenfileira as pendentes a cada passada e a lista da `diarios` acumula: medido em 24/08/2026, **7 entradas para 6 `job_id` distintos**. Consequência real, com log: o caderno `3985-20` foi baixado e segmentado **duas vezes** (221 s + 149 s), porque as 2 réplicas pegaram a mesma unidade antes de a primeira marcar `ok`. Não corrompe dado (a 2ª rodada deu `novas=0 dup=26.351`), mas queima download e CPU, e `fila.count` superconta |
+| todas | **`espelhadas` só é confiável na PRIMEIRA coleta da unidade.** `espelhadas_no_lote` exclui os `external_id` do LOTE atual, não os da unidade inteira — então numa re-coleta ele conta as linhas que a própria fonte gravou nos lotes anteriores. Medido no mesmo `3985-20`: 1.883 na 1ª passada, **2.527** na 2ª, mesmo caderno |
+| `tjsp-dje` | o caderno **1 (Administrativo)** fecha `vazia` mesmo tendo CNJ impresso: em 12/06/2024 o segmentador achou **0 blocos** com **44** CNJs no texto, e o gate de cobertura não dispara porque `MINIMO_PARA_AFERIR_COBERTURA=200`. É lacuna pequena e SILENCIOSA — abaixo de 200 CNJs a edição não é aferida contra nada |
 | todas | o gate REPARA (re-enfileira) o que falta, mas **não prova que o reparo drenou**: ele carimba a edição na passada em que enfileirou. Quem quiser a prova roda `manage.py diarios_conferir_indice --tribunal X --dia D --so-medir` depois — que é exatamente o que fecha o dia 12/03/2025 em 0 |
 
 ---
@@ -602,6 +628,7 @@ Registradas para não virarem surpresa. Nenhuma bloqueia, todas custam.
 | Arquivo | O quê |
 |---|---|
 | `diarios/base.py` | contrato, runner, dedupe, kill switch, `dv_cnj_valido`, **entrega ao índice** (`_entregar_ao_indice`) |
+| `diarios/orcamento.py` | **orçamento e guardas de recurso** (§13.3): teto de unidades/24 h por fonte, guarda de disco do ES e guarda de profundidade da fila `es_index`. As duas guardas falham FECHADAS |
 | `diarios/indice.py` | **gate de completude do índice** (§12): `conferir_dia` (os dois lados), `reparar_dia` (re-enfileira só o que falta) |
 | `diarios/management/commands/diarios_conferir_indice.py` | entrada manual do gate — `--tribunal X --dia D`, `--so-medir` |
 | `diarios/models.py`, `diarios/jobs.py` | watermark, fila e o job `conferir_indice` (cron 15 min) |
@@ -611,6 +638,7 @@ Registradas para não virarem surpresa. Nenhuma bloqueia, todas custam.
 | `core/settings.py` | bloco `DIÁRIOS PRÓPRIOS` |
 | `tests/test_diarios_base.py` + `test_diario_{tjsp_dje,dejt,stf}.py` + `test_diarios_entes.py` | 176 testes (26 do contrato + 39 tjsp-dje + 57 dejt + 29 stf + 25 entes) |
 | `tests/test_diarios_pymupdf.py` | 11 testes que travam a ADR-031: fluxo (não acúmulo), CNJ inteiro e erro explícito sem a lib. O canário do caderno de 36 MB **pula** sem a fixture pesada `tjsp_esaj/caderno3_capital_parteI_20250312.pdf` (fora do git, ver `tests/fixtures/diarios/README.md`) |
+| `tests/test_diarios_orcamento.py` | 16 testes do orçamento: a linha `UNASSIGNED` do `_cat/allocation` não vira 0%, ES/fila mudos FECHAM a guarda, bloqueio não perde pendente nem conta tentativa, e o disco é perguntado ANTES da fila |
 | `tests/test_diarios_indice.py` | 14 testes do gate de índice: entrega no `on_commit`, fila morta derruba a coleta, abstenção nunca vira 0, teto é ERRO, `_bulk` por bytes e o 413, watermark que não anda no erro |
 | `.ia/DECISIONS.md` ADR-030 | por que a terceira porta, e o que foi recusado |
 
@@ -804,3 +832,302 @@ ignora pontuação no nível primário, e `'tjsp-dje;'` compara como `tjspdje` �
 menor que qualquer `tjsp-dje:4161…`. Medido em 21/08/2026: a faixa devolveu 0
 onde o `LIKE` devolveu 220.544. Ancore SEMPRE por `tribunal` +
 `data_disponibilizacao` e use `LIKE` como FILTRO, nunca como caminho de acesso.
+
+
+---
+
+## 13. LIGADA — o que foi ligado em 24/08/2026, com que números, e quando desligar
+
+> **Estado: `DIARIOS_SCHEDULER_ENABLED=1`, `DIARIOS_FONTES_AGENDADAS=tjsp-dje`,
+> `DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE=8`.** Uma fonte de cinco, com orçamento
+> de um dia de cadernos por 24 h. As outras quatro estão fora do agendamento e
+> §13.6 diz por qual NÚMERO cada uma ficou de fora.
+
+O §8 é a história do canário; esta seção é o que ficou ligado, o teto que
+segura, e o número que manda desligar.
+
+### 13.1 O inventário, medido antes de abrir a torneira
+
+Catálogo enumerado com `--dry-run` — nada gravado, nenhum caderno baixado:
+
+| fonte | unidades no catálogo | na janela | custo do catálogo | viva em 24/08? |
+|---|---:|---:|---|---|
+| `tjsp-dje` | **33.296** (4.162 edições × 8 cadernos − 398 `datasSemDiario`) | **32.616** | 1,4 s, **1** requisição | HTTP **200** em 0,29 s (728 KB) |
+| `dejt` | — | — | 6 tentativas, ~15 min, e desistiu | **HTTP 503 em 4/4 sondas** |
+| `stf` | 1/dia ⇒ ~**2.185** (2020-09-01 → hoje) | idem | 0,1 s | `ultimo-dje` = **2026-08-24** em 0,14 s |
+| `doe-sp` | 1/dia ⇒ ~**1.142** (2023-07-10 → hoje) | idem | 4,0 s | 200; declara 3.489 publicações no dia |
+| `qd-municipal` | 1/dia | idem | 0,0 s | 200 |
+
+`tjsp-dje` por ano: 2007 **464** · 2008 1.936 · 2009 1.912 · 2010 1.912 · 2011
+1.880 · 2012 1.840 · 2013 1.888 · 2014 1.880 · 2015 1.848 · 2016 1.856 · 2017
+1.832 · 2018 1.840 · 2019 1.888 · 2020 1.864 · 2021 1.848 · 2022 1.848 · 2023
+1.832 · 2024 1.880 · 2025 1.048.
+
+**As 6.224 unidades de 2007-2010 são download e CPU por ZERO linha.** Provado ao
+vivo, não deduzido: o caderno 3 de 15/06/2009 (`492-12`) foi coletado à mão e
+fechou **`sem_aproveit` em 54,6 s** — baixou, extraiu o texto, segmentou e
+gravou nada, porque é a era pré-CNJ do §1. Extrapolando, **~95 h de CPU de
+frota** para zero acervo. Qualquer recorte de backfill começa em **2011**, e
+isso corta 19% do catálogo antes de gastar um byte.
+
+**Atenção ao ler `catalogar_fronteira`:** ele só toca fonte cuja `janela_fim`
+alcança hoje. `tjsp-dje` (fim 2025-03-13) e `dejt` (fim 2024-07-31) são
+HISTÓRICAS — o cron das 05:40 devolve `{'skip': 'fonte histórica'}` para elas.
+Consequência prática: **ligar o agendamento para o `tjsp-dje` não cataloga
+nada sozinho**. Quem decide qual pedaço da jazida entra é um
+`diarios_coletar --catalogar` explícito. Isso é uma proteção, não um bug.
+
+### 13.2 Quanto custa em disco — e por que quem barra é o ES, não o Postgres
+
+Base medida em 24/08/2026 19:35 UTC, com a terceira porta ainda parada:
+
+| medida | valor |
+|---|---|
+| `pg_database_size` | **2.230.291.797.683 B** (2.077 GiB) |
+| `tribunals_movimentacao` (heap+toast+índices) | **1.968.480.280.576 B** (1.833 GiB), 1.503.114.112 linhas |
+| disco do host do banco (VM 201, `qm guest exec`) | 4,9 TB, 2,1 TB usados — **46%** |
+| `voyager-movimentacoes-v2` | **1.517.849.080** docs, **1,5 TB** ⇒ **1,06 KB/doc** |
+| disco do nó de ES | 2,9 TB, 1,8 TB usados, **1,0 TB livre** — **63%** |
+| crescimento das OUTRAS duas portas (janela de 904 s) | **+0,45 GB/h** no banco, **+346.445 docs/h** no ES |
+
+Peso de uma linha do diário, amostra de **3.000** linhas reais do dia
+12/03/2025: `pg_column_size(texto)` **868,9 B**, `length(texto)` **975,7**
+caracteres (mediana 610), `pg_column_size` da linha inteira **1.606,3 B**.
+
+Projeção do backfill do `tjsp-dje` de 2011 em diante (26.392 unidades), com
+**27.568 itens por caderno** (220.548 em 8, medido):
+
+    linhas novas ................ ~7,3e8
+    índice no Elasticsearch ..... ~772 GB   (a 1,06 KB/doc)
+    ES depois .................. 2,57 TB de 2,9 TB = 88,6%
+
+**O `flood_stage` do ES é 95%, e nele o índice vira `read_only_allow_delete` —
+o que derruba a escrita das TRÊS portas, não só desta.** O backfill completo do
+DJE/TJSP **não cabe** no nó de hoje. O Postgres cabe (iria a ~3,0 TB de 4,9 TB);
+quem barra é o índice. **Expandir o disco do ES é pré-requisito de qualquer
+janela larga** — procedimento online e conhecido, [`OPS.md`](OPS.md), "VM do
+Elasticsearch".
+
+### 13.3 Os tetos que ficaram no código — e por que teto de FILA não bastava
+
+`WATERMARK_POR_FONTE=200` limita a PROFUNDIDADE da fila `diarios`, não a VAZÃO:
+os workers drenam e o tick reabastece. Com o agendamento ligado, quem definia o
+ritmo era o número de réplicas do `worker_diarios` — dimensionado por CPU, nunca
+por disco. `diarios/orcamento.py` fechou isso:
+
+| chave | default | o que faz |
+|---|---|---|
+| `DIARIOS_TETO_UNIDADES_DIA[_<SLUG>]` | 0 (**sem teto**) | unidades FECHADAS por 24 h. É o botão de "ligar em etapas" |
+| `DIARIOS_ES_DISCO_MAX_PCT` | 85,0 | o tick para acima disso. 85% é o `disk.watermark.low` do ES; 90% é o `high`, 95% o `flood_stage` |
+| `DIARIOS_FILA_ES_MAX` | 5.000 | o tick para se a fila `es_index` estiver mais funda que isso |
+| `DIARIOS_GUARDA_DISCO_ENABLED` | 1 | desliga as duas guardas de infra (não o orçamento) |
+
+Três decisões escritas para não serem redescobertas:
+
+1. **As guardas falham FECHADAS.** ES mudo ⇒ o tick não enfileira. Assimetria
+   decidida com número: parada falsa custa 10 minutos (o tick volta), "vai"
+   falso custa um índice em read-only. Custo da medição, ao vivo:
+   `_cat/allocation` em **0,376 s** frio e **0,009 s** quente.
+2. **A guarda de fila existe porque "coletado" ≠ "buscável"** (§12). 5.000 jobs
+   = 2,5 milhões de documentos ≈ 15 min de dreno com os 24 `worker_es_index`
+   livres, e horas sob contenção. Duas ordens de grandeza abaixo do
+   `FILA_ES_ALTA=150.000` do poller **de propósito**: lá o freio protege o
+   poller de si mesmo; aqui a terceira porta sai da frente das outras duas.
+3. **Teto é ALERTA, nunca corte mudo.** Bloqueio e orçamento esgotado saem no
+   log com o número E no retorno do job; a unidade continua `pendente`, com
+   `tentativas` intacto. Nada é descartado. 16 testes em
+   `tests/test_diarios_orcamento.py`.
+
+### 13.4 Etapa 1 — `tjsp-dje`, o dia 12/06/2024, pelo caminho de produção
+
+Não foi coleta à mão: foi `--catalogar` + o **mesmo** `tick_todas` que o cron
+dispara → fila `diarios` → as 2 réplicas do `worker_diarios`. Catálogo rodado
+duas vezes: 8 novas, depois **0** (idempotente).
+
+| caderno | blocos | itens | `sem_cnj` | cobertura de CNJ | novas | espelhadas | s |
+|---|---:|---:|---:|---|---:|---:|---:|
+| 3985-10 Administrativo | 0 | 0 | 0 | 0/44 ⇒ `vazia` | 0 | 0 | 2 |
+| 3985-11 | 11.131 | 11.131 | 0 | 12.762/12.762 = **100%** | 11.128 | 1.544 | 124 |
+| 3985-12 | 27.890 | 27.828 | 59 | 30.090/30.130 = **99,9%** | 27.815 | 2.176 | 336 |
+| 3985-13 | 44.519 | 44.490 | 29 | 52.353/52.370 = **100%** | 44.464 | ≥1.643 | 498 |
+| 3985-15 | 42.799 | 42.773 | 26 | 50.567/50.601 = **99,9%** | 42.740 | ≥1.794 | 448 |
+| 3985-18 | 51.362 | 51.316 | 45 | 57.274/57.309 = **99,9%** | 51.297 | 4.441 | 401 |
+| 3985-19 | 9.954 | 9.897 | 57 | 10.243/10.351 = **99,0%** | 9.835 | 652 | 99 |
+| 3985-20 | 26.402 | 26.376 | 26 | 30.271/30.283 = **100%** | 26.351 | 1.883 | 221 |
+| **total** | | | | **99,0-100%** | **213.630** | ≥14.133 | **2.129 s de CPU** |
+
+Cobertura de CNJ entre **99,0% e 100%** em todos os cadernos com dado — o gate
+do §9 passou com folga. `>=` em dois cadernos é o `espelhadas_no_lote` se
+abstendo por `statement_timeout` e dizendo isso, como manda a regra nº 6.
+
+Relógio: **~23 min** com 2 réplicas (2.129 s de CPU / 2). Vazão medida:
+**90 itens/s por réplica**, ou **648 mil itens/h** com as 2 de hoje.
+
+**Os dois lados do dia 12/06/2024 (TJSP), depois da coleta:**
+
+| porta | movimentações | processos distintos |
+|---|---:|---:|
+| diário próprio (`tjsp-dje:`) | **213.630** | **198.695** |
+| DJEN + Datajud, o mesmo dia | 54.364 | 30.470 |
+| **união** | **267.994** | **222.454** |
+
+    só no diário ............ 191.984 processos
+    só nas outras portas ....  23.759
+    nos dois ................   6.711   (3,0% da união)
+
+**A sobreposição de 3,4% medida em 12/03/2025 se repetiu em 12/06/2024 com
+3,0%, numa era diferente da jazida.** A hipótese do §8 deixou de ser um ponto
+solto: em dois dias distintos as portas são quase disjuntas, e o diário traz
+**6,5×** mais processos que as outras duas juntas.
+
+**E o número que fecha a discussão de completude — `Process` NOVOS no acervo:**
+
+    TJSP, 17:35→19:35 UTC (sem a terceira porta) ......      0 processos novos
+    TJSP, 19:35→19:57 UTC (a coleta de 1 dia) ......... 96.587 processos novos
+
+Zero contra 96.587, em 22 minutos, de um único dia de um único tribunal. Note a
+diferença entre os dois números: 191.984 é "processo cuja única movimentação
+NAQUELE DIA veio do diário"; **96.587 é "processo que o acervo não tinha em
+lugar nenhum"** — cerca de metade dos 198.695 já existia por outras datas. Os
+dois são verdadeiros e medem coisas diferentes; o segundo é o que vale como
+acervo recuperado, e é o que esta seção usa.
+
+**Custo em disco desta rodada** (deltas com as outras portas juntas dentro):
+
+    pg_database_size ......... +1,00 GiB
+    tribunals_movimentacao ... +0,93 GiB
+    tribunals_process ........ +0,03 GiB
+    disco do ES .............. 63% → 63% (sem casa decimal no `_cat`)
+
+**Gate de índice — "coletado" virou "buscável", provado pelos dois lados:**
+
+| momento | PG | ES | faltando |
+|---|---:|---:|---:|
+| logo depois da coleta | 267.994 | 243.553 | **24.441** |
+| ~4 min depois | 267.994 | 267.964 | **30** |
+| depois do `reparo` (30 re-enfileiradas) | 267.994 | **267.994** | **0** |
+
+Era ESPERA, como em 21/08 — não perda. Mas quem afirma isso é a régua, não a
+esperança: sem o gate do §12, "faltando 24.441" seria invisível.
+
+### 13.5 O ES aguenta em regime? — 8 passadas de 60 s COM a coleta rodando
+
+Este é o número que a etapa 2 exige antes de existir. Não é "não quebrou".
+
+| UTC | docs/s | write.active | write.queue | **write.rejected** | fila `es_index` | falhas `es_index` | busca p50 | busca máx |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 19:44:41 | 102,9 | 16 | 6 | **0** | 16 | 652 | 0,117 | 0,295 |
+| 19:45:41 | 265,1 | 0 | 0 | **0** | 0 | 652 | 0,014 | 0,035 |
+| 19:46:42 | 253,4 | 2 | 0 | **0** | 0 | 652 | 0,058 | 0,189 |
+| 19:47:44 | 113,4 | 9 | 0 | **0** | 952 | 652 | 0,073 | 0,222 |
+| 19:48:44 | 275,1 | 0 | 0 | **0** | 2.040 | 652 | 0,016 | 0,021 |
+| 19:49:44 | 755,3 | 2 | 0 | **0** | 2.586 | 652 | 0,011 | 0,038 |
+| 19:50:44 | 1.267,9 | 0 | 0 | **0** | 3.056 | 652 | 0,014 | 0,022 |
+| 19:51:45 | 1.258,6 | 16 | 85 | **0** | 3.364 | 652 | 0,049 | 0,101 |
+
+- **`rejected` = 0 em todas as passadas.** Rejeição do thread pool `write` é
+  documento PERDIDO do lado do ES; fila de 85 é lentidão, não perda.
+- **`falhas` da `es_index` constante em 652 — zero novas.** As 26
+  `ConnectionTimeout` de `indexar_movimentacoes_bulk` achadas mais cedo
+  (amostra ALEATÓRIA declarada, semente 7, n=250 de 652) pararam de aparecer.
+- **Busca:** mediana das medianas **0,0325 s**, pior máximo **0,295 s**, contra
+  baseline sem coleta de 0,0155 s / 0,243 s. Dobrou a mediana e continua em
+  centésimos de segundo.
+- **Site:** 8/8 e 10/10 HTTP **200**, média 0,05-0,06 s — igual ao baseline.
+- **Pico da fila `es_index` = 3.364, ou 67% do teto de 5.000.** Isto é o achado
+  operacional da etapa: **um dia de 8 cadernos já usa dois terços da guarda.**
+  Subir o orçamento sem subir o teto faz a guarda barrar — que é exatamente o
+  comportamento desejado, e é por isso que os dois números andam juntos.
+
+**Veredito: o ES aguenta UMA fonte no orçamento de 8 unidades/24 h.** Não
+aguenta o backfill aberto — §13.2 diz por quê, em GB.
+
+### 13.6 O que ficou LIGADO, o que ficou DESLIGADO, e o número de cada um
+
+| fonte | veredito | o número que sustenta |
+|---|---|---|
+| `tjsp-dje` | **LIGADA**, orçamento 8 unidades/24 h | 6,5× mais processos que as outras portas no mesmo dia, sobreposição de **3,0%**, e **96.587 processos novos** onde as outras duas trouxeram **0** nas 2 h anteriores |
+| `dejt` | **NÃO LIGAR** | a fonte está **fora do ar**: HTTP **503** em 4 de 4 sondas (1,07 s cada, com e sem UA próprio), e o coletor esgotou **6 tentativas** ao longo de ~15 min antes de desistir. Não é decisão de risco, é ausência de fonte — nem o catálogo saiu |
+| `stf` | **NÃO LIGAR** | a fonte responde (578 publicações em 19/08/2026, página de 500 em 2,69 s), mas as duas decisões que o §5 marca como "olho humano ANTES" continuam abertas, e uma foi RE-medida hoje: **56 de 500 publicações (11,2%)** vêm marcadas `Segredo de Justiça` (51) ou `Sigiloso` (5) **pela própria fonte**, com corpo completo, e cairiam no mesmo índice buscável servido a cliente. A outra é §5.1 (28% dos CNJs são de OUTRO tribunal ⇒ `Process` duplicado). Nenhuma das duas é decisão de engenharia |
+| `doe-sp` | **liberada tecnicamente**, fora do agendamento | canário manual de 1 dia (21/08/2026): **0** publicações gravadas, das 3.489 que a fonte declara no dia, em 8,8 s. E não escreve em `Movimentacao` nem no ES — `PublicacaoOficial` não tem signal em `search/signals.py`, ou seja **custo ZERO no recurso mais apertado**. Fica fora só para respeitar "uma fonte por vez" |
+| `qd-municipal` | idem | canário manual de 1 dia: **1** publicação gravada. É o volume que o §1 já dizia — 2-3 gazetas/dia no país com precatório *e* CNJ |
+
+### 13.7 Critério de parada — escrito ANTES, com o porquê de cada número
+
+Ordem de aperto MEDIDA nesta casa: **o ES antes de tudo.** Não é o disco do
+banco nem a RAM dos workers.
+
+| # | sinal | onde ler | **DESLIGA** em | por quê |
+|---|---|---|---|---|
+| 1 | disco do nó de ES | `_cat/allocation` | **≥ 85%** | `watermark.low`; a 5 pontos do `high` e 10 do `flood_stage`, que vira read-only e derruba as três portas. Hoje 63%. **Guarda automática** |
+| 2 | `rejected` do pool `write` do ES | `_cat/thread_pool/write` | **> 0 e crescendo** | rejeição é documento perdido, não lentidão. Medido: 0 em 8/8 passadas, com `queue` chegando a 85 |
+| 3 | `indexar_movimentacoes_bulk` novos no `FailedJobRegistry` da `es_index` | amostra ALEATÓRIA, semente e n declarados | **> 100/h** | job morto ali é publicação gravada e invisível (§12). Medido: 26 numa amostra n=250 de 652, todas de antes; **0 novas** durante a etapa |
+| 4 | profundidade da fila `es_index` | `Queue('es_index').count` | **≥ 5.000** | **guarda automática**. Pico medido com 8 cadernos: 3.364 (67%) |
+| 5 | latência da busca | 8 termos, semente 42, janela 31 d | mediana **> 2 s** ou máx **> 12 s** | 12 s é o teto que a busca do site já declara. Medido em regime: p50 0,0325 s, máx 0,295 s |
+| 6 | site | `GET /dashboard/login/` | qualquer **não-200** repetido | 18/18 em 200, média 0,05-0,06 s, antes e durante |
+| 7 | disco do host do banco | `qm guest exec 201 -- df -h /` | **≥ 75%** | a 4,9 TB, 75% deixa 1,2 TB — mais que um backfill inteiro de folga. Hoje 46% |
+| 8 | falha da fonte | `diarios_status <fonte>` | `runs_falha` **> 10%** das unidades da rodada | acima disso não é caderno ruim, é fonte ou parser mudado. Medido: 0 falhas em 8 |
+| 9 | gate de índice | `indice_faltando_no_dia` | **> 0 em duas passadas seguidas** | o reparo não está drenando; coletar mais só aumenta o invisível |
+| 10 | `.102` | `/proc/loadavg`, `free -m` | load1 **> 40** ou `MemAvailable` **< 6.000 MiB** | os mesmos pisos do `~/onda.sh` (OPS.md). Medido durante: load1 12-30, avail 12,3-12,8 GiB |
+
+Nenhum foi acionado na etapa 1.
+
+**Como desligar, do mais barato para o mais caro:**
+
+```bash
+# 1. a fonte para em SEGUNDOS, sem deploy, e retoma de onde parou
+manage.py diarios_pausar tjsp-dje     # POSICIONAL — não existe --pausar (argparse recusa)
+manage.py diarios_pausar --tudo
+manage.py diarios_pausar --listar
+manage.py diarios_pausar --religar tjsp-dje
+# provado ao vivo em 24/08: com a fonte pausada, `fontes_agendadas()` → [] e
+# `tick_todas()` → {}. Religar devolve os dois.
+
+# 2. fechar a torneira sem parar: orçamento no .env dos DOIS hosts
+#    (o tick roda no worker_default da .102; o cron que o dispara, no scheduler da .103)
+DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE=1   # ATENÇÃO: 0 = SEM TETO, não "parado"
+
+# 3. tirar do agendamento (exige force-recreate: `restart` NÃO relê o .env)
+DIARIOS_FONTES_AGENDADAS=
+DIARIOS_SCHEDULER_ENABLED=0            # no .env da .103
+```
+
+⚠ Ao abortar uma coleta à mão, **feche o `IngestionRun` você mesmo**, com a
+causa real em `erros`: o `watchdog_ingestao` não filtra por fonte e transforma
+run `running` órfão em "worker crashou" em 1 h — causa falsa no histórico.
+
+### 13.8 O caminho, em ordem, para quem for continuar
+
+```bash
+# 0. o kill switch responde? (a fonte tem que sumir e voltar da lista)
+manage.py diarios_pausar --listar
+manage.py diarios_pausar tjsp-dje && manage.py diarios_pausar --listar
+manage.py diarios_pausar --religar tjsp-dje
+
+# 1. mede ANTES — os dois lados (§13.2 tem os números de referência)
+manage.py diarios_status tjsp-dje
+
+# 2. cataloga só a janela da rodada — barato, não baixa caderno nenhum
+manage.py diarios_coletar tjsp-dje --de AAAA-MM-DD --ate AAAA-MM-DD --catalogar
+manage.py diarios_coletar tjsp-dje --de AAAA-MM-DD --ate AAAA-MM-DD --catalogar   # 2ª vez: novas=0
+
+# 3. o tick do scheduler (10 min) drena sozinho, respeitando orçamento e guardas.
+#    Para não esperar, dispare o MESMO job que o cron dispara:
+#      django_rq.get_queue('default').enqueue('diarios.jobs.tick_todas')
+
+# 4. mede DEPOIS, e confere o índice pelos dois lados
+manage.py diarios_status tjsp-dje
+manage.py diarios_conferir_indice --tribunal TJSP --dia AAAA-MM-DD --so-medir
+manage.py diarios_conferir_indice --tribunal TJSP --dia AAAA-MM-DD        # mede E repara
+```
+
+**Ampliar é subir o orçamento, nunca tirar o teto** — e subir o orçamento sem
+subir `DIARIOS_FILA_ES_MAX` faz a guarda barrar (§13.5). A ordem certa de
+ampliar o `tjsp-dje` é:
+
+1. **expandir o disco do nó de ES** (é o que barra o backfill inteiro, §13.2);
+2. subir `DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE` em passos, medindo o §13.5 entre
+   cada um;
+3. catalogar **de 2011 em diante** — nunca 2007-2010, que é `sem_aproveit`
+   provado (§13.1);
+4. só então pensar em réplica do `worker_diarios`.
