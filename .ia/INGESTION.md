@@ -346,7 +346,7 @@ páginas paralelas; `itensPorPagina` virou a variável de ajuste.
    banco, o que custava INSERT);
 5. **a leva anterior morre antes da próxima nascer** (`del payloads`): a
    co-residência caiu de 2×janela para 1×janela páginas;
-6. **teto DURO de bytes por resposta** (`DJEN_BYTES_MAX_RESPOSTA`, 32 MB).
+6. **teto DURO de bytes por resposta** (`DJEN_BYTES_MAX_RESPOSTA`, 48 MB).
    Previsão erra e teto não: com a sonda em 250 itens e uma leva de 766,9 KB
    por publicação, uma requisição só trouxe 192 MB de JSON e o
    `worker_ingestion-10` bateu **1023 MiB de 1 GiB** — a um suspiro do OOM
@@ -366,7 +366,13 @@ páginas paralelas; `itensPorPagina` virou a variável de ajuste.
    ```
 
    33,87 MB numa resposta de 100 publicações (338 KB cada) recusados, página
-   encolhida pra 79, MESMO offset relido. Nenhum item a menos.
+   encolhida pra 79, MESMO offset relido. Nenhum item a menos. E não é só o
+   TJDFT: o TJAM publica 33 KB por item, o que a `itensPorPagina=1000` também
+   dá 33 MB por requisição — são exatamente as 9 falhas de OOM dele no censo.
+
+   O teto que sai de uma recusa é **herdado** pelo resto do dia (`teto_herdado`
+   em `iter_pages`): sem isso a página passaria o dia crescendo pra ser recusada
+   de novo, e cada recusa custa o download inteiro.
 
 ⚠️ **Isto não é teto de coleta.** A paginação continua indo até a página voltar
 incompleta; muda o tamanho do balde, não quantos baldes. Teto de página é o
