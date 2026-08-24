@@ -1014,6 +1014,48 @@ régua da medição inicial:
 A primeira linha é a que prova o mecanismo: aquela faixa tinha 98,49% dos
 processos fora do índice e passou a ter 0 em 3.999 amostrados.
 
+### Estado da corrida (24/08/2026, 21:10 UTC)
+
+A régua repetida com `--teto-pk 104317558` reproduziu **exatamente** o mesmo
+sorteio (mesmos `existem` nas 8 faixas), que é a prova de que ela compara a
+mesma coisa:
+
+| faixa de pk | fora, na medição inicial | fora, às 21:10 |
+|---|---:|---:|
+| 0–4 (3.520–65.199.793) | 0 | 0 |
+| 5 (65,2M–78,2M) | 1.559 (45,99%) | 1.313 (**38,73%**) |
+| 6 (78,2M–91,3M) | 377 (9,44%) | 377 (9,44%) |
+| 7 (91,3M–104,3M) | 2.444 (61,44%) | 2.337 (**58,75%**) |
+| **TOTAL** | 4.380 (13,99%) | **4.027 (12,87%)** |
+
+Extrapolado por densidade × largura de faixa: **14.277.984 → 13.127.270 fora do
+índice**, 1.150.714 fechados (8,1%). Régua independente e EXATA (contagem do
+próprio censo, sem estimativa): **694.325 processos indexados** em 4.550.000
+conferidos, 455 blocos. A diferença entre os dois números é o poller e o gate
+do Datajud trabalhando em paralelo — o backfill não reivindica os dois.
+
+Checkpoint em `id=74.023.912`. **A corrida não termina numa sessão** — ela
+termina por retomada, que é para isso que o checkpoint existe.
+
+### Timeout no `_bulk` NÃO é documento perdido
+
+Apareceu em produção 20 min depois de a corrida entrar em faixa densa:
+
+    ERROR  Erro no bulk de 500 processos: Connection timed out
+    ERROR  bloco id 73913493-73923492 tinha 9574 fora do índice e só 9074
+           entraram - 500 NÃO indexados.
+
+Conferido no mesmo bloco logo depois: **10.000 processos no PG, 0 fora do
+índice.** Os 500 tinham entrado — o corpo chegou, o ES gravou, e o teto do
+cliente estourou antes da resposta. Mesmíssimo caso dos 41 jobs mortos por
+`ConnectionTimeout` (19.758 pks, 3.000 amostrados, 8 fora = 0,27%).
+
+As duas reações intuitivas são ruins: deixar no log deixa dívida invisível;
+reindexar por precaução empurra documentos num nó já saturado para recuperar
+quase nada. Por isso `_reparar` **pergunta de novo** — reconfere pelo índice,
+enfileira na `es_index` só o que realmente ficou fora, e trata ES mudo como
+dívida visível em vez de sucesso.
+
 ### Runbook da corrida
 
 ```bash
