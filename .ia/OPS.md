@@ -1662,9 +1662,18 @@ dias. 197 das 342 eram o MESMO dia sendo refeito ~12×/h: morre, nunca vira
 viva, o pico de RSS medido foi **957 MB** contra `mem_limit: 1g`. Controle com
 `DJEN_PAGINAS_PARALELAS=1`: 640 MB. O erro era contar memória em PÁGINAS.
 
-**Cura.** `DJEN_BYTES_EM_VOO` (24 MB) passou a ser o teto, e `itensPorPagina` a
-variável de ajuste; ver [`INGESTION.md`](INGESTION.md#o-oom-do-tjdft--resolvido-em-24082026)
-para a mecânica (sonda, meia-vida, recorte de sobreposição).
+**Cura.** Dois controles, e a distinção importa:
+
+* `DJEN_BYTES_EM_VOO` (64 MB) é a **previsão** — quantos itens devem caber numa
+  página. Ela acerta o caso comum e erra o extremo, porque a publicação varia
+  38 vezes dentro do mesmo tribunal;
+* `DJEN_BYTES_MAX_RESPOSTA` (48 MB) é o **teto duro** — a resposta que passa
+  disso é recusada durante o download, a página encolhe e o MESMO offset é
+  relido. Nada é descartado; o número real vira
+  `resposta_acima_do_teto_de_bytes` no run.
+
+Ver [`INGESTION.md`](INGESTION.md#o-oom-do-tjdft--resolvido-em-24082026) para a
+mecânica completa (sonda, decaimento, recorte de sobreposição, teto herdado).
 
 **Como conferir em produção:**
 
