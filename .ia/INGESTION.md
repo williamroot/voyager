@@ -625,20 +625,29 @@ distintos** foram queimados por deadlock; nas 24 h anteriores, **98 runs
 `failed`** por deadlock (18,2% de todas as falhas). Nos primeiros **46 minutos**
 depois do deploy:
 
-| | antes (24 h) | depois (46 min) |
+| | antes (24 h) | depois (62 min) |
 |---|---:|---:|
-| runs | 925 | 49 |
+| runs | 925 | 74 |
 | runs `failed` por deadlock | **98** | **0** |
-| runs `failed` (qualquer motivo) | 505 | **0** |
 | deadlocks vencidos pelo retry | — | 0 (nem precisou) |
-| publicações processadas | 18.809.848 | 830.653 |
+| publicações processadas | 18.809.848 | 1.138.420 |
+| tribunais no período | 12 | TJSP, TJDFT, TJRS, TJRJ, TJAM, TRF4, TRF6 |
+
+Antes, **10,6% dos runs** morriam de deadlock (98 de 925). Sob essa taxa, a
+chance de 74 runs seguidos sem um único deadlock é `0,894^74` ≈ **1 em 4.000**.
 
 E, o mais concreto: **24 dias-tribunal que morriam por deadlock fecharam
 `success` na primeira passada** (TRF4 13 · TRF6 11), entre 139 s e 582 s cada.
-O censo do `FailedJobRegistry` confirma: **0 falhas REAIS** pós-deploy — as 17
+O censo do `FailedJobRegistry` confirma: **0 falhas REAIS** pós-deploy — as 224
 entradas com `started_at` novo são o id determinístico reaproveitado
-(`f2:`/`bfd:`) carregando `exc_info` velho, 12 delas de jobs que já estão
-`finished`. Ver a armadilha nº 2 acima.
+(`f2:`/`bfd:`) carregando `exc_info` velho, TODAS de jobs já `finished`. Ver a
+armadilha nº 2 acima.
+
+⚠️ O que a tabela NÃO diz: continuam morrendo work-horses em TJDFT/TJAM/TJRS
+(resposta de ~51 MB acima do teto de bytes) e cada reciclagem da frota deixa
+`IngestionRun` órfão em `running` até o watchdog marcá-lo. Isso é outra frente
+(o teto de bytes no transporte), não deadlock — e é por isso que a métrica aqui
+é `failed` **por deadlock**, não `failed` em geral.
 
 *Nível 2, prova direta.* Cinco runs `success` com `novas=0` (dia 100%
 duplicado, o caso mais comum na recuperação), amostra de 300 processos de cada:
