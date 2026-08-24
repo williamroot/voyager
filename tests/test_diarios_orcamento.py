@@ -93,6 +93,63 @@ def test_guarda_desligada_por_env_libera_sem_perguntar_ao_es(monkeypatch, settin
     assert pode is True
 
 
+# ── guarda de fila do índice ────────────────────────────────────────────────
+
+class _FilaFalsaCount:
+    def __init__(self, n):
+        self.count = n
+
+
+def _com_fila_es(monkeypatch, n):
+    import django_rq
+    monkeypatch.setattr(django_rq, 'get_queue', lambda *a, **kw: _FilaFalsaCount(n))
+
+
+def test_fila_do_indice_rasa_libera(monkeypatch, settings):
+    settings.DIARIOS_FILA_ES_MAX = 5000
+    _com_fila_es(monkeypatch, 84)
+    pode, motivo = orcamento.guarda_do_indice()
+    assert pode is True
+    assert '84 jobs' in motivo
+
+
+def test_fila_do_indice_funda_bloqueia_porque_coletado_nao_seria_buscavel(monkeypatch, settings):
+    """O motivo tem que dizer POR QUE, não só que parou.
+
+    Foi exatamente esta a lição de 21/08/2026 (§12): 27.619 linhas gravadas e
+    fora do índice, com a edição marcada `ok`.
+    """
+    settings.DIARIOS_FILA_ES_MAX = 5000
+    _com_fila_es(monkeypatch, 5000)
+    pode, motivo = orcamento.guarda_do_indice()
+    assert pode is False
+    assert '5000 jobs' in motivo and 'buscável' in motivo
+
+
+def test_fila_do_indice_ilegivel_fecha(monkeypatch, settings):
+    settings.DIARIOS_FILA_ES_MAX = 5000
+    monkeypatch.setattr(orcamento, 'fila_do_indice', lambda: None)
+    pode, motivo = orcamento.guarda_do_indice()
+    assert pode is False
+    assert 'FECHA' in motivo
+
+
+def test_guarda_de_recursos_reprova_no_disco_antes_de_olhar_a_fila(monkeypatch, settings):
+    """Ordem importa: o disco é teto estrutural (não drena), a fila é conjuntural."""
+    settings.DIARIOS_ES_DISCO_MAX_PCT = 85.0
+    settings.DIARIOS_FILA_ES_MAX = 5000
+    _com_es(monkeypatch, _EsFalso([{'node': 'es-01', 'disk.percent': '95',
+                                    'disk.total': '2.9tb', 'disk.avail': '140gb'}]))
+
+    def _explode():
+        raise AssertionError('não podia ter chegado a medir a fila')
+
+    monkeypatch.setattr(orcamento, 'fila_do_indice', _explode)
+    pode, motivo = orcamento.guarda_de_recursos()
+    assert pode is False
+    assert '95%' in motivo
+
+
 # ── orçamento diário ────────────────────────────────────────────────────────
 
 def test_sem_teto_configurado_a_folga_e_none(settings):
@@ -185,6 +242,8 @@ def test_tick_respeita_o_orcamento_e_enfileira_so_a_folga(monkeypatch, settings)
     enfileirados = []
 
     class _FilaFalsa:
+        count = 0          # a guarda de fila do índice lê isto na `es_index`
+
         def get_job_ids(self):
             return []
 
@@ -218,6 +277,8 @@ def test_tick_com_orcamento_esgotado_avisa_com_o_numero(monkeypatch, settings):
                                 status=EdicaoDiario.PENDENTE)
 
     class _FilaFalsa:
+        count = 0          # a guarda de fila do índice lê isto na `es_index`
+
         def get_job_ids(self):
             return []
 

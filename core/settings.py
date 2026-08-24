@@ -464,6 +464,15 @@ DIARIOS_TETO_UNIDADES_DIA_STF = env.int('DIARIOS_TETO_UNIDADES_DIA_STF', default
 # `diarios/orcamento.py`.
 DIARIOS_ES_DISCO_MAX_PCT = env.float('DIARIOS_ES_DISCO_MAX_PCT', default=85.0)
 DIARIOS_GUARDA_DISCO_ENABLED = env.bool('DIARIOS_GUARDA_DISCO_ENABLED', default=True)
+# Profundidade da fila `es_index` acima da qual o tick de diários para. Nesta
+# casa "coletado" só vale quando é BUSCÁVEL (.ia/DIARIOS.md §12): enfileirar
+# caderno contra uma fila de índice funda só troca linha invisível por linha
+# invisível com um job a mais na frente. A conta: 500 docs por job, 4,13 s por
+# `_bulk` medidos, 24 `worker_es_index` na .102 ⇒ 5.000 jobs = 2,5 M docs ≈
+# 15 min de dreno com o índice livre, e horas sob contenção. Muito abaixo do
+# `FILA_ES_ALTA=150.000` do poller de propósito: lá o freio protege o poller de
+# si mesmo, aqui a TERCEIRA porta cede a vez para as outras duas.
+DIARIOS_FILA_ES_MAX = env.int('DIARIOS_FILA_ES_MAX', default=5000)
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)

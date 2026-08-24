@@ -22,13 +22,25 @@ jeito de descobrir isso NÃO pode ser o índice entrar em `flood_stage` e virar
 read-only às 3 da manhã. O `read_only_allow_delete` do ES é global por índice e
 derruba a ingestão das TRÊS portas, não só desta.
 
-Daí as duas guardas deste módulo:
+Daí as três guardas deste módulo:
 
 1. **Guarda de disco do ES** — o tick não enfileira nada quando o nó passa de
    `DIARIOS_ES_DISCO_MAX_PCT`. É o critério de parada escrito ANTES virando
    código, em vez de virar um parágrafo de runbook que alguém lê depois do
    incidente.
-2. **Orçamento diário por fonte** — teto de unidades coletadas em 24 h. É o que
+2. **Guarda de FILA do índice** — o tick não enfileira quando a `es_index` já
+   está funda. Nesta casa "coletado" só vale quando é BUSCÁVEL (§12 do
+   `.ia/DIARIOS.md`), e uma edição que entra no fim de uma fila de horas está
+   gravada e invisível. Medido em 24/08/2026, DURANTE a etapa 1 e com outro
+   backfill (14,4 milhões de processos) no mesmo nó de ES: amostra aleatória
+   declarada de 250 das 652 falhas do `FailedJobRegistry` da `es_index` deu
+   **26 `indexar_movimentacoes_bulk` com `ConnectionTimeout`, todas nas 3 h
+   anteriores** (as outras 224 são `indexar_processos_bulk|ValueError`, bug
+   antigo e alheio). O `write` thread pool do ES estava com `active=16`,
+   `queue=33`, `rejected=0`. Ou seja: o índice estava aceitando, mas no limite —
+   e a terceira porta é a que deve ceder, porque é a única das três que pode
+   esperar.
+3. **Orçamento diário por fonte** — teto de unidades coletadas em 24 h. É o que
    permite "ligar em etapas" sem alguém de plantão: a fonte anda o que foi
    autorizado a andar e para sozinha.
 
@@ -64,6 +76,16 @@ ES_DISCO_MAX_PCT_PADRAO = 85.0
 #: Teto de espera da leitura do disco do ES. Regra nº 7: nada no caminho sem
 #: teto de espera — e isto roda dentro do `tick`, que é um cron.
 ES_TIMEOUT_DISCO = 10
+#: Profundidade da fila `es_index` acima da qual o tick para. A conta, com os
+#: números desta casa: cada job carrega 500 documentos e um `_bulk` de 500 leva
+#: **4,13 s** (medido em 21/08/2026); a `.102` roda **24** `worker_es_index`.
+#: 5.000 jobs = 2,5 milhões de documentos ≈ **15 min** de dreno com o índice
+#: LIVRE — e horas com ele sob contenção, que é justamente quando isto importa.
+#: Um caderno do DJE/TJSP rende ~55 jobs; enfileirar mais coleta contra uma fila
+#: dessas é produzir invisibilidade. Muito abaixo do `FILA_ES_ALTA=150.000` do
+#: `search/sync_incremental.py` de propósito: lá o freio protege o poller de si
+#: mesmo, aqui a terceira porta cede a vez para as outras duas.
+FILA_ES_MAX_PADRAO = 5_000
 
 
 def _chave_env(fonte: str) -> str:
@@ -134,6 +156,43 @@ def disco_do_es() -> dict | None:
     return None
 
 
+def fila_do_indice() -> int | None:
+    """Profundidade da fila `es_index`. `None` = não deu para medir (FECHA).
+
+    `Queue.count` é um `LLEN` no Redis: barato o bastante para o caminho de um
+    cron de 10 minutos.
+    """
+    try:
+        import django_rq
+
+        return int(django_rq.get_queue('es_index').count)
+    except Exception:
+        logger.warning('orçamento: não consegui ler a fila es_index — abstendo', exc_info=True)
+        return None
+
+
+def guarda_do_indice() -> tuple[bool, str]:
+    """A fila do índice aguenta mais coleta agora? `(pode, motivo)`.
+
+    Existe porque nesta casa "coletado" e "buscável" não são a mesma palavra
+    (§12 do `.ia/DIARIOS.md`). Enfileirar caderno contra uma `es_index` funda
+    não acelera nada: só troca linha invisível no Postgres por linha invisível
+    no Postgres com um job a mais esperando. Fecha quando não consegue medir,
+    pelo mesmo motivo da guarda de disco.
+    """
+    teto = int(getattr(settings, 'DIARIOS_FILA_ES_MAX', FILA_ES_MAX_PADRAO))
+    if teto <= 0:
+        return True, 'guarda de fila do índice sem teto (DIARIOS_FILA_ES_MAX<=0)'
+    n = fila_do_indice()
+    if n is None:
+        return False, ('não consegui medir a fila `es_index` — a guarda FECHA por '
+                       'decisão declarada (ver diarios/orcamento.py)')
+    if n >= teto:
+        return False, (f'fila `es_index` com {n} jobs (teto {teto}) — coletar agora '
+                       f'produziria linha gravada e não buscável')
+    return True, f'fila `es_index` com {n} jobs (teto {teto})'
+
+
 def guarda_de_disco() -> tuple[bool, str]:
     """Pode enfileirar coleta agora? Devolve `(pode, motivo)`.
 
@@ -154,3 +213,21 @@ def guarda_de_disco() -> tuple[bool, str]:
         return False, (f"disco do ES em {medida['usado_pct']:.0f}% (teto {teto:.0f}%, "
                        f"livre {medida['livre']} de {medida['total']})")
     return True, f"disco do ES em {medida['usado_pct']:.0f}% (teto {teto:.0f}%)"
+
+
+def guarda_de_recursos() -> tuple[bool, str]:
+    """As guardas de infraestrutura numa chamada só, na ordem mais barata.
+
+    Disco antes de fila porque o disco é o teto ESTRUTURAL (não drena sozinho) e
+    a fila é conjuntural. As duas juntas são o que o `tick` pergunta antes de
+    tocar em qualquer coisa.
+    """
+    if not bool(getattr(settings, 'DIARIOS_GUARDA_DISCO_ENABLED', True)):
+        return True, 'guardas de recurso desligadas (DIARIOS_GUARDA_DISCO_ENABLED=0)'
+    pode, motivo = guarda_de_disco()
+    if not pode:
+        return False, motivo
+    pode_fila, motivo_fila = guarda_do_indice()
+    if not pode_fila:
+        return False, motivo_fila
+    return True, f'{motivo}; {motivo_fila}'

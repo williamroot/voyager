@@ -63,11 +63,12 @@ def tick(fonte: str) -> dict:
     acervo. Quem quiser outra ordem passa por `diarios_coletar`, não muda isto.
 
     DOIS TETOS, e eles medem coisas diferentes. `WATERMARK_POR_FONTE` limita a
-    PROFUNDIDADE da fila (fairness entre fontes); o `diarios.orcamento` limita a
-    VAZÃO em 24 h e o USO DE DISCO do ES. Sem o segundo, o ritmo real do
-    backfill é o número de réplicas do `worker_diarios` — escolhido por CPU, não
-    por disco — e a projeção medida em 24/08/2026 é de ~772 GB de índice para um
-    nó com 1,0 TB livre. Ver `diarios/orcamento.py`.
+    PROFUNDIDADE da fila `diarios` (fairness entre fontes); o `diarios.orcamento`
+    limita a VAZÃO em 24 h, o USO DE DISCO do ES e a PROFUNDIDADE DA FILA do
+    índice. Sem o segundo, o ritmo real do backfill é o número de réplicas do
+    `worker_diarios` — escolhido por CPU, não por disco — e a projeção medida em
+    24/08/2026 é de ~772 GB de índice para um nó com 1,0 TB livre.
+    Ver `diarios/orcamento.py`.
     """
     import django_rq
 
@@ -77,7 +78,7 @@ def tick(fonte: str) -> dict:
 
     # Guarda de recurso ANTES de qualquer trabalho: não adianta medir fila e
     # ler pendentes se o destino da escrita não tem para onde crescer.
-    pode, motivo = orcamento.guarda_de_disco()
+    pode, motivo = orcamento.guarda_de_recursos()
     if not pode:
         # Teto é ALERTA (regra nº 2), nunca `return` discreto: o tick só volta
         # em 10 min e ninguém está olhando a fila às 3 da manhã.
