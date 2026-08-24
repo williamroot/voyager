@@ -346,10 +346,12 @@ class DJENClient:
         itens_lidos = 0
         peso_item = 0            # bytes de texto por publicação (média com meia-vida)
         peso_leva = 0            # o máximo medido na leva corrente
-        # Teto herdado do downshift de 5xx: uma vez que a DJEN recusou página
-        # grande neste offset, o orçamento de bytes não pode reinflá-la de volta
-        # (senão os dois controles ficam em ping-pong eterno).
-        teto_5xx = self.PAGE_SIZE
+        # TETO HERDADO: uma vez que a página grande foi recusada neste dia — pela
+        # DJEN (5xx) ou pelo nosso teto de bytes —, a calibração não pode
+        # reinflá-la de volta. Sem isto os dois controles ficam em ping-pong e a
+        # página passa o dia crescendo pra ser recusada de novo, e cada recusa
+        # custa o download inteiro. Só encolhe.
+        teto_herdado = self.PAGE_SIZE
         with ThreadPoolExecutor(max_workers=janela_alvo) as pool:
             while True:
                 try:
@@ -368,7 +370,7 @@ class DJENClient:
                 except DjenPaginaGrandeError as grande:
                     novo, peso_real = self._encolher_por_teto(sigla_djen, grande, page_size)
                     peso_item = max(peso_item, peso_real)
-                    page_size = teto_5xx = novo
+                    page_size = teto_herdado = novo
                     pagina = itens_lidos // page_size + 1   # RELÊ o mesmo offset
                     continue
                 except DjenServerError:
@@ -378,7 +380,7 @@ class DJENClient:
                             'DJEN 5xx em %s page_size=%d (offset~%d) → reduzindo p/ %d e retomando',
                             sigla_djen, page_size, itens_lidos, novo,
                         )
-                        page_size = teto_5xx = novo
+                        page_size = teto_herdado = novo
                         pagina = itens_lidos // page_size + 1
                         continue
                     raise
@@ -444,7 +446,7 @@ class DJENClient:
                 # inteiro. Subir devagar erra menos.
                 peso_item = max(peso_leva, peso_item * 3 // 4)
                 novo = self._itens_por_pagina(sigla_djen, peso_item, janela_alvo,
-                                              teto_5xx, anterior=page_size)
+                                              teto_herdado, anterior=page_size)
                 if novo != page_size:
                     logger.info(
                         'DJEN %s: publicação pesa %.1f KB → itensPorPagina %d→%d '
