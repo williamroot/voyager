@@ -187,14 +187,27 @@ def _vigiar_memoria(run: IngestionRun | None) -> None:
 
 
 def _drenar_alertas(client: DJENClient, run: IngestionRun | None) -> None:
-    """Passa pro run os avisos que o coletor não tem como registrar sozinho
-    (ele não conhece o `IngestionRun`). Ver `DJENClient.alertas`."""
+    """Passa pro run os avisos que o coletor não tem como registrar sozinho —
+    ele não conhece o `IngestionRun`. Ver `DJENClient.alertas`.
+
+    Grava NA HORA, e é chamado a cada página, não só no fim. O aviso que mais
+    importa (`orcamento_memoria_no_piso`) é justamente o que diz que o pico vai
+    passar do orçamento — esperar o fim do run pra gravá-lo é perdê-lo
+    exatamente no caso em que ele seria lido.
+    """
     if run is None or not getattr(client, 'alertas', None):
         return
+    novos = 0
     for aviso in client.alertas:
         if aviso not in run.erros:
             run.erros.append(aviso)
+            novos += 1
     client.alertas.clear()
+    if novos and run.pk:
+        try:
+            run.save(update_fields=['erros'])
+        except Exception:   # o alerta não pode derrubar a coleta
+            logger.warning('falha ao gravar alerta do coletor no run %s', run.pk)
 
 
 def _fechar_lote(tribunal: Tribunal, cnjs: set[str]) -> None:
@@ -262,6 +275,7 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
             _process_page(items, tribunal, run, cnjs_tocados)
             del items
             _vigiar_memoria(run)
+            _drenar_alertas(client, run)
             if len(cnjs_tocados) >= CNJS_POR_LOTE:
                 _fechar_lote(tribunal, cnjs_tocados)
                 cnjs_tocados = set()
