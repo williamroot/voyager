@@ -733,8 +733,11 @@ devolve **14.651**. Acima do teto, quem decide é a paginação — ou ninguém.
 Duas amostras ALEATÓRIAS com semente declarada (`--seed 20260824`), paginando a
 DJEN na força bruta:
 
-**Amostra A — dias que FALHARAM e voltaram** (universo: 345 dias fechados em
-24 h que tinham `failed` na janela de 7 dias; n=5):
+**Amostra A — dias que FALHARAM e voltaram.** Dois sorteios, os dois declarados:
+A1 (universo 345 dias fechados em 24 h com `failed` na janela de 7 dias, n=5,
+seed 20260824) e A2 (universo CONGELADO em 361 dias às 16:39, n=6, seed
+2026082402). **Provados 2**; o resto não coube no relógio da sessão e está
+listado abaixo como NÃO PROVADO — abster é melhor que afirmar.
 
 | dia | fonte paginada | run (novas+dup) | banco (ids da fonte) | cobertura |
 |---|---:|---:|---:|---:|
@@ -763,6 +766,20 @@ a mesma ordem de grandeza da fonte. O fatiado servia ~⅓ do dia com `success`.
 Se os 121 dias pendentes do TJRS tiverem o mesmo perfil, são da ordem de **4,9
 milhões de publicações** paradas — extrapolação de n=1, declarada como tal, e
 por isso os dias foram priorizados na fila em vez de estimados.
+
+**A recoleta confirma na hora.** Os dois primeiros dias do TJRS que entraram na
+frente da fila passaram do total antigo ainda em curso: 2026-03-06 já lia
+**30.000** (contra 18.995 do run fatiado de 03/07) e 2025-10-28 lia **36.000**
+(contra 19.634). O caminho flat encontra o que o fatiado nunca viu.
+
+**NÃO PROVADOS, com o motivo** (regra nº 6):
+
+| dia | por quê |
+|---|---|
+| TJRS 2025-08-28 (A1) | a página caiu ao piso (25 itens): ~2.200 requisições pro dia inteiro, ~15 h |
+| TRF3 2023-05-01 (A2) | paginação em curso ao fim da sessão |
+| TJRJ 2025-07-03 · TJRS 2026-02-26 · TJRS 2026-02-02 · TJSP 2026-08-24 (A2) | não alcançados: a DJEN passou a responder `500 servidor` com a frota + gate + provas na mesma banda |
+| TJRS 2025-10-28 · 2025-05-21 · 2026-01-23 · 2025-06-23 (B) | idem — e os dois primeiros estavam sendo RECOLETADOS durante a medição, o que mistura o "antes" com o "depois" |
 
 ### O gate de completude (`conferir_dias_fechados`, etapa 5 do watchdog)
 
