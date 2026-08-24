@@ -321,8 +321,13 @@ DJEN_BYTES_EM_VOO = env.int('DJEN_BYTES_EM_VOO', default=64 * 1024 * 1024)
 # suspiro do OOM killer. Passar deste teto NÃO descarta nada: o coletor aborta
 # o download, encolhe o `itensPorPagina` e RELÊ o mesmo offset, registrando o
 # número real no run (`resposta_acima_do_teto_de_bytes`).
-# 32 MB por 3 páginas paralelas = 96 MB de JSON no pior caso => ~245 MB de heap.
-DJEN_BYTES_MAX_RESPOSTA = env.int('DJEN_BYTES_MAX_RESPOSTA', default=32 * 1024 * 1024)
+# O teto tem que ficar FOLGADO em relação ao alvo de regime, senão vira ruído:
+# com 64 MB de orçamento por 3 páginas o alvo é 21 MB, e um teto de 32 MB dava
+# só 1,5 de margem — qualquer previsão errada por mais de 50% recusava a
+# resposta (34 recusas em 3 min na frota, medido). 48 MB dão 2,3 de margem.
+# Pior caso: 48 MB por 3 páginas paralelas = 144 MB de JSON => ~370 MB de heap,
+# ~500 MB de RSS com a base do Django. Ainda abaixo do alerta de 700 MB.
+DJEN_BYTES_MAX_RESPOSTA = env.int('DJEN_BYTES_MAX_RESPOSTA', default=48 * 1024 * 1024)
 
 # A partir de quanto de RSS a ingestão GRITA (ERRO no run, com o número real)
 # em vez de esperar o SIGKILL silencioso do OOM killer. Regra nº 2 do

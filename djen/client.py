@@ -433,10 +433,16 @@ class DJENClient:
                 # página presa no tamanho do pior trecho até o fim do dia (28
                 # itens, 523 páginas) — seguro e lento demais. Guardar só a
                 # última leva volta a se expor inteiro a cada oscilação. O meio
-                # é MEMÓRIA COM MEIA-VIDA: o passado pesa metade a cada leva,
-                # então a página recupera o tamanho em ~4 levas em vez de nunca,
-                # e nunca de uma vez só.
-                peso_item = max(peso_leva, peso_item // 2)
+                # é MEMÓRIA COM DECAIMENTO: o passado perde um quarto do peso a
+                # cada leva, então a página recupera o tamanho aos poucos em vez
+                # de nunca, e nunca de uma vez só.
+                #
+                # Era metade (meia-vida) até 24/08 à tarde; medido em produção,
+                # dobrar a página a cada leva fazia ela reencontrar o mesmo
+                # trecho pesado e estourar o teto de bytes — 34 respostas
+                # recusadas em 3 min na frota. Cada recusa custa o download
+                # inteiro. Subir devagar erra menos.
+                peso_item = max(peso_leva, peso_item * 3 // 4)
                 novo = self._itens_por_pagina(sigla_djen, peso_item, janela_alvo,
                                               teto_5xx, anterior=page_size)
                 if novo != page_size:

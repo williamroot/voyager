@@ -328,11 +328,14 @@ páginas paralelas; `itensPorPagina` virou a variável de ajuste.
 
 1. **sonda**: a 1ª leva vai sozinha, com `PAGE_SIZE_SONDA=250`, só pra pesar a
    publicação daquele tribunal antes de comprometer memória;
-2. **calibração com meia-vida**: o peso varia MUITO dentro do mesmo dia (no
-   TJDFT as levas mediram 24,6 KB, 220,4 KB, 336,3 KB e 578,8 KB por item).
-   Guardar o máximo de todos os tempos prende a página no pior trecho até o fim
-   do dia (28 itens, 523 páginas — medido); guardar só a última leva re-expõe a
-   cada oscilação. O peso lembrado decai pela metade a cada leva;
+2. **calibração com decaimento**: o peso varia MUITO dentro do mesmo dia (no
+   TJDFT as levas mediram 24,6 KB, 220,4 KB, 336,3 KB, 578,8 KB e até 978,0 KB
+   por item). Guardar o máximo de todos os tempos prende a página no pior
+   trecho até o fim do dia (28 itens, 523 páginas — medido); guardar só a
+   última leva re-expõe a cada oscilação. O peso lembrado perde ¼ do valor a
+   cada leva — era ½ até a tarde de 24/08, e dobrar a página a cada leva fazia
+   ela reencontrar o trecho pesado e estourar o teto de bytes (34 respostas
+   recusadas em 3 min na frota, e cada recusa custa o download inteiro);
 3. **crescer devagar, encolher na hora**: a página cresce no máximo
    `FATOR_CRESCIMENTO`=4× por recalibração — encolher é reação a peso MEDIDO,
    crescer é aposta;
