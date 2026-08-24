@@ -444,6 +444,26 @@ DIARIOS_INDEXAR_AO_GRAVAR = env.bool('DIARIOS_INDEXAR_AO_GRAVAR', default=True)
 # à mão por `manage.py diarios_coletar`, e um gate que só roda com o
 # agendamento ligado não teria pego o caso que o criou.
 DIARIOS_GATE_INDICE_ENABLED = env.bool('DIARIOS_GATE_INDICE_ENABLED', default=True)
+# ── ORÇAMENTO DA TERCEIRA PORTA (diarios/orcamento.py) ───────────────────────
+# Teto de VAZÃO, que é coisa diferente do `WATERMARK_POR_FONTE=200` (teto de
+# PROFUNDIDADE da fila). Sem ele, o ritmo do backfill é o número de réplicas do
+# `worker_diarios` — dimensionado por CPU, não por disco. Medido em 24/08/2026:
+# um caderno do DJE/TJSP rende 27.568 linhas e leva ~3,4 min, então 2 réplicas
+# escrevem ~980 mil linhas/h; o catálogo inteiro do `tjsp-dje` são 32.616
+# unidades ⇒ ~7,3e8 linhas ⇒ ~772 GB de índice no ES, que tem 1,0 TB livre.
+# 0 = sem teto. Aceita override por fonte: DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE.
+DIARIOS_TETO_UNIDADES_DIA = env.int('DIARIOS_TETO_UNIDADES_DIA', default=0)
+DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE = env.int('DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE', default=0)
+DIARIOS_TETO_UNIDADES_DIA_DEJT = env.int('DIARIOS_TETO_UNIDADES_DIA_DEJT', default=0)
+DIARIOS_TETO_UNIDADES_DIA_STF = env.int('DIARIOS_TETO_UNIDADES_DIA_STF', default=0)
+# Guarda de disco do Elasticsearch: o tick não enfileira acima deste uso. 85% é
+# o `disk.watermark.low` padrão do ES; 90% é o `high` e 95% o `flood_stage`, que
+# marca o índice `read_only_allow_delete` e derruba a escrita das TRÊS portas —
+# não só desta. A guarda falha FECHADA (ES mudo ⇒ não enfileira): parada falsa
+# custa 10 min, "vai" falso custa um índice em read-only. Ver o cabeçalho de
+# `diarios/orcamento.py`.
+DIARIOS_ES_DISCO_MAX_PCT = env.float('DIARIOS_ES_DISCO_MAX_PCT', default=85.0)
+DIARIOS_GUARDA_DISCO_ENABLED = env.bool('DIARIOS_GUARDA_DISCO_ENABLED', default=True)
 PROXYSCRAPE_REFRESH_SECONDS = env.int('PROXYSCRAPE_REFRESH_SECONDS', default=900)
 CORTEX_PROXY_URL = env('CORTEX_PROXY_URL', default='')
 CORTEX_FALLBACK_ENABLED = env.bool('CORTEX_FALLBACK_ENABLED', default=True)

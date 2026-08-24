@@ -61,10 +61,30 @@ def tick(fonte: str) -> dict:
     Mais recente → mais antigo, de propósito: o valor comercial decai com a
     idade, então os primeiros dias de backfill compram a parte mais útil do
     acervo. Quem quiser outra ordem passa por `diarios_coletar`, não muda isto.
+
+    DOIS TETOS, e eles medem coisas diferentes. `WATERMARK_POR_FONTE` limita a
+    PROFUNDIDADE da fila (fairness entre fontes); o `diarios.orcamento` limita a
+    VAZÃO em 24 h e o USO DE DISCO do ES. Sem o segundo, o ritmo real do
+    backfill é o número de réplicas do `worker_diarios` — escolhido por CPU, não
+    por disco — e a projeção medida em 24/08/2026 é de ~772 GB de índice para um
+    nó com 1,0 TB livre. Ver `diarios/orcamento.py`.
     """
     import django_rq
 
+    from . import orcamento
+
     coletor = obter(fonte)
+
+    # Guarda de recurso ANTES de qualquer trabalho: não adianta medir fila e
+    # ler pendentes se o destino da escrita não tem para onde crescer.
+    pode, motivo = orcamento.guarda_de_disco()
+    if not pode:
+        # Teto é ALERTA (regra nº 2), nunca `return` discreto: o tick só volta
+        # em 10 min e ninguém está olhando a fila às 3 da manhã.
+        logger.error('tick %s BLOQUEADO por recurso: %s. As unidades continuam '
+                     'pendentes — nada foi descartado.', fonte, motivo)
+        return {'fonte': fonte, 'bloqueado': motivo, 'enfileiradas': 0}
+
     fila = django_rq.get_queue('diarios')
     ids = fila.get_job_ids()
     meu_prefixo = f'{PREFIXO_JOB}:{fonte}:'
@@ -72,12 +92,23 @@ def tick(fonte: str) -> dict:
     if meus >= WATERMARK_POR_FONTE:
         return {'aguardando': True, 'na_fila': meus}
 
+    cabem = min(LOTE_TICK, WATERMARK_POR_FONTE - meus)
+    folga = orcamento.folga_do_orcamento(fonte)
+    if folga is not None:
+        if folga <= 0:
+            logger.warning('tick %s: orçamento de 24h ESGOTADO (teto=%d, coletadas=%d). '
+                           'Nada enfileirado; as pendentes seguem pendentes.',
+                           fonte, orcamento.teto_diario(fonte), orcamento.coletadas_24h(fonte))
+            return {'fonte': fonte, 'orcamento_esgotado': True,
+                    'teto_dia': orcamento.teto_diario(fonte), 'enfileiradas': 0}
+        cabem = min(cabem, folga)
+
     pendentes = list(
         EdicaoDiario.objects
         .filter(fonte=fonte, status__in=[EdicaoDiario.PENDENTE, EdicaoDiario.FALHA],
                 tentativas__lt=MAX_TENTATIVAS)
         .order_by('-data', 'chave')
-        .values_list('chave', flat=True)[:min(LOTE_TICK, WATERMARK_POR_FONTE - meus)]
+        .values_list('chave', flat=True)[:cabem]
     )
     for chave in pendentes:
         fila.enqueue(coletar, fonte, chave, job_id=f'{meu_prefixo}{chave}', job_timeout=7200)
@@ -86,10 +117,11 @@ def tick(fonte: str) -> dict:
         fonte=fonte, status__in=[EdicaoDiario.PENDENTE, EdicaoDiario.FALHA],
         tentativas__lt=MAX_TENTATIVAS,
     ).count()
-    logger.info('tick %s: +%d enfileiradas, %d pendentes, janela=%s',
-                fonte, len(pendentes), restantes,
+    logger.info('tick %s: +%d enfileiradas, %d pendentes, folga24h=%s, %s, janela=%s',
+                fonte, len(pendentes), restantes, folga, motivo,
                 f'{coletor.janela_inicio}→{coletor.janela_fim}')
-    return {'fonte': fonte, 'enfileiradas': len(pendentes), 'pendentes': restantes}
+    return {'fonte': fonte, 'enfileiradas': len(pendentes), 'pendentes': restantes,
+            'folga_24h': folga, 'disco': motivo}
 
 
 def fontes_agendadas() -> list[str]:
