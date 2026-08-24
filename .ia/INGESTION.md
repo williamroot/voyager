@@ -790,10 +790,26 @@ Se os 121 dias pendentes do TJRS tiverem o mesmo perfil, são da ordem de **4,9
 milhões de publicações** paradas — extrapolação de n=1, declarada como tal, e
 por isso os dias foram priorizados na fila em vez de estimados.
 
-**A recoleta confirma na hora.** Os dois primeiros dias do TJRS que entraram na
-frente da fila passaram do total antigo ainda em curso: 2026-03-06 já lia
-**30.000** (contra 18.995 do run fatiado de 03/07) e 2025-10-28 lia **36.000**
-(contra 19.634). O caminho flat encontra o que o fatiado nunca viu.
+**A recoleta fechou o ciclo, ao ITEM.** O dia provado como buraco voltou pra
+frente da fila e fechou `success` 21 min depois:
+
+| TJRS 2026-03-06 | publicações |
+|---|---:|
+| fonte, paginada na força bruta (a prova) | **59.319** |
+| run fatiado de 03/07 (o que tínhamos) | 18.995 |
+| run flat de 24/08, 61 páginas, 21 min | **59.319** |
+
+**59.319 = 59.319.** A sonda mediu o buraco, a fila devolveu o dia, e o dia
+fechou com exatamente o número da fonte — 40.324 publicações recuperadas num
+único dia-tribunal. O 2025-10-28 seguia o mesmo caminho (36.000 lidas contra
+19.634 do run fatiado) quando a sessão terminou.
+
+⚠️ **Um efeito colateral apareceu aí e ficou pendente**: o mesmo dia rodou DUAS
+vezes em paralelo (o `adiado:` voltou do circuito enquanto o `f2:` ainda
+trabalhava). A escrita é idempotente, então não corrompe nada, mas é requisição
+dobrada no dia mais caro. O conserto natural — recusar `reprocessar_janela`
+quando já existe run `running` pro par (tribunal, dia) — tem risco de travar em
+run zumbi, e por isso não foi feito às pressas.
 
 **NÃO PROVADOS, com o motivo** (regra nº 6):
 
