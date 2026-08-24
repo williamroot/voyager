@@ -480,9 +480,9 @@ id → hash novo, id na fila; `djen_censo_falhas --apagar` limpa o registry com
 Três consertos, no mesmo commit:
 
 1. `ressuscitar_dias_de_recuperacao` só considera ocupado o id cujo hash EXISTE
-   (`_so_os_que_existem`, `Job.fetch_many` em lotes de 500 — **0,12 s** para
-   1.945 ids, contra o orçamento de 90 s do watchdog). Cascas viram ERRO logado
-   com o número;
+   (`_so_os_que_existem`, `Job.fetch_many` em lotes de 500 — **0,086 s** para
+   491 ids medidos em produção, num tique de 4,44 s contra orçamento de 90 s).
+   Casca vira ERRO logado com o número;
 2. `djen_censo_falhas --apagar` nunca mais apaga hash de id que está na fila,
    agendado ou em execução — só o desregistra;
 3. `djen_faxina_fila` mede e conserta: remove a casca e reenfileira o dia de
@@ -698,6 +698,37 @@ sobreviver 17 meses.
 ⚠️ **O `count` tem teto de 10.000** (regra nº 3: número redondo é PISO
 disfarçado). Medido: TJDFT 2026-08-21 devolve `count=10000` e a paginação
 devolve **14.651**. Acima do teto, quem decide é a paginação — ou ninguém.
+
+### A prova rodada em 24/08 — e o buraco que ela achou
+
+Duas amostras ALEATÓRIAS com semente declarada (`--seed 20260824`), paginando a
+DJEN na força bruta:
+
+**Amostra A — dias que FALHARAM e voltaram** (universo: 345 dias fechados em
+24 h que tinham `failed` na janela de 7 dias; n=5):
+
+| dia | fonte paginada | run (novas+dup) | banco (ids da fonte) | cobertura |
+|---|---:|---:|---:|---:|
+| TRF3 2022-06-10 | **13.653** (23 req, 207 s) | **13.653** (Δ 0) | **13.653** (Δ 0) | **100,0%** |
+
+Os três lados no mesmo número, ao item — o mesmo resultado do molde (TJDFT
+2026-08-21, 14.651 = 14.651). O `count` de 1 requisição devolveu 10.000 nesse
+dia: **teto**, não total.
+
+**Amostra B — dias que a tela conta como `nunca refeito`** (universo: 156; n=5):
+
+| dia | fonte paginada | run (novas+dup) | banco | cobertura |
+|---|---:|---:|---:|---:|
+| TJRS 2026-03-06 | **59.319** (99 req, 1.542 s) | 18.995 | 18.995 | **32,0%** |
+
+**40.324 publicações faltando em UM dia.** O último `success` daquele dia é de
+03/07, do caminho fatiado: 38 páginas, 18.995 itens. Para comparação, um dia
+TJRS coletado pelo caminho FLAT (2025-08-28, run de 23/08) trouxe **56.539** —
+a mesma ordem de grandeza da fonte. O fatiado servia ~⅓ do dia com `success`.
+
+Se os 121 dias pendentes do TJRS tiverem o mesmo perfil, são da ordem de **4,9
+milhões de publicações** paradas — extrapolação de n=1, declarada como tal, e
+por isso os dias foram priorizados na fila em vez de estimados.
 
 ### O gate de completude (`conferir_dias_fechados`, etapa 5 do watchdog)
 

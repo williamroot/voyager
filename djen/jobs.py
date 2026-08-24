@@ -733,9 +733,9 @@ RECUP_JANELA_DIAS = 7
 def _so_os_que_existem(fila, ids: set[str]) -> set[str]:
     """Filtra ids cujo hash do job AINDA EXISTE no Redis (ver `djen_faxina_fila`).
 
-    Custo medido em 24/08/2026 na `djen_backfill` com 1.945 ids: 4 lotes de
-    `Job.fetch_many` (500 por lote), 0,12 s — dentro do orçamento de 90 s do
-    watchdog com três ordens de grandeza de folga.
+    Custo MEDIDO em produção (24/08/2026, fila `djen_backfill` com 491 ids):
+    **0,086 s** em lotes de 500 do `Job.fetch_many` — o tique inteiro do
+    watchdog levou 4,44 s contra o orçamento de 90 s.
 
     Falha de leitura devolve o conjunto ORIGINAL: sem a checagem o watchdog
     volta ao comportamento antigo (conservador, não duplica), que é o lado
