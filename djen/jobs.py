@@ -1020,7 +1020,16 @@ def tick_backfill_retroativo(tribunal_sigla: str) -> dict:
 
     vagas = min(BACKFILL_WATERMARK - q_len,
                 BACKFILL_WATERMARK_POR_TRIBUNAL - meus)
-    a_enfileirar = pendentes[:min(BACKFILL_BATCH, vagas)]
+    # ⚠️ NÃO reenfileirar id que já está na fila. O `enqueue` com job_id
+    # existente reescreve o hash e EMPURRA O ID DE NOVO: a lista fica com o
+    # mesmo id duas vezes. Quando a primeira execução termina, o hash morre com
+    # o `result_ttl` (500 s no default do RQ) e a segunda cópia do id vira
+    # CASCA — id na fila sem job nenhum. Foi assim que a `djen_backfill`
+    # acumulou 344 cascas (17,7%) até 24/08/2026, e a casca não é só
+    # desperdício: ela faz o watchdog achar que o dia "já está a caminho".
+    ja_na_fila = set(job_ids)
+    novos = [d for d in pendentes if f'{meu_prefixo}{d}' not in ja_na_fila]
+    a_enfileirar = novos[:min(BACKFILL_BATCH, vagas)]
     for dia in a_enfileirar:
         backfill_q.enqueue(backfill_dia, tribunal_sigla, str(dia),
                            job_id=f'{meu_prefixo}{dia}', job_timeout=3600)

@@ -472,10 +472,18 @@ id está na fila — justamente pra não duplicar. Com a casca lá, aqueles 120 
 do TJRS ficaram invisíveis pro auto-heal: a tela dizia "falta 138" e a fila
 dizia "já vai", enquanto nada acontecia. Foi por isso que o TJRS não andava.
 
-**Como o hash some.** Os ids são determinísticos, então o mesmo id vive várias
-vidas: job falha → entra no `FailedJobRegistry`; o watchdog reenfileira o MESMO
-id → hash novo, id na fila; `djen_censo_falhas --apagar` limpa o registry com
-`delete_job=True` → **apaga o hash do job que está na fila agora**.
+**Como o hash some — duas portas, as duas medidas.**
+
+1. **Id duplicado na fila + `result_ttl`.** `enqueue` com um `job_id` que já
+   está na fila reescreve o hash e **empurra o id de novo**: a lista fica com o
+   mesmo id duas vezes. Quando a primeira execução termina, o hash morre com o
+   `result_ttl` (500 s no default do RQ) e a segunda cópia vira casca. É a
+   fábrica: mesmo depois da faxina, 9 cascas novas apareceram em 40 min. O
+   `tick_backfill_retroativo` agora pula dia cujo `bfd:<sigla>:<dia>` já está
+   na fila (o `job_ids` já estava carregado ali — custo zero).
+2. **`djen_censo_falhas --apagar`.** O id no cemitério pode ser o MESMO que está
+   vivo na fila (job falhou, foi reenfileirado, e o id velho continua no
+   registry): `delete_job=True` apaga o hash do job que está na fila agora.
 
 Três consertos, no mesmo commit:
 
@@ -484,7 +492,8 @@ Três consertos, no mesmo commit:
    491 ids medidos em produção, num tique de 4,44 s contra orçamento de 90 s).
    Casca vira ERRO logado com o número;
 2. `djen_censo_falhas --apagar` nunca mais apaga hash de id que está na fila,
-   agendado ou em execução — só o desregistra;
+   agendado ou em execução — só o desregistra; e o `tick_backfill_retroativo`
+   não reenfileira id que já está lá;
 3. `djen_faxina_fila` mede e conserta: remove a casca e reenfileira o dia de
    verdade (`--consertar`, opcionalmente `--frente`).
 
@@ -730,10 +739,15 @@ DJEN na força bruta:
 | dia | fonte paginada | run (novas+dup) | banco (ids da fonte) | cobertura |
 |---|---:|---:|---:|---:|
 | TRF3 2022-06-10 | **13.653** (23 req, 207 s) | **13.653** (Δ 0) | **13.653** (Δ 0) | **100,0%** |
+| TRF3 2025-01-23 | **14.165** (24 req, 436 s) | **14.165** (Δ 0) | **14.165** (Δ 0) | **100,0%** |
 
 Os três lados no mesmo número, ao item — o mesmo resultado do molde (TJDFT
-2026-08-21, 14.651 = 14.651). O `count` de 1 requisição devolveu 10.000 nesse
-dia: **teto**, não total.
+2026-08-21, 14.651 = 14.651). O `count` de 1 requisição devolveu 10.000 nos
+dois: **teto**, não total.
+
+O caminho BARATO do gate também foi provado em dia real abaixo do teto: TRT22
+2026-08-24 fechou com `run=1.531` e a fonte declara `count=1.531` — veredito
+`integro` em **2,10 s** (fim a fim, incluindo o SELECT do run).
 
 **Amostra B — dias que a tela conta como `nunca refeito`** (universo: 156; n=5):
 

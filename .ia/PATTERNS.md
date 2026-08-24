@@ -124,6 +124,40 @@ logger.info('djen request', extra={
 
 ❌ f-strings com PII em mensagens — usar `extra` (pode ser scrubbed).
 
+### ⚠️ O relógio do log é -03. TODO o resto é UTC.
+
+Medido em 24/08/2026 dentro do MESMO container `voyager-web-1`, no mesmo
+instante:
+
+| relógio | valor |
+|---|---|
+| `date` (host e container) | `19:43:55 UTC` |
+| `datetime.now()` **antes** do `django.setup()` | `19:43:56` (UTC) |
+| `timezone.now()` | `19:43:59+00:00` |
+| **`asctime` do log do Django** | **`16:40:31`** (-03) |
+
+Causa, em uma frase: `settings.TIME_ZONE = 'America/Sao_Paulo'` e, ao instanciar
+`Settings`, o Django escreve `os.environ['TZ']` e chama `time.tzset()` — e o
+`logging.Formatter` monta `asctime` com `time.localtime()`. Ou seja, **o mesmo
+processo grava log em -03 e mede tempo em UTC**, e os dois relógios divergem 3 h.
+
+Consequências práticas:
+
+- `ended_at`/`started_at` de job RQ são **naive/UTC**. Cruzar "o log diz 16:26"
+  com "o job morreu 19:20" e concluir que são momentos diferentes é errado — é o
+  mesmo momento. Já produziu uma linha do tempo errada num relatório de
+  incidente nesta casa.
+- `mtime` de arquivo (`ls -la`, `stat`) é UTC. Comparar com `asctime` sem somar
+  3 h "prova" que um processo travou por horas quando ele acabou de escrever.
+- ✅ **Em relatório, runbook e `.ia/`, hora de relógio é sempre UTC.** Ao citar
+  linha de log, converta (`asctime + 3 h`) e diga que converteu.
+- ✅ Preferir `extra={'em': timezone.now().isoformat()}` a depender do `asctime`
+  quando o horário for parte do dado, não só do enquadramento.
+
+(É primo do outro erro de fuso da casa: o ORM converte para `America/Sao_Paulo`
+em `__date`, então filtro por dia e contagem por dia têm de usar o MESMO
+critério dos dois lados — ver `.ia/SEARCH_SCHEMA.md`.)
+
 ## DRF
 
 ✅ ViewSets com `mixins.ListModelMixin + mixins.RetrieveModelMixin` (read-only).

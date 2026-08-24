@@ -180,3 +180,39 @@ def test_id_com_job_de_verdade_continua_ocupando(trib, fila):
 
     assert n == 0
     assert not fila.enqueue.called
+
+
+@pytest.mark.django_db
+def test_tick_nao_reenfileira_id_que_ja_esta_na_fila(trib):
+    """O `enqueue` com job_id existente EMPURRA O ID DE NOVO — e é assim que a
+    casca nasce.
+
+    A lista fica com o mesmo id duas vezes; quando a primeira execução termina,
+    o hash morre com o `result_ttl` (500 s no default do RQ) e a segunda cópia
+    vira id sem job. Medido em 24/08/2026: 344 cascas (17,7%) na
+    `djen_backfill`, e casca faz o watchdog achar que o dia já está a caminho.
+    """
+    import datetime as dt
+
+    from tribunals.models import Tribunal
+    Tribunal.objects.filter(pk=trib.pk).update(
+        ativo=True, data_inicio_disponivel=dt.date(2025, 1, 1),
+        backfill_concluido_em=None)
+
+    fila_bf = MagicMock()
+    # o dia 02 JÁ está enfileirado (id determinístico)
+    fila_bf.get_job_ids.return_value = ['bfd:TJSP:2025-01-02']
+
+    with patch('django_rq.get_queue', return_value=fila_bf), \
+         patch.object(J, '_dias_cobertos', return_value=set()), \
+         patch.object(J, '_leitura_com_teto', side_effect=lambda fn, **k: fn()), \
+         patch('djen.client.circuit_is_open', return_value=False), \
+         patch.object(J, 'date') as fake_date:
+        fake_date.today.return_value = dt.date(2025, 1, 7)
+        fake_date.fromisoformat = dt.date.fromisoformat
+        r = J.tick_backfill_retroativo('TJSP')
+
+    enfileirados = [c.args[2] for c in fila_bf.enqueue.call_args_list]
+    assert '2025-01-02' not in enfileirados, 'duplicou id que já estava na fila'
+    assert r['enfileirados'] == len(enfileirados)
+    assert len(set(enfileirados)) == len(enfileirados), 'duplicou dentro do próprio tique'
