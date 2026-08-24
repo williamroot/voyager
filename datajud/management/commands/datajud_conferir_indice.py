@@ -124,12 +124,18 @@ class Command(BaseCommand):
             if o['sleep']:
                 time.sleep(o['sleep'])
 
+        def _pt(n):
+            # ponto como separador de milhar. Formatar o NÚMERO, nunca a frase
+            # inteira: um `.replace(',', '.')` no fim comia também as vírgulas
+            # do texto e o resumo saía com pontos no lugar delas.
+            return f'{n:,}'.replace(',', '.')
+
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS(
-            f'{tot["passos"]} passos · movimentações: {tot["movs_pg"]:,} conferidas, '
-            f'{tot["movs_fora"]:,} fora do índice · processos: {tot["procs_pg"]:,} '
-            f'conferidos, {tot["procs_atrasados"]:,} com doc anterior à escrita · '
-            f'{tot["enfileirado"]:,} re-enfileirados'.replace(',', '.')))
+            f'{tot["passos"]} passos · movimentações: {_pt(tot["movs_pg"])} conferidas, '
+            f'{_pt(tot["movs_fora"])} fora do índice · processos: '
+            f'{_pt(tot["procs_pg"])} conferidos, {_pt(tot["procs_atrasados"])} com doc '
+            f'anterior à escrita · {_pt(tot["enfileirado"])} re-enfileirados'))
         if tot['abstidos'] or tot['tetos']:
             # Abstenção e teto NÃO são detalhe de rodapé: o trecho continua em
             # dívida e alguém tem que rodar de novo. Regra nº 2 + nº 6.
