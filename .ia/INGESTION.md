@@ -299,6 +299,19 @@ tribunal errado antes. Censo dos **703** ids da `djen_backfill`:
 | timeout RQ (21.600 s) | 4 | 0,6% | TJSP 3 |
 | abandonado | 1 | 0,1% | TJDFT |
 
+⚠️ **Duas armadilhas ao medir o cemitério**, as duas já custaram alarme falso:
+
+1. `get_job_ids()` devolve por ordem de EXPIRAÇÃO. "Os N primeiros" não é
+   amostra — ou se faz o censo completo, ou se sorteia declarando o n;
+2. **traceback velho em job_id reenfileirado.** Os ids do `backfill_dia` são
+   determinísticos (`bfd:<sigla>:<dia>`), então reenfileirar o mesmo dia
+   reaproveita o hash: `enqueued_at` é renovado e `started_at`/`ended_at` somem,
+   mas o `exc_info` da falha ANTERIOR fica. Um censo que date a falha pelo
+   `enqueued_at` conta OOM de ontem como OOM de agora — foi o que fez 4 dias do
+   TJAM parecerem OOM novo em 24/08, com os mesmos 4 ids aparecendo duas vezes,
+   sem `started_at` nenhuma das duas, enquanto os dias estavam vivos e
+   coletando. Falha sem `started_at` é traceback velho, não falha nova.
+
 A `djen_ingestion` tinha **0** falhas. Dos 342 OOM, **197 são o MESMO dia**
 (`backfill_dia TJDFT 2026-08-21`, ~12 tentativas/hora ao longo de 21/08): o dia
 morria, nunca virava `success`, o watchdog reenfileirava, o dia morria de novo.
