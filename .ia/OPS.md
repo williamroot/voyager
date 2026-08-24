@@ -452,6 +452,33 @@ Quem abre este runbook no meio de um incidente lê o bloco, não o parágrafo:
 está falhando em série na `djen_backfill` (ver o OOM do TJDFT em
 [`INGESTION.md`](INGESTION.md)).
 
+### Priorizar dias na fila SEM enfileirar de novo (24/08/2026)
+
+Quando o trabalho já está enfileirado e o problema é **vazão**, reenfileirar é o
+erro: duplica requisição contra o CNJ e não adianta um segundo. Medido em
+24/08: os 156 dias que a tela contava como "nunca refeitos" já estavam **todos**
+na `djen_backfill` (120 do TJRS como `adiado:`), em posição mediana **638 de
+1.964** — ou seja, horas de espera atrás de backfill histórico.
+
+O que resolve é reordenar. O `job_id` é determinístico, então dá pra tirar o id
+da posição atual (LREM) e pô-lo na frente (LPUSH), sem criar job nenhum:
+
+```python
+q = django_rq.get_queue('djen_backfill')
+started = set(StartedJobRegistry(queue=q).get_job_ids())   # não mexa em quem já roda
+for jid in reversed(alvos):          # o último a entrar na frente sai primeiro
+    q.remove(jid)                    # LREM: some da posição atual
+    q.push_job_id(jid, at_front=True)
+```
+
+Feito em 24/08 com 151 + 54 jobs: fila continuou com **1.946** (nada duplicado)
+e a concorrência contra a DJEN não mudou — continua `14 réplicas x
+DJEN_PAGINAS_PARALELAS 3 = 42`, dentro do teto de 64. **Reordenar é o único
+acelerador que não viola a desigualdade.**
+
+⚠️ Nunca mova job que está no `StartedJobRegistry`: ele já está nas mãos de um
+worker, e o LPUSH criaria uma segunda execução do mesmo dia.
+
 ### Provar que um dia fechou ÍNTEGRO (não só `success`)
 
 `success` diz que o coletor terminou, não que trouxe tudo. Pra provar, pagine a

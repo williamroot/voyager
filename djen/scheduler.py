@@ -522,4 +522,41 @@ def create_scheduler() -> BlockingScheduler:
         logger.warning('datajud: GATE DE ÍNDICE DESLIGADO — o que a porta grava '
                        'pode ficar fora da busca sem ninguém saber')
 
+    # SENTINELA do índice de PROCESSOS. Não é um gate de porta: os dois gates
+    # acima cobrem a JANELA DE ESCRITA de uma porta cada um. Esta aqui olha o
+    # acervo INTEIRO por amostra aleatória, porque o buraco que ela existe para
+    # ver não veio de uma porta só — veio de todo caminho que escreve em lote
+    # (`bulk_create`, `.update()`) e não dispara `post_save`.
+    #
+    # Medido em 24/08/2026, amostra de 4.000 pks por faixa (seed 20260824) com
+    # `_mget` por id: 13,99% dos processos do Postgres estavam FORA do índice
+    # (4.380 de 31.301), concentrados nas faixas de pk mais novas — 0,00% nos
+    # cinco primeiros oitavos, 45,99% / 9,44% / 61,44% nos três últimos.
+    #
+    # Nada acusava. A fila `es_index` marcava zero e o `_cat/indices` mostrava
+    # 104.594.795 documentos contra 87.709.209 do `_count` (`participacoes` é
+    # `nested`: cada objeto aninhado é um doc Lucene), ou seja, a contagem mais
+    # à mão dizia que o índice tinha MAIS processos do que o banco tem linhas.
+    #
+    # DIÁRIA, e não de 15 min: a amostra pequena custa ~3 s mas faz 8 leituras
+    # aleatórias de 1.000 pks no Postgres, que é disk-I/O-bound. É sentinela,
+    # não gate — quem tem de pegar a escrita fresca são os dois gates acima.
+    if getattr(settings, 'SEARCH_SENTINELA_PROCESSOS_ENABLED', True):
+        from search.jobs import agendar_conferencia_indice_processos
+
+        scheduler.add_job(
+            agendar_conferencia_indice_processos,
+            'cron',
+            hour=6, minute=40,
+            id='search_conferir_indice_processos',
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info('agendado search_conferir_indice_processos (06:40) — '
+                    'sentinela do índice de processos')
+    else:
+        logger.warning('search: SENTINELA DO ÍNDICE DE PROCESSOS DESLIGADA — o '
+                       'passivo de 24/08/2026 pode reabrir sem ninguém saber')
+
     return scheduler

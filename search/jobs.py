@@ -52,7 +52,7 @@ def _status_http(e: ApiError) -> int | None:
     return getattr(e, 'status_code', None) or getattr(getattr(e, 'meta', None), 'status', None)
 
 
-def _enviar_bulk(ops: list) -> int:
+def _enviar_bulk(ops: list, rotulo: str = 'indexar_movimentacoes_bulk') -> int:
     """Manda UM `_bulk` e conta os documentos aceitos. Divide ao meio no 413.
 
     O 413 não é erro de dado, é erro de tamanho: a mesma lista dividida passa.
@@ -70,20 +70,21 @@ def _enviar_bulk(ops: list) -> int:
     except ApiError as e:
         if _status_http(e) != 413 or len(ops) <= 2:
             if _status_http(e) == 413:
-                logger.error('indexar_movimentacoes_bulk: documento único acima do teto '
-                             'do ES (_id=%s) — NÃO indexado',
+                logger.error('%s: documento único acima do teto '
+                             'do ES (_id=%s) — NÃO indexado', rotulo,
                              ops[0].get('index', {}).get('_id'))
                 return 0
             raise
         meio = (len(ops) // 4) * 2 or 2      # corta em par (ação, doc)
-        logger.warning('indexar_movimentacoes_bulk: 413 com %d docs — dividindo em %d/%d',
-                       len(ops) // 2, meio // 2, (len(ops) - meio) // 2)
-        return _enviar_bulk(ops[:meio]) + _enviar_bulk(ops[meio:])
+        logger.warning('%s: 413 com %d docs — dividindo em %d/%d',
+                       rotulo, len(ops) // 2, meio // 2, (len(ops) - meio) // 2)
+        return (_enviar_bulk(ops[:meio], rotulo)
+                + _enviar_bulk(ops[meio:], rotulo))
     if resp.get('errors'):
         erros = [it for it in resp.get('items', [])
                  if it.get('index', {}).get('status', 200) >= 300]
-        logger.error('indexar_movimentacoes_bulk: %d/%d docs com erro (ex: %s)',
-                     len(erros), len(ops) // 2, str(erros[:1])[:300])
+        logger.error('%s: %d/%d docs com erro (ex: %s)',
+                     rotulo, len(erros), len(ops) // 2, str(erros[:1])[:300])
         return len(ops) // 2 - len(erros)
     return len(ops) // 2
 
@@ -159,16 +160,29 @@ def indexar_processo(proc_pk: int):
         logger.error('Erro indexando Process %s: %s', proc_pk, e)
 
 
-def indexar_processos_bulk(proc_pks: list[int]):
+def indexar_processos_bulk(proc_pks: list[int]) -> int:
     """Indexa N Process num único `_bulk` — write-through dos caminhos em massa.
 
     O drainer de enriquecimento (`enrichers.drainer.apply_batch`) escreve via
     bulk_update/bulk_create, que NÃO disparam post_save — sem este job os
     enriquecidos só chegariam ao ES no próximo reindex manual. Ele enfileira
     os pks do batch aqui ao final da transação. Idempotente (index by _id).
+
+    **Fecha por BYTES, não por documentos** — a mesma lição que já custou 83
+    jobs mortos com `ApiError(413)` e 45.313 publicações fora do índice do lado
+    das movimentações (21/08/2026). Aqui o documento também não tem tamanho
+    fixo: `partes`/`advs` são a concatenação de TODAS as participações do
+    processo, e um processo de ente público com centenas de partes gera um doc
+    ordens de grandeza maior que a mediana (<10 participações). Contar 500
+    documentos é contar a coisa errada; quem estoura o `http.max_content_length`
+    do ES são os bytes.
+
+    Devolve quantos documentos o ES aceitou. Chamador que compara com
+    `len(proc_pks)` enxerga o buraco; até 24/08/2026 esta função devolvia
+    `None` e engolia a diferença.
     """
     if not proc_pks:
-        return
+        return 0
     # prefetch das participações (+parte) → _serialize_partes não faz query
     # por processo (N+1) — mesmo padrão do reindexar_processos.
     procs = (Process.objects
@@ -176,25 +190,32 @@ def indexar_processos_bulk(proc_pks: list[int]):
              .select_related('tribunal')
              .prefetch_related(Prefetch('participacoes',
                                         queryset=ProcessoParte.objects.select_related('parte'))))
-    ops = []
     idx = index_name('processos')
-    for proc in procs:
-        ops.append({'index': {'_index': idx, '_id': proc.id}})
-        ops.append(processo_to_doc(proc))
-    if not ops:
-        return
+    ops: list = []
+    bytes_no_lote = 0
+    enviados = 0
     try:
-        es = get_es()
-        resp = es.bulk(operations=ops)
-        if resp.get('errors'):
-            erros = [it for it in resp.get('items', [])
-                     if it.get('index', {}).get('status', 200) >= 300]
-            logger.error('indexar_processos_bulk: %d/%d docs com erro (ex: %s)',
-                         len(erros), len(proc_pks), str(erros[:1])[:300])
-        else:
-            logger.debug('indexar_processos_bulk: %d docs indexados', len(proc_pks))
-    except Exception as e:
+        for proc in procs:
+            doc = processo_to_doc(proc)
+            # `partes`/`advs` dominam o tamanho; os outros campos são curtos e
+            # cabem no overhead fixo. Aproximação por baixo (UTF-8 multibyte),
+            # absorvida pela folga de 5x do teto — a alternativa seria
+            # serializar o JSON só para medir, no caminho de escrita.
+            tamanho = (len(doc.get('partes') or '') + len(doc.get('advs') or '')
+                       + BULK_OVERHEAD_DOC)
+            if ops and bytes_no_lote + tamanho > BULK_MAX_BYTES:
+                enviados += _enviar_bulk(ops, 'indexar_processos_bulk')
+                ops, bytes_no_lote = [], 0
+            ops.append({'index': {'_index': idx, '_id': proc.id}})
+            ops.append(doc)
+            bytes_no_lote += tamanho
+        if ops:
+            enviados += _enviar_bulk(ops, 'indexar_processos_bulk')
+    except Exception as e:  # noqa: BLE001 — job de fila não pode derrubar o worker
         logger.error('Erro no bulk de %d processos: %s', len(proc_pks), e)
+        return enviados
+    logger.debug('indexar_processos_bulk: %d docs indexados', enviados)
+    return enviados
 
 
 def desindexar_processo(proc_id: int):
@@ -205,3 +226,41 @@ def desindexar_processo(proc_id: int):
         logger.debug('Process %s desindexado', proc_id)
     except Exception as e:
         logger.error('Erro desindexando Process %s: %s', proc_id, e)
+
+
+def conferir_indice_processos() -> dict:
+    """Sentinela do ÍNDICE DE PROCESSOS: o passivo de 14,2 milhões reabriu?
+
+    O que ela vigia, medido em produção em 24/08/2026 com amostra aleatória de
+    4.000 pks por faixa (seed 20260824) e `_mget` por id: **13,99%** dos
+    processos do Postgres (4.380 de 31.301 amostrados) estavam FORA do
+    Elasticsearch — concentrados nas faixas de pk mais NOVAS (45,99% · 9,44% ·
+    61,44% nos três últimos oitavos, 0,00% nos cinco primeiros).
+
+    Nada acusava isso. A fila `es_index` marcava zero, os runs fechavam verdes,
+    e o `_cat/indices` mostrava 104.594.795 documentos contra 87.709.209 do
+    `_count` — porque `participacoes` é `nested` e cada objeto aninhado é um
+    doc Lucene. Ou seja: a contagem mais à mão dizia que o índice tinha MAIS
+    processos do que o banco tem linhas.
+
+    Ver `search/backfill_processos.py`.
+    """
+    from search.backfill_processos import conferir_indice_processos as _sentinela
+    return _sentinela()
+
+
+def agendar_conferencia_indice_processos() -> dict:
+    """Enfileira UMA passada da sentinela, com `job_id` fixo. Chamado pelo cron.
+
+    `job_id` determinístico impede empilhamento: se a passada anterior ainda
+    não rodou, o RQ substitui em vez de acrescentar. Fila `default`, nunca
+    `es_index` — a fila da indexação pode ter dezenas de milhares de jobs à
+    frente durante um backfill, e sentinela que roda tarde é sentinela que não
+    roda.
+    """
+    import django_rq
+
+    django_rq.get_queue('default').enqueue(
+        conferir_indice_processos, job_id='search:conferir_indice_processos',
+        job_timeout=900)
+    return {'enfileirado': True}
