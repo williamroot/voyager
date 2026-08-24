@@ -1819,6 +1819,43 @@ R.objects.filter(status='failed', erros__icontains='deadlock',
                  started_at__gte=<agora-1h>).count()   # tem que ficar em 0
 ```
 
+#### O outro deadlock: `_flush_resumo` (24/08/2026)
+
+O de 18/08 era no INSERT (`bulk_create`). Sobrou o do UPDATE, e ele era o
+maior: **203 de 703 falhas** no censo da `djen_backfill` (28,9%), **98 runs
+`failed` em 24 h** no banco (18,2% das falhas do período). Assinatura:
+
+```
+File ".../django/db/models/query.py", line 924, in bulk_update
+django.db.utils.OperationalError: deadlock detected
+CONTEXT:  while locking tuple (1126731,22) in relation "tribunals_process"
+```
+
+Cura (`djen/ingestion.py::_gravar_lote_resumo`): lote de 500 por transação,
+`SELECT ... ORDER BY id FOR NO KEY UPDATE` antes de escrever (o EXPLAIN é
+`LockRows -> Index Scan using tribunals_process_pkey`, ordem crescente
+garantida sem depender do plano do UPDATE), retry de até 5 tentativas com
+backoff, e o número real gravado no run. Mais: só é reescrito quem ganhou
+movimentação NOVA. Detalhes e números em `INGESTION.md`.
+
+**Como conferir se voltou** — os dois lados, o do banco e o do run:
+
+```bash
+# runs que falharam por deadlock na última hora (tem que ser 0)
+ssh 100.100.144.57 'docker exec voyager-web-1 python manage.py shell -c "
+from tribunals.models import IngestionRun as R
+from django.utils import timezone; from datetime import timedelta
+print(R.objects.filter(status=\"failed\", started_at__gte=timezone.now()-timedelta(hours=1))
+      .extra(where=[\"erros::text ILIKE %s\"], params=[\"%deadlock%\"]).count())"'
+
+# deadlocks que o RETRY venceu (não falham o run, mas contam a contenção)
+# procure erros__contains=[{"erro":"deadlock_em_tribunals_process"}]
+```
+
+Se o `esgotou_tentativas` aparecer `true` com frequência, a contenção passou do
+que o retry cobre — olhe QUEM mais escreve em `tribunals_process` na janela
+(drainers de enriquecimento, datajud) antes de subir o teto de tentativas.
+
 ### 179 milhões fora do índice com a fila em ZERO (18/08/2026)
 
 **O sintoma era a ausência de sintoma.** A fila `es_index` marcava 0 e eu tinha

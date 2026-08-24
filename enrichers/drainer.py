@@ -825,7 +825,16 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
                                  extra={'process_id': pid})
 
         if to_update:
-            update_fields = list(all_changed)
+            # ORDEM TOTAL por pk, e `update_fields` ordenado: os drainers
+            # escrevem na MESMA tabela que a ingestão DJEN (`tribunals_process`)
+            # e o `bulk_update` do Django põe todos os batches numa transação
+            # só. Sem ordem comum, dois escritores com processos sobrepostos
+            # travam em ordens opostas — foi essa a assinatura das 203 falhas
+            # de deadlock do censo de 24/08/2026 (28,9% do cemitério da
+            # `djen_backfill`), lá no `_flush_resumo`. O conserto de lá só
+            # fecha o ciclo se quem escreve do outro lado usar a mesma ordem.
+            to_update.sort(key=lambda p: p.pk)
+            update_fields = sorted(all_changed)
             Process.objects.bulk_update(to_update, fields=update_fields, batch_size=500)
 
     # Write-through ES pós-commit: bulk_update/bulk_create NÃO disparam

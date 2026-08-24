@@ -118,7 +118,12 @@ minio           MinIO (S3-compat). Armazenamento de PDFs das movimentações
          │       ├── parse_item → ParsedItem (+ drift alert se chaves novas)
          │       ├── upsert Process (bulk_create ignore_conflicts)
          │       ├── bulk_create Movimentacao ignore_conflicts (idempotente)
-         │       └── trigger SQL atualiza Process.total/primeira/ultima_mov
+         │       └── marca os CNJs COM NOVIDADE (external_id inédito)
+         │           ⚠ o trigger `mov_update_process_agg` NÃO existe no banco
+         │           de produção (pg_trigger, 24/08/2026) — quem mantém o
+         │           resumo é `_flush_resumo`. Ver DATA_MODEL.md
+         ├── fecha o lote a cada 5.000 CNJs: resumo (SÓ de quem ganhou
+         │   movimentação nova, travando as linhas em ordem de pk) + enqueue
          ├── status='success', finished_at=now
          └── retorna métricas
 

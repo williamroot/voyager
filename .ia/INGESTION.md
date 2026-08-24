@@ -449,10 +449,108 @@ coletado é perda de acervo), mas ninguém descobre pelo SIGKILL.
 continua fixa em 1000 itens com 27 fatias em voo; ela só ganhou o alerta de RSS
 e o de orçamento. Ligá-la num tribunal pesado traz o OOM de volta.
 
-**O que sobra (não resolvido aqui):** os **203 deadlocks** em
-`tribunals_process` (28,9% das falhas). `_process_page` já insere em ordem total
-de CNJ, mas `_flush_resumo` faz `bulk_update` sem ordem definida e é o suspeito
-óbvio. É a próxima maior fonte de dia queimado.
+### O deadlock em `tribunals_process` — RESOLVIDO em 24/08/2026
+
+Os **203 deadlocks** do censo (28,9% das falhas) eram a maior fonte de dia
+queimado depois que o OOM saiu do caminho. A hipótese (`_flush_resumo`) estava
+certa, e a prova veio do `exc_info`: nos **150** jobs de deadlock ainda vivos no
+`FailedJobRegistry` (o resto já expirara), **100%** apontam para a mesma linha:
+
+```
+File ".../django/db/models/query.py", line 924, in bulk_update
+    rows_updated += queryset.filter(pk__in=pks).update(**update_kwargs)
+django.db.utils.OperationalError: deadlock detected
+DETAIL:  Process 190600 waits for ShareLock on transaction 575242916;
+         blocked by process 191118.
+         Process 191118 waits for ShareLock on transaction 575243302;
+         blocked by process 190600.
+CONTEXT:  while locking tuple (1126731,22) in relation "tribunals_process"
+```
+
+Distribuição dos 150: TRF2 39 · TRF6 37 · TRF4 30 · TJSP 16 · TRF3 14 · TJRJ 8.
+No BANCO (que enxerga mais que o registry, ele expira): **98 runs `failed` com
+deadlock em 24 h**, 18,2% das 538 falhas do período — TJPR 64 · TRF6 13 · TJRJ 8.
+
+**Por que `order_by('pk')` no queryset não resolveria.** O `bulk_update` do
+Django envolve TODOS os batches num único `transaction.atomic(savepoint=False)`
+e emite `UPDATE ... SET x=CASE ... WHERE id IN (...)` por batch. Com a lista de
+objetos fora de ordem, o batch 1 de um worker trava pks que o batch 2 de outro
+já segurava — o ciclo se fecha ENTRE statements, não dentro de um. E dentro de
+um statement quem manda na ordem é o PLANO: medido com EXPLAIN em produção, o
+plano é `Index Scan using tribunals_process_pkey` (sobe ordenado), mas depender
+disso é depender de estatística.
+
+**O conserto, em dois níveis.**
+
+*Nível 1 — ordem determinística + retry contado (`_gravar_lote_resumo`).*
+
+- a lista é ordenada por pk e fatiada em lotes de `LOTE_UPDATE_PROCESS`=500;
+- **cada lote é uma transação própria** — não mais uma transação com todos os
+  batches dentro;
+- a primeira coisa da transação é `SELECT ... ORDER BY id FOR NO KEY UPDATE`.
+  O EXPLAIN em produção é `LockRows -> Index Scan using tribunals_process_pkey`:
+  as linhas são travadas em ordem crescente de pk **independente do plano do
+  UPDATE**. `NO KEY` porque nenhuma coluna de chave muda;
+- deadlock (SQLSTATE `40P01`) é retentado até `DEADLOCK_TENTATIVAS`=5 com
+  backoff exponencial + jitter, e **cada ocorrência vira ERRO no run**:
+  `{"erro": "deadlock_em_tribunals_process", "ocorrencias": N,
+  "tentativas_max": M, "esgotou_tentativas": false}`. Retry que ninguém conta
+  esconde a regressão (regra nº 2);
+- o mesmo `sort(key=pk)` entrou no `bulk_update` de `enrichers/drainer.py` — os
+  drainers escrevem na MESMA tabela, e ordem só funciona se todo mundo usar.
+
+**Reproduzido na bancada, antes de subir** (Postgres descartável ocioso, dois
+threads reescrevendo o resumo dos MESMOS 300 processos em ordens opostas,
+50 escritas por rodada, 3 rodadas):
+
+| | rodada 1 | rodada 2 | rodada 3 |
+|---|---:|---:|---:|
+| `bulk_update` solto (como era) | 29 | 31 | 28 |
+| lote por transação + lock ordenado | **0** | **0** | **0** |
+
+Dois escritores bastam. Em produção são 14 réplicas de `worker_ingestion`.
+
+*Nível 2 — não reescrever o que não mudou.*
+
+A amplificação DENTRO de um dia foi medida e **é baixa** (a hipótese de "o mesmo
+processo é reescrito muitas vezes por página" não se confirma desde que o lote
+fecha a cada `CNJS_POR_LOTE`=5.000). Simulando a lógica de lote sobre a ordem
+real de inserção de 2026-08-20:
+
+| tribunal | movs | processos distintos | escritas/processo |
+|---|---:|---:|---:|
+| TRF6 | 10.407 | 10.140 | 1,01 |
+| TRF2 | 14.792 | 14.146 | 1,03 |
+| TJPR | 85.660 | 62.053 | 1,03 |
+| TJSP | 278.911 | 257.899 | 1,04 |
+
+A redundância está no **eixo do tempo**: o mesmo dia é recoletado (overlap
+diário, recuperação, retry) e cada passada reescrevia todos os processos
+daquele dia com valores idênticos. Em 24 h de produção: **13.215.471
+publicações duplicadas contra 5.594.377 novas (70,3% duplicadas)** e **158 dos
+444 runs com dado (35,6%) fecharam com ZERO publicação nova**.
+
+Agora `_process_page` acumula, além dos CNJs tocados, os CNJs **com novidade**
+(external_id que não estava no banco), e `_flush_resumo` só recalcula/escreve
+esses — mais o reparo de quem aparece no diário com `total_movimentacoes=0`.
+Num dia 100% duplicado, o custo cai a zero: nem a agregação sobre
+`tribunals_movimentacao` (1,39 bi de linhas) nem o UPDATE acontecem.
+
+⚠️ **Mudança de semântica registrada:** `Process.data_enriquecimento_djen`
+passou de "última vez que o DJEN passou por este processo" para "última vez que
+o DJEN trouxe movimentação NOVA". Quem lê o campo (ficha do processo, doc do
+ES) quer saber de dado, não de varredura.
+
+⚠️ **O trigger `mov_update_process_agg` NÃO existe no banco de produção.** A
+migration 0004 o cria e o `ARCHITECTURE.md` afirmava que ele mantinha
+`total_movimentacoes`/`primeira`/`ultima`; conferido em `pg_trigger` em
+24/08/2026, o único trigger vivo em `tribunals_process` é `process_set_ano_cnj`
+(a função `update_process_aggregates_stmt` existe, órfã). Mesmo padrão do
+trigger de `ano_cnj` que sumiu num restore. **`_flush_resumo` é o ÚNICO
+mantenedor do resumo em prod** — por isso ele não pode simplesmente parar de
+calcular, só parar de recalcular o que não mudou. No banco de TESTE o trigger
+existe (as migrations rodam), o que faz o setup dos testes precisar gravar
+`total_movimentacoes` por `UPDATE` depois de inserir as movimentações.
 
 ```bash
 # censo do cemitério (completo, por função/exceção/dia)

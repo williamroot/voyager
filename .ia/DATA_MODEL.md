@@ -63,7 +63,24 @@ indexes:     (tribunal, numero_cnj), (tribunal, -ultima_mov), inserido_em,
              enriquecido_em, classe_codigo, orgao_julgador_codigo
 ```
 
-**Trigger**: `mov_update_process_agg` (statement-level AFTER INSERT em Movimentacao) recalcula `total_movimentacoes` + `primeira/ultima_movimentacao_em` em batch — 1 UPDATE por bulk_create.
+**Trigger `mov_update_process_agg`: declarado na migration 0004, AUSENTE do banco
+de produção.** Conferido em `pg_trigger` em 24/08/2026: o único trigger vivo em
+`tribunals_process` é `process_set_ano_cnj`; a função
+`update_process_aggregates_stmt` existe, órfã (nenhum trigger a chama). Mesma
+assinatura do trigger de `ano_cnj` que sumiu num restore — migration não recria
+trigger que o banco perdeu, porque compara com o ESTADO, não com o banco.
+
+Consequência: quem mantém `total_movimentacoes` + `primeira/ultima_movimentacao_em`
+em produção é **`djen/ingestion.py::_flush_resumo`** (e `datajud/ingestion.py`
+no caminho por processo). No banco de TESTE o trigger existe — as migrations
+rodam — então setup de teste que grave esses campos direto no `create()` é
+sobrescrito pelo trigger e prova o contrário do que pretende.
+
+**`data_enriquecimento_djen`** significa, desde 24/08/2026, "última vez que o
+DJEN trouxe movimentação **NOVA** para este processo". Antes era "última vez que
+o DJEN passou por aqui", e renová-la a cada passada era o motivo de reescrever
+70,3% das linhas com valor idêntico (ver `INGESTION.md`, "O deadlock em
+`tribunals_process`").
 
 ## Movimentacao
 

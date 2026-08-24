@@ -1,12 +1,13 @@
 import logging
 import os
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Iterator
 
 from django.conf import settings
-from django.db import transaction
+from django.db import OperationalError, connection, transaction
 from django.db.models import Count, Max, Min
 from django.utils import timezone
 
@@ -210,12 +211,17 @@ def _drenar_alertas(client: DJENClient, run: IngestionRun | None) -> None:
             logger.warning('falha ao gravar alerta do coletor no run %s', run.pk)
 
 
-def _fechar_lote(tribunal: Tribunal, cnjs: set[str]) -> None:
+def _fechar_lote(tribunal: Tribunal, cnjs: set[str],
+                 com_novidade: set[str] | None = None,
+                 run: IngestionRun | None = None) -> None:
     """Fecha um lote de CNJs: resumo dos processos + auto-enqueue. Chamado a
-    cada `CNJS_POR_LOTE` em vez de uma vez no fim do dia — ver a constante."""
+    cada `CNJS_POR_LOTE` em vez de uma vez no fim do dia — ver a constante.
+
+    O auto-enqueue continua vendo TODOS os CNJs tocados (ele tem corte próprio
+    de 24 h); só a ESCRITA do resumo é restrita a quem mudou."""
     if not cnjs:
         return
-    _atualizar_resumo_processos(tribunal, cnjs)
+    _atualizar_resumo_processos(tribunal, cnjs, com_novidade, run)
     _enfileirar_todos_enrichments(tribunal, cnjs)
 
 
@@ -257,6 +263,7 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
         janela_inicio=data_inicio, janela_fim=data_fim,
     )
     cnjs_tocados: set[str] = set()
+    cnjs_com_novidade: set[str] = set()
     t0 = time.monotonic()
     logger.info('ingest_window inicio %s %s→%s run_id=%d', tribunal.sigla, data_inicio, data_fim, run.pk)
     try:
@@ -272,14 +279,15 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
         # os CNJs tocados saem em lotes de CNJS_POR_LOTE em vez de esperar o dia
         # inteiro na memória. Nada aqui pode crescer com o tamanho do dia.
         for items in client.iter_pages(tribunal.sigla_djen, data_inicio, data_fim):
-            _process_page(items, tribunal, run, cnjs_tocados)
+            _process_page(items, tribunal, run, cnjs_tocados, cnjs_com_novidade)
             del items
             _vigiar_memoria(run)
             _drenar_alertas(client, run)
             if len(cnjs_tocados) >= CNJS_POR_LOTE:
-                _fechar_lote(tribunal, cnjs_tocados)
+                _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run)
                 cnjs_tocados = set()
-        _fechar_lote(tribunal, cnjs_tocados)
+                cnjs_com_novidade = set()
+        _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run)
         _drenar_alertas(client, run)
         run.status = IngestionRun.STATUS_SUCCESS
     except DjenBusyError:
@@ -334,6 +342,7 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
         janela_inicio=dia, janela_fim=dia,
     )
     cnjs_tocados: set[str] = set()
+    cnjs_com_novidade: set[str] = set()
 
     def _iter_paginas_uf(uf: str):
         """Pagina uma fatia de UF ATÉ ESGOTAR.
@@ -437,12 +446,14 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
                     break
                 total_itens += len(page)
                 for i in range(0, len(page), BATCH_SIZE):
-                    _process_page(page[i:i + BATCH_SIZE], tribunal, run, cnjs_tocados)
+                    _process_page(page[i:i + BATCH_SIZE], tribunal, run,
+                                  cnjs_tocados, cnjs_com_novidade)
                 del page
                 _vigiar_memoria(run)
                 if len(cnjs_tocados) >= CNJS_POR_LOTE:
-                    _fechar_lote(tribunal, cnjs_tocados)
+                    _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run)
                     cnjs_tocados = set()
+                    cnjs_com_novidade = set()
 
         if uf_erros:
             logger.warning('djen UF strategy: %d UFs falharam: %s', len(uf_erros), uf_erros)
@@ -466,7 +477,7 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
                 f'({", ".join(sorted(uf_erros)[:8])}) — dia NÃO pode contar como coberto'
             )
 
-        _fechar_lote(tribunal, cnjs_tocados)
+        _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run)
         _drenar_alertas(client, run)
         run.status = IngestionRun.STATUS_SUCCESS
     except Exception as exc:
@@ -493,12 +504,21 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
 
 
 def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | None,
-                  cnjs_tocados: set[str]) -> tuple[int, int]:
+                  cnjs_tocados: set[str],
+                  cnjs_com_novidade: set[str] | None = None) -> tuple[int, int]:
     """Processa uma página da DJEN. Retorna (novas, duplicadas) pra caller
     agregar quando rodando sem IngestionRun (ingest_processo).
 
     Quando `run` é não-None (caminho ingest_window/backfill_dia), atualiza
     os contadores no run direto. Atomicidade garante consistência da métrica.
+
+    `cnjs_com_novidade` (opcional) recebe só os CNJs que ganharam movimentação
+    NOVA nesta página. É o que separa "o processo apareceu de novo no diário"
+    de "o processo mudou": em 24 h de produção (24/08/2026) 13.215.471 das
+    18.809.848 publicações processadas eram DUPLICADAS (70,3%), e 158 dos 444
+    runs com dado (35,6%) fecharam com ZERO publicação nova. Recalcular o
+    resumo desses processos reescreve a linha pra gravar exatamente o mesmo
+    valor — é a escrita que abre a janela de contenção do deadlock.
     """
     parsed = []
     for item in items:
@@ -577,6 +597,12 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | Non
         # workers concorrentes podem dupli-contar como "novos" o mesmo external_id;
         # `ignore_conflicts` garante que dados não sejam duplicados, só a métrica.
         novos_count = len(ext_ids_pagina) - len(ja_existem_extids)
+        if cnjs_com_novidade is not None:
+            # Novidade é por external_id, não por processo: o mesmo processo
+            # pode vir com 3 publicações das quais 2 já estavam no banco.
+            cnjs_com_novidade.update(
+                p.cnj for p in parsed if p.external_id not in ja_existem_extids
+            )
         if run is not None:
             run.movimentacoes_novas += novos_count
             run.movimentacoes_duplicadas += len(ja_existem_extids)
@@ -590,23 +616,203 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | Non
         return (novos_count, len(ja_existem_extids))
 
 
-def _atualizar_resumo_processos(tribunal: Tribunal, cnjs: set[str]) -> None:
-    """Recalcula primeira/ultima_movimentacao_em e total_movimentacoes em batch."""
+#: Campos do resumo escritos por `_flush_resumo`. Fixos de propósito: a lista
+#: de campos entra na ordem das colunas do UPDATE e não pode variar por lote.
+CAMPOS_RESUMO = ['primeira_movimentacao_em', 'ultima_movimentacao_em',
+                 'total_movimentacoes', 'data_enriquecimento_djen']
+
+#: Quantas linhas de `tribunals_process` cada UPDATE trava por vez. Cada lote é
+#: uma transação PRÓPRIA — o `bulk_update` do Django envolve TODOS os batches
+#: num único `atomic()`, e é essa transação longa que fecha o ciclo de espera.
+LOTE_UPDATE_PROCESS = 500
+
+#: Deadlock é erro TRANSITÓRIO: a transação que perdeu não fez nada de errado,
+#: só chegou depois. Retentar é correto — mas com teto e registrado no run
+#: (regra nº 2 do CLAUDE.md), nunca um `except: pass` que esconde regressão.
+DEADLOCK_TENTATIVAS = 5
+DEADLOCK_BACKOFF_S = 0.25
+
+
+def _e_deadlock(exc: Exception) -> bool:
+    """SQLSTATE 40P01. Lê o `sqlstate` do erro original do psycopg (o texto é
+    fallback pra driver/versão que não o exponha)."""
+    causa = getattr(exc, '__cause__', None)
+    if getattr(causa, 'sqlstate', None) == '40P01':
+        return True
+    return 'deadlock detected' in str(exc).lower()
+
+
+def _registrar_deadlock(run: IngestionRun | None, tribunal: Tribunal,
+                        tentativas: int, linhas: int, venceu: bool) -> None:
+    """Grava NO RUN quantos deadlocks aconteceram e quantas tentativas custaram.
+
+    Um retry que ninguém conta é um defeito que volta invisível: se a ordem
+    determinística sumir num refactor, o sistema segue "verde" pagando latência
+    e ninguém descobre. O número real fica no `erros` do run, na hora — o
+    work-horse pode morrer antes do fim.
+    """
+    logger.warning(
+        'deadlock em tribunals_process (%s): %d tentativa(s) para %d linhas, %s',
+        tribunal.sigla, tentativas, linhas,
+        'venceu' if venceu else 'ESGOTOU o teto',
+    )
+    if run is None:
+        return
+    for e in run.erros:
+        if e.get('erro') == 'deadlock_em_tribunals_process':
+            e['ocorrencias'] += 1
+            e['tentativas_max'] = max(e['tentativas_max'], tentativas)
+            e['linhas_max'] = max(e['linhas_max'], linhas)
+            if not venceu:
+                e['esgotou_tentativas'] = True
+            break
+    else:
+        run.erros.append({
+            'erro': 'deadlock_em_tribunals_process', 'ocorrencias': 1,
+            'tentativas_max': tentativas, 'linhas_max': linhas,
+            'teto_tentativas': DEADLOCK_TENTATIVAS,
+            'esgotou_tentativas': not venceu, 'tribunal': tribunal.sigla,
+        })
+    try:
+        run.save(update_fields=['erros'])
+    except Exception:   # o registro do alerta não pode derrubar a coleta
+        logger.warning('falha ao gravar alerta de deadlock no run %s', run.pk)
+
+
+def _gravar_lote_resumo(lote: list[Process], tribunal: Tribunal,
+                        run: IngestionRun | None) -> None:
+    """Escreve UM lote de resumos travando as linhas em ordem CRESCENTE de pk.
+
+    O deadlock medido em 24/08/2026 (203 de 703 falhas da `djen_backfill`,
+    28,9%) tinha esta assinatura, sempre no `bulk_update`:
+
+        django.db.utils.OperationalError: deadlock detected
+        DETAIL: Process A waits for ShareLock on transaction X; blocked by B.
+                Process B waits for ShareLock on transaction Y; blocked by A.
+        CONTEXT: while locking tuple (1126731,22) in relation "tribunals_process"
+
+    Ordenar o queryset NÃO bastava, e ordenar só a lista quase não basta:
+
+      * o `bulk_update` do Django envolve TODOS os batches num único
+        `transaction.atomic(savepoint=False)`. Com a lista fora de ordem, o
+        batch 1 de um worker pega pks {1, 5} e o batch 2 pega {3, 7}, enquanto
+        outro worker faz o contrário — cada um segura o que o outro quer;
+      * dentro de UM `UPDATE ... WHERE id IN (...)` a ordem de travamento é a
+        do PLANO. Medido com EXPLAIN em produção (86 M linhas), o plano é
+        `Index Scan using tribunals_process_pkey`, que sobe ordenado — mas
+        depender do plano é depender de estatística.
+
+    Então: cada lote é uma transação própria, e a primeira coisa que ela faz é
+    `SELECT ... ORDER BY id FOR NO KEY UPDATE`. O EXPLAIN desse SELECT em
+    produção é `LockRows -> Index Scan using tribunals_process_pkey`: as linhas
+    são travadas em ordem crescente de pk, sempre, independente do plano do
+    UPDATE que vem depois. Ordem total igual em todo mundo = não existe ciclo.
+
+    `FOR NO KEY UPDATE` (e não `FOR UPDATE`) porque nenhuma coluna de chave
+    muda aqui — não precisa bloquear quem referencia o processo.
+    """
+    pks = [p.pk for p in lote]          # já vem ascendente do chamador
+    # Deadlock aborta a transação INTEIRA no Postgres. Se alguém acima já abriu
+    # uma (o `atomic()` daqui viraria savepoint), retentar dentro dela só
+    # produziria "current transaction is aborted" — então o erro sobe pra quem
+    # é dono da transação decidir. Na ingestão de verdade o worker roda em
+    # autocommit e este caminho é o normal.
+    tentativas = 1 if connection.in_atomic_block else DEADLOCK_TENTATIVAS
+    for tentativa in range(1, tentativas + 1):
+        try:
+            with transaction.atomic():
+                list(
+                    Process.objects.filter(pk__in=pks).order_by('pk')
+                    .select_for_update(no_key=True).values_list('pk', flat=True)
+                )
+                Process.objects.bulk_update(
+                    lote, fields=CAMPOS_RESUMO, batch_size=len(lote),
+                )
+            if tentativa > 1:
+                _registrar_deadlock(run, tribunal, tentativa, len(lote), venceu=True)
+            return
+        except OperationalError as exc:
+            if not _e_deadlock(exc):
+                raise
+            if tentativa >= tentativas:
+                # Teto atingido é ERRO com o número real, não corte mudo.
+                _registrar_deadlock(run, tribunal, tentativa, len(lote), venceu=False)
+                raise
+            # backoff exponencial com jitter — dois perdedores que voltam
+            # juntos deadlockam de novo.
+            time.sleep(min(2.0, DEADLOCK_BACKOFF_S * 2 ** (tentativa - 1))
+                       * (0.5 + random.random()))
+
+
+def _atualizar_resumo_processos(tribunal: Tribunal, cnjs: set[str],
+                                com_novidade: set[str] | None = None,
+                                run: IngestionRun | None = None) -> None:
+    """Recalcula primeira/ultima_movimentacao_em e total_movimentacoes em batch.
+
+    `com_novidade=None` significa "não sei quem mudou" (caminho
+    `ingest_processo`, de um processo só) e recalcula todos. O caminho de dia
+    (`ingest_window`) sempre informa.
+    """
     chunk = []
     for cnj in cnjs:
         chunk.append(cnj)
         if len(chunk) >= 1000:
-            _flush_resumo(tribunal, chunk)
+            _flush_resumo(tribunal, chunk, com_novidade, run)
             chunk = []
     if chunk:
-        _flush_resumo(tribunal, chunk)
+        _flush_resumo(tribunal, chunk, com_novidade, run)
 
 
-def _flush_resumo(tribunal: Tribunal, cnjs: list[str]) -> None:
-    procs = Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
+def _flush_resumo(tribunal: Tribunal, cnjs: list[str],
+                  com_novidade: set[str] | None = None,
+                  run: IngestionRun | None = None) -> None:
+    """Reescreve o resumo SÓ de quem mudou, travando na ordem do pk.
+
+    Amplificação medida em 24/08/2026, simulando a lógica de lote sobre a ordem
+    real de inserção de um dia inteiro (`CNJS_POR_LOTE=5.000`):
+
+        TRF6 2026-08-20   10.407 movs   10.140 processos   1,01 escrita/proc
+        TRF2 2026-08-20   14.792 movs   14.146 processos   1,03
+        TJPR 2026-08-20   85.660 movs   62.053 processos   1,03
+        TJSP 2026-08-20  278.911 movs  257.899 processos   1,04
+
+    Ou seja: DENTRO de um dia o mesmo processo quase não é reescrito duas vezes
+    — a hipótese de "muitas escritas por página" não se confirma desde que o
+    lote fecha a cada 5.000 CNJs. A redundância está no EIXO DO TEMPO: o mesmo
+    dia é recoletado (overlap diário, recuperação, retry) e cada passada
+    reescrevia todos os processos daquele dia com valores idênticos. Em 24 h de
+    produção, 70,3% das publicações processadas eram duplicadas e 35,6% dos
+    runs não trouxeram uma publicação nova sequer.
+
+    Agora só entra na escrita quem tem movimentação nova — mais o reparo de
+    quem está com `total_movimentacoes=0` apesar de aparecer no diário (linha
+    que nunca foi somada; o trigger `mov_update_process_agg` da migration 0004
+    NÃO existe no banco de produção — conferido em `pg_trigger` em 24/08/2026,
+    só `process_set_ano_cnj` sobrou. Este código é o ÚNICO que mantém o
+    resumo).
+    """
+    procs = list(
+        Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
+        .only('pk', 'numero_cnj', 'total_movimentacoes',
+              'primeira_movimentacao_em', 'ultima_movimentacao_em',
+              'data_enriquecimento_djen')
+    )
+    if com_novidade is None:
+        alvo = procs
+    else:
+        alvo = [p for p in procs
+                if p.numero_cnj in com_novidade or p.total_movimentacoes == 0]
+    if not alvo:
+        return
+
     now_ts = timezone.now()
+    # `processo_id__in=<pks>` e não `processo__in=<queryset>`: o subquery
+    # reexecutava a busca por (tribunal, numero_cnj), e o filtro por
+    # `tribunal` impedia o Index Only Scan em `mov_processo_data_disp_idx`
+    # (processo_id já determina o tribunal — Movimentacao.processo é do
+    # tribunal do processo, sempre).
     aggregates = (
-        Movimentacao.objects.filter(tribunal=tribunal, processo__in=procs)
+        Movimentacao.objects.filter(processo_id__in=[p.pk for p in alvo])
         .values('processo_id')
         .annotate(
             primeira=Min('data_disponibilizacao'),
@@ -616,25 +822,29 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str]) -> None:
     )
     by_proc = {a['processo_id']: a for a in aggregates}
     to_update = []
-    for p in procs:
+    for p in alvo:
         agg = by_proc.get(p.pk)
         if not agg:
             continue
         p.primeira_movimentacao_em = agg['primeira']
         p.ultima_movimentacao_em = agg['ultima']
         p.total_movimentacoes = agg['total']
-        # Marca passagem do DJEN também no caminho data-based (backfill_dia
-        # / daily_ingestion). Cada page processada cobre um conjunto de
-        # processos — todos têm seu data_enriquecimento_djen renovado.
+        # `data_enriquecimento_djen` passa a significar "última vez que o DJEN
+        # trouxe movimentação NOVA para este processo" — antes era "última vez
+        # que o DJEN passou por aqui", e renová-la era o motivo de reescrever
+        # 70% das linhas à toa. Quem lê o campo (ficha do processo, doc do ES)
+        # quer saber de dado, não de varredura.
         p.data_enriquecimento_djen = now_ts
         to_update.append(p)
-    if to_update:
-        Process.objects.bulk_update(
-            to_update,
-            fields=['primeira_movimentacao_em', 'ultima_movimentacao_em',
-                    'total_movimentacoes', 'data_enriquecimento_djen'],
-            batch_size=500,
-        )
+    if not to_update:
+        return
+
+    # ORDEM TOTAL por pk: os lotes viram faixas crescentes e disjuntas, iguais
+    # pra todo worker. Sem isso, dois workers com conjuntos sobrepostos travam
+    # em ordens opostas — ver `_gravar_lote_resumo`.
+    to_update.sort(key=lambda p: p.pk)
+    for i in range(0, len(to_update), LOTE_UPDATE_PROCESS):
+        _gravar_lote_resumo(to_update[i:i + LOTE_UPDATE_PROCESS], tribunal, run)
 
 
 def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:
