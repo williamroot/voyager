@@ -950,6 +950,162 @@ for q in [\"enrich_tjmt\",\"enrich_tjac\"]:
 ⚠️ Em fila de milhões NÃO use `q.empty()` (Lua gigante trava o Redis) — use o
 loop `LPOP count=10000` + `UNLINK` do incidente Datajud de 02/07 acima.
 
+### TJSP com 0,6% de `ok`: o tribunal tinha um SEGUNDO sistema (25/08/2026)
+
+Sintoma que chegou: `enrich_tjsp` com **10.750 `nao_encontrado`/h e 0,6% de
+`ok`**, no maior tribunal do acervo (≈ 17,25 M) e o nº 1 do produto. Fila
+saudável (1,0 cópia), 146 de 146 workers `busy`, `FailedJobRegistry` em 0,
+`enrich:pausados` vazio, e o mesmo enricher acertando 6 de 6 numa amostra.
+
+A hipótese que chegou junto — "são processos novos demais, ainda não
+consultáveis" — **foi refutada**. A matriz ano × desfecho AO VIVO (62
+requisições, 3 s entre elas, amostra de semente 20260825) mostra que o ano não
+discrimina nada; quem discrimina é o **primeiro dígito do sequencial do CNJ**:
+
+```
+estrato (prefixo, ano)   DETALHE_c/PARTES   LISTA   SEGREDO   NAO_EXISTE   n
+prefixo 4 · 2026                        0       0         0            8   8
+prefixo 4 · 2025                        0       0         0            8   8
+prefixo 2 · 2025 (2º grau)              4       4         0            0   8
+prefixo 1 · 2026                        5       1         2            0   8
+prefixo 1 · 2024                        8       0         0            0   8
+prefixo 1 · 2021                        7       1         0            0   8
+prefixo 0 · 2025                        8       0         0            0   8
+controle: marcados `ok` hoje            5       0         1            0   6
+```
+
+**O TJSP roda `eproc` em paralelo ao e-SAJ.** Os processos nascidos no eproc
+têm sequencial de CNJ começando em `4`, e o e-SAJ simplesmente não os tem —
+16 de 16 devolveram a MESMA página determinística de 70.439 bytes. Tamanho
+medido (amostra de 15.443 linhas TJSP, semente 20260825, sobre os 16.326.948
+com status):
+
+| prefixo | % do TJSP | estimativa | `ok` | `nao_encontrado` | `pendente` |
+|---|---:|---:|---:|---:|---:|
+| 1 | 49,7% | 8.110.083 | 14,5% | 13,8% | 71,8% |
+| 0 | 26,5% | 4.333.624 | 13,8% | 11,8% | 74,4% |
+| **4** | **18,0%** | **2.940.182** | **0,1%** | 37,2% | 62,7% |
+| 2 | 4,7% | 770.727 | 5,6% | 12,2% | 82,2% |
+
+⚠️ O corte é `prefixo 4` **E** `ano >= 2025`. Prefixo 4 de 2013 ESTÁ no e-SAJ
+e dá `ok` (33 de 33 numa janela de 45 min). Generalizar o prefixo apaga
+processo bom.
+
+**Como descobrir isso em QUALQUER tribunal — o método, que é o que vale:** o
+`link` da própria publicação DJEN denuncia o sistema. Prefixo 4 aponta
+`https://eproc1g.tjsp.jus.br/...` e `eproc2g`; prefixo 0/1 aponta
+`https://www.dje.tjsp.jus.br`. É uma consulta por tribunal, recortada:
+
+```sql
+-- amostra pequena, com recorte; NUNCA GROUP BY no acervo
+SELECT left(link, 60), count(*)
+FROM tribunals_movimentacao
+WHERE processo_id = ANY(<pks de uma amostra do tribunal>)
+GROUP BY 1 ORDER BY 2 DESC LIMIT 10;
+```
+
+**Pergunta aberta, e é de mapa, não de parser: quantos outros dos 59 tribunais
+migraram para eproc (ou outro sistema) sem que a gente notasse?** Barato de
+checar com o método acima. Não foi feito nesta missão.
+
+**O que está em produção desde 25/08/2026:** o refill fecha a faixa `eproc` em
+LOTE (`_separar_fora_da_fonte`), sem gastar requisição nem IP do pool
+COMPARTILHADO. A recusa é **contada, nunca muda**:
+
+```bash
+# quantas consultas foram poupadas, por tribunal e motivo
+ssh 100.98.141.91 'docker exec -w /app voyager-worker_default-1 \
+  python manage.py enrich_fora_do_esaj'
+# e o refill loga em ERROR a cada passada em que o número cresce:
+#   FORA DA FONTE: 2.940.182 processos TJSP nao foram consultados — ...
+```
+
+⚠️ Por que em LOTE no refill e não job a job: sem rede, 40 réplicas de
+`worker_tjsp` publicam **milhares de events por segundo** num stream que tem
+`MAXLEN` e é **compartilhado com todos os tribunais** — o TJSP expulsaria os
+events de TRF1/TJMG antes de o drainer aplicá-los. O teto é
+`RECUSA_FORA_DA_FONTE_BATCH` (10.000 por passada por tribunal ⇒ 300 mil/h,
+≈ 10 h para os 2,94 M).
+
+**A porta do eproc existe e é pública, mas está fechada para nós:**
+`eproc1g.tjsp.jus.br/...consulta_publica` → 302 → `eproc-consulta.tjsp.jus.br/
+consulta_1g/`, HTTP 200, campo `txtNumProcesso`, **sem login** — atrás de
+**Cloudflare Turnstile** (`data-sitekey="0x4AAAAAABC6galUOytMs1K-"`) com
+verificação no servidor (`controlador_ajax.php?acao_ajax=verifica_estado_captcha`).
+Não é o `if(false)` do PJe. Solver de captcha **não está autorizado** (decisão
+de produto, 25/08/2026). A alternativa legítima é a 2ª porta do Datajud — que
+hoje **exclui** os 16 tribunais com enricher (`reabastecer_fila_datajud`), e é
+por isso que esses ≈ 2,94 M não têm porta nenhuma.
+
+### O estoque de `nao_encontrado` do TJSP: o recuperador nunca rodou
+
+2,59 M processos do TJSP em `nao_encontrado` terminal. Da amostra (n=2.678,
+semente 20260825), o mês do `enriquecido_em`: 2026-05 **457** · 2026-06
+**1.781** · 2026-07 214 · 2026-08 226 ⇒ **83,6% foram queimados ANTES do fix
+de 2026-07-06** (o "200 ambíguo terminal"). E a sonda ao vivo prova que estão
+vivos: nos prefixos 0/1, **30 de 32 devolveram cadastro completo ou lista
+AGORA**, com classes reais.
+
+`tick_reenrich_esaj_legacy` foi escrito exatamente para devolvê-los — e era
+guardado por `pend >= REENRICH_PENDENTE_FLOOR` com FLOOR = **20.000**. O TJSP
+tem **12.101.245** `pendente`. **A condição é inalcançável desde a primeira
+execução: o recuperador era no-op por construção justamente para o tribunal
+que ele nomeia**, e nunca acendeu luz. Mesma família do `for pagina in
+range(1, 11)`.
+
+Hoje o floor virou **teto por lote**. O teto efetivo por tick é o MENOR entre
+o passo da fase (`REENRICH_LEGACY_POR_TICK`, default 2.000), a vazão real da
+fila do tribunal medida pelo `FinishedJobRegistry`, e `REENRICH_RESET_BATCH`
+(50.000). Encostar no teto é **ERRO com o número acumulado por tribunal**.
+
+**Abrir a fase (só depois de medir):**
+```bash
+# 1) régua ANTES — vazão por enriquecido_em e saúde do pool
+ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python /tmp/e3_fluxo.py'   # ok/nao_enc por tribunal
+ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python /tmp/px2.py'        # saudáveis/bad_zset/fail_streak
+# 2) abrir um passo no .env da .102 e force-recreate (restart NÃO relê .env)
+echo 'REENRICH_LEGACY_POR_TICK=5000' >> ~/voyager/.env
+docker compose -f docker-compose-workers.yml up -d --force-recreate worker_default
+# 3) régua DEPOIS, 30 min mais tarde. A boa de referência: 1.926 de 2.500 IPs
+#    saudáveis. Se `bad_zset` subir, VOLTE o passo — não suba a TTL do inflight.
+```
+Nunca "religa tudo": 2,59 M voltando de uma vez é incidente.
+
+### e-SAJ: cinco páginas com HTTP 200, e o código tratava três como a mesma
+
+`classificar_resposta` (`enrichers/esaj.py`) separa `detalhe`, `nao_existe`,
+`segredo`, `lista` e `ambiguo`. As fixtures REAIS de cada uma estão em
+`tests/fixtures/tjsp/`. Duas armadilhas medidas, ambas **teste de substring
+numa página inteira** (ver `.ia/PATTERNS.md`):
+
+- `'classeProcesso' in html` casa a **classe CSS** `<div class="classeProcesso">`
+  da página de LISTA ⇒ a lista virava "detalhe" e o processo era gravado `ok`
+  com o cadastro inteiro vazio. Hoje a lista é SEGUIDA pelo link do nosso
+  número (1º grau `a.linkProcesso`; 2º grau rádio `processoSelecionado`).
+- A frase *"É necessário informar uma senha para acessar processo em segredo de
+  justiça"* está dentro de `<form id="popupSenha" style="display: none;">` em
+  **TODA** página de detalhe — 36 das 62 páginas baixadas na sonda a contêm, e
+  **33 dessas 36 são detalhes normais COM partes**. Detector por frase marcaria
+  segredo em processo bom e o **esconderia do funil**: pior que não detectar.
+
+Detector de segredo (estrutural e conservador): chegou ao `show.do`,
+`id="containerDadosPrincipaisProcesso"` presente e **VAZIO**, `id="popupSenha"`
+presente, e **nenhum** de `classeProcesso`/`assuntoProcesso`/`foroProcesso`/
+`varaProcesso`/`numeroProcesso`/`tablePartesPrincipais`. Página de 32.963 bytes
+na captura.
+
+**Régua do antes/depois** (o ganho é o número de `True`, que era **0 em
+91.638.494** documentos do índice):
+```bash
+curl -s '192.168.30.128:9200/voyager-processos/_count' -H 'Content-Type: application/json' \
+  -d '{"query":{"term":{"segredo_justica":true}}}'
+# e no banco, com recorte (nunca GROUP BY no acervo):
+#   WHERE tribunal_id='TJSP' AND segredo_justica IS TRUE
+```
+⚠️ `Process.segredo_justica` ainda **não é nullable** (o ALTER espera janela de
+lock limpa): `False` em processo nunca enriquecido continua significando "não
+perguntamos", não "perguntamos e não é". Só o `True` é medida.
+
 ## Incidente: reabastecer saturou o DB (2026-07-01)
 
 Sintoma: web em timeout (gunicorn travado em queries), `pg_stat_activity` com
@@ -998,6 +1154,36 @@ Regras pra índice concurrent em tabela grande/quente (`tribunals_process` ~600M
 - Recuperar do crash-loop: `migrate --fake tribunals <NNNN>` (num container one-off
   `run --rm --entrypoint python`) → `restart web` (sobe limpo) → conserta o índice
   com REINDEX CONCURRENTLY.
+
+## ⚠️ ESTADO CONHECIDO: assunto e `grau` corrigidos no Postgres, VELHOS no índice (desde 2026-08-25)
+
+**Se você medir a TELA e concluir que o conserto do assunto não funcionou, leia
+isto antes de abrir investigação.**
+
+Em 25/08/2026 duas correções passaram a valer no Postgres e **não** chegaram ao
+Elasticsearch:
+
+| o quê | no Postgres | no índice `voyager-processos` |
+|---|---|---|
+| `assunto_codigo` / `assunto_nome` (folha, não hierarquia) | corrigido no drainer + backfill | **valor antigo** |
+| `Process.grau` (`G1`/`G2`/`JE`/`SUP`/`TR`/`TRU`) | passa a ser gravado pelo Datajud | **campo ausente** |
+| `ProcessoParte` vinda do DJEN (`fonte='djen'`) | backfill | **ausente** até o reindex |
+
+**Por quê:** `bulk_update()` e `.update()` **não disparam `post_save`**, e
+`ProcessoParte` **não tem signal de propósito** (ver o comentário em
+`search/signals.py`) — todo caminho que escreve em lote tem de reindexar
+explicitamente. Não é defeito novo; é a consequência conhecida do desenho, e
+está aqui para não ser rediagnosticada.
+
+**Agravante medido no mesmo dia:** `es_backfill_processos` **só reindexa o que
+está AUSENTE** do índice (`gate.ausentes_no_bloco`). Documento presente com
+conteúdo velho ele **pula**. Ou seja, o backfill em curso **não** leva dado
+novo de carona — quem já está indexado precisa de reindex direcionado.
+
+⇒ Enquanto esta seção existir, **a busca mostra o assunto antigo**. O conserto
+é o reindex por faixa contígua de `Process.id`, e o custo está medido em
+`.ia/SEARCH_SCHEMA.md` §"Linha de base do índice de processos". **Apague esta
+seção quando o reindex tiver passado** — e não antes.
 
 ## ALTER TABLE em tabela quente — o auto-jam, e por que o gate não basta (2026-08-25)
 
