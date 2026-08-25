@@ -1153,6 +1153,61 @@ que não são segredo nem parte — `INTEGRAçãO DJEN-TRF3` (23), `DIVóRCIO-IB
 porque uma lista de bloqueio inventada a partir de 5 exemplos erra mais do que
 acerta. `fonte='djen'` torna a remoção posterior barata.
 
+#### O piloto em produção (25/08/2026) — antes/depois, idempotência, dano
+
+Três faixas contíguas de `Process.id`, escolhidas em tribunais **órfãos** (0%
+de parte hoje, sem enricher e sem previsão de ter). Todos os números abaixo são
+**contagem independente no banco**, nunca o log do job.
+
+| faixa de `Process.id` | tribunal | processos | com parte ANTES | com parte DEPOIS | linhas criadas | linhas/processo |
+|---|---|---:|---:|---:|---:|---:|
+| `[57.000.000, 57.020.000)` | TJRS | 19.996 | **0** | **19.902 (99,53%)** | 83.316 | 4,2 |
+| `[85.000.000, 85.002.000)` | TJSP | 2.000 | 7 | **2.000 (100%)** | 7.218 | 3,6 |
+| `[60.000.000, 60.002.000)` | TRT4/TRT9 | 2.000 | **0** | **1.944 (97,20%)** | 14.482 | 7,2 |
+
+Os que **não** ganharam parte fecham a conta item a item: 94 no TJRS e 56 no
+TRT são exatamente os processos com movimentação e `destinatarios = []`. Nada
+some no resto.
+
+**Idempotência** — 4.983 processos já gravados, `promover_lote` chamado
+DIRETO neles (não pelo comando, senão o filtro D2 pularia tudo e a prova seria
+sobre o filtro, não sobre a constraint): 21.783 linhas oferecidas, **0 linhas
+novas**.
+
+**Zero dano** — `fonte IS NULL` intacto (as 39 linhas de enricher da faixa do
+TJSP continuam lá); **0** linhas nossas com `papel`, **0** com `representa`;
+**0** nome de segredo virou `Parte`. E **18.374** linhas apontaram para uma
+`Parte` que já tinha CPF/CNPJ — o caminho `sem_id` do drainer reusando entidade
+em vez de duplicar.
+
+**Custo** (freio `--carga 0.5`, ou seja metade do tempo de parede é descanso):
+
+| | leitura seca | com escrita, parede | de banco |
+|---|---:|---:|---:|
+| TJRS | 1,26 s/1.000 | 12,59 s/1.000 | ≈ 6,3 s/1.000 |
+| TJSP | — | 15,71 s/1.000 | ≈ 7,9 s/1.000 |
+| TRT | — | 22,8–25,9 s/1.000 | ≈ 11,4–13,0 s/1.000 |
+
+O custo acompanha as **linhas por processo**, não os processos: o TRT custa 2×
+o TJRS porque tem 7,2 linhas/processo contra 4,2.
+
+**O que o piloto achou e a bancada não podia achar** — ver o commit
+`55264d3`: o DJEN publica a MESMA OAB com e sem zero à esquerda, às vezes no
+mesmo processo, e isso dobrava 21,5% dos advogados. Na amostra nacional só 0,4%
+dos `numero_oab` vinham com a UF prefixada; no TJRS são 85,9%. **O formato
+varia por tribunal** — é por isso que o piloto tem que ser em produção e num
+tribunal de verdade.
+
+**Kill switch, medido:** `manage.py backfill_partes_djen --pausar` (chave
+`bf:partes_djen:pausado` no Redis, honrada a cada lote). Acionado às 02:08:57
+com 4 shards rodando: **0 escritas nos 60 s seguintes**, e os 4 cursores
+salvos (`bf:partes_djen:<shard>:cursor`) — retomável sem reler.
+
+**Rollback por procedência, medido:** `DELETE FROM tribunals_processoparte
+WHERE processo_id >= X AND processo_id < Y AND fonte='djen'`, em pedaços de
+2.000 pks — **112.377 linhas em 3 s**, sem tocar em nenhuma linha de enricher.
+É para isso que a coluna existe.
+
 ### Achado 2 — classe e órgão da própria movimentação, não promovidos
 
 Mesmo caminho, outro campo. `fallback_classe_via_djen` existe, mas só roda
