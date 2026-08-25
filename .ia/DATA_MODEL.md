@@ -50,7 +50,8 @@ valor_causa              numeric(18,2) NULL
 orgao_julgador_codigo    char(20)
 orgao_julgador_nome      char(255)
 juizo                    char(255)
-segredo_justica          bool          default False
+grau                     char(4)               # G1|G2|JE|SUP (Datajud). '' = não sabemos
+segredo_justica          bool NULL     default None   # NULL = NÃO PERGUNTAMOS
 enriquecido_em           datetime NULL
 enriquecimento_status    char(20)      pendente|ok|nao_encontrado|erro
 enriquecimento_erro      text
@@ -75,6 +76,23 @@ em produção é **`djen/ingestion.py::_flush_resumo`** (e `datajud/ingestion.py
 no caminho por processo). No banco de TESTE o trigger existe — as migrations
 rodam — então setup de teste que grave esses campos direto no `create()` é
 sobrescrito pelo trigger e prova o contrário do que pretende.
+
+**`grau`** (migration 0052, 25/08/2026) — `G1`/`G2`/`JE`/`SUP`, do Datajud.
+Vazio = não sabemos. Existe porque **`JE` (Juizado Especial) paga por RPV, não
+por precatório**: na sonda ao vivo de 20 processos o campo veio em 20/20 dos
+`_source` e **5 dos 20 eram `JE`** — e nós descartávamos. Sem ele o funil de
+produto mistura dois produtos com prazos e preços diferentes.
+
+**`segredo_justica` é TRI-STATE desde a migration 0052** (25/08/2026):
+`NULL` = não perguntamos · `False` = perguntamos e a fonte disse que não ·
+`True` = corre em segredo. O `default=False` anterior era uma **afirmação que
+ninguém tinha feito**: a auditoria mediu `true` em **0 de 91.638.494**
+documentos do índice (`_count`, nunca `exists`) e 0 em 120.000 processos
+amostrados no banco, enquanto o e-SAJ devolve a página "informe a senha…
+segredo de justiça" em **10 de 11** sondas ao vivo de processos TJSP marcados
+`ok` **sem nenhuma parte** (≈ 302 k processos). ⚠️ As linhas anteriores à 0052
+continuam `False` — o migration **não** reescreve 102 M de linhas —, então
+`False` em processo nunca enriquecido ainda significa "não perguntamos".
 
 **`data_enriquecimento_djen`** significa, desde 24/08/2026, "última vez que o
 DJEN trouxe movimentação **NOVA** para este processo". Antes era "última vez que
@@ -222,14 +240,44 @@ parte                FK Parte      PROTECT
 polo                 char  'ativo'|'passivo'|'outros'
 papel                char(120)     'AUTOR'|'EXEQUENTE'|'ADVOGADO' etc.
 representa           FK self  NULL  advogado → ProcessoParte da pessoa representada
+fonte                char(16) NULL   NULL = legado/enricher · 'djen' = destinatário da publicação
 
 constraint:  unique(processo, parte, polo, papel)  WHERE representa IS NULL
 indexes:     (parte, polo), (processo, polo), papel
 ```
 
+**`fonte`** (migration 0052, 25/08/2026) — a DJEN entrega destinatário + polo +
+advogado + OAB em **toda** comunicação, e isso nunca virou entidade: 84,8% do
+acervo (9.467 de 11.160 na amostra, ≈ 86,7 M processos) tem parte no JSONB de
+`Movimentacao` e **nenhuma** `ProcessoParte`. A coluna separa as duas
+procedências, e isso importa porque elas **não são equivalentes**: o
+destinatário é quem foi intimado *naquela comunicação*, sem CPF/CNPJ e sem
+vínculo advogado→representado (`representa` fica NULL). Cobertura ampla e rasa;
+o enricher é estreita e profunda. Serve também ao rollback por faixa
+(`DELETE ... WHERE fonte='djen'`) e à medição do antes/depois.
+
 Constraint **partial** porque advogado pode representar 2 réus distintos no mesmo processo — 2 rows válidas com mesmo `(processo, parte, polo, papel)` mas `representa` diferente. Constraint só dedupe entre principais (representa=NULL).
 
-**Trigger**: `pp_total_ins` / `pp_total_del` — recalcula `Parte.total_processos` em INSERT/DELETE statement-level.
+**Trigger `pp_total_ins` / `pp_total_del`: declarado na migration 0005, AUSENTE
+do banco de produção.** Conferido em `pg_trigger` em 25/08/2026 — o único
+trigger não-interno em `tribunals_process*`/`tribunals_parte` é
+`process_set_ano_cnj`. É o **terceiro** caso da mesma família nesta semana
+(os 3 índices fantasma da migration 0051, o `mov_update_process_agg` acima):
+migration compara com o ESTADO, não com o banco, então trigger perdido num
+restore nunca é recriado e a declaração vira documentação falsa.
+
+Duas consequências práticas:
+
+  · `Parte.total_processos` **não é mantido em produção** — bate com a medição
+    independente de `search/entidades.py`, que achou o campo preenchido em só
+    **39,3%** das linhas. Quem mantém as agregações da tela é
+    `manage.py rebuild_parte_bridges` (cron diário) sobre `ParteTribunal`/
+    `PartePapel`, não este trigger.
+  · **No banco de TESTE o trigger existe** (as migrations rodam). Escrita em
+    massa de `ProcessoParte` custa, no teste, um recálculo statement-level que
+    em produção **não acontece** — quem dimensionar backfill pelo custo medido
+    no teste vai errar para o lado errado, e quem assertar `total_processos`
+    num teste está provando o contrário do que produção faz.
 
 ## ER (alto nível)
 

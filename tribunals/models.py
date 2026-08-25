@@ -116,7 +116,20 @@ class Process(models.Model):
     orgao_julgador_codigo = models.CharField(max_length=20, blank=True)
     orgao_julgador_nome = models.CharField(max_length=255, blank=True)
     juizo = models.CharField(max_length=255, blank=True)
-    segredo_justica = models.BooleanField(default=False)
+    # Grau do Datajud: G1 / G2 / JE / SUP. Vazio = não sabemos.
+    # JE (Juizado Especial) => RPV, NÃO precatório: sem este campo o funil de
+    # produto mistura dois produtos com prazos e preços diferentes. Sonda ao
+    # vivo de 25/08/2026: `grau` presente em 20/20 dos `_source` do Datajud e
+    # 5 dos 20 eram `JE` — e nós descartávamos o campo.
+    grau = models.CharField(max_length=4, blank=True)
+    # Tri-state DE PROPÓSITO. `default=False` era uma AFIRMAÇÃO que ninguém
+    # tinha feito: auditoria 25/08/2026 mediu `segredo_justica=true` em
+    # 0 de 91.638.494 documentos do índice (`_count`, não `exists`) e 0 em
+    # 120.000 processos amostrados no banco — ou seja, para 102 M de processos
+    # dizíamos "não corre em segredo" sem ter perguntado uma vez.
+    # NULL = não perguntamos. False = perguntamos e a fonte disse que não.
+    # (regra nº 6 do CLAUDE.md: abster > chutar)
+    segredo_justica = models.BooleanField(null=True, blank=True, default=None)
     enriquecido_em = models.DateTimeField(null=True, blank=True)
     ultima_sinc_djen_em = models.DateTimeField(null=True, blank=True)
     # Timestamps por fonte de enriquecimento — quando cada source rodou
@@ -311,6 +324,18 @@ class ProcessoParte(models.Model):
     representa = models.ForeignKey('self', on_delete=models.SET_NULL,
                                    null=True, blank=True, related_name='representado_por')
     # ^ Advogado: aponta pra ProcessoParte da pessoa representada no mesmo processo.
+
+    # Procedência da linha. NULL = legado/enricher (tudo que existia antes de
+    # 25/08/2026). 'djen' = promovida de `Movimentacao.destinatarios` /
+    # `destinatario_advogados`, que a DJEN entrega em toda comunicação e que
+    # NUNCA virava entidade: 84,8% do acervo (~86,7 M processos) tinha parte
+    # gravada em JSONB e nenhuma `ProcessoParte`.
+    #
+    # Serve a três coisas: a tela poder DIZER que a parte veio da publicação e
+    # não do cadastro (não tem CPF/CNPJ), o rollback barato por faixa, e a
+    # medição do antes/depois. Nullable de propósito — a coluna entra em tabela
+    # de ~84 M linhas e ADD COLUMN nullable sem default é metadata-only.
+    fonte = models.CharField(max_length=16, null=True, blank=True)
 
     inserido_em = models.DateTimeField(auto_now_add=True)
 
