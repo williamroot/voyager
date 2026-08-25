@@ -536,11 +536,17 @@ casa `Process.numero_cnj` com `proc` do índice por `terms` em lotes de 1.000.
 | `terms` de 1.000 CNJs — **frio** | 1,0 – 2,8 s (o número honesto para varrer tudo) |
 | escrita, ES **quente** | **8.316 linhas em 8,5 s = 978 linhas/s = 1,02 ms/linha** |
 | escrita, ES **frio** (a corrida de verdade) | 15.084 linhas em 44,5 s = **2,95 ms/linha** |
-| projeção do acervo (~87 M linhas) | **≈ 100 h**, **zero requisição ao CNJ** |
+| projeção do acervo (~87 M linhas) | **≈ 50 h**, **zero requisição ao CNJ** |
 
-⚠️ **A projeção honesta é ~100 h, não 25 h.** Os 25 h saíam da medição com o
-ES quente; a corrida percorre o índice inteiro e paga o preço frio. Medido em
-produção, por bloco de 20.000 pks:
+⚠️ **A projeção honesta é ~50 h, não 25 h.** Os 25 h saíam da medição com o ES
+quente; a corrida percorre o índice inteiro e paga o preço frio. A curva
+medida nos 6 primeiros blocos, em ms/linha:
+
+    2,95 → 3,76 → 2,59 → 2,15 → 2,07 → 1,90
+
+O primeiro bloco é o pior porque o índice está gelado; depois estabiliza perto
+de **2,0 ms/linha** — ainda o dobro dos 1,02 ms do teste quente. Decomposição
+dos dois primeiros blocos (20.000 pks cada):
 
 | bloco | duração | **dentro do ES** | requisições ES |
 |---|---:|---:|---:|
