@@ -534,8 +534,29 @@ casa `Process.numero_cnj` com `proc` do índice por `terms` em lotes de 1.000.
 | processos achados no índice | **85,7%** (17.129 de 19.995, faixa de 20.000 pks) |
 | `terms` de 1.000 CNJs — quente | 109 ms (0,11 ms/CNJ) |
 | `terms` de 1.000 CNJs — **frio** | 1,0 – 2,8 s (o número honesto para varrer tudo) |
-| escrita | **8.316 linhas em 8,5 s = 978 linhas/s = 1,02 ms/linha** |
-| projeção do acervo (87,7 M linhas) | ≈ **25 h**, **zero requisição ao CNJ** |
+| escrita, ES **quente** | **8.316 linhas em 8,5 s = 978 linhas/s = 1,02 ms/linha** |
+| escrita, ES **frio** (a corrida de verdade) | 15.084 linhas em 44,5 s = **2,95 ms/linha** |
+| projeção do acervo (~87 M linhas) | **≈ 100 h**, **zero requisição ao CNJ** |
+
+⚠️ **A projeção honesta é ~100 h, não 25 h.** Os 25 h saíam da medição com o
+ES quente; a corrida percorre o índice inteiro e paga o preço frio. Medido em
+produção, por bloco de 20.000 pks:
+
+| bloco | duração | **dentro do ES** | requisições ES |
+|---|---:|---:|---:|
+| pk 0–20.000 | 44,5 s | **19,4 s (44%)** | 17 |
+| pk 20.000–40.000 | 70,4 s | **40,0 s (57%)** | 20 |
+
+**Metade do custo é o Elasticsearch frio, não o Postgres.** Isso foi separado
+com uma sonda de controle — a mesma consulta indexada, na mesma faixa, a cada
+20 s durante a corrida: mediana **4,6 ms** contra **3,2–3,8 ms** de baseline
+antes de começar. O Postgres não sente a corrida, e a corrida também não sente
+os 4 shards do backfill de partes que rodavam em paralelo.
+
+E a **busca não degrada**: com o backfill correndo, `_cat/thread_pool/search`
+dá `rejected=0`, `queue=0`, CPU do nó em 9%, e uma busca real do produto
+responde em 9–11 ms quente (1,87 s no primeiro toque frio). A corrida é
+sequencial — uma requisição por vez —, então não satura o nó.
 
 1,02 ms/linha é **8,6× mais barato** que o backfill de assunto (8,8 ms/linha):
 uma coluna curta, `UPDATE … FROM (VALUES)` em lote de 2.000, sem FK e sem
@@ -547,11 +568,47 @@ acervo 1.684`, e o `SELECT … GROUP BY grau` no banco devolveu **exatamente os
 mesmos números**. `JE` = 19,1% do recorte (nacional: 21,6%).
 
 **Um CNJ tem MAIS DE UM grau.** G1 e G2 são documentos distintos no Datajud:
-12,2% dos processos achados têm 2+ graus (na sonda de 5.000 em 5 faixas:
-3.277 com 1 doc, 722 com 2, 161 com 3, 13 com 4). `Process.grau` é escalar,
-então a regra é o **grau de ORIGEM** — `JE > TR > TRU > G1 > G2 > SUP` —
-porque é ele que decide o produto: quem nasceu no Juizado Especial paga por
-RPV, quem nasceu na vara comum paga por precatório.
+**24,3%** dos processos achados têm 2+ graus (amostra aleatória uniforme de pk,
+20.000 pks, semente 20260825, 16.357 CNJs achados). A sonda anterior dizia
+12,2% — vinha de **faixa contígua** de pk e subestimava pela metade. É a mesma
+armadilha do `random_score` com outra roupa: bloco contíguo de pk amostra
+poucos MOMENTOS de ingestão, não o acervo.
+
+`Process.grau` é escalar, então a regra é o **grau de ORIGEM** —
+`JE > TR > TRU > G1 > G2 > SUP` — porque é ele que decide o produto.
+
+Conferido contra os pares REAIS antes de aplicar:
+
+| combinação | n | veredito |
+|---|---:|---|
+| `G1+G2`, `G1+G2+SUP`, `G2+SUP` | 2.788 | `G1`/`G2` — SUP nunca é origem ✔ |
+| `JE+TR`, `JE+SUP+TR`, `JE+SUP+TR+TRU` | 918 | `JE` — Juizado → Turma Recursal → Uniformização no STJ ✔ |
+| `G1+TR`, `G1+G2+TR`, `G2+TR` | 67 | `TR` — o "G1" é `01 VARA JUIZADO ESP. DA FAZENDA PUBLICA`; a Turma Recursal PROVA o juizado ✔ |
+| **`G1+JE`, `G1+G2+JE`, `G1+G2+JE+SUP`** | **104 (0,64%)** | **ABSTÉM** — a fonte se contradiz ✗ |
+
+O par que abstém, com o documento real:
+
+```
+5017073-48.2024.4.04.7003 [TRF4]
+  G1  Procedimento Comum Cível                2a Vara Federal de Maringa
+  JE  Procedimento do Juizado Especial Cível  2ª Vara Federal de Maringá
+```
+
+São varas adjuntas ("VARA FEDERAL … COM JUIZADO ESPECIAL FEDERAL") que o
+tribunal rotula ora `G1`, ora `JE`. Marcar `JE` num processo cuja classe
+principal é `Procedimento Comum Cível` diria RPV onde é precatório — erraria o
+PRODUTO, não um campo. Coluna vazia, e o job conta quantos, por motivo.
+
+#### Ressalva: `JE ⇒ RPV` é 99,92%, não 100%
+
+Medido no acervo nacional, classe `Precatório` (TPU 1265), 618.558 documentos:
+
+    G2  395.126 (63,9%) · G1 210.638 (34,1%) · SUP 12.328 (2,0%)
+    JE      462 ( 0,1%) · TR       4 (0,0%)
+
+O Juizado Especial **da Fazenda Pública** expede precatório quando o valor
+passa do teto de RPV. São 466 documentos — nada que mude a regra, mas a tela
+não pode dizer "JE = RPV" como identidade.
 
 ### Segunda porta do TJSP: SUSPENSA em 25/08/2026, e por quê
 
