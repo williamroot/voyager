@@ -863,6 +863,93 @@ os órfãos como falha é inventar problema.
 Descartar o registry não perde trabalho de ingestão: a fonte de verdade do que
 precisa voltar é `IngestionRun(status='failed')`, e quem devolve é o watchdog.
 
+## Enriquecimento "lento": a fila não é o backlog (runbook 2026-08-25)
+
+Sintoma que chega: "1,89 M de jobos nas filas `enrich_*` e só 145 rodando".
+Antes de escalar worker, rode as três sondas abaixo — em 25/08/2026 elas
+mostraram que **nada estava parado** e que dois terços do trabalho era cópia.
+
+**1. Workers ociosos? (quase sempre a resposta é não)**
+```bash
+ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python -c "
+import sys;sys.path.insert(0,\"/app\")
+import os,django;os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\",\"core.settings\");django.setup()
+import django_rq;from rq import Worker
+w=Worker.all(connection=django_rq.get_connection(\"default\"))
+e=[x for x in w if any(q.startswith(\"enrich_\") for q in x.queue_names())]
+print(len(e),\"workers de enrich,\",sum(1 for x in e if x.get_state()==\"busy\"),\"ocupados\")"'
+# 25/08: 146 de 146 ocupados. "145 rodando" É a frota inteira, não um sintoma.
+```
+
+**2. O número redondo (~99.9xx) é `QUEUE_HIGH_WATER`, não o backlog.**
+A fila é um buffer alimentado por `_reabastecer_impl`; o backlog de verdade é
+`Process.enriquecimento_status='pendente'` no Postgres. Fila cheia significa
+"o refill encheu até o teto", jamais "há só isso pra fazer".
+
+**3. Quanto da fila é CÓPIA do mesmo processo?** (a sonda que achou o gargalo)
+```bash
+# censo COMPLETO da fila (não amostra): ids x process_id distintos
+ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python /tmp/dup_todas.py'
+```
+Em 25/08: 1.400.007 jobos para 321.130 processos distintos nas 14 filas que o
+refill administra — **77,1% de cópia**, com `enrich_tjmt` a 70,4 cópias por
+processo e um único pid do TJRO enfileirado **1.926 vezes**. Causa: a 100k de
+profundidade a fila tem 20–74 h de espera (medir com o `enqueued_at` do job na
+frente), e o `Process` só sai de `pendente` quando o drainer aplica — então o
+refill re-seleciona a mesma cabeça do índice a cada 2 min. Corrigido com
+profundidade-alvo medida + ZSET `enr:inflight:<sigla>`; ver `.ia/ENRICHMENT.md`.
+
+**Espera real de cada fila (o número que dimensiona tudo):**
+```bash
+ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python /tmp/sonda7.py'
+# imprime enqueued_at do job na frente e no fim de cada fila enrich_*
+```
+
+### Tribunal que rende zero: separar "fonte bloqueada" de "rota errada"
+
+`erro` em 100% NÃO quer dizer que o tribunal bloqueou. Teste as duas rotas
+antes de pausar — o `curl` é a prova barata:
+```bash
+ssh 100.98.141.91 'docker exec voyager-worker_default-1 sh -c "
+  curl -s -o /dev/null -w \"direto=%{http_code}\\n\" --max-time 25 <URL_DO_TRIBUNAL>
+  curl -s -o /dev/null -w \"cortex=%{http_code}\\n\" --max-time 40 \
+       -x http://cortex-http.was.dev.br:44383 <URL_DO_TRIBUNAL>"'
+```
+- **200 no Cortex, 403/erro no pool** ⇒ rota errada. Ligue o residencial pra
+  esse tribunal: `manage.py enrich_cortex <SIGLA>` (chave `enrich:cortex_only`).
+  Foi o caso do **TJAP** (pool 0 de 5 úteis a 7,91 s; Cortex 5 de 5 a 0,95 s).
+- **403 nos dois** ⇒ bloqueio total. Kill switch: `manage.py enrich_pausa <SIGLA>`.
+  Foi o caso do **TJRO** — `ok = 0` em 1,09 M de processos, desde sempre.
+
+> Não deixar o tribunal bloqueado martelando não é higiene, é **vazão**: cada
+> job gasta até 10 IPs do pool (`MAX_PROXY_ROTATIONS`) e cada 403 marca o IP
+> como ruim por 120 s. TJRO+TJAP+TJAL queimavam ~58 mil IP/h, o que sustenta
+> ~1.930 IPs marcados a qualquer instante. O pool medido: **2.500 na lista, 289
+> saudáveis, 2.211 no `bad_zset`, `degraded=1`**. O pool é COMPARTILHADO — o
+> desperdício de um tribunal derruba a coleta de todos.
+
+**Saúde do pool (sempre olhar antes de culpar o tribunal):**
+```bash
+ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python /tmp/px2.py'
+# proxies na lista / saudaveis agora / bad_zset / degraded / fail_streak
+```
+
+### Purgar fila envenenada de cópias (não perde trabalho)
+
+Depois de corrigir o refill, a fila antiga continua com as cópias já
+enfileiradas — elas só saem sendo executadas (20–74 h de lixo). Esvaziar é
+seguro: o backlog é o status no Postgres, e o refill repõe em 2 min.
+```bash
+ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python -c "
+import sys;sys.path.insert(0,\"/app\")
+import os,django;os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\",\"core.settings\");django.setup()
+import django_rq
+for q in [\"enrich_tjmt\",\"enrich_tjac\"]:
+    print(q, django_rq.get_queue(q).empty())"'
+```
+⚠️ Em fila de milhões NÃO use `q.empty()` (Lua gigante trava o Redis) — use o
+loop `LPOP count=10000` + `UNLINK` do incidente Datajud de 02/07 acima.
+
 ## Incidente: reabastecer saturou o DB (2026-07-01)
 
 Sintoma: web em timeout (gunicorn travado em queries), `pg_stat_activity` com

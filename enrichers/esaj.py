@@ -215,10 +215,19 @@ class BaseEsajEnricher:
 
     # ---------- HTTP ----------
 
-    def _next_proxy(self, exclude: set) -> Optional[str]:
+    def _next_proxy(self, exclude: set, force_cortex: bool = False) -> Optional[str]:
         """Próximo IP. Default: pool ProxyScrape primeiro, Cortex residencial
-        como fallback. prefer_cortex=True (clique manual) inverte a ordem."""
-        if self.prefer_cortex:
+        como fallback. prefer_cortex=True (clique manual) inverte a ordem.
+
+        `force_cortex` é o escalonamento por bloqueio, gêmeo do que existe em
+        `BasePjeEnricher`: com 2.500 IPs no pool as MAX_PROXY_ROTATIONS nunca o
+        esgotam, então o ramo de fallback residencial no fim deste método é
+        inalcançável na prática e o job termina em `erro` sem nunca ter tentado
+        o Cortex. Medido em 25/08/2026 (A/B, mesmos 5 pids, semente 20260824):
+        TJAL pelo pool = 73,1 s no total; pelo Cortex = 17,0 s (4,3 vezes mais
+        rápido, mesmos 5 `ok`). No TJAP o pool dava 0 de 5 úteis e o Cortex 5
+        de 5, a 0,95 s de mediana contra 7,91 s."""
+        if self.prefer_cortex or force_cortex:
             cortex = cortex_proxy_url(self.pool)
             if cortex and cortex not in exclude:
                 return cortex
@@ -297,8 +306,9 @@ class BaseEsajEnricher:
 
         tentados: set = set()
         last_erro: Optional[str] = None
+        bloqueios_dc = 0   # 403/429 vindos do datacenter → após 3, força o Cortex
         for tentativa in range(1, self.MAX_PROXY_ROTATIONS + 1):
-            proxy = self._next_proxy(tentados)
+            proxy = self._next_proxy(tentados, force_cortex=bloqueios_dc >= 3)
             if not proxy:
                 self.logger.warning('pool exausto sem proxy disponível',
                                     extra={'cnj': cnj_fmt, 'tentativa': tentativa})
@@ -327,6 +337,7 @@ class BaseEsajEnricher:
                 last_erro = f'bloqueado {resp.status_code}'
                 if proxy != cortex_proxy_url():
                     self.pool.mark_bad(proxy)
+                    bloqueios_dc += 1
                 continue
             if resp.status_code >= 500:
                 # e-SAJ sobrecarregado — outro IP pode não estar throttled.
@@ -364,8 +375,9 @@ class BaseEsajEnricher:
         open_url = f'{self.BASE_URL}/cpopg/open.do'
         url = href if href.startswith('http') else f'{self.BASE_URL}{href}'
         tentados: set = set()
+        bloqueios_dc = 0
         for _ in range(1, self.MAX_PROXY_ROTATIONS + 1):
-            proxy = self._next_proxy(tentados)
+            proxy = self._next_proxy(tentados, force_cortex=bloqueios_dc >= 3)
             if not proxy:
                 break
             if proxy != cortex_proxy_url(self.pool):
@@ -384,6 +396,7 @@ class BaseEsajEnricher:
             if resp.status_code in (403, 429):
                 if proxy != cortex_proxy_url():
                     self.pool.mark_bad(proxy)
+                    bloqueios_dc += 1
                 continue
             if resp.status_code >= 500:
                 continue

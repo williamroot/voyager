@@ -686,3 +686,312 @@ se algum tribunal passar a publicar o valor, o teste de ausência quebra e avisa
 que dá pra ligar a extração. Cobre também o formato BR do `parse_valor_brl`
 (milhar `.` vs decimal `,` — inverter erra por 1000×) e o contrato
 **sem valor → `None`, nunca `Decimal('0')`** (0 afirmaria "a causa vale R$ 0,00").
+
+---
+
+## Auditoria de completude do DADO — matriz tribunal × campo (24–25/08/2026)
+
+Pergunta diferente da do acervo. Não é "temos o processo?" (ver
+[`ACERVO_CNJ.md`](ACERVO_CNJ.md)) — é **"dos processos que já temos, extraímos
+tudo que a fonte dá?"**. A resposta curta: **não, e o maior buraco não é de
+scraping — é de dado já baixado que ninguém promove**.
+
+### Como foi medido (amostra, semente, custo)
+
+Nada aqui usa `exists` do ES (regra nº 4 do CLAUDE.md: string vazia conta como
+presente) nem `reltuples`. Todo número sai de **conteúdo**, por amostra.
+
+| # | amostra | tamanho | como | custo |
+|---|---|---:|---|---|
+| A | matriz de campos (PG) | **120.000 processos** | 3.000 âncoras uniformes em `id ∈ [3.520, 104.602.261]`, `random.Random(20260824)`, bloco de 40 pks consecutivos por âncora (`WHERE id >= a ORDER BY id LIMIT 40`) | 38,7 s |
+| B | partes | 11.160 (200/tribunal) + **todos os 17.376 `ok`** da amostra A | `processoparte ⋈ parte` por `processo_id = ANY(...)` | 5 s + 47 s |
+| C | destinatários DJEN | 3 movimentações mais recentes de cada um dos 11.160 | `LATERAL … ORDER BY data_disponibilizacao DESC LIMIT 3` | 18,5 s |
+| D | portas | 20 processos reais, 1 por tribunal, priorizando lead | probe ao vivo no Datajud, 1 req/2 s | 40 s |
+| E | ES × PG | `_mget` dos mesmos 11.160 em `voyager-processos` | resposta exata por id, nunca `exists` | 6 s |
+| F | e-SAJ ao vivo | 11 processos TJSP `ok` **sem partes** | `open.do` + `search.do` diretos, 3 s entre requisições | ~1 min |
+
+**Controle positivo da sonda** (verificação com input vazio reporta sucesso):
+a função de "preenchido" foi rodada contra 2 linhas sintéticas — uma cheia, uma
+com `-` / `não informado` / `0` / `N/A` — e reportou 50% em todos os campos,
+classificando cada placeholder pelo valor. Sem esse controle, "0,0%" não
+distingue "campo vazio" de "sonda quebrada".
+
+**Aferição da amostra A contra a contagem exata do acervo** (102.296.406):
+
+| status | contagem exata | amostra A | erro |
+|---|---:|---:|---:|
+| pendente | 76,2% | 77,27% | +1,1 pp |
+| ok | 15,2% | 14,48% | −0,7 pp |
+| nao_encontrado | 7,0% | 6,74% | −0,3 pp |
+| erro | 1,6% | 1,52% | −0,1 pp |
+
+⇒ o desenho por conglomerados (40 pks vizinhos) tem efeito de desenho ≈ **1 pp**.
+Números abaixo de ~2 pp de diferença entre tribunais **não são achado**.
+
+### A matriz (% dos processos com o campo REALMENTE preenchido)
+
+Vazio = `NULL`, string vazia **ou** placeholder (`-`, `não informado`, `0`,
+`N/A`, …). Nenhum placeholder foi encontrado nos 120.000 — os campos deste
+banco são cheios ou vazios de verdade, nunca "cheios de nada".
+
+| tribunal | acervo est. | n | ok% | classe cód | assunto cód | assunto nome | autuação | valor | órgão cód | órgão nome | juízo | ≥1 parte | dos `ok`, com parte |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **TJSP** | 17.254.846 | 20241 | 10.0 | 24.8 | 4.9 | 13.4 | 13.0 | 7.7 | 6.2 | 13.5 | 10.4 | 6 | 82 |
+| **TJMG** | 7.815.445 | 9168 | 32.1 | 55.2 | 17.4 | 41.4 | 41.5 | 0.0 | 18.2 | 18.2 | 0.0 | 36 | 99 |
+| **TJPR** | 6.943.369 | 8145 | 0.0 | 1.2 | 1.2 | 1.2 | 1.2 | 0.0 | 1.2 | 1.2 | 0.0 | 0 | · |
+| **TJRJ** | 5.624.597 | 6598 | 15.7 | 36.9 | 0.3 | 18.1 | 18.1 | 0.0 | 0.4 | 0.4 | 0.0 | 21 | 100 |
+| **TJRS** | 5.082.426 | 5962 | 0.0 | 3.6 | 3.6 | 3.6 | 3.4 | 0.0 | 3.6 | 3.6 | 0.0 | 0 | · |
+| **TRF3** | 4.941.769 | 5797 | 63.4 | 70.5 | 3.6 | 67.9 | 68.0 | 0.0 | 4.7 | 68.0 | 0.0 | 69 | 100 |
+| **TRF4** | 3.352.765 | 3933 | 0.0 | 21.2 | 21.2 | 20.8 | 21.2 | 0.0 | 21.2 | 21.2 | 0.0 | 0 | · |
+| **TJSC** | 3.314.404 | 3888 | 0.0 | 3.6 | 3.6 | 3.6 | 3.6 | 0.0 | 3.6 | 3.6 | 0.0 | 0 | · |
+| **TJMA** | 2.909.480 | 3413 | 17.1 | 38.1 | 24.7 | 41.5 | 41.2 | 0.0 | 30.1 | 41.6 | 0.0 | 17 | 100 |
+| **TJMT** | 2.653.739 | 3113 | 29.9 | 43.3 | 21.2 | 21.1 | 43.9 | 29.7 | 21.2 | 43.9 | 0.0 | 32 | 100 |
+| **TRF1** | 2.457.671 | 2883 | 74.1 | 82.0 | 15.5 | 74.8 | 74.8 | 0.0 | 13.0 | 74.8 | 0.0 | 76 | 98 |
+| **TJBA** | 2.365.604 | 2775 | 0.0 | 8.3 | 8.3 | 8.3 | 8.3 | 0.0 | 8.3 | 8.3 | 0.0 | 0 | · |
+| **TJGO** | 2.090.257 | 2452 | 0.0 | 24.1 | 24.1 | 23.9 | 24.1 | 0.0 | 24.1 | 24.1 | 0.0 | 0 | · |
+| **TJPA** | 1.954.714 | 2293 | 18.8 | 33.5 | 28.3 | 28.3 | 28.4 | 20.5 | 10.1 | 28.4 | 20.5 | 21 | 100 |
+| **TJCE** | 1.931.697 | 2266 | 11.5 | 37.0 | 28.1 | 36.7 | 36.7 | 0.0 | 29.7 | 36.7 | 0.0 | 12 | 100 |
+| **TJRR** | 1.705.793 | 2001 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0 | · |
+| **TRF5** | 1.695.563 | 1989 | 86.4 | 91.3 | 23.8 | 90.8 | 88.4 | 0.0 | 44.2 | 59.3 | 0.0 | 85 | 100 |
+| **TRF6** | 1.630.775 | 1913 | 0.0 | 20.8 | 20.8 | 20.8 | 20.6 | 0.0 | 20.8 | 20.8 | 0.0 | 0 | · |
+| **TJPE** | 1.421.920 | 1668 | 12.1 | 41.6 | 6.8 | 20.7 | 20.4 | 0.0 | 7.8 | 20.8 | 0.0 | 18 | 100 |
+| **TRT2** | 1.413.395 | 1658 | 0.0 | 3.4 | 3.4 | 3.4 | 3.4 | 0.0 | 3.4 | 3.4 | 0.0 | 0 | · |
+| **TRT15** | 1.335.821 | 1567 | 0.0 | 6.5 | 6.5 | 6.5 | 6.5 | 0.0 | 6.5 | 6.5 | 0.0 | 0 | · |
+| **TJMS** | 1.291.492 | 1515 | 0.0 | 19.1 | 19.1 | 19.1 | 19.1 | 0.0 | 19.1 | 19.1 | 0.0 | 0 | · |
+| **TJAM** | 1.279.558 | 1501 | 0.0 | 88.2 | 33.4 | 33.4 | 33.4 | 0.0 | 33.4 | 33.4 | 0.0 | 0 | · |
+| **TST** | 1.278.705 | 1500 | 0.0 | 17.2 | 17.2 | 17.2 | 17.2 | 0.0 | 17.2 | 17.2 | 0.0 | 0 | · |
+| **TJSE** | 1.227.557 | 1440 | 0.0 | 7.8 | 7.8 | 7.8 | 7.8 | 0.0 | 7.8 | 7.8 | 0.0 | 0 | · |
+| **TJPI** | 1.177.261 | 1381 | 0.0 | 10.3 | 10.3 | 10.3 | 10.3 | 0.0 | 10.3 | 10.3 | 0.0 | 0 | · |
+| **TJDFT** | 1.099.686 | 1290 | 72.6 | 95.4 | 82.7 | 82.7 | 82.7 | 0.0 | 70.9 | 82.7 | 0.0 | 70 | 100 |
+| **STJ** | 1.098.834 | 1289 | 0.0 | 54.0 | 1.4 | 1.4 | 1.4 | 0.0 | 1.4 | 1.4 | 0.0 | 0 | · |
+| **TRT1** | 1.088.604 | 1277 | 0.0 | 2.4 | 2.4 | 2.4 | 2.4 | 0.0 | 2.4 | 2.4 | 0.0 | 0 | · |
+| **TJPB** | 1.069.850 | 1255 | 0.0 | 23.8 | 23.8 | 23.8 | 23.8 | 0.0 | 23.8 | 23.8 | 0.0 | 0 | · |
+| **TJRN** | 1.064.735 | 1249 | 0.0 | 2.3 | 2.3 | 2.3 | 2.3 | 0.0 | 2.3 | 2.3 | 0.0 | 0 | · |
+| **TRF2** | 1.043.423 | 1224 | 0.0 | 23.2 | 23.2 | 23.0 | 22.5 | 0.0 | 23.2 | 23.2 | 0.0 | 0 | · |
+| **TJRO** | 1.008.472 | 1183 | 0.0 | 38.5 | 1.9 | 1.9 | 1.9 | 0.0 | 1.9 | 1.9 | 0.0 | 0 | · |
+| **TJAL** | 715.222 | 839 | 46.4 | 93.3 | 42.6 | 84.1 | 85.6 | 45.1 | 78.5 | 84.4 | 49.5 | 47 | 88 |
+| **TJAP** | 316.266 | 371 | 7.0 | 67.7 | 31.0 | 37.5 | 37.5 | 0.0 | 34.5 | 37.5 | 0.0 | 16 | 100 |
+| **TJAC** | 136.395 | 160 | 42.5 | 100.0 | 61.3 | 81.9 | 78.1 | 20.6 | 77.5 | 81.2 | 36.9 | 37 | 78 |
+
+---
+
+## Vazão: onde o tempo vai e o que estava comendo a frota (medição 25/08/2026)
+
+Pergunta que abriu: "por que o enriquecimento está tão lento?". A resposta não
+era escala — era **desperdício**. Todos os números abaixo foram medidos em
+produção, não estimados.
+
+### O tempo de um job é REDE. Parse é ruído; banco é zero.
+
+Cronômetro por fase dentro de um container da `.102` (mesma rota de rede dos
+workers), 5–6 processos `pendente` por tribunal, amostra aleatória semente
+`20260824`, `stream.publish` no-op:
+
+| tribunal | mediana/job | rede busca (soma) | rede detalhe | parse | % rede |
+|---|---|---|---|---|---|
+| TRF1 | 1,29 s | 4,18 s | 3,69 s | 0,08 s | 98,4% |
+| TRF3 | 1,49 s | 4,18 s | 4,85 s | 0,07 s | 99,2% |
+| TRF5 | 2,19 s | 9,77 s | 8,62 s | 0,09 s | 99,4% |
+| TJMG | 7,90 s | 51,91 s | 5,31 s | 0,07 s | 99,9% |
+| TJMA | 2,63 s | 13,09 s | 5,36 s | 0,06 s | 99,7% |
+| TJCE | 2,03 s | 6,10 s | 5,67 s | 0,07 s | 99,7% |
+| TJPE | 2,72 s | 25,70 s | 4,26 s | 0,06 s | 99,9% |
+| TJPA | 1,09 s | 10,28 s | — | 0,00 s | 99,8% |
+| TJMT | 0,63 s | 12,80 s | — | 0,00 s | 100% |
+| TJRJ | 0,65 s | 2,53 s | 1,87 s | 0,03 s | 100% |
+| TJDFT | **0,095 s** | 0,18 s | 0,07 s | 0,00 s | 62,5% |
+| TJRO | 8,95 s | 49,42 s | — | 0,00 s | 100% (tudo `erro`) |
+
+**Banco não aparece porque o worker não toca o Postgres**: ele publica o
+resultado no stream Redis e o drainer escreve. Otimizar parser ou banco não
+compra vazão nenhuma aqui — o que compra é *menos requisição desperdiçada* e
+*IP que a fonte aceita*.
+
+O TJDFT é a régua do que dá pra ser: API REST, 0,095 s por processo, **35,9 mil
+jobs/h com 2 réplicas**. PJe clássico custa 3 viagens HTTP (GET listView → POST
+pesquisa → GET detalhe) e nunca desce de ~1 s.
+
+### O gargalo real: 77,1% das raspagens repetiam trabalho já enfileirado
+
+`_reabastecer_impl` enche cada fila até `QUEUE_HIGH_WATER` (100.000). Com a
+frota atual — **146 workers de enrich, 146 ocupados, 0 ocioso** — 100k jobos
+significam **20 a 74 horas de espera na fila** (medido pelo `enqueued_at` do job
+na frente). E o `Process` só sai de `pendente` quando o drainer aplica o
+resultado, lá no fim dessa espera. Resultado: a cada 2 minutos o refill
+re-seleciona a MESMA cabeça do índice e enfileira de novo.
+
+Censo COMPLETO das 16 filas (todos os ids, não amostra), 00:20 UTC:
+
+| fila | ids | process_id distintos | cópias | máx. de 1 pid | desperdício |
+|---|---|---|---|---|---|
+| enrich_tjmt | 99.818 | 1.418 | 70,4 | 136 | 98,6% |
+| enrich_tjac | 99.976 | 1.929 | 51,8 | 607 | 98,1% |
+| enrich_tjap | 99.968 | 3.426 | 29,2 | 515 | 96,6% |
+| enrich_tjal | 99.993 | 6.433 | 15,5 | 849 | 93,6% |
+| enrich_tjro | 99.979 | 8.486 | 11,8 | **1.926** | 91,5% |
+| enrich_tjpa | 99.952 | 10.130 | 9,9 | 832 | 89,9% |
+| enrich_tjma | 99.927 | 10.711 | 9,3 | 564 | 89,3% |
+| enrich_tjce | 99.954 | 12.008 | 8,3 | 336 | 88,0% |
+| enrich_tjpe | 99.942 | 12.895 | 7,8 | 499 | 87,1% |
+| enrich_trf5 | 99.948 | 31.546 | 3,2 | 535 | 68,4% |
+| enrich_trf3 | 99.939 | 35.265 | 2,8 | 672 | 64,7% |
+| enrich_trf1 | 99.935 | 35.675 | 2,8 | 484 | 64,3% |
+| enrich_tjdft | 100.767 | 54.277 | 1,9 | 32 | 46,1% |
+| enrich_tjmg | 99.947 | 74.931 | 1,3 | 192 | 25,0% |
+| enrich_tjrj | 251.534 | 251.534 | 1,0 | 1 | **0,0%** |
+| enrich_tjsp | 227.678 | 227.503 | 1,0 | 2 | **0,1%** |
+
+**1.400.007 jobos para 321.130 processos distintos nas 14 filas que o refill
+administra = 77,1% de cópia.** As duas filas limpas são exatamente as que estão
+ACIMA do teto — o refill as PULA, e a duplicação desaparece. O teto redondo de
+100k não era o total da fila: era a fábrica de cópia.
+
+O drainer não é gargalo e prova isso: aplica **126.264 events/h** (4 partições,
+5 min de log) com `skipped_idempotent` ≈ 0 e `XLEN` das partições entre 0 e 44.
+O trabalho chega — é que dois terços dele já tinham sido feitos.
+
+### O efeito colateral: a cópia queima o pool, que é compartilhado
+
+Cada job que falha gasta até 10 IPs (`MAX_PROXY_ROTATIONS`), e cada 403 chama
+`pool.mark_bad` com TTL de 120 s. Estado do pool medido: **2.500 IPs na lista,
+289 saudáveis (11,6%), 2.211 no `bad_zset`, `degraded=1`, `fail_streak=11.011`**.
+Os três tribunais de rendimento ~zero (TJRO, TJAP, TJAL) sozinhos queimavam
+~58 mil IP/h; a TTL de 120 s sustenta ~1.930 IPs marcados a qualquer instante —
+praticamente o `bad_zset` inteiro. Ou seja: o desperdício de um tribunal degrada
+a coleta de **todos** os outros.
+
+### Bug: o escalonamento pro Cortex nunca escalou
+
+`BasePjeEnricher._request_with_rotation` declarava `bloqueios_dc = 0` e
+consultava `force_cortex=bloqueios_dc >= 3` — **e nunca incrementava a
+variável**. O ramo residencial era inalcançável: com 2.500 IPs no pool, as 10
+rotações jamais o esgotam, então o fallback do fim de `_next_proxy` também
+nunca é atingido. Tribunal que bloqueia datacenter terminava 100% em `erro` sem
+nunca ter tentado o residencial. O `BaseEsajEnricher` não tinha o escalonamento
+de forma alguma.
+
+Prova A/B (mesmos 5 pids, semente `20260824`, um container da `.102`):
+
+| tribunal | rota | mediana | desfechos |
+|---|---|---|---|
+| TJAP | pool datacenter | 7,91 s | **erro 5/5** |
+| TJAP | Cortex residencial | **0,95 s** | ok 1 + nao_encontrado 4, **0 erro** |
+| TJAL | pool datacenter | 3,42 s (73,1 s no total) | ok 5/5 |
+| TJAL | Cortex residencial | **1,22 s** (17,0 s no total) | ok 5/5 |
+| TJRO | pool datacenter | 13,91 s | erro 5/5 |
+| TJRO | Cortex residencial | 8,28 s | **erro 5/5** |
+
+TJAP não estava bloqueado na fonte — `curl` direto e via Cortex devolvem HTTP
+200. Estava bloqueado **no caminho que o código insistia em usar**.
+
+### TJRO: bloqueio total, e zero `ok` em 1,09 milhão de processos
+
+`curl` ao `pjepg-consulta.tjro.jus.br` devolve **403 pelo IP direto E pelo
+Cortex residencial**. O balanço do tribunal: `pendente` 720.344 · `erro`
+367.176 · **`ok` 0** · `nao_encontrado` 1. O enricher do TJRO nunca entregou um
+único processo. É o caso exato do kill switch — que estava com a lista vazia.
+
+### Desfecho por tribunal (15 min de log dos 146 workers, ×4 = por hora)
+
+| tribunal | jobs/h | ok/h | nao_encontrado/h | erro/h | % ok |
+|---|---|---|---|---|---|
+| TJDFT | 34.184 | 25.892 | 8.148 | 0 | 75,7% |
+| TJRJ | 21.892 | 4.956 | 16.860 | 0 | 22,6% |
+| TJMT | 16.864 | 16.152 | 668 | 0 | 95,8% |
+| TJSP | 10.580 | 64 | 10.480 | 0 | **0,6%** |
+| TJCE | 5.380 | 3.972 | 1.396 | 0 | 73,8% |
+| TJMA | 5.988 | 5.100 | 860 | 0 | 85,2% |
+| TJPE | 4.352 | 3.168 | 1.040 | 128 | 72,8% |
+| TJAP | 3.648 | 0 | 0 | 3.648 | **0%** |
+| TJMG | 3.844 | 3.092 | 748 | 0 | 80,4% |
+| TRF1 | 3.352 | 3.228 | 116 | 0 | 96,3% |
+| TRF3 | 3.072 | 2.988 | 64 | 0 | 97,3% |
+| TJPA | 3.060 | 2.592 | 0 | 456 | 84,7% |
+| TRF5 | 2.496 | 2.432 | 52 | 0 | 97,4% |
+| TJRO | 1.388 | 0 | 0 | 1.388 | **0%** |
+| TJAL | 944 | 44 | 0 | 900 | **4,7%** |
+
+> **TJSP com 0,6% de `ok` é achado aberto e NÃO é problema de vazão.** 10.480
+> processos por hora sendo marcados `nao_encontrado` (que é TERMINAL pós
+> 2026-07-06) enquanto o mesmo enricher, na mesma máquina, acerta 6 de 6 numa
+> amostra da cabeça do índice. A população que está na fila do TJSP é outra
+> (CNJ sequenciais `4xxxxxx-…2026.8.26.…`). Isso é qualidade/parser — passado
+> pra auditoria de qualidade, não corrigido aqui.
+
+### O que mudou no código
+
+1. **`enrichers/pje.py`** — `bloqueios_dc += 1` no ramo de 403/WAF de proxy do
+   pool. O escalonamento pro Cortex passa a existir de fato.
+2. **`enrichers/esaj.py`** — `_next_proxy` ganha `force_cortex` e os dois laços
+   de rotação (`_buscar_em_grau`, `_fetch_incidente`) contam bloqueios de
+   datacenter e escalam após 3. Antes o e-SAJ não tinha escalonamento nenhum.
+3. **`enrichers/jobs.py::_reabastecer_impl`** — duas travas:
+   - `_profundidade_alvo()`: o teto da fila deixa de ser 100k fixo e passa a ser
+     `ENRICH_QUEUE_ALVO_S` (1.800 s) de trabalho, calculado pela vazão REAL da
+     fila (`len(FinishedJobRegistry)/result_ttl`, dado que o RQ já mantém).
+     `QUEUE_HIGH_WATER` continua como teto duro; `ENRICH_QUEUE_MIN` (2.000) como
+     piso pra fila lenta não secar.
+   - `_filtrar_em_voo()`: ZSET `enr:inflight:<sigla>` com os `process_id` já
+     enfileirados, podado por score a cada passada. Um pid só volta pra fila
+     depois de `ENRICH_INFLIGHT_TTL_S` (3.600 s). O refill agora lê MAIS
+     candidatos que a capacidade (`capacidade + em_voo + 1.000`, teto 60k) —
+     senão, com a cabeça do índice inteira em voo, ele não avançaria.
+4. **`enrichers/jobs.py::tick_requeue_erros_enricher`** — teto de
+   `REENRICH_MAX_TENTATIVAS` (12) raspagens por processo. Sem ele o tick era
+   esteira infinita: o processo 24179591 (TJAL) estava em
+   `enriquecimento_tentativas=360`. Conforme a regra nº 2 do CLAUDE.md, o teto
+   é **alerta** — loga em ERROR quantos processos ficaram estacionados por
+   tribunal, nunca corta em silêncio.
+
+### O que NÃO é o gargalo (conferido, pra não voltar a ser investigado)
+
+- **Workers ociosos**: `Worker.all()` → 146 de 146 workers de enrich em `busy`.
+  Os "145 jobs rodando" do relato eram a frota inteira trabalhando.
+- **Drainer / Postgres**: 126.264 events/h aplicados, `XLEN` das 4 partições
+  entre 0 e 44, `skipped_idempotent` ≈ 0.
+- **Kill switch preso**: `enrich:pausados` estava **vazio** — nada pausado.
+- **Código velho**: `FailedJobRegistry` em **0 nas 16 filas**; frota reciclada
+  em 24/08 (ver OPS.md).
+- **Parser**: 0,06–0,09 s por 6 jobs, entre 0,1% e 1,6% do tempo.
+
+### Backlog real por tribunal (contagem por índice, 25/08/2026)
+
+| sigla | pendente | erro | ok | nao_encontrado |
+|---|---|---|---|---|
+| TJSP | 12.101.245 | 0 | 1.634.135 | 2.591.568 |
+| TJMG | 3.556.408 | 0 | 2.479.816 | 2.255.297 |
+| TJRJ | 3.394.492 | 594.533 | 1.051.748 | 1.040.036 |
+| TJMA | 2.252.663 | 0 | 440.799 | 69.661 |
+| TJPA | 1.688.451 | 157.920 | 329.324 | 1 |
+| TJMT | 1.547.426 | 14.797 | 638.987 | 77.903 |
+| TRF3 | 1.517.936 | 0 | 3.450.446 | 344.925 |
+| TJCE | 1.243.006 | 23.027 | 252.843 | 70.116 |
+| TJPE | 869.550 | 361.591 | 213.551 | 130.296 |
+| TJRO | 720.344 | 367.176 | **0** | 1 |
+| TRF1 | 450.672 | 0 | 1.917.351 | 89.754 |
+| TJAL | 247.478 | 61 | 362.899 | 54.053 |
+| TJAP | 175.063 | 105.959 | 20.533 | 7.515 |
+| TRF5 | 70.629 | 0 | 1.697.025 | 112.705 |
+| TJAC | 64.030 | 9.556 | 49.589 | 32.768 |
+| TJDFT | 58.387 | 5.483 | 997.955 | 329.738 |
+| **soma** | **29.957.780** | **1.640.103** | **15.537.001** | **7.206.337** |
+
+> `erro = 0` nos 7 tribunais Juriscope não quer dizer que não há erro: o
+> `tick_requeue_erros_enricher` devolve todos a `pendente` a cada 10 min.
+
+### A conta do horizonte
+
+- Pendentes no país: **77.923.013**. Em tribunais **com** enricher:
+  **29.957.780** (38,4%). Os outros **47.965.233 (61,6%)** estão em tribunais
+  sem enricher (TJPR, TRF2/4/6, TRTs, …) e **o enricher nunca vai alcançá-los**
+  — a porta deles é o Datajud, com APIKey pública a ~100 rpm ⇒ 144 mil/dia ⇒
+  **≈ 333 dias**. Esse é o número desconfortável, e nenhum ajuste de worker
+  muda: o limite é por chave, não por IP.
+- Com enricher, somando `pendente + erro` = **31,6 milhões**. À taxa medida de
+  processos distintos concluídos (41.571/h na melhor hora), **≈ 32 dias**; à
+  média de 24 h (25.277/h), **≈ 52 dias**.
+- Eliminando a cópia (o desperdício medido é 77,1% nas filas administradas pelo
+  refill), a mesma frota, com a MESMA carga sobre as fontes, tende à vazão bruta
+  de jobos já medida (~125 mil/h) ⇒ **≈ 11 dias**. É esse o tamanho da
+  correção: uma ordem de grandeza, sem um worker a mais e sem uma requisição a
+  mais no tribunal.

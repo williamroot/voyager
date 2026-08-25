@@ -304,6 +304,13 @@ class BasePjeEnricher:
                 })
                 if proxy_url != cortex_proxy_url():
                     self.pool.mark_bad(proxy_url)
+                    # O contador do escalonamento. Ficou DECLARADO E NUNCA
+                    # INCREMENTADO desde que nasceu: `force_cortex` era
+                    # `0 >= 3` em toda tentativa, então o residencial jamais
+                    # entrava. Medido em 25/08/2026 no TJRO — 5 de 5 jobs
+                    # gastaram as 10 rotações em IP de datacenter (403 em
+                    # todos), 13,91 s de mediana, desfecho `erro` em 100%.
+                    bloqueios_dc += 1
                 last_status = resp.status_code
                 continue
             resp.raise_for_status()
