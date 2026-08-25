@@ -1027,6 +1027,39 @@ events de TRF1/TJMG antes de o drainer aplicá-los. O teto é
 `RECUSA_FORA_DA_FONTE_BATCH` (10.000 por passada por tribunal ⇒ 300 mil/h,
 ≈ 10 h para os 2,94 M).
 
+**O efeito medido em produção (25/08/2026, deploy 01:56 UTC na `.102`):**
+
+| | antes | depois |
+|---|---:|---:|
+| TJSP `ok` (janela de 4 min, fatia corrente) | **0,6%** | **96,0%** (383 de 399) |
+| `segredo_justica = true` no índice | **0 de 92.778.138** | **53** (TJSP 16 · TJAL 32 · TJAC 29 em 60 min) |
+| vazão da frota (`enriquecido_em`) | 138.490/h | 159.200/h |
+| profundidade dos 4 streams do drainer | — | **2 entries** (o refill em lote não inunda) |
+| pool ProxyScrape (saudáveis de 2.500) | 1.802 | 1.633 |
+
+A queda de `ok` **não** virou queda de trabalho: a fatia corrente saiu do
+paredão do eproc e passou a render. E a primeira passada do recuperador
+apareceu no log — pela primeira vez desde que ele foi escrito:
+
+```
+tick_reenrich_esaj_legacy TJSP: reset 2000 (teto 2000)
+ERROR reenrich_legado: TJSP bateu o teto do tick (2,000 de 4,329 elegiveis no lote)
+      — ainda ha legado preso; acumulado devolvido ate agora: 2,000
+ERROR FORA DA FONTE: 7,024 processos TJSP nao foram consultados — a faixa `eproc`
+      nao existe na consulta publica deste tribunal
+```
+
+⚠️ Duas ressalvas honestas sobre esses números:
+- **`fail_streak` do pool não é métrica de enrichment.** Só o cliente DJEN
+  chama `mark_ok()`; os enrichers chamam `mark_bad()` e nunca zeram o contador.
+  Use `saudáveis`/`bad`, não o streak.
+- **96,0% é uma fatia de 4 min sobre CNJ de prefixo 7**, que é só 0,32% do
+  TJSP. Prova que a fronteira destravou; não é o regime permanente, que será
+  dominado pelos prefixos 1 e 0 (76,2% do tribunal).
+- Enquanto a fila do TJSP estiver acima da profundidade-alvo, o refill a
+  **pula** — e então quem recusa a faixa eproc é o guard por job, não o lote.
+  Foi o que produziu os 7.024 acima, a ~58/s, **sem** encher o stream.
+
 **A porta do eproc existe e é pública, mas está fechada para nós:**
 `eproc1g.tjsp.jus.br/...consulta_publica` → 302 → `eproc-consulta.tjsp.jus.br/
 consulta_1g/`, HTTP 200, campo `txtNumProcesso`, **sem login** — atrás de
@@ -1248,6 +1281,75 @@ banco (a cura do auto-jam seria `RESUME`).
 > sessão aqui. Como tudo passa pelo pgbouncer, que roda no host do banco,
 > **todo** backend aparece com `client_addr=127.0.0.1` — inclusive os nossos
 > containers. Concluir "é sessão local/humana" do endereço é errado.
+
+## Backfill de partes do DJEN — shard dirigido por faixa de pk (2026-08-25)
+
+`backfill_partes_djen` promove `Movimentacao.destinatarios` a
+`Parte`/`ProcessoParte`. **Zero requisição de rede** — o dado já é nosso.
+
+```bash
+# SEMPRE detached: cliente que morre deixa backend órfão server-side
+CID=$(docker compose -f docker-compose-workers.yml ps -q worker_default | head -1)
+docker exec -d $CID sh -c "python -u manage.py backfill_partes_djen \
+    --de 47071017 --ate 48814388 --shard tjpr --max-segundos 1800 -v 2 \
+    > /tmp/bf_tjpr.log 2>&1"
+docker exec -i $CID tail -3 /tmp/bf_tjpr.log
+
+# PARAR AGORA — chave no Redis, efeito em segundos, sem deploy nem restart
+docker exec -i $CID python manage.py backfill_partes_djen --pausar
+```
+
+### Por que faixa de pk e não `--tribunal`
+
+`proc_tribunal_id_idx` é `btree(tribunal_id)` — **uma coluna**, apesar de o
+model declarar `(tribunal, -id)`. Ver `DATA_MODEL.md`. Com ele,
+`WHERE tribunal_id=X ORDER BY id LIMIT 1` varre e ordena (1.318 s medidos).
+Faixa fechada de pk usa a PK e é `Index Cond` puro.
+
+### Mapa tribunal × faixa de pk
+
+Os processos estão **agrupados por tribunal em faixas contíguas de pk** — o que
+torna o shard dirigido barato e o reindex do ES por faixa viável. Levantado por
+amostra em 25/08/2026: 60 âncoras uniformes em `id ∈ [0, 104.602.261]`, blocos
+de 200 pks lidos pela PK. Faixas com 100% de tribunal **sem enricher** (os que
+têm 0% de parte e nunca terão outra porta):
+
+| faixa de `Process.id` | tribunal |
+|---|---|
+| 10.460.226 – 12.203.597 | TRF4 |
+| 13.946.968 – 20.920.452 | TRF6 / TRF4 |
+| 27.893.936 – 29.637.307 · 33.124.049 – 34.867.420 | TJBA |
+| 36.610.791 – 38.354.162 | TJGO |
+| 41.840.904 – 43.584.275 | TJPI |
+| **47.071.017 – 48.814.388 · 54.044.501 – 55.787.872 · 61.017.985 – 62.761.356** | **TJPR** |
+| **52.301.130 – 54.044.501 · 57.531.243 – 59.274.614** | **TJSC** |
+| 55.787.872 – 57.531.243 | TJRN |
+| 59.274.614 – 61.017.985 | TRT1 |
+| **66.248.098 – 67.991.469 · 90.655.292 – 92.398.663 · 97.628.776 – 99.372.147** | **TJRS** |
+| 69.734.840 – 71.478.211 · 74.964.953 – 76.708.324 | TRT7 |
+| 76.708.324 – 80.195.066 | TRT2 |
+
+Refazer o mapa: `scripts/` — 60 âncoras, `SELECT tribunal_id … WHERE id >= a
+ORDER BY id LIMIT 200`, cada uma na sua transação com `SET LOCAL
+statement_timeout`.
+
+### Custo medido e o que vigiar
+
+| medida | valor |
+|---|---|
+| piloto, faixa fria, `--carga 0.5` | **8,02 s / 1.000 processos** |
+| faixa contígua quente | **~3,0 s / 1.000** |
+| linhas por processo | 4,5 – 4,8 |
+| 4 shards simultâneos | `esperando LOCK` 0 · tx mais velha < 30 s · busca 1,8 ms |
+
+⚠️ **A estimativa de leitura seca mente por 6,4×**: 1,26 s/1.000 não incluía a
+varredura de `Movimentacao` por processo nem a escrita. Estimativa de custo que
+não percorre o caminho inteiro é da mesma família de tudo o que este documento
+cataloga.
+
+⚠️ **Nada disto chega ao índice.** `bulk_create` não dispara `post_save` e
+`ProcessoParte` não tem signal. **Anote as faixas de pk tocadas** — o comando
+as imprime (`faixa de pk TOCADA`) — e passe-as ao reindex dirigido.
 
 ## MEÇA O BANCO ANTES DE PUXAR CÓDIGO (2026-08-25)
 
