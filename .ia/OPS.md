@@ -1249,6 +1249,34 @@ banco (a cura do auto-jam seria `RESUME`).
 > **todo** backend aparece com `client_addr=127.0.0.1` — inclusive os nossos
 > containers. Concluir "é sessão local/humana" do endereço é errado.
 
+## MEÇA O BANCO ANTES DE PUXAR CÓDIGO (2026-08-25)
+
+Regra irmã da de baixo, e esta evitou uma queda de produção em 25/08/2026.
+
+A migration `0052` estava **meio-aplicada**: `ProcessoParte.fonte` já existia no
+banco, `Process.grau` **ainda não**. E `origin/main:tribunals/models.py` já
+declarava `grau`. Um `git pull --ff-only` na `.103` naquele instante faria
+**todo `SELECT` do Django** emitir `UndefinedColumn` — o ORM monta a lista de
+colunas a partir do model, então a query mais banal quebra. No `web`, no
+`scheduler` e nos 5 drainers, ao mesmo tempo.
+
+Nada no `git` avisa: o pull está correto, o código está correto, os testes
+passam. **O que está errado é a ORDEM entre schema e código**, e ela só é
+visível olhando o banco.
+
+⇒ Antes de puxar código que declara campo novo, **confira a coluna no banco**:
+
+```sql
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'tribunals_process' AND column_name = 'grau';
+```
+
+Regra geral: **migration entra ANTES do código que a usa**, e quem faz deploy
+confere o schema, não só o `git log`. Quando os dois não puderem ser
+simultâneos, o código novo tem que tolerar a coluna ausente — foi o que
+`datajud/ingestion.py::coluna_grau_existe()` passou a fazer, mantendo o resto
+da gravação viva e emitindo WARNING em vez de derrubar 24 réplicas.
+
 ## `git diff` na prod compara com o HEAD DELA, não com a `main` (2026-08-25)
 
 Armadilha de diagnóstico que custou três briefings errados. A `.103` estava em
