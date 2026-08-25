@@ -943,3 +943,75 @@ Três guardas, todas por causa de números medidos hoje:
 (256 workers) chegar a `frota.velhos == 0` sem intervenção manual, com o pico
 de reinícios por minuto abaixo de 20 e `MemAvailable` na `.102` nunca abaixo
 dos 6.000 MiB que usamos como piso hoje.
+
+---
+
+## ADR-035: o `)` do assunto é OPCIONAL, o nome é a FOLHA, e o Datajud passa a dar `grau` (2026-08-25)
+
+**Contexto.** A auditoria de completude do DADO (24-25/08/2026) ranqueou dois
+buracos que não custam requisição nenhuma:
+
+- **#2 — assunto.** O detalhe do PJe entrega o assunto hierárquico com o código
+  da folha **sem o parêntese de fecho** (`… Acidente de Trânsito (10441`), e
+  empilha múltiplos assuntos separados por `\n`. `CLASSE_COM_CODIGO_RE`
+  (`^(.+?)\s*\((\d{2,5})\)\s*$`) exigia o fecho ⇒ `assunto_codigo=''` e
+  `assunto_nome` = a hierarquia inteira truncada em 255. A classe passava
+  porque o PJe fecha o parêntese dela — daí a assimetria da matriz (TRF3:
+  classe cód 70,5% × assunto cód 3,6%).
+- **#4 — `grau`.** `grau` vem em todo `_source` do Datajud e não havia coluna.
+  `JE` = Juizado Especial = **RPV, não precatório**.
+
+**Decisão.**
+
+1. **`)` opcional, e só ele.** `^(.+?)\s*\((\d{2,5})\)?\s*$` — o fecho vira
+   opcional, mas continua obrigatório o `(` + 2..5 dígitos **no fim da
+   string**. **Não voltamos** ao regex permissivo
+   `(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?`, que casava dígito do MEIO do texto
+   como código (`Tributário 12345 algo`).
+2. **Assunto passa por um parser de folha, classe não.** `split_assunto_folha`
+   quebra por `\n`, fica com a **primeira** hierarquia, corta por `  -  `
+   (DOIS espaços — ` - ` de um espaço existe DENTRO de nome de folha legítimo)
+   e aplica o regex no último nível. `assunto_nome` passa a ser a **folha**.
+   A classe não tem hierarquia (0 de 658 linhas do catálogo têm `(código)` no
+   nome, contra 1.690 de 2.681 do assunto) e fica no caminho antigo.
+3. **Abstenção explícita e contada.** Texto de exatos 255 sem `\n` pode ter
+   sido cortado no meio da primeira hierarquia — o `(1234` do fim pode ser um
+   **ancestral**. Nesses casos o parser devolve o texto como está e código
+   vazio, e o backfill CONTA quantos ficaram. Idem quando o código guardado
+   diverge do código no texto (dois writers discordando): abstém.
+4. **`grau` gravado com domínio fechado.** `G1`/`G2`/`JE`/`SUP`/`TR`/`TRU`,
+   medidos no `voyager-acervo` inteiro (342.046.902 docs, `_count` por termo).
+   Qualquer outro valor: `logger.warning` e coluna vazia.
+5. **`nivelSigilo` NÃO é lido.** Vale 0 em 342.046.902 de 342.046.902
+   documentos — informação zero em escala nacional (a API pública do CNJ só
+   expõe o que é público). Mapeá-lo para `segredo_justica` reescreveria em
+   102 M de processos a afirmação que a migration 0052 acabou de desfazer.
+6. **Backfill local, sem rede**, com checkpoint, teto (atingir = ERROR com o
+   número real), freio por latência de bloco e kill switch em cache.
+
+**Por que não o contrário.**
+
+| alternativa | por que não |
+|---|---|
+| Regex permissivo (`)` e `(` opcionais em qualquer posição) | casa dígito do meio do texto. Foi o bug que o regex estrito consertou; reabri-lo troca 8,2 M de acertos por um número desconhecido de códigos inventados |
+| Cortar a hierarquia por ` - ` (um espaço) | mutila nome de folha legítimo: `Crédito Direto ao Consumidor - CDC`, `Agente Agressivo - Eletricidade`, `Reajustes de Remuneração / Plano Verão (1989)`. Medido: `  -  ` em 100% dos casos; ` - ` só dentro do nome |
+| Usar a ÚLTIMA hierarquia do texto | quando o campo bateu no teto de 255 a última está cortada, e o `(1234` final é o código de um **ancestral**. Era a origem dos "1.515 com código de ancestral" da auditoria |
+| Chutar a folha no texto truncado | é o oposto da regra nº 6. 15.065 de 120.755 (12,5%) ficam vazios de propósito — e contados |
+| Fazer merge das 21 linhas de catálogo em conflito | `Assunto.codigo` é PK e `Process.assunto` é FK `PROTECT`. Merge muda a identidade de 163 processos: é decisão de arquitetura, não de backfill |
+| Mapear `nivelSigilo` → `segredo_justica` | escreveria `False` sem ter perguntado, em 102 M de linhas. "Perguntamos e a fonte disse que não" ≠ "a fonte não diz" |
+
+**Prova.** Fonte independente: `voyager-acervo`, o esqueleto que o **CNJ**
+declara. Dos pares (código → nome da folha) recuperados, 150 sorteados
+(semente 20260825): **150/150 com o código certo**, 141 com nome idêntico, 9
+com variante de nomenclatura da própria TPU. **Controle negativo: o nome
+hierárquico bate 0 de 150.** No catálogo, 150/150 batem depois da correção e
+0/150 antes. Amostra qualitativa de 10 processos reais (TJRJ): 10/10 com a
+folha certa, incluindo 3 truncados em 255 onde só a primeira hierarquia
+sobreviveu. 99,9% dos códigos recuperados já existiam no catálogo.
+
+**Limitação registrada.** O `_source` bruto do Datajud não é guardado em lugar
+nenhum — não há model nem coluna JSONB. `grau` só chega a processo já
+existente por um backfill que leia o `voyager-acervo` por `proc`; isso é
+possível **sem tocar no Datajud**, mas é job novo e não entra aqui. E nem o
+backfill de assunto nem o `grau` reindexam no Elasticsearch: `bulk_update` e
+`.update()` não disparam `post_save`.

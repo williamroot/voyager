@@ -44,11 +44,34 @@ DLQ_STREAM = 'voyager:enrichment:dlq'
 DLQ_MAXLEN = 10_000
 
 # Match estrito: "Procedimento Comum (1234)" → ('Procedimento Comum', '1234').
-# Sem parênteses → fica o nome inteiro, codigo=''. Evita o pitfall do
-# regex anterior `(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?` que era opcional e
-# casava dígitos no meio do texto como "código" (ex.: "Tributário 12345
-# algo" capturaria 12345).
-CLASSE_COM_CODIGO_RE = re.compile(r'^(.+?)\s*\((\d{2,5})\)\s*$')
+# Sem `(` + dígitos NO FIM → fica o nome inteiro, codigo=''. Continua evitando o
+# pitfall do regex antigo `(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?`, que era opcional
+# e casava dígitos do MEIO do texto como "código" (ex.: "Tributário 12345 algo"
+# capturava 12345). NÃO volte àquele regex.
+#
+# O `)` é OPCIONAL desde 25/08/2026 — e só o `)`, só no fim, só depois de
+# `(`+dígitos. O detalhe do PJe entrega o assunto hierárquico com o código da
+# folha SEM o parêntese de fecho:
+#
+#   DIREITO PREVIDENCIÁRIO (195)  -  Benefícios em Espécie (6094)  -  \
+#   Auxílio-Acidente (Art. 86) (6107
+#                                   ↑ sem ')'
+#
+# Com o fecho obrigatório o código ia para '' e o `assunto_nome` recebia a
+# HIERARQUIA INTEIRA truncada em 255. Medido em produção (12 âncoras, semente
+# 20260825, blocos de 40.000 pks = 480.000 processos varridos): dos 120.755
+# processos com `assunto_nome` e sem `assunto_codigo`, o regex ANTIGO recuperava
+# **0**; o novo recupera **105.690 (87,5%)**. A classe passava porque o PJe
+# fecha `PROCEDIMENTO COMUM CÍVEL (7)` direito — daí a assimetria da matriz da
+# auditoria (TRF3: classe cód 70,5% vs assunto cód 3,6%).
+CLASSE_COM_CODIGO_RE = re.compile(r'^(.+?)\s*\((\d{2,5})\)?\s*$')
+
+# Separador da hierarquia de assunto do PJe: DOIS espaços de cada lado do hífen.
+# Medido: `  -  ` aparece em 100% (5.598/5.598) dos assuntos sem código de uma
+# janela de 200 mil pks; ` - ` com UM espaço aparece DENTRO de nomes de folha
+# legítimos ("Crédito Direto ao Consumidor - CDC", "Agente Agressivo -
+# Eletricidade"), então cortar por ` - ` mutilaria o nome.
+SEP_HIERARQUIA = '  -  '
 
 
 def _split_nome_codigo(texto: str) -> tuple[str, str]:
@@ -58,6 +81,50 @@ def _split_nome_codigo(texto: str) -> tuple[str, str]:
     if m:
         return m.group(1).strip()[:255], m.group(2)[:20]
     return texto.strip()[:255], ''
+
+
+def split_assunto_folha(texto: str, truncado: bool = False) -> tuple[str, str]:
+    """Texto de assunto do PJe → (nome da FOLHA, código da folha).
+
+    Devolve o nome da FOLHA, não a hierarquia inteira: é o que a tela mostra no
+    dropdown de filtro. Antes disto, 1.690 de 2.677 (63,2%) dos nomes do
+    catálogo `Assunto` eram a hierarquia (`DIREITO ADMINISTRATIVO… (9985) -
+    Atos Administrativos (9997) - Licenças (9998)`) posando de nome de assunto.
+
+    Duas formas de perder o dado que este parser trata:
+
+    1. **Multi-assunto.** O PJe empilha os assuntos do processo separados por
+       `\\n` (LF + 4 espaços). 41,6% dos assuntos sem código de uma janela de
+       200 mil pks tinham `\\n`. Quem trata o texto como UMA string casa o fim
+       da ÚLTIMA hierarquia — e quando o campo bateu no teto de 255 esse fim é
+       o código de um ANCESTRAL da segunda hierarquia, não a folha da primeira.
+       Era a origem dos "1.515 com código de ancestral" da auditoria. Aqui a
+       primeira hierarquia é isolada ANTES de procurar o código.
+
+    2. **Truncamento.** `assunto_nome` é varchar(255). Se o texto veio do banco
+       e tem exatamente 255 caracteres SEM `\\n`, não dá para provar que a
+       primeira hierarquia chegou inteira — o `(1234` do fim pode ser um
+       ancestral cortado. Nesse caso **abstém-se** (regra nº 6 do CLAUDE.md):
+       devolve o texto como está e código vazio, e o backfill conta quantos
+       ficaram em vez de chutar. 15.065 de 120.755 (12,5%) caem aqui ou no
+       formato de separador único (` - `, sem código nenhum, visto no TJDFT).
+
+    `truncado` só é True quando o texto veio de uma coluna varchar(255) — o
+    caminho ao vivo (`normalize_dados`) recebe o texto fresco do enricher.
+    """
+    if not texto:
+        return '', ''
+    linhas = [ln.strip() for ln in texto.split('\n') if ln.strip()]
+    if not linhas:
+        return '', ''
+    primeira = linhas[0]
+    # A 1ª hierarquia só é confiável se veio algo DEPOIS dela (o `\n` prova que
+    # ela terminou) ou se o texto não bateu no teto da coluna.
+    if truncado and len(linhas) == 1:
+        return texto.strip()[:255], ''
+    segs = [s.strip() for s in primeira.split(SEP_HIERARQUIA) if s.strip()]
+    folha = segs[-1] if segs else primeira
+    return _split_nome_codigo(folha)
 
 
 # ---------- normalização ----------
@@ -79,8 +146,11 @@ def normalize_dados(dados: dict) -> dict:
             out['classe_nome'], out['classe_codigo'] = nome, codigo
         elif nome:
             out['classe_nome'] = nome  # atualiza nome, preserva o código existente
+    # Assunto tem hierarquia; classe não (0 de 658 linhas de `ClasseJudicial`
+    # têm `(código)` no nome, contra 1.690 de 2.677 de `Assunto`). Por isso só o
+    # assunto passa pelo split de folha.
     if 'assunto' in dados:
-        nome, codigo = _split_nome_codigo(dados['assunto'] or '')
+        nome, codigo = split_assunto_folha(dados['assunto'] or '')
         if codigo:
             out['assunto_nome'], out['assunto_codigo'] = nome, codigo
         elif nome:

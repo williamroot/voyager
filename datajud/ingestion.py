@@ -56,12 +56,39 @@ def _as_dict(x) -> dict:
     return x if isinstance(x, dict) else {}
 
 
+#: Domínio real de `grau`, medido no `voyager-acervo` em 25/08/2026 — o
+#: esqueleto nacional inteiro, 342.046.902 documentos varridos do Datajud,
+#: `_count` por termo (não `exists`, que conta string vazia como presente):
+#:
+#:     G1  203.782.129   1º grau
+#:     G2   41.972.803   2º grau
+#:     JE   73.791.952   Juizado Especial  ← 21,6% do país
+#:     SUP   8.159.129   tribunal superior
+#:     TR   14.272.244   Turma Recursal
+#:     TRU      68.645   Turma Regional de Uniformização
+#:     (soma = 342.046.902: `grau` está presente em 100% dos docs)
+#:
+#: **JE e TR pagam por RPV, não por precatório.** Sem este campo o funil de
+#: produto do Juriscope mistura dois produtos com prazos e preços diferentes.
+#: Valor fora do domínio: ABSTÉM (regra nº 6 do CLAUDE.md). Normalizar no chute
+#: um grau desconhecido é pior que a coluna vazia, porque a coluna vazia a tela
+#: sabe dizer que está vazia.
+GRAUS_CONHECIDOS = frozenset({'G1', 'G2', 'JE', 'SUP', 'TR', 'TRU'})
+
+
 def _meta_updates_from_source(processo: Process, source: dict) -> dict:
     """Extrai metadados do `_source` do Datajud e devolve dict de updates
     para `Process`, respeitando dados já populados (PJe enricher é fonte
     de verdade quando presente — Datajud só preenche lacunas).
     """
     upd: dict = {}
+
+    grau = str(source.get('grau') or '').strip().upper()
+    if grau in GRAUS_CONHECIDOS and not getattr(processo, 'grau', ''):
+        upd['grau'] = grau
+    elif grau and grau not in GRAUS_CONHECIDOS:
+        logger.warning('datajud: grau fora do domínio (%r) em %s — abstendo',
+                       grau, getattr(processo, 'numero_cnj', '?'))
 
     classe_obj = _as_dict(source.get('classe'))
     classe_codigo = str(classe_obj.get('codigo') or '').strip()
@@ -102,6 +129,16 @@ def _meta_updates_from_source(processo: Process, source: dict) -> dict:
             upd['valor_causa'] = Decimal(str(vc))
         except (InvalidOperation, ValueError, TypeError):
             pass
+
+    # `nivelSigilo` NÃO é lido de propósito, e o motivo é medido, não estético:
+    # no `voyager-acervo` inteiro — 342.046.902 documentos varridos do Datajud —
+    # `nivelSigilo` vale **0 em 342.046.902 e qualquer outro valor em 0**
+    # (`_count` por termo, valores 0..5 e o `must_not exists`). O campo não
+    # carrega informação nacional nenhuma: a API pública do CNJ só expõe o que
+    # é público. Mapeá-lo para `segredo_justica` escreveria `False` em 102 M de
+    # processos — exatamente a afirmação que ninguém verificou e que a migration
+    # 0052 acabou de tornar NULL. Quem sabe dizer que há segredo é o e-SAJ, pela
+    # página "informe a senha" (achado 5 de .ia/ENRICHMENT.md).
 
     return upd
 

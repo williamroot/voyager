@@ -26,6 +26,7 @@ import logging
 
 from django.utils import timezone
 
+from datajud.ingestion import GRAUS_CONHECIDOS
 from search.client import get_es, index_name
 from tribunals.cnj import sigla_do_cnj, so_digitos
 from tribunals.models import Process, Tribunal
@@ -82,6 +83,7 @@ def hidratar_cnj(cnj: str, com_enricher: bool = True) -> dict:
             # sem tribunal conhecido não dá pra criar: PROTECT na FK, e chutar
             # tribunal faria o enricher bater na porta errada
             return {'cnj': numero, 'estado': 'tribunal_desconhecido', 'sigla': sigla}
+        grau = str((esq or {}).get('grau') or '').strip().upper()
         proc = Process.objects.create(
             numero_cnj=numero, tribunal=trib,
             classe_codigo=(esq or {}).get('classe_codigo') or '',
@@ -90,6 +92,10 @@ def hidratar_cnj(cnj: str, com_enricher: bool = True) -> dict:
             assunto_nome=((esq or {}).get('assunto_nomes') or [''])[0],
             orgao_julgador_codigo=(esq or {}).get('orgao_codigo') or '',
             orgao_julgador_nome=(esq or {}).get('orgao_nome') or '',
+            # o esqueleto já traz `grau` — 342.046.902 de 342.046.902 docs do
+            # `voyager-acervo` têm o campo. JE (21,6% do país) paga por RPV, não
+            # por precatório. Fora do domínio conhecido: fica vazio.
+            grau=grau if grau in GRAUS_CONHECIDOS else '',
         )
         estado = 'criado'
 

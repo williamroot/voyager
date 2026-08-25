@@ -364,3 +364,158 @@ era o `status`.
 ```python
 R.objects.filter(fonte='djen', status='success').exclude(erros=[])  # tem que dar 0
 ```
+
+---
+
+## O que o esqueleto do Datajud já tem e o Postgres jogava fora (25/08/2026)
+
+Dois campos que a auditoria de completude do DADO ranqueou (`ENRICHMENT.md`,
+achados 3 e 7). Nenhum dos dois custa uma requisição: o dado está no
+`voyager-acervo` (o esqueleto nacional que a varredura gravou) ou no próprio
+`tribunals_process`.
+
+### `grau` — o campo que separa RPV de precatório
+
+`doc_do_datajud` **já grava** `grau` em cada doc do `voyager-acervo` desde
+sempre; quem não lia era o Postgres (`_meta_updates_from_source` e
+`hidratacao.hidratar_cnj`).
+
+Domínio real, medido no índice inteiro (`_count` por termo — nunca `exists`,
+que conta string vazia como presente):
+
+| grau | docs | o que é |
+|---|---:|---|
+| `G1` | 203.782.129 | 1º grau |
+| `JE` | **73.791.952** | **Juizado Especial — paga por RPV, não por precatório** |
+| `G2` | 41.972.803 | 2º grau |
+| `TR` | 14.272.244 | Turma Recursal (também RPV) |
+| `SUP` | 8.159.129 | tribunal superior |
+| `TRU` | 68.645 | Turma Regional de Uniformização |
+| **soma** | **342.046.902** | = total do índice ⇒ **`grau` presente em 100%** |
+
+**21,6% do acervo nacional é `JE`.** Sem o campo, o funil de produto do
+Juriscope mistura dois produtos com prazo e preço diferentes. Valor fora
+desses seis: `logger.warning` e coluna vazia — abster, nunca normalizar no
+chute (regra nº 6).
+
+**Limitação honesta:** o `_source` bruto do Datajud **não é guardado em lugar
+nenhum** — não há model, não há coluna JSONB. Então `grau` só chega por dois
+caminhos: (a) processos sincronizados/hidratados daqui pra frente, e (b) um
+backfill que leia o `voyager-acervo` por `proc` e case com `Process`. O (b) é
+possível **sem tocar no Datajud** (o índice é nosso), mas é um job novo, não é
+o que este commit entrega.
+
+### `nivelSigilo` — presente em 100% e informativo em 0%
+
+`nivelSigilo` vale **0 em 342.046.902 documentos e qualquer outro valor em 0**
+(contado termo a termo, 0..5, mais o `must_not exists`). A API pública do CNJ
+só expõe o que é público, então o campo não carrega informação nenhuma em
+escala nacional. Mapeá-lo para `segredo_justica` escreveria `False` em 102 M de
+processos — exatamente a afirmação que a migration 0052 desfez ao tornar a
+coluna NULL. **Decisão: não é lido.** Quem sabe dizer que há segredo é o e-SAJ,
+pela página "informe a senha" (achado 5 de `ENRICHMENT.md`).
+
+### `assunto`: o `)` que o PJe não fecha (8,2 M, zero requisição)
+
+O detalhe do PJe entrega o assunto hierárquico com o código da folha **sem o
+parêntese de fecho**, e empilha os assuntos do processo separados por `\n`:
+
+```
+DIREITO CIVIL (899)  -  Responsabilidade Civil (10431)  -  Indenização por Dano Material (10439)  -  Acidente de Trânsito (10441
+    DIREITO DO CONSUMIDOR (1156)  -  Responsabilidade do Fornecedor (6220)  -  …
+```
+
+`CLASSE_COM_CODIGO_RE` exigia o fecho ⇒ `assunto_codigo=''` e `assunto_nome`
+recebia a hierarquia inteira, truncada em 255.
+
+Medido em 25/08/2026 — 12 âncoras uniformes em `id`, `random.Random(20260825)`,
+blocos de 40.000 pks consecutivos = **480.000 processos varridos**, 84 s:
+
+| | amostra |
+|---|---:|
+| processos com `assunto_nome` | 209.580 |
+| … **sem** `assunto_codigo` | 120.755 (57,6%) |
+| … código recuperável do texto já gravado | **105.690 (87,5%)** |
+| … abstenções (truncado em 255 sem `\n`, ou formato sem código) | 15.065 (12,5%) |
+| processos **com** código cujo nome ainda era hierarquia | 9.602 |
+| … desses, com o texto apontando **outro** código (conflito) | 418 (0,47%) |
+
+O regex **antigo** recuperava **0 dos 120.755**.
+
+Duas descobertas que a auditoria não tinha:
+
+1. **O separador é `  -  ` com DOIS espaços.** Cortar por ` - ` mutila nome de
+   folha legítimo (`Crédito Direto ao Consumidor - CDC`, `Agente Agressivo -
+   Eletricidade`). Medido: `  -  ` em 100% (5.598/5.598) de uma janela de
+   200 mil pks; ` - ` de um espaço em 144 delas, sempre dentro do nome.
+2. **41,6% são multi-assunto (`\n`).** Tratar o texto como UMA string casa o
+   fim da ÚLTIMA hierarquia — e quando o campo bateu no teto de 255 esse fim é
+   o código de um **ancestral** da segunda hierarquia. Era a origem dos "1.515
+   com código de ancestral" da auditoria. Isolando a primeira hierarquia
+   ANTES, esses viram recuperação boa: é por isso que 87,5% > 72,7%.
+
+**Conferido contra fonte independente** (regra nº 5, os dois lados): dos pares
+(código → nome da folha) recuperados, 150 sorteados foram comparados com o
+`voyager-acervo` — o assunto que o **CNJ** declara para aquele código.
+**150 de 150 com o código certo**; 141 com o nome idêntico e 9 com variante de
+nomenclatura da própria TPU (`&quot;` do Datajud, `Erro Médico` × `Serviços de
+Saúde` para 10503, `Corrupção de Menores` × `Corrupção de Menores - art. 218`).
+**Controle negativo do mesmo teste: o nome hierárquico bate 0 de 150.**
+99,9% dos códigos recuperados (105.624 de 105.690) já existiam em
+`tribunals_assunto`.
+
+### Catálogo `Assunto` limpo (executado em 25/08/2026)
+
+| | antes | depois |
+|---|---:|---:|
+| linhas com a hierarquia no lugar do nome | **1.690 de 2.681 (63,0%)** | **42** |
+| `ClasseJudicial` | 0 de 658 | 0 de 658 |
+
+1.648 nomes corrigidos por `bulk_update`; **nenhuma linha apagada**
+(`Assunto.codigo` é PK e `Process.assunto` é FK `PROTECT`). Os 42 que ficaram
+são abstenções declaradas:
+
+- **21 truncados em 255** sem `\n` — não dá para provar qual é a folha.
+- **21 conflitos**, que são **decisão pendente de merge, não bug de parser**:
+  - `00001`…`00022` (19 linhas, 163 processos, todos **TRF1**): o código é
+    zero-padded e o nome termina em `Atendimento Bancário (401`. A tabela local
+    do TRF1 tem um código que o Datajud não conhece.
+  - `14196`/`14197` (1 processo): o nome da folha termina em `(1989)`/`(1987)`
+    — **ano**, não código. O regex antigo capturou o ano porque o parêntese do
+    ano estava fechado e era o último. O parser novo detecta a divergência e
+    abstém.
+
+### Runbook
+
+```bash
+# medir sem escrever (a régua do antes/depois)
+manage.py backfill_assunto --de <pk> --ate <pk> --sem-reparo --json
+manage.py backfill_assunto --modo catalogo --sem-reparo
+
+# a corrida (retomável pelo checkpoint no cache)
+manage.py backfill_assunto --sleep 0.2 --freio-ms 800 --teto-linhas 2000000
+
+# parar de qualquer lugar, sem deploy
+manage.py shell -c "from django.core.cache import cache; \
+    cache.set('enrichers:backfill_assunto:off', True)"
+```
+
+**Custo medido em produção** (25/08/2026, escrita real, recorte
+`id ∈ (42809753, 42819753]`): 2.713 linhas em 23,8 s = **114 linhas/s**,
+≈ 8,8 ms por linha, com o drainer aplicando ~126 mil events/h em paralelo.
+Nesse ritmo, 11,3 M de linhas ≈ **27,5 h de escrita contínua**. Leitura seca
+(`--sem-reparo`): 40.000 pks em 6,7 s.
+
+Prova do recorte, por contagem independente (não pelo log do job):
+
+| | antes | depois |
+|---|---:|---:|
+| `assunto_nome <> '' AND assunto_codigo = ''` | 2.665 | **1** |
+| `assunto_id IS NULL` | 2.715 | **2** |
+| nome ainda hierárquico | 2.673 | **2** |
+
+O que sobrou é exatamente 1 abstenção + 1 conflito que o job declarou.
+
+**O que este backfill NÃO faz:** não reindexa no Elasticsearch. `bulk_update`
+não dispara `post_save`, então o doc de `voyager-processos` mantém o assunto
+velho até o reindex passar por ele.
