@@ -129,6 +129,49 @@ o DJEN passou por aqui", e renová-la a cada passada era o motivo de reescrever
 70,3% das linhas com valor idêntico (ver `INGESTION.md`, "O deadlock em
 `tribunals_process`").
 
+### ⚠️ Índice declarado ≠ índice real: confira por COLUNA, nunca por nome
+
+`proc_tribunal_id_idx` é o caso que obriga esta régua a existir:
+
+```
+model:  Index(fields=['tribunal', '-id'], name='proc_tribunal_id_idx')
+banco:  proc_tribunal_id_idx  ->  ['tribunal_id']      (uma coluna só)
+```
+
+**Mesmo nome, conteúdo diferente.** Os três índices fantasma da migration
+`0051` eram *ausentes* — conferir por nome ao menos respondia "não existe".
+Este **existe, com o nome certo e as colunas erradas**, então a verificação que
+todo mundo faz (`\di`, `pg_indexes.indexname`, "o índice está lá?") devolve
+**ok**. `makemigrations` também não vê: ele compara com o ESTADO, não com o
+banco.
+
+**O que isso custou, medido em 25/08/2026:** sem o `id` no índice,
+`WHERE tribunal_id='TJPR' ORDER BY id LIMIT 1` não lê a primeira entrada — cai
+em `Index Scan using tribunals_process_pkey … Filter: tribunal_id` (custo
+39.100.789) e **varre e ordena**. Um `LIMIT 1` desses ficou **1.318 s** em
+produção e enfileirou **63 sessões** atrás de um `ALTER TABLE` que esperava
+ACCESS EXCLUSIVE. Um índice errado não deixa a query lenta: deixa o banco
+parado.
+
+**A régua**, e ela não é opcional:
+
+```sql
+SELECT c.relname AS indice,
+       array_agg(a.attname ORDER BY k.ord) AS colunas
+FROM pg_index i
+JOIN pg_class c  ON c.oid = i.indexrelid
+JOIN pg_class t  ON t.oid = i.indrelid
+JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON TRUE
+JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+WHERE t.relname = 'tribunals_process'
+GROUP BY c.relname ORDER BY c.relname;
+```
+
+Consequência prática para quem varre o acervo: **entre por faixa fechada de
+`Process.id`**, não por `--tribunal`. Faixa de pk usa a PK (`Index Cond: id >= X
+AND id < Y`, custo 60.209 para 50.000 ids) e ainda é o que torna o reindex do
+ES viável depois, porque o bloco é contíguo.
+
 ## Movimentacao
 
 ```python
