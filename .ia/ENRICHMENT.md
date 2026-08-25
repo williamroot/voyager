@@ -995,3 +995,278 @@ Cortex residencial**. O balanço do tribunal: `pendente` 720.344 · `erro`
   de jobos já medida (~125 mil/h) ⇒ **≈ 11 dias**. É esse o tamanho da
   correção: uma ordem de grandeza, sem um worker a mais e sem uma requisição a
   mais no tribunal.
+
+Colunas: `ok%` = `enriquecimento_status='ok'`; `≥1 parte` = % dos processos com
+ao menos uma `ProcessoParte`; `dos ok, com parte` = entre os `ok`, quantos têm
+parte (`·` = menos de 20 `ok` na amostra, não medido). Tribunais sem enricher
+(TJPR, TJRS, TJSC, TJBA, TJGO, TJMS, TJPI, TJSE, TJRN, TJES, TJRR, TRF2/4/6,
+TST, STJ, TRTs) têm `ok%`=0 por construção — o que preenchem vem do Datajud, e
+as 6 colunas de campo mostram o **mesmo** percentual porque **o Datajud escreve
+tudo de uma vez ou nada**. Onde `classe cód` descola das outras (TJAM 88,2 vs
+33,4; STJ 54,0 vs 1,4; TJRO 38,5 vs 1,9; TJSP 24,8 vs 4,9), a diferença é a
+classe herdada da movimentação DJEN.
+
+Os 40 tribunais restantes (todos < 900 k, somando ~4,4 M) estão em
+`scripts/auditoria_campos.py` — nenhum passa de 30% em campo nenhum.
+
+### As três causas, separadas e medidas
+
+Campo vazio exige ações **opostas** conforme a causa. Sobre a amostra A
+(120.000, escalado para 102.296.406):
+
+| causa | o que é | medida | ação |
+|---|---|---:|---|
+| **3 — nunca fomos buscar** | `pendente`, nenhuma porta consultada | **77,27%** ≈ 79,0 M · e **68,59%** ≈ 70,2 M não têm classe **nem** assunto **nem** autuação — 99,7% desses são `pendente` | volume/priorização (é o plano de cobertura por valor acima) |
+| **2 — a fonte tem, nós não pegamos** | parser/mapa/política | ver os 7 achados abaixo — o maior sozinho vale **84,8%** do acervo | conserto nosso, sem gastar requisição |
+| **1 — a fonte não tem** | dado inexistente no payload público | `valor_causa` em todo PJe (já provado em §"Valor da causa"); partes em processo sob segredo (10 de 11 sondas ao vivo no TJSP) | a tela precisa **dizer que não há** — hoje diz `ok` e mostra vazio |
+
+O `ok` totalmente vazio (sem classe, sem assunto, sem autuação) é **0,17%**
+≈ 174 k processos: pequeno, mas é "run verde com log limpo".
+
+### Achado 1 — 84,8% do acervo tem partes no DJEN que nunca viram `Parte`
+
+**O maior buraco desta auditoria, e ele não precisa de uma única requisição.**
+
+`Movimentacao.destinatarios` e `Movimentacao.destinatario_advogados` (JSONB,
+vindos da DJEN em toda comunicação) guardam parte + polo + advogado + OAB. O
+grafo de entidades (`Parte`/`ProcessoParte`), que alimenta a ficha, a tela de
+partes, o "quem deve" e os campos `partes`/`advs` do ES, é populado **apenas**
+pelos enrichers — `grep -rn destinatario` não acha nenhum caminho de promoção.
+
+Medido (amostra B+C, 11.160 processos):
+
+```
+sem nenhuma ProcessoParte ............... 10.046 / 11.160 = 90,0%
+   … mas com destinatário DJEN gravado ..  9.467 / 10.046 = 94,2%
+⇒ processos que ganhariam parte de graça  9.467 / 11.160 = 84,8%  ≈ 86,7 M
+```
+
+Qualidade do que está lá (23.575 destinatários + 21.930 advogados, 1 mov/processo):
+
+| atributo | medida |
+|---|---:|
+| destinatário com **polo** (`A`/`P`) | 23.575 / 23.575 = **100%** |
+| destinatário com nome real (não iniciais de segredo) | 22.590 / 23.575 = **95,8%** |
+| advogado com **OAB** (número + UF) | 21.901 / 21.930 = **99,87%** |
+| OABs distintas na amostra | 17.677 |
+
+Exemplo cru (TRT8, `id=1324979864`): `[{"nome":"WANDERSON AMANCIO VIEIRA","polo":"A"},
+{"nome":"BRASIL NORTE COM. REPRESENTACOES COMERCIAIS LTDA","polo":"P"}]` +
+3 advogados com `numero_oab`/`uf_oab`.
+
+Duas notas honestas:
+
+- **Não substitui o enricher.** O destinatário é quem foi *intimado naquela
+  comunicação*, não o cadastro completo de partes, e não traz CPF/CNPJ. É
+  cobertura ampla e rasa; o enricher é estreita e profunda.
+- `.ia/ACERVO_CNJ.md` já afirmava que "partes e advogados continuam vindo do
+  DJEN (destinatários) e dos enrichers" — a primeira metade da frase **nunca
+  foi verdade no código**. `SEARCH_SCHEMA.md` §Lacunas registra a decisão de não
+  indexá-los "(ruído/duplicação vs ProcessoParte)"; a premissa dessa decisão era
+  que `ProcessoParte` cobria o caso, e ela cobre **10,0%**.
+
+### Achado 2 — classe e órgão da própria movimentação, não promovidos
+
+Mesmo caminho, outro campo. `fallback_classe_via_djen` existe, mas só roda
+dentro do drainer de enrichment — ou seja, nunca para os 77% `pendente`.
+
+| | medida (11.160) | concordância com enricher/Datajud onde ambos existem |
+|---|---:|---|
+| processos com mov. que tem `codigo_classe` | 11.136 = **99,8%** | — |
+| sem `classe_codigo` no `Process`, **com** código na mov. | 8.309 = **74,5%** ≈ 76,2 M | **91,0%** exato (2.572/2.827) |
+| sem `orgao_julgador_nome`, **com** `nome_orgao` na mov. | 9.032 = **80,9%** ≈ 82,8 M | 58,7% exato, 69,4% incluindo contido |
+
+⇒ **classe pode ser preenchida** (com carimbo de fonte: é a classe *da
+comunicação*, e os 9% de divergência são exatamente incidente/fase distinta —
+ex. `12078` no cadastro vs `436` na publicação). **Órgão NÃO deve**: o
+`nome_orgao` do DJEN é quem publicou (`19ª - Salvador` vs
+`19ª Vara Federal de Execução Fiscal da SJBA`; `Gab. 22 - JUÍZA FEDERAL
+CONVOCADA…`). 30,6% de discordância é chute, e chute é pior que vazio.
+
+### Achado 3 — o PJe corta o `)` do assunto e nós jogamos o código fora
+
+O detalhe do PJe entrega o assunto hierárquico com o código da folha **sem o
+parêntese de fecho**:
+
+```
+DIREITO PREVIDENCIÁRIO (195) - Benefícios em Espécie (6094) - Auxílio-Acidente (Art. 86) (6107
+                                                                                          ↑ sem ')'
+```
+
+`drainer.CLASSE_COM_CODIGO_RE = ^(.+?)\s*\((\d{2,5})\)\s*$` exige o fecho ⇒
+`assunto_codigo=''` e `assunto_nome` recebe **a hierarquia inteira**, truncada
+em 255. A classe, que o PJe fecha direito (`PROCEDIMENTO COMUM CÍVEL (7)`),
+passa — daí a assimetria `classe cód ≈ classe nome` mas `assunto cód ≪ assunto
+nome` na matriz (TRF3: 70,5 vs 3,6).
+
+| | amostra A | ≈ acervo |
+|---|---:|---:|
+| processos com `assunto_nome` | 26.841 (22,4%) | 22,9 M |
+| … **sem** `assunto_codigo` | 13.299 (49,5% deles) | 11,3 M |
+| … com o código da folha **recuperável do texto já gravado** | **9.667 (72,7%)** | **8,2 M** |
+| … só com código de ancestral (nome truncado em 255) | 1.515 | 1,3 M |
+| `assunto_nome` truncado em 255 | 1.920 | 1,6 M |
+
+Prova de que o código está íntegro (só falta o `)`): dos 9.667 recuperados,
+**9.503 (98,3%) já existem em `tribunals_assunto`**. Efeito colateral do mesmo
+bug: **1.690 de 2.673 (63,2%)** dos nomes do catálogo `Assunto` são a hierarquia
+inteira em vez do nome da folha — o dropdown de filtro mostra
+`DIREITO ADMINISTRATIVO… (9985) - Atos Administrativos (9997) - Licenças (9998)`
+como se fosse o nome. `ClasseJudicial` está limpo (0/658).
+
+**Este conserto não precisa de rede**: o dado está no nosso banco.
+
+### Achado 4 — `Jurisdição` do PJe: publicada, lida, descartada
+
+`juizo` = 0,0% em **todos** os 10 tribunais PJe (TRF1, TRF3, TRF5, TJMG, TJMA,
+TJCE, TJAP, TJPE, TJRJ, TJRO) e no TJDFT. Não é a fonte: o `div.propertyView`
+tem o campo, conferido nas fixtures reais de 5 tribunais —
+TJMG "Patrocínio" · TJRJ "Comarca da Capital" · TJPE "Recife - Varas" ·
+TJMA "Fórum da Comarca de Riachão" · TJAP "Comarca de Laranjal do Jari - Interior".
+`BasePjeEnricher._extrair_dados` ramifica em classe/assunto/autuação/valor/
+segredo e **não tem ramo para jurisdição**; `tjdft.py` idem (a rota `/dados`
+devolve `jurisdicao`). Só e-SAJ (TJSP/TJAL/TJAC) e TJPA escrevem `juizo`.
+
+⚠️ **Não é um `elif` óbvio**: no e-SAJ `juizo` é a *vara* (1º grau) ou o
+*relator* (2º grau); no PJe "Jurisdição" é a *comarca/foro*. Enfiar um no outro
+mistura semânticas no mesmo campo. O conserto certo é decidir antes: campo novo
+`jurisdicao` ou `juizo` com semântica documentada.
+
+### Achado 5 — `segredo_justica` nunca foi escrito, e o e-SAJ nos avisa
+
+- `segredo_justica = true` em **0 de 91.638.494** documentos do índice
+  (`_count`, não `exists`); `false` em 27,2 M; **ausente do doc** em 64,5 M
+  (indexados antes do campo entrar no builder). Na amostra A: **0 de 120.000**.
+- Ou seja: para 102 M processos afirmamos "não corre em segredo" — sem ter
+  perguntado uma vez. É o oposto de "abster > chutar": o default `False` do
+  `BooleanField` virou afirmação.
+- O `nivelSigilo` do Datajud existe em **20/20** dos `_source` sondados (valia 0
+  nos 20 — então preencheria pouco **nesta** amostra) e não é lido por
+  `_meta_updates_from_source`.
+- **O e-SAJ diz explicitamente.** Das 11 sondas ao vivo em processos TJSP
+  marcados `ok` **sem nenhuma parte**, **10** devolvem HTTP 200 com a página
+  *"é necessário informar uma senha para acessar processo em segredo de
+  justiça"* (33 KB, sem `tablePartesPrincipais`, sem "Não existem informações").
+  Entre elas classes que ninguém suspeitaria: `PROCEDIMENTO COMUM CÍVEL` (3),
+  `CUMPRIMENTO DE SENTENÇA` (2), além de Curatela/Divórcio/Ação Penal.
+
+Tamanho: **17,5% dos `ok` do TJSP não têm nenhuma parte** (356 de 2.034 `ok`
+na amostra) ≈ **302 k processos** rotulados "enriquecido" com o cadastro vazio.
+Idem TJAC 22,1% e TJAL 12,3%. Causa é (1) — a fonte não publica —, mas o
+registro diz (2). Conserto: reconhecer a página de senha ⇒ `segredo_justica=True`
++ status que **diga** "sem dados públicos", em vez de `ok` mudo.
+
+### Achado 6 — e-SAJ entrega partes sem OAB e sem documento
+
+O §"Como adicionar enricher pra outro e-SAJ" diz "documento fica vazio (OAB e
+nome são preservados)". A primeira metade está certa; a segunda **não se
+confirma em produção**:
+
+| tribunal | linhas de parte | advogados | com OAB | com documento |
+|---|---:|---:|---:|---:|
+| TJSP | 59 | 29 | **0** | **0** |
+| TJAL | 441 | 211 | **0** | **0** |
+| TJAC | 268 | 107 | **0** | 3 |
+| TJPA | 195 | 84 | **0** | 10 |
+| TRF1 | 840 | 370 | 196 | 590 |
+| TJDFT | 467 | 153 | 153 | 435 |
+
+(entre os `ok`, por processo: TJSP 100% sem OAB e 95,8% sem documento;
+TJAL 100%/99,1%; TJAC 100%/96,2%; TJPA 100%/76,3%.)
+
+O parser sabe extrair (`parse_oab` é chamado quando `is_advogado`); a fixture do
+TJAL que "prova" a OAB é **sintética**. Consequência: no maior tribunal do
+acervo, a parte guardada é **nome solto** — sem chave estável, o vínculo entre
+processos e a ficha da parte não fecha. E o DJEN do mesmo TJSP tem OAB em
+**98,0%** dos processos (achado 1).
+
+Também medido: `papel` vazio em 171/441 linhas do TJAL, 52/422 do TJMG,
+47/176 do TJPE, 14/59 do TJSP.
+
+### Achado 7 — o que cada porta traz, para os MESMOS 20 processos
+
+20 processos reais (1 por tribunal, priorizando `Cumprimento de Sentença contra
+a Fazenda` — o caminho do precatório), sondados ao vivo no Datajud:
+
+- **Datajud achou 20/20** — inclusive os 3 que o enricher marcou
+  `nao_encontrado`/`erro` (TJMG, TJCE, TJPE).
+- `_source` sempre com as mesmas 14 chaves: `assuntos, classe, dataAjuizamento,
+  dataHoraUltimaAtualizacao, formato, grau, id, movimentos, nivelSigilo,
+  numeroProcesso, orgaoJulgador, sistema, tribunal, @timestamp`.
+- `valorCausa` **ausente em 20/20** (confirma §"Valor da causa").
+- `orgaoJulgador.codigo` presente em 20/20; **nosso** `orgao_julgador_codigo`
+  vazio em 8/20. `assuntos` presente em 20/20; nosso `assunto_codigo` vazio em 8/20.
+
+**O que a porta tem e nós descartamos:**
+
+| campo da porta | onde | o que fazemos | valor |
+|---|---|---|---|
+| `destinatarios` / `destinatario_advogados` | DJEN, toda comunicação | grava no JSONB e para aí | **84,8% do acervo** ganharia parte+polo+OAB |
+| `grau` (`G1`/`G2`/`JE`/`SUP`) | Datajud, 20/20 | não existe coluna | **JE ⇒ RPV, não precatório** — 5 dos 20 são `JE`. Separa dois produtos |
+| `assuntos[1..]` | Datajud | só `assuntos[0]` | 5/20 têm 2+ assuntos (TST tem 7) |
+| `nivelSigilo` | Datajud, 20/20 | não lido | achado 5 |
+| `formato`, `sistema` | Datajud, 20/20 | não lidos | eletrônico/físico e PJe/SAJ/Eproc/Projudi: diz qual enricher tentar |
+| `movimentos[].codigo` (TPU) | Datajud | entra num **sha1** dentro do `external_id` — irrecuperável | o código do movimento é o Estágio do Crédito determinístico; sobra só o `nome` no texto |
+| `Jurisdição` | PJe, todos | sem ramo no parser | achado 4 |
+| página de senha | e-SAJ | tratada como detalhe vazio ⇒ `ok` | achado 5 |
+| `codigo_classe` / `nome_orgao` da movimentação | DJEN, 99,8% | só no drainer do enricher | achado 2 |
+
+E uma lacuna de **política**, não de parser: `reabastecer_fila_datajud`
+exclui os 16 tribunais com enricher (`.exclude(sigla__in=TRIBUNAIS_COM_ENRICHER)`).
+Então quem o enricher não achou não tem segunda porta: **4,54% do acervo
+≈ 4,6 M processos** estão em `nao_encontrado`/`erro` **e** com
+`data_enriquecimento_datajud IS NULL` — e o Datajud tinha 3/3 dos que sondei.
+
+### O que a tela vê (ES × PG, mesmos 11.160 processos, `_mget`)
+
+| | medida |
+|---|---:|
+| processos **fora** do índice | 1.045 / 11.160 = **9,4%** (TRT8 62%, TJRS 38%, TRT5 35,5%, TJSE 30%, TJSP 26,5%) |
+| doc no índice **sem** `partes` | 9.031 / 10.115 = **89,3%** |
+| PG tem `data_autuacao`, doc não | 1.900 / 10.115 = 18,8% (TRF5 83,5%, TRF1 72,9%) |
+| PG tem `juizo`, doc não | 165 · `classe_nome` 168 · `assunto` 157 · `orgao_julgador` 163 · `valor_causa` 19 |
+
+A perda de `data_autuacao` **não é defeito**: o campo entrou no builder em
+`7d03bab` (11/08/2026) e o reindex de 71 M ainda corre (SEARCH_SCHEMA §Fases).
+Vale como régua de progresso, não como bug. Os 9,4% fora do índice e os 89,3%
+sem partes, sim, são buraco de produto.
+
+### Buracos ordenados por IMPACTO no produto (direito creditório)
+
+Ordem por valor, não por tamanho. `valor_causa`, partes e assunto valem mais que
+`orgao_julgador_nome`.
+
+| # | buraco | tamanho | custo do conserto | por que primeiro |
+|---|---|---:|---|---|
+| 1 | **destinatários DJEN → `Parte`/`ProcessoParte`** | ≈ 86,7 M processos | backfill sobre dado local + write-through; **zero requisição** | é o produto: quem é a parte, quem é o advogado. Cobre TJPR/TJRS/TJSC/TRTs, que hoje têm **0%** de parte e nunca terão enricher |
+| 2 | **assunto: código da folha + nome da folha** | 8,2 M com código recuperável, 1,7 M de nomes de catálogo a limpar | regex + backfill local; **zero requisição** | assunto é feature do classificador de lead e filtro de tela; hoje 63,2% do catálogo mostra hierarquia truncada |
+| 3 | **e-SAJ: segredo vira `ok` vazio** | ≈ 302 k só no TJSP `ok` | detectar a página de senha; muda status e `segredo_justica` | "confiança falsa" no tribunal nº 1 do Juriscope — a tela precisa dizer que **não há** |
+| 4 | **`grau` do Datajud** | 20/20 têm; 5/20 são `JE` | coluna + mapeamento (o `_source` já é lido) | **JE = RPV, não precatório**. Sem isso o funil mistura dois produtos com prazos e preços diferentes |
+| 5 | **2ª porta para `nao_encontrado`/`erro`** | 4,6 M | política de refill, não código | 3/3 achados no Datajud; hoje ficam órfãos entre as duas portas |
+| 6 | **classe via movimentação para os `pendente`** | 76,2 M (91,0% de acerto) | backfill local, com carimbo de fonte | destrava o classificador onde não há enricher (é o chicken-egg da Fase 0) |
+| 7 | **e-SAJ sem OAB** | TJSP/TJAL/TJAC/TJPA: 0 de 347 advogados | investigar HTML real do `show.do` | resolvido de graça pelo #1 (DJEN traz OAB em 98% do TJSP) |
+| 8 | **`assuntos[1..]`, `formato`, `sistema`, `movimentos[].codigo`** | 5/20 multi-assunto | colunas novas | ganho real, mas depois dos 7 acima |
+| 9 | `juizo`/`Jurisdição` do PJe | 0,0% em 11 tribunais | decidir semântica antes | campo de contexto; não move lead |
+| 10 | `valor_causa` no PJe | 0% e continuará | — | **a fonte não tem.** Ver §"Valor da causa". Não é buraco: é ausência |
+
+### O que NÃO foi medido (e por quê)
+
+- **Se o `ok` sem partes do TJAL/TJAC também é segredo**: as 11 sondas ao vivo
+  foram só no TJSP. TJAL/TJAC roteiam por pool/Cortex e sondar direto daqui
+  arrisca queimar IP — fica para quando houver janela de proxy.
+- **Cobertura de partes por polo/papel contra a fonte**: comparei *existência*,
+  não *completude* da lista (o e-SAJ pode mostrar 5 partes e nós gravarmos 2).
+  Exigiria buscar o detalhe ao vivo de centenas de processos.
+- **`nivelSigilo` em escala**: 20 processos é amostra para *presença da chave*,
+  não para estimar a taxa de sigilo nacional.
+- **Contagem exata por tribunal**: o volume da matriz vem de `most_common_freqs`
+  de `pg_stats` × 102.296.406 (**estimativa**, ±1 pp de efeito de desenho), com
+  o `_count` do ES por tribunal como segunda medida. Um `GROUP BY tribunal_id`
+  exato em 102 M num banco disk-I/O-bound não cabia no orçamento desta auditoria.
+- **TRTs/TST/STJ campo a campo pela fonte**: enrichment trabalhista não está
+  ligado (§Justiça do Trabalho); o Tier B exige CapSolver.
+
+### Reprodução
+
+`scripts/auditoria_campos.py` — mesma semente (`20260824`), mesmas consultas,
+sem escrita em produção. Gera `matriz.tsv` e imprime as agregações acima.
