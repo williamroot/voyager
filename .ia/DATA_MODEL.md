@@ -64,6 +64,35 @@ indexes:     (tribunal, numero_cnj), (tribunal, -ultima_mov), inserido_em,
              enriquecido_em, classe_codigo, orgao_julgador_codigo
 ```
 
+**⚠️ `proc_tribunal_id_idx` NÃO é o índice que o model declara.** `models.py` diz
+`Index(fields=['tribunal', '-id'], name='proc_tribunal_id_idx')` — o que existe
+no banco com esse nome é **`btree (tribunal_id)`, uma coluna só** (conferido em
+`pg_indexes`, coluna a coluna, 25/08/2026). Mesmo nome, colunas diferentes: o
+`makemigrations` não vê, porque compara com o ESTADO, não com o banco.
+
+Consequência medida, e ela é cara: **não existe índice que sirva
+"filtra por tribunal, ordena por `id`"**. O plano de
+`WHERE tribunal_id='TJPR' AND id > X ORDER BY id LIMIT 500` é
+
+```
+Limit  (cost=0.57..2916.63 rows=500)
+  ->  Index Scan using tribunals_process_pkey  (cost=0.57..39100789.77 rows=6704385)
+        Index Cond: (id > 0)
+        Filter: ((tribunal_id)::text = 'TJPR'::text)   ← varre a PK inteira filtrando
+```
+
+O `LIMIT` faz o custo *estimado* parecer 2.916; o real é a varredura da PK até
+achar as linhas do tribunal. Em produção um `ORDER BY id ASC LIMIT 1` desses
+ficou **1.318 s** antes de ser cancelado, e ficou na frente de um `ALTER TABLE`
+— que, sendo ACCESS EXCLUSIVE, enfileirou 63 sessões atrás de si (auto-jam;
+ver `OPS.md`). **Backfill que precisa varrer o acervo entra por faixa fechada
+de `Process.id`** (`id >= X AND id < Y`, custo 60.209 para 50.000 ids), nunca
+por `tribunal_id` + `ORDER BY id`. Ver
+`tribunals/management/commands/backfill_partes_djen.py`.
+
+`proc_enriq_id_idx` **está** correto no banco (`(enriquecimento_status, id DESC)`)
+— o defeito é só do `proc_tribunal_id_idx`.
+
 **Trigger `mov_update_process_agg`: declarado na migration 0004, AUSENTE do banco
 de produção.** Conferido em `pg_trigger` em 24/08/2026: o único trigger vivo em
 `tribunals_process` é `process_set_ano_cnj`; a função

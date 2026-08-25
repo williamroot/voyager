@@ -1065,6 +1065,94 @@ Duas notas honestas:
   indexá-los "(ruído/duplicação vs ProcessoParte)"; a premissa dessa decisão era
   que `ProcessoParte` cobria o caso, e ela cobre **10,0%**.
 
+#### O conserto: `backfill_partes_djen` (25/08/2026)
+
+`tribunals/services/partes_djen.py` + `manage.py backfill_partes_djen`. Lê as 3
+movimentações mais recentes de cada processo **sem nenhuma `ProcessoParte`**,
+extrai destinatário e advogado dos dois JSONB e grava `Parte`/`ProcessoParte`
+com `fonte='djen'`. Zero requisição a tribunal.
+
+**Confirmação independente do achado** (semente 20260825, 6 âncoras × 600 pks
+uniformes em `id ∈ [1, 104.602.261]`, contagem pelo lado do SQL): 2.311 de
+3.584 processos sem `ProcessoParte`, e **2.172 = 94,0%** deles com destinatário
+gravado — bate com os 94,2% da auditoria, por outro desenho de amostra.
+
+**Custo medido, ponta a ponta: 1,26 s por 1.000 processos** (janela de pk +
+`NOT EXISTS` em `tribunals_processoparte` + `LATERAL LIMIT 3` em
+`tribunals_movimentacao`). Só leitura; a escrita entra no piloto.
+
+Decisões que a medição forçou, e o motivo de cada uma:
+
+| decisão | por quê |
+|---|---|
+| driver por **faixa fechada de `Process.id`**, não por tribunal | `proc_tribunal_id_idx` é `(tribunal_id)` no banco, não `(tribunal, -id)` como o model declara — ver `DATA_MODEL.md`. Sem esse índice, filtrar por tribunal e ordenar por `id` varre a PK inteira (um `LIMIT 1` ficou 1.318 s em produção). Faixa contígua também é o que torna o reindex do ES viável. |
+| idempotência pela **constraint**, nunca por `DELETE` | tudo sai com `representa=NULL`, então `uniq_processo_parte_polo_papel_principal` cobre 100% das linhas e `bulk_create(ignore_conflicts=True)` é race-safe. O caminho do `apply_batch` (`DELETE … WHERE processo_id = ANY`) apagaria a linha do enricher, que tem CPF/CNPJ e papel. |
+| só processos com **zero** `ProcessoParte` | quem já tem parte tem a de fonte melhor. Complementar criaria duplicata semântica: o enricher grava `papel='AUTOR'`, nós gravaríamos `papel=''` para a mesma pessoa. |
+| `papel=''`, `documento=''`, `representa=NULL` | o DJEN não dá nenhum dos três. `papel` aparece em **10 de 23.771** destinatários (0,04%) e só nos que vêm dos coletores de `diarios/`. Rotular de `'DESTINATARIO'` inventaria um papel processual **e** tiraria a linha do escopo da constraint que o enricher usa. |
+| reusa `enrichers.drainer._bulk_upsert_partes` | inclusive a armadilha do caminho `sem_id`, que casa o nome com uma `Parte` que já tenha CNPJ antes de criar — é o que evita duplicar "ESTADO DO AMAPÁ" 40 mil vezes. Medido: **6.398 de 6.398** `Parte` sem doc e sem OAB estão em `tipo='desconhecido'`, então a chave `(nome, tipo)` casa com o que já existe. |
+
+**O formato real, medido — não presumido** (24 âncoras × 400 pks, semente
+20260825; 23.771 destinatários e 26.569 advogados):
+
+```
+destinatarios[]           polo 23.771 · nome 23.771 · comunicacao_id 23.761 · papel 10
+destinatario_advogados[]  advogado · id · advogado_id · comunicacao_id · created_at · updated_at
+…[].advogado              nome · numero_oab · uf_oab (100%) · id
+```
+
+`polo` tem **quatro** valores, não dois: `A` 13.003 · `P` 10.519 · `T` 228 ·
+`D` 21. `T`/`D` são terceiro/custos legis (Ministério Público, administradora
+judicial) e vão para `outros`, junto com os advogados.
+
+**OAB** — `Parte.oab` tem unique constraint parcial: formatar diferente do
+resto do sistema duplicaria partes em 17,7 M de linhas. `formatar_oab` produz
+exatamente o que `enrichers.parsers.parse_oab` produz (`UF` + número, sem
+separador, sufixo de uma letra colado — a forma real em `tribunals_parte`:
+`GO26464`, `RJ209212A`, `CE14458S`). Formatos encontrados nos 26.569:
+
+| forma | n | tratamento |
+|---|---:|---|
+| só dígitos (`'6094'`) | 23.832 (89,7%) | `AP6094` |
+| dígitos + letra (`'46601A'`) | 2.469 (9,3%) | `BA46601A` |
+| **UF repetida** (`'MT4960'`, `'4960MT'`) | 103 (0,4%) | UF removida antes de concatenar — senão viraria `MTMT4960`, uma `Parte` nova para advogado que já existe |
+| lixo (`'R'`, `'D'`, `'A1608'`, `'27467/O'`) | ~138 | abstém: o advogado entra pelo nome, sem OAB inventada |
+
+Resultado: **99,48%** dos 26.569 saem com OAB formatada, 0 fora do padrão
+`^[A-Z]{2}\d…`.
+
+#### Guarda de segredo de justiça — o achado 3 mordendo o achado 1
+
+**Parte inventada em processo sob segredo é pior que processo sem parte.** As
+famílias abaixo saíram de medição em 12.592 destinatários distintos por
+`(processo, nome, polo)`, não de suposição:
+
+| família | n | % | exemplos REAIS |
+|---|---:|---:|---|
+| marcador textual | 598 | 4,75% | `SIGILO`, `SIGILO1`, `SIGILO 2`, `SIGILOSO`, `EM SEGREDO DE JUSTIÇA`, `SEGREDO DE JUSTIÃ§A` (mojibake), `PROCESSO ESTÁ EM SEGREDO DE JUSTIÇA - 1`, `PARTE/PROCESSO SIGILOSO OU …JUSTIçA.4` |
+| só iniciais | 840 | 6,67% | `E.O.`, `W.V.D.`, `E. S. D. J.`, `A. H. DOS S.`, `F. S. O. DO B. L.`, e nomes de UMA letra: `I`, `M`, `N.` |
+| **total descartado** | **1.588** | **12,61%** | |
+
+Os 12,61% são **3× a estimativa da auditoria** (4,2%): ela mediu uma família
+só. `SIGILO` sozinho aparece 358 vezes — sem a guarda, viraria **uma** entidade
+colando 358 processos sem relação nenhuma.
+
+**Regra que foi REJEITADA por medição:** `[Xx]{3,}` ("parece máscara") parecia
+óbvia e teria descartado `MRV MRL XXXVIII INCORPORACOES SPE LTDA` — o único
+nome dos 12.592 com 3 X seguidos é uma incorporadora com algarismo romano.
+Máscara por `*` ou `X` **não existe** neste campo: 0 ocorrências em 12.592. Os
+nomes de segredo aqui são texto explícito ou iniciais, nada mais.
+
+Marcador textual ⇒ a fonte **afirmou** o segredo, e o contador
+`com_marcador_segredo` registra. Iniciais ⇒ **não** afirmamos: iniciais também
+aparecem em vara de família sem segredo decretado, e chutar é pior que vazio
+(regra nº 6).
+
+**Resíduo conhecido, não resolvido** (≈ 0,4% dos nomes mantidos): placeholders
+que não são segredo nem parte — `INTEGRAçãO DJEN-TRF3` (23), `DIVóRCIO-IBGE`
+(14), `PUBLICAÇÃO`, `OS MESMOS`, `VíTIMA`. Não entraram numa lista de bloqueio
+porque uma lista de bloqueio inventada a partir de 5 exemplos erra mais do que
+acerta. `fonte='djen'` torna a remoção posterior barata.
+
 ### Achado 2 — classe e órgão da própria movimentação, não promovidos
 
 Mesmo caminho, outro campo. `fallback_classe_via_djen` existe, mas só roda
