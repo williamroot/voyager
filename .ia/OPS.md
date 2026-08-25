@@ -999,6 +999,87 @@ Regras pra índice concurrent em tabela grande/quente (`tribunals_process` ~600M
   `run --rm --entrypoint python`) → `restart web` (sobe limpo) → conserta o índice
   com REINDEX CONCURRENTLY.
 
+## ALTER TABLE em tabela quente — o auto-jam, e por que o gate não basta (2026-08-25)
+
+**Incidente.** Três ALTERs metadata-only da migration `0052` (`ADD COLUMN`
+nullable, `ADD COLUMN NOT NULL DEFAULT ''`, `DROP NOT NULL`) — nenhum reescreve
+tabela, todos "baratos". Aplicados por um laço de retry em **autocommit** com
+`SET lock_timeout` solto, um dos ALTERs ficou preso atrás de uma transação
+exploratória de 88 min. Resultado medido em produção:
+
+```
+antes do cancel: 79 backends ativos · 63 sessões esperando Lock
+depois:          12 backends ativos ·  0 sessões esperando Lock
+```
+
+**ACCESS EXCLUSIVE enfileira.** Enquanto o ALTER espera, todo mundo que chega
+DEPOIS dele espera junto — inclusive quem só queria um `SELECT`. Um ALTER preso
+não é um ALTER lento: é um bloqueio de leitura para o banco inteiro. Mesmo
+mecanismo do `DROP INDEX` non-concurrent da seção acima.
+
+**Cura:** `pg_cancel_backend(<pid do ALTER>)` (SIGINT). Nunca
+`pg_terminate_backend`, e **jamais** `KILL <db>` no pgbouncer — esse PAUSA o
+banco (a cura do auto-jam seria `RESUME`).
+
+**Três coisas aprendidas, em ordem de utilidade:**
+
+1. **`SET LOCAL` dentro da transação do migration, nunca `SET` num laço.**
+   Um cliente que morre (ssh ou `docker exec` derrubado) **deixa o backend
+   rodando server-side, órfão** — e órfão não tem quem o cancele. O `migrate`
+   do Django roda tudo numa transação; `SET LOCAL lock_timeout` como primeira
+   operação falha limpo em segundos, com zero dano colateral (medido: 8,5 s,
+   `esperando Lock` intacto em 0).
+
+2. **Migration que pode parar no meio tem que ser idempotente.** A primeira
+   tentativa deixou `processoparte.fonte` NO BANCO sem a `0052` constar em
+   `django_migrations`. Nesse estado o `migrate --noinput` do entrypoint do
+   `web` estoura `column already exists` **no próximo boot** — o estado
+   meio-aplicado é pior que o jam, porque só explode depois, no host que serve
+   o produto. `SeparateDatabaseAndState` + `ADD COLUMN IF NOT EXISTS` resolve.
+
+3. **Gate por `pg_locks` ajuda, e ainda assim não basta.** "Esperar o banco
+   ficar limpo" é critério inalcançável: há warm jobs crônicos de 40+ min
+   lendo `tribunals_movimentacao` que **não** bloqueiam `tribunals_process`.
+   O gate certo é preciso — quem segura lock **na tabela alvo** há mais de
+   ~45 s:
+
+   ```sql
+   SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+   WHERE l.relation = 'tribunals_process'::regclass AND l.granted
+     AND a.pid <> pg_backend_pid() AND a.state <> 'idle'
+     AND now() - a.xact_start > interval '45 seconds';
+   ```
+
+   Mas com os drainers aplicando **~126 mil events/h**, o `ROW EXCLUSIVE` das
+   escritas conflita com ACCESS EXCLUSIVE e há **sempre** alguém segurando:
+   o gate abriu e o ALTER ainda perdeu a corrida na janela de 3 s.
+
+   ⇒ **A forma que funciona é janela de manutenção**, como na seção de
+   deduplicação de partes: **pare os drainers e o scheduler**, aplique os
+   ALTERs (segundos), religue. Não existe atalho sem parar escritor.
+
+> `application_name`, não `client_addr`, é o que identifica a origem de uma
+> sessão aqui. Como tudo passa pelo pgbouncer, que roda no host do banco,
+> **todo** backend aparece com `client_addr=127.0.0.1` — inclusive os nossos
+> containers. Concluir "é sessão local/humana" do endereço é errado.
+
+## `git diff` na prod compara com o HEAD DELA, não com a `main` (2026-08-25)
+
+Armadilha de diagnóstico que custou três briefings errados. A `.103` estava em
+`3207fcb`, **30 commits atrás** da `main`. Um `git diff` lá acusou
+`djen/scheduler.py` e `search/jobs.py` modificados, e a leitura natural — "a
+produção roda código não commitado, não pode dar pull" — estava **errada**: o
+diff era contra o HEAD **da própria máquina**, não contra a `main`. Conferido
+depois por **md5 arquivo a arquivo**, o conteúdo era byte-a-byte idêntico ao da
+`main`; os arquivos que travavam o `git pull` eram não rastreados e iguais.
+
+⇒ Para saber se a prod tem código que a `main` não tem, **compare conteúdo**
+(`md5sum` do arquivo na prod × `git show main:<arquivo> | md5sum`), nunca o
+`git status`/`git diff` de uma árvore atrasada. É a mesma família de "comparar
+com o estado errado e concluir com confiança" dos índices fantasma da migration
+`0051` e dos triggers `pp_total_ins`/`pp_total_del` ausentes: o instrumento
+responde outra pergunta, e a resposta parece a que você queria.
+
 ## Acervo DB (Zordon) fora — VM OOM-kill / IP errado no boot (2026-07-26)
 
 O DB do acervo/RAG (busca + vetorização + `/analisar`) é a **VM 102 `zordon-db`** no

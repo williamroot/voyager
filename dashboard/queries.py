@@ -436,10 +436,19 @@ def _count_exato_cacheado(relname, ttl=1800):
     ANALYZE distorce quando há muitas dead-tuples de UPDATE). Como processos só
     crescem (nunca deletados), o exato só sobe.
 
-    Roda no warm (5min) mas o COUNT(*) real só a cada `ttl` (o cache amortiza) —
-    ~10-40s numa tabela de dezenas de M, fora do hot-path. Só p/ tabelas onde
-    COUNT(*) é viável (processos ~63M sim; movimentacao ~614M NÃO — use reltuples).
-    Fallback None se estourar o timeout (o chamador cai pro reltuples)."""
+    Roda no warm (5min) mas o COUNT(*) real só a cada `ttl` (o cache amortiza),
+    fora do hot-path.
+
+    O CRITÉRIO É O TETO DE TEMPO, NÃO O VOLUME. Esta linha já dizia
+    "processos ~63M sim; movimentacao ~614M NÃO" — números de outra época que
+    ficaram justificando a decisão: em 25/08/2026 são ~102 M e ~1,52 bi
+    (`reltuples`, portanto ESTIMATIVA), 62% e 148% acima do que estava escrito.
+    Volume envelhece e a premissa apodrece junto; o teto não.
+
+    Então a regra é: vale para a tabela cujo `count(*)` **cabe nos 120 s** do
+    `statement_timeout` abaixo. Não cabendo, estoura, devolve None e o chamador
+    cai para o `reltuples` — que é o caminho projetado, não uma falha.
+    `tribunals_movimentacao` nunca coube e não é para ser tentada."""
     from django.core.cache import cache
 
     key = f'kpi:count_exato:{relname}'
