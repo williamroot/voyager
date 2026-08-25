@@ -1318,6 +1318,47 @@ Horizonte recalculado: 31,6 M (pendente+erro com enricher) ÷ 128.844/h =
 enricher continuam a ≈ 333 dias pelo Datajud — esse número não mudou e não muda
 com worker.
 
+### Estado estável (01:55 UTC, ~1 h depois, instrumento independente)
+
+Sonda que não usa log — delta de job ids no `FinishedJobRegistry` em 180 s, com
+o `process_id` de cada um lido do hash do job:
+
+| fila | jobs/h | pids distintos | útil |
+|---|---|---|---|
+| enrich_tjdft | 26.268 | 1.314 | 100% |
+| enrich_tjrj | 23.969 | 1.199 | 100% |
+| **enrich_tjap** | **21.251** | 1.063 | 100% |
+| enrich_tjmt | 17.372 | 869 | 100% |
+| enrich_tjsp | 10.056 | 503 | 100% |
+| enrich_tjpe | 6.777 | 339 | 100% |
+| enrich_tjma | 5.877 | 294 | 100% |
+| enrich_tjce | 5.558 | 278 | 100% |
+| enrich_tjmg | 4.018 | 201 | 100% |
+| enrich_tjpa | 3.898 | 195 | 100% |
+| enrich_trf1 | 3.398 | 170 | 100% |
+| enrich_tjac | 3.279 | 164 | 100% |
+| enrich_trf3 | 3.199 | 160 | 100% |
+| enrich_tjal | 3.059 | 153 | 100% |
+| enrich_trf5 | 2.479 | 124 | 100% |
+| enrich_tjro | 0 | 0 | (pausado) |
+| **TOTAL** | **140.457** | **7.026 em 180 s** | **100,0%** |
+
+**TJAP foi de 3.648 jobos/h com 0% de `ok` para 21.251 jobos/h com ~58% de
+`ok`** (111 `ok` contra 81 `nao_encontrado` numa janela de 1 min) só por sair do
+datacenter — nenhum worker novo. É a terceira maior fonte de enriquecimento do
+sistema hoje, e ontem era zero.
+
+A profundidade-alvo se auto-ajustou como projetado: `enrich_tjdft` (a fila mais
+rápida) ficou em 24.757, `enrich_tjap` em 10.267, `enrich_tjmt` em 8.426, e as
+filas lentas no piso de 2.000. `FailedJobRegistry` em **0 nas 16 filas** depois
+de ~290 recriações de container.
+
+> **Vigiar:** o alvo é calculado com a vazão instantânea, então uma rajada pode
+> deixar a fila mais funda do que os 1.800 s pretendidos — o `enrich_tjdft`
+> ficou em ~38 min de trabalho. Ainda cabe com folga dentro de
+> `ENRICH_INFLIGHT_TTL_S` (60 min), que é a garantia de não-duplicação. Se a
+> margem encostar, baixe `ENRICH_QUEUE_ALVO_S` — não suba a TTL.
+
 ### Pendências deixadas em aberto
 
 - **TJSP com 0,6% de `ok`** (10.480 `nao_encontrado`/h, terminal): entregue à
