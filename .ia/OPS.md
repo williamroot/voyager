@@ -1029,17 +1029,29 @@ events de TRF1/TJMG antes de o drainer aplicá-los. O teto é
 
 **O efeito medido em produção (25/08/2026, deploy 01:56 UTC na `.102`):**
 
-| | antes | depois |
-|---|---:|---:|
-| TJSP `ok` (janela de 4 min, fatia corrente) | **0,6%** | **96,0%** (383 de 399) |
-| `segredo_justica = true` no índice | **0 de 92.778.138** | **53** (TJSP 16 · TJAL 32 · TJAC 29 em 60 min) |
-| vazão da frota (`enriquecido_em`) | 138.490/h | 159.200/h |
-| profundidade dos 4 streams do drainer | — | **2 entries** (o refill em lote não inunda) |
-| pool ProxyScrape (saudáveis de 2.500) | 1.802 | 1.633 |
+Régua: `Process` distintos com `enriquecido_em` na janela
+(`proc_enriquecido_em_idx`), **nunca** `docker logs` longo.
 
-A queda de `ok` **não** virou queda de trabalho: a fatia corrente saiu do
-paredão do eproc e passou a render. E a primeira passada do recuperador
-apareceu no log — pela primeira vez desde que ele foi escrito:
+| | antes | depois (~1 h) |
+|---|---:|---:|
+| **TJSP `ok`** (janela de 10 min) | **0,6%** | **92,3%** (893 de 967) |
+| TJSP `ok`/h | ~66 | **~5.355** (**81×**) |
+| TJSP desfechos/h | 10.816 | 5.802 (o resto era refugo do eproc) |
+| `segredo_justica = true` no índice | **0 de 92.778.138** | **136** |
+| profundidade dos 4 streams do drainer | — | **2 entries** (não inunda) |
+| pool ProxyScrape (saudáveis de 2.500) | 1.802 | 1.443 ⚠️ |
+
+O total de desfechos do TJSP **caiu** e isso é o conserto, não o custo: os
+10.750/h de antes eram quase todos requisição gasta para ouvir "não existe".
+Agora são ~5.800/h de trabalho real com 92,3% de aproveitamento.
+
+⚠️ **O pool caiu de 1.802 para 1.443 saudáveis, e não é o TJSP** — que gerou
+13 `erro` em 10 min. O queimador da janela é o **TJPE: 635 `erro` em 10 min**
+(3.810/h × até 8 IPs = ~30 mil IP/h), do mesmo tipo do TJRO/TJAP de 25/08
+(AWS WAF, §"AWS WAF challenge" em ENRICHMENT.md). Fica como próximo alvo.
+
+E a primeira passada do recuperador apareceu no log — pela primeira vez desde
+que ele foi escrito:
 
 ```
 tick_reenrich_esaj_legacy TJSP: reset 2000 (teto 2000)
@@ -1053,9 +1065,10 @@ ERROR FORA DA FONTE: 7,024 processos TJSP nao foram consultados — a faixa `epr
 - **`fail_streak` do pool não é métrica de enrichment.** Só o cliente DJEN
   chama `mark_ok()`; os enrichers chamam `mark_bad()` e nunca zeram o contador.
   Use `saudáveis`/`bad`, não o streak.
-- **96,0% é uma fatia de 4 min sobre CNJ de prefixo 7**, que é só 0,32% do
-  TJSP. Prova que a fronteira destravou; não é o regime permanente, que será
-  dominado pelos prefixos 1 e 0 (76,2% do tribunal).
+- **A fatia medida ainda não é o regime permanente.** Nos 10 min do "depois" a
+  fronteira estava nos prefixos 9 e 7, que juntos são 0,62% do TJSP. Prova que
+  ela destravou; o regime de longo prazo será dominado pelos prefixos 1 e 0
+  (76,2% do tribunal), cuja taxa medida ao vivo foi 30 de 32 com cadastro.
 - Enquanto a fila do TJSP estiver acima da profundidade-alvo, o refill a
   **pula** — e então quem recusa a faixa eproc é o guard por job, não o lote.
   Foi o que produziu os 7.024 acima, a ~58/s, **sem** encher o stream.
