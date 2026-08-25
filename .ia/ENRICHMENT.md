@@ -1270,3 +1270,77 @@ Ordem por valor, não por tamanho. `valor_causa`, partes e assunto valem mais qu
 
 `scripts/auditoria_campos.py` — mesma semente (`20260824`), mesmas consultas,
 sem escrita em produção. Gera `matriz.tsv` e imprime as agregações acima.
+
+### O efeito medido em produção (25/08/2026, 00:10–01:05 UTC)
+
+Sequência aplicada: deploy do refill → `enrich_pausa TJRO` → `enrich_cortex
+TJAP` → purga das 14 filas envenenadas (1.395.317 jobos removidos por
+`LPOP` em lote + `UNLINK`, nunca `q.empty()`) → reciclagem dos 146 workers de
+enrich em 4 ondas com trava de memória.
+
+**Duplicação — censo completo das filas, antes e depois:**
+
+| | jobos | process_id distintos | cópia |
+|---|---|---|---|
+| antes (00:20) | 1.879.219 | 800.167 | 57,4% global · **77,1%** nas 14 filas do refill |
+| depois (00:35) | 508.405 | 508.244 | **0,0%** — todas as 16 filas em 1,0 cópia |
+
+**Vazão, na métrica do usuário (`Process` distintos com `enriquecido_em` na
+janela — `proc_enriquecido_em_idx`, range scan):**
+
+| janela | processos | taxa |
+|---|---|---|
+| antes — última 1 h | 41.571 | 41.571/h |
+| antes — últimas 24 h | 606.654 | 25.277/h |
+| **depois — últimos 10 min** | **21.474** | **128.844/h** |
+| depois — últimos 20 min | 35.029 | 105.087/h |
+| depois — últimos 30 min | 46.476 | 92.952/h |
+
+**3,1× a melhor hora medida antes; 5,1× a média de 24 h.** O gradiente entre as
+janelas é a própria assinatura da mudança: quanto mais longa a janela, mais ela
+mistura o regime antigo. E o essencial: **os drainers continuam aplicando o
+mesmo volume** (126.264 → 121.692 events/h) — a frota não ficou maior nem bate
+mais na fonte; o que mudou é que os events deixaram de ser repetição.
+
+**Pool de proxies — a prova de que a cópia envenenava o recurso compartilhado:**
+
+| | saudáveis | `bad_zset` | `fail_streak` |
+|---|---|---|---|
+| antes | 289 de 2.500 (11,6%) | 2.211 | 11.011 |
+| depois | **1.926 de 2.500 (77,0%)** | **574** | **423** |
+
+**Custo em trabalho perdido: zero.** `FailedJobRegistry` em 0 nas 16 filas antes
+e depois (warm shutdown com `--timeout 90`). Purga não perde nada — o backlog é
+o status no Postgres, e o refill repôs cada fila ao seu alvo em 2 minutos.
+
+Horizonte recalculado: 31,6 M (pendente+erro com enricher) ÷ 128.844/h =
+**≈ 10 dias**, contra os ≈ 32 dias da taxa anterior. Os 47,9 M em tribunais sem
+enricher continuam a ≈ 333 dias pelo Datajud — esse número não mudou e não muda
+com worker.
+
+### Pendências deixadas em aberto
+
+- **TJSP com 0,6% de `ok`** (10.480 `nao_encontrado`/h, terminal): entregue à
+  auditoria de qualidade. Não é vazão — a fila do TJSP é a mais saudável que
+  existe (1,0 cópia).
+- **TJAP ainda erra muito** mesmo em `cortex_only` (1.415 de 1.756 numa janela
+  de 15 min). O `cortex_only` do `BasePjeEnricher` dava **uma** tentativa e só
+  (o gateway entrava em `tentados` e a 2ª rotação devolvia `None`); corrigido
+  logo em seguida. Re-medir depois do próximo ciclo.
+- **TJRO pausado** com `ok = 0` em 1,09 M de processos. Despausar exige que
+  `curl` direto E via Cortex parem de devolver 403 — hoje devolvem os dois.
+- **`.103` não recebeu este deploy**: o `git pull` aborta por arquivos não
+  rastreados de outra frente (`search/backfill_processos.py`,
+  `search/management/commands/es_backfill_processos.py`). Não é bloqueante — o
+  refill e os enrichers rodam todos na `.102`; o `web`/`scheduler` só
+  enfileiram. Reconciliar quando a outra frente fechar.
+- **`tests/test_enricher_tjal.py::test_enriquecer_nao_encontrado_emite_payload`
+  falha no HEAD**, não por esta mudança: a fixture `search_form.html` deixou de
+  ser lida como "não encontrado" e vira `ok`. É da mesma família do falso
+  `nao_encontrado` do e-SAJ — vale para a auditoria de qualidade.
+- **`docker logs --since` mente em janela longa**: medido no mesmo dia, um
+  `worker_tjdft` devolve 324 linhas em `--since 1m`, 1.395 em `--since 5m` e só
+  1.933 em `--since 15m` e `--since 30m` — o buffer do container guarda ~7 min
+  nesse ritmo. Janela maior que isso **subconta em silêncio** e o resultado se
+  lê como "caiu a vazão". Meça throughput pelo `FinishedJobRegistry` (o RQ
+  guarda `result_ttl` = 500 s) ou pelo `enriquecido_em`, nunca por log longo.

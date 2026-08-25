@@ -274,7 +274,14 @@ class BasePjeEnricher:
                     'tentativa': tentativa, 'url': url,
                 })
                 break
-            tentados.add(proxy_url)
+            # O Cortex é um GATEWAY que troca de IP residencial a cada
+            # request — reusá-lo é sempre um IP novo, então ele não entra em
+            # `tentados`. Sem esta ressalva, um tribunal `cortex_only` tinha UMA
+            # tentativa e só: na 2ª, `_next_proxy` via o Cortex no exclude e
+            # devolvia None, o laço quebrava e o job virava `erro` sem retry.
+            # (O `BaseEsajEnricher` já fazia certo; aqui faltava.)
+            if proxy_url != cortex_proxy_url(self.pool):
+                tentados.add(proxy_url)
             proxies = {'http': proxy_url, 'https': proxy_url}
             self.logger.info('pje request', extra={
                 'method': method, 'url': url[:120], 'proxy': proxy_url,
