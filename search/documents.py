@@ -1,20 +1,19 @@
 """Serialização ORM → documento Elasticsearch (formato Jusbrasil/Digesto)."""
-from typing import Optional
 
-from tribunals.models import FonteDiario, Movimentacao, Process, ProcessoParte
+from tribunals.models import FonteDiario, Movimentacao, Process
 
 # Cache em memória das FonteDiario (tabela pequena, ~14 rows, não muda em runtime).
 _FONTE_CACHE: dict[str, FonteDiario] = {}
 
 
-def _get_fonte(tribunal_id: str) -> Optional[FonteDiario]:
+def _get_fonte(tribunal_id: str) -> FonteDiario | None:
     if tribunal_id not in _FONTE_CACHE:
         fd = FonteDiario.objects.filter(tribunal_id=tribunal_id).first()
         _FONTE_CACHE[tribunal_id] = fd
     return _FONTE_CACHE[tribunal_id]
 
 
-def _so_digitos(numero: Optional[str]) -> str:
+def _so_digitos(numero: str | None) -> str:
     """CNJ só dígitos (20) — busca 'colável': casa com ou sem máscara."""
     return ''.join(ch for ch in (numero or '') if ch.isdigit())
 
@@ -55,13 +54,34 @@ def _serialize_partes(processo: Process) -> tuple[str, str, bool, list[dict]]:
             'polo': pp.polo,
             'papel': pp.papel or '',
             'eh_advogado': eh_advogado,
+            # procedência: 'djen' = promovida dos `destinatarios` da publicação
+            # (tem nome/polo/OAB, NÃO tem CPF/CNPJ). Ausente = veio do enricher.
+            # `getattr` porque a coluna é da migration 0052: enquanto ela não
+            # estiver aplicada em toda a frota, o builder não pode explodir —
+            # ele ABSTÉM (regra 6), não chuta.
+            'fonte': getattr(pp, 'fonte', None) or None,
         })
         if not tem_ente and pp.polo == 'passivo' and RE_ENTE_PUBLICO.search(pp.parte.nome or ''):
             tem_ente = True
     return ', '.join(advs), ', '.join(partes), tem_ente, participacoes
 
 
-def _source_id_for(tribunal_id: str) -> Optional[int]:
+#: `segredo_justica` deixou de ser boolean e virou TRI-ESTADO na migration 0052:
+#: NULL = não perguntamos. False = perguntamos e a fonte disse que não.
+#: True = a fonte disse que sim.
+#:
+#: No ES isso NÃO pode virar "campo ausente", e o motivo é um número: medido em
+#: 25/08/2026, `segredo_justica` está AUSENTE em 64.442.760 documentos e `false`
+#: em 28.263.970 (e `true` em ZERO). Os ausentes são docs construídos antes de o
+#: campo existir no builder. Se NULL também virasse ausência, a tela leria
+#: "não perguntamos" em 64 milhões de documentos que nunca foram perguntados —
+#: confiança falsa, que o princípio nº 1 diz valer menos que dado faltando.
+#: Por isso o estado vai num campo explícito: PRESENÇA de
+#: `segredo_justica_estado` prova que o doc é da era nova; ausência é "legado".
+SEGREDO_ESTADO = {True: 'segredo', False: 'sem_segredo', None: 'nao_perguntamos'}
+
+
+def _source_id_for(tribunal_id: str) -> int | None:
     fd = _get_fonte(tribunal_id)
     return fd.source_id if fd else None
 
@@ -92,8 +112,8 @@ def _entidades_do_texto(texto, numero_cnj):
     num campo "este processo" — inútil pra achar incidente vinculado, que é
     justamente pra isso que ele serve.
     """
-    from search.management.commands.es_movs_v2 import CAMPO_MARCA, MARCA_VERSAO
     from search.entidades_texto import extrair
+    from search.management.commands.es_movs_v2 import CAMPO_MARCA, MARCA_VERSAO
     ent = extrair(texto or '')
     citados = [c for c in ent.get('cnjs_citados', []) if c != numero_cnj]
     if citados:
@@ -187,7 +207,7 @@ def movimentacao_to_doc_sem_partes(mov: Movimentacao) -> dict:
         'nome_orgao': mov.nome_orgao,
         **slugs,
         **_entidades_do_texto(mov.texto, proc.numero_cnj),
-       
+
     }
 
 
@@ -232,6 +252,11 @@ def processo_to_doc(proc: Process) -> dict:
         'ultima_movimentacao_em': proc.ultima_movimentacao_em.isoformat() if proc.ultima_movimentacao_em else None,
         'inserido_em': proc.inserido_em.isoformat() if proc.inserido_em else None,
         'segredo_justica': proc.segredo_justica,
+        'segredo_justica_estado': SEGREDO_ESTADO.get(proc.segredo_justica,
+                                                     'nao_perguntamos'),
+        # G1|G2|JE|SUP. **JE = RPV, não precatório**: separa dois produtos.
+        # `getattr` pelo mesmo motivo do `fonte` acima — a coluna é da 0052.
+        'grau': getattr(proc, 'grau', '') or '',
         'classificacao': proc.classificacao or '',
         'classificacao_score': proc.classificacao_score,
         'classificacao_versao': proc.classificacao_versao or '',

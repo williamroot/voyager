@@ -65,6 +65,23 @@ def _tem_partes(src: dict) -> bool:
     return bool((src.get('partes') or '').strip())
 
 
+def _tem_nested(src: dict) -> bool:
+    """O doc tem a busca ESTRUTURADA por parte, e não só o texto legado.
+
+    Medir isso por `exists` é inútil (o campo `partes` mede 100%), e medir por
+    `regexp` no `partes` obrigaria o ES a enumerar o dicionário de termos
+    INTEIRO de um campo de nome próprio em 92,7 milhões de documentos — num nó
+    de um só, I/O-bound, que já aborta 22,2% das buscas de texto. Uma medição
+    de rodapé sem teto já derrubou o site nesta casa (regra nº 7).
+
+    Então mede-se por AMOSTRA, e a amostra é aferida contra a contagem EXATA
+    que o ES dá barato: `_count` com uma query `nested`/`match_all` devolve
+    quantos documentos-raiz têm ao menos um filho — 3.645.848 em 25/08/2026.
+    Se a taxa da amostra x o total não bater com esse número, a amostra mente.
+    """
+    return bool(src.get('participacoes'))
+
+
 def _tem(src: dict, campo: str) -> bool:
     v = src.get(campo)
     if v is None:
@@ -120,7 +137,8 @@ def _quem_tem_parte(ids: list[int], chunk: int = 5_000) -> set[int]:
 
 
 CAMPOS_ES = ['partes', 'advs', 'data_autuacao', 'juizo', 'classe_nome', 'assunto',
-             'orgao_julgador', 'valor_causa', 'segredo_justica', 'grau']
+             'orgao_julgador', 'valor_causa', 'segredo_justica',
+             'segredo_justica_estado', 'grau', 'participacoes']
 
 
 def perguntar_es(ids: list[int]) -> dict[int, dict | None]:
@@ -159,6 +177,7 @@ def main() -> None:
     dentro = [r for r in linhas if docs.get(r[0]) is not None]
     # 2x2: PG tem parte? x doc tem parte?
     m = defaultdict(int)
+    nested = defaultdict(int)
     por_trib: dict[str, dict] = defaultdict(lambda: defaultdict(int))
     campos_perdidos = defaultdict(int)
     for pk, trib, pg_parte, campos in linhas:
@@ -170,7 +189,10 @@ def main() -> None:
             m[('fora', pg_parte)] += 1
             continue
         doc_parte = _tem_partes(src)
+        doc_nested = _tem_nested(src)
         por_trib[trib]['doc_parte'] += int(doc_parte)
+        por_trib[trib]['doc_nested'] += int(doc_nested)
+        nested[(doc_parte, doc_nested)] += 1
         m[(pg_parte, doc_parte)] += 1
         for c in ('data_autuacao', 'juizo', 'classe_nome', 'assunto',
                   'orgao_julgador', 'valor_causa'):
@@ -191,6 +213,10 @@ def main() -> None:
                    'pg_nao_doc_sim': m[(False, True)], 'pg_nao_doc_nao': m[(False, False)],
                    'fora_pg_sim': m[('fora', True)], 'fora_pg_nao': m[('fora', False)]},
         'campos_no_pg_e_nao_no_doc': dict(campos_perdidos),
+        'nested': {'texto_sim_nested_sim': nested[(True, True)],
+                   'texto_sim_nested_nao': nested[(True, False)],
+                   'texto_nao_nested_sim': nested[(False, True)],
+                   'texto_nao_nested_nao': nested[(False, False)]},
         'por_tribunal': {t: dict(v) for t, v in sorted(
             por_trib.items(), key=lambda kv: -kv[1]['n'])},
     }
@@ -203,6 +229,15 @@ def main() -> None:
     print(f'no índice ............ {len(dentro):>7,}')
     print(f'  doc SEM partes ..... {r["doc_sem_partes"]:>7,} = {r["doc_sem_partes_pct"]}% '
           f'(medido por CONTEÚDO do campo, não por `exists`)')
+    d = len(dentro)
+    print('\nbusca ESTRUTURADA x texto legado (só os que estão no índice):')
+    print(f'  texto E nested ....... {nested[(True, True)]:>7,} '
+          f'({100.0 * nested[(True, True)] / d:.2f}%)  <- busca por polo/papel/OAB funciona')
+    print(f'  texto SEM nested ..... {nested[(True, False)]:>7,} '
+          f'({100.0 * nested[(True, False)] / d:.2f}%)  <- doc pré-nested, nunca reindexado')
+    print(f'  nested SEM texto ..... {nested[(False, True)]:>7,}')
+    print(f'  nem um nem outro ..... {nested[(False, False)]:>7,} '
+          f'({100.0 * nested[(False, False)] / d:.2f}%)')
     print('\nmatriz PG x doc (só os que estão no índice):')
     print(f'  PG tem parte  & doc tem  {m[(True, True)]:>7,}')
     print(f'  PG tem parte  & doc NAO  {m[(True, False)]:>7,}   <- buraco de ÍNDICE')

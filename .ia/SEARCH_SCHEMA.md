@@ -65,7 +65,9 @@ Exceção: em `voyager-entidades` o `_id` é a chave canônica (`cnpj:29979036` 
 | ano_cnj, data_autuacao | integer, date | idem | idade do processo |
 | primeira/ultima_movimentacao_em, total_movimentacoes | date, int | agregados | jurimetria de duração/atividade |
 | inserido_em | date | idem | crescimento da base |
-| segredo_justica | boolean | idem | filtro |
+| segredo_justica | boolean | idem | filtro (compat) |
+| **segredo_justica_estado** | keyword | derivado do tri-estado | `segredo`\|`sem_segredo`\|**`nao_perguntamos`** — ausência = doc legado, ver §tri-estado |
+| **grau** | keyword | Process.grau (0052) | G1\|G2\|**JE**\|SUP — **JE = RPV, não precatório** |
 | classificacao, classificacao_score, classificacao_versao, classificacao_em | keyword, double, keyword, date | idem | leads (confirmado), freshness, A/B de modelo |
 | enriquecido, enriquecido_em, enriquecimento_status | boolean, date, keyword | derivado das 4 datas; status | cobertura honesta (nao_encontrado ≠ pendente) |
 | tem_sinal_precatorio | boolean | idem | potencial (Fase 0) |
@@ -77,7 +79,7 @@ Exceção: em `voyager-entidades` o `_id` é a chave canônica (`cnpj:29979036` 
 {parte_id: long, nome: text(+.raw keyword), documento: keyword,
  oab: keyword, tipo: keyword(pf|pj|advogado|desconhecido),
  polo: keyword(ativo|passivo|outros), papel: keyword(AUTOR|EXECUTADO|…),
- eh_advogado: boolean}
+ eh_advogado: boolean, fonte: keyword(djen|null)}
 ```
 
 Exemplo — "processos onde João é EXECUTADO com valor > 1M em SP":
@@ -375,8 +377,10 @@ grafias de nome**. Nenhuma delas é o INSS; todas são. Digitar "INSS" não acha
 
 ### Como se consome (enquanto o nested não está reindexado)
 
-`participacoes` (nested) é a forma estruturalmente correta, mas está em **1,9%**
-dos docs (reindex em curso). O campo TEXTO `partes` está em **100%** dos 71,1M.
+`participacoes` (nested) é a forma estruturalmente correta, mas está em
+**3,93%** dos docs (3.645.848 de 92.706.806, `_count` exato em 25/08/2026). E o
+campo TEXTO `partes` **não** está em 100%: o `exists` diz 100%, o CONTEÚDO diz
+**17,0%** (15.369 de 90.518 amostrados) — ver §"`exists` do ES mente".
 Então o autocomplete devolve a entidade e a busca vira um **OR de
 `match_phrase` das `variantes` contra `partes`** (`entidades.query_variantes`).
 Quando o reindex fechar, a query passa a filtrar `participacoes.documento` /
@@ -597,6 +601,7 @@ não é verificável sem a base toda em memória.
 | Ingestão DJEN / varredura Datajud (Process novo via `bulk_create`) | ❌ signal não dispara | ✅ `sync_es_incremental` (keyset por id, daqui pra frente) + **`manage.py es_backfill_processos`** para o PASSIVO + **sentinela diária** `search.jobs.conferir_indice_processos`. Dívida de 24/08 PAGA em 24/08/2026 — ver a seção abaixo |
 | Drainer `apply_batch` (`bulk_update`/`bulk_create`) | ✅ | enqueue explícito `search.jobs.indexar_processos_bulk` no fim do batch (fix 2026-08) |
 | ProcessoParte (create/delete individual) | — sem signal DE PROPÓSITO | o processo é reindexado pelo `processo.save()` que fecha todo enriquecimento; signal por-linha multiplicaria a fila ~2N por processo |
+| **ProcessoParte em `bulk_create`** (promoção dos `destinatarios` do DJEN) | ❌ **e nenhum poller pega** | ela não muda `Process.id` (fora do keyset de `sync_processos_novos`) nem `Process.atualizado_em` (fora do de `sync_processos_atualizados`), e o `es_backfill_processos` só reindexa doc **AUSENTE**. Quem escreve **tem** que enfileirar `search.jobs.indexar_processos_bulk`. Travado em `tests/test_es_partes_regressao.py` |
 | Comandos de manutenção em massa (dedup_partes, recategorizar_tipo_partes, SQL cru) | ❌ | rodar `reindexar_processos` direcionado depois |
 
 ## A porta do Datajud entrega ao índice (24/08/2026)
@@ -1325,6 +1330,132 @@ o freio da política de operação):
 |---|---:|---:|---:|
 | carona no backfill (pk > checkpoint e ausente) | ~9,1 M | grátis | grátis |
 | **reindex direcionado (o resto)** | **~77,6 M** | **25,0 h** | **107,8 h** |
+
+### Refino com n=100.000 — e a AFERIÇÃO que prova que a amostra não mente
+
+A régua de conglomerado repetida com 5.000 âncoras × 20 pks (**100.000
+processos**, mesma semente `20260825`; PG 28,6 s, ES 22,0 s):
+
+| medida | n=30.000 | **n=100.000** |
+|---|---:|---:|
+| fora do índice | 10,64% | **9,48%** (9.482) |
+| doc no índice sem `partes` (conteúdo) | 81,9% | **83,02%** (75.149 de 90.518) |
+| dos sem `partes`, é o PG que não tem parte | 99,8% | **99,75%** (74.964 de 75.149) |
+| buraco de ÍNDICE de verdade | 45 | **185 (0,25%)** |
+
+**A aferição** (regra nº 5 — os dois lados): a taxa de `participacoes` na
+amostra, escalada, tem que bater com a contagem EXATA do índice.
+
+    nested na amostra .... 3.537 / 90.518 = 3,908%
+    extrapolado .......... 0,03908 x 92.706.806 = 3.622.528
+    exato (`_count`) ..... 3.645.848
+    erro relativo ........ 0,64%
+
+Bate. Só depois disso os números abaixo valem alguma coisa.
+
+### O terceiro buraco: ~12,1 milhões de docs com o texto legado e sem o `nested`
+
+| doc no índice | n | % |
+|---|---:|---:|
+| tem `partes` **e** `participacoes` | 3.537 | **3,91%** |
+| tem `partes` e **NÃO** tem `participacoes` | 11.832 | **13,07%** |
+| tem `participacoes` e não tem `partes` | **0** | 0,00% |
+| nem um nem outro | 75.149 | 83,02% |
+
+⇒ **12.118.108 documentos** (13,07% × 92.706.806; ±0,22 pp de erro amostral,
+±1 pp se contado o efeito de desenho do conglomerado ⇒ **11,2 a 13,0 M**)
+carregam o campo TEXTO `partes` e não têm o `participacoes` estruturado.
+
+O número que dói: **dos documentos que TÊM parte no índice, só 23,0% são
+pesquisáveis por polo/papel/OAB/documento.** Os outros 77% só respondem a busca
+textual. São docs construídos antes de o `nested` entrar no builder e nunca
+reindexados — e o backfill de presença não os toca, porque eles ESTÃO no índice.
+
+**Por que não medimos isso com `regexp` no `partes`.** Seria exato, mas obriga o
+ES a enumerar o dicionário de termos inteiro de um campo de nome próprio em 92,7
+milhões de documentos, num nó de um só que já aborta 22,2% das buscas de texto.
+Uma medição de rodapé sem teto já derrubou o site nesta casa (regra nº 7). A
+amostra aferida custa 22 s e responde a mesma pergunta com 0,64% de erro.
+
+Um achado de borda: **1 doc em 90.518** tem parte no índice que o Postgres não
+tem mais (dedup/exclusão de `Parte`). 0,001% — ruído, mas registrado, porque a
+medição anterior tinha dado 0 e "0" não era o número, era o tamanho da amostra.
+
+## `segredo_justica` no índice é TRI-ESTADO, e em campo próprio
+
+A migration 0052 torna a coluna nullable: `NULL` = **não perguntamos**,
+`False` = perguntamos e a fonte disse que não, `True` = a fonte disse que sim.
+
+Representar `NULL` como "campo ausente" no ES **não funciona**, e o motivo é um
+número medido em 25/08/2026 no índice de produção, no mesmo instante:
+
+| `segredo_justica` no doc | n |
+|---|---:|
+| `true` | **0** |
+| `false` | 28.263.970 |
+| **campo AUSENTE** | **64.442.760** |
+
+Os 64,4 M ausentes são documentos construídos ANTES de o campo entrar no
+builder — ninguém nunca perguntou nada sobre eles. Se `NULL` também virasse
+ausência, a tela leria "não perguntamos" em 64 milhões de documentos velhos.
+Dado pela metade produzindo confiança falsa é o princípio nº 1 ao contrário.
+
+Por isso são **dois campos**:
+
+| campo | tipo | valores |
+|---|---|---|
+| `segredo_justica` | `boolean` | como hoje (compat) |
+| `segredo_justica_estado` | `keyword` | `segredo` \| `sem_segredo` \| `nao_perguntamos` |
+
+**A presença de `segredo_justica_estado` é a prova de que o doc é da era nova;
+a ausência dele é "documento legado", nunca "não perguntamos".** E os rótulos
+não são `sim`/`nao`: um valor que exige saber a pergunta para ser lido é um
+valor que vai ser lido errado.
+
+## `grau` e `participacoes.fonte` — aditivos, e por que não custam reindex
+
+| campo | tipo | por quê |
+|---|---|---|
+| `grau` | `keyword` | `G1`/`G2`/`JE`/`SUP`. **JE = RPV, não precatório** — sem ele o funil mistura dois produtos com prazos e preços diferentes |
+| `participacoes.fonte` | `keyword` (dentro do `nested`) | `djen` = parte promovida da publicação: tem nome, polo e OAB, **não tem CPF/CNPJ**. A tela precisa poder DIZER que está vazio em vez de fingir cadastro (regra nº 6) |
+
+`PUT _mapping` de campo novo é **aditivo**: os 92,7 M documentos existentes
+simplesmente não passam a ter o campo, e nada é reescrito. **O mapping não custa
+reindex; o que custa é o BACKFILL DE VALOR**, e ele entra junto com o reindex
+por faixa de pk, nunca antes.
+
+O builder lê os dois com `getattr(..., padrão)` de propósito: a coluna é da
+0052, e enquanto ela não estiver aplicada em TODA a frota o doc builder tem que
+abster, não explodir. Travado em `tests/test_es_partes_regressao.py`.
+
+## O teto do `sync_incremental` virou ALERTA nos três caminhos (25/08/2026)
+
+A lição que fechou os **179.490.613** de publicações fora do índice tinha sido
+aplicada a **um** dos três caminhos. Medido nos logs do scheduler, seis ticks
+seguidos:
+
+| tick (‑03) | `proc_novos` | `proc_atualizados` | `movs_novas` |
+|---|---:|---:|---:|
+| 21:24 · 21:34 · 21:45 · 21:55 · 22:05 | **20.000 (TETO)** ×5 | **10.000 (TETO)** ×5 | 49k–94k |
+| 22:16 | **20.000 (TETO)** | `LockNotAvailable` | 63.602 |
+
+E nada disso saía do tick: `{'novos': 20000}` lê como sucesso. Agora:
+
+- **`proc_novos`** — teto atingido loga **ERROR** com o atraso REAL em ids
+  (`_alertar_teto_processos` mede `max(id)` com `statement_timeout` de 5 s e
+  **abstém** se não conseguir — `None` é "não medi", nunca 0).
+- **`proc_atualizados`** — a watermark dele é um INSTANTE, então o número que
+  importa é TEMPO: o ERROR traz a **idade da watermark em horas**. Medido:
+  parada em 19/08 (**~6 dias**), avançando 30-40 s de relógio por tick de 10 min
+  — perde ~17:1. **Um teto que não converge não é teto, é vazamento.**
+- **Bloco que falha no tick** — era `WARNING`, virou **ERROR**: bloco que falha é
+  watermark que não anda, e keyset só anda pra frente. "Perda silenciosa com log
+  de WARNING é o pior formato" já estava escrito em `_enfileirar_movs`; não
+  valia para o bloco inteiro.
+
+**Os limites de 20.000 / 10.000 NÃO foram alterados.** Subir teto num banco que
+convive com 22,2% de aborto na busca é trocar um problema por outro; a decisão
+espera a conta medida. O que mudou é que agora o atraso é VISÍVEL.
 
 ## Plano de reindex (backfill dos campos novos)
 

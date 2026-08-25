@@ -108,7 +108,15 @@ PROC_MAPPING = {
                                     "tipo":         {"type": "keyword"},   # pf|pj|advogado|desconhecido
                                     "polo":         {"type": "keyword"},   # ativo|passivo|outros
                                     "papel":        {"type": "keyword"},   # AUTOR|EXEQUENTE|ADVOGADO…
-                                    "eh_advogado":  {"type": "boolean"}}},
+                                    "eh_advogado":  {"type": "boolean"},
+                                    # PROCEDÊNCIA da participação. `djen` = veio
+                                    # dos `destinatarios` da publicação: tem nome,
+                                    # polo e (quase sempre) OAB, e NÃO tem
+                                    # CPF/CNPJ. Ausente/NULL = veio do enricher.
+                                    # Existe para a tela poder dizer "parte vinda
+                                    # da publicação, sem documento" em vez de
+                                    # fingir cadastro — abster > chutar (regra 6).
+                                    "fonte":        {"type": "keyword"}}},
             "orgao_julgador":  {"type": "keyword"},
             "juizo":           {"type": "keyword"},
             "valor_causa":     {"type": "double"},
@@ -118,7 +126,26 @@ PROC_MAPPING = {
             "total_movimentacoes": {"type": "integer"},
             "ultima_movimentacao_em": {"type": "date"},
             "inserido_em":     {"type": "date"},           # crescimento da base
+            # TRI-ESTADO, e por que são DOIS campos e não um `null`.
+            # Medido no índice de produção em 25/08/2026, no mesmo instante:
+            #     segredo_justica = true ......          0
+            #     segredo_justica = false ... 28.263.970
+            #     campo AUSENTE ............. 64.442.760
+            # Os 64,4 M ausentes são docs construídos ANTES de o campo entrar no
+            # builder. Se `NULL` ("não perguntamos", migration 0052) virasse
+            # simplesmente "campo ausente", ele ficaria INDISTINGUÍVEL desses
+            # 64,4 M — e a tela passaria a dizer "não perguntamos" para
+            # documento velho que nunca foi perguntado. Confiança falsa, que é
+            # pior que dado faltando (princípio nº 1).
+            # Por isso o estado vai num campo PRÓPRIO e EXPLÍCITO: presença dele
+            # é a prova de que o doc é da era nova; ausência é "doc legado",
+            # nunca "não perguntamos".
             "segredo_justica": {"type": "boolean"},
+            "segredo_justica_estado": {"type": "keyword"},  # segredo|sem_segredo|nao_perguntamos
+            # G1|G2|JE|SUP do Datajud. **JE = RPV, não precatório** — sem isto o
+            # funil mistura dois produtos com prazos e preços diferentes
+            # (auditoria 25/08: `grau` presente em 20/20 dos `_source`).
+            "grau":            {"type": "keyword"},
             "classificacao":   {"type": "keyword"},
             "classificacao_score": {"type": "double"},
             "classificacao_versao": {"type": "keyword"},   # qual modelo classificou (v6, v7…)

@@ -140,7 +140,11 @@ def sync_processos_novos() -> dict:
                      'permanece em %s.', len(pks), wm, exc_info=True)
         return {'novos': 0, 'sinal': n_sinal, 'wm': wm, 'erro_enqueue': True}
     cache.set(_WM_PROC_ID, pks[-1], None)
-    return {'novos': n, 'sinal': n_sinal, 'wm': pks[-1]}
+    saida = {'novos': n, 'sinal': n_sinal, 'wm': pks[-1]}
+    if len(pks) >= LIMITE_PROC_NOVOS:
+        saida['atraso_ids'] = _alertar_teto_processos(
+            'proc_novos', LIMITE_PROC_NOVOS, pks[-1])
+    return saida
 
 
 def sync_processos_atualizados() -> dict:
@@ -171,7 +175,75 @@ def sync_processos_atualizados() -> dict:
                   .values_list('atualizado_em', flat=True).first())
         if ultimo:
             cache.set(_WM_PROC_TS, ultimo, None)
-    return {'atualizados': n, 'wm': str(cache.get(_WM_PROC_TS))}
+    saida = {'atualizados': n, 'wm': str(cache.get(_WM_PROC_TS))}
+    if len(pks) >= LIMITE_PROC_ATUALIZADOS:
+        # Aqui a watermark é um INSTANTE, então o número que importa não é
+        # quantos ids faltam — é quanto TEMPO de escrita ainda não chegou à
+        # busca. Medido em 25/08/2026: watermark parada em 19/08 (6 dias) e
+        # avançando ~30-40 s de relógio por tick de 10 min, ou seja perdendo
+        # ~17:1. Um teto que não converge não é teto, é vazamento.
+        atual = cache.get(_WM_PROC_TS)
+        idade_h = None
+        if atual is not None:
+            try:
+                idade_h = round((timezone.now() - atual).total_seconds() / 3600.0, 2)
+            except TypeError:      # watermark serializada de outro jeito
+                idade_h = None
+        saida['idade_wm_h'] = idade_h
+        logger.error(
+            'sync_es: proc_atualizados ATINGIU o teto de %d por tick — a '
+            'watermark está em %s (%s h atrás) e anda menos que o relógio. '
+            'Toda escrita em lote posterior a isso está FORA da busca.',
+            LIMITE_PROC_ATUALIZADOS, atual,
+            'idade não medida' if idade_h is None else idade_h)
+    return saida
+
+
+def _topo_process() -> int | None:
+    """`max(id)` de `tribunals_process`, ou `None` se não der pra medir.
+
+    Existe só para o ALERTA de teto saber dizer o número REAL de quanto ficou
+    para trás. Por isso ele **nunca** pode derrubar o tick nem segurar escrita
+    (regra nº 7): tem teto de espera próprio, e falha em ABSTENÇÃO — `None` é
+    "não consegui medir", que a mensagem diz com todas as letras, em vez de um
+    zero que leria como "não falta nada" (regra nº 6).
+    """
+    from django.db import transaction
+    try:
+        with transaction.atomic(), connection.cursor() as c:
+            c.execute('SET LOCAL statement_timeout = %s', ['5s'])
+            c.execute('SELECT max(id) FROM tribunals_process')
+            return c.fetchone()[0] or 0
+    except Exception:
+        logger.warning('sync_es: não consegui ler max(id) para medir o atraso.')
+        return None
+
+
+def _alertar_teto_processos(rotulo: str, limite: int, ultimo_pk: int) -> int | None:
+    """Teto atingido é ERRO REGISTRADO com o número real, nunca `return` discreto.
+
+    Regra nº 2 do CLAUDE.md. O lado das movimentações já fazia isto desde que o
+    teto de 50 mil virou corte mudo e deixou **179.490.613 publicações fora do
+    índice com a fila `es_index` marcando zero** — "run verde, log limpo, número
+    redondo", os três ao mesmo tempo. Os dois lados de PROCESSO ficaram de fora
+    da lição até 25/08/2026, quando a medição mostrou o teto sendo batido em
+    **6 de 6 ticks seguidos** e a watermark 7,84 milhões de pks atrás do banco.
+
+    Devolve o atraso em ids, ou `None` se não deu para medir.
+    """
+    topo = _topo_process()
+    if topo is None:
+        logger.error(
+            'sync_es: %s ATINGIU o teto de %d por tick (watermark=%d) e não deu '
+            'pra medir o quanto falta. O resto NÃO está na busca.',
+            rotulo, limite, ultimo_pk)
+        return None
+    atraso = topo - ultimo_pk
+    logger.error(
+        'sync_es: %s ATINGIU o teto de %d por tick — faltam ~%d ids pra alcançar '
+        'o banco (watermark=%d, topo=%d). Esse resto NÃO está na busca.',
+        rotulo, limite, atraso, ultimo_pk, topo)
+    return atraso
 
 
 def _fila_es() -> int:
@@ -179,7 +251,7 @@ def _fila_es() -> int:
     try:
         import django_rq
         return django_rq.get_queue('es_index').count
-    except Exception:  # noqa: BLE001
+    except Exception:
         return -1
 
 
@@ -256,8 +328,16 @@ def tick_sync_es_incremental() -> dict:
                      ('movs_novas', sync_movimentacoes_novas)):
         try:
             out[nome] = fn()
-        except Exception:  # noqa: BLE001 — um bloco falho não mata o tick
-            logger.warning('sync_es: %s falhou', nome, exc_info=True)
+        except Exception:
+            # ERROR, não WARNING. Bloco que falha é watermark que NÃO ANDA, e
+            # keyset só anda pra frente: o que ficou para trás só volta se
+            # alguém for buscar. "Perda silenciosa com log de WARNING é o pior
+            # formato" — é o que este módulo já aprendeu em `_enfileirar_movs`,
+            # e o mesmo vale para o bloco inteiro. Em 25/08/2026 o
+            # `proc_atualizados` morreu com `LockNotAvailable` e saiu como
+            # WARNING no meio de um tick que, no resto, parecia saudável.
+            logger.error('sync_es: %s FALHOU — a watermark dele NÃO andou neste '
+                         'tick.', nome, exc_info=True)
             out[nome] = {'erro': True}
     if any(v.get('novos') or v.get('atualizados') or v.get('movs') for v in out.values()
            if isinstance(v, dict)):

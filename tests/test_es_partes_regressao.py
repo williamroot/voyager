@@ -33,6 +33,8 @@ Se um deles quebrar, o defeito voltou.
    as participações, e medido em produção o doc COM parte é **+1.416 B** maior
    que o doc sem (2.369 B contra 953 B de média).
 """
+import logging
+
 import pytest
 
 pytestmark = pytest.mark.django_db
@@ -218,3 +220,227 @@ def test_indexar_processos_bulk_devolve_o_que_o_es_aceitou(monkeypatch):
                         lambda ops, rotulo='x': (len(ops) // 2) - 1)  # 1 recusado
     assert jobs.indexar_processos_bulk(pks) == 3
     assert jobs.indexar_processos_bulk([]) == 0
+
+
+class _Capturador(logging.Handler):
+    """Ouve o logger `voyager.search.sync` DIRETO.
+
+    O `caplog` do pytest instala o handler na RAIZ, e os loggers `voyager.*`
+    deste projeto não propagam para lá — o teste leria zero registro e passaria
+    verde exatamente quando o alerta sumisse. Uma sonda que só sabe dizer
+    "vazio" está quebrada; esta escuta na fonte.
+    """
+
+    def __init__(self):
+        super().__init__(level=logging.DEBUG)
+        self.registros: list[logging.LogRecord] = []
+
+    def emit(self, record):
+        self.registros.append(record)
+
+    def erros(self) -> list[str]:
+        return [r.getMessage() for r in self.registros if r.levelno >= logging.ERROR]
+
+    def __enter__(self):
+        self._lg = logging.getLogger('voyager.search.sync')
+        self._nivel = self._lg.level
+        self._lg.setLevel(logging.DEBUG)
+        self._lg.addHandler(self)
+        return self
+
+    def __exit__(self, *exc):
+        self._lg.removeHandler(self)
+        self._lg.setLevel(self._nivel)
+        return False
+
+
+# --------------------------------------------------------------------------- #
+# 4. o teto do `sync_incremental` é ALERTA, nunca `return` discreto
+# --------------------------------------------------------------------------- #
+def test_teto_de_proc_novos_vira_erro_com_o_numero_real(monkeypatch):
+    """Medido em 25/08/2026: teto batido em **6 de 6 ticks** seguidos, em silêncio.
+
+    `proc_novos` bate `LIMITE_PROC_NOVOS = 20.000` todo tick, e a watermark
+    estava em `id=96.776.271` contra `max(id)=104.615.119` — **7,84 milhões de
+    pks atrás**, ou seja 7,84 milhões de processos que a busca não enxergava.
+    Nada no log dizia isso: o tick saía como INFO com `'novos': 20000`, que lê
+    como sucesso.
+
+    O lado das MOVIMENTAÇÕES já alertava (foi o que fechou os 179.490.613 fora
+    do índice). Os dois lados de PROCESSO ficaram de fora da mesma lição. Este
+    teste falha se o alerta sumir de novo.
+    """
+    from django.core.cache import cache
+
+    from search import sync_incremental as si
+    from tribunals.models import Process, Tribunal
+
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJTT', defaults={'nome': 'TJTT', 'sigla_djen': 'TJTT'})
+    pks = [Process.objects.create(numero_cnj=f'000002{i}-99.2025.8.26.0100',
+                                  tribunal=t).pk for i in range(3)]
+
+    cache.set(si._WM_PROC_ID, pks[0] - 1, None)
+    monkeypatch.setattr(si, 'LIMITE_PROC_NOVOS', 1)      # força o teto
+    monkeypatch.setattr(si, 'computar_sinal', lambda p: 0)
+    monkeypatch.setattr(si, '_enfileirar_processos', len)
+
+    with _Capturador() as cap:
+        saida = si.sync_processos_novos()
+
+    erros = cap.erros()
+    assert erros, ('proc_novos bateu o teto e não registrou ERRO — voltou a ser '
+                   'corte mudo (regra nº 2 do CLAUDE.md).')
+    msg = erros[0]
+    assert 'teto' in msg.lower()
+    # o alerta tem que trazer o NÚMERO, senão é só barulho
+    assert saida.get('atraso_ids') is not None
+    assert str(saida['atraso_ids']) in msg
+
+
+def test_teto_de_proc_atualizados_alerta_com_a_idade_da_watermark(monkeypatch):
+    """A watermark de `proc_atualizados` é um INSTANTE — o número é TEMPO.
+
+    Medido em 25/08/2026: parada em **2026-08-19 18:07**, seis dias atrás,
+    avançando ~30-40 s de relógio por tick de 10 min (perde ~17:1). Um teto que
+    não converge não é teto, é vazamento — e ele saía do tick como
+    `{'atualizados': 10000}`, que lê como trabalho feito.
+    """
+    import datetime
+
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    from search import sync_incremental as si
+    from tribunals.models import Process, Tribunal
+
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJUU', defaults={'nome': 'TJUU', 'sigla_djen': 'TJUU'})
+    p = Process.objects.create(numero_cnj='0000030-99.2025.8.26.0100', tribunal=t)
+
+    velha = timezone.now() - datetime.timedelta(days=6)
+    # `atualizado_em` é `auto_now`: só um UPDATE cru envelhece a linha. É
+    # exatamente o que a produção tem — a watermark para no `atualizado_em` da
+    # ÚLTIMA linha lida, e é a IDADE dela que diz se o teto converge ou vaza.
+    Process.objects.filter(pk=p.pk).update(atualizado_em=velha)
+    cache.set(si._WM_PROC_TS, velha - datetime.timedelta(seconds=1), None)
+    monkeypatch.setattr(si, 'LIMITE_PROC_ATUALIZADOS', 1)
+    monkeypatch.setattr(si, '_enfileirar_processos', len)
+
+    with _Capturador() as cap:
+        saida = si.sync_processos_atualizados()
+
+    erros = cap.erros()
+    assert erros, 'proc_atualizados bateu o teto sem ERRO registrado'
+    assert 'teto' in erros[0].lower()
+    assert saida.get('idade_wm_h') is not None, (
+        'o alerta perdeu a IDADE da watermark — sem ela ninguém sabe se o teto '
+        'converge ou vaza.')
+    assert saida['idade_wm_h'] >= 143, saida['idade_wm_h']   # ~6 dias
+
+
+def test_bloco_que_falha_no_tick_e_erro_porque_a_watermark_congela(monkeypatch):
+    """`LockNotAvailable` no `proc_atualizados` saía como WARNING (25/08/2026).
+
+    Bloco que falha é watermark que não anda, e keyset só anda pra frente: o que
+    ficou para trás só volta se alguém for buscar. "Perda silenciosa com log de
+    WARNING é o pior formato" — a lição já estava escrita em `_enfileirar_movs`
+    e não valia para o bloco inteiro.
+    """
+    from search import sync_incremental as si
+
+    def explode():
+        raise RuntimeError('canceling statement due to lock timeout')
+
+    monkeypatch.setattr(si, 'sync_processos_novos', lambda: {'novos': 0})
+    monkeypatch.setattr(si, 'sync_processos_atualizados', explode)
+    monkeypatch.setattr(si, 'sync_movimentacoes_novas', lambda: {'movs': 0})
+
+    with _Capturador() as cap:
+        out = si.tick_sync_es_incremental()
+
+    assert out['proc_atualizados'] == {'erro': True}
+    erros = cap.erros()
+    assert erros, ('bloco do tick falhou e saiu como WARNING — é o formato de '
+                   'perda que este módulo já aprendeu a não usar.')
+    assert 'watermark' in erros[0].lower()
+
+
+# --------------------------------------------------------------------------- #
+# 5. `segredo_justica` tri-estado — `null` NÃO pode virar "campo ausente"
+# --------------------------------------------------------------------------- #
+def test_segredo_justica_tri_estado_e_explicito_no_doc():
+    """Medido em 25/08/2026, no índice de produção, no mesmo instante:
+
+        segredo_justica = true .....          0
+        segredo_justica = false ... 28.263.970
+        campo AUSENTE ............. 64.442.760
+
+    Os 64,4 M ausentes são documentos construídos ANTES de o campo entrar no
+    builder — ninguém nunca perguntou nada sobre eles. A migration 0052 torna a
+    coluna nullable, e `NULL` passa a significar "não perguntamos".
+
+    Se `NULL` fosse representado por AUSÊNCIA no ES, os dois casos colapsariam:
+    a tela leria "não perguntamos" em 64 milhões de docs velhos. Dado pela
+    metade produzindo confiança falsa é literalmente o princípio nº 1.
+
+    Por isso o estado vai num campo PRÓPRIO: presença de
+    `segredo_justica_estado` prova que o doc é da era nova; ausência é "legado".
+    """
+    from search.documents import processo_to_doc
+    from tribunals.models import Process, Tribunal
+
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJSS', defaults={'nome': 'TJSS', 'sigla_djen': 'TJSS'})
+
+    casos = {None: 'nao_perguntamos', False: 'sem_segredo', True: 'segredo'}
+    for i, (valor, esperado) in enumerate(casos.items()):
+        p = Process.objects.create(numero_cnj=f'000004{i}-99.2025.8.26.0100',
+                                   tribunal=t)
+        # `update` e não `save`: a coluna pode ser NOT NULL numa frota onde a
+        # 0052 ainda não passou, e o teste mede o BUILDER, não a migration.
+        Process.objects.filter(pk=p.pk).update(segredo_justica=valor)
+        doc = processo_to_doc(Process.objects.get(pk=p.pk))
+        assert doc['segredo_justica_estado'] == esperado, (
+            f'segredo_justica={valor!r} virou {doc["segredo_justica_estado"]!r}')
+        # o campo é SEMPRE emitido — é a presença dele que separa era nova de
+        # doc legado. Se alguém "otimizar" omitindo-o no caso NULL, os 64,4 M
+        # voltam a ser indistinguíveis.
+        assert 'segredo_justica_estado' in doc
+
+    # e os três estados são distinguíveis entre si
+    assert len(set(casos.values())) == 3
+
+
+def test_participacao_carrega_a_procedencia_para_a_tela_nao_mentir():
+    """`fonte='djen'` = parte promovida da publicação: tem nome, polo e OAB, e
+    NÃO tem CPF/CNPJ.
+
+    Sem o campo, a tela não consegue distinguir "parte sem documento porque a
+    fonte não dá" de "parte sem documento porque ninguém buscou" — e acabaria
+    exibindo um cadastro que não existe. Abster > chutar (regra nº 6): o campo
+    existe para a tela poder DIZER que está vazio.
+    """
+    from search.documents import processo_to_doc
+    from tribunals.models import Parte, Process, ProcessoParte, Tribunal
+
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJFF', defaults={'nome': 'TJFF', 'sigla_djen': 'TJFF'})
+    p = Process.objects.create(numero_cnj='0000050-99.2025.8.26.0100', tribunal=t)
+    parte = Parte.objects.create(nome='Fulano do DJEN', tipo='pf')
+    pp = ProcessoParte.objects.create(processo=p, parte=parte, polo='ativo',
+                                      papel='EXEQUENTE')
+
+    doc = processo_to_doc(Process.objects.get(pk=p.pk))
+    assert 'fonte' in doc['participacoes'][0], (
+        'a participação perdeu a procedência — a tela volta a não saber se a '
+        'ausência de CPF/CNPJ é fato da fonte ou buraco nosso.')
+    # sem a coluna preenchida (ou sem a 0052 aplicada) o builder ABSTÉM
+    assert doc['participacoes'][0]['fonte'] is None
+
+    try:
+        ProcessoParte.objects.filter(pk=pp.pk).update(fonte='djen')
+    except Exception:                      # coluna ainda não existe nesta frota
+        return
+    doc = processo_to_doc(Process.objects.get(pk=p.pk))
+    assert doc['participacoes'][0]['fonte'] == 'djen'
