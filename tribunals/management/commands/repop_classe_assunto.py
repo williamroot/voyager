@@ -9,7 +9,7 @@ Idempotente: só atualiza linhas com `<fk>_id IS NULL`. Pode rodar quantas
 vezes quiser.
 """
 from django.core.management.base import BaseCommand
-from django.db import connection
+from django.db import connection, transaction
 
 
 CHUNK = 50_000
@@ -42,7 +42,9 @@ class Command(BaseCommand):
         self.stdout.write(self.style.HTTP_INFO(f'==> {label}: chunks de {chunk:,}'))
         total = 0
         while True:
-            with connection.cursor() as cur:
+            # `SET LOCAL` só vale dentro de transação — sem o `atomic()` o teto
+            # de lock era inócuo e este UPDATE em massa esperava lock para sempre.
+            with transaction.atomic(), connection.cursor() as cur:
                 cur.execute("SET LOCAL lock_timeout = '5s';")
                 cur.execute(
                     f"""

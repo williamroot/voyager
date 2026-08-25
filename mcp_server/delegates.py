@@ -308,15 +308,15 @@ def buscar_valores(tribunal=None, classe=None, valor_min=None, valor_max=None, s
     Usa paginação por PK + filtro em Python (valor_causa não tem índice parcial).
     """
     try:
-        from django.db import connection
+        from django.db import connection, transaction
 
         resultado = []
         last_pk = 0
         batch_size = 500
         max_scans = 10  # máximo de 5k rows scanned
 
-        with connection.cursor() as c:
-            c.execute('SET statement_timeout = 10000')
+        with transaction.atomic(), connection.cursor() as c:
+            c.execute('SET LOCAL statement_timeout = 10000')
             for _ in range(max_scans):
                 if len(resultado) >= size * 3:
                     break
@@ -391,7 +391,7 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
     Queries de GROUP BY usam statement_timeout curto (10s) com fallback.
     """
     try:
-        from django.db import connection
+        from django.db import connection, transaction
         from django.db.models import Count
 
         if metrica == 'volume':
@@ -417,8 +417,8 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
             # Distribuição por classe — usa timeout curto.
             por_classe = []
             try:
-                with connection.cursor() as c:
-                    c.execute('SET statement_timeout = 5000')
+                with transaction.atomic(), connection.cursor() as c:
+                    c.execute('SET LOCAL statement_timeout = 5000')
                     c.execute('''
                         SELECT classe_nome, COUNT(*) as count
                         FROM tribunals_process
@@ -442,8 +442,8 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
         elif metrica == 'valores':
             # SUM por tribunal pode ser lento; usa timeout 20s + fallback.
             try:
-                with connection.cursor() as c:
-                    c.execute('SET statement_timeout = 20000')
+                with transaction.atomic(), connection.cursor() as c:
+                    c.execute('SET LOCAL statement_timeout = 20000')
                     c.execute('''
                         SELECT tribunal_id, COUNT(*) as count,
                                COALESCE(SUM(valor_causa), 0) as soma,
@@ -516,7 +516,7 @@ def jurimetria(tribunal=None, classe=None, ano=None, metrica='volume'):
             except Exception:
                 # Fallback: DB com timeout curto.
                 try:
-                    with connection.cursor() as c:
+                    with transaction.atomic(), connection.cursor() as c:
                         c.execute('SET LOCAL statement_timeout = 10000')
                         c.execute('''
                             SELECT tipo_comunicacao, COUNT(*) as count

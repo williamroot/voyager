@@ -323,6 +323,8 @@ def refresh_ingestion_rate_hora():
                 concurrently = 'CONCURRENTLY ' if populated else ''
                 cur.execute(
                     f'REFRESH MATERIALIZED VIEW {concurrently}mv_ingestion_rate_hora')
+                cur.execute('RESET statement_timeout')
+                cur.execute('RESET lock_timeout')
             logger.info('refresh MV mv_ingestion_rate_hora ok (concurrently=%s)', populated)
         except Exception as e:
             logger.warning('refresh_ingestion_rate_hora: %s', e)
@@ -339,6 +341,8 @@ def warm_pipeline_diario():
                 cur.execute("SET lock_timeout = '5s'")
                 cur.execute("SET statement_timeout = '600s'")
                 cur.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_pipeline_diario')
+                cur.execute('RESET statement_timeout')
+                cur.execute('RESET lock_timeout')
             logger.info('refresh MV mv_pipeline_diario ok (warm)')
         except Exception as e:
             logger.warning('warm_pipeline_diario: %s', e)
@@ -410,6 +414,8 @@ def refresh_materialized_views():
                     cur.execute("SET lock_timeout = '5s'")
                     cur.execute("SET statement_timeout = '3600s'")
                     cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}')
+                    cur.execute('RESET statement_timeout')
+                    cur.execute('RESET lock_timeout')
                 logger.info('refresh MV %s ok', mv)
             except Exception as e:
                 logger.warning('refresh MV %s: %s', mv, e)

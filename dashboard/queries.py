@@ -446,9 +446,14 @@ def _count_exato_cacheado(relname, ttl=1800):
     val = cache.get(key)
     if val is not None:
         return val
-    from django.db import connection
+    from django.db import connection, transaction
     try:
-        with connection.cursor() as cur:
+        # `transaction.atomic()` NÃO é enfeite: `SET LOCAL` fora de transação é
+        # silenciosamente inócuo, e sem ele este `count(*)` rodava SEM TETO
+        # NENHUM sobre 102 M de linhas — exatamente a "query pesada sem recorte
+        # em produção" que o CLAUDE.md proíbe. O fallback pro `reltuples`
+        # documentado abaixo nunca era alcançado por timeout; só por erro.
+        with transaction.atomic(), connection.cursor() as cur:
             cur.execute("SET LOCAL statement_timeout = '120000'")  # 120s
             cur.execute(f'SELECT count(*) FROM {relname}')  # noqa: S608 — relname interno fixo
             val = int(cur.fetchone()[0])
