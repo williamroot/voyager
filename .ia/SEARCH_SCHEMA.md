@@ -1090,6 +1090,49 @@ Se os diários (ou qualquer porta de coleta) pedirem espaço no ES, **o backfill
 cede primeiro**: ele é passivo histórico, retomável por checkpoint e sem prazo;
 coleta que não roda hoje é caderno que ninguém vai buscar de novo.
 
+### O `ALTER TABLE` da 0052 PAROU o backfill — e ele parou do jeito certo
+
+Registrado em 25/08/2026 porque vai acontecer de novo na próxima migration
+pesada, e porque o comportamento observado é o CONTRATO, não um defeito:
+
+    01:15:37 UTC  ERROR  backfill processos: leitura de ids estourou 60s em
+                         id > 77427989 — ABSTENDO (o checkpoint não anda).
+    ...           parou por: pg-mudo (checkpoint em id=77.427.989)
+
+O `SELECT id FROM tribunals_process WHERE id > …` bateu no lock do `ALTER TABLE`
+e estourou o `statement_timeout` de 60 s. `_ids_do_bloco` devolveu `None` —
+**abstenção, não lista vazia**. Lista vazia significaria "acabou o banco" e o
+checkpoint pularia o resto do acervo; abstenção para a corrida ali mesmo com o
+checkpoint salvo. Na mesma janela o `sync_incremental` levou
+`LockNotAvailable` — os dois são a mesma causa.
+
+**A consequência prática é que o backfill fica PARADO até alguém retomar.** Ele
+não tem supervisor. Depois de qualquer migration que pegue lock em
+`tribunals_process`, confira e retome:
+
+```bash
+# onde parou (e por quê)
+manage.py shell -c "from django.core.cache import cache; \
+    print(cache.get('search:backfill_proc:wm'), cache.get('search:backfill_proc:ultimo'))"
+# retomar (lê o checkpoint sozinho)
+manage.py es_backfill_processos --sleep 0.5 --freio-proc-ms 700
+```
+
+E uma terceira confirmação, de graça, do A/B de 24/08 (backfill ON custa +64,6%
+na sonda `processos`): medido antes e depois de ele parar, mesma sonda, mesmo nó.
+
+| sonda | backfill ESCREVENDO | backfill PARADO |
+|---|---:|---:|
+| processos | 608,6 ms | **339,2 ms** |
+| conteúdo | 5.493,9 ms | 5.502,5 ms |
+| texto | 1.773,7 ms | 1.634,7 ms |
+| **abortos da sonda `texto`** | **2 de 9 (22,2%)** | **0 de 9 (0,0%)** |
+
+Os 22,2% de aborto medidos como "estado do nó" eram, em boa parte, o backfill.
+Isso não absolve o nó — significa que **a margem para escrita em massa é
+estreita**, e que qualquer reindex por faixa tem de ser medido contra a sonda,
+não contra a intuição.
+
 ### A sentinela — para o buraco não reabrir calado
 
 `search.jobs.conferir_indice_processos`, cron diário às 06:40
