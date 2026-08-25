@@ -492,6 +492,51 @@ def _maybe_reload():
 
 ❌ Reload sem `loaded_at` no `except` — storm de retry quando DB está fora.
 
+## `--dry-run` tem que ser PROVADO por teste que falha se ele escrever
+
+O modo de simulação é usado justamente por quem **ainda não decidiu** rodar.
+A promessa "não altera nada" é do tipo que ninguém verifica — e nesta casa ela
+foi falsa: o primeiro `--dry-run` do backfill de partes criou **39.303 linhas
+de `Parte` órfãs em produção** (20.609 `desconhecido` + 18.694 `advogado`,
+nenhuma com `ProcessoParte`), porque o caminho reusava `_bulk_upsert_partes`,
+que **escreve**.
+
+O que provou a autoria, e é o padrão a copiar: na hora ANTERIOR a mesma
+consulta devolveu **0 órfã de qualquer tipo**. Sem esse controle no tempo, a
+resposta seria "sempre houve órfã aqui".
+
+```python
+def test_dry_run_nao_escreve(cenario):
+    antes = set(Parte.objects.values_list('id', flat=True))
+    res = promover_lote(alvo, dry_run=True)
+    # controle POSITIVO: se ele não contou nada, virou no-op e o teste mente
+    assert res.linhas_tentadas > 0, 'o dry-run não contou nada — virou no-op'
+    novas = set(Parte.objects.values_list('id', flat=True)) - antes
+    assert not novas, f'--dry-run criou {len(novas)} Parte'
+```
+
+As **duas** asserções são obrigatórias. Só a segunda passa num `dry_run` que
+retorna cedo e não faz nada — e aí o teste vira mais um "verificação com input
+vazio reporta SUCESSO". Vale também um teste de que o contador do dry-run bate
+com o que a execução real cria: um dry-run que mente sobre o TAMANHO do
+trabalho é quase tão ruim quanto um que escreve.
+
+## Em árvore compartilhada, commit com `-o <paths>`
+
+Quando mais de um agente/pessoa trabalha na mesma working tree, `git add <paths>`
+seguido de `git commit` **leva junto tudo o que já estava no índice**. Aconteceu
+nesta casa: um commit levou **17 arquivos de outros agentes**. Nada se perdeu,
+mas a história ficou torta — e história torta é o que faz `git log <arquivo>`
+mentir sobre quem mudou o quê e por quê.
+
+```bash
+git commit -o caminho/um.py caminho/dois.py -F -   # SÓ estes, ignora o índice
+```
+
+E nunca `git add -A`, `git checkout`, `git stash` ou `git reset` numa árvore
+compartilhada: os quatro afetam arquivo de terceiro. Para comparar com o HEAD
+sem tocar a árvore, use `git show HEAD:<arquivo> > /tmp/...`.
+
 ## Commits
 
 ✅ Conventional Commits, em **pt-BR**, imperativo, presente:
