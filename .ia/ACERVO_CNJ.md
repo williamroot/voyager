@@ -519,3 +519,107 @@ O que sobrou é exatamente 1 abstenção + 1 conflito que o job declarou.
 **O que este backfill NÃO faz:** não reindexa no Elasticsearch. `bulk_update`
 não dispara `post_save`, então o doc de `voyager-processos` mantém o assunto
 velho até o reindex passar por ele.
+
+---
+
+## `grau` a partir do índice, e o recorte do TJSP — medido em 25/08/2026
+
+### `grau` sem tocar na chave do CNJ: dá, e é barato
+
+A varredura já grava `grau` em cada doc do `voyager-acervo`. `backfill_grau`
+casa `Process.numero_cnj` com `proc` do índice por `terms` em lotes de 1.000.
+
+| | medido |
+|---|---:|
+| processos achados no índice | **85,7%** (17.129 de 19.995, faixa de 20.000 pks) |
+| `terms` de 1.000 CNJs — quente | 109 ms (0,11 ms/CNJ) |
+| `terms` de 1.000 CNJs — **frio** | 1,0 – 2,8 s (o número honesto para varrer tudo) |
+| escrita | **8.316 linhas em 8,5 s = 978 linhas/s = 1,02 ms/linha** |
+| projeção do acervo (87,7 M linhas) | ≈ **25 h**, **zero requisição ao CNJ** |
+
+1,02 ms/linha é **8,6× mais barato** que o backfill de assunto (8,8 ms/linha):
+uma coluna curta, `UPDATE … FROM (VALUES)` em lote de 2.000, sem FK e sem
+catálogo.
+
+Prova por contagem independente (recorte `id ∈ (42809753, 42819753]`, 10.000
+processos): o job relatou `JE 1.589 · G1 6.483 · G2 238 · TR 6 · fora do
+acervo 1.684`, e o `SELECT … GROUP BY grau` no banco devolveu **exatamente os
+mesmos números**. `JE` = 19,1% do recorte (nacional: 21,6%).
+
+**Um CNJ tem MAIS DE UM grau.** G1 e G2 são documentos distintos no Datajud:
+12,2% dos processos achados têm 2+ graus (na sonda de 5.000 em 5 faixas:
+3.277 com 1 doc, 722 com 2, 161 com 3, 13 com 4). `Process.grau` é escalar,
+então a regra é o **grau de ORIGEM** — `JE > TR > TRU > G1 > G2 > SUP` —
+porque é ele que decide o produto: quem nasceu no Juizado Especial paga por
+RPV, quem nasceu na vara comum paga por precatório.
+
+### Segunda porta do TJSP: o recorte custa 74 h, não 17
+
+Amostra **aleatória uniforme por pk** — 20.000 pks sorteados com
+`random.Random(20260825)`, 19.572 existentes, **3.107 do TJSP**:
+
+| | amostra | % do TJSP | ≈ acervo TJSP (~16,3 M) |
+|---|---:|---:|---:|
+| sem `data_enriquecimento_datajud` | 2.792 | 89,9% | ~14,6 M |
+| … com `tem_sinal_precatorio = TRUE` (**o recorte**) | **85** | 2,74% | **~446 k** |
+| … com `tem_sinal_precatorio IS NULL` (**nunca varrido**) | **783** | 25,2% | **~4,1 M** |
+| … com sinal FALSE (fora, medido) | 1.924 | 61,9% | ~10,1 M |
+| órfãos (`nao_encontrado`/`erro`) sem datajud | 368 | 11,8% | ~1,9 M |
+| … órfãos sem datajud **e** com sinal | **11** | 0,35% | **~58 k** |
+
+A 100 rpm: o recorte inteiro custa **≈ 74 h de quota integral**; só os órfãos
+com sinal custam **≈ 9,7 h**.
+
+### ⚠️ LIMITAÇÃO CONHECIDA — `tem_sinal_precatorio` é sinal NOSSO, não da fonte
+
+**Se ele tiver falso-negativo, o recorte herda o erro e nunca descobrimos,
+porque só olhamos o que já marcamos.** Não escreva, em lugar nenhum, que este
+recorte "cobre o que importa".
+
+E o buraco não é hipotético, nem acidental — é **de política, e está no
+código**:
+
+```python
+# tribunals/management/commands/backfill_sinal_precatorio.py:24
+DATAJUD_ALVO = ['TJPR', 'TRF4', 'TRF6', 'TRF2']    # ← o TJSP NÃO está aqui
+```
+
+O comando que computa o sinal roda, por padrão, em quatro tribunais, e o TJSP
+não é um deles. Resultado medido: **25,2% do TJSP (≈ 4,1 M processos) tem
+`tem_sinal_precatorio IS NULL`** — ficam de fora do recorte **por OMISSÃO, não
+por medição**. São 9,2× o tamanho do próprio recorte (~446 k).
+
+E dá para estimar o que a omissão esconde. Entre os processos TJSP que TÊM o
+sinal medido, a taxa de positivos é 85/2.324 = **3,66%** (coerente com os 3,55%
+contados no índice). Aplicada aos 4,1 M nunca varridos: **≈ 150 k processos com
+sinal que o recorte não enxerga** — a mesma ordem de grandeza do recorte
+inteiro. Rodar `backfill_sinal_precatorio --tribunais TJSP` **antes** de gastar
+quota é o que separa "recorte declarado" de "recorte cego".
+
+Conferir a cobertura (amostra uniforme de pk, ~40 s, não depende do índice):
+
+```sql
+-- sorteie ~20.000 pks com semente declarada e conte por estado do sinal
+SELECT count(*) FILTER (WHERE tem_sinal_precatorio IS NULL)  AS nunca_varrido,
+       count(*) FILTER (WHERE tem_sinal_precatorio IS TRUE)  AS com_sinal,
+       count(*) FILTER (WHERE tem_sinal_precatorio IS FALSE) AS sem_sinal
+FROM tribunals_process WHERE id = ANY(%s) AND tribunal_id = 'TJSP';
+```
+
+### Armadilha: amostra sorteada pelo ÍNDICE mentiu por 50×
+
+Antes de chegar aos números acima eu sorteei processos do TJSP com
+`function_score`/`random_score` sobre o `voyager-processos` e conferi cada id
+no Postgres. Deu **1,7% sem `data_enriquecimento_datajud`**. A amostra uniforme
+por pk, no mesmo dia e no mesmo banco, deu **89,9%**.
+
+A amostra do índice estava errada, e a explicação óbvia foi **refutada por
+medição**: não é "quem foi ao Datajud está no índice" — dos processos SEM
+datajud, 99,6% (996 de 1.000) estão no índice. O que sobra é o próprio
+`random_score` com `field: _seq_no`: o score é função da ordem de ESCRITA, e o
+top-N cai numa janela estreita de `_seq_no`, isto é, numa janela de escrita —
+não numa amostra do índice.
+
+**Regra que fica:** para estimar proporção de um campo do Postgres, sorteie
+**pk** e vá ao Postgres. O índice serve para contar o que está no índice.
+Amostra de 20.000 pks custou 40 s e não depende de nada além do banco.

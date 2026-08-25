@@ -7,7 +7,7 @@
     manage.py backfill_assunto --modo catalogo --sem-reparo
 
     # a corrida (retomável: sem --de continua do checkpoint)
-    manage.py backfill_assunto --sleep 0.2 --freio-ms 800
+    manage.py backfill_assunto --sleep 0.2 --freio-ms-linha 15
 
     # parar de qualquer lugar, sem deploy
     manage.py shell -c "from django.core.cache import cache; \\
@@ -125,10 +125,19 @@ class Command(BaseCommand):
         parser.add_argument('--teto-linhas', type=int, default=0,
                             help='para depois de N linhas escritas. Atingir o '
                                  'teto é ERRO registrado, não fim silencioso.')
-        parser.add_argument('--freio-ms', type=float, default=1500.0,
-                            help='se um bloco passar disso, dobra a pausa. O '
-                                 'banco é disk-I/O-bound e tem drainer '
-                                 'aplicando ~126 mil events/h.')
+        # O freio mede CUSTO POR LINHA, não duração de bloco. A primeira
+        # versão media o bloco inteiro contra 1.500 ms e, na faixa fria de pk
+        # baixo, TODO bloco de 20.000 pks leva 30-57 s — o freio disparava
+        # sempre e a pausa só subia (0,15 → 4,8 s em 5 blocos), estrangulando
+        # a vazão sem que nada estivesse errado. Duração de bloco depende do
+        # tamanho do bloco; ms/linha é comparável entre faixas.
+        parser.add_argument('--freio-ms-linha', type=float, default=15.0,
+                            help='acima disto a pausa DOBRA (cede vazão); '
+                                 'abaixo da metade, a pausa volta pela metade. '
+                                 'Referência medida: 8,8 ms/linha.')
+        parser.add_argument('--parar-ms-linha', type=float, default=17.6,
+                            help='média móvel de 5 blocos acima disto = PARA '
+                                 'com ERROR. 17,6 = 2x os 8,8 ms medidos.')
         parser.add_argument('--lock-timeout', default='5s')
         parser.add_argument('--statement-timeout', default='60s')
         parser.add_argument('--sem-reparo', action='store_true',
@@ -219,6 +228,8 @@ class Command(BaseCommand):
                'abstem': 0, 'nada': 0, 'escritos': 0, 'codigos_novos': 0}
         blocos = 0
         teto_batido = False
+        custo_caro = False
+        janela: list = []          # ms/linha dos últimos 5 blocos
         t0 = time.monotonic()
 
         while cur_pk < topo:
@@ -244,14 +255,24 @@ class Command(BaseCommand):
                 teto_batido = True
                 break
 
-            if dt_ms > o['freio_ms']:
-                sleep = min(sleep * 2, 30.0)
-                logger.warning('backfill_assunto: bloco %d-%d levou %.0f ms '
-                               '(> %.0f) — pausa sobe para %.2fs',
-                               cur_pk - bloco, cur_pk, dt_ms, o['freio_ms'], sleep)
+            if n_escritos:
+                sleep, caro = self._freio(dt_ms / n_escritos, janela, sleep,
+                                          n_escritos, cur_pk - bloco, cur_pk, o)
+                if caro:
+                    custo_caro = True
+                    break
             time.sleep(sleep)
 
         dur = time.monotonic() - t0
+        if custo_caro:
+            media = sum(janela) / len(janela)
+            logger.error(
+                'backfill_assunto PAROU POR CUSTO: %.2f ms/linha na média dos '
+                'últimos 5 blocos (teto %.1f, referência medida 8,8) — %d '
+                'linhas escritas, pk parada em %d de %d, FALTA de %d a %d',
+                media, o['parar_ms_linha'], tot['escritos'], cur_pk, topo,
+                cur_pk, topo,
+            )
         if teto_batido:
             # Regra nº 2 do CLAUDE.md: teto é ERRO registrado, nunca `return`
             # discreto. O número real vai junto para ninguém achar que acabou.
@@ -263,6 +284,8 @@ class Command(BaseCommand):
 
         saida = {**tot, 'pk_parada': cur_pk, 'pk_topo': topo, 'blocos': blocos,
                  'segundos': round(dur, 1), 'teto_batido': teto_batido,
+                 'custo_caro': custo_caro, 'sleep_final': round(sleep, 2),
+                 'ms_linha_janela': [round(x, 2) for x in janela],
                  'sem_reparo': o['sem_reparo']}
         if o['json']:
             self.stdout.write(json.dumps(saida))
@@ -279,6 +302,37 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(
                 f'TETO ATINGIDO em {tot["escritos"]:,} linhas — FALTA de '
                 f'{cur_pk:,} a {topo:,}'))
+        if custo_caro:
+            self.stdout.write(self.style.ERROR(
+                f'PAROU POR CUSTO: {sum(janela)/len(janela):.2f} ms/linha — '
+                f'FALTA de {cur_pk:,} a {topo:,}'))
+
+    @staticmethod
+    def _freio(ms_linha: float, janela: list, sleep: float, n: int,
+               lo: int, hi: int, o) -> tuple[float, bool]:
+        """Ajusta a pausa pelo CUSTO POR LINHA e diz se é hora de parar.
+
+        Mede ms/linha, não duração de bloco: duração depende do tamanho do
+        bloco, ms/linha é comparável entre faixas. A primeira versão comparava
+        o bloco inteiro contra 1.500 ms e, na faixa de pk baixo, TODO bloco de
+        20.000 pks leva 30-57 s — o freio disparava sempre e a pausa só subia
+        (0,15 → 4,8 s em 5 blocos), estrangulando a vazão sem que nada
+        estivesse errado.
+        """
+        janela.append(ms_linha)
+        del janela[:-5]
+        logger.info('backfill_assunto: pk %d-%d · %d linhas · %.2f ms/linha · '
+                    'pausa %.2fs', lo, hi, n, ms_linha, sleep)
+        if ms_linha > o['freio_ms_linha']:
+            sleep = min(sleep * 2, 30.0)
+            logger.warning('backfill_assunto: %.2f ms/linha (> %.1f) — pausa '
+                           'sobe para %.2fs', ms_linha, o['freio_ms_linha'], sleep)
+        elif ms_linha < o['freio_ms_linha'] / 2 and sleep > o['sleep']:
+            # o freio TEM que soltar: sem isso a primeira faixa fria deixa a
+            # pausa lá em cima pelo resto da corrida
+            sleep = max(o['sleep'], sleep / 2)
+        caro = len(janela) == 5 and sum(janela) / 5 > o['parar_ms_linha']
+        return sleep, caro
 
     def _um_bloco(self, lo: int, hi: int, tot: dict, o) -> tuple[int, int]:
         # `SET LOCAL` só vale DENTRO de transação; solto no autocommit ele é

@@ -153,3 +153,39 @@ def test_sem_coluna_no_banco_nao_escreve_grau(monkeypatch):
     assert 'grau' not in upd, 'ia escrever numa coluna que não existe no banco'
     # controle positivo: o resto NÃO pode ser sacrificado junto
     assert upd['classe_codigo'] == '12078'
+
+
+# ---------- backfill a partir do índice: escolha do grau de ORIGEM ----------
+
+def test_escolher_grau_prioriza_a_origem():
+    """G1 e G2 do mesmo processo são documentos DIFERENTES no Datajud.
+
+    Medido em 25/08/2026 numa amostra aleatória UNIFORME de pk: 12,2% dos
+    processos achados no `voyager-acervo` têm mais de um grau. `Process.grau`
+    é escalar, então precisa de regra — e a regra é o grau de ORIGEM, porque é
+    ele que decide o produto: quem nasceu no Juizado Especial paga por RPV,
+    quem nasceu na vara comum paga por precatório. `TR`/`TRU` são as instâncias
+    recursais DO juizado, então também indicam origem no juizado.
+    """
+    from datajud.management.commands.backfill_grau import escolher_grau
+
+    assert escolher_grau(['G1', 'G2']) == 'G1'
+    assert escolher_grau(['G2', 'G1']) == 'G1'
+    assert escolher_grau(['JE', 'TR']) == 'JE'
+    assert escolher_grau(['TR']) == 'TR', 'só turma recursal ainda é juizado'
+    assert escolher_grau(['G1', 'G2', 'SUP']) == 'G1'
+    assert escolher_grau(['G2', 'SUP']) == 'G2', (
+        'sem G1 no índice, fica o que a fonte mostra — inventar o G1 que ela '
+        'não trouxe seria chute'
+    )
+    # o caso que separa os dois produtos
+    assert escolher_grau(['G1', 'G2', 'JE', 'TR']) == 'JE'
+
+
+def test_escolher_grau_descarta_valor_fora_do_dominio():
+    """Grau desconhecido não é normalizado no chute: é descartado."""
+    from datajud.management.commands.backfill_grau import escolher_grau
+
+    assert escolher_grau(['G9']) == ''
+    assert escolher_grau([None, '', 'G9']) == ''
+    assert escolher_grau(['G9', 'JE']) == 'JE'   # controle positivo

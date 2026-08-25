@@ -35,6 +35,7 @@ O que cada asserção trava (falha se o defeito voltar):
   5. texto truncado em 255 fazendo o código de um ANCESTRAL passar por folha.
 """
 from enrichers.drainer import (
+    ASSUNTO_COM_CODIGO_RE,
     CLASSE_COM_CODIGO_RE,
     normalize_dados,
     split_assunto_folha,
@@ -67,16 +68,22 @@ def test_folha_sem_parentese_de_fecho_recupera_codigo():
 
 
 def test_folha_com_parentese_de_fecho_continua_funcionando():
-    """Controle positivo do outro lado: quem fecha o parêntese não regride.
-
-    Nota medida: o regex exige 2 a 5 dígitos, então código de UM dígito (a
-    classe 7, `PROCEDIMENTO COMUM CÍVEL`) continua fora — limitação HERDADA,
-    não introduzida aqui, e registrada em .ia/ACERVO_CNJ.md.
-    """
+    """Controle positivo do outro lado: quem fecha o parêntese não regride."""
     assert split_assunto_folha('Aposentadoria por Invalidez (6095)') == (
         'Aposentadoria por Invalidez', '6095')
-    assert split_assunto_folha('Procedimento Comum (7)') == (
-        'Procedimento Comum (7)', ''), 'código de 1 dígito passou a casar'
+
+
+def test_assunto_nao_aceita_codigo_de_um_digito():
+    """Não existe assunto TPU de 1 dígito — o menor código do catálogo é 14.
+
+    Abrir o assunto para 1 dígito só criaria erro: dos 193 assuntos cuja cauda
+    parecia ter 1 dígito numa amostra de 200.000 processos, TODOS eram um
+    código de 2+ dígitos CORTADO no teto de 255 (`DIREITO PREVIDENCIÁRIO (1`
+    é `(195` truncado). Escrever `1` ali seria inventar assunto.
+    """
+    assert split_assunto_folha('Alguma coisa (7)') == ('Alguma coisa (7)', '')
+    assert split_assunto_folha('DIREITO PREVIDENCIÁRIO (1') == (
+        'DIREITO PREVIDENCIÁRIO (1', '')
 
 
 # ---------- 2. hierarquia não é nome ----------
@@ -120,6 +127,7 @@ def test_digito_no_meio_do_texto_nao_vira_codigo():
         'Procedimento (1234) Comum', ''
     ), 'código só no FIM da string — casar no meio era o bug do regex antigo'
     assert CLASSE_COM_CODIGO_RE.match('Tributário 12345 algo') is None
+    assert ASSUNTO_COM_CODIGO_RE.match('Tributário 12345 algo') is None
 
 
 def test_ano_entre_parenteses_antes_do_codigo_nao_rouba_o_lugar():
@@ -242,3 +250,38 @@ def test_planejar_abstem_no_truncado_sem_prova():
     veredito, campos = planejar(1, texto, '', None)
     assert veredito == 'abstem'
     assert campos == {}
+
+
+# ---------- classe: o código de UM dígito que o `{2,5}` nunca casou ----------
+
+def test_classe_com_codigo_de_um_digito():
+    """`PROCEDIMENTO COMUM CÍVEL (7)` é a classe mais comum do país.
+
+    O `\\d{2,5}` exigia dois dígitos e por isso NUNCA casava a classe nº 1 do
+    acervo — limite plausível que nunca falha e só não faz nada. Medido em
+    25/08/2026, 8 âncoras x 25.000 pks = 200.000 processos:
+
+        classe_nome <> '' e classe_codigo = '' ......... 3.887
+        … terminando em `(d)` de UM dígito ............. 3.717  (95,6%)
+        … e o texto era `PROCEDIMENTO COMUM CÍVEL (7)` em 3.717 de 3.717
+
+    ≈ 1,9 M processos. No `voyager-acervo` a classe 7 aparece em 28.790.468
+    documentos = 8,4% do país.
+    """
+    out = normalize_dados({'classe': 'PROCEDIMENTO COMUM CÍVEL (7)'})
+    assert out['classe_codigo'] == '7', (
+        'a classe mais comum do país voltou a ficar sem código'
+    )
+    assert out['classe_nome'] == 'PROCEDIMENTO COMUM CÍVEL'
+
+
+def test_classe_exige_o_fecho_do_parentese():
+    """1 dígito é permissivo demais para aceitar fecho opcional.
+
+    Medido: `classe_nome` sem fecho = 0 casos, hierarquia = 0, truncado em
+    255 = 0. O campo é limpo, então exigir o `)` não custa nada — e impede
+    que um `… (1` de um nome cortado vire "código 1".
+    """
+    out = normalize_dados({'classe': 'ALGUMA CLASSE CORTADA (1'})
+    assert 'classe_codigo' not in out
+    assert out['classe_nome'] == 'ALGUMA CLASSE CORTADA (1'

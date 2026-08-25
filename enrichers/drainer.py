@@ -43,41 +43,60 @@ logger = logging.getLogger('voyager.enrichers.drainer')
 DLQ_STREAM = 'voyager:enrichment:dlq'
 DLQ_MAXLEN = 10_000
 
-# Match estrito: "Procedimento Comum (1234)" → ('Procedimento Comum', '1234').
-# Sem `(` + dígitos NO FIM → fica o nome inteiro, codigo=''. Continua evitando o
-# pitfall do regex antigo `(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?`, que era opcional
-# e casava dígitos do MEIO do texto como "código" (ex.: "Tributário 12345 algo"
-# capturava 12345). NÃO volte àquele regex.
+# Dois regexes, porque os dois campos são DIFERENTES — medido, não estético.
 #
-# O `)` é OPCIONAL desde 25/08/2026 — e só o `)`, só no fim, só depois de
-# `(`+dígitos. O detalhe do PJe entrega o assunto hierárquico com o código da
-# folha SEM o parêntese de fecho:
+# CLASSE. Aceita código de **1 a 5** dígitos e EXIGE o fecho. O `{2,5}` de antes
+# nunca casava a classe mais comum do país: `PROCEDIMENTO COMUM CÍVEL (7)`.
+# Medido em 25/08/2026 (8 âncoras, 25.000 pks cada = 200.000 processos):
 #
-#   DIREITO PREVIDENCIÁRIO (195)  -  Benefícios em Espécie (6094)  -  \
-#   Auxílio-Acidente (Art. 86) (6107
-#                                   ↑ sem ')'
+#     classe_nome <> '' ................................ 98.201
+#     … e classe_codigo = '' ............................ 3.887
+#     … desses, terminando em `(d)` de UM dígito ........ 3.717  (95,6%)
+#     … terminando em `(d` SEM fecho ......................... 0
+#     … com hierarquia `  -  ` ou truncado em 255 ............ 0
 #
-# Com o fecho obrigatório o código ia para '' e o `assunto_nome` recebia a
-# HIERARQUIA INTEIRA truncada em 255. Medido em produção (12 âncoras, semente
-# 20260825, blocos de 40.000 pks = 480.000 processos varridos): dos 120.755
-# processos com `assunto_nome` e sem `assunto_codigo`, o regex ANTIGO recuperava
-# **0**; o novo recupera **105.690 (87,5%)**. A classe passava porque o PJe
-# fecha `PROCEDIMENTO COMUM CÍVEL (7)` direito — daí a assimetria da matriz da
-# auditoria (TRF3: classe cód 70,5% vs assunto cód 3,6%).
-CLASSE_COM_CODIGO_RE = re.compile(r'^(.+?)\s*\((\d{2,5})\)?\s*$')
+# Ou seja: **95,6% de todo o buraco de `classe_codigo` na porta do enricher era
+# o `{2,5}`**, e o texto era `PROCEDIMENTO COMUM CÍVEL (7)` em 3.717 de 3.717.
+# ≈ 1,9 M processos no acervo. No `voyager-acervo` (esqueleto nacional), a
+# classe 7 aparece em **28.790.468 documentos** — 8,4% do país. Só existem duas
+# classes de 1 dígito na TPU (`7` e `2`), e nenhuma delas é ambígua.
+# O fecho continua OBRIGATÓRIO aqui justamente porque 1 dígito é permissivo
+# demais: `… (1` de um nome cortado em 255 viraria "código 1".
+CLASSE_COM_CODIGO_RE = re.compile(r'^(.+?)\s*\((\d{1,5})\)\s*$')
 
-# Separador da hierarquia de assunto do PJe: DOIS espaços de cada lado do hífen.
-# Medido: `  -  ` aparece em 100% (5.598/5.598) dos assuntos sem código de uma
-# janela de 200 mil pks; ` - ` com UM espaço aparece DENTRO de nomes de folha
-# legítimos ("Crédito Direto ao Consumidor - CDC", "Agente Agressivo -
-# Eletricidade"), então cortar por ` - ` mutilaria o nome.
+# ASSUNTO. Continua exigindo **2 a 5** dígitos, e aí sim o fecho é OPCIONAL.
+#
+# Os dois lados vêm de medição:
+#   · não existe assunto TPU de 1 dígito (o menor código do catálogo é 14; as 9
+#     linhas "de 1 dígito" são os `00001`…`00009` zero-padded do TRF1, que já
+#     estão registrados como conflito). Abrir para 1 dígito só criaria erro:
+#     dos 193 assuntos cuja cauda parece ter 1 dígito na amostra de 200.000,
+#     TODOS são um código de 2+ dígitos **cortado no teto de 255**
+#     (`DIREITO PREVIDENCIÁRIO (1` é `(195` truncado).
+#   · o fecho é opcional porque o detalhe do PJe entrega o assunto hierárquico
+#     com o código da folha SEM o `)`:
+#
+#       DIREITO PREVIDENCIÁRIO (195)  -  Benefícios em Espécie (6094)  -  \
+#       Auxílio-Acidente (Art. 86) (6107
+#                                       ↑ sem ')'
+#
+#     Com o fecho obrigatório o código ia para '' e o `assunto_nome` recebia a
+#     HIERARQUIA INTEIRA truncada em 255. Medido (12 âncoras, semente 20260825,
+#     blocos de 40.000 pks = 480.000 processos): dos 120.755 processos com
+#     `assunto_nome` e sem `assunto_codigo`, o regex ANTIGO recuperava **0**;
+#     este recupera **105.690 (87,5%)**.
+#
+# Nenhum dos dois volta ao regex permissivo `(.*?)(?:\s*\(?\s*(\d{2,5})\s*\)?)?`,
+# que casava dígito do MEIO do texto como código ("Tributário 12345 algo").
+ASSUNTO_COM_CODIGO_RE = re.compile(r'^(.+?)\s*\((\d{2,5})\)?\s*$')
+
 SEP_HIERARQUIA = '  -  '
 
 
-def _split_nome_codigo(texto: str) -> tuple[str, str]:
+def _split_nome_codigo(texto: str, regex=CLASSE_COM_CODIGO_RE) -> tuple[str, str]:
     if not texto:
         return '', ''
-    m = CLASSE_COM_CODIGO_RE.match(texto)
+    m = regex.match(texto)
     if m:
         return m.group(1).strip()[:255], m.group(2)[:20]
     return texto.strip()[:255], ''
@@ -124,7 +143,7 @@ def split_assunto_folha(texto: str, truncado: bool = False) -> tuple[str, str]:
         return texto.strip()[:255], ''
     segs = [s.strip() for s in primeira.split(SEP_HIERARQUIA) if s.strip()]
     folha = segs[-1] if segs else primeira
-    return _split_nome_codigo(folha)
+    return _split_nome_codigo(folha, ASSUNTO_COM_CODIGO_RE)
 
 
 # ---------- normalização ----------
