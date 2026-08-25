@@ -553,7 +553,11 @@ então a regra é o **grau de ORIGEM** — `JE > TR > TRU > G1 > G2 > SUP` —
 porque é ele que decide o produto: quem nasceu no Juizado Especial paga por
 RPV, quem nasceu na vara comum paga por precatório.
 
-### Segunda porta do TJSP: o recorte custa 74 h, não 17
+### Segunda porta do TJSP: SUSPENSA em 25/08/2026, e por quê
+
+A abertura chegou a ser autorizada com a conta de "3,55% do TJSP ≈ 104 mil
+processos ≈ 17 h de quota". **Os dois números estavam errados**, e a medição
+que os derrubou está aqui.
 
 Amostra **aleatória uniforme por pk** — 20.000 pks sorteados com
 `random.Random(20260825)`, 19.572 existentes, **3.107 do TJSP**:
@@ -567,17 +571,22 @@ Amostra **aleatória uniforme por pk** — 20.000 pks sorteados com
 | órfãos (`nao_encontrado`/`erro`) sem datajud | 368 | 11,8% | ~1,9 M |
 | … órfãos sem datajud **e** com sinal | **11** | 0,35% | **~58 k** |
 
-A 100 rpm: o recorte inteiro custa **≈ 74 h de quota integral**; só os órfãos
-com sinal custam **≈ 9,7 h**.
+**Universo real: ~14,6 M, não 2,94 M.** Os 2,94 M eram o número de ÓRFÃOS
+(`nao_encontrado`/`erro`), não o de processos sem segunda porta.
 
-### ⚠️ LIMITAÇÃO CONHECIDA — `tem_sinal_precatorio` é sinal NOSSO, não da fonte
+**Custo real: ~74 h de quota integral, não 17 h.** Só os órfãos com sinal —
+o recorte que de fato casa com o achado 7, porque órfão é quem não tem porta
+nenhuma — custam **≈ 9,7 h**.
 
-**Se ele tiver falso-negativo, o recorte herda o erro e nunca descobrimos,
-porque só olhamos o que já marcamos.** Não escreva, em lugar nenhum, que este
-recorte "cobre o que importa".
+### 🔴 DEFEITO — o recorte filtraria por um sinal que o TJSP nunca teve
 
-E o buraco não é hipotético, nem acidental — é **de política, e está no
-código**:
+Isto **não é nota de rodapé**. `tem_sinal_precatorio` é sinal NOSSO, não da
+fonte: **se ele tiver falso-negativo, o recorte herda o erro e nunca
+descobrimos, porque só olhamos o que já marcamos.** Não escreva, em lugar
+nenhum, que este recorte "cobre o que importa".
+
+E no TJSP o sinal não tem falso-negativo — ele **não existe**, por política que
+está no código:
 
 ```python
 # tribunals/management/commands/backfill_sinal_precatorio.py:24
@@ -588,6 +597,13 @@ O comando que computa o sinal roda, por padrão, em quatro tribunais, e o TJSP
 não é um deles. Resultado medido: **25,2% do TJSP (≈ 4,1 M processos) tem
 `tem_sinal_precatorio IS NULL`** — ficam de fora do recorte **por OMISSÃO, não
 por medição**. São 9,2× o tamanho do próprio recorte (~446 k).
+
+**Abrir o refill assim seria o recorte medindo o próprio buraco** — um corte
+plausível que exclui em silêncio e devolve run verde. É literalmente o
+`for pagina in range(1, 11)` do CLAUDE.md, com outra roupa: o teto parece
+razoável, ninguém vê o que ficou de fora, e o log fica limpo.
+
+⇒ **Nenhum refill de Datajud para o TJSP até o sinal ser computado para ele.**
 
 E dá para estimar o que a omissão esconde. Entre os processos TJSP que TÊM o
 sinal medido, a taxa de positivos é 85/2.324 = **3,66%** (coerente com os 3,55%

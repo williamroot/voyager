@@ -169,23 +169,58 @@ def test_escolher_grau_prioriza_a_origem():
     """
     from datajud.management.commands.backfill_grau import escolher_grau
 
-    assert escolher_grau(['G1', 'G2']) == 'G1'
-    assert escolher_grau(['G2', 'G1']) == 'G1'
-    assert escolher_grau(['JE', 'TR']) == 'JE'
-    assert escolher_grau(['TR']) == 'TR', 'só turma recursal ainda é juizado'
-    assert escolher_grau(['G1', 'G2', 'SUP']) == 'G1'
-    assert escolher_grau(['G2', 'SUP']) == 'G2', (
+    assert escolher_grau(['G1', 'G2'])[0] == 'G1'
+    assert escolher_grau(['G2', 'G1'])[0] == 'G1'
+    assert escolher_grau(['JE', 'TR'])[0] == 'JE'
+    assert escolher_grau(['TR'])[0] == 'TR', 'só turma recursal ainda é juizado'
+    assert escolher_grau(['G1', 'G2', 'SUP'])[0] == 'G1'
+    assert escolher_grau(['G2', 'SUP'])[0] == 'G2', (
         'sem G1 no índice, fica o que a fonte mostra — inventar o G1 que ela '
         'não trouxe seria chute'
     )
-    # o caso que separa os dois produtos
-    assert escolher_grau(['G1', 'G2', 'JE', 'TR']) == 'JE'
+    # SUP nunca é origem, e os dados confirmam: JE+SUP+TR é Juizado → Turma
+    # Recursal → Pedido de Uniformização no STJ (2 casos reais na amostra).
+    assert escolher_grau(['JE', 'SUP', 'TR'])[0] == 'JE'
+    assert escolher_grau(['JE', 'SUP', 'TR', 'TRU'])[0] == 'JE'
+    # TR/TRU PROVAM juizado mesmo quando o 1º grau veio rotulado G1: medidos 52
+    # casos de `G1+TR` em que o "G1" é `01 VARA JUIZADO ESP. DA FAZENDA PUBLICA`
+    assert escolher_grau(['G1', 'G2', 'JE', 'TR'])[0] == 'JE'
+    assert escolher_grau(['G1', 'TR'])[0] == 'TR'
 
 
 def test_escolher_grau_descarta_valor_fora_do_dominio():
     """Grau desconhecido não é normalizado no chute: é descartado."""
     from datajud.management.commands.backfill_grau import escolher_grau
 
-    assert escolher_grau(['G9']) == ''
-    assert escolher_grau([None, '', 'G9']) == ''
-    assert escolher_grau(['G9', 'JE']) == 'JE'   # controle positivo
+    assert escolher_grau(['G9'])[0] == ''
+    assert escolher_grau([None, '', 'G9'])[0] == ''
+    assert escolher_grau(['G9', 'JE'])[0] == 'JE'   # controle positivo
+
+
+def test_escolher_grau_abstem_quando_a_fonte_contradiz_g1_e_je():
+    """`G1 + JE` sem `TR`/`TRU`: a FONTE se contradiz sobre o MESMO órgão.
+
+    Medido (20.000 pks, semente 20260825, 16.357 CNJs achados): 104 casos
+    (0,64%) — 94 de `G1+JE`, 7 de `G1+G2+JE`, 3 de `G1+G2+JE+SUP`. Exemplo real:
+
+        5017073-48.2024.4.04.7003 [TRF4]
+          G1  Procedimento Comum Cível                2a Vara Federal de Maringa
+          JE  Procedimento do Juizado Especial Cível  2ª Vara Federal de Maringá
+
+    São varas adjuntas que o tribunal rotula ora G1, ora JE. Marcar `JE` num
+    processo cuja classe principal é `Procedimento Comum Cível` diria RPV onde
+    é precatório — classificaria o PRODUTO errado. Abster > chutar.
+    """
+    from datajud.management.commands.backfill_grau import escolher_grau
+
+    grau, motivo = escolher_grau(['G1', 'JE'])
+    assert grau == '', 'escolheu um grau onde a fonte se contradiz'
+    assert 'contradiz' in motivo
+    assert escolher_grau(['G1', 'G2', 'JE'])[0] == ''
+    assert escolher_grau(['G1', 'G2', 'JE', 'SUP'])[0] == ''
+    # controle positivo: com TR/TRU a ambiguidade some, porque recurso
+    # inominado não existe fora do juizado
+    assert escolher_grau(['G1', 'JE', 'TR'])[0] == 'JE'
+    # controle negativo: JE sozinho ou com G2 (sem G1) não é ambíguo
+    assert escolher_grau(['JE'])[0] == 'JE'
+    assert escolher_grau(['G2', 'JE'])[0] == 'JE'

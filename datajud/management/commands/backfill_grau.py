@@ -65,17 +65,54 @@ LOTE_ES = 1_000
 #: Origem primeiro. Ver a docstring: é o que separa RPV de precatório.
 PRIORIDADE = ['JE', 'TR', 'TRU', 'G1', 'G2', 'SUP']
 
+#: Recurso inominado / uniformização só existem a partir de Juizado Especial.
+#: Quando um deles está presente, a origem no juizado está PROVADA por outro
+#: documento e não depende do rótulo do doc de 1º grau.
+PROVAM_JUIZADO = frozenset({'TR', 'TRU'})
 
-def escolher_grau(graus) -> str:
-    """Lista de graus dos documentos de um CNJ → o grau de ORIGEM.
 
-    Valor fora do domínio medido é descartado, não normalizado (regra nº 6).
+def escolher_grau(graus) -> tuple[str, str]:
+    """Graus dos documentos de um CNJ → (grau de ORIGEM, motivo da abstenção).
+
+    Devolve `('', motivo)` quando não dá para provar a origem. Valor fora do
+    domínio medido é descartado, nunca normalizado (regra nº 6).
+
+    O par `G1 + JE` sem `TR`/`TRU` é ABSTENÇÃO, e o motivo foi medido, não
+    suposto. Amostra aleatória uniforme de pk (20.000 pks, semente 20260825,
+    16.357 CNJs achados no acervo): 94 casos de `G1+JE`, mais 7 de `G1+G2+JE`
+    e 3 de `G1+G2+JE+SUP` — 104 no total, 0,64% dos achados. Olhando os
+    documentos, é a FONTE que se contradiz sobre o MESMO órgão:
+
+        5017073-48.2024.4.04.7003 [TRF4]
+          G1  Procedimento Comum Cível                2a Vara Federal de Maringa
+          JE  Procedimento do Juizado Especial Cível  2ª Vara Federal de Maringá
+
+        5001312-22.2024.4.03.6124 [TRF3]
+          G1  Procedimento Comum Cível   01ª VARA FEDERAL DE JALES COM JUIZADO…
+          JE  Petição Cível              01ª VARA FEDERAL PREVIDENCIÁRIA…
+
+    São varas adjuntas ("VARA FEDERAL … COM JUIZADO ESPECIAL FEDERAL") que o
+    tribunal rotula ora `G1`, ora `JE`. Chamar de `JE` um processo cuja classe
+    principal é `Procedimento Comum Cível` classificaria o PRODUTO errado —
+    diria RPV onde é precatório. Coluna vazia, e o job conta quantos.
+
+    Com `TR`/`TRU` no conjunto não há ambiguidade: recurso inominado não existe
+    fora do juizado. Medido: 52 casos de `G1+TR` em que o "G1" é
+    `01 VARA JUIZADO ESP. DA FAZENDA PUBLICA` — juizado rotulado como G1, e a
+    Turma Recursal é quem prova.
+
+    `SUP` nunca é origem, e os dados confirmam: `JE+SUP+TR` e `JE+SUP+TR+TRU`
+    são Juizado → Turma Recursal → Pedido de Uniformização no STJ.
     """
     vistos = {g for g in graus if g in GRAUS_CONHECIDOS}
+    if not vistos:
+        return '', 'sem grau conhecido'
+    if 'JE' in vistos and 'G1' in vistos and not (vistos & PROVAM_JUIZADO):
+        return '', 'fonte contradiz G1 x JE'
     for g in PRIORIDADE:
         if g in vistos:
-            return g
-    return ''
+            return g, ''
+    return '', 'sem grau conhecido'
 
 
 class Command(BaseCommand):
@@ -119,7 +156,7 @@ class Command(BaseCommand):
         sleep = o['sleep']
 
         tot = {'lidos': 0, 'no_acervo': 0, 'fora_do_acervo': 0,
-               'multi_grau': 0, 'escritos': 0, 'sem_grau_util': 0}
+               'multi_grau': 0, 'escritos': 0, 'abstidos': 0}
         por_grau: dict = {}
         blocos, janela = 0, []
         teto_batido = custo_caro = False
@@ -171,7 +208,10 @@ class Command(BaseCommand):
         self.stdout.write(
             f'lidos {tot["lidos"]:,} · no acervo {tot["no_acervo"]:,} · fora '
             f'{tot["fora_do_acervo"]:,} · multi-grau {tot["multi_grau"]:,} · '
-            f'escritos {tot["escritos"]:,}')
+            f'abstidos {tot["abstidos"]:,} · escritos {tot["escritos"]:,}')
+        if tot.get('_motivos'):
+            self.stdout.write('  abstenções: ' + ' · '.join(
+                f'{k}={v:,}' for k, v in tot['_motivos'].items()))
         self.stdout.write('  ' + ' · '.join(
             f'{k}={v:,}' for k, v in sorted(por_grau.items(), key=lambda x: -x[1])))
         self.stdout.write(f'{blocos} blocos · {dur:.1f}s · pk {cur_pk:,}/{topo:,}')
@@ -240,9 +280,11 @@ class Command(BaseCommand):
             tot['no_acervo'] += len(pks)
             if len({g for g in graus if g}) > 1:
                 tot['multi_grau'] += len(pks)
-            g = escolher_grau(graus)
+            g, motivo = escolher_grau(graus)
             if not g:
-                tot['sem_grau_util'] += len(pks)
+                tot['abstidos'] += len(pks)
+                tot.setdefault('_motivos', {})
+                tot['_motivos'][motivo] = tot['_motivos'].get(motivo, 0) + len(pks)
                 continue
             por_grau[g] = por_grau.get(g, 0) + len(pks)
             pares.extend((pk, g) for pk in pks)
