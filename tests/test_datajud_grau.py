@@ -26,7 +26,17 @@ migration 0052 acabou de desfazer ao tornar a coluna NULL.
 import logging
 from types import SimpleNamespace
 
+import pytest
+
+from datajud import ingestion
 from datajud.ingestion import GRAUS_CONHECIDOS, _meta_updates_from_source
+
+
+@pytest.fixture(autouse=True)
+def _coluna_grau_existe(monkeypatch):
+    """Estes testes são de PARSER, não de banco. A guarda de coluna é testada
+    à parte, em `test_sem_coluna_no_banco_nao_escreve_grau`."""
+    monkeypatch.setattr(ingestion, '_COLUNA_GRAU', [True])
 
 
 def _proc(grau=''):
@@ -125,3 +135,21 @@ def test_grau_nao_atrapalha_os_campos_que_ja_funcionavam():
     assert upd['grau'] == 'G1'
     assert upd['classe_codigo'] == '12078'
     assert upd['assunto_codigo'] == '10441'
+
+
+def test_sem_coluna_no_banco_nao_escreve_grau(monkeypatch):
+    """Ordem de deploy: o model tem `grau` desde a 0052, mas o `ALTER TABLE`
+    sobre 102 M de linhas sob escrita pode não ter passado.
+
+    Se este código subir antes do ALTER, um `UPDATE ... SET grau = %s` derruba
+    a sincronização INTEIRA — e leva junto os campos que já funcionavam. Aqui a
+    guarda tem que abrir mão só do `grau`.
+    """
+    monkeypatch.setattr(ingestion, '_COLUNA_GRAU', [False])
+    upd = _meta_updates_from_source(_proc(), {
+        'grau': 'JE',
+        'classe': {'codigo': 12078, 'nome': 'Cumprimento de Sentença'},
+    })
+    assert 'grau' not in upd, 'ia escrever numa coluna que não existe no banco'
+    # controle positivo: o resto NÃO pode ser sacrificado junto
+    assert upd['classe_codigo'] == '12078'

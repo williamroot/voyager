@@ -75,6 +75,43 @@ def _as_dict(x) -> dict:
 #: sabe dizer que está vazia.
 GRAUS_CONHECIDOS = frozenset({'G1', 'G2', 'JE', 'SUP', 'TR', 'TRU'})
 
+#: memo de uma consulta só; lista para não precisar de `global`
+_COLUNA_GRAU: list = []
+
+
+def coluna_grau_existe() -> bool:
+    """A coluna `grau` já está NO BANCO? (não no model — no banco.)
+
+    Esta casa já foi mordida três vezes esta semana pela família "declarado no
+    ESTADO, ausente do banco": os 3 índices fantasma da 0051, o trigger
+    `mov_update_process_agg`, os `pp_total_ins`/`pp_total_del`. Aqui o risco é
+    o inverso e é de ORDEM DE DEPLOY: `Process.grau` existe no model desde a
+    migration 0052, mas o `ALTER TABLE` sobre uma tabela de 102 M linhas sob
+    escrita constante pode não ter passado ainda. Se este código subir antes do
+    ALTER, o `UPDATE ... SET grau = %s` derruba a sincronização inteira — e
+    junto com ela os campos que JÁ funcionavam (classe, assunto, órgão, data).
+
+    Uma consulta por processo, memorizada. `False` = `grau` simplesmente não é
+    escrito; nada mais muda.
+    """
+    if not _COLUNA_GRAU:
+        from django.db import connection
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'tribunals_process' AND column_name = 'grau'"
+                )
+                existe = cur.fetchone() is not None
+        except Exception as e:
+            logger.warning('não deu pra conferir a coluna grau (%s) — não escrevo', e)
+            return False
+        if not existe:
+            logger.warning('coluna `grau` ainda não existe no banco — o Datajud '
+                           'segue gravando o resto, e `grau` fica de fora')
+        _COLUNA_GRAU.append(existe)
+    return _COLUNA_GRAU[0]
+
 
 def _meta_updates_from_source(processo: Process, source: dict) -> dict:
     """Extrai metadados do `_source` do Datajud e devolve dict de updates
@@ -85,7 +122,8 @@ def _meta_updates_from_source(processo: Process, source: dict) -> dict:
 
     grau = str(source.get('grau') or '').strip().upper()
     if grau in GRAUS_CONHECIDOS and not getattr(processo, 'grau', ''):
-        upd['grau'] = grau
+        if coluna_grau_existe():
+            upd['grau'] = grau
     elif grau and grau not in GRAUS_CONHECIDOS:
         logger.warning('datajud: grau fora do domínio (%r) em %s — abstendo',
                        grau, getattr(processo, 'numero_cnj', '?'))
