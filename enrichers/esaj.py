@@ -49,6 +49,90 @@ DEFAULT_HEADERS = {
 _CNJ_RE = re.compile(r'^\d{20}$')
 
 
+# --- Classificação da resposta do e-SAJ --------------------------------------
+#
+# Sonda ao vivo de 25/08/2026 (62 requisições a `esaj.tjsp.jus.br`, 3 s entre
+# elas, amostra de semente 20260825): o e-SAJ devolve HTTP 200 para CINCO
+# páginas estruturalmente diferentes, e o código tratava três delas como se
+# fossem a mesma coisa. As fixtures REAIS de cada uma estão em
+# `tests/fixtures/tjsp/`.
+#
+#   detalhe      o cadastro do processo (com ou sem `classeProcesso`)
+#   nao_existe   "Não existem informações disponíveis..." (70.439 bytes)
+#   segredo      "É necessário informar uma senha... segredo de justiça"
+#                (32.963 bytes) — chega por redirect ao `show.do`, tem o
+#                container de dados VAZIO e nenhum campo do cadastro
+#   lista        vários resultados para o mesmo número unificado
+#                (1º grau `#listagemDeProcessos`; 2º grau `#modalIncidentes`
+#                "Selecione o processo") — o dado está a UM clique
+#   ambiguo      qualquer outra coisa (soft-error/throttle) ⇒ re-tentável
+#
+# DUAS armadilhas medidas, as duas do mesmo tipo — teste de SUBSTRING numa
+# página inteira:
+#
+# 1. `'classeProcesso' in resp.text` (o teste de "achou" até aqui) casa a
+#    CLASSE CSS `<div class="classeProcesso">` da página de LISTA. Resultado:
+#    a lista era lida como detalhe, `select_one('#classeProcesso')` não achava
+#    nada e o processo virava `ok` com o cadastro inteiro vazio.
+# 2. A frase "É necessário informar uma senha para acessar processo em segredo
+#    de justiça" está dentro de `<form id="popupSenha" style="display: none;">`
+#    em TODA página de detalhe do e-SAJ — 36 das 62 páginas baixadas na sonda a
+#    contêm, e 33 dessas 36 são detalhes normais COM partes. Detector por frase
+#    marcaria segredo em processo bom, apagando-o do funil.
+#
+# Por isso tudo aqui é ESTRUTURAL (`id="..."`), nunca frase solta.
+DESFECHO_DETALHE = 'detalhe'
+DESFECHO_NAO_EXISTE = 'nao_existe'
+DESFECHO_SEGREDO = 'segredo'
+DESFECHO_LISTA = 'lista'
+DESFECHO_AMBIGUO = 'ambiguo'
+
+# `id="..."` que SÓ existem na página de cadastro. A página de lista tem
+# `class="classeProcesso"` (classe CSS), nunca `id="classeProcesso"` — é essa
+# distinção que separa uma da outra. Inclui os campos do 2º grau
+# (`secaoProcesso`/`orgaoJulgadorProcesso`/`relatorProcesso`) e a tabela de
+# partes, porque existe variante REAL de detalhe SEM `classeProcesso`
+# (fixture `esaj_cpopg_detalhe_sem_classe.html`, uma Carta Precatória Cível
+# com partes, assunto, foro e vara, e nenhuma classe).
+_IDS_DETALHE = (
+    'id="classeProcesso"', 'id="numeroProcesso"', 'id="assuntoProcesso"',
+    'id="foroProcesso"', 'id="varaProcesso"', 'id="tablePartesPrincipais"',
+    'id="orgaoJulgadorProcesso"', 'id="relatorProcesso"', 'id="secaoProcesso"',
+)
+# Marcador de "não existe" — o ÚNICO desfecho terminal do e-SAJ (2026-07-06).
+_RE_NAO_EXISTE = re.compile(r'[Nn][ãa]o existem informa')
+# Lista de resultados: 1º grau e 2º grau usam contêineres diferentes.
+_IDS_LISTA = ('id="listagemDeProcessos"', 'id="modalIncidentes"')
+# Segredo: o cabeçalho do processo existe (chegamos no `show.do`) e o
+# formulário de senha está lá, mas o container de dados veio VAZIO.
+_ID_CONTAINER = 'id="containerDadosPrincipaisProcesso"'
+_ID_POPUP_SENHA = 'id="popupSenha"'
+
+
+def classificar_resposta(html: str) -> str:
+    """Classifica um HTTP 200 do e-SAJ em um dos cinco desfechos acima.
+
+    Conservador de propósito: `segredo` exige a AUSÊNCIA de todos os campos do
+    cadastro, então nenhuma página que traga dado é rotulada segredo. Falso
+    positivo aqui apagaria processo bom do funil.
+    """
+    texto = html or ''
+    if _RE_NAO_EXISTE.search(texto):
+        return DESFECHO_NAO_EXISTE
+    tem_cadastro = any(marca in texto for marca in _IDS_DETALHE)
+    if tem_cadastro:
+        return DESFECHO_DETALHE
+    if any(marca in texto for marca in _IDS_LISTA):
+        return DESFECHO_LISTA
+    if _ID_CONTAINER in texto and _ID_POPUP_SENHA in texto:
+        return DESFECHO_SEGREDO
+    return DESFECHO_AMBIGUO
+
+
+def _so_digitos(valor: str) -> str:
+    return re.sub(r'\D', '', valor or '')
+
+
 class EsajEnricherError(Exception):
     pass
 
@@ -99,12 +183,44 @@ class BaseEsajEnricher:
 
     MAX_INCIDENTES = 12  # teto de incidentes seguidos por processo (custo de proxy)
 
+    @classmethod
+    def fora_do_esaj(cls, numero_cnj: str) -> Optional[str]:
+        """Motivo pelo qual este CNJ NÃO está no e-SAJ — ou None.
+
+        Base: nenhum. Só o TJSP tem faixa medida (ver `TjspEnricher`).
+        """
+        return None
+
+    def _recusar_fora_do_esaj(self, processo: Process, motivo: str,
+                              direct_apply: bool) -> dict:
+        """Recusa CONTADA, nunca corte mudo (regra nº 2 do CLAUDE.md).
+
+        Cada recusa entra num contador por tribunal que sai em ERROR no refill
+        e em `manage.py enrich_fora_do_esaj`. Recorte que não se anuncia é o
+        `for pagina in range(1, 11)` outra vez.
+        """
+        from .jobs import registrar_fora_do_esaj
+        registrar_fora_do_esaj(self.TRIBUNAL_SIGLA, motivo)
+        self._emit(stream.build_nao_encontrado_payload(
+            process_id=processo.pk, tribunal=processo.tribunal_id,
+            numero_cnj=processo.numero_cnj,
+            scraped_at=timezone.now().astimezone(_dt.timezone.utc).isoformat(),
+        ), direct_apply)
+        return {'cnj': processo.numero_cnj, 'status': 'nao_encontrado',
+                'fora_do_esaj': motivo, 'requisicoes': 0}
+
     def enriquecer(self, processo: Process, direct_apply: bool = False,
                    seguir_incidentes: bool = False) -> dict:
         if processo.tribunal_id != self.TRIBUNAL_SIGLA:
             raise EsajEnricherError(
                 f'Tribunal {processo.tribunal_id} não suportado por {self.__class__.__name__}.'
             )
+
+        # Faixa que a fonte já provou não ter: não gastamos requisição nem IP
+        # do pool COMPARTILHADO pra ouvir "não existe" garantido.
+        motivo = self.fora_do_esaj(processo.numero_cnj)
+        if motivo:
+            return self._recusar_fora_do_esaj(processo, motivo, direct_apply)
 
         base = {
             'process_id': processo.pk,
@@ -118,49 +234,50 @@ class BaseEsajEnricher:
         grau = self._grau(processo.numero_cnj)
 
         try:
-            html = self._fetch_processo(processo.numero_cnj, grau)
+            desfecho, html = self._fetch_processo(processo.numero_cnj, grau)
         except Exception as exc:
             self._emit(stream.build_erro_payload(**base, erro=f'busca: {exc}'), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
-        if html is None:
+        if desfecho == DESFECHO_NAO_EXISTE:
             self._emit(stream.build_nao_encontrado_payload(**base), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'nao_encontrado'}
+
+        if desfecho == DESFECHO_SEGREDO:
+            # A fonte RESPONDEU: o processo existe e corre em segredo de
+            # justiça. Isso não é `nao_encontrado` (o processo existe) nem um
+            # `ok` mudo com o cadastro vazio (era o que acontecia: 17,5% dos
+            # `ok` do TJSP não tinham nenhuma parte, ≈ 302 k processos
+            # rotulados "enriquecido" sobre uma página de senha).
+            # Gravamos o único dado que a fonte deu — `segredo_justica=True` —
+            # e NENHUM campo inventado. Ver regra nº 6 do CLAUDE.md.
+            self.logger.info('processo em segredo de justiça',
+                             extra={'cnj': processo.numero_cnj,
+                                    'process_id': processo.pk})
+            self._emit(
+                stream.build_ok_payload(
+                    **base, dados={'segredo_justica': True},
+                    partes={'ativo': [], 'passivo': [], 'outros': []}),
+                direct_apply)
+            return {'cnj': processo.numero_cnj, 'status': 'segredo',
+                    'segredo_justica': True, 'partes_total': 0}
 
         try:
             soup = BeautifulSoup(html, 'html.parser')
             dados = self._extrair_dados(soup, grau)
+            # Chegamos no cadastro e ele veio: PERGUNTAMOS e a fonte disse que
+            # não corre em segredo. Antes, o `default=False` do BooleanField
+            # dizia isso por nós, sem ninguém ter perguntado uma vez —
+            # `segredo_justica=true` em 0 de 91.638.494 documentos do índice.
+            dados['segredo_justica'] = False
             partes = self._extrair_partes(soup)
         except Exception as exc:
             self.logger.exception('falha ao parsear detalhe', extra={'cnj': processo.numero_cnj})
             self._emit(stream.build_erro_payload(**base, erro=f'parse: {exc}'), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
-        # Incidente-following (só no fetch manual/dossiê): no e-SAJ cada parte/
-        # beneficiário costuma ter um incidente próprio (o precatório/requisição
-        # dela). A página principal mostra o processo-pai; os dados por parte
-        # estão nos incidentes. Segue os links de incidente, parseia cada um e
-        # AGREGA as partes (+ o maior valor). Espelha o Juriscope (esajsp.py).
-        n_inc = 0
-        if seguir_incidentes:
-            for href in self._extrair_incidentes(soup)[:self.MAX_INCIDENTES]:
-                try:
-                    ihtml = self._fetch_incidente(href)
-                except Exception:
-                    continue
-                if not ihtml:
-                    continue
-                try:
-                    isoup = BeautifulSoup(ihtml, 'html.parser')
-                    self._merge_partes(partes, self._extrair_partes(isoup))
-                    idados = self._extrair_dados(isoup, grau)
-                    if idados.get('valor_causa') and not dados.get('valor_causa'):
-                        dados['valor_causa'] = idados['valor_causa']
-                    if idados.get('classe') and 'precat' in (idados['classe'] or '').lower():
-                        dados['classe'] = idados['classe']
-                    n_inc += 1
-                except Exception:
-                    continue
+        n_inc = (self._agregar_incidentes(soup, dados, partes, grau)
+                 if seguir_incidentes else 0)
 
         self._emit(stream.build_ok_payload(**base, dados=dados, partes=partes), direct_apply)
         return {
@@ -170,6 +287,33 @@ class BaseEsajEnricher:
             'partes_total': sum(len(v) for v in partes.values()),
             'incidentes_seguidos': n_inc,
         }
+
+    def _agregar_incidentes(self, soup, dados: dict, partes: dict, grau: str) -> int:
+        """Incidente-following (só no fetch manual/dossiê): no e-SAJ cada parte/
+        beneficiário costuma ter um incidente próprio (o precatório/requisição
+        dela). A página principal mostra o processo-pai; os dados por parte
+        estão nos incidentes. Segue os links, parseia cada um e AGREGA as
+        partes (+ o maior valor). Espelha o Juriscope (esajsp.py)."""
+        n_inc = 0
+        for href in self._extrair_incidentes(soup)[:self.MAX_INCIDENTES]:
+            try:
+                ihtml = self._fetch_incidente(href)
+            except Exception:
+                continue
+            if not ihtml:
+                continue
+            try:
+                isoup = BeautifulSoup(ihtml, 'html.parser')
+                self._merge_partes(partes, self._extrair_partes(isoup))
+                idados = self._extrair_dados(isoup, grau)
+                if idados.get('valor_causa') and not dados.get('valor_causa'):
+                    dados['valor_causa'] = idados['valor_causa']
+                if idados.get('classe') and 'precat' in (idados['classe'] or '').lower():
+                    dados['classe'] = idados['classe']
+                n_inc += 1
+            except Exception:
+                continue
+        return n_inc
 
     @staticmethod
     def _merge_partes(dest: dict, novo: dict) -> None:
@@ -282,8 +426,8 @@ class BaseEsajEnricher:
             })
         return params
 
-    def _fetch_processo(self, cnj_raw: str, grau: str = '1g') -> Optional[str]:
-        """Retorna o HTML do detalhe ou None se o processo não foi encontrado.
+    def _fetch_processo(self, cnj_raw: str, grau: str = '1g') -> tuple[str, Optional[str]]:
+        """Retorna `(desfecho, html)` — ver `classificar_resposta`.
 
         Roteia por grau: 1º grau → `/cpopg/`; 2º grau → `/{CPOSG_PATH}/` (cposg
         no TJSP, cposg5 no TJAL). O detalhe dos dois tem a MESMA estrutura de
@@ -295,8 +439,10 @@ class BaseEsajEnricher:
         sequência inteira (limite MAX_PROXY_ROTATIONS). 403/429/transporte marcam
         o proxy como bad; 5xx é culpa do servidor — rotaciona sem queimar o IP.
 
-        Detecção de "não encontrado": sem resultado, search.do retorna a própria
-        página de busca (`formConsulta`) sem os campos do detalhe.
+        Detecção de "não encontrado": SÓ o marcador explícito "Não existem
+        informações" do e-SAJ. Qualquer 200 que não seja detalhe, segredo,
+        lista nem not-found é TRANSITÓRIO — rotaciona e, esgotando as rotações,
+        vira `erro` (re-tentável), nunca falso-negativo terminal.
         """
         cnj_fmt = _format_cnj(cnj_raw)
         params = self._build_search_params(cnj_fmt, grau)
@@ -346,23 +492,108 @@ class BaseEsajEnricher:
                 continue
             resp.raise_for_status()
 
-            # ENCONTRADO: redirect pro detalhe OU campos do detalhe presentes.
-            # (`classeProcesso` só aparece na página de detalhe, nunca no form.)
-            if resp.history or 'classeProcesso' in resp.text:
-                return resp.text
-            # NÃO ENCONTRADO explícito do e-SAJ — só ISSO marca terminal.
-            if 'Não existem informações' in resp.text or 'ao existem informa' in resp.text:
-                return None
-            # 200 AMBÍGUO (nem detalhe nem not-found explícito) = provável soft-error/
-            # throttle do e-SAJ vindo com 200. Tratar como TRANSITÓRIO: rotaciona.
-            # Se esgotar rotações, vira 'erro' (re-tentável) — nunca falso-negativo
-            # terminal (era o bug: 3,25M TJSP presos em nao_encontrado — 2026-07-06).
-            last_erro = 'resposta 200 ambígua (sem detalhe nem not-found explícito)'
+            resolvido = self._resolver_200(resp.text, cnj_fmt, path, proxies)
+            if resolvido is not None:
+                return resolvido
+            # 200 AMBÍGUO = provável soft-error/throttle do e-SAJ vindo com 200,
+            # ou lista sem o nosso número. TRANSITÓRIO: rotaciona. Se esgotar as
+            # rotações vira 'erro' (re-tentável) — nunca falso-negativo terminal
+            # (era o bug: 3,25M TJSP presos em nao_encontrado — 2026-07-06).
+            last_erro = 'resposta 200 sem cadastro, sem lista útil e sem not-found'
             continue
 
         raise EsajEnricherError(
             f'{len(tentados)} proxies tentados sem sucesso'
             + (f' (último: {last_erro})' if last_erro else ''))
+
+    def _resolver_200(self, html: str, cnj_fmt: str, path: str,
+                      proxies: dict) -> Optional[tuple[str, Optional[str]]]:
+        """`(desfecho, html)` quando o 200 é conclusivo; None para rotacionar.
+
+        A página de LISTA é conclusiva num segundo passo: o dado está a UM
+        clique. Sem seguir o link, ela caía em "200 ambíguo", queimava as 8
+        rotações de IP e terminava em `erro` com o cadastro visível na tela —
+        6 das 62 respostas da sonda de 25/08/2026 (4 das 8 do estrato de 2º grau).
+        """
+        desfecho = classificar_resposta(html)
+        if desfecho == DESFECHO_LISTA:
+            seguido = self._seguir_lista(html, cnj_fmt, path, proxies)
+            if seguido is None:
+                return None
+            html, desfecho = seguido, classificar_resposta(seguido)
+        if desfecho == DESFECHO_NAO_EXISTE:
+            # NÃO ENCONTRADO explícito do e-SAJ — só ISSO marca terminal.
+            return DESFECHO_NAO_EXISTE, None
+        if desfecho in (DESFECHO_DETALHE, DESFECHO_SEGREDO):
+            return desfecho, html
+        return None
+
+    def _extrair_link_lista(self, html: str, cnj_fmt: str, path: str) -> Optional[str]:
+        """URL do processo PEDIDO dentro de uma página de lista, ou None.
+
+        Duas formas reais (fixtures `esaj_cpopg_lista.html` e
+        `esaj_cposg_lista.html`):
+
+        - **1º grau** — `#listagemDeProcessos` com `<a class="linkProcesso"
+          href="/cpopg/show.do?processo.codigo=...">NNNNNNN-DD.AAAA.J.TR.OOOO</a>`.
+        - **2º grau** — `#modalIncidentes` ("Selecione o processo") com
+          `<input type="radio" name="processoSelecionado" value="<codigo>">`
+          e o número num `<em>` irmão. A URL se monta:
+          `/{path}/show.do?processo.codigo=<codigo>&processo.numero=<cnj>`
+          (conferido ao vivo em 25/08/2026: 200 com 120.429 bytes, com
+          `classeProcesso` e `tablePartesPrincipais`; `processo.foro` é
+          dispensável).
+
+        Casa SEMPRE pelo número, nunca pela posição: a lista mistura o
+        processo com seus incidentes/recursos, e pegar "o primeiro" traria o
+        cadastro de OUTRO processo — inventar dado é pior que não ter.
+        """
+        alvo = _so_digitos(cnj_fmt)
+        soup = BeautifulSoup(html, 'html.parser')
+
+        for a in soup.select('a[href*="show.do"]'):
+            if _so_digitos(a.get_text(strip=True)) == alvo:
+                href = a.get('href') or ''
+                if href:
+                    return href if href.startswith('http') else f'{self.BASE_URL}{href}'
+
+        for inp in soup.select('input[name="processoSelecionado"][value]'):
+            bloco = inp.find_parent()
+            for _ in range(3):
+                if bloco is None:
+                    break
+                if alvo in _so_digitos(bloco.get_text(' ', strip=True)):
+                    codigo = inp.get('value') or ''
+                    if codigo:
+                        return (f'{self.BASE_URL}/{path}/show.do'
+                                f'?processo.codigo={codigo}&processo.numero={cnj_fmt}')
+                    break
+                bloco = bloco.find_parent()
+        return None
+
+    def _seguir_lista(self, html: str, cnj_fmt: str, path: str,
+                      proxies: dict) -> Optional[str]:
+        """Segue o link da lista pelo MESMO IP (o e-SAJ atrela o JSESSIONID ao
+        IP). Devolve o HTML da página apontada, ou None se não houver link
+        para o nosso número ou se a requisição falhar — o chamador trata como
+        ambíguo e rotaciona, jamais como terminal."""
+        try:
+            url = self._extrair_link_lista(html, cnj_fmt, path)
+        except Exception:
+            self.logger.exception('falha ao ler a lista de processos',
+                                  extra={'cnj': cnj_fmt})
+            return None
+        if not url:
+            return None
+        try:
+            resp = self.session.get(url, proxies=proxies, timeout=self.timeout,
+                                    allow_redirects=True)
+        except (requests.ConnectionError, requests.Timeout,
+                requests.exceptions.ChunkedEncodingError):
+            return None
+        if resp.status_code != 200:
+            return None
+        return resp.text
 
     def _fetch_incidente(self, href: str) -> Optional[str]:
         """Detalhe de um incidente pelo href real do link `.incidente` (que já
@@ -547,6 +778,56 @@ class TjspEnricher(BaseEsajEnricher):
     BASE_URL = 'https://esaj.tjsp.jus.br'
     TRIBUNAL_SIGLA = 'TJSP'
     LOG_NAME = 'voyager.enrichers.tjsp'
+
+    # --- O TJSP tem um SEGUNDO sistema, e o e-SAJ não sabe dele -------------
+    #
+    # Achado de 25/08/2026. O TJSP roda **eproc** em paralelo ao e-SAJ, e os
+    # processos nascidos nele recebem sequencial de CNJ começando em `4`. O
+    # `link` da própria publicação DJEN denuncia o sistema: prefixo 4 aponta
+    # `https://eproc1g.tjsp.jus.br/...` / `eproc2g`, enquanto prefixo 0/1
+    # aponta `https://www.dje.tjsp.jus.br`. Conferido lendo as movimentações
+    # reais desses processos.
+    #
+    # Prova ao vivo: **16 de 16** CNJ de prefixo 4 dos anos 2025 e 2026
+    # devolveram a MESMA página determinística de 70.439 bytes, "Não existem
+    # informações disponíveis". Não é intermitência, não é WAF, não é o
+    # parser — o e-SAJ simplesmente não tem esses autos.
+    #
+    # Tamanho (amostra de 15.443 linhas TJSP, semente 20260825, projetada
+    # sobre os 16.326.948 processos do tribunal com status):
+    #   prefixo 4 = 18,0% do TJSP ≈ **2.940.182 processos**, com
+    #   **0,1% de `ok`**, 37,2% de `nao_encontrado` e 62,7% ainda `pendente`.
+    #
+    # Por que recusar em vez de tentar: cada job desses gasta até
+    # MAX_PROXY_ROTATIONS IPs do pool, que é **COMPARTILHADO com todos os
+    # tribunais** — a fronteira do refill estava dentro desta faixa e queimava
+    # ~10 mil requisições/h para ouvir um "não existe" garantido.
+    #
+    # ⚠️ O corte é `prefixo 4` **E** `ano >= 2025`, não o prefixo sozinho:
+    # medido na mesma janela, CNJ de prefixo 4 e ano 2013 ESTÃO no e-SAJ e
+    # devolvem `ok` (33 de 33 numa janela de 45 min). Generalizar o prefixo
+    # apagaria processo bom.
+    #
+    # A porta do eproc existe e é pública — `eproc-consulta.tjsp.jus.br/
+    # consulta_1g/`, sem login — mas está atrás de Cloudflare Turnstile com
+    # verificação no servidor. Abri-la é decisão de produto, não de parser.
+    EPROC_PREFIXO = '4'
+    EPROC_ANO_MINIMO = 2025
+
+    @classmethod
+    def fora_do_esaj(cls, numero_cnj: str) -> Optional[str]:
+        digitos = _so_digitos(numero_cnj)
+        if len(digitos) != 20:
+            return None
+        if digitos[0] != cls.EPROC_PREFIXO:
+            return None
+        try:
+            ano = int(digitos[9:13])
+        except ValueError:
+            return None
+        if ano < cls.EPROC_ANO_MINIMO:
+            return None
+        return 'eproc'
 
 
 class TjacEnricher(BaseEsajEnricher):

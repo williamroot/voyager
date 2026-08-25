@@ -30,9 +30,12 @@ def _queue(n, nome='enrich_tjx'):
 
 
 def _process_objects(pendentes):
+    """`pendentes` é lista de pk; o refill lê (pk, numero_cnj) desde 25/08/2026
+    (o segundo campo é o que separa a faixa que a fonte não tem)."""
     qs = MagicMock()
+    linhas = [(pk, f'{pk:07d}-11.2024.8.26.0100') for pk in pendentes]
     (qs.filter.return_value.values_list.return_value
-       .__getitem__.side_effect) = lambda s: pendentes
+       .__getitem__.side_effect) = lambda s: linhas
     return qs
 
 
@@ -131,3 +134,64 @@ def test_profundidade_alvo_vem_da_vazao_medida():
         assert jobs._profundidade_alvo(conn, 'enrich_tjx') == jobs.ENRICH_QUEUE_MIN
         reg.return_value.__len__ = lambda self: 10_000_000  # nunca acima do teto duro
         assert jobs._profundidade_alvo(conn, 'enrich_tjx') == jobs.QUEUE_HIGH_WATER
+
+
+def test_refill_fecha_a_faixa_fora_da_fonte_em_LOTE_e_nao_a_enfileira():
+    """A faixa que a fonte não tem sai de `pendente` por UPDATE em lote, não
+    virando job.
+
+    Achado de 25/08/2026: ~2,94 M processos do TJSP estão no **eproc**, e o
+    e-SAJ devolve "Não existem informações" para 16 de 16. Se cada um virasse
+    job, o worker resolveria sem rede — e 40 réplicas sem rede publicam
+    milhares de events por SEGUNDO num stream que tem `MAXLEN` e é
+    **compartilhado com todos os tribunais**: o TJSP expulsaria os events de
+    TRF1/TJMG antes de o drainer aplicá-los. Em lote é 1 UPDATE e 0 event.
+    """
+    from enrichers.esaj import TjspEnricher
+
+    q = _queue(0)
+    linhas = [
+        (1, '4003768-40.2026.8.26.0005'),   # eproc → fecha em lote
+        (2, '4025723-42.2026.8.26.0001'),   # eproc → fecha em lote
+        (3, '1054271-51.2024.8.26.0114'),   # e-SAJ → enfileira
+    ]
+    qs = MagicMock()
+    (qs.filter.return_value.values_list.return_value
+       .__getitem__.side_effect) = lambda s: linhas
+    qs.filter.return_value.update.return_value = 2
+
+    with patch.object(jobs, '_ENRICHERS', {'TJSP': TjspEnricher}), \
+         patch('enrichers.jobs.django_rq.get_queue', return_value=q), \
+         patch('enrichers.jobs.queue_for', return_value='enrich_tjsp'), \
+         patch('enrichers.jobs._profundidade_alvo', return_value=2_000), \
+         patch('enrichers.jobs._filtrar_em_voo', side_effect=lambda c, s, ids, n: ids[:n]), \
+         patch('enrichers.jobs.registrar_fora_do_esaj') as contador, \
+         patch('enrichers.jobs.Process.objects', qs):
+        rel = jobs._reabastecer_impl()
+
+    # só o processo do e-SAJ virou job
+    assert [c.args[1] for c in q.enqueue.call_args_list] == [3]
+    # os dois do eproc saíram de `pendente` por UPDATE, com carimbo de tempo
+    update_kw = qs.filter.return_value.update.call_args.kwargs
+    assert update_kw['enriquecimento_status'] == 'nao_encontrado'
+    assert 'enriquecido_em' in update_kw
+    # e a recusa foi CONTADA (regra nº 2: teto é alerta, nunca corte mudo)
+    contador.assert_called_once_with('TJSP', 'eproc', 2)
+    assert 'fora da fonte 2' in rel['TJSP']
+
+
+def test_tribunal_sem_faixa_medida_nao_perde_ninguem():
+    """CONTROLE NEGATIVO: quem não tem `fora_do_esaj` segue enfileirando tudo.
+    Abster > chutar — recusar faixa por analogia apagaria acervo."""
+    q = _queue(0)
+    with patch.object(jobs, '_ENRICHERS', {'TJX': object}), \
+         patch('enrichers.jobs.django_rq.get_queue', return_value=q), \
+         patch('enrichers.jobs.queue_for', return_value='enrich_tjx'), \
+         patch('enrichers.jobs._profundidade_alvo', return_value=2_000), \
+         patch('enrichers.jobs._filtrar_em_voo', side_effect=lambda c, s, ids, n: ids[:n]), \
+         patch('enrichers.jobs.registrar_fora_do_esaj') as contador, \
+         patch('tribunals.models.Process.objects', _process_objects([1, 2, 3])):
+        rel = jobs._reabastecer_impl()
+    assert [c.args[1] for c in q.enqueue.call_args_list] == [1, 2, 3]
+    contador.assert_not_called()
+    assert 'fora da fonte' not in rel['TJX']

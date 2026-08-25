@@ -88,6 +88,47 @@ def set_cortex_only(siglas: set[str]) -> None:
     cache.set(_CORTEX_ONLY_KEY, sorted(s.upper() for s in siglas), timeout=None)
 
 
+# --- Faixa que a fonte não tem: recusa CONTADA, nunca corte mudo ------------
+# Um enricher pode saber, sem gastar requisição, que a fonte dele não tem
+# aquele processo — o caso medido é o TJSP, cuja faixa `eproc` (sequencial
+# começando em 4, ano >= 2025, ≈ 2,94 M processos) devolveu "Não existem
+# informações" em 16 de 16 sondas ao vivo. Recusar economiza ~10 mil
+# requisições/h e até 8 IPs do pool COMPARTILHADO por job.
+#
+# Regra nº 2 do CLAUDE.md: teto é alerta, nunca `return` discreto. Cada recusa
+# incrementa um hash no Redis (`sigla|motivo` -> contagem) e o refill imprime
+# o censo em ERROR a cada passada em que ele cresceu. Sem isso, 2,94 M de
+# processos sairiam de `pendente` sem ninguém nunca ver por quê.
+_FORA_DO_ESAJ_KEY = 'enrich:fora_da_fonte'
+
+
+def registrar_fora_do_esaj(sigla: str, motivo: str, quantos: int = 1) -> None:
+    """Conta recusas por faixa. Best-effort: contador não pode derrubar job."""
+    try:
+        conn = django_rq.get_connection('default')
+        conn.hincrby(_FORA_DO_ESAJ_KEY, f'{(sigla or "?").upper()}|{motivo}', quantos)
+    except Exception:
+        logger.warning('falha ao contar recusa fora-da-fonte',
+                       extra={'sigla': sigla, 'motivo': motivo})
+
+
+def censo_fora_do_esaj() -> dict[str, int]:
+    """`{'TJSP|eproc': 123456}` — quantos processos foram recusados por faixa."""
+    try:
+        conn = django_rq.get_connection('default')
+        cru = conn.hgetall(_FORA_DO_ESAJ_KEY) or {}
+    except Exception:
+        return {}
+    out: dict[str, int] = {}
+    for k, v in cru.items():
+        chave = k.decode() if isinstance(k, bytes) else k
+        try:
+            out[chave] = int(v)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def enrich_pausados() -> set[str]:
     from django.core.cache import cache
     return set(cache.get(_PAUSA_KEY) or [])
@@ -287,31 +328,111 @@ from django.utils import timezone as _tz  # noqa: E402
 
 REENRICH_ESAJ_TRIBUNAIS = ('TJSP', 'TJAL', 'TJAC')
 REENRICH_LEGACY_CUTOFF = _tz.make_aware(_dt.datetime(2026, 7, 6))
-REENRICH_PENDENTE_FLOOR = 20_000   # só reabastece nao_encontrado se pendente < isso
-REENRICH_RESET_BATCH = 50_000      # quantos nao_encontrado→pendente por tribunal/tick
+REENRICH_RESET_BATCH = 50_000      # teto DURO por tribunal/tick
 REENRICH_MAX_TENTATIVAS = 12       # teto de raspagens por processo no requeue de erro
+
+# --- Por que o floor de pendente foi trocado por um teto por VAZÃO ----------
+# O gate original era `só reseta se pendente < REENRICH_PENDENTE_FLOOR`, com
+# FLOOR = 20.000. O TJSP tem **12.101.245** processos `pendente`. `pend >=
+# FLOOR` é verdadeiro sempre — ou seja, o recuperador escrito em 2026-07-06
+# especificamente para devolver os ~3,25 M do TJSP **nunca rodou uma vez**,
+# e não falhava: só não fazia nada. Mesma família do `for pagina in range(1,
+# 11)` — um limite plausível que impede o mecanismo e nunca acende luz.
+#
+# O que a sonda ao vivo de 25/08/2026 provou sobre esse estoque (62
+# requisições, 3 s entre elas, amostra de semente 20260825): dos processos de
+# prefixo 0/1 hoje marcados `nao_encontrado`, **30 de 32 devolveram cadastro
+# completo ou lista AGORA** — Procedimento Comum Cível, Execução de Título
+# Extrajudicial, Embargos à Execução, Usucapião, Mandado de Segurança. E
+# **83,6%** deles foram queimados ANTES do fix (mês do `enriquecido_em`:
+# 2026-05 → 457, 2026-06 → 1.781, 2026-07 → 214, 2026-08 → 226 de 2.678).
+# São falsos-negativos, não ausências.
+#
+# O floor não foi APAGADO: virou teto POR LOTE, senão trocaríamos uma
+# armadilha por outra invertida (2,59 M voltando de uma vez é incidente). O
+# teto efetivo por tick é o MENOR entre três:
+#   1. `REENRICH_LEGACY_POR_TICK` — o passo da fase (conservador por default);
+#   2. o que a fila do tribunal REALMENTE drena no intervalo do tick, medido
+#      pelo `FinishedJobRegistry` (a mesma régua de `_profundidade_alvo`);
+#   3. `REENRICH_RESET_BATCH`, teto duro.
+# Encostar no teto é ERRO registrado, com o número acumulado por tribunal.
+#
+# Sem loop, por construção: quem volta é re-raspado e ganha `enriquecido_em`
+# recente, saindo do alvo `enriquecido_em < REENRICH_LEGACY_CUTOFF` para
+# sempre. O conjunto só encolhe.
+REENRICH_TICK_S = 300              # intervalo do job no djen/scheduler.py (5 min)
+REENRICH_LEGACY_POR_TICK = 2_000   # PASSO 1. Subir só depois de medir vazão + pool
+REENRICH_LEGACY_MIN = 200          # piso: fila fria/nova não pode travar a recuperação
+_REENRICH_TOTAL_KEY = 'enrich:reenrich_legado_total'
+
+
+def _teto_reenrich(conn, sigla: str) -> int:
+    """Quantos `nao_encontrado` legados cabem neste tick, para este tribunal."""
+    from django.conf import settings
+    passo = getattr(settings, 'REENRICH_LEGACY_POR_TICK', REENRICH_LEGACY_POR_TICK)
+    from rq.registry import FinishedJobRegistry
+    try:
+        terminados = len(FinishedJobRegistry(queue_for(sigla), connection=conn))
+    except Exception:
+        terminados = 0
+    # result_ttl = 500 s em prod: len(registry)/500 é a vazão medida da fila.
+    vazao_no_tick = int((terminados / 500.0) * REENRICH_TICK_S)
+    return max(REENRICH_LEGACY_MIN,
+               min(passo, vazao_no_tick or passo, REENRICH_RESET_BATCH))
 
 
 @job('default', timeout=600)
 def tick_reenrich_esaj_legacy() -> dict:
-    """Devolve nao_encontrado LEGADO (pré-fix) a 'pendente', auto-limitante."""
+    """Devolve `nao_encontrado` LEGADO (pré-fix 2026-07-06) a `pendente`.
+
+    Faseado e bounded pela vazão real da fila do tribunal. Pula a faixa que a
+    fonte comprovadamente não tem (`fora_do_esaj`) — devolvê-la a `pendente`
+    só a faria dar a volta inteira para ser recusada de novo.
+    """
+    conn = django_rq.get_connection('default')
     relatorio: dict = {}
+    pausados = enrich_pausados()
     for sig in REENRICH_ESAJ_TRIBUNAIS:
-        pend = Process.objects.filter(
-            tribunal_id=sig, enriquecimento_status='pendente').count()
-        if pend >= REENRICH_PENDENTE_FLOOR:
-            relatorio[sig] = f'skip (pendente {pend:,} ≥ {REENRICH_PENDENTE_FLOOR:,})'
+        if sig in pausados:
+            relatorio[sig] = 'pausado'
             continue
-        ids = list(Process.objects.filter(
-            tribunal_id=sig, enriquecimento_status='nao_encontrado',
+        teto = _teto_reenrich(conn, sig)
+        cls = _ENRICHERS.get(sig)
+        fora = getattr(cls, 'fora_do_esaj', None) if cls else None
+        # Lê com folga: parte do lote vai ser descartada pela faixa fora-da-fonte
+        # (no TJSP ela é 38,7% do estoque `nao_encontrado`), e sem folga o tick
+        # devolveria menos que o teto a cada passada.
+        limite_scan = min(teto * 3, REENRICH_RESET_BATCH)
+        linhas = list(Process.objects.filter(
+            tribunal_id=sig,
+            enriquecimento_status=Process.ENRIQ_NAO_ENCONTRADO,
             enriquecido_em__lt=REENRICH_LEGACY_CUTOFF,
-        ).values_list('pk', flat=True)[:REENRICH_RESET_BATCH])
-        if not ids:
+        ).values_list('pk', 'numero_cnj')[:limite_scan])
+        if not linhas:
             relatorio[sig] = 'sem legado restante'
             continue
-        n = Process.objects.filter(pk__in=ids).update(enriquecimento_status='pendente')
-        relatorio[sig] = f'reset {n:,}'
-        logger.info('tick_reenrich_esaj_legacy %s: reset %d', sig, n)
+        elegiveis = ([pk for pk, cnj in linhas if not fora(cnj)] if fora
+                     else [pk for pk, _ in linhas])
+        recusados = len(linhas) - len(elegiveis)
+        ids = elegiveis[:teto]
+        if not ids:
+            relatorio[sig] = f'{recusados:,} no lote, todos fora da fonte'
+            continue
+        n = Process.objects.filter(pk__in=ids).update(
+            enriquecimento_status=Process.ENRIQ_PENDENTE)
+        try:
+            acumulado = conn.hincrby(_REENRICH_TOTAL_KEY, sig, n)
+        except Exception:
+            acumulado = -1
+        relatorio[sig] = (f'reset {n:,} (teto {teto:,}, lote {len(linhas):,}, '
+                          f'fora da fonte {recusados:,}, acumulado {acumulado:,})')
+        logger.info('tick_reenrich_esaj_legacy %s: reset %d (teto %d)', sig, n, teto)
+        # Teto é ALERTA, nunca corte mudo (regra nº 2 do CLAUDE.md).
+        if len(elegiveis) > teto:
+            logger.error(
+                'reenrich_legado: %s bateu o teto do tick (%s de %s elegiveis no lote) '
+                '— ainda ha legado preso; acumulado devolvido ate agora: %s',
+                sig, f'{teto:,}', f'{len(elegiveis):,}', f'{acumulado:,}')
     return relatorio
 
 
@@ -427,12 +548,13 @@ def _reabastecer_impl() -> dict:
         # que continua fora).
         em_voo = conn.zcard(_INFLIGHT_KEY % sigla.lower())
         limite_scan = min(capacidade + em_voo + 1_000, 60_000)
-        candidatos = list(
+        linhas = list(
             Process.objects.filter(
                 tribunal_id=sigla,
                 enriquecimento_status=Process.ENRIQ_PENDENTE,
-            ).values_list('pk', flat=True)[:limite_scan]
+            ).values_list('pk', 'numero_cnj')[:limite_scan]
         )
+        candidatos, recusados = _separar_fora_da_fonte(sigla, linhas)
         ids = _filtrar_em_voo(conn, sigla, candidatos, capacidade)
         for pid in ids:
             try:
@@ -441,6 +563,78 @@ def _reabastecer_impl() -> dict:
             except Exception as exc:
                 logger.warning('falha ao enfileirar', extra={'pid': pid, 'erro': str(exc)})
         relatorio[sigla] = (f'+{len(ids)} (fila {qlen}->{qlen+len(ids)}, alvo {alvo:,}, '
-                            f'em voo {em_voo:,}, candidatos {len(candidatos):,})')
+                            f'em voo {em_voo:,}, candidatos {len(candidatos):,}'
+                            + (f', fora da fonte {recusados:,}' if recusados else '') + ')')
     logger.info('reabastecer_filas_enriquecimento', extra={'r': relatorio})
+    _alertar_fora_da_fonte()
     return relatorio
+
+
+# Quantos processos da faixa fora-da-fonte o refill fecha por passada, por
+# tribunal. O refill roda a cada 2 min ⇒ 10k = 300 mil/h, e os ≈ 2,94 M do
+# eproc do TJSP levam ~10 h para sair de `pendente`. É de propósito: um UPDATE
+# de 60k linhas a cada 2 min numa tabela de 102 M sob escrita constante é como
+# se derruba o banco, e este time já derrubou o site com ACCESS EXCLUSIVE preso
+# atrás de consulta longa (incidente de 25/08/2026).
+RECUSA_FORA_DA_FONTE_BATCH = 10_000
+
+
+def _separar_fora_da_fonte(sigla: str, linhas: list) -> tuple[list, int]:
+    """Tira da fila o que a fonte comprovadamente não tem, EM LOTE.
+
+    Por que aqui e não só no job: se cada processo da faixa virasse um job, o
+    worker o resolveria sem rede — e 40 réplicas sem rede publicam milhares de
+    events por SEGUNDO no stream, que tem `MAXLEN` e é **compartilhado com
+    todos os tribunais**. O TJSP expulsaria os events de TRF1/TJMG antes de o
+    drainer aplicá-los. Fechar em lote no refill gasta um UPDATE por passada e
+    zero event.
+
+    O guard equivalente em `BaseEsajEnricher.enriquecer` continua existindo —
+    ele cobre o clique manual e os jobs que já estavam na fila.
+    """
+    cls = _ENRICHERS.get(sigla)
+    fora = getattr(cls, 'fora_do_esaj', None) if cls else None
+    if not fora:
+        return [pk for pk, _ in linhas], 0
+    aptos: list[int] = []
+    recusa: dict[str, list[int]] = {}
+    for pk, cnj in linhas:
+        motivo = fora(cnj)
+        if motivo:
+            recusa.setdefault(motivo, []).append(pk)
+        else:
+            aptos.append(pk)
+    total = 0
+    for motivo, pks in recusa.items():
+        lote = pks[:RECUSA_FORA_DA_FONTE_BATCH]
+        try:
+            n = Process.objects.filter(pk__in=lote).update(
+                enriquecimento_status=Process.ENRIQ_NAO_ENCONTRADO,
+                enriquecido_em=_tz.now(),
+            )
+        except Exception as exc:
+            logger.warning('falha ao fechar faixa fora-da-fonte',
+                           extra={'sigla': sigla, 'motivo': motivo, 'erro': str(exc)[:200]})
+            continue
+        registrar_fora_do_esaj(sigla, motivo, n)
+        total += n
+    return aptos, total
+
+
+# Última contagem impressa, por chave — só alerta quando CRESCEU, pra não
+# transformar o ERROR num carimbo de 30 linhas/h depois que a faixa drenar.
+_ultimo_censo_fora: dict[str, int] = {}
+
+
+def _alertar_fora_da_fonte() -> None:
+    censo = censo_fora_do_esaj()
+    for chave, total in sorted(censo.items()):
+        if total <= _ultimo_censo_fora.get(chave, 0):
+            continue
+        sigla, _, motivo = chave.partition('|')
+        logger.error(
+            'FORA DA FONTE: %s processos %s nao foram consultados — a faixa `%s` '
+            'nao existe na consulta publica deste tribunal (+%s desde o ultimo aviso)',
+            f'{total:,}', sigla, motivo,
+            f'{total - _ultimo_censo_fora.get(chave, 0):,}')
+        _ultimo_censo_fora[chave] = total

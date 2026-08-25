@@ -329,9 +329,36 @@ def test_backfill_nao_cria_parte_em_processo_de_segredo(cenario):
     assert not Parte.objects.filter(nome__in=['SIGILO', 'W.V.D.']).exists()
 
 
-def test_dry_run_nao_escreve(cenario):
+def test_dry_run_nao_escreve_nem_processoparte_nem_parte(cenario):
+    """Regressão de um defeito REAL desta missão: `_bulk_upsert_partes` do
+    drainer ESCREVE `Parte`, e o `--dry-run` o chamava. O primeiro dry-run do
+    piloto criou **39.303 `Parte` órfãs** em produção (20.609 `desconhecido` +
+    18.694 `advogado`, zero com `ProcessoParte`). Controle que provou a
+    autoria: na hora anterior a mesma consulta devolveu 0 órfã de qualquer
+    tipo — o drainer cria `Parte` e `ProcessoParte` na mesma transação.
+
+    Um `--dry-run` que escreve é pior que não ter `--dry-run`: é usado
+    exatamente por quem ainda não decidiu rodar."""
     _, procs = cenario
-    antes = ProcessoParte.objects.count()
+    pp_antes = ProcessoParte.objects.count()
+    partes_antes = set(Parte.objects.values_list('pk', flat=True))
+
     res = promover_lote(sem_processoparte([p.id for p in procs]), dry_run=True)
-    assert res.linhas_tentadas > 0
-    assert ProcessoParte.objects.count() == antes
+
+    assert res.linhas_tentadas > 0, 'o dry-run não contou nada — virou no-op'
+    assert ProcessoParte.objects.count() == pp_antes
+    novas = set(Parte.objects.values_list('pk', flat=True)) - partes_antes
+    assert not novas, (
+        f'--dry-run criou {len(novas)} Parte: '
+        f'{list(Parte.objects.filter(pk__in=novas).values_list("nome", flat=True))[:5]}'
+    )
+
+
+def test_dry_run_conta_o_mesmo_que_a_execucao_real(cenario):
+    """Controle positivo do contador do dry-run: se ele contar diferente do
+    que a execução real cria, o dry-run mente sobre o tamanho do trabalho."""
+    _, procs = cenario
+    alvo = sem_processoparte([p.id for p in procs])
+    seco = promover_lote(alvo, dry_run=True)
+    real = promover_lote(alvo)
+    assert seco.linhas_tentadas == real.linhas_tentadas

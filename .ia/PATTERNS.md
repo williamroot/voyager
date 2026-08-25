@@ -266,6 +266,52 @@ rode o linter nele.
 ✅ Se precisar de stdin, `docker run -i` **e valide que a entrada chegou**
 (`wc -c` dentro do container).
 
+### ⚠️ `'marcador' in html` decide sobre a PÁGINA INTEIRA — incluindo CSS, JS e comentário
+
+> **Um substring casa em lugares que não são o dado.** O que você quer saber é
+> se o *elemento* existe, não se a *palavra* aparece em algum canto do arquivo.
+
+Três incidentes, o mesmo defeito, medidos em 25/08/2026 no e-SAJ:
+
+| predicado | onde casou por engano | o que produziu |
+|---|---|---|
+| `'classeProcesso' in resp.text` | `<div class="classeProcesso">` da página de **lista** | a lista virava "detalhe"; `select_one('#classeProcesso')` não achava nada e o processo era gravado **`ok` com o cadastro inteiro vazio** |
+| `'classeProcesso' in resp.text` | o **comentário HTML** da própria fixture `tests/fixtures/tjal/search_form.html`, que explicava "…sem `#classeProcesso`" | `test_enriquecer_nao_encontrado_emite_payload` passou a ler "não encontrado" como `ok` — a fixture derrubava o teste que ela ilustrava |
+| `'…senha para acessar processo em segredo de justiça' in html` | `<form id="popupSenha" style="display: none;">`, presente em **TODA** página de detalhe (36 de 62 páginas baixadas; **33 delas com partes**) | marcaria segredo em processo bom e o **esconderia do funil** — pior que não detectar |
+
+❌ **Errado** — o texto do arquivo inteiro responde por uma pergunta de estrutura:
+```python
+if 'classeProcesso' in resp.text:      # casa classe CSS e comentário
+    return resp.text
+if 'segredo de justiça' in resp.text:  # casa o popup escondido de toda página
+    return 'segredo'
+```
+
+✅ **Certo** — pergunte pelo elemento, e defina cada desfecho pela presença E
+pela **ausência** do que o distingue:
+```python
+_IDS_DETALHE = ('id="classeProcesso"', 'id="tablePartesPrincipais"', ...)
+
+if any(m in html for m in _IDS_DETALHE):
+    return DESFECHO_DETALHE
+# segredo = chegamos na página do processo E o cadastro veio VAZIO
+if 'id="containerDadosPrincipaisProcesso"' in html and 'id="popupSenha"' in html:
+    return DESFECHO_SEGREDO
+```
+
+Regras que saem daí:
+
+- **Marcador de existência é `id="x"`, não `x`.** Classe CSS, comentário e
+  string de JS moram no mesmo arquivo que o dado.
+- **Detector de ausência exige ausência.** "É segredo" só se NENHUM campo do
+  cadastro estiver lá. Falso positivo aqui apaga processo bom — e some calado.
+- **Prove com controle positivo E negativo, em HTML REAL.** Ver
+  `tests/test_esaj_segredo.py`: a fixture da página normal existe justamente
+  para falhar se alguém trocar a regra estrutural por uma frase.
+- **Fixture sintética mente.** A do TJAL que "provava" a OAB é sintética, e por
+  isso o Achado 6 (e-SAJ sem OAB, 0 de 347 advogados) passou meses despercebido
+  — e o comentário dela quebrou outro teste. Colete HTML de verdade.
+
 ### ⚠️ `ssh $X sh -c "script"` não passa o script — o shell REMOTO o re-divide
 
 Mesma doença, no scripting de operação. Com `X="ssh host docker exec cont"`, o

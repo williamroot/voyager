@@ -436,6 +436,24 @@ def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
     if not eventos:
         return res
 
+    if dry_run:
+        # `_bulk_upsert_partes` ESCREVE `Parte`. Chamá-lo aqui foi um defeito
+        # real desta missão: o primeiro `--dry-run` do piloto criou **39.303
+        # linhas de `Parte` órfãs** em produção (20.609 `desconhecido` +
+        # 18.694 `advogado`, nenhuma com `ProcessoParte`). O controle que
+        # provou a autoria: na hora ANTERIOR, a mesma consulta devolveu **0**
+        # órfã de qualquer tipo — o drainer cria `Parte` e `ProcessoParte` na
+        # mesma transação, então órfã recente não é dele.
+        #
+        # Um `--dry-run` que escreve é pior que não ter `--dry-run`: ele é
+        # usado justamente por quem ainda não decidiu rodar.
+        res.linhas_tentadas = sum(
+            len({(_route_parte(spec), polo)
+                 for polo, lista in specs.por_polo.items() for spec in lista})
+            for specs in specs_por_pid.values()
+        )
+        return res
+
     t0 = time.time()
     # Reusa o upsert de `Parte` do drainer (4 caminhos de constraint), inclusive
     # a armadilha do caminho `sem_id`: ele casa o nome com uma `Parte` existente
