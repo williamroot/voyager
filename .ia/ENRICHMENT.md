@@ -27,6 +27,51 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TJPA | Portal próprio "Consulta Unificada" (SPA + REST) | **Sim** (2026-06-29) | `enrichers/tjpa.py` (classe própria). `GET consulta-processual-unificada-prd.tjpa.jus.br/consilium-rest/processobycnj/{cnj}` (UA de browser, throttle p/ 429). reCAPTCHA só no front, não enforced. `cpfcnpj` vazio na consulta pública (tipo pf/pj por `tppessoa`). |
 | **Bloqueados (recon 2026-06-29)** | vários | **Não — captcha/login/anti-bot** | Consulta pública gated, inviável headless sem captcha-solver ou credenciais: **captcha** (hCaptcha/reCaptcha/Tencent) — TJBA, TJPB, TJRR, TJSE, TJMS (e-SAJ virou SPA Next.js c/ captcha), TJGO+TJPR (PROJUDI), TJAM (PROJUDI atrás de F5 anti-bot); **login obrigatório** — TJES, TJPI, TJTO; **indeterminado** (sem amostra/host estável) — TJRN. eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA (ver linhas TRF acima). Desbloqueio exige decisão: serviço de captcha-solving (2captcha etc.) ou credenciais/OTP. Veredictos completos do recon no histórico do commit. |
 
+## 🔴 A tabela acima está INCOMPLETA: três tribunais têm DOIS sistemas (medido 25/08/2026)
+
+A coluna "Sistema" acima diz UM sistema por tribunal. **É falso para TJSP, TJMG e
+TJRJ**, e o erro custa requisição e esconde processo: a fatia que migrou para o
+**eproc** não tem consulta pública (eproc exige login+2FA), então o enricher
+pergunta ao sistema errado e ouve "não existe".
+
+**Método (barato, e é o que fecha a dúvida):** o campo `link` da publicação DJEN
+denuncia o sistema. Amostra de **60 âncoras × 6.000 movimentações** espalhadas
+pelo espaço de `id` — âncoras espalhadas, NUNCA um bloco contíguo, porque bloco
+contíguo amostra poucos *momentos de ingestão* (a mesma armadilha do
+`random_score` do ES).
+
+```
+TJSP     esaj/dje 77,0%  ·  eproc 23,0%      eproc1g.tjsp.jus.br / eproc2g.tjsp.jus.br
+TJMG     pje      60,8%  ·  eproc  9,8%      eproc1g.tjmg.jus.br / eproc2g.tjmg.jus.br
+TJRJ     pje      71,5%  ·  eproc  9,3%      eproc1g.tjrj.jus.br / eproc2g.tjrj.jus.br
+```
+
+**O dano, medido dentro × fora da fatia eproc** (mesma amostra, `enriquecimento_status`):
+
+| tribunal | `ok` FORA do eproc | `ok` DENTRO do eproc |
+|---|---:|---:|
+| TJMG | 52,3% | **15,1%** (`nao_encontrado` 62,5% contra 14,4% fora) |
+| TJRJ | 60,5% | **8,1%** |
+| TJSP | 13,0% | **2,4%** |
+
+**O eproc é o sistema NOVO, não o legado.** Fatia eproc por ano do processo no
+TJSP (`ano_cnj` × host do `link`): ~2-4% até 2024, **23,4% em 2025**, **46,6% em
+2026**. Quem supõe "o eproc é o acervo velho" inverte a realidade e desenha o
+backfill ao contrário.
+
+### Limites desta medição — leia antes de citar o número
+
+- A amostra cobriu **24 dos 59 tribunais**. Os outros 35 não apareceram; isso é
+  ausência na amostra, **não** prova de sistema único.
+- **TJRS tem `link` vazio em 100%** das publicações (conferido nas últimas 100 mil
+  movimentações, todas TJRS). Onde o `link` é vazio o método é **cego** — não
+  conclua "sistema único", conclua "não medido".
+- A amostra é de **publicações**, então pesa processo ativo. Serve para achar o
+  sistema; não serve para dimensionar o acervo parado.
+
+**Pendente:** varrer os 35 tribunais restantes com o mesmo método e recusar a
+fatia eproc nos que tiverem, como já se fez no TJSP (`enrich_fora_do_esaj`).
+
 ## Roteamento de proxy: Cortex quando datacenter morre (2026-07-06)
 O pool datacenter (ProxyScrape) degrada em ondas: WAF dos tribunais bloqueia os IPs
 (403) e a API do proxyscrape rate-limita a conta (429 → não repõe a lista). Isso
