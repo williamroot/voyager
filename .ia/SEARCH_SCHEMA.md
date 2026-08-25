@@ -1106,6 +1106,226 @@ concatenam TODAS as participações. Agora fecha em 20 MB, reusa `_enviar_bulk`
 (que divide ao meio no 413) e **devolve quantos documentos o ES aceitou**;
 devolver `None` escondia a diferença entre "mandei 500" e "entraram 400".
 
+## Linha de base do índice de processos — 25/08/2026 (medida, antes do dado do E1)
+
+Medição feita ANTES de o dado novo (partes do DJEN, assunto de folha, segredo do
+e-SAJ) começar a entrar, para que o "depois" tenha com o que comparar. Régua e
+semente declaradas; `scripts/sonda_es_partes.py` reproduz.
+
+### Os dois lados, no mesmo instante
+
+| pergunta | resposta | como |
+|---|---:|---|
+| `voyager-processos`, raízes | **92.706.806** | `_count` |
+| `voyager-processos`, `_cat/indices` | 110.486.709 | conta filho `nested` — **não usar** |
+| `tribunals_process` | ~102.149.080 | `reltuples` (ESTIMATIVA) |
+| `max(id)` do Postgres | 104.615.119 | exato |
+| `voyager-movimentacoes` | 1.521.521.677 | `_count` |
+| disco do nó de ES | 1,8 TB usados / 2,9 TB, **1,0 TB livre**, 63% | `_cat/allocation` |
+| fila `es_index` | **0** | `q.count` |
+
+### A régua de PRESENÇA (mesma semente e mesmo teto de pk das anteriores)
+
+`manage.py es_backfill_processos --so-amostra --teto-pk 104317558` (seed
+`20260824`, 4.000 candidatos por oitavo). A série, sempre no MESMO espaço de pk:
+
+| data | fora do índice |
+|---|---:|
+| 24/08/2026 (medição inicial) | 13,99% |
+| 24/08/2026 (fim da 1ª corrida) | 12,87% |
+| **25/08/2026** | **8,94%** (2.799 de 31.301) |
+
+| faixa de pk | existem | fora | % |
+|---|---:|---:|---:|
+| 3.520–13.042.773 | 3.987 | 0 | 0,00 |
+| 13.042.774–26.082.028 | 3.984 | 0 | 0,00 |
+| 26.082.029–39.121.283 | 3.988 | 0 | 0,00 |
+| 39.121.284–52.160.538 | 3.993 | 0 | 0,00 |
+| 52.160.539–65.199.793 | 3.989 | 0 | 0,00 |
+| 65.199.794–78.239.048 | 3.390 | 256 | 7,55 (era 45,99) |
+| 78.239.049–91.278.303 | 3.992 | 377 | **9,44 (INALTERADO)** |
+| 91.278.304–104.317.558 | 3.978 | 2.166 | 54,45 (era 61,44) |
+
+A faixa 6 não mudou um ponto porque o backfill **ainda não chegou nela** — o
+checkpoint estava em `id=77.427.989`. Isso é o mapa de onde o backfill já passou,
+e é o que decide se dado novo pega carona nele ou precisa de reindex explícito.
+
+### Por que 8,94% aqui e 9,4% na auditoria — as duas estão certas
+
+A auditoria de `.ia/ENRICHMENT.md` mediu **9,4%** com 11.160 processos
+estratificados **por tribunal** (200 de cada). Esta mede **por faixa de pk**. Não
+é contradição, é desenho diferente medindo coisa diferente:
+
+- **por tribunal** responde "que tribunal está fora da busca" — cada tribunal
+  pesa igual, então TRT8 (62%) e o TJSP (26,5%) contam o mesmo;
+- **por faixa de pk** responde "que PEDAÇO do acervo está fora" — e mostra o que
+  a estratificação por tribunal dilui: **zero nos cinco primeiros oitavos e
+  54,45% no último**. O buraco não é de tribunal, é de IDADE DE ESCRITA.
+
+Uma terceira régua, por CONGLOMERADO de pk (a mesma de
+`scripts/auditoria_campos.py`, seed `20260825`, 1.500 âncoras × 20 pks
+consecutivos = **30.000 processos**), pesa cada tribunal pelo tamanho do acervo
+dele e dá o número NACIONAL: **10,64% fora** (3.191 de 30.000). Os três números
+convivem; o que não vale é citar um deles sem dizer o desenho.
+
+    tribunal      n     fora   fora%   pg_parte%   doc_parte%
+    TJSP      4.753    1.044   22,0%       12,3%       15,7%
+    TJRS      1.809      552   30,5%        0,0%        0,0%
+    TJSE        431      260   60,3%        0,0%        0,0%
+    TRF3      1.523      393   25,8%       66,7%       89,9%
+    TJPR      1.771        0    0,0%        0,0%        0,0%
+
+### `exists` do ES mente — reproduzido HOJE, no campo `partes`, e por 5x
+
+A regra nº 4 do CLAUDE.md medida de novo, no índice de produção, no mesmo
+instante:
+
+| pergunta | resposta |
+|---|---:|
+| `exists` no campo `partes` | **92.707.849 = 100,0%** |
+| `partes` com CONTEÚDO (amostra de 26.809 docs presentes) | **18,1%** |
+| `nested` com ≥1 filho em `participacoes` (contagem EXATA do índice) | **3.645.848 = 3,93%** |
+
+`partes` é `text`; um doc gravado com string vazia continua tendo o campo, e o
+`exists` conta. Quem medisse a cobertura de partes por `exists` publicaria
+**100%** de um campo que vale **18%**. Foi assim que `partes`/`advs` já foram
+servidos como 100% valendo 20%, e continua sendo assim.
+
+E as duas medidas certas **também não são a mesma coisa**: 18,1% têm o texto
+legado e só 3,93% têm o `participacoes` estruturado. A diferença — cerca de
+**13 milhões de docs** — é doc construído ANTES de o `nested` entrar no builder e
+nunca reindexado. A busca estruturada por parte (polo/papel/OAB/documento)
+alcança 3,93% do índice, não 18%.
+
+### O buraco de PARTES é de DADO, não de índice — a matriz 2x2
+
+O cruzamento que separa dois problemas com donos diferentes (amostra por
+conglomerado, seed `20260825`, 30.000 processos; 26.809 estão no índice):
+
+| | doc TEM `partes` | doc NÃO tem |
+|---|---:|---:|
+| **PG tem `ProcessoParte`** | 4.853 | **45** ← buraco de ÍNDICE |
+| **PG NÃO tem** | **0** | **21.911** ← buraco de DADO |
+
+- **21.911 de 21.956 (99,8%)** dos docs sem partes estão assim porque **o
+  Postgres não tem parte nenhuma** para aquele processo. Não há o que indexar.
+- **45 (0,2%)** são atraso de índice de verdade.
+- **0** casos de doc com parte que o PG não tem — o índice nunca inventa parte.
+
+⇒ Os "89,3% sem partes" da auditoria **não são falha de write-through**. São a
+ausência de `ProcessoParte` no banco, que é exatamente o buraco nº 1 da auditoria
+(`destinatarios` do DJEN nunca promovidos). O conserto é de DADO primeiro,
+índice depois — e o índice não pega esse dado de graça (abaixo).
+
+Na mesma amostra, PG tem o campo e o doc não: `data_autuacao` 5.453 (20,3% —
+progresso do reindex, não defeito), `classe_nome` 184, `orgao_julgador` 177,
+`juizo` 177, `assunto` 171, `valor_causa` 40.
+
+### O backfill em curso NÃO leva dado novo de carona (exceto onde o doc falta)
+
+`search/backfill_processos.py::rodar` pergunta
+`gate.ausentes_no_bloco(ids)` e só reindexa **o que está AUSENTE**. Doc presente
+com conteúdo velho ele pula — é censo de presença, não de frescor. Consequência
+direta para qualquer dado novo escrito em massa:
+
+| destino | processos | pega carona no backfill? |
+|---|---:|---|
+| pk ≤ 77,43 M (abaixo do checkpoint) | ~76 M | **não** — o backfill já passou |
+| pk > 77,43 M **e ausente** do índice | ~9,1 M | **sim**, de graça, se o dado for escrito ANTES de ele chegar lá |
+| pk > 77,43 M **e presente** | ~18 M | **não** |
+
+Ritmo medido em 25/08/2026, em faixa 100% densa (todo bloco de 5.000 com 5.000
+fora): **117 pk/s** (35.089 pks em 300,0 s), contra 863 docs/s medidos em faixa
+solta — a diferença é o freio pela latência da busca, que é a política correta.
+
+### Latência da busca — a baseline de "não degradou", COM o backfill rodando
+
+`backfill_processos.baseline(n=9)`, as mesmas funções que a tela chama:
+
+| sonda | p50 | pior |
+|---|---:|---:|
+| processos (`buscar_processos_ui`) | **608,6 ms** | 10.544 ms |
+| conteúdo (`buscar_conteudo_da_querystring`) | **5.493,9 ms** | 20.968 ms |
+| texto (`ids_por_texto`, corta em 12 s) | **1.773,7 ms** | 12.021 ms |
+| **abortos da sonda `texto`** | **2 de 9 = 22,2%** | — |
+
+Os 22,2% de aborto são o estado do nó HOJE, com backfill + diários + Datajud
+escrevendo ao mesmo tempo: **2 em cada 9 buscas de texto não devolvem
+resultado**, elas são interrompidas em 12 s. Não é "demorou": é falha. Qualquer
+carga nova de escrita tem que ser medida contra isto, não contra um nó ocioso.
+
+### Dois pollers com o teto colado — medido nos logs do scheduler
+
+`search/sync_incremental.py` bate o teto em **todo tick**, e o teto é um `return`
+mudo (regra nº 2: teto é ALERTA, nunca corte mudo):
+
+| tick (‑03) | `proc_novos` | `proc_atualizados` | `movs_novas` |
+|---|---:|---:|---:|
+| 21:24 | 20.000 (TETO) | 10.000 (TETO) | 49.300 |
+| 21:34 | 20.000 (TETO) | 10.000 (TETO) | 83.027 |
+| 21:45 | 20.000 (TETO) | 10.000 (TETO) | 94.347 |
+| 21:55 | 20.000 (TETO) | 10.000 (TETO) | 68.014 |
+| 22:05 | 20.000 (TETO) | 10.000 (TETO) | 81.860 |
+| 22:16 | 20.000 (TETO) | **erro** (lock timeout) | 63.602 |
+
+- **`proc_novos`**: watermark em `id=96.776.271` contra `max(id)=104.615.119` —
+  **7,84 milhões de pks atrás**. Avanço medido: 100.030 pks em 52 min =
+  **115.419 pks/h**. A base cresce ~12.400 pks/h, então ele CONVERGE, mas leva
+  ~76 h. `LIMITE_MOVS_NOVAS` já foi de 50 mil para 400 mil por este mesmo motivo;
+  `LIMITE_PROC_NOVOS = 20.000` nunca foi revisitado.
+- **`proc_atualizados`**: watermark em **2026-08-19 18:07** — **6 dias atrás**, e
+  avança ~30-40 s de relógio por tick de 10 min. Ele NÃO converge: perde ~17:1.
+  E desde 22:16 falha com `LockNotAvailable` na leitura de `atualizado_em`,
+  quando o watermark não anda de jeito nenhum.
+- Nenhum dos dois pega escrita em `ProcessoParte`: ela não muda `Process.id` nem
+  `Process.atualizado_em`.
+
+### As 858 falhas da `es_index` — medidas por TIPO, no índice CERTO
+
+Amostra aleatória de 300 (seed `20260825`). A armadilha aqui é medir junto:
+`indexar_movimentacoes_bulk` carrega pk de MOVIMENTAÇÃO, e perguntá-los ao índice
+de PROCESSOS devolve "99,67% fora" — número que não significa nada. Separando:
+
+| job | n na amostra | erro | pks referenciados | amostrados | fora do índice |
+|---|---:|---|---:|---:|---:|
+| `indexar_processos_bulk` | 202 | `ValueError: Invalid attribute name` | 216 | 216 | **0 (0,00%)** |
+| `indexar_movimentacoes_bulk` | 51 | `ConnectionTimeout` | 43.949 | 3.000 | 273 (9,10%) |
+| `indexar_movimentacoes_bulk` | 45 | `statement_timeout` no SELECT do PG | (idem) | | |
+
+Os 202 jobs de processo que morreram com `Invalid attribute name` **nunca
+rodaram** e mesmo assim não deixaram buraco: outra via (backfill/poller) já
+levou aqueles processos ao índice. Do lado das movimentações há ~11 mil
+publicações fora, extrapolando — dívida pequena e visível, não emergência.
+
+### O que custa levar as partes do E1 ao índice (a conta, ANTES de executar)
+
+Tamanho do documento medido em produção, com o builder real (`processo_to_doc`),
+sobre amostra por conglomerado (seed `20260825`):
+
+| doc | n | JSON p50 | JSON média | filhos `nested` |
+|---|---:|---:|---:|---:|
+| COM parte | 412 | 2.304 B | 2.369 B | p50 **5**, média 5,10, máx 18 |
+| SEM parte | 600 | 913 B | 953 B | 0 |
+| **delta** | | | **+1.416 B/doc** | **+5,1 docs Lucene/doc** |
+
+Escalando para os ~86,7 M processos que o E1 alcança:
+
+    +1.416 B x 86,7 M = 122,8 GB de _source
+    store hoje = 26,8 GB / 92,6 M docs = 289 B/doc contra ~953 B de _source
+      => razão store/_source ~ 0,30  =>  ~37 GB de índice a mais
+    filhos nested: 86,7 M x 5,1 = ~442 milhões de docs Lucene a mais
+
+Disco: **~37 GB** de 1,0 TB livre — cabe, mas sai do MESMO orçamento que o
+backfill do `tjsp-dje` reivindica (~772 GB, `.ia/DIARIOS.md` §13.2).
+
+Tempo, à vazão medida nesta casa (863 docs/s em faixa solta; 117-200 docs/s sob
+o freio da política de operação):
+
+| fatia | processos | a 863/s | a 200/s |
+|---|---:|---:|---:|
+| carona no backfill (pk > checkpoint e ausente) | ~9,1 M | grátis | grátis |
+| **reindex direcionado (o resto)** | **~77,6 M** | **25,0 h** | **107,8 h** |
+
 ## Plano de reindex (backfill dos campos novos)
 
 Pré-requisito: `PUT _mapping` aditivo nos 2 índices (o general aplica — os
