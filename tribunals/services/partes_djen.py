@@ -179,7 +179,38 @@ def formatar_oab(numero_oab: str | None, uf_oab: str | None) -> str:
     m = _NUMERO_OAB_RE.match(num)
     if not m:
         return ''
-    return f'{uf}{m.group(0).replace(".", "").replace("-", "")}'
+    corpo = m.group(0).replace('.', '').replace('-', '')
+    # Zero à esquerda FORA. Sem isto a MESMA pessoa vira duas entidades: o
+    # piloto do TJRS (faixa `Process.id ∈ [57.000.000, 57.020.000)`) mediu
+    # **24.164 `Parte` com OAB criadas, 18.968 depois de normalizar o zero —
+    # 5.196 duplicatas, 21,5%**, e 7.290 pares de `ProcessoParte` do mesmo nome
+    # em 4.622 processos (23,1% da faixa).
+    #
+    # A causa é a fonte, não nós: o DJEN publica a MESMA inscrição nos dois
+    # formatos, às vezes no mesmo processo. `Process.id=57000005`, três
+    # movimentações da advogada CLAUDIA BRESSLER:
+    #
+    #     mov mais recente   "numero_oab": "39599"
+    #     mov anterior       "numero_oab": "RS039599"
+    #     mov anterior       "numero_oab": "RS039599"
+    #
+    # Sem a normalização isso produzia `RS39599` **e** `RS039599`. E o
+    # `RS39599` é a linha CERTA: já existia em `tribunals_parte` (id
+    # 469842024) com o CPF `761.955.030-53`, criada pelo enricher — ou seja,
+    # o formato sem zero é o que casa com o corpus.
+    #
+    # Na faixa do piloto, **5.494 de 6.398** `numero_oab` vêm com a UF na
+    # frente (85,9%) e **nenhum** começa com `0` puro: o zero só aparece
+    # DEPOIS da UF (`RS039599`), que é justamente o que a remoção do prefixo
+    # expõe. Na amostra nacional a UF prefixada era 0,4% — o formato varia por
+    # tribunal, então normalizar não é otimização, é correção.
+    #
+    # Divergência ASSUMIDA contra `parse_oab`: ele lê de TEXTO ("OAB PA
+    # 015237") e preserva o zero, e 1.250 de 39.147 OABs do corpus (3,2%)
+    # estão zero-padded por causa disso. Um advogado nosso não vai casar com
+    # essas 3,2% — é o preço de não duplicar 21,5%.
+    corpo = corpo.lstrip('0') or corpo
+    return f'{uf}{corpo}'
 
 
 def polo_de(valor) -> str:

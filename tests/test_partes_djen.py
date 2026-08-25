@@ -125,6 +125,37 @@ def test_formatar_oab_se_abstem(numero, uf):
     assert formatar_oab(numero, uf) == ''
 
 
+def test_formatar_oab_normaliza_zero_a_esquerda():
+    """Regressão de um defeito medido EM PRODUÇÃO no piloto do TJRS.
+
+    O DJEN publica a MESMA inscrição nos dois formatos, às vezes no mesmo
+    processo. `Process.id=57000005`, advogada CLAUDIA BRESSLER, três
+    movimentações consecutivas:
+
+        mov mais recente   "uf_oab": "RS", "numero_oab": "39599"
+        mov anterior       "uf_oab": "RS", "numero_oab": "RS039599"
+        mov anterior       "uf_oab": "RS", "numero_oab": "RS039599"
+
+    Sem normalizar, isso criava `RS39599` **e** `RS039599` — duas `Parte`,
+    duas `ProcessoParte`, a mesma pessoa. Medido na faixa
+    `[57.000.000, 57.020.000)`: **24.164 `Parte` com OAB, 18.968 depois de
+    normalizar — 5.196 duplicatas (21,5%)**, atingindo 4.622 dos 19.996
+    processos (23,1%).
+
+    `RS39599` é a forma CERTA: já existia em `tribunals_parte` (id 469842024)
+    com o CPF `761.955.030-53`, criada pelo enricher.
+    """
+    assert formatar_oab('39599', 'RS') == formatar_oab('RS039599', 'RS') == 'RS39599'
+    assert formatar_oab('67943', 'RS') == formatar_oab('RS067943', 'RS') == 'RS67943'
+    assert formatar_oab('AC004275', 'AC') == formatar_oab('4275', 'AC') == 'AC4275'
+    assert formatar_oab('AL010715A', 'AL') == formatar_oab('10715A', 'AL') == 'AL10715A'
+    # controle negativo: zero NO MEIO ou NO FIM não pode sumir
+    assert formatar_oab('10203', 'SP') == 'SP10203'
+    assert formatar_oab('40500', 'SP') == 'SP40500'
+    # e uma OAB que é só zeros não vira string vazia
+    assert formatar_oab('000', 'SP') == 'SP000'
+
+
 def test_formatar_oab_bate_com_parse_oab_do_resto_do_sistema():
     """Régua contra a fonte que já gravou 17,7 M de linhas."""
     from enrichers.parsers import parse_oab
