@@ -45,16 +45,27 @@ advogado, **Valor da Causa**, e a lista de eventos. É mais do que o e-SAJ dá.
 
 **Três coisas medidas que definem o que dá e o que não dá:**
 
-1. **Bloqueia IP de datacenter.** Do host de produção e de uma máquina comum:
-   *connection timed out*. Só respondeu pelo **proxy residencial** (Cortex).
-   Um recon que teste sem proxy residencial conclui "inviável" por engano — foi
-   provavelmente o que aconteceu no recon de 2026-06-29.
-2. **O muro é Cloudflare Turnstile, e o `hash` NÃO é atalho.** Repetindo a mesma
-   URL, com o mesmo `hash`, em sessão nova pelo proxy: **HTTP 200 com 38.402
-   bytes que são o formulário de busca**, contendo
-   `<div class="cf-turnstile" data-sitekey="0x4AAAAAABC6galUOytMs1K-">` e
-   `hdnInfraCaptcha=0`. O `hash` só vale dentro de sessão que já passou o
-   desafio.
+1. **NÃO bloqueia IP de datacenter — o site é que oscila.** Eu havia escrito o
+   contrário aqui, a partir de dois *connection timed out*. **Errado.** Repetido
+   depois, sem proxy nenhum, de máquina comum: **HTTP 200 em ~0,09 s, 5 de 5**.
+   Timeout isolado num site instável não é bloqueio; concluir "bloqueia" a
+   partir de duas falhas é o mesmo erro de amostra pequena que este documento
+   passa a vida denunciando.
+2. **O muro é Cloudflare Turnstile, e o `hash` NÃO é atalho — com o mecanismo à
+   vista.** A URL de detalhe, em sessão que não passou o desafio, responde
+   **302** para
+
+   ```
+   Location: externo_controlador.php?acao=tjsp@consulta_unificada_publica/consultar
+             &num_processo=40024317520258260223
+   ```
+
+   ou seja, **devolve o visitante ao formulário de busca com o número já
+   preenchido**, e esse formulário traz
+   `<div class="cf-turnstile" data-sitekey="0x4AAAAAABC6galUOytMs1K-">` com
+   `hdnInfraCaptcha=0`. Testado também abrindo o formulário antes para criar
+   sessão e reenviando o detalhe com o mesmo cookie jar e `Referer`: **mesmo
+   302**. O `hash` só vale dentro de sessão que já limpou o desafio.
 3. **O `hash` não é derivável.** 32 hex = MD5, mas nenhuma das 8 variantes
    óbvias bate (`md5(num_processo)`, `md5(cnj)`, com/sem pontuação, com sufixo
    `SP`/`eproc`, maiúsculas). Há sal ou componente de sessão.
