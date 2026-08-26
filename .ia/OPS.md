@@ -1231,6 +1231,70 @@ novo de carona — quem já está indexado precisa de reindex direcionado.
 `.ia/SEARCH_SCHEMA.md` §"Linha de base do índice de processos". **Apague esta
 seção quando o reindex tiver passado** — e não antes.
 
+## 🔴 INCIDENTE: coluna NOT NULL nova parou a ingestão do dia inteiro (25/08/2026)
+
+**Sintoma na tela:** o KPI "PUBLICADAS EM 24H" mostrou **2.491** com **−99,8% vs
+24h anteriores**. O número estava CERTO. A queda era real.
+
+**Medido:** publicações por dia de disponibilização —
+
+```
+D-2 (24/08, seg) .... 1.529.530     ✅
+D-1 (25/08, ter) ....        32     🔴   <- o dia inteiro
+D-5 (21/08, sex) .... 1.453.803     ✅
+D-6 (20/08, qui) .... 1.350.343     ✅
+```
+
+E a coleta NÃO tem atraso de um dia — a mediana de `inserido_em` das
+publicações de um dia X cai em **05:30–06:00 UTC do próprio dia X**. Então às
+21h de 25/08 já deveria haver ~1,4 M. Havia 32.
+
+**Causa:** `IngestionRun` da janela `2026-08-25` com **10.410 `failed` e zero
+`success`**, todos com a mesma mensagem:
+
+```
+null value in column "grau" of relation "tribunals_process"
+violates not-null constraint
+```
+
+A migration `0052` usa o idioma padrão do Django:
+
+```sql
+ADD COLUMN IF NOT EXISTS "grau" varchar(4) DEFAULT '' NOT NULL;
+ALTER COLUMN "grau" DROP DEFAULT;      -- ← a mina
+```
+
+Isso é correto **quando todo escritor conhece a coluna**. Não era o caso: os
+workers seguiam com o código anterior à 0052 (bind mount entrega o arquivo,
+Python não recarrega — ver a seção do worker com código velho). Código velho
+monta o INSERT **sem** a coluna; sem `DEFAULT` no banco, o Postgres recusa.
+
+**Cura (30 s, sem deploy, sem reiniciar nada):**
+
+```sql
+ALTER TABLE tribunals_process ALTER COLUMN grau SET DEFAULT '';
+```
+
+Tabela quente ⇒ o `ALTER` toma `ACCESS EXCLUSIVE` e bate em `lock timeout`.
+**Não suba o `lock_timeout`** — repita com `lock_timeout='2s'` e 1,5 s de pausa
+até passar (pegou na 22ª tentativa). Subir o teto é como se compra o auto-jam
+da seção seguinte.
+
+**Efeito medido:** último `failed` 00:19:34, primeiro `success` 00:19:36,
+publicações de 25/08 de **32 → 3.032 → 14.472** nos minutos seguintes.
+
+### A regra que fica
+
+**Coluna NOT NULL nova em tabela que já tem escritor em produção NUNCA fica sem
+`DEFAULT` no banco.** O `DROP DEFAULT` do Django presume deploy atômico, e aqui
+não existe deploy atômico: web, scheduler, 5 drainers e dezenas de workers
+recarregam em momentos diferentes. Deixe o `DEFAULT` no banco — ele custa nada
+e é a única coisa que protege o escritor atrasado.
+
+E o alarme funcionou: **o −99,8% no KPI foi o que denunciou**. A métrica usa
+`data_disponibilizacao` e não `inserido_em` justamente para não ser mascarada
+pelo backfill — sem essa escolha, os 8 M ingeridos teriam escondido o dia morto.
+
 ## ALTER TABLE em tabela quente — o auto-jam, e por que o gate não basta (2026-08-25)
 
 **Incidente.** Três ALTERs metadata-only da migration `0052` (`ADD COLUMN`

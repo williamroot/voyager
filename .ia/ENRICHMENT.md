@@ -63,9 +63,13 @@ backfill ao contrário.
 
 - A amostra cobriu **24 dos 59 tribunais**. Os outros 35 não apareceram; isso é
   ausência na amostra, **não** prova de sistema único.
-- **TJRS tem `link` vazio em 100%** das publicações (conferido nas últimas 100 mil
-  movimentações, todas TJRS). Onde o `link` é vazio o método é **cego** — não
-  conclua "sistema único", conclua "não medido".
+- **Cobertura do `link` varia muito por faixa** — de 17,8% a 84,5% conforme o
+  trecho da tabela. Onde o `link` é vazio o método é **cego**: ali a resposta é
+  "não medido", nunca "sistema único".
+  *(Correção de 26/08: a versão anterior desta linha dizia "TJRS tem link vazio
+  em 100%". Errado — aquilo veio das últimas 100 mil movimentações, que por
+  acaso eram todas TJRS de um lote sem link. Medido em 40 âncoras espalhadas, o
+  TJRS tem link em **82,2%**. Amostra de bloco contíguo mentindo de novo.)*
 - A amostra é de **publicações**, então pesa processo ativo. Serve para achar o
   sistema; não serve para dimensionar o acervo parado.
 
