@@ -70,6 +70,33 @@ advogado, **Valor da Causa**, e a lista de eventos. É mais do que o e-SAJ dá.
    óbvias bate (`md5(num_processo)`, `md5(cnj)`, com/sem pontuação, com sufixo
    `SP`/`eproc`, maiúsculas). Há sal ou componente de sessão.
 
+**MEDIDO em 26/08/2026 — navegador headless NÃO passa, e o modo é interativo.**
+Playwright + Chromium do sistema, quatro configurações:
+
+| tentativa | resultado |
+|---|---|
+| headless clássico, 36 s | sem token, `hdnInfraCaptcha=0` |
+| `--headless=new` + `navigator.webdriver` mascarado, 36 s | sem token |
+| **headed de verdade** (Xvfb, viewport 1366×900), 48 s | sem token |
+| headed + **clique na caixa**, 40 s | **caixa continua desmarcada**, sem token |
+
+A instrumentação de rede prova que **o desafio carrega e roda** — `api.js` 200,
+iframe `challenges.cloudflare.com/.../turnstile/f/av0/...` presente, chamadas
+`challenge-platform` respondendo 200 (uma 401 no `/pat/`, esperado fora do
+Safari). Ou seja: não é ambiente quebrado, **é recusa**.
+
+E o screenshot mostra o ponto decisivo: o widget está em **modo interativo**
+("Confirme que é humano", caixa para clicar), não no modo *managed* que passa
+sozinho. A hipótese de "navegador legítimo passa nativamente" está **refutada
+para este site**.
+
+Por que o clique não marca: Playwright/Puppeteer dirigem por CDP, e o Turnstile
+detecta CDP. Passar daqui exige **navegador com patch anti-detecção** ou
+**serviço de captcha-solving** — as duas coisas são evasão deliberada de um
+controle anti-bot, não "usar a página pública". **Isso não se implementa aqui.**
+Se o dado do eproc virar necessidade de negócio, o caminho é **autorização**
+(pedir acesso ao TJSP/CNJ), não evasão.
+
 **Decisão em aberto, e é do dono do produto:** um serviço de captcha-solving tem
 implicações de ToS e **não se liga sem ordem explícita**. O que é
 tecnicamente diferente — e não foi testado ainda — é um **navegador headless**
