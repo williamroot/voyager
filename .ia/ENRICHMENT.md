@@ -27,6 +27,50 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TJPA | Portal próprio "Consulta Unificada" (SPA + REST) | **Sim** (2026-06-29) | `enrichers/tjpa.py` (classe própria). `GET consulta-processual-unificada-prd.tjpa.jus.br/consilium-rest/processobycnj/{cnj}` (UA de browser, throttle p/ 429). reCAPTCHA só no front, não enforced. `cpfcnpj` vazio na consulta pública (tipo pf/pj por `tppessoa`). |
 | **Bloqueados (recon 2026-06-29)** | vários | **Não — captcha/login/anti-bot** | Consulta pública gated, inviável headless sem captcha-solver ou credenciais: **captcha** (hCaptcha/reCaptcha/Tencent) — TJBA, TJPB, TJRR, TJSE, TJMS (e-SAJ virou SPA Next.js c/ captcha), TJGO+TJPR (PROJUDI), TJAM (PROJUDI atrás de F5 anti-bot); **login obrigatório** — TJES, TJPI, TJTO; **indeterminado** (sem amostra/host estável) — TJRN. eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA (ver linhas TRF acima). Desbloqueio exige decisão: serviço de captcha-solving (2captcha etc.) ou credenciais/OTP. Veredictos completos do recon no histórico do commit. |
 
+## eproc/TJSP: a consulta pública EXISTE e o muro é Turnstile — não login+2FA (26/08/2026)
+
+A linha "eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA" **não vale para o
+eproc do TJSP**. Medido ao vivo:
+
+```
+https://eproc-consulta.tjsp.jus.br/consulta_1g/externo_controlador.php
+   ?acao=tjsp@consulta_publica_eproc/exibir_processo
+   &num_processo=<CNJ sem pontuação>&hash=<32 hex>
+```
+
+Num navegador com sessão validada, essa URL entrega a ficha COMPLETA, **sem
+login**: capa (autuação, situação, órgão, juiz, classe), **assunto com código
+TPU**, `Partes e Representantes` com papel (EXEQUENTE/EXECUTADO) e OAB do
+advogado, **Valor da Causa**, e a lista de eventos. É mais do que o e-SAJ dá.
+
+**Três coisas medidas que definem o que dá e o que não dá:**
+
+1. **Bloqueia IP de datacenter.** Do host de produção e de uma máquina comum:
+   *connection timed out*. Só respondeu pelo **proxy residencial** (Cortex).
+   Um recon que teste sem proxy residencial conclui "inviável" por engano — foi
+   provavelmente o que aconteceu no recon de 2026-06-29.
+2. **O muro é Cloudflare Turnstile, e o `hash` NÃO é atalho.** Repetindo a mesma
+   URL, com o mesmo `hash`, em sessão nova pelo proxy: **HTTP 200 com 38.402
+   bytes que são o formulário de busca**, contendo
+   `<div class="cf-turnstile" data-sitekey="0x4AAAAAABC6galUOytMs1K-">` e
+   `hdnInfraCaptcha=0`. O `hash` só vale dentro de sessão que já passou o
+   desafio.
+3. **O `hash` não é derivável.** 32 hex = MD5, mas nenhuma das 8 variantes
+   óbvias bate (`md5(num_processo)`, `md5(cnj)`, com/sem pontuação, com sufixo
+   `SP`/`eproc`, maiúsculas). Há sal ou componente de sessão.
+
+**Decisão em aberto, e é do dono do produto:** um serviço de captcha-solving tem
+implicações de ToS e **não se liga sem ordem explícita**. O que é
+tecnicamente diferente — e não foi testado ainda — é um **navegador headless**
+(Playwright) carregando a página pública: o Turnstile em modo *managed* costuma
+passar sozinho para navegador legítimo, sem solver de terceiro. Vale medir antes
+de decidir qualquer coisa paga.
+
+**Antes de gastar isso, note o que já temos de graça:** partes com papel saem em
+**79,2%** das publicações eproc do próprio DJEN (§ acima). O que a consulta
+pública acrescenta é **valor da causa** e o **assunto com código**, mais os
+eventos. Dimensione a decisão por esses campos, não por "partes".
+
 ## 🔴 A tabela acima está INCOMPLETA: três tribunais têm DOIS sistemas (medido 25/08/2026)
 
 A coluna "Sistema" acima diz UM sistema por tribunal. **É falso para TJSP, TJMG e
