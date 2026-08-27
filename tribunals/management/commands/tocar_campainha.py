@@ -186,19 +186,34 @@ class Command(BaseCommand):
             with transaction.atomic(), connection.cursor() as c:
                 c.execute("SET LOCAL lock_timeout = '5s'")
                 c.execute("SET LOCAL statement_timeout = '120s'")
-                c.execute("SELECT DISTINCT processo_id FROM tribunals_processoparte "
-                          "WHERE fonte = 'djen' AND processo_id > %s "
-                          "ORDER BY processo_id LIMIT %s", [cursor, o['lote']])
-                ids = [r[0] for r in c.fetchall()]
-                if not ids:
+                # DOIS passos de propósito. O keyset anda por `processo_id`
+                # puro, que é servido por `pp_processo_polo_idx`; pôr o
+                # `fonte='djen'` aqui força visita ao heap em cada linha e a
+                # consulta estourou 120 s em produção. O filtro de fonte vem
+                # depois, sobre a lista pequena, onde é lookup por id.
+                c.execute('SELECT DISTINCT processo_id FROM tribunals_processoparte '
+                          'WHERE processo_id > %s ORDER BY processo_id LIMIT %s',
+                          [cursor, o['lote']])
+                candidatos = [r[0] for r in c.fetchall()]
+                if not candidatos:
                     break
+                c.execute("SELECT DISTINCT processo_id FROM tribunals_processoparte "
+                          "WHERE processo_id = ANY(%s) AND fonte = 'djen'", [candidatos])
+                ids = [r[0] for r in c.fetchall()]
+                cursor_novo = candidatos[-1]
+                if not ids:
+                    cursor = cursor_novo
+                    passadas += 1
+                    if not o['dry_run']:
+                        cache.set(chave, cursor, None)
+                    continue
                 if not o['dry_run']:
                     c.execute('UPDATE tribunals_process SET atualizado_em = now() '
                               'WHERE id = ANY(%s)', [ids])
                     tocados += c.rowcount
                 else:
                     tocados += len(ids)
-            cursor = ids[-1]
+            cursor = cursor_novo
             passadas += 1
             if not o['dry_run']:
                 cache.set(chave, cursor, None)
