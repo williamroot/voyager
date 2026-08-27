@@ -30,11 +30,20 @@ class Command(BaseCommand):
     def add_arguments(self, p):
         p.add_argument('--tribunais', default=','.join(DATAJUD_ALVO),
                        help='CSV de siglas (default: alvo datajud).')
-        p.add_argument('--batch', type=int, default=20000, help='tamanho da janela de pk')
+        p.add_argument('--batch', type=int, default=2000,
+                       help=('linhas por lote. Era 20.000 e virou 12,7 h numa '
+                             'transação só no TJSP — o custo é por MOVIMENTAÇÃO, '
+                             'não por processo, e varia 100x entre tribunais.'))
         p.add_argument('--sleep', type=float, default=0.2, help='pausa entre janelas (s)')
         p.add_argument('--min-id', type=int, default=None)
         p.add_argument('--max-id', type=int, default=None)
         p.add_argument('--dry-run', action='store_true')
+        p.add_argument('--statement-timeout', default='120s',
+                       help=('teto por LOTE. O EXISTS com regex sobre o texto das '
+                             'movimentações custa proporcional ao tamanho do '
+                             'processo; sem teto um lote de TJSP rodou 12,7 h e '
+                             'travou outros três jobs (27/08/2026).'))
+        p.add_argument('--lock-timeout', default='5s')
 
     def handle(self, *a, **o):
         tribs = [s.strip().upper() for s in o['tribunais'].split(',') if s.strip()]
@@ -66,6 +75,23 @@ class Command(BaseCommand):
             # até o UPDATE commitar, então cópias paralelas pegam lotes disjuntos.
             with transaction.atomic():
                 with connection.cursor() as c:
+                    # TETO DE ESPERA no lote. Sem isto, um único UPDATE ficou
+                    # **12,7 HORAS** rodando em produção (27/08/2026, TJSP): o
+                    # `EXISTS` com regex sobre `m.texto` custa proporcional ao
+                    # número de movimentações do processo, e processo de TJSP tem
+                    # muitas. Enquanto durou, ele segurou row-lock em 20.000
+                    # linhas de `tribunals_process` e travou TRÊS outros jobs —
+                    # o `DROP INDEX CONCURRENTLY` (12,6 h esperando), o backfill
+                    # de `assunto_id` (2,6 h) e dois de `classificacao` (1,5 h
+                    # cada), todos em `wait_event_type=Lock`.
+                    #
+                    # Com teto, o lote morre sozinho e a transação solta os
+                    # locks: o comando registra o erro e segue, em vez de virar
+                    # um bloqueio de meio dia que ninguém vê. Regra nº 7 —
+                    # nada sem teto de espera.
+                    c.execute('SET LOCAL lock_timeout = %s', [o['lock_timeout']])
+                    c.execute('SET LOCAL statement_timeout = %s',
+                              [o['statement_timeout']])
                     c.execute(sql_pick, params)
                     ids = [r[0] for r in c.fetchall()]
                     if ids:

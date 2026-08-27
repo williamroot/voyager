@@ -1231,6 +1231,52 @@ novo de carona — quem já está indexado precisa de reindex direcionado.
 `.ia/SEARCH_SCHEMA.md` §"Linha de base do índice de processos". **Apague esta
 seção quando o reindex tiver passado** — e não antes.
 
+## 🔴 INCIDENTE: um lote sem teto travou três jobs por 12,7 h (27/08/2026)
+
+`backfill_sinal_precatorio --tribunais TJSP` com o default `--batch 20000`.
+Um único `UPDATE` rodou **45.705 s = 12,7 horas**:
+
+```sql
+UPDATE tribunals_process p SET tem_sinal_precatorio = EXISTS (
+  SELECT 1 FROM tribunals_movimentacao m
+   WHERE m.processo_id = p.id AND m.texto ~* '<padrão>')
+ WHERE p.id = ANY(<20.000 ids>)
+```
+
+**Por que só no TJSP:** o custo do `EXISTS` é proporcional ao número de
+**movimentações** do processo, não ao de processos. O mesmo `--batch 20000` que
+fecha em segundos no TJPR virou meio dia no TJSP. Teto dimensionado por
+processo, custo pago por movimentação — a conta não fecha e ninguém percebe até
+travar.
+
+**O que ele travou** (todos em `wait_event_type=Lock`, atrás dos row-locks das
+20.000 linhas):
+
+```
+DROP INDEX CONCURRENTLY proc_atualizado_em_idx ....... 12,6 h esperando
+UPDATE tribunals_process SET assunto_id = …  .........  2,6 h
+UPDATE tribunals_process SET classificacao = … (×2) ..  1,5 h cada
+```
+
+**Como achar:** `pg_stat_activity` ordenado por `now() - query_start`, e olhar
+`wait_event_type`. Quem está `Lock` é vítima; quem está `NULL` há horas é o réu.
+
+**Cura:** `SELECT pg_cancel_backend(<pid>)` no réu — cancela a consulta, faz
+rollback do lote e solta os locks. **Não** use `pg_terminate_backend` primeiro:
+cancelar basta e não derruba a conexão.
+
+**Conserto durável:** `--batch` default caiu para 2.000 e o lote passou a rodar
+com `SET LOCAL statement_timeout` (default 120 s) e `lock_timeout` (5 s), os
+dois ajustáveis por flag. Com teto, o lote morre sozinho e o comando registra o
+erro — em vez de virar bloqueio invisível de meio dia. Regra nº 7.
+
+**E a lição do `DROP INDEX CONCURRENTLY`:** ele espera **snapshot**, não lock —
+`lock_timeout` não o interrompe. Num banco que sempre tem alguma consulta longa,
+ele pode nunca ganhar (esperou 12,6 h). Quando o alvo é um índice **inválido**
+(que ninguém usa em consulta mas é mantido em toda escrita), o caminho é
+cancelar e fazer `DROP INDEX` comum com `lock_timeout` curto **e repetição** —
+assim nunca se entra na fila do lock, que é o que a regra do auto-jam proíbe.
+
 ## `sync_es`: os dois lados de PROCESSO eram vazamento (consertado 27/08/2026)
 
 O tique incremental Postgres→ES tem três lados. O das **movimentações** já tinha
