@@ -1277,6 +1277,36 @@ ele pode nunca ganhar (esperou 12,6 h). Quando o alvo é um índice **inválido*
 cancelar e fazer `DROP INDEX` comum com `lock_timeout` curto **e repetição** —
 assim nunca se entra na fila do lock, que é o que a regra do auto-jam proíbe.
 
+### 🔴 PARE DE TENTAR E PERGUNTE QUEM SEGURA
+
+Eu gastei **165 tentativas** de `DROP INDEX` com `lock_timeout='2s'` em três
+rodadas, concluindo a cada rodada que "a tabela está quente demais". Estava
+errado: não era a carga, era **um processo com nome e pid**.
+
+Uma consulta responde em 2 segundos:
+
+```sql
+SELECT w.pid, unnest(pg_blocking_pids(w.pid)) AS bloqueador
+  FROM pg_stat_activity w
+ WHERE w.query ILIKE '%DROP INDEX%' AND w.state <> 'idle';
+-- depois: SELECT pid, state, xact_start, query FROM pg_stat_activity WHERE pid = ANY(...)
+```
+
+Devolveu **um** pid: outro `backfill_sinal_precatorio` rodando com o código
+ANTIGO (sem `statement_timeout`), 20 minutos numa transação só. Matei o processo,
+cancelei a consulta, e o `DROP` passou **na primeira tentativa**. O
+`CREATE INDEX CONCURRENTLY` seguinte fechou em **6,9 min**, válido, 2.040 MB.
+
+**A régua:** repetição com teto curto é a forma certa de PEDIR o lock. Ela não
+substitui **descobrir quem o segura**. Se duas dezenas de tentativas falharem,
+pare de tentar — `pg_blocking_pids` nomeia o réu, e quase sempre é um job nosso
+com código velho, não "a carga".
+
+**E antes de qualquer DDL:** confira se o comando que você acha que está parado
+realmente parou. Kill switch no Redis para o LOOP, mas não mata o processo que
+já está dentro de uma consulta longa — nem recarrega código novo em processo
+antigo (bind mount entrega o arquivo, Python não recarrega).
+
 ## `sync_es`: os dois lados de PROCESSO eram vazamento (consertado 27/08/2026)
 
 O tique incremental Postgres→ES tem três lados. O das **movimentações** já tinha
