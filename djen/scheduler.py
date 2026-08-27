@@ -340,6 +340,22 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # Cobertura do acervo nacional (card do Acompanhamento) — a cada 6 h.
+    # NÃO é inline no caminho da requisição: a cardinalidade dos CNJs do
+    # `voyager-acervo` leva ~36 s sozinha, e medição de rodapé sem teto já
+    # derrubou o site uma vez (regra nº 7). O denominador muda devagar — o
+    # esqueleto do Datajud é um retrato, não um fluxo —, então 6 h é folgado.
+    from dashboard.cobertura_nacional import aquecer as warm_cobertura
+    scheduler.add_job(
+        warm_cobertura,
+        'interval',
+        hours=6,
+        id='warm_cobertura_nacional',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Classificação por prioridade — único cron, substitui todos os fluxos inline.
     # Grupo 1: desatualizados (classificacao_em < ultima_movimentacao_em), mais recentes primeiro.
     # Grupo 2 (fallback): classificados há mais tempo (classificacao_em ASC).

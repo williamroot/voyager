@@ -757,3 +757,44 @@ Semear/atualizar as notas de agosto/2026: `manage.py acompanhamento_semear`
 > que compara texto de label com caixa vai reprovar a tela por engano — compare
 > em minúsculas. E `.first` num dia com várias notas pega qualquer uma; navegue
 > pelo href.
+
+## Card de cobertura nacional (`/dashboard/acompanhamento/`, 27/08/2026)
+
+A régua do princípio nº 1, na tela. `dashboard/cobertura_nacional.py` mede,
+`warm_cobertura_nacional` no scheduler aquece de 6 em 6 h, a view só **lê o
+cache**.
+
+```
+numerador    tribunals_process       (um por (tribunal, CNJ) — unifica graus)
+denominador  CNJs DISTINTOS do voyager-acervo   ≈289.277.192
+```
+
+**A armadilha, e ela é de 5 pontos percentuais.** O `voyager-acervo` tem
+**342.046.902 documentos** para **≈289.277.192 CNJs**: o Datajud emite um doc
+por *(tribunal, grau)* e 24,3% dos processos têm dois ou mais graus. Dividir
+pelos documentos dá **29,2%**; pelos CNJs dá **34,5%**. A versão errada é a que
+parece mais rigorosa — por isso o card mostra os DOIS números e explica a
+diferença no rodapé, em vez de só publicar o certo.
+
+**Nunca no caminho da requisição.** A cardinalidade sozinha leva ~36 s
+(HyperLogLog, `precision_threshold=40000`, ±1% neste volume). Sem cache o card
+**abstém** com todas as letras — foi medição de rodapé sem teto que derrubou o
+site em julho (regra nº 7).
+
+**A série é regressiva.** Ninguém guardou snapshot diário, então ela é
+reconstruída do total de hoje menos o que entrou em cada dia (`inserido_em`,
+45 dias). A propriedade que importa: **o ponto de hoje é exato por construção**,
+então o erro, se houver, fica no passado distante e não no número que alguém vai
+citar.
+
+**Três ressalvas ficam VISÍVEIS no card**, não em `title=`: a aproximação HLL, a
+estimativa do `reltuples` e a data do retrato do esqueleto (ele não é
+atualizado — serve para dizer o tamanho do país, **não** para afirmar que um
+processo não existe).
+
+Gráficos: área de cobertura dia a dia com `markPoint` no dia de maior salto (a
+recuperação nacional pôs 6,7 M num dia — sem o marcador a curva parece
+crescimento orgânico) e barras por tribunal ordenadas por **tamanho do
+tribunal**, não por cobertura: o que importa é onde está o buraco absoluto, e o
+TJSP sozinho é 20% do país.
+

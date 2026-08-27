@@ -120,6 +120,150 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
     </div>
   </div>
 
+  {% comment %}
+  ═══ CARD DE COBERTURA NACIONAL ═══════════════════════════════════════════
+  O princípio nº 1 do projeto é COMPLETUDE, e até aqui nenhuma tela mostrava o
+  progresso dele. "Só tínhamos 13% do acervo nacional" vivia numa nota; o número
+  de hoje vivia num terminal.
+
+  Regras que este card não pode quebrar:
+    * o denominador é CNJ DISTINTO (289 M), não doc do índice (342 M) — o
+      Datajud emite um doc por (tribunal, grau) e 24,3% têm 2+ graus. Dividir
+      por 342 M subestima em ~5 pontos com cara de rigor;
+    * todo número aproximado aparece com "≈" e a ressalva fica VISÍVEL, não em
+      tooltip — número sem ressalva vira premissa;
+    * dado vem do CACHE. Medir aqui custaria 36 s de cardinalidade no caminho da
+      requisição, e medição de rodapé sem teto já derrubou o site (regra nº 7).
+  {% endcomment %}
+  {% if cobertura %}
+  <section class="card-tight relative overflow-hidden">
+    <div aria-hidden="true"
+         class="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full
+                bg-mission/10 blur-3xl"></div>
+
+    <div class="relative flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+          {% voy_icon "constellation" "w-5 h-5 text-mission" %}
+          Cobertura do acervo nacional
+        </h2>
+        <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+          Quantos dos processos que <b>existem no país</b> nós temos. O
+          denominador é o esqueleto do Datajud/CNJ; o numerador é o nosso banco.
+          É a régua do princípio nº 1 — e a única que diz se o produto está
+          ficando inteiro.
+        </p>
+      </div>
+      <div class="text-right shrink-0">
+        <div class="flex items-baseline gap-2 justify-end">
+          <span class="text-4xl font-mono font-semibold text-mission tabular-nums">
+            {{ cobertura.cobertura }}%
+          </span>
+          {% if cobertura.ganho_pp %}
+          <span class="text-sm font-mono text-success-fg">+{{ cobertura.ganho_pp }} pp</span>
+          {% endif %}
+        </div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mt-0.5">
+          {% if cobertura.ganho_pp %}nos últimos 30 dias{% else %}hoje{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="relative mt-5 grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">
+            cobertura dia a dia · {{ cobertura.dias_serie }} dias
+          </span>
+          <span class="text-[0.7rem] font-mono text-fg-subtle">
+            +{{ cobertura.novos_janela|format_int }} processos na janela
+          </span>
+        </div>
+        <div class="chart-cell relative h-56">
+          <div class="chart-skeleton skeleton absolute inset-0 rounded-lg"></div>
+          <div id="ch-cob-serie" class="w-full h-full"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1.5">
+          por tribunal · nosso × Datajud
+        </div>
+        <div class="chart-cell relative h-56">
+          <div class="chart-skeleton skeleton absolute inset-0 rounded-lg"></div>
+          <div id="ch-cob-trib" class="w-full h-full"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="relative mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-lg border border-border bg-surface px-3 py-2.5">
+        <div class="text-lg font-mono text-fg tabular-nums">{{ cobertura.total_pg|format_int }}</div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">processos nossos</div>
+      </div>
+      <div class="rounded-lg border border-border bg-surface px-3 py-2.5">
+        <div class="text-lg font-mono text-fg tabular-nums">≈{{ cobertura.cnjs_distintos|format_int }}</div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">CNJs no país</div>
+      </div>
+      <div class="rounded-lg border border-border bg-surface px-3 py-2.5">
+        <div class="text-lg font-mono text-danger tabular-nums">{{ cobertura.faltam|format_int }}</div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">ainda faltam</div>
+      </div>
+      <div class="rounded-lg border border-border bg-surface px-3 py-2.5">
+        <div class="text-lg font-mono text-fg tabular-nums">{{ cobertura.nosso_indice|format_int }}</div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">já na busca</div>
+      </div>
+    </div>
+
+    {% comment %}
+      As ressalvas ficam NA TELA, não em tooltip. Um número aproximado que se
+      apresenta como exato é pior que não ter número — e este card tem três
+      aproximações diferentes, cada uma com um motivo distinto.
+    {% endcomment %}
+    <ul class="relative mt-4 space-y-1 text-[0.7rem] text-fg-subtle leading-relaxed">
+      <li>
+        <b class="text-fg-muted">Denominador:</b> ≈{{ cobertura.cnjs_distintos|format_int }}
+        CNJs <b>distintos</b> — não os {{ cobertura.acervo_docs|format_int }} documentos do
+        esqueleto. O Datajud emite um doc por tribunal <i>e grau</i>
+        ({{ cobertura.docs_por_cnj }} por CNJ); dividir pelos documentos
+        subestimaria a cobertura em ~5 pontos.
+      </li>
+      <li>
+        <b class="text-fg-muted">Aproximações:</b> a contagem de CNJs distintos é
+        HyperLogLog (±1% nesse volume) e o total nosso vem da estimativa do
+        planner — contar exato em 103 M sob carga de backfill custa minutos de
+        I/O para mexer na terceira casa.
+      </li>
+      {% if cobertura.acervo_varrido_em %}
+      <li>
+        <b class="text-fg-muted">O esqueleto é um retrato de {{ cobertura.acervo_varrido_em }}</b>,
+        não um fluxo: serve para dizer o tamanho do país, <b>não</b> para afirmar
+        que um processo não existe.
+      </li>
+      {% endif %}
+      <li class="text-fg-subtle/80">
+        medido em {{ cobertura.medido_em|slice:":16" }} · atualiza de 6 em 6 horas
+      </li>
+    </ul>
+
+    {{ cobertura.serie|json_script:"dados-cob-serie" }}
+    {{ cobertura.tribunais|json_script:"dados-cob-trib" }}
+  </section>
+  {% else %}
+  <section class="card-tight">
+    <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+      {% voy_icon "constellation" "w-5 h-5 text-fg-muted" %}
+      Cobertura do acervo nacional
+    </h2>
+    <p class="text-xs text-fg-subtle mt-1">
+      Ainda não medido nesta instância. O cálculo roda em job de aquecimento a
+      cada 6 h — a cardinalidade sozinha leva ~36 s e não pode rodar no caminho
+      da requisição. <b>Abster é melhor que estimar</b>: preferimos dizer que não
+      medimos a mostrar um número que ninguém consegue refazer.
+    </p>
+  </section>
+  {% endif %}
+
   {% if not notas %}
     <div class="card-tight text-center py-12">
       {% voy_icon "search" "w-6 h-6 text-fg-muted mx-auto" %}
@@ -204,4 +348,102 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
     {% endfor %}
   {% endfor %}
 </div>
+
+{% if cobertura %}
+{% comment %}
+  Os gráficos vivem AQUI dentro do `content` — o base.html não tem bloco de
+  scripts, e enfiar `<script>` fora do bloco some sem aviso.
+
+  `setupChart` é o helper do base: ele guarda as opções no dataset, inicializa
+  com o tema certo (o ECharts fixa o tema no `init`, então trocar tema exige
+  `dispose`) e remove o skeleton irmão quando renderiza.
+{% endcomment %}
+<script>
+(function () {
+  const serie = JSON.parse(document.getElementById('dados-cob-serie').textContent);
+  const tribs = JSON.parse(document.getElementById('dados-cob-trib').textContent);
+  const elSerie = document.getElementById('ch-cob-serie');
+  const elTrib = document.getElementById('ch-cob-trib');
+  if (!elSerie || !elTrib || typeof setupChart !== 'function') return;
+
+  // Lê a cor do tema em vez de fixar hexadecimal: o choropleth já renderizou
+  // cinza uma vez por ter ignorado os tokens (.ia/DASHBOARD.md).
+  const tok = (nome, alt) => {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+    return v ? `rgb(${v})` : alt;
+  };
+  const escuro = () => document.documentElement.classList.contains('dark');
+  const mission = tok('--c-mission', 'rgb(234,88,12)');
+  const fgSub = tok('--c-fg-subtle', 'rgb(113,113,122)');
+  const borda = tok('--c-border', 'rgba(120,120,130,0.35)');
+  const eixo = {axisLine: {lineStyle: {color: borda}}, axisTick: {show: false},
+                axisLabel: {color: fgSub, fontSize: 10,
+                            fontFamily: 'JetBrains Mono, monospace'}};
+  const base = {backgroundColor: 'transparent',
+                textStyle: {fontFamily: 'Manrope, sans-serif', fontSize: 11},
+                tooltip: {trigger: 'axis', confine: true,
+                          backgroundColor: escuro() ? 'rgba(9,9,11,0.94)' : 'rgba(255,255,255,0.97)',
+                          borderColor: borda, textStyle: {fontSize: 11}}};
+
+  const dias = serie.map(p => p.d.slice(5));           // MM-DD
+  const cob = serie.map(p => p.cob);
+  const novos = serie.map(p => p.novos);
+  // o dia de maior salto ganha marcador: é a recuperação nacional, e sem ele a
+  // curva parece crescimento orgânico.
+  let iPico = 0;
+  novos.forEach((n, i) => { if (n > novos[iPico]) iPico = i; });
+
+  setupChart(elSerie, Object.assign({}, base, {
+    grid: {left: 44, right: 16, top: 18, bottom: 26},
+    xAxis: Object.assign({type: 'category', data: dias, boundaryGap: false}, eixo),
+    yAxis: Object.assign({type: 'value', name: '% do país', nameTextStyle: {color: fgSub, fontSize: 10},
+                          scale: true, splitLine: {lineStyle: {color: borda, opacity: 0.4}}}, eixo,
+                         {axisLabel: {color: fgSub, fontSize: 10, formatter: '{value}%',
+                                      fontFamily: 'JetBrains Mono, monospace'}}),
+    series: [{
+      type: 'line', data: cob, smooth: 0.25, showSymbol: false,
+      lineStyle: {width: 2.5, color: mission},
+      itemStyle: {color: mission},
+      areaStyle: {color: {type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+        {offset: 0, color: escuro() ? 'rgba(234,88,12,0.32)' : 'rgba(234,88,12,0.22)'},
+        {offset: 1, color: 'rgba(234,88,12,0.01)'}]}},
+      markPoint: {symbolSize: 42, data: [{
+        coord: [iPico, cob[iPico]], value: '+' + (novos[iPico] / 1e6).toFixed(1) + 'M',
+        itemStyle: {color: mission}, label: {fontSize: 9, color: '#fff',
+                                             fontFamily: 'JetBrains Mono, monospace'}}]},
+    }],
+  }));
+
+  // Barras por tribunal: o que temos, sobre o que existe. Ordenado pelo tamanho
+  // do tribunal (não pela cobertura) — o que importa é onde está o buraco
+  // ABSOLUTO, e o TJSP sozinho é 20% do país.
+  const ordem = tribs.slice().reverse();               // ECharts desenha de baixo
+  setupChart(elTrib, Object.assign({}, base, {
+    grid: {left: 52, right: 40, top: 8, bottom: 4},
+    tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, confine: true,
+              backgroundColor: escuro() ? 'rgba(9,9,11,0.94)' : 'rgba(255,255,255,0.97)',
+              borderColor: borda, textStyle: {fontSize: 11},
+              formatter: (ps) => {
+                const t = ordem[ps[0].dataIndex];
+                const f = (n) => n.toLocaleString('pt-BR');
+                return `<b>${t.t}</b><br>nosso ${f(t.nosso)}<br>` +
+                       `país  ${f(t.datajud)}<br><b>${t.cob}%</b>`;
+              }},
+    xAxis: Object.assign({type: 'value', max: 100, splitLine: {show: false}}, eixo,
+                         {axisLabel: {show: false}}),
+    yAxis: Object.assign({type: 'category', data: ordem.map(t => t.t)}, eixo),
+    series: [{
+      type: 'bar', data: ordem.map(t => t.cob), barWidth: '62%',
+      itemStyle: {color: mission, borderRadius: [0, 3, 3, 0]},
+      showBackground: true,
+      backgroundStyle: {color: escuro() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                        borderRadius: [0, 3, 3, 0]},
+      label: {show: true, position: 'right', formatter: '{c}%', color: fgSub,
+              fontSize: 9.5, fontFamily: 'JetBrains Mono, monospace'},
+    }],
+  }));
+})();
+</script>
+{% endif %}
+
 {% endblock %}
