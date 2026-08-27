@@ -222,6 +222,89 @@ def polo_de(valor) -> str:
     return POLO_DJEN.get(str(valor or '').strip().upper(), ProcessoParte.POLO_OUTROS)
 
 
+
+# --------------------------------------------------------------------------
+# Papel processual a partir do TEXTO da publicação
+# --------------------------------------------------------------------------
+#: Rótulos que o cabeçalho da publicação usa. Medido em 720 publicações eproc
+#: amostradas por 60 âncoras (27/08/2026): **79,2% trazem a tabela**, e estes
+#: são os rótulos que apareceram, do mais comum ao menos:
+#:   ADVOGADO(A) 1002 · AUTOR 302 · EXEQUENTE 119 · RELATOR 75 · EXECUTADO 60
+#:   REQUERENTE 50 · AGRAVANTE 45 · RÉU 30 · AGRAVADO 28 · APELANTE 18
+#:   EMBARGANTE 15 · APELADO 14 · IMPETRANTE 7 · RECORRENTE 6 · RECORRIDO 6
+#:   INTERESSADO 6 · RELATORA 6 · REQUERIDO 4
+#:
+#: O JSONB do DJEN só diz `polo: "A"/"P"` — POSIÇÃO. O texto diz a FUNÇÃO, e é
+#: a função que separa "ainda discute" de "já executa": EXEQUENTE num processo
+#: de polo A não é a mesma coisa que AUTOR.
+PAPEIS_CONHECIDOS = {
+    'AUTOR', 'AUTORA', 'RÉU', 'RE', 'REU', 'RÉ', 'EXEQUENTE', 'EXECUTADO',
+    'REQUERENTE', 'REQUERIDO', 'REQUERIDA', 'AGRAVANTE', 'AGRAVADO',
+    'APELANTE', 'APELADO', 'EMBARGANTE', 'EMBARGADO', 'IMPETRANTE',
+    'IMPETRADO', 'RECORRENTE', 'RECORRIDO', 'INTERESSADO', 'LITISCONSORTE',
+    'TERCEIRO', 'ASSISTENTE', 'SUCESSOR', 'HERDEIRO', 'INVENTARIANTE',
+    'CREDOR', 'DEVEDOR', 'SUSCITANTE', 'SUSCITADO', 'DENUNCIADO',
+}
+
+#: NÃO são parte. `RELATOR` é o desembargador do acórdão; virou 75 ocorrências
+#: na amostra e entraria como pessoa do processo se a gente não recusasse.
+#: `ADVOGADO(A)` é parte, mas o papel dele já é o próprio rótulo.
+NAO_SAO_PARTE = {'RELATOR', 'RELATORA', 'JUIZ', 'JUÍZA', 'JUIZA',
+                 'PROCURADOR', 'PROCURADORA', 'DEFENSOR', 'DEFENSORA',
+                 'PERITO', 'PERITA', 'MINISTRO', 'MINISTRA'}
+
+_RE_LINHA_PAPEL = re.compile(
+    r'<td>\s*([A-ZÀ-Ú()\s/\.\-º]{3,40}?)\s*</td>\s*<td>\s*:\s*([^<]{2,180})</td>',
+    re.IGNORECASE)
+
+
+def _so_papel(rotulo: str) -> str:
+    """`ADVOGADO(A)` → `ADVOGADO`; `AUTOR ` → `AUTOR`; tira sufixo e espaço."""
+    r = re.sub(r'\(.*?\)', '', rotulo or '').strip().upper()
+    return re.sub(r'\s+', ' ', r)
+
+
+def papeis_do_texto(cabecalho: str | None) -> dict:
+    """`{nome_normalizado: PAPEL}` lido do cabeçalho da publicação.
+
+    Ele NÃO cria parte — só rotula quem o JSONB já trouxe. É de propósito: o
+    JSONB é a fonte de QUEM (e passou pelo filtro de segredo); o texto é a
+    fonte de QUAL FUNÇÃO. Assim um cabeçalho estranho nunca inventa gente, no
+    máximo deixa de rotular — que é a abstenção da regra nº 6.
+
+    Devolve `{}` quando não há tabela, sem levantar.
+    """
+    if not cabecalho:
+        return {}
+    fora = {}
+    for rotulo, valor in _RE_LINHA_PAPEL.findall(cabecalho):
+        papel = _so_papel(rotulo)
+        if not papel or papel in NAO_SAO_PARTE:
+            continue
+        if papel not in PAPEIS_CONHECIDOS and papel != 'ADVOGADO':
+            continue                      # rótulo que não conhecemos: abstém
+        nome = re.sub(r'\s+', ' ', (valor or '')).strip()
+        # `FULANO (OAB RJ250427)` → o nome é só o que vem antes do parêntese
+        nome = re.sub(r'\s*\(OAB[^)]*\)\s*$', '', nome, flags=re.IGNORECASE).strip()
+        if not nome:
+            continue
+        chave = _chave_nome(nome)
+        # primeira ocorrência vence; se o mesmo nome aparece com DOIS papéis
+        # diferentes, a fonte se contradiz e a gente abstém (apaga o rótulo).
+        if chave in fora and fora[chave] != papel:
+            fora[chave] = ''
+        else:
+            fora.setdefault(chave, papel)
+    return {k: v for k, v in fora.items() if v}
+
+
+def _chave_nome(nome: str) -> str:
+    """Nome comparável entre JSONB e texto: sem acento, sem pontuação, upper."""
+    import unicodedata
+    n = unicodedata.normalize('NFKD', nome or '')
+    n = ''.join(ch for ch in n if not unicodedata.combining(ch))
+    return re.sub(r'[^A-Z0-9 ]', '', n.upper()).strip()
+
 # --------------------------------------------------------------------------
 # Extração das specs de Parte a partir do JSONB
 # --------------------------------------------------------------------------
@@ -253,7 +336,19 @@ def specs_do_processo(movimentacoes) -> SpecsProcesso:
     Por isso o parse é explícito, nunca `if valor:`.
     """
     out = SpecsProcesso()
-    for destinatarios, advogados in movimentacoes:
+    papeis: dict = {}
+    for mov in movimentacoes:
+        # tupla de 3 desde 27/08/2026 (o cabeçalho entrou); aceita a de 2 para
+        # não quebrar chamador antigo — abstenção, não exceção.
+        cabecalho = mov[2] if len(mov) > 2 else None
+        for k, v in papeis_do_texto(cabecalho).items():
+            # o mais RECENTE vence: a primeira movimentação da lista é a mais
+            # nova (ORDER BY data_disponibilizacao DESC), então só preenche
+            # quem ainda não tem rótulo.
+            papeis.setdefault(k, v)
+
+    for mov in movimentacoes:
+        destinatarios, advogados = mov[0], mov[1]
         for d in _como_lista(destinatarios):
             if not isinstance(d, dict):
                 continue
@@ -271,6 +366,9 @@ def specs_do_processo(movimentacoes) -> SpecsProcesso:
             out.por_polo.setdefault(polo, []).append({
                 'nome': nome, 'documento': '', 'tipo_documento': '',
                 'oab': '', 'tipo': 'desconhecido',
+                # rótulo vindo do TEXTO. Vazio = não achamos, e vazio é o que a
+                # coluna já guardava — nunca chutamos um papel por posição.
+                'papel': papeis.get(_chave_nome(nome), ''),
             })
 
         for a in _como_lista(advogados):
@@ -294,6 +392,7 @@ def specs_do_processo(movimentacoes) -> SpecsProcesso:
             out.por_polo.setdefault(ProcessoParte.POLO_OUTROS, []).append({
                 'nome': nome, 'documento': '', 'tipo_documento': '',
                 'oab': oab, 'tipo': 'advogado',
+                'papel': papeis.get(_chave_nome(nome), ''),
             })
     return out
 
@@ -331,11 +430,17 @@ def _como_lista(valor) -> list:
 #: nunca por varredura.
 JANELA_MOVS = 3
 
+#: `left(texto, 4000)` e não `texto`: a tabela de partes vem SEMPRE no topo da
+#: publicação (é o cabeçalho, antes do "SENTENÇA"/"DESPACHO"). Trazer o texto
+#: inteiro multiplicaria a leitura por 10 sem acrescentar um papel sequer —
+#: e a regra nº 1 aqui é iterar, não acumular.
+_CABECALHO_BYTES = 4000
+
 _SQL_MOVS = """
-SELECT p.id, m.destinatarios, m.destinatario_advogados
+SELECT p.id, m.destinatarios, m.destinatario_advogados, m.cabecalho
 FROM unnest(%s::bigint[]) AS p(id)
 JOIN LATERAL (
-    SELECT destinatarios, destinatario_advogados
+    SELECT destinatarios, destinatario_advogados, left(texto, %s) AS cabecalho
     FROM tribunals_movimentacao
     WHERE processo_id = p.id
     ORDER BY data_disponibilizacao DESC
@@ -367,9 +472,9 @@ def ler_movimentacoes(process_ids: list[int], janela: int = JANELA_MOVS) -> dict
     with transaction.atomic():
         with connection.cursor() as cur:
             _cursor_com_teto(cur, TIMEOUT_LEITURA_S)
-            cur.execute(_SQL_MOVS, [list(process_ids), janela])
-            for pid, dest, advs in cur.fetchall():
-                por_processo.setdefault(pid, []).append((dest, advs))
+            cur.execute(_SQL_MOVS, [list(process_ids), _CABECALHO_BYTES, janela])
+            for pid, dest, advs, cabecalho in cur.fetchall():
+                por_processo.setdefault(pid, []).append((dest, advs, cabecalho))
     return por_processo
 
 
@@ -504,13 +609,17 @@ def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
                 parte_id = spec_to_id.get(_route_parte(spec))
                 if not parte_id:
                     continue
-                chave = (pid, parte_id, polo, PAPEL)
+                # `papel` do TEXTO quando o cabeçalho confirmou; senão o
+                # default histórico (vazio). Ele entra na chave porque a
+                # constraint é `(processo, parte, polo, papel)`.
+                papel = (spec.get('papel') or PAPEL)[:40]
+                chave = (pid, parte_id, polo, papel)
                 if chave in vistos:
                     continue
                 vistos.add(chave)
                 linhas.append(ProcessoParte(
                     processo_id=pid, parte_id=parte_id, polo=polo,
-                    papel=PAPEL, representa_id=None, fonte=FONTE,
+                    papel=papel, representa_id=None, fonte=FONTE,
                 ))
     res.linhas_tentadas = len(linhas)
 

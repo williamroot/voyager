@@ -27,6 +27,53 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TJPA | Portal próprio "Consulta Unificada" (SPA + REST) | **Sim** (2026-06-29) | `enrichers/tjpa.py` (classe própria). `GET consulta-processual-unificada-prd.tjpa.jus.br/consilium-rest/processobycnj/{cnj}` (UA de browser, throttle p/ 429). reCAPTCHA só no front, não enforced. `cpfcnpj` vazio na consulta pública (tipo pf/pj por `tppessoa`). |
 | **Bloqueados (recon 2026-06-29)** | vários | **Não — captcha/login/anti-bot** | Consulta pública gated, inviável headless sem captcha-solver ou credenciais: **captcha** (hCaptcha/reCaptcha/Tencent) — TJBA, TJPB, TJRR, TJSE, TJMS (e-SAJ virou SPA Next.js c/ captcha), TJGO+TJPR (PROJUDI), TJAM (PROJUDI atrás de F5 anti-bot); **login obrigatório** — TJES, TJPI, TJTO; **indeterminado** (sem amostra/host estável) — TJRN. eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA (ver linhas TRF acima). Desbloqueio exige decisão: serviço de captcha-solving (2captcha etc.) ou credenciais/OTP. Veredictos completos do recon no histórico do commit. |
 
+## Papel processual: está no TEXTO da publicação, e o JSONB não tem (27/08/2026)
+
+O `destinatarios` do DJEN dá `polo: "A"/"P"` — **posição**. O corpo da
+publicação do eproc dá a **função**, numa tabela no cabeçalho:
+
+```html
+<b>PROCEDIMENTO DO JUIZADO ESPECIAL CÍVEL Nº 5012262-48.2025.4.02.5101/RJ</b>
+<table>
+  <tr><td>AUTOR</td>       <td>: CONDOMINIO RESIDENCIAL VILLAGGIO FLORENCA</td></tr>
+  <tr><td>ADVOGADO(A)</td> <td>: JOAO PAULO SARDINHA DOS SANTOS (OAB RJ250427)</td></tr>
+  <tr><td>RÉU</td>         <td>: CAIXA ECONÔMICA FEDERAL - CEF</td></tr>
+</table>
+```
+
+Naquela publicação o JSONB lista **três** advogados sem dizer de quem é qual; o
+texto amarra o `RJ250427` ao autor. E `EXEQUENTE` num polo A não é a mesma coisa
+que `AUTOR` — é a função que diz se o crédito já está em execução.
+
+**Cobertura medida** (60 âncoras espalhadas, 2.400 publicações, e a leitura do
+JSONB feita com `_como_lista` — `bool('[]')` é `True` e já mentiu aqui antes):
+
+| | |
+|---|---:|
+| publicações **do eproc** com a tabela | **79 de 79 = 100%** |
+| **todas** as publicações com a tabela | **3,3%** |
+| destinatários do JSONB que ganham papel | **8,6%** |
+
+Os 3,3% são o tamanho do eproc no fluxo nacional de hoje — e ele cresce sozinho:
+a fatia eproc do TJSP foi de ~3% até 2024 para 23,4% em 2025 e 46,6% em 2026.
+**Não leia os 100% como número nacional.**
+
+**Custo:** trazer `left(texto, 4000)` junto (a tabela vive sempre no topo, antes
+do "SENTENÇA") encarece a LEITURA em **+261%** — 0,065 s → 0,234 s por 2.000
+processos. Em absoluto são 0,17 s, contra 24-52 s de escrita do mesmo lote:
+**0,3% a 0,7% do tempo total**. Percentual assustador, grandeza irrelevante.
+
+**Regras da implementação** (`tribunals/services/partes_djen.py`):
+- o texto **NUNCA cria parte** — só rotula quem o JSONB já trouxe (e que já
+  passou pelo filtro de segredo). Cabeçalho estranho no máximo deixa de rotular.
+- `RELATOR`/`RELATORA` (75 ocorrências na amostra), juiz, procurador e perito
+  **não são parte** e são recusados por lista.
+- rótulo desconhecido ⇒ abstém. Mesmo nome com **dois** papéis ⇒ abstém, não
+  escolhe.
+- o papel entra na constraint `(processo, parte, polo, papel)`, então linha já
+  gravada com papel vazio **não** é substituída — o retrospecto é um UPDATE
+  próprio, ainda não escrito.
+
 ## eproc/TJSP: a consulta pública EXISTE e o muro é Turnstile — não login+2FA (26/08/2026)
 
 A linha "eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA" **não vale para o
