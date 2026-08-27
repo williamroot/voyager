@@ -301,7 +301,12 @@ class Command(BaseCommand):
                 vals = ','.join(['(%s::bigint, %s::varchar)'] * len(lote))
                 args = [x for par in lote for x in par]
                 cur.execute(
-                    f'UPDATE tribunals_process p SET grau = v.g '
+                    # `atualizado_em = now()` é a CAMPAINHA do `sync_es`:
+                    # `.update()`/SQL cru não disparam o `auto_now`, e
+                    # `sync_processos_atualizados` é keyset por `atualizado_em`.
+                    # Sem isto o `grau` fica certo no banco e velho na busca.
+                    f'UPDATE tribunals_process p SET grau = v.g, '
+                    f'atualizado_em = now() '
                     f'FROM (VALUES {vals}) AS v(id, g) WHERE p.id = v.id', args)
         tot['escritos'] += len(pares)
         return len(pares)

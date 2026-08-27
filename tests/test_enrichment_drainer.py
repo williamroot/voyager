@@ -37,22 +37,29 @@ def test_normalize_dados_classe_com_codigo():
 
 
 def test_normalize_dados_assunto_sem_codigo():
+    """Sem código, a CHAVE NÃO ENTRA no dict — e isso é o contrato, não detalhe.
+
+    `apply_event` aplica o dict com `setattr`. Devolver `assunto_codigo=''`
+    APAGARIA o código herdado do DJEN toda vez que o e-SAJ público (que só dá o
+    nome) respondesse — foi assim que leads voltaram a `NAO_LEAD` em 06/07/2026.
+    Ausência da chave = "não sei", que é diferente de "é vazio".
+    """
     out = drainer.normalize_dados({'assunto': 'DIREITO TRIBUTÁRIO'})
-    assert out['assunto_codigo'] == ''
+    assert 'assunto_codigo' not in out, 'chave vazia APAGA o código herdado do DJEN'
     assert out['assunto_nome'].startswith('DIREITO')
 
 
 def test_normalize_dados_classe_sem_parens_nao_extrai_digitos_do_meio():
     """Regression: regex anterior pegava '12345' dentro do texto como código."""
     out = drainer.normalize_dados({'classe': 'Tributário 12345 algo'})
-    assert out['classe_codigo'] == ''
+    assert 'classe_codigo' not in out      # ver test_normalize_dados_assunto_sem_codigo
     assert out['classe_nome'] == 'Tributário 12345 algo'
 
 
 def test_normalize_dados_classe_codigo_so_entre_parens():
     out = drainer.normalize_dados({'classe': 'Procedimento (1234) Comum'})
     # Parênteses no meio não capturam — só no fim.
-    assert out['classe_codigo'] == ''
+    assert 'classe_codigo' not in out      # ver test_normalize_dados_assunto_sem_codigo
     assert out['classe_nome'] == 'Procedimento (1234) Comum'
 
 
@@ -137,7 +144,7 @@ def test_apply_event_ok_atualiza_processo_e_partes(proc):
         scraped_at='2026-04-29T01:00:00',
         dados={
             'classe': 'Procedimento Comum (1234)',
-            'assunto': 'Tributário (5)',
+            'assunto': 'Tributário (5952)',
             'valor_causa': 'R$ 50.000,00',
             'orgao_julgador': 'Vara Federal',
         },
@@ -159,11 +166,11 @@ def test_apply_event_ok_atualiza_processo_e_partes(proc):
     assert proc.enriquecimento_status == Process.ENRIQ_OK
     assert proc.classe_codigo == '1234'
     assert proc.classe_nome == 'Procedimento Comum'
-    assert proc.assunto_codigo == '5'
+    assert proc.assunto_codigo == '5952'
     assert proc.valor_causa == Decimal('50000.00')
     assert proc.orgao_julgador_nome == 'Vara Federal'
     assert proc.classe_id == ClasseJudicial.objects.get(codigo='1234').pk
-    assert proc.assunto_id == Assunto.objects.get(codigo='5').pk
+    assert proc.assunto_id == Assunto.objects.get(codigo='5952').pk
 
     pps = list(ProcessoParte.objects.filter(processo=proc).order_by('id'))
     assert len(pps) == 2  # 1 principal + 1 advogado
@@ -174,10 +181,22 @@ def test_apply_event_ok_atualiza_processo_e_partes(proc):
 
 
 def test_apply_event_ok_reaplica_substitui_partes(proc):
-    """Drainer faz wipe+reinsert de ProcessoParte. Reaplicar deve reset."""
+    """Drainer faz wipe+reinsert de ProcessoParte. Reaplicar deve reset.
+
+    ⚠️ Os `scraped_at` aqui são RELATIVOS ao relógio, de propósito. Com data fixa
+    (`2026-04-29T…`) este teste virava bomba-relógio: a guarda de idempotência
+    compara `processo.enriquecido_em` — que é `timezone.now()` no momento em que
+    o drainer aplica — com o `scraped_at` do evento. Passado o dia da fixture,
+    `now()` supera qualquer `scraped_at` fixo e o segundo evento é PULADO, então
+    o teste falha sozinho um belo dia sem ninguém ter mexido no código.
+    """
+    from django.utils import timezone as _tz
+    import datetime as _dt
+    t1 = (_tz.now() + _dt.timedelta(minutes=1)).isoformat()
+    t2 = (_tz.now() + _dt.timedelta(minutes=2)).isoformat()
     event = stream.build_ok_payload(
         process_id=proc.pk, tribunal=proc.tribunal_id, numero_cnj=proc.numero_cnj,
-        scraped_at='2026-04-29T01:00:00', dados={},
+        scraped_at=t1, dados={},
         partes={'ativo': [
             {'nome': 'A', 'documento': '', 'tipo_documento': '', 'oab': 'SP1',
              'papel': '', 'tipo': 'advogado', 'representantes': []},
@@ -188,7 +207,7 @@ def test_apply_event_ok_reaplica_substitui_partes(proc):
     # Re-aplica com lista diferente
     event2 = stream.build_ok_payload(
         process_id=proc.pk, tribunal=proc.tribunal_id, numero_cnj=proc.numero_cnj,
-        scraped_at='2026-04-29T02:00:00', dados={},
+        scraped_at=t2, dados={},
         partes={'ativo': [], 'passivo': [
             {'nome': 'B', 'documento': '', 'tipo_documento': '', 'oab': 'SP2',
              'papel': '', 'tipo': 'advogado', 'representantes': []},
@@ -279,15 +298,30 @@ def test_apply_batch_falha_isolada_nao_envenena(proc):
         process_id=proc.pk, tribunal=proc.tribunal_id, numero_cnj=proc.numero_cnj,
         scraped_at='2026-04-29T01:00:00',
     )
-    # Forja evento "ok" sem campos obrigatórios pra forçar TypeError em apply_event
+    # Forja evento "ok" malformado pra forçar exceção DENTRO de apply_event.
+    # ⚠️ Tem que apontar para um process que EXISTE. A versão anterior usava
+    # `process_id=9_999_999_999`, e aí `apply_event` batia antes na guarda de
+    # "process desaparecido", que faz `logger.warning` + `return` — sem exceção.
+    # Resultado: `falhas` vinha 0 e o teste dizia estar provando isolamento de
+    # falha quando na verdade não havia falha nenhuma para isolar.
+    # ⚠️ process DIFERENTE do e_bom: `apply_batch` deduplica por `process_id` e
+    # fica com o de maior `scraped_at` (comparação de STRING). Como 'x' > '2026…',
+    # apontar os dois para o mesmo processo faria o evento ruim ENGOLIR o bom, e
+    # o teste mediria a deduplicação em vez do isolamento de falha.
+    outro = Process.objects.create(
+        tribunal=proc.tribunal, numero_cnj='9999999-99.2026.8.26.0100', ano_cnj=2026)
     e_ruim = {
         'v': stream.SCHEMA_VERSION, 'status': stream.STATUS_OK,
-        'process_id': 9_999_999_999,  # process inexistente
+        'process_id': outro.pk,
         'scraped_at': 'x',
-        'dados': None,  # vai quebrar normalize_dados? não — normalize aceita {}.
-        'partes': 'string-em-vez-de-dict',  # vai quebrar no .items()
+        'dados': None,
+        'partes': 'string-em-vez-de-dict',  # quebra no `.items()`
     }
     ok, falhas = drainer.apply_batch([e_bom, e_ruim])
+    # `apply_batch` é all-or-nothing DENTRO da transação (deadlock rola tudo e o
+    # XAUTOCLAIM reentrega). Evento malformado não é transitório, então ele é
+    # posto em QUARENTENA antes da transação — senão um `partes` que veio string
+    # mata os outros 999 eventos bons do lote, em toda reentrega, para sempre.
     assert ok == 1 and falhas == 1
     proc.refresh_from_db()
     assert proc.enriquecimento_status == Process.ENRIQ_NAO_ENCONTRADO
@@ -295,3 +329,34 @@ def test_apply_batch_falha_isolada_nao_envenena(proc):
 
 def test_apply_batch_lista_vazia():
     assert drainer.apply_batch([]) == (0, 0)
+
+
+def test_classe_aceita_1_digito_e_assunto_NAO_e_isso_e_de_proposito():
+    """A assimetria entre os dois regexes é MEDIDA, não descuido.
+
+    **Classe aceita 1 dígito.** `PROCEDIMENTO COMUM CÍVEL (7)` é a classe mais
+    comum do país — 28.790.468 documentos do acervo, 8,4% —, e o `\\d{2,5}` de
+    antes nunca a casou. Medido em 200.000 processos: dos 3.887 com
+    `classe_nome` preenchido e `classe_codigo` vazio, **3.717 (95,6%) eram
+    exatamente essa classe**. O `{2,5}` era 95,6% de todo o buraco.
+
+    **Assunto NÃO aceita 1 dígito, e abrir seria erro puro.** Dos 193 assuntos
+    com cauda de um dígito, **os 193** eram código de 2+ dígitos cortado no
+    limite de 255 caracteres da coluna: `DIREITO PREVIDENCIÁRIO (1` é `(195`.
+    Aceitar 1 dígito ali gravaria `1` onde o código é `195` — trocaria um campo
+    vazio (que a tela diz que está vazio) por um campo ERRADO, que é pior.
+
+    Este teste existe porque a fixture antiga usava `Tributário (5)`, um código
+    de assunto de um dígito que **não existe na TPU** — e a fixture irreal fez o
+    teste cobrar do código o comportamento que a medição diz ser errado.
+    """
+    from enrichers import drainer
+
+    # classe de 1 dígito: TEM que casar (é a classe mais comum do Brasil)
+    out = drainer.normalize_dados({'classe': 'PROCEDIMENTO COMUM CÍVEL (7)'})
+    assert out['classe_codigo'] == '7', 'voltou o `{2,5}` — 1,9 M de processos sem código'
+    assert out['classe_nome'] == 'PROCEDIMENTO COMUM CÍVEL'
+
+    # assunto de 1 dígito: NÃO casa, e o nome fica inteiro (abster > chutar)
+    out = drainer.normalize_dados({'assunto': 'DIREITO PREVIDENCIÁRIO (1'})
+    assert 'assunto_codigo' not in out, 'gravou código truncado — pior que vazio'

@@ -9,6 +9,7 @@ schema inválido vão pra DLQ stream em vez de loop infinito.
 """
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 import re
@@ -355,6 +356,14 @@ def apply_event(event: dict) -> None:
     # `enriquecimento_tentativas` cresça em loops de retry e que partes/
     # dados antigos sobrescrevam dados mais recentes.
     scraped_at = parse_datetime(event.get('scraped_at') or '')
+    # `scraped_at` chega do worker como string ISO e NEM SEMPRE traz fuso — o
+    # e-SAJ manda `2026-04-29T01:00:00` seco. Comparar ingênuo com aware levanta
+    # `TypeError` DENTRO da guarda de idempotência, ou seja: o evento morre
+    # justamente no caminho que existia para não reaplicar. Assumir UTC aqui é o
+    # certo — todo o resto do sistema grava em UTC (ver a nota de fuso do
+    # `.ia/OPS.md`: só o `asctime` do log é -03).
+    if scraped_at is not None and timezone.is_naive(scraped_at):
+        scraped_at = timezone.make_aware(scraped_at, datetime.timezone.utc)
     if (scraped_at is not None and processo.enriquecido_em is not None
             and processo.enriquecido_em >= scraped_at):
         logger.info('event mais antigo que enriquecido_em — skip', extra={
@@ -748,6 +757,23 @@ def _apply_to_proc(proc: Process, ev: dict, classe_by_code: dict,
     return changed
 
 
+def _bem_formado(ev: dict) -> bool:
+    """Forma mínima que o caminho em lote assume sem checar.
+
+    Só o que quebraria com `AttributeError`/`TypeError` lá dentro: `partes` tem
+    que ser dict-de-listas e `dados` tem que ser dict. Não valida conteúdo — o
+    resto do pipeline já abstém sozinho em campo ruim.
+    """
+    partes = ev.get('partes')
+    if partes is not None and not isinstance(partes, dict):
+        return False
+    if isinstance(partes, dict) and any(
+            not isinstance(v, (list, tuple)) for v in partes.values()):
+        return False
+    dados = ev.get('dados')
+    return dados is None or isinstance(dados, dict)
+
+
 def apply_batch(events: list[dict]) -> tuple[int, int]:
     """Bulk apply de N events em ~10 queries (versão otimizada).
 
@@ -783,6 +809,23 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
     if not by_pid:
         return (0, 0)
 
+    # QUARENTENA de evento estruturalmente inválido, ANTES da transação.
+    # `apply_batch` é all-or-nothing de propósito (deadlock rola tudo pra trás e
+    # o XAUTOCLAIM reentrega). Mas evento malformado não é transitório: ele
+    # falha de novo em toda reentrega e leva junto TODO o lote — os outros 999
+    # eventos bons do TJSP morrem por causa de um `partes` que veio string.
+    # Isso é mensagem-veneno, e o preço é enriquecimento parado.
+    envenenados = [pid for pid, ev in by_pid.items() if not _bem_formado(ev)]
+    for pid in envenenados:
+        ev = by_pid.pop(pid)
+        logger.error('event malformado — QUARENTENA (nao envenena o lote)', extra={
+            'process_id': pid, 'status': ev.get('status'),
+            'tipo_partes': type(ev.get('partes')).__name__,
+            'tipo_dados': type(ev.get('dados')).__name__,
+        })
+    if not by_pid:
+        return (0, len(envenenados))
+
     pids = list(by_pid.keys())
 
     with transaction.atomic():
@@ -796,6 +839,11 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
             if not proc:
                 continue
             sa = parse_datetime(ev.get('scraped_at') or '')
+            # mesmo cuidado de fuso do `apply_event`: `scraped_at` sem fuso
+            # levanta TypeError DENTRO da guarda de idempotência — e aqui, no
+            # caminho em lote, isso derruba o lote inteiro.
+            if sa is not None and timezone.is_naive(sa):
+                sa = timezone.make_aware(sa, datetime.timezone.utc)
             if sa and proc.enriquecido_em and proc.enriquecido_em >= sa:
                 skipped += 1
                 continue
@@ -805,7 +853,7 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
                 ev['_dados_norm'] = normalize_dados(ev.get('dados') or {})
 
         if not valid:
-            return (skipped, 0)
+            return (skipped, len(envenenados))
 
         # Catálogos
         classe_by_code, assunto_by_code = _bulk_upsert_catalogos(valid)
@@ -939,7 +987,9 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
     except Exception:
         logger.warning('enqueue es_index falhou pro batch — reindex cobre', exc_info=True)
 
-    return (len(valid), skipped)
+    # o segundo valor soma o que NÃO entrou: pulado por idempotência + posto em
+    # quarentena. Devolver só `skipped` esconderia o veneno do log do caller.
+    return (len(valid), skipped + len(envenenados))
 
 
 # ---------- loop principal ----------

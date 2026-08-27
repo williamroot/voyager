@@ -525,6 +525,22 @@ def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
             ProcessoParte.objects.bulk_create(
                 linhas, ignore_conflicts=True, batch_size=500,
             )
+            # TOCA A CAMPAINHA. `ProcessoParte` é OUTRA TABELA: escrever nela não
+            # mexe em `Process.atualizado_em`, e `sync_processos_atualizados` é
+            # keyset POR `atualizado_em`. Sem este UPDATE o dado fica perfeito no
+            # Postgres e invisível na tela — medido em 27/08/2026: 100 partes no
+            # banco e 0 no índice, em 5 de 5 processos conferidos.
+            # `atualizado_em` é `auto_now`, e `auto_now` só roda em `Model.save()`
+            # — nem `.update()` nem `bulk_create` o disparam. Mesma lição que
+            # `datajud/ingestion.py` já tinha aprendido e registrado.
+            # Dentro da MESMA transação: ou entram as partes e a campainha, ou
+            # nenhum dos dois. Campainha sem dado é reindex à toa; dado sem
+            # campainha é o buraco que estamos fechando.
+            pids = sorted(specs_por_pid)
+            with connection.cursor() as cur:
+                _cursor_com_teto(cur, TIMEOUT_ESCRITA_S)
+                cur.execute('UPDATE tribunals_process SET atualizado_em = now() '
+                            'WHERE id = ANY(%s)', [pids])
         res.processos_tocados = sorted(specs_por_pid)
         # Contagem INDEPENDENTE: `bulk_create(ignore_conflicts=True)` não
         # devolve pk confiável, e o log do próprio job não é prova (regra nº 5).
