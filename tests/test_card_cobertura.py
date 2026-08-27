@@ -42,6 +42,13 @@ PAYLOAD = {
     'tribunais': [{'t': 'TJSP', 'datajud': 68_813_731, 'nosso': 16_215_462, 'cob': 23.6},
                   {'t': 'TJMG', 'datajud': 36_574_365, 'nosso': 8_266_912, 'cob': 22.6}],
     'dias_serie': 45,
+    'busca': {
+        'no_indice': 99_864_837, 'com_parte': 18_036_990, 'com_advogado': 12_634_368,
+        'partes_djen_linhas': 2_605_464, 'ms_busca_parte': 17.4,
+        'pct_indexado': 96.6, 'pct_com_parte': 18.1, 'pct_com_advogado': 12.7,
+        'funil': [{'k': 'no banco', 'v': 103_330_128}, {'k': 'na busca', 'v': 99_864_837},
+                  {'k': 'com parte', 'v': 18_036_990}, {'k': 'com advogado', 'v': 12_634_368}],
+    },
 }
 
 
@@ -122,3 +129,32 @@ def test_a_serie_e_reconstruida_de_tras_pra_frente():
     corpo = fonte[i:i + 1800]
     assert 'acum -= por_dia' in corpo, 'série deixou de ser regressiva'
     assert 'total_hoje' in corpo
+
+
+@pytest.mark.django_db
+def test_o_funil_mostra_onde_o_dado_some(logado):
+    """Cobertura do acervo responde "temos?". O funil responde "acho pela pessoa?"."""
+    cache.set(CN.CHAVE, PAYLOAD, 60)
+    h = _html(logado)
+    assert 'Da coleta até achar pela pessoa' in h
+    assert '18.1%' in h or '18,1%' in h, 'não mostrou a cobertura real de partes'
+    assert '17.4 ms' in h or '17,4 ms' in h, 'não mostrou a latência medida'
+    assert '2.605.464' in h, 'não mostrou as partes tiradas do texto, que são de graça'
+
+
+@pytest.mark.django_db
+def test_a_tela_denuncia_a_mentira_do_exists(logado):
+    """O `exists` dizia 100% onde havia 18,1%. Quem lê o card precisa saber."""
+    cache.set(CN.CHAVE, PAYLOAD, 60)
+    h = _html(logado)
+    assert 'exists' in h
+    assert 'string vazia' in h, (
+        'sem essa frase, o próximo a medir usa `exists` e reporta 100% de novo')
+
+
+def test_o_modulo_mede_parte_por_CONTEUDO_e_nao_por_exists():
+    fonte = open('dashboard/cobertura_nacional.py').read()
+    i = fonte.find('def _busca_e_partes')
+    corpo = fonte[i:i + 3200]
+    assert "partes:/.+/" in corpo, 'voltou a medir por presença'
+    assert "'exists'" not in corpo.split('conta(')[1][:400], 'usou exists para contar parte'

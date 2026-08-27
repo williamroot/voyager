@@ -20,6 +20,7 @@ diz que não mediu — nunca segura a página.
 """
 import datetime
 import logging
+import time
 
 from django.core.cache import cache
 from django.db import connection, transaction
@@ -95,6 +96,90 @@ def _serie_ingestao(total_hoje: int) -> list[dict]:
         acum -= por_dia.get(d, 0)
     saida.reverse()
     return saida
+
+
+def _busca_e_partes(es, total_pg: int) -> dict:
+    """O segundo eixo: do que ENTROU, quanto está pesquisável — e por PARTE.
+
+    Cobertura do acervo responde "temos o processo?". Não responde a pergunta
+    que o usuário faz de verdade, que é **"consigo achar o processo pela
+    pessoa?"**. São coisas diferentes, e o caminho entre elas tem três degraus
+    onde o dado some: pode estar no banco e fora do índice; pode estar no índice
+    sem parte; pode ter parte sem advogado.
+
+    ⚠️ `exists` MENTE em campo `text`: string vazia conta como valor presente
+    (regra nº 4 do CLAUDE.md). Medido em 27/08/2026: `exists` dizia
+    **99.658.946 (100%)** de processos com parte, e a contagem por CONTEÚDO
+    dizia **18.036.990 (18,1%)**. Por isso aqui tudo é medido por conteúdo.
+    """
+    out = {}
+    try:
+        out['no_indice'] = es.count(index='voyager-processos', request_timeout=60)['count']
+    except Exception:
+        logger.warning('cobertura/busca: count do índice falhou', exc_info=True)
+        return {}
+
+    def conta(nome, corpo, teto=180):
+        try:
+            r = es.search(index='voyager-processos',
+                          body={'size': 0, 'track_total_hits': True, 'query': corpo},
+                          request_timeout=teto)
+            out[nome] = r['hits']['total']['value']
+        except Exception:
+            logger.warning('cobertura/busca: contagem %s falhou', nome, exc_info=True)
+            out[nome] = None
+
+    # `partes:/.+/` = pelo menos um caractere. É o teste de CONTEÚDO que o
+    # `exists` não faz. Custa ~7 s no volume atual, e é por isso que só roda no
+    # job de aquecimento.
+    conta('com_parte', {'query_string': {'query': 'partes:/.+/', 'analyze_wildcard': True}})
+    conta('com_advogado', {'match': {'advs': 'OAB'}})
+
+    # Quanto disso veio do DJEN — de graça, sem uma requisição ao tribunal.
+    try:
+        with transaction.atomic(), connection.cursor() as c:
+            c.execute("SET LOCAL statement_timeout = '90s'")
+            c.execute("SELECT count(*) FROM tribunals_processoparte WHERE fonte = 'djen'")
+            out['partes_djen_linhas'] = c.fetchone()[0]
+    except Exception:
+        logger.warning('cobertura/busca: contagem das partes do DJEN falhou', exc_info=True)
+        out['partes_djen_linhas'] = None
+
+    # Latência real de uma busca por PARTE, medida agora. Três rodadas, mediana:
+    # uma medição só num cluster I/O-bound é sorteio, não medida.
+    try:
+        alvo = es.search(index='voyager-processos', request_timeout=30, body={
+            'size': 1, 'query': {'query_string': {'query': 'partes:/.+/',
+                                                  'analyze_wildcard': True}},
+            '_source': ['partes']})
+        nome = ((alvo['hits']['hits'] or [{}])[0].get('_source', {}).get('partes') or '')
+        nome = nome.split(',')[0].strip()
+        if nome:
+            ts = []
+            for _ in range(3):
+                t0 = time.monotonic()
+                es.search(index='voyager-processos', request_timeout=30,
+                          body={'size': 5, 'query': {'match_phrase': {'partes': nome}}})
+                ts.append((time.monotonic() - t0) * 1000)
+            ts.sort()
+            out['ms_busca_parte'] = round(ts[1], 1)
+    except Exception:
+        logger.warning('cobertura/busca: medição de latência falhou', exc_info=True)
+
+    # O funil, em pontos absolutos — é ele que mostra ONDE o dado some.
+    ind = out.get('no_indice') or 0
+    out['funil'] = [
+        {'k': 'no banco', 'v': total_pg},
+        {'k': 'na busca', 'v': ind},
+        {'k': 'com parte', 'v': out.get('com_parte') or 0},
+        {'k': 'com advogado', 'v': out.get('com_advogado') or 0},
+    ]
+    out['pct_indexado'] = round(100.0 * ind / total_pg, 1) if total_pg else None
+    out['pct_com_parte'] = (round(100.0 * out['com_parte'] / ind, 1)
+                            if out.get('com_parte') and ind else None)
+    out['pct_com_advogado'] = (round(100.0 * out['com_advogado'] / ind, 1)
+                               if out.get('com_advogado') and ind else None)
+    return out
 
 
 def calcular() -> dict | None:
@@ -174,6 +259,7 @@ def calcular() -> dict | None:
         'serie': serie,
         'tribunais': tribunais,
         'dias_serie': DIAS_SERIE,
+        'busca': _busca_e_partes(es, total_pg),
     }
 
 

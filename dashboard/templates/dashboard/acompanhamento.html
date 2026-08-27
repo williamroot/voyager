@@ -246,6 +246,99 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
       </li>
     </ul>
 
+    {% comment %}
+      ═══ SEGUNDO EIXO: DA COLETA ATÉ ACHAR PELA PESSOA ═════════════════════
+      Cobertura do acervo responde "temos o processo?". Não responde a pergunta
+      que o usuário faz de verdade — "consigo achar pela pessoa?". O caminho
+      entre as duas tem três degraus onde o dado some, e o funil mostra qual.
+
+      Tudo medido por CONTEÚDO. O `exists` do ES conta string vazia como valor
+      presente: ele dizia 100% de processos com parte onde havia 18,1%.
+    {% endcomment %}
+    {% if cobertura.busca %}
+    <div class="relative mt-6 pt-5 border-t border-border">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-semibold text-fg-soft flex items-center gap-2">
+            {% voy_icon "search" "w-4 h-4 text-accent" %}
+            Da coleta até achar pela pessoa
+          </h3>
+          <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+            Ter o processo não é o mesmo que <b>encontrá-lo</b>. Entre o banco e
+            a busca por nome há três degraus, e cada um perde gente.
+          </p>
+        </div>
+        {% if cobertura.busca.ms_busca_parte %}
+        <div class="text-right shrink-0">
+          <div class="text-2xl font-mono text-accent tabular-nums">
+            {{ cobertura.busca.ms_busca_parte }} ms
+          </div>
+          <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">
+            achar um processo pelo nome da parte
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="mt-4 grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+        <div class="chart-cell relative h-44">
+          <div class="chart-skeleton skeleton absolute inset-0 rounded-lg"></div>
+          <div id="ch-cob-funil" class="w-full h-full"></div>
+        </div>
+
+        <div class="grid gap-2 content-start">
+          <div class="rounded-lg border border-border bg-surface px-3 py-2">
+            <div class="flex items-baseline justify-between">
+              <span class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">indexado</span>
+              <span class="text-base font-mono text-fg tabular-nums">{{ cobertura.busca.pct_indexado }}%</span>
+            </div>
+            <div class="text-[0.7rem] text-fg-subtle mt-0.5">
+              {{ cobertura.busca.no_indice|format_int }} de {{ cobertura.total_pg|format_int }}
+            </div>
+          </div>
+          <div class="rounded-lg border border-border bg-surface px-3 py-2">
+            <div class="flex items-baseline justify-between">
+              <span class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">com parte</span>
+              <span class="text-base font-mono text-mission tabular-nums">{{ cobertura.busca.pct_com_parte }}%</span>
+            </div>
+            <div class="text-[0.7rem] text-fg-subtle mt-0.5">
+              {{ cobertura.busca.com_parte|format_int }} processos achaveis por nome
+            </div>
+          </div>
+          <div class="rounded-lg border border-border bg-surface px-3 py-2">
+            <div class="flex items-baseline justify-between">
+              <span class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">com advogado</span>
+              <span class="text-base font-mono text-fg tabular-nums">{{ cobertura.busca.pct_com_advogado }}%</span>
+            </div>
+            <div class="text-[0.7rem] text-fg-subtle mt-0.5">
+              {{ cobertura.busca.com_advogado|format_int }} achaveis por OAB
+            </div>
+          </div>
+          {% if cobertura.busca.partes_djen_linhas %}
+          <div class="rounded-lg border border-mission/30 bg-mission/5 px-3 py-2">
+            <div class="text-base font-mono text-mission tabular-nums">
+              {{ cobertura.busca.partes_djen_linhas|format_int }}
+            </div>
+            <div class="text-[0.7rem] text-fg-subtle">
+              partes tiradas do <b>texto da publicação</b> — zero requisição ao tribunal
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <p class="mt-3 text-[0.7rem] text-fg-subtle leading-relaxed">
+        <b class="text-fg-muted">Medido por conteúdo, não por presença.</b> O
+        <code>exists</code> do Elasticsearch conta string vazia como valor
+        presente: ele afirma <b>100%</b> de processos com parte onde a contagem
+        real é <b>{{ cobertura.busca.pct_com_parte }}%</b>. Campo de texto só se
+        mede olhando dentro.
+      </p>
+
+      {{ cobertura.busca.funil|json_script:"dados-cob-funil" }}
+    </div>
+    {% endif %}
+
     {{ cobertura.serie|json_script:"dados-cob-serie" }}
     {{ cobertura.tribunais|json_script:"dados-cob-trib" }}
   </section>
@@ -417,6 +510,47 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
   // Barras por tribunal: o que temos, sobre o que existe. Ordenado pelo tamanho
   // do tribunal (não pela cobertura) — o que importa é onde está o buraco
   // ABSOLUTO, e o TJSP sozinho é 20% do país.
+  // Funil: onde o dado some entre "temos" e "acha pela pessoa". Barras
+  // decrescentes com o degrau explícito — porcentagem sozinha esconde que o
+  // primeiro degrau custa 3,6 M de processos.
+  const elFunil = document.getElementById('ch-cob-funil');
+  const nodoFunil = document.getElementById('dados-cob-funil');
+  if (elFunil && nodoFunil) {
+    const funil = JSON.parse(nodoFunil.textContent);
+    const topo = funil[0].v || 1;
+    setupChart(elFunil, Object.assign({}, base, {
+      grid: {left: 88, right: 68, top: 6, bottom: 4},
+      tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, confine: true,
+                backgroundColor: escuro() ? 'rgba(9,9,11,0.94)' : 'rgba(255,255,255,0.97)',
+                borderColor: borda, textStyle: {fontSize: 11},
+                formatter: (ps) => {
+                  const i = ps[0].dataIndex;
+                  const f = funil.slice().reverse()[i];
+                  const perdeu = i < funil.length - 1
+                    ? funil.slice().reverse()[i + 1].v - f.v : 0;
+                  return `<b>${f.k}</b><br>${f.v.toLocaleString('pt-BR')}` +
+                         (perdeu > 0 ? `<br>degrau: −${perdeu.toLocaleString('pt-BR')}` : '');
+                }},
+      xAxis: Object.assign({type: 'value', max: topo, splitLine: {show: false}}, eixo,
+                           {axisLabel: {show: false}}),
+      yAxis: Object.assign({type: 'category', data: funil.slice().reverse().map(f => f.k)},
+                           eixo, {axisLabel: {color: fgSub, fontSize: 10,
+                                              fontFamily: 'Manrope, sans-serif'}}),
+      series: [{
+        type: 'bar', data: funil.slice().reverse().map(f => f.v), barWidth: '58%',
+        itemStyle: {borderRadius: [0, 3, 3, 0],
+                    color: (p) => p.dataIndex >= funil.length - 2 ? mission
+                                                                  : tok('--c-accent', 'rgb(59,130,246)')},
+        showBackground: true,
+        backgroundStyle: {color: escuro() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                          borderRadius: [0, 3, 3, 0]},
+        label: {show: true, position: 'right', color: fgSub, fontSize: 9.5,
+                fontFamily: 'JetBrains Mono, monospace',
+                formatter: (p) => (p.value / 1e6).toFixed(1) + 'M'},
+      }],
+    }));
+  }
+
   const ordem = tribs.slice().reverse();               // ECharts desenha de baixo
   setupChart(elTrib, Object.assign({}, base, {
     grid: {left: 52, right: 40, top: 8, bottom: 4},
