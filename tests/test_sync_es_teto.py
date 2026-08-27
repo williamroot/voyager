@@ -272,3 +272,39 @@ def test_o_bloco_do_sinal_e_pequeno_e_tem_teto_de_tempo():
     assert S.BLOCO_SINAL <= 5_000, (
         f'bloco de {S.BLOCO_SINAL:,} — 20.000 no TJSP virou meio dia de bloqueio')
     assert S.TIMEOUT_SINAL, 'sem teto de tempo, um bloco lento trava o tick inteiro'
+
+
+def test_watermark_de_atualizados_guarda_o_PAR_e_nao_so_o_instante():
+    """Empate de instante no limite do teto some SEM ERRO — o pior formato.
+
+    `sync_processos_atualizados` lê `atualizado_em > wm`. Escrita em lote grava
+    milhares de linhas com o MESMO `now()`: reclassificação, backfill de
+    `assunto_id`, backfill de `grau`, a própria campainha. Se o teto cai no meio
+    de um desses grupos, o watermark vira aquele instante e o `>` do tique
+    seguinte exclui **todas** as linhas do grupo — inclusive as que nunca foram
+    lidas.
+
+    A consulta continua válida, o log continua limpo e o número continua
+    redondo: os três sinais da tabela do CLAUDE.md, outra vez.
+
+    Por isso o keyset é `(atualizado_em, id)` e o watermark guarda o PAR.
+    """
+    fonte = open('search/sync_incremental.py').read()
+    i = fonte.find('def sync_processos_atualizados')
+    corpo = fonte[i:i + 2500]
+    assert '(atualizado_em, id) > (%s, %s)' in corpo, 'keyset sem desempate por id'
+    assert 'ORDER BY atualizado_em, id' in corpo
+    assert 'cache.set(_WM_PROC_TS, (ultimo, pks[-1])' in corpo, (
+        'guardou só o instante — o resto do grupo empatado some')
+
+
+def test_watermark_antigo_do_cache_nao_quebra():
+    """Quem já está com o formato velho (só o instante) tem que continuar."""
+    import datetime
+    from django.utils import timezone
+    agora = timezone.now()
+    assert S._wm_par(agora) == (agora, 0)
+    assert S._wm_par((agora, 42)) == (agora, 42)
+    assert S._wm_par([agora, '7']) == (agora, 7)
+    assert S._wm_par(None) == (None, 0)
+    del datetime

@@ -205,6 +205,18 @@ def sync_processos_novos() -> dict:
     return saida
 
 
+def _wm_par(wm):
+    """Watermark como `(atualizado_em, id)`, aceitando o formato antigo.
+
+    Até 27/08/2026 o watermark era só o instante. Quem estiver com o valor
+    velho no cache entra aqui como `(instante, 0)` — não perde nada e passa a
+    andar com desempate a partir do próximo tique.
+    """
+    if isinstance(wm, (tuple, list)) and len(wm) == 2:
+        return wm[0], int(wm[1] or 0)
+    return wm, 0
+
+
 def sync_processos_atualizados() -> dict:
     """Processos alterados em lote (reclassificação/enriquecimento sem signal).
 
@@ -214,7 +226,7 @@ def sync_processos_atualizados() -> dict:
     agora = timezone.now()
     wm = cache.get(_WM_PROC_TS)
     if wm is None:
-        cache.set(_WM_PROC_TS, agora, None)
+        cache.set(_WM_PROC_TS, (agora, 0), None)
         return {'atualizados': 0, 'wm': agora.isoformat(), 'ancorou': True}
 
     fila = _fila_es()
@@ -222,8 +234,19 @@ def sync_processos_atualizados() -> dict:
         logger.info('sync_es: proc_atualizados — fila em %d (>%d), pulando', fila, FILA_ES_ALTA)
         return {'atualizados': 0, 'wm': str(wm), 'fila': fila, 'pulou': True}
 
-    pks = list(Process.objects.filter(atualizado_em__gt=wm).order_by('atualizado_em')
-               .values_list('id', flat=True)[:LIMITE_PROC_ATUALIZADOS])
+    # KEYSET POR `(atualizado_em, id)`, e o `id` não é enfeite. Com `> wm` puro e
+    # `ORDER BY atualizado_em` sem desempate, quando o teto cai no MEIO de um
+    # grupo de linhas que compartilham o mesmo instante — e escrita em lote grava
+    # milhares com o mesmo `now()` — o watermark vira aquele instante e o `>` do
+    # tique seguinte exclui TODAS elas, inclusive as que nunca foram lidas.
+    # Some sem erro: a consulta é válida, o log é limpo, o número é redondo.
+    wm_ts, wm_id = _wm_par(wm)
+    pks = list(Process.objects.raw(
+        'SELECT id FROM tribunals_process '
+        'WHERE (atualizado_em, id) > (%s, %s) '
+        'ORDER BY atualizado_em, id LIMIT %s',
+        [wm_ts, wm_id, LIMITE_PROC_ATUALIZADOS]))
+    pks = [p.id for p in pks]
     try:
         n = _enfileirar_processos(pks)
     except Exception:      # ver acima: watermark NÃO anda no erro.
@@ -232,12 +255,14 @@ def sync_processos_atualizados() -> dict:
         return {'atualizados': 0, 'wm': str(wm), 'erro_enqueue': True}
     # avança só até onde leu: se bateu o teto, o próximo tick continua daqui.
     if len(pks) < LIMITE_PROC_ATUALIZADOS:
-        cache.set(_WM_PROC_TS, agora, None)
+        cache.set(_WM_PROC_TS, (agora, 0), None)
     elif pks:
         ultimo = (Process.objects.filter(id=pks[-1])
                   .values_list('atualizado_em', flat=True).first())
         if ultimo:
-            cache.set(_WM_PROC_TS, ultimo, None)
+            # guarda o PAR: sem o id, o próximo tique pularia o resto do grupo
+            # que divide este mesmo instante.
+            cache.set(_WM_PROC_TS, (ultimo, pks[-1]), None)
     saida = {'atualizados': n, 'wm': str(cache.get(_WM_PROC_TS))}
     if len(pks) >= LIMITE_PROC_ATUALIZADOS:
         # Aqui a watermark é um INSTANTE, então o número que importa não é
@@ -245,7 +270,7 @@ def sync_processos_atualizados() -> dict:
         # busca. Medido em 25/08/2026: watermark parada em 19/08 (6 dias) e
         # avançando ~30-40 s de relógio por tick de 10 min, ou seja perdendo
         # ~17:1. Um teto que não converge não é teto, é vazamento.
-        atual = cache.get(_WM_PROC_TS)
+        atual, _ = _wm_par(cache.get(_WM_PROC_TS))
         idade_h = None
         if atual is not None:
             try:

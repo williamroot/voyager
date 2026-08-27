@@ -90,21 +90,30 @@ def test_movs_novas_avancam_keyset(mock_mov, mock_enf):
 @patch('search.sync_incremental._enfileirar_processos', return_value=sync.LIMITE_PROC_ATUALIZADOS)
 @patch('search.sync_incremental.Process')
 def test_atualizados_no_teto_nao_pulam_o_resto(mock_proc, mock_enf):
-    """Bateu o teto ⇒ o watermark NÃO salta pra 'agora' (senão perde o resto)."""
+    """Bateu o teto ⇒ o watermark NÃO salta pra 'agora' (senão perde o resto).
+
+    Desde 27/08/2026 o watermark é o PAR `(atualizado_em, id)`: sem o id, um
+    grupo de linhas que divide o mesmo instante — e escrita em lote grava
+    milhares assim — é cortado ao meio pelo teto e a metade não lida some, sem
+    erro nenhum. Por isso a leitura virou `Process.objects.raw` com
+    `(atualizado_em, id) > (%s, %s)`.
+    """
+    from types import SimpleNamespace
+
     from django.utils import timezone
     t0 = timezone.now() - timezone.timedelta(minutes=30)
-    cache.set('sync_es:wm:proc_ts', t0, None)
+    cache.set('sync_es:wm:proc_ts', t0, None)      # formato ANTIGO, de propósito
     pks = list(range(sync.LIMITE_PROC_ATUALIZADOS))
-    (mock_proc.objects.filter.return_value.order_by.return_value
-     .values_list.return_value.__getitem__.return_value) = pks
+    mock_proc.objects.raw.return_value = [SimpleNamespace(id=i) for i in pks]
     meio = t0 + timezone.timedelta(minutes=5)
     (mock_proc.objects.filter.return_value.values_list.return_value
      .first.return_value) = meio
 
     sync.sync_processos_atualizados()
 
-    # avançou só até o último registro lido — o próximo tick continua daí
-    assert cache.get('sync_es:wm:proc_ts') == meio
+    # avançou só até o último registro lido — o próximo tick continua daí,
+    # e leva o id junto para não pular o resto do grupo empatado
+    assert cache.get('sync_es:wm:proc_ts') == (meio, pks[-1])
 
 
 @patch('search.sync_incremental.sync_movimentacoes_novas', return_value={'movs': 0})
