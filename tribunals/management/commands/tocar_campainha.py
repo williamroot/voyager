@@ -58,6 +58,12 @@ class Command(BaseCommand):
         p.add_argument('--max-segundos', type=int, default=0, help='0 = sem teto de tempo')
         p.add_argument('--reiniciar', action='store_true', help='ignora o checkpoint')
         p.add_argument('--dry-run', action='store_true')
+        p.add_argument('--por-filho', action='store_true',
+                       help=('anda pela TABELA FILHA (só `--alvo partes`) em vez de '
+                             'varrer a faixa de pk. Medido em 27/08: a varredura por '
+                             'pk gastou 26 min para percorrer 20 M de pks e marcar '
+                             'ZERO — as partes vivem em faixas esparsas. Pelo filho '
+                             'são 653 mil ids lidos direto do índice.'))
 
     # ---------------------------------------------------------------- helpers
     def _fila(self) -> int:
@@ -85,6 +91,11 @@ class Command(BaseCommand):
             if salvo is not None and salvo > inicio:
                 inicio = salvo
                 self.stdout.write(f'retomando do checkpoint pk={inicio:,}')
+
+        if o['por_filho']:
+            if alvo != 'partes':
+                raise CommandError('--por-filho só faz sentido com --alvo partes')
+            return self._por_filho(o, chave, inicio)
 
         pred = ALVOS[alvo]
         self.stdout.write(
@@ -150,3 +161,59 @@ class Command(BaseCommand):
                 f'ERRO: parou em pk={lo:,} e o topo é {topo:,} — faltam '
                 f'{topo - lo:,} pks da faixa. Retome o comando (ele guarda o '
                 f'checkpoint) ou o resto NÃO chega à busca.')
+
+    # ------------------------------------------------------------- por filho
+    def _por_filho(self, o, chave, inicio):
+        """Keyset pela tabela FILHA — não varre pk vazio.
+
+        A varredura por faixa de pk é exaustiva e por isso é o default: ela não
+        depende de saber onde o dado está. Mas quando o alvo é esparso (partes
+        moram em 7 faixas soltas dentro de 105 M de pks) ela paga 26 minutos
+        para marcar zero. Aqui o cursor anda pelo índice do filho.
+        """
+        t0 = time.monotonic()
+        cursor, tocados, passadas, esperas = inicio, 0, 0, 0
+        motivo = 'fim'
+        while True:
+            fila = self._fila()
+            if fila > FILA_ALTA:
+                esperas += 1
+                if esperas % 10 == 1:
+                    self.stdout.write(f'  fila em {fila:,} — esperando o dreno')
+                    self.stdout.flush()
+                time.sleep(15)
+                continue
+            with transaction.atomic(), connection.cursor() as c:
+                c.execute("SET LOCAL lock_timeout = '5s'")
+                c.execute("SET LOCAL statement_timeout = '120s'")
+                c.execute("SELECT DISTINCT processo_id FROM tribunals_processoparte "
+                          "WHERE fonte = 'djen' AND processo_id > %s "
+                          "ORDER BY processo_id LIMIT %s", [cursor, o['lote']])
+                ids = [r[0] for r in c.fetchall()]
+                if not ids:
+                    break
+                if not o['dry_run']:
+                    c.execute('UPDATE tribunals_process SET atualizado_em = now() '
+                              'WHERE id = ANY(%s)', [ids])
+                    tocados += c.rowcount
+                else:
+                    tocados += len(ids)
+            cursor = ids[-1]
+            passadas += 1
+            if not o['dry_run']:
+                cache.set(chave, cursor, None)
+            if passadas % 20 == 0:
+                dur = time.monotonic() - t0
+                self.stdout.write(f'  processo_id={cursor:,}  tocados={tocados:,}  '
+                                  f'{tocados / max(dur, 1e-9):,.0f}/s  {dur / 60:.1f}min')
+                self.stdout.flush()
+            if o['max_segundos'] and (time.monotonic() - t0) >= o['max_segundos']:
+                motivo = 'teto de tempo'
+                break
+            time.sleep(o['sleep'])
+        dur = time.monotonic() - t0
+        self.stdout.write(f'FIM ({motivo}, por-filho): {tocados:,} processos marcados '
+                          f'em {dur / 60:.1f} min, cursor={cursor:,}.')
+        if motivo != 'fim':
+            self.stderr.write(f'ERRO: parou em processo_id={cursor:,} sem esgotar o '
+                              f'filho — o resto NÃO chega à busca. Retome o comando.')
