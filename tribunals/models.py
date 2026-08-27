@@ -213,6 +213,12 @@ class Process(models.Model):
             # a busca semântica). Índice standalone resolve.
             models.Index(fields=['numero_cnj'], name='proc_numero_cnj_idx'),
             models.Index(fields=['data_enriquecimento_datajud'], name='proc_datajud_em_idx'),
+            # `sync_es` varre por `atualizado_em` a cada 10 min. Sem este índice o
+            # plano era Parallel Seq Scan + Sort sobre 102 M linhas (cost 3,7 M),
+            # e o teto de 10 mil/tick fazia a watermark andar 45 s de relógio por
+            # tick de 600 s: DIVERGIA 13:1, com 128 h de escrita em lote fora da
+            # busca. Índice conferido por COLUNA em pg_index antes de declarar.
+            models.Index(fields=['atualizado_em'], name='proc_atualizado_em_idx'),
             # Fase 0: refill datajud prioriza WHERE tribunal_id=X AND datajud IS NULL
             # AND tem_sinal_precatorio — composto líder tribunal.
             models.Index(fields=['tribunal', 'tem_sinal_precatorio'],

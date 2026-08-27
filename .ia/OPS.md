@@ -1231,6 +1231,57 @@ novo de carona — quem já está indexado precisa de reindex direcionado.
 `.ia/SEARCH_SCHEMA.md` §"Linha de base do índice de processos". **Apague esta
 seção quando o reindex tiver passado** — e não antes.
 
+## `sync_es`: os dois lados de PROCESSO eram vazamento (consertado 27/08/2026)
+
+O tique incremental Postgres→ES tem três lados. O das **movimentações** já tinha
+aprendido a lição (teto alto + freio pela fila). Os dois de **processo** não, e
+por isso o dado ficava certo no banco e velho na tela.
+
+**O que estava medido antes do conserto:**
+
+```
+proc_novos ......... 7,72 M de pks atrás, teto batido em 6 de 6 tiques
+                     COM a fila `es_index` em ZERO e 4 jobs rodando
+                     (prova: 60 pks ACIMA do watermark → 57 AUSENTES do índice;
+                      60 pks ABAIXO, controle → 60 presentes)
+proc_atualizados ... DIVERGIA. Andava 45 s de relógio por tique de 600 s;
+                     idade 127,92 → 128,08 → 128,26 h em três tiques seguidos
+```
+
+O `proc_atualizados` é o que carrega **toda escrita em lote** — reclassificação,
+partes, assunto, `classe_codigo`, `grau`. Enquanto ele divergia, nada disso
+chegava à busca, e o próprio log dizia com essas palavras: *"Toda escrita em
+lote posterior a isso está FORA da busca."*
+
+**Causa raiz, por `EXPLAIN` em produção:** não havia índice em `atualizado_em`.
+O plano era `Parallel Seq Scan` + `Sort` sobre 102 M linhas, custo 3,7 M, **a
+cada 10 minutos**, com 14,3 M linhas casando o filtro. E como o custo é a
+varredura e não o `LIMIT`, o teto de 10.000 não economizava nada — só cortava.
+
+**O conserto, em três partes:**
+
+1. `proc_atualizado_em_idx` em `atualizado_em`, criado **`CONCURRENTLY`** (tabela
+   quente; o `ALTER` normal vira auto-jam — ver a seção do ALTER abaixo).
+   Migration `0053`, `atomic = False`, `IF NOT EXISTS`, `SeparateDatabaseAndState`
+   para o ESTADO do Django não divergir do banco.
+2. Tetos subiram e **viraram env**, ajustáveis sem deploy:
+
+   | env | default | por quê |
+   |---|---:|---|
+   | `SYNC_ES_LIMITE_PROC_NOVOS` | 60.000 | limitado pelo `computar_sinal` INLINE (~7 ms/proc): 60 k ≈ 7 min de tique. Acima de ~85 k estoura a janela e atrasa os outros dois syncs, que rodam depois |
+   | `SYNC_ES_LIMITE_PROC_ATUALIZADOS` | 200.000 | não computa nada, só consulta e enfileira. 1,2 M/h cobre a escrita em lote medida no pico |
+   | `SYNC_ES_LIMITE_MOVS` | 400.000 | inalterado |
+   | `SYNC_ES_FILA_ALTA` | 150.000 | inalterado |
+
+3. **Freio pela fila nos dois lados de processo**, que só existia nas
+   movimentações. Sem ele, subir o teto trocaria "atraso no watermark" por
+   "atraso na fila" — o mesmo dado invisível, num número maior.
+
+**Se a idade voltar a crescer:** não suba o teto às cegas. Meça primeiro qual dos
+dois está segurando — `_fila_es()` alta significa que o gargalo é o **dreno**
+(mais workers `es_index`), e fila baixa com teto batido significa que o gargalo é
+o **teto** (suba a env). Os dois casos gritam ERROR no log com o número real.
+
 ## 🔴 INCIDENTE: coluna NOT NULL nova parou a ingestão do dia inteiro (25/08/2026)
 
 **Sintoma na tela:** o KPI "PUBLICADAS EM 24H" mostrou **2.491** com **−99,8% vs

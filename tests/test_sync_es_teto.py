@@ -121,3 +121,91 @@ def test_o_teto_cabe_na_janela_do_tick():
     ingestão escreve na recuperação (~1,5M/h medidos no pico)."""
     por_hora = S.LIMITE_MOVS_NOVAS * 6
     assert por_hora >= 2_000_000, f'teto de {por_hora:,}/h volta a ser corte mudo'
+
+
+# ─────────────────────────── os DOIS lados de PROCESSO (medido em 26/08/2026)
+
+def _mock_process(ids, topo=None):
+    """`Process.objects.filter(...)` devolve `ids`; `order_by('-id').first()` o topo."""
+    qs = MagicMock()
+    qs.order_by.return_value.values_list.return_value.__getitem__ = lambda _s, _k: ids
+    topo_qs = MagicMock()
+    topo_qs.values_list.return_value.first.return_value = topo if topo is not None else (
+        ids[-1] if ids else 0)
+    m = MagicMock()
+    m.objects.filter.return_value = qs
+    m.objects.order_by.return_value = topo_qs
+    return m
+
+
+@pytest.mark.django_db
+def test_proc_novos_freia_pela_fila(sem_cache):
+    """O lado de PROCESSO não tinha o freio da fila — só as movimentações.
+
+    Sem o freio, subir o teto (que era 20.000 e batia em 6 de 6 ticks) só trocaria
+    "atraso no watermark" por "atraso na fila": o mesmo dado invisível, num número
+    maior. Medido em 26/08: 7,72 M de pks atrás COM a fila `es_index` em ZERO —
+    prova de que o gargalo era o teto, não o dreno; mas o inverso pode acontecer
+    a qualquer momento e aí o freio é que segura.
+    """
+    sem_cache[S._WM_PROC_ID] = 1_000
+    enfileirou = []
+
+    with patch.object(S, 'Process', _mock_process(list(range(1_001, 2_000)))), \
+         patch.object(S, '_enfileirar_processos', lambda pks: enfileirou.extend(pks)), \
+         patch.object(S, 'computar_sinal', lambda pks: len(pks)), \
+         patch.object(S, '_fila_es', lambda: S.FILA_ES_ALTA + 1):
+        r = S.sync_processos_novos()
+
+    assert r['pulou'] is True
+    assert enfileirou == []
+    assert sem_cache[S._WM_PROC_ID] == 1_000, 'avançou o watermark sem enfileirar'
+
+
+@pytest.mark.django_db
+def test_proc_atualizados_freia_pela_fila(sem_cache):
+    import datetime
+    from django.utils import timezone
+    sem_cache[S._WM_PROC_TS] = timezone.now() - datetime.timedelta(hours=1)
+    antes = sem_cache[S._WM_PROC_TS]
+    enfileirou = []
+
+    with patch.object(S, 'Process', _mock_process(list(range(1, 500)))), \
+         patch.object(S, '_enfileirar_processos', lambda pks: enfileirou.extend(pks)), \
+         patch.object(S, '_fila_es', lambda: S.FILA_ES_ALTA + 1):
+        r = S.sync_processos_atualizados()
+
+    assert r['pulou'] is True
+    assert enfileirou == []
+    assert sem_cache[S._WM_PROC_TS] == antes
+
+
+def test_teto_de_atualizados_acompanha_o_relogio():
+    """Contrato numérico do lado que DIVERGIA.
+
+    `proc_atualizados` tem watermark de TEMPO, então o teto certo não se mede em
+    ids e sim em quanto de relógio ele consegue cobrir por tick. Com 10.000/tick
+    a watermark andava **45 s por tick de 600 s** — perdia 13:1, e a idade subia
+    (127,92 → 128,08 → 128,26 h em três tiques). Um teto que não converge não é
+    teto, é vazamento.
+
+    A escrita em lote medida no pior momento (recuperação nacional + 4 backfills)
+    ficou em ~1,4 M de processos tocados por hora. O teto tem que passar disso
+    com folga, senão a idade volta a crescer sozinha.
+    """
+    por_hora = S.LIMITE_PROC_ATUALIZADOS * 6
+    assert por_hora >= 1_000_000, (
+        f'teto de {por_hora:,}/h — abaixo da escrita em lote medida, volta a divergir')
+
+
+def test_teto_de_novos_cabe_na_janela_do_tick():
+    """`proc_novos` é limitado pelo `computar_sinal` INLINE, não pelo enqueue.
+
+    Medido: ~7 ms por processo. Com tick de 10 min, o teto não pode passar de
+    ~85.000 sem estourar a janela — e estourar a janela atrasa os outros dois
+    syncs, que rodam DEPOIS dele no mesmo tique.
+    """
+    segundos = S.LIMITE_PROC_NOVOS * 0.007
+    assert segundos <= 540, (
+        f'{S.LIMITE_PROC_NOVOS:,} × 7 ms = {segundos:.0f}s — passa da janela de 10 min')
+    assert S.LIMITE_PROC_NOVOS >= 40_000, 'teto baixo demais: o atraso não drena'

@@ -21,6 +21,7 @@ watermarks no cache, teto por tick e kill-switch. Roda no scheduler
 Kill-switch: `cache.set('sync_es:off', True)` desliga sem deploy.
 """
 import logging
+import os
 
 from django.core.cache import cache
 from django.db import connection
@@ -30,19 +31,36 @@ from tribunals.models import Movimentacao, Process
 
 logger = logging.getLogger('voyager.search.sync')
 
-#: teto por tick — mantém o tick curto e o DB fora de pileup. A ingestão real
-#: fica MUITO abaixo disso por ciclo de 10min; a folga é pra recuperar atraso.
-LIMITE_PROC_NOVOS = 20_000
-LIMITE_PROC_ATUALIZADOS = 10_000
+#: teto por tick. AJUSTÁVEL POR ENV — sem deploy, porque foi um número fixo que
+#: transformou os dois lados de processo em vazamento (ver abaixo).
+#:
+#: MEDIDO em 26/08/2026, e é a mesma lição que o lado das movimentações já tinha
+#: aprendido: teto fixo baixo não é freio, é vazamento.
+#:   · `proc_novos` batia o teto em 6 de 6 ticks, 7,72 M de pks atrás do banco,
+#:     COM A FILA `es_index` EM ZERO e 4 jobs rodando — os workers ociosos
+#:     esperando o tique liberar. Amostra dos dois lados: 60 pks ACIMA do
+#:     watermark → 57 AUSENTES do índice; 60 pks ABAIXO (controle) → 60
+#:     presentes. A fronteira do índice ERA o watermark.
+#:   · `proc_atualizados` era pior: DIVERGIA. A watermark andava ~45 s de relógio
+#:     por tick de 600 s (idade 127,92 → 128,08 → 128,26 h em três ticks). Um
+#:     teto que perde 13:1 para o relógio não é teto.
+#:
+#: `proc_novos` é limitado pelo `computar_sinal` INLINE (~7 ms/processo medido),
+#: não pelo enqueue: 60.000 ≈ 7 min de tick. Subir muito além disso faz o tique
+#: passar da janela e atrasar os outros dois syncs, que rodam depois dele.
+#: `proc_atualizados` não computa nada — só consulta e enfileira —, então o teto
+#: dele pode ser alto de verdade.
+LIMITE_PROC_NOVOS = int(os.environ.get('SYNC_ES_LIMITE_PROC_NOVOS', 60_000))
+LIMITE_PROC_ATUALIZADOS = int(os.environ.get('SYNC_ES_LIMITE_PROC_ATUALIZADOS', 200_000))
 #: 50.000 por tick de 10 min = 300 mil/h, e a ingestão sob recuperação escreve
 #: MUITO mais. O teto virou corte mudo: 179.490.613 publicações no banco e fora
 #: do índice, com a fila `es_index` marcando zero. Agora o teto é alto e quem
 #: segura o ritmo é a fila (FILA_ES_ALTA) — atingi-lo é ERRO registrado.
-LIMITE_MOVS_NOVAS = 400_000
+LIMITE_MOVS_NOVAS = int(os.environ.get('SYNC_ES_LIMITE_MOVS', 400_000))
 
 #: acima disso o tick não empurra mais: o gargalo é o dreno, e engordar a fila
 #: não aumenta vazão nenhuma — só esconde o atraso num número maior.
-FILA_ES_ALTA = 150_000
+FILA_ES_ALTA = int(os.environ.get('SYNC_ES_FILA_ALTA', 150_000))
 
 #: tamanho do bulk enfileirado (o job `indexar_processos_bulk` faz 1 _bulk).
 CHUNK = 500
@@ -124,6 +142,14 @@ def sync_processos_novos() -> dict:
         logger.info('sync_es: watermark de processo ancorado em id=%s', wm)
         return {'novos': 0, 'sinal': 0, 'wm': wm, 'ancorou': True}
 
+    # Auto-freio pela fila, igual ao lado das movimentações: quem manda no ritmo
+    # é o DRENO. Sem isto, subir o teto só troca "atraso no watermark" por
+    # "atraso na fila" — o mesmo dado invisível, num número maior.
+    fila = _fila_es()
+    if fila > FILA_ES_ALTA:
+        logger.info('sync_es: proc_novos — fila em %d (>%d), pulando', fila, FILA_ES_ALTA)
+        return {'novos': 0, 'sinal': 0, 'wm': wm, 'fila': fila, 'pulou': True}
+
     pks = list(Process.objects.filter(id__gt=wm).order_by('id')
                .values_list('id', flat=True)[:LIMITE_PROC_NOVOS])
     if not pks:
@@ -158,6 +184,11 @@ def sync_processos_atualizados() -> dict:
     if wm is None:
         cache.set(_WM_PROC_TS, agora, None)
         return {'atualizados': 0, 'wm': agora.isoformat(), 'ancorou': True}
+
+    fila = _fila_es()
+    if fila > FILA_ES_ALTA:
+        logger.info('sync_es: proc_atualizados — fila em %d (>%d), pulando', fila, FILA_ES_ALTA)
+        return {'atualizados': 0, 'wm': str(wm), 'fila': fila, 'pulou': True}
 
     pks = list(Process.objects.filter(atualizado_em__gt=wm).order_by('atualizado_em')
                .values_list('id', flat=True)[:LIMITE_PROC_ATUALIZADOS])
