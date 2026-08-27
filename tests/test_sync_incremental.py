@@ -37,7 +37,11 @@ def test_primeiro_tick_ancora_sem_reprocessar_a_base(mock_proc):
 
 
 @patch('search.sync_incremental._enfileirar_processos', return_value=3)
-@patch('search.sync_incremental.computar_sinal', return_value=3)
+# devolve `(quantos, cobertos)` desde 27/08/2026: o sinal passou a ser
+# computado em blocos com teto de tempo, e quem chama precisa saber ATÉ
+# ONDE ele chegou para não empurrar a watermark por cima do resto.
+@patch('search.sync_incremental.computar_sinal',
+       return_value=(3, [101, 102, 103]))
 @patch('search.sync_incremental.Process')
 def test_processos_novos_computam_sinal_antes_de_indexar(mock_proc, mock_sinal, mock_enf):
     cache.set('sync_es:wm:proc_id', 100, None)

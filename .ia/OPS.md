@@ -1314,7 +1314,9 @@ varredura e não o `LIMIT`, o teto de 10.000 não economizava nada — só corta
 
    | env | default | por quê |
    |---|---:|---|
-   | `SYNC_ES_LIMITE_PROC_NOVOS` | 60.000 | limitado pelo `computar_sinal` INLINE (~7 ms/proc): 60 k ≈ 7 min de tique. Acima de ~85 k estoura a janela e atrasa os outros dois syncs, que rodam depois |
+   | `SYNC_ES_LIMITE_PROC_NOVOS` | 60.000 | teto de LINHAS; quem manda mesmo é o teto de TEMPO do sinal (abaixo) |
+   | `SYNC_ES_BLOCO_SINAL` | 2.000 | `computar_sinal` roda o MESMO `EXISTS` com regex que travou 12,7 h — ver o incidente acima. Bloco pequeno + teto de tempo |
+   | `SYNC_ES_TIMEOUT_SINAL` | 60s | bloco que estoura NÃO entra em `cobertos`, e a watermark **não passa por cima**: os pks sem sinal voltam no tique seguinte |
    | `SYNC_ES_LIMITE_PROC_ATUALIZADOS` | 200.000 | não computa nada, só consulta e enfileira. 1,2 M/h cobre a escrita em lote medida no pico |
    | `SYNC_ES_LIMITE_MOVS` | 400.000 | inalterado |
    | `SYNC_ES_FILA_ALTA` | 150.000 | inalterado |

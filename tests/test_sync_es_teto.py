@@ -209,3 +209,66 @@ def test_teto_de_novos_cabe_na_janela_do_tick():
     assert segundos <= 540, (
         f'{S.LIMITE_PROC_NOVOS:,} × 7 ms = {segundos:.0f}s — passa da janela de 10 min')
     assert S.LIMITE_PROC_NOVOS >= 40_000, 'teto baixo demais: o atraso não drena'
+
+
+# ───────────────────── computar_sinal: teto de TEMPO, e a invariante do sinal
+
+@pytest.mark.django_db
+def test_sinal_que_estoura_o_teto_nao_deixa_o_watermark_passar(sem_cache):
+    """A invariante deste sync: nenhum processo passa a fronteira sem sinal.
+
+    INCIDENTE de 27/08/2026: o mesmo `EXISTS` com regex sobre
+    `movimentacao.texto` rodou **12,7 h** num lote de 20.000 do TJSP e travou
+    três jobs. O custo é por MOVIMENTAÇÃO, não por processo, e varia ~100×
+    entre tribunais — por isso o teto aqui é de TEMPO, em bloco pequeno.
+
+    Quando um bloco estoura, o tick NÃO pode enfileirar o resto nem empurrar a
+    watermark por cima: os pks não cobertos voltam no próximo tick. Sem isto,
+    subir o teto de `proc_novos` (que eu subi de 20.000 para 60.000) troca um
+    vazamento por outro — processo indexado com `tem_sinal_precatorio` NULL,
+    que é o mapa comercial mentindo por omissão.
+    """
+    sem_cache[S._WM_PROC_ID] = 1_000
+    ids = list(range(1_001, 1_001 + 6_000))     # 3 blocos de 2.000
+    enfileirados = []
+
+    chamadas = {'n': 0}
+
+    def sinal_falso(pks):
+        # cobre só o primeiro bloco e "estoura" no segundo
+        chamadas['n'] += 1
+        return len(pks[:S.BLOCO_SINAL]), pks[:S.BLOCO_SINAL]
+
+    with patch.object(S, 'Process', _mock_process(ids, topo=ids[-1] + 500)), \
+         patch.object(S, 'computar_sinal', sinal_falso), \
+         patch.object(S, '_enfileirar_processos',
+                      lambda pks: (enfileirados.extend(pks), len(pks))[1]), \
+         patch.object(S, '_fila_es', lambda: 0):
+        r = S.sync_processos_novos()
+
+    assert r['novos'] == S.BLOCO_SINAL, 'enfileirou pk sem sinal computado'
+    assert enfileirados == ids[:S.BLOCO_SINAL]
+    assert sem_cache[S._WM_PROC_ID] == ids[S.BLOCO_SINAL - 1], (
+        'a watermark passou por cima do que não teve sinal — o resto some')
+
+
+@pytest.mark.django_db
+def test_sinal_que_nao_fecha_nem_o_primeiro_bloco_nao_anda(sem_cache):
+    sem_cache[S._WM_PROC_ID] = 1_000
+    enfileirados = []
+    with patch.object(S, 'Process', _mock_process(list(range(1_001, 3_000)))), \
+         patch.object(S, 'computar_sinal', lambda pks: (0, [])), \
+         patch.object(S, '_enfileirar_processos', lambda pks: enfileirados.extend(pks)), \
+         patch.object(S, '_fila_es', lambda: 0):
+        r = S.sync_processos_novos()
+
+    assert r.get('sinal_travou') is True
+    assert enfileirados == []
+    assert sem_cache[S._WM_PROC_ID] == 1_000
+
+
+def test_o_bloco_do_sinal_e_pequeno_e_tem_teto_de_tempo():
+    """Contrato numérico do que causou as 12,7 h."""
+    assert S.BLOCO_SINAL <= 5_000, (
+        f'bloco de {S.BLOCO_SINAL:,} — 20.000 no TJSP virou meio dia de bloqueio')
+    assert S.TIMEOUT_SINAL, 'sem teto de tempo, um bloco lento trava o tick inteiro'

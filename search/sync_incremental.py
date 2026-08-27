@@ -24,7 +24,7 @@ import logging
 import os
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.utils import timezone
 
 from tribunals.models import Movimentacao, Process
@@ -61,6 +61,14 @@ LIMITE_MOVS_NOVAS = int(os.environ.get('SYNC_ES_LIMITE_MOVS', 400_000))
 #: acima disso o tick não empurra mais: o gargalo é o dreno, e engordar a fila
 #: não aumenta vazão nenhuma — só esconde o atraso num número maior.
 FILA_ES_ALTA = int(os.environ.get('SYNC_ES_FILA_ALTA', 150_000))
+
+#: `computar_sinal` roda o MESMO `EXISTS` com regex sobre `movimentacao.texto`
+#: que, com lote de 20.000 no TJSP, rodou **12,7 horas** numa transação só e
+#: travou três jobs (incidente de 27/08/2026, ver `.ia/OPS.md`). O custo é por
+#: MOVIMENTAÇÃO, não por processo, e varia ~100× entre tribunais — então o teto
+#: aqui é de TEMPO, por bloco pequeno, e não um número de linhas.
+BLOCO_SINAL = int(os.environ.get('SYNC_ES_BLOCO_SINAL', 2_000))
+TIMEOUT_SINAL = os.environ.get('SYNC_ES_TIMEOUT_SINAL', '60s')
 
 #: tamanho do bulk enfileirado (o job `indexar_processos_bulk` faz 1 _bulk).
 CHUNK = 500
@@ -121,14 +129,34 @@ def computar_sinal(pks: list[int]) -> int:
     processado" crescendo todo dia.
     """
     if not pks:
-        return 0
+        return 0, []
     sql = ("UPDATE tribunals_process p SET tem_sinal_precatorio = EXISTS ("
            "SELECT 1 FROM tribunals_movimentacao m "
            "WHERE m.processo_id = p.id AND m.texto ~* %s) "
            "WHERE p.id = ANY(%s) AND p.tem_sinal_precatorio IS NULL")
-    with connection.cursor() as c:
-        c.execute(sql, [PADRAO_SINAL, pks])
-        return c.rowcount
+    feitos, cobertos = 0, []
+    for i in range(0, len(pks), BLOCO_SINAL):
+        bloco = pks[i:i + BLOCO_SINAL]
+        try:
+            with transaction.atomic(), connection.cursor() as c:
+                c.execute('SET LOCAL statement_timeout = %s', [TIMEOUT_SINAL])
+                c.execute('SET LOCAL lock_timeout = %s', ['5s'])
+                c.execute(sql, [PADRAO_SINAL, bloco])
+                feitos += c.rowcount
+            cobertos.extend(bloco)
+        except Exception:
+            # Bloco que estourou o teto NÃO entra em `cobertos`: quem chama
+            # avança o watermark só até onde o sinal foi de fato computado.
+            # Assim nenhum processo passa da fronteira sem sinal — que é a
+            # invariante deste sync desde que ele existe.
+            logger.error(
+                'sync_es: computar_sinal estourou o teto de %s num bloco de %d '
+                '(pks %s..%s). O tick segue com os %d que deram certo; o resto '
+                'volta no próximo — a watermark NÃO passa por cima.',
+                TIMEOUT_SINAL, len(bloco), bloco[0], bloco[-1], len(cobertos),
+                exc_info=True)
+            break
+    return feitos, cobertos
 
 
 def sync_processos_novos() -> dict:
@@ -157,7 +185,11 @@ def sync_processos_novos() -> dict:
 
     # ordem importa: computa o sinal ANTES de indexar, senão o doc vai pro ES
     # com tem_sinal_precatorio=NULL e só corrige no próximo toque do processo.
-    n_sinal = computar_sinal(pks)
+    n_sinal, pks = computar_sinal(pks)
+    if not pks:
+        # nem o primeiro bloco fechou: não enfileira e não anda. O ERROR já
+        # saiu de dentro do `computar_sinal` com o tamanho do bloco.
+        return {'novos': 0, 'sinal': 0, 'wm': wm, 'sinal_travou': True}
     try:
         n = _enfileirar_processos(pks)
     except Exception:      # mesma regra das movimentações:
