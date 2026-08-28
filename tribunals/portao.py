@@ -46,18 +46,26 @@ PISO_MEDIANA = 200
 #: o buraco de um terço, não a variação de 10%.
 FRACAO_MINIMA = 0.60
 
-#: Conta só os DIAS QUE INTERESSAM, não o intervalo contínuo entre eles.
+#: Conta só os DIAS QUE INTERESSAM, e por FAIXA DE TIMESTAMP.
 #:
-#: A régua compara o dia com as MESMAS terças (ou quintas) das 5 semanas
-#: vizinhas — são **11 dias**, espalhados por 11 semanas. Ler o intervalo
-#: contínuo custava 77 dias de `tribunals_movimentacao` para usar 11, e estourou
-#: o teto de 240 s no primeiro aquecimento em produção (28/08/2026). O portão
-#: saiu da lista de marcos com "sem medição" — que é o comportamento certo, mas
-#: o certo mesmo é não precisar dele.
-SQL_CONTAGEM = """
+#: Duas lições sobrepostas, ambas pagas em produção em 28/08/2026:
+#:
+#: 1. A régua compara o dia com as MESMAS terças (ou quintas) das 5 semanas
+#:    vizinhas — são **11 dias** espalhados por 11 semanas. Ler o INTERVALO
+#:    CONTÍNUO custava 77 dias de `tribunals_movimentacao` para usar 11.
+#:
+#: 2. Trocar por `data_disponibilizacao::date = ANY(...)` **não resolveu**:
+#:    o `::date` é função sobre a coluna e **mata o índice**
+#:    `mov_data_disp_btree`. É a mesma armadilha que já custou 0,42 s contra
+#:    0,02 s em `diarios/base.py` — e que está escrita lá. Eu a repeti.
+#:
+#: Agora são 11 FAIXAS `>= dia AND < dia+1` unidas por OR, que é o que o índice
+#: btree serve. O `GROUP BY` volta a usar `::date`, mas aí ele age sobre as
+#: linhas JÁ filtradas, não sobre a tabela.
+SQL_CONTAGEM_MOLDE = """
 SELECT m.tribunal_id, m.data_disponibilizacao::date AS d, count(*)
   FROM tribunals_movimentacao m
- WHERE m.data_disponibilizacao::date = ANY(%s)
+ WHERE {faixas}
  GROUP BY 1, 2
 """
 
@@ -85,9 +93,17 @@ def _contagens(dias, _fim=None, teto='240s'):
     """
     if isinstance(dias, datetime.date) and _fim is not None:
         dias = [dias + datetime.timedelta(days=k) for k in range((_fim - dias).days)]
+    dias = list(dias)
+    if not dias:
+        return {}
+    faixas = ' OR '.join(
+        ['(m.data_disponibilizacao >= %s AND m.data_disponibilizacao < %s)'] * len(dias))
+    params = []
+    for d in dias:
+        params.extend([d, d + datetime.timedelta(days=1)])
     with transaction.atomic(), connection.cursor() as c:
         c.execute('SET LOCAL statement_timeout = %s', [teto])
-        c.execute(SQL_CONTAGEM, [list(dias)])
+        c.execute(SQL_CONTAGEM_MOLDE.format(faixas=faixas), params)
         return {(t, d): n for t, d, n in c.fetchall()}
 
 

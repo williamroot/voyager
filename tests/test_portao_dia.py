@@ -283,3 +283,40 @@ def test_le_so_os_11_DIAS_da_regua_e_nao_o_intervalo():
     assert all(d.weekday() == DIA.weekday() for d in dias), (
         'leu dia de outro dia da semana — a régua compara terça com terça')
     assert DIA in dias
+
+
+def test_o_filtro_de_data_NAO_usa_cast_na_coluna():
+    """`::date` na coluna é função sobre a coluna: MATA o índice btree.
+
+    Custou duas rodadas em produção em 28/08/2026. E é a MESMA armadilha já
+    documentada em `diarios/base.py`, onde `data_disponibilizacao__date=dia`
+    custou 0,42 s contra 0,02 s da faixa crua. Eu a repeti mesmo tendo escrito
+    o aviso.
+    """
+    # olha o SQL de verdade, não o texto do arquivo: a docstring cita o cast
+    # de propósito, para avisar, e um teste que casa string acusaria o aviso.
+    assert 'WHERE {faixas}' in CD.SQL_CONTAGEM_MOLDE
+    assert '::date' not in CD.SQL_CONTAGEM_MOLDE.split('WHERE')[0].split('FROM')[0] \
+        or 'AS d' in CD.SQL_CONTAGEM_MOLDE, 'o ::date só pode estar no SELECT'
+    assert 'ANY' not in CD.SQL_CONTAGEM_MOLDE, (
+        'voltou o cast/ANY na coluna — o índice morre e a consulta estoura')
+    import datetime as _dt
+    capturado = {}
+
+    class _C:
+        def execute(self, sql, params=None):
+            capturado.setdefault('sqls', []).append((sql, params))
+        def fetchall(self):
+            return []
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    from unittest.mock import patch
+    with patch.object(CD.connection, 'cursor', return_value=_C()), \
+         patch.object(CD.transaction, 'atomic'):
+        CD._contagens([DIA, DIA - _dt.timedelta(weeks=1)])
+    sql = capturado['sqls'][-1][0]
+    assert sql.count('>= %s AND m.data_disponibilizacao < %s') == 2, (
+        'o filtro deixou de ser faixa de timestamp por dia')
