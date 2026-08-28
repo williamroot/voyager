@@ -124,3 +124,67 @@ def test_o_alerta_usa_a_frota_viva():
     corpo = fonte[i:i + 1200]
     assert '_frota_viva(' in corpo
     assert 'Worker.all(' not in corpo, 'voltou ao registro incompleto'
+
+
+# ─────────────── enumerar NÃO é avaliar (a quase-armadilha do conserto)
+
+def _frota_fake(com_birth, sem_birth):
+    """`com_birth` workers com `birth_date` antigo; `sem_birth` com o campo vazio."""
+    import datetime
+    velho = datetime.datetime(2020, 1, 1)
+    fora = []
+    for _ in range(com_birth):
+        w = MagicMock()
+        w.birth_date = velho
+        w.queue_names.return_value = ['default']
+        fora.append(w)
+    for _ in range(sem_birth):
+        w = MagicMock()
+        w.birth_date = None
+        fora.append(w)
+    return fora
+
+
+def test_worker_sem_birth_conta_como_NAO_AVALIADO_e_nao_como_ok():
+    """Consertar a enumeração e não a avaliação PIORA o alarme.
+
+    MEDIDO em 28/08/2026, depois de trocar `Worker.all()` pelo scan: a frota
+    passou de 44 para **256** workers vistos, mas só **44 têm `birth_date`** —
+    os mesmos 44 de antes. Reportar "total: 256, velhos: 0" seria pior que o
+    defeito original: denominador maior com o mesmo numerador faz o percentual
+    parecer melhor sem enxergar um worker a mais.
+    """
+    import time
+    with patch.object(J, '_frota_viva', return_value=_frota_fake(44, 212)), \
+         patch('django_rq.get_connection', return_value=MagicMock()), \
+         patch.object(J.logger, 'error'), patch.object(J.logger, 'warning'):
+        r = J._alerta_workers_velhos(time.time())
+    assert r['total'] == 256
+    assert r['avaliaveis'] == 44, 'contou como avaliado quem não tem birth_date'
+    assert r['nao_avaliados'] == 212, 'a cegueira restante ficou invisível'
+
+
+def test_a_cobertura_baixa_do_alarme_VIRA_ERRO():
+    """Alarme que não sabe o quanto NÃO vê é o silêncio verde de novo."""
+    import time
+    with patch.object(J, '_frota_viva', return_value=_frota_fake(44, 212)), \
+         patch('django_rq.get_connection', return_value=MagicMock()), \
+         patch.object(J.logger, 'error') as erro, patch.object(J.logger, 'warning'):
+        J._alerta_workers_velhos(time.time())
+    assert erro.called, '82,8% sem avaliação passou sem ERROR'
+    # o alarme dispara DOIS erros (cobertura e workers velhos); o de cobertura
+    # é o que precisa dizer o tamanho da cegueira.
+    msgs = [c.args[0] % c.args[1:] for c in erro.call_args_list]
+    cobertura = [m for m in msgs if 'birth_date' in m]
+    assert cobertura, 'não houve ERROR sobre a cobertura do alarme'
+    assert '212' in cobertura[0] and '256' in cobertura[0], (
+        'não disse quantos ficaram de fora')
+
+
+def test_frota_toda_avaliavel_nao_alarma_cobertura():
+    import time
+    with patch.object(J, '_frota_viva', return_value=_frota_fake(0, 0)), \
+         patch('django_rq.get_connection', return_value=MagicMock()), \
+         patch.object(J.logger, 'error') as erro, patch.object(J.logger, 'warning') as av:
+        J._alerta_workers_velhos(time.time())
+    assert not erro.called and not av.called

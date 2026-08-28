@@ -1501,6 +1501,35 @@ jeito do RQ; chave morta volta `None` e é descartada.
 Há teste que reprova quem voltar a ler o hash cru — e ele olha as **chamadas**
 via AST, não o texto, porque a docstring cita `hget` de propósito para avisar.
 
+### E consertar a enumeração sem consertar a AVALIAÇÃO piora o alarme
+
+Depois de trocar `Worker.all()` pelo scan, medi de novo:
+
+```
+_frota_viva vê ................ 256 workers   (0,63 s)
+com `birth_date` legível ......  44           ← os MESMOS 44 de antes
+```
+
+Enumerar não é avaliar. Reportar `total: 256, velhos: 0` seria **pior que o
+defeito original**: denominador maior com o mesmo numerador faz o percentual
+parecer melhor sem enxergar um worker a mais — confiança falsa comprada com um
+conserto.
+
+Então quem não tem `birth_date` conta como **não avaliado**, e o alarme diz a
+própria cobertura:
+
+```
+watchdog: 212 de 256 workers estão SEM `birth_date` — o alarme de código velho
+NÃO os avalia. Cobertura real do alarme: 17%.
+```
+
+ERROR quando a cegueira passa de 50%, WARNING abaixo disso. E o payload passou a
+ter `avaliaveis` e `nao_avaliados` ao lado de `total` — quem ler `velhos: 0` sem
+olhar a cobertura está lendo metade da frase.
+
+**Pendente:** descobrir por que 212 workers publicam heartbeat sem `birth`. Até
+lá, o alarme diz honestamente que enxerga 17%.
+
 ## 🔴 INCIDENTE: um lote sem teto travou três jobs por 12,7 h (27/08/2026)
 
 `backfill_sinal_precatorio --tribunais TJSP` com o default `--batch 20000`.

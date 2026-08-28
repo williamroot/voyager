@@ -552,28 +552,49 @@ def _alerta_workers_velhos(mtime_mais_novo: float) -> dict:
     if not mtime_mais_novo:
         return {'checado': False}
     limite = mtime_mais_novo - CODIGO_VELHO_TOLERANCIA_S
-    velhos = [w for w in frota
-              if w.birth_date and _epoca_utc(w.birth_date) < limite]
+
+    # ⚠️ Enumerar não é AVALIAR, e confundir os dois é como se piora o alarme
+    # consertando-o. Medido em 28/08/2026, DEPOIS de trocar `Worker.all()` pelo
+    # scan: a frota passou de 44 para 256 workers vistos, mas só **44 têm
+    # `birth_date`** — os mesmos 44 de antes. Os outros 212 têm heartbeat vivo e
+    # o campo vazio.
+    #
+    # Reportar "total: 256, velhos: 0" seria PIOR que o defeito original:
+    # denominador maior com o mesmo numerador faz o percentual parecer melhor
+    # sem enxergar um worker a mais. É confiança falsa comprada com um conserto.
+    #
+    # Então quem não tem `birth_date` conta como NÃO AVALIADO, e isso aparece.
+    avaliaveis = [w for w in frota if w.birth_date]
+    cegos = len(frota) - len(avaliaveis)
+    if cegos and len(frota):
+        nivel = logger.error if cegos > len(frota) * 0.5 else logger.warning
+        nivel('watchdog: %d de %d workers estão SEM `birth_date` — o alarme de '
+              'código velho NÃO os avalia. Cobertura real do alarme: %.0f%%.',
+              cegos, len(frota), 100.0 * len(avaliaveis) / len(frota))
+
+    velhos = [w for w in avaliaveis if _epoca_utc(w.birth_date) < limite]
     if not velhos:
-        return {'checado': True, 'total': len(frota), 'velhos': 0, 'atraso_horas': 0.0}
+        return {'checado': True, 'total': len(frota), 'avaliaveis': len(avaliaveis),
+                'nao_avaliados': cegos, 'velhos': 0, 'atraso_horas': 0.0}
 
     idade_h = (mtime_mais_novo - min(_epoca_utc(w.birth_date) for w in velhos)) / 3600
     filas = collections.Counter(f for w in velhos for f in w.queue_names())
     detalhe = ', '.join(f'{f}={n}' for f, n in filas.most_common(8))
     if idade_h >= FROTA_ATRASO_ALERTA_H:
         logger.error(
-            'watchdog: %d de %d workers da frota nasceram ANTES do código do '
+            'watchdog: %d de %d AVALIÁVEIS nasceram ANTES do código do '
             'disco, o mais antigo há %.0fh (teto de alerta %dh) — deploy sem '
             '`docker restart`. Filas: %s. Confira o `docker ps` antes de '
             'reiniciar: o mtime é o do disco DESTE host.',
-            len(velhos), len(frota), idade_h, FROTA_ATRASO_ALERTA_H, detalhe,
+            len(velhos), len(avaliaveis), idade_h, FROTA_ATRASO_ALERTA_H, detalhe,
         )
     else:
         logger.warning(
-            'watchdog: %d de %d workers ainda não recarregaram (mais antigo há '
-            '%.1fh). Filas: %s', len(velhos), len(frota), idade_h, detalhe,
+            'watchdog: %d de %d avaliáveis ainda não recarregaram (mais antigo há '
+            '%.1fh). Filas: %s', len(velhos), len(avaliaveis), idade_h, detalhe,
         )
-    return {'checado': True, 'total': len(frota), 'velhos': len(velhos),
+    return {'checado': True, 'total': len(frota), 'avaliaveis': len(avaliaveis),
+            'nao_avaliados': cegos, 'velhos': len(velhos),
             'atraso_horas': round(idade_h, 1)}
 
 
