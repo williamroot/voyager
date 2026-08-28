@@ -46,10 +46,18 @@ PISO_MEDIANA = 200
 #: o buraco de um terço, não a variação de 10%.
 FRACAO_MINIMA = 0.60
 
+#: Conta só os DIAS QUE INTERESSAM, não o intervalo contínuo entre eles.
+#:
+#: A régua compara o dia com as MESMAS terças (ou quintas) das 5 semanas
+#: vizinhas — são **11 dias**, espalhados por 11 semanas. Ler o intervalo
+#: contínuo custava 77 dias de `tribunals_movimentacao` para usar 11, e estourou
+#: o teto de 240 s no primeiro aquecimento em produção (28/08/2026). O portão
+#: saiu da lista de marcos com "sem medição" — que é o comportamento certo, mas
+#: o certo mesmo é não precisar dele.
 SQL_CONTAGEM = """
 SELECT m.tribunal_id, m.data_disponibilizacao::date AS d, count(*)
   FROM tribunals_movimentacao m
- WHERE m.data_disponibilizacao >= %s AND m.data_disponibilizacao < %s
+ WHERE m.data_disponibilizacao::date = ANY(%s)
  GROUP BY 1, 2
 """
 
@@ -69,10 +77,17 @@ def mediana(valores):
     return v[meio] if len(v) % 2 else (v[meio - 1] + v[meio]) / 2
 
 
-def _contagens(ini, fim, teto='240s'):
+def _contagens(dias, _fim=None, teto='240s'):
+    """`dias` é a LISTA de datas que interessam — não um intervalo.
+
+    Aceita `_fim` só para não quebrar chamador antigo que passava (ini, fim);
+    quando `dias` vier como data única e `_fim` vier preenchido, expande.
+    """
+    if isinstance(dias, datetime.date) and _fim is not None:
+        dias = [dias + datetime.timedelta(days=k) for k in range((_fim - dias).days)]
     with transaction.atomic(), connection.cursor() as c:
         c.execute('SET LOCAL statement_timeout = %s', [teto])
-        c.execute(SQL_CONTAGEM, [ini, fim])
+        c.execute(SQL_CONTAGEM, [list(dias)])
         return {(t, d): n for t, d, n in c.fetchall()}
 
 
@@ -103,9 +118,12 @@ def conferir(dia, fracao=FRACAO_MINIMA, piso=PISO_MEDIANA, leitores=None) -> dic
     de ORM — um teste que precisa de banco para provar aritmética envelhece mal.
     """
     ler_cont, ler_runs, ler_tribs = leitores or (_contagens, _runs, _tribunais)
-    # janela em SEMANAS, para haver amostra do mesmo dia da semana dos dois lados
-    cont = ler_cont(dia - datetime.timedelta(weeks=SEMANAS),
-                    dia + datetime.timedelta(weeks=SEMANAS, days=1))
+    # só os 11 dias que a régua usa: o dia + as mesmas terças (ou quintas) das
+    # 5 semanas de cada lado. Ler o intervalo contínuo seriam 77 dias para usar
+    # 11, e foi o que estourou o teto no primeiro aquecimento.
+    dias_da_regua = [dia + datetime.timedelta(weeks=k)
+                     for k in range(-SEMANAS, SEMANAS + 1)]
+    cont = ler_cont(dias_da_regua)
     runs = ler_runs(dia)
     tribunais = ler_tribs(dia)
 

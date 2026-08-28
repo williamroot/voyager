@@ -41,7 +41,7 @@ class _Cmd:
 
     def _conferir(self, dia, o):
         return CD.conferir(dia, fracao=o['fracao'], piso=o['piso'],
-                           leitores=(lambda i, f: self._cont,
+                           leitores=(lambda dias: self._cont,
                                      lambda d: self._runs_,
                                      lambda d: self._tribs))
 
@@ -185,7 +185,7 @@ def test_o_comando_SAI_COM_ERRO_quando_ha_buraco(monkeypatch):
     """Cron e CI não podem depender de alguém LER a saída."""
     cont = _mesmas_semanas('TJSP', 1_000_000)
     cont[('TJSP', DIA)] = 10_000
-    monkeypatch.setattr(CD, '_contagens', lambda i, f, teto='240s': cont)
+    monkeypatch.setattr(CD, '_contagens', lambda dias, _f=None, teto='240s': cont)
     monkeypatch.setattr(CD, '_runs', lambda d: {'TJSP': {'success': 1}})
     monkeypatch.setattr(CD, '_tribunais', lambda d: ['TJSP'])
     with pytest.raises(SystemExit) as e:
@@ -197,7 +197,7 @@ def test_o_comando_SAI_COM_ERRO_quando_ha_buraco(monkeypatch):
 def test_o_comando_sai_ZERO_quando_o_dia_fecha(monkeypatch):
     cont = _mesmas_semanas('TJSP', 1_000_000)
     cont[('TJSP', DIA)] = 990_000
-    monkeypatch.setattr(CD, '_contagens', lambda i, f, teto='240s': cont)
+    monkeypatch.setattr(CD, '_contagens', lambda dias, _f=None, teto='240s': cont)
     monkeypatch.setattr(CD, '_runs', lambda d: {'TJSP': {'success': 1}})
     monkeypatch.setattr(CD, '_tribunais', lambda d: ['TJSP'])
     call_command('conferir_dia', '2026-08-25')     # não levanta
@@ -260,3 +260,26 @@ def test_o_comando_e_o_vigia_usam_a_MESMA_regua():
     assert 'from tribunals import portao' in cmd
     assert 'portao.conferir(' in cmd
     assert 'def conferir' not in cmd, 'o comando voltou a ter régua própria'
+
+
+def test_le_so_os_11_DIAS_da_regua_e_nao_o_intervalo():
+    """Ler o intervalo contínuo custa 77 dias para usar 11 — e estourou em prod.
+
+    No primeiro aquecimento do card de marcos (28/08/2026), a consulta do portão
+    bateu o teto de 240 s e o marco saiu da lista com "sem medição". Foi o
+    comportamento certo do card, mas o certo mesmo é não precisar dele.
+    """
+    import datetime as _dt
+    vistos = {}
+
+    def ler(dias):
+        vistos['dias'] = list(dias)
+        return {}
+
+    CD.conferir(DIA, leitores=(ler, lambda d: {}, lambda d: []))
+    dias = vistos['dias']
+    assert len(dias) == 2 * CD.SEMANAS + 1, f'leu {len(dias)} dias, esperado 11'
+    assert all(isinstance(d, _dt.date) for d in dias)
+    assert all(d.weekday() == DIA.weekday() for d in dias), (
+        'leu dia de outro dia da semana — a régua compara terça com terça')
+    assert DIA in dias
