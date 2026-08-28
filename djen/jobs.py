@@ -923,17 +923,72 @@ BACKFILL_JOB_PREFIX = 'bfd'  # job_id determinístico bfd:<sigla>:<dia> — perm
 # payload) e deduplica re-enfileiramento entre ticks.
 
 
-@job('djen_backfill', timeout=3600)
+#: TTL da trava de coleta por (tribunal, dia). Tem que caber o dia MAIS LONGO
+#: medido — o TJSP de 2026-08-27 levou 136 min (run 237367) — com folga, e ao
+#: mesmo tempo não pode prender o dia pra sempre se o work-horse morrer por
+#: SIGKILL (OOM) sem passar pelo `finally`. 4h = 1,8x o pior dia medido.
+COLETA_LOCK_TTL_S = int(os.environ.get('DJEN_COLETA_LOCK_TTL_S', 4 * 3600))
+
+
+def _chave_coleta(sigla: str, dia_iso: str) -> str:
+    return f'djen:coletando:{sigla}:{dia_iso}'
+
+
+#: O teto de tempo de UM dia. Era 3.600 s no tique — e o dia do TJSP leva 136
+#: min, então o work-horse era morto por `JobTimeoutException` TODA vez, no
+#: meio da coleta, e o dia voltava pro tique 10 min depois. Medido em
+#: 2026-08-27: 5 runs do TJSP mortos em `Task exceeded maximum timeout value
+#: (3600 seconds)`. O fan-out do daily já usava 86.400; o tique não.
+BACKFILL_DIA_TIMEOUT_S = int(os.environ.get('DJEN_BACKFILL_DIA_TIMEOUT_S', 86400))
+
+
+@job('djen_backfill', timeout=BACKFILL_DIA_TIMEOUT_S)
 def backfill_dia(tribunal_sigla: str, dia_iso: str) -> dict:
     """Ingere um único dia — unidade atômica do backfill retroativo.
 
     Skip rápido (sem request à API) se qualquer IngestionRun success já cobre o dia.
+
+    ⚠️ **Uma coleta por (tribunal, dia) de cada vez.** O `_dia_coberto` só vê
+    dia que JÁ FECHOU; enquanto o dia está sendo coletado ele não protege nada.
+    E há dois caminhos que enfileiram o mesmo dia sem se enxergarem:
+
+    * o fan-out do `run_daily_ingestion`, que usa job_id ALEATÓRIO de propósito
+      (pra não contar no cap por tribunal) e portanto não deduplica;
+    * o `tick_backfill_retroativo`, a cada 10 min, que até 28/08/2026 só olhava
+      a LISTA da fila — e job já entregue a um worker sai da lista.
+
+    Medido em produção (2026-08-27): o TJSP do dia 27/08 foi coletado por **12
+    runs concorrentes**, somando **7.437 páginas** contra as **264** que o dia
+    exige — 28x. Na frota inteira, 26 e 27/08 leram 2,2x e 2,7x mais páginas do
+    que os dias exigiam. Isso não perde dado: gasta a banda contra a API do CNJ
+    que o circuit-breaker existe pra proteger, e é ela que abre o circuito e
+    ADIA os dias dos outros tribunais.
+
+    A trava é `SET NX EX` no Redis (fail-open: se o Redis não responder, a
+    coleta segue — perder a trava custa duplicação, perder o dia custa acervo).
     """
     t = Tribunal.objects.get(sigla=tribunal_sigla)
     dia = date.fromisoformat(dia_iso)
     if _dia_coberto(t, dia):
         logger.debug('backfill_dia skip %s %s (já coberto)', tribunal_sigla, dia_iso)
         return {'skip': True, 'dia': dia_iso}
+
+    chave = _chave_coleta(tribunal_sigla, dia_iso)
+    travou = True
+    try:
+        travou = bool(cache.add(chave, 1, COLETA_LOCK_TTL_S))
+    except Exception as exc:                       # Redis fora: fail-open
+        logger.warning('backfill_dia %s %s: trava indisponível (%s) — sigo sem ela',
+                       tribunal_sigla, dia_iso, str(exc)[:120])
+    if not travou:
+        # NÃO é corte mudo: sai no log e no retorno, com o nome do dia. Outro
+        # worker está coletando exatamente este (tribunal, dia) agora.
+        logger.warning(
+            'backfill_dia %s %s: já há coleta EM VOO deste dia — não abro uma '
+            'segunda. Duplicar aqui não traz publicação nenhuma e gasta a banda '
+            'do CNJ que o circuit-breaker protege', tribunal_sigla, dia_iso)
+        return {'skip': 'ja_em_coleta', 'dia': dia_iso, 'tribunal': tribunal_sigla}
+
     logger.info('backfill_dia inicio %s %s', tribunal_sigla, dia_iso)
     from .client import DjenBusyError
     try:
@@ -943,6 +998,11 @@ def backfill_dia(tribunal_sigla: str, dia_iso: str) -> dict:
         # FailedRegistry nem martela o servidor. O tick re-enfileira quando voltar.
         logger.warning('backfill_dia adiado %s %s (DJEN circuito aberto)', tribunal_sigla, dia_iso)
         return {'skip': 'circuito_aberto', 'dia': dia_iso}
+    finally:
+        try:
+            cache.delete(chave)
+        except Exception:
+            pass                                   # o TTL cobre
     return {'run_id': run.pk, 'novas': run.movimentacoes_novas, 'dia': dia_iso}
 
 
@@ -1027,12 +1087,26 @@ def tick_backfill_retroativo(tribunal_sigla: str) -> dict:
     # CASCA — id na fila sem job nenhum. Foi assim que a `djen_backfill`
     # acumulou 344 cascas (17,7%) até 24/08/2026, e a casca não é só
     # desperdício: ela faz o watchdog achar que o dia "já está a caminho".
+    #
+    # ⚠️ E fila NÃO é backlog: o job que um worker já pegou SAI da lista. Sem
+    # somar o `StartedJobRegistry`, o tique de 10 em 10 minutos re-enfileirava
+    # o dia que estava sendo coletado naquele instante — e como o `_dia_coberto`
+    # só enxerga dia que já FECHOU, a segunda cópia ia coletar tudo de novo.
+    # Medido em 2026-08-27: TJSP do dia 27/08 com 12 runs concorrentes e 7.437
+    # páginas contra as 264 do dia.
     ja_na_fila = set(job_ids)
+    try:
+        ja_na_fila |= set(backfill_q.started_job_registry.get_job_ids())
+    except Exception as exc:
+        logger.warning('backfill %s: não li os jobs em execução (%s) — o tique '
+                       'segue, mas pode re-enfileirar dia em voo',
+                       tribunal_sigla, str(exc)[:120])
     novos = [d for d in pendentes if f'{meu_prefixo}{d}' not in ja_na_fila]
     a_enfileirar = novos[:min(BACKFILL_BATCH, vagas)]
     for dia in a_enfileirar:
         backfill_q.enqueue(backfill_dia, tribunal_sigla, str(dia),
-                           job_id=f'{meu_prefixo}{dia}', job_timeout=3600)
+                           job_id=f'{meu_prefixo}{dia}',
+                           job_timeout=BACKFILL_DIA_TIMEOUT_S)
 
     logger.info(
         'backfill %s: +%d dias enfileirados (fila era %d) · %.1f%% completo',

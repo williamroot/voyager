@@ -512,6 +512,109 @@ alvo. Conferência (gate, provas) usa a MESMA banda da coleta, e coleta tem
 prioridade — por isso `GATE_PAGINADOS_EM_VOO`=2 e por isso a prova manual é
 serial. Se precisar rodar prova em massa, pare/reduza a frota antes.
 
+### `rq:workers` vazio NÃO é fila sem worker — prove pela sonda (28/08/2026)
+
+Medido em 28/08 às 00:11 UTC, e quase virou incidente declarado:
+
+```
+Worker.all()                     22            <- parece uma frota morta
+rq:workers:default          =     0
+rq:workers:djen_ingestion   =     0
+rq:workers:djen_backfill    =     0
+chaves rq:worker:* vivas    =   256   (heartbeat 65-479 s, 143 busy / 81 idle)
+```
+
+Os 256 hashes de worker estão **vivos e batendo heartbeat**; o que está furado é
+o SET `rq:workers` (e os `rq:workers:<fila>`), que 234 deles não populam. Ler o
+SET e concluir "a fila não tem worker" é a mesma família do id-casca: o registro
+mente, o trabalho anda.
+
+**A medição que decide, em 5 segundos** — enfileire uma sonda em cada fila e veja
+quem consome:
+
+```python
+import django_rq, time
+jobs = {f: django_rq.get_queue(f).enqueue('time.time', job_id=f'sonda-{f}',
+                                          job_timeout=60, result_ttl=600)
+        for f in ['default','djen_ingestion','djen_backfill','djen_audit',
+                  'manual','classificacao','es_index']}
+time.sleep(5)
+for f, j in jobs.items():
+    j.refresh(); print(f, j.get_status())
+```
+
+Resultado naquele dia: **as 7 filas em `finished` em 5,0 s**. Frota saudável.
+Só depois disso é que se pode falar em "fila sem worker".
+
+### Uma coleta por (tribunal, dia) — como medir a duplicação
+
+O sintoma não aparece em contagem de publicação (o dia fecha íntegro): aparece
+em **páginas lidas contra a API do CNJ**. A régua:
+
+```sql
+WITH x AS (
+  SELECT tribunal_id, janela_inicio,
+         sum(paginas_lidas) pgs_tot,
+         max(paginas_lidas) FILTER (WHERE status='success') pgs_ok
+    FROM tribunals_ingestionrun
+   WHERE fonte='djen' AND janela_inicio = janela_fim
+     AND janela_inicio >= current_date - 2
+   GROUP BY 1,2)
+SELECT janela_inicio, sum(pgs_tot) AS lidas,
+       sum(coalesce(pgs_ok, pgs_tot)) AS necessarias,
+       round(sum(pgs_tot)::numeric / sum(coalesce(pgs_ok, pgs_tot)), 1) AS fator
+  FROM x GROUP BY 1 ORDER BY 1;
+```
+
+`fator` perto de 1,0 é o esperado. Em 27/08/2026 estava em **2,7×** na frota e
+**28×** no TJSP (12 runs concorrentes do mesmo dia). Causa e conserto em
+[`INGESTION.md`](INGESTION.md#um-dia-uma-coleta--a-duplicação-medida-em-27082026).
+
+Para achar o culpado por tribunal:
+
+```sql
+SELECT tribunal_id, janela_inicio, count(*) runs, sum(paginas_lidas) pgs
+  FROM tribunals_ingestionrun
+ WHERE fonte='djen' AND janela_inicio = janela_fim
+   AND janela_inicio >= current_date - 2
+ GROUP BY 1,2 HAVING count(*) > 2 ORDER BY 4 DESC;
+```
+
+### Comparar volume de um dia: mesmo DIA DA SEMANA, mesmo tribunal
+
+Comparar o dia com os vizinhos imediatos produz alarme falso em série. Medido
+em 28/08/2026: uma régua "mediana dos 6 dias úteis vizinhos" acusou **19
+tribunal-dia** com déficit de 276.580 publicações. A conferência contra a fonte
+(`count_window`, 1 requisição por dia) devolveu **gap 0 em 11 deles** — o
+volume tinha caído de verdade **na fonte**.
+
+O motivo é sazonalidade semanal, e ela é brutal. TJPR, publicações por dia:
+
+```
+seg ~12k · ter ~6k · qua ~90k · qui ~87k · sex ~44k a 237k
+```
+
+Uma terça do TJPR comparada com a mediana dos vizinhos aparece como "7,8% do
+esperado". Ela é 100% do esperado **para uma terça**.
+
+O mesmo vale no agregado nacional — e foi o que desmontou a suspeita sobre o
+dia 25/08 (1.180.554, "faltando 200-350 mil" contra segunda e quarta):
+
+```
+Ter: 28/07=1.085.665 | 04/08=1.044.207 | 11/08=680.334 | 18/08=1.099.308 | 25/08=1.180.554
+```
+
+**25/08 é a MAIOR terça de cinco semanas.** Terça é o dia mais fraco da semana
+no Brasil inteiro. Quem comparou terça com segunda viu um buraco que não existe.
+
+⚠️ Sobra dessa medição, ainda **não investigado**: `11/08 = 680.334`, ~410 mil
+abaixo da mediana das terças. Esse é candidato real a buraco.
+
+⚠️ E `failed` **concorrente** com um `success` não é dia furado: em TRT15
+2026-08-25 o `failed` era um zumbi do watchdog que começou ANTES do `success` e
+terminou depois. Três runs independentes fecharam no mesmo número (26.459). O
+critério certo é "failed sem success posterior **nem concomitante**".
+
 ### A fila conta ids, não trabalho — faxina de casca
 
 Sintoma: um tribunal não anda, a fila mostra jobs dele e o `FailedJobRegistry`

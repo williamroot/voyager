@@ -89,6 +89,48 @@ fairness: quem enchia a fila primeiro monopolizava a FIFO e os demais viam
   dedupe natural de re-enfileiramento entre ticks. O fan-out do daily continua
   com id aleatório + `at_front` (não conta no cap por tribunal).
 
+### Um dia, uma coleta — a duplicação medida em 27/08/2026
+
+`_dia_coberto` só enxerga dia que **já fechou**. Enquanto o dia está sendo
+coletado, ele não protege nada — e havia dois caminhos enfileirando o mesmo dia
+sem se enxergarem:
+
+* o fan-out do `run_daily_ingestion` usa **job_id aleatório** de propósito (pra
+  não contar no cap por tribunal), então o RQ não deduplica;
+* `tick_backfill_retroativo`, a cada 10 min, conferia só a **lista** da fila —
+  e job já entregue a um worker sai da lista. É a mesma lição de "fila não é
+  backlog" que custou 77% de duplicação no enriquecimento, agora na
+  `djen_backfill`.
+
+E um terceiro: o tique enfileirava com `job_timeout=3600`, contra um dia de
+TJSP que leva **136 min** (run 237367, 27/08). O work-horse morria por
+`JobTimeoutException` no meio da coleta TODA vez, e o dia voltava 10 min depois.
+
+**O que estava medido em produção** (janela = dia de disponibilização):
+
+| janela | páginas lidas | necessárias | fator | runs do pior caso |
+|---|---:|---:|---:|---|
+| 2026-08-26 | 10.402 | ~4.670 | **2,2×** | TJSP 8 runs / 7.754 pg |
+| 2026-08-27 | 14.760 | ~5.506 | **2,7×** | TJSP **12 runs / 7.437 pg** (264 bastam ⇒ 28×) |
+
+O TJSP de 27/08 fechou **íntegro** — 262.341 publicações, batendo com a fonte.
+Não se perdeu acervo: gastou-se a banda contra a API do CNJ que o
+circuit-breaker existe pra proteger. E é a banda estourada que **abre o
+circuito** e adia os dias dos *outros* tribunais (`réplicas × páginas ≤ 64`).
+
+**O conserto (28/08/2026), em três partes:**
+
+1. **Trava por (tribunal, dia)** em `backfill_dia`: `cache.add` (`SET NX EX`),
+   TTL `DJEN_COLETA_LOCK_TTL_S`=4 h (1,8× o pior dia medido), solta no
+   `finally`. Segunda entrada devolve `{'skip': 'ja_em_coleta'}` **com WARNING
+   nomeando o dia** — não é corte mudo. **Fail-open**: Redis fora ⇒ coleta
+   segue (perder a trava custa duplicação; perder o dia custa acervo).
+2. **O tique soma o `StartedJobRegistry`** ao conjunto "já na fila".
+3. **`DJEN_BACKFILL_DIA_TIMEOUT_S`=86.400** no tique, igual ao fan-out do daily.
+
+Testes: `tests/test_backfill_dia_concorrencia.py` (6 casos — inclusive que a
+trava sai no circuito aberto, senão o dia adiado nunca voltaria).
+
 **Frontend correlato** (`base.html::buildIngestaoRateChart` + `queries.ingestion_rate_por_hora`):
 quando a MV está defasada, mostra o **último snapshot conhecido** (janela ancorada em
 `max(hora)`, não em `NOW`) com selo **"⚠ defasado há Xh"** — em vez de esconder o gráfico.
