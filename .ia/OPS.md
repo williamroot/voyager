@@ -1527,8 +1527,42 @@ ERROR quando a cegueira passa de 50%, WARNING abaixo disso. E o payload passou a
 ter `avaliaveis` e `nao_avaliados` ao lado de `total` — quem ler `velhos: 0` sem
 olhar a cobertura está lendo metade da frase.
 
-**Pendente:** descobrir por que 212 workers publicam heartbeat sem `birth`. Até
-lá, o alarme diz honestamente que enxerga 17%.
+### A CAUSA dos 212 sem `birth` — e é a mesma dos 44 no registro
+
+Diagnosticado em 28/08/2026 pela **assinatura dos campos** do hash. As duas
+populações não têm campos "faltando aqui e ali": elas têm conjuntos disjuntos.
+
+```
+COM birth (44) ... birth · hostname · ip_address · pid · python_version ·
+                   queues · version · state · last_heartbeat
+SEM birth (212) .. current_job · current_job_working_time · last_heartbeat ·
+                   state · successful_job_count · total_working_time
+```
+
+Os campos do primeiro grupo são os que o RQ grava **uma vez**, em
+`register_birth()`. Os do segundo são só os que o `heartbeat()` e a contabilidade
+de job escrevem. Ou seja: **a chave expirou e foi RECRIADA por um `hset`
+posterior** — nasce sem identidade e nunca mais a recupera.
+
+E é a mesma raiz dos 44: quando a chave expira, o RQ tira o worker do SET
+`rq:workers`, que é justamente o que o `Worker.all()` lê. **Um root cause, dois
+sintomas** — o registro incompleto e o `birth` ausente.
+
+Por que a chave expira: o `worker_ttl` do RQ é da ordem de 420 s (TTL observado:
+máximo de 480 s) e ele só é estendido para `job_timeout + 60` **se o
+`job_timeout` estiver certo**. O `djen_backfill` rodava com `job_timeout=3600`
+contra um dia de TJSP que leva **136 min = 8.160 s** — a chave morria no meio do
+próprio job. O `job_timeout` foi para **86.400** no conserto da duplicação
+(`a4b19de`), então a população sem `birth` deve encolher conforme os workers
+reciclam. **Predição a conferir:** o número tem que cair de 212.
+
+Correlação medida, coerente com a mecânica mas não exclusiva: dos 212 sem
+`birth`, **140 estão `busy`** e 139 têm `current_job`; dos 44 com `birth`, 27
+estão `idle`.
+
+**Não dá para reparar chave existente** — o `birth` foi perdido. Por isso o
+caminho certo é o que está feito: o alarme **declara a própria cobertura** em vez
+de fingir que avalia todo mundo, e a cura é impedir a expiração.
 
 ## 🔴 INCIDENTE: um lote sem teto travou três jobs por 12,7 h (27/08/2026)
 
