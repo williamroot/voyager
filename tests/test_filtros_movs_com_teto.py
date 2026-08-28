@@ -38,7 +38,7 @@ def test_a_consulta_das_facetas_tem_recorte_de_data():
 
 
 def test_janela_e_configuravel_e_curta_por_padrao():
-    assert queries.FILTROS_MOVIMENTACOES_JANELA_DIAS <= 90, (
+    assert queries.FILTROS_MOVIMENTACOES_JANELA_DIAS <= 14, (
         'janela longa devolve o custo que o recorte veio tirar'
     )
     assert queries.FILTROS_MOVIMENTACOES_JANELA_DIAS >= 7, (

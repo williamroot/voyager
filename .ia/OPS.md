@@ -533,9 +533,24 @@ O banco é I/O-bound (índice > RAM), e esse disco é o mesmo da coleta que traz
 1,4 M de publicações entre 03h e 06h UTC. O resultado da consulta são **20
 rótulos** de faceta — cujo ranking não muda entre 30 dias e 17 meses de acervo.
 
-Conserto: janela de 30 dias (`FILTROS_MOVS_JANELA_DIAS`) para o plano usar o
+Conserto: janela de 7 dias (`FILTROS_MOVS_JANELA_DIAS`) para o plano usar o
 índice `(tribunal_id, data_disponibilizacao)`, mais `SET LOCAL
 statement_timeout='180s'` **dentro de `transaction.atomic()`**.
+
+A janela foi **calibrada medindo**, não escolhida no olho — e a primeira
+tentativa (30 dias) ESTOUROU o teto novo, o que só ficou visível porque o teto
+passou a ser de verdade:
+
+| janela | tempo | rótulos |
+|---|---:|---|
+| 1 d | 8,9 s | idênticos |
+| 3 d | 22,6 s | idênticos |
+| **7 d** | **41,7 s a 59,2 s** | idênticos |
+| 14 d | 121,0 s a 129,3 s | idênticos |
+| 30 d | **estourou 180 s** | — |
+
+"Idênticos" é literal: mesmos 8 tipos, 3 meios e 6 classes, na mesma ordem, em
+todas as janelas que couberam.
 
 ⚠️ **O `SET LOCAL` em autocommit não vale nada** — e isso mordeu duas vezes no
 mesmo dia. Em autocommit cada `execute` é a sua PRÓPRIA transação: o `SET LOCAL`

@@ -971,8 +971,19 @@ def filtros_movimentacoes():
 #: publicações por dia entre 03h e 06h UTC.
 #:
 #: Com a janela, o plano passa a usar o índice (tribunal_id, data_disponibilizacao).
+#:
+#: **O valor foi CALIBRADO em produção, não chutado** (28/08/2026). Os rótulos
+#: são idênticos — mesmos valores, mesma ordem — em 1, 3, 7 e 14 dias; só o
+#: relógio muda:
+#:
+#:     1d ....  8,9s        7d ....  41,7s a 59,2s
+#:     3d .... 22,6s       14d .... 121,0s a 129,3s
+#:     30d ... ESTOUROU o teto de 180s
+#:
+#: 7 dias é o ponto com folga de 3x sobre o teto. Subir a janela devolve o
+#: custo que o recorte veio tirar, sem mudar UM rótulo.
 FILTROS_MOVIMENTACOES_JANELA_DIAS = int(
-    os.environ.get('FILTROS_MOVS_JANELA_DIAS', 30))
+    os.environ.get('FILTROS_MOVS_JANELA_DIAS', 7))
 
 
 def compute_filtros_movimentacoes():
