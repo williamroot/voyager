@@ -1464,6 +1464,43 @@ novo de carona — quem já está indexado precisa de reindex direcionado.
 `.ia/SEARCH_SCHEMA.md` §"Linha de base do índice de processos". **Apague esta
 seção quando o reindex tiver passado** — e não antes.
 
+## 🔴 O alarme de frota enxergava 17% da frota (28/08/2026)
+
+`Worker.all()` do RQ lê o SET `rq:workers`, que é um **registro**. Registro
+incompleto não levanta erro — só devolve menos. Medido em produção:
+
+```
+chaves `rq:worker:*` com heartbeat vivo ...... 256   (scan: 0,44 s)
+o que `Worker.all()` enxergava ...............  44
+CEGUEIRA .................................... 212 = 82,8%
+```
+
+O watchdog reportava `frota: {'total': 44, 'velhos': 22, 'atraso_horas': 42.7}`
+com 256 workers de pé. Denominador errado, percentual errado — e **run verde,
+log limpo, número redondo**.
+
+O agravante é o alvo do alarme: ele existe para pegar worker rodando **código
+velho**, que é o incidente de 21/08 (2 workers de 14/08 fizeram o watchdog NUNCA
+rodar, 3.007 dias parados). Com 17% de visão, ele veria o mesmo incidente em 1
+de cada 6 containers.
+
+**Conserto:** enumerar por `scan_iter('rq:worker:*')` (`_frota_viva` em
+`djen/jobs.py`). Custo medido: **0,44 s para 256 chaves**, contra orçamento de
+90 s do tique. O teto de 15 s existe para diagnóstico não derrubar o vigia, e
+quando estoura ele **avisa que a lista saiu incompleta** — teto mudo aqui seria
+recriar o próprio defeito.
+
+### ⚠️ A armadilha é pior que o defeito
+
+Ler `hget(chave, 'birth')` cru devolve **`None` em boa parte das chaves**
+(medido: 3 de 5 na amostra). Quem trocar a fonte de enumeração e ler o campo na
+mão vai concluir que **"nenhum worker é velho"** — que é exatamente o que o
+alarme diz quando está tudo bem. Use `Worker.find_by_key`, que desserializa do
+jeito do RQ; chave morta volta `None` e é descartada.
+
+Há teste que reprova quem voltar a ler o hash cru — e ele olha as **chamadas**
+via AST, não o texto, porque a docstring cita `hget` de propósito para avisar.
+
 ## 🔴 INCIDENTE: um lote sem teto travou três jobs por 12,7 h (27/08/2026)
 
 `backfill_sinal_precatorio --tribunais TJSP` com o default `--batch 20000`.

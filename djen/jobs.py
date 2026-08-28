@@ -467,6 +467,63 @@ def _epoca_utc(nascimento) -> float:
     return nascimento.timestamp()
 
 
+#: teto de tempo do scan da frota. Medido em 28/08/2026: 256 chaves em 0,44 s,
+#: contra um orçamento de 90 s do tique — folga de ~200×. O teto existe porque
+#: diagnóstico não pode derrubar o vigia (regra nº 7), não porque o scan seja caro.
+FROTA_SCAN_TETO_S = 15.0
+
+
+def _frota_viva(conexao) -> list:
+    """Todos os workers com heartbeat vivo — e NÃO só os do registro do RQ.
+
+    MEDIDO em 28/08/2026, em produção:
+
+        chaves `rq:worker:*` com heartbeat vivo ...... 256   (scan: 0,44 s)
+        o que `Worker.all()` enxergava ...............  44
+        CEGUEIRA .................................... 212 = 82,8%
+
+    `Worker.all()` lê o SET `rq:workers`, que é um REGISTRO — e registro
+    incompleto não levanta erro, só devolve menos. O alarme reportava
+    `frota: {'total': 44, 'velhos': 22}` com 256 workers de pé: denominador
+    errado, percentual errado, e **run verde, log limpo, número redondo** —
+    a assinatura que este projeto já pagou três vezes.
+
+    O agravante é o alvo do alarme: ele existe para pegar worker rodando código
+    velho (incidente de 21/08, 3.007 dias parados). Com 17% de visão, ele veria
+    o mesmo incidente em 1 de cada 6 containers.
+
+    ⚠️ ARMADILHA, e ela é pior que o defeito. Ler `hget(chave, 'birth')` cru
+    devolve **None em boa parte das chaves** (medido: 3 de 5 na amostra). Quem
+    trocar a fonte de enumeração e ler o campo na mão vai concluir que "nenhum
+    worker é velho" — o resultado mais perigoso possível, porque é o que o
+    alarme diz quando está tudo bem. Por isso aqui se usa `Worker.find_by_key`,
+    que desserializa do jeito do RQ; chave morta volta `None` e é descartada.
+    """
+    import time as _t
+
+    from rq import Worker
+    t0 = _t.monotonic()
+    fora, vistas = [], 0
+    for chave in conexao.scan_iter('rq:worker:*', count=1000):
+        vistas += 1
+        if _t.monotonic() - t0 > FROTA_SCAN_TETO_S:
+            logger.warning(
+                'watchdog: scan da frota estourou %.0fs em %d chaves — a lista '
+                'saiu INCOMPLETA e o denominador está subestimado.',
+                FROTA_SCAN_TETO_S, vistas)
+            break
+        nome = chave.decode() if isinstance(chave, bytes) else chave
+        if nome.endswith(':birth') or ':' in nome[len('rq:worker:'):]:
+            continue                     # chaves auxiliares, não são worker
+        try:
+            w = Worker.find_by_key(nome, connection=conexao)
+        except Exception:
+            continue                     # chave morta/corrompida: descarta
+        if w is not None:
+            fora.append(w)
+    return fora
+
+
 def _alerta_workers_velhos(mtime_mais_novo: float) -> dict:
     """O resto da FROTA também recarregou? Olha o `birth_date` de cada worker.
 
@@ -488,9 +545,8 @@ def _alerta_workers_velhos(mtime_mais_novo: float) -> dict:
     """
     try:
         import django_rq
-        from rq import Worker
         conexao = django_rq.get_connection('default')
-        frota = Worker.all(connection=conexao)
+        frota = _frota_viva(conexao)
     except Exception:  # a frota é diagnóstico, não pode derrubar o tique
         return {'checado': False}
     if not mtime_mais_novo:
