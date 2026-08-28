@@ -6,6 +6,7 @@ Convenções:
 
 Toda função relevante aceita ambos para que o dashboard possa aplicá-los uniformemente.
 """
+import os
 from datetime import date, timedelta
 from statistics import median
 
@@ -956,12 +957,30 @@ def filtros_movimentacoes():
     }
 
 
+#: Janela do cálculo das facetas de /movimentacoes/. NÃO é recorte de acervo:
+#: o resultado são 20 RÓTULOS (top 8 tipos, top 6 meios, top 6 classes) que a
+#: tela usa como opções de filtro, e o ranking deles não muda entre 30 dias e
+#: 17 meses. O que muda é o custo.
+#:
+#: O docstring antigo dizia "seq scan em ~30M rows". A tabela tem **1,96
+#: bilhão** — 65x aquilo. Medido em 28/08/2026: a consulta rodou **32,8 min**
+#: sem terminar, num warm agendado a cada **30 min**, com teto de 1 h. Teto que
+#: só serve pra cancelar depois de queimar uma hora de disco não protege nada:
+#: o banco é I/O-bound (índice > RAM, ver `.ia/OPS.md` "contenção busca×batch")
+#: e essa varredura disputa o mesmo disco da ingestão — que coleta 1,4 M de
+#: publicações por dia entre 03h e 06h UTC.
+#:
+#: Com a janela, o plano passa a usar o índice (tribunal_id, data_disponibilizacao).
+FILTROS_MOVIMENTACOES_JANELA_DIAS = int(
+    os.environ.get('FILTROS_MOVS_JANELA_DIAS', 30))
+
+
 def compute_filtros_movimentacoes():
     """Calcula e armazena no cache. Chamado APENAS pelo warm task.
 
-    1 query SQL com 3 GROUP BY paralelos (UNION ALL) — antes eram 3
-    seq scans em ~30M rows. Tribunal__ativo=True trocado por subquery
-    cacheada de `tribunal_id IN (...)` pra evitar JOIN.
+    1 query SQL com 3 GROUP BY paralelos (UNION ALL), sobre a janela recente
+    (`FILTROS_MOVIMENTACOES_JANELA_DIAS`) — ver a nota acima: são rótulos de
+    faceta, não contagem de acervo.
     """
     from django.core.cache import cache
     from django.db import connections
@@ -973,6 +992,8 @@ def compute_filtros_movimentacoes():
             SELECT tipo_comunicacao, meio_completo, nome_classe
             FROM tribunals_movimentacao
             WHERE tribunal_id IN (SELECT sigla FROM ativos)
+              AND data_disponibilizacao >= now() - interval '%(dias)s days'
+              AND data_disponibilizacao < now() + interval '1 day'
         ),
         tipos AS (
             SELECT 'tipos' AS k, tipo_comunicacao AS v, COUNT(*) AS n
@@ -992,12 +1013,19 @@ def compute_filtros_movimentacoes():
         SELECT k, v FROM tipos UNION ALL
         SELECT k, v FROM meios UNION ALL
         SELECT k, v FROM classes
-    """
+    """ % {'dias': FILTROS_MOVIMENTACOES_JANELA_DIAS}
+    from django.db import transaction
     result = {'tipos': [], 'meios': [], 'classes': []}
-    with connections['default'].cursor() as cur:
-        cur.execute(sql)
-        for k, v in cur.fetchall():
-            result[k].append(v)
+    # `SET LOCAL` só vale DENTRO de uma transação — e em autocommit cada
+    # `execute` é a sua própria transação, então o teto morreria antes da
+    # consulta que ele deveria limitar. O `atomic()` é o que o faz existir.
+    # (O pgbouncer em transaction-mode descarta `SET` solto de qualquer jeito.)
+    with transaction.atomic(using='default'):
+        with connections['default'].cursor() as cur:
+            cur.execute("SET LOCAL statement_timeout = '180s'")
+            cur.execute(sql)
+            for k, v in cur.fetchall():
+                result[k].append(v)
     cache.set(FILTROS_MOVIMENTACOES_CACHE_KEY, result, timeout=604800)
     return result
 

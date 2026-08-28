@@ -512,6 +512,47 @@ alvo. Conferência (gate, provas) usa a MESMA banda da coleta, e coleta tem
 prioridade — por isso `GATE_PAGINADOS_EM_VOO`=2 e por isso a prova manual é
 serial. Se precisar rodar prova em massa, pare/reduza a frota antes.
 
+### Teto que só cancela depois de queimar 1 h de disco não é teto (28/08/2026)
+
+Achado durante a vigília da ingestão, e é imposto de I/O sobre a coleta:
+
+```
+pid=587950  active  wait=IO  q=1.965s (32,8 min)  x=1.965s
+WITH ativos AS (...), movs AS (
+  SELECT tipo_comunicacao, meio_completo, nome_classe
+    FROM tribunals_movimentacao WHERE tribunal_id IN (...))  -- sem recorte de data
+```
+
+`dashboard.queries.compute_filtros_movimentacoes`, agendada **a cada 30 min**,
+varria a `tribunals_movimentacao` **inteira** — 1,96 bilhão de linhas. O
+docstring dizia "seq scan em ~30M rows": estava 65× desatualizado. O único teto
+era `_with_timeout(3600)`, isto é, licença para queimar uma hora de disco e
+cancelar sem entregar nada.
+
+O banco é I/O-bound (índice > RAM), e esse disco é o mesmo da coleta que traz
+1,4 M de publicações entre 03h e 06h UTC. O resultado da consulta são **20
+rótulos** de faceta — cujo ranking não muda entre 30 dias e 17 meses de acervo.
+
+Conserto: janela de 30 dias (`FILTROS_MOVS_JANELA_DIAS`) para o plano usar o
+índice `(tribunal_id, data_disponibilizacao)`, mais `SET LOCAL
+statement_timeout='180s'` **dentro de `transaction.atomic()`**.
+
+⚠️ **O `SET LOCAL` em autocommit não vale nada** — e isso mordeu duas vezes no
+mesmo dia. Em autocommit cada `execute` é a sua PRÓPRIA transação: o `SET LOCAL`
+morre no fim dele, antes da consulta que deveria limitar. Eu mesmo perdi 25 min
+de banco com uma consulta de diagnóstico "com teto de 400 s" que rodou sem teto
+nenhum, e tive que cancelá-la com `pg_cancel_backend`. A forma certa:
+
+```python
+with transaction.atomic():
+    with connection.cursor() as cur:
+        cur.execute("SET LOCAL statement_timeout = '180s'")
+        cur.execute(sql)
+```
+
+Como procurar outros: `pg_stat_activity` com `query_start` velho e
+`wait_event_type='IO'`, e confirmar que quem está lá tem teto DE VERDADE.
+
 ### `rq:workers` vazio NÃO é fila sem worker — prove pela sonda (28/08/2026)
 
 Medido em 28/08 às 00:11 UTC, e quase virou incidente declarado:
