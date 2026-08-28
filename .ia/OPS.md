@@ -585,6 +585,33 @@ o SET `rq:workers` (e os `rq:workers:<fila>`), que 234 deles não populam. Ler o
 SET e concluir "a fila não tem worker" é a mesma família do id-casca: o registro
 mente, o trabalho anda.
 
+🔴 **E a consequência é pior que um susto de plantão: o alarme de frota do
+watchdog está cego.** `_alerta_workers_velhos` (criado em 21/08 justamente
+"pra pegar os ~300 containers, não só o que roda o watchdog") usa
+`Worker.all()`, que lê esse SET. Medido em 28/08/2026:
+
+```
+workers com heartbeat VIVO (scan rq:worker:*) : 256   (o scan custa 0,65s)
+workers que Worker.all() enxerga              :  44
+CEGUEIRA                                      : 212 de 256 = 82,8%
+```
+
+E o watchdog reporta isso como um número limpo:
+`frota: {'checado': True, 'total': 44, 'velhos': 22, 'atraso_horas': 42.7}`.
+Um denominador de 44 onde a frota é 256 é a assinatura que este projeto já
+pagou três vezes: **run verde, log limpo, número redondo**. O incidente de
+21/08 (worker rodando código de 7 dias atrás) é exatamente o que esse alarme
+deveria pegar — e hoje ele olharia 17% da frota.
+
+**Conserto pendente** (não feito em 28/08 por disciplina de janela: é o
+componente que cura a ingestão e faltavam 38 min para a coleta diária):
+`_alerta_workers_velhos` deve enumerar `rq:worker:*` por `scan_iter` em vez de
+`Worker.all()`. O scan foi medido em **0,65s**, contra um orçamento de 90s —
+cabe com folga de 138x. Só cuidado ao ler o `birth`: o campo cru do hash não
+sai por `hget(k, 'birth')` (256 de 256 vieram vazios na medição); use o objeto
+`Worker` do RQ para desserializar, ou confira o nome real do campo antes de
+concluir que "nenhum worker é velho".
+
 **A medição que decide, em 5 segundos** — enfileire uma sonda em cada fila e veja
 quem consome:
 
