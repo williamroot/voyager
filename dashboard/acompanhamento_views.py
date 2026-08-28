@@ -16,7 +16,7 @@ from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
-from . import cobertura_nacional
+from . import cobertura_nacional, marcos_semana
 from .models import NotaAcompanhamento
 
 #: janelas prontas. "tudo" existe porque o acervo desta tela é pequeno e o
@@ -105,6 +105,8 @@ def acompanhamento(request):
         # requisição — foi uma medição de rodapé sem teto que derrubou o site
         # em julho (regra nº 7). Sem cache, o card diz que não mediu.
         'cobertura': cobertura_nacional.ler(),
+        # idem: só cache. O portão sozinho custa segundos.
+        'marcos': marcos_semana.ler(),
     })
 
 

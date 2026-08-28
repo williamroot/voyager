@@ -356,6 +356,20 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # Marcos da semana (card do Acompanhamento) — a cada 3 h.
+    # Não é inline: o próprio portão, que é um dos marcos, custa segundos, e a
+    # contagem de `grau` varre 103 M linhas. Regra nº 7.
+    from dashboard.marcos_semana import aquecer as warm_marcos
+    scheduler.add_job(
+        warm_marcos,
+        'interval',
+        hours=3,
+        id='warm_marcos_semana',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # O PORTÃO da ingestão — de hora em hora, sobre D-1 e D-2.
     # Um comando que ninguém executa é o mesmo silêncio verde que ele existe
     # para matar: em 25/08/2026 a ingestão do dia inteiro morreu e ficou 21 h

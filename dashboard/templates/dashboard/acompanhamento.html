@@ -357,6 +357,90 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
   </section>
   {% endif %}
 
+  {% comment %}
+  ═══ AVANÇOS DA SEMANA ════════════════════════════════════════════════════
+  O relato fica na timeline abaixo; aqui fica a RÉGUA. A diferença importa: um
+  relato diz "consertamos a duplicação", a régua diz 2,70 → 1,02 — e é a régua
+  que permite alguém conferir daqui a um mês se regrediu.
+
+  O "agora" é MEDIDO a cada aquecimento, nunca digitado. O "antes" é constante
+  COM DATA, porque não existe máquina do tempo: a duplicação de 2,70× de 27/08
+  não se recalcula hoje. Fingir que dá seria pior que assumir.
+  {% endcomment %}
+  {% if marcos %}
+  <section class="card-tight relative overflow-hidden">
+    <div aria-hidden="true"
+         class="pointer-events-none absolute -top-20 -left-16 w-64 h-64 rounded-full
+                bg-accent/10 blur-3xl"></div>
+
+    <div class="relative flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+          {% voy_icon "trending-up" "w-5 h-5 text-accent" %}
+          Avanços da semana
+        </h2>
+        <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+          O <b>antes</b> e o <b>agora</b> de cada régua. O agora é medido a cada
+          3 horas; o antes é a medição do dia em que o defeito foi encontrado —
+          está datado porque não dá para recalcular o passado.
+        </p>
+      </div>
+      <div class="text-right shrink-0">
+        <div class="text-2xl font-mono text-accent tabular-nums">{{ marcos.marcos|length }}</div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">réguas medidas</div>
+      </div>
+    </div>
+
+    <div class="relative mt-4 grid gap-2.5 lg:grid-cols-2">
+      {% for m in marcos.marcos %}
+      <div class="rounded-lg border border-border bg-surface px-3.5 py-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-[0.82rem] text-fg-soft font-medium leading-snug">{{ m.rotulo }}</div>
+            <div class="text-[0.7rem] text-fg-subtle mt-0.5 leading-relaxed">{{ m.nota }}</div>
+          </div>
+          {% if m.sobe %}
+            {% voy_icon "trending-up" "w-4 h-4 text-success-fg shrink-0 mt-0.5" %}
+          {% else %}
+            {% voy_icon "trending-up" "w-4 h-4 text-success-fg shrink-0 mt-0.5 rotate-180" %}
+          {% endif %}
+        </div>
+        <div class="mt-2.5 flex items-baseline gap-2 flex-wrap">
+          <span class="text-sm font-mono text-fg-subtle line-through decoration-fg-subtle/50">
+            {{ m.antes }}{{ m.sufixo }}
+          </span>
+          <span class="text-fg-subtle text-xs">→</span>
+          <span class="text-xl font-mono font-semibold text-mission tabular-nums">
+            {{ m.agora }}{{ m.sufixo }}
+          </span>
+          {% if m.medido_em != "—" %}
+          <span class="text-[0.65rem] font-mono text-fg-subtle ml-auto">
+            antes medido em {{ m.medido_em }}
+          </span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if marcos.nao_medidos %}
+    {% comment %}
+      Meia régua é pior que régua nenhuma. Marco que não deu para medir SAI da
+      lista e aparece aqui pelo nome — some da tela seria silêncio verde.
+    {% endcomment %}
+    <p class="relative mt-3 text-[0.7rem] text-danger leading-relaxed">
+      <b>Sem medição nesta passagem:</b> {{ marcos.nao_medidos|join:" · " }}.
+      Ficaram de fora em vez de aparecer com número velho.
+    </p>
+    {% endif %}
+
+    <p class="relative mt-3 text-[0.7rem] text-fg-subtle">
+      medido em {{ marcos.em|slice:":16" }} · atualiza de 3 em 3 horas ·
+      o <b>agora</b> nunca é digitado, é consultado no banco e no índice
+    </p>
+  </section>
+  {% endif %}
+
   {% if not notas %}
     <div class="card-tight text-center py-12">
       {% voy_icon "search" "w-6 h-6 text-fg-muted mx-auto" %}

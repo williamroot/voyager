@@ -798,3 +798,32 @@ crescimento orgânico) e barras por tribunal ordenadas por **tamanho do
 tribunal**, não por cobertura: o que importa é onde está o buraco absoluto, e o
 TJSP sozinho é 20% do país.
 
+## Card "Avanços da semana" (`/dashboard/acompanhamento/`, 28/08/2026)
+
+`dashboard/marcos_semana.py` — aquece de 3 em 3 h (`warm_marcos_semana`), a view
+só **lê o cache**.
+
+A timeline do Acompanhamento guarda o RELATO; este card guarda a **RÉGUA**. Um
+relato diz "consertamos a duplicação"; a régua diz **2,70 → 1,02**, e é ela que
+permite conferir daqui a um mês se regrediu.
+
+**Os dois lados vêm de lugares diferentes, e isso é deliberado:**
+
+| | origem |
+|---|---|
+| **agora** | MEDIDO a cada aquecimento — banco, índice, Redis. Nunca digitado |
+| **antes** | constante **com a data** da medição original |
+
+Não existe máquina do tempo: a duplicação de 2,70× medida em 27/08 não se
+recalcula hoje, o dia já passou. Por isso cada marco carrega `medido_em` e a tela
+mostra "antes medido em 27/08". Fingir que o passado é recalculável seria pior
+que assumir.
+
+**Marco que não deu para medir SAI da lista** e aparece pelo nome em vermelho.
+Sumir da tela seria silêncio verde — o card pareceria completo com uma régua a
+menos. Há teste para isso, e outro que varre `MARCOS` reprovando qualquer valor
+de "agora" fixo no código (isso seria propaganda, não medição).
+
+As oito réguas atuais: cobertura nacional · partes tiradas do texto · processos
+com grau · atraso da busca · duplicação da coleta · páginas pedidas ao CNJ ·
+workers que o alarme enxerga · tribunais fechados no portão.
