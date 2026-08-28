@@ -636,6 +636,53 @@ SELECT tribunal_id, janela_inicio, count(*) runs, sum(paginas_lidas) pgs
  GROUP BY 1,2 HAVING count(*) > 2 ORDER BY 4 DESC;
 ```
 
+### Trava de coleta órfã — o dia que diz `ja_em_coleta` e não anda
+
+Desde 28/08/2026 `backfill_dia` toma uma trava por (tribunal, dia)
+(`djen:coletando:<SIGLA>:<dia>`, TTL `DJEN_COLETA_LOCK_TTL_S`=4 h) e a solta no
+`finally`. **O `finally` não roda quando o work-horse morre por SIGKILL** (OOM,
+`docker restart` no meio) — nesse caso a trava fica de pé até o TTL, e por até
+4 h aquele dia responde `{'skip': 'ja_em_coleta'}` sem coletar nada.
+
+Não é perda de acervo (o dia volta quando a trava vence, e o watchdog
+re-enfileira), mas são até 4 h de atraso num dia. **Sintoma:** o mesmo
+(tribunal, dia) aparecendo em WARNING `já há coleta EM VOO deste dia` de tique
+em tique, **sem nenhum `IngestionRun` `running`** correspondente.
+
+Diagnóstico — trava de pé × run de verdade em curso:
+
+```python
+import django_rq
+from tribunals.models import IngestionRun
+conn = django_rq.get_connection('default')
+travas = {k.decode(): conn.ttl(k) for k in conn.scan_iter(match='*djen:coletando:*', count=2000)}
+rodando = {(t, str(d)) for t, d in IngestionRun.objects
+           .filter(fonte='djen', status='running')
+           .values_list('tribunal_id', 'janela_inicio')}
+for k, ttl in travas.items():
+    sigla, dia = k.split('djen:coletando:')[-1].split(':')[:2]
+    print(k, 'ttl=%s' % ttl, 'ORFA' if (sigla, dia) not in rodando else 'ok (run em curso)')
+```
+
+⚠️ **Meça DUAS vezes com alguns minutos de intervalo antes de concluir.** Existe
+uma janela legítima de segundos entre tomar a trava e criar o `IngestionRun`:
+uma trava recém-nascida sem run ainda não é órfã.
+
+Cura (efeito imediato, sem deploy) — apague só a chave do dia travado:
+
+```python
+from django.core.cache import cache
+cache.delete('djen:coletando:TJDFT:2026-08-28')   # NUNCA cache.clear()
+```
+
+Depois reenfileire o dia (`bfd:<SIGLA>:<dia>` ou `f2:<SIGLA>:<dia>`), ou espere
+o tique — ele volta sozinho em até 10 min.
+
+Se isso acontecer com frequência, o conserto durável **não é** encurtar o TTL
+até caber (o pior dia medido é o TJSP com 136 min): é a trava passar a guardar
+o instante em que nasceu e o caminho de miss verificar se existe run `running`,
+com um período de carência para não roubar a trava de quem acabou de pegá-la.
+
 ### Comparar volume de um dia: mesmo DIA DA SEMANA, mesmo tribunal
 
 Comparar o dia com os vizinhos imediatos produz alarme falso em série. Medido
