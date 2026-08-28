@@ -95,6 +95,10 @@ class Command(BaseCommand):
         self.stdout.write(
             f"{r['dia']}  ·  {r['fechados']}/{r['tribunais']} tribunais fechados"
             f"  ·  {r['total_dia']:,} publicações")
+        if r.get('sem_amostra'):
+            self.stdout.write(
+                f"   ABSTENÇÃO: {len(r['sem_amostra'])} sem amostra do mesmo dia da "
+                f"semana ({', '.join(r['sem_amostra'][:10])}) — não avaliados por volume.")
         if not r['problemas']:
             self.stdout.write(self.style.SUCCESS('   PORTÃO FECHADO — nenhum tribunal fora.'))
             return

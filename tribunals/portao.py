@@ -15,8 +15,27 @@ from django.db import connection, transaction
 
 logger = logging.getLogger('voyager.tribunals.portao')
 
-#: dias úteis vizinhos usados na mediana (antes e depois do dia conferido).
-VIZINHOS = 5
+#: SEMANAS vizinhas usadas na mediana — mesma quinta contra quinta, mesma terça
+#: contra terça. **Não** dias úteis vizinhos: essa era a régua anterior e ela
+#: produzia falso positivo por construção.
+#:
+#: MEDIDO em 28/08/2026, 3 semanas, publicações por dia da semana:
+#:
+#:   TJPR   Ter   6.419 ·  6.203 ·  6.875
+#:          Qua  23.727 · 87.789 · 93.435
+#:          Sex  44.803 · 43.151 · 237.901     ← variação de 38× na mesma semana
+#:   TJSP   variação 2×      TJMG   variação 1×
+#:
+#: A régua antiga acusou o TJPR de 25/08 (terça) com "6.875 contra mediana
+#: 50.066, 14% do normal" — e 6.875 é a MAIOR das três terças dele. A mediana
+#: misturava terça com sexta. Conferido contra a fonte: a coleta estava íntegra,
+#: gap 0. **Portão com falso positivo é portão que ninguém lê** — e aí ele não
+#: protege nada no dia em que o buraco é real.
+SEMANAS = 5
+
+#: abaixo de tantas amostras do mesmo dia da semana, ABSTÉM em vez de acusar.
+#: Mediana de duas terças não é mediana, é palpite com cara de estatística.
+AMOSTRA_MINIMA = 3
 
 #: abaixo disso a mediana do tribunal é ruído — não dá para acusar de incompleto
 #: quem normalmente traz pouco.
@@ -84,21 +103,27 @@ def conferir(dia, fracao=FRACAO_MINIMA, piso=PISO_MEDIANA, leitores=None) -> dic
     de ORM — um teste que precisa de banco para provar aritmética envelhece mal.
     """
     ler_cont, ler_runs, ler_tribs = leitores or (_contagens, _runs, _tribunais)
-    cont = ler_cont(dia - datetime.timedelta(days=VIZINHOS + 2),
-                    dia + datetime.timedelta(days=VIZINHOS + 3))
+    # janela em SEMANAS, para haver amostra do mesmo dia da semana dos dois lados
+    cont = ler_cont(dia - datetime.timedelta(weeks=SEMANAS),
+                    dia + datetime.timedelta(weeks=SEMANAS, days=1))
     runs = ler_runs(dia)
     tribunais = ler_tribs(dia)
 
     fechados, problemas = [], []
     for t in tribunais:
         n = cont.get((t, dia), 0)
+        # MESMO dia da semana, mesmo tribunal. O dia em si fica fora.
         vizinhos = []
-        for k in range(-(VIZINHOS + 2), VIZINHOS + 3):
-            d = dia + datetime.timedelta(days=k)
-            if d == dia or d.weekday() >= 5:      # o dia em si e o fim de semana fora
+        for k in range(-SEMANAS, SEMANAS + 1):
+            d = dia + datetime.timedelta(weeks=k)
+            if d == dia:
                 continue
             vizinhos.append(cont.get((t, d), 0))
-        med = mediana(vizinhos)
+        # dias em que o tribunal não publicou NADA saem da amostra: eles são
+        # feriado/recesso, não "o normal dele é zero", e puxariam a mediana para
+        # baixo escondendo buraco de verdade.
+        amostra = [v for v in vizinhos if v > 0]
+        med = mediana(amostra)
 
         st = runs.get(t, {})
         tem_ok = 'success' in st
@@ -114,17 +139,26 @@ def conferir(dia, fracao=FRACAO_MINIMA, piso=PISO_MEDIANA, leitores=None) -> dic
             motivos.append('sem run success')
         if falhou_por_ultimo:
             motivos.append('failed sem success posterior')
-        if med >= piso and n < med * fracao:
+        # Sem amostra suficiente do mesmo dia da semana, o critério de VOLUME
+        # não se aplica — abster > chutar. Os outros dois critérios continuam.
+        if len(amostra) >= AMOSTRA_MINIMA and med >= piso and n < med * fracao:
             motivos.append(f'{n:,} contra mediana {med:,.0f} '
                            f'({100.0 * n / med:.0f}% do normal)')
         if motivos:
-            problemas.append({'t': t, 'n': n, 'med': med,
+            problemas.append({'t': t, 'n': n, 'med': med, 'amostra': len(amostra),
                               'falta': max(int(med) - n, 0), 'motivos': motivos})
         else:
-            fechados.append({'t': t, 'n': n, 'med': med, 'nota': 'ok'})
+            fechados.append({'t': t, 'n': n, 'med': med, 'amostra': len(amostra),
+                             'nota': 'ok' if len(amostra) >= AMOSTRA_MINIMA
+                                     else 'sem_amostra'})
 
+    # Abstenção VISÍVEL: tribunal sem amostra suficiente do mesmo dia da semana
+    # não foi avaliado por volume, e o portão precisa DIZER isso. Um "fechado"
+    # que na verdade é "não consegui olhar" é o silêncio verde de novo.
+    sem_amostra = [f['t'] for f in fechados if f.get('nota') == 'sem_amostra']
     return {'dia': dia.isoformat(), 'tribunais': len(tribunais),
             'fechados': len(fechados), 'problemas': problemas,
+            'sem_amostra': sem_amostra,
             'total_dia': sum(v for (t, d), v in cont.items() if d == dia),
             'falta_estimado': sum(p['falta'] for p in problemas)}
 

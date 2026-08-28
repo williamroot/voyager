@@ -50,19 +50,24 @@ DIA = datetime.date(2026, 8, 25)          # uma terça-feira
 OPC = {'piso': CD.PISO_MEDIANA, 'fracao': CD.FRACAO_MINIMA}
 
 
-def _uteis_ao_redor(t, valor, dia=DIA):
-    """Contagens `valor` nos dias úteis vizinhos de `dia`, para o tribunal `t`."""
+def _mesmas_semanas(t, valor, dia=DIA):
+    """Contagens `valor` no MESMO dia da semana, nas semanas vizinhas.
+
+    É assim que a mediana tem que ser montada: terça contra terça. Comparar com
+    dias úteis vizinhos misturava terça com sexta e, no TJPR, isso é 38× de
+    diferença (medido em 28/08/2026).
+    """
     fora = {}
-    for k in range(-(CD.VIZINHOS + 2), CD.VIZINHOS + 3):
-        d = dia + datetime.timedelta(days=k)
-        if d.weekday() < 5 and d != dia:
+    for k in range(-CD.SEMANAS, CD.SEMANAS + 1):
+        d = dia + datetime.timedelta(weeks=k)
+        if d != dia:
             fora[(t, d)] = valor
     return fora
 
 
 def test_dia_com_um_terco_do_volume_e_PROBLEMA():
     """O caso real: TJSP com 1,18 M onde a mediana dele é 1,53 M."""
-    cont = _uteis_ao_redor('TJSP', 1_529_530)
+    cont = _mesmas_semanas('TJSP', 1_529_530)
     cont[('TJSP', DIA)] = 500_000            # 32,7% do normal
     r = _Cmd(cont, {'TJSP': {'success': 1}}, ['TJSP'])._conferir(DIA, OPC)
     assert len(r['problemas']) == 1
@@ -73,7 +78,7 @@ def test_dia_com_um_terco_do_volume_e_PROBLEMA():
 
 
 def test_dia_completo_com_success_FECHA():
-    cont = _uteis_ao_redor('TJSP', 1_500_000)
+    cont = _mesmas_semanas('TJSP', 1_500_000)
     cont[('TJSP', DIA)] = 1_480_000          # variação normal
     r = _Cmd(cont, {'TJSP': {'success': 1}}, ['TJSP'])._conferir(DIA, OPC)
     assert r['problemas'] == []
@@ -82,7 +87,7 @@ def test_dia_completo_com_success_FECHA():
 
 def test_sem_run_success_e_PROBLEMA_mesmo_com_publicacao():
     """Publicação no banco sem run de sucesso = alguém escreveu por fora."""
-    cont = _uteis_ao_redor('TJRS', 60_000)
+    cont = _mesmas_semanas('TJRS', 60_000)
     cont[('TJRS', DIA)] = 60_000
     r = _Cmd(cont, {}, ['TJRS'])._conferir(DIA, OPC)
     assert 'sem run success' in ' '.join(r['problemas'][0]['motivos'])
@@ -90,14 +95,14 @@ def test_sem_run_success_e_PROBLEMA_mesmo_com_publicacao():
 
 def test_failed_com_success_POSTERIOR_nao_e_problema():
     """Quebrou e o watchdog refez: isso é o sistema funcionando."""
-    cont = _uteis_ao_redor('TJPR', 40_000)
+    cont = _mesmas_semanas('TJPR', 40_000)
     cont[('TJPR', DIA)] = 39_000
     r = _Cmd(cont, {'TJPR': {'failed': 1, 'success': 2}}, ['TJPR'])._conferir(DIA, OPC)
     assert r['problemas'] == []
 
 
 def test_failed_SEM_success_posterior_e_problema():
-    cont = _uteis_ao_redor('TJPR', 40_000)
+    cont = _mesmas_semanas('TJPR', 40_000)
     cont[('TJPR', DIA)] = 39_000
     r = _Cmd(cont, {'TJPR': {'success': 1, 'failed': 5}}, ['TJPR'])._conferir(DIA, OPC)
     assert 'failed sem success posterior' in ' '.join(r['problemas'][0]['motivos'])
@@ -105,32 +110,68 @@ def test_failed_SEM_success_posterior_e_problema():
 
 def test_tribunal_de_baixo_volume_NAO_vira_alarme_falso():
     """Portão que grita sempre é portão que ninguém lê."""
-    cont = _uteis_ao_redor('TJRR', 12)
+    cont = _mesmas_semanas('TJRR', 12)
     cont[('TJRR', DIA)] = 3
     r = _Cmd(cont, {}, ['TJRR'])._conferir(DIA, OPC)
     assert r['problemas'] == []
     assert r['fechados'] == 1
 
 
-def test_a_mediana_ignora_fim_de_semana():
-    """Sábado com 0 não pode puxar a mediana para baixo e esconder buraco."""
-    cont = _uteis_ao_redor('TJSP', 1_000_000)
-    for k in range(-9, 10):                       # zera todos os fins de semana
-        d = DIA + datetime.timedelta(days=k)
-        if d.weekday() >= 5:
-            cont[('TJSP', d)] = 0
+def test_dia_zerado_na_amostra_nao_derruba_a_mediana():
+    """Feriado (0 publicações) sai da amostra em vez de virar "o normal é zero".
+
+    Se um 0 entrasse na mediana, ela desabaria e um buraco REAL passaria batido.
+    """
+    cont = _mesmas_semanas('TJSP', 1_000_000)
+    # duas das semanas vizinhas foram feriado
+    cont[('TJSP', DIA - datetime.timedelta(weeks=1))] = 0
+    cont[('TJSP', DIA - datetime.timedelta(weeks=2))] = 0
     cont[('TJSP', DIA)] = 100_000                 # 10% do normal
     r = _Cmd(cont, {'TJSP': {'success': 1}}, ['TJSP'])._conferir(DIA, OPC)
-    assert r['problemas'], 'o fim de semana derrubou a mediana e escondeu o buraco'
+    assert r['problemas'], 'o feriado derrubou a mediana e escondeu o buraco'
+
+
+def test_TJPR_na_terca_NAO_e_acusado_o_falso_positivo_que_eu_criei():
+    """O caso real que provou a régua antiga errada (medido em 28/08/2026).
+
+    O TJPR publica ~6,4 mil na terça e até 237 mil na sexta — 38× dentro da
+    MESMA semana. A régua anterior usava "dias úteis vizinhos" e acusou a terça
+    25/08 de estar com "14% do normal", quando 6.875 era a MAIOR das três
+    terças medidas. Conferido contra a fonte: coleta íntegra, gap 0.
+
+    Portão com falso positivo é portão que ninguém lê — e aí não protege nada no
+    dia em que o buraco é real.
+    """
+    cont = {}
+    for k in range(-CD.SEMANAS, CD.SEMANAS + 1):
+        d = DIA + datetime.timedelta(weeks=k)     # terças
+        cont[('TJPR', d)] = 6_400
+        # e as sextas da mesma semana, com o volume alto que enganava a régua
+        cont[('TJPR', d + datetime.timedelta(days=3))] = 90_000
+    cont[('TJPR', DIA)] = 6_875
+    r = _Cmd(cont, {'TJPR': {'success': 1}}, ['TJPR'])._conferir(DIA, OPC)
+    assert r['problemas'] == [], (
+        'acusou terça comparando com sexta — o falso positivo voltou')
+
+
+def test_sem_amostra_do_mesmo_dia_da_semana_ABSTEM_do_criterio_de_volume():
+    """Mediana de duas terças não é mediana, é palpite com cara de estatística."""
+    cont = {('TJSP', DIA - datetime.timedelta(weeks=1)): 1_000_000,
+            ('TJSP', DIA): 10}
+    r = _Cmd(cont, {'TJSP': {'success': 1}}, ['TJSP'])._conferir(DIA, OPC)
+    assert r['problemas'] == [], 'acusou com uma amostra só'
+    assert r['sem_amostra'] == ['TJSP'], (
+        'a abstenção ficou invisível — "fechado" que é "não consegui olhar" '
+        'é o silêncio verde de novo')
 
 
 def test_a_comparacao_e_POR_TRIBUNAL_e_nao_no_agregado():
     """Um TJSP inteiro sumido não pode se dissolver nos outros 58."""
     cont = {}
     for t in ('TJMG', 'TJRJ', 'TJRS', 'TJPR', 'TJSC'):
-        cont.update(_uteis_ao_redor(t, 300_000))
+        cont.update(_mesmas_semanas(t, 300_000))
         cont[(t, DIA)] = 300_000
-    cont.update(_uteis_ao_redor('TJSP', 1_500_000))
+    cont.update(_mesmas_semanas('TJSP', 1_500_000))
     cont[('TJSP', DIA)] = 0                       # sumiu inteiro
     tribs = ['TJMG', 'TJPR', 'TJRJ', 'TJRS', 'TJSC', 'TJSP']
     runs = {t: {'success': 1} for t in tribs}
@@ -142,7 +183,7 @@ def test_a_comparacao_e_POR_TRIBUNAL_e_nao_no_agregado():
 @pytest.mark.django_db
 def test_o_comando_SAI_COM_ERRO_quando_ha_buraco(monkeypatch):
     """Cron e CI não podem depender de alguém LER a saída."""
-    cont = _uteis_ao_redor('TJSP', 1_000_000)
+    cont = _mesmas_semanas('TJSP', 1_000_000)
     cont[('TJSP', DIA)] = 10_000
     monkeypatch.setattr(CD, '_contagens', lambda i, f, teto='240s': cont)
     monkeypatch.setattr(CD, '_runs', lambda d: {'TJSP': {'success': 1}})
@@ -154,7 +195,7 @@ def test_o_comando_SAI_COM_ERRO_quando_ha_buraco(monkeypatch):
 
 @pytest.mark.django_db
 def test_o_comando_sai_ZERO_quando_o_dia_fecha(monkeypatch):
-    cont = _uteis_ao_redor('TJSP', 1_000_000)
+    cont = _mesmas_semanas('TJSP', 1_000_000)
     cont[('TJSP', DIA)] = 990_000
     monkeypatch.setattr(CD, '_contagens', lambda i, f, teto='240s': cont)
     monkeypatch.setattr(CD, '_runs', lambda d: {'TJSP': {'success': 1}})

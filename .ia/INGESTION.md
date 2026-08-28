@@ -1118,16 +1118,42 @@ plausível — os três da tabela do `CLAUDE.md` ao mesmo tempo.
 | # | critério | pega |
 |---|---|---|
 | 1 | existe `IngestionRun` com `success` | o dia que nunca rodou |
-| 2 | contagem ≥ 60% da **mediana dos 5 dias ÚTEIS vizinhos do próprio tribunal** | o `success` que trouxe um terço |
+| 2 | contagem ≥ 60% da **mediana do MESMO DIA DA SEMANA, 5 semanas para cada lado** | o `success` que trouxe um terço |
 | 3 | nenhum `failed` sem `success` posterior | o que quebrou depois de fechar |
 
 **A comparação é POR TRIBUNAL, e isso não é detalhe.** Um TJSP inteiro sumido é
 4,7% do fluxo nacional e **desaparece no ruído dos outros 58** se a conta for no
 agregado. Há teste cobrindo exatamente esse caso.
 
+### 🔴 A régua de "dias úteis vizinhos" estava ERRADA (corrigida em 28/08/2026)
+
+A primeira versão comparava o dia com a **mediana dos dias úteis vizinhos**. Isso
+produz falso positivo por construção, porque o volume varia enormemente ENTRE
+dias da semana. Medido, 3 semanas:
+
+```
+TJPR   Ter   6.419 ·  6.203 ·  6.875
+       Qua  23.727 · 87.789 · 93.435
+       Sex  44.803 · 43.151 · 237.901     ← 38× dentro da MESMA semana
+TJSP   variação 2×          TJMG   variação 1×
+```
+
+Com ela o portão acusou o **TJPR de 25/08 (terça)**: *"6.875 contra mediana
+50.066 — 14% do normal"*. Só que **6.875 é a MAIOR das três terças dele**. A
+mediana misturava terça com sexta. Conferido contra a fonte (`count_window`): a
+coleta estava **íntegra, gap 0**.
+
+**Portão com falso positivo é portão que ninguém lê** — e aí ele não protege nada
+no dia em que o buraco é real. A régua agora é **mesmo dia da semana, 5 semanas
+para cada lado**, e há teste que reproduz exatamente o caso do TJPR.
+
 **Contra alarme falso** — portão que grita sempre é portão que ninguém lê:
-- a mediana **ignora fim de semana**: sábado com 0 puxaria a mediana para baixo
-  e *esconderia* buraco (tem teste);
+- dia com **0 publicações sai da amostra** em vez de virar "o normal dele é
+  zero": um 0 na mediana a derrubaria e esconderia buraco de verdade (tem teste);
+- **menos de 3 amostras** do mesmo dia da semana ⇒ o critério de VOLUME não se
+  aplica e o tribunal entra em `sem_amostra`. Mediana de duas terças não é
+  mediana, é palpite com cara de estatística. A abstenção é **visível** na saída
+  — "fechado" que na verdade é "não consegui olhar" é o silêncio verde de novo;
 - tribunal de baixo volume sai como `sem_expediente` em vez de virar grito;
 - só entram tribunais `ativo=True` com `data_inicio_disponivel` ≤ dia.
 
@@ -1148,6 +1174,11 @@ discordaram no tamanho do buraco (**43.190 contra 81.721**) só porque montavam 
 mediana de jeitos diferentes. Comando e vigia chamam a MESMA função — e há teste
 que falha se o comando voltar a ter régua própria.
 
-**Achado da primeira varredura (7 dias, 27/08/2026):** déficit de ~276.580
-publicações, concentrado em 25/08 (o dia do apagão). O pior caso isolado é o
-**TJPR em 25/08 com 6.875 contra mediana de 50.066 — 14% do normal**.
+**Achado da primeira varredura, e a correção dele.** A varredura de 27/08 com a
+régua antiga apontou déficit de ~276.580 publicações em 7 dias. **Era falso
+positivo.** Conferido contra a fonte item a item: **gap 0** em 11 dos 19
+tribunal-dia acusados, incluindo o pior deles. Terça é sistematicamente o dia
+mais fraco do país (25/08 foi a MAIOR terça de cinco semanas), e a régua antiga
+comparava terça com sexta.
+
+**Perda recuperável medida contra a fonte nos últimos 7 dias: 0 publicações.**
