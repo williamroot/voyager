@@ -26,24 +26,24 @@ import datetime
 import pytest
 from django.core.management import call_command
 
-from tribunals.management.commands import conferir_dia as CD
+from tribunals import portao as CD
 
 
-class _Cmd(CD.Command):
-    """Command com as três leituras de banco trocadas por dados de teste."""
+class _Cmd:
+    """As três leituras de banco trocadas por dados de teste.
+
+    Injeção em vez de mock de ORM: um teste que precisa de banco para provar
+    aritmética de mediana envelhece mal e esconde o que está sendo testado.
+    """
 
     def __init__(self, cont, runs, tribs):
-        super().__init__()
         self._cont, self._runs_, self._tribs = cont, runs, tribs
 
-    def _contagens(self, ini, fim):
-        return self._cont
-
-    def _runs(self, dia):
-        return self._runs_
-
-    def _tribunais(self, dia):
-        return self._tribs
+    def _conferir(self, dia, o):
+        return CD.conferir(dia, fracao=o['fracao'], piso=o['piso'],
+                           leitores=(lambda i, f: self._cont,
+                                     lambda d: self._runs_,
+                                     lambda d: self._tribs))
 
 
 DIA = datetime.date(2026, 8, 25)          # uma terça-feira
@@ -144,9 +144,9 @@ def test_o_comando_SAI_COM_ERRO_quando_ha_buraco(monkeypatch):
     """Cron e CI não podem depender de alguém LER a saída."""
     cont = _uteis_ao_redor('TJSP', 1_000_000)
     cont[('TJSP', DIA)] = 10_000
-    monkeypatch.setattr(CD.Command, '_contagens', lambda s, i, f: cont)
-    monkeypatch.setattr(CD.Command, '_runs', lambda s, d: {'TJSP': {'success': 1}})
-    monkeypatch.setattr(CD.Command, '_tribunais', lambda s, d: ['TJSP'])
+    monkeypatch.setattr(CD, '_contagens', lambda i, f, teto='240s': cont)
+    monkeypatch.setattr(CD, '_runs', lambda d: {'TJSP': {'success': 1}})
+    monkeypatch.setattr(CD, '_tribunais', lambda d: ['TJSP'])
     with pytest.raises(SystemExit) as e:
         call_command('conferir_dia', '2026-08-25')
     assert e.value.code == 1
@@ -156,7 +156,66 @@ def test_o_comando_SAI_COM_ERRO_quando_ha_buraco(monkeypatch):
 def test_o_comando_sai_ZERO_quando_o_dia_fecha(monkeypatch):
     cont = _uteis_ao_redor('TJSP', 1_000_000)
     cont[('TJSP', DIA)] = 990_000
-    monkeypatch.setattr(CD.Command, '_contagens', lambda s, i, f: cont)
-    monkeypatch.setattr(CD.Command, '_runs', lambda s, d: {'TJSP': {'success': 1}})
-    monkeypatch.setattr(CD.Command, '_tribunais', lambda s, d: ['TJSP'])
+    monkeypatch.setattr(CD, '_contagens', lambda i, f, teto='240s': cont)
+    monkeypatch.setattr(CD, '_runs', lambda d: {'TJSP': {'success': 1}})
+    monkeypatch.setattr(CD, '_tribunais', lambda d: ['TJSP'])
     call_command('conferir_dia', '2026-08-25')     # não levanta
+
+
+# ─────────────────────────────── o VIGIA: o portão que roda sozinho
+
+@pytest.mark.django_db
+def test_o_vigia_GRITA_com_nome_e_numero(monkeypatch):
+    """"alguns tribunais incompletos" não faz ninguém agir.
+
+    O que faz agir é "TJPR 6.875/50.066, faltam 43.190". Um log de ERROR sem o
+    número é a mesma omissão que o portão existe para acusar.
+    """
+    from unittest.mock import patch
+    rel = {'dia': '2026-08-25', 'tribunais': 59, 'fechados': 58, 'total_dia': 1_180_554,
+           'falta_estimado': 43_190,
+           'problemas': [{'t': 'TJPR', 'n': 6_875, 'med': 50_066, 'falta': 43_190,
+                          'motivos': ['14% do normal']}]}
+    monkeypatch.setattr(CD, 'conferir', lambda dia, **kw: rel)
+    with patch.object(CD.logger, 'error') as erro:
+        CD.vigiar()
+    assert erro.called, 'dia com buraco passou sem ERROR'
+    msg = erro.call_args.args[0] % erro.call_args.args[1:]
+    assert 'TJPR' in msg, 'não disse QUEM'
+    assert '43,190' in msg or '43.190' in msg, 'não disse QUANTO falta'
+
+
+@pytest.mark.django_db
+def test_o_vigia_nao_grita_quando_o_dia_fecha(monkeypatch):
+    """Alarme que dispara sempre vira ruído e ninguém lê o dia em que importa."""
+    from unittest.mock import patch
+    rel = {'dia': '2026-08-24', 'tribunais': 59, 'fechados': 59, 'total_dia': 1_529_530,
+           'falta_estimado': 0, 'problemas': []}
+    monkeypatch.setattr(CD, 'conferir', lambda dia, **kw: rel)
+    with patch.object(CD.logger, 'error') as erro:
+        CD.vigiar()
+    assert not erro.called
+
+
+@pytest.mark.django_db
+def test_o_vigia_NUNCA_levanta(monkeypatch):
+    """Vigia que derruba o scheduler leva junto os outros jobs."""
+    def explode(dia, **kw):
+        raise RuntimeError('banco fora')
+    monkeypatch.setattr(CD, 'conferir', explode)
+    r = CD.vigiar()          # não pode levantar
+    assert all(d.get('erro') for d in r['dias'])
+
+
+def test_o_comando_e_o_vigia_usam_a_MESMA_regua():
+    """Duas réguas para a mesma pergunta produzem discordância honesta e cara.
+
+    Em 27/08/2026 duas implementações independentes olharam o dia 25/08,
+    concordaram na contagem crua do TJPR (6.875 nas duas) e discordaram no
+    tamanho do buraco (43.190 contra 81.721) só porque montavam a mediana de
+    jeitos diferentes.
+    """
+    cmd = open('tribunals/management/commands/conferir_dia.py').read()
+    assert 'from tribunals import portao' in cmd
+    assert 'portao.conferir(' in cmd
+    assert 'def conferir' not in cmd, 'o comando voltou a ter régua própria'

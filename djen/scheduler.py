@@ -356,6 +356,23 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # O PORTÃO da ingestão — de hora em hora, sobre D-1 e D-2.
+    # Um comando que ninguém executa é o mesmo silêncio verde que ele existe
+    # para matar: em 25/08/2026 a ingestão do dia inteiro morreu e ficou 21 h
+    # sem ninguém ver. Aqui ele grita com NOME e NÚMERO — "TJPR com 14% do
+    # normal, faltam 43.190" faz agir; "alguns tribunais incompletos" não.
+    # Leitura pura, sem escrita: só agrega contagem e lê `IngestionRun`.
+    from tribunals.portao import vigiar
+    scheduler.add_job(
+        vigiar,
+        'interval',
+        hours=1,
+        id='portao_ingestao',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Classificação por prioridade — único cron, substitui todos os fluxos inline.
     # Grupo 1: desatualizados (classificacao_em < ultima_movimentacao_em), mais recentes primeiro.
     # Grupo 2 (fallback): classificados há mais tempo (classificacao_em ASC).

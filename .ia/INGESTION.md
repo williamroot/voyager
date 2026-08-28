@@ -1057,3 +1057,55 @@ fora, e é martelar um serviço público.
 **Sintoma:** `IngestionRun.erros` com `DJEN circuito aberto (sobrecarregado)`.
 **Cura:** baixar o produto, `cache.delete('djen:circuit_open')` +
 `cache.delete('djen:5xx_recent')`, e reenfileirar os dias derrubados.
+
+
+## O PORTÃO: um dia só fecha quando os 59 tribunais fecham (27/08/2026)
+
+`tribunals/portao.py` — usado pelo comando `conferir_dia` **e** pelo job
+`portao_ingestao` do scheduler (de hora em hora, sobre D-1 e D-2).
+
+**Por que existe.** Em 25/08/2026 a ingestão do dia inteiro morreu — 10.410
+`IngestionRun` em `failed`, zero `success` — e ficou **21 horas** sem ninguém
+ver. O que denunciou foi um KPI de tela, por acaso, porque alguém olhou. E
+quando o dia voltou, voltou **incompleto**: 1.180.554 publicações contra
+1.529.530 do vizinho, com o run marcando `success`. Run verde, log limpo, número
+plausível — os três da tabela do `CLAUDE.md` ao mesmo tempo.
+
+**Os três critérios, por tribunal:**
+
+| # | critério | pega |
+|---|---|---|
+| 1 | existe `IngestionRun` com `success` | o dia que nunca rodou |
+| 2 | contagem ≥ 60% da **mediana dos 5 dias ÚTEIS vizinhos do próprio tribunal** | o `success` que trouxe um terço |
+| 3 | nenhum `failed` sem `success` posterior | o que quebrou depois de fechar |
+
+**A comparação é POR TRIBUNAL, e isso não é detalhe.** Um TJSP inteiro sumido é
+4,7% do fluxo nacional e **desaparece no ruído dos outros 58** se a conta for no
+agregado. Há teste cobrindo exatamente esse caso.
+
+**Contra alarme falso** — portão que grita sempre é portão que ninguém lê:
+- a mediana **ignora fim de semana**: sábado com 0 puxaria a mediana para baixo
+  e *esconderia* buraco (tem teste);
+- tribunal de baixo volume sai como `sem_expediente` em vez de virar grito;
+- só entram tribunais `ativo=True` com `data_inicio_disponivel` ≤ dia.
+
+**Saída:** o comando sai com **código 1** quando há tribunal fora — cron e CI não
+podem depender de alguém LER a saída. O vigia registra **ERROR com nome e
+número** (`TJPR 6.875/50.066, faltam 43.190`); "alguns tribunais incompletos" não
+faz ninguém agir. O vigia **nunca levanta**: derrubar o scheduler levaria junto
+os outros jobs.
+
+```bash
+python manage.py conferir_dia 2026-08-25
+python manage.py conferir_dia --ultimos 7 --json
+```
+
+**Régua única de propósito.** Em 27/08 duas implementações independentes olharam
+o mesmo dia, concordaram na contagem crua do TJPR (**6.875 nas duas**) e
+discordaram no tamanho do buraco (**43.190 contra 81.721**) só porque montavam a
+mediana de jeitos diferentes. Comando e vigia chamam a MESMA função — e há teste
+que falha se o comando voltar a ter régua própria.
+
+**Achado da primeira varredura (7 dias, 27/08/2026):** déficit de ~276.580
+publicações, concentrado em 25/08 (o dia do apagão). O pior caso isolado é o
+**TJPR em 25/08 com 6.875 contra mediana de 50.066 — 14% do normal**.
