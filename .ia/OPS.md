@@ -3324,3 +3324,65 @@ Freios embutidos, todos LIDOS e não estimados: fila do `es_index` acima de
 custo acima de `--freio-ms-kpk` (ms por 1.000 pks varridos) ⇒ dobra a pausa;
 média móvel de 5 blocos acima de `--parar-ms-kpk` ⇒ PARA com ERROR. Teto de linhas e teto de tempo param com
 ERROR dizendo a pk onde pararam e quanto falta.
+
+## Backfill longo NÃO roda dentro do `voyager-web-1` (2026-08-29)
+
+O reindex do acervo de processos (101,5 M de docs, ~10 h com 3 faixas em
+paralelo) foi lançado com `docker exec -d -w /app voyager-web-1 …`, que é o que
+o docstring de `reindexar_processos` recomendava. Dezoito minutos depois os
+três processos tinham sumido, sem erro no log.
+
+Diagnóstico: `docker inspect voyager-web-1` mostrava
+`RestartCount=0`, `ExitCode=0` e `StartedAt` de 3 minutos atrás — ou seja o
+container não caiu, ele foi **RECRIADO**. Alguém rodou `docker compose up -d
+web scheduler` para um deploy. `docker exec -d` prende o processo ao ciclo de
+vida do container; `restart` já o mataria, `up -d --force-recreate` mata sem
+deixar nem o log (o `/tmp` do container vai junto).
+
+**Regra: trabalho de horas roda em container PRÓPRIO, na `.102`, com nome.**
+Ninguém recria o que não está no compose:
+
+```bash
+ssh ubuntu@100.98.141.91   # voyager-workers (.102)
+cd ~/voyager
+docker run -d --name r98_reindex_c \
+  --network voyager_default --env-file .env \
+  -v /home/ubuntu/voyager:/app -w /app --memory 2g --restart no \
+  voyager-web:prod \
+  python manage.py reindexar_processos --checkpoint grau_djen_v3 \
+      --desde-id 75000000 --batch-size 2000 --janela 10000 \
+      --sleep 0.05 --max-segundos 86400
+
+docker logs --tail 5 r98_reindex_c      # progresso
+docker rm -f r98_reindex_c              # parar (o checkpoint fica no Redis)
+```
+
+`--memory 2g` porque a janela do keyset carrega 10.000 `Process` com as
+`participacoes` pré-carregadas; sem teto, um lote de processo de ente público
+derruba a VM inteira em vez do container (lição do OOM de 08/06).
+
+E **checkpoint em cache é o que torna isso reversível**: `reindexar_processos
+--checkpoint <nome>` grava o último id no Redis DEPOIS de cada `_bulk`. Matar
+e ressubir custa, no máximo, o último lote — que é idempotente (`index` por
+`_id`). Sem ele, o deploy de outra pessoa apaga horas de varredura e ninguém
+descobre até medir de novo.
+
+### Faixas em paralelo, e por que a vazão não é uniforme
+
+Medido em 29/08/2026, mesma máquina, mesmas flags:
+
+| faixa de pk | vazão | por quê |
+|---|---:|---|
+| 0 – 40 M | ~400-550 docs/s | processos antigos e ENRIQUECIDOS: muitas `ProcessoParte` por processo |
+| 40 M – 75 M | ~900-970 docs/s | mistura |
+| 75 M – topo | ~1.800 docs/s | recuperação nacional recente, quase sem parte |
+
+Somadas, ~3.100 docs/s ⇒ os 101,5 M em ~9-10 h. Uma faixa só, do começo ao
+fim, levaria ~50 h — a média engana porque o custo é por PARTICIPAÇÃO, não por
+processo.
+
+Pressão medida com as 3 faixas + o backfill de `classe_codigo` de outro agente
+rodando ao mesmo tempo: `pg_stat_activity` com **0** sessões em
+`wait_event_type='Lock'`, `pg_blocking_pids` vazio, e no ES load average 0,59,
+heap 43%, `write` e `search` queues em 0, zero rejeições. O gargalo é a leitura
+do Postgres + a montagem do doc em Python, não o Elasticsearch.
