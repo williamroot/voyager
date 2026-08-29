@@ -213,14 +213,35 @@ class ProxyScrapePool:
             url = url_tpl.format(key=self.api_key)
             try:
                 resp = requests.get(url, timeout=30)
-                if resp.status_code == 429:
-                    rate_limitado += 1
-                resp.raise_for_status()
             except requests.RequestException as exc:
                 logger.warning('pool[%s] endpoint indisponível, tentando próximo: %s', self.name, exc)
                 continue
-            if 'invalid session' in resp.text.lower() or 'unauthorized' in resp.text.lower():
-                logger.warning('pool[%s] endpoint não suportado pelo plano, tentando próximo', self.name)
+            if resp.status_code == 429:
+                rate_limitado += 1
+            # A recusa por PLANO/ASSINATURA vem com status de erro (401), então
+            # tem que ser lida ANTES do `raise_for_status` — senão ela cai no
+            # `except` acima e vira um "endpoint indisponível" genérico, que foi
+            # exatamente como a assinatura vencida passou meses sem ser vista.
+            corpo = resp.text.lower()
+            if 'invalid session' in corpo or 'unauthorized' in corpo or 'expired' in corpo:
+                # NÃO é só "plano não suporta este endpoint": é aqui que uma
+                # ASSINATURA VENCIDA entra sem fazer barulho. Em 29/08/2026 o
+                # endpoint pago devolvia `{"status": "unauthorized", "info":
+                # "Your subscription is expired."}` e o código caía calado no
+                # endpoint genérico, que traz proxies públicos: o pool de 2.500
+                # IPs virou 14 — e ninguém foi avisado. Todo o resto (pool 100%
+                # queimado o tempo todo, tráfego inteiro no Cortex, tempestade
+                # de refresh) é consequência disso. Downgrade é ERRO, não nota.
+                nivel = logger.error if 'expired' in corpo else logger.warning
+                nivel('pool[%s] endpoint pago RECUSOU (HTTP %s): %s — caindo no '
+                      'endpoint genérico (proxies públicos, lista muito menor)',
+                      self.name, resp.status_code,
+                      ' '.join(resp.text.split())[:160])
+                continue
+            try:
+                resp.raise_for_status()
+            except requests.RequestException as exc:
+                logger.warning('pool[%s] endpoint indisponível, tentando próximo: %s', self.name, exc)
                 continue
             text = resp.text
             break

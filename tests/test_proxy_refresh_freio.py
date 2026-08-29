@@ -127,3 +127,55 @@ def test_cooldown_expirado_libera_de_novo():
     r.delete(p._refresh_cooldown_key)   # efeito observável do TTL vencendo
     r.delete(p._refresh_lock_key)
     assert p._pode_tentar_refresh() is True
+
+
+# --- Assinatura vencida: downgrade silencioso do pool -----------------------
+# Em 29/08/2026 o endpoint pago da ProxyScrape respondia
+# `HTTP 401 {"status": "unauthorized", "info": "Your subscription is expired."}`.
+# O `refresh()` chamava `raise_for_status()` ANTES de olhar o corpo, então o 401
+# virava um `except RequestException` genérico logado como "endpoint
+# indisponível" — e o código caía calado no endpoint público, que devolve 14
+# proxies. O pool documentado como "2.500" era 14, e tudo o mais (pool 100%
+# queimado, tráfego inteiro no Cortex, tempestade de refresh) vinha daí.
+
+
+class _RespFake:
+    def __init__(self, status, text):
+        self.status_code = status
+        self.text = text
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+            raise requests.HTTPError(str(self.status_code))
+
+
+def test_assinatura_vencida_e_erro_e_cai_no_endpoint_publico(monkeypatch):
+    """O log do projeto não propaga pra raiz, então o teste pendura um handler
+    no próprio logger — senão ele mediria a config de logging, não o código."""
+    import logging
+
+    import djen.proxies as mod
+
+    respostas = [
+        _RespFake(401, '{"status": "unauthorized", "info": "Your subscription is expired."}'),
+        _RespFake(200, '1.2.3.4:8080\n5.6.7.8:3128\n'),
+    ]
+    monkeypatch.setattr(mod.requests, 'get', lambda *a, **kw: respostas.pop(0))
+
+    capturados: list[logging.LogRecord] = []
+
+    class _Coletor(logging.Handler):
+        def emit(self, record):
+            capturados.append(record)
+
+    h = _Coletor()
+    mod.logger.addHandler(h)
+    try:
+        assert _pool(_RedisFake()).refresh() == 2, 'devia ter usado o endpoint genérico'
+    finally:
+        mod.logger.removeHandler(h)
+
+    erros = [x for x in capturados if x.levelno >= logging.ERROR]
+    assert erros, 'assinatura vencida entrou sem ERROR — downgrade mudo de novo'
+    assert 'expired' in erros[0].getMessage().lower()
