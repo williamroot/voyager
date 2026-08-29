@@ -58,6 +58,7 @@ import time
 from django.core.cache import cache
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
+from django.utils import timezone
 
 from enrichers.drainer import SEP_HIERARQUIA, split_assunto_folha
 from tribunals.models import Assunto, Process
@@ -352,6 +353,7 @@ class Command(BaseCommand):
             linhas = cur.fetchall()
 
         tot['lidos'] += len(linhas)
+        agora = timezone.now()
         objs, precisa_cat = [], {}
         for pk, nome, codigo, assunto_id in linhas:
             veredito, campos = planejar(pk, nome, codigo or '', assunto_id)
@@ -363,7 +365,13 @@ class Command(BaseCommand):
             p = Process(id=pk)
             for k, v in campos.items():
                 setattr(p, k, v)
-            objs.append((p, tuple(sorted(campos))))
+            # CAMPAINHA no MESMO `bulk_update`: `assunto`/`assunto_codigo` são
+            # campos do doc do ES e `bulk_update` não roda o `auto_now` de
+            # `atualizado_em`, que é a chave do keyset de
+            # `sync_processos_atualizados`. Custo zero — a linha já vai ser
+            # reescrita. Sem isto o assunto fica certo no banco e velho na busca.
+            p.atualizado_em = agora
+            objs.append((p, tuple(sorted(set(campos) | {'atualizado_em'}))))
 
         if o['sem_reparo'] or not objs:
             return 0, 0

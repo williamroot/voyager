@@ -282,7 +282,12 @@ def test_teto_de_proc_novos_vira_erro_com_o_numero_real(monkeypatch):
 
     cache.set(si._WM_PROC_ID, pks[0] - 1, None)
     monkeypatch.setattr(si, 'LIMITE_PROC_NOVOS', 1)      # força o teto
-    monkeypatch.setattr(si, 'computar_sinal', lambda p: 0)
+    # `computar_sinal` devolve (feitos, cobertos) desde que o bloco que
+    # estoura o teto de tempo deixou de avançar a watermark. O stub antigo
+    # devolvia um int e o teste morria em TypeError ANTES de chegar ao
+    # alerta — ou seja, o teste que existe para provar que o teto grita
+    # estava vermelho por outro motivo, e ninguém checava o alerta.
+    monkeypatch.setattr(si, 'computar_sinal', lambda p: (0, p))
     monkeypatch.setattr(si, '_enfileirar_processos', len)
 
     with _Capturador() as cap:

@@ -1,9 +1,82 @@
 """Serialização ORM → documento Elasticsearch (formato Jusbrasil/Digesto)."""
 
-from tribunals.models import FonteDiario, Movimentacao, Process
+from tribunals.models import FonteDiario, Movimentacao, Process, ProcessoParte
 
 # Cache em memória das FonteDiario (tabela pequena, ~14 rows, não muda em runtime).
 _FONTE_CACHE: dict[str, FonteDiario] = {}
+
+
+# --------------------------------------------------------------------------- #
+# O `getattr(..., padrão)` defensivo tem um modo de falha, e ele foi MEDIDO
+# --------------------------------------------------------------------------- #
+# Campos que entraram por migration recente são lidos aqui com
+# `getattr(obj, campo, padrão)` "para não explodir enquanto a coluna não estiver
+# em toda a frota". O preço disso ficou visível em 29/08/2026, em produção:
+#
+#   · as 24 réplicas de `worker_es_index` (a `.102`) estavam de pé havia 4 dias,
+#     e o bind mount `.:/app` entrega o `git pull` mas **Python não recarrega**.
+#     O processo carregava um `tribunals/models.py` anterior a 28/08 — ou seja,
+#     uma classe `Process` SEM `grau` e uma `ProcessoParte` SEM `fonte`.
+#   · o `getattr` fez exatamente o que foi escrito para fazer: devolveu o padrão.
+#     Cada documento reindexado saiu COMPLETO e ERRADO — `grau: ''` para um
+#     processo `G1`, `participacoes[].fonte: null` para uma parte `djen`.
+#   · medido por amostra de conglomerado (n=116.713, semente 20260829):
+#     `grau` em **78,57% no Postgres** e **1,03% no índice**; dos 399 processos
+#     da amostra com parte do DJEN, **399 tinham a participação no índice e 0
+#     tinham `fonte='djen'`**.
+#
+# Nada disso deu erro. A fila `es_index` ficava em zero, o job voltava
+# `finished`, o doc existia. É a assinatura da tabela do CLAUDE.md: run verde,
+# log limpo, número redondo — enquanto o campo que separa RPV de precatório
+# some de 79 milhões de processos.
+#
+# Por isso o padrão silencioso virou ERRO: indexar um doc com valor de
+# enchimento é pior do que não indexar (princípio nº 1 — dado pela metade
+# produz confiança falsa). Quem estiver com o processo velho para de escrever e
+# **diz o motivo**, em vez de degradar o índice inteiro sem um log.
+CAMPOS_EXIGIDOS: dict[str, tuple[str, ...]] = {
+    'Process': ('grau', 'segredo_justica'),
+    'ProcessoParte': ('fonte',),
+}
+
+_MODELOS = {'Process': Process, 'ProcessoParte': ProcessoParte}
+
+#: resultado da conferência, calculado UMA vez por processo. A classe do model
+#: não muda em runtime — só a troca do processo muda, e é isso que queremos pegar.
+_MODELO_CONFERIDO: list[str] | None = None
+
+
+class ModeloDesatualizado(RuntimeError):
+    """O processo que indexa carrega uma versão velha de `tribunals/models.py`."""
+
+
+def _campos_faltando() -> list[str]:
+    faltam = []
+    for nome, campos in CAMPOS_EXIGIDOS.items():
+        presentes = {f.name for f in _MODELOS[nome]._meta.get_fields()}
+        faltam.extend(f'{nome}.{c}' for c in campos if c not in presentes)
+    return faltam
+
+
+def exigir_modelo_em_dia() -> None:
+    """Aborta ALTO se o model em memória não tem os campos que o doc precisa.
+
+    Chamada no topo de `processo_to_doc`. O custo é um `if` depois do primeiro
+    documento — a conferência roda uma vez por processo.
+    """
+    global _MODELO_CONFERIDO
+    if _MODELO_CONFERIDO is None:
+        _MODELO_CONFERIDO = _campos_faltando()
+    if _MODELO_CONFERIDO:
+        raise ModeloDesatualizado(
+            'este processo carrega um `tribunals/models.py` VELHO — faltam os '
+            f'campos {", ".join(_MODELO_CONFERIDO)}. O bind mount `.:/app` já '
+            'entregou o arquivo novo, mas Python não recarrega módulo: '
+            'REINICIE o serviço (`docker compose ... restart worker_es_index`). '
+            'Indexar assim grava valor de enchimento (grau="" para processo G1, '
+            'participacoes.fonte=null para parte do DJEN) em todo doc que passar '
+            'por aqui — foi assim que `grau` ficou em 1,03% do índice contra '
+            '78,57% do banco.')
 
 
 def _get_fonte(tribunal_id: str) -> FonteDiario | None:
@@ -219,6 +292,9 @@ def processo_to_doc(proc: Process) -> dict:
     atualizar o mapping + reindexar.
     """
     from .geo import uf_do_tribunal
+    # Antes de qualquer campo: o processo que está montando o doc tem que
+    # conhecer os campos novos. Ver `exigir_modelo_em_dia`.
+    exigir_modelo_em_dia()
     advs, partes, tem_ente, participacoes = _serialize_partes(proc)
     source_id = _source_id_for(proc.tribunal_id)
     # "validado" = passou por QUALQUER enriquecimento (tribunal/djen/datajud).

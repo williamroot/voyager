@@ -67,6 +67,9 @@ def ingest_processo(processo, client: DJENClient | None = None) -> dict:
     Process.objects.filter(pk=processo.pk).update(
         data_enriquecimento_djen=now_ts,
         ultima_sinc_djen_em=now_ts,
+        # CAMPAINHA: `.update()` não roda o `auto_now` de `atualizado_em`, e
+        # `data_enriquecimento_djen` entra no `enriquecido_em` do doc.
+        atualizado_em=now_ts,
     )
 
     return {
@@ -623,8 +626,16 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | Non
 
 #: Campos do resumo escritos por `_flush_resumo`. Fixos de propósito: a lista
 #: de campos entra na ordem das colunas do UPDATE e não pode variar por lote.
+#:
+#: `atualizado_em` é a CAMPAINHA e entra no MESMO UPDATE (custo zero: a linha
+#: já vai ser reescrita). `bulk_update` não dispara `post_save` e não roda o
+#: `auto_now`; sem ele, `total_movimentacoes` e `ultima_movimentacao_em` mudam
+#: no Postgres e o doc do processo fica com os valores da véspera para sempre —
+#: `sync_processos_atualizados` é keyset por `atualizado_em` e nunca enxerga a
+#: linha, e `sync_processos_novos` só pega pk acima da watermark.
 CAMPOS_RESUMO = ['primeira_movimentacao_em', 'ultima_movimentacao_em',
-                 'total_movimentacoes', 'data_enriquecimento_djen']
+                 'total_movimentacoes', 'data_enriquecimento_djen',
+                 'atualizado_em']
 
 #: Quantas linhas de `tribunals_process` cada UPDATE trava por vez. Cada lote é
 #: uma transação PRÓPRIA — o `bulk_update` do Django envolve TODOS os batches
@@ -800,7 +811,7 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str],
         Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
         .only('pk', 'numero_cnj', 'total_movimentacoes',
               'primeira_movimentacao_em', 'ultima_movimentacao_em',
-              'data_enriquecimento_djen')
+              'data_enriquecimento_djen', 'atualizado_em')
     )
     if com_novidade is None:
         alvo = procs
@@ -840,6 +851,8 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str],
         # 70% das linhas à toa. Quem lê o campo (ficha do processo, doc do ES)
         # quer saber de dado, não de varredura.
         p.data_enriquecimento_djen = now_ts
+        # CAMPAINHA — ver `CAMPOS_RESUMO`. Mesma linha, mesmo UPDATE.
+        p.atualizado_em = now_ts
         to_update.append(p)
     if not to_update:
         return

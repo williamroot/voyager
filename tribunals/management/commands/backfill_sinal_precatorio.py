@@ -64,9 +64,14 @@ class Command(BaseCommand):
                     + ("AND id >= %s " if janela[0] is not None else "")
                     + ("AND id < %s " if janela[1] is not None else "")
                     + "LIMIT %s FOR UPDATE SKIP LOCKED")
+        # `atualizado_em = now()` é a CAMPAINHA: `tem_sinal_precatorio` é campo
+        # do doc do ES, e SQL cru não roda o `auto_now`. Sem ele o sinal fica
+        # certo no banco e o mapa comercial continua lendo o valor velho —
+        # `sync_processos_atualizados` é keyset por `atualizado_em`.
         sql_upd = ("UPDATE tribunals_process p SET tem_sinal_precatorio = EXISTS ("
                    "SELECT 1 FROM tribunals_movimentacao m "
-                   "WHERE m.processo_id = p.id AND m.texto ~* %s) WHERE p.id = ANY(%s)")
+                   "WHERE m.processo_id = p.id AND m.texto ~* %s), "
+                   "atualizado_em = now() WHERE p.id = ANY(%s)")
         t0 = time.monotonic()
         feitos = 0
         while True:

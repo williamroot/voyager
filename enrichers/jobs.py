@@ -419,7 +419,11 @@ def tick_reenrich_esaj_legacy() -> dict:
             relatorio[sig] = f'{recusados:,} no lote, todos fora da fonte'
             continue
         n = Process.objects.filter(pk__in=ids).update(
-            enriquecimento_status=Process.ENRIQ_PENDENTE)
+            enriquecimento_status=Process.ENRIQ_PENDENTE,
+            # CAMPAINHA: `enriquecimento_status` é campo do doc do ES e
+            # `.update()` não roda o `auto_now` de `atualizado_em` — sem isto o
+            # `sync_processos_atualizados` (keyset por `atualizado_em`) nunca vê.
+            atualizado_em=_tz.now())
         try:
             acumulado = conn.hincrby(_REENRICH_TOTAL_KEY, sig, n)
         except Exception:
@@ -480,7 +484,8 @@ def tick_requeue_erros_enricher() -> dict:
                               else f'{estacionados:,} estacionados (≥{REENRICH_MAX_TENTATIVAS} tent.)')
             continue
         n = Process.objects.filter(pk__in=ids).update(
-            enriquecimento_status=Process.ENRIQ_PENDENTE)
+            enriquecimento_status=Process.ENRIQ_PENDENTE,
+            atualizado_em=_tz.now())        # CAMPAINHA — ver acima
         relatorio[sig] = f'reset {n:,}' + (f' / {estacionados:,} estacionados' if estacionados else '')
         logger.info('tick_requeue_erros_enricher %s: reset %d erro->pendente', sig, n)
     return relatorio
@@ -608,9 +613,14 @@ def _separar_fora_da_fonte(sigla: str, linhas: list) -> tuple[list, int]:
     for motivo, pks in recusa.items():
         lote = pks[:RECUSA_FORA_DA_FONTE_BATCH]
         try:
+            agora = _tz.now()
             n = Process.objects.filter(pk__in=lote).update(
                 enriquecimento_status=Process.ENRIQ_NAO_ENCONTRADO,
-                enriquecido_em=_tz.now(),
+                enriquecido_em=agora,
+                # CAMPAINHA: `enriquecido_em` e `enriquecimento_status` são
+                # campos do doc. Sem isto o processo fica `nao_encontrado` no
+                # banco e o doc guarda o estado anterior para sempre.
+                atualizado_em=agora,
             )
         except Exception as exc:
             logger.warning('falha ao fechar faixa fora-da-fonte',

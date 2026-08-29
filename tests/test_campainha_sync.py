@@ -80,3 +80,98 @@ def test_campainha_freia_pela_fila():
     fonte = open('tribunals/management/commands/tocar_campainha.py').read()
     assert 'FILA_ALTA' in fonte
     assert re.search(r'if fila > FILA_ALTA', fonte), 'sem freio de fila'
+
+
+# --------------------------------------------------------------------------- #
+# 29/08/2026 — a varredura dos OUTROS escritores em lote
+# --------------------------------------------------------------------------- #
+# A campainha tinha sido posta em dois escritores (`backfill_grau` e
+# `promover_lote`). A varredura de `.update()` / `bulk_update` / SQL cru sobre
+# `tribunals_process` achou mais SETE, e três deles rodam SOZINHOS, todo dia:
+#
+#   djen/ingestion.py::_flush_resumo     total_movimentacoes, ultima_movimentacao_em
+#   djen/ingestion.py::ingest_processo   data_enriquecimento_djen (→ enriquecido_em)
+#   enrichers/jobs.py (3 lugares)        enriquecimento_status, enriquecido_em
+#   tribunals/classificador.py           classificacao, score, versao, em
+#   backfill_assunto.py                  assunto, assunto_codigo
+#   preencher_classe_via_djen.py         classe_nome, codigo_classe
+#   backfill_sinal_precatorio.py         tem_sinal_precatorio
+#
+# Todo campo dessa lista está em `search/documents.py::processo_to_doc`. Sem a
+# campainha eles mudam no Postgres e o documento guarda o valor da véspera —
+# `sync_processos_atualizados` é keyset por `atualizado_em` e não os enxerga,
+# e `sync_processos_novos` só pega pk ACIMA da watermark.
+#
+# Os testes são por LEITURA DE FONTE, igual aos de cima: o que se quer travar é
+# que ninguém apague a linha da campainha, e isso não depende de rodar o job.
+
+def test_flush_resumo_toca_campainha():
+    """A ingestão DJEN reescreve o resumo todo dia — e é o maior escritor."""
+    fonte = open('djen/ingestion.py').read()
+    i = fonte.find('CAMPOS_RESUMO = [')
+    assert i > 0, 'CAMPOS_RESUMO sumiu — teste desatualizado'
+    assert "'atualizado_em'" in fonte[i:i + 400], (
+        'CAMPOS_RESUMO sem `atualizado_em`: total_movimentacoes e '
+        'ultima_movimentacao_em mudam no banco e o doc fica da véspera')
+    j = fonte.find('p.data_enriquecimento_djen = now_ts')
+    assert j > 0
+    assert 'p.atualizado_em = now_ts' in fonte[j:j + 300], (
+        'o objeto do bulk_update não recebe `atualizado_em` — a coluna entra '
+        'no UPDATE com o valor antigo e a campainha não toca')
+
+
+def test_ingest_processo_toca_campainha():
+    fonte = open('djen/ingestion.py').read()
+    i = fonte.find('data_enriquecimento_djen=now_ts,')
+    assert i > 0
+    assert 'atualizado_em=now_ts' in fonte[i:i + 400]
+
+
+def test_enrichers_jobs_tocam_campainha():
+    """`enriquecimento_status`/`enriquecido_em` são campos do doc."""
+    fonte = open('enrichers/jobs.py').read()
+    updates = [i for i in range(len(fonte))
+               if fonte.startswith('Process.objects.filter(pk__in=', i)]
+    assert len(updates) >= 3, 'os `.update()` do enricher mudaram — teste desatualizado'
+    for i in updates:
+        trecho = fonte[i:i + 500]
+        assert 'atualizado_em=' in trecho, (
+            f'`.update()` de Process sem campainha em enrichers/jobs.py '
+            f'perto de {fonte[i:i + 80]!r}')
+
+
+def test_classificador_toca_campainha():
+    """A reclassificação em lote já mediu -26% de defasagem no índice."""
+    fonte = open('tribunals/classificador.py').read()
+    i = fonte.find('classificacao_versao=versao_em_uso,')
+    assert i > 0
+    assert 'atualizado_em=now' in fonte[i:i + 400], (
+        'classificação gravada sem campainha — foi assim que o QA mediu '
+        'ES 35k contra PG 47,6k confirmados')
+
+
+def test_backfill_assunto_toca_campainha():
+    fonte = open('enrichers/management/commands/backfill_assunto.py').read()
+    i = fonte.find('objs.append((p,')
+    assert i > 0
+    assert 'p.atualizado_em = agora' in fonte[max(0, i - 600):i]
+    assert "{'atualizado_em'}" in fonte[i:i + 200], (
+        '`atualizado_em` fora da lista de campos do bulk_update = coluna não '
+        'entra no UPDATE')
+
+
+def test_preencher_classe_toca_campainha():
+    fonte = open('tribunals/management/commands/preencher_classe_via_djen.py').read()
+    updates = fonte.count('UPDATE tribunals_process p')
+    assert updates == 2, 'os UPDATEs mudaram — teste desatualizado'
+    assert fonte.count('atualizado_em') >= 2, (
+        'classe preenchida sem campainha: certa no banco, vazia na busca')
+
+
+def test_backfill_sinal_toca_campainha():
+    fonte = open('tribunals/management/commands/backfill_sinal_precatorio.py').read()
+    i = fonte.find('sql_upd = (')
+    assert i > 0
+    assert 'atualizado_em = now()' in fonte[i:i + 500], (
+        'tem_sinal_precatorio é campo do doc — sem campainha o mapa comercial '
+        'continua lendo o valor velho')

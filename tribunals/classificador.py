@@ -633,6 +633,10 @@ def classificar_e_persistir(processo, registrar_log: bool = True) -> tuple[str, 
         classificacao_score=score,
         classificacao_versao=versao_em_uso,
         classificacao_em=now,
+        # CAMPAINHA: os quatro campos acima estão no doc do ES e `.update()`
+        # não roda o `auto_now` de `atualizado_em`. Foi exatamente por aqui que
+        # o QA mediu 35k no índice contra 47,6k confirmados no banco (-26%).
+        atualizado_em=now,
     )
     if registrar_log and classif_anterior != cat:
         ClassificacaoLog.objects.create(

@@ -602,7 +602,14 @@ não é verificável sem a base toda em memória.
 | Drainer `apply_batch` (`bulk_update`/`bulk_create`) | ✅ | enqueue explícito `search.jobs.indexar_processos_bulk` no fim do batch (fix 2026-08) |
 | ProcessoParte (create/delete individual) | — sem signal DE PROPÓSITO | o processo é reindexado pelo `processo.save()` que fecha todo enriquecimento; signal por-linha multiplicaria a fila ~2N por processo |
 | **ProcessoParte em `bulk_create`** (promoção dos `destinatarios` do DJEN) | ❌ **e nenhum poller pega** | ela não muda `Process.id` (fora do keyset de `sync_processos_novos`) nem `Process.atualizado_em` (fora do de `sync_processos_atualizados`), e o `es_backfill_processos` só reindexa doc **AUSENTE**. Quem escreve **tem** que enfileirar `search.jobs.indexar_processos_bulk`. Travado em `tests/test_es_partes_regressao.py` |
-| Comandos de manutenção em massa (dedup_partes, recategorizar_tipo_partes, SQL cru) | ❌ | rodar `reindexar_processos` direcionado depois |
+| **Ingestão DJEN — resumo do `Process`** (`_flush_resumo`, `bulk_update` de `total_movimentacoes`/`ultima_movimentacao_em`/`data_enriquecimento_djen`) | ❌ signal não dispara **e `auto_now` não roda em `bulk_update`** | ✅ `atualizado_em` entra em `CAMPOS_RESUMO`, no MESMO UPDATE (custo zero) — fix 29/08/2026 |
+| **`ingest_processo`** (`.update()` de `data_enriquecimento_djen`, que vira `enriquecido_em` no doc) | ❌ | ✅ `atualizado_em=now_ts` no mesmo `.update()` — fix 29/08/2026 |
+| **`enrichers/jobs.py`** — 3 `.update()` de `enriquecimento_status`/`enriquecido_em` (reset de legado, requeue de erro, faixa fora-da-fonte) | ❌ | ✅ `atualizado_em` nos três — fix 29/08/2026 |
+| **`classificar_e_persistir`** (`.update()` de `classificacao*`) | ❌ | ✅ `atualizado_em=now` — fix 29/08/2026. Era por aqui que o QA media −26% |
+| **`backfill_assunto`** (`bulk_update` de `assunto_nome`/`assunto_codigo`/`assunto_id`) | ❌ | ✅ `atualizado_em` na lista de campos do `bulk_update` — fix 29/08/2026 |
+| **`preencher_classe_via_djen`** (SQL cru, 2 `UPDATE`) | ❌ | ✅ `atualizado_em = now()` nos dois — fix 29/08/2026 |
+| **`backfill_sinal_precatorio`** (SQL cru de `tem_sinal_precatorio`) | ❌ | ✅ `atualizado_em = now()` no `sql_upd` — fix 29/08/2026 |
+| Comandos de manutenção em massa que escrevem em `tribunals_processoparte` (`dedup_partes`, `recategorizar_tipo_partes`, `recalcular_polo_esaj`, `consolidar_partes_*`) | ❌ | **ainda em aberto**: rodar `reindexar_processos` direcionado depois. Eles mudam `partes`/`advs`/`participacoes` do doc; a campainha aqui exigiria derivar os `processo_id` afetados de um merge multi-fase por `parte_id`, e o risco de errar isso é maior que o do reindex manual |
 
 ## A porta do Datajud entrega ao índice (24/08/2026)
 
@@ -1597,3 +1604,102 @@ Agora: `BULK_MAX_BYTES = 20 MB` fecha o lote por tamanho, `413` **divide ao
 meio e reenvia** (`_enviar_bulk`), documento que sozinho não cabe vira ERRO
 registrado, e o `DEFAULT_TIMEOUT` da fila `es_index` subiu de 120 s para 600 s
 (os 120 s eram de quando o job valia UMA publicação).
+
+
+## O indexador estava escrevendo o doc ERRADO — e nada deu erro (29/08/2026)
+
+Sintoma pelo qual a investigação começou: `ProcessoParte` com `fonte='djen'`
+existia em **2.567.081 linhas / 641.576 processos** no Postgres, e o funil da
+`/dashboard/cobertura` mostrava 18,3% de processos com parte.
+
+### O que NÃO era
+
+- **não era o dreno**: fila `es_index` em **0**, 24 réplicas ociosas;
+- **não era o teto do tique**: `SYNC_ES_LIMITE_PROC_ATUALIZADOS` já estava em
+  600.000 e a watermark `sync_es:wm:proc_ts` estava em **2026-08-29 19:54 UTC**,
+  ou seja **em dia** (era o horário do relógio na hora da medição);
+- **não era a campainha das partes**: ela já tinha rodado em 27/08 (checkpoint
+  `campainha:partes:cursor = 105.653.676`). Os 5 processos-piloto do relatório
+  anterior (57016866, 57011804, 57013950, 57000736, 57003117 — 100/79/78/53/51
+  partes no PG e 0 no índice) **já estavam com todas as participações no doc**,
+  e uma amostra de 399 processos com parte do DJEN deu **399 de 399 com
+  `participacoes` no índice**.
+
+### O que era
+
+O documento chegava ao índice **completo e errado**. Amostra de conglomerado
+(n=116.713, semente `20260829`, 300 âncoras × 400 pks; PG 10,3 s, ES 26,6 s):
+
+| campo | Postgres | índice | buraco |
+|---|---:|---:|---:|
+| `grau` com conteúdo | **78,57%** | **1,03%** | **77,54 pp** |
+| `assunto` com conteúdo | 25,79% | 24,92% | 0,87 pp |
+| qualquer parte / `partes` texto | 19,66% | 19,42% | 0,24 pp |
+| dos 399 com parte `djen`: `participacoes` no doc | — | **399** | 0 |
+| dos 399 com parte `djen`: `participacoes.fonte='djen'` | — | **0** | **399** |
+| ausente do índice | — | 2,54% | — |
+
+Contagem exata no índice inteiro, no mesmo instante (`track_total_hits`, nunca
+`_cat/indices`, nunca `exists`):
+
+    docs ......................... 101.524.791
+    `grau` AUSENTE do doc .........  78.468.395
+    `grau` presente e VAZIO .......  22.001.549
+    `grau` com conteúdo ...........   1.054.852  (G1 797.369 · JE 202.339 · G2 49.423 · TR 4.833 · SUP 882 · TRU 1)
+    `participacoes.fonte='djen'` ..      52.422  processos
+
+**Causa raiz, provada DENTRO do processo.** As 24 réplicas de
+`worker_es_index` (na `.102`) estavam de pé havia **4 dias**;
+`tribunals/models.py` no disco delas é de **28/08 00:26**. O bind mount
+`.:/app` entrega o `git pull`, mas Python não recarrega módulo já importado.
+Enfileirando `builtins.eval` na própria fila `es_index` para inspecionar a
+memória do worker:
+
+    {'documents_file': '/app/search/documents.py',
+     'pp_fields': ['id','inserido_em','papel','parte','polo','processo',
+                   'representa','representado_por'],      ← sem `fonte`
+     'proc_tem_grau': False}                               ← sem `grau`
+
+E `search/documents.py` lê os dois com `getattr(obj, campo, padrão)` — o
+defensivo escrito "para não explodir enquanto a coluna não estiver em toda a
+frota". Ele fez exatamente isso: devolveu o padrão. `grau=''` para processo
+`G1`, `participacoes[].fonte=null` para parte do DJEN, em **todo documento
+reindexado desde 25/08**. Fila em zero, job `finished`, doc presente: run
+verde, log limpo, número redondo, os três da tabela do CLAUDE.md.
+
+**Prova do conserto**, mesmo job, mesma fila, mesmos 5 pks, antes e depois de
+`docker compose -f docker-compose-workers.yml restart worker_es_index`:
+
+    antes ... 57016866 grau='' n_part=100 fontes={None}
+    depois .. 57016866 grau='G1' n_part=100 fontes={'djen'}   (idem nos outros 4)
+
+### O `getattr` defensivo agora falha ALTO
+
+`search/documents.py::exigir_modelo_em_dia()` roda no topo de
+`processo_to_doc` e levanta `ModeloDesatualizado` nomeando o campo que falta e
+mandando reiniciar o serviço. Indexar com valor de enchimento é pior que não
+indexar — dado pela metade produz confiança falsa (princípio nº 1). Travado em
+`tests/test_indexador_desatualizado.py`, que inclui um teste que varre os
+`getattr(proc|pp, '...', padrão)` do builder e exige que cada um esteja em
+`CAMPOS_EXIGIDOS` — senão a próxima coluna nova repete a história inteira.
+
+### `reindexar_processos` é a ferramenta do backfill de campo novo, não a campainha
+
+`tocar_campainha` existe para o poller ENXERGAR uma escrita que já aconteceu, e
+o preço é um `UPDATE` por linha. Levar `grau` aos ~81 milhões de processos que
+já o têm no Postgres por essa via seria reescrever 78% da maior tabela do banco
+— WAL, bloat e lock na MESMA tabela onde outros backfills escrevem. O reindex
+direto não escreve **nada** no Postgres.
+
+Vazão medida em 29/08/2026 no container `web` da `.103`, faixa `id > 60.000.000`,
+`--batch-size 2000 --sleep 0`: **1.791 docs/s** em 20.000 docs (462/s no
+primeiro lote, subindo com o cache quente) ⇒ os 101,5 M em ~16 h.
+
+O comando ganhou o que faltava para uma corrida de 16 h (29/08/2026):
+`--checkpoint` (retoma de onde parou, gravado DEPOIS do flush — o `index` por
+`_id` é idempotente, então refazer o último lote é barato e pular é perda),
+`--ate-id`, `--max-segundos` com **ERRO** e o id onde parou, contagem de bulks
+que falharam (antes era um `stderr.write` e segue: sem fila e sem retry, bulk
+que falha aqui é documento perdido em silêncio) e `count()` exato só quando há
+recorte — sem recorte ele usa `reltuples`, porque `count(*)` em 101 M sem teto
+de espera é a regra nº 7 ao contrário.

@@ -60,7 +60,11 @@ class Command(BaseCommand):
                 # Sort por-processo (poucos movs), usa o índice processo_id.
                 cur.execute("""
                     UPDATE tribunals_process p
-                    SET classe_codigo=x.codigo_classe, classe_nome=x.nome_classe, classe_id=x.classe_id
+                    SET classe_codigo=x.codigo_classe, classe_nome=x.nome_classe, classe_id=x.classe_id,
+                        -- CAMPAINHA: `classe_nome`/`codigo_classe` estão no doc
+                        -- do ES e SQL cru não roda o `auto_now`. Sem isto a
+                        -- classe fica certa no banco e vazia na busca.
+                        atualizado_em=now()
                     FROM tribunals_process p2
                     JOIN LATERAL (
                         SELECT codigo_classe, nome_classe, classe_id
@@ -96,7 +100,8 @@ class Command(BaseCommand):
                 UPDATE tribunals_process p
                 SET classe_codigo = m.codigo_classe,
                     classe_nome = m.nome_classe,
-                    classe_id = m.classe_id
+                    classe_id = m.classe_id,
+                    atualizado_em = now()      -- CAMPAINHA, ver acima
                 FROM (
                     SELECT DISTINCT ON (processo_id)
                            processo_id, codigo_classe, nome_classe, classe_id
