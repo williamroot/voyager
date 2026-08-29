@@ -1209,6 +1209,82 @@ refresh, não de queima. `saudaveis`/`bad` é queima. `fail_streak` continua sem
 significado para enrichment (só o cliente DJEN chama `mark_ok()`) — foi visto em
 **1.476.617** nesta apuração.
 
+### E a lista encolheu porque a ASSINATURA VENCEU (29/08/2026)
+
+Puxando o fio do 429, o endpoint pago responde:
+
+```
+HTTP 401  {"status": "unauthorized", "info": "Your subscription is expired."}
+```
+
+`refresh()` chamava `raise_for_status()` **antes** de olhar o corpo, então o 401
+caía no `except RequestException` e saía como `WARNING: endpoint indisponível,
+tentando próximo` — indistinguível de instabilidade de rede. O fallback pegava o
+endpoint genérico, que devolve **proxies públicos**: hoje, **14**.
+
+**O "pool de 2.500" citado em runbook, ADR e em três medições é ficção desde que
+a assinatura venceu.** Tudo o mais decorre disso: com 14 IPs o pool está sempre
+abaixo do limiar (a tempestade de refresh acima), sempre 100% queimado, e
+*todo* o tráfego de enrichment e de backfill DJEN cai no Cortex residencial.
+Ao ler qualquer número histórico de "saudáveis de 2.500", verifique a data.
+
+Agora a recusa por plano/assinatura é lida antes do `raise_for_status` e
+`expired` sobe para **ERROR** com o corpo real. Conferir com:
+
+```bash
+ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python -c "
+import os,django;os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\",\"core.settings\");django.setup()
+from djen.proxies import ProxyScrapePool
+p=ProxyScrapePool.singleton(); print(p.refresh(), p.status())"'
+```
+
+**Isto não tem conserto em código** — precisa renovar a assinatura da
+ProxyScrape ou trocar de fornecedor. Enquanto não tiver, o pool datacenter é
+decorativo e a conta do Cortex é quem paga a coleta inteira.
+
+### Pendência #100 — antes × depois (29/08/2026)
+
+Censo de 10 min na `.102`, todas as réplicas. `QUEIMA_IP` = chamadas a
+`mark_bad` (o que tira IP do pool COMPARTILHADO):
+
+| | TJPE antes | TJPE depois |
+|---|---:|---:|
+| requisições HTTP / 10 min | 2.791 | 2.219 |
+| rotações com `mark_bad` por WAF / 10 min | **~1.379** | **0** |
+| `mark_bad` restantes (proxy público morto, legítimo) | — | 133 |
+| desafios do WAF identificados como tal | 0 (viravam 403) | 577 |
+| `ok` / 10 min | 7 | **24** |
+
+Desfechos no banco (`enriquecido_em` na janela de 10 min), depois:
+
+```
+TRIB      ERRO      OK  NAO_ENC
+TJPA       511       1        0     ← 0 de aproveitamento, próximo candidato
+TJRO       427       0        0     ← 0 de aproveitamento, já documentado
+TJPE       313      24        3
+TJCE        25     527      143
+TJMT        13    1442       72
+TJRJ        11     529    1674
+```
+
+**O TJPE deixou de ser o maior queimador do pool** (era o 1º com ~1.379; agora é
+o 6º com 133, atrás de TJRJ 322, TJCE 217, TJMT 215, datajud 175, TJMA 166 — e
+esses 133 são proxy público morto, não WAF). **Não foi pausado**: pausar tiraria
+a única porta de **1.122.275** processos (639.356 `pendente` + 482.919 `erro`) de
+um tribunal que ainda entrega 144 `ok`/h, e o custo dele para o pool
+compartilhado — que era a pendência — agora é zero.
+
+**Próximos candidatos a kill switch, com o número:** TJPA (511 `erro` × 1 `ok`
+em 10 min) e TJRO (427 × 0; `ok = 0` em 1,09 M desde sempre). Os dois queimam
+**Cortex**, não o pool datacenter — 3.256 bloqueios em 10 min só no TJRO.
+
+**Lever medido e NÃO aplicado (falta decisão do dono):** o TJPE responde melhor
+pelo **IP direto** do que por proxy — 6 de 20 (30%) sem proxy nenhum a partir da
+`.102`, contra 1 de 15 (7%) pelo Cortex residencial. Rotear TJPE direto custaria
+zero proxy e multiplicaria o aproveitamento por ~4, mas expõe o IP de egresso de
+produção ao WAF do tribunal; não está entre as ferramentas autorizadas da
+pendência (kill switch, roteamento Cortex × ProxyScrape, teto, backoff).
+
 ### Purgar fila envenenada de cópias (não perde trabalho)
 
 Depois de corrigir o refill, a fila antiga continua com as cópias já
@@ -3168,3 +3244,76 @@ sum(1 for j in reg.get_job_ids()[:500]
 
 ⚠️ Regra geral: **toda fila que recebe `enqueue_in` precisa de um worker com
 `--with-scheduler`.** Hoje é só a `djen_backfill`.
+
+### O deploy que não aconteceu: 5 drainers com regex velho por 4 dias (29/08/2026)
+
+`git pull` na `.103` + bind mount `/home/ubuntu/voyager:/app` entrega o
+**arquivo**. Não entrega o **processo**: o Python já importou o módulo e não
+recarrega. Os 5 `enrichment_drainer` subiram em **25/08 01:42 UTC**; o commit
+que consertava o regex de `classe_codigo` (`08d306e`) é de **25/08 02:07 UTC**
+— 25 minutos depois. Até 29/08 eles aplicavam o regex antigo com o novo no
+disco, dentro do mesmo container.
+
+Nada disso aparece em log, health, `git status` ou `docker exec … cat`. Aparece
+em **duas** medições:
+
+1. **Na memória do processo.** O texto do regex é um `str` na heap; dá para
+   procurá-lo em `/proc/<pid>/mem` sem parar nada. Receita completa (com
+   controle positivo, que é obrigatório) em
+   [`ENRICHMENT.md`](ENRICHMENT.md#-o-regex-estava-certo-no-disco-e-errado-na-memória-por-4-dias).
+2. **Nos dados que o processo produz.** Amostras de 30.000 processos
+   recém-enriquecidos, por dia: 27/08 → 1.264 linhas com o defeito, 28/08 →
+   184, 29/08 → 444. Zero seria o esperado se o código novo estivesse vivo.
+
+**Regra:** depois de `git pull`, `restart` de TODO serviço que carrega o módulo
+mudado — e **confira dentro do processo**, nunca pelo disco. Vale para
+drainers, scheduler e workers; management command é imune (processo novo a cada
+invocação).
+
+```bash
+cd /home/ubuntu/voyager && git pull
+for s in enrichment_drainer enrichment_drainer_p0 enrichment_drainer_p1 \
+         enrichment_drainer_p2 enrichment_drainer_p3; do
+  docker compose -f docker-compose-prod.yml restart $s; sleep 3
+done
+```
+
+(É a mesma família do "worker rodando código velho" que já tinha deixado o
+watchdog 3.007 dias sem rodar. A diferença é que agora existe uma sonda que
+prova, em vez de inferir por horário de container.)
+
+### Backfill de `classe_codigo` — operar
+
+Recupera o código da classe do texto já gravado (`~1,84 M` processos perdidos
+pelo `\d{2,5}`). Zero rede. Detalhe e números em
+[`ENRICHMENT.md`](ENRICHMENT.md#classe_codigo--o-d25-que-nunca-casou-a-classe-mais-comum-do-país).
+
+```bash
+D='docker exec -w /app voyager-web-1 python manage.py'
+
+# medir sem escrever
+$D backfill_classe --de 42809753 --ate 42849753 --dry-run --json
+
+# corrida em 4 shards (faixas disjuntas, checkpoint por shard) — ~1,5 h
+$D backfill_classe --shard a --de 0        --ate 26500000 --sleep 0.1
+$D backfill_classe --shard b --de 26500000 --ate 53000000 --sleep 0.1
+$D backfill_classe --shard c --de 53000000 --ate 79500000 --sleep 0.1
+$D backfill_classe --shard d --de 79500000 --ate 0        --sleep 0.1
+
+# onde cada shard está / parar tudo sem deploy
+$D shell -c "from django.core.cache import cache; \
+  print({s: cache.get('enrichers:backfill_classe:wm:'+s) for s in 'abcd'})"
+$D shell -c "from django.core.cache import cache; \
+  cache.set('enrichers:backfill_classe:off', True)"
+```
+
+⚠️ **Faixas TÊM que ser disjuntas** — o comando não coordena shards; ele só
+garante que cada um tenha checkpoint próprio. E lembre do gotcha já
+documentado: `docker exec -d` morre no restart do container. O checkpoint faz a
+retomada, mas quem tem que reparar é você.
+
+Freios embutidos, todos LIDOS e não estimados: fila do `es_index` acima de
+150.000 ⇒ espera; sessões em `wait_event_type='Lock'` acima de 20 ⇒ espera;
+custo acima de `--freio-ms-linha` ⇒ dobra a pausa; média móvel acima de
+`--parar-ms-linha` ⇒ PARA com ERROR. Teto de linhas e teto de tempo param com
+ERROR dizendo a pk onde pararam e quanto falta.
