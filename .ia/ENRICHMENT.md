@@ -4,6 +4,13 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 
 ## Estado atual
 
+> ⚠️ **A coluna "Sistema" abaixo diz UM sistema por tribunal. Isso é falso em
+> 15 dos 59 tribunais com acervo** — a varredura de 29/08/2026 está em
+> §"Um tribunal, mais de um sistema". Cinco deles (TJSP, TJMG, TJRJ, TJAC,
+> TJAL) rodam **eproc** em paralelo, e a fatia do eproc **não tem consulta
+> pública** aqui: quem estiver nela é recusado antes da requisição
+> (`enrichers/faixas.py`). Antes de citar esta tabela, leia aquela seção.
+
 | Tribunal | Sistema | Implementado | Notas |
 |---|---|---|---|
 | TRF1 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf1.py` (subclasse) |
@@ -13,16 +20,16 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TRF2 | E-PROC | **Não (só DJEN+Datajud ativos)** | Subdomain público `eproc-consulta.trf2.jus.br` existe mas exige captcha (`#divInfraCaptcha`) e tem IDs randomizados por sessão. Sistema interno tem login + 2FA. Parser autenticado de referência em `~/projetos/JURISCOPE/falcon/datamodel/processors/trf2.py` (965 linhas). |
 | TRF4 | E-PROC | **Não (só DJEN+Datajud ativos desde 2026-05-24)** | Mesmo cenário do TRF2. |
 | TRF6 | E-PROC | **Não (só DJEN+Datajud ativos desde 2026-05-24)** | Mesmo cenário do TRF2. |
-| TJSP | e-SAJ | **Sim** (2026-05-24) | `enrichers/esaj.py::TjspEnricher` (subclasse de `BaseEsajEnricher`, não herda BasePjeEnricher). HTTP puro (sem Selenium): `open.do` → `search.do?NUMPROC` (302) → `show.do` → parse. Selectors portados de `ESAJSPProcessDataProcessor` do JURISCOPE. Limitação: e-SAJ público mascara CPF/CNPJ, então `documento` fica vazio (OAB e nome são preservados). |
-| TJAL | e-SAJ | **Sim / ativo** (2026-05-30; ativado 2026-05-31) | `enrichers/esaj.py::TjalEnricher` (subclasse de `BaseEsajEnricher`). Mesmo software/fluxo do TJSP, host `www2.tjal.jus.br`. Teste e2e em `tests/test_enricher_tjal.py`. **Roteia pelo pool ProxyScrape** (`PREFER_CORTEX=False` desde 2026-06-17 — o pool responde ~37% dos IPs; antes era Cortex-only por premissa equivocada). `worker_tjal` em 24 réplicas. Ver `.ia/DECISIONS.md` ADR-021. |
-| TJMG | PJe consulta pública (sem login) | **Sim** | `enrichers/tjmg.py` (subclasse) — `pje-consulta-publica.tjmg.jus.br/pje/...`. **Sem `valor_causa`** — a fonte não publica (ver §"Valor da causa"). |
+| TJSP | e-SAJ **+ eproc** | **Sim** (2026-05-24) | `enrichers/esaj.py::TjspEnricher` (subclasse de `BaseEsajEnricher`, não herda BasePjeEnricher). HTTP puro (sem Selenium): `open.do` → `search.do?NUMPROC` (302) → `show.do` → parse. Selectors portados de `ESAJSPProcessDataProcessor` do JURISCOPE. Limitação: e-SAJ público mascara CPF/CNPJ, então `documento` fica vazio (OAB e nome são preservados). |
+| TJAL | e-SAJ **+ eproc (2026→)** | **Sim / ativo** (2026-05-30; ativado 2026-05-31) | `enrichers/esaj.py::TjalEnricher` (subclasse de `BaseEsajEnricher`). Mesmo software/fluxo do TJSP, host `www2.tjal.jus.br`. Teste e2e em `tests/test_enricher_tjal.py`. **Roteia pelo pool ProxyScrape** (`PREFER_CORTEX=False` desde 2026-06-17 — o pool responde ~37% dos IPs; antes era Cortex-only por premissa equivocada). `worker_tjal` em 24 réplicas. Ver `.ia/DECISIONS.md` ADR-021. |
+| TJMG | PJe **+ eproc + portal `www4`** | **Sim** (só o PJe) | `enrichers/tjmg.py` (subclasse) — `pje-consulta-publica.tjmg.jus.br/pje/...`. **Sem `valor_causa`** — a fonte não publica (ver §"Valor da causa"). |
 | TJDFT | PJe SPA Angular + REST API (sem login) | **Sim** (2026-05-26) | `enrichers/tjdft.py` (classe própria, não herda BasePjeEnricher). API REST Spring Boot em `pje-consultapublica-api.tjdft.jus.br/v1/`. CPF/CNPJ sem máscara. Limitação: rota `/dados` não expõe `valor_causa`. |
 | TJCE | PJe clássico (sem login) | **Sim** (2026-06-29) | `enrichers/tjce.py` (subclasse) — host `pje-consulta.tjce.jus.br`, path `/pje1grau/`. reCaptcha `if(false)`. |
 | TJAP | PJe clássico (sem login) | **Sim** (2026-06-29) | `enrichers/tjap.py` (subclasse) — `pje.tjap.jus.br`, path `/1g/`. |
 | TJPE | PJe clássico (sem login) | **Sim** (2026-06-29) | `enrichers/tjpe.py` (subclasse) — `pje.cloud.tjpe.jus.br`, path `/1g/`. |
-| TJRJ | PJe clássico (sem login) | **Sim** (2026-06-29) | `enrichers/tjrj.py` (subclasse) — `tjrj.pje.jus.br`, path `/pje/`. |
+| TJRJ | PJe clássico **+ eproc + portal `www3`** | **Sim** (só o PJe) (2026-06-29) | `enrichers/tjrj.py` (subclasse) — `tjrj.pje.jus.br`, path `/pje/`. |
 | TJRO | PJe clássico (sem login) | **Sim** (2026-06-29) | `enrichers/tjro.py` (subclasse) — `pjepg-consulta.tjro.jus.br`, path `/consulta/`. Atenção: host pode devolver 403 a IPs datacenter — validar pelo pool/Cortex em prod. |
-| TJAC | e-SAJ clássico (sem login) | **Sim** (2026-06-29) | `enrichers/esaj.py::TjacEnricher` (subclasse) — `esaj.tjac.jus.br`, 2º grau `cposg5`. |
+| TJAC | e-SAJ clássico **+ eproc (65,7% do que publica)** | **Sim** (só o e-SAJ) (2026-06-29) | `enrichers/esaj.py::TjacEnricher` (subclasse) — `esaj.tjac.jus.br`, 2º grau `cposg5`. |
 | TJMT | PJe SPA Angular + REST (sem login) | **Sim** (2026-06-29) | `enrichers/tjmt.py` (classe própria). API gateway `hellsgate.tjmt.jus.br/consultaprocessual/ProcessosJudiciais/v2?numeroUnico=`. Exige header `X-Fingerprint` = base64(HMAC-SHA256("UA-resolução-lang-timestamp_ms", chave `A_mesma_mao_que_aplaude_e_a_que_vaia!`)) gerado fresco por request. Sem login/captcha. OAB sem UF (assume MT). |
 | TJPA | Portal próprio "Consulta Unificada" (SPA + REST) | **Sim** (2026-06-29) | `enrichers/tjpa.py` (classe própria). `GET consulta-processual-unificada-prd.tjpa.jus.br/consilium-rest/processobycnj/{cnj}` (UA de browser, throttle p/ 429). reCAPTCHA só no front, não enforced. `cpfcnpj` vazio na consulta pública (tipo pf/pj por `tppessoa`). |
 | **Bloqueados (recon 2026-06-29)** | vários | **Não — captcha/login/anti-bot** | Consulta pública gated, inviável headless sem captcha-solver ou credenciais: **captcha** (hCaptcha/reCaptcha/Tencent) — TJBA, TJPB, TJRR, TJSE, TJMS (e-SAJ virou SPA Next.js c/ captcha), TJGO+TJPR (PROJUDI), TJAM (PROJUDI atrás de F5 anti-bot); **login obrigatório** — TJES, TJPI, TJTO; **indeterminado** (sem amostra/host estável) — TJRN. eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA (ver linhas TRF acima). Desbloqueio exige decisão: serviço de captcha-solving (2captcha etc.) ou credenciais/OTP. Veredictos completos do recon no histórico do commit. |
@@ -156,54 +163,233 @@ de decidir qualquer coisa paga.
 pública acrescenta é **valor da causa** e o **assunto com código**, mais os
 eventos. Dimensione a decisão por esses campos, não por "partes".
 
-## 🔴 A tabela acima está INCOMPLETA: três tribunais têm DOIS sistemas (medido 25/08/2026)
+## Um tribunal, mais de um sistema — a varredura dos 60 (29/08/2026)
 
-A coluna "Sistema" acima diz UM sistema por tribunal. **É falso para TJSP, TJMG e
-TJRJ**, e o erro custa requisição e esconde processo: a fatia que migrou para o
-**eproc** não tem consulta pública (eproc exige login+2FA), então o enricher
-pergunta ao sistema errado e ouve "não existe".
+**Veredito: 15 dos 59 tribunais com acervo rodam mais de um sistema, e em
+CINCO deles isso custa requisição hoje — TJSP (já cortado em 25/08), TJMG,
+TJRJ, TJAC e TJAL.** Os outros dez não têm enricher, então a fatia extra é
+achado de mapa, não desperdício.
 
-**Método (barato, e é o que fecha a dúvida):** o campo `link` da publicação DJEN
-denuncia o sistema. Amostra de **60 âncoras × 6.000 movimentações** espalhadas
-pelo espaço de `id` — âncoras espalhadas, NUNCA um bloco contíguo, porque bloco
-contíguo amostra poucos *momentos de ingestão* (a mesma armadilha do
-`random_score` do ES).
+A varredura anterior (25/08) tinha coberto **24** dos 60 tribunais e concluído
+"três casos". Ela não estava errada — estava incompleta, e a diferença tem
+nome: método de amostragem.
 
+### O método — e por que o anterior tinha que ser trocado
+
+O sinal continua sendo o mesmo: **o host do `link` da publicação DJEN denuncia
+o sistema**. O que mudou é como se sorteia a amostra.
+
+Âncora por **data + OFFSET** (o desenho anterior) tem um viés que este arquivo
+já denunciava em outro contexto e não tinha visto aqui: dentro de um mesmo
+`data_disponibilizacao` a ordem do índice é a **ordem física**, ou seja a ordem
+de inserção. Uma âncora de dia amostra **um momento de ingestão**. Medido no
+mesmo TJSP, no mesmo dia:
+
+| leitura | cobertura de `link` |
+|---|---:|
+| primeiras 500 linhas do dia (OFFSET 0) | **30%** |
+| 500 linhas a 20 mil de OFFSET | **0,0%** |
+| página aleatória do heap | **43,8%** |
+
+As duas primeiras estão erradas, e cada uma engana para um lado.
+
+O desenho novo é `TABLESAMPLE SYSTEM (p) REPEATABLE (semente)` em N passadas
+independentes: o Postgres sorteia **páginas do heap inteiro** (126,9 M páginas
+/ 969 GB em `tribunals_movimentacao`), sem depender de índice e sem privilegiar
+momento de ingestão nenhum. É "âncora espalhada" feita direito — e barata:
+
+```sql
+-- sistema por tribunal: 260 passadas = 3,21 M publicações em 9,8 min
+SELECT tribunal_id, split_part(split_part(link,'//',2),'/',1) AS host, count(*)
+FROM tribunals_movimentacao TABLESAMPLE SYSTEM (0.0008) REPEATABLE (0.0031)
+WHERE link <> '' GROUP BY 1,2;
+
+-- estado por (tribunal, prefixo do CNJ, ano): 200 passadas = 10,36 M processos em 2,1 min
+SELECT tribunal_id, left(numero_cnj,1), ano_cnj, enriquecimento_status, count(*)
+FROM tribunals_process TABLESAMPLE SYSTEM (0.05) REPEATABLE (0.1001)
+GROUP BY 1,2,3,4;
 ```
-TJSP     esaj/dje 77,0%  ·  eproc 23,0%      eproc1g.tjsp.jus.br / eproc2g.tjsp.jus.br
-TJMG     pje      60,8%  ·  eproc  9,8%      eproc1g.tjmg.jus.br / eproc2g.tjmg.jus.br
-TJRJ     pje      71,5%  ·  eproc  9,3%      eproc1g.tjrj.jus.br / eproc2g.tjrj.jus.br
+
+Amostra final: **3.211.149 publicações** (260 passadas, 0 estouro de teto) +
+**10.359.868 processos** (200 passadas, 0 estouro) + **1,24 M publicações**
+cruzadas com o processo para juntar host × prefixo × ano.
+
+### O mapa completo — 59 tribunais com acervo, 1 sem amostra
+
+STF está cadastrado mas tem **zero** movimentação, então não entra. Os outros
+59 apareceram todos na amostra. **Um deles não pôde ser medido**: TJRR, com
+`link` vazio em 100% de 4.939 publicações — ali a resposta é *não medido*,
+nunca "sistema único".
+
+| tribunal | publicações amostradas | `link` presente | sistemas vistos (share do que tem link) | enricher |
+|---|---:|---:|---|---|
+| TJMG | 652.781 | 11.3% | pje 51.6% · portal proprio 35.9% · eproc 12.5% · projudi 0.0% | sim |
+| TJSP | 317.469 | 43.8% | e-SAJ/DJE 81.0% · eproc 19.0% | sim |
+| TRF3 | 310.833 | 13.1% | pje 100.0% · portal proprio 0.0% | sim |
+| TJDFT | 186.405 | 8.6% | pje 99.4% · portal proprio 0.4% | sim |
+| TJGO | 116.757 | 34.6% | projudi 100.0% | — |
+| TRF1 | 107.634 | 7.5% | pje 98.3% · portal proprio 1.7% | sim |
+| TJMA | 105.999 | 21.5% | pje 100.0% | sim |
+| TJMT | 98.842 | 24.3% | pje 99.7% · portal proprio 0.3% | sim |
+| TJRS | 82.408 | 42.1% | eproc 100.0% | — |
+| TRF4 | 81.202 | 26.0% | eproc 100.0% | — |
+| TJPR | 76.458 | 75.3% | projudi 99.8% · eproc 0.2% | — |
+| TJAM | 71.816 | 0.7% | projudi 58.8% · e-SAJ/DJE 41.2% | — |
+| TJCE | 66.391 | 18.5% | pje 96.3% · e-SAJ/DJE 3.7% · portal proprio 0.0% | sim |
+| TJAL | 64.994 | 7.5% | e-SAJ/DJE 100.0% · eproc 0.0% | sim |
+| TRF5 | 60.687 | 22.0% | pje 100.0% | sim |
+| TJBA | 52.682 | 28.6% | projudi 52.7% · pje 47.3% | — |
+| TJMS | 52.174 | 14.4% | e-SAJ/DJE 98.2% · eproc 1.8% | — |
+| TJRJ | 48.473 | 60.2% | pje 65.4% · portal proprio 22.1% · eproc 12.5% | sim |
+| TRF6 | 40.790 | 17.7% | eproc 95.7% · pje 4.3% · portal proprio 0.1% | — |
+| TJPA | 39.826 | 34.0% | pje 99.5% · portal proprio 0.5% | sim |
+| TJPB | 33.657 | 24.4% | pje 100.0% | — |
+| TRT2 | 32.539 | 60.9% | pje 100.0% | — |
+| TJPE | 27.432 | 36.5% | pje 100.0% · portal proprio 0.0% | sim |
+| TRT3 | 27.313 | 57.9% | pje 100.0% | — |
+| TRT9 | 27.267 | 45.0% | pje 100.0% | — |
+| TRT15 | 26.394 | 50.5% | pje 100.0% | — |
+| TJSC | 25.679 | 58.0% | eproc 100.0% | — |
+| TJRN | 24.029 | 81.7% | pje 100.0% | — |
+| TRT1 | 22.798 | 66.5% | pje 100.0% | — |
+| TJSE | 22.761 | 63.9% | portal proprio 99.5% · eproc 0.5% | — |
+| TRT4 | 21.871 | 57.8% | pje 100.0% | — |
+| TJAP | 20.708 | 11.7% | portal proprio 51.0% · pje 49.0% | sim |
+| TRT5 | 19.218 | 54.8% | pje 100.0% | — |
+| TJES | 17.830 | 30.6% | pje 100.0% | — |
+| TRT6 | 17.709 | 53.4% | pje 100.0% | — |
+| TRF2 | 17.690 | 52.8% | eproc 100.0% | — |
+| TST | 17.045 | 74.4% | pje 82.3% · portal proprio 17.7% | — |
+| TRT17 | 16.654 | 26.6% | pje 100.0% | — |
+| TJPI | 15.096 | 43.8% | pje 95.4% · portal proprio 4.6% | — |
+| TRT12 | 14.881 | 66.6% | pje 100.0% | — |
+| TJRO | 13.914 | 90.4% | pje 98.8% · portal proprio 1.2% | sim |
+| TJAC | 12.767 | 3.0% | eproc 65.7% · e-SAJ/DJE 34.3% | sim |
+| TJTO | 11.406 | 29.8% | eproc 100.0% | — |
+| TRT18 | 10.749 | 59.4% | pje 100.0% | — |
+| TRT7 | 10.270 | 43.9% | pje 100.0% | — |
+| STJ | 9.125 | 92.0% | portal proprio 100.0% | — |
+| TRT10 | 8.724 | 71.5% | pje 100.0% | — |
+| TRT8 | 7.407 | 63.4% | pje 100.0% | — |
+| TRT23 | 5.671 | 59.5% | pje 100.0% | — |
+| TRT13 | 4.996 | 69.8% | pje 100.0% | — |
+| TJRR | 4.939 | 0.0% | **NÃO MEDIDO** (link vazio em 100%) | — |
+| TRT14 | 4.829 | 45.7% | pje 100.0% | — |
+| TRT16 | 4.250 | 55.5% | pje 100.0% | — |
+| TRT24 | 4.019 | 63.4% | pje 100.0% | — |
+| TRT19 | 3.522 | 48.5% | pje 99.9% · portal proprio 0.1% | — |
+| TRT20 | 3.306 | 52.4% | pje 100.0% | — |
+| TRT11 | 3.167 | 89.1% | pje 100.0% | — |
+| TRT21 | 3.037 | 77.4% | pje 100.0% | — |
+| TRT22 | 1.859 | 79.5% | pje 100.0% | — |
+
+⚠️ **`link` presente varia de 0,0% a 92,0%.** Onde ele é baixo (TJAM 0,7%,
+TJAC 3,0%, TJAL 7,5%, TRF1 7,5%, TJDFT 8,6%) a leitura é do que dá pra ver, não
+do acervo. "portal proprio" agrupa o legado de cada casa: `www4.tjmg.jus.br`,
+`www3/www4.tjrj.jus.br`, `www.tjse.jus.br`, `processo.stj.jus.br`,
+`consultaprocessual.tst.jus.br`, `services.tjap.jus.br`/`tucujuris`.
+
+**Onde há eproc:** TJRS, TJSC, TJTO, TRF2, TRF4 e TRF6 são eproc **puro** (não
+é migração, é o sistema da casa); TJSP 19,0%, TJMG 12,5%, TJRJ 12,5%, TJAC
+65,7%, TJMS 1,8%, TJSE 0,5%, TJPR 0,2%, TJAL 0,02% são **migração em curso**.
+
+### O dano, medido dentro × fora da fatia
+
+`enriquecimento_status` dos processos, amostra de página aleatória
+(10,36 M processos), recorte `prefixo do sequencial do CNJ + ano`:
+
+| tribunal | faixa | tamanho | `ok` DENTRO | `ok` FORA | sonda ao vivo (dentro / controle) |
+|---|---|---:|---:|---:|---|
+| TJSP | prefixo 4, ano ≥ 2025 | 15,9% ≈ **2,65 M** | **0,17%** | 12-18% | 16 de 16 "não existe" / 33 de 33 `ok` em 2013 |
+| TJMG | prefixo 1, ano ≥ 2025 | 13,6% ≈ **1,13 M** | **0,00%** | 43-51% | **16 de 16** / 15 de 16 achou (pref. 5) |
+| TJRJ | prefixo 3, ano ≥ 2024 | 13,2% ≈ **809 mil** | **0,00%** | 31-40% | **16 de 16** (2025-26) e **16 de 16** (2024) / 13 de 16 achou (pref. 0) |
+| TJAC | prefixo 5, ano ≥ 2025 | 32,0% ≈ **49 mil** | **0,43%** | 92-94% | **16 de 16** / 16 de 16 com cadastro (pref. 0) |
+| TJAL | prefixo 5, ano ≥ 2026 | 0,1% ≈ **490** | **0,00%** | 70-79% | **14 de 14** / — |
+
+E o que isso custa **por hora, agora** (janela de 2 h em prod, `Process`
+distintos por `enriquecido_em`, índice `proc_enriquecido_em_idx`):
+
+| tribunal | desfechos na janela | **dentro da faixa** | `ok` dentro | `ok` fora |
+|---|---:|---:|---:|---:|
+| TJMG | 11.994 | **1.900 (15,8%)** | 0,0% | 74,0% |
+| TJRJ | 24.499 | **1.894 (7,7%)** | 0,0% | 26,3% |
+| TJAC | 166 | **154 (92,8%)** | 0,0% | 100,0% |
+| TJAL | 4.344 | 17 (0,4%) | 0,0% | 83,5% |
+| TJSP (já cortado) | 31.597 | 10.920 — recusa em LOTE, **zero requisição** | — | 92,7% |
+
+⇒ **≈ 1.980 requisições por hora** em TJMG+TJRJ+TJAC+TJAL para ouvir "não
+existe" garantido, cada uma podendo queimar até `MAX_PROXY_ROTATIONS` IPs do
+pool **compartilhado com todos os tribunais**. No TJAC, **92,8% de todo o
+trabalho de enriquecimento** cai na fatia morta.
+
+### O que foi cortado (e a prova exigida)
+
+A tabela de faixas vive em `enrichers/faixas.py` e cada linha exigiu **três**
+provas — a terceira é a que manda:
+
+1. **sistema**: host do `link` (eproc contra pje/e-SAJ/portal);
+2. **estado**: `ok` dentro × fora, em amostra de página aleatória;
+3. **sonda ao vivo**: 16 CNJ da faixa perguntados à fonte real **+ controle
+   negativo na mesma janela**. Sem o controle, "não existe" pode ser a fonte
+   fora do ar.
+
+```python
+TjmgEnricher.FORA_DA_FONTE_FAIXAS = (('1', 2025, 'eproc'),)
+TjrjEnricher.FORA_DA_FONTE_FAIXAS = (('3', 2024, 'eproc'),)
+TjacEnricher.FORA_DA_FONTE_FAIXAS = (('5', 2025, 'eproc'),)
+TjalEnricher.FORA_DA_FONTE_FAIXAS = (('5', 2026, 'eproc'),)
+TjspEnricher.FORA_DA_FONTE_FAIXAS = (('4', 2025, 'eproc'),)
 ```
 
-**O dano, medido dentro × fora da fatia eproc** (mesma amostra, `enriquecimento_status`):
+⚠️ **O corte é `prefixo` E `ano ≥ N`, nunca o prefixo sozinho, e o ano é
+diferente em cada tribunal.** O controle negativo do TJMG é a razão: prefixo 1
+de 2015-2021 **está** no PJe (7 de 16 achou ao vivo) contra 0 de 16 em
+2025-2026. Cortar por prefixo apagaria acervo bom. O mesmo já valia no TJSP
+(prefixo 4 de 2013, 33 de 33 `ok`).
 
-| tribunal | `ok` FORA do eproc | `ok` DENTRO do eproc |
-|---|---:|---:|
-| TJMG | 52,3% | **15,1%** (`nao_encontrado` 62,5% contra 14,4% fora) |
-| TJRJ | 60,5% | **8,1%** |
-| TJSP | 13,0% | **2,4%** |
+O mecanismo é o de 25/08, agora genérico: o hook virou `fora_da_fonte`
+(`fora_do_esaj` continua resolvendo), o guard por job existe também no
+`BasePjeEnricher`, e o fechamento em LOTE (`_separar_fora_da_fonte`, teto de
+10.000/passada/tribunal) já era agnóstico de tribunal. **A recusa é contada,
+nunca muda** — `manage.py enrich_fora_do_esaj` e ERROR no refill.
 
-**O eproc é o sistema NOVO, não o legado.** Fatia eproc por ano do processo no
-TJSP (`ano_cnj` × host do `link`): ~2-4% até 2024, **23,4% em 2025**, **46,6% em
-2026**. Quem supõe "o eproc é o acervo velho" inverte a realidade e desenha o
-backfill ao contrário.
+### O que NÃO foi cortado, e por quê (abster > chutar)
 
-### Limites desta medição — leia antes de citar o número
+- **TJRR — não medido.** `link` vazio em 100% de 4.939 publicações. Nenhuma
+  afirmação sobre sistema. Pendência aberta: medir por outra via (o texto da
+  publicação, ou o Datajud).
+- **TJCE (e-SAJ 3,7%) e TJAP (portal próprio 51,0%)** têm segundo sistema mas
+  **não têm separação limpa por CNJ**: no TJCE o prefixo 0 aparece nos dois
+  sistemas, no TJAP o `link` majoritário é relativo (`processo`, sem host). Sem
+  predicado, recusar erraria — e `ok` dentro não é zero (TJCE 9,5%). Fica sem
+  corte, com a perda documentada.
+- **TJMG prefixo 1 de 2022-2024** também dá 16 de 16 "não existe", mas ali a
+  amostra é toda de foro `0000` (2º grau, que o enricher não cobre — o TJMG tem
+  `pjerecursal.tjmg.jus.br` sem configuração) e o estoque já está 99% consumido
+  como `nao_encontrado`: recusar não pouparia requisição. Fenômeno diferente.
+- **TJMS, TJPR, TJSE, TJRS, TJSC, TJTO, TRF2, TRF4, TRF6, TJBA, TJAM** têm mais
+  de um sistema (ou eproc puro) e **nenhum enricher** — não há requisição a
+  poupar. Entram no mapa, não no corte.
+- **Nenhuma das fatias eproc ganhou porta.** Continua valendo o §"eproc/TJSP" acima:
+  a consulta pública do eproc existe, é sem login, e está atrás de **Cloudflare
+  Turnstile em modo interativo**. Quatro configurações de navegador testadas,
+  nenhuma passa. **Solver de captcha e evasão anti-bot não estão autorizados** e
+  não se ligam por conta própria; o caminho legítimo é **autorização do
+  tribunal/CNJ**. Hoje esses ≈ 4,6 M de processos (TJSP+TJMG+TJRJ+TJAC+TJAL)
+  **não têm porta nenhuma**: o enricher não alcança e o
+  `reabastecer_fila_datajud` **exclui** tribunais com enricher
+  (`TRIBUNAIS_COM_ENRICHER`). Abrir o Datajud para a fatia recusada é o próximo
+  passo óbvio — e é decisão de produto, porque compartilha a cota do CNJ.
 
-- A amostra cobriu **24 dos 59 tribunais**. Os outros 35 não apareceram; isso é
-  ausência na amostra, **não** prova de sistema único.
-- **Cobertura do `link` varia muito por faixa** — de 17,8% a 84,5% conforme o
-  trecho da tabela. Onde o `link` é vazio o método é **cego**: ali a resposta é
-  "não medido", nunca "sistema único".
-  *(Correção de 26/08: a versão anterior desta linha dizia "TJRS tem link vazio
-  em 100%". Errado — aquilo veio das últimas 100 mil movimentações, que por
-  acaso eram todas TJRS de um lote sem link. Medido em 40 âncoras espalhadas, o
-  TJRS tem link em **82,2%**. Amostra de bloco contíguo mentindo de novo.)*
-- A amostra é de **publicações**, então pesa processo ativo. Serve para achar o
-  sistema; não serve para dimensionar o acervo parado.
+### Achado de infraestrutura no caminho
 
-**Pendente:** varrer os 35 tribunais restantes com o mesmo método e recusar a
-fatia eproc nos que tiverem, como já se fez no TJSP (`enrich_fora_do_esaj`).
+`proc_tribunal_id_idx` está declarado no model como `(tribunal, -id)` e **no
+banco é só `(tribunal_id)`** — índice de uma coluna. Conferido por
+`pg_get_indexdef` em 29/08/2026. É o padrão da casa que a memória já registra
+("índices declarados e ausentes"): `makemigrations` compara com o ESTADO, não
+com o banco. Efeito prático medido: `WHERE tribunal_id=X AND id >= N ORDER BY
+id LIMIT 50` **estoura 20 s** em TJRR, TJSP e TJRJ. Quem escrever amostragem
+por `id` dentro de tribunal vai bater nisso.
 
 ## Roteamento de proxy: Cortex quando datacenter morre (2026-07-06)
 O pool datacenter (ProxyScrape) degrada em ondas: WAF dos tribunais bloqueia os IPs

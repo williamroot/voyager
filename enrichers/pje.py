@@ -25,6 +25,7 @@ from djen.proxies import ProxyScrapePool, cortex_proxy_url, sessao_rotativa
 from tribunals.models import Process
 
 from . import stream
+from .faixas import faixa_fora_da_fonte
 from .parsers import (
     classificar_tipo_parte,
     limpar_nome,
@@ -165,6 +166,13 @@ class BasePjeEnricher:
     LOG_NAME: str = 'voyager.enrichers.pje'
     USER_AGENT: Optional[str] = None  # Subclasse pode sobrescrever (ex: tribunais atrás de WAF que rejeita UA identificador)
 
+    #: Faixas de CNJ que ESTE PJe comprovadamente não tem — o tribunal roda um
+    #: SEGUNDO sistema (eproc) e a fatia dele não está na consulta pública do
+    #: PJe. Formato `(prefixo, ano_mínimo, motivo)`; vazio = tribunal medido e
+    #: sem segunda fonte, ou não medido (abster > chutar). Ver `faixas.py` para
+    #: o método e a evidência exigida antes de acrescentar uma linha.
+    FORA_DA_FONTE_FAIXAS: tuple = ()
+
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         if not (self.BASE_URL and self.LIST_URL and self.DETALHE_PATH and self.TRIBUNAL_SIGLA):
             raise NotImplementedError('Subclasse deve definir BASE_URL/LIST_URL/DETALHE_PATH/TRIBUNAL_SIGLA')
@@ -188,6 +196,33 @@ class BasePjeEnricher:
         except Exception:  # noqa: BLE001 — cache indisponível: comportamento normal
             self.cortex_only = False
 
+    @classmethod
+    def fora_da_fonte(cls, numero_cnj: str) -> Optional[str]:
+        """Motivo pelo qual este CNJ NÃO está nesta consulta pública — ou None.
+
+        Barato e sem rede: é só a forma do CNJ. Serve para não gastar
+        requisição (nem IP do pool COMPARTILHADO) perguntando ao sistema errado.
+        """
+        return faixa_fora_da_fonte(numero_cnj, cls.FORA_DA_FONTE_FAIXAS)
+
+    def _recusar_fora_da_fonte(self, processo: Process, motivo: str,
+                               direct_apply: bool) -> dict:
+        """Recusa CONTADA, nunca corte mudo (regra nº 2 do CLAUDE.md).
+
+        Gêmeo de `BaseEsajEnricher._recusar_fora_do_esaj`: cada recusa entra no
+        contador por tribunal que sai em ERROR no refill e em
+        `manage.py enrich_fora_do_esaj`.
+        """
+        from .jobs import registrar_fora_do_esaj
+        registrar_fora_do_esaj(self.TRIBUNAL_SIGLA, motivo)
+        self._emit(stream.build_nao_encontrado_payload(
+            process_id=processo.pk, tribunal=processo.tribunal_id,
+            numero_cnj=processo.numero_cnj,
+            scraped_at=timezone.now().astimezone(_dt.timezone.utc).isoformat(),
+        ), direct_apply)
+        return {'cnj': processo.numero_cnj, 'status': 'nao_encontrado',
+                'fora_do_esaj': motivo, 'requisicoes': 0}
+
     def enriquecer(self, processo: Process, direct_apply: bool = False) -> dict:
         """Faz scraping no PJe e publica o resultado no stream.
 
@@ -200,6 +235,13 @@ class BasePjeEnricher:
             raise PjeEnricherError(
                 f'Tribunal {processo.tribunal_id} não suportado por {self.__class__.__name__}.'
             )
+
+        # Faixa que a fonte já provou não ter (o tribunal roda um SEGUNDO
+        # sistema): não gastamos requisição nem IP do pool COMPARTILHADO pra
+        # ouvir "não existe" garantido. Gêmeo do guard do e-SAJ.
+        motivo = self.fora_da_fonte(processo.numero_cnj)
+        if motivo:
+            return self._recusar_fora_da_fonte(processo, motivo, direct_apply)
 
         # scraped_at sempre em UTC ISO8601 — drainer faz dedup por
         # comparação lexicográfica entre strings, e workers em TZs diferentes

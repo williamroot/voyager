@@ -112,6 +112,20 @@ def registrar_fora_do_esaj(sigla: str, motivo: str, quantos: int = 1) -> None:
                        extra={'sigla': sigla, 'motivo': motivo})
 
 
+def _hook_fora_da_fonte(sigla: str):
+    """Predicado `cnj -> motivo|None` do enricher deste tribunal, ou None.
+
+    O hook nasceu no e-SAJ (`fora_do_esaj`) e virou genérico quando a medição de
+    29/08/2026 achou a mesma fatia sem porta em tribunais de PJe. `fora_da_fonte`
+    é o nome canônico; `fora_do_esaj` continua resolvendo por compatibilidade
+    com enrichers/runbooks antigos.
+    """
+    cls = _ENRICHERS.get(sigla)
+    if not cls:
+        return None
+    return getattr(cls, 'fora_da_fonte', None) or getattr(cls, 'fora_do_esaj', None)
+
+
 def censo_fora_do_esaj() -> dict[str, int]:
     """`{'TJSP|eproc': 123456}` — quantos processos foram recusados por faixa."""
     try:
@@ -397,8 +411,7 @@ def tick_reenrich_esaj_legacy() -> dict:
             relatorio[sig] = 'pausado'
             continue
         teto = _teto_reenrich(conn, sig)
-        cls = _ENRICHERS.get(sig)
-        fora = getattr(cls, 'fora_do_esaj', None) if cls else None
+        fora = _hook_fora_da_fonte(sig)
         # Lê com folga: parte do lote vai ser descartada pela faixa fora-da-fonte
         # (no TJSP ela é 38,7% do estoque `nao_encontrado`), e sem folga o tick
         # devolveria menos que o teto a cada passada.
@@ -597,8 +610,7 @@ def _separar_fora_da_fonte(sigla: str, linhas: list) -> tuple[list, int]:
     O guard equivalente em `BaseEsajEnricher.enriquecer` continua existindo —
     ele cobre o clique manual e os jobs que já estavam na fila.
     """
-    cls = _ENRICHERS.get(sigla)
-    fora = getattr(cls, 'fora_do_esaj', None) if cls else None
+    fora = _hook_fora_da_fonte(sigla)
     if not fora:
         return [pk for pk, _ in linhas], 0
     aptos: list[int] = []

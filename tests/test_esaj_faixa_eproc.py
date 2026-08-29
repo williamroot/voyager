@@ -75,10 +75,11 @@ def test_fronteira_do_ano_e_exatamente_2025():
     assert TjspEnricher.fora_do_esaj('40000010120258260100') == 'eproc'
 
 
-def test_so_o_tjsp_tem_faixa_medida():
-    """TJAL e TJAC não foram medidos — e abster > chutar (regra nº 6). Recusar
-    faixa em tribunal sem medição apagaria acervo por analogia."""
-    cnj = '40037684020268260005'
+def test_a_faixa_do_tjsp_nao_vaza_para_os_vizinhos():
+    """Cada tribunal tem o SEU prefixo e o SEU ano de migração — o do TJSP não
+    se aplica por analogia. (TJAL e TJAC ganharam faixa própria em 29/08/2026,
+    prefixo 5; ver `tests/test_faixa_fora_da_fonte.py`.)"""
+    cnj = '40037684020268260005'          # prefixo 4 = a faixa do TJSP
     assert TjalEnricher.fora_do_esaj(cnj) is None
     assert TjacEnricher.fora_do_esaj(cnj) is None
 

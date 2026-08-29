@@ -1355,9 +1355,34 @@ WHERE processo_id = ANY(<pks de uma amostra do tribunal>)
 GROUP BY 1 ORDER BY 2 DESC LIMIT 10;
 ```
 
-**Pergunta aberta, e é de mapa, não de parser: quantos outros dos 59 tribunais
-migraram para eproc (ou outro sistema) sem que a gente notasse?** Barato de
-checar com o método acima. Não foi feito nesta missão.
+**RESPONDIDO em 29/08/2026 — e eram mais quatro.** A varredura dos 60
+tribunais (`.ia/ENRICHMENT.md` §"Um tribunal, mais de um sistema") achou eproc
+em paralelo também no **TJMG** (prefixo 1, ano ≥ 2025 — 13,6% do tribunal,
+≈ 1,13 M processos, `ok` 0,00%), **TJRJ** (prefixo 3, ano ≥ 2024 — 13,2%,
+≈ 809 mil, `ok` 0,00%), **TJAC** (prefixo 5, ano ≥ 2025 — 32,0%, `ok` 0,43%, e
+**92,8% de todo o enriquecimento do tribunal** caía ali) e **TJAL** (prefixo 5,
+ano ≥ 2026 — a migração no primeiro ano). Os quatro passaram a ser recusados
+pela mesma máquina; a tabela de faixas está em `enrichers/faixas.py`.
+
+⚠️ **O método da consulta acima (âncora de dia) enviesa e foi trocado.** Dentro
+de um mesmo `data_disponibilizacao` a ordem do índice é a ordem física, então a
+âncora amostra UM momento de ingestão: no mesmo dia do TJSP, a cobertura de
+`link` deu 30% na cabeça do dia, **0,0%** a 20 mil de OFFSET e 43,8% por página
+aleatória. Use `TABLESAMPLE SYSTEM (p) REPEATABLE (semente)` em N passadas —
+3,21 M publicações em 9,8 min, sem depender de índice:
+
+```sql
+SELECT tribunal_id, split_part(split_part(link,'//',2),'/',1) AS host, count(*)
+FROM tribunals_movimentacao TABLESAMPLE SYSTEM (0.0008) REPEATABLE (0.0031)
+WHERE link <> '' GROUP BY 1,2;
+```
+
+⚠️ **Rode isso em container PRÓPRIO** (`docker run --name r99-censo … voyager-web:prod`),
+não em `docker exec` no `voyager-web-1`: um deploy de outra pessoa reinicia o
+web e mata a medição no meio (aconteceu, na passada 225 de 400).
+
+⚠️ **TJRR ficou SEM amostra**: `link` vazio em 100% de 4.939 publicações. Ali a
+resposta é *não medido*, nunca "sistema único".
 
 **O que está em produção desde 25/08/2026:** o refill fecha a faixa `eproc` em
 LOTE (`_separar_fora_da_fonte`), sem gastar requisição nem IP do pool
@@ -1369,6 +1394,15 @@ ssh 100.98.141.91 'docker exec -w /app voyager-worker_default-1 \
   python manage.py enrich_fora_do_esaj'
 # e o refill loga em ERROR a cada passada em que o número cresce:
 #   FORA DA FONTE: 2.940.182 processos TJSP nao foram consultados — ...
+```
+
+Desde 29/08/2026 o censo tem **cinco** chaves, não uma — TJSP, TJMG, TJRJ,
+TJAC e TJAL. Se alguma delas parar de crescer enquanto o tribunal segue
+produzindo desfecho, o hook sumiu: confira com
+
+```python
+from enrichers.jobs import _hook_fora_da_fonte
+_hook_fora_da_fonte('TJMG')('1000294-72.2026.8.13.0103')   # -> 'eproc'
 ```
 
 ⚠️ Por que em LOTE no refill e não job a job: sem rede, 40 réplicas de

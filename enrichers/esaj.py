@@ -35,6 +35,7 @@ from djen.proxies import ProxyScrapePool, cortex_proxy_url, sessao_rotativa
 from tribunals.models import Process
 
 from . import stream
+from .faixas import faixa_fora_da_fonte
 from .parsers import classificar_tipo_parte, parse_documento, parse_oab
 
 DEFAULT_HEADERS = {
@@ -183,13 +184,19 @@ class BaseEsajEnricher:
 
     MAX_INCIDENTES = 12  # teto de incidentes seguidos por processo (custo de proxy)
 
-    @classmethod
-    def fora_do_esaj(cls, numero_cnj: str) -> Optional[str]:
-        """Motivo pelo qual este CNJ NÃO está no e-SAJ — ou None.
+    #: Faixas de CNJ que ESTE e-SAJ comprovadamente não tem — o tribunal roda um
+    #: SEGUNDO sistema (eproc). `(prefixo, ano_mínimo, motivo)`; vazio = sem
+    #: segunda fonte medida (abster > chutar). Ver `enrichers/faixas.py`.
+    FORA_DA_FONTE_FAIXAS: tuple = ()
 
-        Base: nenhum. Só o TJSP tem faixa medida (ver `TjspEnricher`).
-        """
-        return None
+    @classmethod
+    def fora_da_fonte(cls, numero_cnj: str) -> Optional[str]:
+        """Motivo pelo qual este CNJ NÃO está no e-SAJ deste tribunal — ou None."""
+        return faixa_fora_da_fonte(numero_cnj, cls.FORA_DA_FONTE_FAIXAS)
+
+    #: Nome histórico do hook, de quando a recusa por faixa só existia no e-SAJ.
+    #: Mantido porque `manage.py enrich_fora_do_esaj` e os runbooks o citam.
+    fora_do_esaj = fora_da_fonte
 
     def _recusar_fora_do_esaj(self, processo: Process, motivo: str,
                               direct_apply: bool) -> dict:
@@ -218,7 +225,7 @@ class BaseEsajEnricher:
 
         # Faixa que a fonte já provou não ter: não gastamos requisição nem IP
         # do pool COMPARTILHADO pra ouvir "não existe" garantido.
-        motivo = self.fora_do_esaj(processo.numero_cnj)
+        motivo = self.fora_da_fonte(processo.numero_cnj)
         if motivo:
             return self._recusar_fora_do_esaj(processo, motivo, direct_apply)
 
@@ -811,23 +818,7 @@ class TjspEnricher(BaseEsajEnricher):
     # A porta do eproc existe e é pública — `eproc-consulta.tjsp.jus.br/
     # consulta_1g/`, sem login — mas está atrás de Cloudflare Turnstile com
     # verificação no servidor. Abri-la é decisão de produto, não de parser.
-    EPROC_PREFIXO = '4'
-    EPROC_ANO_MINIMO = 2025
-
-    @classmethod
-    def fora_do_esaj(cls, numero_cnj: str) -> Optional[str]:
-        digitos = _so_digitos(numero_cnj)
-        if len(digitos) != 20:
-            return None
-        if digitos[0] != cls.EPROC_PREFIXO:
-            return None
-        try:
-            ano = int(digitos[9:13])
-        except ValueError:
-            return None
-        if ano < cls.EPROC_ANO_MINIMO:
-            return None
-        return 'eproc'
+    FORA_DA_FONTE_FAIXAS = (('4', 2025, 'eproc'),)
 
 
 class TjacEnricher(BaseEsajEnricher):
@@ -835,6 +826,22 @@ class TjacEnricher(BaseEsajEnricher):
     TRIBUNAL_SIGLA = 'TJAC'
     LOG_NAME = 'voyager.enrichers.tjac'
     CPOSG_PATH = 'cposg5'  # TJAC: 2º grau é /cposg5/
+
+    # --- O TJAC também migrou, e a fatia nova já é MAIORIA do que publica ----
+    #
+    # Medido em 29/08/2026. Dos `link` de publicação do TJAC que trazem host,
+    # **65,7% apontam `eproc1g.tjac.jus.br`** e só 29,8% o `esaj.tjac.jus.br`
+    # (a cobertura de `link` no TJAC é baixa — 3,0% —, então este é o retrato
+    # do que dá pra ver, não do acervo inteiro).
+    #
+    # Sonda ao vivo no próprio e-SAJ: **16 de 16** CNJ de prefixo 5 de 2025-2026
+    # devolveram "não existe"; o CONTROLE NEGATIVO na mesma janela, prefixo 0
+    # dos mesmos anos, devolveu **16 de 16** com cadastro (10 detalhe + 6
+    # segredo de justiça). A fonte estava de pé; ela é que não tem a faixa.
+    #
+    # Tamanho: prefixo 5 + ano >= 2025 é **32,0%** dos processos do TJAC
+    # (≈ 49 mil), com **0,43% de `ok`** contra 92,6% do prefixo 0.
+    FORA_DA_FONTE_FAIXAS = (('5', 2025, 'eproc'),)
 
 
 class TjalEnricher(BaseEsajEnricher):
@@ -850,3 +857,15 @@ class TjalEnricher(BaseEsajEnricher):
     # MAX_PROXY_ROTATIONS=8, 37%/IP ⇒ ~99,8% de sucesso por processo. Volta pro
     # pool (default) pra paralelizar pelos 2500+ IPs e não depender do Cortex.
     PREFER_CORTEX = False
+
+    # --- TJAL: o eproc ACABOU de começar (2026), e é isso que se quer pegar --
+    #
+    # A faixa é minúscula hoje — **0,1% do tribunal, ≈ 490 processos** — e está
+    # aqui exatamente por isso: é a migração no primeiro ano, antes de virar
+    # 13% (TJMG/TJRJ) ou 16% (TJSP). Prefixo 5 NÃO EXISTE no TJAL antes de 2026
+    # (amostra de 10,36 M processos: só 0, 8 e 9), então o corte não alcança
+    # acervo bom.
+    #
+    # Sonda ao vivo: **14 de 14** CNJ de prefixo 5 de 2026 deram "não existe" no
+    # e-SAJ. `link` de publicação: `eproc1g.tjal.jus.br` já aparece.
+    FORA_DA_FONTE_FAIXAS = (('5', 2026, 'eproc'),)
