@@ -151,6 +151,39 @@ ssh ubuntu@192.168.30.102 'cd ~/voyager && docker compose -f docker-compose-work
 ⚠️ Hotplug CPU/memory **não habilitado** nessa VM — reboot é obrigatório
 pra resize. Pra futuro: `qm set 100 -hotplug disk,network,usb,memory,cpu`.
 
+### ⚠️ Restart de enricher: sempre com `-f docker-compose-workers.yml`
+
+Os enrichers por tribunal (`worker_tjrj`, `worker_tjsp`, `worker_tjac`,
+`worker_tjal`, `worker_trf*`…) só existem em `docker-compose-workers.yml`. Um
+`docker compose restart worker_tjrj` **sem** o `-f` falha com `no such service`
+— barulhento, fácil de ver.
+
+O perigo é o `worker_tjmg`: ele existe nos **dois** arquivos. Sem o `-f`, o
+restart sai com exit 0 e imprime `Started` — mas reinicia o container do compose
+default, não as réplicas do arquivo de workers. Deploy "verde", código velho no
+ar.
+
+```bash
+# ERRADO — silencioso pro tjmg, ruidoso pro resto
+docker compose restart worker_tjmg
+
+# CERTO
+docker compose -f docker-compose-workers.yml restart worker_tjmg
+```
+
+**Como conferir que reiniciou de verdade** — comparar `StartedAt` com o instante
+do `git pull`, nunca o `Up N hours` do `docker ps` (arredonda):
+```bash
+for c in $(docker ps --format '{{.Names}}' | grep worker_tjrj-); do
+  docker inspect -f '{{.State.StartedAt}}' $c; done | sort | head -1
+```
+
+⚠️ E **nunca** valide o deploy com `docker exec <c> python -c "import ..."`: isso
+sobe um processo NOVO, que relê o bind mount e vê o arquivo novo mesmo com o
+worker rodando código velho. Prova o disco, não o processo. Valide por
+**comportamento** — no caso das faixas, `manage.py enrich_fora_do_esaj` passou a
+contar TJMG/TJRJ (466/19) que estavam zerados antes.
+
 ### Quando ressubir worker_datajud
 
 Antes de rodar reclassificação em massa (`reclassificar_recentes` ou
