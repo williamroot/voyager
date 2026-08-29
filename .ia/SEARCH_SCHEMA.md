@@ -1606,6 +1606,31 @@ registrado, e o `DEFAULT_TIMEOUT` da fila `es_index` subiu de 120 s para 600 s
 (os 120 s eram de quando o job valia UMA publicação).
 
 
+### O escritor sem campainha que MAIS dói: o resumo da ingestão DJEN
+
+`djen/ingestion.py::_flush_resumo` reescreve `total_movimentacoes`,
+`primeira/ultima_movimentacao_em` e `data_enriquecimento_djen` por
+`bulk_update` toda vez que um processo ganha publicação nova. `bulk_update` não
+dispara `post_save` **e não roda o `auto_now`** — então nem
+`sync_processos_novos` (keyset por `id`, o processo já é velho) nem
+`sync_processos_atualizados` (keyset por `atualizado_em`) enxergavam a linha.
+
+Medido em 29/08/2026 numa faixa de pk que a varredura AINDA NÃO tinha tocado
+(50 M–74 M, 120 âncoras × 30 pks = 3.296 processos, semente 11):
+
+| medida | n | % |
+|---|---:|---:|
+| no índice | 3.296 | 100,00% |
+| `total_movimentacoes` DIVERGENTE do Postgres | **1.194** | **36,23%** |
+| … dos quais o doc tem MENOS que o banco | **1.194** | **36,23%** |
+
+**Zero divergências para mais.** Todas as 1.194 são o doc atrás do banco, que é
+a assinatura exata de "o resumo foi reescrito e o documento não soube". Um em
+cada três processos mostrava na tela menos movimentação do que tem.
+
+Agora `atualizado_em` entra em `CAMPOS_RESUMO`, ou seja no MESMO UPDATE que já
+ia acontecer — custo zero de escrita, e o poller passa a enxergar.
+
 ## O indexador estava escrevendo o doc ERRADO — e nada deu erro (29/08/2026)
 
 Sintoma pelo qual a investigação começou: `ProcessoParte` com `fonte='djen'`
