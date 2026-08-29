@@ -3386,3 +3386,38 @@ rodando ao mesmo tempo: `pg_stat_activity` com **0** sessões em
 `wait_event_type='Lock'`, `pg_blocking_pids` vazio, e no ES load average 0,59,
 heap 43%, `write` e `search` queues em 0, zero rejeições. O gargalo é a leitura
 do Postgres + a montagem do doc em Python, não o Elasticsearch.
+
+### Estado da varredura de 29/08/2026 (grau + `participacoes.fonte`)
+
+Quatro faixas em paralelo na `.102`, checkpoints no Redis. **Se algum container
+sumir, ressuba com as MESMAS flags** — ele retoma do checkpoint:
+
+| container | checkpoint | faixa de pk | vazão medida |
+|---|---|---|---:|
+| `r98_reindex_a` | `grau_djen_v1` | `--ate-id 20000000` | ~510-590/s |
+| `r98_reindex_b` | `grau_djen_v2` | `--desde-id 40000000 --ate-id 75000000` | ~1.150-1.200/s |
+| `r98_reindex_c` | `grau_djen_v3` | `--desde-id 75000000` | ~1.700/s |
+| `r98_reindex_d` | `grau_djen_v4` | `--desde-id 20000000 --ate-id 40000000` | ~1.200-1.850/s |
+
+Como saber que acabou, sem depender do log: cada faixa termina quando
+`cache.get('reindex_proc:<checkpoint>')` para de andar E chega ao `--ate-id`
+(a última, ao `max(id)`). O `--max-segundos 86400` faz cada uma parar com
+**ERRO** e o id onde parou, em vez de virar processo eterno.
+
+Aferição de PRODUTO, não de log (os dois lados, regra nº 5): amostrar pks
+dentro da faixa já varrida e comparar `Process.grau` do Postgres com o campo
+`grau` do doc. Medido nas primeiras faixas varridas em 29/08:
+
+    (0, 143.519]              PG 93,73%  ES 93,73%
+    (40.000.000, 40.020.011]  PG 89,70%  ES 89,70%
+    (75.000.000, 75.116.064]  PG 90,97%  ES 90,97%
+
+Antes da varredura, no índice inteiro: PG 78,57% contra **ES 1,03%**.
+
+**A campainha foi DESLIGADA no meio** (`tocar_campainha --alvo partes
+--por-filho`, container `r98_campainha`, checkpoint apagado). Ela avançava
+~1,8 M de `processo_id` por 45 min na região densa — mais devagar que a
+varredura chegando na mesma faixa —, escreve em `tribunals_process` (a tabela
+onde outro backfill tem precedência de escrita) e o resultado dela é um
+subconjunto do que a varredura entrega de qualquer jeito. Campainha é para o
+poller ENXERGAR escrita nova; backfill de campo antigo é reindex.
