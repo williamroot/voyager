@@ -394,6 +394,173 @@ absorção masked→real com trava de candidato único) seguido da migration
 
 `_upsert_catalogo` é race-safe via `bulk_create(ignore_conflicts=True) + get(codigo=)` — não levanta `IntegrityError` quando 2 workers veem o mesmo código pela 1ª vez.
 
+## `classe_codigo` — o `\d{2,5}` que nunca casou a classe mais comum do país
+
+**Medido em 29/08/2026.** O regex que parte `"NOME (CÓDIGO)"` na porta do
+enricher (`enrichers/drainer.py::normalize_dados`) era
+
+```python
+CLASSE_COM_CODIGO_RE = re.compile(r'^(.+?)\s*\((\d{2,5})\)?\s*$')   # ← DOIS dígitos
+```
+
+e a classe mais comum do Brasil tem **um**: `PROCEDIMENTO COMUM CÍVEL (7)`.
+Resultado: `classe_codigo` ia para `''` e o `(7)` ficava pendurado dentro do
+`classe_nome`. Corrigido em `08d306e`; o regex hoje é `(\d{1,5})` com o fecho
+`)` **obrigatório** (1 dígito é permissivo demais para aceitar fecho opcional).
+
+> ⚠️ **A assimetria com o ASSUNTO é medida, não descuido.** O assunto continua
+> `{2,5}` com fecho OPCIONAL: dos 193 assuntos com cauda de 1 dígito, os 193
+> eram código de 2+ dígitos **cortado no teto de 255** (`DIREITO PREVIDENCIÁRIO
+> (1` é `(195`). Abrir 1 dígito ali gravaria `1` onde o código é `195` — trocar
+> campo vazio por campo ERRADO é pior. **Não mexa no regex do assunto.**
+
+### O tamanho do buraco (amostra uniforme por pk, semente `20260829`)
+
+200.000 pks sorteados em `[3.520, 105.980.219]`; 195.741 existiam:
+
+| | amostra | % | ≈ acervo (103,7 M) |
+|---|---:|---:|---:|
+| com `classe_nome` | 67.569 | 34,5% | ~35,8 M |
+| … e `classe_codigo` **vazio** (o buraco) | **4.440** | 2,27% | **~2,35 M** |
+| … **recuperável** pelo regex novo | **3.477** | 1,78% | **~1,84 M** |
+| … que o regex ANTIGO também pegaria | **0** | 0% | **0** |
+| … abstenções (nome sem código nenhum) | 963 | — | ~510 k |
+
+**100% do recuperável era o `{2,5}`** — os 3.477 têm código de UM dígito, e o
+texto é `PROCEDIMENTO COMUM CÍVEL (7)` (2.604), `[CÍVEL] PROCEDIMENTO COMUM
+CÍVEL (7)` (753, TJMG) ou `Procedimento Comum Cível (7)` (120). Por tribunal:
+TJMG 753 · TJRJ 611 · TRF3 563 · TJMA 426 · TJMT 287 · TRF1 220 · TJCE 174 ·
+TJPA 119 · TJPE 113 · TRF5 108 · TJDFT 102.
+
+### 🔴 O regex estava certo no disco e ERRADO na memória por 4 dias
+
+O commit é de **25/08 02:07 UTC**. Os 5 drainers da `.103` tinham subido às
+**25/08 01:42 UTC** — 25 minutos ANTES. Bind mount entrega o arquivo, **Python
+não recarrega**: até 29/08 eles seguiam aplicando `{2,5}` com o `{1,5}` no
+disco, dentro do mesmo container.
+
+Provado **dentro do processo**, lendo `/proc/<pid>/mem` (o disco não serve de
+prova aqui) — os 5 drainers tinham 0 ocorrências de `(\d{1,5})\)\s*$` e um
+processo novo, criado no mesmo container, tinha 2. O sintoma nos DADOS batia:
+em 27, 28 e 29/08, amostras de 30.000 processos recém-enriquecidos ainda tinham
+1.264 / 184 / 444 linhas com `classe_nome` terminando em `(d)` e
+`classe_codigo` vazio. Depois do `restart` dos 5: o padrão novo aparece na
+memória dos 5 e o antigo some.
+
+Receita (roda no host da `.103`, precisa de `sudo`):
+
+```bash
+# qual regex está VIVO no processo — não no arquivo
+PID=$(docker inspect -f '{{.State.Pid}}' voyager-enrichment_drainer-1)
+sudo python3 - "$PID" <<'PY'
+import sys
+alvo = rb'(\d{1,5})\)\s*$'
+pid = sys.argv[1]
+regioes = []
+for ln in open(f'/proc/{pid}/maps'):
+    f = ln.split()
+    if 'r' not in f[1]:
+        continue
+    lo, hi = (int(x, 16) for x in f[0].split('-'))
+    if hi - lo < 512 * 1024 * 1024:
+        regioes.append((lo, hi))
+n = 0
+with open(f'/proc/{pid}/mem', 'rb', 0) as m:
+    for lo, hi in regioes:
+        try:
+            m.seek(lo); n += m.read(hi - lo).count(alvo)
+        except Exception:
+            pass
+print('ocorrencias do regex NOVO:', n)   # 0 = processo com código velho
+PY
+```
+
+**O controle positivo é obrigatório**: rode a mesma sonda num processo recém-
+criado que importe o módulo. Sem ele, "0 ocorrências" tanto pode ser código
+velho quanto sonda quebrada.
+
+### O reparo: `backfill_classe`
+
+`enrichers/management/commands/backfill_classe.py` — **zero requisição de
+rede**, o dado está no nosso banco. Retomável (checkpoint em Redis), com kill
+switch, teto de linhas, teto de tempo, freio por ms/linha, freio pela fila do
+`es_index` e freio por sessões esperando `Lock`.
+
+```bash
+# medir sem escrever NADA
+manage.py backfill_classe --de 42809753 --ate 42849753 --dry-run --json
+
+# a corrida (sem --de continua do checkpoint)
+manage.py backfill_classe --sleep 0.1
+
+# parar de qualquer lugar, sem deploy
+manage.py shell -c "from django.core.cache import cache; \
+    cache.set('enrichers:backfill_classe:off', True)"
+```
+
+Ele **toca a campainha** (`atualizado_em = now()` no mesmo UPDATE): `auto_now`
+não roda em SQL cru e `sync_processos_atualizados` é keyset por
+`atualizado_em`, então sem isso a classe ficaria certa no banco e velha na
+busca. Ver `tests/test_backfill_classe.py` e `tests/test_campainha_sync.py`.
+
+**Leitura estreita por default.** `WHERE classe_nome <> '' AND classe_codigo =
+''` em vez de ler toda linha com nome: os vereditos `nada`/`conflito`/`fk_orfa`
+exigem `classe_codigo <> ''` por construção, então a leitura larga só serve
+para contar denominador — e denominador de proporção se mede por **amostra
+uniforme de pk**, não varrendo tudo. `--com-denominador` liga a leitura larga.
+
+Custo medido em produção (fatia `id ∈ (42809753, 42849753]`, 40.000 pks):
+
+| | |
+|---|---:|
+| buraco na fatia, antes | 3.719 |
+| buraco na fatia, depois | **0** |
+| escritos | 3.719 em 34,3 s = **9,2 ms/linha** |
+| linhas com `atualizado_em` nos 20 min seguintes | **3.719** (a campainha, conferida) |
+| deadlocks | 0 |
+| sessões do banco esperando `Lock` durante a corrida | **0** (12 amostras) |
+
+O plano é `Index Scan` na pkey com filtro no heap — ~18.000 buffers por bloco
+de 20.000 pks, metade lidos do disco. É I/O, não CPU. **Sharding escala quase
+linear** (medido: 3 blocos frios em 5,9 s em série contra 2,4 s em 3 threads;
+6 blocos em 2,9 s) — a storage tem profundidade de fila. Cada shard tem
+checkpoint próprio (`--shard <nome>`); as faixas TÊM que ser disjuntas, o
+comando não coordena shards.
+
+### O freio mede varredura, não densidade — e a 1ª versão errou nisso
+
+Medido em 59 blocos reais de produção:
+
+| métrica | p50 | p90 | máx | amplitude |
+|---|---:|---:|---:|---:|
+| **ms por 1.000 pks varridos** | 315 | 567 | 1.093 | **3,5×** |
+| ms por linha escrita | 8,4 | 16,7 | 95,9 | **25×** |
+
+O custo aqui é a LEITURA, e a densidade de linhas quebradas muda por faixa —
+então ms/linha escrita mede DENSIDADE, não custo. Com ele, o shard `d` parou
+sozinho a 37,56 ms/linha numa faixa que tinha 1.319 recuperáveis em 2.011
+lidas: nada estava caro, só havia pouco a consertar. É o mesmo erro que a 1ª
+versão do backfill de assunto cometeu ao medir duração de bloco. Hoje o freio é
+`--freio-ms-kpk` (1.500) / `--parar-ms-kpk` (3.000) e roda em **todo** bloco —
+inclusive nos que não escrevem nada, que são justamente os que escapavam do
+`if n_escritos:`.
+
+### O que o backfill NÃO conserta (medido, e de propósito)
+
+- **FK órfã de quem já tem código.** 15.499 de 63.136 processos com
+  `classe_codigo` preenchido (24,5%) têm `classe_id` **NULL** — ≈ **8,2 M
+  linhas**, 4,5× este trabalho. É o território de `repop_classe_assunto`;
+  emendar os dois dobraria a campainha (8,2 M reindexações) sem ter medido o
+  impacto. **Contado, não consertado.**
+- **`(7)` pendurado no nome de quem já tem o código certo.** Na fatia de 40.000
+  pks: 5.515 nomes terminavam em `(7)` mas só 3.719 estavam sem código — os
+  outros ~1.800 têm `classe_codigo = '7'` e o `(7)` no texto. É duplicação
+  cosmética, não perda de dado; reescrevê-los somaria ~39% de escrita e de
+  campainha por zero informação nova.
+- **Conflito** (o código guardado difere do código no texto): 335 na mesma
+  fatia. Ali dois escritores discordam sobre QUAL é a classe, e escolher no
+  chute seria pior que deixar como está (regra nº 6).
+
 ## Filas per-tribunal
 
 ```python

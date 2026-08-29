@@ -3294,11 +3294,18 @@ D='docker exec -w /app voyager-web-1 python manage.py'
 # medir sem escrever
 $D backfill_classe --de 42809753 --ate 42849753 --dry-run --json
 
-# corrida em 4 shards (faixas disjuntas, checkpoint por shard) — ~1,5 h
-$D backfill_classe --shard a --de 0        --ate 26500000 --sleep 0.1
-$D backfill_classe --shard b --de 26500000 --ate 53000000 --sleep 0.1
-$D backfill_classe --shard c --de 53000000 --ate 79500000 --sleep 0.1
-$D backfill_classe --shard d --de 79500000 --ate 0        --sleep 0.1
+# corrida em 4 shards (faixas disjuntas, checkpoint por shard).
+# ⚠ NÃO use `docker exec -d` no `web`: as sessões de exec morrem quando alguém
+# mexe no compose, e foi o que matou os 4 shards em 29/08 sem deixar erro
+# nenhum no log. Container PRÓPRIO, que ninguém mais gerencia:
+for S in a:0:26500000 b:26500000:53000000 c:53000000:79500000 d:79500000:0; do
+  N=${S%%:*}; R=${S#*:}
+  docker run -d --name r101-shard-$N --network voyager_default \
+    --env-file /home/ubuntu/voyager/.env -e DJANGO_SETTINGS_MODULE=core.settings \
+    -v /home/ubuntu/voyager:/app -w /app --restart no voyager-web:prod \
+    python manage.py backfill_classe --shard $N \
+      --de ${R%%:*} --ate ${R##*:} --sleep 0.1
+done
 
 # onde cada shard está / parar tudo sem deploy
 $D shell -c "from django.core.cache import cache; \
@@ -3314,6 +3321,6 @@ retomada, mas quem tem que reparar é você.
 
 Freios embutidos, todos LIDOS e não estimados: fila do `es_index` acima de
 150.000 ⇒ espera; sessões em `wait_event_type='Lock'` acima de 20 ⇒ espera;
-custo acima de `--freio-ms-linha` ⇒ dobra a pausa; média móvel acima de
-`--parar-ms-linha` ⇒ PARA com ERROR. Teto de linhas e teto de tempo param com
+custo acima de `--freio-ms-kpk` (ms por 1.000 pks varridos) ⇒ dobra a pausa;
+média móvel de 5 blocos acima de `--parar-ms-kpk` ⇒ PARA com ERROR. Teto de linhas e teto de tempo param com
 ERROR dizendo a pk onde pararam e quanto falta.
