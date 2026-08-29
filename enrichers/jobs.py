@@ -221,6 +221,21 @@ def enqueue_enriquecimento(process_id: int, tribunal_sigla: str):
     """
     if enrich_pausado(tribunal_sigla):
         return None
+    # Terceira porta de enfileiramento. O refill e o tick do legado já filtram a
+    # faixa fora-da-fonte, mas ESTA é chamada pela ingestão — e o eproc publica
+    # no DJEN todo dia, então ela repõe faixa morta continuamente. Medido em
+    # 29/08/2026: com o gate só na execução, a fatia morta da fila do TJRJ
+    # SUBIU de 6,8% para 21,8% em uma hora. O gate da execução garante a
+    # correção (nenhuma requisição, nenhum status escrito); este aqui evita
+    # ocupar a fila com job que já nasce para ser recusado.
+    fora = _hook_fora_da_fonte(tribunal_sigla)
+    if fora:
+        cnj = (Process.objects.filter(pk=process_id)
+               .values_list('numero_cnj', flat=True).first())
+        motivo = fora(cnj) if cnj else None
+        if motivo:
+            registrar_fora_do_esaj(tribunal_sigla, motivo)
+            return None
     queue = django_rq.get_queue(queue_for(tribunal_sigla))
     return queue.enqueue(enriquecer_processo, process_id, job_timeout=ENRICH_TIMEOUT,
                          retry=ENRICH_RETRY)

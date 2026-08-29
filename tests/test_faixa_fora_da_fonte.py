@@ -268,3 +268,35 @@ def test_job_da_fila_antiga_na_faixa_morta_nao_consulta_a_fonte(sigla, cnj_morto
             assert res.get('skip') != 'fora_da_fonte', f'{sigla} {cnj} NAO devia recusar'
             assert coletados == [cnj_vivo], 'o CNJ vivo tem que chegar na fonte'
             contador.assert_not_called()
+
+
+@pytest.mark.parametrize('sigla,cnj_morto,cnj_vivo', [
+    ('TJRJ', '30000100120268190100', '30000100120238190100'),
+    ('TJMG', '10000100120268130100', '10000100120218130100'),
+])
+def test_ingestao_nao_enfileira_faixa_morta(sigla, cnj_morto, cnj_vivo):
+    """A ingestão é a terceira porta — e a única que REPÕE faixa morta.
+
+    O refill e o tick do legado varrem estoque, que acaba. Esta é chamada a
+    cada publicação nova do DJEN, e o eproc publica todo dia: sem o filtro
+    aqui, a fatia morta da fila do TJRJ subiu de 6,8% para 21,8% em uma hora
+    (medido em 29/08/2026), mesmo já existindo o gate na execução.
+    """
+    from enrichers import jobs
+
+    for cnj, deve_recusar in ((cnj_morto, True), (cnj_vivo, False)):
+        with patch.object(jobs.Process.objects, 'filter') as filtro, \
+             patch.object(jobs, 'enrich_pausado', return_value=False), \
+             patch.object(jobs, 'registrar_fora_do_esaj') as contador, \
+             patch.object(jobs, 'django_rq') as rq:
+            filtro.return_value.values_list.return_value.first.return_value = cnj
+            rq.get_queue.return_value.enqueue.return_value = 'job-enfileirado'
+            res = jobs.enqueue_enriquecimento(1, sigla)
+
+        if deve_recusar:
+            assert res is None, f'{sigla} {cnj} não devia entrar na fila'
+            contador.assert_called_once_with(sigla, 'eproc')
+            rq.get_queue.return_value.enqueue.assert_not_called()
+        else:
+            assert res == 'job-enfileirado', f'{sigla} {cnj} TEM que entrar na fila'
+            contador.assert_not_called()
