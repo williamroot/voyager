@@ -47,6 +47,13 @@ class ProxyScrapePool:
         # entre workers via Redis — o bloqueio de faixa é global, não por worker.
         self._fail_streak_key = f'voyager:proxies:{name}:fail_streak'
         self._degraded_key = f'voyager:proxies:{name}:degraded'
+        # Freio COMPARTILHADO do auto-refresh. Ver `_pode_tentar_refresh`.
+        self._refresh_lock_key = f'voyager:proxies:{name}:refresh_lock'
+        self._refresh_cooldown_key = f'voyager:proxies:{name}:refresh_cooldown'
+        self.refresh_min_interval = getattr(
+            settings, 'PROXY_REFRESH_MIN_INTERVAL_SECONDS', 60)
+        self.refresh_cooldown = getattr(
+            settings, 'PROXY_REFRESH_COOLDOWN_SECONDS', 300)
         self.fail_streak_degrade = getattr(
             settings, 'DJEN_POOL_FAIL_STREAK_DEGRADE', 25)
         self.degraded_ttl = getattr(
@@ -66,19 +73,49 @@ class ProxyScrapePool:
     def get(self) -> Optional[str]:
         proxies = self._healthy_list()
         # Auto-refresh quando saudáveis abaixo do limiar — em ondas WAF
-        # o pool fica 99% queimado e o refresh agendado (15min) demora
-        # demais. Throttle de 60s entre tentativas pra não martelar a API.
-        if len(proxies) < self.refresh_threshold:
-            now = time.time()
-            if now - self._last_refresh_attempt > 60:
-                self._last_refresh_attempt = now
-                logger.warning('pool[%s] degradado (%d saudáveis < %d): forçando refresh',
-                               self.name, len(proxies), self.refresh_threshold)
-                self.refresh()
-                proxies = self._healthy_list()
+        # o pool fica 99% queimado e o refresh agendado (15min) demora demais.
+        if len(proxies) < self.refresh_threshold and self._pode_tentar_refresh():
+            logger.warning('pool[%s] degradado (%d saudáveis < %d): forçando refresh',
+                           self.name, len(proxies), self.refresh_threshold)
+            self.refresh()
+            proxies = self._healthy_list()
         if not proxies:
             return None
         return random.choice(proxies)
+
+    def _pode_tentar_refresh(self) -> bool:
+        """Só um processo, de toda a frota, tenta o refresh por janela.
+
+        Por que o freio precisa morar no REDIS e não num atributo: o throttle
+        antigo era `time.time() - self._last_refresh_attempt > 60`, um campo de
+        instância. O `rqworker` executa cada job num **fork** — o filho nasce com
+        o `_last_refresh_attempt` do pai (0.0 quando o pai nunca chamou `get`) e
+        morre no fim do job. Ou seja, o throttle reiniciava a cada JOB: cada job
+        com o pool abaixo do limiar disparava um refresh, e cada refresh são 2
+        chamadas HTTP à API da ProxyScrape.
+
+        Medido na `.102` em 29/08/2026: **4.174 chamadas à API em 10 minutos**
+        (≈ 25 mil/h) — o suficiente para o Cloudflare da ProxyScrape devolver
+        `HTTP 429` a TODAS elas, inclusive à do cron legítimo de 15 min. Com o
+        429, `refresh()` não repõe nada, o pool fica abaixo do limiar, e o
+        próximo job tenta de novo: o pool de 2.500 IPs tinha encolhido para 25.
+        Nós éramos a causa do nosso próprio rate limit.
+
+        Dois freios, ambos compartilhados:
+        - `refresh_lock` (SET NX EX): no máximo 1 refresh por janela em TODA a
+          frota;
+        - `refresh_cooldown`: armado quando a API responde 429, para não gastar
+          nem essa 1 tentativa enquanto o rate limit não expira.
+        """
+        self._last_refresh_attempt = time.time()   # mantido p/ diagnóstico
+        try:
+            if self.redis.exists(self._refresh_cooldown_key):
+                return False
+            return bool(self.redis.set(self._refresh_lock_key, '1',
+                                       nx=True, ex=self.refresh_min_interval))
+        except Exception:   # noqa: BLE001 — Redis fora não pode travar o pool
+            logger.warning('pool[%s] sem Redis para o freio de refresh', self.name)
+            return True
 
     def _healthy_list(self) -> list[str]:
         now = time.time()
@@ -171,10 +208,13 @@ class ProxyScrapePool:
             self.redis.set(self._list_key, json.dumps([]))
             return 0
         text = None
+        rate_limitado = 0
         for url_tpl in self._REFRESH_URLS:
             url = url_tpl.format(key=self.api_key)
             try:
                 resp = requests.get(url, timeout=30)
+                if resp.status_code == 429:
+                    rate_limitado += 1
                 resp.raise_for_status()
             except requests.RequestException as exc:
                 logger.warning('pool[%s] endpoint indisponível, tentando próximo: %s', self.name, exc)
@@ -185,7 +225,10 @@ class ProxyScrapePool:
             text = resp.text
             break
         if text is None:
-            logger.error('pool[%s] todos os endpoints falharam', self.name)
+            if rate_limitado:
+                self._armar_cooldown_refresh(rate_limitado)
+            logger.error('pool[%s] todos os endpoints falharam%s', self.name,
+                         f' ({rate_limitado} com HTTP 429)' if rate_limitado else '')
             return 0
         proxies = []
         for line in text.splitlines():
@@ -214,6 +257,10 @@ class ProxyScrapePool:
         # contagem continua de onde parou — que é o comportamento correto.
         pipe.execute()
         self._healthy_cache_ts = 0.0
+        try:
+            self.redis.delete(self._refresh_cooldown_key)
+        except Exception:   # noqa: BLE001
+            pass
         # Adapta threshold ao tamanho real do pool para evitar refresh
         # constante quando o plano entrega menos proxies que o padrão.
         if proxies:
@@ -221,6 +268,22 @@ class ProxyScrapePool:
         logger.info('pool[%s] ProxyScrape atualizado: %d proxies (threshold=%d)',
                     self.name, len(proxies), self.refresh_threshold)
         return len(proxies)
+
+    def _armar_cooldown_refresh(self, quantos_429: int) -> None:
+        """API rate-limitou: para de tentar por `refresh_cooldown` segundos.
+
+        Teto é ALERTA, nunca corte mudo (regra nº 2): o número de endpoints que
+        devolveram 429 vai no log em ERROR, com o tamanho do pool no momento —
+        senão o pool encolhe em silêncio e a causa (nós) fica invisível."""
+        try:
+            self.redis.set(self._refresh_cooldown_key, '1', ex=self.refresh_cooldown)
+        except Exception:   # noqa: BLE001
+            pass
+        logger.error(
+            'pool[%s] ProxyScrape RATE-LIMITOU o refresh (%d endpoints com 429): '
+            'auto-refresh suspenso por %ds — pool segue com %d saudáveis',
+            self.name, quantos_429, self.refresh_cooldown, len(self._healthy_list()),
+        )
 
     def status(self) -> dict:
         raw = self.redis.get(self._list_key)
@@ -236,6 +299,7 @@ class ProxyScrapePool:
             'saudaveis': max(total - bad_count, 0),
             'fail_streak': int(self.redis.get(self._fail_streak_key) or 0),
             'degradado': bool(self.redis.exists(self._degraded_key)),
+            'refresh_em_cooldown': bool(self.redis.exists(self._refresh_cooldown_key)),
         }
 
     def is_degraded(self) -> bool:

@@ -97,6 +97,10 @@ def _pool(*, total_proxies=2500, streak=25, ttl=600):
     p._bad_key = 'voyager:proxies:test:bad_zset'
     p._fail_streak_key = 'voyager:proxies:test:fail_streak'
     p._degraded_key = 'voyager:proxies:test:degraded'
+    p._refresh_lock_key = 'voyager:proxies:test:refresh_lock'
+    p._refresh_cooldown_key = 'voyager:proxies:test:refresh_cooldown'
+    p.refresh_min_interval = 60
+    p.refresh_cooldown = 300
     p.fail_streak_degrade = streak
     p.degraded_ttl = ttl
     p._healthy_cache = []

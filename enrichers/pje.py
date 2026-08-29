@@ -46,6 +46,36 @@ class PjeEnricherError(Exception):
     pass
 
 
+class PjeWafChallenge(PjeEnricherError):
+    """O AWS WAF do tribunal devolveu um DESAFIO (`x-amzn-waf-action: challenge`,
+    HTTP 202 + `awsWafCookie`) em vez do conteúdo.
+
+    Por que é classe separada e, principalmente, por que NÃO é tratada como 403
+    de proxy: **o desafio não é do IP, é do site**. Medido no TJPE em
+    29/08/2026, mesmo path `/1g/ConsultaPublica/listView.seam`, mesmo
+    User-Agent:
+
+    | caminho                                     | desafiadas |
+    |---------------------------------------------|-----------|
+    | Cortex residencial (IP novo a cada request) | 29 de 30  |
+    | IP do próprio host de workers (sem proxy)   | 16 de 20  |
+
+    Trocar de IP não sai do desafio — 30 IPs residenciais distintos levaram 29
+    desafios. O código antigo tratava isso como bloqueio POR PROXY: rotacionava
+    `MAX_PROXY_ROTATIONS` vezes e chamava `pool.mark_bad()` em cada uma, ou seja
+    **queimava até 10 IPs do pool COMPARTILHADO por job** (que serve também a
+    ingestão DJEN e os outros enrichers) para no fim gravar `erro` do mesmo
+    jeito. Censo de 10 min na `.102` (29/08/2026): TJPE fez 1.379 `mark_bad`,
+    o maior de todos os tribunais, para 7 `ok` e 129 `erro`.
+
+    Resolver o desafio (rodar o `challenge.js`, cookie do WAF) seria evasão
+    anti-bot — NÃO autorizada (decisão de produto, 25/08/2026). Então o
+    comportamento correto é: tentar um punhado de vezes (uma fatia passa),
+    **sem marcar IP como ruim**, e desistir com ERRO que diz o número real.
+    """
+    pass
+
+
 class PjeServerError(PjeEnricherError):
     """PJe retornou HTTP 200 mas com página de erro JBoss/Hibernate
     (banco do tribunal indisponível, transaction abortada, etc.).
@@ -87,6 +117,32 @@ def _detect_pje_server_error(text: str) -> str | None:
         if m in sample:
             return m
     return None
+
+
+#: Ações do AWS WAF que significam "não vou te servir agora". `challenge` é o
+#: JS challenge (HTTP 202 + `awsWafCookie`); `captcha` é o CAPTCHA. Nenhuma das
+#: duas se resolve trocando de IP, e resolvê-las não está autorizado.
+_WAF_ACTIONS = frozenset({'challenge', 'captcha'})
+
+
+def _detectar_desafio_waf(resp: requests.Response) -> bool:
+    """`True` se a resposta é um desafio do AWS WAF em vez do conteúdo.
+
+    Duas provas independentes, porque nem todo edge devolve as duas:
+    1. o header `x-amzn-waf-action` (o que o ALB carimba — prova direta);
+    2. o corpo com o script `awsWafCookie`/`challenge.js` num status que o PJe
+       nunca usaria para conteúdo (202/405/403/429).
+
+    Não basta procurar `awswaf` no corpo de QUALQUER 200: a página real do PJe
+    pode carregar um script do WAF sem que a requisição tenha sido barrada.
+    """
+    acao = (resp.headers.get('x-amzn-waf-action') or '').strip().lower()
+    if acao in _WAF_ACTIONS:
+        return True
+    if resp.status_code not in (202, 405, 403, 429):
+        return False
+    corpo = (resp.text or '')[:4096].lower()
+    return 'awswaf' in corpo or 'challenge.js' in corpo
 
 
 class BasePjeEnricher:
@@ -157,6 +213,10 @@ class BasePjeEnricher:
 
         try:
             link_detalhe = self._buscar_processo(processo.numero_cnj)
+        except PjeWafChallenge as exc:
+            self._emit(stream.build_erro_payload(**base, erro=f'busca: {exc}'), direct_apply)
+            self._sleep_after_waf_challenge()
+            return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
         except PjeServerError as exc:
             self._emit(stream.build_erro_payload(**base, erro=f'busca: {exc}'), direct_apply)
             self._sleep_after_server_error()
@@ -173,6 +233,10 @@ class BasePjeEnricher:
             soup = self._fetch_detalhe(link_detalhe)
             dados = self._extrair_dados(soup)
             partes = self._extrair_partes(soup)
+        except PjeWafChallenge as exc:
+            self._emit(stream.build_erro_payload(**base, erro=f'detalhe: {exc}'), direct_apply)
+            self._sleep_after_waf_challenge()
+            return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
         except PjeServerError as exc:
             self._emit(stream.build_erro_payload(**base, erro=f'detalhe: {exc}'), direct_apply)
             self._sleep_after_server_error()
@@ -211,6 +275,11 @@ class BasePjeEnricher:
             stream.publish(payload)
 
     SERVER_ERROR_SLEEP_SECONDS = 30
+    #: Espera depois de bater o teto de desafios do WAF. Existe porque sem ela o
+    #: job falha em ~0,6 s e o worker pega o próximo na hora: 14 réplicas do TJPE
+    #: faziam 2.791 requisições em 10 min para 7 `ok`. Não é castigo, é o único
+    #: freio — o desafio não passa por insistência.
+    WAF_CHALLENGE_SLEEP_SECONDS = 30
 
     def _sleep_after_server_error(self) -> None:
         """Da uma pausa pro tribunal recuperar antes do worker pegar
@@ -223,9 +292,21 @@ class BasePjeEnricher:
                             extra={'tribunal': self.TRIBUNAL_SIGLA})
         time.sleep(self.SERVER_ERROR_SLEEP_SECONDS)
 
+    def _sleep_after_waf_challenge(self) -> None:
+        """Freia o worker depois de o WAF ter desafiado até o teto."""
+        self.logger.warning('aws waf challenge — sleep %ds antes do prox job',
+                            self.WAF_CHALLENGE_SLEEP_SECONDS,
+                            extra={'tribunal': self.TRIBUNAL_SIGLA})
+        time.sleep(self.WAF_CHALLENGE_SLEEP_SECONDS)
+
     # ---------- HTTP ----------
 
     MAX_PROXY_ROTATIONS = 10
+    #: Quantas respostas de DESAFIO do AWS WAF aceitamos antes de desistir do
+    #: job. É baixo de propósito: o desafio não é por IP (ver `PjeWafChallenge`),
+    #: então insistir só gasta requisição. Uma fatia passa — 1 em 15 pelo Cortex,
+    #: 4 em 20 pelo IP direto — e por isso o teto não é 1.
+    WAF_MAX_TENTATIVAS = 3
 
     def _next_proxy(self, exclude: set, force_cortex: bool = False) -> Optional[str]:
         """Próximo proxy. Por default: pool ProxyScrape (datacenter) primeiro,
@@ -263,7 +344,8 @@ class BasePjeEnricher:
         """
         tentados: set = set()
         last_status = None
-        bloqueios_dc = 0  # 403/WAF vindos do datacenter → após N, escala pro Cortex
+        bloqueios_dc = 0  # 403 vindos do datacenter → após N, escala pro Cortex
+        desafios_waf = 0  # desafios do AWS WAF: teto próprio, não queima IP
         for tentativa in range(1, self.MAX_PROXY_ROTATIONS + 1):
             # Datacenter bloqueado por WAF (TJRO/TJAP dão 403 em TODO IP do pool):
             # gastar as 10 rotações no datacenter nunca alcança o Cortex. Após 3
@@ -299,15 +381,34 @@ class BasePjeEnricher:
                 if proxy_url != cortex_proxy_url():
                     self.pool.mark_bad(proxy_url)
                 continue
-            # AWS WAF challenge (TJPE 2026-07): HTTP 202/405 + página awsWafCookie
-            # em vez do conteúdo. É bloqueio POR PROXY (intermitente) — rotaciona
-            # como 403 até achar um IP que o WAF deixa passar.
-            _waf = resp.status_code in (202, 405, 403, 429) and (
-                'awswaf' in (resp.text or '')[:2048].lower())
-            if resp.status_code in (403, 429) or _waf:
-                self.logger.warning('proxy bloqueado pelo PJe/WAF, rotacionando', extra={
+            # AWS WAF challenge: HTTP 202/405 + `x-amzn-waf-action: challenge` e/ou
+            # página `awsWafCookie` no lugar do conteúdo. NÃO é bloqueio por proxy
+            # — trocar de IP não sai do desafio (ver `PjeWafChallenge`, com a
+            # medição). Tem teto PRÓPRIO, não gasta as rotações do pool e, acima
+            # de tudo, NÃO marca o IP como ruim: o pool é COMPARTILHADO com a
+            # ingestão DJEN e com os outros enrichers.
+            if _detectar_desafio_waf(resp):
+                desafios_waf += 1
+                self.logger.warning('desafio do AWS WAF (não é o IP — não queima proxy)', extra={
+                    'tribunal': self.TRIBUNAL_SIGLA, 'status': resp.status_code,
+                    'desafios': desafios_waf, 'teto': self.WAF_MAX_TENTATIVAS,
+                    'url': url[:120],
+                })
+                if desafios_waf >= self.WAF_MAX_TENTATIVAS:
+                    # Teto é ALERTA com o número real, nunca `return` discreto.
+                    self.logger.error(
+                        'AWS WAF: %d de %d respostas foram desafio em %s — desistindo do job '
+                        '(resolver o desafio seria evasão anti-bot, não autorizada)',
+                        desafios_waf, tentativa, self.TRIBUNAL_SIGLA,
+                        extra={'tribunal': self.TRIBUNAL_SIGLA, 'url': url[:120]})
+                    raise PjeWafChallenge(
+                        f'aws_waf_challenge: {desafios_waf} desafios em {tentativa} '
+                        f'tentativas (HTTP {resp.status_code})')
+                continue
+            if resp.status_code in (403, 429):
+                self.logger.warning('proxy bloqueado pelo PJe (403/429), rotacionando', extra={
                     'proxy': proxy_url, 'status': resp.status_code,
-                    'waf': _waf, 'tentativa': tentativa,
+                    'tentativa': tentativa,
                 })
                 if proxy_url != cortex_proxy_url():
                     self.pool.mark_bad(proxy_url)
@@ -429,13 +530,14 @@ class BasePjeEnricher:
     def _buscar_em_grau(self, numero_cnj: str, grau: str) -> Optional[str]:
         base_url, list_url, detalhe_path = self._urls_for_grau(grau)
         resp = self._get(list_url)
-        # AWS WAF challenge (ex.: TJPE, 2026-07): HTTP 202 + página com o script
-        # awsWafCookie/challenge.js em vez do form JSF. Não adianta parsear —
-        # é bloqueio de WAF. Erro específico (não "ViewState não encontrado")
-        # pra distinguir de mudança de layout e alimentar a decisão de pausa.
-        low = (resp.text or '')[:2048].lower()
-        if 'awswaf' in low or 'challenge.js' in low or 'token.awswaf.com' in low:
-            raise PjeServerError(f'aws_waf_challenge (HTTP {resp.status_code})')
+        # Rede de segurança: um desafio do WAF que passou pelo `_request_with_
+        # rotation` (ex.: veio com HTTP 200) não pode virar "ViewState não
+        # encontrado" — esse erro é reservado para MUDANÇA DE LAYOUT, e
+        # confundir os dois já mandou gente caçar parser quando o problema era
+        # muro. Mesma exceção do teto, para o desfecho ser um só.
+        low = (resp.text or '')[:4096].lower()
+        if _detectar_desafio_waf(resp) or 'token.awswaf.com' in low:
+            raise PjeWafChallenge(f'aws_waf_challenge (HTTP {resp.status_code})')
         soup = BeautifulSoup(resp.text, 'html.parser')
         vs = soup.find('input', {'name': 'javax.faces.ViewState'})
         if not vs or not vs.get('value'):

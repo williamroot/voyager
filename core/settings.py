@@ -486,6 +486,13 @@ PROXY_BAD_TTL_SECONDS = env.int('PROXY_BAD_TTL_SECONDS', default=120)
 # Cooldown do Cortex residencial. Curto porque o gateway tem rotação
 # interna — basta um momento pro próximo IP ser saudável.
 CORTEX_BAD_TTL_SECONDS = env.int('CORTEX_BAD_TTL_SECONDS', default=15)
+# Freio COMPARTILHADO (Redis) do auto-refresh do pool. O throttle anterior era
+# um atributo de instância e o rqworker forka por job — reiniciava a cada job,
+# e a frota bateu 4.174 chamadas na API da ProxyScrape em 10 min (29/08/2026),
+# levando 429 do Cloudflare em TODAS. Ver ProxyScrapePool._pode_tentar_refresh.
+PROXY_REFRESH_MIN_INTERVAL_SECONDS = env.int('PROXY_REFRESH_MIN_INTERVAL_SECONDS', default=60)
+# Quanto tempo parar de tentar depois de a API responder 429.
+PROXY_REFRESH_COOLDOWN_SECONDS = env.int('PROXY_REFRESH_COOLDOWN_SECONDS', default=300)
 # Probabilidade de cada request DJEN sair via Cortex (residencial) em vez do
 # pool ProxyScrape (datacenter). Diversifica IPs por request — quando o WAF
 # bloqueia datacenter em onda, ainda passa metade via Cortex e vice-versa.

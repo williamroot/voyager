@@ -1167,6 +1167,48 @@ ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python /tmp/px2.py'
 # proxies na lista / saudaveis agora / bad_zset / degraded / fail_streak
 ```
 
+### O pool não some porque queimou: some porque a gente rate-limitou a ProxyScrape (29/08/2026)
+
+Estado encontrado ao abrir a pendência #100: `{'total': 25, 'bad': 21,
+'saudaveis': 4}`. **A lista inteira tinha 25 IPs, não 2.500** — e IP queimado
+não explica isso, porque `bad_zset` só esconde IP da lista, nunca o remove
+dela. Quem encolhe a lista é o `refresh()`, e o `refresh()` estava recebendo:
+
+```
+HTTP 429  Server: cloudflare   (nos DOIS endpoints da ProxyScrape)
+```
+
+**A causa éramos nós.** O auto-refresh de `ProxyScrapePool.get()` era freado por
+`time.time() - self._last_refresh_attempt > 60`, um atributo de **instância**. O
+`rqworker` executa cada job num **fork**: o filho nasce com o contador do pai
+(`0.0`, porque o pai nunca chama `get()`) e morre no fim do job — ou seja, **o
+freio reiniciava a cada job**. Com o pool abaixo do limiar, todo job disparava
+um refresh, e cada refresh são 2 chamadas HTTP.
+
+Medido na `.102`, janela de 10 min, todos os workers:
+
+```
+REFRESH_ENDPOINT_CALLS_10min = 4.174        # ≈ 25 mil/h
+```
+
+O Cloudflare da ProxyScrape passou a 429 em tudo — inclusive na chamada do cron
+de 15 min, a única legítima. Sem reposição, a lista murchou e ficou murcha: um
+laço que se alimenta. Mesma família do `SET LOCAL` em autocommit — um freio que
+existe, é lido, e é **inerte** no modelo de execução real.
+
+Conserto (`djen/proxies.py`, `_pode_tentar_refresh`): o freio foi para o Redis.
+`SET NX EX` (`PROXY_REFRESH_MIN_INTERVAL_SECONDS`, 60 s) faz **um** processo de
+toda a frota tentar por janela; e `HTTP 429` da API arma um cooldown
+compartilhado (`PROXY_REFRESH_COOLDOWN_SECONDS`, 300 s) com log em ERROR
+dizendo quantos endpoints recusaram e com quantos saudáveis o pool ficou.
+`status()` passou a expor `refresh_em_cooldown`. Regressão:
+`tests/test_proxy_refresh_freio.py`.
+
+⚠️ Ao ler `status()`: `total` é o tamanho da **lista**, e ele cair é sintoma de
+refresh, não de queima. `saudaveis`/`bad` é queima. `fail_streak` continua sem
+significado para enrichment (só o cliente DJEN chama `mark_ok()`) — foi visto em
+**1.476.617** nesta apuração.
+
 ### Purgar fila envenenada de cópias (não perde trabalho)
 
 Depois de corrigir o refill, a fila antiga continua com as cópias já

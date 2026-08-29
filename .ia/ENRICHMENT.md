@@ -732,14 +732,71 @@ fica `pendente`, nada se perde).
 3. Re-tentar erros após corrigir a causa:
    `manage.py enriquecer_pendentes --tribunal <SIGLA> --status erro --max-tentativas 3 --limit 0`
 
-## AWS WAF challenge (PJe)
+## AWS WAF challenge (PJe) — o desafio NÃO é do IP (corrigido 29/08/2026)
 
-Alguns PJe (ex.: **TJPE**) ficam atrás de AWS WAF: retornam `HTTP 202` + página
-`awsWafCookie`/`challenge.js` no lugar do form JSF — **intermitente** (~40% dos
-proxies passam). `enrichers/pje.py::_request_with_rotation` detecta
-(`202/405/403/429` + `awswaf` no corpo) e **rotaciona o proxy** como um 403, até
-achar um IP que o WAF libera (não é bug de parser — não pausar). Bloqueio TOTAL
-(TJRO/TJAP: 0 proxies passam) → pausar.
+Alguns PJe (o caso medido é o **TJPE**, `pje.cloud.tjpe.jus.br/1g/`) ficam atrás
+de AWS WAF cuja ação é `challenge`: devolvem `HTTP 202` com o header
+`x-amzn-waf-action: challenge` e a página `awsWafCookie`/`challenge.js` no lugar
+do form JSF.
+
+**A leitura antiga era "bloqueio POR PROXY, intermitente — rotaciona até achar
+um IP que passa". Ela está errada, e custava caro.** Sonda de 29/08/2026, mesmo
+path, mesmo User-Agent:
+
+| caminho | desafiadas |
+|---|---|
+| Cortex residencial (IP novo a cada request) | **29 de 30** |
+| IP direto do host de workers `.102`, sem proxy | **16 de 20** |
+| IP direto do host web `.103`, sem proxy | 0 de 2 |
+| pool datacenter ProxyScrape | não chega (ProxyError/403) |
+
+Trinta IPs residenciais distintos levaram 29 desafios: **trocar de IP não sai do
+desafio**. E o User-Agent também não discrimina — `voyager-ops/0.1` e um UA de
+Firefox foram desafiados na mesma proporção (o teste que parecia mostrar
+diferença estava medindo a loteria do IP de saída do Cortex, não o UA).
+
+O código tratava o desafio como 403: rotacionava `MAX_PROXY_ROTATIONS` (10)
+vezes e chamava `pool.mark_bad()` em cada uma. O pool é **COMPARTILHADO** com a
+ingestão DJEN e os outros 15 enrichers, então cada job do TJPE tirava até 10 IPs
+de circulação por 120 s — para gravar `erro` do mesmo jeito. Censo de 10 min na
+`.102` (29/08/2026, todas as réplicas):
+
+| tribunal | requisições/10 min | `mark_bad`/10 min | erro | ok | nao_enc |
+|---|---:|---:|---:|---:|---:|
+| **TJPE** | 2.791 | **1.379** | 129 | **7** | 1 |
+| TJRJ | 2.972 | 1.231 | 22 | 40 | 193 |
+| TJCE | 1.978 | 822 | 18 | 94 | 19 |
+| TJMA | 1.426 | 583 | 11 | 82 | 0 |
+| TJRO | 938 | 469 | 48 | **0** | 0 |
+
+O TJRJ requisita mais e é o **maior consumidor legítimo** (233 desfechos úteis
+de 255). O TJPE gastava quase o mesmo para 7 `ok` — 95% de refugo.
+
+**Comportamento atual** (`enrichers/pje.py`):
+- `_detectar_desafio_waf(resp)` — header `x-amzn-waf-action` ∈ {challenge,
+  captcha}, **ou** corpo com `awswaf`/`challenge.js` num status que o PJe nunca
+  usa para conteúdo (202/405/403/429). Um 200 legítimo que só *cita* o WAF não
+  conta (o detector antigo, "`awswaf` no corpo", confundia os dois).
+- Desafio tem **teto próprio** (`WAF_MAX_TENTATIVAS = 3`, sobrescritível por
+  subclasse), **não gasta as 10 rotações** e **nunca chama `mark_bad`** — o IP
+  não é ruim, o site é que está desafiando todo mundo.
+- Bater o teto é `PjeWafChallenge`, que vira `erro` **com o número real** no log
+  (`ERROR: AWS WAF: 3 de 3 respostas foram desafio em TJPE`) e aciona
+  `WAF_CHALLENGE_SLEEP_SECONDS = 30` de freio antes do próximo job. Sem esse
+  freio o job falha em ~0,6 s e o worker pega o seguinte na hora — foi assim que
+  14 réplicas fizeram 2.791 requisições em 10 min.
+- 403/429 **sem** assinatura de WAF segue como antes: é bloqueio do IP mesmo,
+  rotaciona e marca ruim.
+
+**Resolver o desafio (rodar o `challenge.js`, montar o cookie do WAF) é evasão
+anti-bot e NÃO está autorizado** (decisão de produto, 25/08/2026 — a mesma que
+barra solver de captcha no eproc/TJSP). Então o teto acima é o fim da linha: o
+que passar da fatia que o WAF deixa passar, passa; o resto fica `erro`.
+
+Bloqueio TOTAL de verdade (TJRO/TJAP: **0** proxies passam, `ok = 0` em 1,09 M
+de processos) → aí sim `manage.py enrich_pausa <SIGLA>`.
+
+Regressão: `tests/test_waf_challenge_nao_queima_pool.py`.
 
 ---
 
