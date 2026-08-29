@@ -827,3 +827,30 @@ de "agora" fixo no código (isso seria propaganda, não medição).
 As oito réguas atuais: cobertura nacional · partes tiradas do texto · processos
 com grau · atraso da busca · duplicação da coleta · páginas pedidas ao CNJ ·
 workers que o alarme enxerga · tribunais fechados no portão.
+
+### 🔴 Script de card roda ANTES do `setupChart` do base (28/08/2026)
+
+Os dois gráficos do card de cobertura ficaram **um dia inteiro em caixa vazia**,
+com os números renderizando ao lado e **nenhum erro no console**.
+
+Causa: o bloco de conteúdo fica na **linha 806** do `base.html` e o `setupChart`
+só é definido na **827** — 21 linhas depois. Script inline dentro do conteúdo
+executa antes de a função existir. E o guard era:
+
+```js
+if (!el || typeof setupChart !== 'function') return;   // calado
+```
+
+Corte mudo escrito no arquivo em que a gente caça corte mudo.
+
+**Regra:** script de card espera `DOMContentLoaded` (que dispara depois que todo
+script inline do documento já executou) e **todo `return` de guarda leva um
+`console.error` antes**. Há teste que varre o bloco e reprova `return` sem grito.
+
+### E não escreva tag do Django dentro de comentário `//`
+
+Ao documentar o conserto acima eu escrevi a tag de bloco literal num comentário
+JS. O Django parseia tag **mesmo dentro de comentário de JavaScript**, e o
+template inteiro morreu com `'block' tag with name 'content' appears more than
+once`. É primo do aviso que já estava aqui (cerquilha atravessando linha vaza
+literal na tela). Teste novo varre as linhas `//` procurando `{%`.

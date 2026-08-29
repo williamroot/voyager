@@ -536,12 +536,33 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
   `dispose`) e remove o skeleton irmão quando renderiza.
 {% endcomment %}
 <script>
-(function () {
-  const serie = JSON.parse(document.getElementById('dados-cob-serie').textContent);
-  const tribs = JSON.parse(document.getElementById('dados-cob-trib').textContent);
+// ⚠️ ESPERA O DOM. O bloco de conteudo fica na LINHA 806 do base.html e o
+// `setupChart` só é definido na 827 — 21 linhas DEPOIS. Script inline aqui roda
+// antes de a função existir, e a primeira versão disto fazia `return` calado
+// nesse caso: os cards apareciam com os números e os gráficos ficavam na caixa
+// vazia, sem um erro no console. Corte mudo escrito por mim, no arquivo em que
+// eu estava caçando corte mudo.
+//
+// `DOMContentLoaded` dispara depois que TODO script inline do documento já
+// executou, então aqui `setupChart` existe. E se um dia não existir, isto
+// GRITA em vez de sumir.
+document.addEventListener('DOMContentLoaded', function () {
+  const noSerie = document.getElementById('dados-cob-serie');
+  const noTrib = document.getElementById('dados-cob-trib');
   const elSerie = document.getElementById('ch-cob-serie');
   const elTrib = document.getElementById('ch-cob-trib');
-  if (!elSerie || !elTrib || typeof setupChart !== 'function') return;
+  if (!noSerie || !noTrib || !elSerie || !elTrib) {
+    console.error('cobertura: faltou nó do gráfico', {
+      serie: !!noSerie, trib: !!noTrib, elSerie: !!elSerie, elTrib: !!elTrib});
+    return;
+  }
+  if (typeof setupChart !== 'function') {
+    console.error('cobertura: `setupChart` não existe — o script do card correu '
+                  + 'antes do base.html. Os gráficos NÃO renderizaram.');
+    return;
+  }
+  const serie = JSON.parse(noSerie.textContent);
+  const tribs = JSON.parse(noTrib.textContent);
 
   // Lê a cor do tema em vez de fixar hexadecimal: o choropleth já renderizou
   // cinza uma vez por ter ignorado os tokens (.ia/DASHBOARD.md).
@@ -660,7 +681,7 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
               fontSize: 9.5, fontFamily: 'JetBrains Mono, monospace'},
     }],
   }));
-})();
+});
 </script>
 {% endif %}
 

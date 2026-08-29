@@ -158,3 +158,53 @@ def test_o_modulo_mede_parte_por_CONTEUDO_e_nao_por_exists():
     corpo = fonte[i:i + 3200]
     assert "partes:/.+/" in corpo, 'voltou a medir por presença'
     assert "'exists'" not in corpo.split('conta(')[1][:400], 'usou exists para contar parte'
+
+
+@pytest.mark.django_db
+def test_o_script_dos_graficos_ESPERA_o_dom(logado):
+    """Os gráficos ficaram em caixa vazia por 1 dia — e sem erro no console.
+
+    `{% block content %}` está na LINHA 806 do `base.html`; `setupChart` só é
+    definido na 827. Script inline do card roda ANTES de a função existir, e a
+    primeira versão fazia `return` calado nesse caso: números apareciam,
+    gráficos não, console limpo. Corte mudo escrito justamente no arquivo em que
+    a gente caça corte mudo.
+    """
+    cache.set(CN.CHAVE, PAYLOAD, 60)
+    h = _html(logado)
+    assert "addEventListener('DOMContentLoaded'" in h, (
+        'o script voltou a rodar antes do base.html definir setupChart')
+    assert 'console.error' in h, (
+        'o guard voltou a ser mudo — gráfico que não renderiza tem que gritar')
+    i = h.find("typeof setupChart !== 'function'")
+    assert i > 0
+    trecho = h[i:i + 400]
+    assert 'console.error' in trecho, 'o caminho do setupChart ausente ficou silencioso'
+
+
+def test_nenhum_guard_do_card_faz_return_calado():
+    """Todo `return` de guarda precisa de um `console.error` antes."""
+    import re
+    fonte = open('dashboard/templates/dashboard/acompanhamento.html').read()
+    i = fonte.find("addEventListener('DOMContentLoaded'")
+    assert i > 0
+    corpo = fonte[i:fonte.find('</script>', i)]
+    for m in re.finditer(r'\n    return;', corpo):
+        antes = corpo[max(0, m.start() - 320):m.start()]
+        assert 'console.error' in antes, (
+            'guard sem grito: o card volta a falhar em silêncio')
+
+
+def test_nenhum_comentario_JS_escreve_tag_do_django():
+    """Comentário de JS NÃO protege tag do Django — ele parseia mesmo assim.
+
+    Escrever a tag de bloco literal dentro de um `//` quebrou o template inteiro
+    com "'block' tag with name 'content' appears more than once". O arquivo já
+    avisava do parente disto (cerquilha atravessando linha vaza literal na tela);
+    esta é a variante que faltava.
+    """
+    import re
+    fonte = open('dashboard/templates/dashboard/acompanhamento.html').read()
+    for m in re.finditer(r'^\s*//.*$', fonte, re.M):
+        assert '{%' not in m.group(0), (
+            f'tag do Django dentro de comentário JS: {m.group(0)[:80]!r}')
