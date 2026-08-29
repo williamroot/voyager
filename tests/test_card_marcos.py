@@ -111,3 +111,19 @@ def test_ler_nunca_calcula(monkeypatch):
         raise AssertionError('ler() chamou calcular() no caminho da requisição')
     monkeypatch.setattr(MS, 'calcular', explode)
     assert MS.ler() is None
+
+
+def test_o_dia_de_referencia_ignora_fim_de_semana():
+    """Sábado tem run nos 59 tribunais e ZERO páginas — não há publicação.
+
+    Usar "o último dia" cru fez o marco de páginas mostrar `14.760 → 0` num
+    sábado (medido em 29/08/2026): tecnicamente certo e enganoso — parece a
+    vitória do século e é só o fim de semana. Número que engana é pior que
+    número ausente.
+    """
+    assert 'HAVING sum(paginas_lidas) > 0' in MS._SQL_DIA_UTIL, (
+        'o dia de referência voltou a aceitar dia sem coleta')
+    for fn in (MS._fator_duplicacao, MS._paginas_do_dia):
+        import inspect
+        assert '_SQL_DIA_UTIL' in inspect.getsource(fn), (
+            f'{fn.__name__} não usa o dia com coleta')

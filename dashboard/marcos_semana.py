@@ -41,22 +41,31 @@ def _sql_um(sql, params=None, teto='60s'):
 # --------------------------------------------------------------------------
 # como medir o AGORA de cada marco
 # --------------------------------------------------------------------------
+#: Último dia com COLETA DE VERDADE — o mais recente em que alguma página foi
+#: lida. Sábado e domingo têm run para os 59 tribunais e **zero páginas**, porque
+#: não há publicação. Usar "o último dia" cru fazia o marco de páginas mostrar
+#: `14.760 → 0` num sábado: tecnicamente certo, e enganoso — parece a vitória do
+#: século e é só o fim de semana. Número que engana é pior que número ausente.
+_SQL_DIA_UTIL = """
+SELECT max(janela_inicio) FROM tribunals_ingestionrun
+ WHERE started_at > now() - interval '8 days'
+   AND janela_inicio IN (SELECT janela_inicio FROM tribunals_ingestionrun
+                          GROUP BY janela_inicio HAVING sum(paginas_lidas) > 0)
+"""
+
+
 def _fator_duplicacao():
-    """`runs / tribunais` do último dia coletado. 1,0 = cada dia lido uma vez."""
+    """`runs / tribunais` do último dia COM coleta. 1,0 = cada dia lido uma vez."""
     r = _sql_um("""SELECT count(*)::float / NULLIF(count(DISTINCT tribunal_id), 0)
                      FROM tribunals_ingestionrun
-                    WHERE janela_inicio = (SELECT max(janela_inicio)
-                                             FROM tribunals_ingestionrun
-                                            WHERE started_at > now() - interval '3 days')""")
+                    WHERE janela_inicio = (%s)""" % _SQL_DIA_UTIL, teto='90s')
     return round(r, 2) if r else None
 
 
 def _paginas_do_dia():
     return _sql_um("""SELECT coalesce(sum(paginas_lidas), 0)
                         FROM tribunals_ingestionrun
-                       WHERE janela_inicio = (SELECT max(janela_inicio)
-                                                FROM tribunals_ingestionrun
-                                               WHERE started_at > now() - interval '3 days')""")
+                       WHERE janela_inicio = (%s)""" % _SQL_DIA_UTIL, teto='90s')
 
 
 def _idade_sync_h():
@@ -123,7 +132,8 @@ MARCOS = [
     {'k': 'paginas', 'rotulo': 'Páginas pedidas ao CNJ por dia',
      'antes': 14_760, 'medido_em': '27/08', 'sufixo': '', 'sobe': False,
      'fn': _paginas_do_dia,
-     'nota': 'é essa banda que abre o circuito e adia o dia dos outros'},
+     'nota': 'é essa banda que abre o circuito e adia o dia dos outros — '
+             'medido no último dia COM coleta, nunca num fim de semana'},
     {'k': 'frota', 'rotulo': 'Workers que o alarme enxerga',
      'antes': 44, 'medido_em': '28/08', 'sufixo': '', 'sobe': True,
      'fn': _frota_vista,
