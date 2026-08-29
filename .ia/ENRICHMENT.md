@@ -672,6 +672,13 @@ rede**, o dado está no nosso banco. Retomável (checkpoint em Redis), com kill
 switch, teto de linhas, teto de tempo, freio por ms/linha, freio pela fila do
 `es_index` e freio por sessões esperando `Lock`.
 
+⚠️ **NÃO use `docker exec -d` no `web` para a corrida.** As sessões de `exec`
+morrem quando alguém mexe no compose, e foi assim que os 4 primeiros shards
+sumiram em 29/08 **sem deixar erro nenhum no log** — o mesmo modo de falha já
+documentado em `OPS.md`. Suba um container PRÓPRIO (`docker run -d` com a
+mesma imagem, `.env` e bind mount); a receita está em
+[`OPS.md`](OPS.md#backfill-de-classe_codigo--operar).
+
 ```bash
 # medir sem escrever NADA
 manage.py backfill_classe --de 42809753 --ate 42849753 --dry-run --json
@@ -694,6 +701,41 @@ busca. Ver `tests/test_backfill_classe.py` e `tests/test_campainha_sync.py`.
 exigem `classe_codigo <> ''` por construção, então a leitura larga só serve
 para contar denominador — e denominador de proporção se mede por **amostra
 uniforme de pk**, não varrendo tudo. `--com-denominador` liga a leitura larga.
+
+### Antes × depois — a corrida inteira (29/08/2026)
+
+**Mesmos 200.000 pks, mesma semente `20260829`, mesmas 195.741 linhas
+existentes** — não é amostra nova, é a MESMA régua medida duas vezes:
+
+| | antes | depois |
+|---|---:|---:|
+| com `classe_nome` | 67.569 | 67.844 |
+| com `classe_codigo` | 63.136 | **66.864** (+3.728) |
+| **buraco** (`classe_nome` cheio, `classe_codigo` vazio) | **4.440** | **987** (−77,8%) |
+| … **recuperável pelo regex** | **3.477** | **0** |
+| abstenções (nome sem código nenhum) | 963 | 987 |
+| `classe_codigo` cheio e `classe_id` NULL (fora de escopo) | 15.499 | 15.485 |
+
+**1.852.508 processos ganharam `classe_codigo`** — contra a projeção de ≈1,84 M
+feita pela amostra ANTES de escrever a primeira linha. O que sobra do buraco
+(≈523 k projetados) é abstenção: nome sem código nenhum no texto, onde inventar
+seria pior que deixar vazio.
+
+Dez shards, 4-6 simultâneos, ~1 h 40 min de relógio. **0 deadlock retentado, 0
+espera de freio, 0 sessão do banco em `wait_event_type='Lock'` em 15 amostras
+ao longo da corrida, e a fila do `es_index` em 0 o tempo todo** (o tique de 10
+min drena mais rápido do que a campainha enche: ~370 k linhas por tique contra
+um teto de 600 k).
+
+| shard | faixa de pk | escritos | segundos |
+|---|---|---:|---:|
+| a + a1 + a2 + a3 | 0 – 26.500.000 | 1.008.149 | ~5.400 |
+| b + b1 + b2 + b3 | 26.500.000 – 53.000.000 | 589.483 | ~4.700 |
+| c | 53.000.000 – 79.500.000 | 89.594 | 2.210 |
+| d | 79.500.000 – 105.980.219 | 108.219 | 3.380 |
+
+A faixa de pk baixo concentra o dano (54% dos reparos em 25% dos pks): é a era
+TRF1/TJMG, quando o enricher era quase toda a ingestão.
 
 Custo medido em produção (fatia `id ∈ (42809753, 42849753]`, 40.000 pks):
 
