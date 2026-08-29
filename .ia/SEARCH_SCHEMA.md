@@ -1695,6 +1695,16 @@ Vazão medida em 29/08/2026 no container `web` da `.103`, faixa `id > 60.000.000
 `--batch-size 2000 --sleep 0`: **1.791 docs/s** em 20.000 docs (462/s no
 primeiro lote, subindo com o cache quente) ⇒ os 101,5 M em ~16 h.
 
+**E o keyset não é enfeite.** A primeira corrida usou
+`qs.order_by('id').iterator(chunk_size=2000)` sobre a tabela inteira: o
+Postgres escolheu ordenar as 103,6 M de linhas **em disco**
+(`wait_event = BuffileRead`, sort externo) e ficou **175 s sem devolver a
+primeira linha** — o comando imprimiu o cabeçalho e mais nada, com cara de
+travado. O teste de 20.000 docs não pegou isso porque o `--limit` virava
+`LIMIT` e o plano era Index Scan. Agora o laço é
+`WHERE id > cursor ORDER BY id LIMIT --janela`, e o LIMIT é o que mantém o
+plano no índice da pkey.
+
 O comando ganhou o que faltava para uma corrida de 16 h (29/08/2026):
 `--checkpoint` (retoma de onde parou, gravado DEPOIS do flush — o `index` por
 `_id` é idempotente, então refazer o último lote é barato e pular é perda),

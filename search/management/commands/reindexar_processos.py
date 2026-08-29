@@ -58,6 +58,10 @@ class Command(BaseCommand):
                                  'fim é ERRO registrado com o id onde parou.')
         parser.add_argument('--reiniciar', action='store_true',
                             help='Ignora o checkpoint salvo.')
+        parser.add_argument('--janela', type=int, default=10_000,
+                            help=('Linhas por consulta ao Postgres. É o keyset: '
+                                  'sem o LIMIT o planner ordena a tabela inteira '
+                                  'em disco antes de devolver a 1ª linha.'))
 
     def handle(self, *args, **options):
         es = getattr(settings, 'ELASTICSEARCH_URL', 'http://elasticsearch:9200').rstrip('/')
@@ -88,8 +92,6 @@ class Command(BaseCommand):
             # enriquecido_em é setado em TODO caminho do drainer (ok/nao_encontrado/
             # erro) e é indexado — seek barato; só esses docs têm partes/valor.
             qs = qs.filter(enriquecido_em__isnull=False)
-        if options['limit']:
-            qs = qs[:options['limit']]
 
         bs = options['batch_size']
         slp = options['sleep']
@@ -140,35 +142,51 @@ class Command(BaseCommand):
             except Exception as e:  # noqa: BLE001 — ES hipou; registra e segue (idempotente)
                 registrar(str(e)[:200])
 
+        # KEYSET por pk, e o LIMIT não é enfeite. A primeira versão usava
+        # `qs.order_by('id').iterator(chunk_size=bs)` sobre a tabela inteira:
+        # medido em produção em 29/08/2026, o Postgres escolheu ordenar as
+        # 103,6 M de linhas em disco (`wait_event = BuffileRead`, sort externo)
+        # e ficou **175 s sem devolver a primeira linha** — o comando imprimiu
+        # o cabeçalho e mais nada. Com `WHERE id > cursor ... LIMIT janela` o
+        # plano vira Index Scan na pkey e a primeira linha sai na hora.
         actions = []
         enviados = 0
-        ultimo_id = options['desde_id']
+        cursor = options['desde_id']
+        ultimo_id = cursor
         parou_no_teto = False
         t0 = time.monotonic()
-        for proc in qs.iterator(chunk_size=bs):
-            actions.append((proc.id, processo_to_doc(proc)))
-            ultimo_id = proc.id
-            if len(actions) >= bs:
-                flush(actions)
-                enviados += len(actions)
-                actions = []
-                # O checkpoint anda DEPOIS do flush, nunca antes: se o processo
-                # morrer no meio, a janela seguinte refaz o último lote (o
-                # `index` por `_id` é idempotente) em vez de pulá-lo.
-                if chave:
-                    cache.set(chave, ultimo_id, None)
-                el = time.monotonic() - t0
-                rate = enviados / el if el else 0
-                eta = (total - enviados) / rate / 60 if rate else 0
-                self.stdout.write(f'  {enviados:,}/{"~" if aprox else ""}{total:,} '
-                                  f'({100 * enviados / max(total, 1):.1f}%) · id={ultimo_id} '
-                                  f'· {rate:.0f}/s · ETA {eta:.0f}min')
-                self.stdout.flush()
-                if options['max_segundos'] and el >= options['max_segundos']:
-                    parou_no_teto = True
-                    break
-                if slp:
-                    time.sleep(slp)
+        while True:
+            lote = list(qs.filter(id__gt=cursor)[:options['janela']])
+            if not lote:
+                break
+            for proc in lote:
+                actions.append((proc.id, processo_to_doc(proc)))
+                ultimo_id = proc.id
+                if len(actions) >= bs:
+                    flush(actions)
+                    enviados += len(actions)
+                    actions = []
+                    # O checkpoint anda DEPOIS do flush, nunca antes: se o
+                    # processo morrer no meio, a janela seguinte refaz o último
+                    # lote (o `index` por `_id` é idempotente) em vez de pulá-lo.
+                    if chave:
+                        cache.set(chave, ultimo_id, None)
+                    el = time.monotonic() - t0
+                    rate = enviados / el if el else 0
+                    eta = (total - enviados) / rate / 60 if rate else 0
+                    self.stdout.write(f'  {enviados:,}/{"~" if aprox else ""}{total:,} '
+                                      f'({100 * enviados / max(total, 1):.1f}%) · '
+                                      f'id={ultimo_id} · {rate:.0f}/s · ETA {eta:.0f}min')
+                    self.stdout.flush()
+                    if slp:
+                        time.sleep(slp)
+            cursor = lote[-1].id
+            el = time.monotonic() - t0
+            if options['max_segundos'] and el >= options['max_segundos']:
+                parou_no_teto = True
+                break
+            if options['limit'] and enviados + len(actions) >= options['limit']:
+                break
         flush(actions)
         enviados += len(actions)
         if chave and ultimo_id:
@@ -214,8 +232,10 @@ class Command(BaseCommand):
 
     def _total(self, qs, options) -> tuple[int, bool]:
         """(total, é_estimativa). Só alimenta a barra de progresso."""
+        if options['limit']:
+            return options['limit'], False
         recortado = bool(options['tribunal'] or options['somente_enriquecidos']
-                         or options['limit'] or options['ate_id'])
+                         or options['ate_id'])
         if recortado:
             try:
                 with transaction.atomic(), connection.cursor() as c:

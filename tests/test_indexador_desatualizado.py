@@ -89,3 +89,98 @@ def test_campos_exigidos_cobre_todo_getattr_do_builder():
     assert not faltam, (
         f'campos lidos com getattr defensivo e FORA de CAMPOS_EXIGIDOS: '
         f'{sorted(faltam)} — eles voltam a virar valor de enchimento silencioso')
+
+
+# --------------------------------------------------------------------------- #
+# `reindexar_processos` — o backfill de 101,5 M de docs
+# --------------------------------------------------------------------------- #
+# A primeira versão da corrida usava `qs.order_by('id').iterator(chunk_size=bs)`
+# sobre a tabela inteira. Medido em produção em 29/08/2026: o Postgres escolheu
+# ordenar as 103,6 M de linhas em DISCO (`wait_event = BuffileRead`, sort
+# externo) e ficou **175 s sem devolver a primeira linha**. O comando imprimiu
+# o cabeçalho, mais nada, e parecia travado. Com `WHERE id > cursor LIMIT
+# janela` o plano vira Index Scan na pkey.
+
+class _RespostaFake:
+    status_code = 200
+    text = ''
+
+
+class _SessaoFake:
+    """Substitui `requests.Session` — registra os `_bulk` sem falar com o ES."""
+
+    def __init__(self):
+        self.corpos = []
+
+    def post(self, url, data=None, headers=None, timeout=None):
+        self.corpos.append(data.decode('utf-8'))
+        return _RespostaFake()
+
+
+@pytest.fixture
+def _processos(db):
+    from tribunals.models import Process, Tribunal
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJRX', defaults={'nome': 'TJRX', 'sigla_djen': 'TJRX'})
+    return [Process.objects.create(numero_cnj=f'000{i:04d}-77.2025.8.26.0100',
+                                   tribunal=t, grau='G1').pk
+            for i in range(25)]
+
+
+def test_reindex_anda_por_keyset_e_indexa_todo_mundo(_processos, monkeypatch):
+    import json
+
+    from django.core.management import call_command
+
+    from search.management.commands import reindexar_processos as cmd
+
+    sessao = _SessaoFake()
+    monkeypatch.setattr(cmd.requests, 'Session', lambda: sessao)
+    # janela e batch pequenos: força VÁRIAS voltas do keyset
+    call_command('reindexar_processos', batch_size=4, janela=7, sleep=0)
+
+    ids = []
+    for corpo in sessao.corpos:
+        linhas = [l for l in corpo.split('\n') if l]
+        for i in range(0, len(linhas), 2):
+            ids.append(json.loads(linhas[i])['index']['_id'])
+    assert sorted(ids) == sorted(_processos), (
+        'o keyset perdeu ou repetiu processo — é exatamente o modo de falha de '
+        'quem avança o cursor antes de mandar o lote')
+    # e o campo que sumiu do índice inteiro tem que estar no doc
+    docs = [json.loads(l) for corpo in sessao.corpos
+            for j, l in enumerate([x for x in corpo.split('\n') if x]) if j % 2]
+    assert all(d['grau'] == 'G1' for d in docs)
+
+
+def test_reindex_nao_usa_iterator_sobre_a_tabela_inteira():
+    fonte = open('search/management/commands/reindexar_processos.py').read()
+    # só o CÓDIGO — o comentário que conta a história cita o `.iterator()`
+    codigo = '\n'.join(l for l in fonte.splitlines()
+                       if not l.lstrip().startswith('#'))
+    assert '.iterator(' not in codigo, (
+        'voltou o cursor sobre a tabela ordenada inteira — 175 s de sort em '
+        'disco antes da primeira linha')
+    assert 'filter(id__gt=cursor)' in codigo
+
+
+def test_reindex_conta_bulk_que_falhou(_processos, monkeypatch, capsys):
+    """Sem fila e sem retry, bulk que falha aqui é documento PERDIDO."""
+    from django.core.management import call_command
+
+    from search.management.commands import reindexar_processos as cmd
+
+    class _Ruim(_SessaoFake):
+        def post(self, *a, **kw):
+            r = _RespostaFake()
+            r.status_code = 503
+            r.text = 'indisponivel'
+            return r
+
+    monkeypatch.setattr(cmd.requests, 'Session', lambda: _Ruim())
+    call_command('reindexar_processos', batch_size=10, janela=10, sleep=0)
+    err = capsys.readouterr().err
+    assert 'ERRO' in err and 'bulks falharam' in err, (
+        'bulk que falha saiu em silêncio — era um stderr.write e segue')
+    assert '25 documentos' in err.replace('.', '').replace(',', ''), (
+        'o alerta tem que trazer o NÚMERO de documentos perdidos')
