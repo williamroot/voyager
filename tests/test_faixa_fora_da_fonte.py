@@ -199,3 +199,72 @@ def test_hook_aceita_o_nome_historico():
     with patch.dict(_ENRICHERS, {'TJX': Legado}, clear=False):
         assert _hook_fora_da_fonte('TJX')('qualquer') == 'motivo-legado'
     assert _hook_fora_da_fonte('NAO_EXISTE') is None
+
+
+# ---------------------------------------------------------------------------
+# O job que JÁ ESTAVA NA FILA quando a faixa foi medida.
+#
+# O filtro de faixa nasceu no ENFILEIRAMENTO (`_separar_fora_da_fonte` e o
+# refill do legado). Isso não alcança o job que entrou na fila ANTES da
+# medição. Medido em 29/08/2026, minutos depois do deploy das faixas: 99,8%
+# dos 11.392 jobs enfileirados do TJMG e 6,8% dos 11.171 do TJRJ já eram da
+# faixa morta — e cada um iria gravar `nao_encontrado`, que é uma afirmação
+# SOBRE A FONTE, para um processo que perguntamos ao sistema errado.
+# ---------------------------------------------------------------------------
+
+def _processo_falso(sigla: str, cnj: str):
+    return SimpleNamespace(pk=1, tribunal_id=sigla, numero_cnj=cnj,
+                           tribunal=SimpleNamespace(sigla=sigla))
+
+
+@pytest.mark.parametrize('sigla,cnj_morto,cnj_vivo', [
+    # (faixa medida,                        controle negativo da MESMA fonte)
+    ('TJMG', '10000100120268130100', '10000100120218130100'),   # pref 1: 2026 x / 2021 ok
+    ('TJRJ', '30000100120268190100', '30000100120238190100'),   # pref 3: 2026 x / 2023 ok
+    ('TJSP', '40000100120268260100', '40000100120138260100'),   # pref 4: 2026 x / 2013 ok
+])
+def test_job_da_fila_antiga_na_faixa_morta_nao_consulta_a_fonte(sigla, cnj_morto, cnj_vivo):
+    """Recusa ANTES de instanciar o enricher — e sem tocar no status.
+
+    O controle negativo é o que dá sentido ao teste: se o CNJ vivo também
+    fosse recusado, o gate estaria apagando processo bom em vez de poupar
+    requisição. Por isso o dublê **herda do enricher real** — só a coleta é
+    substituída. Um `MagicMock` no lugar da classe faria `fora_da_fonte`
+    devolver um mock (verdadeiro) e o teste passaria recusando tudo, provando
+    o contrário do que se propõe.
+    """
+    from enrichers import jobs
+
+    real = _ENRICHERS[sigla]
+    coletados: list = []
+
+    class DubleEnricher(real):                    # noqa: D401 — dublê de teste
+        def __init__(self, *a, **k):
+            pass
+
+        def enriquecer(self, processo, **kw):
+            coletados.append(processo.numero_cnj)
+            return {'status': 'ok'}
+
+    for cnj, deve_recusar in ((cnj_morto, True), (cnj_vivo, False)):
+        p = _processo_falso(sigla, cnj)
+        with patch.object(jobs.Process.objects, 'select_related') as sel, \
+             patch.dict(jobs._ENRICHERS, {sigla: DubleEnricher}), \
+             patch.object(jobs, 'enrich_pausado', return_value=False), \
+             patch.object(jobs, 'registrar_fora_do_esaj') as contador:
+            sel.return_value.get.return_value = p
+            res = jobs.enriquecer_processo(1)
+
+        if deve_recusar:
+            assert res['skip'] == 'fora_da_fonte', f'{sigla} {cnj} devia recusar'
+            assert res['motivo'] == 'eproc'
+            # a recusa e CONTADA (regra no 2), nunca corte mudo
+            contador.assert_called_once_with(sigla, 'eproc')
+            # e NENHUM status e escrito: `nao_encontrado` seria confianca falsa
+            assert 'status' not in res
+            # a fonte nao foi consultada
+            assert coletados == []
+        else:
+            assert res.get('skip') != 'fora_da_fonte', f'{sigla} {cnj} NAO devia recusar'
+            assert coletados == [cnj_vivo], 'o CNJ vivo tem que chegar na fonte'
+            contador.assert_not_called()

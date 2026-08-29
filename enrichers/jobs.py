@@ -175,6 +175,26 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
     cls = _ENRICHERS.get(p.tribunal_id)
     if not cls:
         raise ValueError(f'Sem enricher cadastrado para tribunal {p.tribunal_id}')
+    # A faixa fora-da-fonte já é conferida no ENFILEIRAMENTO (`_separar_fora_da_fonte`
+    # e o refill do legado), mas o job que ENTROU na fila antes de a faixa ser
+    # medida passa direto por aquele filtro. Medido em 29/08/2026, logo após o
+    # deploy das faixas: 99,8% dos 11.392 jobs na fila do TJMG e 6,8% dos 11.171
+    # do TJRJ já eram da faixa morta.
+    #
+    # O custo não é só a requisição gasta num sistema que não tem o processo: o
+    # job gravaria `nao_encontrado`, que é uma afirmação SOBRE A FONTE. Dizer
+    # "a fonte não tem" quando perguntamos ao sistema errado é dado coletado
+    # pela metade — vale menos que zero, porque produz confiança falsa (regra
+    # nº 6: abster > chutar). Aqui a recusa é CONTADA no mesmo censo do
+    # enfileiramento, nunca corte mudo (regra nº 2).
+    fora = _hook_fora_da_fonte(p.tribunal_id)
+    motivo = fora(p.numero_cnj) if fora else None
+    if motivo:
+        registrar_fora_do_esaj(p.tribunal_id, motivo)
+        logger.info('enriquecer_processo fora-da-fonte %s %s motivo=%s',
+                    p.tribunal_id, p.numero_cnj, motivo)
+        return {'skip': 'fora_da_fonte', 'motivo': motivo,
+                'tribunal': p.tribunal_id, 'cnj': p.numero_cnj}
     # e-SAJ (TJSP/TJAL/TJAC) funciona com o pool ProxyScrape; o Cortex tem resetado
     # conexão e faz o enrich falhar (dossiê vazio). Força pool-first pro e-SAJ,
     # independente do que o enqueue passou (garante o fix mesmo se o web ainda não
