@@ -2158,3 +2158,38 @@ de ~290 recriações de container.
   nesse ritmo. Janela maior que isso **subconta em silêncio** e o resultado se
   lê como "caiu a vazão". Meça throughput pelo `FinishedJobRegistry` (o RQ
   guarda `result_ttl` = 500 s) ou pelo `enriquecido_em`, nunca por log longo.
+
+## Vigia das fontes (pausa e despausa sozinho)
+
+`enrichers/jobs.py::tick_vigia_fontes` — scheduler, a cada 10 min, ~22 s por tick.
+
+Um tribunal fora do ar queima o pool **compartilhado** de IPs até alguém
+reparar. Em 30/08/2026 o TJMG passou a servir uma página de erro estática
+(912 bytes, `Last-Modified` de 2016) com **HTTP 200**: não sendo 5xx, passava
+pelo `raise_for_status`, quebrava no parser e virava `erro` opaco — 1.184
+erro/h por réplica, 0 ok, ~7.100 req/h em 6 réplicas, sem nenhum alerta.
+
+Regras do vigia:
+
+| situação | o que faz |
+|---|---|
+| marcador de página de erro (`_PJE_ERROR_MARKERS`) | **pausa** |
+| HTTP 5xx | **pausa** |
+| 2xx com menos de `VIGIA_BYTES_MINIMOS` (4.000) | **pausa** — é casca |
+| HTTP 4xx | **abstém** (`duvida`) — pode ser a NOSSA `LIST_URL` |
+| erro de rede | **abstém** — a sonda mede o proxy tanto quanto a fonte |
+| fonte voltou E a pausa é dele | **despausa** |
+| pausa é de humano | não toca, nem sonda |
+
+Decisão por **maioria de 3 sondas** (`VIGIA_SONDAS`/`VIGIA_MAIORIA`), em
+paralelo, com `VIGIA_TIMEOUT` por sonda. Pausar e despausar saem em `ERROR`.
+
+⚠️ A chave `enrich:pausa_automatica` guarda **de quem é a pausa**. Ela existe
+para uma coisa só: o vigia nunca desfazer decisão de gente. Pausa humana tem
+motivo que ele não conhece.
+
+⚠️ O 4xx não pausar não é frouxidão: um GET seco na `LIST_URL` devolve 404 no
+TJDFT, 401 no TJMT e 403 no TJAP/TJRO, e não dá pra separar "tribunal fora" de
+"sonda errada" só com o código. Pausar por isso seria o vigia produzindo a
+confiança falsa que ele existe para evitar.
+
