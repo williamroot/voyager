@@ -714,6 +714,9 @@ VIGIA_MAIORIA = 2
 #: (regra nº 7): sem isto o vigia herdaria o timeout do socket e travaria o
 #: worker de monitoring.
 VIGIA_TIMEOUT = 20
+#: Abaixo disto um 2xx não é a página de consulta — é casca de erro. A do TJMG
+#: tem 912 bytes; a do TJPA, 848.
+VIGIA_BYTES_MINIMOS = 4000
 
 
 def _auto_pausados() -> set[str]:
@@ -755,12 +758,21 @@ def sondar_fonte(sigla: str) -> tuple[bool, str]:
         except requests.RequestException as exc:
             return 'rede', type(exc).__name__     # NÃO conta como fonte morta
         marcador = _detect_pje_server_error(r.text)
+        detalhe = f'HTTP {r.status_code}, {len(r.content)} bytes'
         if marcador:
             return 'morta', f'pagina de erro ({marcador})'
-        detalhe = f'HTTP {r.status_code}, {len(r.content)} bytes'
-        if r.ok and len(r.content) > 4000:
+        if r.ok and len(r.content) > VIGIA_BYTES_MINIMOS:
             return 'viva', detalhe
-        return 'morta', detalhe
+        if r.ok or r.status_code >= 500:
+            # 2xx pequeno demais para ser conteúdo, ou 5xx: a fonte falou e
+            # falhou. TJPA (30/08) devolvia 200 com 848 bytes.
+            return 'morta', detalhe
+        # 4xx num GET seco NÃO prova que a fonte caiu: pode ser a nossa sonda
+        # pedindo a URL errada, ou um fluxo que exige sessão/POST antes. Medido
+        # em 30/08: TJDFT devolve 404 e TJMT 401 na `LIST_URL` — e não dá pra
+        # separar "tribunal fora" de "sonda errada" só com isso. Abster >
+        # chutar (regra nº 6): inconclusivo não pausa, mas é dito.
+        return 'duvida', detalhe
 
     # As sondas vão JUNTAS. Sequencial, o vigia inteiro levava mais que o
     # próprio intervalo de 10 min (16 tribunais x 3 sondas x 25 s no pior
@@ -786,9 +798,11 @@ def sondar_fonte(sigla: str) -> tuple[bool, str]:
         return False, f'{mortas} de {len(resultados)} sondas: {_porque("morta")}'
     if vivas >= VIGIA_MAIORIA:
         return True, f'{vivas} de {len(resultados)} sondas: {_porque("viva")}'
+    duvidas = [d for k, d in resultados if k == 'duvida']
     redes = [d for k, d in resultados if k == 'rede']
+    detalhe = (duvidas or redes or [_porque('morta')])[0]
     return True, (f'inconclusivo ({vivas} viva/{mortas} morta/'
-                  f'{len(redes)} rede): {redes[0] if redes else _porque("morta")}')
+                  f'{len(duvidas)} duvida/{len(redes)} rede): {detalhe}')
 
 
 @job('monitoring', timeout=600)

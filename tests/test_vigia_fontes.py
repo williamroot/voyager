@@ -116,3 +116,23 @@ def test_motivo_vem_de_quem_decidiu_nao_da_ultima_sonda(vigia):
     assert vigia['pausados'] == {'TJMG'}
     assert 'pagina de erro' in rel['TJMG'], rel['TJMG']
     assert 'ProxyError' not in rel['TJMG']
+
+
+@pytest.mark.parametrize('status,bytes_,deve_pausar,porque', [
+    (200,  800, True,  '2xx pequeno demais é casca de erro (TJPA: 848 bytes)'),
+    (503, 2000, True,  '5xx é a fonte falando e falhando'),
+    (404,  148, False, 'TJDFT devolve 404 na LIST_URL — pode ser sonda errada'),
+    (401,    0, False, 'TJMT devolve 401 — pode exigir sessão antes'),
+    (403, 5553, False, 'TJAP devolve 403 — WAF ou sonda errada, não dá pra separar'),
+    (200, 9000, False, 'página de verdade'),
+])
+def test_4xx_em_get_seco_nao_prova_que_a_fonte_caiu(vigia, status, bytes_, deve_pausar, porque):
+    """O vigia também tem que abster (regra nº 6).
+
+    Pausar tribunal saudável porque NOSSA sonda pediu a URL errada seria o
+    vigia produzindo exatamente a confiança falsa que ele existe para evitar.
+    """
+    resp = _resposta('x' * bytes_, status=status)
+    with patch('requests.get', return_value=resp):
+        jobs.tick_vigia_fontes()
+    assert (vigia['pausados'] == {'TJMG'}) is deve_pausar, porque
