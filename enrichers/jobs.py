@@ -729,8 +729,13 @@ def _set_auto_pausados(siglas: set[str]) -> None:
     cache.set(_AUTO_PAUSA_KEY, sorted(s.upper() for s in siglas), timeout=None)
 
 
-def sondar_fonte(sigla: str) -> tuple[bool, str]:
-    """`(fonte_viva, motivo)` — decidido por MAIORIA de sondas independentes.
+def sondar_fonte(sigla: str) -> tuple[str, str]:
+    """`('viva'|'morta'|'duvida', motivo)` — por MAIORIA de sondas independentes.
+
+    São TRÊS estados, não dois. `duvida` não é um "viva" mais fraco: é a
+    ausência de prova, e ela não pode virar afirmação em nenhuma direção. Com
+    dois estados, o vigia leu "não sei" como "voltou" e DESPAUSOU o TJPA por
+    três sondas que falharam na rede — depois pausou de novo, oscilando.
 
     Só o PJe/e-SAJ sabem se a própria resposta é conteúdo. Reaproveitamos o
     detector que o enricher já usa (`_detect_pje_server_error`), então um
@@ -739,13 +744,13 @@ def sondar_fonte(sigla: str) -> tuple[bool, str]:
     """
     import requests
     from concurrent.futures import ThreadPoolExecutor
-    from enrichers.pje import _detect_pje_server_error
+    from enrichers.pje import _detect_pje_server_error, _detectar_desafio_waf
     from djen.proxies import ProxyScrapePool
 
     cls = _ENRICHERS.get(sigla)
     url = getattr(cls, 'LIST_URL', '') or getattr(cls, 'BASE_URL', '')
     if not url:
-        return True, 'sem URL de sonda'          # abster > chutar: não pausa
+        return 'duvida', 'sem URL de sonda'
 
     pool = ProxyScrapePool()
 
@@ -757,8 +762,15 @@ def sondar_fonte(sigla: str) -> tuple[bool, str]:
                              headers={'User-Agent': 'Mozilla/5.0'})
         except requests.RequestException as exc:
             return 'rede', type(exc).__name__     # NÃO conta como fonte morta
-        marcador = _detect_pje_server_error(r.text)
         detalhe = f'HTTP {r.status_code}, {len(r.content)} bytes'
+        # O desafio do WAF NÃO é a fonte fora — é o anti-bot, que o enricher já
+        # trata rotacionando proxy. Medido em 30/08: o TJPE respondia 61% dos
+        # jobs e mesmo assim o vigia o pausou, porque o 202 do `awselb` vem com
+        # 0 bytes e caía em "2xx pequeno demais". Pausar por WAF joga fora
+        # coleta que estava funcionando.
+        if _detectar_desafio_waf(r):
+            return 'duvida', f'{detalhe} (desafio WAF)'
+        marcador = _detect_pje_server_error(r.text)
         if marcador:
             return 'morta', f'pagina de erro ({marcador})'
         if r.ok and len(r.content) > VIGIA_BYTES_MINIMOS:
@@ -795,14 +807,14 @@ def sondar_fonte(sigla: str) -> tuple[bool, str]:
                 return detalhe
         return ''
     if mortas >= VIGIA_MAIORIA:
-        return False, f'{mortas} de {len(resultados)} sondas: {_porque("morta")}'
+        return 'morta', f'{mortas} de {len(resultados)} sondas: {_porque("morta")}'
     if vivas >= VIGIA_MAIORIA:
-        return True, f'{vivas} de {len(resultados)} sondas: {_porque("viva")}'
+        return 'viva', f'{vivas} de {len(resultados)} sondas: {_porque("viva")}'
     duvidas = [d for k, d in resultados if k == 'duvida']
     redes = [d for k, d in resultados if k == 'rede']
     detalhe = (duvidas or redes or [_porque('morta')])[0]
-    return True, (f'inconclusivo ({vivas} viva/{mortas} morta/'
-                  f'{len(duvidas)} duvida/{len(redes)} rede): {detalhe}')
+    return 'duvida', (f'{vivas} viva/{mortas} morta/'
+                      f'{len(duvidas)} duvida/{len(redes)} rede: {detalhe}')
 
 
 @job('monitoring', timeout=600)
@@ -836,23 +848,27 @@ def tick_vigia_fontes() -> dict:
 
     for sigla in a_sondar:
         auto = sigla in automaticos
-        viva, motivo = sondados[sigla]
+        estado, motivo = sondados[sigla]
 
-        if not viva and sigla not in pausados:
+        if estado == 'morta' and sigla not in pausados:
             set_enrich_pausados(pausados | {sigla})
             _set_auto_pausados(automaticos | {sigla})
             pausados = pausados | {sigla}
             automaticos = automaticos | {sigla}
             logger.error('vigia PAUSOU %s — fonte fora: %s', sigla, motivo)
             relatorio[sigla] = f'pausado: {motivo}'
-        elif viva and auto:
+        elif estado == 'viva' and auto:
             set_enrich_pausados(pausados - {sigla})
             _set_auto_pausados(automaticos - {sigla})
             pausados = pausados - {sigla}
             automaticos = automaticos - {sigla}
             logger.error('vigia DESPAUSOU %s — fonte voltou: %s', sigla, motivo)
             relatorio[sigla] = f'despausado: {motivo}'
+        elif estado == 'duvida':
+            # Sem prova não se mexe em NADA — nem pausa, nem despausa. Fica
+            # dito no relatório para não virar silêncio.
+            relatorio[sigla] = f'inconclusivo, sem mexer: {motivo}'
         else:
-            relatorio[sigla] = ('fora (já pausado)' if not viva else 'ok')
+            relatorio[sigla] = ('fora (já pausado)' if estado == 'morta' else 'ok')
 
     return relatorio

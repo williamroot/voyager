@@ -33,6 +33,7 @@ def _resposta(texto: str, status: int = 200):
     r.content = texto.encode()
     r.status_code = status
     r.ok = status < 400
+    r.headers = {}
     return r
 
 
@@ -77,6 +78,37 @@ def test_vigia_nunca_despausa_pausa_de_humano(vigia):
     assert vigia['pausados'] == {'TJMG'}
     assert 'humano' in rel['TJMG']
     g.assert_not_called(), 'nem sonda: não é assunto do vigia'
+
+
+def test_inconclusivo_NUNCA_despausa(vigia):
+    """Abstenção não pode virar afirmação em direção nenhuma.
+
+    Medido em produção (30/08/2026): `vigia DESPAUSOU TJPA — fonte voltou:
+    inconclusivo (0 viva/1 morta/0 duvida/2 rede)`. Com um booleano, "não sei"
+    caía no mesmo lado de "voltou", e o TJPA oscilou — pausado 11:38,
+    despausado 11:58, e assim por diante.
+    """
+    vigia['pausados'] = {'TJMG'}
+    vigia['auto'] = {'TJMG'}
+    with patch('requests.get', side_effect=requests.exceptions.ProxyError('boom')):
+        rel = jobs.tick_vigia_fontes()
+    assert vigia['pausados'] == {'TJMG'}, 'sem prova, não se mexe em nada'
+    assert 'inconclusivo' in rel['TJMG']
+
+
+def test_desafio_do_waf_nao_e_fonte_fora(vigia):
+    """O 202 do `awselb` vem com 0 bytes e caía em "2xx pequeno demais".
+
+    O TJPE respondia 61% dos jobs e mesmo assim foi pausado pelo vigia. O
+    anti-bot é tratado pelo enricher rotacionando proxy; pausar por causa dele
+    joga fora coleta que estava funcionando.
+    """
+    r = _resposta('', status=202)
+    r.headers = {'x-amzn-waf-action': 'challenge'}
+    with patch('requests.get', return_value=r):
+        rel = jobs.tick_vigia_fontes()
+    assert vigia['pausados'] == set(), 'WAF não é fonte fora'
+    assert 'WAF' in rel['TJMG']
 
 
 def test_falha_de_rede_nao_e_tribunal_fora(vigia):
