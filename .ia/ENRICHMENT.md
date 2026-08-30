@@ -2177,6 +2177,7 @@ Regras do vigia:
 | HTTP 5xx | **pausa** |
 | 2xx com menos de `VIGIA_BYTES_MINIMOS` (4.000) | **pausa** — é casca |
 | HTTP 4xx | **abstém** (`duvida`) — pode ser a NOSSA `LIST_URL` |
+| desafio de WAF (202 + `x-amzn-waf-action`) | **abstém** — é anti-bot, não fonte fora |
 | erro de rede | **abstém** — a sonda mede o proxy tanto quanto a fonte |
 | fonte voltou E a pausa é dele | **despausa** |
 | pausa é de humano | não toca, nem sonda |
@@ -2187,6 +2188,15 @@ paralelo, com `VIGIA_TIMEOUT` por sonda. Pausar e despausar saem em `ERROR`.
 ⚠️ A chave `enrich:pausa_automatica` guarda **de quem é a pausa**. Ela existe
 para uma coisa só: o vigia nunca desfazer decisão de gente. Pausa humana tem
 motivo que ele não conhece.
+
+⚠️ `sondar_fonte` devolve **três** estados (`viva`/`morta`/`duvida`), nunca um
+booleano. Só `morta` pausa, só `viva` despausa, `duvida` não mexe em nada. Com
+dois estados o inconclusivo tinha que cair de algum lado — caiu no `True`, e o
+log de produção registrou `vigia DESPAUSOU TJPA — fonte voltou: inconclusivo
+(0 viva/1 morta/0 duvida/2 rede)`. O TJPA passou a oscilar a cada tick.
+
+⚠️ Desafio de WAF não é fonte fora. O 202 do `awselb` vem com 0 bytes e caía em
+"2xx pequeno demais": o TJPE foi pausado enquanto respondia 61% dos jobs.
 
 ⚠️ O 4xx não pausar não é frouxidão: um GET seco na `LIST_URL` devolve 404 no
 TJDFT, 401 no TJMT e 403 no TJAP/TJRO, e não dá pra separar "tribunal fora" de
