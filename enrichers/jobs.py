@@ -769,12 +769,26 @@ def sondar_fonte(sigla: str) -> tuple[bool, str]:
         resultados = list(ex.map(_sonda, range(VIGIA_SONDAS)))
     vivas = sum(1 for k, _ in resultados if k == 'viva')
     mortas = sum(1 for k, _ in resultados if k == 'morta')
-    ultimo = resultados[-1][1] if resultados else ''
+
+    def _porque(veredito: str) -> str:
+        """O motivo tem que vir de quem DECIDIU, não da última sonda a responder.
+
+        Com 2 sondas vendo página de erro e 1 falhando por rede, reportar a
+        última dizia "fonte fora: ProxyError" — culpando o proxy por uma
+        decisão que foi da fonte. Motivo errado manda a investigação pro lado
+        errado, que é pior que motivo nenhum.
+        """
+        for k, detalhe in resultados:
+            if k == veredito:
+                return detalhe
+        return ''
     if mortas >= VIGIA_MAIORIA:
-        return False, ultimo
+        return False, f'{mortas} de {len(resultados)} sondas: {_porque("morta")}'
     if vivas >= VIGIA_MAIORIA:
-        return True, ultimo
-    return True, f'inconclusivo ({vivas} viva/{mortas} morta): {ultimo}'
+        return True, f'{vivas} de {len(resultados)} sondas: {_porque("viva")}'
+    redes = [d for k, d in resultados if k == 'rede']
+    return True, (f'inconclusivo ({vivas} viva/{mortas} morta/'
+                  f'{len(redes)} rede): {redes[0] if redes else _porque("morta")}')
 
 
 @job('monitoring', timeout=600)

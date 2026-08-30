@@ -103,3 +103,16 @@ def test_duas_de_tres_pausam(vigia):
                                             _resposta(PAGINA_ERRO)]):
         jobs.tick_vigia_fontes()
     assert vigia['pausados'] == {'TJMG'}
+
+
+def test_motivo_vem_de_quem_decidiu_nao_da_ultima_sonda(vigia):
+    """2 sondas viram página de erro e 1 falhou por rede: o vigia dizia
+    'fonte fora: ProxyError', culpando o proxy por uma decisão que foi da
+    fonte. Motivo errado manda a investigação pro lado errado."""
+    with patch('requests.get', side_effect=[_resposta(PAGINA_ERRO),
+                                            _resposta(PAGINA_ERRO),
+                                            requests.exceptions.ProxyError('boom')]):
+        rel = jobs.tick_vigia_fontes()
+    assert vigia['pausados'] == {'TJMG'}
+    assert 'pagina de erro' in rel['TJMG'], rel['TJMG']
+    assert 'ProxyError' not in rel['TJMG']
