@@ -159,6 +159,19 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Vigia das fontes: pausa tribunal cuja consulta pública está fora, e
+    # DESPAUSA sozinho quando volta. Sem ele, um tribunal fora queima o pool
+    # COMPARTILHADO de IPs até alguém reparar — o TJMG fez ~7.100 req/h contra
+    # uma página de erro estática em 30/08/2026, sem nenhum alerta.
+    from enrichers.jobs import tick_vigia_fontes
+    scheduler.add_job(
+        tick_vigia_fontes.delay,
+        'interval',
+        minutes=10,
+        id='vigia_fontes',
+        replace_existing=True,
+    )
+
     # Completude do acervo (F5): passada incremental na varredura do Datajud.
     # Diária e de madrugada porque é a hora em que a APIKey compartilhada do CNJ
     # está mais folgada — e porque o incremental é pequeno (só o que mudou desde

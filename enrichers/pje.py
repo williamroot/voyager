@@ -106,6 +106,13 @@ _PJE_ERROR_MARKERS = (
     'indispon&iacute;vel no momento',
     'indisponível no momento',
     'RelatorioIndisponibilidade',  # link no rodapé da página de indisponibilidade
+    # Página de erro do TJMG — servida com **HTTP 200** (não 5xx) quando o PJe
+    # de consulta pública cai. Medida em 30/08/2026: 912 bytes, `Last-Modified`
+    # de 2016, sem nada do PJe. Sem estes marcadores ela passava pelo
+    # `raise_for_status`, quebrava no parser e virava um `erro` opaco: 1.184
+    # erro/h por réplica, 0 ok, sem dizer que a FONTE é que estava fora.
+    '/error/server_error.gif',
+    '/error/style.css',
 )
 
 

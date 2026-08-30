@@ -695,3 +695,118 @@ def _alertar_fora_da_fonte() -> None:
             f'{total:,}', sigla, motivo,
             f'{total - _ultimo_censo_fora.get(chave, 0):,}')
         _ultimo_censo_fora[chave] = total
+
+
+# ---------------------------------------------------------------------------
+# Vigia das fontes: pausa quem está fora, e DESPAUSA quando volta.
+# ---------------------------------------------------------------------------
+#: Siglas pausadas pelo vigia. Existe separado de `_PAUSA_KEY` por um motivo
+#: só: o vigia NUNCA despausa o que um humano pausou. Pausa de gente tem
+#: motivo que o vigia não conhece (contrato, ordem judicial, incidente aberto).
+_AUTO_PAUSA_KEY = 'enrich:pausa_automatica'
+
+#: Quantas sondas por tribunal, e quantas precisam concordar. Uma sonda só
+#: mede o proxy, não a fonte: um `ProxyError` isolado viraria "tribunal fora"
+#: e pausaria um tribunal saudável.
+VIGIA_SONDAS = 3
+VIGIA_MAIORIA = 2
+
+
+def _auto_pausados() -> set[str]:
+    from django.core.cache import cache
+    return set(cache.get(_AUTO_PAUSA_KEY) or [])
+
+
+def _set_auto_pausados(siglas: set[str]) -> None:
+    from django.core.cache import cache
+    cache.set(_AUTO_PAUSA_KEY, sorted(s.upper() for s in siglas), timeout=None)
+
+
+def sondar_fonte(sigla: str) -> tuple[bool, str]:
+    """`(fonte_viva, motivo)` — decidido por MAIORIA de sondas independentes.
+
+    Só o PJe/e-SAJ sabem se a própria resposta é conteúdo. Reaproveitamos o
+    detector que o enricher já usa (`_detect_pje_server_error`), então um
+    tribunal que passe a servir página de erro nova é reconhecido assim que o
+    marcador entrar na lista — num lugar só.
+    """
+    import requests
+    from enrichers.pje import _detect_pje_server_error
+    from djen.proxies import ProxyScrapePool
+
+    cls = _ENRICHERS.get(sigla)
+    url = getattr(cls, 'LIST_URL', '') or getattr(cls, 'BASE_URL', '')
+    if not url:
+        return True, 'sem URL de sonda'          # abster > chutar: não pausa
+
+    pool = ProxyScrapePool()
+    vivas, mortas, ultimo = 0, 0, ''
+    for _ in range(VIGIA_SONDAS):
+        proxy = pool.get()
+        proxies = {'http': proxy, 'https': proxy} if proxy else None
+        try:
+            r = requests.get(url, proxies=proxies, timeout=25,
+                             headers={'User-Agent': 'Mozilla/5.0'})
+        except requests.RequestException as exc:
+            ultimo = f'{type(exc).__name__}'      # rede: NÃO conta como fonte morta
+            continue
+        marcador = _detect_pje_server_error(r.text)
+        if marcador:
+            mortas += 1
+            ultimo = f'pagina de erro ({marcador})'
+        elif r.ok and len(r.content) > 4000:
+            vivas += 1
+            ultimo = f'HTTP {r.status_code}, {len(r.content)} bytes'
+        else:
+            mortas += 1
+            ultimo = f'HTTP {r.status_code}, {len(r.content)} bytes'
+    if mortas >= VIGIA_MAIORIA:
+        return False, ultimo
+    if vivas >= VIGIA_MAIORIA:
+        return True, ultimo
+    return True, f'inconclusivo ({vivas} viva/{mortas} morta): {ultimo}'
+
+
+@job('monitoring', timeout=600)
+def tick_vigia_fontes() -> dict:
+    """Pausa tribunal cuja fonte está comprovadamente fora; despausa quando volta.
+
+    Sem isto, um tribunal fora do ar queima o pool COMPARTILHADO de IPs até
+    alguém reparar: o TJMG, em 30/08/2026, fez 1.184 erro/h por réplica (~7.100
+    req/h em 6) contra uma página de erro estática — e nada avisou.
+
+    A recuperação é a metade que costuma faltar. Pausa manual é esquecida: foi
+    assim que dois workers velhos deixaram um watchdog parado por 3.007 dias.
+    Por isso o vigia só despausa o que ELE mesmo pausou, e diz em ERROR o que
+    fez — teto é alerta, nunca corte mudo (regra nº 2).
+    """
+    pausados = enrich_pausados()
+    automaticos = _auto_pausados()
+    relatorio: dict = {}
+
+    for sigla in sorted(_ENRICHERS):
+        auto = sigla in automaticos
+        if sigla in pausados and not auto:
+            relatorio[sigla] = 'pausado por humano — vigia não mexe'
+            continue
+
+        viva, motivo = sondar_fonte(sigla)
+
+        if not viva and sigla not in pausados:
+            set_enrich_pausados(pausados | {sigla})
+            _set_auto_pausados(automaticos | {sigla})
+            pausados = pausados | {sigla}
+            automaticos = automaticos | {sigla}
+            logger.error('vigia PAUSOU %s — fonte fora: %s', sigla, motivo)
+            relatorio[sigla] = f'pausado: {motivo}'
+        elif viva and auto:
+            set_enrich_pausados(pausados - {sigla})
+            _set_auto_pausados(automaticos - {sigla})
+            pausados = pausados - {sigla}
+            automaticos = automaticos - {sigla}
+            logger.error('vigia DESPAUSOU %s — fonte voltou: %s', sigla, motivo)
+            relatorio[sigla] = f'despausado: {motivo}'
+        else:
+            relatorio[sigla] = ('fora (já pausado)' if not viva else 'ok')
+
+    return relatorio
