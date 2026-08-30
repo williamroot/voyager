@@ -710,6 +710,10 @@ _AUTO_PAUSA_KEY = 'enrich:pausa_automatica'
 #: e pausaria um tribunal saudável.
 VIGIA_SONDAS = 3
 VIGIA_MAIORIA = 2
+#: Teto de espera de CADA sonda. Nada no caminho de um tick periódico sem teto
+#: (regra nº 7): sem isto o vigia herdaria o timeout do socket e travaria o
+#: worker de monitoring.
+VIGIA_TIMEOUT = 20
 
 
 def _auto_pausados() -> set[str]:
@@ -731,6 +735,7 @@ def sondar_fonte(sigla: str) -> tuple[bool, str]:
     marcador entrar na lista — num lugar só.
     """
     import requests
+    from concurrent.futures import ThreadPoolExecutor
     from enrichers.pje import _detect_pje_server_error
     from djen.proxies import ProxyScrapePool
 
@@ -740,26 +745,31 @@ def sondar_fonte(sigla: str) -> tuple[bool, str]:
         return True, 'sem URL de sonda'          # abster > chutar: não pausa
 
     pool = ProxyScrapePool()
-    vivas, mortas, ultimo = 0, 0, ''
-    for _ in range(VIGIA_SONDAS):
+
+    def _sonda(_) -> tuple[str, str]:
         proxy = pool.get()
         proxies = {'http': proxy, 'https': proxy} if proxy else None
         try:
-            r = requests.get(url, proxies=proxies, timeout=25,
+            r = requests.get(url, proxies=proxies, timeout=VIGIA_TIMEOUT,
                              headers={'User-Agent': 'Mozilla/5.0'})
         except requests.RequestException as exc:
-            ultimo = f'{type(exc).__name__}'      # rede: NÃO conta como fonte morta
-            continue
+            return 'rede', type(exc).__name__     # NÃO conta como fonte morta
         marcador = _detect_pje_server_error(r.text)
         if marcador:
-            mortas += 1
-            ultimo = f'pagina de erro ({marcador})'
-        elif r.ok and len(r.content) > 4000:
-            vivas += 1
-            ultimo = f'HTTP {r.status_code}, {len(r.content)} bytes'
-        else:
-            mortas += 1
-            ultimo = f'HTTP {r.status_code}, {len(r.content)} bytes'
+            return 'morta', f'pagina de erro ({marcador})'
+        detalhe = f'HTTP {r.status_code}, {len(r.content)} bytes'
+        if r.ok and len(r.content) > 4000:
+            return 'viva', detalhe
+        return 'morta', detalhe
+
+    # As sondas vão JUNTAS. Sequencial, o vigia inteiro levava mais que o
+    # próprio intervalo de 10 min (16 tribunais x 3 sondas x 25 s no pior
+    # caso) — um tick que não cabe no intervalo se atropela e nunca fecha.
+    with ThreadPoolExecutor(max_workers=VIGIA_SONDAS) as ex:
+        resultados = list(ex.map(_sonda, range(VIGIA_SONDAS)))
+    vivas = sum(1 for k, _ in resultados if k == 'viva')
+    mortas = sum(1 for k, _ in resultados if k == 'morta')
+    ultimo = resultados[-1][1] if resultados else ''
     if mortas >= VIGIA_MAIORIA:
         return False, ultimo
     if vivas >= VIGIA_MAIORIA:
@@ -780,17 +790,25 @@ def tick_vigia_fontes() -> dict:
     Por isso o vigia só despausa o que ELE mesmo pausou, e diz em ERROR o que
     fez — teto é alerta, nunca corte mudo (regra nº 2).
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     pausados = enrich_pausados()
     automaticos = _auto_pausados()
     relatorio: dict = {}
 
+    a_sondar = [s for s in sorted(_ENRICHERS)
+                if not (s in pausados and s not in automaticos)]
     for sigla in sorted(_ENRICHERS):
-        auto = sigla in automaticos
-        if sigla in pausados and not auto:
+        if sigla not in a_sondar:
             relatorio[sigla] = 'pausado por humano — vigia não mexe'
-            continue
 
-        viva, motivo = sondar_fonte(sigla)
+    # Um tribunal fora não pode atrasar a sonda dos outros.
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        sondados = dict(zip(a_sondar, ex.map(sondar_fonte, a_sondar)))
+
+    for sigla in a_sondar:
+        auto = sigla in automaticos
+        viva, motivo = sondados[sigla]
 
         if not viva and sigla not in pausados:
             set_enrich_pausados(pausados | {sigla})
