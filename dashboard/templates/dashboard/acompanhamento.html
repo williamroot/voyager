@@ -441,6 +441,163 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
   </section>
   {% endif %}
 
+  {% if integridade %}
+  {% comment %}
+    INTEGRIDADE — os outros dois cards contam o que CRESCEU; este conta o que
+    está ÍNTEGRO, que é outra pergunta e a mais fácil de responder errado.
+
+    Regras que este card não pode quebrar:
+      * a divergência aparece nos DOIS sentidos. `só no banco` = o índice
+        perdeu; `só no índice` = o índice inventou. Mostrar um lado só esconde
+        metade do erro;
+      * se o campo de CONTROLE não deu 100%, o bloco não publica número nenhum
+        — só o motivo. Foi um controle em 0,0% que denunciou a régua torta;
+      * pausa do vigia e pausa de humano são coisas DIFERENTES na tela, porque
+        são diferentes na vida: o vigia solta a dele sozinha, e nunca toca na
+        do humano;
+      * dado vem do CACHE. O sorteio no ES custa ~25 s (regra nº 7).
+  {% endcomment %}
+  <section class="card-tight relative overflow-hidden">
+    <div aria-hidden="true"
+         class="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full
+                bg-mission/10 blur-3xl"></div>
+
+    <div class="relative flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+          {% voy_icon "calibrate" "w-5 h-5 text-mission" %}
+          Integridade do acervo
+        </h2>
+        <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+          Contagem própria não prova nada. Aqui o mesmo processo é conferido nos
+          <b>dois lados</b> — sorteado no índice, buscado no banco — e a
+          divergência é contada nas duas direções.
+        </p>
+      </div>
+      {% if integridade.indice and not integridade.indice.suprimido %}
+      <div class="text-right shrink-0">
+        <div class="text-2xl font-mono tabular-nums
+                    {% if integridade.indice.divergencia %}text-danger{% else %}text-mission{% endif %}">
+          {{ integridade.indice.divergencia }}
+        </div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">divergências</div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if integridade.indice.suprimido %}
+    <p class="relative mt-4 text-[0.75rem] text-danger leading-relaxed
+              rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3">
+      <b>Medição não publicada.</b> {{ integridade.indice.suprimido }}.
+      Número medido com régua torta é pior que número nenhum.
+    </p>
+    {% elif integridade.indice %}
+    <div class="relative mt-4 overflow-x-auto">
+      <table class="w-full text-[0.8rem] border-collapse">
+        <thead>
+          <tr class="text-[0.68rem] uppercase tracking-wider text-fg-subtle">
+            <th class="text-left font-medium pb-2">Campo</th>
+            <th class="text-right font-medium pb-2">no banco</th>
+            <th class="text-right font-medium pb-2">no índice</th>
+            <th class="text-right font-medium pb-2">só no banco</th>
+            <th class="text-right font-medium pb-2">só no índice</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in integridade.indice.linhas %}
+          <tr class="border-t border-border">
+            <td class="py-1.5 text-fg-soft">{{ l.rotulo }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums text-fg-muted">{{ l.pg }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums text-fg-muted">{{ l.es }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums
+                       {% if l.so_pg %}text-danger{% else %}text-mission{% endif %}">{{ l.so_pg }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums
+                       {% if l.so_es %}text-danger{% else %}text-mission{% endif %}">{{ l.so_es }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="text-[0.7rem] text-fg-subtle mt-2">
+        {{ integridade.indice.amostra }} processos sorteados de
+        {{ integridade.indice.docs_indice }} no índice ·
+        conferido com o campo de controle <code>proc</code>, que tem que dar 100%
+      </p>
+    </div>
+    {% endif %}
+
+    {% if integridade.fontes %}
+    <div class="relative mt-5">
+      <div class="flex items-baseline justify-between gap-3">
+        <h3 class="text-[0.82rem] font-medium text-fg-soft">Fontes vigiadas</h3>
+        <span class="text-[0.7rem] text-fg-subtle">
+          sondadas de 10 em 10 minutos
+        </span>
+      </div>
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        {% for s in integridade.fontes.ok %}
+          <span class="text-[0.7rem] font-mono px-2 py-0.5 rounded border
+                       border-mission/30 bg-mission/10 text-mission-fg">{{ s }}</span>
+        {% endfor %}
+        {% for s in integridade.fontes.pelo_vigia %}
+          <span class="text-[0.7rem] font-mono px-2 py-0.5 rounded border
+                       border-warn/40 bg-warn/10 text-warn-fg voy-tip"
+                data-tip="fora do ar — o vigia pausou e devolve sozinho quando voltar">{{ s }} ⏸</span>
+        {% endfor %}
+        {% for s in integridade.fontes.por_humano %}
+          <span class="text-[0.7rem] font-mono px-2 py-0.5 rounded border
+                       border-border bg-surface text-fg-subtle voy-tip"
+                data-tip="pausado por decisão humana — o vigia não mexe">{{ s }} ✋</span>
+        {% endfor %}
+      </div>
+      <p class="text-[0.7rem] text-fg-subtle mt-2">
+        <b>{{ integridade.fontes.ok|length }}</b> de
+        {{ integridade.fontes.total }} de pé ·
+        <b>⏸</b> pausado pelo vigia (volta sozinho) ·
+        <b>✋</b> pausado por decisão humana (o vigia não desfaz)
+      </p>
+    </div>
+    {% endif %}
+
+    {% if integridade.poupadas.n %}
+    <div class="relative mt-5 rounded-lg border border-border bg-surface px-3.5 py-3">
+      <div class="flex items-baseline justify-between gap-3 flex-wrap">
+        <div>
+          <div class="text-[0.82rem] font-medium text-fg-soft">
+            Perguntas que deixamos de fazer ao sistema errado
+          </div>
+          <div class="text-[0.7rem] text-fg-subtle mt-0.5 leading-relaxed max-w-xl">
+            Não é economia de banda: é <code>nao_encontrado</code> que deixou de
+            ser gravado. Esse status afirma algo <b>sobre a fonte</b>, e dizê-lo
+            depois de perguntar ao sistema errado produz confiança falsa.
+          </div>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="text-xl font-mono text-accent tabular-nums">
+            {{ integridade.poupadas.total }}
+          </div>
+        </div>
+      </div>
+      <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-fg-muted font-mono">
+        {% for t in integridade.poupadas.tribunais %}
+          <span>{{ t.sigla }} <span class="text-fg-subtle">{{ t.n }}</span></span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if integridade.nao_medidos %}
+    <p class="relative mt-3 text-[0.7rem] text-danger leading-relaxed">
+      <b>Sem medição nesta passagem:</b> {{ integridade.nao_medidos|join:" · " }}.
+      Ficaram de fora em vez de aparecer com número velho.
+    </p>
+    {% endif %}
+
+    <p class="relative mt-3 text-[0.7rem] text-fg-subtle">
+      medido em {{ integridade.em|slice:":16" }} · atualiza de 6 em 6 horas
+    </p>
+  </section>
+  {% endif %}
+
   {% if not notas %}
     <div class="card-tight text-center py-12">
       {% voy_icon "search" "w-6 h-6 text-fg-muted mx-auto" %}

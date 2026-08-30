@@ -369,6 +369,18 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # Integridade (card do Acompanhamento) — a cada 6 h. O sorteio no índice
+    # com `random_score` custa ~25 s, e ele conversa com o Postgres logo em
+    # seguida: nunca no caminho da requisição (regra nº 7).
+    from dashboard.integridade import aquecer as warm_integridade
+    scheduler.add_job(
+        warm_integridade,
+        'interval',
+        hours=6,
+        id='warm_integridade',
+        replace_existing=True,
+    )
+
     # Marcos da semana (card do Acompanhamento) — a cada 3 h.
     # Não é inline: o próprio portão, que é um dos marcos, custa segundos, e a
     # contagem de `grau` varre 103 M linhas. Regra nº 7.

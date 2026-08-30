@@ -16,7 +16,7 @@ from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
-from . import cobertura_nacional, marcos_semana
+from . import cobertura_nacional, integridade, marcos_semana
 from .models import NotaAcompanhamento
 
 #: janelas prontas. "tudo" existe porque o acervo desta tela é pequeno e o
@@ -107,6 +107,8 @@ def acompanhamento(request):
         'cobertura': cobertura_nacional.ler(),
         # idem: só cache. O portão sozinho custa segundos.
         'marcos': marcos_semana.ler(),
+        # idem: só cache. O sorteio no índice custa ~25 s.
+        'integridade': integridade.ler(),
     })
 
 
