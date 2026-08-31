@@ -54,6 +54,7 @@ contado e declarado no relatório final. (No TJSP a abstenção medida foi 0 de
 import logging
 import time
 
+from django.core.cache import cache
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
 
@@ -77,6 +78,21 @@ DATAJUD_ALVO = ['TJPR', 'TRF4', 'TRF6', 'TRF2']
 #: acima disto o comando desiste: lote que estoura o teto é sintoma, e centenas de
 #: lotes queimados não são "alguns processos lentos", é algo sistêmico.
 MAX_QUEIMADOS = 20_000
+
+#: KILL SWITCH sem deploy — `cache.set('backfill_sinal:off', True)`.
+#:
+#: Aprendido em 31/08/2026, no meio da corrida do TJSP: o R105 precisava de UMA
+#: janela de lock para aplicar a migration 0054 em `tribunals_process`, e tentou
+#: 40 vezes com `lock_timeout=3s` sem conseguir — 8 cópias deste comando, com
+#: lote de ~35 s cada, nunca deixam abrir um buraco de 3 s. A única forma de
+#: parar era `docker stop` + `pg_cancel_backend` à mão, e `docker stop` mata o
+#: cliente mas NÃO a consulta que já está rodando no servidor.
+#:
+#: Com o switch, quem precisa da janela desliga o LOOP sem shell na .102 e sem
+#: matar container. Ele não interrompe o lote em curso (para isso continua sendo
+#: `pg_cancel_backend`), mas garante que nenhum lote NOVO comece — e a próxima
+#: janela abre em no máximo um lote.
+OFF = 'backfill_sinal:off'
 
 
 class Command(BaseCommand):
@@ -206,7 +222,19 @@ class Command(BaseCommand):
         t0 = time.monotonic()
         feitos = escritos = abstidos = lotes_queimados = 0
         queimados: list[int] = []
+        parou_por_switch = False
         while True:
+            if cache.get(OFF):
+                # Parada PEDIDA, não falha — mas ainda assim declarada com o
+                # número, porque "parou" nunca pode ser confundido com "acabou".
+                parou_por_switch = True
+                self.stderr.write(self.style.WARNING(
+                    f'KILL SWITCH ({OFF}) ligado — parando com {feitos:,} '
+                    f'processados. NÃO terminou; religue apagando a chave e '
+                    f'rodando o mesmo comando (ele retoma do que ficou NULL).'))
+                logger.warning('backfill_sinal: kill switch ligado após %d '
+                               'processados — parada pedida, não conclusão.', feitos)
+                break
             params = ([tribs] + [x for x in janela if x is not None]
                       + [queimados, batch])
             # pick+update na MESMA transação: o FOR UPDATE SKIP LOCKED segura o lote
@@ -286,6 +314,9 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(
                 f'{linha} · {len(queimados):,} QUEIMADOS pelo teto em '
                 f'{lotes_queimados} lotes'))
+        elif parou_por_switch:
+            # nem run interrompido. `SUCCESS` aqui viraria "o TJSP está pronto".
+            self.stderr.write(self.style.WARNING(f'{linha} · PARADO PELO KILL SWITCH'))
         else:
             self.stdout.write(self.style.SUCCESS(linha))
         if not o['sem_censo']:

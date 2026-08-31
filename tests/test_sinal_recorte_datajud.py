@@ -21,6 +21,7 @@ no fim sobre quem ficou de fora.
 """
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.core.management import call_command
 
 MOD = 'tribunals.management.commands.backfill_sinal_precatorio'
@@ -197,3 +198,54 @@ def test_o_fim_declara_quem_ficou_NULL_fora_do_recorte(capsys):
     assert '8,449,593' in cap.err or '8.449.593' in cap.err, (
         f'o alerta tem que trazer o total real fora do recorte: {cap.err}')
     assert 'TJMG 4,431,133' in cap.err
+
+
+# ------------------------------------------------------- kill switch
+
+def _com_switch(ligado):
+    """Patch do cache do módulo: `get(OFF)` devolve `ligado`."""
+    return patch(f'{MOD}.cache.get', side_effect=lambda k, *a: ligado)
+
+
+def test_kill_switch_para_o_loop_sem_deploy():
+    """31/08/2026: 8 cópias deste comando, lote de ~35 s cada, não deixaram o
+    R105 pegar UMA janela de 3 s para aplicar a migration 0054 — 40 tentativas.
+    A única forma de parar era `docker stop` + `pg_cancel_backend` à mão.
+
+    MUTAÇÃO: tire o `if cache.get(OFF)` do topo do laço e o comando processa o
+    primeiro lote mesmo com o switch ligado.
+    """
+    cur = FakeCursor(picks=[[1, 2], [3, 4], []])
+    with _com_switch(True):
+        roda(cur, batch=2)
+    assert cur.picks_sql() == [], 'o comando pegou lote com o kill switch ligado'
+    assert cur.updates_sql() == []
+
+
+def test_sem_o_switch_o_comando_roda_normalmente():
+    """Controle da mutação acima: com o switch DESLIGADO ele tem que trabalhar —
+    senão o teste passaria por um motivo errado (o comando nunca rodar)."""
+    cur = FakeCursor(picks=[[1, 2], []])
+    with _com_switch(False):
+        roda(cur, batch=2)
+    assert len(cur.picks_sql()) >= 1 and len(cur.updates_sql()) == 1
+
+
+def test_parada_pelo_switch_NAO_sai_como_sucesso(capsys):
+    """`SUCCESS` num run interrompido vira "o TJSP está pronto" na cabeça de
+    quem lê o log. Parada pedida também se declara, com o número."""
+    cur = FakeCursor(picks=[[1, 2], []])
+    with _com_switch(True):
+        roda(cur, batch=2)
+    cap = capsys.readouterr()
+    assert 'KILL SWITCH' in cap.err, cap.err
+    assert 'NÃO terminou' in cap.err
+    assert 'PARADO PELO KILL SWITCH' in cap.err
+    assert 'FIM' not in cap.out, f'saiu FIM em stdout (verde): {cap.out}'
+
+
+def test_a_chave_do_switch_e_a_documentada():
+    """Se a chave mudar, o runbook do `.ia/OPS.md` para de funcionar em silêncio."""
+    from tribunals.management.commands import backfill_sinal_precatorio as cmd
+    assert cmd.OFF == 'backfill_sinal:off'
+    assert cache is not None
