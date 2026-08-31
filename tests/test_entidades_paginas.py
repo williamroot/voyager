@@ -325,8 +325,9 @@ def test_ranking_le_o_nome_novo_do_cursor_e_o_alias(ranking):
 
 
 def test_possiveis_e_piso_e_nao_fatia(ficha):
-    """`tem_sinal_precatorio` só foi computado em ~3,4% da base, e quase sempre
-    onde é TRUE: dividir possíveis por processos dá uma proporção FALSA."""
+    """`tem_sinal_precatorio` não cobre a base inteira (79,2% em 31/08/2026, com
+    21,6 M ainda NULL), e o TRUE é concentrado: dividir possíveis por processos
+    dá uma proporção FALSA. Quem diz o tamanho do piso é `cobertura_sinal`."""
     assert 'sinalEhPiso' in ficha
     assert 'cobertura_sinal' in ficha
     assert 'não uma\n      fatia' in ficha or 'não uma' in ficha

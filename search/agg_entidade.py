@@ -220,10 +220,14 @@ LIMITAÇÕES MEDIDAS (13/08/2026) — o front PRECISA comunicar
    DA CAUSA, não o valor do precatório (esse vive no Falcon). Nunca apresentar o
    somatório como "o quanto a entidade deve". Ver `cobertura_valor`.
 
-5. `tem_sinal_precatorio` só foi computado em 3,4% da base (3,8% dentro do INSS),
-   e quase sempre onde é TRUE — então `com_sinal` é um **piso**, não uma
-   proporção. "165.790 de 4.402.239 (3,8%)" seria uma leitura ERRADA do número.
-   Ver `cobertura_sinal` e `sinal_processado`.
+5. `tem_sinal_precatorio` NÃO cobre a base inteira, e `com_sinal` é um **piso**,
+   nunca uma proporção: "165.790 de 4.402.239 (3,8%)" é uma leitura ERRADA do
+   número. Quem diz o tamanho do piso é `cobertura_sinal`, que é computado a cada
+   resposta — **não repita um número fixo aqui**, ele envelhece. Medido em
+   31/08/2026: 79,2% da base tem o sinal computado (82.365.167 de 104.003.151;
+   3,6% TRUE), contra os 3,4% de quando este texto foi escrito. Restam 21,6 M
+   NULL, dos quais o TJSP era 1,5 M — ver `.ia/ACERVO_CNJ.md`.
+   Ver também `sinal_processado`.
 
 6. `documentos_secundarios` são CNPJs que o tribunal digitou ERRADO e que nós
    fundimos nesta entidade (decisão 12 de `search/entidades.py`). Vão no payload
@@ -1107,8 +1111,8 @@ def ficha_entidade(entidade_id: str, filtros: dict | None = None) -> dict:
         'cobertura_valor': _cobertura(
             'valor_causa', _dc(aggs, 'valor_conhecido'),
             total_escopo, total_entidade),
-        # o sinal foi computado em 3,4% da base e quase só onde é TRUE:
-        # `com_sinal` é PISO, não proporção
+        # `com_sinal` é PISO, não proporção — a cobertura sai daqui, medida a
+        # cada resposta (31/08/2026: 79,2% da base, 21,6 M ainda NULL)
         'cobertura_sinal': _cobertura(
             'tem_sinal_precatorio', sinal_conhecido, total_escopo, total_entidade),
         'n_processos_indice': n_indice,
