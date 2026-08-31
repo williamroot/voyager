@@ -1146,7 +1146,12 @@ docs por página):
 | janela de 180 dias | ~142 M (41,3%) | 14.235 | 83 h | ~17 h |
 | janela de 90 dias | ~76,8 M (22,3%) | 7.685 | 45 h | ~9 h |
 | **medir o desvio** (`datajud_conferir_acervo`) | 0 | **59** | **~25 min** | — |
-| **janela localizada** (`--histograma` → `--desde/--ate`) | só o buraco | **248** (TJSP) | **~7 min** | — |
+| **janela localizada** (`--histograma` → `--desde/--ate`) | 2,47 M lidos → 187.585 novos | **248** (TJSP) | **~1 h 27** | — |
+
+⚠️ A janela **lê o mês inteiro** para achar o que falta dentro dele: 2.471.983
+documentos para recuperar 187.585. O custo é o do mês (1 h 27), não o dos
+documentos novos (7 min). Confundir os dois foi o primeiro número que escrevi
+aqui, e ele errava por 12×.
 
 As frações das janelas foram medidas com um `date_histogram` mensal nos 12
 maiores tribunais (241,4 M docs, 70% do acervo nacional).
@@ -1160,9 +1165,9 @@ maiores tribunais (241,4 M docs, 70% do acervo nacional).
    quota compartilhada para recuperar 0,082% é trocar o certo pelo duvidoso.
 2. **Quando o resíduo justificar, localizar antes de varrer.**
    `--histograma` compara o `@timestamp` mês a mês e diz QUAL janela varrer.
-   No TJSP isso é a diferença entre 6.900 requisições (~40 h, 39 docs por
-   requisição) e **248 requisições (~7 min, 756 docs por requisição)** — 19×
-   melhor, para 69% do resíduo nacional.
+   No TJSP isso é a diferença entre 6.900 requisições (~40 h serial, 39
+   documentos recuperados por requisição) e **248 requisições (~1 h 27, 756 por
+   requisição)** — **28× menos tempo** para 69% do resíduo nacional.
 
 A janela cega de 90/180/365 dias **não resolve o caso medido**: as reescritas do
 TJSP caíram em buckets de 10 e 14 meses atrás, fora de qualquer janela que caiba
@@ -1192,7 +1197,12 @@ Sem a regra do vizinho, o TJSP recomendaria varrer 2025-11 primeiro
 gastaria 1.332 requisições reescrevendo o que já é nosso e voltaria verde.
 
 Com a regra, sobra no TJSP **um** mês: 2026-07, +187.585, vizinhos batendo em
-0,002% e 0,05%.
+0,002% e 0,05%. O comando devolve a linha pronta:
+
+```
+manage.py datajud_varredura TJSP --desde 2026-07-01 --ate 2026-08-01
+    # +187.585 docs · ~248 requisições · lê 2.471.983 · ~1 h 27 a 474,7 docs/s
+```
 
 ### Estado em 31/08/2026 — o que ficou fechado e o que ficou aberto
 
