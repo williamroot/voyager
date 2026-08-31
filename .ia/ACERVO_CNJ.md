@@ -685,6 +685,176 @@ SELECT count(*) FILTER (WHERE tem_sinal_precatorio IS NULL)  AS nunca_varrido,
 FROM tribunals_process WHERE id = ANY(%s) AND tribunal_id = 'TJSP';
 ```
 
+### 🟢 O sinal do TJSP: computado em 31/08/2026 — e o corte NÃO era o `DATAJUD_ALVO`
+
+A seção acima estava certa no diagnóstico ("o recorte mede o próprio buraco") e
+**errada na causa**. O `DATAJUD_ALVO` era o corte visível; embaixo dele havia um
+segundo, e era esse que prendia o número inteiro.
+
+#### Antes (medido em 31/08/2026, os dois lados batendo)
+
+```sql
+-- Postgres (7 s, índice proc_trib_sinalprec_idx)
+SELECT (data_enriquecimento_datajud IS NOT NULL) AS tem_datajud,
+       tem_sinal_precatorio, count(*)
+  FROM tribunals_process WHERE tribunal_id = 'TJSP' GROUP BY 1,2;
+```
+
+| tem_datajud | tem_sinal | processos |
+|---|---|---:|
+| f | f | 14.504.845 |
+| f | t | 763.477 |
+| **t** | **(NULL)** | **1.513.486** ← 100% dos NULL |
+
+O mesmo, do lado do Elasticsearch (`voyager-processos`, `_count` com filtro —
+`exists` sobre `boolean` não sofre do problema da string vazia):
+
+| | ES | Postgres |
+|---|---:|---:|
+| TJSP total | 16.781.808 | 16.781.808 |
+| com sinal computado | 15.268.322 | 15.268.322 |
+| sinal `true` | 763.477 | 763.477 |
+| **NULL** | **1.513.486** | **1.513.486** |
+
+Os dois lados batem **exatamente**. Não havia defasagem de índice a descontar.
+
+#### O achado: o `'TJSP'` na lista não teria mudado nada
+
+`data_enriquecimento_datajud IS NOT NULL` em **100%** dos NULL restantes — e o
+pick do comando trazia, hardcoded:
+
+```python
+"WHERE tribunal_id = ANY(%s) AND tem_sinal_precatorio IS NULL "
+"AND data_enriquecimento_datajud IS NULL "      # ← o corte de baixo
+```
+
+Ou seja: `backfill_sinal_precatorio --tribunais TJSP` (o conserto "óbvio")
+selecionaria **zero** linhas e terminaria `SUCCESS: 0 processados`. Run verde,
+log limpo, número redondo — e o 1,5 M continuaria invisível, agora com a
+aparência de já ter sido tratado, que é pior que antes.
+
+Foi o que de fato aconteceu em 27/08: o comando **rodou** no TJSP (é o incidente
+das 12,7 h em `.ia/OPS.md`) e levou o NULL de ~4,1 M para 1,51 M. Ele não parou
+por erro — parou porque **acabou o que o corte deixava ele ver**. Os 4,1 M da
+medição de 25/08 e os 1,51 M de hoje são o mesmo buraco, medido antes e depois
+de o comando esgotar a parte visível dele.
+
+O corte tinha motivo na Fase 0: o sinal servia só para **priorizar a fila** do
+refill datajud, e quem já foi ao Datajud não precisa de prioridade. Só que
+`tem_sinal_precatorio` virou campo de **produto** — está no doc do ES, no filtro
+da busca e no "potencial" do mapa (`search/agg_overview.py`) —, e aí "já
+enriquecido" não é motivo nenhum para o campo ficar vazio na tela.
+
+#### Computável sem Datajud: sim, com ZERO requisição
+
+Amostra uniforme de **3.000 dos 1.513.486** pks (`random.Random(20260831)`,
+dump completo dos ids em 188 s):
+
+| | medido | controle |
+|---|---:|---|
+| processos existentes no Postgres | 3.000 / 3.000 | **100%** ✔ |
+| com ao menos 1 movimentação | **3.000 / 3.000** | nenhuma abstenção necessária |
+| com movimentação no índice ES | **3.000 / 3.000** | **100%** ✔ |
+| movimentações por processo | mediana 26 · média 54,8 · máx 1.764 | |
+| `tem_sinal_precatorio = TRUE` pelo padrão atual | **100 (3,33%)** | ≈ 50,4 k no total |
+
+Os 1,5 M são processos que o Datajud enriqueceu, e o Datajud **escreve
+movimentação com texto** (`datajud/parser.py:build_texto` = nome do movimento +
+complementos tabelados). O sinal sai do disco, sem uma requisição ao CNJ.
+
+3,33% é coerente com os 3,66% medidos em 25/08 na parte já varrida do TJSP. A
+estimativa antiga de "≈ 150 k processos com sinal escondidos" era sobre os 4,1 M;
+sobre os 1,51 M que sobraram ela vira **≈ 50 k**.
+
+#### Precisão, medida dos dois lados contra uma fonte independente
+
+O regex do Postgres foi conferido contra o **`voyager-movimentacoes-v2`**, que é
+outro motor (analisador `portuguese_asciifolding`, com stemming — trata plural e
+acento sozinho). Mesmos 3.000 processos:
+
+| | n |
+|---|---:|
+| controle: com movimentação no índice | **3.000 / 3.000 = 100%** |
+| PG=TRUE **e** ES=TRUE | 100 |
+| PG=TRUE e ES=FALSE | **0** |
+| PG=FALSE e ES=TRUE | **2** |
+
+⇒ **precisão do PG contra o ES = 100/100 = 100%**; **cobertura = 100/101 =
+99,0%**. Os 2 divergentes foram lidos um a um, e os dois dizem
+"**ofícios requisitórios**" (plural), que `of[íi]cio requisit[óo]rio` (singular,
+um espaço) não casa:
+
+- `25055662` — "expeça-se competentes **ofícios requisitórios**", ação contra o
+  INSS: sinal **real** que o padrão perde;
+- `12548760` — "mandados/**ofícios requisitórios**" com link de audiência TEAMS
+  num Termo Circunstanciado criminal: requisição de **pessoa**, não de pagamento
+  — falso positivo se fosse capturado.
+
+Um padrão tolerante a plural (`of[íi]cios? +requisit[óo]rios?|\mrpvs?\M|
+requisi[çc](ão|ões) de pagamento`) acha exatamente esses **2 em 3.000** — a
+mesma dupla que o ES apontou, por dois caminhos independentes. **Não foi
+adotado**: o ganho líquido é 1 acerto real e 1 erro em 3.000 (+0,03%), e mudar o
+padrão tornaria os 1,5 M novos incomparáveis com os 15,3 M já computados.
+
+⚠️ **NÃO ampliar `precat[óo]rio` para `precat[óo]ri`** "para pegar o plural".
+`precat[óo]rio` já casa "precatórios" por substring; o `o` final é o que separa
+PRECATÓRIO de **CARTA PRECATÓRIA**. Medido nos mesmos 3.000:
+`precat[óo]ri[ao]s?` sobe de 92 para 316 acertos, e **196 dos 224 a mais são
+"carta precatória"** — ruído puro, e "carta precatória" é justamente uma das
+facetas com ~100% de ausência no DJEN (tabela do topo deste arquivo).
+
+**Precisão semântica** (não só lexical): auditoria manual de 40 dos 100 TRUE,
+lendo ±90 caracteres em volta do termo — **37 legítimos, 3 falsos positivos**
+(92,5%): dois "servirá a presente como ofício requisitório" para requisitar réu
+preso/internado, e um texto informativo do Banco do Brasil sobre resgate de
+depósitos. É consistente com o que o campo declara ser: `tem_sinal_precatorio` é
+**indício**, `classificacao=PRECATORIO` é o veredito.
+
+#### O que mudou no comando
+
+`tribunals/management/commands/backfill_sinal_precatorio.py`:
+
+1. o corte `data_enriquecimento_datajud IS NULL` virou a flag `--so-sem-datajud`
+   (desligada por padrão);
+2. `--tribunais TODOS` roda em quem tiver NULL, e `--dry-run` virou **censo**;
+3. **abstenção**: o `UPDATE` só toca quem tem ao menos uma movimentação —
+   `EXISTS(texto ~* padrão)` devolvia `false` para quem não tem texto nenhum, e
+   `false` na tela quer dizer "medimos e não tem". O run conta e declara os
+   abstidos (no TJSP: **0**);
+4. **teto é ERRO com o número real**: lote que estoura o `statement_timeout` é
+   logado como ERROR com a contagem e a faixa de ids, entra numa lista de
+   queimados que o pick exclui (sem isso, engolir o timeout viraria loop
+   infinito no mesmo lote — o pick não tem `ORDER BY`), e o `FIM` sai em
+   **stderr** se houve queimado. Acima de 20.000 queimados o comando aborta;
+5. **censo do fora-do-recorte** no fim de todo run, em ERROR:
+
+```
+FORA DO RECORTE: 20.248.498 processos seguem com tem_sinal_precatorio NULL em
+58 tribunais que este run NÃO tocou — TJMG 4.431.133, TRF3 4.018.460,
+TRF1 1.861.036, TJDFT 1.157.752, TJMA 1.053.299, TRF5 992.756, …
+```
+
+Nacionalmente são **21.761.984** NULL (41 s de index-only scan). O TJSP é 7% do
+problema; o resto está catalogado e visível a cada run, em vez de escondido
+atrás de uma lista de quatro siglas.
+
+#### Custo medido da corrida
+
+`--batch 2000 --sleep 0.1`, no `.102` via `docker compose -f
+docker-compose-workers.yml run --rm`:
+
+| runners | vazão | sonda de latência (consulta indexada) |
+|---|---:|---|
+| baseline (0) | — | 0,20 s |
+| 1 | 65 – 75 /s | 0,20 s |
+| 2 | ≈ 160 /s | 0,20 s |
+| 4 | ≈ 300 /s | 0,20 s |
+
+`FOR UPDATE SKIP LOCKED` dá lotes disjuntos, então N cópias no MESMO tribunal
+não brigam por row-lock. O banco está `IO: DataFileRead` (I/O-bound, como todo o
+resto), mas a sonda não mexeu: a corrida é sequencial dentro de cada runner e o
+lote é curto.
+
 ### Armadilha: amostra sorteada pelo ÍNDICE mentiu por 50×
 
 Antes de chegar aos números acima eu sorteei processos do TJSP com
