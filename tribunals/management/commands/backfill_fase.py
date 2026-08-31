@@ -64,7 +64,7 @@ BLOCO_IDS = 20_000
 #: 'datajud'` porque movimento do Datajud carrega a classe cadastral (ver
 #: docstring). O LATERAL usa `mov_processo_data_disp_idx (processo, -data)`.
 SQL_LER = """
-SELECT p.id, p.numero_cnj, p.fase_codigo, p.fase_em, x.codigo_classe,
+SELECT p.id, p.classe_codigo, p.fase_codigo, p.fase_em, x.codigo_classe,
        x.nome_classe, x.data_disponibilizacao
   FROM tribunals_process p
   JOIN LATERAL (
@@ -191,8 +191,15 @@ class Command(BaseCommand):
         tot['sobe_fase'] += len(linhas)
 
         quadras = []
-        for pk, _cnj, fase_atual, _fase_em, cod, nome, dt in linhas:
-            if fase_atual and fase_atual != cod:
+        for pk, classe_atual, _fase_atual, _fase_em, cod, nome, dt in linhas:
+            # A MEDIÇÃO que motivou a coluna, contada durante a corrida: em
+            # quantas linhas a FASE publicada difere do `classe_codigo` que
+            # estava gravado. Compara contra `classe_codigo` (o campo de
+            # compatibilidade, que é o rótulo do produto hoje) e NÃO contra
+            # `fase_codigo` — comparar a fase com ela mesma dá 0 por
+            # construção na primeira passada, que é quando o número
+            # interessa. Erro cometido e corrigido em 31/08/2026.
+            if classe_atual and classe_atual != cod:
                 tot['fase_difere_da_classe_codigo'] += 1
             quadras.append((pk, str(cod), (nome or '')[:255], dt))
 
