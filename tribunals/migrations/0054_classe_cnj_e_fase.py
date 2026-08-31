@@ -56,6 +56,16 @@ POR QUE `RunSQL` IDEMPOTENTE (a lição da 0052)
 A 0052 parou no meio em produção e deixou coluna no banco sem a linha em
 `django_migrations` — o `migrate` do boot seguinte teria estourado "column
 already exists". `ADD COLUMN IF NOT EXISTS` torna cada passo re-executável.
+
+⚠️ **`IF NOT EXISTS` protege contra REPETIÇÃO, não contra DIVERGÊNCIA de tipo.**
+Aconteceu no dia da aplicação (31/08/2026): as cinco colunas foram criadas à
+mão, na pressa, como `ADD COLUMN ... NULL`. Elas existiam — então este
+migration teria passado por cima delas em silêncio e o banco ficaria
+`nullable=YES` contra um model que declara `blank=True` não-nulo, para sempre,
+sem nenhum erro em lugar nenhum. A cura foi dropar as cinco e rodar o migration
+de verdade. Se for preciso adiantar um `ALTER` à mão, use EXATAMENTE o
+`SQL_APLICA` abaixo; e depois confira por COLUNA em `information_schema`
+(`is_nullable`, `data_type`), nunca só pela presença do nome.
 `ADD COLUMN` com DEFAULT constante é metadata-only no PG 11+: não reescreve as
 104 M linhas. `SET LOCAL lock_timeout` porque ACCESS EXCLUSIVE ENFILEIRA —
 enquanto o ALTER espera, todo SELECT que chega depois espera também (63 sessões
