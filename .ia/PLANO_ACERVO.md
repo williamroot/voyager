@@ -68,6 +68,32 @@ no card continuam obrigatórias.
 10. **Teste que passaria sem o fix não prova nada.** Confira por mutação:
     desligue o fix e veja o teste quebrar.
 
+## ⚠️ Os agentes compartilham a MESMA árvore de trabalho
+
+Quatro agentes editando `/home/ubuntu/projetos/voyager` ao mesmo tempo. Um
+`git add -A` de qualquer um varre o trabalho em andamento dos outros.
+
+**Aconteceu em 31/08/2026:** o commit `36634c0`, cujo título é do R96 sobre
+dedup de OAB, arrastou `datajud/client.py`, `datajud/varredura.py`,
+`core/settings.py` e um teste de 381 linhas do R92. Nada se perdeu, mas a
+história atribui o trabalho de um ao outro — e quem for ler o commit não acha o
+porquê das mudanças de datajud, que é justamente a disciplina que a casa cobra.
+
+O caso perigoso não é esse: é uma **migration pela metade** ser commitada por
+outro agente. `0054_classe_cnj_e_fase.py` esteve nessa situação.
+
+```bash
+# ERRADO — varre a árvore inteira, inclusive o que não é seu
+git add -A
+
+# CERTO — só os seus arquivos, conferidos antes
+git status --porcelain
+git add tribunals/models.py tribunals/migrations/0054_*.py
+```
+
+História já publicada não se reescreve; o custo de reescrever é maior que o da
+bagunça. A regra vale daqui pra frente.
+
 ## Definição de pronto (a mesma para os cinco)
 
 Uma pendência só fecha com **as seis**:
