@@ -202,17 +202,19 @@ class Command(BaseCommand):
         * uma amostra conferida no FORMATO do CNJ — é o que pega o vazio e o
           truncado. Campo `keyword` só se mede por amostra.
 
-        A amostra sai de 4 pontos SORTEADOS DA CHAVE (`range proc >= <chave>`
-        com `sort: proc`), não de `random_score`. Dois motivos:
+        A amostra sai de 4 FAIXAS ESTREITAS da chave, sorteadas — um prefixo de
+        7 dígitos do número sequencial, que pega todos os anos e tribunais
+        daquele número. Sem `sort`. Cada uma das três alternativas óbvias foi
+        medida em produção, no índice de 344 M, e as três são piores:
 
-        1. `random_score` semeado por `_seq_no` amostra uma janela de ESCRITA,
-           não o índice — a armadilha que fez uma medição do TJSP errar por 50×;
-        2. `random_score` semeado pelo `proc` é uniforme mas custa um score por
-           documento: sobre 344 M ele estourou o `request_timeout` de 30 s e
-           derrubou 25 minutos de medição. Percorrer a chave a partir de 4
-           pontos é indexado e responde em milissegundos.
+        | como amostrar | custo | por quê não |
+        |---|---|---|
+        | `random_score` por `_seq_no` | barato | amostra a janela de ESCRITA, não o índice — a armadilha que fez uma medição do TJSP errar por 50× |
+        | `random_score` por `proc` | **>30 s, derrubou a medição** | uniforme, mas custa um score por documento |
+        | `range proc >= x` **com `sort: proc`** | **42 s** | ordenar 344 M por keyword frio lê doc_values do índice inteiro |
+        | `range` de faixa estreita, **sem sort** | **147 ms** | ✔ |
 
-        NUNCA levanta: um controle que derruba a medição não protege nada.
+        NUNCA levanta: um controle que derruba a régua não protege nada.
         """
         base = {'docs': None, 'sem_proc': None, 'amostra': 0,
                 'amostra_valida': 0, 'ok': False, 'erro': None}
@@ -228,14 +230,14 @@ class Command(BaseCommand):
 
         rnd = random.Random(20260831)
         amostra = []
-        for _ in range(4):
-            # chave no formato do CNJ, sorteada no espaço da chave
-            chave = (f'{rnd.randrange(10**7):07d}-{rnd.randrange(100):02d}.'
-                     f'{rnd.randrange(1990, 2027)}.')
+        tentadas = 0
+        while len(amostra) < 200 and tentadas < 12:
+            tentadas += 1
+            n = rnd.randrange(10 ** 7)
+            faixa = {'gte': f'{n:07d}-', 'lt': f'{n + 1:07d}-'}
             try:
                 r = es_t.search(index=acervo, size=50, source=['proc'],
-                                sort=[{'proc': 'asc'}],
-                                query={'range': {'proc': {'gte': chave}}})
+                                query={'range': {'proc': faixa}})
                 amostra += [h['_source'].get('proc') or '' for h in r['hits']['hits']]
             except Exception as exc:                        # noqa: BLE001
                 base['erro'] = f'amostra: {str(exc)[:120]}'
@@ -283,7 +285,7 @@ class Command(BaseCommand):
             f'{x["acervo"]:>13,}{x["delta"]:>11,}{x["sobra"]:>8,}'
             f'{x["cobertura"]:>7.2%}{x["requisicoes"]:>7,}'
             f'{_dur(x["eta_s"]):>7}'
-            f'{(x["processos"] if x["processos"] is not None else 0):>12,}'
+            f'{("—" if x["processos"] is None else format(x["processos"], ",")):>12}'
             f'  {marca} {x["estado"]}')
         self.stdout.write(
             self.style.WARNING(linha) if x['estado'] == 'INCOMPLETO' else linha)
