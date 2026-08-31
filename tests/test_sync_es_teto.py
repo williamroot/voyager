@@ -25,14 +25,34 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from search import sync_incremental as S
+from search import watermarks as W
 
 
 @pytest.fixture
 def sem_cache():
+    """Watermark num dicionário — nos DOIS lados.
+
+    Desde o #109 (31/08/2026) a fonte da verdade da watermark é a tabela
+    `search_watermark`, e o cache é só o caminho rápido (ver
+    `search/watermarks.py`). Estes testes são sobre TETO, não sobre
+    durabilidade: aqui o lado durável é curto-circuitado e o keyset volta a ser
+    lido de um dicionário, como antes. A durabilidade tem suíte própria em
+    `tests/test_sync_watermark_durabilidade.py`.
+    """
     valores = {}
-    with patch.object(S, 'cache') as c:
-        c.get.side_effect = lambda k, *a: valores.get(k)
-        c.set.side_effect = lambda k, v, *a, **kw: valores.__setitem__(k, v)
+
+    def _get(k, *a):
+        return valores.get(k)
+
+    def _set(k, v, *a, **kw):
+        valores[k] = v
+
+    with patch.object(S, 'cache') as c, patch.object(W, 'cache') as c2, \
+         patch.object(W, 'gravar', side_effect=_set):
+        c.get.side_effect = _get
+        c.set.side_effect = _set
+        c2.get.side_effect = _get
+        c2.set.side_effect = _set
         yield valores
 
 
@@ -291,10 +311,10 @@ def test_watermark_de_atualizados_guarda_o_PAR_e_nao_so_o_instante():
     """
     fonte = open('search/sync_incremental.py').read()
     i = fonte.find('def sync_processos_atualizados')
-    corpo = fonte[i:i + 2500]
+    corpo = fonte[i:i + 6000]
     assert '(atualizado_em, id) > (%s, %s)' in corpo, 'keyset sem desempate por id'
     assert 'ORDER BY atualizado_em, id' in corpo
-    assert 'cache.set(_WM_PROC_TS, (ultimo, pks[-1])' in corpo, (
+    assert 'wm_store.gravar(_WM_PROC_TS, (ultimo, pks[-1])' in corpo, (
         'guardou só o instante — o resto do grupo empatado some')
 
 

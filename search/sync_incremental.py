@@ -39,18 +39,53 @@ gate honesto é contagem dos DOIS lados (`_count` no ES contra `count(*)` no
 Postgres, no mesmo recorte) — foi ela que achou o buraco, e é ela que provou o
 conserto (reenfileirar os pks levou o ES a zero).
 
-Duas hipóteses ficaram sem prova, e a segunda é a que dá medo:
+## A RE-ANCORAGEM TINHA GATILHO ARMADO — provado em 31/08/2026
 
-1. os jobs rodaram na janela em que `models.py` já tinha as colunas da migration
-   0054 e o banco ainda não, e morreram sem deixar rastro no registry;
-2. a chave `sync_es:wm:proc_ts` sumiu do Redis e o tique **re-ancorou em
-   `agora`** — veja `sync_processos_atualizados`: `if wm is None: cache.set(agora)`
-   e devolve `ancorou: True`. Isso é perda **silenciosa e definitiva** por
-   desenho: tudo que foi escrito antes da re-ancoragem nunca mais é revisitado,
-   porque o keyset só anda para frente. Vale para os três lados deste módulo.
+A hipótese 2 da versão anterior deste docstring ("a chave sumiu do Redis e o
+tique re-ancorou em `agora`") deixou de ser hipótese. Lido do Redis de produção
+(`192.168.30.100`), de dentro do `voyager-web-1`:
 
-Se alguém for endurecer isto, a re-ancoragem é o alvo: ancorar no topo é certo no
-PRIMEIRO tique da vida do sistema e errado em toda perda de chave posterior.
+    save ...................... ''            (RDB DESLIGADO)
+    appendonly ................ no            (AOF DESLIGADO)
+    maxmemory-policy .......... noeviction
+    evicted_keys .............. 0
+    uptime_in_seconds ......... 469.336   ⇒ restart em 2026-08-26 06:59:02 UTC
+    ttl de sync_es:wm:* ....... -1  (as três chaves, sem expiração)
+
+Ou seja: **não foi eviction e não foi TTL** — os dois estão descartados por
+medição. Foi restart, e restart neste Redis é perda TOTAL do keyspace, porque
+não há RDB nem AOF. O restart de 26/08 06:59:02 UTC cai exatamente entre a
+última posição conhecida da watermark de `proc_atualizados` (19/08, medida em
+25/08) e os 524.945 documentos com o campo `null` achados em 31/08.
+
+O que NÃO foi possível medir: o TAMANHO do intervalo órfão. O log do scheduler
+é `stdout` de container, e o arquivo mais antigo começa em 2026-08-28 00:48 UTC
+— dois dias depois do restart. Não existe sink durável de log. A ausência de
+rastro é a assinatura do defeito, não a absolvição dele.
+
+**O conserto (#109).** A watermark passou a viver em `search_watermark`
+(Postgres) com o cache como caminho rápido — ver `search/watermarks.py`. Chave
+que some do Redis é RESTAURADA, e a única coisa que significa "primeiro tique"
+é a AUSÊNCIA DE LINHA no banco. Quando a re-ancoragem for mesmo inevitável, ela
+vai para o **menor não-sincronizado** (a fronteira do índice, achada por busca
+binária de dois lados) e sai como ERRO com o intervalo órfão declarado — nunca
+para `agora`, nunca em silêncio.
+
+**O gate que não depende disto.** Idade de watermark não é gate, e fila também
+não. Quem responde "o índice está completo?" é `search/gate_completude.py`:
+contagem dos DOIS lados por faixa de pk, mais amostra de CAMPO, com cursor
+próprio e durável. Ele acha tanto a re-ancoragem quanto o buraco abaixo dela.
+
+## ⚠️ O OUTRO buraco do keyset por `atualizado_em`, ainda ABERTO
+
+Achado ao investigar o #109 e deixado registrado porque ainda não foi consertado:
+`atualizado_em = now()` no Postgres é o instante de INÍCIO DA TRANSAÇÃO. O
+`backfill_sinal_precatorio` carimba `now()` dentro de um `transaction.atomic()`
+cujo `UPDATE` já rodou **12,7 horas** nesta casa (incidente de 27/08/2026). O
+tique deste módulo captura `agora = timezone.now()` ANTES da consulta e, se
+nada bater o teto, grava esse `agora` como watermark. Uma linha carimbada com
+`T0` que só faz COMMIT em `T0 + horas` nasce **abaixo** da watermark e nunca é
+lida. O gate de completude pega; a watermark, por construção, não pega.
 """
 import logging
 import os
@@ -59,6 +94,7 @@ from django.core.cache import cache
 from django.db import connection, transaction
 from django.utils import timezone
 
+from search import watermarks as wm_store
 from tribunals.models import Movimentacao, Process
 
 logger = logging.getLogger('voyager.search.sync')
@@ -105,7 +141,10 @@ TIMEOUT_SINAL = os.environ.get('SYNC_ES_TIMEOUT_SINAL', '60s')
 #: tamanho do bulk enfileirado (o job `indexar_processos_bulk` faz 1 _bulk).
 CHUNK = 500
 
-#: chaves de watermark (cache; sobrevivem a restart do scheduler)
+#: chaves de watermark. O cache é o CAMINHO RÁPIDO; a fonte da verdade é a
+#: tabela `search_watermark` (ver `search/watermarks.py`). Até 31/08/2026 elas
+#: viviam só no Redis — que roda sem RDB e sem AOF — e chave ausente era lida
+#: como "primeiro tique da vida do sistema".
 _WM_PROC_ID = 'sync_es:wm:proc_id'
 _WM_PROC_TS = 'sync_es:wm:proc_ts'
 _WM_MOV_ID = 'sync_es:wm:mov_id'
@@ -114,6 +153,191 @@ _OFF = 'sync_es:off'
 #: mesmo padrão do backfill Fase 0 (tribunals/management/commands/
 #: backfill_sinal_precatorio.py) — sinal de precatório no texto das movs.
 PADRAO_SINAL = r'precat[óo]rio|of[íi]cio requisit[óo]rio|\mrpv\M|requisi[çc][ãa]o de pagamento'
+
+#: Quantos ids consecutivos a sonda da fronteira pergunta ao ES por vez, e
+#: quantas vezes ela pode perguntar. `log2(1,9 bilhão) ≈ 31`, então 48 sondas
+#: fecham qualquer tabela desta casa com folga.
+SONDA_FRONTEIRA = int(os.environ.get('SYNC_ES_SONDA_FRONTEIRA', 200))
+SONDAS_MAX = int(os.environ.get('SYNC_ES_SONDAS_MAX', 48))
+TIMEOUT_SONDA = os.environ.get('SYNC_ES_TIMEOUT_SONDA', '10s')
+
+
+def _ids_a_partir(tabela: str, ini: int, n: int) -> list[int] | None:
+    """`n` ids >= `ini`, em ordem. `None` = não deu para ler (regra nº 7 e nº 6).
+
+    Vai de SQL cru só por causa do `SET LOCAL statement_timeout`: a sonda da
+    fronteira roda INLINE no scheduler e nada no caminho dele pode ficar sem
+    teto de espera.
+    """
+    try:
+        with transaction.atomic(), connection.cursor() as c:
+            c.execute('SET LOCAL statement_timeout = %s', [TIMEOUT_SONDA])
+            c.execute(f'SELECT id FROM {tabela} WHERE id >= %s ORDER BY id LIMIT %s',
+                      [ini, n])
+            return [r[0] for r in c.fetchall()]
+    except Exception:
+        logger.warning('sync_es: sonda da fronteira não conseguiu ler %s a partir '
+                       'de %s — abstendo.', tabela, ini, exc_info=True)
+        return None
+
+
+def _extremos(tabela: str) -> tuple[int, int] | None:
+    """`(min(id), max(id))`, ou `None` se não der para medir."""
+    try:
+        with transaction.atomic(), connection.cursor() as c:
+            c.execute('SET LOCAL statement_timeout = %s', [TIMEOUT_SONDA])
+            c.execute(f'SELECT min(id), max(id) FROM {tabela}')
+            base, topo = c.fetchone()
+            if base is None or topo is None:
+                return None
+            return int(base), int(topo)
+    except Exception:
+        logger.warning('sync_es: não consegui ler os extremos de %s.', tabela,
+                       exc_info=True)
+        return None
+
+
+def fronteira_do_indice(tabela: str, indice: str) -> int | None:
+    """O MENOR id que o índice ainda não tem — a âncora honesta de uma perda.
+
+    Busca binária de DOIS LADOS: para um candidato `X`, lê `SONDA_FRONTEIRA`
+    ids >= X no Postgres e pergunta ao Elasticsearch quais deles faltam. Todos
+    presentes ⇒ a fronteira está acima; falta algum ⇒ está em X ou abaixo.
+
+    Isto não é heurística nova: é a medição que a casa já tinha feito à mão em
+    26/08/2026 e que virou o comentário de `LIMITE_PROC_NOVOS` — 60 pks ACIMA
+    do watermark davam 57 ausentes, 60 pks ABAIXO davam 60 presentes. **A
+    fronteira do índice ERA o watermark.** Aqui ela é medida em ~31 perguntas
+    em vez de adivinhada.
+
+    Devolve o último id que se SABE indexado (fronteira − 1), ou o topo da
+    tabela quando nada falta em amostra nenhuma. `None` = não deu para medir —
+    e quem chama então NÃO ancora, porque repetir um tique é barato e amputar o
+    passado não tem volta (regra nº 6).
+    """
+    from search import gate
+
+    extremos = _extremos(tabela)
+    if extremos is None:
+        return None
+    base, topo = extremos
+
+    esq, dir_, fronteira = base, topo, None
+    for _ in range(SONDAS_MAX):
+        if esq > dir_:
+            break
+        meio = esq + (dir_ - esq) // 2
+        ids = _ids_a_partir(tabela, meio, SONDA_FRONTEIRA)
+        if ids is None:
+            return None
+        if not ids:
+            dir_ = meio - 1
+            continue
+        try:
+            faltam = gate.ausentes_no_bloco(ids, indice)
+        except Exception:
+            # ES mudo não autoriza chutar: "nenhum falta" e "não deu pra
+            # perguntar" são coisas diferentes (o docstring do gate cobra isso).
+            logger.warning('sync_es: ES mudo na sonda da fronteira de %s.',
+                           indice, exc_info=True)
+            return None
+        if faltam:
+            fronteira = min(faltam)
+            dir_ = meio - 1
+        else:
+            esq = ids[-1] + 1
+    if fronteira is None:
+        return topo
+    return fronteira - 1
+
+
+def _ancora_por_id(chave: str, tabela: str, indice: str,
+                   rotulo: str) -> tuple[int | None, dict]:
+    """Watermark de keyset por id, com a decisão de âncora feita por inteiro.
+
+    Devolve `(wm, relatorio)`. **`wm is None` quer dizer "não trabalhe neste
+    tique"** — nunca "comece do zero" e nunca "pule para agora".
+
+    Os quatro estados de `search/watermarks.py` viram quatro condutas
+    diferentes, e essa distinção é o conserto inteiro do #109:
+
+      ok / restaurada  segue o keyset de onde parou (restaurada sai como ERRO
+                       porque perder o Redis é incidente, mas NÃO é perda);
+      primeiro         primeiro tique da vida do sistema — ancorar no topo é
+                       CERTO, e a linha durável passa a existir para sempre;
+      perdida          re-ancoragem inevitável ⇒ âncora no MENOR
+                       NÃO-SINCRONIZADO e ERRO com o intervalo órfão;
+      indisponivel     banco mudo ⇒ não ancora nada.
+    """
+    valor, estado = wm_store.obter(chave)
+    if estado in ('ok', 'restaurada'):
+        saida = {'wm': int(valor)}
+        if estado == 'restaurada':
+            saida['restaurada'] = True
+        return int(valor), saida
+
+    if estado == 'indisponivel':
+        logger.error('sync_es: %s — não deu para LER a watermark durável. Este '
+                     'tique não anda e não ancora.', rotulo)
+        return None, {'wm': None, 'sem_ancora': 'banco mudo'}
+
+    extremos = _extremos(tabela)
+    topo = extremos[1] if extremos else None
+
+    if estado == 'primeiro':
+        if topo is None:
+            logger.error('sync_es: %s — primeiro tique, mas não deu para ler o '
+                         'topo de %s. Não ancorei.', rotulo, tabela)
+            return None, {'wm': None, 'sem_ancora': 'topo não medido'}
+        wm_store.gravar(chave, topo)
+        logger.info('sync_es: %s — PRIMEIRO tique da vida do sistema; watermark '
+                    'ancorada no topo (id=%s). Base histórica é trabalho do '
+                    'reindexar_processos, não deste tique.', rotulo, topo)
+        return None, {'wm': topo, 'ancorou': True}
+
+    # 'perdida': a linha durável existe (logo NÃO é primeiro tique) e o valor
+    # não é legível. Ancorar no topo aqui apagaria o passado — regra nº 2: isto
+    # é ERRO registrado com o número real, nunca um `return` discreto.
+    fronteira = fronteira_do_indice(tabela, indice)
+    if fronteira is None:
+        logger.error(
+            'sync_es: %s — RE-ANCORAGEM inevitável e a fronteira do índice NÃO '
+            'foi medida. NÃO ancorei nada: prefiro este tique perdido a jogar a '
+            'watermark para agora e abandonar tudo que veio antes.', rotulo)
+        return None, {'wm': None, 'sem_ancora': 'fronteira não medida'}
+    wm_store.gravar(chave, fronteira)
+    orfao = (topo - fronteira) if topo is not None else None
+    logger.error(
+        'sync_es: %s — RE-ANCORAGEM INEVITÁVEL. Ancorei no MENOR '
+        'NÃO-SINCRONIZADO (id=%s), NÃO em agora. INTERVALO ÓRFÃO a revisitar: '
+        'ids (%s, %s] ≈ %s linhas. O próximo tique começa a recuperá-lo.',
+        rotulo, fronteira, fronteira,
+        'topo não medido' if topo is None else topo,
+        'não medido' if orfao is None else orfao)
+    return None, {'wm': fronteira, 'reancorou': True, 'orfao_ids': orfao}
+
+
+def _menor_atualizado_em():
+    """`min(atualizado_em)` de `tribunals_process` — a âncora honesta do lado TS.
+
+    O doc do ES não carrega `atualizado_em`, então a fronteira do índice não dá
+    para medir deste lado: sobra varrer tudo de novo. É caro (≈104 M linhas) e
+    é o único valor que não abandona ninguém. Reindexar é idempotente por
+    `_id`, e o auto-freio pela fila segura o ritmo.
+
+    `None` = não deu para medir; quem chama não ancora.
+    """
+    try:
+        with transaction.atomic(), connection.cursor() as c:
+            c.execute('SET LOCAL statement_timeout = %s', [TIMEOUT_SONDA])
+            c.execute('SELECT atualizado_em FROM tribunals_process '
+                      'ORDER BY atualizado_em LIMIT 1')
+            linha = c.fetchone()
+            return linha[0] if linha else None
+    except Exception:
+        logger.warning('sync_es: não consegui ler min(atualizado_em).',
+                       exc_info=True)
+        return None
 
 
 def _enfileirar_processos(pks: list[int]) -> int:
@@ -193,14 +417,12 @@ def computar_sinal(pks: list[int]) -> int:
 
 def sync_processos_novos() -> dict:
     """Processos criados desde o último tick (keyset por pk crescente)."""
-    wm = cache.get(_WM_PROC_ID)
+    from search.gate import indice_processos
+
+    wm, relatorio = _ancora_por_id(_WM_PROC_ID, Process._meta.db_table,
+                                   indice_processos(), 'proc_novos')
     if wm is None:
-        # 1º tick: ancora no topo (não re-processa a base inteira — pra isso
-        # existe o reindexar_processos). Daqui pra frente segue o keyset.
-        wm = Process.objects.order_by('-id').values_list('id', flat=True).first() or 0
-        cache.set(_WM_PROC_ID, wm, None)
-        logger.info('sync_es: watermark de processo ancorado em id=%s', wm)
-        return {'novos': 0, 'sinal': 0, 'wm': wm, 'ancorou': True}
+        return {'novos': 0, 'sinal': 0, **relatorio}
 
     # Auto-freio pela fila, igual ao lado das movimentações: quem manda no ritmo
     # é o DRENO. Sem isto, subir o teto só troca "atraso no watermark" por
@@ -229,7 +451,7 @@ def sync_processos_novos() -> dict:
         logger.error('sync_es: enqueue de %d processos FALHOU — watermark '
                      'permanece em %s.', len(pks), wm, exc_info=True)
         return {'novos': 0, 'sinal': n_sinal, 'wm': wm, 'erro_enqueue': True}
-    cache.set(_WM_PROC_ID, pks[-1], None)
+    wm_store.gravar(_WM_PROC_ID, pks[-1])
     saida = {'novos': n, 'sinal': n_sinal, 'wm': pks[-1]}
     if len(pks) >= LIMITE_PROC_NOVOS:
         saida['atraso_ids'] = _alertar_teto_processos(
@@ -256,10 +478,49 @@ def sync_processos_atualizados() -> dict:
     perder escrita concorrente — reindex é idempotente por `_id`.
     """
     agora = timezone.now()
-    wm = cache.get(_WM_PROC_TS)
-    if wm is None:
-        cache.set(_WM_PROC_TS, (agora, 0), None)
+    wm, estado = wm_store.obter(_WM_PROC_TS)
+
+    if estado == 'indisponivel':
+        logger.error('sync_es: proc_atualizados — não deu para LER a watermark '
+                     'durável. Este tique não anda e não ancora.')
+        return {'atualizados': 0, 'wm': None, 'sem_ancora': 'banco mudo'}
+
+    if estado == 'primeiro':
+        # PRIMEIRO tique da vida do sistema — o único caso em que ancorar no
+        # topo do relógio é certo. A linha durável nasce aqui e nunca mais some,
+        # então este ramo não volta a ser confundido com perda de chave.
+        wm_store.gravar(_WM_PROC_TS, (agora, 0))
+        logger.info('sync_es: proc_atualizados — PRIMEIRO tique da vida do '
+                    'sistema; watermark ancorada em %s.', agora)
         return {'atualizados': 0, 'wm': agora.isoformat(), 'ancorou': True}
+
+    if estado == 'perdida':
+        # Re-ancoragem inevitável. O doc do ES não carrega `atualizado_em`, então
+        # não há fronteira para medir deste lado: a única âncora que não abandona
+        # ninguém é o MENOR `atualizado_em` da tabela. Caro e convergente, contra
+        # barato e definitivo.
+        menor = _menor_atualizado_em()
+        if menor is None:
+            logger.error(
+                'sync_es: proc_atualizados — RE-ANCORAGEM inevitável e '
+                'min(atualizado_em) NÃO foi medido. NÃO ancorei nada: um tique '
+                'perdido custa 10 minutos, uma âncora em `agora` custa tudo que '
+                'veio antes.')
+            return {'atualizados': 0, 'wm': None,
+                    'sem_ancora': 'min(atualizado_em) não medido'}
+        wm_store.gravar(_WM_PROC_TS, (menor, 0))
+        logger.error(
+            'sync_es: proc_atualizados — RE-ANCORAGEM INEVITÁVEL. Ancorei no '
+            'MENOR não-sincronizado (atualizado_em=%s), NÃO em agora. INTERVALO '
+            'ÓRFÃO a revisitar: [%s, %s]. Vai levar ticks; o auto-freio pela '
+            'fila segura o ritmo e o teto avisa a cada passada.',
+            menor, menor, agora)
+        return {'atualizados': 0, 'wm': menor.isoformat(), 'reancorou': True,
+                'orfao': [menor.isoformat(), agora.isoformat()]}
+
+    if estado == 'restaurada':
+        logger.info('sync_es: proc_atualizados seguindo de %s (watermark '
+                    'restaurada do banco).', wm)
 
     fila = _fila_es()
     if fila > FILA_ES_ALTA:
@@ -287,14 +548,14 @@ def sync_processos_atualizados() -> dict:
         return {'atualizados': 0, 'wm': str(wm), 'erro_enqueue': True}
     # avança só até onde leu: se bateu o teto, o próximo tick continua daqui.
     if len(pks) < LIMITE_PROC_ATUALIZADOS:
-        cache.set(_WM_PROC_TS, (agora, 0), None)
+        wm_store.gravar(_WM_PROC_TS, (agora, 0))
     elif pks:
         ultimo = (Process.objects.filter(id=pks[-1])
                   .values_list('atualizado_em', flat=True).first())
         if ultimo:
             # guarda o PAR: sem o id, o próximo tique pularia o resto do grupo
             # que divide este mesmo instante.
-            cache.set(_WM_PROC_TS, (ultimo, pks[-1]), None)
+            wm_store.gravar(_WM_PROC_TS, (ultimo, pks[-1]))
     saida = {'atualizados': n, 'wm': str(cache.get(_WM_PROC_TS))}
     if len(pks) >= LIMITE_PROC_ATUALIZADOS:
         # Aqui a watermark é um INSTANTE, então o número que importa não é
@@ -393,12 +654,12 @@ def sync_movimentacoes_novas() -> dict:
     Agora: teto alto (a indexação em lote aguenta), auto-freio pela fila em vez
     de por um número fixo, e o atraso vira ERRO registrado em vez de silêncio.
     """
-    wm = cache.get(_WM_MOV_ID)
+    from search.gate import indice_movs
+
+    wm, relatorio = _ancora_por_id(_WM_MOV_ID, Movimentacao._meta.db_table,
+                                   indice_movs(), 'movs_novas')
     if wm is None:
-        wm = Movimentacao.objects.order_by('-id').values_list('id', flat=True).first() or 0
-        cache.set(_WM_MOV_ID, wm, None)
-        logger.info('sync_es: watermark de movimentação ancorado em id=%s', wm)
-        return {'movs': 0, 'wm': wm, 'ancorou': True}
+        return {'movs': 0, **relatorio}
 
     # Auto-freio: quem manda no ritmo é o dreno, não um número fixo. Se a fila
     # já está cheia, empurrar mais só aumenta o tamanho da fila — não a vazão.
@@ -420,7 +681,7 @@ def sync_movimentacoes_novas() -> dict:
                      'permanece em %s; o próximo tick refaz esta leva.',
                      len(pks), wm, exc_info=True)
         return {'movs': 0, 'wm': wm, 'erro_enqueue': True}
-    cache.set(_WM_MOV_ID, pks[-1], None)
+    wm_store.gravar(_WM_MOV_ID, pks[-1])
 
     saida = {'movs': n, 'wm': pks[-1], 'fila': fila}
     # Bateu o teto: existe mais coisa esperando do que coube neste tick. Isso é

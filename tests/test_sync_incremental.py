@@ -25,15 +25,23 @@ def test_kill_switch_desliga_o_tick():
     assert sync.tick_sync_es_incremental() == {'off': True}
 
 
-@patch('search.sync_incremental.Process')
-def test_primeiro_tick_ancora_sem_reprocessar_a_base(mock_proc):
-    # 1º tick NÃO pode enfileirar a base inteira — só ancora o watermark no topo.
-    (mock_proc.objects.order_by.return_value.values_list.return_value
-     .first.return_value) = 12345
+@pytest.mark.django_db
+@patch('search.sync_incremental._extremos', return_value=(1, 12345))
+def test_primeiro_tick_ancora_sem_reprocessar_a_base(mock_extremos):
+    """1º tick NÃO enfileira a base inteira — só ancora o watermark no topo.
+
+    Desde o #109 "primeiro tique" é a AUSÊNCIA DE LINHA em `search_watermark`,
+    não a ausência da chave no Redis: chave sumida agora é restaurada do banco.
+    """
     out = sync.sync_processos_novos()
     assert out['ancorou'] is True
     assert out['novos'] == 0
     assert cache.get('sync_es:wm:proc_id') == 12345
+    # e a linha durável nasce, para que este ramo não volte a ser confundido
+    # com perda de chave — que foi o defeito medido em 31/08/2026.
+    from search.models import Watermark
+    assert Watermark.objects.get(chave='sync_es:wm:proc_id').valor == {
+        't': 'int', 'v': 12345}
 
 
 @patch('search.sync_incremental._enfileirar_processos', return_value=3)

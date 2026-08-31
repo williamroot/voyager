@@ -2566,6 +2566,48 @@ limpou. Monte a chave na mão (o mapa usa
 de 2min. Se você medir algo, deployar e medir de novo em menos de 2 minutos,
 vai reler o valor ANTIGO e concluir que o deploy não pegou. Já aconteceu.
 
+## ⚠️ O Redis de prod roda SEM persistência — restart apaga tudo (2026-08-31)
+
+Medido de dentro do `voyager-web-1`, contra `192.168.30.100:6379`:
+
+```
+save ...................... ''            (RDB DESLIGADO)
+appendonly ................ no            (AOF DESLIGADO)
+maxmemory ................. 48 G          maxmemory-policy = noeviction
+evicted_keys .............. 0
+uptime_in_seconds ......... 469.336   ⇒ restart em 2026-08-26 06:59:02 UTC
+rdb_changes_since_last_save 1.262.972.927 (nada foi salvo desde o boot)
+```
+
+Não é "algumas chaves podem sumir": **todo restart do Redis sobe um keyspace
+vazio.** Eviction está descartada por medição (`noeviction` + `evicted_keys=0`),
+e as chaves de watermark do sync têm `ttl=-1`. O único vetor de perda é o
+restart, e ele é 100% letal.
+
+Como olhar (não há `redis-cli` no `voyager`; use o cliente do próprio app):
+
+```bash
+ssh ubuntu@voyager 'docker exec voyager-web-1 python -c "
+import os, redis
+r = redis.from_url(os.environ[\"REDIS_URL\"], socket_connect_timeout=5, socket_timeout=10)
+i = r.info(\"server\"); m = r.info(\"memory\")
+print(i[\"uptime_in_seconds\"], m[\"maxmemory_policy\"], r.config_get(\"save\"), r.config_get(\"appendonly\"))
+"'
+```
+
+**O que já custou.** O sync incremental PG→ES guardava as três watermarks só
+aqui. Chave ausente era lida como "primeiro tique da vida do sistema" e o tique
+ancorava em `agora`/`max(id)` — com o keyset só andando para frente, tudo que
+foi escrito antes do restart ficava fora do índice para sempre. Conserto em
+31/08/2026 (#109): a watermark passou a morar na tabela `search_watermark`
+(`search/watermarks.py`), com o cache como caminho rápido.
+
+**Pendente, e é de infra:** ligar AOF (`appendonly yes`, `appendfsync everysec`)
+ou pelo menos RDB no `voyager-redis`. Não dá para fazer pelo cliente — o host
+`192.168.30.100` não aceita a chave SSH do fleet de app. Enquanto isso, todo
+estado que não pode sumir tem que ter fonte da verdade fora do Redis. Vale para
+watermark, cursor de gate e qualquer coisa que "só anda para frente".
+
 ## Backups
 
 ```bash
