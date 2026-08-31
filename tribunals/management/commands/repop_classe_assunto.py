@@ -150,14 +150,25 @@ class Command(BaseCommand):
         p.add_argument('--max-segundos', type=int, default=0,
                        help='teto de tempo. 0 = sem teto. Atingi-lo é ERRO.')
         # ms por 1.000 pks VARRIDOS, e não ms por linha escrita: o custo aqui é
-        # a LEITURA (Index Scan na pkey + heap), e a densidade de linhas
-        # quebradas varia por faixa. Medido em 31/08/2026 na `.101`:
-        # 50.000 pks = 2,8-3,4 s ⇒ ~60 ms por 1.000 pks.
-        p.add_argument('--freio-ms-kpk', type=float, default=200.0,
+        # dominado pela LEITURA (Index Scan na pkey + heap) e a densidade de
+        # linhas quebradas varia por faixa. Medido em produção em 31/08/2026,
+        # blocos de 50.000 pks na `.101`:
+        #
+        #   só leitura (--sem-reparo) ..........  81-99 ms / 1.000 pks
+        #   leitura + escrita ..................  249-460 ms / 1.000 pks
+        #                                         (7.779 linhas, 4,64 ms/linha)
+        #
+        # Os tetos saem do segundo número, não do primeiro: calibrar o freio
+        # pela medição SEM escrita faria a corrida frear contra si mesma no
+        # primeiro bloco denso — e o `--parar` mataria a corrida sem que nada
+        # estivesse caro.
+        p.add_argument('--freio-ms-kpk', type=float, default=800.0,
                        help='ms por 1.000 pks varridos: acima disto a pausa '
-                            'DOBRA; abaixo da metade, cede. Medido: ~60.')
-        p.add_argument('--parar-ms-kpk', type=float, default=600.0,
-                       help='média móvel de 5 blocos acima disto = PARA com ERROR.')
+                            'DOBRA; abaixo da metade, cede. Medido com escrita: '
+                            '249-460.')
+        p.add_argument('--parar-ms-kpk', type=float, default=2000.0,
+                       help='média móvel de 5 blocos acima disto = PARA com '
+                            'ERROR. 2.000 = ~5x o medido com escrita.')
         p.add_argument('--lock-alto', type=int, default=LOCK_ALTO,
                        help='sessões esperando Lock acima disto ⇒ espera.')
         p.add_argument('--lock-timeout', default='5s')

@@ -338,9 +338,9 @@ def test_shard_tem_checkpoint_proprio():
 def test_freio_mede_varredura_e_nao_densidade():
     """ms por 1.000 pks varridos — comparável entre faixas.
 
-    O custo aqui é a LEITURA (Index Scan na pkey + heap): medido em produção
-    em 31/08, 50.000 pks custam 2,8-3,4 s (~60 ms por 1.000 pks) com densidade
-    de 8,1% de linhas quebradas. ms/linha escrita reagiria à densidade, que
+    Medido em produção em 31/08, blocos de 50.000 pks: 81-99 ms por 1.000 pks
+    só lendo e 249-460 com escrita (7.779 linhas, 4,64 ms/linha), com densidade
+    de ~8% de linhas quebradas. ms/linha escrita reagiria à DENSIDADE, que
     varia por faixa, e pararia a corrida sem que nada estivesse caro.
     """
     assert 'freio_ms_kpk' in CODIGO and 'parar_ms_kpk' in CODIGO
