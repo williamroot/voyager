@@ -1218,3 +1218,24 @@ faixa de chave.
 qualquer passada `--do-zero` de tribunal grande. O comando está pronto e medido;
 disparar quota compartilhada contra a API pública em volume é decisão de quem
 responde pela licença do DataJud, não de quem prepara a puxada.
+
+### 🔴 Dois tribunais que a régua nunca vai acusar
+
+O gate percorre a tabela `Tribunal`. O que não está lá não aparece como buraco —
+aparece como nada, que é o pior jeito de faltar.
+
+* **STM não existe na tabela.** `api_publica_stm` responde e declara **27.055**
+  documentos; nosso acervo tem **zero**. Três requisições fechariam. Não foi
+  adicionado porque criar `Tribunal` mexe em tudo que itera sobre tribunais
+  ativos (schedulers, refill, enrichers) — é decisão de escopo, não de coleta.
+* **STF está na tabela, inativo, e o índice do CNJ não existe:**
+  `api_publica_stf` devolve `index_not_found_exception`. A pendência antiga
+  ("STF falhou na contagem, reconferir") fica resolvida com o motivo: não é
+  rate-limit, é índice inexistente.
+
+E uma anomalia do lado oposto, que continua aberta: **o TJDFT declara 529.535 ao
+CNJ e nós temos 1.506.169 processos dele no `voyager-processos`** — 2,8× mais
+acervo rico do que a fonte declara existir. Ou o índice `api_publica_tjdft` está
+incompleto, ou estamos atribuindo ao TJDFT processo que é de outro tribunal.
+Não é buraco de coleta; é uma pergunta sobre a régua, e vale investigar antes de
+usar o TJDFT em qualquer denominador.
