@@ -186,16 +186,29 @@ class Command(BaseCommand):
                             'ERROR. 5.000 = ~5x o máximo medido com escrita.')
         p.add_argument('--lock-alto', type=int, default=LOCK_ALTO,
                        help='sessões esperando Lock acima disto ⇒ espera.')
+        # A hipótese era boa e a medição NÃO a sustentou — fica registrado
+        # para ninguém refazer o mesmo teste achando que é grátis.
+        # `pg_stat_activity` durante a corrida mostra os UPDATEs em
+        # `LWLock: WALWrite` / `WALInsert` (não CPU, não lock: `esperando_lock`
+        # deu 0), então `synchronous_commit = off` deveria ganhar muito.
+        # A/B em faixas vizinhas e densas de 20.000 pks, com os 7 shards e os
+        # 4 varredores do #105 rodando:
+        #
+        #   sync   14.335 linhas / 120,3 s = 119 linhas/s   (8,39 ms/linha)
+        #   sync   10.531 linhas /  77,3 s = 136 linhas/s   (7,34 ms/linha)
+        #   async  15.489 linhas / 101,6 s = 152 linhas/s   (6,56 ms/linha)
+        #   async   1.742 linhas /  30,9 s =  56 linhas/s   (bloco ralo, não
+        #                                                    comparável)
+        #
+        # +19% sobre UMA amostra densa contra duas, dentro do ruído da corrida.
+        # Isso NÃO paga trocar durabilidade do último commit num backfill de
+        # 10,7 M de linhas, então a flag existe, é opt-in, e **não foi usada
+        # na corrida**. Se um dia for: o reparo é idempotente e a régua do fim
+        # é a consulta da pendência varrendo a tabela, não o checkpoint.
         p.add_argument('--commit-assincrono', action='store_true',
-                       help='`SET LOCAL synchronous_commit = off` no UPDATE. O '
-                            'gargalo medido em produção é WAL (`LWLock:'
-                            'WALWrite`/`WALInsert`), não CPU nem lock. Troca '
-                            'durabilidade do último commit por vazão: numa queda '
-                            'do Postgres, lotes já contados podem não estar no '
-                            'disco. É seguro AQUI porque o reparo é idempotente '
-                            'e a régua do fim é a consulta da pendência, não o '
-                            'checkpoint — se sobrar linha, roda de novo com '
-                            '`--zerar-checkpoint`.')
+                       help='`SET LOCAL synchronous_commit = off` no UPDATE. '
+                            'Medido: +19%% numa amostra, dentro do ruído — '
+                            'opt-in, não usado na corrida. Ver o comentário.')
         p.add_argument('--lock-timeout', default='5s')
         p.add_argument('--statement-timeout', default='120s')
         p.add_argument('--tentativas-deadlock', type=int, default=6,
