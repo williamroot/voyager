@@ -379,12 +379,57 @@ enriquecimento seguinte:
 - as zero-padded **solitárias** (sem gêmea canônica), **10.485** linhas —
   `--sem-normalizar-solitarias` desliga.
 
+### Aplicado em produção — 31/08/2026
+
+`manage.py dedup_partes --group oab_zero --batch-size 100000000`, 8 lotes,
+**894 s** de fusão + 25 s de normalização.
+
+| | ANTES | DEPOIS |
+|---|---:|---:|
+| `Parte` (total) | 21.825.998 | 21.817.013 |
+| … com `oab <> ''` | 943.580 | **925.148** |
+| … na régua | 942.153 | 923.721 |
+| … com zero à esquerda | **29.983** | **999** |
+| **advogados distintos (OAB canônica)** | **922.659** | **922.727** | 
+
+O último número é o **controle**: a fusão colapsa GRAFIAS, não entidades — se
+ela tivesse apagado advogado, ele cairia. Subiu 68 (inscrições novas chegando
+pela ingestão durante a execução), nunca desceu.
+
+Fechamento da conta, do log do comando: régua 942.202 (controle `canon` 100%),
+teto 19.498 linhas, **18.505 fundidas**, 1 survivor reescrito, **10.479 de
+10.480** solitárias normalizadas (a que faltou é o guard `NOT EXISTS`
+funcionando: a forma canônica passou a existir durante a execução).
+
+Teto **depois**: 994 linhas em 994 grupos — 992 abstidas por nome, 1 por CPF,
+1 nascida durante a execução. Ou seja o que sobrou é **exatamente o que a regra
+recusou**, não resíduo.
+
+**Controle negativo, conferido no banco depois da fusão:** `PE00475`
+(TANEY QUEIROZ E FARIAS) e `PE475` (LUZIA HELENA DE VALOIS CORREIA) seguem
+duas linhas; e o número 475 existe em `AP`, `BA`, `PE` e `RR` — quatro
+advogados diferentes, nenhum fundido.
+
+**Pontes órfãs depois da fusão: 0** em `tribunals_partetribunal` e
+`tribunals_partepapel`.
+
+**A porta de escrita foi fechada junto**: os 16 serviços de enricher da `.102`
+foram reiniciados entre 14:49:03Z e 14:51:45Z com `parse_oab` canônico. Antes
+do restart nasciam **~7 `Parte` zero-padded por hora**; depois, em 31 min,
+**0 zero-padded** e **55 canônicas** (o controle positivo — a porta está
+escrevendo, só não escreve mais a grafia errada).
+
 **O que a fusão NÃO faz:** não reindexa o Elasticsearch. `participacoes.oab` é
 gravado no doc do processo, então o índice guarda a grafia antiga até o
 processo ser reindexado por outra via. Medido em 60 pares (amostra
 `md5(canon||'sal96')`, 0 erro de ES, 0 par ausente do índice — controle 100%):
 **17 pares (28,3%) têm as DUAS grafias indexadas**, e 1.533 dos 13.275
-processos do recorte ficam invisíveis a uma busca pela outra grafia.
+processos do recorte ficam invisíveis a uma busca pela outra grafia. No índice
+inteiro, **363.696 processos** carregam ao menos uma `participacoes.oab`
+zero-padded, e a fusão tocou **211.337** deles (224.839 `ProcessoParte`
+repointadas, de 5.956 losers que tinham alguma — os outros 12.545 eram órfãos
+com ZERO `ProcessoParte`). Reindexá-los é dívida em aberto:
+`reindexar_processos` ainda não aceita lista de ids.
 
 ## ProcessoParte
 
