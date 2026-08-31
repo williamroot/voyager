@@ -95,6 +95,9 @@ class Command(BaseCommand):
         p.add_argument('--json', action='store_true', dest='como_json')
         p.add_argument('--tribunais', default='',
                        help='lista separada por vírgula (default: todos)')
+        p.add_argument('--histograma', action='store_true',
+                       help='compara o `@timestamp` mês a mês (fonte × nosso) e '
+                            'diz QUAL janela varrer — 1 requisição por tribunal')
 
     def handle(self, *a, **o):
         cli = DatajudClient(prefer_cortex=False)
@@ -105,6 +108,10 @@ class Command(BaseCommand):
         siglas = ([s.strip().upper() for s in o['tribunais'].split(',') if s.strip()]
                   or list(Tribunal.objects.order_by('sigla')
                           .values_list('sigla', flat=True)))
+        if o['histograma']:
+            for sigla in siglas:
+                self._histograma(cli, es, acervo, sigla)
+            return
         estado_fila = self._estado_da_fila()
 
         # Imprime LINHA A LINHA, não no fim. Uma medição de 59 tribunais leva
@@ -255,6 +262,66 @@ class Command(BaseCommand):
         base['ok'] = (base['sem_proc'] == 0 and len(amostra) >= 100
                       and base['amostra_valida'] == len(amostra))
         return base
+
+    def _histograma(self, cli, es, acervo, sigla) -> None:
+        """Mês a mês, `@timestamp` na fonte × `atualizado_em` no nosso índice.
+
+        Existe porque o delta NÃO É ALCANÇÁVEL pelo watermark e um `--do-zero`
+        custa o tribunal inteiro: no TJSP, 6.900 requisições e ~40 h para
+        reencontrar 270.185 documentos. Comparando os buckets, o mesmo trabalho
+        vira uma JANELA — 248 requisições e ~1,4 h para 69% do buraco.
+
+        ⚠️ Só os meses RECENTES são comparáveis. O CNJ reescreve
+        `dataHoraUltimaAtualizacao` em lote, e nos meses antigos os dois lados
+        falam de documentos idênticos com carimbos diferentes (TJSP 2025-06:
+        12.949.424 lá, 0 aqui — e não falta nada ali). Um mês em que os dois
+        números batem prova que aquele trecho não foi reescrito; um mês em que
+        a fonte tem MAIS, e os vizinhos batem, é buraco de verdade.
+        """
+        try:
+            d = cli._post(sigla, {'size': 0, 'aggs': {'m': {'date_histogram': {
+                'field': '@timestamp', 'calendar_interval': 'month'}}}},
+                cota='varredura')
+            fonte = {b['key_as_string'][:7]: b['doc_count']
+                     for b in d['aggregations']['m']['buckets'] if b['doc_count']}
+        except Exception as exc:                            # noqa: BLE001
+            self.stdout.write(self.style.ERROR(f'{sigla}: {str(exc)[:120]}'))
+            return
+        r = es.options(request_timeout=120).search(
+            index=acervo, size=0, query={'term': {'tribunal': sigla}},
+            aggs={'m': {'date_histogram': {'field': 'atualizado_em',
+                                           'calendar_interval': 'month'}}})
+        nosso = {b['key_as_string'][:7]: b['doc_count']
+                 for b in r['aggregations']['m']['buckets'] if b['doc_count']}
+
+        self.stdout.write(self.style.MIGRATE_HEADING(f'\n▶ {sigla}'))
+        self.stdout.write(f'{"mês":9}{"fonte":>13}{"nosso":>13}{"dif":>13}  veredito')
+        alvos = []
+        for mes in sorted(set(fonte) | set(nosso)):
+            f, n = fonte.get(mes, 0), nosso.get(mes, 0)
+            dif = f - n
+            if f and n and abs(dif) / max(f, n) < 0.01:
+                veredito = 'batem'
+            elif dif > 0 and n:
+                veredito = self.style.WARNING('FONTE TEM MAIS → janela')
+                alvos.append((mes, dif))
+            elif dif > 0:
+                veredito = 'reescrito? (nosso=0)'
+            else:
+                veredito = 'reescrito? (nosso maior)'
+            self.stdout.write(f'{mes:9}{f:>13,}{n:>13,}{dif:>13,}  {veredito}')
+
+        if not alvos:
+            self.stdout.write('  nenhum mês comparável com a fonte à frente')
+            return
+        self.stdout.write('\n  janelas a varrer (não tocam o watermark):')
+        for mes, dif in sorted(alvos, key=lambda x: -x[1]):
+            ano, m = int(mes[:4]), int(mes[5:])
+            prox = f'{ano + 1}-01-01' if m == 12 else f'{ano}-{m + 1:02d}-01'
+            reqs = -(-fonte[mes] // 10_000)
+            self.stdout.write(
+                f'    manage.py datajud_varredura {sigla} --desde {mes}-01 '
+                f'--ate {prox}    # +{dif:,} docs · ~{reqs:,} requisições')
 
     def _estado_da_fila(self) -> dict:
         from rq.registry import StartedJobRegistry
