@@ -56,7 +56,9 @@ Exceção: em `voyager-entidades` o `_id` é a chave canônica (`cnpj:29979036` 
 | tribunal, uf | keyword | tribunal_id, geo.py | agregação, mapa comercial |
 | proc | keyword | numero_cnj | busca exata por CNJ formatado |
 | proc_digits | keyword | derivado (só dígitos) | busca "colável" de CNJ sem máscara |
-| classe_nome, codigo_classe | keyword | classe_* | filtro/agg por classe |
+| classe_nome, codigo_classe | keyword | classe_* | filtro/agg por classe — **compatibilidade: mistura cadastro e fase, ver abaixo** |
+| **classe_cnj_codigo, classe_cnj_nome** | keyword | classe_cnj_* (0054) | a classe que o **CNJ CADASTRA** — casa com `voyager-acervo.classe_codigo` |
+| **fase_codigo, fase_nome, fase_em** | keyword, keyword, date | fase_* (0054) | a classe com que o **TRIBUNAL PUBLICOU** o processo — é o nicho |
 | assunto, assunto_codigo | text, keyword | assunto_* | busca/filtro TPU |
 | advs, partes | text | concat de ProcessoParte | full-text compat (legado) |
 | **participacoes** | **nested** | ProcessoParte+Parte | **busca estruturada por parte** (abaixo) |
@@ -1738,3 +1740,82 @@ que falharam (antes era um `stderr.write` e segue: sem fila e sem retry, bulk
 que falha aqui é documento perdido em silêncio) e `count()` exato só quando há
 recorte — sem recorte ele usa `reltuples`, porque `count(*)` em 101 M sem teto
 de espera é a regra nº 7 ao contrário.
+
+---
+
+## `codigo_classe` mistura dois fatos — e agora existem os dois campos (31/08/2026)
+
+> **Em uma linha:** o campo que a busca usa para "classe" é, em 93% dos casos
+> conferidos, a **fase publicada** e não o **cadastro do CNJ** — e quem filtra
+> por ele achando que é cadastro mede errado nos dois sentidos.
+
+### O que foi medido
+
+Amostra uniforme por pk (semente `20260831`; 861 processos com
+`classe_codigo = '12078'`, 2,20% dos 39.101 existentes — a proporção do banco é
+2,245%, o controle fecha). Cruzando por CNJ contra o `voyager-acervo`, o CNJ diz
+outra classe em **222 de 830 conferíveis (26,7%)** — e em **98,6% dessas** o
+processo TEM a fase de cumprimento contra a fazenda, provada por canais
+independentes do campo que gerou o rótulo (texto da publicação 93,2%, partes do
+PJe 4,5%, movimento do Datajud 0,9%; controle negativo: 1,5%).
+
+Detalhe do ES que importa aqui: **um CNJ tem mais de uma classe no
+`voyager-acervo`** — cada grau é um documento com a classe daquela instância.
+**30,7% dos CNJs têm 2+ documentos e 29,3% têm 2+ classes distintas.** Comparar
+contra "o" documento do CNJ (o primeiro que a página devolve) fabrica ~10 pp de
+divergência: 36,9% contra os 26,7% da regra correta (*nenhum documento, em
+nenhum grau, traz a classe*). História completa em
+[`ACERVO_CNJ.md`](ACERVO_CNJ.md#classe--fase-o-mesmo-processo-tem-as-duas-e-não-são-a-mesma-coisa-31082026).
+
+### Os campos, e qual usar
+
+```
+codigo_classe        compatibilidade. NÃO usar em contagem nova — mistura os dois.
+classe_cnj_codigo    cadastro do CNJ. É o campo que casa com `voyager-acervo`.
+fase_codigo          a fase publicada. É o campo do NICHO (leads/precatório).
+fase_em              data da publicação que provou a fase (a fase só SOBE).
+```
+
+⚠️ **Os nomes novos NÃO seguem a inversão histórica.** `voyager-processos` usa
+`codigo_classe` e `voyager-acervo` usa `classe_codigo` — invertido, e isso já
+custou uma medição inteira lida no campo errado. Os campos da 0054 têm o **mesmo
+nome do Postgres**, nos dois índices e no banco: `classe_cnj_codigo`,
+`classe_cnj_nome`, `fase_codigo`, `fase_nome`, `fase_em`.
+
+Contar sempre com `must_not term:''` — `exists` conta string vazia como valor
+presente (regra nº 4), e o doc builder escreve `''` quando não sabe:
+
+```json
+{"query": {"bool": {
+  "must_not": [{"term": {"fase_codigo": ""}}],
+  "must":     [{"exists": {"field": "fase_codigo"}}]}}}
+```
+
+### Mapping aplicado em produção
+
+`PUT voyager-processos/_mapping` em 31/08/2026 — os cinco campos, antes de
+qualquer doc ser escrito com eles (a regra de ouro deste arquivo). Conferido
+depois no `_mapping`: os quatro `keyword` e `fase_em` como `date`. **Se o doc
+tivesse chegado antes do mapping, o dynamic mapping teria criado `text` +
+`.keyword` e o tipo ficaria errado para sempre.**
+
+### Backfill e reindex — o que já rodou e o que falta
+
+| | |
+|---|---|
+| escrito no Postgres | `classe_cnj_*` em `id ∈ (9,0 M, 9,1 M]` (97.097 linhas) · `fase_*` em `id ∈ (9,0 M, 9,21 M]` (209.981 linhas) |
+| reindexado | `reindexar_processos --desde-id 9000000 --ate-id 9200000` — 199.981 docs a ~600/s |
+| entregue ao vivo | faixa de controle `(9,20 M, 9,21 M]`: 0 → 10.000 docs com `fase_codigo` em ~4 min, pelo caminho de produção (campainha → poller do scheduler → `worker_es_index`) |
+| **falta** | as outras ~103,9 M linhas. `backfill_classe_cnj` ≈ 78 h, `backfill_fase` ≈ 46 h, os dois retomáveis, com kill switch e freio por ms/linha, **zero requisição ao CNJ** |
+
+Os dois backfills tocam a CAMPAINHA (`atualizado_em = now()`) no MESMO UPDATE —
+SQL cru não roda o `auto_now` e `sync_processos_atualizados` é keyset por ela.
+Sem isso o campo ficaria certo no banco e ausente na busca, que é o defeito
+catalogado na tabela de write-through acima.
+
+⚠️ **Quem indexa tem que ter o código novo.** `worker_es_index` foi reiniciado
+em 31/08/2026 por uma razão de correção, não de higiene: os backfills enfileiram
+os processos tocados, e um worker com o builder velho reindexaria justamente
+essas linhas **sem** os campos — desfazendo o reindex dirigido em silêncio. A
+guarda `exigir_modelo_em_dia` (`search/documents.py`) agora exige
+`Process.classe_cnj_codigo` e `Process.fase_codigo`.

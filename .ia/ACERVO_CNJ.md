@@ -62,6 +62,13 @@ Pública*, que é onde mora o precatório:
 | TRF3 | 54.221 | 61,7% |
 | TJRJ | 40.324 | 59,5% |
 
+> ⚠️ **Esta tabela foi medida com a régua torta.** Ela compara o `classe_codigo`
+> do nosso lado com a `classe` do Datajud como se fossem a mesma coisa — e não
+> são: um é a FASE que o tribunal publica, o outro é o CADASTRO do CNJ. Medido
+> em 31/08/2026, o número nacional passa de **18,6% para 41,6%** quando a
+> comparação é feita com a régua consertada, sem coletar nada. Ver
+> [§ Classe × Fase](#classe--fase-o-mesmo-processo-tem-as-duas-e-não-são-a-mesma-coisa-31082026).
+
 ## Como a varredura pagina (a parte não-óbvia)
 
 O índice do Datajud **só aceita `sort` por `@timestamp`** — por `_id` ou
@@ -1249,3 +1256,234 @@ acervo rico do que a fonte declara existir. Ou o índice `api_publica_tjdft` est
 incompleto, ou estamos atribuindo ao TJDFT processo que é de outro tribunal.
 Não é buraco de coleta; é uma pergunta sobre a régua, e vale investigar antes de
 usar o TJDFT em qualquer denominador.
+
+---
+
+## Classe × Fase: o mesmo processo tem as duas, e não são a mesma coisa (31/08/2026)
+
+> **Em uma linha:** 98,6% da "divergência de classe" contra o CNJ não era rótulo
+> errado — era um campo só carregando dois fatos, e consertar a régua levou a
+> cobertura do nicho de **18,6% para 41,6%** sem coletar um documento novo.
+
+### A pergunta
+
+Rotulávamos **2.337.739** processos com a classe `12078` (*Cumprimento de
+Sentença contra a Fazenda Pública*). Cruzando por CNJ contra o `voyager-acervo`,
+o CNJ dizia OUTRA classe numa fatia grande deles. Rótulo errado, ou dois campos
+colididos?
+
+### A amostra (uniforme por pk, com campo de controle)
+
+Semente `20260831`, 40.000 pks sorteados em `[3.520, 106.326.832]`, **39.101
+existiam** (97,8%), **861 com o rótulo** = **2,20%**.
+
+**Controle:** 2.337.739 de 104,1 M linhas no banco = 2,245%. A amostra reproduz
+a proporção conhecida da população — é isto que autoriza extrapolar. (Amostra
+sorteada pelo ÍNDICE não tem como mostrar isso; ver a armadilha do `random_score`
+com `_seq_no` mais acima neste arquivo.)
+
+| | n | |
+|---|---:|---|
+| concorda (o CNJ também diz 12078) | 608 | |
+| **discorda** (o CNJ diz outra classe) | **222** | **26,7% dos conferíveis** |
+| o CNJ não tem o CNJ | 31 | 3,6% |
+
+### 26,7% ou 37,1%? Não é o sorteio — é o critério, e ele tem causa estrutural
+
+Uma medição anterior (30/08) deu 37,1%. Rodando as duas regras sobre a **mesma**
+amostra:
+
+| regra de "o que o CNJ diz" | discordância |
+|---|---:|
+| UM documento arbitrário do CNJ (o 1º que a página devolveu) | 306 — **36,9%** |
+| um documento sorteado | 293 — 35,3% |
+| **QUALQUER documento, em qualquer grau** | **222 — 26,7%** |
+
+Os 37,1% reaparecem em 36,9%. A diferença é o critério, e a razão é a estrutura
+da fonte: **no Datajud cada GRAU é um documento próprio, com a classe daquela
+instância.**
+
+```
+5005545-67.2020.4.03.6103
+  G1   7    Procedimento Comum Cível
+  JE   436  Procedimento do Juizado Especial Cível
+  TR   460  Recurso Inominado Cível
+```
+
+Medido na mesma amostra: **30,7% dos CNJs têm 2+ documentos e 29,3% têm 2+
+classes DISTINTAS**. Perguntar "qual classe o CNJ declara" sem dizer *de qual
+grau* é pergunta mal formada, e comparar contra um documento arbitrário fabrica
+~10 pp de discordância que é da FONTE, não do nosso rótulo.
+
+**O número canônico é 26,7%**, com a regra escrita ao lado: *o CNJ discorda
+quando NENHUM documento dele, em nenhum grau, traz a classe*. É também a regra
+conservadora para a tese abaixo — ela minimiza justamente a discordância que a
+tese explica.
+
+### O veredito: 98,6% é colisão de campo
+
+O rótulo nasce do campo estruturado `codigo_classe` da movimentação. Usar esse
+mesmo campo como prova seria circular, então a evidência veio de **canais
+independentes**:
+
+| canal | n | % das discordâncias |
+|---|---:|---:|
+| **TEXTO** da publicação, verbatim, com o CNJ do próprio processo: `CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA (12078) Nº …` | 207 | **93,2%** |
+| **PARTES do PJe**: papel `EXEQUENTE`/`EXECUTADO` com ente público no polo passivo | 10 | 4,5% |
+| **MOVIMENTO do Datajud** de fase de execução (extinção da execução, precatório, RPV) | 2 | 0,9% |
+| **sem evidência** — abstenção declarada, não "erro provado" | 3 | 1,4% |
+
+⇒ **98,6% das discordâncias são colisão de campo.**
+
+Calibração da régua, dos dois lados:
+
+* **sensibilidade** — no grupo em que o CNJ CONCORDA (608 processos, onde a fase
+  é certa por construção), a rubrica dispara em **94,2%**;
+* **especificidade** — controle negativo com 400 processos que **não** rotulamos
+  12078: o canal verbatim dispara em **6 (1,5%)**. 93,2% contra 1,5% é **62× de
+  separação**. (E os 6 não são falso-positivo do detector: são processos com a
+  fase e sem o rótulo — o mesmo fenômeno pelo outro lado.)
+
+O documento real, que resume tudo:
+
+```
+5000472-69.2024.4.03.6202
+  DJEN 2024-10-15  "PODER JUDICIÁRIO … JUIZADO ESPECIAL FEDERAL DE DOURADOS/MS
+                    CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA (12078)
+                    Nº 5000472-69.2024.4.03.6202
+                    EXEQUENTE: … EXECUTADO: INSS"
+  Datajud (JE)     436 Procedimento do Juizado Especial Cível
+```
+
+Os dois estão certos. Um é o **cadastro**, o outro é a **fase** — e a fase é o
+que o produto vende. O TRF3 concentra 208 das 222 discordâncias porque o JEF
+faz o cumprimento contra a fazenda NO MESMO número de processo, reclassificando
+no PJe (o Datajud publica `Retificação de Classe Processual` 143 vezes e
+`Mudança de Classe Processual` 29 nesses mesmos processos) sem que o cadastro
+acompanhe.
+
+### O conserto: três fatos, três campos (migration 0054)
+
+| campo | o que é | quem escreve |
+|---|---|---|
+| `classe_codigo` / `classe_nome` | **compatibilidade** — segue como está, ninguém quebra | os três, como sempre |
+| `classe_cnj_codigo` / `classe_cnj_nome` | **cadastro do CNJ** — casa com `voyager-acervo.classe_codigo`, é o denominador nacional | só a porta do Datajud (`sync_processo`, `hidratar_cnj`, `backfill_classe_cnj`) |
+| `fase_codigo` / `fase_nome` / `fase_em` | **a fase**: a classe com que o tribunal PUBLICOU o processo mais recentemente, com a data | ingestão DJEN (ao vivo), drainer do enricher, `backfill_fase` |
+
+Três detalhes que não são estética:
+
+1. **`classe_cnj_*` NÃO herda o "só preenche lacuna"** que `classe_codigo` tem.
+   Com ele, o cadastro nunca seria gravado justamente onde os dois divergem —
+   nos processos que motivaram a coluna. E o cadastro MUDA: é o próprio Datajud
+   que publica as retificações de classe.
+2. **`fase_em` existe para a fase só SUBIR.** Backfill de histórico roda o tempo
+   todo aqui; sem a guarda de recência, uma recoleta de 2023 rebaixaria o
+   cumprimento de 2026.
+3. **Movimento do Datajud é excluído da fase de propósito.** `datajud/parser.py`
+   copia a classe CADASTRAL do processo em cada movimento — lê-lo faria a fase
+   virar o cadastro com outro nome, a mesma colisão um campo adiante.
+
+`escolher_classe` (em `backfill_classe_cnj`) resolve o multi-grau pela regra do
+**grau de ORIGEM** (`JE > TR > TRU > G1 > G2 > SUP`, o mesmo `escolher_grau` do
+`backfill_grau`) e **abstém** quando a fonte não decide (par `G1+JE` sem
+`TR`/`TRU`; ou o mesmo grau com duas classes).
+
+### O tamanho real do nicho, recontado
+
+**Lado do CNJ** (1.774 CNJs sorteados do `voyager-acervo` com `classe_codigo =
+12078`, 3 sementes, controle `proc` em 100%):
+
+| | | |
+|---|---:|---|
+| não temos o processo | 52,1% | é o #92 |
+| **temos, o rótulo se perdeu, mas HÁ publicação de classe 12078** | **23,0%** | é o que `fase_codigo` passa a enxergar |
+| temos e rotulamos 12078 | 18,6% | a cobertura de hoje |
+| temos, sem classe e sem publicação | 5,3% | |
+| temos com outra classe e sem publicação | 1,0% | |
+
+> **Cobertura do nicho nacional: 18,6% → 41,6%.** Sobre os ~8,8 M de CNJs que o
+> CNJ declara na 12078, são **≈ 2,0 M de processos que já estão no nosso banco**,
+> com a publicação de cumprimento contra a fazenda gravada, e que a régua antiga
+> não enxergava.
+
+**Lado nosso**, por medição independente no índice de movimentações:
+**4.449.365 processos distintos** têm movimentação de classe 12078, contra
+**2.337.739** que rotulamos — **+90%**. A amostra por pk previa 4,12 M (2,34 M
+rotulados + 1,75% dos 101,8 M não rotulados, medido no controle negativo): duas
+contas independentes a **8%** uma da outra.
+
+**União das duas réguas** (o nicho de verdade): os ~8,8 M do cadastro mais os
+~18% do lado da fase que o cadastro não cobre (medido: dos processos com
+publicação 12078, 82% o CNJ também declara 12078, 12% ele diz outra classe e 6%
+ele não tem o CNJ) ⇒ **≈ 9,6 M de CNJs**.
+
+### Custo medido em produção (31/08/2026)
+
+| | medido |
+|---|---|
+| `backfill_classe_cnj`, faixa de 100.000 pks | 99.983 lidos · 97.435 no acervo (97,5%) · **97.097 escritos** · 22.201 multi-classe (22,2%) · 338 abstenções (0,34%) · **267 s** = 2,7 ms/linha ⇒ ~78 h para o acervo |
+| … quantos o cadastro do CNJ CONTRADIZ | **4.865 (5,0%)** da faixa |
+| `backfill_fase`, faixa de 100.000 pks | 99.998 escritos · **158 s** = 1,6 ms/linha ⇒ ~46 h |
+| … em quantos a FASE difere do `classe_codigo` gravado | **16.896 (16,9%)** da faixa |
+| reindex dirigido de 199.981 docs | **~600 docs/s**, 5,5 min |
+
+Nenhuma requisição ao CNJ: `classe_cnj_*` sai do `voyager-acervo` (índice nosso)
+e `fase_*` sai das publicações que já estão no nosso Postgres.
+
+### Verificação em produção, ponta a ponta
+
+Faixa de controle `id ∈ (9.200.000, 9.210.000]`, 10.000 processos:
+
+```
+ANTES  docs com `fase_codigo` no índice ..........      0
+       (contado com must_not term:'' — `exists` conta string vazia, regra nº 4)
+backfill_fase → 10.000 escritos, campainha tocada
++200 s   1
++240 s   10.000 / 10.000
+```
+
+O caminho percorrido é o de produção, não um script: `backfill_fase` (Postgres)
+→ `atualizado_em = now()` → `sync_processos_atualizados` no **scheduler que já
+estava rodando** → fila `es_index` → **`worker_es_index` reiniciado com o código
+novo** → documento no índice com o campo. É prova de comportamento, não de
+disco.
+
+### Runbook
+
+```bash
+# medir sem escrever (a régua do antes/depois)
+manage.py backfill_classe_cnj --de 9000000 --ate 9100000 --sem-reparo --json
+manage.py backfill_fase       --de 9000000 --ate 9100000 --sem-reparo --json
+
+# as corridas (retomáveis pelo checkpoint, com freio por ms/linha)
+manage.py backfill_classe_cnj --sleep 0.1 --parar-ms-linha 12
+manage.py backfill_fase       --sleep 0.1 --parar-ms-linha 12
+
+# parar de qualquer lugar, sem deploy
+manage.py shell -c "from django.core.cache import cache; \
+    cache.set('datajud:backfill_classe_cnj:off', True); \
+    cache.set('tribunals:backfill_fase:off', True)"
+
+# levar ao índice a faixa que acabou de ser escrita (sem esperar o poller)
+manage.py reindexar_processos --desde-id <lo> --ate-id <hi> --sleep 0.05
+```
+
+### O que NÃO foi medido, e por quê
+
+* **A corrida completa não rodou.** Foram 210.000 processos de 104,1 M
+  (`classe_cnj` na faixa 9,0-9,1 M; `fase` em 9,0-9,21 M). As projeções de 78 h
+  e 46 h saem de faixas contíguas de pk — e faixa contígua amostra poucos
+  MOMENTOS de ingestão, então o custo real da corrida inteira pode diferir.
+* **A régua de fase mede o que está no nosso acervo, não o país.** "1,75% dos
+  não-rotulados têm a fase escondida" vem de 400 processos: intervalo de
+  confiança de ±1,3 pp, que sobre 101,8 M são ±1,3 M. O número do índice
+  (4.449.365) é exato e é o que deve ser citado.
+* **Não sei quanto do `fase_codigo` está DESATUALIZADO** por processo que
+  publicou pela última vez há anos. `fase_em` existe justamente para essa
+  pergunta ser respondível depois; ela ainda não foi feita.
+* **Os 3 casos "sem evidência"** (1,4%) não foram provados errados — não há
+  como reconstruir a posteriori qual escritor gravou aquele `classe_codigo`
+  (não existe tabela de auditoria do enricher). São abstenção, não erro.
+* **A publicação foi lida só nos primeiros 900 caracteres.** O cabeçalho com a
+  classe fica no começo, mas quem tiver a prova depois do corte foi contado como
+  "sem evidência" — o viés é contra a minha própria tese.
