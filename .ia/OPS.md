@@ -4,6 +4,69 @@ Runbooks específicos por situação. Para troubleshooting geral, comece por `dj
 
 Observabilidade de infra (Prometheus/Grafana/GPU): ver [Observability stack (Fase B)](#observability-stack-fase-b) no fim deste doc.
 
+
+## Redis de produção: persistência (AOF) — ligada em 31/08/2026
+
+`voyager-redis` = **`192.168.30.100`**, Redis **8.6.3 nativo** (não Docker),
+`systemd: redis-server`, config em `/etc/redis/redis.conf`, dados em
+`/var/lib/redis`. Acesso: `ssh ubuntu@192.168.30.100`, com `sudo` sem senha.
+
+### O que estava errado
+
+    appendonly no
+    save ""
+
+**Persistência nenhuma.** Todo restart perdia 100% das chaves — e o Redis não
+guarda só cache: guarda **kill switches** (`enrich:pausados`,
+`backfill_sinal:off`), checkpoints de backfill, cursores, o pool de proxies e as
+filas RQ. Kill switch que some **volta a ligar o job pausado**.
+
+Medido antes de mexer, e os dois vetores alternativos foram **descartados**:
+`maxmemory-policy=noeviction`, `evicted_keys=0`, `ttl=-1` nas chaves. Não era
+eviction nem TTL — era ausência de persistência. O restart de **26/08 06:59 UTC**
+é a causa provável dos 524.945 docs que ficaram fora do índice com os três
+instrumentos de saúde verdes (ver `search/sync_incremental.py`).
+
+### Como foi consertado, sem restart
+
+O restart é justamente o evento que apaga tudo — então o conserto não pode
+depender dele:
+
+```bash
+# 1. backup, e só então editar
+sudo cp -a /etc/redis/redis.conf /etc/redis/redis.conf.bak.pre-aof-$(date -u +%Y%m%dT%H%M%SZ)
+sudo sed -i 's/^appendonly no$/appendonly yes/' /etc/redis/redis.conf   # durável
+
+# 2. ligar em memória (dispara o rewrite inicial), pelo protocolo
+CONFIG SET appendonly yes
+```
+
+Os dois passos são necessários e por motivos diferentes: o `CONFIG SET` liga
+**agora**, o arquivo faz sobreviver ao **próximo restart**. Só um dos dois é
+meio-conserto.
+
+### Prova (comportamento, não flag)
+
+| | |
+|---|---|
+| rewrite inicial | 3 s, dataset de 212 MB |
+| `/var/lib/redis/appendonlydir` | estava **vazio**; agora `base.rdb` 113 MB + `incr.aof` + manifest |
+| escrita viva | `incr.aof` **3,83 MB → 9,23 MB em 45 s** |
+| status | `aof_enabled=1`, `aof_last_bgrewrite_status=ok`, `aof_last_write_status=ok` |
+| `appendfsync` | `everysec` (perda máxima teórica: 1 s) |
+| disco | 48 GB livres, uso foi de 8,4 para 8,5 GB |
+
+⚠️ `save ""` continua desligado **de propósito**: com AOF `everysec` e
+`aof-use-rdb-preamble yes`, snapshots RDB só somariam pausas de `fork` sem
+melhorar a garantia.
+
+⚠️ Duas armadilhas de diagnóstico neste host: `/etc/redis` é `drwxrws---`
+(redis:redis), então `ls` **sem sudo** falha e parece que o arquivo não existe —
+foi o que me fez afirmar errado; e `ps`/`/proc/cmdline` mostram
+`redis-server 0.0.0.0:6379` porque o Redis reescreve o próprio título, **não**
+porque tenha subido sem arquivo de config.
+
+
 ## Stacks
 
 | Ambiente | Compose | Hostname | Tunnel |
