@@ -76,6 +76,16 @@ _INDEX_OVERRIDES: dict[str, str] = {
 }
 
 
+def _bytes_max_resposta() -> int:
+    """TETO DURO de bytes de UMA resposta da puxada em massa.
+
+    Lido tarde (não no import) para que `override_settings` funcione. `<= 0`
+    desliga o teto e volta ao comportamento antigo — que é o que a coleta do
+    DJEN tinha no dia dos 342 OOM.
+    """
+    return int(getattr(settings, 'DATAJUD_VARREDURA_BYTES_MAX', 48 * 1024 * 1024))
+
+
 def index_for(sigla_tribunal: str) -> str:
     """Mapeia sigla → endpoint Datajud (api_publica_<sigla>).
 
@@ -139,19 +149,23 @@ class DatajudClient:
         return None, 'direct'
 
     def _post(self, sigla_tribunal: str, body: dict, cota: str = 'global',
-              teto_bytes: int = 0) -> dict:
+              teto_bytes: int | None = None) -> dict:
         """POST no índice do tribunal com rotação automática de proxies.
 
         `cota='varredura'` usa a cota separada da puxada em massa (ver
         `datajud.ratelimit.acquire_varredura`) — 34 mil requisições em série não
         podem comer os tokens de quem está atendendo usuário.
 
-        `teto_bytes > 0` liga o TETO DURO por resposta: baixa em pedaços e
-        aborta (`DatajudPaginaGrandeError`) assim que o corpo passa do teto, em
-        vez de descobrir o tamanho depois de já ter carregado tudo na memória.
-        Quem chama encolhe a página e relê o MESMO cursor — nada é descartado.
-        `0` (default) preserva o comportamento antigo byte por byte, para não
-        mexer no caminho do `sync_processo`, que atende usuário.
+        O TETO DURO por resposta acompanha a COTA, não um parâmetro solto:
+        `cota='varredura'` é o caminho da puxada em massa, o único que pede
+        10.000 documentos de uma vez, e é ele que baixa em pedaços e aborta
+        (`DatajudPaginaGrandeError`) assim que o corpo passa do teto — em vez de
+        descobrir o tamanho depois de já ter carregado tudo na memória. Quem
+        chama encolhe a página e relê o MESMO cursor; nada é descartado.
+
+        O caminho do `sync_processo` (`cota='global'`, um processo por vez)
+        segue byte por byte como antes: ele atende usuário e pede 1 documento.
+        `teto_bytes` explícito sobrepõe a escolha (`0` desliga).
 
         Efeito colateral declarado: `self.ultimos_bytes` guarda o tamanho do
         corpo da última resposta bem-sucedida. É o número que a varredura usa
@@ -161,6 +175,8 @@ class DatajudClient:
         # Rate-limit GLOBAL por chave (a APIKey pública é compartilhada; sem pacing
         # os workers estouram a quota do CNJ e o _search passa a pendurar).
         from datajud.ratelimit import acquire, acquire_varredura
+        if teto_bytes is None:
+            teto_bytes = _bytes_max_resposta() if cota == 'varredura' else 0
         ok = (acquire_varredura(max_wait=120.0) if cota == 'varredura'
               else acquire(max_wait=30.0))
         if not ok:

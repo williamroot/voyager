@@ -118,12 +118,12 @@ class Command(BaseCommand):
             linha['estado'] = 'SEM FONTE'
             return linha
 
-        linha['acervo'] = es.count(index=acervo, query={'term': {'tribunal': sigla}},
-                                   request_timeout=ES_TIMEOUT)['count']
+        es_t = es.options(request_timeout=ES_TIMEOUT)
+        linha['acervo'] = es_t.count(index=acervo,
+                                     query={'term': {'tribunal': sigla}})['count']
         try:
-            linha['processos'] = es.count(
-                index=processos, query={'term': {'tribunal': sigla}},
-                request_timeout=ES_TIMEOUT)['count']
+            linha['processos'] = es_t.count(
+                index=processos, query={'term': {'tribunal': sigla}})['count']
         except Exception:             # noqa: BLE001 — índice rico é opcional aqui
             linha['processos'] = None
 
@@ -157,14 +157,16 @@ class Command(BaseCommand):
         cai numa janela estreita de escrita, não numa amostra do índice — foi
         essa armadilha que fez uma medição do TJSP errar por 50× (25/08/2026).
         """
-        total = es.count(index=acervo, request_timeout=ES_TIMEOUT)['count']
-        sem = es.count(index=acervo, request_timeout=ES_TIMEOUT,
-                       query={'bool': {'must_not': [{'exists': {'field': 'proc'}}]}})['count']
-        r = es.search(index=acervo, size=200, source=['proc'],
-                      request_timeout=ES_TIMEOUT,
-                      query={'function_score': {
-                          'query': {'match_all': {}},
-                          'random_score': {'seed': 20260831, 'field': 'proc'}}})
+        es_t = es.options(request_timeout=ES_TIMEOUT)
+        total = es_t.count(index=acervo)['count']
+        sem = es_t.count(
+            index=acervo,
+            query={'bool': {'must_not': [{'exists': {'field': 'proc'}}]}})['count']
+        r = es_t.search(index=acervo, size=200, source=['proc'],
+                        query={'function_score': {
+                            'query': {'match_all': {}},
+                            'random_score': {'seed': 20260831,
+                                             'field': 'proc'}}})
         amostra = [h['_source'].get('proc') or '' for h in r['hits']['hits']]
         bons = sum(1 for p in amostra
                    if len(p) == 25 and p[7] == '-' and p[10] == '.')

@@ -281,7 +281,9 @@ id, primeira_aparicao_em, ultima_aparicao_em, total_processos
 nome                 char(255)
 documento            char(20)            CPF/CNPJ formatado (real OU mascarado)
 tipo_documento       char(10)            'CPF'|'CNPJ'|''
-oab                  char(20)            'SP123456' — só advogados
+oab                  char(20)            'SP123456' — só advogados. FORMA CANÔNICA:
+                                         UF + número SEM zero à esquerda (+ letra
+                                         de sufixo). Ver §OAB: a forma canônica.
 tipo                 char(20)            'pf'|'pj'|'advogado'|'desconhecido'
 
 constraint:  unique(documento)         WHERE doc != '' AND NOT LIKE '%X%' AND NOT LIKE '%*%'
@@ -302,6 +304,66 @@ indexes:     nome, documento, oab, tipo
 4. **Sem doc nem OAB**: `get_or_create((nome, tipo))` — evita explosão de PJ pública (Procuradoria, Defensoria, etc.).
 
 Detalhes em [`ENRICHMENT.md`](ENRICHMENT.md#dedupe-de-partes-_upsert_parte).
+
+### OAB: a forma canônica (31/08/2026, #96)
+
+`Parte.oab` é **`UF` + número sem zero à esquerda + (opcional) UMA letra de
+sufixo**: `PE475`, `AL10715A`. Uma única função escreve essa forma —
+`tribunals/services/oab.py::canonizar_oab` — e as **duas** portas de escrita a
+chamam:
+
+| porta | lê de | antes de 31/08 |
+|---|---|---|
+| `enrichers.parsers.parse_oab` | TEXTO da publicação (`"OAB PA 015237"`) | **preservava** o zero |
+| `tribunals.services.partes_djen.formatar_oab` | JSON do DJEN (`numero_oab`) | remove o zero desde `55264d3` |
+
+Enquanto foram duas implementações, a mesma inscrição virava **duas** `Parte`,
+porque `uniq_parte_oab` é sobre a string. Medido em produção em 31/08/2026:
+
+| medida | consulta | número |
+|---|---|---|
+| `Parte` com `oab <> ''` | `count(*) FILTER (WHERE oab <> '')` | 943.510 |
+| na régua (`^[A-Z]{2}[0-9]+[A-Z]?$`) | idem | 942.084 |
+| fora da régua — **abstém** | `oab !~ '^[A-Z]{2}[0-9]+[A-Z]?$'` | 1.427 (1.424 começam com `MT`) |
+| grupos em colisão por zero à esquerda | `GROUP BY canon HAVING count(DISTINCT oab) > 1` | 19.482 |
+| **linhas a colapsar (teto)** | `sum(n-1)` | **19.494** |
+| grupos em colisão **sem** nenhuma forma zero-padded | controle | **0** ⇒ o zero explica 100% |
+| linhas zero-padded no total | `dig ~ '^0'` | 29.979 |
+
+O teto **13.045** que estava registrado no `PLANO_ACERVO.md` não bate com
+nenhuma data desta régua: reconstruída por `primeira_aparicao_em`, ela vale
+**1.134 em 25/08** e **19.344 em 26/08** — o salto é o `backfill_partes_djen`
+(`fonte='djen'`, migration 0052) encontrando as linhas zero-padded que o
+enricher já tinha criado. Não há data em que a régua passe por 13.045.
+
+**Regra de fusão** (`manage.py dedup_partes --group oab_zero`) — três guardas,
+cada uma com número:
+
+1. **UF na chave.** `canon` começa pela UF gravada ⇒ `SP475` e `PE475` nunca
+   caem no mesmo grupo. Controle: 19.482 de 19.482 grupos (100%) com UMA UF.
+2. **Nome idêntico** (caixa/acento/pontuação normalizados) — 992 grupos
+   **abstêm**. O par que motivou a guarda é real: `PE00475` =
+   `TANEY QUEIROZ E FARIAS`, `PE475` = `LUZIA HELENA DE VALOIS CORREIA`.
+3. **CPF real não divergente** — 57 grupos têm dois CPF reais diferentes;
+   1 só é pego aqui (os outros 56 já caem na guarda 2). Nenhum grupo tem o
+   MESMO CPF dos dois lados: aqui o CPF **nega** identidade, nunca a prova.
+
+⇒ funde **18.489 grupos / 18.501 linhas**; **abstém em 993**.
+
+**Além da fusão**, o comando reescreve a grafia (não funde) de duas
+populações, senão a porta de escrita canônica recria a duplicata no
+enriquecimento seguinte:
+
+- o *survivor* de grupo cujas duas formas eram zero-padded (`PE0475`+`PE00475`);
+- as zero-padded **solitárias** (sem gêmea canônica) — `--sem-normalizar-solitarias`
+  desliga.
+
+**O que a fusão NÃO faz:** não reindexa o Elasticsearch. `participacoes.oab` é
+gravado no doc do processo, então o índice guarda a grafia antiga até o
+processo ser reindexado por outra via. Medido em 60 pares (amostra
+`md5(canon||'sal96')`, 0 erro de ES, 0 par ausente do índice — controle 100%):
+**17 pares (28,3%) têm as DUAS grafias indexadas**, e 1.533 dos 13.275
+processos do recorte ficam invisíveis a uma busca pela outra grafia.
 
 ## ProcessoParte
 

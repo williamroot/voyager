@@ -357,6 +357,19 @@ DATAJUD_RATE_LIMIT_RPM = env.int('DATAJUD_RATE_LIMIT_RPM', default=100)
 # o teto global, e aí o risco passa a ser a APIKey COMPARTILHADA do CNJ, que já
 # nos derrubou uma vez (incidente 2026-07-02).
 DATAJUD_VARREDURA_RPM = env.int('DATAJUD_VARREDURA_RPM', default=40)
+# ORÇAMENTO de bytes por resposta da varredura. É ele — e não um número de
+# itens — que dimensiona a página: `size = alvo // bytes_por_doc_MEDIDO`. O
+# esqueleto do Datajud pesa ~225 B/doc, então 16 MB dão a página cheia de 10.000
+# no caso comum e encolhem sozinhos num tribunal com `assuntos` gordos.
+# Contar memória em ITENS foi a causa raiz dos 342 OOM da coleta do DJEN: o
+# código previa 3 KB por publicação e a medição deu 56 KB — erro de 27×.
+DATAJUD_VARREDURA_BYTES_ALVO = env.int(
+    'DATAJUD_VARREDURA_BYTES_ALVO', default=16 * 1024 * 1024)
+# TETO DURO por resposta (previsão não é teto). Acima disto a varredura aborta o
+# download, encolhe a página e relê o MESMO cursor — nada é descartado, porque a
+# paginação é por `range gte`. `<= 0` desliga, e desligar é voltar ao dia do OOM.
+DATAJUD_VARREDURA_BYTES_MAX = env.int(
+    'DATAJUD_VARREDURA_BYTES_MAX', default=48 * 1024 * 1024)
 # Entrega ao índice NA HORA da gravação (datajud/ingestion.py::
 # _entregar_ao_indice). LIGADO por padrão: sem isto, o que a porta grava só
 # chega ao Elasticsearch quando o poller de 10 min passar — e, do lado do

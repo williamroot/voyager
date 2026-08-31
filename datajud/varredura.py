@@ -108,10 +108,6 @@ def _bytes_alvo() -> int:
     return int(getattr(settings, 'DATAJUD_VARREDURA_BYTES_ALVO', 16 * 1024 * 1024))
 
 
-def _bytes_max_resposta() -> int:
-    """TETO DURO de bytes de UMA resposta. Diferente do orçamento acima, que é
-    uma previsão: este é o número que não depende de acertar a previsão."""
-    return int(getattr(settings, 'DATAJUD_VARREDURA_BYTES_MAX', 48 * 1024 * 1024))
 
 #: `movimentos` fica DE FORA: são ~73 por processo (~15KB), o que faria cada
 #: página pesar ~150MB em vez de ~4MB. Movimento vem na hidratação, por CNJ.
@@ -253,8 +249,10 @@ class Varredura:
         for tentativa in range(1, TENTATIVAS_COTA + 1):
             try:
                 self.requisicoes += 1
-                d = self.client._post(self.sigla, body, cota='varredura',
-                                      teto_bytes=_bytes_max_resposta())
+                # o teto duro de bytes vem junto com a cota `varredura` (ver
+                # `DatajudClient._post`) — nada de kwarg solto que um cliente de
+                # terceiro não conheça
+                d = self.client._post(self.sigla, body, cota='varredura')
                 self.bytes += int(getattr(self.client, 'ultimos_bytes', 0) or 0)
                 return d
             except DatajudPaginaGrandeError:
@@ -562,7 +560,10 @@ class Varredura:
                 _faixa(cursor), parou_por)
         if self.perdidos:
             self._erro('perdidos_no_ms', f'{self.perdidos} docs')
-            resumo['erros'] = dict(self.erros)
+        # os erros são copiados DEPOIS das duas linhas acima: as duas registram
+        # erro, e um snapshot tirado antes devolveria `erros: {}` num run que
+        # acabou de bater no teto — a mentira exata que este campo desfaz
+        resumo['erros'] = dict(self.erros)
         if self.telemetria_ativa:
             telemetria.fechar(self.sigla, resumo)
         return resumo
@@ -643,9 +644,9 @@ def medir_alvo(sigla: str, client: DatajudClient | None = None) -> dict:
         saida['erro'] = f'declarado: {str(exc)[:120]}'
         return saida
     try:
-        saida['nosso'] = get_es().count(
-            index=index_name(INDICE), query={'term': {'tribunal': sigla.upper()}},
-            request_timeout=30)['count']
+        saida['nosso'] = get_es().options(request_timeout=30).count(
+            index=index_name(INDICE),
+            query={'term': {'tribunal': sigla.upper()}})['count']
     except Exception as exc:                                # noqa: BLE001
         saida['erro'] = f'nosso: {str(exc)[:120]}'
         return saida
