@@ -103,11 +103,13 @@
   {% endif %}
   {% if processo.classe_nome or processo.assunto_nome or processo.orgao_julgador_nome %}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-border/60">
-      {# CLASSE × FASE são dois FATOS, não um campo com dois valores (#105,
-         31/08/2026). Em 222 de 830 processos conferíveis que rotulávamos
-         `12078`, o CNJ declara outra classe — e 98,6% deles TÊM a fase de
-         cumprimento contra a fazenda. Mostrar um só campo escondia metade da
-         verdade; mostrar "corrigido" esconderia a outra metade. #}
+      {% comment %}
+        CLASSE x FASE são dois FATOS, não um campo com dois valores (#105,
+        31/08/2026). Em 222 de 830 processos conferíveis que rotulávamos
+        `12078`, o CNJ declara outra classe — e 98,6% deles TÊM a fase de
+        cumprimento contra a fazenda. Mostrar um só campo escondia metade da
+        verdade; mostrar "corrigido" esconderia a outra metade.
+      {% endcomment %}
       {% if processo.classe_cnj_nome %}
         <div>
           <div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider" title="Classe cadastral, como o CNJ a declara no Datajud">Classe (CNJ)</div>
@@ -122,9 +124,11 @@
         </div>
       {% endif %}
       {% if processo.classe_nome and not processo.classe_cnj_nome and not processo.fase_nome %}
-        {# legado: enquanto os backfills não passaram por esta linha, o campo
-           antigo é o que temos. A tela não inventa a separação que o dado
-           ainda não tem. #}
+        {% comment %}
+          legado: enquanto os backfills não passaram por esta linha, o campo
+          antigo é o que temos. A tela não inventa a separação que o dado
+          ainda não tem.
+        {% endcomment %}
         <div><div class="text-fg-subtle text-[0.65rem] uppercase tracking-wider">Classe</div><div class="text-sm text-fg-soft mt-0.5">{{ processo.classe_nome }}</div></div>
       {% endif %}
       {% if processo.assunto_nome %}
