@@ -926,3 +926,200 @@ não numa amostra do índice.
 **Regra que fica:** para estimar proporção de um campo do Postgres, sorteie
 **pk** e vá ao Postgres. O índice serve para contar o que está no índice.
 Amostra de 20.000 pks custou 40 s e não depende de nada além do banco.
+
+---
+
+## A puxada nacional, medida em 31/08/2026 — e por que ela já aconteceu
+
+> **Em uma linha:** o #92 dizia "187,7 M que faltam, 34,3 mil requisições,
+> 16-20 h, 77 GB". Medido: falta **283.987** (0,082%), **29 requisições**,
+> minutos. O resto do delta é lixo do denominador do CNJ, e os 187,7 M são
+> outro job — a **hidratação**, que custa 1 requisição por CNJ.
+
+### O delta, dos dois lados (59 requisições `size:0` + `_count` no nosso índice)
+
+```
+declarado ao CNJ ....... 350.430.801      (59 tribunais rastreados + STM)
+voyager-acervo ......... 344.603.487      98,34%
+delta bruto ............   5.800.259
+  ├─ linhas sem `numeroProcesso` ... 5.516.272   (95,1%)  ← não é processo
+  └─ RESÍDUO REAL .................    283.987   (0,082%)
+```
+
+| tribunal | delta bruto | inválidos | resíduo real |
+|---|---:|---:|---:|
+| TJSP | 5.607.865 | 5.337.680 | **270.185** |
+| TRF1 | 8.937 | 0 | **8.937** |
+| TJRJ | 89.807 | 87.341 | **2.466** |
+| TJMT | 2.300 | 0 | **2.300** |
+| TJAC · TJSC | 50 · 46 | 0 · 0 | 50 · 46 |
+| TJPE · TJMG · TRF4 · TJGO · TRF3 · TJPR · TRT2 · TRT13 · TJMS | 45.772 · 20.313 · 15.700 · 6.642 · 2.300 · 498 · 19 · 6 · 1 | idênticos | **0** |
+| TJBA · TJRS · TRT20 | 1 · 1 · 1 | 0 | 1 · 1 · 1 |
+| **total** | **5.800.259** | **5.516.272** | **283.987** |
+
+### O denominador do CNJ tem linha vazia dentro
+
+Amostra de 200 documentos do TJSP sem `@timestamp`, 200 de 200 iguais:
+
+```json
+{"numeroProcesso": null, "classe": {"codigo": "-1", "nome": "Inválido"},
+ "dataAjuizamento": null, "grau": null}
+```
+
+`doc_do_datajud` já os descarta (sem 20 dígitos de CNJ não há doc). E há um
+fato que fecha o argumento: **o conjunto "sem `numeroProcesso`" é EXATAMENTE o
+conjunto "sem `@timestamp`"** — 5.337.680 = 5.337.680 no TJSP, e igual no TJMG
+(20.313) e no TJRJ (87.341). Sem chave de ordenação, a paginação por
+`range @timestamp` **nunca poderia** alcançá-los.
+
+⚠️ `classe.codigo = -1` **não serve** como critério: é superconjunto (TJSP
+5.408.140) e engloba processos REAIS com classe inválida. O critério é a
+ausência de `numeroProcesso`.
+
+### 🔴 O incremental é um no-op verde — e era assim desde sempre
+
+Medição de hoje, 59 requisições, `@timestamp >= cursor` de cada tribunal:
+
+    59 de 59 devolveram ZERO documentos.
+
+E no entanto faltavam 283.987. Os dois fatos convivem por dois motivos:
+
+1. **o cursor termina sempre em "máximo da fonte + 1"**, então `parou_por='fim'`
+   é auto-confirmatório: o laço acaba exatamente onde a fonte acaba;
+2. **o CNJ reescreve `dataHoraUltimaAtualizacao` em lote.** Histograma mensal do
+   TJSP, o mesmo campo dos dois lados:
+
+| mês do `@timestamp` | CNJ hoje | nosso `atualizado_em` |
+|---|---:|---:|
+| 2024-09 | 4.756.523 | 33.801 |
+| 2025-02 | 6.192.765 | 1.511.330 |
+| 2025-06 | **12.949.424** | **0** |
+| 2025-10 | **15.003.492** | **0** |
+| 2025-11 | 13.316.280 | 208.662 |
+| 2026-02 … 2026-06 | batem em ±0,01% | batem |
+
+Os meses recentes batem; os antigos não. São os MESMOS documentos com o
+timestamp reescrito — e sempre para valores **abaixo** do nosso cursor.
+Documento que anda para trás no tempo é invisível para um cursor que só anda
+para a frente.
+
+⇒ **`tick_varredura_incremental` (cron 02:20) enfileira 59 jobs por dia que não
+podem trazer nada.** A única passada capaz de fechar o delta é `--do-zero`.
+
+Desde 31/08/2026, passada incremental que traz **0 documentos** com **alvo
+medido > 0** registra o erro `incremental_cego` (com o número e com a saída no
+texto) em vez de devolver `fim` verde.
+
+### O que a puxada NÃO traz — e por que isso importa mais que o delta
+
+O `_source` do Datajud **não tem parte, advogado nem valor**. O que a varredura
+enche é o `voyager-acervo`, que é **esqueleto**. Contar esqueleto como "temos"
+seria dado coletado pela metade — vale menos que zero.
+
+O número que interessa, medido hoje (cardinalidade HLL por tribunal, os 59):
+
+```
+voyager-acervo ... 344.603.487 docs  =  298.271.660 CNJs distintos  (1,155 doc/CNJ)
+voyager-processos  104.003.151 docs
+```
+
+A diferença — da ordem de 190-210 M — **é o "187,7 M que faltam" do #92**. Ela
+não se fecha com páginas de 10.000: cada CNJ vira processo com **uma requisição
+sua** (`hidratar_cnj`). É outro job, com outro custo, e é ele que continua
+sendo o gargalo real.
+
+O card de Cobertura (`dashboard/cobertura_nacional.py`) já separa os dois: o
+numerador é `tribunals_process` (acervo rico) e o denominador é a cardinalidade
+do esqueleto. **Varrer mais faz a cobertura CAIR, não subir** — quem cresce é o
+denominador.
+
+### Custo medido do caminho de produção (não o do papel)
+
+| medida | papel (14/08) | medido em produção (31/08) |
+|---|---:|---:|
+| bytes por doc | 225 B | **787 B** (JSON na rede, TRT20) |
+| vazão | 1.232-1.458 docs/s | ver `datajud_varredura_status` durante a corrida |
+| latência de 1 requisição | ~10 s | **3-56 s** (mediana ~10 s, cliente com pool de proxies) |
+
+A latência varia 18× entre requisições porque o cliente rotaciona proxies. É
+por isso que o ETA da telemetria é recalculado a cada página e não estimado uma
+vez no começo.
+
+## Runbook da puxada
+
+```bash
+# 1. MEDIR SEM ESCREVER (é isto que embasa a decisão de rodar)
+manage.py datajud_conferir_acervo                  # tabela, com a coluna `inválidos`
+manage.py datajud_conferir_acervo --json           # o mesmo, pra colar em issue
+manage.py datajud_conferir_acervo --conexoes 5     # ETA agregado com N conexões
+manage.py datajud_varredura TJMG --max-paginas 3 --dry-run   # vazão e B/doc reais
+
+# 2. A TELA (deixe aberta durante a corrida — sem ela é caixa preta de horas)
+manage.py datajud_varredura_status --watch 5
+
+# 3. UM TRIBUNAL, ponta a ponta
+manage.py datajud_varredura TRT20 --do-zero        # `--do-zero` é o ÚNICO que
+                                                   # fecha delta (ver acima)
+manage.py datajud_conferir_acervo --tribunais TRT20   # o gate, dos dois lados
+
+# 4. NACIONAL, só depois que um tribunal fechar o gate
+manage.py datajud_conferir_acervo --enfileirar     # devolve pra fila os INCOMPLETOs
+```
+
+### Kill switch — parar e RETOMAR são a mesma feature
+
+```bash
+manage.py datajud_varredura_status --parar      # PARA TUDO. vale em ~10s
+manage.py datajud_varredura_status --retomar    # religa; cada tribunal continua do cursor
+manage.py datajud_varredura_status --pausar TJSP
+manage.py datajud_varredura_status --despausar TJSP
+```
+
+A varredura em curso confere o switch **a cada página** (~10 s) e sai **salvando
+o cursor**; a retomada continua dali. Antes de 31/08/2026 o switch só era lido
+quando um job NOVO começava — uma varredura de 20 h em curso o ignorava até o
+fim, que é o oposto de "parar em segundos". O watchdog também respeita a pausa:
+devolver pra fila quem o operador acabou de parar transformaria o switch num
+laço.
+
+### O que observar, e quando abortar
+
+| sinal | onde | o que fazer |
+|---|---|---|
+| coluna `erros` com `resposta_grande` | `datajud_varredura_status` | nada: a página encolheu sozinha e releu o mesmo ponto |
+| `perdidos_no_ms` > 0 | idem | a varredura **não está completa** — o número está no run |
+| `teto_max_paginas` | idem | você impôs `--max-paginas`; o run diz quantos ficaram de fora |
+| `incremental_cego` | idem | o watermark não alcança o buraco: só `--do-zero` |
+| cluster ES `red` | `_cat/health` | **--parar** |
+| disco livre < 200 GB | `_cat/allocation` | **--parar** |
+| `_cat/thread_pool/write` com `rejected > 0` | idem | **--parar** |
+| busca do produto degradando | a tela | **--parar**; site em pé vale mais que terminar 3 h antes |
+
+### Orçamento de BYTES, nunca de páginas
+
+`DATAJUD_VARREDURA_BYTES_ALVO` (16 MB) divide-se pelo peso **medido** do doc
+para dar o `size` de cada requisição; `DATAJUD_VARREDURA_BYTES_MAX` (48 MB) é o
+teto DURO por resposta — acima dele a varredura aborta o download, encolhe a
+página e **relê o mesmo cursor** (idempotente, porque a paginação é `range gte`).
+A primeira requisição de cada passada é uma **sonda** de 500 docs, que pesa o
+tribunal antes de comprometer memória.
+
+Nunca reintroduzir teto de PÁGINAS. Teto de páginas é o `for pagina in
+range(1, 11)` que escondeu 43,6% do TJSP por 17 meses. O `--max-paginas` que
+existe é ferramenta de dry-run e, quando bate, é **ERRO registrado** com o
+número real do que sobrou na fonte — medido com uma requisição a mais, não
+estimado.
+
+### Deploy
+
+O bind mount entrega o arquivo; o Python não recarrega. `manage.py` sobe um
+processo NOVO e portanto lê o disco — mas os **workers da fila `varredura`**
+não. Depois de um `git pull`, para que `varrer_acervo` rode o código novo:
+
+```bash
+ssh ubuntu@192.168.30.102 'cd ~/voyager && \
+  docker compose -f docker-compose-workers.yml up -d --force-recreate worker_varredura'
+```
+
+Sem o `-f docker-compose-workers.yml` o restart sai verde e reinicia outro
+container.
