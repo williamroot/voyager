@@ -41,7 +41,7 @@ total_movimentacoes       int           default 0
 # Enriquecimento (preenchido pelo enricher do tribunal)
 classe_codigo            char(20)              # legacy/cache
 classe_nome              char(255)             # legacy/cache
-classe                   FK ClasseJudicial NULL PROTECT      # canônico
+classe                   FK ClasseJudicial NULL PROTECT      # espelho do código
 assunto_codigo           char(20)              # legacy/cache
 assunto_nome             char(255)             # legacy/cache
 assunto                  FK Assunto NULL PROTECT             # canônico
@@ -63,6 +63,13 @@ constraint:  unique(tribunal, numero_cnj)
 indexes:     (tribunal, numero_cnj), (tribunal, -ultima_mov), inserido_em,
              enriquecido_em, classe_codigo, orgao_julgador_codigo
 ```
+
+**⚠️ `classe`/`assunto` são o ESPELHO de `classe_codigo`/`assunto_codigo`, não
+um segundo fato.** A FK só normaliza a string para dar filtro e join; quem
+manda é a coluna de código. Em 31/08/2026, **8.054.334** processos tinham
+código e FK NULL, e a FK **não existe no banco** (`pg_constraint` devolve zero
+constraints do tipo `f` em `tribunals_process`) — ver a seção
+[ClasseJudicial / Assunto](#classejudicial--assunto).
 
 **⚠️ `proc_tribunal_id_idx` NÃO é o índice que o model declara.** `models.py` diz
 `Index(fields=['tribunal', '-id'], name='proc_tribunal_id_idx')` — o que existe
@@ -513,6 +520,154 @@ indexes:          nome
 Padronizados pelo CNJ — uma única tabela serve TRF1, TRF3 e qualquer outro tribunal. Resolve discrepância entre PJe (UPPERCASE limpo) e DJEN (CamelCase com acentos quebrados) usando o nome do PJe como canônico (priorizado em `0010_populate_classe_assunto`).
 
 `enrichers/pje.py::_upsert_catalogo` é race-safe via `bulk_create(ignore_conflicts) + get(codigo=)`.
+
+### ⚠️ Não existe FK no BANCO — a FK do model é só do Django (31/08/2026)
+
+```sql
+SELECT conname, contype FROM pg_constraint
+ WHERE conrelid = 'tribunals_process'::regclass AND contype = 'f';
+-- (0 rows)
+```
+
+`tribunals_process`, `tribunals_movimentacao`, `tribunals_parte`,
+`tribunals_processoparte`, `tribunals_ingestionrun` e `tribunals_tribunal` têm
+**zero** constraints do tipo `f`. As tabelas pequenas (`processovalidacao`,
+`leadconsumption`, `amostraprocesso`…) têm as suas. Conferido em `pg_constraint`
+tabela a tabela.
+
+Consequência prática, e ela morde: o Postgres aceita
+`Process.classe_id = '99999'` sem linha em `tribunals_classejudicial`. Nada
+falha na escrita — o estouro aparece depois, em produção, no `proc.classe` do
+ORM. **Todo backfill que fecha FK tem que conferir o catálogo antes de ligar**
+(`repop_classe_assunto` faz isso e abstém quando não acha; ver abaixo).
+
+Como a FK é do model e não do banco, a inversa também vale: o
+`on_delete=PROTECT` do Django não protege um `DELETE` feito em SQL.
+
+### O buraco das FKs `classe`/`assunto` (#104) — medido em 31/08/2026
+
+```sql
+-- a régua da pendência
+SELECT count(*) FROM tribunals_process
+ WHERE classe_codigo IS NOT NULL AND classe_codigo <> '' AND classe_id IS NULL;
+```
+
+| | linhas | |
+|---|---:|---|
+| `tribunals_process` | 104.003.151 | total |
+| `classe_id` NULL com `classe_codigo` | **8.054.334** | o **antes** de #104 |
+| `assunto_id` NULL com `assunto_codigo` | **9.773.928** | o mesmo defeito, na coluna vizinha |
+| já ligadas (`classe_id` não-nulo) | 29.023.746 | |
+| … com `classe_id = classe_codigo` | 29.001.893 | **99,925%** — é o campo de controle |
+| … divergentes (`classe_id <> classe_codigo`) | 21.853 | 0,075% · contadas, **intocadas** |
+| … FK preenchida com `classe_codigo` vazio | 800 | idem |
+| sem classe nenhuma | 66.925.135 | não é buraco: é ausência de dado |
+
+**O buraco se realimenta.** `classe_codigo` é escrito sem fechar a FK por
+`datajud/ingestion.py::_meta_updates_from_source`, por `datajud/hidratacao.py`
+e pelo caminho do enricher. Não é resíduo histórico de uma migration antiga.
+
+**Órfãos da TPU, medidos dos dois lados:**
+
+| coluna | linhas a ligar | códigos distintos | órfãos do catálogo |
+|---|---:|---:|---:|
+| `classe_id` | 8.054.281 | 502 (59 tribunais) | **0** |
+| `assunto_id` | 9.773.928 | — | **604.954** em 1.255 códigos |
+
+Os órfãos são todos de **assunto**, e têm dono: **82% na Justiça do Trabalho**
+(TST 128.078 · TRT2 65.552 · TRT15 51.616 · TRT9 38.617). São a faixa
+13xxx/14xxx da TPU trabalhista — `Verbas Rescisórias` (42.071),
+`Adicional de Insalubridade` (39.931), `Horas Extras` (21.439) —, que o
+catálogo nunca recebeu porque foi semeado (`0010_populate_classe_assunto`)
+antes de os TRTs entrarem no acervo. **Não é dado sujo: é catálogo incompleto.**
+
+### `repop_classe_assunto` — o backfill que fecha as duas FKs
+
+```bash
+# medir sem escrever (a régua do antes/depois)
+manage.py repop_classe_assunto --de 60000000 --ate 60100000 --sem-reparo --json
+
+# a corrida, em 4 shards de faixa DISJUNTA (o comando não coordena shards)
+manage.py repop_classe_assunto --shard q1 --de 0        --ate 26600000  --criar-catalogo --sleep 0.2
+manage.py repop_classe_assunto --shard q2 --de 26600000 --ate 53200000  --criar-catalogo --sleep 0.2
+manage.py repop_classe_assunto --shard q3 --de 53200000 --ate 79800000  --criar-catalogo --sleep 0.2
+manage.py repop_classe_assunto --shard q4 --de 79800000 --ate 106400000 --criar-catalogo --sleep 0.2
+
+# parar TODOS os shards de qualquer lugar, sem deploy
+manage.py shell -c "from django.core.cache import cache; \
+    cache.set('tribunals:repop_classe_assunto:off', True)"
+```
+
+Quatro decisões que não são estética:
+
+1. **Varre por faixa de pk.** A versão anterior usava
+   `UPDATE … WHERE ctid IN (SELECT ctid … LIMIT n)`. O `LIMIT` faz o Seq Scan
+   parar cedo enquanto sobra linha quebrada na frente da tabela; quando a
+   frente esvazia, cada iteração varre mais fundo até varrer os 28 GB inteiros.
+   Custo quadrático — **em 104,1 M de linhas ele não termina**, e é por isso que
+   a pendência mediu 8,2 M em 30/08 e 8,05 M em 31/08 (a diferença é ingestão
+   ao vivo, não progresso).
+2. **`classe` e `assunto` no MESMO `UPDATE`.** A FK é indexada
+   (`proc_classe_id_idx`, `proc_assunto_id_idx`), então o UPDATE **não é HOT**:
+   cada linha tocada ganha uma versão nova no heap e uma entrada em cada um dos
+   ~25 índices da tabela. Duas passadas custariam isso duas vezes, de graça.
+3. **Sem campainha, e isso é medido.** `search/documents.py::processo_to_doc`
+   publica `codigo_classe` (de `classe_codigo`), `classe_nome`, `assunto` e
+   `assunto_codigo` — **nenhum** vem da FK. Fechar `classe_id` não muda um byte
+   do documento no ES, então `atualizado_em` **não** é tocado: tocá-lo custaria
+   8,05 M de reindexações para produzir documentos idênticos.
+   `tests/test_repop_classe_assunto.py` prende a afirmação — se a FK entrar no
+   doc, o teste quebra e a decisão volta à mesa.
+4. **`--criar-catalogo` tem guarda de padrão (`^\d{1,5}$`).** Sem ela, dois
+   minutos de corrida criaram `Assunto(codigo='99999999', nome='ASSUNTOS
+   ANTIGOS DO SAJ - RECONVENÇÃO')` no catálogo **nacional**. A guarda custa
+   0,02% (6 códigos, 132 linhas: `99999999` e os `4010000x`) e evita sujeira
+   permanente numa tabela que é destino de FK. Código sem nome também não vira
+   linha — fica contado como `orfao_sem_nome`.
+5. **`lock_timeout` (55P03) é retentado, como o deadlock (40P01).** Doze
+   minutos depois de subir, um shard morreu com
+   `canceling statement due to lock timeout … while locking tuple` — a linha
+   estava com o `backfill_fase` do #105, que faz UPDATEs de 20-30 s na mesma
+   tabela. Nada se perde (o checkpoint segura a posição), mas a corrida morre
+   sozinha de madrugada e o "acabou" nunca chega. Com dois backfills na mesma
+   tabela quente, encontrar lock **é o dia**, não a exceção. Retentar é mais
+   barato que subir o `lock_timeout`, que faria o lote segurar as próprias 500
+   linhas por mais tempo enquanto espera.
+
+Custo medido em produção (31/08/2026, `.101` sob carga, com os 4 varredores de
+fase do #105 rodando na mesma tabela):
+
+| | medido |
+|---|---|
+| leitura de 50.000 pks (`--sem-reparo`) | 2,8-3,4 s ⇒ **81-99 ms / 1.000 pks** |
+| leitura + escrita | **455-1.024 ms / 1.000 pks** · **3,94-4,64 ms por linha** |
+| densidade de linhas quebradas | 5% a **42%** entre blocos VIZINHOS de 50.000 pks |
+| sessões esperando `Lock` durante a corrida | **0** |
+| vazão de escrita, 1 shard | 216 linhas/s |
+| vazão de escrita, 7 shards | ~280 linhas/s — **paralelizar quase não paga** |
+
+A dispersão de densidade é o motivo de o freio (`ms` por 1.000 pks) ter tetos
+largos: calibrá-lo pela mediana mataria a corrida no primeiro bloco denso sem
+que nada estivesse caro.
+
+**O gargalo é WAL, e a conclusão óbvia dele NÃO se confirmou.** Amostrando
+`pg_stat_activity` durante a corrida, os UPDATEs do backfill estão em
+`LWLock: WALWrite` e `LWLock: WALInsert` — não em CPU e não em lock
+(`wait_event_type='Lock'` deu **0**). Faz sentido: a FK é indexada, o UPDATE
+não é HOT, e cada linha vira uma tupla nova no heap mais uma entrada em ~25
+índices. Daí a hipótese de que `synchronous_commit = off` resolveria. O A/B em
+faixas vizinhas e densas de 20.000 pks, com os 7 shards e os 4 varredores do
+#105 no ar:
+
+| | linhas/s |
+|---|---:|
+| `synchronous_commit` on (default) | 119 · 136 |
+| `synchronous_commit` off | 152 (uma amostra densa) |
+
+**+19% sobre uma amostra contra duas, dentro do ruído** — não paga trocar
+durabilidade do último commit num backfill de 10,7 M de linhas. A flag
+`--commit-assincrono` existe, é opt-in e **não foi usada na corrida**; o número
+fica registrado para ninguém refazer o teste achando que é de graça.
 
 ## Invite (`accounts/models.py`)
 
