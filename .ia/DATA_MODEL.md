@@ -341,6 +341,22 @@ cada uma com número:
 
 1. **UF na chave.** `canon` começa pela UF gravada ⇒ `SP475` e `PE475` nunca
    caem no mesmo grupo. Controle: 19.481 de 19.481 grupos (100%) com UMA UF.
+
+   **Em quantos casos a UF falta?** Medido em 943.619 linhas com OAB:
+
+   | | linhas | % |
+   |---|---:|---:|
+   | sem prefixo de 2 letras (`MS`, `SP0000000A` truncado…) | 369 | 0,039% |
+   | prefixo de 2 letras que **não é UF brasileira** | **0** | 0% |
+   | DUAS UFs na string (`MT10079GO` — prefixo é o tribunal) | 803 | 0,085% |
+   | **UF não provável (união)** | **1.172** | **0,124%** |
+   | fora da régua `^[A-Z]{2}[0-9]+[A-Z]?$` — **todas abstêm** | 1.427 | 0,151% |
+   | **na régua com UF inválida** | **0** | — controle |
+
+   A régua é mais estreita que o problema de propósito: as 1.427 que ela recusa
+   contêm as 1.172 em que a UF não se prova, e **nenhuma** linha entra na fusão
+   com UF que não seja uma seccional real. Sem UF não há como provar a pessoa —
+   e a resposta é abster, não fundir.
 2. **Nome idêntico** (caixa/acento/pontuação normalizados) — 991 grupos
    **abstêm**. O par que motivou a guarda é real: `PE00475` =
    `TANEY QUEIROZ E FARIAS`, `PE475` = `LUZIA HELENA DE VALOIS CORREIA`.
