@@ -468,3 +468,40 @@ def test_alvo_desconta_o_lixo_que_o_cnj_conta(monkeypatch):
     assert r['declarado'] == 74_686_714
     assert r['invalidos'] == 5_337_680
     assert r['alvo'] == 270_185, 'não descontou o lixo do denominador'
+
+
+@CACHE_LOCAL
+@pytest.mark.django_db
+def test_kill_switch_de_producao_e_chamado_do_jeito_certo(sem_es, monkeypatch):
+    """A fiação, não o mecanismo — foi por aqui que a puxada morreu em produção.
+
+    `deve_parar` recebe a SIGLA; `Varredura.parar` é chamado SEM argumento, uma
+    vez por página. `varrer_tribunal` precisa fechar sobre a sigla. Ligar os
+    dois direto compila, passa em todo teste que injeta um `parar` próprio, e
+    estoura `TypeError` na primeira página do primeiro tribunal real — depois de
+    já ter gasto as requisições da medição do alvo.
+
+    Este teste exercita o caminho de PRODUÇÃO: ninguém injeta `parar`.
+    """
+    from tribunals.models import Tribunal
+    cache.clear()
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJMG', defaults={'nome': 'TJ Minas', 'sigla_djen': 'TJMG'})
+    Tribunal.objects.filter(pk=t.pk).update(datajud_varredura_cursor=None)
+
+    docs = [src(i, 1000 + i) for i in range(9)]
+    cliente = DatajudComBytes(docs, pagina=3)
+    real = V.Varredura                      # guarda ANTES de trocar
+
+    def fabrica(sigla, *a, **k):
+        # mesma classe de verdade, só com o dublê no lugar do HTTP: o `parar`
+        # que `varrer_tribunal` montou continua sendo o objeto sob teste
+        return real(sigla, client=cliente, es=sem_es, pagina=3,
+                    telemetria_ativa=False, parar=k.get('parar'))
+
+    monkeypatch.setattr(V, 'Varredura', fabrica)
+    monkeypatch.setattr(V, 'medir_alvo', lambda *a, **k: {})
+
+    r = V.varrer_tribunal('TJMG')          # sem `parar=`: como o job real chama
+    assert r['parou_por'] == 'fim'
+    assert len(sem_es.docs) == 9

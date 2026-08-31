@@ -691,7 +691,12 @@ def varrer_tribunal(sigla: str, retomar: bool = True, max_paginas: int | None = 
         raise ValueError(f'tribunal desconhecido: {sigla}')
 
     cursor = trib.datajud_varredura_cursor if retomar else 0
-    v = Varredura(trib.sigla, parar=deve_parar if parar is None else parar)
+    # `deve_parar` recebe a SIGLA; o `Varredura.parar` é chamado sem argumento
+    # (uma vez por página). Sem este fechamento o job morre com TypeError na
+    # PRIMEIRA página — e morre depois de já ter medido o alvo, então a
+    # telemetria mostra "erro" com 0 requisições, que foi como isto apareceu.
+    v = Varredura(trib.sigla,
+                  parar=(lambda: deve_parar(trib.sigla)) if parar is None else parar)
     alvo = medir_alvo(trib.sigla, client=v.client) if medir else {}
     telemetria.abrir(trib.sigla, alvo=alvo.get('alvo'),
                      declarado=alvo.get('declarado'), cursor=cursor,

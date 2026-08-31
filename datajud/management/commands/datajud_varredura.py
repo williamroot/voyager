@@ -58,7 +58,8 @@ class Command(BaseCommand):
                 # watermark. Antes disto ele gravava — e "medir sem escrever"
                 # que escreve é a mesma armadilha do run verde: o operador
                 # acredita que só mediu.
-                v = Varredura(sigla, escrever=False, parar=deve_parar)
+                v = Varredura(sigla, escrever=False,
+                              parar=lambda: deve_parar(sigla))
                 resumo = v.rodar(cursor=None if o['do_zero'] else self._cursor(sigla),
                                  max_paginas=o['max_paginas'], filtro=filtro)
             else:
