@@ -163,6 +163,18 @@ def create_scheduler() -> BlockingScheduler:
     # DESPAUSA sozinho quando volta. Sem ele, um tribunal fora queima o pool
     # COMPARTILHADO de IPs até alguém reparar — o TJMG fez ~7.100 req/h contra
     # uma página de erro estática em 30/08/2026, sem nenhum alerta.
+    # Reparo da FK do catálogo no que foi reescrito — de hora em hora.
+    # A corrida completa do #104 fechou em 21 e reabriu para 25 em 30 min:
+    # o caminho de escrita ao vivo grava `classe_codigo` sem resolver a FK.
+    from tribunals.jobs import tick_repop_fk_recente
+    scheduler.add_job(
+        tick_repop_fk_recente.delay,
+        'interval',
+        hours=1,
+        id='repop_fk_recente',
+        replace_existing=True,
+    )
+
     from enrichers.jobs import tick_vigia_fontes
     scheduler.add_job(
         tick_vigia_fontes.delay,

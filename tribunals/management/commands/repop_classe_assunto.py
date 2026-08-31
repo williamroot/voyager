@@ -40,6 +40,22 @@ vivo, não progresso). Aqui a varredura é por **faixa fechada de pk**, que é o
 Sem campainha — de propósito, e medido
 --------------------------------------
 Os backfills irmãos (`backfill_classe`, `backfill_fase`) carregam
+ZERO É FOTO, NÃO ESTADO — por que este backfill é RECORRENTE
+------------------------------------------------------------
+Medido em 31/08/2026: a corrida completa levou `classe_id IS NULL` de 8.054.334
+a **21**, e `assunto_id` a **222**. Trinta minutos depois, sem nenhuma corrida
+nova: **25** e **227**.
+
+Os que voltam não são resíduo nem erro: são linhas ANTIGAS reescritas ao vivo
+(datajud, hidratação, enricher) por um caminho que grava `classe_codigo` e não
+resolve a FK. Espalhadas de pk 13,1 M a 103,3 M, com `atualizado_em` posterior
+à passagem do shard.
+
+⇒ Rodar uma vez e declarar "zero" é anunciar um estado que já não vale quando
+a frase termina. `--desde-atualizado N` é o modo do tick: varre só o que mudou
+nas últimas N horas, pelo `proc_atualizado_em_idx`, em vez de percorrer 104 M
+linhas atrás de duas dezenas.
+
 `atualizado_em = now()` porque mexem em campo que o índice de busca serve. Este
 **não mexe**: `search/documents.py::processo_to_doc` publica `codigo_classe`
 (de `classe_codigo`), `classe_nome`, `assunto`, `assunto_codigo` — e **nenhum**
@@ -156,6 +172,10 @@ class Command(BaseCommand):
                        help=f'linhas por UPDATE (default {LOTE_UPDATE}).')
         p.add_argument('--sleep', type=float, default=0.1,
                        help='pausa (s) entre blocos. O freio pode aumentá-la.')
+        p.add_argument('--desde-atualizado', type=float, default=0.0,
+                       help='Só linhas com `atualizado_em` nas últimas N horas. '
+                            'Usa `proc_atualizado_em_idx` em vez de varrer as '
+                            '104 M — é o modo do tick RECORRENTE. Ver docstring.')
         p.add_argument('--limite-blocos', type=int, default=0)
         p.add_argument('--teto-linhas', type=int, default=0,
                        help='para depois de N linhas escritas. Atingir o teto é '
@@ -448,9 +468,17 @@ class Command(BaseCommand):
         with transaction.atomic(), connection.cursor() as cur:
             # `SET LOCAL` só vale DENTRO de transação.
             cur.execute(f"SET LOCAL statement_timeout = '{o['statement_timeout']}';")
+            recente = ''
+            params = [lo, hi]
+            if o.get('desde_atualizado'):
+                # O índice `proc_atualizado_em_idx` cobre isto; sem ele, o
+                # planner cairia num Parallel Seq Scan de 104 M por causa de
+                # ~25 linhas.
+                recente = ' AND atualizado_em > now() - %s::interval'
+                params.append(f"{o['desde_atualizado']} hours")
             cur.execute(
                 f'SELECT {", ".join(cols)} FROM {tabela} '
-                f'WHERE id > %s AND id <= %s AND ({alvo})', [lo, hi])
+                f'WHERE id > %s AND id <= %s AND ({alvo}){recente}', params)
             linhas = cur.fetchall()
 
         tot['lidos'] += len(linhas)

@@ -16,6 +16,10 @@ from .models import Movimentacao, Process
 logger = logging.getLogger('voyager.tribunals.jobs')
 
 
+#: Janela do tique de reparo da FK. 3 h cobre com folga o intervalo de 1 h
+#: entre execuções — sobreposição é barata, buraco não é.
+JANELA_REPOP_H = 3.0
+
 @job('classificacao', timeout=14400)
 def reclassificar_recentes(dias: int = 7, batch_size: int = 1000,
                            cap_nunca_classificados: int = 5_000_000,
@@ -716,3 +720,33 @@ def registrar_consumo_leads(cliente_id: int, consumos: list[dict],
     duplicados = len(procs) - criados
     return {'criados': criados, 'duplicados': duplicados,
             'nao_encontrados': nao_encontrados}
+
+
+@job('monitoring', timeout=1800)
+def tick_repop_fk_recente() -> dict:
+    """Refaz o vínculo do catálogo no que foi REESCRITO desde o último tique.
+
+    ZERO É FOTO, NÃO ESTADO. A corrida completa de 31/08/2026 levou
+    `classe_id IS NULL` de 8.054.334 a **21** — e trinta minutos depois, sem
+    corrida nenhuma, já eram **25**; `assunto_id` foi de 222 a 227.
+
+    Quem volta não é resíduo: são linhas ANTIGAS reescritas ao vivo (datajud,
+    hidratação, enricher) por um caminho que grava `classe_codigo` e não resolve
+    a FK. Sem este tique, o "zero" que a gente anuncia envelhece em minutos —
+    número que engana é pior que número ausente.
+
+    Varre só a janela recente, pelo `proc_atualizado_em_idx` (`Index Scan`
+    confirmado no plano); percorrer as 104 M atrás de duas dezenas seria um
+    `Parallel Seq Scan` a cada hora.
+    """
+    from io import StringIO
+    from django.core.management import call_command
+
+    saida = StringIO()
+    call_command('repop_classe_assunto', tabela='process',
+                 desde_atualizado=JANELA_REPOP_H, max_segundos=900,
+                 sleep=0.2, stdout=saida, stderr=saida)
+    texto = saida.getvalue()
+    logger.info('tick_repop_fk_recente: janela=%sh · %s', JANELA_REPOP_H,
+                ' '.join(texto.split())[-300:])
+    return {'janela_h': JANELA_REPOP_H, 'saida': texto[-500:]}
