@@ -41,6 +41,17 @@ _UF_POR_CODIGO = {
 #: tribunais superiores: o TR não identifica tribunal (é 00), o segmento basta
 _SEGMENTO_UNICO = {'1': 'STF', '2': 'CNJ', '3': 'STJ', '7': 'STM'}
 
+#: J=9 — Justiça Militar ESTADUAL. Só três estados têm TJM próprio (MG, RS,
+#: SP); nos demais a competência militar é do TJ comum, e aí o número sai com
+#: J=8. Isto tem que ser explícito porque a sigla do TJM colide com a do TJ do
+#: mesmo estado por UMA letra — `TJMMG`×`TJMG`, `TJMSP`×`TJSP`,
+#: `TJMRS`×`TJRS`. Enquanto o J=9 caía na mesma tabela do J=8, esta função
+#: respondia `TJMG` para um processo do `TJMMG`: rótulo errado com cara de
+#: certo, que é o defeito que o #108 foi medir. Os três índices existem no
+#: Datajud e foram conferidos ao vivo em 31/08/2026 — `api_publica_tjmmg`
+#: 30.988, `api_publica_tjmrs` 10.810, `api_publica_tjmsp` 20.014 documentos.
+_TJM_POR_CODIGO = {'13': 'TJMMG', '21': 'TJMRS', '26': 'TJMSP'}
+
 _RE_NAO_DIGITO = re.compile(r'\D')
 
 
@@ -107,7 +118,11 @@ def sigla_do_cnj(cnj: str) -> str | None:
     if seg == '6':                      # Eleitoral → TRE-UF
         uf = _UF_POR_CODIGO.get(tr)
         return f'TRE{uf}' if uf else None
-    if seg in ('8', '9'):               # Estadual e Militar Estadual
+    if seg == '9':                      # Militar Estadual → TJMMG/TJMRS/TJMSP
+        # Abster > chutar: se aparecer J=9 num estado sem TJM próprio, o número
+        # é inconsistente e devolver o TJ comum seria inventar tribunal.
+        return _TJM_POR_CODIGO.get(tr)
+    if seg == '8':                      # Estadual
         uf = _UF_POR_CODIGO.get(tr)
         if not uf:
             return None

@@ -347,7 +347,18 @@ def tick_varredura_incremental() -> dict:
 
     Só entra tribunal que já teve a varredura COMPLETA (tem cursor). Rodar o
     incremental antes da varredura completa faria o cursor pular pro presente e
-    o histórico nunca ser varrido — perda silenciosa, o pior tipo.
+    o histórico nunca ser varrido — perda silenciosa, o pior tipo. O cursor é o
+    critério inteiro: `exclude(cursor=None)` já é "quem foi varrido".
+
+    ⚠️ Este laço filtrava também por `ativo=True`, e isso era CONFUSÃO DE
+    CAMPO. `ativo` governa a ingestão DJEN (o cron diário e o tick de backfill
+    em `djen.scheduler`) — é decisão de volume de diário, não de varredura do
+    Datajud, que são portas diferentes e com custo diferente. O efeito prático
+    era que um tribunal varrido mas com o DJEN desligado teria o esqueleto
+    congelado no dia da varredura, sem ninguém acusando: exatamente o padrão
+    "run verde, log limpo" que esta casa persegue. Achado em 31/08/2026 junto
+    com o STM (#107), que é o primeiro tribunal nessa situação — varrido por
+    sigla explícita e `ativo=False`.
     """
     from tribunals.models import Tribunal
     if varredura_parada():
@@ -356,7 +367,7 @@ def tick_varredura_incremental() -> dict:
     pausados = varredura_pausados()
     fila = django_rq.get_queue('varredura')
     enfileirados = []
-    for sigla in (Tribunal.objects.filter(ativo=True)
+    for sigla in (Tribunal.objects
                   .exclude(datajud_varredura_cursor=None)
                   .order_by('sigla').values_list('sigla', flat=True)):
         if sigla in pausados:
