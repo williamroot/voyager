@@ -163,17 +163,23 @@ def create_scheduler() -> BlockingScheduler:
     # DESPAUSA sozinho quando volta. Sem ele, um tribunal fora queima o pool
     # COMPARTILHADO de IPs até alguém reparar — o TJMG fez ~7.100 req/h contra
     # uma página de erro estática em 30/08/2026, sem nenhum alerta.
-    # Reparo da FK do catálogo no que foi reescrito — de hora em hora.
-    # A corrida completa do #104 fechou em 21 e reabriu para 25 em 30 min:
-    # o caminho de escrita ao vivo grava `classe_codigo` sem resolver a FK.
-    from tribunals.jobs import tick_repop_fk_recente
-    scheduler.add_job(
-        tick_repop_fk_recente.delay,
-        'interval',
-        hours=1,
-        id='repop_fk_recente',
-        replace_existing=True,
-    )
+    # ⛔ `tick_repop_fk_recente` NÃO está agendado — e a razão fica escrita
+    # aqui, não some com o commit.
+    #
+    # O #104 fechou em 21 e reabriu para 25 em 30 min: escrita ao vivo grava
+    # `classe_codigo` sem resolver a FK. O tique horário parecia a resposta.
+    #
+    # Não é, ENQUANTO houver backfill em massa nesta tabela. Medido em
+    # 31/08/2026: contar as linhas com `atualizado_em` nos últimos DEZ MINUTOS
+    # estoura `statement_timeout` de 30 s, porque os 4 shards do
+    # `backfill_fase` carimbam `atualizado_em` em milhões de linhas. A "janela
+    # recente" não é uma fresta — é quase a tabela inteira, e o índice não
+    # restringe nada.
+    #
+    # Religar quando: (a) os backfills em massa terminarem, ou (b) o tique
+    # passar a se guiar por outra coisa que não `atualizado_em` (uma fila de
+    # ids reabertos, escrita pelo próprio caminho que reabre). O comando e o
+    # job continuam prontos e testados; falta só a régua certa. Ver #104.
 
     from enrichers.jobs import tick_vigia_fontes
     scheduler.add_job(
