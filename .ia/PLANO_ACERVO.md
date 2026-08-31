@@ -133,14 +133,59 @@ Liberar a execução não substitui a engenharia. Ordem obrigatória:
    235.758 contra 235.754 declarados);
 4. só então o nacional.
 
-### A condição que não é negociável
+### ❌ A "condição não negociável" que eu escrevi estava ERRADA
 
-A cobertura vai saltar de **35,55% para perto de 100%** — e isso é mentira se
-ninguém separar **esqueleto** de **acervo rico**. O `_source` do Datajud não tem
-parte, advogado nem valor. Antes de a puxada terminar, o card de Cobertura tem
-que mostrar as duas coisas separadas: *temos o CNJ* × *temos o processo*.
-Terminar a puxada com o card somando os dois é entregar confiança falsa — o
-oposto do que o produto existe para fazer.
+Eu (o general) escrevi aqui que a cobertura saltaria de 35,55% para perto de
+100% e que o card precisaria separar esqueleto de acervo rico. **Está errado, e
+o R92 me corrigiu com o código na mão.**
+
+`dashboard/cobertura_nacional.py:258` — `'faltam': max(cnjs - total_pg, 0)`:
+
+| | |
+|---|---|
+| numerador | `tribunals_process` — o acervo **RICO** |
+| denominador | CNJs distintos do `voyager-acervo` — o **esqueleto** |
+
+A varredura só mexe no **denominador**. Puxar mais esqueleto faria a cobertura
+**CAIR**, não subir. E o card já separa as duas coisas na tela: "processos
+nossos" × "CNJs no país" × "ainda faltam" × "já na busca", mais o funil
+banco → busca → com parte → com advogado.
+
+Eu li esse arquivo, escrevi o card de Integridade ao lado dele, e ainda assim
+inverti numerador com denominador. Fica registrado porque a lição é a mesma que
+a casa cobra dos dados: **afirmação sem medição é chute, inclusive a minha.**
+
+### E o 187,7 M não é varredura — é HIDRATAÇÃO
+
+`faltam = cnjs − total_pg` é literalmente "CNJs que o esqueleto conhece e que
+ainda não viraram processo". Isso se resolve com **1 requisição por CNJ**, não
+com páginas de 10.000. É outro job, com outro custo, e não é o #92.
+
+### O dry-run derrubou a premissa do #92 (31/08/2026)
+
+59 requisições `size:0` ao CNJ, uma por tribunal, contra `_count` no acervo:
+
+    declarado ao CNJ ....... 350.430.801
+    voyager-acervo ......... 344.603.487
+    delta bruto ............   5.800.259   (98,34% já coberto)
+
+**95,1% desse delta não é processo.** São linhas com `numeroProcesso: null`,
+`classe: {codigo: "-1", nome: "Inválido"}`, `grau: null`. Conferido por mim, de
+forma independente, em dois tribunais:
+
+| | CNJ declara | nosso | delta | sem `numeroProcesso` | resíduo REAL |
+|---|---:|---:|---:|---:|---:|
+| TJSP | 74.686.714 | 69.078.849 | 5.607.865 | 5.337.680 | **270.185** |
+| TJMG | 36.698.417 | 36.678.104 | 20.313 | 20.313 | **0** |
+
+E o fecho: o conjunto "sem `numeroProcesso`" é **exatamente** o conjunto "sem
+`@timestamp`" (5.337.680 = 5.337.680 no TJSP; idem TJMG). A varredura pagina por
+`range @timestamp` — sem chave de ordenação, esses documentos são inalcançáveis
+**por construção**. Não é buraco nosso.
+
+**Resíduo nacional real: 283.987 docs (0,082%) — ~29 requisições, minutos.**
+
+Não são 187,7 M, não são 34,3 mil requisições, não são 77 GB, não são 16–20h.
 
 ### Pré-voo medido em 31/08/2026
 
