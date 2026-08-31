@@ -198,6 +198,12 @@ class Command(BaseCommand):
     #: ABSTÉM — inclusive as 1.424 linhas `MT10079GO` do enricher do TJMT, onde
     #: o prefixo é o TRIBUNAL e a UF real está no sufixo (medido 31/08/2026:
     #: 1.427 linhas fora do padrão, 1.424 começando por `MT`).
+    #: A régua varre `tribunals_parte` inteira (21,8 M) — o default do
+    #: servidor (20 s) não cabe. Teto é ALERTA: estourar aborta a transação
+    #: com erro, não devolve meia medição.
+    TETO_REGUA_MS = 600_000
+    TETO_LOTE_MS = 60_000
+
     _SQL_CANON = """
         CREATE UNLOGGED TABLE _oab_canon AS
         SELECT id, oab,
@@ -252,7 +258,12 @@ class Command(BaseCommand):
         canônica cair nela); se o grupo inteiro for zero-padded, o menor id e
         a `oab` dele é reescrita para a forma canônica.
         """
-        with connection.cursor() as cur:
+        # Teto de espera OBRIGATÓRIO: a varredura das 21,8 M linhas de
+        # `tribunals_parte` leva ~15 s num banco descansado, e o default do
+        # servidor é 20 s. `SET LOCAL` só vale DENTRO de transação — ver
+        # tests/test_set_local_timeout.py.
+        with transaction.atomic(), connection.cursor() as cur:
+            cur.execute('SET LOCAL statement_timeout = %s', [self.TETO_REGUA_MS])
             cur.execute('DROP TABLE IF EXISTS _oab_canon')
             cur.execute(self._SQL_CANON)
             cur.execute('CREATE INDEX ON _oab_canon (canon)')
@@ -271,6 +282,8 @@ class Command(BaseCommand):
             self.stdout.write(f'[oab_zero] linhas na régua: {na_regua:,} '
                               f'(controle canon != NULL: 100%)')
 
+        with transaction.atomic(), connection.cursor() as cur:
+            cur.execute('SET LOCAL statement_timeout = %s', [self.TETO_REGUA_MS])
             cur.execute("""
                 DROP TABLE IF EXISTS _oab_grupos;
                 CREATE UNLOGGED TABLE _oab_grupos AS
@@ -296,7 +309,8 @@ class Command(BaseCommand):
             f'[oab_zero] TETO: {grupos:,} grupos, {teto:,} linhas em colisão · '
             f'abstém {ab_nome:,} por nome divergente e {ab_doc:,} por CPF divergente')
 
-        with connection.cursor() as cur:
+        with transaction.atomic(), connection.cursor() as cur:
+            cur.execute('SET LOCAL statement_timeout = %s', [self.TETO_REGUA_MS])
             cur.execute('DROP TABLE IF EXISTS _dedup_map')
             cur.execute("""
                 CREATE UNLOGGED TABLE _dedup_map AS
@@ -337,7 +351,8 @@ class Command(BaseCommand):
         canônica — senão a porta de escrita canônica cria a duplicata de novo
         no primeiro enriquecimento.
         """
-        with connection.cursor() as cur:
+        with transaction.atomic(), connection.cursor() as cur:
+            cur.execute('SET LOCAL statement_timeout = %s', [self.TETO_REGUA_MS])
             cur.execute("""
                 UPDATE tribunals_parte p
                 SET oab = g.canon
@@ -359,7 +374,8 @@ class Command(BaseCommand):
         Medido em 31/08/2026: 29.979 linhas zero-padded no total ⇒ **10.485
         solitárias**.
         """
-        with connection.cursor() as cur:
+        with transaction.atomic(), connection.cursor() as cur:
+            cur.execute('SET LOCAL statement_timeout = %s', [self.TETO_REGUA_MS])
             cur.execute('DROP TABLE IF EXISTS _oab_rename')
             cur.execute("""
                 CREATE UNLOGGED TABLE _oab_rename AS
@@ -383,6 +399,7 @@ class Command(BaseCommand):
         while True:
             with transaction.atomic():
                 with connection.cursor() as cur:
+                    cur.execute('SET LOCAL statement_timeout = %s', [self.TETO_LOTE_MS])
                     cur.execute('SELECT max(id) FROM (SELECT id FROM _oab_rename '
                                 'WHERE id > %s ORDER BY id LIMIT %s) x',
                                 [cursor_id, batch])
