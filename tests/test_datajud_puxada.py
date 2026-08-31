@@ -422,10 +422,18 @@ def test_incremental_que_traz_zero_com_buraco_medido_e_erro(sem_es, monkeypatch)
         'declarado': 36_698_417, 'nosso': 36_678_104, 'invalidos': 0,
         'alvo': 20_313, 'erro': None})
 
+    vistos = []
+    monkeypatch.setattr(V.logger, 'error',
+                        lambda m, *a, **k: vistos.append(('ERROR', m % a)))
+    monkeypatch.setattr(V.logger, 'info',
+                        lambda m, *a, **k: vistos.append(('INFO', m % a)))
+
     r = V.varrer_tribunal('TJMG')
 
     assert r['gravados'] == 0
     assert r.get('incremental_cego') == 20_313, 'buraco medido não virou alerta'
+    assert [n for n, m in vistos if '--do-zero' in m] == ['ERROR'], \
+        '20.313 acima do limiar tem que ser ERROR'
     estado = telemetria.ler('TJMG')
     assert 'incremental_cego' in (estado.get('erros') or {})
     # o alerta tem que dizer o TAMANHO e a SAÍDA, senão vira ruído que o
@@ -585,3 +593,46 @@ def test_ms_aceita_iso_e_epoch():
     assert _ms('1782864000000') == 1782864000000
     assert _ms(None) is None
     assert _ms('2026-07-01T12:00:00') == 1782864000000 + 12 * 3600 * 1000
+
+
+@CACHE_LOCAL
+@pytest.mark.django_db
+def test_incremental_cego_pequeno_registra_mas_nao_grita(sem_es, monkeypatch):
+    """Alarme que dispara toda noite deixa de ser alarme.
+
+    O resíduo nacional é 0,082%. Um ERROR por noite em 59 tribunais por causa
+    disso treinaria o operador a ignorar — e é assim que se perde o alarme
+    seguinte, o grande. Abaixo do limiar o número CONTINUA na telemetria e no
+    resumo; muda o volume, não o registro.
+    """
+    import logging
+
+    from tribunals.models import Tribunal
+    cache.clear()
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJMG', defaults={'nome': 'TJ Minas', 'sigla_djen': 'TJMG'})
+    Tribunal.objects.filter(pk=t.pk).update(datajud_varredura_cursor=99_999)
+
+    vazia = varredura([], sem_es, pagina=3)
+    vazia.telemetria_ativa = True
+    monkeypatch.setattr(V, 'Varredura', lambda *a, **k: vazia)
+    monkeypatch.setattr(V, 'medir_alvo', lambda *a, **k: {
+        'declarado': 12_521_855, 'nosso': 12_512_918, 'invalidos': 0,
+        'alvo': 8_937, 'erro': None})
+
+    # espiã no logger do módulo: `caplog` não alcança este logger (o projeto
+    # configura `propagate: False`), e um assert que não vê nada passa por
+    # acidente — foi o que aconteceu na primeira versão deste teste
+    vistos = []
+    monkeypatch.setattr(V.logger, 'error',
+                        lambda m, *a, **k: vistos.append(('ERROR', m % a)))
+    monkeypatch.setattr(V.logger, 'info',
+                        lambda m, *a, **k: vistos.append(('INFO', m % a)))
+
+    r = V.varrer_tribunal('TJMG')
+
+    assert r['incremental_cego'] == 8_937, 'silenciou o número junto com o alarme'
+    assert 'incremental_cego' in (telemetria.ler('TJMG').get('erros') or {})
+    do_zero = [n for n, m in vistos if '--do-zero' in m]
+    assert do_zero, 'o aviso não foi emitido de jeito nenhum'
+    assert do_zero == ['INFO'], f'8.937 em 12,5 M não é ERROR: {do_zero}'

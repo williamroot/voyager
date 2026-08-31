@@ -370,6 +370,13 @@ DATAJUD_VARREDURA_BYTES_ALVO = env.int(
 # paginação é por `range gte`. `<= 0` desliga, e desligar é voltar ao dia do OOM.
 DATAJUD_VARREDURA_BYTES_MAX = env.int(
     'DATAJUD_VARREDURA_BYTES_MAX', default=48 * 1024 * 1024)
+# A partir de quantos documentos uma passada incremental que traz ZERO com
+# buraco medido vira ERROR no log (abaixo disso, INFO). Não é tolerância a
+# buraco — o número vai para a telemetria e para o resumo sempre. É o volume do
+# alarme: o resíduo nacional é 0,082% (283.987 de 344 M), e um ERROR por noite
+# em 59 tribunais por causa disso treinaria o operador a ignorar o alarme, que é
+# como se perde o alarme seguinte. Ver `.ia/ACERVO_CNJ.md`.
+DATAJUD_INCREMENTAL_CEGO_MIN = env.int('DATAJUD_INCREMENTAL_CEGO_MIN', default=10_000)
 # Entrega ao índice NA HORA da gravação (datajud/ingestion.py::
 # _entregar_ao_indice). LIGADO por padrão: sem isto, o que a porta grava só
 # chega ao Elasticsearch quando o poller de 10 min passar — e, do lado do

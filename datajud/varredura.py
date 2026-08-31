@@ -606,6 +606,15 @@ class Varredura:
         return restante
 
 
+def _limiar_cego() -> int:
+    """A partir de quantos documentos um incremental cego vira ERRO no log.
+
+    Não é tolerância a buraco: o número aparece na telemetria e no resumo
+    sempre. É só o volume do alarme — ver o comentário em `varrer_tribunal`.
+    """
+    return int(getattr(settings, 'DATAJUD_INCREMENTAL_CEGO_MIN', 10_000))
+
+
 def deve_parar(sigla: str) -> bool:
     """O kill switch, lido do cache — um GET por página, ~1 a cada 10 s.
 
@@ -764,7 +773,15 @@ def varrer_tribunal(sigla: str, retomar: bool = True, max_paginas: int | None = 
     # Sozinho, o `parou_por='fim'` é auto-confirmatório: o laço acaba exatamente
     # onde a fonte acaba. Isto aqui é a segunda opinião.
     if alvo.get('alvo') and not resumo['gravados'] and not filtro:
-        logger.error(
+        # ERRO só quando o buraco é MATERIAL. Hoje o resíduo nacional é 0,082%,
+        # e um ERROR por noite em 59 tribunais por causa disso treinaria o
+        # operador a ignorar o alarme — que é como se perde o alarme seguinte,
+        # o grande. Abaixo do limiar o número continua na telemetria e no
+        # resumo; muda o volume, não o registro.
+        material = (alvo['alvo'] >= _limiar_cego()
+                    or (alvo.get('declarado')
+                        and alvo['alvo'] / alvo['declarado'] >= 0.01))
+        (logger.error if material else logger.info)(
             'varredura %s: passada incremental trouxe 0 documentos, mas a '
             'medição dos dois lados diz que faltam %s (declarado %s − inválidos '
             '%s − nosso %s). O watermark NÃO alcança esse buraco: só '
