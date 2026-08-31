@@ -321,6 +321,77 @@ def test_nao_toca_a_campainha_porque_a_fk_nao_esta_no_doc_do_es():
     assert 'classe_id' not in doc_antes and 'assunto_id' not in doc_antes
 
 
+# ------------------------------------------------------- lock transitório --
+
+@pytest.mark.django_db(transaction=True)
+def test_lock_timeout_e_retentado_como_o_deadlock():
+    """O shard `q3` morreu assim em 31/08, 12 minutos depois de subir.
+
+    `canceling statement due to lock timeout … while locking tuple
+    (2217479,20) in relation "tribunals_process"` — quem segurava era o
+    `backfill_fase` do #105, com UPDATEs de 20-30 s na MESMA tabela. Sem
+    retentar, cada encontro mata um shard: nada se perde (o checkpoint segura),
+    mas a corrida morre sozinha de madrugada e ninguém fica sabendo.
+    """
+    from django.db import connection as conexao_real
+    from django.db.utils import OperationalError
+
+    from tribunals.management.commands import repop_classe_assunto as mod
+    from tribunals.models import Process
+    _catalogo()
+    p = _proc()
+
+    class _Causa(Exception):
+        def __init__(self, estado):
+            super().__init__('travado')
+            self.sqlstate = estado
+
+    estados = ['55P03', '40P01']      # lock_timeout, depois deadlock
+
+    class _CursorQueBriga:
+        def __init__(self, real):
+            self._real = real
+
+        def __enter__(self):
+            self._real.__enter__()
+            return self
+
+        def __exit__(self, *a):
+            return self._real.__exit__(*a)
+
+        def execute(self, sql, args=None):
+            if sql.lstrip().upper().startswith('UPDATE') and estados:
+                erro = OperationalError('travado')
+                erro.__cause__ = _Causa(estados.pop(0))
+                raise erro
+            return self._real.execute(sql, args)
+
+        def __getattr__(self, nome):
+            return getattr(self._real, nome)
+
+    class _ConexaoQueBriga:
+        def cursor(self):
+            return _CursorQueBriga(conexao_real.cursor())
+
+        def __getattr__(self, nome):
+            return getattr(conexao_real, nome)
+
+    mod.connection = _ConexaoQueBriga()
+    try:
+        out = StringIO()
+        call_command('repop_classe_assunto', de=p.pk - 1, ate=p.pk,
+                     sem_checkpoint=True, sleep=0, json=True, stdout=out)
+    finally:
+        mod.connection = conexao_real
+
+    r = _json.loads(out.getvalue().splitlines()[-1])
+    assert not estados, 'os dois erros injetados não chegaram ao UPDATE'
+    assert r['lock_timeouts'] == 1, 'lock_timeout não foi retentado nem contado'
+    assert r['deadlocks'] == 1
+    assert Process.objects.values_list('classe_id', flat=True).get(pk=p.pk) == '7', \
+        'desistiu do lote depois do erro transitório'
+
+
 # ------------------------------------------------------- tetos e freios -----
 
 @pytest.mark.django_db(transaction=True)

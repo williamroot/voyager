@@ -112,6 +112,10 @@ LOCK_ALTO = 20
 #: Sem a guarda, a primeira corrida criou `99999999` no catálogo nacional em
 #: menos de dois minutos. Fora do padrão fica ABSTIDO e contado, nunca criado.
 TPU_RE = re.compile(r'^\d{1,5}$')
+#: erros de lock que PODEM ser retentados, e o contador de cada um.
+#: `40P01` = deadlock · `55P03` = lock_not_available (o `lock_timeout` estourou
+#: esperando a linha, tipicamente atrás de outro backfill na mesma tabela).
+TRANSITORIOS = {'40P01': 'deadlocks', '55P03': 'lock_timeouts'}
 
 
 @dataclass(frozen=True)
@@ -184,7 +188,10 @@ class Command(BaseCommand):
                        help='sessões esperando Lock acima disto ⇒ espera.')
         p.add_argument('--lock-timeout', default='5s')
         p.add_argument('--statement-timeout', default='120s')
-        p.add_argument('--tentativas-deadlock', type=int, default=3)
+        p.add_argument('--tentativas-deadlock', type=int, default=6,
+                       help='tentativas em erro TRANSITÓRIO de lock — deadlock '
+                            '(40P01) e lock_timeout (55P03). Ver o comentário '
+                            'em `_um_update`.')
         p.add_argument('--criar-catalogo', action='store_true',
                        help='cria a linha do catálogo para código ausente, a '
                             'partir do nome gravado na própria linha. Sem nome '
@@ -225,7 +232,8 @@ class Command(BaseCommand):
         cur_pk = o['de'] or (0 if o['sem_checkpoint'] else (cache.get(wm) or 0))
         sleep = o['sleep']
 
-        tot = {'lidos': 0, 'escritos': 0, 'deadlocks': 0, 'catalogo_criado': 0}
+        tot = {'lidos': 0, 'escritos': 0, 'deadlocks': 0, 'lock_timeouts': 0,
+               'catalogo_criado': 0}
         for par in pares:
             tot[f'liga_{par.fk}'] = 0
             tot[f'orfao_{par.fk}'] = 0
@@ -345,7 +353,8 @@ class Command(BaseCommand):
                 f'fora do padrão {tot[f"orfao_fora_do_padrao_{par.fk}"]:,}')
         self.stdout.write(
             f'catálogo criado {tot["catalogo_criado"]:,} · deadlocks retentados '
-            f'{tot["deadlocks"]:,} · {blocos} blocos · {esperas} esperas · '
+            f'{tot["deadlocks"]:,} · lock_timeouts retentados '
+            f'{tot["lock_timeouts"]:,} · {blocos} blocos · {esperas} esperas · '
             f'{dur:.1f}s · pk {cur_pk:,}/{topo:,}')
 
     # ------------------------------------------------------------------ #
@@ -531,8 +540,18 @@ class Command(BaseCommand):
         args = [x for pk, valores in lote for x in [pk, *valores]]
         sql = (f'UPDATE {tabela} t SET {sets} FROM (VALUES {vals}) '
                f'AS v({nomes}) WHERE t.id = v.id AND ({onde})')
-        # Deadlock (40P01) é transitório e PODE ser retentado — com teto,
-        # backoff+jitter e o número de tentativas REGISTRADO.
+        # Deadlock (40P01) e lock_timeout (55P03) são TRANSITÓRIOS e podem ser
+        # retentados — com teto, backoff+jitter e o número REGISTRADO.
+        #
+        # O 55P03 não é hipótese: em 31/08/2026, 12 minutos de corrida
+        # derrubaram o shard `q3` com `canceling statement due to lock timeout
+        # … while locking tuple (2217479,20)`. Quem segurava era o
+        # `backfill_fase` do #105, escrevendo na MESMA tabela com UPDATEs de
+        # 20-30 s. Sem retentar, cada encontro mata um shard: a corrida não
+        # perde dado (o checkpoint segura), mas morre sozinha de madrugada e
+        # ninguém fica sabendo. Retentar é mais barato que subir o
+        # `lock_timeout`, que faria ESTE lote segurar as próprias linhas por
+        # mais tempo enquanto espera.
         for tentativa in range(1, o['tentativas_deadlock'] + 1):
             try:
                 with transaction.atomic(), connection.cursor() as cur:
@@ -542,13 +561,13 @@ class Command(BaseCommand):
                     cur.execute(sql, args)
                     return cur.rowcount
             except OperationalError as e:
-                if getattr(e.__cause__, 'sqlstate', None) != '40P01' \
-                        or tentativa == o['tentativas_deadlock']:
+                estado = getattr(e.__cause__, 'sqlstate', None)
+                if estado not in TRANSITORIOS or tentativa == o['tentativas_deadlock']:
                     raise
-                tot['deadlocks'] += 1
-                espera = 0.2 * (2 ** (tentativa - 1)) + random.uniform(0, 0.2)
-                logger.warning('repop_classe_assunto: deadlock no lote de %d '
-                               '(tentativa %d/%d) — %.2fs e retenta',
+                tot[TRANSITORIOS[estado]] += 1
+                espera = 0.5 * (2 ** (tentativa - 1)) + random.uniform(0, 0.5)
+                logger.warning('repop_classe_assunto: %s no lote de %d '
+                               '(tentativa %d/%d) — %.2fs e retenta', estado,
                                len(lote), tentativa, o['tentativas_deadlock'],
                                espera)
                 time.sleep(espera)
