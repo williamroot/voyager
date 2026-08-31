@@ -1359,26 +1359,23 @@ qualquer passada `--do-zero` de tribunal grande. O comando está pronto e medido
 disparar quota compartilhada contra a API pública em volume é decisão de quem
 responde pela licença do DataJud, não de quem prepara a puxada.
 
-### 🔴 Dois tribunais que a régua nunca vai acusar
+### 🔴 Dois tribunais que a régua nunca vai acusar — RESOLVIDO em 31/08/2026
 
 O gate percorre a tabela `Tribunal`. O que não está lá não aparece como buraco —
 aparece como nada, que é o pior jeito de faltar.
 
-* **STM não existe na tabela.** `api_publica_stm` responde e declara **27.055**
-  documentos; nosso acervo tem **zero**. Três requisições fechariam. Não foi
-  adicionado porque criar `Tribunal` mexe em tudo que itera sobre tribunais
-  ativos (schedulers, refill, enrichers) — é decisão de escopo, não de coleta.
+* ~~**STM não existe na tabela.**~~ **Cadastrado, varrido e fechado** —
+  migration `0055_seed_stm`, gate em **27.055 × 27.055 = 100,0%**. Ver
+  [§ O 61º tribunal](#o-61º-tribunal-e-os-outros-33-índices-que-o-recorte-não-enxergava-31082026).
 * **STF está na tabela, inativo, e o índice do CNJ não existe:**
   `api_publica_stf` devolve `index_not_found_exception`. A pendência antiga
   ("STF falhou na contagem, reconferir") fica resolvida com o motivo: não é
-  rate-limit, é índice inexistente.
+  rate-limit, é índice inexistente. Reconferido em 31/08/2026: continua assim.
 
-E uma anomalia do lado oposto, que continua aberta: **o TJDFT declara 529.535 ao
-CNJ e nós temos 1.506.169 processos dele no `voyager-processos`** — 2,8× mais
-acervo rico do que a fonte declara existir. Ou o índice `api_publica_tjdft` está
-incompleto, ou estamos atribuindo ao TJDFT processo que é de outro tribunal.
-Não é buraco de coleta; é uma pergunta sobre a régua, e vale investigar antes de
-usar o TJDFT em qualquer denominador.
+E a anomalia do lado oposto — **o TJDFT declara 529.535 ao CNJ e nós temos
+1.506.169 processos dele** — foi medida e **está resolvida**: o índice
+`api_publica_tjdft` é PARCIAL. Ver
+[§ TJDFT ao contrário](#tjdft-ao-contrário-o-denominador-do-cnj-é-que-está-incompleto-31082026).
 
 ---
 
@@ -1610,3 +1607,333 @@ manage.py reindexar_processos --desde-id <lo> --ate-id <hi> --sleep 0.05
 * **A publicação foi lida só nos primeiros 900 caracteres.** O cabeçalho com a
   classe fica no começo, mas quem tiver a prova depois do corte foi contado como
   "sem evidência" — o viés é contra a minha própria tese.
+
+---
+
+## TJDFT ao contrário: o denominador do CNJ é que está incompleto (31/08/2026)
+
+> **Em uma linha:** medidos os 104.003.151 processos um a um, o rótulo de
+> tribunal discorda do número em 2.479.437 — e **99,98% dessa discordância é
+> estrutural** (recurso guarda o número da origem; o TRF6 herdou o código do
+> TRF1). Sobram **404 erros em 104 milhões**. O TJDFT, que parecia inflado em
+> 2,84×, acerta **100%**: quem está incompleto é o `api_publica_tjdft`.
+
+### A pergunta, e por que ela tinha duas respostas possíveis
+
+    esqueleto (voyager-acervo, TJDFT) ......   529.535
+    processos nossos (ES e PG, batem) ...... 1.506.169   = 2,84×
+
+Ou (a) o índice do TJDFT no Datajud é parcial — e aí o denominador nacional está
+subestimado; ou (b) estamos atribuindo ao TJDFT processo de outro tribunal — e
+aí o numerador está inflado, provavelmente não só ali.
+
+O número CNJ decide sozinho: `NNNNNNN-DD.AAAA.J.TR.OOOO` **carrega** o tribunal
+nas posições `J.TR`. Basta comparar o rótulo com o número.
+
+### A tabela: sigla NOSSA × sigla derivada do número (104.003.151 docs, exata)
+
+Não é amostra. É `terms` sobre um *runtime field* que recorta os dígitos 13:16
+de `proc_digits`, uma agregação por tribunal, os 59 do `voyager-processos`.
+Reproduzível — a medição virou comando, não ficou num script de sessão:
+
+```bash
+# a tabela inteira (~22 min de CPU no nó de busca; imprime linha a linha)
+manage.py conferir_siglas_cnj
+
+# uma suspeita, em segundos
+manage.py conferir_siglas_cnj --tribunais TJDFT,TRF6
+
+# o lado do CNJ: o esqueleto está arquivado sob a sigla certa?
+manage.py conferir_siglas_cnj --indice acervo --tribunais TRF6
+```
+
+**Controle:** `proc_digits` ausente **0**, comprimento ≠ 20 dígitos **0**,
+`sum_other_doc_count` **0** nas 59 agregações. Cobertura da régua: 100%.
+
+| sigla nossa | processos | bate o número | diverge | % | para onde o número aponta |
+|---|---:|---:|---:|---:|---|
+| **TST** | 1.162.389 | 0 | **1.162.389** | 100,000% | TRT2 229.406 · TRT15 147.231 · TRT3 125.572 · TRT1 122.373 · … (28 TRTs) |
+| **STJ** | 1.182.810 | 243.460 | **939.350** | 79,417% | TJSP 232.471 · TJRS 68.758 · TJMG 67.415 · TJSC 53.266 · … (38 origens) |
+| **TRF6** | 1.507.080 | 1.129.786 | **377.294** | 25,035% | TRF1 377.294 (100% do desvio) |
+| TRF5 | 1.905.867 | 1.905.563 | 304 | 0,016% | TJPB 72 · TJPE 71 · TJCE 62 · TJSE 41 · … |
+| TJPI | 881.499 | 881.471 | 28 | 0,003% | TRT22 22 · TRF1 3 · TJDFT 2 · TJGO 1 |
+| TJTO | 487.788 | 487.766 | 22 | 0,005% | TRF4 22 |
+| TJMT | 2.292.056 | 2.292.035 | 21 | 0,001% | TRF1 8 · TJPR 3 · … · `?003` 1 |
+| TRF1 | 2.533.832 | 2.533.825 | 7 | 0,000% | TRF6 4 · TRF3 2 · TRF5 1 |
+| TRT12 | 415.244 | 415.240 | 4 | 0,001% | STJ · TRT3 · TRT9 · TRT17 |
+| TJPR | 6.839.643 | 6.839.640 | 3 | 0,000% | TJSC 3 |
+| TRT2 | 1.780.911 | 1.780.909 | 2 | 0,000% | TRT1 · TRT12 |
+| *(13 tribunais com 1 divergência cada)* | — | — | 13 | — | TJSP, TJMG, TJBA, TRF4, TJPE, TJMS, TJRO, TRT3/4/5/15/21/24 |
+| **35 tribunais com ZERO divergência** | — | — | **0** | — | inclui **TJDFT**, TJRJ, TJRS, TJSC, TRF2, TRF3, TRT20 … |
+| **TOTAL** | **104.003.151** | 101.523.714 | **2.479.437** | **2,3840%** | |
+
+### 99,98% da "divergência" é ESTRUTURAL, não erro de mapeamento
+
+Três blocos explicam 2.479.033 dos 2.479.437, e nenhum deles é rótulo errado:
+
+1. **TST e STJ (2.101.739).** Recurso guarda o número da ORIGEM — é a Resolução
+   65/2008 funcionando. Já estava medido e escrito em
+   `djen/management/commands/djen_ligar_stj.py`: *"92% dessas publicações trazem
+   o CNJ da ORIGEM (8.26=TJSP, 8.13=TJMG, 4.01=TRF1…), e só ~8% o número nativo
+   do STJ"*. Medido agora pelo índice inteiro: **79,4%** de origem no STJ e
+   **100%** no TST — o TST não tem número nativo nenhum. O `Process` desses
+   tribunais é legítimo e a unicidade é `(tribunal, numero_cnj)`, então
+   `Process.tribunal ≠ sigla_do_cnj(numero)` é o comportamento **correto** aqui.
+2. **TRF6 (377.294, 25,0%).** Criado em 2022, desmembrado do TRF1 para cobrir
+   MG; herdou processo cujo CNJ guarda o código antigo (`4.01`). O número está
+   certo *para a data em que foi gerado*; quem mudou foi o tribunal. Já estava
+   anotado em `tribunals/cnj.py`, agora com o tamanho: **377.294 de 1.507.080**.
+   O mesmo se vê no esqueleto, do lado do CNJ: `api_publica_trf6` devolve
+   **2.399.756** docs com `4.01` e **2.174.713** com `4.06`.
+3. **O resíduo: 404 documentos em 104.003.151 — 0,00039%.** Um erro por milhão
+   de linhas, espalhado por 21 tribunais. Não é sistema: é dado sujo do DJEN
+   (o `?003` e o `?999` são números que não existem em segmento nenhum).
+
+### O mesmo teste no lado do CNJ: o esqueleto tem a MESMA assinatura
+
+A tabela foi refeita sobre os 344.603.488 documentos do `voyager-acervo` — que
+não é dado nosso: é o `tribunal` que o próprio Datajud grava em cada `_source`,
+arquivado no índice do tribunal que o CNJ escolheu. Se a divergência fosse
+defeito da nossa atribuição, ela sumiria aqui. Ela **cresce**:
+
+| | `voyager-processos` (nosso rótulo) | `voyager-acervo` (rótulo do CNJ) |
+|---|---:|---:|
+| documentos | 104.003.151 | 344.603.488 |
+| divergem | 2.479.437 (2,384%) | 9.803.577 (2,845%) |
+| TST | 1.162.389 (100%) | 4.555.909 (100%) |
+| STJ | 939.350 (79,4%) | 2.814.859 (77,7%) |
+| TRF6 → TRF1 | 377.294 (25,0%) | **2.399.756 (52,5%)** |
+| TRF5 → TJs do NE | 304 | **16.298** |
+| TJMG → outros | 1 | **12.287** |
+| **TJDFT** | **0** | **0** |
+| resíduo fora de sobreposição+TRF6 | 404 (0,00039%) | 33.053 (0,0096%) |
+
+Controle idêntico: `proc_digits` ausente **0**, comprimento ≠ 20 **0**,
+`sum_other` **0** nas 59 agregações.
+
+Lê-se assim: **onde nós "erramos", o CNJ erra mais** — e nos mesmos pares
+(TRF5 com os TJs do Nordeste, TJMG com meio país). Não é o nosso mapeamento;
+é como o processo é arquivado na origem. E o TJDFT dá zero **dos dois lados**,
+o que fecha a porta em (b) sem depender de acreditar na nossa própria régua.
+
+### O veredito do TJDFT é (a), e a medição que decide
+
+O TJDFT está entre os 35 de divergência ZERO: **1.506.169 de 1.506.169** com
+`J.TR = 8.07`. Conferido dos dois lados — o Postgres diz o mesmo
+(`substring(numero_cnj from 17 for 4) <> '8.07'` → **1**, e essa 1 é a linha
+`00010125219788070001`, gravada sem pontuação: é TJDFT também, só está fora do
+formato; o `proc_digits` do índice, que ignora pontuação, dá 807 nas
+1.506.169). E são **1.506.169 CNJs DISTINTOS** (`count(DISTINCT numero_cnj)` no
+PG = `sort -u` das 1.506.169 chaves do índice).
+
+Então (b) está descartado. Falta provar (a) — e a prova é procurar esses CNJs no
+esqueleto **sob qualquer outra sigla**:
+
+| conjunto | CNJs |
+|---|---:|
+| A = TJDFT no `voyager-processos` | 1.506.169 |
+| B = TJDFT no `voyager-acervo` (529.535 docs) | 518.526 |
+| A ∩ B | 321.239 |
+| **A \\ B** — nossos, ausentes do esqueleto do TJDFT | **1.184.930** |
+| B \\ A — esqueleto tem, não viraram processo | 197.287 |
+
+Os 1.184.930 de A \\ B foram procurados no `voyager-acervo` **inteiro**, sem
+filtro de tribunal, em 119 lotes de `terms` (exato, não amostra):
+
+    achados sob STJ .......... 26.318   (recurso com número de origem)
+    achados sob TJMT .............. 1
+    NÃO ESTÃO EM LUGAR NENHUM  1.158.611   = 97,8%
+
+**Controle positivo** (uma régua sem controle é lixo): 10.000 CNJs tirados de
+A ∩ B, pelo mesmo caminho, deram 9.999 achados — todos sob `TJDFT`. A régua
+enxerga quem está lá.
+
+### A assinatura da falha: falta em TODO ano, não a partir de uma data
+
+Se o índice do CNJ estivesse só *atrasado*, faltaria a cauda recente. Ele é
+**fino em toda a série** — por ano do CNJ:
+
+| ano | nossos processos | esqueleto do CNJ | razão |
+|---|---:|---:|---:|
+| 2022 | 106.213 | 29.154 | 3,64× |
+| 2023 | 230.855 | 34.681 | 6,66× |
+| 2024 | 296.971 | 56.761 | 5,23× |
+| 2025 | 318.612 | 109.638 | 2,91× |
+| 2026 | 189.826 | 146.403 | 1,30× |
+
+E não é falta de atualização: o `dataHoraUltimaAtualizacao` dos documentos que
+ele **tem** chega a 18/08/2026. O índice está vivo; está incompleto.
+
+### O TJDFT é o único caso mensurável — e por que só ele
+
+Razão `processos ÷ acervo` nos 59 tribunais: **TJDFT 2,844**. O segundo colocado
+é o TJMA com **0,691**, e o último é o TJAC com 0,159. Nenhum outro passa de 1.
+
+Isso **não** prova que o denominador só está errado no TJDFT. Prova que só no
+TJDFT dá para *ver*: onde a nossa cobertura é de 20-60%, um denominador
+subestimado fica escondido atrás do buraco de coleta. A inversão é o único
+sintoma que atravessa — e ela pede que a leitura de `cobertura ≈ 100%` num
+tribunal seja tratada como suspeita de denominador, não como vitória.
+
+### O que isso faz com os 35,58% da tela
+
+`dashboard/cobertura_nacional.py` calcula
+`cobertura = total_pg ÷ cnjs_distintos(voyager-acervo)`. Retrato de 31/08/2026
+lido do cache de produção:
+
+    total_pg ......... 103.613.248
+    cnjs_distintos ... 291.237.692
+    cobertura ............. 35,58%
+
+O denominador não conhece 1.184.930 CNJs do DF que o numerador conta. Corrigindo
+**só o TJDFT**:
+
+    103.613.248 ÷ (291.237.692 + 1.184.930) = 35,43%
+
+**A métrica está SUPERESTIMADA em 0,14 pp** — pequena no agregado e grande no
+princípio: o denominador tem furo comprovado em pelo menos um tribunal, então
+35,58% é um **teto**, não uma medida. E na visão por tribunal do card o TJDFT
+apareceria com **284,4%** de cobertura se estivesse no `TOP_TRIBUNAIS`.
+
+O que **não** muda: o `faltam = cnjs − total_pg` (187,6 M) continua sendo
+hidratação, não varredura, exatamente como já estava escrito no `PLANO_ACERVO`.
+
+### Conserto entregue
+
+Nenhum backfill de mapeamento, porque não há mapeamento errado. O que mudou:
+
+* `tribunals/cnj.py` — o J=9 (Justiça Militar **Estadual**) não cai mais na
+  tabela do J=8. Ele respondia `TJMG` para número do `TJMMG`, `TJSP` para
+  `TJMSP` e `TJRS` para `TJMRS`: colisão de uma letra, no mesmo estado, com cara
+  de acerto. Agora responde a sigla certa, e ABSTÉM em UF sem TJM próprio;
+* o card de cobertura precisa dizer que o denominador é o **declarado**, não o
+  existente. Fica registrado aqui; a mudança de tela não é deste agente.
+
+---
+
+## O 61º tribunal, e os outros 33 índices que o recorte não enxergava (31/08/2026)
+
+> **Em uma linha:** o gate percorria 60 linhas de uma tabela onde faltavam 33
+> índices que o CNJ **atende** — 4.819.199 documentos que não apareciam como
+> buraco porque não apareciam de jeito nenhum.
+
+### O censo, dos dois sentidos
+
+128 nomes de índice sondados ao vivo — 1 requisição `size:0` cada, ~190 bytes
+de resposta, sem escrever nada; **92 responderam**. É a mesma consulta que o
+`datajud_conferir_acervo` faz por tribunal, só que contra a lista de candidatos
+em vez de contra a nossa tabela — que é justamente o ponto: perguntar à FONTE o
+que ela tem, em vez de perguntar ao nosso recorte o que falta nele.
+
+**O que o CNJ atende e nós não tínhamos** — 33 índices, **4.819.199** docs:
+
+| bloco | índices | declarado |
+|---|---:|---:|
+| Justiça Eleitoral (`api_publica_tre-XX`, com **hífen**) | 27 | 4.469.934 |
+| CJF · TSE | 2 | 291.398 |
+| Justiça Militar Estadual (`tjmmg` 30.988 · `tjmsp` 20.014 · `tjmrs` 10.810) | 3 | 61.812 |
+| **STM** | 1 | **27.055** |
+
+**O que nós temos e o CNJ não conhece:** apenas o **STF** —
+`api_publica_stf` devolve `index_not_found_exception` (reconferido em
+31/08/2026). Não há sigla nossa órfã além dele. `api_publica_csjt` e
+`api_publica_cnj` também não existem, e nunca estiveram na nossa tabela.
+
+> ⚠️ **A grafia do índice eleitoral tem hífen.** `api_publica_tresp` devolve
+> `index_not_found` e `api_publica_tre-sp` devolve 609.736. Sondar só o padrão
+> sem hífen — que é o padrão de todos os outros 65 — concluiria "a Justiça
+> Eleitoral não está no Datajud", que é falso por 4,5 milhões de documentos.
+
+### O STM: cadastrado, varrido e fechado
+
+`Tribunal.objects.filter(sigla='STM').exists()` era `False`. Não era cadastro
+esquecido: era o **recorte medindo o próprio buraco**. Todo gate, todo alarme e
+a varredura percorrem `Tribunal.objects`; o que não está lá não falta, *inexiste*.
+
+Executado em produção, nesta ordem:
+
+```
+1. dry-run    STM existe? False · processos sob STM: 0 · vai inserir ativo=False
+2. seed       update_or_create → 60 → 61 tribunais
+3. dry-run da varredura   --max-paginas 1 --dry-run
+              500 lidos · 26.556 AINDA NA FONTE · erro `teto_max_paginas` registrado
+4. varredura  4 requisições · 76,8 s · 27.058 lidos · 27.058 gravados
+              perdidos 0 · erros {} · parou_por `fim` · 694 B/doc
+5. gate       declarado 27.055 × acervo 27.055 → cobertura 100,0% · estado OK
+```
+
+Controle do gate na mesma passada: `proc` ausente em **0** de 344.630.543, e
+**239 de 239** no formato do CNJ na amostra por faixa de chave.
+
+Controle do próprio STM: **27.054 de 27.055** com `J = 7` (Justiça Militar da
+União). O `TR` do STM **não é sempre `00`** — ele numera a Circunscrição
+Judiciária Militar (`700` a `712` no acervo), e `sigla_do_cnj` já resolvia J=7
+pelo SEGMENTO — então as 13 circunscrições caem todas em STM, como devem. O 1
+restante é um `5.71` (TRT que não existe): dado sujo da fonte, não da régua.
+
+### Por que `ativo=False`, e o que precisou mudar para a varredura alcançá-lo
+
+`ativo` governa a **ingestão DJEN** — `djen/scheduler.py` monta um cron diário e
+um tick de backfill de 10 min por tribunal ativo. Ligar o STM ali é decisão de
+volume de diário e não tem nada a ver com o Datajud, que é outra porta. Foi
+exatamente o critério usado em `0041_seed_superiores` para STF e STJ.
+
+Só que o incremental do Datajud estava **filtrando pela chave da outra porta**:
+
+```python
+# antes — `ativo` é a chave do DJEN, não da varredura
+for sigla in (Tribunal.objects.filter(ativo=True)
+              .exclude(datajud_varredura_cursor=None) ...
+
+# depois — o critério é TER CURSOR, que já significa "foi varrido"
+for sigla in (Tribunal.objects
+              .exclude(datajud_varredura_cursor=None) ...
+```
+
+Sem o conserto, o STM ficaria com o esqueleto congelado no dia 31/08/2026 e
+nenhum instrumento acusaria — o gate diria 100% para sempre, comparando com um
+declarado que ele nunca mais leria. Run verde, log limpo, número redondo.
+
+O efeito colateral é nulo hoje: o `exclude(cursor=None)` já barra quem nunca foi
+varrido, e o único tribunal `ativo=False` com cursor é o STM.
+
+> ⚠️ **PENDENTE DE DEPLOY.** A linha do STM na tabela `Tribunal` já está em
+> produção (escrita pelo mesmo `update_or_create` da migration, que por isso é
+> idempotente quando ela subir), a varredura rodou e o gate já o acusa. Mas o
+> **código** — migration 0055, o conserto do `tick_varredura_incremental` e o
+> do J=9 em `sigla_do_cnj` — está na `main` e **não** na prod, que estava em
+> `f6cefec` em 31/08/2026. Enquanto não subir, o incremental do Datajud
+> continua pulando o STM. Não é urgente (a passada incremental é hoje um no-op
+> conhecido, ver § "O incremental é um no-op verde"), mas é dívida aberta.
+
+### O que ficou fora de escopo, e por quê
+
+Os 33 índices somam 4.819.199 documentos — **1,4% do acervo nacional já varrido**
+e ~482 requisições. Cadastrá-los é barato de coleta e caro de decisão: cada
+`Tribunal` novo entra em `djen/scheduler.py`, `dashboard/queries.py` (14 lugares
+que iteram `ativo=True`), refill do Datajud e enrichers. TREs e TJMs também não
+têm relação com precatório, que é o produto. Fica **medido e registrado**, que é
+o oposto de "não aparece em lugar nenhum" — e é a diferença que esta pendência
+existia para produzir.
+
+### O que NÃO consegui medir, e por quê
+
+* **Se o denominador do CNJ é parcial em mais tribunais além do TJDFT.** Só dá
+  para ver a inversão onde a nossa cobertura passa de 100%, e ela passa em
+  exatamente um. Nos outros 58, um denominador subestimado fica indistinguível
+  do buraco de coleta. Medir isso exigiria uma terceira fonte por tribunal (o
+  portal, ou o "Justiça em Números"), que é outro trabalho.
+* **Por que o `api_publica_tjdft` é fino.** Sei que ele é fino em todos os anos
+  e que está atualizado; não sei se o TJDFT remete parcial ao CNJ, se remete só
+  um sistema (99,1% do que ele tem é PJe), ou se o índice foi truncado. A
+  resposta está do lado de lá.
+* **Os 404 documentos de divergência residual não foram abertos um a um.** São
+  0,00039% e vêm com cara de dado sujo do DJEN (`?003`, `?999`, segmentos
+  inexistentes). Contados e declarados; não investigados.
+* **A tabela do lado do CNJ não inclui o STM.** Ela levou 31,5 min sobre os
+  344.603.488 documentos que existiam antes da varredura do STM, e a lista de
+  tribunais foi tirada no começo da passada. O STM foi medido à parte:
+  **27.054 de 27.055** com `J = 7` (o 1 restante é um `5.71`, TRT inexistente).
+* **`ruff` não rodou** — não está instalado em nenhum ambiente alcançável.
+  Conferi por `py_compile` e pela suíte.
+
