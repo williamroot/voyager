@@ -44,6 +44,15 @@ Campo sem mapping vira dynamic mapping silencioso (tipo errado pra sempre).
 > **Toda contagem de processos usa `_count`.** O mesmo vale para
 > `voyager-movimentacoes` (`assunto_norm` também é `nested`).
 
+> ### 🚨 Antes de agregar em `voyager-movimentacoes`: leia o aviso do `proc_digits`
+>
+> O campo está no mapping, está no doc builder, e **falta em 74,65% dos
+> 1,55 bilhão de documentos** (medido 31/08/2026). Agregar por ele erra por 55×
+> numa fatia medida e devolve número plausível. **A chave é `proc` ou
+> `processo_id`.** Detalhe, causa e custo do backfill na seção
+> [voyager-movimentacoes](#voyager-movimentacoes). Os outros dois índices
+> (`voyager-processos`, `voyager-acervo`) estão íntegros nesse campo.
+
 `_id` = pk do Postgres (idempotente). Formato compat Jusbrasil/Digesto.
 Exceção: em `voyager-entidades` o `_id` é a chave canônica (`cnpj:29979036` /
 `nome:<sha1>`) — não existe pk de "entidade" no Postgres.
@@ -161,13 +170,83 @@ na frente (73 ms frio / 13 ms morno).
 
 ## voyager-movimentacoes
 
+> ### 🚨 `proc_digits` NÃO é chave confiável AQUI — a chave é `proc` / `processo_id`
+>
+> **Medido em 31/08/2026, no índice inteiro** (`voyager-movimentacoes` →
+> `voyager-movimentacoes-v2`):
+>
+> | pergunta | resposta |
+> |---|---:|
+> | docs (`_count`) | **1.553.929.162** |
+> | **SEM `proc_digits`** (`must_not exists`) | **1.160.006.468 — 74,65%** |
+> | com `proc_digits` | 393.922.694 |
+> | `proc_digits` = `""` (a mentira do `exists`) | 0 |
+> | **controle: sem `proc`** | **0** |
+> | **controle: sem `processo_id`** | **0** |
+>
+> O campo **existe no mapping e existe no doc builder**. Por isso ele parece uma
+> chave: qualquer `terms`/`cardinality`/`term` sobre ele devolve um número
+> plausível, sem erro, sem warning — e ERRADO, porque três em cada quatro
+> documentos são invisíveis para a agregação.
+>
+> **A demonstração, com três réguas e o campo de controle** (fatia TJMG,
+> `publish_date` em março/2024 — 3.357.559 docs):
+>
+> | régua | distintos | erro |
+> |---|---:|---:|
+> | `proc` (controle) | 893.791 | — |
+> | `processo_id` | 894.457 | +0,07% |
+> | **`proc_digits`** | **16.160** | **−98,2% (55× a menos)** |
+>
+> Duas réguas independentes concordam a 0,07%. A terceira erra por 55× e não
+> avisa. O caso que motivou este bloco (nicho 12078, 30/08) errava "só" por 1,8×
+> — o fator depende da fatia, então **não existe correção de escala**: o campo
+> simplesmente não pode ser usado como chave neste índice até o backfill fechar.
+>
+> **Regras, então:**
+>
+> - agregou/contou/filtrou processo distinto em `voyager-movimentacoes`? use
+>   **`proc`** (CNJ mascarado) ou **`processo_id`** (pk do Postgres). Os dois têm
+>   0 ausentes e concordam a 0,07%;
+> - `proc_digits` continua **íntegro** em `voyager-processos` e
+>   `voyager-acervo` (0 ausentes, 0 vazios, controle `proc` em 100% nos dois —
+>   conferido no mesmo dia). `dashboard/cobertura_nacional.py` agrega por ele no
+>   `voyager-acervo` e está **correto**;
+> - `query_string` livre (o MCP `buscar_diarios` aceita a string do chamador)
+>   pode escrever `proc_digits:…` contra este índice e receber silêncio. É a
+>   única porta aberta hoje.
+>
+> **Como aconteceu.** O `es_movs_v2 --copiar` usa `_reindex` server-side do v1
+> para o v2, e o `_reindex` copia o `_source` **verbatim**. O v1 é anterior ao
+> commit que criou o campo (`ae91d77`, 11/08/2026), então os 1.160.006.468 docs
+> copiados vieram sem ele; os 393.922.694 escritos depois pelo write-through o
+> têm. A soma fecha exata com o total do índice.
+>
+> **Por que o gate não pegou.** `es_movs_v2 --conferir` sorteia docs do v2,
+> busca os mesmos `_id` no v1 e compara **as chaves do doc do v2**. Ele mede
+> FIDELIDADE da cópia — e uma cópia fiel de uma fonte incompleta dá "500 de 500
+> idênticos". Nenhum gate comparava o doc contra o **mapping**. Assinatura
+> clássica da casa: run verde, log limpo, número redondo.
+>
+> **Onde estão os faltantes** (importante para quem for fatiar o backfill):
+> **não** é "só o histórico". Por `publish_date` todo ano é mistura — 2026 tem
+> 172.361.573 sem contra 125.570.123 com. A partição limpa é o `detected_at`:
+> **100% dos faltantes caem em `[2026-04-01, 2026-08-01)`** e 0 ficam fora
+> (conferido dos dois lados). São ~122 fatias diárias, cursor natural e
+> retomável — `id` **não** serve, as faixas se sobrepõem (o enriquecimento
+> reescreve movs antigas).
+>
+> Custo medido do backfill e recomendação: veja "Plano de reindex" no fim deste
+> arquivo.
+
 | Campo | Tipo | Fonte | Caso de uso |
 |---|---|---|---|
-| id, recorte_id, processo_id, source | long/int | pks | join/compat |
+| id, recorte_id, processo_id, source | long/int | pks | join/compat — **`processo_id` é a chave de processo aqui (100% presente)** |
 | tribunal | keyword | tribunal_id | filtro |
 | publish_date, available_at, detected_at | date | data_disponibilizacao, inserido_em | range de data |
 | body | text (pt+ascii) | texto | **busca de decisão/teor** |
-| proc, proc_digits | keyword | numero_cnj (+só dígitos) | CNJ com/sem máscara |
+| proc | keyword | numero_cnj | CNJ com máscara — **chave confiável (0 ausentes)** |
+| ⚠️ proc_digits | keyword | derivado (só dígitos) | CNJ sem máscara — **AUSENTE em 74,65% (31/08/2026). NÃO agregue por ele.** Ver o bloco acima |
 | advs, partes | text | ProcessoParte (vazio no backfill `--sem-partes`) | full-text |
 | assunto, assunto_norm | text, nested | Process.assunto_nome, tipos_norm | classificação Jusbrasil |
 | classe_nome, codigo_classe | keyword | mov ou processo | filtro |
@@ -1525,6 +1604,49 @@ campos novos de `search/mappings.py`). Sem isso o bulk cria dynamic mapping.
 4. **Movimentações**: NÃO reindexar 1,16B de uma vez. `tipo_documento`/
    `proc_digits` valem pra docs novos via tail; retroativo sob demanda:
    `reindexar_movimentacoes --tribunal X --desde YYYY-MM-DD --sleep`.
+
+   ⚠️ **Esta linha ficou de pé por 20 dias e virou o defeito do índice.**
+   "Vale pra docs novos" transformou um campo declarado num campo que falta em
+   74,65% — sem que nada na tela, no log ou no gate dissesse isso. O erro não
+   foi adiar o backfill (adiar era a decisão certa: 1,16 bi é caro); foi **não
+   escrever em lugar nenhum que, enquanto o backfill não roda, o campo não é
+   chave.** É o que o bloco 🚨 da seção `voyager-movimentacoes` conserta.
+
+   **Custo do backfill, medido em 31/08/2026** (`_update_by_query` com script
+   Painless que deriva os dígitos do `proc` do próprio `_source` — não precisa
+   sair do ES, não precisa do Postgres):
+
+   | modo | docs/s | ETA de 1,16 bi | busca do site durante |
+   |---|---:|---:|---|
+   | sem `slices` | 1.493 | 215 h (9,0 d) | não medido |
+   | `slices=4` | 9.497 | 33,9 h | não medido |
+   | `slices=8`, nó ocioso | **18.818** | **17,1 h** | — |
+   | `slices=8`, com busca concorrente | 8.021 | 40,0 h | **2,4 s a 35 s** ⇒ estoura o teto de 12 s |
+   | `slices=8`, `requests_per_second=4000` | 2.985 | 107,5 h (4,5 d) | **0,06 s a 6,9 s** ⇒ dentro do teto |
+
+   Baseline da mesma busca sem carga: 1,9–2,1 s morna, 12–19 s fria.
+
+   **Disco não é o gargalo — isso foi medido, não suposto.** Numa passada de
+   3.000.000 de docs o espaço livre do nó *subiu* 4,1 GB (o merge recupera os
+   deletes mais rápido do que a reescrita cria segmento). Antes: 988,3 GB
+   livres. Depois de 4,53 M de docs backfillados: 988,2 GB. O medo de
+   "reescrever 1,2 TB" não se confirmou.
+
+   **O gargalo é a busca do site.** Sem throttle a reescrita rouba I/O e a
+   busca passa de 2 s para 35 s — acima do `ES_QUERY_TIMEOUT` de 12 s, ou seja,
+   erro na tela, não lentidão. Com `requests_per_second=4000` a busca fica no
+   lugar e o custo vira 4,5 dias de relógio (não de atenção: é retomável).
+
+   **Fatiar por `detected_at`, um dia por vez** — 122 fatias em
+   `[2026-04-01, 2026-08-01)`, que contêm 100% dos faltantes. Cada fatia fecha
+   com o próprio gate: `must_not exists` = 0 **e** `exists` = total da fatia
+   **e** 100% com 20 dígitos. Conferido na fatia 2026-05-13: 0 faltantes,
+   634.853 presentes, 634.853 com `len == 20`.
+
+   Recomendação: **backfillar tudo, com throttle**. Fatiar "só o que alguém
+   consulta" não economiza risco (o disco não é o problema) e deixa o campo
+   meio-cheio, que é o pior dos três estados — um campo que existe em parte da
+   fatia produz exatamente a confiança falsa que o Princípio nº 1 proíbe.
 5. **Contínuo**: cron diário `reindexar_processos --desde-id <max_id da última
    rodada>` cobre os Process novos da ingestão (bulk_create não tem signal).
 
