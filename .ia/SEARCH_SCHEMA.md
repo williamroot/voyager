@@ -212,9 +212,13 @@ na frente (73 ms frio / 13 ms morno).
 >   `voyager-acervo` (0 ausentes, 0 vazios, controle `proc` em 100% nos dois —
 >   conferido no mesmo dia). `dashboard/cobertura_nacional.py` agrega por ele no
 >   `voyager-acervo` e está **correto**;
-> - `query_string` livre (o MCP `buscar_diarios` aceita a string do chamador)
->   pode escrever `proc_digits:…` contra este índice e receber silêncio. É a
->   única porta aberta hoje.
+> - `query_string` livre (o MCP `buscar_diarios`, em `mcp_server/delegates.py`,
+>   monta `{'query_string': {'query': <string do chamador>}}` contra este
+>   índice) pode escrever `proc_digits:…` e receber silêncio. **É a única porta
+>   aberta hoje** — nenhuma tela, API, job ou métrica do repositório agrega por
+>   `proc_digits` em `voyager-movimentacoes` (varrido em 31/08/2026: as únicas
+>   ocorrências do campo são os 3 doc builders, os 3 mappings, o builder do
+>   acervo e a agregação de `cobertura_nacional.py`, que é no `voyager-acervo`).
 >
 > **Como aconteceu.** O `es_movs_v2 --copiar` usa `_reindex` server-side do v1
 > para o v2, e o `_reindex` copia o `_source` **verbatim**. O v1 é anterior ao
@@ -1647,6 +1651,27 @@ campos novos de `search/mappings.py`). Sem isso o bulk cria dynamic mapping.
    consulta" não economiza risco (o disco não é o problema) e deixa o campo
    meio-cheio, que é o pior dos três estados — um campo que existe em parte da
    fatia produz exatamente a confiança falsa que o Princípio nº 1 proíbe.
+
+   **Ferramenta:** `manage.py es_backfill_proc_digits`
+   (`--medir` / `--rodar` / `--parar` / `--religar` / `--estado`). Throttle
+   (`--rps`, default 4000), retomável por construção (a consulta da fatia é
+   `must_not exists`), kill switch pelo cache, tetos `--max-docs`/`--max-horas`
+   que viram **ERRO com o número real** e guardas de cluster `red` / disco.
+   Gate por fatia conferido dos dois lados: faltantes = 0, **ganho** de
+   `exists` = número de faltantes que havia, `proc_digits == ""` = 0, e amostra
+   de 200 docs com 100% de 20 dígitos batendo com o `proc`.
+
+   ⚠️ O gate compara o **delta**, não o total da fatia. Uma fatia de
+   `detected_at` mistura os dois estados — 2026-07-16 tem 2.172.871 docs com o
+   campo, dos quais só 128.287 eram do backfill. A primeira versão comparava o
+   total e teria abortado todas as fatias de julho num backfill correto; foi um
+   teste por mutação que pegou.
+
+   **Piloto executado em 31/08/2026** (medição, não o backfill): 4.663.140 docs
+   escritos em 5 passadas — 1.160.006.468 → **1.155.343.328**. Fatia 2026-05-13
+   fechada e conferida (0 faltantes, 634.853 presentes, 634.853 com `len == 20`).
+   Cluster `yellow` antes e depois, 988 GB livres antes e depois. **O restante
+   NÃO foi disparado — espera decisão.**
 5. **Contínuo**: cron diário `reindexar_processos --desde-id <max_id da última
    rodada>` cobre os Process novos da ingestão (bulk_create não tem signal).
 
