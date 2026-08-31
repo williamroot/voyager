@@ -132,6 +132,29 @@ class Command(BaseCommand):
                         WHERE ppl.parte_id = m.loser_id
                           AND m.loser_id >= %s AND m.loser_id < %s
                     """, [cursor_id, fim])
+                    # As DUAS pontes denormalizadas (`ParteTribunal`,
+                    # `PartePapel`) têm FK para `tribunals_parte` com
+                    # `ON DELETE NO ACTION` no banco — o CASCADE é do Django e
+                    # o DELETE cru NÃO o dispara. Sem isto o lote inteiro morre
+                    # no COMMIT com IntegrityError (medido em produção em
+                    # 31/08/2026: `Key (id)=(143) is still referenced from
+                    # table "tribunals_partetribunal"`), e a transação inteira
+                    # volta atrás — nada é aplicado.
+                    #
+                    # Apagar (em vez de repointar) é o certo: as pontes são
+                    # DERIVADAS de `tribunals_processoparte` e reconstruídas
+                    # por `manage.py rebuild_parte_bridges` (cron diário), que
+                    # vai recriá-las já sob o survivor. Repointar exigiria
+                    # somar `total_processos` no conflito de
+                    # `uniq_parte_tribunal` / `uniq_parte_papel` — mais código
+                    # para um número que o cron recalcula de qualquer jeito.
+                    for ponte in ('tribunals_partetribunal', 'tribunals_partepapel'):
+                        c2.execute(f"""
+                            DELETE FROM {ponte} b
+                            USING _dedup_map m
+                            WHERE b.parte_id = m.loser_id
+                              AND m.loser_id >= %s AND m.loser_id < %s
+                        """, [cursor_id, fim])
                     # Deleta as Partes-loser do lote.
                     c2.execute("""
                         DELETE FROM tribunals_parte p

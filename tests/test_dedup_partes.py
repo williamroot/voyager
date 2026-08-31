@@ -298,3 +298,35 @@ def test_oab_zero_dry_run_nao_escreve():
 def test_canonizar_oab(bruto, esperado):
     from tribunals.services.oab import canonizar_oab
     assert canonizar_oab(bruto) == esperado
+
+
+def test_dedup_apaga_as_pontes_derivadas_da_parte_loser():
+    """Regressão de uma falha MEDIDA em produção (31/08/2026): o lote inteiro
+    morreu no COMMIT com
+
+        IntegrityError: update or delete on table "tribunals_parte" violates
+        foreign key constraint ... on table "tribunals_partetribunal"
+        DETAIL: Key (id)=(143) is still referenced
+
+    `ParteTribunal.parte` e `PartePapel.parte` são `on_delete=CASCADE` no
+    Django, mas a FK no banco é `NO ACTION` — e o dedup deleta por SQL cru,
+    que não passa pelo ORM. Vale para TODOS os grupos, não só o oab_zero.
+    """
+    from tribunals.models import PartePapel, ParteTribunal
+
+    t = Tribunal.objects.get_or_create(
+        sigla='TRF1', defaults={'sigla_djen': 'TRF1', 'nome': 'TRF1'})[0]
+    survivor = Parte.objects.create(nome='ADV PONTE', oab='PR61230', tipo='advogado')
+    loser = Parte.objects.create(nome='ADV PONTE', oab='PR061230', tipo='advogado')
+    for p in (survivor, loser):
+        ParteTribunal.objects.create(parte=p, tribunal=t, total_processos=3)
+        PartePapel.objects.create(parte=p, papel='advogado', total_processos=3)
+
+    _oab_zero()          # não pode levantar IntegrityError
+
+    assert not Parte.objects.filter(id=loser.id).exists()
+    assert not ParteTribunal.objects.filter(parte_id=loser.id).exists()
+    assert not PartePapel.objects.filter(parte_id=loser.id).exists()
+    # a ponte do survivor fica intacta — quem recalcula é rebuild_parte_bridges
+    assert ParteTribunal.objects.filter(parte_id=survivor.id).count() == 1
+    assert PartePapel.objects.filter(parte_id=survivor.id).count() == 1
