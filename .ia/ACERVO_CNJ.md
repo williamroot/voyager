@@ -912,17 +912,140 @@ atrás de uma lista de quatro siglas.
 `--batch 2000 --sleep 0.1`, no `.102` via `docker compose -f
 docker-compose-workers.yml run --rm`:
 
-| runners | vazão | sonda de latência (consulta indexada) |
-|---|---:|---|
-| baseline (0) | — | 0,20 s |
-| 1 | 65 – 75 /s | 0,20 s |
-| 2 | ≈ 160 /s | 0,20 s |
-| 4 | ≈ 300 /s | 0,20 s |
+| runners | `--batch` | vazão | duração do LOTE | sonda de latência |
+|---|---:|---:|---|---|
+| baseline (0) | — | — | — | 0,20 s |
+| 1 | 2.000 | 65 – 78 /s | 25 – 35 s | 0,20 s |
+| 2 | 2.000 | ≈ 160 /s | 25 – 35 s | 0,20 s |
+| 4 | 2.000 | ≈ 300 /s | 25 – 35 s | 0,20 s |
+| 8 | 2.000 | **383 /s** (medido em 120 s) | 25 – 35 s | 0,20 s |
+| 2 | **500** | ≈ 150 – 330 /s | **1,6 – 2,5 s** | 0,20 s |
 
 `FOR UPDATE SKIP LOCKED` dá lotes disjuntos, então N cópias no MESMO tribunal
 não brigam por row-lock. O banco está `IO: DataFileRead` (I/O-bound, como todo o
-resto), mas a sonda não mexeu: a corrida é sequencial dentro de cada runner e o
-lote é curto.
+resto), mas a sonda não mexeu em nenhuma configuração.
+
+⚠️ **O `--batch 2000` custou caro e não comprou nada.** Lote de 35 s numa tabela
+que o produto inteiro lê é pressão pura: com 8 cópias, o R105 tentou 40 vezes
+aplicar a migration 0054 com `lock_timeout=3s` e não conseguiu — holders de 35 s
+sobrepostos nunca abrem um buraco de 3 s. Baixar para `--batch 500` derrubou o
+lote **~15×** (35 s → 2 s) com a **mesma** vazão por runner (78 → 75 /s), porque
+o custo por linha é o `EXISTS` com regex, não a transação. Ver `.ia/OPS.md`.
+
+#### Depois — a mesma consulta do antes
+
+```sql
+SELECT count(*) FILTER (WHERE tem_sinal_precatorio IS NULL)  AS nunca_varrido,
+       count(*) FILTER (WHERE tem_sinal_precatorio IS TRUE)  AS com_sinal,
+       count(*) FILTER (WHERE tem_sinal_precatorio IS FALSE) AS sem_sinal,
+       count(*) AS total
+  FROM tribunals_process WHERE tribunal_id = 'TJSP';
+```
+
+| | antes (30/08) | **depois (31/08)** |
+|---|---:|---:|
+| `IS NULL` | 1.513.486 | **0** |
+| `IS TRUE` | 763.477 | **814.591** |
+| `IS FALSE` | 14.504.845 | 15.967.217 |
+| total (controle) | 16.781.808 | **16.781.808** |
+
+**+51.114 processos com sinal** — a amostra de 3.000 previa 3,33% (≈ 50.400) e o
+acervo entregou 3,38%: **erro de previsão de 1,4%**. Total inalterado: nenhuma
+linha nasceu nem sumiu na corrida.
+
+**0 abstenções** (nenhum processo sem movimentação) e **0 lotes queimados** pelo
+teto, nos dois runs.
+
+E os dois lados batem, de novo:
+
+| | Postgres | Elasticsearch |
+|---|---:|---:|
+| TJSP total | 16.781.808 | 16.781.808 |
+| sem o sinal | **0** | **0** |
+| sinal `true` | 814.591 | **814.591** |
+
+#### 🔴 O `atualizado_em = now()` tocou a campainha — e 524.945 docs não vieram
+
+Isto quase passou, e o jeito como quase passou é a regra nº 4 do CLAUDE.md com
+roupa nova.
+
+O Postgres fechou em 0 NULL, mas o ES ainda tinha **524.945** docs do TJSP sem o
+campo — 34,7% do lote. Não era defasagem em trânsito: a watermark do
+`sync_processos_atualizados` estava **em dia** (1 min 23 s de atraso), a fila
+`es_index` estava em **0** e o `FailedJobRegistry` em **0**. Ou seja, para todo
+instrumento de saúde do sync, estava tudo certo — e estava faltando meio milhão.
+
+O doc builder não tem culpa: `indexar_processos_bulk([3 ids])` chamado à mão
+gravou os três valores em 5 ms. Os pks foram enfileirados, os jobs não falharam,
+e mesmo assim o doc ficou com `null`. Reenfileirei os **1.513.486** pela lista de
+ids em disco (3.027 jobs, 6 s para enfileirar, drenados em < 90 s) e o ES foi a
+zero. **A causa raiz do sync ficou em aberto** — ver "o que eu não consegui
+medir".
+
+**A armadilha da medição, que é o que precisa ficar:** a minha primeira
+conferência dos dois lados deu **60/60 sincronizados** e estava ERRADA. Eu
+testei `'tem_sinal_precatorio' in doc['_source']` — e o doc velho tem a CHAVE,
+com valor `null`:
+
+```json
+{"_id": "23329528", "_source": {"tem_sinal_precatorio": null}}
+```
+
+A chave presente com valor nulo passa no teste de presença e falha no de valor.
+É a mesma família do `exists` que conta string vazia (regra nº 4), num campo
+`boolean` — onde a gente jurava estar a salvo. A conferência certa:
+
+```python
+(doc['_source'] or {}).get('tem_sinal_precatorio') is not None
+```
+
+Com ela, os mesmos 60 deram **38/60** — batendo com o agregado (65,3%), que é
+como os dois lados voltaram a conversar. Um controle que dá 100% quando o
+número está errado não é controle: é anestesia.
+
+#### O que eu NÃO consegui medir (31/08/2026)
+
+Meia régua é pior que régua nenhuma, então o que ficou de fora:
+
+1. **Por que o `sync_processos_atualizados` perdeu 524.945 docs.** Medi o
+   sintoma e o conserto, não a causa. Watermark em dia, fila zerada, zero jobs
+   falhados — e meio milhão de docs sem o valor. As duas hipóteses que sobraram,
+   nenhuma provada: (a) os jobs rodaram na janela em que `models.py` tinha as
+   colunas da 0054 e o banco não, e falharam de um jeito que não deixou rastro
+   no registry; (b) a chave de watermark (`sync_es:wm:proc_ts`) foi perdida no
+   Redis e o tique re-ancorou em `agora`, que é uma perda SILENCIOSA e definitiva
+   por desenho (`if wm is None: cache.set(agora)`). A (b) é a mais grave e a mais
+   barata de blindar. **Enquanto isso não for respondido, "a watermark está em
+   dia" não prova que o índice está completo** — o gate tem que ser contagem dos
+   dois lados, não idade de watermark.
+2. **Precisão contra o mundo, não contra o texto.** Tudo que medi lê o que o
+   tribunal publicou. Um precatório expedido que nunca saiu no DJEN nem virou
+   movimento no Datajud é invisível para este sinal, e eu não sei quantos são —
+   descobrir exige ir ao e-SAJ processo a processo, isto é, requisição.
+   `FALSE` aqui quer dizer "não há sinal no que temos", não "não há precatório".
+3. **A precisão dos 15,3 M computados ANTES.** Auditei 100 positivos dos
+   1.513.486 novos. Os 15,3 M antigos foram gravados com o mesmo padrão, mas em
+   outra população (sem passagem pelo Datajud) — a taxa de falso positivo lá
+   pode ser outra, e não medi.
+4. **A lacuna do plural nos 15,3 M antigos.** Medi que "ofícios requisitórios"
+   custa ~0,07% de cobertura nos novos. Não recomputei os antigos, então essa
+   mesma lacuna segue neles, sem número.
+5. **Os 20.248.498 NULL dos outros 58 tribunais.** Estão catalogados e o comando
+   os declara em ERROR a cada run, mas não foram computados — o recorte desta
+   pendência era o TJSP. `--tribunais TODOS` roda neles; ninguém rodou ainda.
+6. **A suíte completa não tem baseline atribuível.** A árvore de trabalho é
+   compartilhada por quatro agentes e carregava, durante o meu diff, a migration
+   0054 pela metade e mudanças em voo de outros três. `pytest tests/` deu
+   213 falhas / 146 erros, e não dá para dizer o que é meu. O que dá para
+   afirmar: os módulos que tocam o meu código (`test_sinal_recorte_datajud`,
+   `test_sinal_lote_com_teto`, `test_campainha_sync`, `test_sync_incremental`,
+   `test_leads_sinal_precatorio`, `test_classificador_sinal_precatorio`,
+   `test_agg_entidade`, `test_set_local_timeout`) dão **96 passando** contra um
+   baseline de 27 passando + 1 falha; as 2 falhas restantes são anteriores ao
+   diff e de outros donos (`test_tjsp_fora_do_escopo_nao_promove` e o
+   `SET LOCAL` em `tribunals/services/partes_djen.py:469`).
+7. **`ruff` não rodou.** Não está instalado em nenhum ambiente que eu alcanço
+   (nem no venv local, nem na imagem de prod). Conferi só `py_compile`.
 
 ### Armadilha: amostra sorteada pelo ÍNDICE mentiu por 50×
 
