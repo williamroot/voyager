@@ -127,3 +127,74 @@ def test_estadual_comum_segue_intacto():
     assert sigla_do_cnj('0000123-45.2024.8.21.0001') == 'TJRS'
     assert sigla_do_cnj('0000123-45.2024.8.26.0001') == 'TJSP'
     assert sigla_do_cnj('0000123-45.2024.8.07.0001') == 'TJDFT'
+
+
+# -- #108: o comando que reproduz a tabela -------------------------------- #
+
+class _ESFake:
+    """ES de mentira que devolve os buckets de `jtr` que a agregação daria."""
+
+    def __init__(self, por_tribunal, sum_other=0):
+        self.por_tribunal = por_tribunal
+        self.sum_other = sum_other
+
+    def options(self, **kw):
+        return self
+
+    def search(self, **kw):
+        sigla = kw['query']['term']['tribunal']
+        jtr = self.por_tribunal[sigla]
+        return {
+            'hits': {'total': {'value': sum(jtr.values())}},
+            'aggregations': {'jtr': {
+                'sum_other_doc_count': self.sum_other,
+                'buckets': [{'key': k, 'doc_count': v} for k, v in jtr.items()],
+            }},
+        }
+
+
+def _medir(es, sigla):
+    from tribunals.management.commands.conferir_siglas_cnj import Command
+    return Command()._medir(es, 'voyager-processos', sigla)
+
+
+def test_tabela_separa_bate_de_diverge_e_diz_para_onde():
+    """O número do CNJ é o juiz: 8.07 é TJDFT, 8.26 é TJSP."""
+    es = _ESFake({'TJDFT': {'807': 1_506_100, '826': 69}})
+    L = _medir(es, 'TJDFT')
+    assert L['docs'] == 1_506_169
+    assert L['bate'] == 1_506_100
+    assert L['diverge'] == 69
+    assert L['destinos'] == {'TJSP': 69}
+    assert L['controle_quebrados'] == 0 and L['controle_sum_other'] == 0
+
+
+def test_tribunal_de_sobreposicao_e_marcado():
+    """O TST não tem número nativo: 100% de divergência nele é a Resolução
+    65/2008, não defeito. Sem a marca, a linha seria lida como incidente."""
+    es = _ESFake({'TST': {'502': 900, '515': 100}})
+    L = _medir(es, 'TST')
+    assert L['diverge'] == 1000 and L['bate'] == 0
+    assert L['sobreposicao'] is True
+    assert L['destinos'] == {'TRT2': 900, 'TRT15': 100}
+
+
+def test_controle_acusa_documento_quebrado_em_vez_de_engolir():
+    """Doc sem `proc_digits` ou com comprimento errado não pode virar
+    'divergência' nem sumir: ele é CONTROLE, e controle diferente de zero
+    invalida a régua inteira."""
+    es = _ESFake({'TJSP': {'826': 500, 'MISSING': 3, 'LEN_18': 2}}, sum_other=7)
+    L = _medir(es, 'TJSP')
+    assert L['controle_quebrados'] == 5
+    assert L['controle_sum_other'] == 7
+    assert L['destinos'] == {'MISSING': 3, 'LEN_18': 2}
+
+    from tribunals.management.commands.conferir_siglas_cnj import Command
+    assert Command()._controle([L])['ok'] is False
+
+
+def test_jtr_de_segmento_inexistente_nao_vira_tribunal():
+    """`003` não é segmento nenhum. Abster e MOSTRAR (`?003`) é o certo —
+    escolher um tribunal aqui seria inventar origem para dado sujo."""
+    es = _ESFake({'TJMT': {'811': 100, '003': 1}})
+    assert _medir(es, 'TJMT')['destinos'] == {'?003': 1}
