@@ -290,6 +290,12 @@ def datajud_queue_watch() -> dict:
 #: parar em segundos, não em minutos.
 VARREDURA_PAUSADOS_KEY = 'varredura:pausados'
 
+#: PARADA GLOBAL: uma chave que desliga a puxada inteira, sem enumerar sigla.
+#: O switch por tribunal serve para "o TJSP está pesado"; este serve para "o CNJ
+#: está estrangulando a chave compartilhada, PARE TUDO agora". Enumerar 59
+#: siglas na hora do aperto é justamente o que não se consegue fazer.
+VARREDURA_PARADA_KEY = 'varredura:parada'
+
 
 def varredura_pausados() -> set[str]:
     from django.core.cache import cache
@@ -301,11 +307,30 @@ def set_varredura_pausados(siglas: set[str]) -> None:
     cache.set(VARREDURA_PAUSADOS_KEY, sorted(siglas), timeout=None)
 
 
+def varredura_parada() -> bool:
+    from django.core.cache import cache
+    return bool(cache.get(VARREDURA_PARADA_KEY))
+
+
+def set_varredura_parada(parada: bool = True) -> None:
+    """Liga/desliga a parada global. Sem deploy, vale em segundos.
+
+    A varredura em curso confere isto A CADA PÁGINA (~10 s) e sai salvando o
+    cursor — parar no meio e retomar de onde parou são a MESMA feature: um
+    `stop` que perde o progresso não é kill switch, é sabotagem.
+    """
+    from django.core.cache import cache
+    if parada:
+        cache.set(VARREDURA_PARADA_KEY, True, timeout=None)
+    else:
+        cache.delete(VARREDURA_PARADA_KEY)
+
+
 @job('varredura', timeout=86400)
 def varrer_acervo(sigla: str, max_paginas: int | None = None,
                   do_zero: bool = False) -> dict:
     """Varre um tribunal inteiro. Retomável: o watermark fica no `Tribunal`."""
-    if sigla.upper() in varredura_pausados():
+    if varredura_parada() or sigla.upper() in varredura_pausados():
         logger.info('varredura %s pausada — no-op', sigla)
         return {'tribunal': sigla.upper(), 'estado': 'pausado'}
     from .varredura import varrer_tribunal
@@ -325,6 +350,9 @@ def tick_varredura_incremental() -> dict:
     o histórico nunca ser varrido — perda silenciosa, o pior tipo.
     """
     from tribunals.models import Tribunal
+    if varredura_parada():
+        logger.info('tick_varredura_incremental: parada global — no-op')
+        return {'enfileirados': [], 'total': 0, 'estado': 'parado'}
     pausados = varredura_pausados()
     fila = django_rq.get_queue('varredura')
     enfileirados = []
@@ -387,13 +415,24 @@ def tick_varredura_watchdog(heartbeat_max: int = 120) -> dict:
                 vivos.add(jid)
 
     orfaos = [j for j in registro.get_job_ids() if j not in vivos]
+    pausados = varredura_pausados()
+    parada = varredura_parada()
+    devolvidos = []
     for jid in orfaos:
         registro.remove(jid)
         sigla = jid.split(':')[-1]
+        if parada or sigla in pausados:
+            # devolver pra fila quem o operador acabou de parar transformaria o
+            # kill switch num loop: para, o watchdog reenfileira, para de novo
+            logger.info('varredura %s órfã mas PAUSADA — não reenfileiro', sigla)
+            continue
+        devolvidos.append(jid)
         # re-enfileira do watermark: com o checkpoint a cada 20 páginas, o
         # retrabalho é de minutos, não da varredura inteira
         fila.enqueue(varrer_acervo, sigla, job_id=jid, retry=DATAJUD_RETRY)
-    if orfaos:
+    if devolvidos:
         logger.warning('varredura: %d órfãos devolvidos pra fila: %s',
-                       len(orfaos), [j.split(':')[-1] for j in orfaos])
-    return {'orfaos': [j.split(':')[-1] for j in orfaos], 'total': len(orfaos)}
+                       len(devolvidos), [j.split(':')[-1] for j in devolvidos])
+    return {'orfaos': [j.split(':')[-1] for j in devolvidos],
+            'total': len(devolvidos),
+            'nao_devolvidos_por_pausa': len(orfaos) - len(devolvidos)}

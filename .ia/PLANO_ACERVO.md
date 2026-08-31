@@ -77,12 +77,49 @@ Uma pendência só fecha com **as seis**:
 - [ ] seção "o que eu não consegui medir, e por quê" — meia régua é pior que
       régua nenhuma
 
-## Portão do #92 — o que precisa de decisão humana
+## Portão do #92 — ABERTO em 31/08/2026
 
-Não é engenharia, é licença:
+O portão existia por licença, não por engenharia: o DataJud veda "vender ou
+explorar comercialmente qualquer informação derivada dela", e ele alimenta o
+denominador da métrica de cobertura publicada na tela.
 
-1. o DataJud veda "vender ou explorar comercialmente qualquer informação
-   derivada dela" — e ele alimenta o denominador da nossa métrica pública;
-2. `robots.txt` diverge por tribunal (STM e TST publicam `Disallow: /`).
+**A questão foi apresentada ao dono do produto (William) e ele autorizou a
+execução em 31/08/2026.** Decisão dele, registrada aqui para quem ler depois
+saber que não foi omissão nem descuido.
 
-Até isso ser respondido, o R92 entrega a puxada **pronta e parada**.
+⚠️ O alerta do `robots.txt` (STM e TST publicam `Disallow: /`) **não era sobre
+o #92** e continua de pé: ele vale para a coleta de jurisprudência nos portais
+dos tribunais, discutida em `.ia/ESTUDO_JUIT.md`. O DataJud é API oficial com
+chave; são portas diferentes e não devem ser confundidas.
+
+### O que a autorização NÃO dispensa
+
+Liberar a execução não substitui a engenharia. Ordem obrigatória:
+
+1. telemetria + kill switch com **retomada testada** (parar no meio e provar que
+   retoma do cursor sem repetir nem pular — testar só o `stop` não vale);
+2. dry-run que mede sem escrever: delta por tribunal e ETA real;
+3. **um** tribunal inteiro fechando o gate de completude (o padrão do TRT20:
+   235.758 contra 235.754 declarados);
+4. só então o nacional.
+
+### A condição que não é negociável
+
+A cobertura vai saltar de **35,55% para perto de 100%** — e isso é mentira se
+ninguém separar **esqueleto** de **acervo rico**. O `_source` do Datajud não tem
+parte, advogado nem valor. Antes de a puxada terminar, o card de Cobertura tem
+que mostrar as duas coisas separadas: *temos o CNJ* × *temos o processo*.
+Terminar a puxada com o card somando os dois é entregar confiança falsa — o
+oposto do que o produto existe para fazer.
+
+### Pré-voo medido em 31/08/2026
+
+| | |
+|---|---|
+| ES `voyager-es-01` | 994 GB livres de 2991 (67% usado) — os ~77 GB cabem |
+| cluster | `yellow`, 3 shards não atribuídos (esperado em nó único com réplica) |
+| `voyager-acervo` | 344.603.487 docs — este é o "antes" |
+
+**Abortar se**: cluster virar `red`, disco livre cair abaixo de 200 GB, ou a
+busca do site degradar. O banco já está sob carga (enriquecimento a 1,74 M/dia)
+e a busca trava sob contenção de I/O. Site em pé vale mais que terminar 3h antes.

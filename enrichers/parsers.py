@@ -4,6 +4,8 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
+from tribunals.services.oab import canonizar_oab
+
 # PJe consulta pública mascara doc como "639.XXX.XXX-XX" / "***.123.456-**".
 # Regex é amplo (aceita X/*) pra capturar nome+strip; parse_documento separa.
 CPF_RE = re.compile(r'(\d{3}\.[\dX*]{3}\.[\dX*]{3}-[\dX*]{2})')
@@ -59,14 +61,28 @@ def real_casa_com_mascara(real: str, mascara: str) -> bool:
 
 
 def parse_oab(text: str) -> str:
-    """Retorna OAB normalizada (ex: 'SP123456' ou 'SP123456-A') ou ''."""
+    """Retorna OAB canônica (ex: 'SP123456', 'SP123456A') ou ''.
+
+    O zero à esquerda do número SAI: o cabeçalho da publicação escreve
+    "OAB PA 015237" e o JSON do DJEN escreve "15237" para a MESMA inscrição, e
+    `Parte.oab` tem unique parcial — as duas grafias viravam duas entidades.
+    Medido em 31/08/2026 sobre as 943.510 `Parte` com OAB: **19.494 linhas**
+    eram a mesma inscrição escrita das duas formas, e **100%** dos grupos em
+    colisão tinham ao menos uma forma zero-padded.
+
+    A remoção mora em `tribunals.services.oab.canonizar_oab`, a MESMA que
+    `tribunals.services.partes_djen.formatar_oab` usa desde `55264d3` — a
+    divergência entre as duas portas de escrita era o defeito.
+    """
     if not text:
         return ''
     m = OAB_RE.search(text)
     if not m:
         return ''
     uf, num = m.group(1).upper(), m.group(2).replace('.', '').replace('-', '')
-    return f'{uf}{num}'
+    bruto = f'{uf}{num.upper()}'
+    # Abster > reescrever: forma que a canonização não reconhece passa intacta.
+    return canonizar_oab(bruto) or bruto
 
 
 def parse_role(text: str) -> str:

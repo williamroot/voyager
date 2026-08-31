@@ -15,6 +15,7 @@ diário. Mais completo pra histórico per-processo.
 """
 from __future__ import annotations
 
+import json
 import logging
 import random
 import time
@@ -30,6 +31,36 @@ logger = logging.getLogger('voyager.datajud.client')
 
 class DatajudClientError(Exception):
     pass
+
+
+class DatajudPaginaGrandeError(DatajudClientError):
+    """A RESPOSTA passou do teto de bytes (`DATAJUD_VARREDURA_BYTES_MAX`).
+
+    Não é erro do CNJ e não é dado perdido: é a varredura recusando-se a
+    carregar na memória uma página que ela já sabe que não cabe. Quem trata
+    (`Varredura._buscar`) encolhe o `size` e re-busca o MESMO cursor — a
+    paginação é por `range gte`, então reler o mesmo ponto é idempotente e
+    nenhum documento fica para trás.
+
+    Existe porque previsão não é teto. O orçamento por peso MÉDIO acerta o caso
+    comum e erra o extremo: na coleta do DJEN a publicação variou **38×** dentro
+    do mesmo tribunal e do mesmo dia, e um worker bateu 1023 MiB de 1 GiB por
+    confiar na média (ver `.ia/INGESTION.md` e a memória `oom-djen-bytes`).
+    Aqui o `_source` é curto (~225 B/doc medidos), mas 10.000 docs numa página
+    é justamente o multiplicador que transforma um outlier em OOM.
+    """
+
+    def __init__(self, bytes_lidos: int, teto: int, size: int,
+                 declarado: bool = False):
+        self.bytes_lidos = bytes_lidos
+        self.teto = teto
+        self.size = size
+        self.declarado = declarado
+        super().__init__(
+            f'resposta de {bytes_lidos / 1048576:.1f} MB acima do teto de '
+            f'{teto / 1048576:.0f} MB a size={size}'
+            f'{" (declarado no Content-Length)" if declarado else ""}'
+        )
 
 
 # API key pública oficial (documentada no wiki Datajud / CNJ).
@@ -89,6 +120,8 @@ class DatajudClient:
             'User-Agent': getattr(settings, 'DJEN_USER_AGENT', 'voyager-datajud/0.1'),
         })
         self.timeout = (10, 60)
+        #: bytes do corpo da última resposta — a régua da calibração por BYTES
+        self.ultimos_bytes = 0
         self.max_retries = getattr(settings, 'DJEN_MAX_RETRIES', 8)
         self.max_proxy_rotations = getattr(settings, 'DJEN_MAX_PROXY_ROTATIONS', 50)
 
@@ -105,12 +138,25 @@ class DatajudClient:
             return cortex, 'cortex'
         return None, 'direct'
 
-    def _post(self, sigla_tribunal: str, body: dict, cota: str = 'global') -> dict:
+    def _post(self, sigla_tribunal: str, body: dict, cota: str = 'global',
+              teto_bytes: int = 0) -> dict:
         """POST no índice do tribunal com rotação automática de proxies.
 
         `cota='varredura'` usa a cota separada da puxada em massa (ver
         `datajud.ratelimit.acquire_varredura`) — 34 mil requisições em série não
         podem comer os tokens de quem está atendendo usuário.
+
+        `teto_bytes > 0` liga o TETO DURO por resposta: baixa em pedaços e
+        aborta (`DatajudPaginaGrandeError`) assim que o corpo passa do teto, em
+        vez de descobrir o tamanho depois de já ter carregado tudo na memória.
+        Quem chama encolhe a página e relê o MESMO cursor — nada é descartado.
+        `0` (default) preserva o comportamento antigo byte por byte, para não
+        mexer no caminho do `sync_processo`, que atende usuário.
+
+        Efeito colateral declarado: `self.ultimos_bytes` guarda o tamanho do
+        corpo da última resposta bem-sucedida. É o número que a varredura usa
+        para calibrar a página por BYTES, e não por itens — a lição do OOM da
+        coleta do DJEN.
         """
         # Rate-limit GLOBAL por chave (a APIKey pública é compartilhada; sem pacing
         # os workers estouram a quota do CNJ e o _search passa a pendurar).
@@ -132,9 +178,13 @@ class DatajudClient:
             proxies = {'http': proxy_url, 'https': proxy_url} if proxy_url else None
             t0 = time.monotonic()
             try:
-                resp = self.session.post(url, json=body, proxies=proxies, timeout=self.timeout)
+                resp = self.session.post(url, json=body, proxies=proxies,
+                                         timeout=self.timeout,
+                                         stream=bool(teto_bytes))
                 latency_ms = int((time.monotonic() - t0) * 1000)
                 if resp.status_code in (403, 429):
+                    if teto_bytes:
+                        resp.close()      # stream=True vaza fd sem isto (Errno 24)
                     if using == 'pool' and proxy_url:
                         self.pool.mark_bad(proxy_url)
                     elif using == 'cortex':
@@ -150,6 +200,8 @@ class DatajudClient:
                     )
                     continue
                 if 500 <= resp.status_code < 600:
+                    if teto_bytes:
+                        resp.close()
                     transport_retries += 1
                     if transport_retries >= self.max_retries:
                         raise DatajudClientError(
@@ -161,8 +213,11 @@ class DatajudClient:
                     self._sleep_backoff(transport_retries, factor=3.0, max_wait=120.0)
                     continue
                 if 400 <= resp.status_code < 500:
+                    corpo = resp.text[:200]
+                    if teto_bytes:
+                        resp.close()
                     raise DatajudClientError(
-                        f'Datajud {resp.status_code} {sigla_tribunal}: {resp.text[:200]}'
+                        f'Datajud {resp.status_code} {sigla_tribunal}: {corpo}'
                     )
                 resp.raise_for_status()
                 logger.debug(
@@ -170,7 +225,10 @@ class DatajudClient:
                     sigla_tribunal, resp.status_code, using, latency_ms,
                     proxy_rotations, transport_retries,
                 )
-                return resp.json()
+                if not teto_bytes:
+                    self.ultimos_bytes = len(resp.content)
+                    return resp.json()
+                return self._ler_com_teto(resp, teto_bytes, int(body.get('size') or 0))
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError) as exc:
                 last_exc = exc
@@ -186,6 +244,31 @@ class DatajudClient:
                         f'erro de transporte Datajud após {self.max_retries} retries'
                     ) from exc
                 self._sleep_backoff(transport_retries)
+
+    def _ler_com_teto(self, resp, teto: int, size: int) -> dict:
+        """Baixa o corpo em pedaços, abortando assim que passar de `teto` bytes.
+
+        Confere o `Content-Length` primeiro: quando o servidor declara o
+        tamanho, nem começamos o download. Quem não declara é pego durante a
+        leitura — e os bytes já lidos são soltos ANTES de a exceção subir, para
+        que o pico de memória não seja justamente o do erro.
+        """
+        declarado = resp.headers.get('Content-Length')
+        if declarado and declarado.isdigit() and int(declarado) > teto:
+            resp.close()
+            raise DatajudPaginaGrandeError(int(declarado), teto, size, declarado=True)
+
+        buf = bytearray()
+        for pedaco in resp.iter_content(chunk_size=1 << 20):
+            buf.extend(pedaco)
+            if len(buf) > teto:
+                lido = len(buf)
+                del buf
+                resp.close()
+                raise DatajudPaginaGrandeError(lido, teto, size)
+        resp.close()
+        self.ultimos_bytes = len(buf)
+        return json.loads(bytes(buf))
 
     def _sleep_backoff(self, attempt: int, factor: float = 1.0, max_wait: float = 60.0):
         wait = min(max_wait, 1.5 * factor * (2 ** attempt) + random.uniform(0, 1.5))

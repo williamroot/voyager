@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from django.db import connection, transaction
 
 from tribunals.models import ProcessoParte
+from tribunals.services.oab import canonizar_oab
 
 logger = logging.getLogger('voyager.partes_djen')
 
@@ -205,12 +206,17 @@ def formatar_oab(numero_oab: str | None, uf_oab: str | None) -> str:
     # expõe. Na amostra nacional a UF prefixada era 0,4% — o formato varia por
     # tribunal, então normalizar não é otimização, é correção.
     #
-    # Divergência ASSUMIDA contra `parse_oab`: ele lê de TEXTO ("OAB PA
-    # 015237") e preserva o zero, e 1.250 de 39.147 OABs do corpus (3,2%)
-    # estão zero-padded por causa disso. Um advogado nosso não vai casar com
-    # essas 3,2% — é o preço de não duplicar 21,5%.
-    corpo = corpo.lstrip('0') or corpo
-    return f'{uf}{corpo}'
+    # Divergência contra `parse_oab` ENCERRADA em 31/08/2026 (#96): ele lê de
+    # TEXTO ("OAB PA 015237") e preservava o zero, e era essa diferença entre as
+    # duas portas de escrita que produzia as duplicatas. As duas agora chamam
+    # `canonizar_oab`.
+    #
+    # A remoção mora em `tribunals.services.oab.canonizar_oab` — a MESMA que
+    # `enrichers.parsers.parse_oab` passou a usar em 31/08/2026 (#96). Enquanto
+    # eram duas implementações, a divergência entre as portas de escrita
+    # produzia 19.494 linhas duplicadas em `tribunals_parte`.
+    bruto = f'{uf}{corpo}'
+    return canonizar_oab(bruto) or bruto
 
 
 def polo_de(valor) -> str:
