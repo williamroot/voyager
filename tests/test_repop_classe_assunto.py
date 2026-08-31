@@ -237,6 +237,40 @@ def test_criar_catalogo_nao_inventa_nome():
 
 
 @pytest.mark.django_db(transaction=True)
+def test_criar_catalogo_nao_aceita_codigo_fora_do_padrao_da_tpu():
+    """`99999999` entrou no catálogo NACIONAL na primeira corrida real.
+
+    A guarda não é hipótese: em 31/08/2026, dois minutos de corrida com
+    `--criar-catalogo` criaram `tribunals.Assunto(codigo='99999999')` porque um
+    tribunal publicou isso. A TPU é numérica e cabe em 5 dígitos (o maior
+    código do nosso catálogo de assuntos é 57.501). Medido sobre os 604.954
+    órfãos: 1.249 códigos (604.822 linhas) passam, 6 códigos (132 linhas, os
+    `4010000x` e o `99999999`) não. O custo de abster é 0,02% das linhas; o de
+    não abster é sujeira permanente numa tabela com FK `PROTECT`.
+    """
+    from tribunals.models import Assunto, Process
+    _catalogo()
+    p = _proc(assunto_codigo='99999999', assunto_nome='Alguma Coisa')
+    out = StringIO()
+    call_command('repop_classe_assunto', de=p.pk - 1, ate=p.pk,
+                 criar_catalogo=True, sem_checkpoint=True, sleep=0,
+                 json=True, stdout=out, stderr=StringIO())
+    r = _json.loads(out.getvalue().splitlines()[-1])
+    assert not Assunto.objects.filter(codigo='99999999').exists(), \
+        'criou código fora da TPU no catálogo nacional'
+    assert Process.objects.values_list('assunto_id', flat=True).get(pk=p.pk) is None
+    assert r['orfao_fora_do_padrao_assunto_id'] == 1
+    assert r['catalogo_criado'] == 0
+    # e o de 5 dígitos, na mesma corrida, TEM que passar — senão a guarda
+    # estaria só recusando tudo e o teste passaria por engano
+    q = _proc(1, assunto_codigo='13970', assunto_nome='Verbas Rescisórias')
+    call_command('repop_classe_assunto', de=q.pk - 1, ate=q.pk,
+                 criar_catalogo=True, sem_checkpoint=True, sleep=0,
+                 stdout=StringIO())
+    assert Process.objects.values_list('assunto_id', flat=True).get(pk=q.pk) == '13970'
+
+
+@pytest.mark.django_db(transaction=True)
 def test_nao_sobrescreve_fk_ja_fechada():
     """`COALESCE` repete a guarda do SELECT.
 
@@ -339,9 +373,10 @@ def test_freio_mede_varredura_e_nao_densidade():
     """ms por 1.000 pks varridos — comparável entre faixas.
 
     Medido em produção em 31/08, blocos de 50.000 pks: 81-99 ms por 1.000 pks
-    só lendo e 249-460 com escrita (7.779 linhas, 4,64 ms/linha), com densidade
-    de ~8% de linhas quebradas. ms/linha escrita reagiria à DENSIDADE, que
-    varia por faixa, e pararia a corrida sem que nada estivesse caro.
+    só lendo e 455-1.024 com escrita (3,94-4,64 ms por linha). A banda é larga
+    porque a densidade de linhas quebradas varia 5x entre faixas VIZINHAS —
+    2.559, 8.451 e 20.973 linhas em três blocos consecutivos. Por isso os tetos
+    saem do máximo medido, e não da mediana.
     """
     assert 'freio_ms_kpk' in CODIGO and 'parar_ms_kpk' in CODIGO
     assert 'parar_ms_linha' not in CODIGO, 'a métrica de densidade voltou'

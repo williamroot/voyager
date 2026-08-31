@@ -82,6 +82,7 @@ O que este comando NÃO faz
 import json
 import logging
 import random
+import re
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -103,6 +104,14 @@ BLOCO_IDS = 50_000                            # pks por bloco (não linhas)
 LOTE_UPDATE = 500
 #: sessões esperando `Lock` no banco acima disto ⇒ cede a vez.
 LOCK_ALTO = 20
+#: código que `--criar-catalogo` aceita transformar em linha do catálogo.
+#: A TPU é numérica e cabe em 5 dígitos — o maior código do nosso catálogo de
+#: assuntos é 57.501. Medido em 31/08/2026 sobre os 604.954 órfãos de assunto:
+#: **1.249 códigos (604.822 linhas) passam** e **6 códigos (132 linhas) não**
+#: — `99999999`, `40100001`, `40100002`, `40100004`, `40100009`, `40100013`.
+#: Sem a guarda, a primeira corrida criou `99999999` no catálogo nacional em
+#: menos de dois minutos. Fora do padrão fica ABSTIDO e contado, nunca criado.
+TPU_RE = re.compile(r'^\d{1,5}$')
 
 
 @dataclass(frozen=True)
@@ -155,20 +164,22 @@ class Command(BaseCommand):
         # blocos de 50.000 pks na `.101`:
         #
         #   só leitura (--sem-reparo) ..........  81-99 ms / 1.000 pks
-        #   leitura + escrita ..................  249-460 ms / 1.000 pks
-        #                                         (7.779 linhas, 4,64 ms/linha)
+        #   leitura + escrita ..................  455-1.024 ms / 1.000 pks
+        #                                         (3,94-4,64 ms por linha)
         #
-        # Os tetos saem do segundo número, não do primeiro: calibrar o freio
-        # pela medição SEM escrita faria a corrida frear contra si mesma no
-        # primeiro bloco denso — e o `--parar` mataria a corrida sem que nada
-        # estivesse caro.
-        p.add_argument('--freio-ms-kpk', type=float, default=800.0,
+        # A banda é larga porque a DENSIDADE de linhas quebradas varia 5x entre
+        # faixas vizinhas — 2.559, 8.451 e 20.973 linhas em três blocos de
+        # 50.000 pks consecutivos (5%, 17% e 42%). Os tetos saem do MÁXIMO
+        # medido, não da mediana: calibrar pela medição sem escrita (o que eu
+        # fiz primeiro) fez o freio dobrar a pausa contra uma corrida saudável,
+        # e um teto apertado mataria a corrida no primeiro bloco denso.
+        p.add_argument('--freio-ms-kpk', type=float, default=2000.0,
                        help='ms por 1.000 pks varridos: acima disto a pausa '
                             'DOBRA; abaixo da metade, cede. Medido com escrita: '
-                            '249-460.')
-        p.add_argument('--parar-ms-kpk', type=float, default=2000.0,
+                            '455-1.024.')
+        p.add_argument('--parar-ms-kpk', type=float, default=5000.0,
                        help='média móvel de 5 blocos acima disto = PARA com '
-                            'ERROR. 2.000 = ~5x o medido com escrita.')
+                            'ERROR. 5.000 = ~5x o máximo medido com escrita.')
         p.add_argument('--lock-alto', type=int, default=LOCK_ALTO,
                        help='sessões esperando Lock acima disto ⇒ espera.')
         p.add_argument('--lock-timeout', default='5s')
@@ -208,6 +219,7 @@ class Command(BaseCommand):
         self._cat = {par.fk: self._codigos(par) for par in pares}
         self._nao_existem = {par.fk: set() for par in pares}
         self._sem_nome = {par.fk: set() for par in pares}
+        self._fora_do_padrao = {par.fk: set() for par in pares}
 
         topo = o['ate'] or self._topo(tabela, o)
         cur_pk = o['de'] or (0 if o['sem_checkpoint'] else (cache.get(wm) or 0))
@@ -218,6 +230,7 @@ class Command(BaseCommand):
             tot[f'liga_{par.fk}'] = 0
             tot[f'orfao_{par.fk}'] = 0
             tot[f'orfao_sem_nome_{par.fk}'] = 0
+            tot[f'orfao_fora_do_padrao_{par.fk}'] = 0
         orfaos_cod: Counter = Counter()      # (fk, codigo)   -> n
         orfaos_trib: Counter = Counter()     # (fk, tribunal) -> n
 
@@ -294,7 +307,8 @@ class Command(BaseCommand):
 
         # Órfão também é teto: silenciar é o corte mudo com outro nome.
         for par in pares:
-            n_orf = tot[f'orfao_{par.fk}'] + tot[f'orfao_sem_nome_{par.fk}']
+            n_orf = (tot[f'orfao_{par.fk}'] + tot[f'orfao_sem_nome_{par.fk}']
+                     + tot[f'orfao_fora_do_padrao_{par.fk}'])
             if not n_orf:
                 continue
             piores = ', '.join(
@@ -327,7 +341,8 @@ class Command(BaseCommand):
             self.stdout.write(
                 f'  {par.fk}: liga {tot[f"liga_{par.fk}"]:,} · '
                 f'órfão da TPU {tot[f"orfao_{par.fk}"]:,} · '
-                f'órfão sem nome {tot[f"orfao_sem_nome_{par.fk}"]:,}')
+                f'órfão sem nome {tot[f"orfao_sem_nome_{par.fk}"]:,} · '
+                f'fora do padrão {tot[f"orfao_fora_do_padrao_{par.fk}"]:,}')
         self.stdout.write(
             f'catálogo criado {tot["catalogo_criado"]:,} · deadlocks retentados '
             f'{tot["deadlocks"]:,} · {blocos} blocos · {esperas} esperas · '
@@ -433,10 +448,14 @@ class Command(BaseCommand):
                     tot[f'liga_{par.fk}'] += 1
                     algum = True
                     continue
-                # abstenção declarada, com o motivo separado: código que o
-                # catálogo não tem × código sem nome para criar a linha
-                chave = ('orfao_sem_nome_' if cod in self._sem_nome[par.fk]
-                         else 'orfao_') + par.fk
+                # abstenção declarada, com o motivo separado: sem linha no
+                # catálogo × sem nome para criá-la × fora do padrão da TPU
+                if cod in self._fora_do_padrao[par.fk]:
+                    chave = 'orfao_fora_do_padrao_' + par.fk
+                elif cod in self._sem_nome[par.fk]:
+                    chave = 'orfao_sem_nome_' + par.fk
+                else:
+                    chave = 'orfao_' + par.fk
                 tot[chave] += 1
                 orfaos_cod[(par.fk, cod)] += 1
                 orfaos_trib[(par.fk, trib)] += 1
@@ -468,9 +487,21 @@ class Command(BaseCommand):
         if not o['criar_catalogo'] or o['dry_run']:
             self._nao_existem[par.fk] |= set(faltam)
             return
-        # abster > chutar: código sem nome NÃO vira linha de catálogo com o
-        # próprio código no lugar do nome. Fica pendente — outro bloco pode
-        # trazer o nome, e aí a linha nasce certa.
+        # 1ª guarda: o catálogo é NACIONAL e a FK é `PROTECT`. Código fora do
+        # padrão da TPU não entra nele nem com nome bonito — a primeira corrida
+        # criou `99999999` porque um tribunal publicou isso.
+        fora = {c for c in faltam if not TPU_RE.match(c)}
+        if fora:
+            self._fora_do_padrao[par.fk] |= fora
+            logger.error('repop_classe_assunto: %d códigos FORA do padrão TPU '
+                         'em %s — abstido, não criado: %s', len(fora),
+                         par.modelo, ', '.join(sorted(fora))[:200])
+            faltam = {c: n for c, n in faltam.items() if c not in fora}
+            if not faltam:
+                return
+        # 2ª guarda, abster > chutar: código sem nome NÃO vira linha de catálogo
+        # com o próprio código no lugar do nome. Fica pendente — outro bloco
+        # pode trazer o nome, e aí a linha nasce certa.
         com_nome = {c: n for c, n in faltam.items() if n}
         self._sem_nome[par.fk] |= (set(faltam) - set(com_nome))
         self._sem_nome[par.fk] -= set(com_nome)
