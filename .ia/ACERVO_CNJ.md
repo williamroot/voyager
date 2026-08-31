@@ -777,6 +777,46 @@ E as duas portas contribuem para o sinal — dos 100 TRUE:
 Ou seja: ler só o DJEN perderia 7% dos acertos, e ler só o Datajud perderia 82%.
 O `EXISTS` sobre `movimentacao.texto` lê as duas — sem uma requisição ao CNJ.
 
+**E a precisão de cada porta é diferente** — censo COMPLETO dos 100 positivos da
+amostra, contexto de ±110 caracteres lido um a um (não sub-amostra):
+
+| porta | acertos | falsos positivos | precisão |
+|---|---:|---:|---:|
+| **Datajud** (`meio='datajud'`) | 18 | **0** | **100%** |
+| **DJEN** (`meio='D'`) | 93 | **5** | **94,6%** |
+| união (o que o comando grava) | 100 | 5 | **95,0%** |
+
+A porta do Datajud é pequena e **pura**: os 18 acertos são, os 18, o MESMO texto
+— `Expedição de precatório/rpv`, que é o nome do movimento na TPU do CNJ. Não é
+texto livre, é código de movimento do próprio tribunal; não há como confundir.
+
+Os 5 falsos positivos são todos da porta do DJEN, e **4 deles são a mesma coisa**:
+"ofício requisitório" no sentido CRIMINAL/administrativo — requisitar uma pessoa
+ou a força policial, não um pagamento:
+
+```
+11888679  PRECATÓRIA DE INTIMAÇÃO (Réu) e de INQUIRIÇÃO … e OFÍCIO REQUISITÓRIO
+          ao COMANDO DA POLÍCIA MILITAR ou DELEGACIA DE POLÍCIA
+12032128  apresentação virtual do réu junto ao atual local de internação
+          (servirá a presente decisão como ofício requisitório)
+25652676  estabelecimento prisional onde recolhido o acusado … servindo, ainda,
+          como OFÍCIO REQUISITÓRIO
+12907621  Procedimento Comum Cível × BANCO PAN — "servirá a presente" para a
+          OAB indicar curador especial (nenhuma Fazenda no processo)
+11894278  rodapé com URL: ".../saiba-como-solicitar-comprovantes-de-resgate-de-
+          depositos-judiciais-e-precatorios-pelo-portal-bb"
+```
+
+⇒ o termo `of[íi]cio requisit[óo]rio` carrega **4 dos 5 erros** sozinho. Quem for
+apertar a precisão um dia mexe nele (por exemplo exigindo Fazenda no polo
+passivo), não no `precat[óo]rio`.
+
+Casos que **parecem** ruído e não são, conferidos no texto inteiro: falência com
+"Precatório recebido oriundo de ação proposta contra a União" (o precatório é
+ativo da massa), arresto sobre "o precatório expedido na ação nº …", e depósito
+"de precatório de competência delegada … pelo TRF da 3ª Região". Todos TRUE.
+
+
 3,33% é coerente com os 3,66% medidos em 25/08 na parte já varrida do TJSP. A
 estimativa antiga de "≈ 150 k processos com sinal escondidos" era sobre os 4,1 M;
 sobre os 1,51 M que sobraram ela vira **≈ 50 k**.
@@ -794,8 +834,9 @@ acento sozinho). Mesmos 3.000 processos:
 | PG=TRUE e ES=FALSE | **0** |
 | PG=FALSE e ES=TRUE | **2** |
 
-⇒ **precisão do PG contra o ES = 100/100 = 100%**; **cobertura = 100/101 =
-99,0%**. Os 2 divergentes foram lidos um a um, e os dois dizem
+⇒ **concordância do PG com o ES = 100/100 = 100%**; **cobertura = 100/101 =
+99,0%**. (Isto mede a LEITURA, não o mundo: os dois motores leem o mesmo texto.
+A precisão contra o significado está medida logo abaixo, por porta.) Os 2 divergentes foram lidos um a um, e os dois dizem
 "**ofícios requisitórios**" (plural), que `of[íi]cio requisit[óo]rio` (singular,
 um espaço) não casa:
 
@@ -818,12 +859,10 @@ PRECATÓRIO de **CARTA PRECATÓRIA**. Medido nos mesmos 3.000:
 "carta precatória"** — ruído puro, e "carta precatória" é justamente uma das
 facetas com ~100% de ausência no DJEN (tabela do topo deste arquivo).
 
-**Precisão semântica** (não só lexical): auditoria manual de 40 dos 100 TRUE,
-lendo ±90 caracteres em volta do termo — **37 legítimos, 3 falsos positivos**
-(92,5%): dois "servirá a presente como ofício requisitório" para requisitar réu
-preso/internado, e um texto informativo do Banco do Brasil sobre resgate de
-depósitos. É consistente com o que o campo declara ser: `tem_sinal_precatorio` é
-**indício**, `classificacao=PRECATORIO` é o veredito.
+**Precisão semântica** (não só lexical): censo dos **100** positivos, lidos um a
+um — **95 legítimos, 5 falsos positivos (95,0%)**. A conta por porta e a lista
+dos 5 estão na seção seguinte. É consistente com o que o campo declara ser:
+`tem_sinal_precatorio` é **indício**, `classificacao=PRECATORIO` é o veredito.
 
 #### O que mudou no comando
 
