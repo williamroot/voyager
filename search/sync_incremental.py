@@ -19,6 +19,38 @@ watermarks no cache, teto por tick e kill-switch. Roda no scheduler
     tick_sync_es_incremental()          # 1 tick (idempotente)
 
 Kill-switch: `cache.set('sync_es:off', True)` desliga sem deploy.
+
+## ⚠️ WATERMARK EM DIA NÃO PROVA ÍNDICE COMPLETO (medido em 31/08/2026)
+
+Medido no fim do backfill do sinal do TJSP: o Postgres fechou com **0** processos
+sem `tem_sinal_precatorio`, e o índice ainda tinha **524.945** docs do TJSP com o
+campo em `null` — 34,7% do lote. Ao mesmo tempo:
+
+    watermark `sync_es:wm:proc_ts` .... 1 min 23 s de atraso  (em dia)
+    fila `es_index` .................. 0                     (drenada)
+    FailedJobRegistry(es_index) ...... 0                     (nada falhou)
+
+Os três instrumentos de saúde deste módulo diziam "tudo certo" enquanto faltava
+meio milhão de documentos. O doc builder não era o culpado: chamar
+`indexar_processos_bulk` à mão nos mesmos pks gravou o valor em 5 ms.
+
+**Consequência prática: não use idade de watermark como gate de completude.** O
+gate honesto é contagem dos DOIS lados (`_count` no ES contra `count(*)` no
+Postgres, no mesmo recorte) — foi ela que achou o buraco, e é ela que provou o
+conserto (reenfileirar os pks levou o ES a zero).
+
+Duas hipóteses ficaram sem prova, e a segunda é a que dá medo:
+
+1. os jobs rodaram na janela em que `models.py` já tinha as colunas da migration
+   0054 e o banco ainda não, e morreram sem deixar rastro no registry;
+2. a chave `sync_es:wm:proc_ts` sumiu do Redis e o tique **re-ancorou em
+   `agora`** — veja `sync_processos_atualizados`: `if wm is None: cache.set(agora)`
+   e devolve `ancorou: True`. Isso é perda **silenciosa e definitiva** por
+   desenho: tudo que foi escrito antes da re-ancoragem nunca mais é revisitado,
+   porque o keyset só anda para frente. Vale para os três lados deste módulo.
+
+Se alguém for endurecer isto, a re-ancoragem é o alvo: ancorar no topo é certo no
+PRIMEIRO tique da vida do sistema e errado em toda perda de chave posterior.
 """
 import logging
 import os
