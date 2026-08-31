@@ -440,6 +440,51 @@ def test_shard_tem_checkpoint_proprio():
     assert cache.get(f'{WM_PROC}:a') is None
 
 
+@pytest.mark.django_db(transaction=True)
+def test_de_zero_retoma_do_checkpoint_e_de_explicito_o_anula():
+    """O contrato que segura a corrida em container com `restart: unless-stopped`.
+
+    `cur_pk = o['de'] or (cache.get(wm) or 0)` são DUAS regras num `or`, e a
+    corrida de 31/08 depende das duas:
+
+      · `--de 0` (o que os containers passam) faz o shard RETOMAR do próprio
+        checkpoint. Sem isso, todo restart do docker — reboot do host, OOM,
+        `unless-stopped` depois de um exit — recomeçaria a faixa do zero e
+        reescreveria milhões de linhas já ligadas;
+      · `--de N` explícito ANULA o checkpoint. É assim que se abre um shard
+        NOVO no meio da tabela: em 31/08 a faixa (40 M, 70 M] do `a6` foi
+        partida em `a6` até 60 M e `a8` de 60 M a 70 M, e o `a8` só existe
+        porque dá para plantar o começo dele sem varrer os 60 M da frente.
+
+    Trocar o `or` por só um dos lados quebra exatamente uma das duas, e as
+    duas custam caro: um refaz trabalho, o outro faz um shard novo varrer a
+    tabela inteira desde o pk 0.
+    """
+    from django.core.cache import cache
+    _catalogo()
+    ps = [_proc(i) for i in range(3)]
+
+    # 1. checkpoint à FRENTE das linhas + `--de 0` ⇒ retoma dali e não volta.
+    cache.set(f'{WM_PROC}:a', ps[-1].pk, None)
+    out = StringIO()
+    call_command('repop_classe_assunto', de=0, ate=ps[-1].pk, shard='a',
+                 sleep=0, json=True, stdout=out)
+    r = _json.loads(out.getvalue().splitlines()[-1])
+    assert r['escritos'] == 0, 'ignorou o checkpoint e varreu a faixa de novo'
+    ps[0].refresh_from_db()
+    assert ps[0].classe_id is None
+
+    # 2. `--de` explícito ANULA o mesmo checkpoint e varre para trás.
+    out = StringIO()
+    call_command('repop_classe_assunto', de=ps[0].pk - 1, ate=ps[-1].pk,
+                 shard='a', sleep=0, json=True, stdout=out)
+    r = _json.loads(out.getvalue().splitlines()[-1])
+    assert r['escritos'] == 3, f'--de não anulou o checkpoint: {r["escritos"]}'
+    for p in ps:
+        p.refresh_from_db()
+        assert p.classe_id == '7' and p.assunto_id == '10375'
+
+
 def test_freio_mede_varredura_e_nao_densidade():
     """ms por 1.000 pks varridos — comparável entre faixas.
 

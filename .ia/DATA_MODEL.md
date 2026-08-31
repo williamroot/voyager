@@ -544,6 +544,93 @@ ORM. **Todo backfill que fecha FK tem que conferir o catálogo antes de ligar**
 Como a FK é do model e não do banco, a inversa também vale: o
 `on_delete=PROTECT` do Django não protege um `DELETE` feito em SQL.
 
+#### Por que ela não existe: a migration foi aplicada, o objeto não nasceu
+
+`0009_classe_assunto` está em `django_migrations` (id 33, aplicada em
+2026-04-26 20:25) e declara os três `AddField` de ForeignKey
+(`process.classe`, `process.assunto`, `movimentacao.classe`) mais os três
+`AddIndex` correspondentes. Nenhum dos seis objetos existe no banco com o nome
+que a migration deu:
+
+| declarado pela migration | existe no banco? | o que existe |
+|---|---|---|
+| FK `process.classe_id` → `classejudicial` | **não** | — |
+| FK `process.assunto_id` → `assunto` | **não** | — |
+| FK `movimentacao.classe_id` → `classejudicial` | **não** | — |
+| índice `tribunals_p_classe__05f562_idx` | não | `proc_classe_id_idx` (mesma coluna) |
+| índice `tribunals_p_assunto_da9b3f_idx` | não | `proc_assunto_id_idx` (mesma coluna) |
+| índice `tribunals_m_classe__1df891_idx` | **não** | **nada** — `tribunals_movimentacao` não tem NENHUM índice em `classe_id` |
+
+Índice com nome próprio (`proc_*_idx`) no lugar do nome gerado é a assinatura de
+DDL feito à mão e migration marcada como aplicada depois. É o mesmo padrão do
+incidente "índices declarados e ausentes": `makemigrations` compara o model com
+o **estado** das migrations, nunca com o banco, então a ficção não gera diff e
+sobrevive indefinidamente. Conferir por **coluna** em `pg_index`/`pg_constraint`,
+nunca por nome.
+
+O caso da `tribunals_movimentacao` é pior que o do `Process`, porque lá não há
+nem o índice equivalente: filtrar movimentação por classe é Seq Scan em
+**1.888 GB**. Não é problema do #104 — a amostra de 510.636 movimentações em 11
+janelas não achou uma linha sequer com `classe_id` NULL —, mas é achado e fica
+registrado.
+
+#### Deve ser criada? Sim — e hoje ela PASSARIA. Falta a janela.
+
+Medido em 31/08/2026, varrendo as 104.003.151 linhas (65 s):
+
+| | linhas |
+|---|---:|
+| `classe_id` preenchido sem linha no catálogo | **0** |
+| `assunto_id` preenchido sem linha no catálogo | **0** |
+
+E refeito às 22:05, **depois** de o backfill fechar 8,17 M de `classe_id` e
+9,77 M de `assunto_id` (14.593.105 linhas com `assunto_id` ao fim): continua
+**0 e 0**. O reparo em massa não
+criou um único vínculo pendurado — que é exatamente o que a guarda de catálogo
+existe para garantir.
+
+Ou seja: a integridade que o Postgres **não** garante está, hoje, de fato
+íntegra — pelo caminho de escrita, não pelo banco. Quem a segura é a guarda de
+catálogo do `repop_classe_assunto` e o `_upsert_catalogo` do enricher. Basta um
+escritor novo gravar `classe_id` sem conferir para o vínculo pendurado entrar
+sem nada falhar, e o estouro aparecer depois no `proc.classe` do ORM.
+
+Como criar, quando houver janela (**não executado — depende do general**):
+
+```sql
+-- 1. barato: pega ACCESS EXCLUSIVE por instantes, NÃO varre a tabela.
+--    O risco não é a duração, é a FILA: um ALTER que espera bloqueia todo
+--    mundo atrás dele. Por isso lock_timeout curto e retentar, nunca forçar.
+SET lock_timeout = '3s';
+ALTER TABLE tribunals_process
+  ADD CONSTRAINT tribunals_process_classe_id_fk
+  FOREIGN KEY (classe_id) REFERENCES tribunals_classejudicial(codigo)
+  DEFERRABLE INITIALLY DEFERRED NOT VALID;   -- é assim que o Django escreve
+                                            -- FK no Postgres; divergir aqui
+                                            -- recria a ficção ao contrário
+
+-- 2. caro mas manso: SHARE UPDATE EXCLUSIVE, deixa leitura e escrita passarem.
+--    Custo esperado ~1-2 min por constraint (a contagem equivalente levou 65 s).
+SET lock_timeout = '3s';
+ALTER TABLE tribunals_process VALIDATE CONSTRAINT tribunals_process_classe_id_fk;
+```
+
+⚠️ Pré-requisitos, todos medidos: (a) `classe_id`/`assunto_id` são
+`varchar(20)` e o alvo é a PK dos catálogos — os tipos casam; (b) a coluna é
+NULLable e NULL não é checado, então as 66,9 M de linhas sem classe não
+atrapalham; (c) o custo em escrita é um lookup na PK de uma tabela de 662
+(classes) / 4.115 (assuntos) linhas, que vive em cache — irrelevante perto dos
+~25 índices que a linha já paga.
+
+⚠️ **Não fazer com backfill rodando.** Durante a corrida do #104 havia
+transação aberta há 18 min na `tribunals_process`; o `ALTER` entraria na fila
+atrás dela e todo mundo entraria na fila atrás do `ALTER`. É exatamente a forma
+do incidente do `DROP INDEX` não-concurrent que derrubou o site.
+
+⚠️ **Na `tribunals_movimentacao`, não.** Validar FK em 1,55 bi de linhas /
+1.888 GB sem sequer um índice em `classe_id` é outro projeto, com outro custo.
+
+
 ### O buraco das FKs `classe`/`assunto` (#104) — medido em 31/08/2026
 
 ```sql
@@ -555,24 +642,28 @@ SELECT count(*) FROM tribunals_process
 | | linhas | |
 |---|---:|---|
 | `tribunals_process` | 104.003.151 | total |
-| `classe_id` NULL com `classe_codigo` | **8.054.334** | o **antes** de #104 |
-| `assunto_id` NULL com `assunto_codigo` | **9.773.928** | o mesmo defeito, na coluna vizinha |
-| já ligadas (`classe_id` não-nulo) | 29.023.746 | |
-| … com `classe_id = classe_codigo` | 29.001.893 | **99,925%** — é o campo de controle |
-| … divergentes (`classe_id <> classe_codigo`) | 21.853 | 0,075% · contadas, **intocadas** |
-| … FK preenchida com `classe_codigo` vazio | 800 | idem |
-| sem classe nenhuma | 66.925.135 | não é buraco: é ausência de dado |
+| `classe_id` NULL com `classe_codigo` | **8.054.334 → 21** | o **antes** e o **depois** de #104 |
+| `assunto_id` NULL com `assunto_codigo` | **9.773.928 → 222** | o mesmo defeito, na coluna vizinha, fechado na mesma passada |
+| já ligadas (`classe_id` não-nulo) | **29.023.746 → 37.198.560** | +8.174.814 |
+| … com `classe_id = classe_codigo` | 37.176.739 | **99,941%** — é o campo de controle |
+| … divergentes (`classe_id <> classe_codigo`) | 21.853 → **21.821** | 0,059% · contadas, **intocadas** |
+| … FK preenchida com `classe_codigo` vazio | 800 → **800** | idem |
+| sem classe nenhuma | 66.804.570 | não é buraco: é ausência de dado |
+
+O controle fecha por soma: 37.176.739 + 21.821 = 37.198.560, exatamente as
+ligadas. E os 21.821 divergentes e as 800 com código vazio ficaram **do mesmo
+tamanho** depois de 8,17 M de escritas — a prova de que o `COALESCE` não
+sobrescreveu FK já fechada.
+
+⚠️ A conta não fecha exatamente com a pendência, e o motivo é medido: fecharam
+2.780.743 linhas de `classe` entre 20:37 e 22:05, mas as ligadas subiram
+2.825.018. A diferença de **44.275** é ingestão ao vivo (~8 linhas/s) que
+chegou com `classe_codigo` durante a corrida e foi fechada pelo próprio shard.
 
 **O buraco se realimenta.** `classe_codigo` é escrito sem fechar a FK por
 `datajud/ingestion.py::_meta_updates_from_source`, por `datajud/hidratacao.py`
-e pelo caminho do enricher. Não é resíduo histórico de uma migration antiga.
-
-**Órfãos da TPU, medidos dos dois lados:**
-
-| coluna | linhas a ligar | códigos distintos | órfãos do catálogo |
-|---|---:|---:|---:|
-| `classe_id` | 8.054.281 | 502 (59 tribunais) | **0** |
-| `assunto_id` | 9.773.928 | — | **604.954** em 1.255 códigos |
+e pelo caminho do enricher. Não é resíduo histórico de uma migration antiga —
+ver a seção "o buraco se realimenta", abaixo, com a prova.
 
 **`Movimentacao.classe_id` NÃO tem o mesmo buraco** — e isso foi medido, não
 suposto. Amostra de **510.636** movimentações em 11 janelas de 50.000 pks
@@ -583,12 +674,75 @@ preenchido e `classe_id` NULL, **0** divergentes, **0** sem código. A diferenç
 enquanto os escritores de `Process` gravam só a string. Por isso a corrida
 rodou apenas com `--tabela process`.
 
-Os órfãos são todos de **assunto**, e têm dono: **82% na Justiça do Trabalho**
-(TST 128.078 · TRT2 65.552 · TRT15 51.616 · TRT9 38.617). São a faixa
-13xxx/14xxx da TPU trabalhista — `Verbas Rescisórias` (42.071),
-`Adicional de Insalubridade` (39.931), `Horas Extras` (21.439) —, que o
-catálogo nunca recebeu porque foi semeado (`0010_populate_classe_assunto`)
-antes de os TRTs entrarem no acervo. **Não é dado sujo: é catálogo incompleto.**
+#### O depois: 8.054.334 → 21, e os 21 não são resíduo, são reabertura
+
+A corrida de 31/08 fechou com a **mesma consulta** da pendência (22:05 UTC, um
+`Parallel Seq Scan` de 37 s sobre as 104.003.151 linhas):
+
+| | antes (31/08, manhã) | depois (31/08, 22:05 UTC) |
+|---|---:|---:|
+| `classe_id` NULL com `classe_codigo` | 8.054.334 | **21** |
+| `assunto_id` NULL com `assunto_codigo` | 9.773.928 | **222** |
+
+**Os 21 de classe não têm um órfão sequer** — todos os 11 pares
+(tribunal, código) que sobraram existem no catálogo. O que eles têm em comum é
+`atualizado_em` nos **últimos 30 minutos**, isto é, DEPOIS de o shard daquela
+faixa de pk já ter passado: TRF4 12078 (8), TRF2 12078 (4), TJPR 15160/12078/14695,
+TJSE 436, TRF4 156/198/436, TRF6 11875/12078. Espalhados por pk 13,1 M a
+103,3 M — não é uma faixa esquecida, é o buraco se reabrindo atrás da vassoura.
+
+Os 222 de assunto se separam em dois fatos com donos diferentes:
+
+| o que é | linhas | códigos |
+|---|---:|---:|
+| **abstenção declarada** — fora do padrão da TPU (`^\d{1,5}$`) | **132** | 6 (`99999999`, `40100001/2/4/9/13`) |
+| **abstenção declarada** — código sem nome na linha | **64** | 32 (`15175`, `15176`, `50xxx`…) |
+| reabertas ao vivo (código existe no catálogo) | 26 | 19 — 21 delas tocadas nos últimos 45 min |
+
+**196 linhas são abstenção, não pendência.** Criar `99999999` ou inventar nome
+para `15175` sujaria de forma permanente um catálogo NACIONAL que é destino de
+FK. Ficam contadas, com o motivo separado no JSON do comando
+(`orfao_fora_do_padrao_assunto_id`, `orfao_sem_nome_assunto_id`) e como ERROR
+no log — teto é alerta, nunca corte mudo.
+
+#### Órfãos da TPU: classe nunca teve; assunto tinha 604.954 e ficou com 196
+
+| coluna | linhas a ligar (antes) | códigos distintos | órfãos do catálogo |
+|---|---:|---:|---:|
+| `classe_id` | 8.054.281 | 502 (59 tribunais) | **0** (antes) → **0** (depois) |
+| `assunto_id` | 9.773.928 | — | 604.954 em 1.255 códigos → **196** em 38 |
+
+**Classe nunca teve órfão** — nem no diagnóstico (502 códigos), nem no meio da
+corrida (465 códigos em 2,9 M de linhas pendentes), nem no fim. Todo código de
+classe que o acervo grava existe na TPU. O órfão sempre foi de assunto, e
+`--criar-catalogo` derrubou 604.954 para 196 criando **1.039** linhas de
+catálogo a partir do nome que já estava gravado na própria linha
+(`tribunals_assunto`: 3.076 → 4.115). A concentração dos órfãos remanescentes é
+TJSP (`99999999`, 120 linhas) e a cauda trabalhista/TRF6.
+
+#### O buraco se realimenta — está medido, não é suposição
+
+Duas medições independentes, a segunda conclusiva:
+
+1. na varredura por faixa de 1 M de pk feita **durante** a corrida, faixas já
+   fechadas voltaram a ter linha pendente — 3 em 13 M, 8 em 14 M, 1 em 71 M;
+2. no fim, **as 21 linhas de classe que sobraram têm `atualizado_em` posterior
+   à passagem do shard**, e nenhuma delas é órfã. A tabela não cresceu no
+   intervalo (`count` 104.003.151 e `max(id)` 106.326.832, iguais antes e
+   depois): não são linhas novas, são linhas **antigas reescritas** por
+   `datajud/ingestion.py::_meta_updates_from_source`, `datajud/hidratacao.py` e
+   o caminho do enricher, que gravam `classe_codigo` sem fechar a FK.
+
+**Zero não é estado estável; é uma foto.** Enquanto os três escritores não
+fecharem a FK na própria escrita, este backfill é **recorrente**, não um
+mutirão único. A taxa medida é baixa (21 linhas em ~30 min de corrida contra
+8,05 M reparadas), então uma passada periódica resolve — mas quem olhar a
+consulta amanhã e vir um número diferente de zero deve ler isto antes de
+concluir que o backfill falhou.
+
+⚠️ O `--ate` do último shard é **106.400.000** contra `max(id) = 106.326.832`.
+A margem é de 73 mil pks. Numa próxima passada, calcular o teto a partir de
+`max(id)` — o comando já faz isso quando `--ate` é 0.
 
 ### `repop_classe_assunto` — o backfill que fecha as duas FKs
 
@@ -596,16 +750,47 @@ antes de os TRTs entrarem no acervo. **Não é dado sujo: é catálogo incomplet
 # medir sem escrever (a régua do antes/depois)
 manage.py repop_classe_assunto --de 60000000 --ate 60100000 --sem-reparo --json
 
-# a corrida, em 4 shards de faixa DISJUNTA (o comando não coordena shards)
-manage.py repop_classe_assunto --shard q1 --de 0        --ate 26600000  --criar-catalogo --sleep 0.2
-manage.py repop_classe_assunto --shard q2 --de 26600000 --ate 53200000  --criar-catalogo --sleep 0.2
-manage.py repop_classe_assunto --shard q3 --de 53200000 --ate 79800000  --criar-catalogo --sleep 0.2
-manage.py repop_classe_assunto --shard q4 --de 79800000 --ate 106400000 --criar-catalogo --sleep 0.2
+# a corrida de 31/08, em 8 shards de faixa DISJUNTA (o comando não coordena
+# shards — as faixas TÊM que ser disjuntas, e juntas cobrir (0, max(id)])
+#   a1 (          0,   9.000.000]   a6 ( 40.000.000,  52.000.000]
+#   a2 (  9.000.000,  13.000.000]   a10( 52.000.000,  60.000.000]
+#   a3 ( 13.000.000,  21.000.000]   a8 ( 60.000.000,  70.000.000]
+#   a4 ( 21.000.000,  27.250.000]   a7 ( 70.000.000,  90.000.000]
+#   a5 ( 27.250.000,  40.000.000]   a9 ( 90.000.000, 106.400.000]
+#
+# Os shards a8/a9/a10 nasceram DEPOIS, partindo faixas que tinham virado o
+# gargalo — dá para fazer isso com a corrida no ar (ver `--de` abaixo).
+manage.py repop_classe_assunto --shard a4 --de 0 --ate 27250000 \
+    --criar-catalogo --bloco 20000 --sleep 0.2 \
+    --freio-ms-kpk 6000 --parar-ms-kpk 20000
 
 # parar TODOS os shards de qualquer lugar, sem deploy
 manage.py shell -c "from django.core.cache import cache; \
     cache.set('tribunals:repop_classe_assunto:off', True)"
 ```
+
+⚠️ **`--de 0` não quer dizer "do começo" — quer dizer "do checkpoint".** É
+`cur_pk = o['de'] or (cache.get(wm) or 0)`, e é por isso que todo container da
+corrida passa `--de 0`: assim um restart do docker (reboot, OOM,
+`unless-stopped`) retoma de onde parou em vez de reescrever a faixa inteira.
+O outro lado do mesmo `or` é como se abre um shard NOVO no meio da tabela sem
+varrer o que está na frente: `--de 60000000` ANULA o checkpoint. Foi assim que
+a faixa (40 M, 70 M] do `a6` — a maior sobra, 999.604 linhas paradas atrás de
+uma corrente sequencial — virou `a6` até 60 M mais um `a8` novo de 60 M a 70 M,
+com o começo do `a8` plantado direto no Redis
+(`SET v:1:tribunals:repop_classe_assunto:wm:process:a8 60000000`, sem TTL — o
+`RedisSerializer` do Django grava `int` como texto puro).
+`tests/test_repop_classe_assunto.py::test_de_zero_retoma_do_checkpoint_e_de_explicito_o_anula`
+prende as duas metades; quebrar qualquer uma delas custa caro em direções
+opostas (refazer trabalho × varrer a tabela desde o pk 0).
+
+⚠️ **Shard que termina + `--restart unless-stopped` = loop de restart.** O
+comando sai com 0 quando o checkpoint alcança o `--ate`, e o docker religa. A
+cada volta ele recarrega os dois catálogos e consulta `max(id)` antes de sair
+de novo. Não é caro, mas é ruído permanente e esconde o "acabou": **pare o
+container quando a faixa fechar** (`docker stop r104_fk_a3`). Observado em
+31/08 com o `a3` entrando em `Restarting (0)` segundos depois de fechar
+(13 M-21 M).
 
 Quatro decisões que não são estética:
 
@@ -653,8 +838,38 @@ fase do #105 rodando na mesma tabela):
 | leitura + escrita, 5 shards | até **5.087 ms / 1.000 pks** · ~13,5 ms por linha |
 | densidade de linhas quebradas | 5% a **78%** entre blocos VIZINHOS |
 | sessões esperando `Lock` durante a corrida | **0** |
-| vazão de escrita, 1 shard | 216 linhas/s |
-| vazão de escrita, 5 shards | ~700 linhas/s |
+| vazão de escrita, 1 shard | 216 linhas/s (com os 4 varredores do #105 no ar) |
+| vazão de escrita, 5 shards | **1.042 linhas/s** (471.145 linhas em 452 s, com 2 do #105 no ar) |
+
+⚠️ A primeira leitura desse par disse "paralelizar quase não paga, ~280
+linhas/s com 7 shards" — e estava **errada**, porque eu derivei linhas de
+*progresso em pk*, e a densidade varia 15x entre faixas. Contando as linhas que
+os logs REPORTAM, em duas fotos separadas por 452 s, dá 1.042/s. O fator 4,8x
+contra 1 shard é indicativo e não controlado: as duas medições têm carga
+externa diferente (4 varredores do #105 na primeira, 2 na segunda).
+
+E a vazão que os logs reportam foi **conferida contra o banco**, num shard só e
+numa faixa fechada — porque contagem própria não prova nada. Faixa
+(26.180.000, 27.250.000] do `a4`, com os outros 6 shards, os 4 do #105 e o #106
+no ar:
+
+| | |
+|---|---|
+| pendência na faixa, t0 (20:52:51 UTC) | classe 120.805 · assunto 146.026 · **união 150.091** |
+| pendência na faixa, t1 (21:04:22 UTC) | **0 · 0 · 0** |
+| linhas que o log do `a4` reportou na janela | **157.557** |
+| ⇒ vazão de UM shard | **~217 linhas/s** |
+
+Os dois lados fecham: 157.557 escritos ≈ 150.091 fechados na faixa mais a cauda
+do bloco anterior. E o **campo de controle** é a própria faixa ir a zero nas
+duas colunas. Com 7 shards, a pendência de `classe_id` caiu de **2.945.391**
+(20:31) para **2.162.864** (20:50) — 782.527 linhas em 1.140 s, **686
+linhas/s** só de `classe`, mais o que fechou de `assunto` na mesma passada.
+
+⚠️ Na primeira tentativa eu calculei essa taxa com horário **estimado** em vez
+de lido, e ela deu 178/s — 3,8x menor. Não havia nada errado com a corrida:
+estava errado o relógio da conta. `date -u` custa nada; supor a hora custou uma
+investigação inteira atrás de um gargalo que não existia.
 
 ⚠️ **O freio (`ms` por 1.000 pks) é confundido pela densidade nesta tabela.**
 Ela vai de 5% a 78% entre blocos vizinhos, então a métrica não separa "o banco
