@@ -32,6 +32,28 @@ TRÊS COISAS QUE ESTA TABELA NÃO DIZ, e é importante que não digam:
    ficar alguns milhares ACIMA do declarado, e foi assim que o TRT20 fechou
    235.758 contra 235.754 — completude, não defeito. Por isso a divergência é
    mostrada nas duas direções.
+
+O DENOMINADOR DO CNJ TEM LIXO DENTRO, e sem descontá-lo esta tabela acusa
+buraco onde não há (medido em 31/08/2026):
+
+    TJSP  declarado 74.686.714 · sem `numeroProcesso` 5.337.680 (7,15%)
+    TJMG  declarado 36.698.417 · sem `numeroProcesso`    20.313
+    TJRJ  declarado 23.152.022 · sem `numeroProcesso`    87.341
+
+São documentos com `numeroProcesso: null`, `classe: {codigo: "-1", nome:
+"Inválido"}`, `grau: null` — 200 de 200 numa amostra do TJSP. Sem CNJ eles não
+casam com nada, e `doc_do_datajud` já os descarta. E há um detalhe que fecha o
+argumento: o conjunto "sem `numeroProcesso`" é EXATAMENTE o conjunto "sem
+`@timestamp`" (5.337.680 = 5.337.680 nos três tribunais conferidos) — sem chave
+de ordenação, a varredura, que pagina por `range @timestamp`, **nunca poderia
+alcançá-los**. Não é buraco nosso; é linha vazia do CNJ.
+
+Por isso a coluna `inválidos` existe e o veredito usa o delta LÍQUIDO. Ela custa
+1 requisição a mais, e só nos tribunais que acusaram diferença.
+
+⚠️ `classe.codigo = -1` NÃO serve como critério: é um superconjunto (TJSP
+5.408.140) que engloba processos REAIS com classe inválida. O critério é a
+ausência de `numeroProcesso`.
 """
 import json
 import time
@@ -130,9 +152,14 @@ class Command(BaseCommand):
         dec, nosso = linha['declarado'], linha['acervo']
         # divergência NOS DOIS SENTIDOS: falta é buraco, sobra é o acervo se
         # movendo durante a varredura (ou doc que o CNJ removeu depois)
-        linha['delta'] = max(0, dec - nosso)
+        bruto = max(0, dec - nosso)
         linha['sobra'] = max(0, nosso - dec)
-        linha['cobertura'] = (nosso / dec) if dec else 0
+        # só gasta a requisição extra quando há diferença para explicar
+        linha['invalidos'] = self._invalidos(cli, sigla) if bruto else 0
+        linha['declarado_util'] = dec - (linha['invalidos'] or 0)
+        linha['delta'] = max(0, bruto - (linha['invalidos'] or 0))
+        linha['cobertura'] = ((nosso / linha['declarado_util'])
+                              if linha['declarado_util'] else 0)
         linha['requisicoes'] = -(-linha['delta'] // 10_000)     # teto da página
         linha['eta_s'] = linha['delta'] / o['docs_por_s'] if linha['delta'] else 0
         linha['estado'] = (
@@ -140,6 +167,20 @@ class Command(BaseCommand):
             else 'na fila' if sigla in estado_fila['na_fila']
             else 'OK' if linha['cobertura'] >= o['limiar'] else 'INCOMPLETO')
         return linha
+
+    def _invalidos(self, cli, sigla) -> int | None:
+        """Linhas que o CNJ conta e que não são processo: sem `numeroProcesso`.
+
+        `None` quando a contagem falhou — e aí o delta fica BRUTO, porque
+        descontar um número que não se mediu seria inventar completude.
+        """
+        try:
+            d = cli._post(sigla, {'size': 0, 'track_total_hits': True, 'query': {
+                'bool': {'must_not': [{'exists': {'field': 'numeroProcesso'}}]}}},
+                cota='varredura')
+            return d['hits']['total']['value']
+        except Exception:                                       # noqa: BLE001
+            return None
 
     def _controle(self, es, acervo) -> dict:
         """CAMPO DE CONTROLE: `proc` tem que dar 100%, ou a régua é lixo.
@@ -192,39 +233,55 @@ class Command(BaseCommand):
 
     def _tabela(self, linhas, controle, o):
         self.stdout.write(
-            f'{"trib":8}{"declarado":>13}{"acervo":>13}{"delta":>12}{"sobra":>9}'
-            f'{"cob":>8}{"reqs":>8}{"ETA":>8}{"processos":>12}  estado')
+            f'{"trib":8}{"declarado":>13}{"inválidos":>11}{"acervo":>13}'
+            f'{"delta":>11}{"sobra":>8}{"cob":>8}{"reqs":>7}{"ETA":>7}'
+            f'{"processos":>12}  estado')
         for x in sorted(linhas, key=lambda y: -(y['declarado'] or 0)):
             if x['declarado'] is None:
                 self.stdout.write(self.style.ERROR(
-                    f'{x["tribunal"]:8}{"—":>13}{"—":>13}{"—":>12}{"—":>9}'
-                    f'{"—":>8}{"—":>8}{"—":>8}{"—":>12}  {x["estado"]}: {x["erro"]}'))
+                    f'{x["tribunal"]:8}{"—":>13}{"—":>11}{"—":>13}{"—":>11}'
+                    f'{"—":>8}{"—":>8}{"—":>7}{"—":>7}{"—":>12}'
+                    f'  {x["estado"]}: {x["erro"]}'))
                 continue
             marca = '✔' if x['estado'] == 'OK' else ' '
+            inval = x.get('invalidos')
             linha = (
-                f'{x["tribunal"]:8}{x["declarado"]:>13,}{x["acervo"]:>13,}'
-                f'{x["delta"]:>12,}{x["sobra"]:>9,}{x["cobertura"]:>7.2%}'
-                f'{x["requisicoes"]:>8,}{_dur(x["eta_s"]):>8}'
+                f'{x["tribunal"]:8}{x["declarado"]:>13,}'
+                f'{("?" if inval is None else f"{inval:,}"):>11}'
+                f'{x["acervo"]:>13,}{x["delta"]:>11,}{x["sobra"]:>8,}'
+                f'{x["cobertura"]:>7.2%}{x["requisicoes"]:>7,}'
+                f'{_dur(x["eta_s"]):>7}'
                 f'{(x["processos"] if x["processos"] is not None else 0):>12,}'
                 f'  {marca} {x["estado"]}')
             self.stdout.write(
                 self.style.WARNING(linha) if x['estado'] == 'INCOMPLETO' else linha)
 
         dec = sum(x['declarado'] or 0 for x in linhas)
+        inval = sum(x.get('invalidos') or 0 for x in linhas)
+        util = dec - inval
         ace = sum(x['acervo'] or 0 for x in linhas)
         pro = sum(x['processos'] or 0 for x in linhas)
         delta = sum(x['delta'] or 0 for x in linhas)
         reqs = sum(x['requisicoes'] or 0 for x in linhas)
-        self.stdout.write('─' * 100)
+        self.stdout.write('─' * 110)
         self.stdout.write(
-            f'{"TOTAL":8}{dec:>13,}{ace:>13,}{delta:>12,}{"":>9}'
-            f'{(ace / dec if dec else 0):>7.2%}{reqs:>8,}'
-            f'{_dur(delta / o["docs_por_s"] / max(1, o["conexoes"])):>8}{pro:>12,}')
+            f'{"TOTAL":8}{dec:>13,}{inval:>11,}{ace:>13,}{delta:>11,}{"":>8}'
+            f'{(ace / util if util else 0):>7.2%}{reqs:>7,}'
+            f'{_dur(delta / o["docs_por_s"] / max(1, o["conexoes"])):>7}{pro:>12,}')
         self.stdout.write(
             f'\nCUSTO DA PUXADA DO QUE FALTA: {delta:,} docs · {reqs:,} requisições '
             f'· ~{_dur(delta / o["docs_por_s"])} serial '
             f'· ~{_dur(delta / o["docs_por_s"] / max(1, o["conexoes"]))} '
             f'com {o["conexoes"]} conexões · ~{delta * 225 / 1e9:.1f} GB em disco')
+        if inval:
+            self.stdout.write(
+                f'descontados {inval:,} documentos que o CNJ conta e que não são '
+                f'processo (sem `numeroProcesso`) — sem esse desconto o delta '
+                f'seria {delta + inval:,} e a tabela acusaria buraco onde não há')
+        self.stdout.write(self.style.WARNING(
+            '⚠ o watermark NÃO alcança este delta: a passada incremental pede '
+            '`@timestamp >= cursor` e o cursor já está no máximo da fonte. '
+            'Fechar o delta exige `--do-zero` (varredura completa do tribunal).'))
 
         c = controle
         texto = (f'CONTROLE `proc`: {c["docs"]:,} docs · sem o campo {c["sem_proc"]:,} '

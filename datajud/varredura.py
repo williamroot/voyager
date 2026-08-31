@@ -634,7 +634,8 @@ def medir_alvo(sigla: str, client: DatajudClient | None = None) -> dict:
     nenhum, porque vira base de decisão.
     """
     client = client or DatajudClient(prefer_cortex=False)
-    saida = {'declarado': None, 'nosso': None, 'alvo': None, 'erro': None}
+    saida = {'declarado': None, 'nosso': None, 'invalidos': 0, 'alvo': None,
+             'erro': None}
     try:
         d = client._post(sigla.upper(), {'size': 0, 'track_total_hits': True,
                                          'query': {'match_all': {}}},
@@ -650,7 +651,27 @@ def medir_alvo(sigla: str, client: DatajudClient | None = None) -> dict:
     except Exception as exc:                                # noqa: BLE001
         saida['erro'] = f'nosso: {str(exc)[:120]}'
         return saida
-    saida['alvo'] = max(0, saida['declarado'] - saida['nosso'])
+
+    bruto = max(0, saida['declarado'] - saida['nosso'])
+    if bruto:
+        # O `_count` do CNJ inclui linhas que NÃO são processo: `numeroProcesso`
+        # nulo, `classe: {codigo: "-1", nome: "Inválido"}`. Medido em
+        # 31/08/2026: 5.337.680 no TJSP (7,15% do que ele declara), e são
+        # EXATAMENTE as mesmas linhas que não têm `@timestamp` — sem chave de
+        # ordenação, a paginação por `range @timestamp` nunca poderia alcançá-las.
+        # Sem este desconto o alvo do TJSP seria 5,6 M para sempre, e o ETA
+        # prometeria trazer o que não existe.
+        try:
+            d = client._post(sigla.upper(), {'size': 0, 'track_total_hits': True,
+                                             'query': {'bool': {'must_not': [
+                                                 {'exists': {'field': 'numeroProcesso'}}]}}},
+                             cota='varredura')
+            saida['invalidos'] = ((d.get('hits') or {}).get('total') or {}).get('value') or 0
+        except Exception as exc:                            # noqa: BLE001
+            # abster: alvo BRUTO e o motivo dito, nunca um desconto inventado
+            saida['erro'] = f'invalidos: {str(exc)[:120]}'
+            saida['invalidos'] = None
+    saida['alvo'] = max(0, bruto - (saida['invalidos'] or 0))
     return saida
 
 
@@ -719,6 +740,27 @@ def varrer_tribunal(sigla: str, retomar: bool = True, max_paginas: int | None = 
     if not filtro:
         campos['datajud_varredura_cursor'] = resumo['cursor']
     Tribunal.objects.filter(pk=trib.pk).update(**campos)
+    # INCREMENTAL CEGO — o defeito que este bloco existe para não deixar passar.
+    # `@timestamp` é a única chave que o Datajud aceita ordenar, e o cursor
+    # termina sempre em `máximo da fonte + 1`. Se a fonte ganhar documento com
+    # `@timestamp` MENOR que o cursor (o CNJ reescreve `dataHoraUltimaAtualizacao`
+    # em lote: medido em 31/08/2026, meses inteiros do TJSP mudaram de bucket), a
+    # passada incremental devolve `fim` com ZERO documentos e status verde —
+    # enquanto a medição dos dois lados diz que falta gente.
+    # Sozinho, o `parou_por='fim'` é auto-confirmatório: o laço acaba exatamente
+    # onde a fonte acaba. Isto aqui é a segunda opinião.
+    if alvo.get('alvo') and not resumo['gravados'] and not filtro:
+        logger.error(
+            'varredura %s: passada incremental trouxe 0 documentos, mas a '
+            'medição dos dois lados diz que faltam %s (declarado %s − inválidos '
+            '%s − nosso %s). O watermark NÃO alcança esse buraco: só '
+            '`--do-zero` alcança.', sigla, f"{alvo['alvo']:,}",
+            f"{alvo.get('declarado') or 0:,}", f"{alvo.get('invalidos') or 0:,}",
+            f"{alvo.get('nosso') or 0:,}")
+        telemetria.registrar_erro(
+            trib.sigla, 'incremental_cego',
+            f"faltam {alvo['alvo']:,} e o cursor não alcança — só `--do-zero`")
+        resumo['incremental_cego'] = alvo['alvo']
     logger.info('varredura %s: %s', sigla, resumo)
     return resumo
 

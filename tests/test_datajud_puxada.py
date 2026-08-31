@@ -379,3 +379,92 @@ def test_telemetria_nao_derruba_a_varredura(sem_es, monkeypatch):
     r = v.rodar()
     assert len(sem_es.docs) == 10
     assert r['parou_por'] == 'fim'
+
+
+# --------------------------------------------------------------------------- #
+# 6. o incremental que não enxerga o buraco
+# --------------------------------------------------------------------------- #
+
+@CACHE_LOCAL
+@pytest.mark.django_db
+def test_incremental_que_traz_zero_com_buraco_medido_e_erro(sem_es, monkeypatch):
+    """`fim` com 0 documentos é auto-confirmatório e por isso não vale nada.
+
+    O cursor termina sempre em "máximo da fonte + 1", então a passada seguinte
+    acaba exatamente onde a fonte acaba — e devolve verde mesmo quando a
+    medição dos DOIS lados diz que faltam milhões. Medido em 31/08/2026: os 59
+    tribunais devolveram 0 documentos em `gte cursor` enquanto o CNJ declarava
+    283.987 processos que não temos.
+
+    O contrato: 0 trazidos + alvo medido > 0 ⇒ ERRO registrado, nunca `fim`.
+    """
+    from tribunals.models import Tribunal
+    cache.clear()
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJMG', defaults={'nome': 'TJ Minas', 'sigla_djen': 'TJMG'})
+    Tribunal.objects.filter(pk=t.pk).update(datajud_varredura_cursor=99_999)
+
+    vazia = varredura([], sem_es, pagina=3)          # fonte não devolve nada
+    vazia.telemetria_ativa = True
+    monkeypatch.setattr(V, 'Varredura', lambda *a, **k: vazia)
+    monkeypatch.setattr(V, 'medir_alvo', lambda *a, **k: {
+        'declarado': 36_698_417, 'nosso': 36_678_104, 'invalidos': 0,
+        'alvo': 20_313, 'erro': None})
+
+    r = V.varrer_tribunal('TJMG')
+
+    assert r['gravados'] == 0
+    assert r.get('incremental_cego') == 20_313, 'buraco medido não virou alerta'
+    estado = telemetria.ler('TJMG')
+    assert 'incremental_cego' in (estado.get('erros') or {})
+    # o alerta tem que dizer o TAMANHO e a SAÍDA, senão vira ruído que o
+    # operador aprende a ignorar
+    assert '20,313' in estado['ultimo_erro']
+    assert '--do-zero' in estado['ultimo_erro']
+
+
+@CACHE_LOCAL
+@pytest.mark.django_db
+def test_incremental_vazio_SEM_buraco_nao_alarma(sem_es, monkeypatch):
+    """Controle negativo: fonte em dia e nada trazido é o caso NORMAL do
+    incremental. Alarmar aqui treinaria o operador a ignorar o alarme."""
+    from tribunals.models import Tribunal
+    cache.clear()
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJMG', defaults={'nome': 'TJ Minas', 'sigla_djen': 'TJMG'})
+    Tribunal.objects.filter(pk=t.pk).update(datajud_varredura_cursor=99_999)
+
+    vazia = varredura([], sem_es, pagina=3)
+    monkeypatch.setattr(V, 'Varredura', lambda *a, **k: vazia)
+    monkeypatch.setattr(V, 'medir_alvo', lambda *a, **k: {
+        'declarado': 235_759, 'nosso': 235_759, 'invalidos': 0, 'alvo': 0,
+        'erro': None})
+    r = V.varrer_tribunal('TJMG')
+    assert r['gravados'] == 0
+    assert 'incremental_cego' not in r
+
+
+@CACHE_LOCAL
+@pytest.mark.django_db
+def test_alvo_desconta_o_lixo_que_o_cnj_conta(monkeypatch):
+    """O `_count` do CNJ inclui linha sem `numeroProcesso` — 5.337.680 no TJSP.
+
+    Sem o desconto, o alvo do TJSP seria 5,6 M para sempre e o ETA prometeria
+    trazer o que não existe. Com ele, sobra o resíduo REAL.
+    """
+    cache.clear()
+
+    class Cli:
+        def _post(self, sigla, body, cota=None):
+            q = body.get('query') or {}
+            invalidos = 'must_not' in (q.get('bool') or {})
+            return {'hits': {'total': {'value': 5_337_680 if invalidos
+                                       else 74_686_714}}}
+
+    monkeypatch.setattr(V, 'get_es', lambda: type('E', (), {
+        'options': lambda self, **k: type('O', (), {
+            'count': lambda self, **kk: {'count': 69_078_849}})()})())
+    r = V.medir_alvo('TJSP', client=Cli())
+    assert r['declarado'] == 74_686_714
+    assert r['invalidos'] == 5_337_680
+    assert r['alvo'] == 270_185, 'não descontou o lixo do denominador'
