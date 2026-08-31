@@ -269,7 +269,12 @@ class Command(BaseCommand):
         Existe porque o delta NÃO É ALCANÇÁVEL pelo watermark e um `--do-zero`
         custa o tribunal inteiro: no TJSP, 6.900 requisições e ~40 h para
         reencontrar 270.185 documentos. Comparando os buckets, o mesmo trabalho
-        vira uma JANELA — 248 requisições e ~1,4 h para 69% do buraco.
+        vira uma JANELA — 248 requisições e ~1 h 27 para 69% do buraco.
+
+        A janela LÊ o mês inteiro para achar o que falta dentro dele, e é por
+        isso que a linha impressa mostra os dois números: quantos documentos
+        novos ela traz e quantos ela precisa ler para trazê-los. Orçar pelo
+        primeiro erra por 12×.
 
         ⚠️ Só os meses RECENTES são comparáveis. O CNJ reescreve
         `dataHoraUltimaAtualizacao` em lote, e nos meses antigos os dois lados
@@ -343,9 +348,12 @@ class Command(BaseCommand):
             ano, m = int(mes[:4]), int(mes[5:])
             prox = f'{ano + 1}-01-01' if m == 12 else f'{ano}-{m + 1:02d}-01'
             reqs = -(-fonte[mes] // 10_000)
+            horas = fonte[mes] / 474.7 / 3600      # vazão medida no TRT20
             self.stdout.write(
                 f'    manage.py datajud_varredura {sigla} --desde {mes}-01 '
-                f'--ate {prox}    # +{dif:,} docs · ~{reqs:,} requisições')
+                f'--ate {prox}\n'
+                f'        # +{dif:,} docs novos · lê {fonte[mes]:,} · '
+                f'~{reqs:,} requisições · ~{horas:.1f} h a 474,7 docs/s')
 
     def _estado_da_fila(self) -> dict:
         from rq.registry import StartedJobRegistry
