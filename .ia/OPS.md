@@ -1795,6 +1795,36 @@ ele pode nunca ganhar (esperou 12,6 h). Quando o alvo é um índice **inválido*
 cancelar e fazer `DROP INDEX` comum com `lock_timeout` curto **e repetição** —
 assim nunca se entra na fila do lock, que é o que a regra do auto-jam proíbe.
 
+### Epílogo (31/08/2026): aquele run terminou verde e não tinha terminado
+
+O run das 12,7 h foi cancelado, o `--batch` caiu para 2.000 e o comando voltou a
+rodar no TJSP — e terminou. Só que ele **não** tinha computado o TJSP: o pick
+trazia `AND data_enriquecimento_datajud IS NULL`, e 100% dos processos que
+sobraram já tinham passado pelo Datajud. Ele parou porque acabou o que o corte
+deixava ele ver, e saiu `SUCCESS`.
+
+Sobraram **1.513.486** processos com `tem_sinal_precatorio` NULL, invisíveis para
+qualquer run que repetisse o comando. Consertado no mesmo dia (o corte virou a
+flag `--so-sem-datajud`, desligada por padrão) e computado: ver
+`.ia/ACERVO_CNJ.md`, seção "O sinal do TJSP".
+
+**Como rodar hoje** (`.102`, resumível, paralelizável por `SKIP LOCKED`):
+
+```bash
+ssh ubuntu@192.168.30.102 'cd ~/voyager && \
+  docker compose -f docker-compose-workers.yml run --rm --no-deps -T \
+  worker_datajud python manage.py backfill_sinal_precatorio \
+  --tribunais TJSP --batch 2000 --sleep 0.1'
+```
+
+- `--dry-run` não escreve nada: só o **censo** de quem está NULL, por tribunal.
+- `--tribunais TODOS` pega quem tiver NULL (59 tribunais, 21,6 M em 31/08/2026).
+- ~80 processos/s por runner; 8 cópias simultâneas ≈ 640/s **sem** mover a sonda
+  de latência do banco (0,20 s antes e durante).
+- Lote que estoura o `statement_timeout` é ERROR com o número real, entra numa
+  lista que o pick exclui, e faz o `FIM` sair em **stderr** — run com lote
+  queimado não é run verde.
+
 ### 🔴 PARE DE TENTAR E PERGUNTE QUEM SEGURA
 
 Eu gastei **165 tentativas** de `DROP INDEX` com `lock_timeout='2s'` em três
