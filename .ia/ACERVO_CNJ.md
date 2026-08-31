@@ -758,9 +758,24 @@ dump completo dos ids em 188 s):
 | movimentações por processo | mediana 26 · média 54,8 · máx 1.764 | |
 | `tem_sinal_precatorio = TRUE` pelo padrão atual | **100 (3,33%)** | ≈ 50,4 k no total |
 
-Os 1,5 M são processos que o Datajud enriqueceu, e o Datajud **escreve
-movimentação com texto** (`datajud/parser.py:build_texto` = nome do movimento +
-complementos tabelados). O sinal sai do disco, sem uma requisição ao CNJ.
+Os 1,5 M **não** são esqueletos do Datajud: são processos que já vinham do DJEN
+e que o Datajud enriqueceu depois. Na mesma amostra, por origem da movimentação
+(`meio`): **2.976 de 3.000 têm texto de DJEN** (`meio='D'`), 1.976 têm
+movimentação do Datajud (`meio='datajud'`, que também traz texto —
+`datajud/parser.py:build_texto` = nome do movimento + complementos tabelados),
+159 têm de enricher.
+
+E as duas portas contribuem para o sinal — dos 100 TRUE:
+
+| | n |
+|---|---:|
+| detectável no texto **DJEN** | 93 |
+| detectável no texto **Datajud** | 18 |
+| **só** no Datajud (o DJEN não veria) | **7** |
+| só no DJEN | 82 |
+
+Ou seja: ler só o DJEN perderia 7% dos acertos, e ler só o Datajud perderia 82%.
+O `EXISTS` sobre `movimentacao.texto` lê as duas — sem uma requisição ao CNJ.
 
 3,33% é coerente com os 3,66% medidos em 25/08 na parte já varrida do TJSP. A
 estimativa antiga de "≈ 150 k processos com sinal escondidos" era sobre os 4,1 M;
