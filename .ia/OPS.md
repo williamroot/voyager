@@ -1825,6 +1825,31 @@ ssh ubuntu@192.168.30.102 'cd ~/voyager && \
   lista que o pick exclui, e faz o `FIM` sair em **stderr** — run com lote
   queimado não é run verde.
 
+**Kill switch (use ANTES de qualquer DDL em `tribunals_process`):**
+
+```python
+cache.set('backfill_sinal:off', True)     # desliga o LOOP, sem deploy
+cache.delete('backfill_sinal:off')        # religa
+```
+
+⚠️ Ele impede que um lote NOVO comece; **não** interrompe o que já está rodando.
+Se você precisa da janela AGORA, o switch sozinho custa até um lote (~35 s com
+`--batch 2000`). Para a janela imediata:
+
+```sql
+SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+ WHERE datname='voyager' AND state='active' AND pid <> pg_backend_pid()
+   AND query LIKE 'UPDATE tribunals_process p SET tem_sinal%';
+```
+
+**`docker stop` NÃO basta** (medido em 31/08/2026): ele mata o cliente, e o
+backend do Postgres segue executando o `UPDATE` e segurando row-lock. Os 8
+containers pararam e as 8 consultas continuaram — só o `pg_cancel_backend`
+abriu a janela.
+
+E rodar com `--batch 500` em vez de 2000 derruba o lote de ~35 s para ~9 s: se
+há DDL prevista na mesma janela, é o ajuste mais barato.
+
 ### 🔴 PARE DE TENTAR E PERGUNTE QUEM SEGURA
 
 Eu gastei **165 tentativas** de `DROP INDEX` com `lock_timeout='2s'` em três
