@@ -99,12 +99,40 @@ class Process(models.Model):
     # Enriquecimento via consulta pública do tribunal (TRF1, etc.).
     # Campos string são fonte de verdade na ingestão; FKs são populadas
     # via data migration / signal pra normalizar e habilitar filtros.
+    #
+    # ⚠️ `classe_codigo` é COMPATIBILIDADE, não semântica. Três escritores com
+    # significados DIFERENTES disputam esta coluna — o enricher (classe atual
+    # no PJe/e-SAJ), a porta do Datajud (classe CADASTRAL do CNJ) e
+    # `preencher_classe_via_djen` (classe da última publicação em diário). Quem
+    # escreve por último ganha. Medido em 31/08/2026 (#105, amostra uniforme
+    # por pk, semente 20260831): dos 861 processos que rotulamos `12078`, o
+    # CNJ diz OUTRA classe em 222 (26,7% dos conferíveis) — e em **98,6%
+    # dessas** o processo TEM a fase de cumprimento contra a fazenda, provada
+    # por canal independente. Não é rótulo errado: são dois FATOS diferentes
+    # empilhados num campo só. Por isso as duas colunas abaixo.
     classe_codigo = models.CharField(max_length=20, blank=True)
     classe_nome = models.CharField(max_length=255, blank=True)
     classe = models.ForeignKey(
         ClasseJudicial, on_delete=models.PROTECT, null=True, blank=True,
         related_name='processos',
     )
+    # A classe CADASTRAL, como o CNJ a declara no Datajud. Escritor único: a
+    # porta do Datajud (`sync_processo`, `hidratar_cnj`, `backfill_classe_cnj`).
+    # É o campo que casa com o `voyager-acervo` e, portanto, com o denominador
+    # nacional. Vazio = o Datajud ainda não passou por este processo.
+    classe_cnj_codigo = models.CharField(max_length=20, blank=True)
+    classe_cnj_nome = models.CharField(max_length=255, blank=True)
+    # A FASE: a classe com que o tribunal PUBLICOU o processo mais
+    # recentemente no diário (DJEN/diários próprios) ou no detalhe do PJe.
+    # É o que o produto vende — um Juizado Especial Cível (436 no cadastro)
+    # em fase de Cumprimento de Sentença contra a Fazenda Pública (12078 na
+    # publicação) é lead, e o cadastro nunca vai dizer isso.
+    # `fase_em` é a data da publicação que provou a fase; ela existe para o
+    # escritor saber se o que ele tem em mãos é mais novo do que o gravado
+    # (sem ela, uma recoleta de dia antigo rebaixaria a fase atual).
+    fase_codigo = models.CharField(max_length=20, blank=True)
+    fase_nome = models.CharField(max_length=255, blank=True)
+    fase_em = models.DateTimeField(null=True, blank=True)
     assunto_codigo = models.CharField(max_length=20, blank=True)
     assunto_nome = models.CharField(max_length=255, blank=True)
     assunto = models.ForeignKey(

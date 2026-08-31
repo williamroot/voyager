@@ -402,6 +402,23 @@ def apply_event(event: dict) -> None:
                 setattr(processo, fld, dados_norm[fld])
                 update_fields.append(fld)
 
+        # A FASE (migration 0054). A classe do detalhe do PJe/e-SAJ é a classe
+        # ATUAL no sistema do tribunal — é a fase, não o cadastro do CNJ. Foi
+        # este canal que provou 10 das 12 discordâncias que o texto do diário
+        # não alcançava (partes EXEQUENTE × INSS no polo passivo, medição #105
+        # de 31/08/2026): o PJe dizia cumprimento contra a fazenda enquanto o
+        # Datajud declarava `Procedimento do Juizado Especial Cível`.
+        #
+        # `fase_em` = quando a fonte foi LIDA (`scraped_at`), não `now()`: um
+        # evento antigo drenado tarde não pode rebaixar uma fase mais nova.
+        fase_dt = scraped_at or timezone.now()
+        if (dados_norm.get('classe_codigo')
+                and (processo.fase_em is None or fase_dt > processo.fase_em)):
+            processo.fase_codigo = dados_norm['classe_codigo']
+            processo.fase_nome = (dados_norm.get('classe_nome') or '')[:255]
+            processo.fase_em = fase_dt
+            update_fields += ['fase_codigo', 'fase_nome', 'fase_em']
+
         # Partes — wipe + reinsert mantém ordem do enricher original
         ProcessoParte.objects.filter(processo_id=pid).delete()
         # Dedupe por chave da constraint uniq_processo_parte_polo_papel_principal

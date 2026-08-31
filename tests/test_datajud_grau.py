@@ -36,7 +36,8 @@ from datajud.ingestion import GRAUS_CONHECIDOS, _meta_updates_from_source
 def _coluna_grau_existe(monkeypatch):
     """Estes testes são de PARSER, não de banco. A guarda de coluna é testada
     à parte, em `test_sem_coluna_no_banco_nao_escreve_grau`."""
-    monkeypatch.setattr(ingestion, '_COLUNA_GRAU', [True])
+    monkeypatch.setattr(ingestion, '_COLUNAS_CONFERIDAS',
+                        {'grau': True, 'classe_cnj_codigo': True})
 
 
 def _proc(grau=''):
@@ -145,12 +146,15 @@ def test_sem_coluna_no_banco_nao_escreve_grau(monkeypatch):
     a sincronização INTEIRA — e leva junto os campos que já funcionavam. Aqui a
     guarda tem que abrir mão só do `grau`.
     """
-    monkeypatch.setattr(ingestion, '_COLUNA_GRAU', [False])
+    monkeypatch.setattr(ingestion, '_COLUNAS_CONFERIDAS',
+                        {'grau': False, 'classe_cnj_codigo': False})
     upd = _meta_updates_from_source(_proc(), {
         'grau': 'JE',
         'classe': {'codigo': 12078, 'nome': 'Cumprimento de Sentença'},
     })
     assert 'grau' not in upd, 'ia escrever numa coluna que não existe no banco'
+    # a MESMA guarda vale para as colunas da 0054 (`classe_cnj_*`)
+    assert 'classe_cnj_codigo' not in upd
     # controle positivo: o resto NÃO pode ser sacrificado junto
     assert upd['classe_codigo'] == '12078'
 

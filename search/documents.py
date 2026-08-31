@@ -35,7 +35,11 @@ _FONTE_CACHE: dict[str, FonteDiario] = {}
 # produz confiança falsa). Quem estiver com o processo velho para de escrever e
 # **diz o motivo**, em vez de degradar o índice inteiro sem um log.
 CAMPOS_EXIGIDOS: dict[str, tuple[str, ...]] = {
-    'Process': ('grau', 'segredo_justica'),
+    'Process': ('grau', 'segredo_justica',
+                # 0054 — sem eles o doc sairia com classe_cnj/fase vazias em
+                # TODO processo que passasse por um worker de código velho, e a
+                # tela diria "o CNJ não declara classe" para 104 M de linhas.
+                'classe_cnj_codigo', 'fase_codigo'),
     'ProcessoParte': ('fonte',),
 }
 
@@ -313,6 +317,15 @@ def processo_to_doc(proc: Process) -> dict:
         'proc_digits': _so_digitos(proc.numero_cnj),
         'classe_nome': proc.classe_nome or '',
         'codigo_classe': proc.classe_codigo or '',
+        # 0054: classe CADASTRAL (CNJ) × FASE (o que o tribunal publicou).
+        # `codigo_classe` acima continua sendo o campo de compatibilidade —
+        # quem quer o denominador nacional usa `classe_cnj_codigo`, quem quer
+        # o nicho usa `fase_codigo`. Ver `.ia/SEARCH_SCHEMA.md`.
+        'classe_cnj_codigo': proc.classe_cnj_codigo or '',
+        'classe_cnj_nome': proc.classe_cnj_nome or '',
+        'fase_codigo': proc.fase_codigo or '',
+        'fase_nome': proc.fase_nome or '',
+        'fase_em': proc.fase_em.isoformat() if proc.fase_em else None,
         'assunto': proc.assunto_nome or '',
         'assunto_codigo': proc.assunto_codigo or '',
         'advs': advs,

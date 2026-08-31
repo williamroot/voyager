@@ -86,6 +86,29 @@ PROC_MAPPING = {
             "proc_digits":     {"type": "keyword"},        # CNJ só dígitos (busca colável)
             "classe_nome":     {"type": "keyword"},
             "codigo_classe":   {"type": "keyword"},
+            # A SEPARAÇÃO da 0054 — `codigo_classe` acima é compatibilidade e
+            # mistura dois fatos; estes dois campos são cada um UM fato:
+            #
+            #   classe_cnj_*  o que o CNJ CADASTRA (Datajud) — casa com
+            #                 `voyager-acervo.classe_codigo`, é o denominador
+            #                 nacional;
+            #   fase_*        a classe com que o TRIBUNAL PUBLICOU o processo
+            #                 mais recentemente (diário ou detalhe do PJe) —
+            #                 é o que o produto vende.
+            #
+            # Medido em 31/08/2026 (#105): em 222 de 830 processos conferíveis
+            # que rotulávamos `12078`, o CNJ declara outra classe — e 98,6%
+            # deles TÊM a fase de cumprimento contra a fazenda, provada por
+            # canal independente. Um campo só não cabia os dois.
+            #
+            # ⚠️ Os nomes NÃO seguem a inversão histórica `codigo_classe` ×
+            # `classe_codigo` (que já custou uma medição inteira lendo o campo
+            # errado): aqui o nome é o MESMO do Postgres, nos dois índices.
+            "classe_cnj_codigo": {"type": "keyword"},
+            "classe_cnj_nome":   {"type": "keyword"},
+            "fase_codigo":       {"type": "keyword"},
+            "fase_nome":         {"type": "keyword"},
+            "fase_em":           {"type": "date"},
             "assunto":         {"type": "text", "analyzer": "portuguese_asciifolding"},
             "assunto_codigo":  {"type": "keyword"},        # TPU: filtro exato por assunto
             "advs":            {"type": "text", "analyzer": "portuguese_asciifolding"},

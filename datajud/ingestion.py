@@ -75,8 +75,34 @@ def _as_dict(x) -> dict:
 #: sabe dizer que está vazia.
 GRAUS_CONHECIDOS = frozenset({'G1', 'G2', 'JE', 'SUP', 'TR', 'TRU'})
 
-#: memo de uma consulta só; lista para não precisar de `global`
-_COLUNA_GRAU: list = []
+#: memo por coluna: {nome: existe?}. Uma consulta por coluna por processo.
+_COLUNAS_CONFERIDAS: dict[str, bool] = {}
+
+
+def coluna_existe(nome: str) -> bool:
+    """A coluna já está NO BANCO? (não no model — no banco.)
+
+    Generalização de `coluna_grau_existe` — mesma armadilha, mesma cura, agora
+    para `classe_cnj_codigo`/`fase_codigo` (migration 0054). Ver a docstring
+    abaixo para o porquê: é ordem de deploy, não paranoia.
+    """
+    if nome not in _COLUNAS_CONFERIDAS:
+        from django.db import connection
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'tribunals_process' AND column_name = %s",
+                    [nome])
+                existe = cur.fetchone() is not None
+        except Exception as e:
+            logger.warning('não deu pra conferir a coluna %s (%s) — não escrevo', nome, e)
+            return False
+        if not existe:
+            logger.warning('coluna `%s` ainda não existe no banco — o Datajud '
+                           'segue gravando o resto, e ela fica de fora', nome)
+        _COLUNAS_CONFERIDAS[nome] = existe
+    return _COLUNAS_CONFERIDAS[nome]
 
 
 def coluna_grau_existe() -> bool:
@@ -94,23 +120,7 @@ def coluna_grau_existe() -> bool:
     Uma consulta por processo, memorizada. `False` = `grau` simplesmente não é
     escrito; nada mais muda.
     """
-    if not _COLUNA_GRAU:
-        from django.db import connection
-        try:
-            with connection.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM information_schema.columns "
-                    "WHERE table_name = 'tribunals_process' AND column_name = 'grau'"
-                )
-                existe = cur.fetchone() is not None
-        except Exception as e:
-            logger.warning('não deu pra conferir a coluna grau (%s) — não escrevo', e)
-            return False
-        if not existe:
-            logger.warning('coluna `grau` ainda não existe no banco — o Datajud '
-                           'segue gravando o resto, e `grau` fica de fora')
-        _COLUNA_GRAU.append(existe)
-    return _COLUNA_GRAU[0]
+    return coluna_existe('grau')
 
 
 def _meta_updates_from_source(processo: Process, source: dict) -> dict:
@@ -134,6 +144,25 @@ def _meta_updates_from_source(processo: Process, source: dict) -> dict:
     if classe_codigo and not processo.classe_codigo:
         upd['classe_codigo'] = classe_codigo
         upd['classe_nome'] = classe_nome
+    # `classe_cnj_*` é a classe CADASTRAL e esta porta é a ÚNICA dona dela —
+    # então aqui NÃO existe o "só preenche lacuna" do `classe_codigo` acima:
+    # não há com quem conflitar, e o cadastro do CNJ muda (o próprio Datajud
+    # publica os movimentos `Retificação de Classe Processual` e `Mudança de
+    # Classe Processual`; 172 deles em 209 processos TRF3 amostrados em
+    # 31/08/2026). Guardar a primeira leitura para sempre seria congelar um
+    # fato que a fonte mudou.
+    #
+    # Por que a coluna existe, com o número (#105, 31/08/2026): em 222 de 830
+    # processos conferíveis que rotulamos `12078`, o CNJ declara outra classe
+    # — e em 98,6% deles o processo TEM a fase de cumprimento contra a
+    # fazenda, provada por canal independente do campo que gerou o rótulo.
+    # Não é rótulo errado: são dois fatos diferentes no mesmo campo. Ver
+    # `.ia/ACERVO_CNJ.md`.
+    if classe_codigo and (classe_codigo != (getattr(processo, 'classe_cnj_codigo', '') or '')
+                          or classe_nome != (getattr(processo, 'classe_cnj_nome', '') or '')):
+        if coluna_existe('classe_cnj_codigo'):
+            upd['classe_cnj_codigo'] = classe_codigo
+            upd['classe_cnj_nome'] = classe_nome
 
     assuntos = source.get('assuntos') or []
     if assuntos and not processo.assunto_codigo:

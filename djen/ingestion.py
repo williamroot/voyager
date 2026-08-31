@@ -56,13 +56,15 @@ def ingest_processo(processo, client: DJENClient | None = None) -> dict:
     novas = 0
     duplicadas = 0
     paginas = 0
+    fases_lote: dict[str, tuple] = {}
     for items in client.iter_pages_processo(tribunal.sigla_djen, processo.numero_cnj):
-        n_novas, n_dup = _process_page(items, tribunal, None, cnjs_tocados)
+        n_novas, n_dup = _process_page(items, tribunal, None, cnjs_tocados,
+                                       fases=fases_lote)
         novas += n_novas
         duplicadas += n_dup
         paginas += 1
     if cnjs_tocados:
-        _atualizar_resumo_processos(tribunal, cnjs_tocados)
+        _atualizar_resumo_processos(tribunal, cnjs_tocados, fases=fases_lote)
     now_ts = timezone.now()
     Process.objects.filter(pk=processo.pk).update(
         data_enriquecimento_djen=now_ts,
@@ -216,7 +218,8 @@ def _drenar_alertas(client: DJENClient, run: IngestionRun | None) -> None:
 
 def _fechar_lote(tribunal: Tribunal, cnjs: set[str],
                  com_novidade: set[str] | None = None,
-                 run: IngestionRun | None = None) -> None:
+                 run: IngestionRun | None = None,
+                 fases: dict[str, tuple] | None = None) -> None:
     """Fecha um lote de CNJs: resumo dos processos + auto-enqueue. Chamado a
     cada `CNJS_POR_LOTE` em vez de uma vez no fim do dia — ver a constante.
 
@@ -224,7 +227,7 @@ def _fechar_lote(tribunal: Tribunal, cnjs: set[str],
     de 24 h); só a ESCRITA do resumo é restrita a quem mudou."""
     if not cnjs:
         return
-    _atualizar_resumo_processos(tribunal, cnjs, com_novidade, run)
+    _atualizar_resumo_processos(tribunal, cnjs, com_novidade, run, fases)
     _enfileirar_todos_enrichments(tribunal, cnjs)
 
 
@@ -267,6 +270,11 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
     )
     cnjs_tocados: set[str] = set()
     cnjs_com_novidade: set[str] = set()
+    #: {cnj: (codigo_classe, nome_classe, data_disponibilizacao)} da publicação
+    #: mais recente do LOTE. Zerado junto com `cnjs_tocados` — cresce com o
+    #: lote (≤ CNJS_POR_LOTE), nunca com o dia (regra nº 1: iterar, não
+    #: acumular; foi acumulação que matou o processo 342 vezes por OOM).
+    fases_lote: dict[str, tuple] = {}
     t0 = time.monotonic()
     logger.info('ingest_window inicio %s %s→%s run_id=%d', tribunal.sigla, data_inicio, data_fim, run.pk)
     try:
@@ -282,15 +290,17 @@ def ingest_window(tribunal: Tribunal, data_inicio: date, data_fim: date,
         # os CNJs tocados saem em lotes de CNJS_POR_LOTE em vez de esperar o dia
         # inteiro na memória. Nada aqui pode crescer com o tamanho do dia.
         for items in client.iter_pages(tribunal.sigla_djen, data_inicio, data_fim):
-            _process_page(items, tribunal, run, cnjs_tocados, cnjs_com_novidade)
+            _process_page(items, tribunal, run, cnjs_tocados, cnjs_com_novidade,
+                          fases_lote)
             del items
             _vigiar_memoria(run)
             _drenar_alertas(client, run)
             if len(cnjs_tocados) >= CNJS_POR_LOTE:
-                _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run)
+                _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run, fases_lote)
                 cnjs_tocados = set()
                 cnjs_com_novidade = set()
-        _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run)
+                fases_lote = {}
+        _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run, fases_lote)
         _drenar_alertas(client, run)
         run.status = IngestionRun.STATUS_SUCCESS
     except DjenBusyError:
@@ -346,6 +356,11 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
     )
     cnjs_tocados: set[str] = set()
     cnjs_com_novidade: set[str] = set()
+    #: {cnj: (codigo_classe, nome_classe, data_disponibilizacao)} da publicação
+    #: mais recente do LOTE. Zerado junto com `cnjs_tocados` — cresce com o
+    #: lote (≤ CNJS_POR_LOTE), nunca com o dia (regra nº 1: iterar, não
+    #: acumular; foi acumulação que matou o processo 342 vezes por OOM).
+    fases_lote: dict[str, tuple] = {}
 
     def _iter_paginas_uf(uf: str):
         """Pagina uma fatia de UF ATÉ ESGOTAR.
@@ -450,13 +465,15 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
                 total_itens += len(page)
                 for i in range(0, len(page), BATCH_SIZE):
                     _process_page(page[i:i + BATCH_SIZE], tribunal, run,
-                                  cnjs_tocados, cnjs_com_novidade)
+                                  cnjs_tocados, cnjs_com_novidade, fases_lote)
                 del page
                 _vigiar_memoria(run)
                 if len(cnjs_tocados) >= CNJS_POR_LOTE:
-                    _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run)
+                    _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run,
+                                 fases_lote)
                     cnjs_tocados = set()
                     cnjs_com_novidade = set()
+                    fases_lote = {}
 
         if uf_erros:
             logger.warning('djen UF strategy: %d UFs falharam: %s', len(uf_erros), uf_erros)
@@ -480,7 +497,7 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
                 f'({", ".join(sorted(uf_erros)[:8])}) — dia NÃO pode contar como coberto'
             )
 
-        _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run)
+        _fechar_lote(tribunal, cnjs_tocados, cnjs_com_novidade, run, fases_lote)
         _drenar_alertas(client, run)
         run.status = IngestionRun.STATUS_SUCCESS
     except Exception as exc:
@@ -508,12 +525,20 @@ def _ingest_day_por_uf(tribunal: Tribunal, dia: date, client: DJENClient) -> Ing
 
 def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | None,
                   cnjs_tocados: set[str],
-                  cnjs_com_novidade: set[str] | None = None) -> tuple[int, int]:
+                  cnjs_com_novidade: set[str] | None = None,
+                  fases: dict[str, tuple] | None = None) -> tuple[int, int]:
     """Processa uma página da DJEN. Retorna (novas, duplicadas) pra caller
     agregar quando rodando sem IngestionRun (ingest_processo).
 
     Quando `run` é não-None (caminho ingest_window/backfill_dia), atualiza
     os contadores no run direto. Atomicidade garante consistência da métrica.
+
+    `fases` (opcional) recebe {cnj: (codigo, nome, data)} da publicação MAIS
+    RECENTE vista — é a FASE do processo, o campo que a migration 0054 separou
+    da classe cadastral do CNJ. Custo zero: o dado já está na página, em
+    memória; nenhuma query nova. O dicionário é limitado pelo lote de
+    `CNJS_POR_LOTE` (regra nº 1: iterar, não acumular) porque `_fechar_lote` o
+    esvazia junto com `cnjs_tocados`.
 
     `cnjs_com_novidade` (opcional) recebe só os CNJs que ganharam movimentação
     NOVA nesta página. É o que separa "o processo apareceu de novo no diário"
@@ -537,6 +562,15 @@ def _process_page(items: list[dict], tribunal: Tribunal, run: IngestionRun | Non
 
     cnjs_pagina = {p.cnj for p in parsed}
     ext_ids_pagina = [p.external_id for p in parsed]
+
+    if fases is not None:
+        for p in parsed:
+            if not p.codigo_classe or not p.data_disponibilizacao:
+                continue
+            antes = fases.get(p.cnj)
+            if antes is None or p.data_disponibilizacao > antes[2]:
+                fases[p.cnj] = (p.codigo_classe, p.nome_classe,
+                                p.data_disponibilizacao)
 
     with transaction.atomic():
         existentes_cnj = dict(
@@ -637,6 +671,13 @@ CAMPOS_RESUMO = ['primeira_movimentacao_em', 'ultima_movimentacao_em',
                  'total_movimentacoes', 'data_enriquecimento_djen',
                  'atualizado_em']
 
+#: Os três campos da FASE (migration 0054), acrescentados ao UPDATE do resumo
+#: SÓ quando há fase nova a gravar. Ficam fora de `CAMPOS_RESUMO` porque a
+#: lista de campos do `bulk_update` não pode variar por lote **dentro** de uma
+#: chamada: o lote com fase e o lote sem fase são gravados em `bulk_update`
+#: SEPARADOS. Custo zero de query — o dado veio na própria página.
+CAMPOS_FASE = ['fase_codigo', 'fase_nome', 'fase_em']
+
 #: Quantas linhas de `tribunals_process` cada UPDATE trava por vez. Cada lote é
 #: uma transação PRÓPRIA — o `bulk_update` do Django envolve TODOS os batches
 #: num único `atomic()`, e é essa transação longa que fecha o ciclo de espera.
@@ -696,7 +737,8 @@ def _registrar_deadlock(run: IngestionRun | None, tribunal: Tribunal,
 
 
 def _gravar_lote_resumo(lote: list[Process], tribunal: Tribunal,
-                        run: IngestionRun | None) -> None:
+                        run: IngestionRun | None,
+                        campos: list[str] | None = None) -> None:
     """Escreve UM lote de resumos travando as linhas em ordem CRESCENTE de pk.
 
     O deadlock medido em 24/08/2026 (203 de 703 falhas da `djen_backfill`,
@@ -742,7 +784,7 @@ def _gravar_lote_resumo(lote: list[Process], tribunal: Tribunal,
                     .select_for_update(no_key=True).values_list('pk', flat=True)
                 )
                 Process.objects.bulk_update(
-                    lote, fields=CAMPOS_RESUMO, batch_size=len(lote),
+                    lote, fields=campos or CAMPOS_RESUMO, batch_size=len(lote),
                 )
             if tentativa > 1:
                 _registrar_deadlock(run, tribunal, tentativa, len(lote), venceu=True)
@@ -762,7 +804,8 @@ def _gravar_lote_resumo(lote: list[Process], tribunal: Tribunal,
 
 def _atualizar_resumo_processos(tribunal: Tribunal, cnjs: set[str],
                                 com_novidade: set[str] | None = None,
-                                run: IngestionRun | None = None) -> None:
+                                run: IngestionRun | None = None,
+                                fases: dict[str, tuple] | None = None) -> None:
     """Recalcula primeira/ultima_movimentacao_em e total_movimentacoes em batch.
 
     `com_novidade=None` significa "não sei quem mudou" (caminho
@@ -773,15 +816,16 @@ def _atualizar_resumo_processos(tribunal: Tribunal, cnjs: set[str],
     for cnj in cnjs:
         chunk.append(cnj)
         if len(chunk) >= 1000:
-            _flush_resumo(tribunal, chunk, com_novidade, run)
+            _flush_resumo(tribunal, chunk, com_novidade, run, fases)
             chunk = []
     if chunk:
-        _flush_resumo(tribunal, chunk, com_novidade, run)
+        _flush_resumo(tribunal, chunk, com_novidade, run, fases)
 
 
 def _flush_resumo(tribunal: Tribunal, cnjs: list[str],
                   com_novidade: set[str] | None = None,
-                  run: IngestionRun | None = None) -> None:
+                  run: IngestionRun | None = None,
+                  fases: dict[str, tuple] | None = None) -> None:
     """Reescreve o resumo SÓ de quem mudou, travando na ordem do pk.
 
     Amplificação medida em 24/08/2026, simulando a lógica de lote sobre a ordem
@@ -811,7 +855,8 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str],
         Process.objects.filter(tribunal=tribunal, numero_cnj__in=cnjs)
         .only('pk', 'numero_cnj', 'total_movimentacoes',
               'primeira_movimentacao_em', 'ultima_movimentacao_em',
-              'data_enriquecimento_djen', 'atualizado_em')
+              'data_enriquecimento_djen', 'atualizado_em',
+              'fase_codigo', 'fase_nome', 'fase_em')
     )
     if com_novidade is None:
         alvo = procs
@@ -838,6 +883,7 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str],
     )
     by_proc = {a['processo_id']: a for a in aggregates}
     to_update = []
+    com_fase = []
     for p in alvo:
         agg = by_proc.get(p.pk)
         if not agg:
@@ -853,16 +899,29 @@ def _flush_resumo(tribunal: Tribunal, cnjs: list[str],
         p.data_enriquecimento_djen = now_ts
         # CAMPAINHA — ver `CAMPOS_RESUMO`. Mesma linha, mesmo UPDATE.
         p.atualizado_em = now_ts
-        to_update.append(p)
-    if not to_update:
+        # A FASE (migration 0054): a classe com que o tribunal PUBLICOU o
+        # processo. Só sobe quando a publicação é MAIS NOVA do que a que já
+        # está gravada — senão uma recoleta de 2023 rebaixaria o cumprimento
+        # de 2026, que é exatamente o dado que o produto vende.
+        nova_fase = (fases or {}).get(p.numero_cnj)
+        if nova_fase and (p.fase_em is None or nova_fase[2] > p.fase_em):
+            p.fase_codigo, p.fase_nome, p.fase_em = (
+                nova_fase[0], (nova_fase[1] or '')[:255], nova_fase[2])
+            com_fase.append(p)
+        else:
+            to_update.append(p)
+    if not to_update and not com_fase:
         return
 
     # ORDEM TOTAL por pk: os lotes viram faixas crescentes e disjuntas, iguais
     # pra todo worker. Sem isso, dois workers com conjuntos sobrepostos travam
     # em ordens opostas — ver `_gravar_lote_resumo`.
-    to_update.sort(key=lambda p: p.pk)
-    for i in range(0, len(to_update), LOTE_UPDATE_PROCESS):
-        _gravar_lote_resumo(to_update[i:i + LOTE_UPDATE_PROCESS], tribunal, run)
+    for linhas, campos in ((to_update, CAMPOS_RESUMO),
+                           (com_fase, CAMPOS_RESUMO + CAMPOS_FASE)):
+        linhas.sort(key=lambda p: p.pk)
+        for i in range(0, len(linhas), LOTE_UPDATE_PROCESS):
+            _gravar_lote_resumo(linhas[i:i + LOTE_UPDATE_PROCESS], tribunal, run,
+                                campos)
 
 
 def _enfileirar_todos_enrichments(tribunal: Tribunal, cnjs: set[str]) -> None:

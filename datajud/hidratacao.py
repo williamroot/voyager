@@ -26,7 +26,7 @@ import logging
 
 from django.utils import timezone
 
-from datajud.ingestion import GRAUS_CONHECIDOS, coluna_grau_existe
+from datajud.ingestion import GRAUS_CONHECIDOS, coluna_existe, coluna_grau_existe
 from search.client import get_es, index_name
 from tribunals.cnj import sigla_do_cnj, so_digitos
 from tribunals.models import Process, Tribunal
@@ -100,6 +100,13 @@ def hidratar_cnj(cnj: str, com_enricher: bool = True) -> dict:
         grau = str((esq or {}).get('grau') or '').strip().upper()
         if grau in GRAUS_CONHECIDOS and coluna_grau_existe():
             campos['grau'] = grau
+        # A classe do esqueleto é a CADASTRAL — é o CNJ falando. Ela vai
+        # também para `classe_cnj_*` (migration 0054), que é o campo que casa
+        # com o `voyager-acervo`; `classe_codigo` acima fica como está por
+        # compatibilidade. Mesma guarda de coluna, mesma razão.
+        if campos['classe_codigo'] and coluna_existe('classe_cnj_codigo'):
+            campos['classe_cnj_codigo'] = campos['classe_codigo']
+            campos['classe_cnj_nome'] = campos['classe_nome']
         proc = Process.objects.create(**campos)
         estado = 'criado'
 
