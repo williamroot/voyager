@@ -294,25 +294,49 @@ class Command(BaseCommand):
         nosso = {b['key_as_string'][:7]: b['doc_count']
                  for b in r['aggregations']['m']['buckets'] if b['doc_count']}
 
+        meses = sorted(set(fonte) | set(nosso))
+        # "batem" = os dois lados falam do mesmo trecho sem reescrita no meio
+        batem = {m for m in meses
+                 if fonte.get(m) and nosso.get(m)
+                 and abs(fonte[m] - nosso[m]) / max(fonte[m], nosso[m]) < 0.01}
+
+        def vizinhos_batem(mes):
+            """Um bucket com a fonte à frente só é BURACO se os vizinhos batem.
+
+            Sem esta regra, o TJSP acusaria 2025-11 (+13,1 M) como a janela mais
+            valiosa — e ali não falta nada: é o carimbo de 14,2 M de documentos
+            que nós temos em 2025-08 e que a fonte reescreveu. O sinal de
+            reescrita é o vizinho: quando ele NÃO bate, os dois lados estão
+            falando de documentos com carimbos diferentes, e a subtração não
+            significa nada.
+            """
+            i = meses.index(mes)
+            volta = [meses[j] for j in (i - 1, i + 1) if 0 <= j < len(meses)]
+            return bool(volta) and all(m in batem for m in volta)
+
         self.stdout.write(self.style.MIGRATE_HEADING(f'\n▶ {sigla}'))
         self.stdout.write(f'{"mês":9}{"fonte":>13}{"nosso":>13}{"dif":>13}  veredito')
         alvos = []
-        for mes in sorted(set(fonte) | set(nosso)):
+        for mes in meses:
             f, n = fonte.get(mes, 0), nosso.get(mes, 0)
             dif = f - n
-            if f and n and abs(dif) / max(f, n) < 0.01:
+            if mes in batem:
                 veredito = 'batem'
-            elif dif > 0 and n:
-                veredito = self.style.WARNING('FONTE TEM MAIS → janela')
+            elif dif > 0 and vizinhos_batem(mes):
+                veredito = self.style.WARNING('BURACO → janela')
                 alvos.append((mes, dif))
             elif dif > 0:
-                veredito = 'reescrito? (nosso=0)'
+                veredito = 'carimbo reescrito (vizinho não bate) — ignorar'
             else:
-                veredito = 'reescrito? (nosso maior)'
+                veredito = 'carimbo reescrito (nosso maior) — ignorar'
             self.stdout.write(f'{mes:9}{f:>13,}{n:>13,}{dif:>13,}  {veredito}')
 
         if not alvos:
-            self.stdout.write('  nenhum mês comparável com a fonte à frente')
+            self.stdout.write(
+                '\n  nenhum BURACO localizável: ou o tribunal está em dia, ou o '
+                'que falta está espalhado por trechos que a fonte reescreveu — '
+                'e aí só `--do-zero` alcança. Compare com o delta do gate antes '
+                'de gastar a varredura completa.')
             return
         self.stdout.write('\n  janelas a varrer (não tocam o watermark):')
         for mes, dif in sorted(alvos, key=lambda x: -x[1]):
