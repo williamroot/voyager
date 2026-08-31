@@ -320,6 +320,19 @@ class Command(BaseCommand):
                 continue
 
             lo, hi = cur_pk, min(cur_pk + o['bloco'], topo)
+            if o.get('desde_atualizado'):
+                # No modo incremental o CURSOR também tem que ser guiado pelo
+                # índice. Sem este salto, o laço percorreria os 2.128 blocos de
+                # pk mesmo com a janela recente vazia — medido em 31/08/2026:
+                # 30 s para chegar em pk 32 M, ou seja, nunca alcançaria as
+                # 104 M dentro do teto do tique. O `min(id)` custa um Index
+                # Scan e pula direto para onde há trabalho.
+                proximo = self._proximo_pk_recente(tabela, pares, lo, topo, o)
+                if proximo is None:
+                    cur_pk = topo          # nada mais na janela: acabou
+                    break
+                lo = max(lo, proximo)
+                hi = min(lo + o['bloco'], topo)
             tb = time.monotonic()
             n = self._um_bloco(tabela, pares, lo, hi, tot,
                                orfaos_cod, orfaos_trib, o)
@@ -456,6 +469,25 @@ class Command(BaseCommand):
         return sleep, caro
 
     # ------------------------------------------------------------------ #
+
+    def _proximo_pk_recente(self, tabela: str, pares: tuple[Par, ...],
+                            lo: int, topo: int, o) -> int | None:
+        """Menor pk > `lo` que ainda precisa de reparo NA JANELA — ou `None`.
+
+        Deixa o índice de `atualizado_em` escolher onde parar, em vez de o laço
+        adivinhar bloco a bloco.
+        """
+        alvo = ' OR '.join(f"({par.src} <> '' AND {par.fk} IS NULL)"
+                           for par in pares)
+        with transaction.atomic(), connection.cursor() as cur:
+            cur.execute(f"SET LOCAL statement_timeout = '{o['statement_timeout']}';")
+            cur.execute(
+                f'SELECT min(id) FROM {tabela} '
+                f'WHERE id > %s AND id <= %s AND ({alvo}) '
+                f'AND atualizado_em > now() - %s::interval',
+                [lo, topo, f"{o['desde_atualizado']} hours"])
+            linha = cur.fetchone()
+        return linha[0] if linha and linha[0] is not None else None
 
     def _um_bloco(self, tabela: str, pares: tuple[Par, ...], lo: int, hi: int,
                   tot: dict, orfaos_cod: Counter, orfaos_trib: Counter,

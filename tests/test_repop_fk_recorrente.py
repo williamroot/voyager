@@ -80,3 +80,39 @@ def test_tique_chama_o_comando_com_teto_e_janela():
     assert kwargs['desde_atualizado'] == J.JANELA_REPOP_H
     assert kwargs['max_segundos'] == 900, 'sem teto, o tique atropela o próximo'
     assert r['janela_h'] == J.JANELA_REPOP_H
+
+
+def test_cursor_salta_para_o_proximo_pk_da_janela():
+    """O filtro dentro do bloco não basta: o LAÇO também precisa ser guiado.
+
+    Medido em 31/08/2026, antes deste salto: o tique percorria os blocos de pk
+    um a um mesmo com a janela vazia — 30 s para chegar em pk 32 M de 104 M, ou
+    seja, nunca fecharia dentro do teto de 900 s. Filtro certo, cursor cego.
+    """
+    cmd = R.Command()
+    with patch.object(cmd, '_proximo_pk_recente') as prox:
+        prox.return_value = None
+        assert cmd._proximo_pk_recente('t', (), 0, 100, {}) is None
+    # e o SQL do salto tem que usar min(id) + a janela
+    capturado = {}
+
+    class CursorFalso:
+        def execute(self, sql, params=None):
+            if 'min(id)' in sql:
+                capturado['sql'] = sql
+                capturado['params'] = params
+        def fetchone(self):
+            return (777,)
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    tabela, pares = R.ALVOS['process']
+    with patch.object(R.connection, 'cursor', return_value=CursorFalso()), \
+         patch.object(R.transaction, 'atomic'):
+        n = R.Command()._proximo_pk_recente(
+            tabela, pares, 10, 999, _opts(desde_atualizado=3.0))
+    assert n == 777
+    assert 'atualizado_em >' in capturado['sql']
+    assert '3.0 hours' in capturado['params']
