@@ -46,6 +46,17 @@ class DatajudComBytes(FakeDatajud):
         self.ultimos_bytes = 0
         self.sizes_pedidos = []
 
+    def _casa(self, d, query):
+        # o dublê original só conhece `gte`; a janela usa `lt` do outro lado
+        if 'range' in query and 'lt' in query['range'].get('@timestamp', {}):
+            r = query['range']['@timestamp']
+            if d['_ts'] >= r['lt']:
+                return False
+            if 'gte' in r and d['_ts'] < r['gte']:
+                return False
+            return True
+        return super()._casa(d, query)
+
     def _post(self, sigla, body, cota=None):
         size = int(body.get('size') or 0)
         if size:
@@ -505,3 +516,72 @@ def test_kill_switch_de_producao_e_chamado_do_jeito_certo(sem_es, monkeypatch):
     r = V.varrer_tribunal('TJMG')          # sem `parar=`: como o job real chama
     assert r['parou_por'] == 'fim'
     assert len(sem_es.docs) == 9
+
+
+# --------------------------------------------------------------------------- #
+# 7. janela de `@timestamp` — o que alcança o que o CNJ reescreveu para trás
+# --------------------------------------------------------------------------- #
+
+def test_janela_fecha_dos_dois_lados(sem_es):
+    """`--desde/--ate` tem que varrer só o que está DENTRO da janela.
+
+    Sem o `lt`, uma "janela" seria só um começo diferente e varreria até o fim
+    do tribunal — 69 M no TJSP em vez dos 2,4 M do mês pedido.
+    """
+    docs = [src(i, 1000 + i) for i in range(30)]
+    v = varredura(docs, sem_es, pagina=3)
+    r = v.rodar(cursor=1010, filtro={'range': {'@timestamp': {'lt': 1020}}})
+    assert r['parou_por'] == 'fim'
+    assert len(sem_es.docs) == 10, f'janela [1010, 1020) trouxe {len(sem_es.docs)}'
+
+
+@CACHE_LOCAL
+@pytest.mark.django_db
+def test_janela_nao_toca_o_watermark(sem_es, monkeypatch):
+    """Uma janela que termina em julho gravaria julho como watermark e apagaria
+    agosto do futuro. É a mesma razão pela qual a passada por classe não grava —
+    e o `--ate` só protege se virar FILTRO, não só parâmetro do laço."""
+    from tribunals.models import Tribunal
+    cache.clear()
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJMG', defaults={'nome': 'TJ Minas', 'sigla_djen': 'TJMG'})
+    Tribunal.objects.filter(pk=t.pk).update(datajud_varredura_cursor=9_999_999)
+
+    docs = [src(i, 1000 + i) for i in range(30)]
+    pronta = varredura(docs, sem_es, pagina=3)
+    monkeypatch.setattr(V, 'Varredura', lambda *a, **k: pronta)
+    monkeypatch.setattr(V, 'medir_alvo', lambda *a, **k: {})
+    V.varrer_tribunal('TJMG', desde=1010,
+                      filtro={'range': {'@timestamp': {'lt': 1020}}})
+    t.refresh_from_db()
+    assert t.datajud_varredura_cursor == 9_999_999, \
+        'a janela andou com o watermark para trás'
+
+
+def test_ate_vira_FILTRO_e_nao_so_parametro_do_laco():
+    """A proteção do watermark mora no `filtro`, não no laço.
+
+    `varrer_tribunal` só deixa de gravar o cursor quando `filtro` é verdadeiro.
+    Se `--ate` fosse implementado como um simples fim de laço, a janela
+    terminaria em julho e gravaria julho como watermark — apagando agosto do
+    futuro. Este teste olha a FIAÇÃO do comando, que é onde esse erro cabe.
+    """
+    from datajud.management.commands.datajud_varredura import Command
+    c = Command()
+    f = c._filtro({'classe': None, 'ate': '2026-08-01'})
+    assert f == {'range': {'@timestamp': {'lt': 1785542400000}}}
+
+    f2 = c._filtro({'classe': 12078, 'ate': '2026-08-01'})
+    assert f2['bool']['filter'][0] == {'term': {'classe.codigo': 12078}}
+    assert f2['bool']['filter'][1]['range']['@timestamp']['lt'] == 1785542400000
+
+    assert c._filtro({'classe': None, 'ate': None}) is None
+
+
+def test_ms_aceita_iso_e_epoch():
+    from datajud.management.commands.datajud_varredura import _ms
+    assert _ms('2026-07-01') == 1782864000000        # 00:00 UTC
+    assert _ms(1782864000000) == 1782864000000
+    assert _ms('1782864000000') == 1782864000000
+    assert _ms(None) is None
+    assert _ms('2026-07-01T12:00:00') == 1782864000000 + 12 * 3600 * 1000

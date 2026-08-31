@@ -677,7 +677,7 @@ def medir_alvo(sigla: str, client: DatajudClient | None = None) -> dict:
 
 def varrer_tribunal(sigla: str, retomar: bool = True, max_paginas: int | None = None,
                     filtro: dict | None = None, parar=None,
-                    medir: bool = True) -> dict:
+                    medir: bool = True, desde: int | None = None) -> dict:
     """Varre um tribunal salvando o watermark no `Tribunal` a cada passada.
 
     `retomar=False` recomeça do zero (varredura completa); `True` continua de
@@ -685,12 +685,18 @@ def varrer_tribunal(sigla: str, retomar: bool = True, max_paginas: int | None = 
 
     `parar` é o kill switch (default: `deve_parar`). `medir=False` desliga a
     medição do alvo — 1 requisição a menos, e a telemetria fica sem ETA.
+
+    `desde` (epoch ms) ignora o watermark e começa num ponto escolhido. É o que
+    torna possível reencontrar o que o CNJ reescreveu para TRÁS sem re-varrer o
+    tribunal inteiro — ver `.ia/ACERVO_CNJ.md`. Combinado com um `filtro` de
+    `lt`, vira uma JANELA fechada.
     """
     trib = Tribunal.objects.filter(sigla=sigla.upper()).first()
     if not trib:
         raise ValueError(f'tribunal desconhecido: {sigla}')
 
-    cursor = trib.datajud_varredura_cursor if retomar else 0
+    cursor = (desde if desde is not None
+              else trib.datajud_varredura_cursor if retomar else 0)
     # `deve_parar` recebe a SIGLA; o `Varredura.parar` é chamado sem argumento
     # (uma vez por página). Sem este fechamento o job morre com TypeError na
     # PRIMEIRA página — e morre depois de já ter medido o alvo, então a
@@ -698,7 +704,10 @@ def varrer_tribunal(sigla: str, retomar: bool = True, max_paginas: int | None = 
     v = Varredura(trib.sigla,
                   parar=(lambda: deve_parar(trib.sigla)) if parar is None else parar)
     alvo = medir_alvo(trib.sigla, client=v.client) if medir else {}
-    telemetria.abrir(trib.sigla, alvo=alvo.get('alvo'),
+    # Passada FILTRADA (nicho, janela de tempo) não tem ETA: o alvo é medido
+    # sobre o tribunal INTEIRO e prometeria um fim que este recorte não vai
+    # alcançar. Abster > chutar — o `declarado` fica, porque é contexto honesto.
+    telemetria.abrir(trib.sigla, alvo=None if filtro else alvo.get('alvo'),
                      declarado=alvo.get('declarado'), cursor=cursor,
                      filtrada=bool(filtro))
     if alvo.get('erro'):

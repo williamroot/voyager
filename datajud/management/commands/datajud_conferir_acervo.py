@@ -56,6 +56,7 @@ Por isso a coluna `inválidos` existe e o veredito usa o delta LÍQUIDO. Ela cus
 ausência de `numeroProcesso`.
 """
 import json
+import random
 import time
 
 import django_rq
@@ -106,10 +107,18 @@ class Command(BaseCommand):
                           .values_list('sigla', flat=True)))
         estado_fila = self._estado_da_fila()
 
+        # Imprime LINHA A LINHA, não no fim. Uma medição de 59 tribunais leva
+        # ~25 min pelo pool de proxies, e a primeira versão deste comando perdeu
+        # os 25 minutos inteiros quando a última consulta estourou o timeout:
+        # run que morre não chega ao fim, e o que ele já sabia morreu junto.
         linhas = []
+        if not o['como_json']:
+            self._cabecalho()
         for sigla in siglas:
-            linhas.append(self._medir(cli, es, acervo, processos, sigla,
-                                      estado_fila, o))
+            linha = self._medir(cli, es, acervo, processos, sigla, estado_fila, o)
+            linhas.append(linha)
+            if not o['como_json']:
+                self._linha(linha)
 
         controle = self._controle(es, acervo)
         if o['como_json']:
@@ -117,7 +126,7 @@ class Command(BaseCommand):
                 {'controle': controle, 'tribunais': linhas},
                 ensure_ascii=False, default=str))
         else:
-            self._tabela(linhas, controle, o)
+            self._rodape(linhas, controle, o)
 
         if o['enfileirar']:
             self._enfileirar([x for x in linhas if x['estado'] == 'INCOMPLETO'])
@@ -190,32 +199,54 @@ class Command(BaseCommand):
         * `must_not exists proc` — pega o campo AUSENTE. Sozinho não basta:
           `exists` do ES conta string vazia como valor presente, então um
           `proc: ''` passaria por "presente" (regra nº 4);
-        * uma amostra de 200 docs conferida no formato do CNJ — é o que pega o
-          vazio e o truncado. Campo `text`/`keyword` só se mede por amostra.
+        * uma amostra conferida no FORMATO do CNJ — é o que pega o vazio e o
+          truncado. Campo `keyword` só se mede por amostra.
 
-        A amostra é `random_score` semeado **pelo `proc`**, e não pelo
-        `_seq_no`. Com `_seq_no` o score é função da ordem de ESCRITA e o top-N
-        cai numa janela estreita de escrita, não numa amostra do índice — foi
-        essa armadilha que fez uma medição do TJSP errar por 50× (25/08/2026).
+        A amostra sai de 4 pontos SORTEADOS DA CHAVE (`range proc >= <chave>`
+        com `sort: proc`), não de `random_score`. Dois motivos:
+
+        1. `random_score` semeado por `_seq_no` amostra uma janela de ESCRITA,
+           não o índice — a armadilha que fez uma medição do TJSP errar por 50×;
+        2. `random_score` semeado pelo `proc` é uniforme mas custa um score por
+           documento: sobre 344 M ele estourou o `request_timeout` de 30 s e
+           derrubou 25 minutos de medição. Percorrer a chave a partir de 4
+           pontos é indexado e responde em milissegundos.
+
+        NUNCA levanta: um controle que derruba a medição não protege nada.
         """
+        base = {'docs': None, 'sem_proc': None, 'amostra': 0,
+                'amostra_valida': 0, 'ok': False, 'erro': None}
         es_t = es.options(request_timeout=ES_TIMEOUT)
-        total = es_t.count(index=acervo)['count']
-        sem = es_t.count(
-            index=acervo,
-            query={'bool': {'must_not': [{'exists': {'field': 'proc'}}]}})['count']
-        r = es_t.search(index=acervo, size=200, source=['proc'],
-                        query={'function_score': {
-                            'query': {'match_all': {}},
-                            'random_score': {'seed': 20260831,
-                                             'field': 'proc'}}})
-        amostra = [h['_source'].get('proc') or '' for h in r['hits']['hits']]
-        bons = sum(1 for p in amostra
-                   if len(p) == 25 and p[7] == '-' and p[10] == '.')
-        return {
-            'docs': total, 'sem_proc': sem, 'amostra': len(amostra),
-            'amostra_valida': bons,
-            'ok': sem == 0 and bool(amostra) and bons == len(amostra),
-        }
+        try:
+            base['docs'] = es_t.count(index=acervo)['count']
+            base['sem_proc'] = es_t.count(
+                index=acervo,
+                query={'bool': {'must_not': [{'exists': {'field': 'proc'}}]}})['count']
+        except Exception as exc:                            # noqa: BLE001
+            base['erro'] = f'contagem: {str(exc)[:120]}'
+            return base
+
+        rnd = random.Random(20260831)
+        amostra = []
+        for _ in range(4):
+            # chave no formato do CNJ, sorteada no espaço da chave
+            chave = (f'{rnd.randrange(10**7):07d}-{rnd.randrange(100):02d}.'
+                     f'{rnd.randrange(1990, 2027)}.')
+            try:
+                r = es_t.search(index=acervo, size=50, source=['proc'],
+                                sort=[{'proc': 'asc'}],
+                                query={'range': {'proc': {'gte': chave}}})
+                amostra += [h['_source'].get('proc') or '' for h in r['hits']['hits']]
+            except Exception as exc:                        # noqa: BLE001
+                base['erro'] = f'amostra: {str(exc)[:120]}'
+                break
+
+        base['amostra'] = len(amostra)
+        base['amostra_valida'] = sum(
+            1 for p in amostra if len(p) == 25 and p[7] == '-' and p[10] == '.')
+        base['ok'] = (base['sem_proc'] == 0 and bool(amostra)
+                      and base['amostra_valida'] == len(amostra))
+        return base
 
     def _estado_da_fila(self) -> dict:
         from rq.registry import StartedJobRegistry
@@ -231,31 +262,33 @@ class Command(BaseCommand):
 
     # -- saída -------------------------------------------------------------- #
 
-    def _tabela(self, linhas, controle, o):
+    def _cabecalho(self):
         self.stdout.write(
             f'{"trib":8}{"declarado":>13}{"inválidos":>11}{"acervo":>13}'
             f'{"delta":>11}{"sobra":>8}{"cob":>8}{"reqs":>7}{"ETA":>7}'
             f'{"processos":>12}  estado')
-        for x in sorted(linhas, key=lambda y: -(y['declarado'] or 0)):
-            if x['declarado'] is None:
-                self.stdout.write(self.style.ERROR(
-                    f'{x["tribunal"]:8}{"—":>13}{"—":>11}{"—":>13}{"—":>11}'
-                    f'{"—":>8}{"—":>8}{"—":>7}{"—":>7}{"—":>12}'
-                    f'  {x["estado"]}: {x["erro"]}'))
-                continue
-            marca = '✔' if x['estado'] == 'OK' else ' '
-            inval = x.get('invalidos')
-            linha = (
-                f'{x["tribunal"]:8}{x["declarado"]:>13,}'
-                f'{("?" if inval is None else f"{inval:,}"):>11}'
-                f'{x["acervo"]:>13,}{x["delta"]:>11,}{x["sobra"]:>8,}'
-                f'{x["cobertura"]:>7.2%}{x["requisicoes"]:>7,}'
-                f'{_dur(x["eta_s"]):>7}'
-                f'{(x["processos"] if x["processos"] is not None else 0):>12,}'
-                f'  {marca} {x["estado"]}')
-            self.stdout.write(
-                self.style.WARNING(linha) if x['estado'] == 'INCOMPLETO' else linha)
 
+    def _linha(self, x):
+        if x['declarado'] is None:
+            self.stdout.write(self.style.ERROR(
+                f'{x["tribunal"]:8}{"—":>13}{"—":>11}{"—":>13}{"—":>11}'
+                f'{"—":>8}{"—":>8}{"—":>7}{"—":>7}{"—":>12}'
+                f'  {x["estado"]}: {x["erro"]}'))
+            return
+        marca = '✔' if x['estado'] == 'OK' else ' '
+        inval = x.get('invalidos')
+        linha = (
+            f'{x["tribunal"]:8}{x["declarado"]:>13,}'
+            f'{("?" if inval is None else f"{inval:,}"):>11}'
+            f'{x["acervo"]:>13,}{x["delta"]:>11,}{x["sobra"]:>8,}'
+            f'{x["cobertura"]:>7.2%}{x["requisicoes"]:>7,}'
+            f'{_dur(x["eta_s"]):>7}'
+            f'{(x["processos"] if x["processos"] is not None else 0):>12,}'
+            f'  {marca} {x["estado"]}')
+        self.stdout.write(
+            self.style.WARNING(linha) if x['estado'] == 'INCOMPLETO' else linha)
+
+    def _rodape(self, linhas, controle, o):
         dec = sum(x['declarado'] or 0 for x in linhas)
         inval = sum(x.get('invalidos') or 0 for x in linhas)
         util = dec - inval
@@ -284,6 +317,11 @@ class Command(BaseCommand):
             'Fechar o delta exige `--do-zero` (varredura completa do tribunal).'))
 
         c = controle
+        if c.get('erro') or c['docs'] is None:
+            self.stdout.write(self.style.ERROR(
+                f'✘ CONTROLE `proc` NÃO MEDIDO ({c.get("erro")}) ⇒ a tabela acima '
+                f'vale como leitura, não como prova'))
+            return
         texto = (f'CONTROLE `proc`: {c["docs"]:,} docs · sem o campo {c["sem_proc"]:,} '
                  f'· amostra {c["amostra_valida"]}/{c["amostra"]} no formato do CNJ')
         self.stdout.write(self.style.SUCCESS('✔ ' + texto) if c['ok']

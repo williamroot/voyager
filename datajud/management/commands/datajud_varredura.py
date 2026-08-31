@@ -10,6 +10,11 @@
     # só o nicho (Cumprimento de Sentença contra a Fazenda Pública)
     datajud_varredura TJSP --classe 12078
 
+    # uma JANELA de `@timestamp` — o único jeito de reencontrar o que o CNJ
+    # reescreveu para trás sem re-varrer o tribunal inteiro (ver ACERVO_CNJ.md,
+    # "o incremental é um no-op verde")
+    datajud_varredura TJSP --desde 2026-07-01 --ate 2026-08-01
+
     # frota inteira, do maior acervo pro menor
     datajud_varredura --todos
 
@@ -38,6 +43,12 @@ class Command(BaseCommand):
                        help='ignora o watermark e recomeça do início')
         p.add_argument('--classe', type=int, default=None,
                        help='restringe a uma classe TPU (ex: 12078)')
+        p.add_argument('--desde', default=None,
+                       help='começa neste `@timestamp` (ISO ou epoch ms), '
+                            'ignorando o watermark')
+        p.add_argument('--ate', default=None,
+                       help='para neste `@timestamp` (exclusivo). Com ele a '
+                            'passada é JANELA e NÃO toca o watermark')
         p.add_argument('--dry-run', action='store_true',
                        help='mede sem escrever: não toca no índice nem no watermark')
         p.add_argument('--marcar-acervo', action='store_true',
@@ -45,7 +56,8 @@ class Command(BaseCommand):
 
     def handle(self, *a, **o):
         siglas = self._siglas(o)
-        filtro = {'term': {'classe.codigo': o['classe']}} if o['classe'] else None
+        filtro = self._filtro(o)
+        desde = _ms(o['desde'])
 
         for sigla in siglas:
             if o['marcar_acervo']:
@@ -60,11 +72,14 @@ class Command(BaseCommand):
                 # acredita que só mediu.
                 v = Varredura(sigla, escrever=False,
                               parar=lambda: deve_parar(sigla))
-                resumo = v.rodar(cursor=None if o['do_zero'] else self._cursor(sigla),
-                                 max_paginas=o['max_paginas'], filtro=filtro)
+                inicio = (desde if desde is not None
+                          else None if o['do_zero'] else self._cursor(sigla))
+                resumo = v.rodar(cursor=inicio, max_paginas=o['max_paginas'],
+                                 filtro=filtro)
             else:
-                resumo = varrer_tribunal(sigla, retomar=not o['do_zero'],
-                                         max_paginas=o['max_paginas'], filtro=filtro)
+                resumo = varrer_tribunal(
+                    sigla, retomar=not o['do_zero'], max_paginas=o['max_paginas'],
+                    filtro=filtro, desde=desde)
 
             verbo = 'caberiam' if o['dry_run'] else 'gravados'
             self.stdout.write(
@@ -104,3 +119,36 @@ class Command(BaseCommand):
     def _cursor(self, sigla):
         t = Tribunal.objects.filter(sigla=sigla).first()
         return t.datajud_varredura_cursor if t else None
+
+    def _filtro(self, o):
+        """`--classe` e `--ate` viram UM filtro. Ter filtro é o que impede a
+        passada de gravar o watermark — e é por isso que `--ate` tem que
+        aparecer aqui, e não só como parâmetro do laço: uma janela que termina
+        em julho gravaria julho como watermark e apagaria agosto do futuro."""
+        partes = []
+        if o['classe']:
+            partes.append({'term': {'classe.codigo': o['classe']}})
+        ate = _ms(o['ate'])
+        if ate is not None:
+            partes.append({'range': {'@timestamp': {'lt': ate}}})
+        if not partes:
+            return None
+        return partes[0] if len(partes) == 1 else {'bool': {'filter': partes}}
+
+
+def _ms(valor) -> int | None:
+    """`2026-07-01`, `2026-07-01T10:00:00` ou epoch ms → epoch ms."""
+    if not valor:
+        return None
+    v = str(valor).strip()
+    if v.isdigit():
+        return int(v)
+    from datetime import datetime, timezone
+    for fmt in ('%Y-%m-%d', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S'):
+        try:
+            d = datetime.strptime(v, fmt).replace(tzinfo=timezone.utc)
+            return int(d.timestamp() * 1000)
+        except ValueError:
+            continue
+    raise CommandError(f'data não reconhecida: {valor!r} '
+                       '(use AAAA-MM-DD, AAAA-MM-DDTHH:MM:SS ou epoch ms)')
