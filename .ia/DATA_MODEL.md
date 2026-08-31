@@ -323,10 +323,10 @@ porque `uniq_parte_oab` é sobre a string. Medido em produção em 31/08/2026:
 | medida | consulta | número |
 |---|---|---|
 | `Parte` com `oab <> ''` | `count(*) FILTER (WHERE oab <> '')` | 943.510 |
-| na régua (`^[A-Z]{2}[0-9]+[A-Z]?$`) | idem | 942.084 |
+| na régua (`^[A-Z]{2}[0-9]+[A-Z]?$`) | idem | 942.086 |
 | fora da régua — **abstém** | `oab !~ '^[A-Z]{2}[0-9]+[A-Z]?$'` | 1.427 (1.424 começam com `MT`) |
-| grupos em colisão por zero à esquerda | `GROUP BY canon HAVING count(DISTINCT oab) > 1` | 19.482 |
-| **linhas a colapsar (teto)** | `sum(n-1)` | **19.494** |
+| grupos em colisão por zero à esquerda | `GROUP BY canon HAVING count(DISTINCT oab) > 1` | 19.481 |
+| **linhas a colapsar (teto)** | `sum(n-1)` | **19.493** |
 | grupos em colisão **sem** nenhuma forma zero-padded | controle | **0** ⇒ o zero explica 100% |
 | linhas zero-padded no total | `dig ~ '^0'` | 29.979 |
 
@@ -340,23 +340,28 @@ enricher já tinha criado. Não há data em que a régua passe por 13.045.
 cada uma com número:
 
 1. **UF na chave.** `canon` começa pela UF gravada ⇒ `SP475` e `PE475` nunca
-   caem no mesmo grupo. Controle: 19.482 de 19.482 grupos (100%) com UMA UF.
-2. **Nome idêntico** (caixa/acento/pontuação normalizados) — 992 grupos
+   caem no mesmo grupo. Controle: 19.481 de 19.481 grupos (100%) com UMA UF.
+2. **Nome idêntico** (caixa/acento/pontuação normalizados) — 991 grupos
    **abstêm**. O par que motivou a guarda é real: `PE00475` =
    `TANEY QUEIROZ E FARIAS`, `PE475` = `LUZIA HELENA DE VALOIS CORREIA`.
 3. **CPF real não divergente** — 57 grupos têm dois CPF reais diferentes;
    1 só é pego aqui (os outros 56 já caem na guarda 2). Nenhum grupo tem o
    MESMO CPF dos dois lados: aqui o CPF **nega** identidade, nunca a prova.
 
-⇒ funde **18.489 grupos / 18.501 linhas**; **abstém em 993**.
+⇒ funde **18.489 grupos / 18.501 linhas**; **abstém em 992** (991 por nome
++ 1 por CPF). Confere: 18.501 + 992 = 19.493.
+
+`SP000` (inscrição só de zeros) **abstém**: `ltrim` devolveria `SP0` e duas
+formas de lixo virariam uma chave. São 5 linhas na régua, 1 par —
+`MT0`/`MT00000` — e é a diferença entre 19.494 e 19.493.
 
 **Além da fusão**, o comando reescreve a grafia (não funde) de duas
 populações, senão a porta de escrita canônica recria a duplicata no
 enriquecimento seguinte:
 
 - o *survivor* de grupo cujas duas formas eram zero-padded (`PE0475`+`PE00475`);
-- as zero-padded **solitárias** (sem gêmea canônica) — `--sem-normalizar-solitarias`
-  desliga.
+- as zero-padded **solitárias** (sem gêmea canônica), **10.485** linhas —
+  `--sem-normalizar-solitarias` desliga.
 
 **O que a fusão NÃO faz:** não reindexa o Elasticsearch. `participacoes.oab` é
 gravado no doc do processo, então o índice guarda a grafia antiga até o

@@ -66,7 +66,7 @@ def parse_oab(text: str) -> str:
     O zero à esquerda do número SAI: o cabeçalho da publicação escreve
     "OAB PA 015237" e o JSON do DJEN escreve "15237" para a MESMA inscrição, e
     `Parte.oab` tem unique parcial — as duas grafias viravam duas entidades.
-    Medido em 31/08/2026 sobre as 943.510 `Parte` com OAB: **19.494 linhas**
+    Medido em 31/08/2026 sobre as 943.510 `Parte` com OAB: **19.493 linhas**
     eram a mesma inscrição escrita das duas formas, e **100%** dos grupos em
     colisão tinham ao menos uma forma zero-padded.
 

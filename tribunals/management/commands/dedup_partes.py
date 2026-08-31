@@ -203,7 +203,8 @@ class Command(BaseCommand):
         SELECT id, oab,
                substring(oab from '^[A-Z]{2}([0-9]+)')       AS dig,
                substring(oab from '^([A-Z]{2})')
-                 || COALESCE(NULLIF(ltrim(substring(oab from '^[A-Z]{2}([0-9]+)'), '0'), ''), '0')
+                 || COALESCE(NULLIF(ltrim(substring(oab from '^[A-Z]{2}([0-9]+)'), '0'), ''),
+                             substring(oab from '^[A-Z]{2}([0-9]+)'))
                  || COALESCE(substring(oab from '([A-Z])$'), '')  AS canon,
                regexp_replace(upper(unaccent(nome)), '[^A-Z0-9]', '', 'g') AS nome_n,
                CASE WHEN documento <> ''
@@ -219,10 +220,10 @@ class Command(BaseCommand):
 
         Medido em produção em 31/08/2026 (943.510 `Parte` com OAB):
 
-            linhas na régua ................ 942.084   (as 1.427 fora do
+            linhas na régua ................ 942.086   (as 1.427 fora do
                                                         padrão ficam de fora)
-            grupos em colisão ..............  19.482
-            linhas a colapsar (teto) .......  19.494
+            grupos em colisão ..............  19.481
+            linhas a colapsar (teto) .......  19.493
             grupos SEM nenhuma forma
               zero-padded ..................       0   ⇒ o zero responde por
                                                         100% da colisão
@@ -234,7 +235,7 @@ class Command(BaseCommand):
            número em UFs diferentes são pessoas DIFERENTES. Controle medido:
            19.482 de 19.482 grupos (100%) têm UMA UF.
         2. **Nome idêntico** (caixa/acento/pontuação normalizados). 18.490
-           grupos passam; **992 abstêm**. Não é zelo: o grupo `PE475` tem
+           grupos passam; **991 abstêm**. Não é zelo: o grupo `PE475` tem
            `TANEY QUEIROZ E FARIAS` (`PE00475`) e `LUZIA HELENA DE VALOIS
            CORREIA` (`PE475`) — mesma UF, mesmo número, pessoas diferentes.
            A maioria dos 992 é troca de sobrenome (casamento) ou o sufixo
@@ -243,8 +244,8 @@ class Command(BaseCommand):
         3. **CPF real não divergente.** 57 grupos têm dois CPF reais
            diferentes; 56 já caíam na guarda 2, 1 só é pego aqui.
 
-        Resultado da regra: **18.489 grupos, 18.501 linhas** colapsadas; 993
-        linhas ABSTIDAS. Nenhum grupo tem o MESMO CPF real dos dois lados —
+        Resultado da regra: **18.489 grupos, 18.501 linhas** colapsadas; 992
+        linhas ABSTIDAS (991 por nome + 1 por CPF). Nenhum grupo tem o MESMO CPF real dos dois lados —
         ou seja o CPF nunca prova identidade aqui, ele só a NEGA.
 
         Survivor = a linha já canônica de menor id (para a porta de escrita
@@ -355,8 +356,8 @@ class Command(BaseCommand):
         Não é dedup — é a mesma linha, mesma entidade, só a grafia. Existe
         porque a porta de escrita passou a ser canônica: sem isto, cada uma
         dessas linhas vira uma duplicata NOVA no próximo enriquecimento.
-        Medido em 31/08/2026: 29.979 linhas zero-padded no total, 19.496
-        delas em colisão ⇒ ~10,5 k solitárias.
+        Medido em 31/08/2026: 29.979 linhas zero-padded no total ⇒ **10.485
+        solitárias**.
         """
         with connection.cursor() as cur:
             cur.execute('DROP TABLE IF EXISTS _oab_rename')

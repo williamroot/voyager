@@ -276,3 +276,25 @@ def test_oab_zero_dry_run_nao_escreve():
     b.refresh_from_db()
     assert a.oab == 'SC050129' and b.oab == 'SC50129'
     assert Parte.objects.filter(nome='DRY RUN').count() == 2
+
+
+# --------------------------------------------------------------------------
+# canonizar_oab — a MESMA regra que o SQL do grupo oab_zero aplica
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize('bruto,esperado', [
+    ('AC003600', 'AC3600'),      # o caso do #96
+    ('AC3600', 'AC3600'),        # idempotente
+    ('ac003600', 'AC3600'),      # caixa
+    ('AL010715A', 'AL10715A'),   # sufixo de letra preservado
+    ('SP10203', 'SP10203'),      # zero NO MEIO não sai
+    ('SP40500', 'SP40500'),      # zero NO FIM não sai
+    ('SP000', 'SP000'),          # só zeros: abstém, não vira 'SP0'
+    ('MT10079GO', ''),           # UF no sufixo: forma não reconhecida
+    ('123456SP', ''),            # idem
+    ('MS', ''),                  # sem dígito
+    ('', ''),
+    (None, ''),
+])
+def test_canonizar_oab(bruto, esperado):
+    from tribunals.services.oab import canonizar_oab
+    assert canonizar_oab(bruto) == esperado

@@ -13,7 +13,7 @@ de escrita divergiam:
 
 `Parte.oab` tem unique parcial: escrever com um zero a mais é criar uma
 entidade nova para um advogado que já existe. Medido em 31/08/2026 sobre
-`tribunals_parte` (943.510 linhas com OAB): **19.494 linhas** são a mesma
+`tribunals_parte` (943.510 linhas com OAB): **19.493 linhas** são a mesma
 inscrição gravada nas duas formas — e **todos** os grupos em colisão têm ao
 menos uma forma zero-padded, ou seja o zero responde por 100% da colisão.
 
@@ -39,4 +39,6 @@ def canonizar_oab(oab: str | None) -> str:
     if not m:
         return ''
     uf, digitos, sufixo = m.groups()
-    return f'{uf}{digitos.lstrip("0") or "0"}{sufixo}'
+    # `SP000` fica `SP000`, não `SP0`: inscrição só de zeros é lixo, e lixo se
+    # ABSTÉM em vez de virar uma chave que funde com outro lixo.
+    return f'{uf}{digitos.lstrip("0") or digitos}{sufixo}'
