@@ -631,4 +631,34 @@ def create_scheduler() -> BlockingScheduler:
         logger.warning('search: SENTINELA DO ÍNDICE DE PROCESSOS DESLIGADA — o '
                        'passivo de 24/08/2026 pode reabrir sem ninguém saber')
 
+    # GATE DE COMPLETUDE do índice de processos — de hora em hora, uma faixa de
+    # pk por passada, com cursor DURÁVEL.
+    #
+    # Não é a sentinela acima, e a diferença importa. A sentinela sorteia pks e
+    # pergunta "o doc existe?"; este aqui CONTA os dois lados na mesma faixa e
+    # ainda compara o VALOR de campo numa amostra. Em 31/08/2026 os 524.945 docs
+    # do TJSP estavam PRESENTES no índice com `tem_sinal_precatorio` em `null` —
+    # existência não teria acusado nada.
+    #
+    # Ele não olha watermark nem fila de propósito: os dois estavam verdes
+    # naquele dia (1 min 23 s de atraso e fila em 0) com meio milhão de
+    # documentos faltando. Idade de watermark não é gate de completude.
+    if getattr(settings, 'SEARCH_GATE_COMPLETUDE_ENABLED', True):
+        from search.gate_completude import agendar_gate_completude
+
+        scheduler.add_job(
+            agendar_gate_completude,
+            'interval',
+            hours=1,
+            id='search_gate_completude',
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info('agendado search_gate_completude (1h) — contagem PG x ES '
+                    'por faixa de pk, independente de watermark e de fila')
+    else:
+        logger.warning('search: GATE DE COMPLETUDE DESLIGADO — volta a valer o '
+                       'trio que mentiu em 31/08/2026 (watermark, fila, registry)')
+
     return scheduler
