@@ -228,25 +228,31 @@ class Command(BaseCommand):
             base['erro'] = f'contagem: {str(exc)[:120]}'
             return base
 
+        # Faixa de 4 dígitos, não de 7: a faixa de 7 dígitos é um número
+        # sequencial EXATO e volta vazia na maioria dos sorteios (medido: 3
+        # documentos em 12 tentativas). A de 4 dígitos cobre 1.000 sequenciais
+        # e entregou 50 de 50 em 5 sorteios de 5, entre 0,2 s e 8,5 s.
         rnd = random.Random(20260831)
         amostra = []
-        tentadas = 0
-        while len(amostra) < 200 and tentadas < 12:
-            tentadas += 1
-            n = rnd.randrange(10 ** 7)
-            faixa = {'gte': f'{n:07d}-', 'lt': f'{n + 1:07d}-'}
+        for _ in range(8):
+            if len(amostra) >= 200:
+                break
+            n = rnd.randrange(10_000)
+            faixa = {'gte': f'{n:04d}000-', 'lt': f'{n:04d}999-'}
             try:
                 r = es_t.search(index=acervo, size=50, source=['proc'],
                                 query={'range': {'proc': faixa}})
                 amostra += [h['_source'].get('proc') or '' for h in r['hits']['hits']]
             except Exception as exc:                        # noqa: BLE001
+                # uma faixa lenta não pode zerar a amostra: anota e segue
                 base['erro'] = f'amostra: {str(exc)[:120]}'
-                break
+                continue
 
         base['amostra'] = len(amostra)
         base['amostra_valida'] = sum(
             1 for p in amostra if len(p) == 25 and p[7] == '-' and p[10] == '.')
-        base['ok'] = (base['sem_proc'] == 0 and bool(amostra)
+        # amostra pequena demais não prova nada — 100% de 3 é 100% de nada
+        base['ok'] = (base['sem_proc'] == 0 and len(amostra) >= 100
                       and base['amostra_valida'] == len(amostra))
         return base
 
