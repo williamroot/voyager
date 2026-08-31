@@ -93,12 +93,12 @@ def test_cursor_salta_para_o_proximo_pk_da_janela():
     with patch.object(cmd, '_proximo_pk_recente') as prox:
         prox.return_value = None
         assert cmd._proximo_pk_recente('t', (), 0, 100, {}) is None
-    # e o SQL do salto tem que usar min(id) + a janela
+    # e o SQL do salto tem que parar na PRIMEIRA linha (nunca agregar a janela)
     capturado = {}
 
     class CursorFalso:
         def execute(self, sql, params=None):
-            if 'min(id)' in sql:
+            if 'ORDER BY id LIMIT 1' in sql:
                 capturado['sql'] = sql
                 capturado['params'] = params
         def fetchone(self):
@@ -116,3 +116,6 @@ def test_cursor_salta_para_o_proximo_pk_da_janela():
     assert n == 777
     assert 'atualizado_em >' in capturado['sql']
     assert '3.0 hours' in capturado['params']
+    # `min(id)` agrega a janela inteira e estourou o statement_timeout em prod
+    assert 'min(' not in capturado['sql'], capturado['sql']
+    assert 'LIMIT 1' in capturado['sql']

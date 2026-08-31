@@ -481,10 +481,15 @@ class Command(BaseCommand):
                            for par in pares)
         with transaction.atomic(), connection.cursor() as cur:
             cur.execute(f"SET LOCAL statement_timeout = '{o['statement_timeout']}';")
+            # `ORDER BY id LIMIT 1` e NÃO `min(id)`: o `min` faz o planner
+            # agregar a janela inteira até o topo e estourou o
+            # `statement_timeout` em produção (31/08/2026). O `LIMIT 1` para na
+            # primeira linha que serve — o índice já entrega em ordem.
             cur.execute(
-                f'SELECT min(id) FROM {tabela} '
+                f'SELECT id FROM {tabela} '
                 f'WHERE id > %s AND id <= %s AND ({alvo}) '
-                f'AND atualizado_em > now() - %s::interval',
+                f'AND atualizado_em > now() - %s::interval '
+                f'ORDER BY id LIMIT 1',
                 [lo, topo, f"{o['desde_atualizado']} hours"])
             linha = cur.fetchone()
         return linha[0] if linha and linha[0] is not None else None
