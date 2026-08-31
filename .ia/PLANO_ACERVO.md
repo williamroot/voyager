@@ -9,7 +9,7 @@ O maior número da fila é o #92 (187,7 M que faltam). Ele **não** é o primeir
 ```
    #105  classe vs fase          ─┬─→  #104  classe_id NULL (8,09 M)
    (a régua do nicho)            │
-                                 └─→  #92   puxada nacional  ── PORTÃO ──→ execução
+                                 └─→  #92   puxada nacional  ── PORTÃO ABERTO 31/08 ──→ execução
    #97   sinal TJSP (1,51 M)     ─── independente
    #96   dedup por OAB           ─── independente
 ```
@@ -21,11 +21,15 @@ cadastra), qualquer contagem do nicho é medida com régua torta — inclusive a
 que julgaria se o #92 valeu a pena. Backfillar o #104 antes disso propagaria o
 erro para 8,09 M linhas.
 
-**Por que o #92 tem portão.** A licença do DataJud é declaradamente **não
-comercial**. Ele é a origem dos 344,6 M do `voyager-acervo`, que é o
-denominador da métrica de cobertura que está na tela do Acompanhamento. A
-preparação (telemetria, kill switch, medição a seco) segue; **a puxada em
-escala não roda sem decisão do dono do produto**. Ver `.ia/ESTUDO_JUIT.md` §5.
+**Por que o #92 tinha portão.** A licença do DataJud é declaradamente **não
+comercial**, e ele é a origem dos 344,6 M do `voyager-acervo` — o denominador da
+métrica de cobertura publicada na tela. A questão foi apresentada ao dono do
+produto, que **autorizou a execução em 31/08/2026**. Ver a seção "Portão do
+#92" no fim deste arquivo e `.ia/ESTUDO_JUIT.md` §5.
+
+⚠️ Autorizado ≠ solto: a ordem de execução (kill switch com retomada testada →
+dry-run → um tribunal no gate → nacional) e a separação esqueleto × acervo rico
+no card continuam obrigatórias.
 
 ## Quem faz o quê
 
@@ -35,7 +39,7 @@ escala não roda sem decisão do dono do produto**. Ver `.ia/ESTUDO_JUIT.md` §5
 | **R104** | #104 | 8,09 M `classe_id` ligados ao catálogo — **só depois** do veredito do R105 |
 | **R97** | #97 | 1,51 M `tem_sinal_precatorio` computados no TJSP, sem o recorte medir o próprio buraco |
 | **R96** | #96 | dedup de Parte por OAB com zero à esquerda, teto 13.045 conferido dos dois lados |
-| **R92** | #92 | puxada pronta para rodar: telemetria, kill switch, dry-run medido — **execução travada no portão** |
+| **R92** | #92 | puxada executada: telemetria, kill switch com retomada testada, gate por tribunal — e o card separando esqueleto de acervo rico |
 
 ## O que vale para todos (e já custou caro quando foi ignorado)
 
