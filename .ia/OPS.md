@@ -1833,8 +1833,8 @@ cache.delete('backfill_sinal:off')        # religa
 ```
 
 ⚠️ Ele impede que um lote NOVO comece; **não** interrompe o que já está rodando.
-Se você precisa da janela AGORA, o switch sozinho custa até um lote (~35 s com
-`--batch 2000`). Para a janela imediata:
+Se você precisa da janela AGORA, o switch sozinho custa até um lote. Para a
+janela imediata:
 
 ```sql
 SELECT pg_cancel_backend(pid) FROM pg_stat_activity
@@ -1847,8 +1847,23 @@ backend do Postgres segue executando o `UPDATE` e segurando row-lock. Os 8
 containers pararam e as 8 consultas continuaram — só o `pg_cancel_backend`
 abriu a janela.
 
-E rodar com `--batch 500` em vez de 2000 derruba o lote de ~35 s para ~9 s: se
-há DDL prevista na mesma janela, é o ajuste mais barato.
+**O tamanho do lote é o que decide se cabe uma DDL na mesma janela**, e o custo
+de encolher é ZERO. Medido em 31/08/2026, mesma máquina, mesma tabela, olhando
+`pg_locks` × `pg_stat_activity` para cronometrar o holder de verdade:
+
+| `--batch` | duração do lote | vazão por runner |
+|---:|---|---:|
+| 2.000 | ~25 – 35 s | ~78 /s |
+| **500** | **1,6 – 2,5 s** | **~75 /s** |
+
+Ou seja: o lote encolhe **~15×** e a vazão fica igual — o custo por linha é o
+`EXISTS` com regex, não a transação. Com lote de 2 s, um `ALTER TABLE` com
+`lock_timeout=3s` entra na primeira tentativa; com lote de 35 s, ele tenta 40
+vezes e não entra (aconteceu em 31/08/2026, com a migration 0054).
+
+**Regra que fica: em tabela quente, lote curto não é gentileza, é o default.**
+Lote longo só paga a pena quando o custo fixo da transação domina — e aqui ele
+não domina.
 
 ### 🔴 PARE DE TENTAR E PERGUNTE QUEM SEGURA
 
