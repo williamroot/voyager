@@ -105,6 +105,14 @@ página pesar 150 MB em vez de 4 MB — e 343M × 73 seriam ~10 bilhões de linh
 (o índice de movimentações já tem 1,16B ocupando 684 GB). Movimento vem na
 hidratação, por CNJ.
 
+> ⚠️ **Esta tabela é de 14/08/2026 e foi remedida em 31/08.** Os três números
+> que mais se citam dela estão errados hoje: o peso do documento é **787-820 B**
+> e não 225 B (3,6×), a latência de uma requisição pelo pool de proxies é de
+> **3 a 56 s** e não ~10 s, e a vazão real medida numa passada completa é de
+> **474,7 docs/s** e não 1.232-1.458. E, sobretudo, **as 34,3 mil requisições já
+> foram gastas**: o acervo nacional está varrido. Ver
+> [A puxada nacional, medida em 31/08/2026](#a-puxada-nacional-medida-em-31082026--e-por-que-ela-já-aconteceu).
+
 ### Gate de completude (executado)
 
 TRT20 varrido inteiro: **235.758** docs no nosso índice contra **235.754**
@@ -1123,3 +1131,90 @@ ssh ubuntu@192.168.30.102 'cd ~/voyager && \
 
 Sem o `-f docker-compose-workers.yml` o restart sai verde e reinicia outro
 container.
+
+### Política para o incremental cego — as opções, com o custo medido
+
+Registrar o erro é meia solução: o alarme grita e o dado continua sem chegar.
+As opções, com o custo medido em 31/08/2026 (vazão real de **474,7 docs/s** e
+**820 B/doc**, medidos numa passada completa do TRT20; requisições a 10.000
+docs por página):
+
+| política | docs por ciclo | requisições | serial | 5 conexões |
+|---|---:|---:|---:|---:|
+| `--do-zero` nacional | 344,6 M | 34.460 | **202 h** | ~40 h |
+| janela de 365 dias | ~223 M (64,8%) | 22.335 | 131 h | ~26 h |
+| janela de 180 dias | ~142 M (41,3%) | 14.235 | 83 h | ~17 h |
+| janela de 90 dias | ~76,8 M (22,3%) | 7.685 | 45 h | ~9 h |
+| **medir o desvio** (`datajud_conferir_acervo`) | 0 | **59** | **~25 min** | — |
+| **janela localizada** (`--histograma` → `--desde/--ate`) | só o buraco | **248** (TJSP) | **~7 min** | — |
+
+As frações das janelas foram medidas com um `date_histogram` mensal nos 12
+maiores tribunais (241,4 M docs, 70% do acervo nacional).
+
+**Recomendação: as duas últimas linhas, nesta ordem.**
+
+1. **Medir, não re-varrer.** `datajud_conferir_acervo` custa 59 requisições e
+   ~25 min e dá o resíduo por tribunal. Semanalmente, ele mostra se o buraco
+   CRESCE — que é o número que ninguém tem hoje. Nenhuma política de re-varredura
+   deve ser ligada antes disso: hoje o resíduo é **0,082%**, e gastar 202 h de
+   quota compartilhada para recuperar 0,082% é trocar o certo pelo duvidoso.
+2. **Quando o resíduo justificar, localizar antes de varrer.**
+   `--histograma` compara o `@timestamp` mês a mês e diz QUAL janela varrer.
+   No TJSP isso é a diferença entre 6.900 requisições (~40 h, 39 docs por
+   requisição) e **248 requisições (~7 min, 756 docs por requisição)** — 19×
+   melhor, para 69% do resíduo nacional.
+
+A janela cega de 90/180/365 dias **não resolve o caso medido**: as reescritas do
+TJSP caíram em buckets de 10 e 14 meses atrás, fora de qualquer janela que caiba
+no orçamento. Janela por tempo é remédio para fonte que se move para a frente;
+esta se move para trás.
+
+⚠️ **Não ligue re-varredura periódica sem antes ter a série do desvio.** Sem ela
+não há como saber se o custo se paga — e este é exatamente o tipo de trabalho que
+produz run verde e número redondo.
+
+### Como ler o `--histograma` (a regra do vizinho)
+
+```bash
+manage.py datajud_conferir_acervo --histograma --tribunais TJSP
+```
+
+| o que o mês mostra | o que significa |
+|---|---|
+| os dois lados batem (±1%) | trecho não reescrito, e completo |
+| fonte tem MAIS **e os dois vizinhos batem** | **buraco de verdade** — varra a janela |
+| fonte tem mais e o vizinho NÃO bate | carimbo reescrito: ignore |
+| nós temos mais | carimbo reescrito: ignore |
+
+Sem a regra do vizinho, o TJSP recomendaria varrer 2025-11 primeiro
+(+13.107.618 docs, 1.332 requisições) — e ali não falta nada: é o carimbo dos
+14,2 M que temos em 2025-08 e que o CNJ moveu para novembro. A varredura
+gastaria 1.332 requisições reescrevendo o que já é nosso e voltaria verde.
+
+Com a regra, sobra no TJSP **um** mês: 2026-07, +187.585, vizinhos batendo em
+0,002% e 0,05%.
+
+### Estado em 31/08/2026 — o que ficou fechado e o que ficou aberto
+
+| tribunal | declarado | inválidos | nosso | resíduo | gate |
+|---|---:|---:|---:|---:|---|
+| **TRT20** | 235.759 | 0 | **235.759** | **0** | ✔ **fechado** (era 235.758) |
+| TJMG | 36.698.417 | 20.313 | 36.678.104 | 0 | ✔ fechado |
+| TJSP | 74.686.714 | 5.337.680 | 69.078.849 | 270.185 | 99,61% — janela 2026-07 pronta |
+| TRF1 | 12.521.855 | 0 | 12.512.918 | 8.937 | 99,93% — sem janela localizável |
+| TJRJ · TJMT · TJAC · TJSC | — | — | — | 2.466 · 2.300 · 50 · 46 | — |
+| **nacional** | 350.430.801 | 5.516.272 | 344.603.487 | **283.987** | **99,92%** |
+
+TRT20 foi varrido inteiro em 31/08/2026 (`--do-zero`): 25 páginas, 25
+requisições, 496,7 s, 474,7 docs/s, 819,9 B/doc, 189,4 MB lidos, `perdidos: 0`,
+`erros: {}`. Fechou **235.759 contra 235.759 declarados** — o mesmo padrão de
+conferência do gate de 14/08 (235.758 × 235.754), agora exato.
+
+Controle da medição: `proc` presente em **344.603.488 de 344.603.488**
+(`must_not exists` = 0) e **239 de 239** no formato do CNJ numa amostra por
+faixa de chave.
+
+**O que NÃO foi executado, e por quê:** as janelas do TJSP (248 requisições) e
+qualquer passada `--do-zero` de tribunal grande. O comando está pronto e medido;
+disparar quota compartilhada contra a API pública em volume é decisão de quem
+responde pela licença do DataJud, não de quem prepara a puxada.
