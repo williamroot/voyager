@@ -443,11 +443,13 @@ def test_shard_tem_checkpoint_proprio():
 def test_freio_mede_varredura_e_nao_densidade():
     """ms por 1.000 pks varridos — comparável entre faixas.
 
-    Medido em produção em 31/08, blocos de 50.000 pks: 81-99 ms por 1.000 pks
-    só lendo e 455-1.024 com escrita (3,94-4,64 ms por linha). A banda é larga
-    porque a densidade de linhas quebradas varia 5x entre faixas VIZINHAS —
-    2.559, 8.451 e 20.973 linhas em três blocos consecutivos. Por isso os tetos
-    saem do máximo medido, e não da mediana.
+    Medido em produção em 31/08: 81-99 ms por 1.000 pks só lendo, 455-1.024
+    com escrita num shard, até 5.087 com cinco em paralelo. A métrica é
+    CONFUNDIDA pela densidade, que vai de 5% a 78% entre blocos VIZINHOS
+    (2.559, 8.451, 20.973 e 39.102 linhas em blocos de 50.000 pks) — por isso
+    os tetos são folgados e quem mede degradação de verdade é
+    `_motivo_de_esperar`, que lê as sessões em espera de Lock. ms/linha seria
+    pior ainda: reagiria só à densidade.
     """
     assert 'freio_ms_kpk' in CODIGO and 'parar_ms_kpk' in CODIGO
     assert 'parar_ms_linha' not in CODIGO, 'a métrica de densidade voltou'

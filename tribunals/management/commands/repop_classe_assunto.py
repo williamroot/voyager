@@ -167,23 +167,30 @@ class Command(BaseCommand):
         # linhas quebradas varia por faixa. Medido em produção em 31/08/2026,
         # blocos de 50.000 pks na `.101`:
         #
-        #   só leitura (--sem-reparo) ..........  81-99 ms / 1.000 pks
-        #   leitura + escrita ..................  455-1.024 ms / 1.000 pks
-        #                                         (3,94-4,64 ms por linha)
+        #   só leitura (--sem-reparo), 1 processo ....  81-99 ms / 1.000 pks
+        #   leitura + escrita, 1 shard ...............  455-1.024
+        #   leitura + escrita, 5 shards em paralelo ..  até 5.087
         #
-        # A banda é larga porque a DENSIDADE de linhas quebradas varia 5x entre
-        # faixas vizinhas — 2.559, 8.451 e 20.973 linhas em três blocos de
-        # 50.000 pks consecutivos (5%, 17% e 42%). Os tetos saem do MÁXIMO
-        # medido, não da mediana: calibrar pela medição sem escrita (o que eu
-        # fiz primeiro) fez o freio dobrar a pausa contra uma corrida saudável,
-        # e um teto apertado mataria a corrida no primeiro bloco denso.
-        p.add_argument('--freio-ms-kpk', type=float, default=2000.0,
+        # ⚠️ Esta métrica é CONFUNDIDA pela densidade nesta tabela, e muito: a
+        # fração de linhas quebradas vai de 5% a **78%** entre blocos vizinhos
+        # (2.559, 8.451, 20.973 e 39.102 linhas em blocos de 50.000 pks). Ela
+        # não separa "o banco piorou" de "esta faixa tem mais trabalho", então
+        # os tetos são folgados de propósito e servem só como válvula: quem
+        # mede degradação de verdade é `_motivo_de_esperar`, que LÊ as sessões
+        # em espera de Lock.
+        #
+        # Calibrei errado duas vezes e as duas custaram: primeiro pela medição
+        # SEM escrita (o freio dobrou a pausa contra uma corrida saudável),
+        # depois pela medição de UM shard (com 5 em paralelo um bloco denso
+        # bate 5.087 e o `--parar` mataria a corrida de madrugada, com o banco
+        # perfeitamente são).
+        p.add_argument('--freio-ms-kpk', type=float, default=6000.0,
                        help='ms por 1.000 pks varridos: acima disto a pausa '
-                            'DOBRA; abaixo da metade, cede. Medido com escrita: '
-                            '455-1.024.')
-        p.add_argument('--parar-ms-kpk', type=float, default=5000.0,
+                            'DOBRA; abaixo da metade, cede. Medido com escrita '
+                            'e 5 shards: até 5.087.')
+        p.add_argument('--parar-ms-kpk', type=float, default=20000.0,
                        help='média móvel de 5 blocos acima disto = PARA com '
-                            'ERROR. 5.000 = ~5x o máximo medido com escrita.')
+                            'ERROR. 20.000 = ~4x o máximo medido em paralelo.')
         p.add_argument('--lock-alto', type=int, default=LOCK_ALTO,
                        help='sessões esperando Lock acima disto ⇒ espera.')
         # A hipótese era boa e a medição NÃO a sustentou — fica registrado

@@ -574,6 +574,15 @@ e pelo caminho do enricher. Não é resíduo histórico de uma migration antiga.
 | `classe_id` | 8.054.281 | 502 (59 tribunais) | **0** |
 | `assunto_id` | 9.773.928 | — | **604.954** em 1.255 códigos |
 
+**`Movimentacao.classe_id` NÃO tem o mesmo buraco** — e isso foi medido, não
+suposto. Amostra de **510.636** movimentações em 11 janelas de 50.000 pks
+espalhadas por toda a faixa (10 M a 1,9 bi): **0** com `codigo_classe`
+preenchido e `classe_id` NULL, **0** divergentes, **0** sem código. A diferença
+é o caminho de escrita: `djen/ingestion.py`, `datajud/ingestion.py` e
+`diarios/base.py` fecham `classe_id` no próprio `bulk_create` da movimentação,
+enquanto os escritores de `Process` gravam só a string. Por isso a corrida
+rodou apenas com `--tabela process`.
+
 Os órfãos são todos de **assunto**, e têm dono: **82% na Justiça do Trabalho**
 (TST 128.078 · TRT2 65.552 · TRT15 51.616 · TRT9 38.617). São a faixa
 13xxx/14xxx da TPU trabalhista — `Verbas Rescisórias` (42.071),
@@ -640,15 +649,21 @@ fase do #105 rodando na mesma tabela):
 | | medido |
 |---|---|
 | leitura de 50.000 pks (`--sem-reparo`) | 2,8-3,4 s ⇒ **81-99 ms / 1.000 pks** |
-| leitura + escrita | **455-1.024 ms / 1.000 pks** · **3,94-4,64 ms por linha** |
-| densidade de linhas quebradas | 5% a **42%** entre blocos VIZINHOS de 50.000 pks |
+| leitura + escrita, 1 shard | **455-1.024 ms / 1.000 pks** · **3,94-4,64 ms por linha** |
+| leitura + escrita, 5 shards | até **5.087 ms / 1.000 pks** · ~13,5 ms por linha |
+| densidade de linhas quebradas | 5% a **78%** entre blocos VIZINHOS |
 | sessões esperando `Lock` durante a corrida | **0** |
 | vazão de escrita, 1 shard | 216 linhas/s |
-| vazão de escrita, 7 shards | ~280 linhas/s — **paralelizar quase não paga** |
+| vazão de escrita, 5 shards | ~700 linhas/s |
 
-A dispersão de densidade é o motivo de o freio (`ms` por 1.000 pks) ter tetos
-largos: calibrá-lo pela mediana mataria a corrida no primeiro bloco denso sem
-que nada estivesse caro.
+⚠️ **O freio (`ms` por 1.000 pks) é confundido pela densidade nesta tabela.**
+Ela vai de 5% a 78% entre blocos vizinhos, então a métrica não separa "o banco
+piorou" de "esta faixa tem mais trabalho". Calibrei errado duas vezes: primeiro
+pela medição SEM escrita (o freio dobrou a pausa contra uma corrida saudável),
+depois pela medição de UM shard (com cinco em paralelo, um bloco denso bate
+5.087 e o `--parar` mataria a corrida de madrugada com o banco perfeitamente
+são). Os tetos ficaram folgados de propósito — quem mede degradação de verdade
+é `_motivo_de_esperar`, que **lê** as sessões esperando `Lock`.
 
 **O gargalo é WAL, e a conclusão óbvia dele NÃO se confirmou.** Amostrando
 `pg_stat_activity` durante a corrida, os UPDATEs do backfill estão em
