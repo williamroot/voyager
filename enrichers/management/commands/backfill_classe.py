@@ -51,6 +51,11 @@ O que este comando NÃO faz
   `repop_classe_assunto`, e emendar os dois num comando só dobraria a campainha
   (8,2 M reindexações) sem ter medido o impacto disso. Fica **contado e
   relatado**, não consertado.
+  ⇒ Em 31/08/2026 esse território foi trabalhado (#104): a contagem exata era
+  **8.054.334**, e `repop_classe_assunto` passou a fechá-la varrendo por faixa
+  de pk. O impacto da campainha ficou medido e a resposta foi **não tocá-la**:
+  `processo_to_doc` não publica a FK, então reindexar produziria documentos
+  idênticos. Ver `.ia/DATA_MODEL.md`.
 - **Não corrige nome de linha do catálogo.** `ClasseJudicial.codigo` é PK e
   `Process.classe` é FK `PROTECT`; a classe `7` já existe lá.
 - **Não reindexa.** Só toca a campainha e deixa o tique de 10 min trabalhar no

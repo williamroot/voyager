@@ -186,6 +186,16 @@ class Command(BaseCommand):
                             'ERROR. 5.000 = ~5x o máximo medido com escrita.')
         p.add_argument('--lock-alto', type=int, default=LOCK_ALTO,
                        help='sessões esperando Lock acima disto ⇒ espera.')
+        p.add_argument('--commit-assincrono', action='store_true',
+                       help='`SET LOCAL synchronous_commit = off` no UPDATE. O '
+                            'gargalo medido em produção é WAL (`LWLock:'
+                            'WALWrite`/`WALInsert`), não CPU nem lock. Troca '
+                            'durabilidade do último commit por vazão: numa queda '
+                            'do Postgres, lotes já contados podem não estar no '
+                            'disco. É seguro AQUI porque o reparo é idempotente '
+                            'e a régua do fim é a consulta da pendência, não o '
+                            'checkpoint — se sobrar linha, roda de novo com '
+                            '`--zerar-checkpoint`.')
         p.add_argument('--lock-timeout', default='5s')
         p.add_argument('--statement-timeout', default='120s')
         p.add_argument('--tentativas-deadlock', type=int, default=6,
@@ -558,6 +568,8 @@ class Command(BaseCommand):
                     cur.execute(f"SET LOCAL lock_timeout = '{o['lock_timeout']}';")
                     cur.execute(
                         f"SET LOCAL statement_timeout = '{o['statement_timeout']}';")
+                    if o['commit_assincrono']:
+                        cur.execute('SET LOCAL synchronous_commit = off;')
                     cur.execute(sql, args)
                     return cur.rowcount
             except OperationalError as e:
