@@ -5,6 +5,44 @@ Runbooks específicos por situação. Para troubleshooting geral, comece por `dj
 Observabilidade de infra (Prometheus/Grafana/GPU): ver [Observability stack (Fase B)](#observability-stack-fase-b) no fim deste doc.
 
 
+## Índice `indisvalid=False` + `indisready=True` é o pior dos dois mundos
+
+Achado em 01/09/2026 (#111). `proc_tribunal_numero_cnj_idx`:
+
+    indisvalid = False   -> o planner NUNCA o usa em consulta
+    indisready = True    -> o Postgres o ATUALIZA a cada escrita
+    7.838 MB · 0 scans
+
+Paga o custo de escrita e não devolve nada em leitura. É a sobra de um
+`CREATE INDEX CONCURRENTLY` que falhou: o índice fica no catálogo, inerte para
+o planner e vivo para o writer.
+
+Era duplicata exata do `uniq_proc_tribunal_cnj` — mesmas colunas, mesma ordem —
+que é VÁLIDO e tem **2.348.776.370 scans**. A prova de que dá para remover é
+essa: existe outro índice válido cobrindo o mesmo par.
+
+```sql
+-- caçar os inertes: nunca usados E grandes, ou inválidos
+SELECT c2.relname, i.indisvalid, i.indisready,
+       pg_size_pretty(pg_relation_size(c2.oid)), coalesce(s.idx_scan,0)
+  FROM pg_index i
+  JOIN pg_class c2 ON c2.oid = i.indexrelid
+  LEFT JOIN pg_stat_user_indexes s ON s.indexrelid = i.indexrelid
+ WHERE NOT i.indisvalid
+    OR (coalesce(s.idx_scan,0) = 0 AND pg_relation_size(c2.oid) > 1073741824);
+```
+
+⚠️ **Sempre `DROP INDEX CONCURRENTLY`**: o `DROP` comum pega `ACCESS EXCLUSIVE`
+e já travou tabela quente aqui (incidente de 25/08). O CONCURRENTLY **espera**
+as transações abertas em vez de bloqueá-las — medido: 285 s em
+`tribunals_process` com os shards do backfill rodando, e **0 sessões esperando
+lock** o tempo todo.
+
+⚠️ Não roda em transação: `connection.set_autocommit(True)` antes.
+
+⚠️ Ignore `pg_toast_*_index` e os `*_pkey` nessa varredura — 0 scans numa PK não
+quer dizer que ela seja inútil.
+
 ## `docker exec` morto NÃO mata a query — e eu paguei duas vezes
 
 Já estava escrito que `docker stop` não solta lock do Postgres (mata o cliente,
