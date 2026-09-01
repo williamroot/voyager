@@ -234,6 +234,80 @@ def test_auditar_schema_repara_em_duas_etapas():
             if a.tipo == 'fk' and a.tabela == 'tribunals_process'] == []
 
 
+@pytest.mark.django_db(transaction=True)
+def test_nao_valida_o_que_outra_sessao_ja_esta_validando():
+    """Dois VALIDATE da mesma constraint não se ajudam: um espera e refaz tudo.
+
+    Medido em 01/09/2026: três `--validar-fks` concorrentes deixaram dois
+    parados 18 min esperando o primeiro varrer 131 GB de `tribunals_process`.
+    """
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.db import connections
+
+    alvos = {}
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+             WHERE conrelid = 'tribunals_process'::regclass AND contype = 'f'
+        """)
+        alvos = dict(cur.fetchall())
+    nome = sorted(alvos)[0]
+
+    import threading
+    import time as _t
+
+    def outra_sessao():
+        conexao = connections.create_connection('default')
+        try:
+            with conexao.cursor() as c:
+                # query ATIVA cujo texto contém o nome da constraint: é assim
+                # que `pg_stat_activity` mostraria o VALIDATE de verdade
+                c.execute(f"SELECT pg_sleep(8), 'VALIDATE CONSTRAINT \"{nome}\"'")
+        except Exception:
+            pass
+        finally:
+            conexao.close()
+
+    try:
+        with connection.cursor() as cur:
+            cur.execute(f'ALTER TABLE tribunals_process DROP CONSTRAINT "{nome}"')
+            cur.execute(f'ALTER TABLE tribunals_process ADD CONSTRAINT "{nome}" '
+                        f'{alvos[nome]} NOT VALID')
+
+        t = threading.Thread(target=outra_sessao, daemon=True)
+        t.start()
+        for _ in range(40):          # espera a concorrente aparecer ATIVA
+            _t.sleep(0.1)
+            with connection.cursor() as cur:
+                cur.execute("SELECT 1 FROM pg_stat_activity WHERE state='active' "
+                            "AND query LIKE %s AND pid <> pg_backend_pid()",
+                            [f'%{nome}%'])
+                if cur.fetchone():
+                    break
+        else:
+            pytest.skip('a sessão concorrente não apareceu ativa a tempo')
+
+        saida, err = StringIO(), StringIO()
+        call_command('auditar_schema', validar_fks=True, stdout=saida, stderr=err)
+        assert 'JÁ EM VALIDAÇÃO' in err.getvalue(), (
+            f'validou por cima de outra sessão. stderr: {err.getvalue()!r}')
+
+        with connection.cursor() as cur:
+            cur.execute('SELECT convalidated FROM pg_constraint WHERE conname = %s',
+                        [nome])
+            assert cur.fetchone()[0] is False, 'validou apesar da concorrente'
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('SELECT convalidated FROM pg_constraint WHERE conname = %s',
+                        [nome])
+            linha = cur.fetchone()
+            if linha and linha[0] is False:
+                cur.execute(f'ALTER TABLE tribunals_process '
+                            f'VALIDATE CONSTRAINT "{nome}"')
+
+
 @pytest.mark.django_db(transaction=False)
 def test_recusa_fk_em_coluna_sem_indice():
     """FK sem índice na coluna que referencia é bomba — e custou 13 min em prod.

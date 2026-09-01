@@ -264,6 +264,17 @@ class Command(BaseCommand):
                     time.sleep(o['espera'])
         return False
 
+    def _ja_esta_validando(self, nome: str) -> bool:
+        """Outra sessão já está varrendo ESTA constraint?"""
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT 1 FROM pg_stat_activity
+                 WHERE pid <> pg_backend_pid() AND state = 'active'
+                   AND query ILIKE '%%VALIDATE CONSTRAINT%%'
+                   AND query LIKE %s LIMIT 1
+            """, [f'%{nome}%'])
+            return cur.fetchone() is not None
+
     def _validar(self, o):
         with connection.cursor() as cur:
             cur.execute("""
@@ -278,6 +289,17 @@ class Command(BaseCommand):
             self.stdout.write('nenhuma FK NOT VALID — nada a validar.')
             return
         for tabela, nome in pendentes:
+            # Dois `VALIDATE` da MESMA constraint não se ajudam: o segundo pega
+            # `SHARE UPDATE EXCLUSIVE`, que conflita consigo mesmo, e fica na
+            # fila para depois refazer a varredura inteira. Medido em
+            # 01/09/2026: TRÊS invocações concorrentes de `--validar-fks`
+            # deixaram duas paradas 18 min esperando a primeira varrer 131 GB.
+            if self._ja_esta_validando(nome):
+                self.stderr.write(self.style.WARNING(
+                    f'  JÁ EM VALIDAÇÃO {tabela}.{nome} — outra sessão está '
+                    'varrendo esta constraint. Pulando (rodar duas vezes só '
+                    'refaz a varredura, não acelera).'))
+                continue
             t0 = time.monotonic()
             with transaction.atomic(), connection.cursor() as cur:
                 cur.execute(

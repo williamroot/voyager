@@ -686,6 +686,10 @@ DECLARADO E AUSENTE ......... 23
 tabela ausente ... 0 · coluna ausente ... 0 · tipo divergente ... 0
 ```
 
+**Placar do dia: 23 → 5.** O que sobrou são as 3 FKs da `tribunals_movimentacao`
+(1,89 TB, decisão de operação), a FK `processoparte.representa_id` e o índice
+que ela exige. Reconferir a qualquer momento com `manage.py auditar_schema`.
+
 Tabela ausente 0, coluna ausente 0 e tipo divergente 0 **são o controle
 negativo**: o defeito é só de objetos *acessórios* (FK, índice, constraint,
 trigger) — as tabelas e colunas em si nunca foram perdidas. É coerente com a
@@ -717,6 +721,13 @@ casos que a conferência por nome confunde:
 O campo de controle é `controle_pk`: PK é o objeto que certamente existe em toda
 tabela viva. Se ele não fecha em 100%, o command **recusa** publicar o
 inventário (`CommandError`) — meia régua é pior que régua nenhuma.
+
+⚠️ **`--validar-fks` não se roda em paralelo.** `VALIDATE` pega
+`SHARE UPDATE EXCLUSIVE`, que conflita **consigo mesmo**: a segunda invocação
+não ajuda, ela espera a primeira e depois **refaz a varredura inteira**. Medido
+em 01/09/2026: três invocações concorrentes deixaram duas paradas 18 min
+esperando a primeira varrer os 131 GB de `tribunals_process`. O command passou a
+detectar e pular (`JÁ EM VALIDAÇÃO`).
 
 #### O que foi criado em 01/09/2026
 
@@ -757,8 +768,26 @@ derrubada em 13 minutos**. A lição não é sobre a FK, é sobre qual lado paga
 `ProcessoParte.objects.filter(processo_id=pid).delete()` no caminho quente do
 drainer (~126 mil events/h).
 
-Derrubada em 17 tentativas de `lock_timeout=3s`. Banco conferido depois:
-**0 sessões esperando Lock**, 8 ativas, transação mais velha 36 s.
+E não é estimativa. Medido em produção, com tudo dentro de um `ROLLBACK`:
+
+```sql
+BEGIN;
+DELETE FROM tribunals_processoparte WHERE id = (SELECT min(id) FROM ...);
+SET CONSTRAINTS ALL IMMEDIATE;   -- força a checagem DIFERIDA a rodar agora
+ROLLBACK;
+-- Time: 24826.483 ms  →  24,8 SEGUNDOS para UMA linha apagada
+```
+
+⚠️ `DEFERRABLE INITIALLY DEFERRED` — que é como o Django escreve FK — faz a
+checagem rodar **no COMMIT**, não no `DELETE`. Então o sintoma não é "o DELETE
+está lento": é **um backend parado em `COMMIT`**. Foi assim que apareceu, ao
+vivo: pid preso em `COMMIT` há **2m41s** segurando `RowExclusiveLock` em
+`tribunals_processoparte`.
+
+Cura: `pg_cancel_backend` (SIGINT, nunca `terminate`) nos backends que pagavam a
+checagem, para soltar o lock, e `DROP CONSTRAINT` em seguida — sem isso o
+`DROP` não consegue o `ACCESS EXCLUSIVE` (25 tentativas de `lock_timeout=3s`
+falharam antes do cancel). Banco conferido depois: **0 sessões esperando Lock**.
 
 `auditar_schema --reparar-fks` passou a **recusar** FK cuja coluna não seja a
 primeira de um índice válido e não-parcial (`--sem-guarda-de-índice` existe e é
@@ -768,15 +797,18 @@ opt-in, com o porquê no docstring). As outras FKs criadas passam na guarda:
 
 #### O que ficou pendente, e por quê
 
-| objeto | motivo |
+| objeto | situação em 01/09/2026 |
 |---|---|
-| 3 FKs de `tribunals_process` | **lock**: os shards do #105 seguram `RowExclusiveLock` de forma contínua (transações de 6-54 s). 15 tentativas com `lock_timeout=3s` perderam a corrida, sempre limpo (0 sessões em espera depois). Precisa de **janela**: parar os escritores, aplicar em segundos, religar. |
-| `processoparte.processo_id` | referencia `tribunals_process` e pega `SHARE ROW EXCLUSIVE` lá — mesma fila. |
-| `processoparte.representa_id` | **bloqueada pela guarda de índice** — ver abaixo. Só depois do índice. |
-| `processoparte.parte_id` | criada `NOT VALID`; falta o `VALIDATE` (35 GB de varredura). |
+| 3 FKs de `tribunals_process` | **CRIADAS `NOT VALID`** — mas só depois de muita insistência: as primeiras 19 tentativas com `lock_timeout=3s` perderam a corrida para os shards do #105, que seguram `RowExclusiveLock` em transações de 6-54 s. Sempre limpo (0 sessões em espera depois de cada tentativa). Quem passou foi uma corrida do `--reparar-fks` numa brecha. `VALIDATE` rodado em seguida. |
+| `processoparte.processo_id`, `parte_id` | **CRIADAS `NOT VALID`.** Falta o `VALIDATE` (35 GB de varredura, que não bloqueia escrita). |
+| `processoparte.representa_id` | criada, **derrubada duas vezes**, e agora **bloqueada pela guarda de índice**. Ver a caixa abaixo — esta é a lição cara do dia. |
 | 3 FKs de `tribunals_movimentacao` | 1,89 TB / 1,55 bi de linhas. `ACCESS EXCLUSIVE` na tabela mais quente do sistema + `VALIDATE` de dias. Decisão de operação, e fora do `--max-bytes` default do command. |
-| índice `representa_id` | ver abaixo — deve ser criado, mas `CONCURRENTLY`, fora de janela de backfill. |
+| índice `representa_id` | ver abaixo — deve ser criado, `CONCURRENTLY`, e é **pré-requisito** da FK. |
 | índice `classe_id` da movimentação | **não deve ser criado.** Ver abaixo. |
+
+⚠️ `NOT VALID` **já enforce toda linha nova** — o que falta é a prova sobre o
+passado. Enquanto o `VALIDATE` não roda, `auditar_schema` mostra a FK como
+`nao_validada` (aviso), nunca como ausente.
 
 #### O índice de `classe_id` em `tribunals_movimentacao`: NÃO criar
 
