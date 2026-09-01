@@ -145,6 +145,16 @@ model:  Index(fields=['tribunal', '-id'], name='proc_tribunal_id_idx')
 banco:  proc_tribunal_id_idx  ->  ['tribunal_id']      (uma coluna só)
 ```
 
+> **Resolvido no ESTADO em 01/09/2026 (#111).** A declaração passou a dizer o
+> que o banco tem — `models.Index(fields=['tribunal'], name='proc_tribunal_id_idx')`,
+> uma coluna — pela migration `0056_schema_real`, que é
+> `SeparateDatabaseAndState` com `database_operations=[]`: **nenhum** `DROP`/
+> `CREATE` roda no banco (um `DROP INDEX` não-concorrente em 104 M de linhas é
+> o incidente de 25/08). O índice de duas colunas continua **não existindo**, e
+> continua não sendo necessário: os backfills entram por faixa fechada de pk.
+> Quem um dia precisar de `(tribunal, -id)` cria um índice **novo**, com nome
+> novo. `proc_tribunal_id_idx` recebe 15,5 M de scans como está.
+
 **Mesmo nome, conteúdo diferente.** Os três índices fantasma da migration
 `0051` eram *ausentes* — conferir por nome ao menos respondia "não existe".
 Este **existe, com o nome certo e as colunas erradas**, então a verificação que
@@ -222,9 +232,17 @@ indexes:     mov_processo_data_disp_idx   (processo, -data_disp)
              uniq_mov_tribunal_extid      (tribunal, external_id)
 ```
 
-**Não existe índice em `texto`, `search_vector` nem `hash`** — a lista acima é o
-`pg_index` de 20/08/2026, conferido coluna a coluna, e são os 8 índices + a PK
-que a tabela tem.
+**Não existe índice em `texto`, `search_vector`, `hash` nem `classe_id`** — a
+lista acima é o `pg_index` de 20/08/2026, reconferido coluna a coluna em
+01/09/2026, e são os 8 índices + a PK que a tabela tem.
+
+⚠️ `mov_ativo_idx` está **`indisvalid = false`** (8 kB, 0 scans): sobra de um
+`CREATE INDEX CONCURRENTLY` que morreu. O planner não o usa; a escrita mantém.
+
+⚠️ O índice em `classe_id` era **declarado** no model (`Index(fields=['classe'])`
+mais o índice implícito da FK) e nunca existiu. A declaração foi removida em
+01/09/2026 e o índice **não** foi criado — a decisão está medida em
+[Inventário: declarado × banco](#inventário-declarado--banco-01092026-111).
 
 Esta seção afirmava o contrário até 20/08/2026: listava `hash`, `search_vector
 (GIN)` e `texto (GIN gin_trgm_ops)`, e descrevia um trigger
@@ -278,6 +296,12 @@ indexes:     (resolvido, tribunal)
 ```
 
 Permite múltiplos alertas abertos por tribunal+tipo se as **chaves** forem diferentes (não sobrescreve evidências).
+
+⚠️ **Até 01/09/2026 nada disso existia no banco.** A tabela tinha **só a PK** —
+nenhuma FK, nenhum índice e, principalmente, nenhuma unique parcial: a garantia
+de "não sobrescreve evidências" era do model, não do Postgres. Criados em
+01/09/2026 (#111), sem conflito — 0 duplicatas em 15 linhas. Ver
+[Inventário: declarado × banco](#inventário-declarado--banco-01092026-111).
 
 ## Parte
 
@@ -523,6 +547,11 @@ Padronizados pelo CNJ — uma única tabela serve TRF1, TRF3 e qualquer outro tr
 
 ### ⚠️ Não existe FK no BANCO — a FK do model é só do Django (31/08/2026)
 
+> **Atualizado em 01/09/2026 (#111).** As 3 FKs de `tribunals_process` eram a
+> ponta: o inventário completo achou **23 objetos declarados e ausentes**, e
+> **5 FKs + 7 índices + 1 unique** já foram criados. Ver
+> [Inventário: declarado × banco](#inventário-declarado--banco-01092026-111).
+
 ```sql
 SELECT conname, contype FROM pg_constraint
  WHERE conrelid = 'tribunals_process'::regclass AND contype = 'f';
@@ -534,6 +563,14 @@ SELECT conname, contype FROM pg_constraint
 **zero** constraints do tipo `f`. As tabelas pequenas (`processovalidacao`,
 `leadconsumption`, `amostraprocesso`…) têm as suas. Conferido em `pg_constraint`
 tabela a tabela.
+
+> ⚠️ `tribunals_parte` e `tribunals_tribunal` estão nessa lista por engano de
+> leitura: elas não têm nenhum campo FK, então "zero constraints `f`" ali é o
+> valor **correto**, não um achado. As tabelas com FK declarada e ausente eram
+> seis: `tribunals_process`, `tribunals_movimentacao`, `tribunals_processoparte`,
+> `tribunals_ingestionrun`, `tribunals_schemadriftalert` e `accounts_invite`.
+> Contar tabela sem FK declarada como "faltando FK" infla o achado — a régua tem
+> que comparar com o que o **estado declara**, não com uma expectativa.
 
 Consequência prática, e ela morde: o Postgres aceita
 `Process.classe_id = '99999'` sem linha em `tribunals_classejudicial`. Nada
@@ -629,6 +666,145 @@ do incidente do `DROP INDEX` não-concurrent que derrubou o site.
 
 ⚠️ **Na `tribunals_movimentacao`, não.** Validar FK em 1,55 bi de linhas /
 1.888 GB sem sequer um índice em `classe_id` é outro projeto, com outro custo.
+
+
+### Inventário: declarado × banco (01/09/2026, #111)
+
+As 3 FKs de `tribunals_process` eram a ponta. A varredura completa —
+**todas** as migrations do projeto contra a `.101`, comparando por **DEFINIÇÃO
+(coluna), nunca por nome** — deu:
+
+```
+37 modelos declarados · 50 tabelas no banco
+CONTROLE: 37/37 PKs declaradas encontradas (100%)     ← sem isto nada se publica
+
+DECLARADO E AUSENTE ......... 23
+  FK ............ 14   em 6 tabelas
+  índice ......... 7
+  unique ......... 1   uniq_alerta_aberto_tribunal_tipo_chaves
+  nome colidido .. 1   proc_tribunal_id_idx
+tabela ausente ... 0 · coluna ausente ... 0 · tipo divergente ... 0
+```
+
+Tabela ausente 0, coluna ausente 0 e tipo divergente 0 **são o controle
+negativo**: o defeito é só de objetos *acessórios* (FK, índice, constraint,
+trigger) — as tabelas e colunas em si nunca foram perdidas. É coerente com a
+hipótese de schema reconstruído por `CREATE TABLE` à mão nas tabelas antigas,
+com as migrations marcadas depois: as 21 tabelas **novas** têm todas as suas FKs.
+
+#### A régua ficou no repositório
+
+```bash
+manage.py auditar_schema           # o inventário
+manage.py auditar_schema --json
+manage.py auditar_schema --reparar-fks   # ADD CONSTRAINT ... NOT VALID
+manage.py auditar_schema --validar-fks   # VALIDATE CONSTRAINT
+```
+
+`tribunals/schema_auditoria.py` monta o estado final das migrations
+(`MigrationLoader`) e o compara com `pg_attribute`/`pg_index`/`pg_constraint`
+por lista **ordenada de colunas** (+ predicado parcial). Ele distingue três
+casos que a conferência por nome confunde:
+
+| achado | significado |
+|---|---|
+| `indice`/`fk`/`unique` | declarado e **não existe**, por nenhum nome |
+| `nome_diferente` | existe, com as colunas certas e **outro** nome (aviso) |
+| `nome_colidido` | existe com o **mesmo nome** e **colunas erradas** ← o pior |
+| `invalido` | `indisvalid = false`: o planner não usa, a escrita mantém |
+| `nao_validada` | FK criada `NOT VALID`, falta `VALIDATE CONSTRAINT` |
+
+O campo de controle é `controle_pk`: PK é o objeto que certamente existe em toda
+tabela viva. Se ele não fecha em 100%, o command **recusa** publicar o
+inventário (`CommandError`) — meia régua é pior que régua nenhuma.
+
+#### O que foi criado em 01/09/2026
+
+Tabelas pequenas, lock instantâneo, FK criada **já validada** (0 violações):
+
+| tabela | tamanho | objetos criados |
+|---|---:|---|
+| `accounts_invite` | 160 kB | 2 FKs (`created_by_id`, `used_by_id` → `auth_user`) |
+| `tribunals_ingestionrun` | 109 MB | 1 FK (`tribunal_id`) |
+| `tribunals_schemadriftalert` | 13 MB | 2 FKs + 5 índices + **`uniq_alerta_aberto_tribunal_tipo_chaves`** |
+
+⚠️ A unique parcial do `SchemaDriftAlert` **não existia**: a garantia que este
+arquivo descrevia ("não sobrescreve evidências") era do model, não do banco. A
+tabela tinha só a PK — nenhum índice, nenhuma FK. Criada sem conflito
+(0 duplicatas em 15 linhas).
+
+#### O que ficou pendente, e por quê
+
+| objeto | motivo |
+|---|---|
+| 3 FKs de `tribunals_process` | **lock**: os shards do #105 seguram `RowExclusiveLock` de forma contínua (transações de 6-54 s). 15 tentativas com `lock_timeout=3s` perderam a corrida, sempre limpo (0 sessões em espera depois). Precisa de **janela**: parar os escritores, aplicar em segundos, religar. |
+| 3 FKs de `tribunals_processoparte` | duas delas referenciam `tribunals_process`/`tribunals_parte` e pegam `SHARE ROW EXCLUSIVE` lá — mesma fila. |
+| 3 FKs de `tribunals_movimentacao` | 1,89 TB / 1,55 bi de linhas. `ACCESS EXCLUSIVE` na tabela mais quente do sistema + `VALIDATE` de dias. Decisão de operação, e fora do `--max-bytes` default do command. |
+| índice `representa_id` | ver abaixo — deve ser criado, mas `CONCURRENTLY`, fora de janela de backfill. |
+| índice `classe_id` da movimentação | **não deve ser criado.** Ver abaixo. |
+
+#### O índice de `classe_id` em `tribunals_movimentacao`: NÃO criar
+
+A pergunta foi medida antes de decidir, dos dois lados:
+
+| medida | valor |
+|---|---|
+| tabela | **1.893 GB · 1.548.356.480 linhas** |
+| `classe_id` preenchido | 99,92% (`null_frac` 0,00078) |
+| consultas no código que filtram/juntam por `classe_id` | **0** |
+| a única que o TOCA (`repop_classe_assunto --tabela movimentacao`) | `Index Scan using tribunals_movimentacao_pkey`, **custo 5.334** — entra por faixa de pk e **não usaria** o índice |
+| custo de criá-lo | ~35-45 GB (extrapolando de `mov_tribunal_ativo_idx`, 15 GB), mantidos no caminho de **escrita** da ingestão diária |
+| `WHERE classe_id = '1116'` (hipotética, não existe no código) | Parallel Seq Scan, custo 132.470.277 |
+
+⇒ **Ausência registrada, índice não criado.** Índice que ninguém consulta é
+custo puro de escrita — e criar um de 40 GB numa tabela de 1,9 TB para uma
+consulta que não existe é o oposto da regra. A declaração no model foi
+**removida** (inclusive o índice implícito da FK, via `db_index=False`), porque
+declarar o que não existe é o que produziu os três índices fantasma da `0051`.
+
+#### O índice de `representa_id` em `tribunals_processoparte`: DEVE ser criado
+
+Este é o contrário do anterior — declarado, ausente, e com custo **medido** no
+caminho de escrita:
+
+```
+EXPLAIN UPDATE tribunals_processoparte SET representa_id = NULL
+        WHERE representa_id IN (1,2,3);
+->  Seq Scan on tribunals_processoparte  (cost=0.00..2509709.83)
+```
+
+É exatamente o que o `on_delete=SET_NULL` do Django emite ao apagar uma
+`ProcessoParte` (e a dedup de Parte por OAB, #96, apaga). 17,4% das 104 M de
+linhas têm `representa_id` (`null_frac` 0,826), então a versão parcial
+`WHERE representa_id IS NOT NULL` já resolveria com ~1/6 do tamanho.
+**Não criado aqui**: `CREATE INDEX CONCURRENTLY` em 35 GB espera todas as
+transações abertas, e há varredores do #105 com `statement_timeout` de 400 s.
+Fica como recomendação medida.
+
+#### Dois índices INVÁLIDOS no banco (achado colateral)
+
+`indisvalid = false` = sobra de `CREATE INDEX CONCURRENTLY` que morreu na 2ª
+fase. O planner **não** os usa; a escrita **continua** mantendo-os.
+
+| índice | tabela | tamanho | scans |
+|---|---|---:|---:|
+| `proc_tribunal_numero_cnj_idx` | `tribunals_process` | **7.837 MB** | 0 |
+| `mov_ativo_idx` | `tribunals_movimentacao` | 8 kB | 0 |
+
+`proc_tribunal_numero_cnj_idx` é `(tribunal_id, numero_cnj)` — **duplicata** do
+`uniq_proc_tribunal_cnj`, que existe, é válido e recebe 2,35 bi de scans. São
+7,8 GB de disco e escrita paga por nada. Derrubá-lo é `DROP INDEX CONCURRENTLY`
+(o não-concorrente é o incidente de 25/08), e é decisão de operação.
+
+#### Triggers declarados e ausentes (4)
+
+`mov_search_vector_trg` (0001), `mov_update_process_agg` (0004), `pp_total_ins`
+e `pp_total_del` (0005). O quinto, `process_set_ano_cnj`, sumiu do mesmo jeito e
+foi recriado pela `0042` — o padrão é o mesmo. Quem mantém os agregados hoje é
+`djen/ingestion.py::_flush_resumo`; a `search_vector` está morta (ver
+[Movimentacao](#movimentacao)). Não recriados aqui: recriar `mov_update_process_agg`
+poria um trigger por linha no caminho de escrita de 1,55 bi de movimentações,
+que é decisão de arquitetura, não de reparo de schema.
 
 
 ### O buraco das FKs `classe`/`assunto` (#104) — medido em 31/08/2026

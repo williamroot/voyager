@@ -226,9 +226,28 @@ class Process(models.Model):
             models.Index(fields=['orgao_julgador_codigo']),
             models.Index(fields=['ano_cnj']),
             models.Index(fields=['tribunal', 'ano_cnj']),
-            # Cobrem ORDER BY id DESC LIMIT 50 com filtro por tribunal ou enriq_status
-            # — evitam bitmap heap scan + sort quando resultado esperado é pequeno.
-            models.Index(fields=['tribunal', '-id'], name='proc_tribunal_id_idx'),
+            # ⚠️ `proc_tribunal_id_idx` é `btree(tribunal_id)` — UMA coluna.
+            #
+            # Esta linha declarava `fields=['tribunal', '-id']` e o banco tem,
+            # com o MESMO nome, uma coluna só (pg_index, coluna a coluna,
+            # 25/08 e 01/09/2026). Mesmo nome, colunas diferentes: `\di` e
+            # `pg_indexes.indexname` respondem "existe", e o `makemigrations`
+            # não vê porque compara com o ESTADO, não com o banco.
+            #
+            # Custou 1.318 s num `WHERE tribunal_id=X ORDER BY id LIMIT 1` que
+            # ficou na frente de um ALTER e enfileirou 63 sessões (OPS.md).
+            # A saída adotada NÃO foi criar o índice de duas colunas: os
+            # backfills entram por FAIXA FECHADA de `Process.id` (Index Cond na
+            # pkey, custo 60.209 para 50.000 ids), que é o único acesso barato
+            # aqui e ainda torna o reindex do ES viável por bloco contíguo.
+            #
+            # Então a declaração passou a dizer a verdade — 15,5 M de scans o
+            # usam como está. Quem um dia precisar de `(tribunal, -id)` cria um
+            # índice NOVO, com nome novo, de propósito. Ver `0056_schema_real`.
+            models.Index(fields=['tribunal'], name='proc_tribunal_id_idx'),
+            # Cobre ORDER BY id DESC LIMIT 50 com filtro por enriq_status —
+            # evita bitmap heap scan + sort quando o resultado é pequeno.
+            # Este ESTÁ correto no banco: `(enriquecimento_status, id DESC)`.
             models.Index(fields=['enriquecimento_status', '-id'], name='proc_enriq_id_idx'),
             # Pending-scan do reabastecer: WHERE tribunal_id=X AND status=PENDENTE.
             # Sem o composto, o planner pegava o índice de status (milhões) e
@@ -451,9 +470,14 @@ class Movimentacao(models.Model):
     id_orgao = models.IntegerField(null=True, blank=True)
     nome_classe = models.CharField(max_length=255, blank=True)
     codigo_classe = models.CharField(max_length=20, blank=True)
+    # `db_index=False` é MEDIDO, não descuido: ver o comentário em Meta.indexes.
+    # 1,89 TB / 1,55 bi de linhas, ~35-45 GB de índice mantidos no caminho de
+    # escrita da ingestão, e ZERO consultas no código que o usariam. O índice
+    # implícito da FK estava declarado e nunca existiu no banco (`tribunals_
+    # movimentacao` tem 8 índices + a PK, nenhum em `classe_id`).
     classe = models.ForeignKey(
         ClasseJudicial, on_delete=models.PROTECT, null=True, blank=True,
-        related_name='movimentacoes',
+        related_name='movimentacoes', db_index=False,
     )
     link = models.URLField(max_length=500, blank=True)
     destinatarios = models.JSONField(default=list)
@@ -486,7 +510,24 @@ class Movimentacao(models.Model):
             models.Index(fields=['tribunal', '-data_disponibilizacao']),
             models.Index(fields=['inserido_em']),
             models.Index(fields=['tribunal', 'ativo']),
-            models.Index(fields=['classe']),
+            # NÃO declarar índice em `classe` (a FK `classe_id`) — MEDIDO em
+            # 01/09/2026, e a medição é o motivo de ele não existir:
+            #
+            #   · a tabela tem 1,89 TB / 1,55 bilhão de linhas; um btree em
+            #     `classe_id` custaria ~35-45 GB (extrapolando de
+            #     `mov_tribunal_ativo_idx`, 15 GB) e seria mantido no caminho
+            #     de ESCRITA da ingestão diária;
+            #   · a ÚNICA consulta do código que toca `classe_id` é a do
+            #     `repop_classe_assunto --tabela movimentacao`, e ela entra por
+            #     faixa fechada de pk: `Index Cond` na pkey, custo 5.334 — o
+            #     índice em `classe_id` NÃO seria usado por ela;
+            #   · nenhuma outra consulta filtra ou junta por aqui (a busca usa
+            #     `codigo_classe` no Elasticsearch, e a tela lê `nome_classe`).
+            #
+            # Índice que ninguém consulta é custo puro de escrita. Ele estava
+            # DECLARADO aqui e nunca existiu no banco — a `tribunals_movimentacao`
+            # tem 8 índices + a PK e nenhum cobre `classe_id` (pg_index, coluna a
+            # coluna). Ver a migration `0056_schema_real` e `.ia/DATA_MODEL.md`.
             # NÃO declarar índice em `hash`, `texto` ou `search_vector`.
             #
             # Os três estavam declarados aqui e NENHUM existe no banco (conferido
