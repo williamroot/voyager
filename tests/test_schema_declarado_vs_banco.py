@@ -235,6 +235,115 @@ def test_auditar_schema_repara_em_duas_etapas():
 
 
 @pytest.mark.django_db(transaction=False)
+def test_recusa_fk_em_coluna_sem_indice():
+    """FK sem índice na coluna que referencia é bomba — e custou 13 min em prod.
+
+    Criada em 01/09/2026 pelo próprio `--reparar-fks`,
+    `processoparte.representa_id -> self` teve que ser derrubada: quem paga é o
+    lado REFERENCIADO. Apagar uma `ProcessoParte` dispara
+    `SELECT 1 FROM tribunals_processoparte WHERE representa_id = $1` por linha,
+    e sem índice isso é Seq Scan de 35 GB — no caminho de
+    `enrichers/drainer.py:423`, que apaga no hot path do drainer.
+    """
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    alvo = 'tribunals_processopa_representa_id_a5628757_fk_tribunals'
+    with connection.cursor() as cur:
+        cur.execute('SELECT conname FROM pg_constraint '
+                    "WHERE conrelid = 'tribunals_processoparte'::regclass "
+                    "AND contype = 'f'")
+        antes = {r[0] for r in cur.fetchall()}
+        assert any('representa' in n for n in antes), 'controle: a FK existe'
+        for nome in antes:
+            if 'representa' in nome:
+                alvo = nome
+                cur.execute('ALTER TABLE tribunals_processoparte '
+                            f'DROP CONSTRAINT "{nome}"')
+        # e o índice que a tornaria segura também não existe em produção
+        cur.execute("""
+            SELECT 1 FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid
+            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+            WHERE t.relname = 'tribunals_processoparte' AND a.attname = 'representa_id'
+        """)
+        indice = cur.fetchone()
+        if indice:
+            cur.execute('DROP INDEX IF EXISTS '
+                        'tribunals_processoparte_representa_id_a5628757')
+
+    err = StringIO()
+    with pytest.raises(CommandError):
+        call_command('auditar_schema', reparar_fks=True, tentativas=1, espera=0,
+                     stdout=StringIO(), stderr=err)
+    assert 'SEM ÍNDICE' in err.getvalue(), (
+        'o command criou (ou tentou criar) FK em coluna sem índice: '
+        f'{err.getvalue()!r}'
+    )
+    with connection.cursor() as cur:
+        cur.execute('SELECT count(*) FROM pg_constraint '
+                    "WHERE conname = %s", [alvo])
+        assert cur.fetchone()[0] == 0, 'criou a FK bomba apesar da guarda'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lock_timeout_nao_mata_a_corrida_e_vira_erro_registrado():
+    """`lock_timeout` é TRANSITÓRIO: retenta e termina em ERRO com o número real.
+
+    Sem a leitura do `sqlstate` (psycopg3 não expõe `pgcode`), o 55P03 subia
+    como `OperationalError` crua e matava a corrida na PRIMEIRA tabela ocupada —
+    que em produção é o caso normal, não a exceção.
+    """
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    from django.db import connections
+
+    alvos = {}
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+             WHERE conrelid = 'tribunals_process'::regclass AND contype = 'f'
+        """)
+        alvos = dict(cur.fetchall())
+    assert alvos, 'controle: o banco de teste tem FK em tribunals_process'
+
+    bloqueador = connections.create_connection('default')
+    try:
+        with connection.cursor() as cur:
+            for nome in alvos:
+                cur.execute(f'ALTER TABLE tribunals_process DROP CONSTRAINT "{nome}"')
+
+        bloqueador.set_autocommit(False)
+        with bloqueador.cursor() as c:
+            # ROW EXCLUSIVE é o que um UPDATE segura — e conflita com o
+            # ACCESS EXCLUSIVE do ALTER. É a corrida real do #105.
+            c.execute('LOCK TABLE tribunals_process IN ROW EXCLUSIVE MODE')
+
+        err = StringIO()
+        with pytest.raises(CommandError):
+            call_command('auditar_schema', reparar_fks=True, tentativas=2,
+                         espera=0, lock_timeout='200ms',
+                         stdout=StringIO(), stderr=err)
+        assert 'LOCK NÃO VEIO' in err.getvalue(), (
+            'o lock_timeout não foi tratado como transitório — subiu cru e '
+            f'matou a corrida. stderr: {err.getvalue()!r}'
+        )
+    finally:
+        bloqueador.rollback()
+        bloqueador.close()
+        with connection.cursor() as cur:
+            for nome, definicao in alvos.items():
+                cur.execute("SELECT 1 FROM pg_constraint WHERE conname = %s "
+                            "AND conrelid = 'tribunals_process'::regclass", [nome])
+                if not cur.fetchone():
+                    cur.execute(f'ALTER TABLE tribunals_process '
+                                f'ADD CONSTRAINT "{nome}" {definicao}')
+
+
+@pytest.mark.django_db(transaction=False)
 def test_auditar_schema_recusa_tabela_acima_do_teto():
     """Teto atingido é ERRO com o número real, nunca um `return` discreto."""
     from io import StringIO

@@ -733,12 +733,47 @@ arquivo descrevia ("não sobrescreve evidências") era do model, não do banco. 
 tabela tinha só a PK — nenhum índice, nenhuma FK. Criada sem conflito
 (0 duplicatas em 15 linhas).
 
+Mais uma, criada `NOT VALID` numa brecha de lock:
+
+| `tribunals_processoparte` | 35 GB | 1 FK `parte_id` → `tribunals_parte(id)`, **NOT VALID** |
+
+`NOT VALID` já vale para toda linha nova; falta só a prova sobre o passado
+(`auditar_schema --validar-fks`, que varre sem bloquear escrita). Não rodado
+aqui: são 35 GB de varredura num banco que já está disk-I/O-bound com o #105 e
+o #106 rodando, e site em pé vale mais.
+
+#### ⚠️ FK sem índice na coluna que referencia é bomba — 13 minutos em produção
+
+A mesma corrida criou `processoparte.representa_id → self` e ela **teve que ser
+derrubada em 13 minutos**. A lição não é sobre a FK, é sobre qual lado paga:
+
+> Quem paga o preço de uma FK sem índice é o lado **REFERENCIADO**. Apagar uma
+> linha do pai dispara, para **cada** linha, `SELECT 1 FROM filho WHERE fk = $1`.
+> Sem índice em `filho.fk`, isso é um **Seq Scan da tabela filha por linha
+> apagada**.
+
+`representa_id` é auto-referência e **não tem índice** — então cada
+`ProcessoParte` apagada varreria 35 GB. E `enrichers/drainer.py:423` faz
+`ProcessoParte.objects.filter(processo_id=pid).delete()` no caminho quente do
+drainer (~126 mil events/h).
+
+Derrubada em 17 tentativas de `lock_timeout=3s`. Banco conferido depois:
+**0 sessões esperando Lock**, 8 ativas, transação mais velha 36 s.
+
+`auditar_schema --reparar-fks` passou a **recusar** FK cuja coluna não seja a
+primeira de um índice válido e não-parcial (`--sem-guarda-de-índice` existe e é
+opt-in, com o porquê no docstring). As outras FKs criadas passam na guarda:
+`processoparte.parte_id` tem `pp_parte_polo_idx`, `process.classe_id` tem
+`proc_classe_id_idx`, e assim por diante.
+
 #### O que ficou pendente, e por quê
 
 | objeto | motivo |
 |---|---|
 | 3 FKs de `tribunals_process` | **lock**: os shards do #105 seguram `RowExclusiveLock` de forma contínua (transações de 6-54 s). 15 tentativas com `lock_timeout=3s` perderam a corrida, sempre limpo (0 sessões em espera depois). Precisa de **janela**: parar os escritores, aplicar em segundos, religar. |
-| 3 FKs de `tribunals_processoparte` | duas delas referenciam `tribunals_process`/`tribunals_parte` e pegam `SHARE ROW EXCLUSIVE` lá — mesma fila. |
+| `processoparte.processo_id` | referencia `tribunals_process` e pega `SHARE ROW EXCLUSIVE` lá — mesma fila. |
+| `processoparte.representa_id` | **bloqueada pela guarda de índice** — ver abaixo. Só depois do índice. |
+| `processoparte.parte_id` | criada `NOT VALID`; falta o `VALIDATE` (35 GB de varredura). |
 | 3 FKs de `tribunals_movimentacao` | 1,89 TB / 1,55 bi de linhas. `ACCESS EXCLUSIVE` na tabela mais quente do sistema + `VALIDATE` de dias. Decisão de operação, e fora do `--max-bytes` default do command. |
 | índice `representa_id` | ver abaixo — deve ser criado, mas `CONCURRENTLY`, fora de janela de backfill. |
 | índice `classe_id` da movimentação | **não deve ser criado.** Ver abaixo. |
@@ -774,9 +809,15 @@ EXPLAIN UPDATE tribunals_processoparte SET representa_id = NULL
 ```
 
 É exatamente o que o `on_delete=SET_NULL` do Django emite ao apagar uma
-`ProcessoParte` (e a dedup de Parte por OAB, #96, apaga). 17,4% das 104 M de
-linhas têm `representa_id` (`null_frac` 0,826), então a versão parcial
-`WHERE representa_id IS NOT NULL` já resolveria com ~1/6 do tamanho.
+`ProcessoParte` — e `enrichers/drainer.py:423` apaga no hot path do drainer.
+17,4% das 104 M de linhas têm `representa_id` (`null_frac` 0,826), então a
+versão parcial `WHERE representa_id IS NOT NULL` resolveria com ~1/6 do tamanho.
+
+**E ele é PRÉ-REQUISITO da FK**, não um extra: enquanto não existir, a FK
+`representa_id → self` transforma cada `DELETE` de `ProcessoParte` num Seq Scan
+de 35 GB (ver a caixa acima — foi medido do jeito caro). A ordem é: índice
+`CONCURRENTLY` primeiro, FK depois.
+
 **Não criado aqui**: `CREATE INDEX CONCURRENTLY` em 35 GB espera todas as
 transações abertas, e há varredores do #105 com `statement_timeout` de 400 s.
 Fica como recomendação medida.

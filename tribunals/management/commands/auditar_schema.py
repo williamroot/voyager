@@ -80,6 +80,11 @@ class Command(BaseCommand):
         p.add_argument('--tentativas', type=int, default=10)
         p.add_argument('--espera', type=float, default=4.0,
                        help='segundos entre tentativas.')
+        p.add_argument('--sem-guarda-de-indice', action='store_true',
+                       help='cria a FK mesmo sem índice na coluna que referencia. '
+                            'NÃO use sem ler `_tem_indice_liderado_por`: sem o '
+                            'índice, cada DELETE no lado referenciado varre a '
+                            'tabela filha INTEIRA, uma vez por linha.')
         p.add_argument('--validate-timeout', default='3600s',
                        help='teto do VALIDATE (varre a tabela; não bloqueia escrita).')
 
@@ -129,6 +134,31 @@ class Command(BaseCommand):
             cur.execute('SELECT pg_total_relation_size(%s::regclass)', [tabela])
             return cur.fetchone()[0]
 
+    def _tem_indice_liderado_por(self, tabela: str, coluna: str) -> bool:
+        """A coluna que REFERENCIA é a 1ª de algum índice válido?
+
+        Sem isso a FK é uma bomba. O lado REFERENCIADO paga: apagar uma linha
+        do pai dispara, para cada linha, `SELECT 1 FROM filho WHERE fk = $1`.
+        Sem índice, isso é um Seq Scan da tabela filha **por linha apagada**.
+
+        Medido em 01/09/2026: a FK `processoparte.representa_id -> self` foi
+        criada por este command e teve que ser derrubada em 13 minutos —
+        `representa_id` não tem índice, e `enrichers/drainer.py:423` apaga
+        `ProcessoParte` no caminho quente (o drainer aplica ~126 mil events/h).
+        Cada linha apagada teria varrido 35 GB.
+        """
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT 1
+                  FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid
+                  JOIN pg_attribute a
+                    ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+                 WHERE t.relname = %s AND a.attname = %s
+                   AND i.indisvalid AND i.indpred IS NULL
+                 LIMIT 1
+            """, [tabela, coluna])
+            return cur.fetchone() is not None
+
     def _campo(self, tabela: str, coluna: str):
         """(model, field) da coluna — para o nome sair IGUAL ao do Django."""
         from django.apps import apps as registro
@@ -145,11 +175,15 @@ class Command(BaseCommand):
         if not faltando:
             self.stdout.write('nenhuma FK ausente — nada a reparar.')
             return
-        criadas, fora, perdidas = 0, [], []
+        criadas, fora, perdidas, sem_indice = 0, [], [], []
         for ach in faltando:
             tam = self._tamanho(ach.tabela)
             if tam > o['max_bytes']:
                 fora.append((ach, tam))
+                continue
+            if not (o['sem_guarda_de_indice']
+                    or self._tem_indice_liderado_por(ach.tabela, ach.objeto)):
+                sem_indice.append(ach)
                 continue
             model, campo = self._campo(ach.tabela, ach.objeto)
             if campo is None:
@@ -179,6 +213,12 @@ class Command(BaseCommand):
                 f'  FORA DO TETO {ach.tabela}.{ach.objeto}: '
                 f'{tam:,} bytes > --max-bytes {o["max_bytes"]:,}. '
                 'Decisão de operação, não de deploy.'))
+        for ach in sem_indice:
+            self.stderr.write(self.style.ERROR(
+                f'  SEM ÍNDICE {ach.tabela}.{ach.objeto}: criar a FK aqui faria '
+                f'cada DELETE em {ach.detalhe.split("->")[1].strip()} varrer '
+                f'{ach.tabela} inteira (o lado referenciado é quem paga). '
+                'Crie o índice ANTES — CONCURRENTLY — e rode de novo.'))
         for ach in perdidas:
             self.stderr.write(self.style.ERROR(
                 f'  LOCK NÃO VEIO em {ach.tabela}.{ach.objeto} após '
@@ -186,10 +226,12 @@ class Command(BaseCommand):
                 'ACCESS EXCLUSIVE enfileira: NÃO suba o lock_timeout — peça a '
                 'janela, pare os escritores e reaplique (segundos).'))
         self.stdout.write(f'FKs criadas: {criadas} · fora do teto: {len(fora)} '
+                          f'· sem índice: {len(sem_indice)} '
                           f'· lock não veio: {len(perdidas)}')
-        if perdidas or fora:
+        if perdidas or fora or sem_indice:
             raise CommandError(
-                f'{len(perdidas) + len(fora)} FKs declaradas continuam ausentes.')
+                f'{len(perdidas) + len(fora) + len(sem_indice)} FKs declaradas '
+                'continuam ausentes.')
 
     def _add_not_valid(self, tabela, coluna, para_tabela, para_coluna, nome, o) -> bool:
         sql = (f'ALTER TABLE "{tabela}" ADD CONSTRAINT "{nome}" '
@@ -207,7 +249,12 @@ class Command(BaseCommand):
                     cur.execute(sql)
                 return True
             except OperationalError as e:
-                codigo = getattr(getattr(e, '__cause__', None), 'pgcode', None)
+                causa = getattr(e, '__cause__', None)
+                # psycopg3 expõe `sqlstate`; o `pgcode` do psycopg2 fica de
+                # reserva. Sem os dois, um lock_timeout viraria `raise` e
+                # mataria a corrida inteira na primeira tabela ocupada.
+                codigo = (getattr(causa, 'sqlstate', None)
+                          or getattr(causa, 'pgcode', None))
                 if codigo not in TRANSITORIOS:
                     raise
                 self.stdout.write(
