@@ -17,10 +17,10 @@ O buraco (#104), medido em 31/08/2026 em produção
     -- 8.054.334
 
 `classe_codigo` é a coluna de compatibilidade e `classe_id` é a FK do catálogo
-TPU; são o MESMO fato em dois formatos. Três escritores gravam o código sem
-fechar a FK — `datajud/ingestion.py::_meta_updates_from_source`,
-`datajud/hidratacao.py` e o caminho do enricher —, então o buraco não é um
-resíduo histórico: ele se realimenta.
+TPU; são o MESMO fato em dois formatos. DOIS escritores gravavam o código sem
+fechar a FK — `datajud/hidratacao.py` e `datajud/ingestion.py::sync_processo` —,
+e por isso o buraco se realimentava. Os dois foram consertados na ORIGEM em
+01/09/2026; ver a seção "ZERO ERA FOTO", abaixo.
 
 Por que a versão anterior deste comando nunca fechou o buraco
 -------------------------------------------------------------
@@ -37,25 +37,38 @@ pendência ficou em 8,2 M em 30/08 e 8,05 M em 31/08 (a diferença é ingestão 
 vivo, não progresso). Aqui a varredura é por **faixa fechada de pk**, que é o
 único acesso barato nesta tabela (ver `.ia/DATA_MODEL.md`, `proc_tribunal_id_idx`).
 
+ZERO ERA FOTO — e desde 01/09/2026 o escritor fechou a FK na ORIGEM
+------------------------------------------------------------------
+Medido em 31/08/2026: a corrida completa levou `classe_id IS NULL` de 8.054.334
+a **21**, e `assunto_id` a **222**. Trinta minutos depois, sem corrida nenhuma:
+**25** e **227**; dezoito horas depois, **8.072** e **8.343**. Os que voltavam
+não eram resíduo: eram linhas ANTIGAS reescritas ao vivo por um caminho que
+gravava `classe_codigo` e não resolvia a FK — com **0 códigos** fora do
+catálogo, isto é, dava para resolver.
+
+Eram **dois** escritores, e não os três que esta docstring afirmava: o enricher
+foi conferido linha a linha e fecha a FK nos dois caminhos (`upsert_catalogo`
+no single, `_bulk_upsert_catalogos` no bulk) — a acusação a ele estava errada.
+
+    datajud/hidratacao.py     INSERT sem `classe_id`/`assunto_id`  ...   194 linhas/16 h
+    datajud/ingestion.py      UPDATE sem FK (`sync_processo`)      ... 7.837 linhas/16 h
+
+Os dois foram consertados em 01/09/2026 (`tribunals/catalogo.py`, lookup que
+ABSTÉM quando o catálogo não tem o código). Este comando continua sendo a
+vassoura do que ficou para trás e a régua do antes/depois — mas não precisa
+mais ser recorrente. Se a consulta da pendência voltar a crescer, é escritor
+NOVO: procure quem grava `classe_codigo`/`assunto_codigo` sem chamar
+`tribunals.catalogo.resolver`, em vez de agendar outra varredura.
+
+⚠️ `--desde-atualizado N` existe e **não** resolve isso: enquanto houver
+backfill em massa nesta tabela (os shards do `backfill_fase` carimbam
+`atualizado_em` em milhões de linhas), a "janela recente" é quase a tabela
+inteira e o índice não restringe nada — o tique horário que tentou esse
+caminho estourou `statement_timeout` em três variantes e foi apagado.
+
 Sem campainha — de propósito, e medido
 --------------------------------------
 Os backfills irmãos (`backfill_classe`, `backfill_fase`) carregam
-ZERO É FOTO, NÃO ESTADO — por que este backfill é RECORRENTE
-------------------------------------------------------------
-Medido em 31/08/2026: a corrida completa levou `classe_id IS NULL` de 8.054.334
-a **21**, e `assunto_id` a **222**. Trinta minutos depois, sem nenhuma corrida
-nova: **25** e **227**.
-
-Os que voltam não são resíduo nem erro: são linhas ANTIGAS reescritas ao vivo
-(datajud, hidratação, enricher) por um caminho que grava `classe_codigo` e não
-resolve a FK. Espalhadas de pk 13,1 M a 103,3 M, com `atualizado_em` posterior
-à passagem do shard.
-
-⇒ Rodar uma vez e declarar "zero" é anunciar um estado que já não vale quando
-a frase termina. `--desde-atualizado N` é o modo do tick: varre só o que mudou
-nas últimas N horas, pelo `proc_atualizado_em_idx`, em vez de percorrer 104 M
-linhas atrás de duas dezenas.
-
 `atualizado_em = now()` porque mexem em campo que o índice de busca serve. Este
 **não mexe**: `search/documents.py::processo_to_doc` publica `codigo_classe`
 (de `classe_codigo`), `classe_nome`, `assunto`, `assunto_codigo` — e **nenhum**

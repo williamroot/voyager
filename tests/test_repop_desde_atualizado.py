@@ -1,23 +1,30 @@
-"""O zero do #104 é FOTO, não estado — e o tique existe por causa disso.
+"""O modo `--desde-atualizado` do `repop_classe_assunto`.
 
-Medido em 31/08/2026: a corrida completa levou `classe_id IS NULL` de 8.054.334
-a **21** e `assunto_id` a **222**. Trinta minutos depois, sem corrida nova:
-**25** e **227**. Quem volta são linhas ANTIGAS reescritas ao vivo (datajud,
-hidratação, enricher) por um caminho que grava `classe_codigo` e não resolve a
-FK.
+Este arquivo protegia o tique horário `tick_repop_fk_recente`. **O tique não
+existe mais** (01/09/2026): os dois escritores que reabriam o buraco do #104 —
+`datajud/hidratacao.py` e `datajud/ingestion.py::sync_processo` — passaram a
+fechar a FK na própria escrita, e conserto na origem torna vassoura periódica
+código morto. Ver `tests/test_fk_catalogo_na_origem.py`.
 
-O que este arquivo protege:
+O que sobra aqui é a opção `--desde-atualizado`, que continua no comando para a
+passada pontual. Ela tem duas armadilhas medidas em produção, e são estas que
+os testes prendem:
 
-1. o modo incremental filtra por `atualizado_em` — sem isso, o tique varreria
-   104 M linhas de hora em hora atrás de duas dezenas;
-2. sem `--desde-atualizado`, a corrida completa segue existindo (não quebrei o
-   modo antigo);
-3. a janela é MAIOR que o intervalo entre execuções — sobreposição é barata,
-   buraco não é.
+1. o filtro por `atualizado_em` de fato entra no SQL do bloco — sem ele a
+   passada varre 104 M linhas;
+2. o CURSOR também tem que ser guiado pelo índice: com o filtro certo e o
+   cursor cego, a varredura levava 30 s para chegar em pk 32 M de 104 M;
+3. e o salto do cursor para na PRIMEIRA linha (`ORDER BY id LIMIT 1`) — o
+   `min(id)` agrega a janela inteira e estourou `statement_timeout` em prod.
+
+Sem `--desde-atualizado`, a corrida completa segue existindo, intocada.
+
+⚠️ A opção NÃO serve para tique recorrente enquanto houver backfill em massa
+nesta tabela: os shards do `backfill_fase` carimbam `atualizado_em` em milhões
+de linhas e a "janela recente" vira quase a tabela inteira. Ver `djen/scheduler.py`.
 """
 from unittest.mock import patch
 
-import tribunals.jobs as J
 from tribunals.management.commands import repop_classe_assunto as R
 
 
@@ -63,23 +70,6 @@ def test_corrida_completa_continua_sem_filtro():
     cap = _sql_do_bloco(_opts())
     assert 'atualizado_em' not in cap['sql']
     assert cap['params'] == [0, 1000]
-
-
-def test_janela_cobre_o_intervalo_entre_execucoes():
-    """3 h de janela para 1 h de intervalo. Se alguém encurtar a janela abaixo
-    do intervalo, abre buraco: linha reescrita logo após um tique não seria
-    vista pelo seguinte."""
-    assert J.JANELA_REPOP_H > 1.0, 'janela tem que ser maior que o intervalo'
-
-
-def test_tique_chama_o_comando_com_teto_e_janela():
-    """Nada no caminho de um tique periódico sem teto de espera (regra nº 7)."""
-    with patch('django.core.management.call_command') as cc:
-        r = J.tick_repop_fk_recente()
-    _, kwargs = cc.call_args
-    assert kwargs['desde_atualizado'] == J.JANELA_REPOP_H
-    assert kwargs['max_segundos'] == 900, 'sem teto, o tique atropela o próximo'
-    assert r['janela_h'] == J.JANELA_REPOP_H
 
 
 def test_cursor_salta_para_o_proximo_pk_da_janela():

@@ -920,6 +920,74 @@ concluir que o backfill falhou.
 A margem é de 73 mil pks. Numa próxima passada, calcular o teto a partir de
 `max(id)` — o comando já faz isso quando `--ate` é 0.
 
+#### O conserto na ORIGEM (01/09/2026) — e o terceiro culpado que não existia
+
+O tique horário de reparo (`tick_repop_fk_recente`) foi tentado e **falhou**:
+filtrar por `atualizado_em` não restringe nada enquanto os shards do
+`backfill_fase` carimbam a coluna em milhões de linhas — estourou
+`statement_timeout` em três variantes (`min(id)`, `ORDER BY id LIMIT 1`, sem
+`ORDER BY`). O job foi **apagado** em 01/09; a razão está em `djen/scheduler.py`.
+
+Em 18 h o buraco reabriu para **8.072** (classe) e **8.343** (assunto). A
+decomposição, medida contra `max(id) = 106.326.832` (o topo de 31/08):
+
+| | linhas |
+|---|---:|
+| processos NOVOS na faixa (pk > 106.326.832) | 153.860 |
+| … destes, com `classe_id` NULL | **194** (0,13%) |
+| ⇒ linhas ANTIGAS reescritas | **7.837** (97,6%) |
+| códigos sem correspondente no catálogo | **0** |
+
+Zero órfãos é o dado que fecha o diagnóstico: o escritor **tinha** com o que
+resolver a FK e não resolvia. Não é dado ausente, é vínculo não feito.
+
+**Eram DOIS escritores, não três.** A documentação anterior acusava também "o
+caminho do enricher"; conferido linha a linha, o enricher **fecha** a FK nos
+dois caminhos (`upsert_catalogo` no single, `_bulk_upsert_catalogos` +
+`classe_by_code` no bulk, e `fallback_classe_via_djen` traz `classe_id` da
+movimentação). A acusação estava errada e fica registrada como errada.
+
+| escritor | o que fazia | linhas/16 h |
+|---|---|---:|
+| `datajud/hidratacao.py` | `Process.objects.create(**campos)` sem `classe_id`/`assunto_id` | 194 |
+| `datajud/ingestion.py::sync_processo` | `.update(**meta_updates)` sem as FKs | 7.837 |
+
+Os que aparecem na busca por `classe_codigo` e **não** têm o defeito, cada um
+conferido: `datajud/varredura.py:181` (escreve no índice ES, onde não há FK),
+`enrichers/drainer.py`, `backfill_classe`, `backfill_assunto`,
+`preencher_classe_via_djen`, e `djen/ingestion.py` + `diarios/base.py` (criam
+`Process` só com CNJ; a classe vai na `Movimentacao`, já com `classe_id`).
+`backfill_classe_cnj` mexe só em `classe_cnj_*`, que não tem FK.
+
+**A cura: `tribunals/catalogo.py`.** Um `resolver(qual, codigo)` que consulta o
+catálogo e **abstém** quando não acha — FK fica NULL, com log. É *lookup*, não
+upsert: este catálogo é NACIONAL e destino de FK, e a primeira corrida do
+`repop` criou `99999999` nele em menos de dois minutos quando podia criar à
+vontade. E **nunca degrada**: a FK só é escrita quando resolve, então um código
+órfão vindo do Datajud não vira `classe_id = NULL` por cima do vínculo que o
+enricher fechou.
+
+Custo, medido em produção no `voyager-web-1` **depois** do deploy:
+
+| | |
+|---|---|
+| 1ª chamada do processo (carrega os dois catálogos) | **92,4 ms**, uma vez a cada 5 min |
+| catálogo em memória | 662 classes + 4.295 assuntos = 4.957 linhas |
+| chamada quente (`classe` + `assunto`) | **2,32 µs** |
+| código órfão, 1ª vez (sonda pela PK) | 9,04 ms — memorizada até o fim da janela |
+| código órfão, memorizado | 0,61 µs |
+| um `fetch_processo` do CNJ, ao lado do qual isso roda | **20,9 s** (fila do rate-limit) |
+
+Não encarece nada de forma perceptível: 2,32 µs contra os ~21 s que a mesma
+`sync_processo` gasta esperando o token do CNJ.
+
+Prova do deploy **dentro do processo** (não pelo disco), 01/09/2026:
+
+| processo | prova |
+|---|---|
+| `worker_manual` (.103) | `hidratar_processo` de um CNJ do esqueleto nasceu com `classe_id='11875'` e `assunto_id='7769'` |
+| `worker_datajud` (.102) | linha criada só com CNJ (`classe_codigo=''`, `classe_id=None`) foi a `classe_codigo='279'`/`classe_id='279'`, `assunto_codigo='5851'`/`assunto_id='5851'` |
+
 ### `repop_classe_assunto` — o backfill que fecha as duas FKs
 
 ```bash
