@@ -399,6 +399,22 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Estoque × consumo (tela /dashboard/estoque/) — a cada 6 h.
+    # A varredura é `tribunals_process` inteiro (104 M) com o consumo entrando
+    # como lado de hash: 43,8 s medidos em 01/09/2026. Nunca no caminho da
+    # requisição (regra nº 7). Um aquecimento serve as DUAS trilhas — o custo
+    # é a varredura, e ela responde as duas de uma vez.
+    from dashboard.estoque import aquecer as warm_estoque
+    scheduler.add_job(
+        warm_estoque,
+        'interval',
+        hours=6,
+        id='warm_estoque',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Marcos da semana (card do Acompanhamento) — a cada 3 h.
     # Não é inline: o próprio portão, que é um dos marcos, custa segundos, e a
     # contagem de `grau` varre 103 M linhas. Regra nº 7.
