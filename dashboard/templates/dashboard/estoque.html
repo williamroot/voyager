@@ -1,0 +1,791 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras l10n %}
+
+{% block title %}Estoque — {{ trilha_rotulo }}{% endblock %}
+
+{% block content %}
+{% comment %}
+ESTOQUE — quanto já marcamos × quanto já foi consumido, por tribunal.
+
+Esta tela tem quatro proibições, e cada uma saiu de um erro medido:
+
+  1. NÃO existe "saldo". O consumido é 14,7× o estoque de PRECATORIO
+     (811.360 × 55.285, medido em 01/09/2026): a subtração dá negativo e não
+     significa nada, porque os conjuntos não são comparáveis por diferença —
+     um é consumo histórico, o outro é a classificação de hoje. Os dois lados
+     aparecem lado a lado, e a relação entre eles só sai do `cruzamento`.
+  2. `falcon` e `juriscope` NUNCA somam em silêncio — e o motivo é pior do que
+     "são dois clientes": os 405.740 processos do juriscope estão TODOS dentro
+     do falcon. Somar dá 1.217.100 contra a união real de 811.360, contando
+     405.740 duas vezes. A tela mostra cada cliente, a UNIÃO e a sobreposição.
+  3. Todo número diz SE é registro de consumo (1.224.278) ou processo distinto
+     (811.360). Diferem 51% porque re-consumo cria registro novo.
+  4. Bloco sem medição SAI da tela dizendo que saiu. Zerado, nunca.
+
+E a regra de implementação que já me mordeu nesta sessão: o bloco é guardado
+pelo NÚMERO (`{'n':…}` vindo de `_num()`), não pelo texto formatado. `'0'` é
+string verdadeira no `if` do Django e faz painel zerado se anunciar como medido.
+
+Padrões da casa que não podem regredir:
+  * comentário multilinha SÓ em `comment` — cerquilha atravessando linha VAZA
+    literal na tela;
+  * `text-base` aqui é COR (o token `base` é o fundo da página), não tamanho:
+    título de card usa `text-[1rem]`;
+  * texto corrido em `-fg` (mission-fg, accent-fg) — a var sem sufixo é cor de
+    marca e não cumpre 4,5:1 no tema claro;
+  * explicação em `.voy-tip` com `.voy-tip-body`, nunca `title=`; e nunca
+    dentro de um ancestral com `overflow-hidden`, que clipa o balão;
+  * `success-fg`/`warn` NÃO estão no tailwind.config — são classes MORTAS.
+    Só os tokens registrados: accent, mission, pulsar, golden, pale-blue,
+    danger, warning, info, fg*, base, surface, card, muted, border, on-accent.
+{% endcomment %}
+
+<div class="space-y-5">
+
+  {% comment %} ═══ CABEÇALHO + CHAVE DE TRILHA ═══════════════════════════ {% endcomment %}
+  <div class="card-tight">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 class="text-lg font-semibold text-fg-soft flex items-center gap-2">
+          {% voy_icon "scale" "w-5 h-5 text-mission" %}
+          Estoque
+        </h1>
+        <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+          Por tribunal: quanto o classificador <b>marcou</b> nesta trilha, e
+          quanto disso o Juriscope/Falcon <b>já consumiu</b>. São dois lados —
+          não um saldo.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5" role="group"
+           aria-label="Trilha do estoque">
+        {% for valor, rotulo in trilhas %}
+          <a href="?trilha={{ valor }}"
+             {% if valor == trilha %}aria-current="page"{% endif %}
+             class="px-3.5 py-1.5 text-xs rounded-md border transition-colors flex items-center gap-1.5
+                    {% if valor == trilha %}bg-accent text-[rgb(var(--c-on-accent))] border-accent
+                    {% else %}bg-surface text-fg-muted border-border hover:text-fg{% endif %}">
+            {% if valor == 'precatorio' %}{% voy_icon "gem" "w-3.5 h-3.5" %}
+            {% else %}{% voy_icon "sprout" "w-3.5 h-3.5" %}{% endif %}
+            {{ rotulo }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% if not dados %}
+  {% comment %}
+    SEM CACHE. A tela CARREGA e diz que não mediu. A agregação custa ~52 s e
+    medição de rodapé sem teto de espera já derrubou o site (regra nº 7) —
+    então aqui não se mede, se abstém.
+  {% endcomment %}
+  <section class="card-tight">
+    <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+      {% voy_icon "history" "w-5 h-5 text-fg-muted" %}
+      Ainda não medido — {{ trilha_rotulo }}
+    </h2>
+    <p class="text-xs text-fg-subtle mt-2 max-w-2xl leading-relaxed">
+      O cruzamento de estoque com consumo custa cerca de <b>52 segundos</b> e
+      roda num job de aquecimento — nunca no caminho da requisição. Enquanto o
+      aquecimento não fecha, esta trilha não tem número, e a tela prefere
+      <b>dizer isso</b> a mostrar zero.
+    </p>
+    <p class="text-xs text-fg-subtle mt-2">
+      A outra trilha pode já ter medição — use a chave acima.
+    </p>
+  </section>
+
+  {% else %}
+
+  {% comment %}
+  ═══ OS DOIS LADOS ═════════════════════════════════════════════════════════
+  Os três totais em destaque, cada um dizendo O QUE conta. E a faixa que
+  explica, com todas as letras, por que não há subtração nesta tela.
+  {% endcomment %}
+  <section class="card-tight relative overflow-hidden">
+    <div aria-hidden="true"
+         class="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full
+                bg-mission/10 blur-3xl"></div>
+
+    <div class="relative">
+      <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+        {% voy_icon "link-2" "w-5 h-5 text-mission" %}
+        Os dois lados — {{ trilha_rotulo }}
+      </h2>
+      <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+        O que <b>marcamos</b> e o que <b>saiu</b>. Nenhum dos dois é derivado do
+        outro, e por isso aparecem inteiros.
+      </p>
+    </div>
+
+    <div class="relative mt-4 grid gap-3 sm:grid-cols-3">
+      {% if dados.estoque %}
+      <div class="rounded-lg border border-accent/30 bg-accent/5 px-3.5 py-3">
+        <div class="text-3xl font-mono font-semibold text-accent-fg tabular-nums">
+          {{ dados.estoque.txt }}
+        </div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mt-1">
+          estoque marcado
+        </div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1 leading-relaxed">
+          processos que o classificador marca como
+          <b>{{ trilha_rotulo|lower }}</b> hoje
+        </div>
+      </div>
+      {% endif %}
+
+      {% if dados.distintos %}
+      <div class="rounded-lg border border-mission/30 bg-mission/5 px-3.5 py-3">
+        <div class="text-3xl font-mono font-semibold text-mission tabular-nums">
+          {{ dados.distintos.txt }}
+        </div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mt-1">
+          consumido · processos distintos
+        </div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1 leading-relaxed">
+          <b>processos</b>, contados uma vez cada — não linhas de consumo
+        </div>
+      </div>
+      {% endif %}
+
+      {% if dados.registros %}
+      <div class="rounded-lg border border-border bg-surface px-3.5 py-3">
+        <div class="text-3xl font-mono font-semibold text-fg tabular-nums">
+          {{ dados.registros.txt }}
+        </div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mt-1">
+          registros de consumo
+        </div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1 leading-relaxed">
+          {% if dados.reconsumo %}
+            {{ dados.reconsumo.razao }}× o número de processos —
+            {{ dados.reconsumo.excedente.txt }} vêm de <b>re-consumo</b>
+          {% else %}
+            uma linha por entrega; re-consumo cria linha nova
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% comment %}
+      A COMPOSIÇÃO da trilha fica visível. `precatorio` soma PRECATORIO +
+      PRE_PRECATORIO (são o mesmo produto em estágios diferentes), e recorte
+      escondido é recorte que ninguém confere: quem discordar da escolha refaz
+      a conta sem refazer a medição.
+    {% endcomment %}
+    {% if dados.composicao %}
+    <div class="relative mt-3 flex flex-wrap items-center gap-2">
+      <span class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">
+        o estoque desta trilha soma
+      </span>
+      {% for c in dados.composicao %}
+        <span class="text-[0.7rem] font-mono px-2 py-1 rounded border
+                     border-accent/30 bg-accent/5 text-accent-fg">
+          {{ c.rotulo }} <b class="tabular-nums">{{ c.v.txt }}</b>{% if c.pct %}
+          <span class="text-fg-subtle">· {{ c.pct }}%</span>{% endif %}
+        </span>
+      {% endfor %}
+      {% if dados.total_processos %}
+      <span class="text-[0.7rem] text-fg-subtle">
+        de {{ dados.total_processos.txt }} processos no acervo{% if dados.nao_classificados %},
+        {{ dados.nao_classificados.txt }} ainda sem classificação{% endif %}
+      </span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% comment %}
+      A faixa do não-saldo. Ela é o coração desta tela: o leitor chega querendo
+      subtrair, e a subtração dá negativo. Dizer "14,7×" em vez de "−756.075" é
+      a diferença entre um fato e um número inventado.
+    {% endcomment %}
+    <div class="relative mt-4 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3">
+      <div class="flex items-start gap-2.5">
+        {% voy_icon "anomaly" "w-4 h-4 text-danger shrink-0 mt-0.5" %}
+        <div class="text-[0.75rem] text-fg-muted leading-relaxed">
+          <b class="text-danger">Aqui não existe saldo.</b>
+          {% if dados.razao_consumo %}
+            O consumido é <b class="font-mono">{{ dados.razao_consumo }}×</b> o
+            estoque desta trilha — e a diferença entre os dois não é saldo
+            nenhum, em nenhuma das direções.
+          {% else %}
+            Subtrair um lado do outro não produz saldo.
+          {% endif %}
+          O consumo é <b>histórico e cumulativo</b>; o estoque é a
+          classificação de <b>hoje</b>. Um processo puxado em 2025 pode ter
+          sido reclassificado desde então, ou nunca ter estado nesta trilha. A
+          resposta que a subtração fingiria dar está no cruzamento abaixo — na
+          fatia <b>no estoque, nunca consumido</b>, que compara os
+          <b>mesmos processos</b>.
+        </div>
+      </div>
+    </div>
+
+    {% if dados.g_tribunais %}
+    <div class="relative mt-5">
+      <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <span class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">
+          por tribunal · os {{ dados.topo_grafico }} maiores estoques
+        </span>
+        <span class="text-[0.7rem] text-fg-subtle">
+          eixo único e linear — a diferença de tamanho entre as barras é o dado
+        </span>
+      </div>
+      <div class="chart-cell relative h-[30rem]">
+        <div class="chart-skeleton skeleton absolute inset-0 rounded-lg"></div>
+        <div id="ch-est-trib" class="w-full h-full"></div>
+      </div>
+      {% if dados.tem_mais_tribunais %}
+      <p class="text-[0.7rem] text-fg-subtle mt-1.5">
+        O gráfico corta nos {{ dados.topo_grafico }} maiores; a tabela no fim da
+        página tem <b>todos</b> os tribunais medidos, com os números exatos.
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+
+  {% comment %}
+  ═══ CRUZAMENTO ═══════════════════════════════════════════════════════════
+  A única parte da tela em que os dois lados falam do MESMO processo. As três
+  fatias particionam a união, então a barra só é desenhada quando as três
+  vieram — barra com uma fatia faltando desenha um todo que não é o todo.
+  {% endcomment %}
+  {% if dados.cruzamento %}
+  <section class="card-tight">
+    <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+      {% voy_icon "target" "w-5 h-5 text-mission" %}
+      Onde os dois lados se encontram
+    </h2>
+    <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+      Cruzamento processo a processo. É o que substitui o saldo: em vez de uma
+      subtração sem sentido, as <b>três fatias</b> da união entre o estoque de
+      hoje e o consumo já registrado.
+    </p>
+
+    {% if dados.cruzamento.completa %}
+    <div class="mt-4">
+      <div class="flex w-full h-7 rounded-md overflow-hidden gap-[2px]"
+           role="img"
+           aria-label="Partição da união entre estoque e consumo, em três fatias">
+        {% for f in dados.cruzamento.fatias %}
+          <div style="width: {{ f.pct|unlocalize }}%"
+               class="h-full min-w-[2px]
+                      {% if f.k == 'ambos' %}bg-mission
+                      {% elif f.k == 'so_estoque' %}bg-accent
+                      {% else %}bg-fg-subtle{% endif %}"></div>
+        {% endfor %}
+      </div>
+      <p class="text-[0.7rem] text-fg-subtle mt-1.5">
+        união = {{ dados.cruzamento.uniao.txt }} processos
+        <span class="text-fg-subtle/80">(somamos as três fatias — elas não se
+        sobrepõem, por construção)</span>
+      </p>
+    </div>
+    {% endif %}
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-3">
+      {% for f in dados.cruzamento.fatias %}
+      <div class="rounded-lg border bg-surface px-3.5 py-3
+                  {% if f.k == 'ambos' %}border-mission/30
+                  {% elif f.k == 'so_estoque' %}border-accent/30
+                  {% else %}border-border{% endif %}">
+        <div class="flex items-baseline gap-2">
+          <span class="text-2xl font-mono tabular-nums
+                       {% if f.k == 'ambos' %}text-mission
+                       {% elif f.k == 'so_estoque' %}text-accent-fg
+                       {% else %}text-fg{% endif %}">{{ f.v.txt }}</span>
+          {% if f.pct %}
+          <span class="text-[0.7rem] font-mono text-fg-subtle">{{ f.pct }}%</span>
+          {% endif %}
+        </div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mt-1">
+          {{ f.rotulo }}
+        </div>
+        <div class="text-[0.7rem] text-fg-subtle mt-1 leading-relaxed">{{ f.nota }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if dados.cruzamento.extras %}
+    <div class="mt-3 flex flex-wrap gap-2">
+      {% for e in dados.cruzamento.extras %}
+      <div class="rounded-lg border border-border bg-surface px-3 py-2">
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">{{ e.rotulo }}</div>
+        <div class="text-sm font-mono text-fg tabular-nums">{{ e.v.txt }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if dados.cruzamento.nota %}
+    <p class="mt-3 text-[0.7rem] text-fg-subtle leading-relaxed">
+      {{ dados.cruzamento.nota }}
+    </p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% comment %}
+  ═══ QUEM CONSUMIU ════════════════════════════════════════════════════════
+  Aqui mora a armadilha nº 2, e ela é maior que "são dois clientes": os
+  405.740 processos do juriscope estavam TODOS dentro do falcon (01/09/2026).
+  A soma conta 405.740 duas vezes. Por isso a tela publica os TRÊS números —
+  cliente a cliente, união distinta, e a soma rotulada como soma — e nomeia a
+  diferença entre os dois últimos.
+  {% endcomment %}
+  {% if dados.clientes %}
+  <section class="card-tight">
+    <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+      {% voy_icon "users" "w-5 h-5 text-mission" %}
+      Quem consumiu
+    </h2>
+    <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+      Cada cliente com o que puxou. Eles <b>não</b> são conjuntos disjuntos —
+      o mesmo processo pode ter ido para mais de um.
+    </p>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {% for c in dados.clientes.itens %}
+      <div class="rounded-lg border border-border bg-surface px-3.5 py-3">
+        <div class="flex items-center gap-2">
+          {% if c.cor %}
+          <span aria-hidden="true" class="w-2.5 h-2.5 rounded-sm shrink-0"
+                style="background: {{ c.cor }}"></span>
+          {% endif %}
+          <span class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">
+            {{ c.cliente }}
+          </span>
+        </div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span class="text-2xl font-mono text-fg tabular-nums">{{ c.processos.txt }}</span>
+          {% if c.pct_uniao %}
+          <span class="text-[0.7rem] font-mono text-fg-subtle">{{ c.pct_uniao }}% da união</span>
+          {% endif %}
+        </div>
+        <div class="text-[0.7rem] text-fg-subtle mt-0.5">
+          processos distintos{% if c.registros %} ·
+          <b class="font-mono">{{ c.registros.txt }}</b> registros{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+
+      {% if dados.clientes.uniao %}
+      <div class="rounded-lg border border-mission/30 bg-mission/5 px-3.5 py-3">
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">
+          união distinta
+        </div>
+        <div class="text-2xl font-mono text-mission tabular-nums mt-1">
+          {{ dados.clientes.uniao.txt }}
+        </div>
+        <div class="text-[0.7rem] text-fg-subtle mt-0.5">
+          <b>é este</b> o número de processos já consumidos
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if dados.clientes.soma %}
+    <div class="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3">
+      <div class="flex items-start gap-2.5">
+        {% voy_icon "anomaly" "w-4 h-4 text-danger shrink-0 mt-0.5" %}
+        <div class="text-[0.75rem] text-fg-muted leading-relaxed">
+          <b class="text-danger">A soma dos clientes não é o total.</b>
+          Somar dá <b class="font-mono">{{ dados.clientes.soma.txt }}</b>
+          {% if dados.clientes.uniao %}
+          contra a união real de
+          <b class="font-mono">{{ dados.clientes.uniao.txt }}</b>{% endif %}{% if dados.clientes.sobreposicao %} —
+          a diferença de <b class="font-mono">{{ dados.clientes.sobreposicao.txt }}</b>
+          é a <b>sobreposição</b>: processos consumidos por mais de um cliente,
+          que apareceriam duas vezes{% endif %}.
+          {% if dados.clientes.nota %}<br>{{ dados.clientes.nota }}{% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if dados.g_clientes %}
+    <div class="mt-4">
+      <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-2">
+        por tribunal · um cliente por cor, lado a lado — nunca empilhados
+      </div>
+      <div class="chart-cell relative h-[30rem]">
+        <div class="chart-skeleton skeleton absolute inset-0 rounded-lg"></div>
+        <div id="ch-est-cli" class="w-full h-full"></div>
+      </div>
+      {% if dados.clientes.sem_cor %}
+      <p class="text-[0.7rem] text-danger mt-1.5">
+        Fora do gráfico por falta de cor validada:
+        {{ dados.clientes.sem_cor|join:" · " }}. Estão na tabela, com os números
+        exatos — cor gerada na hora abriria a porta pra paleta padrão do
+        ECharts, que já pintou um mapa inteiro de cinza nesta casa.
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% comment %}
+  ═══ RESULTADO REPORTADO ══════════════════════════════════════════════════
+  Partição em HTML, não donut: três fatias com rótulo e número ao lado leem
+  melhor que um anel, e a identidade nunca fica só na cor.
+
+  A UNIDADE não é adivinhada — vem declarada pelo medidor. E a soma é
+  publicada com a conferência: ela tem que fechar com o total de registros.
+  {% endcomment %}
+  {% if dados.resultados %}
+  <section class="card-tight">
+    <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+      {% voy_icon "circle-check" "w-5 h-5 text-accent" %}
+      O que o cliente reportou de volta
+    </h2>
+    <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+      Depois de consumir, o cliente devolve um resultado. É o sinal mais
+      próximo de "o lead prestou" que existe hoje.
+      {% if dados.resultados.unidade %}
+      Contado em <b>{{ dados.resultados.unidade }}</b>, não em processos.
+      {% endif %}
+    </p>
+
+    <div class="mt-4 flex w-full h-7 rounded-md overflow-hidden gap-[2px]"
+         role="img" aria-label="Partição dos resultados reportados">
+      {% for r in dados.resultados.itens %}
+        {% if r.pct %}
+        <div style="width: {{ r.pct|unlocalize }}%"
+             class="h-full min-w-[2px]
+                    {% if r.k == 'validado' %}bg-accent
+                    {% elif r.k == 'pendente' %}bg-warning
+                    {% elif r.k == 'sem_expedicao' %}bg-fg-subtle
+                    {% else %}bg-fg-subtle/40{% endif %}"></div>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {% for r in dados.resultados.itens %}
+      <div class="rounded-lg border border-border bg-surface px-3.5 py-3">
+        <div class="flex items-center gap-2">
+          <span aria-hidden="true" class="w-2.5 h-2.5 rounded-sm shrink-0
+                       {% if r.k == 'validado' %}bg-accent
+                       {% elif r.k == 'pendente' %}bg-warning
+                       {% elif r.k == 'sem_expedicao' %}bg-fg-subtle
+                       {% else %}bg-fg-subtle/40{% endif %}"></span>
+          <span class="text-2xl font-mono text-fg tabular-nums">{{ r.v.txt }}</span>
+          {% if r.pct %}
+          <span class="text-[0.7rem] font-mono text-fg-subtle">{{ r.pct }}%</span>
+          {% endif %}
+        </div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mt-1">
+          {{ r.rotulo }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <p class="mt-2 text-[0.7rem] text-fg-subtle leading-relaxed">
+      <b class="text-fg-muted">Conferência:</b> as fatias somam
+      {{ dados.resultados.soma.txt }}
+      {% if dados.resultados.registros %}
+        e o total de registros de consumo é {{ dados.resultados.registros.txt }} —
+        {% if dados.resultados.fecha %}
+          <b class="text-accent-fg">fecham</b>, então nenhum resultado ficou
+          de fora da conta.
+        {% else %}
+          <b class="text-danger">não fecham</b>. A diferença é resultado que a
+          tela não conseguiu ler; o número acima está incompleto e vale menos
+          do que parece.
+        {% endif %}
+      {% else %}
+        · sem o total de registros não dá pra conferir se algum resultado
+        ficou de fora.
+      {% endif %}
+    </p>
+  </section>
+  {% endif %}
+
+  {% comment %}
+  ═══ ONDE O CONSUMO ESTÁ HOJE ═════════════════════════════════════════════
+  É a explicação da fatia `so_consumo`: o processo foi puxado e desde então
+  virou outra coisa. Sem este bloco, "consumido e fora do estoque" parece erro
+  de contagem em vez de reclassificação.
+  {% endcomment %}
+  {% if dados.consumo_hoje %}
+  <section class="card-tight">
+    <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+      {% voy_icon "history" "w-5 h-5 text-mission" %}
+      Onde está hoje o que já foi consumido
+    </h2>
+    <p class="text-xs text-fg-subtle mt-1 max-w-2xl">
+      Os {{ dados.consumo_hoje.total.txt }} processos já puxados, pela
+      classificação de <b>agora</b>. Consumo é histórico; rótulo é do presente —
+      e é essa distância que a subtração fingiria não existir.
+    </p>
+    <div class="mt-3 space-y-1.5">
+      {% for i in dados.consumo_hoje.itens %}
+      <div class="flex items-center gap-3">
+        <span class="w-44 shrink-0 text-[0.75rem] font-mono text-fg-muted truncate">
+          {{ i.rotulo }}
+        </span>
+        <span class="flex-1 h-2.5 rounded-sm bg-muted/60 overflow-hidden">
+          <span class="block h-full bg-mission rounded-sm"
+                style="width: {{ i.pct|unlocalize }}%"></span>
+        </span>
+        <span class="w-28 shrink-0 text-right text-[0.75rem] font-mono tabular-nums text-fg">
+          {{ i.v.txt }}
+        </span>
+        <span class="w-14 shrink-0 text-right text-[0.7rem] font-mono text-fg-subtle">
+          {{ i.pct }}%
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% comment %}
+  ═══ TABELA ═══════════════════════════════════════════════════════════════
+  A visão exata, tribunal a tribunal — e também a "table view" que o gráfico
+  precisa ter para não depender de cor. Os cabeçalhos dizem a UNIDADE de cada
+  coluna: é aqui que "distintos" e "registros" param de se confundir.
+
+  Tribunal com consumo e SEM estoque na trilha continua na lista. É ele que
+  denuncia a distorção que a subtração esconderia.
+  {% endcomment %}
+  {% if dados.linhas %}
+  <section class="card-tight">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+        {% voy_icon "dossier" "w-5 h-5 text-mission" %}
+        Tribunal a tribunal
+      </h2>
+      <button type="button" class="voy-tip" aria-label="Ajuda: unidades das colunas"
+              aria-describedby="tip-estoque-unidades">
+        {% voy_icon "info" "w-3.5 h-3.5 text-fg-subtle" %}
+        <span class="voy-tip-body tip-right" role="tooltip" id="tip-estoque-unidades">
+          <b>Estoque</b>, <b>consumido</b> e <b>ambos</b> contam
+          <b>processos</b> (um por CNJ). <b>Registros</b> conta linhas de
+          consumo — re-consumo cria linha nova. As colunas de cliente contam
+          processos por cliente e <b>não se somam</b>: o mesmo processo pode
+          estar em mais de uma. As de resultado são por <b>registro</b>.
+        </span>
+      </button>
+    </div>
+
+    <div class="mt-3 overflow-x-auto">
+      <table class="w-full text-[0.8rem] border-collapse">
+        <thead>
+          <tr class="text-[0.68rem] uppercase tracking-wider text-fg-subtle align-bottom">
+            <th class="text-left font-medium pb-2">Tribunal</th>
+            <th class="text-right font-medium pb-2">estoque<br>
+              <span class="normal-case tracking-normal text-fg-subtle/70">processos</span></th>
+            <th class="text-right font-medium pb-2">consumido<br>
+              <span class="normal-case tracking-normal text-fg-subtle/70">distintos</span></th>
+            <th class="text-right font-medium pb-2">ambos<br>
+              <span class="normal-case tracking-normal text-fg-subtle/70">interseção</span></th>
+            <th class="text-right font-medium pb-2">registros<br>
+              <span class="normal-case tracking-normal text-fg-subtle/70">com re-consumo</span></th>
+            {% for c in dados.colunas_cliente %}
+            <th class="text-right font-medium pb-2">{{ c }}<br>
+              <span class="normal-case tracking-normal text-fg-subtle/70">processos</span></th>
+            {% endfor %}
+            {% for k, rotulo in resultados_meta %}
+            <th class="text-right font-medium pb-2">{{ rotulo|lower }}<br>
+              <span class="normal-case tracking-normal text-fg-subtle/70">registros</span></th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in dados.linhas %}
+          <tr class="border-t border-border">
+            <td class="py-1.5 font-mono text-fg-soft">{{ l.t }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums text-accent-fg">
+              {{ l.estoque|format_int }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums text-mission-fg">
+              {{ l.consumido|format_int }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums text-fg">
+              {{ l.ambos|format_int }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums text-fg-muted">
+              {{ l.consumos|format_int }}</td>
+            {% for c in dados.colunas_cliente %}
+            <td class="py-1.5 text-right font-mono tabular-nums text-fg-muted">
+              {{ l.cli|dic:c|format_int }}</td>
+            {% endfor %}
+            {% for k, rotulo in resultados_meta %}
+            <td class="py-1.5 text-right font-mono tabular-nums text-fg-muted">
+              {{ l.res|dic:k|format_int }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  {% comment %}
+    Meia régua é pior que régua nenhuma: bloco sem medição aparece PELO NOME.
+    Sumir da tela seria silêncio verde — a página pareceria completa faltando
+    um lado inteiro.
+  {% endcomment %}
+  {% if nao_medidos %}
+  <section class="card-tight">
+    <p class="text-[0.75rem] text-danger leading-relaxed">
+      <b>Sem medição nesta passagem:</b> {{ nao_medidos|join:" · " }}.
+      Ficaram <b>fora da tela</b> em vez de aparecer zerados — um painel zerado
+      que se anuncia como medido produz confiança falsa.
+    </p>
+  </section>
+  {% endif %}
+
+  <p class="text-[0.7rem] text-fg-subtle px-1">
+    {% if dados.em %}medido em {{ dados.em|slice:":16" }} · {% endif %}
+    a tela lê só o cache: a agregação custa ~52 s e não pode rodar no caminho da
+    requisição
+  </p>
+
+  {% if dados.g_tribunais %}{{ dados.g_tribunais|json_script:"dados-est-trib" }}{% endif %}
+  {% if dados.g_clientes %}{{ dados.g_clientes|json_script:"dados-est-cli" }}
+  {{ dados.series_clientes|json_script:"series-est-cli" }}{% endif %}
+
+  {% endif %}
+</div>
+
+{% if dados %}
+{% comment %}
+  Os gráficos vivem AQUI dentro do `content`: o base.html não tem bloco de
+  scripts, e `script` fora do bloco some sem aviso.
+
+  E o script ESPERA O DOM: o bloco de conteúdo do base.html é renderizado antes
+  de `setupChart` ser definido, então script inline daqui roda antes de a
+  função existir. Todo `return` de guarda GRITA no console — um `return` calado
+  já deixou dois gráficos um dia inteiro em caixa vazia sem pista nenhuma.
+{% endcomment %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof setupChart !== 'function') {
+    console.error('estoque: `setupChart` nao existe — o script do card correu '
+                  + 'antes do base.html. Os graficos NAO renderizaram.');
+    return;
+  }
+
+  // Hexadecimais fixos DE PROPOSITO, e nao lidos do tema: o par foi VALIDADO
+  // para daltonismo nos dois temas (deltaE 10,1 protan e 28,8 normal;
+  // contraste >= 3:1 sobre #18181b e #ffffff). Sao os mesmos valores dos
+  // tokens --c-accent(600) e --c-mission. As cores dos clientes vem do
+  // servidor (a lista de clientes e dinamica) e saem da mesma paleta
+  // validada. O cromo neutro (grade, eixo, tooltip) continua vindo dos
+  // tokens, entao o grafico segue o tema.
+  var COR_ESTOQUE = '#059669';
+  var COR_CONSUMO = '#ea580c';
+
+  var tok = function (nome, alt) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+    return v ? 'rgb(' + v + ')' : alt;
+  };
+  var escuro = function () { return document.documentElement.classList.contains('dark'); };
+  var fgSub = tok('--c-fg-subtle', 'rgb(113,113,122)');
+  var borda = tok('--c-border', 'rgba(120,120,130,0.35)');
+  var fmt = function (n) { return Number(n || 0).toLocaleString('pt-BR'); };
+
+  var eixo = {axisLine: {lineStyle: {color: borda}}, axisTick: {show: false},
+              axisLabel: {color: fgSub, fontSize: 10,
+                          fontFamily: 'JetBrains Mono, monospace'}};
+  var base = {backgroundColor: 'transparent',
+              textStyle: {fontFamily: 'Manrope, sans-serif', fontSize: 11},
+              legend: {top: 0, left: 0, itemWidth: 10, itemHeight: 10,
+                       itemGap: 16, icon: 'roundRect',
+                       textStyle: {color: fgSub, fontSize: 11}}};
+
+  // Barras agrupadas, EIXO UNICO e linear. Nada de dois eixos: seria a forma
+  // mais rapida de fazer 55 mil parecer do tamanho de 811 mil.
+  var barras = function (elId, nodoId, series, rotulos) {
+    var nodo = document.getElementById(nodoId);
+    var el = document.getElementById(elId);
+    if (!nodo && !el) {
+      // Bloco inteiro nao renderizou (dado ausente) — o servidor ja disse isso
+      // na lista do que nao foi medido. Nao ha grafico quebrado aqui.
+      console.info('estoque: bloco ausente, grafico nao se aplica:', elId);
+      return;
+    }
+    if (!nodo || !el) {
+      console.error('estoque: metade do grafico existe e a outra nao —', elId,
+                    {dados: !!nodo, alvo: !!el});
+      return;
+    }
+    var linhas;
+    try {
+      linhas = JSON.parse(nodo.textContent);
+    } catch (e) {
+      console.error('estoque: JSON invalido em', nodoId, e);
+      return;
+    }
+    if (!linhas.length) {
+      console.error('estoque: serie vazia em', nodoId, '— grafico nao desenhado');
+      return;
+    }
+    var ordem = linhas.slice().reverse();     // ECharts desenha de baixo p/ cima
+    setupChart(el, Object.assign({}, base, {
+      grid: {left: 60, right: 24, top: 34, bottom: 8, containLabel: true},
+      tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, confine: true,
+                backgroundColor: escuro() ? 'rgba(9,9,11,0.94)' : 'rgba(255,255,255,0.97)',
+                borderColor: borda, textStyle: {fontSize: 11},
+                formatter: function (ps) {
+                  var t = ordem[ps[0].dataIndex];
+                  var out = '<b>' + t.t + '</b>';
+                  for (var i = 0; i < series.length; i++) {
+                    out += '<br>' + rotulos[i] + ' ' + fmt(t[series[i].chave]);
+                  }
+                  return out;
+                }},
+      xAxis: Object.assign({type: 'value', splitLine: {lineStyle: {color: borda, opacity: 0.35}}},
+                           eixo,
+                           {axisLabel: {color: fgSub, fontSize: 9.5,
+                                        fontFamily: 'JetBrains Mono, monospace',
+                                        formatter: function (v) {
+                                          return v >= 1e6 ? (v / 1e6).toFixed(1) + 'M'
+                                               : v >= 1e3 ? Math.round(v / 1e3) + 'k' : v;
+                                        }}}),
+      yAxis: Object.assign({type: 'category', data: ordem.map(function (t) { return t.t; })}, eixo),
+      series: series.map(function (s, i) {
+        return {name: rotulos[i], type: 'bar',
+                data: ordem.map(function (t) { return t[s.chave]; }),
+                barGap: '22%', barCategoryGap: '42%',
+                itemStyle: {color: s.cor, borderRadius: [0, 4, 4, 0]}};
+      }),
+    }));
+  };
+
+  barras('ch-est-trib', 'dados-est-trib',
+         [{chave: 'estoque', cor: COR_ESTOQUE}, {chave: 'consumido', cor: COR_CONSUMO}],
+         ['Estoque marcado', 'Consumido (processos distintos)']);
+
+  // Clientes: a lista e DINAMICA (vem do cadastro), entao as series e as cores
+  // chegam do servidor. Nada de nome de cliente escrito no template — cliente
+  // novo sumiria da tela em silencio no dia em que fosse cadastrado.
+  var nodoSeries = document.getElementById('series-est-cli');
+  if (!nodoSeries) {
+    console.info('estoque: bloco de clientes ausente, grafico nao se aplica');
+  } else {
+    var sc;
+    try {
+      sc = JSON.parse(nodoSeries.textContent);
+    } catch (e) {
+      console.error('estoque: JSON invalido nas series de cliente', e);
+      sc = [];
+    }
+    if (!sc.length) {
+      console.error('estoque: nenhuma serie de cliente com cor validada — '
+                    + 'grafico de clientes nao desenhado');
+    } else {
+      barras('ch-est-cli', 'dados-est-cli', sc,
+             sc.map(function (x) { return x.rotulo; }));
+    }
+  }
+});
+</script>
+{% endif %}
+
+{% endblock %}

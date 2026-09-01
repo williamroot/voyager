@@ -201,6 +201,7 @@ Operação     → Ingestão · Saúde · Workers · Vetorização · Exportar �
 | `/dashboard/ingestao/` | `ingestao.html` | Saúde operacional (proxies, drift, runs) |
 | `/dashboard/ingestao/saude/` | `ingestao_saude.html` | Dashboard de saúde do pipeline — KPI strip + heatmap tribunal×fonte×dia + gráfico temporal |
 | `/dashboard/leads/` | `leads.html` | Pipeline de leads (Precatório/Pré/Direito Creditório) — KPIs + charts lazy + tabela paginada + export CSV |
+| `/dashboard/estoque/` | `estoque.html` | **Estoque × consumo** por tribunal, com chave Precatório ⇄ Direito creditório. Lê SÓ cache (`estoque:v1:<trilha>`, aquecido por `dashboard/estoque.py`). View em `dashboard/estoque_views.py` |
 | `/dashboard/leads/visibilidade/` | `leads/visibilidade.html` | Observabilidade do classificador — 8 KPIs + 5 charts (histograma de score, calibração por tribunal, funil, top FN, shadow status) + heatmap tribunal × ano CNJ. Requer `can_view_validacao_dashboard` |
 | `/dashboard/leads/validacao/` | `leads/validacao_overview.html` | Lista de lotes ativos do usuário; botão criar lote (precisa `can_publish_model`) |
 | `/dashboard/leads/validacao/<id>/` | `leads/validacao_lote.html` | Fila de anotação 1-por-vez com hotkeys (HTMX swap entre itens) |
@@ -722,6 +723,63 @@ def minha_lista(request):
 - Falha no queryset não derruba a página inteira — overlay de erro localizado
 - URL bookmark-friendly: `?page=5&tribunal=TRF1` continua funcionando direto
 
+
+## Página: Estoque (`/dashboard/estoque/`, 01/09/2026)
+
+Por tribunal: quanto o classificador **marcou** numa trilha contra quanto o
+Juriscope/Falcon **já consumiu**. Chave `?trilha=precatorio|direito_creditorio`.
+
+Medição em `dashboard/estoque.py` (`aquecer()` no scheduler, `ler(trilha)`);
+tela em `dashboard/estoque_views.py` + `estoque.html`. A view **só lê cache** —
+a varredura custa minutos e medir na requisição derrubaria o site (regra nº 7).
+
+### As quatro coisas que esta tela é proibida de fazer
+
+| proibição | o número que a motivou (01/09/2026) |
+|---|---|
+| **não existe saldo**: `estoque − consumido` não é publicado | consumo distinto 811.360 é 14,7× o estoque de `PRECATORIO` (55.285); a subtração dá −756.075 e o estoque que de fato resta é 395.570 |
+| **cliente não soma em silêncio** | os 405.740 processos do `juriscope` estão TODOS no `falcon`: somar dá 1.217.100 contra a união real de 811.360. A tela publica cliente, **união** e **sobreposição** |
+| **registro ≠ processo distinto** | 1.224.278 registros para 811.360 processos (51%). A unidade do bloco de resultado vem DECLARADA em `consumo_resultado_unidade`, não adivinhada |
+| **bloco sem medição sai pelo NOME** | `nao_medidos` junta o motivo do medidor com o nome do bloco na tela; zerado, nunca |
+
+### A regra de implementação que já mordeu
+
+`'0'` é **string verdadeira** no `{% if %}` do Django e faz painel zerado se
+anunciar como medido. Por isso todo bloco é guardado pelo **NÚMERO**:
+`_num(v)` devolve `None` para o que não é `int`/`float` (string, `None`, `bool`)
+e um dicionário para o que é — **inclusive `0`**, que é resultado legítimo e
+continua aparecendo. Zero medido aparece; zero inventado some e é denunciado.
+
+### Composição da trilha fica visível
+
+`precatorio` soma `PRECATORIO + PRE_PRECATORIO`. O recorte aparece no topo com
+os dois números **separados** (`rotulos` + `estoque_por_rotulo`) — recorte
+escondido é recorte que ninguém confere.
+
+### Gráficos
+
+Dois de barras agrupadas horizontais, **eixo único e linear** (estoque ×
+consumido; e um cliente por cor). Nada de eixo duplo: seria a forma mais rápida
+de fazer 55 mil parecer do tamanho de 811 mil. As partições (cruzamento,
+resultado, "onde está hoje") são HTML, não donut — rótulo e número ao lado, a
+identidade nunca só na cor. A tabela no fim é a *table view* dos gráficos.
+
+**As cores das séries são hexadecimais FIXOS e validados**, não lidos do tema:
+`#059669`/`#ea580c` (estoque × consumido) e `#ea580c`/`#0284c7`/`#7c3aed`
+(clientes) passam ΔE ≥ 9,2 em deutan/protan e contraste ≥ 3:1 sobre `#18181b` e
+`#ffffff`. O cromo neutro (grade, eixo, tooltip) continua vindo dos tokens, então
+o gráfico segue o tema. **Cliente além da terceira cor não ganha cor gerada**:
+fica só na tabela e a tela diz que ficou — cor gerada na hora é a porta de
+entrada da paleta padrão do ECharts, que já pintou um mapa inteiro de cinza aqui.
+
+A lista de clientes vem do payload, **nunca fixa no código**: cliente novo
+sumiria da tela em silêncio no dia em que fosse cadastrado. Há teste para isso.
+
+### Localização quebra CSS
+
+`LANGUAGE_CODE='pt-br'` renderiza `2.3` como `2,3`, e `style="width: 2,3%"` é
+CSS inválido. Toda porcentagem em atributo `style` leva `|unlocalize`
+(`{% load l10n %}`). Há teste varrendo as linhas com `style="width:`.
 
 ## Acompanhamento — o diário de bordo do produto
 

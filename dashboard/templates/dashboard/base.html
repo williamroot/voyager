@@ -626,7 +626,7 @@
 
       {# ---- Leads ---- #}
       <div class="nav-group"
-           x-data="navGroup('leads', {% if '/dashboard/leads' in request.path %}true{% else %}false{% endif %})"
+           x-data="navGroup('leads', {% if '/dashboard/leads' in request.path or '/dashboard/estoque' in request.path %}true{% else %}false{% endif %})"
            :class="{ open: open, 'nav-anim': anim }">
         <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
           {% voy_icon "pulsar" "w-3.5 h-3.5" %} Leads
@@ -644,6 +644,11 @@
               <a href="{{ algoritmo_url }}" class="nav-item {% if request.path == algoritmo_url %}active{% endif %}">
                 {% voy_icon "calibrate" "w-4 h-4" %}
                 Algoritmo
+              </a>
+              {% url 'dashboard:estoque' as estoque_url %}
+              <a href="{{ estoque_url }}" class="nav-item {% if request.path == estoque_url %}active{% endif %}">
+                {% voy_icon "scale" "w-4 h-4" %}
+                Estoque
               </a>
               {% if perms.tribunals.can_view_validacao_dashboard %}
               {% url 'dashboard:leads_visibilidade' as leads_visib_url %}

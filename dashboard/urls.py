@@ -5,6 +5,7 @@ from django.views.generic.base import RedirectView
 from . import views, completude_views
 from . import acompanhamento_views
 from . import busca_views
+from . import estoque_views
 from . import overview_views
 from . import showcase_analise
 from . import showcase_chunks
@@ -59,6 +60,9 @@ urlpatterns = [
     # Completude do acervo — a única tela que compara os DOIS lados (o nosso
     # número contra o que a fonte declara). Ver dashboard/completude_views.py.
     path('completude/', completude_views.completude, name='completude'),
+    # Estoque — quanto marcamos x quanto o cliente ja consumiu, por tribunal.
+    # Le SO cache (a agregacao custa ~52 s). Ver dashboard/estoque_views.py.
+    path('estoque/', estoque_views.estoque, name='estoque'),
     path('acompanhamento/', acompanhamento_views.acompanhamento, name='acompanhamento'),
     path('acompanhamento/<int:pk>/', acompanhamento_views.acompanhamento_nota,
          name='acompanhamento-nota'),
