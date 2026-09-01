@@ -485,3 +485,26 @@ def test_o_grafico_de_clientes_recorta_pelo_CONSUMO(logado=None):
                                                     'PEQUENO_QUE_CONSOME']
     # o gráfico de clientes NÃO carrega quem não consumiu nada
     assert [l['t'] for l in ctx['g_clientes']] == ['PEQUENO_QUE_CONSOME']
+
+
+def test_quem_consome_muito_entra_no_grafico_mesmo_com_estoque_pequeno():
+    """O recorte do gráfico de clientes é INDEPENDENTE do top-15 de estoque.
+
+    Sem isso, o TRF1 — que responde por quase todo o consumo — cairia fora do
+    gráfico de clientes só por não estar entre os maiores estoques.
+    """
+    def linha(t, estoque, consumo):
+        return {'t': t, 'estoque': estoque, 'consumido': consumo,
+                'consumos': consumo, 'ambos': 0,
+                'por_cliente': {'falcon': consumo, 'juriscope': consumo // 2},
+                'resultado': {'validado': 1, 'pendente': 1, 'sem_expedicao': 1}}
+
+    p = dict(PAYLOAD)
+    # 20 tribunais grandes de estoque com consumo simbólico...
+    p['por_tribunal'] = [linha(f'T{i:02d}', 900000 - i, 10 + i) for i in range(20)]
+    # ...e um pequeno que consome tudo. Ele não entra no top-15 de estoque.
+    p['por_tribunal'].append(linha('CONSOME_TUDO', 1, 5000000))
+
+    ctx, _ = EV._normalizar(p)
+    assert 'CONSOME_TUDO' not in [l['t'] for l in ctx['g_tribunais']]
+    assert ctx['g_clientes'][0]['t'] == 'CONSOME_TUDO'
