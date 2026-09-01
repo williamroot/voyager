@@ -460,3 +460,28 @@ def test_porcentagem_em_CSS_sai_sem_localizacao():
     for linha in _fonte().splitlines():
         if 'style="width:' in linha or 'style="width: ' in linha:
             assert 'unlocalize' in linha, linha.strip()
+
+
+def test_o_grafico_de_clientes_recorta_pelo_CONSUMO(logado=None):
+    """Recortar pelos maiores estoques deixava 11 de 15 linhas vazias.
+
+    Medido em prod (01/09/2026): o consumo se concentra em TRF1/TRF3, e os
+    maiores estoques são outros tribunais. Meia tela dizendo "zero" com as
+    barras que importam espremidas no topo.
+    """
+    p = dict(PAYLOAD)
+    p['por_tribunal'] = [
+        {'t': 'GRANDE_SEM_CONSUMO', 'estoque': 900000, 'consumido': 0,
+         'consumos': 0, 'ambos': 0,
+         'por_cliente': {'falcon': 0, 'juriscope': 0},
+         'resultado': {'validado': 0, 'pendente': 0, 'sem_expedicao': 0}},
+        {'t': 'PEQUENO_QUE_CONSOME', 'estoque': 10, 'consumido': 500000,
+         'consumos': 700000, 'ambos': 5,
+         'por_cliente': {'falcon': 500000, 'juriscope': 300000},
+         'resultado': {'validado': 1, 'pendente': 1, 'sem_expedicao': 1}},
+    ]
+    ctx, _ = EV._normalizar(p)
+    assert [l['t'] for l in ctx['g_tribunais']] == ['GRANDE_SEM_CONSUMO',
+                                                    'PEQUENO_QUE_CONSOME']
+    # o gráfico de clientes NÃO carrega quem não consumiu nada
+    assert [l['t'] for l in ctx['g_clientes']] == ['PEQUENO_QUE_CONSOME']

@@ -516,6 +516,9 @@ def _normalizar(bruto):
     # paleta padrão do ECharts, que já pintou um mapa inteiro de cinza aqui.
     topo = linhas[:TOPO_GRAFICO]
     com_cor = [i for i in (clientes['itens'] if clientes else []) if i['cor']]
+    _pico = lambda l: max([l['cli'].get(i['cliente'], 0) for i in com_cor] or [0])
+    topo_cliente = [l for l in sorted(linhas, key=lambda l: -_pico(l))
+                    if _pico(l) > 0][:TOPO_GRAFICO]
     ctx = {
         'em': p.get('em') or '',
         'segundos': _num(p.get('segundos_varredura')),
@@ -540,12 +543,14 @@ def _normalizar(bruto):
         'g_tribunais': [{'t': l['t'], 'estoque': l['estoque'],
                          'consumido': l['consumido'], 'ambos': l['ambos']}
                         for l in topo],
+        # O gráfico de clientes recorta pelo CONSUMO, não pelo estoque. Medido
+        # em prod: o consumo se concentra em TRF1/TRF3, e recortar pelos
+        # maiores estoques deixava 11 das 15 linhas vazias — meia tela gasta
+        # dizendo "zero" e as barras que importam espremidas no topo.
         'g_clientes': ([{'t': l['t'], **{i['cliente']: l['cli'].get(i['cliente'], 0)
                                          for i in com_cor}}
-                        for l in sorted(topo,
-                                        key=lambda l: -max([l['cli'].get(i['cliente'], 0)
-                                                            for i in com_cor] or [0]))]
-                       if com_cor and linhas else []),
+                        for l in topo_cliente]
+                       if com_cor and topo_cliente else []),
         'series_clientes': [{'chave': i['cliente'], 'cor': i['cor'],
                              'rotulo': i['cliente']} for i in com_cor],
     }
