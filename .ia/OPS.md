@@ -5,6 +5,40 @@ Runbooks específicos por situação. Para troubleshooting geral, comece por `dj
 Observabilidade de infra (Prometheus/Grafana/GPU): ver [Observability stack (Fase B)](#observability-stack-fase-b) no fim deste doc.
 
 
+## `docker exec` morto NÃO mata a query — e eu paguei duas vezes
+
+Já estava escrito que `docker stop` não solta lock do Postgres (mata o cliente,
+o backend segue). Em 01/09/2026 caí na variante: **matar o `docker exec` pelo
+timeout do shell também não mata**.
+
+Rodei `manage.py auditar_schema --validar-fks` três vezes: as duas primeiras via
+`docker exec` cujo timeout meu shell interrompeu, a terceira destacada. Resultado
+medido:
+
+    VALIDATE ativos: 2
+      pid=1195989  2527s  state=active  wait=IO     <- trabalhando
+      pid=1199601  2243s  state=active  wait=Lock   <- esperando, para REFAZER
+
+`VALIDATE CONSTRAINT` pega `SHARE UPDATE EXCLUSIVE`, **que conflita consigo
+mesmo**. O segundo esperou 37 min só para começar do zero a mesma varredura de
+131 GB. Não é lentidão: é trabalho duplicado disfarçado de progresso.
+
+Cura: cancelar **só** quem espera Lock, preservando quem avança em I/O.
+
+```bash
+# quem está validando, e em que estado
+SELECT pid, EXTRACT(epoch FROM now()-query_start)::int, state, wait_event_type
+  FROM pg_stat_activity WHERE query ILIKE '%VALIDATE CONSTRAINT%';
+
+# cancela o duplicado (wait_event_type='Lock'), NUNCA o que está em IO
+SELECT pg_cancel_backend(<pid>);
+```
+
+⚠️ Comando de longa duração no Postgres **não** se cancela pelo cliente. Antes de
+relançar, **pergunte ao banco** se a anterior ainda está viva. O
+`auditar_schema` agora recusa validação concorrente (`JÁ EM VALIDAÇÃO`), mas a
+lição vale para todo `ALTER`/`REINDEX`/`VACUUM` longo.
+
 ## Redis de produção: persistência (AOF) — ligada em 31/08/2026
 
 `voyager-redis` = **`192.168.30.100`**, Redis **8.6.3 nativo** (não Docker),
