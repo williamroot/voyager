@@ -160,7 +160,7 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
             {{ cobertura.cobertura }}%
           </span>
           {% if cobertura.ganho_pp %}
-          <span class="text-sm font-mono text-success-fg">+{{ cobertura.ganho_pp }} pp</span>
+          <span class="text-sm font-mono text-accent-fg">+{{ cobertura.ganho_pp }} pp</span>
           {% endif %}
         </div>
         <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mt-0.5">
@@ -400,9 +400,9 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
             <div class="text-[0.7rem] text-fg-subtle mt-0.5 leading-relaxed">{{ m.nota }}</div>
           </div>
           {% if m.sobe %}
-            {% voy_icon "trending-up" "w-4 h-4 text-success-fg shrink-0 mt-0.5" %}
+            {% voy_icon "trending-up" "w-4 h-4 text-accent-fg shrink-0 mt-0.5" %}
           {% else %}
-            {% voy_icon "trending-up" "w-4 h-4 text-success-fg shrink-0 mt-0.5 rotate-180" %}
+            {% voy_icon "trending-up" "w-4 h-4 text-accent-fg shrink-0 mt-0.5 rotate-180" %}
           {% endif %}
         </div>
         <div class="mt-2.5 flex items-baseline gap-2 flex-wrap">
@@ -540,13 +540,17 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
         {% endfor %}
         {% for s in integridade.fontes.pelo_vigia %}
           <span class="text-[0.7rem] font-mono px-2 py-0.5 rounded border
-                       border-warn/40 bg-warn/10 text-warn-fg voy-tip"
-                data-tip="fora do ar — o vigia pausou e devolve sozinho quando voltar">{{ s }} ⏸</span>
+                       border-warning/40 bg-warning/10 text-warning voy-tip"
+                aria-describedby="tip-fonte-vigia">{{ s }} ⏸<span
+                class="voy-tip-body" role="tooltip" id="tip-fonte-vigia"
+                >fora do ar — o vigia pausou e devolve sozinho quando voltar</span></span>
         {% endfor %}
         {% for s in integridade.fontes.por_humano %}
           <span class="text-[0.7rem] font-mono px-2 py-0.5 rounded border
                        border-border bg-surface text-fg-subtle voy-tip"
-                data-tip="pausado por decisão humana — o vigia não mexe">{{ s }} ✋</span>
+                aria-describedby="tip-fonte-humano">{{ s }} ✋<span
+                class="voy-tip-body" role="tooltip" id="tip-fonte-humano"
+                >pausado por decisão humana — o vigia não mexe</span></span>
         {% endfor %}
       </div>
       <p class="text-[0.7rem] text-fg-subtle mt-2">
