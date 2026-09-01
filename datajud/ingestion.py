@@ -31,6 +31,7 @@ from django.db import transaction
 from django.db.models import Count, Max, Min
 from django.utils import timezone
 
+from tribunals.catalogo import resolver as resolver_catalogo
 from tribunals.models import ClasseJudicial, Movimentacao, Process
 
 from .client import DatajudClient
@@ -210,6 +211,35 @@ def _meta_updates_from_source(processo: Process, source: dict) -> dict:
     return upd
 
 
+def fechar_fks_do_catalogo(upd: dict) -> dict:
+    """Espelha `classe_codigo`/`assunto_codigo` nas FKs `classe_id`/`assunto_id`.
+
+    Muta e devolve o MESMO dict de updates. Existe porque este caminho gravava
+    só a string e deixava a FK NULL (#104): o backfill de 31/08/2026 levou
+    `classe_id IS NULL` de 8.054.334 a 21 às 22:05 UTC, e dezoito horas depois
+    o buraco estava em **8.072** sem nada ter sido apagado — 97,6% eram linhas
+    ANTIGAS reescritas por aqui, e **0 códigos** estavam fora do catálogo.
+    Havia com o que resolver a FK e não se resolvia.
+
+    Fica AQUI, e não em `_meta_updates_from_source`, porque aquilo é parser: lê
+    o `_source` e não toca no banco (os testes de `assuntos` aninhado, de
+    `grau` e de `classe_cnj` dependem disso). Resolver referência de catálogo é
+    trabalho de quem escreve, e quem escreve é `sync_processo`.
+
+    Só escreve a FK quando o catálogo RESOLVE o código. Órfão fica NULL, com
+    log — e, principalmente, nunca vira `classe_id = NULL` por cima de uma FK
+    que outro escritor já tinha fechado.
+    """
+    for qual in ('classe', 'assunto'):
+        codigo = upd.get(f'{qual}_codigo')
+        if not codigo:
+            continue
+        fk = resolver_catalogo(qual, codigo)
+        if fk:
+            upd[f'{qual}_id'] = fk
+    return upd
+
+
 def _entregar_ao_indice(mov_pks: list[int], processo_pk: int) -> None:
     """Entrega ao índice o que ESTA sincronização escreveu. Propaga erro.
 
@@ -308,7 +338,7 @@ def sync_processo(processo: Process, client: Optional[DatajudClient] = None) -> 
                 'fonte': 'datajud', 'encontrado': False}
 
     items = parse_movimentos(source)
-    meta_updates = _meta_updates_from_source(processo, source)
+    meta_updates = fechar_fks_do_catalogo(_meta_updates_from_source(processo, source))
 
     if not items:
         now_ts = timezone.now()

@@ -28,6 +28,7 @@ from django.utils import timezone
 
 from datajud.ingestion import GRAUS_CONHECIDOS, coluna_existe, coluna_grau_existe
 from search.client import get_es, index_name
+from tribunals.catalogo import resolver as resolver_catalogo
 from tribunals.cnj import sigla_do_cnj, so_digitos
 from tribunals.models import Process, Tribunal
 
@@ -107,6 +108,16 @@ def hidratar_cnj(cnj: str, com_enricher: bool = True) -> dict:
         if campos['classe_codigo'] and coluna_existe('classe_cnj_codigo'):
             campos['classe_cnj_codigo'] = campos['classe_codigo']
             campos['classe_cnj_nome'] = campos['classe_nome']
+        # A FK do catálogo entra no MESMO `create` (#104). Sem isto o processo
+        # nascia com o código gravado e `classe_id`/`assunto_id` NULL, e o
+        # buraco que um backfill de 8,05 M linhas acabara de fechar reabria
+        # sozinho — 194 dos 8.031 reabertos em 16 h vieram por aqui, o resto
+        # por `datajud/ingestion.py`. É lookup no catálogo, não criação:
+        # código que ele não conhece fica com FK NULL e vira log (regra nº 6).
+        for qual, origem in (('classe', 'classe_codigo'), ('assunto', 'assunto_codigo')):
+            fk = resolver_catalogo(qual, campos[origem])
+            if fk:
+                campos[f'{qual}_id'] = fk
         proc = Process.objects.create(**campos)
         estado = 'criado'
 
