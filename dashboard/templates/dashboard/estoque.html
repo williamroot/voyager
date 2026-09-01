@@ -14,6 +14,11 @@ Esta tela tem quatro proibições, e cada uma saiu de um erro medido:
      significa nada, porque os conjuntos não são comparáveis por diferença —
      um é consumo histórico, o outro é a classificação de hoje. Os dois lados
      aparecem lado a lado, e a relação entre eles só sai do `cruzamento`.
+     COROLÁRIO (o defeito consertado em 01/09): duas barras lado a lado JÁ SÃO
+     uma comparação, e comparação exige a mesma régua. A barra de consumo do
+     gráfico por tribunal é `ambos` — o consumido recortado pela MESMA trilha
+     do estoque. O consumido que fica fora da trilha não some nem se soma: vira
+     a terceira barra e a coluna `fora da trilha` da tabela.
   2. `falcon` e `juriscope` NUNCA somam em silêncio — e o motivo é pior do que
      "são dois clientes": os 405.740 processos do juriscope estão TODOS dentro
      do falcon. Somar dá 1.217.100 contra a união real de 811.360, contando
@@ -233,7 +238,22 @@ Padrões da casa que não podem regredir:
           eixo único e linear — a diferença de tamanho entre as barras é o dado
         </span>
       </div>
-      <div class="chart-cell relative h-[30rem]">
+      {% comment %}
+        A régua das duas primeiras barras é a MESMA: estoque e consumo, ambos
+        recortados pelos rótulos desta trilha. A terceira é o consumo que esse
+        recorte não cobre — publicada separada porque some-la esconderia o que
+        o Juriscope já puxou, e somá-la à segunda desfaria a comparação.
+      {% endcomment %}
+      <p class="text-[0.7rem] text-fg-subtle mb-2 leading-relaxed">
+        <b class="text-fg-muted">A régua é a mesma nas duas primeiras barras:</b>
+        estoque e consumo, os dois recortados por
+        <b>{{ dados.rotulos_txt }}</b>. A terceira é o que o cliente puxou e
+        <b>hoje não está nesta trilha</b> — outro rótulo, ou reclassificado
+        depois dali. Ela não entra na comparação e não desaparece: as duas
+        barras de consumo somam o consumo total do tribunal, e é esse total que
+        o tooltip fecha na última linha.
+      </p>
+      <div class="chart-cell relative h-[34rem]">
         <div class="chart-skeleton skeleton absolute inset-0 rounded-lg"></div>
         <div id="ch-est-trib" class="w-full h-full"></div>
       </div>
@@ -594,6 +614,13 @@ Padrões da casa que não podem regredir:
   precisa ter para não depender de cor. Os cabeçalhos dizem a UNIDADE de cada
   coluna: é aqui que "distintos" e "registros" param de se confundir.
 
+  E dizem também a RÉGUA, que é o defeito consertado em 01/09: `estoque` ao
+  lado de `consumido total` são recortes diferentes (um filtra pela trilha, o
+  outro não filtra nada), e o leitor comparava as duas colunas vizinhas. A
+  ordem agora é estoque · consumido NESTA TRILHA · consumido FORA · total: as
+  duas primeiras têm a mesma régua e estão coladas; o total fica depois das
+  suas duas parcelas, que é onde ele não engana.
+
   Tribunal com consumo e SEM estoque na trilha continua na lista. É ele que
   denuncia a distorção que a subtração esconderia.
   {% endcomment %}
@@ -608,11 +635,14 @@ Padrões da casa que não podem regredir:
               aria-describedby="tip-estoque-unidades">
         {% voy_icon "info" "w-3.5 h-3.5 text-fg-subtle" %}
         <span class="voy-tip-body tip-right" role="tooltip" id="tip-estoque-unidades">
-          <b>Estoque</b>, <b>consumido</b> e <b>ambos</b> contam
-          <b>processos</b> (um por CNJ). <b>Registros</b> conta linhas de
-          consumo — re-consumo cria linha nova. As colunas de cliente contam
-          processos por cliente e <b>não se somam</b>: o mesmo processo pode
-          estar em mais de uma. As de resultado são por <b>registro</b>.
+          <b>Estoque</b> e as três colunas de consumo contam <b>processos</b>
+          (um por CNJ). Só a coluna <b>nesta trilha</b> tem a mesma régua do
+          estoque: as duas são recortadas pelos rótulos da trilha. <b>Fora da
+          trilha</b> + <b>nesta trilha</b> = <b>total</b>, e é o total que não
+          se compara com o estoque. <b>Registros</b> conta linhas de consumo —
+          re-consumo cria linha nova. As colunas de cliente contam processos por
+          cliente e <b>não se somam</b>: o mesmo processo pode estar em mais de
+          uma. As de resultado são por <b>registro</b>.
         </span>
       </button>
     </div>
@@ -623,11 +653,13 @@ Padrões da casa que não podem regredir:
           <tr class="text-[0.68rem] uppercase tracking-wider text-fg-subtle align-bottom">
             <th class="text-left font-medium pb-2">Tribunal</th>
             <th class="text-right font-medium pb-2">estoque<br>
-              <span class="normal-case tracking-normal text-fg-subtle/70">processos</span></th>
+              <span class="normal-case tracking-normal text-fg-subtle/70">nesta trilha</span></th>
             <th class="text-right font-medium pb-2">consumido<br>
-              <span class="normal-case tracking-normal text-fg-subtle/70">distintos</span></th>
-            <th class="text-right font-medium pb-2">ambos<br>
-              <span class="normal-case tracking-normal text-fg-subtle/70">interseção</span></th>
+              <span class="normal-case tracking-normal text-fg-subtle/70">nesta trilha</span></th>
+            <th class="text-right font-medium pb-2">consumido<br>
+              <span class="normal-case tracking-normal text-fg-subtle/70">fora da trilha</span></th>
+            <th class="text-right font-medium pb-2">consumido<br>
+              <span class="normal-case tracking-normal text-fg-subtle/70">total distinto</span></th>
             <th class="text-right font-medium pb-2">registros<br>
               <span class="normal-case tracking-normal text-fg-subtle/70">com re-consumo</span></th>
             {% for c in dados.colunas_cliente %}
@@ -647,9 +679,11 @@ Padrões da casa que não podem regredir:
             <td class="py-1.5 text-right font-mono tabular-nums text-accent-fg">
               {{ l.estoque|format_int }}</td>
             <td class="py-1.5 text-right font-mono tabular-nums text-mission-fg">
-              {{ l.consumido|format_int }}</td>
-            <td class="py-1.5 text-right font-mono tabular-nums text-fg">
               {{ l.ambos|format_int }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums text-pale-blue">
+              {{ l.fora|format_int }}</td>
+            <td class="py-1.5 text-right font-mono tabular-nums text-fg">
+              {{ l.consumido|format_int }}</td>
             <td class="py-1.5 text-right font-mono tabular-nums text-fg-muted">
               {{ l.consumos|format_int }}</td>
             {% for c in dados.colunas_cliente %}
@@ -723,6 +757,10 @@ document.addEventListener('DOMContentLoaded', function () {
   // tokens, entao o grafico segue o tema.
   var COR_ESTOQUE = '#059669';
   var COR_CONSUMO = '#ea580c';
+  // Terceira serie: o consumo FORA da trilha. Azul da mesma paleta validada
+  // (e o mesmo hex do 2o cliente), porque azul se separa de verde E de laranja
+  // em deutan e protan — que e onde o par verde/laranja sozinho ja e apertado.
+  var COR_FORA = '#0284c7';
 
   var tok = function (nome, alt) {
     var v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
@@ -744,7 +782,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Barras agrupadas, EIXO UNICO e linear. Nada de dois eixos: seria a forma
   // mais rapida de fazer 55 mil parecer do tamanho de 811 mil.
-  var barras = function (elId, nodoId, series, rotulos) {
+  var barras = function (elId, nodoId, series, rotulos, total) {
     var nodo = document.getElementById(nodoId);
     var el = document.getElementById(elId);
     if (!nodo && !el) {
@@ -781,6 +819,13 @@ document.addEventListener('DOMContentLoaded', function () {
                   for (var i = 0; i < series.length; i++) {
                     out += '<br>' + rotulos[i] + ' ' + fmt(t[series[i].chave]);
                   }
+                  // O total viaja no dado mas NAO e barra: barra ao lado do
+                  // estoque e comparacao, e o total nao passa pela regua da
+                  // trilha. No tooltip ele fecha a conta das duas parcelas.
+                  if (total && t[total.chave] !== undefined) {
+                    out += '<br><span style="opacity:.7">' + total.rotulo + ' '
+                         + fmt(t[total.chave]) + '</span>';
+                  }
                   return out;
                 }},
       xAxis: Object.assign({type: 'value', splitLine: {lineStyle: {color: borda, opacity: 0.35}}},
@@ -795,15 +840,24 @@ document.addEventListener('DOMContentLoaded', function () {
       series: series.map(function (s, i) {
         return {name: rotulos[i], type: 'bar',
                 data: ordem.map(function (t) { return t[s.chave]; }),
-                barGap: '22%', barCategoryGap: '42%',
+                barGap: '18%', barCategoryGap: '34%',
                 itemStyle: {color: s.cor, borderRadius: [0, 4, 4, 0]}};
       }),
     }));
   };
 
+  // A barra de consumo e `ambos`, NUNCA `consumido`. `estoque` e filtrado pelos
+  // rotulos da trilha e `consumido` nao e filtrado por nada: lado a lado eles
+  // faziam TRF1/TJSP/TJMG parecer consumir mais do que temos marcado, que era
+  // o recorte falando, nao o mundo. `fora` = consumido - ambos entra como
+  // TERCEIRA barra, rotulada — some-la esconderia 172.248 processos so no TRF1.
   barras('ch-est-trib', 'dados-est-trib',
-         [{chave: 'estoque', cor: COR_ESTOQUE}, {chave: 'consumido', cor: COR_CONSUMO}],
-         ['Estoque marcado', 'Consumido (processos distintos)']);
+         [{chave: 'estoque', cor: COR_ESTOQUE},
+          {chave: 'ambos', cor: COR_CONSUMO},
+          {chave: 'fora', cor: COR_FORA}],
+         ['Estoque marcado', 'Consumido · nesta trilha',
+          'Consumido · hoje fora da trilha'],
+         {chave: 'consumido', rotulo: 'Consumido · total (as duas somadas)'});
 
   // Clientes: a lista e DINAMICA (vem do cadastro), entao as series e as cores
   // chegam do servidor. Nada de nome de cliente escrito no template — cliente

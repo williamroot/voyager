@@ -213,6 +213,13 @@ consumo — valem além desta tela:
    `ambos` 541.185 · `so_estoque` 395.570 · `so_consumo` 270.175. O saldo real
    da trilha é **395.570**, e dele só **4.652** são `PRECATORIO` — **91,6%**
    desse rótulo já foi puxado.
+
+   Corolário por tribunal (corrigido em 01/09): **comparar consumo com estoque
+   exige recortar os dois pela mesma trilha.** No TRF1 são 486.074 consumidos
+   contra 354.450 marcados — mas 172.248 daqueles consumidos hoje NÃO são desta
+   trilha (147.841 viraram `NAO_LEAD`, 24.407 são `DIREITO_CREDITORIO`). Na
+   mesma régua são 313.826 × 354.450, e a estranheza some. Quem for cruzar
+   consumo com classificação em qualquer relatório: `ambos`, nunca o total.
 2. **`juriscope` ⊂ `falcon`.** Os 405.740 processos do juriscope estão TODOS no
    falcon (interseção 405.740, exclusivos do juriscope **0**). Não são
    consumidores paralelos: o juriscope parou em 2026-05-03 e o falcon começou

@@ -20,6 +20,18 @@ Cada uma saiu de um erro medido nesta semana; não são preferências de estilo.
    × classificação de hoje). A tela mostra os DOIS lados e, para a relação
    entre eles, só o que o `cruzamento` apurar de verdade.
 
+   E o corolário que a primeira versão desta tela violou no gráfico: **duas
+   barras lado a lado são uma comparação**, e comparação exige a mesma régua.
+   `estoque` é filtrado pelos rótulos da trilha; `consumido` não é filtrado por
+   nada. Pôr os dois lado a lado fazia TRF1, TJSP e TJMG aparecerem com mais
+   consumo do que estoque — o usuário perguntou "como?" e a resposta era o
+   recorte, não o mundo. Medido no TRF1 em 01/09/2026: dos 486.074 consumidos,
+   313.826 estão na trilha e 172.248 não (147.841 hoje são `NAO_LEAD`, 24.407
+   são `DIREITO_CREDITORIO`). A barra de consumo passou a ser **`ambos`** — o
+   consumido recortado pela MESMA trilha —, e os 172.248 continuam na tela como
+   série e coluna próprias, `fora`. Somar por baixo do pano seria trocar um
+   erro de comparação por um erro de contagem.
+
 2. **Somar `falcon` + `juriscope` em silêncio é pior do que parecia.** Não é
    só que são clientes distintos: medido em 01/09/2026, os **405.740**
    processos do juriscope estão TODOS dentro do falcon (sobreposição total).
@@ -482,16 +494,34 @@ def _normalizar(bruto):
             for nome in pc:
                 if nome not in colunas:
                     colunas.append(nome)
+            consumido, ambos = _int(t.get('consumido')), _int(t.get('ambos'))
             linhas.append({
                 't': str(t.get('t') or '—'),
                 'estoque': _int(t.get('estoque')),
-                'consumido': _int(t.get('consumido')),
+                'consumido': consumido,
                 'consumos': _int(t.get('consumos')),
-                'ambos': _int(t.get('ambos')),
+                'ambos': ambos,
+                # O consumo que a barra de estoque NÃO cobre. Subtração crua,
+                # sem `max(x, 0)`: ver o controle da partição logo abaixo.
+                'fora': consumido - ambos,
                 'cli': {k: _int(pc.get(k)) for k in colunas},
                 'res': {k: _int(rs.get(k)) for k in RESULTADOS_DESTAQUE},
             })
         linhas.sort(key=lambda l: (-l['estoque'], -l['consumido'], l['t']))
+
+        # CONTROLE da partição por tribunal: `ambos` é o `consumido` recortado
+        # pelos rótulos da trilha, então `ambos ≤ consumido` em toda linha e
+        # `ambos + fora` reconstrói o total. Violar isso significa que as duas
+        # colunas do payload não vêm da mesma foto — e aí a barra "fora" desenha
+        # um conjunto que não existe. O número quebrado FICA na tela (negativo
+        # grita) e o bloco entra pelo nome no que não foi medido.
+        quebrados = [l['t'] for l in linhas if l['fora'] < 0]
+        if quebrados:
+            logger.error('estoque: partição consumido = ambos + fora não fecha '
+                         'em %s tribunais: %s', len(quebrados), quebrados[:10])
+            faltando.append('Consumo fora da trilha, por tribunal '
+                            f'(a partição não fecha em {len(quebrados)}: '
+                            f'{", ".join(quebrados[:5])})')
     else:
         faltando.append('Quebra por tribunal')
 
@@ -540,8 +570,12 @@ def _normalizar(bruto):
         'saldo': saldo,
         'topo_grafico': TOPO_GRAFICO,
         'tem_mais_tribunais': len(linhas) > TOPO_GRAFICO,
+        # `ambos` e `fora` são as séries desenhadas; `consumido` viaja junto
+        # porque o tooltip mostra o total, mas ele NÃO é barra: barra ao lado do
+        # estoque é comparação, e o total não passa pela régua da trilha.
         'g_tribunais': [{'t': l['t'], 'estoque': l['estoque'],
-                         'consumido': l['consumido'], 'ambos': l['ambos']}
+                         'ambos': l['ambos'], 'fora': l['fora'],
+                         'consumido': l['consumido']}
                         for l in topo],
         # O gráfico de clientes recorta pelo CONSUMO, não pelo estoque. Medido
         # em prod: o consumo se concentra em TRF1/TRF3, e recortar pelos

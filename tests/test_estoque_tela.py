@@ -4,7 +4,12 @@ Cada teste corresponde a um erro medido — não a uma preferência de estilo:
 
   1. **Saldo não existe.** Consumo é histórico e cumulativo; estoque é o rótulo
      de hoje. `estoque − consumido` não responde nada em direção nenhuma — a
-     resposta é a fatia `so_estoque` do cruzamento.
+     resposta é a fatia `so_estoque` do cruzamento. E o corolário, medido em
+     01/09/2026: **duas barras lado a lado já são uma comparação**, então elas
+     têm que ter a MESMA régua. `estoque` é filtrado pela trilha e `consumido`
+     não é filtrado por nada — lado a lado, faziam TRF1 (486.074 consumidos ×
+     313.826 na trilha), TJSP e TJMG parecer consumir mais do que temos
+     marcado. A barra de consumo é `ambos`; o que fica fora é a terceira barra.
   2. **Cliente não soma.** Os 405.740 processos do `juriscope` estavam TODOS no
      `falcon` (01/09/2026): somar dá 1.217.100 contra a união real de 811.360,
      contando 405.740 duas vezes. A tela mostra cliente, união e sobreposição.
@@ -73,6 +78,39 @@ PAYLOAD = {
     # 55.285 − 50.633 = 4.652 · 881.470 − 490.552 = 390.918 · soma 395.570,
     # que é exatamente o `so_estoque` acima. O controle da decomposição.
 }
+
+
+#: O TRF1 como ele é: o tribunal que motivou o conserto. 486.074 processos já
+#: consumidos, dos quais 313.826 estão hoje na trilha (300.713 PRE_PRECATORIO +
+#: 13.113 PRECATORIO) e 172.248 NÃO estão (147.841 hoje são NAO_LEAD, 24.407
+#: DIREITO_CREDITORIO). Medido em 01/09/2026 — fecha exato: 486.074 − 313.826
+#: = 172.248 = 147.841 + 24.407.
+TRF1 = {'t': 'TRF1', 'estoque': 330000, 'consumido': 486074, 'consumos': 610000,
+        'ambos': 313826,
+        'por_cliente': {'falcon': 486074, 'juriscope': 300000},
+        'resultado': {'validado': 400000, 'pendente': 160000, 'sem_expedicao': 50000}}
+
+
+def _script():
+    return _fonte().split('<script>')[1].split('</script>')[0]
+
+
+def _grafico(el):
+    """As `chave`s e os rótulos das SÉRIES desenhadas no gráfico `el`.
+
+    Lê do template, não do contexto: trocar `chave: 'ambos'` de volta por
+    `chave: 'consumido'` é uma edição de uma palavra no JavaScript, e nenhum
+    teste de contexto pegaria isso.
+    """
+    import re
+    script = _script()
+    i = script.index(f"barras('{el}'")
+    chamada = script[i:script.index(');', i)]
+    series = chamada[chamada.index('['):chamada.index(']') + 1]
+    resto = chamada[chamada.index(']') + 1:]
+    rotulos = resto[resto.index('['):resto.index(']') + 1]
+    return (re.findall(r"chave: '(\w+)'", series),
+            re.findall(r"'([^']+)'", rotulos))
 
 
 @pytest.fixture
@@ -508,3 +546,78 @@ def test_quem_consome_muito_entra_no_grafico_mesmo_com_estoque_pequeno():
     ctx, _ = EV._normalizar(p)
     assert 'CONSOME_TUDO' not in [l['t'] for l in ctx['g_tribunais']]
     assert ctx['g_clientes'][0]['t'] == 'CONSOME_TUDO'
+
+
+# --------------------------------------------- a régua das duas barras (#113)
+
+def test_a_barra_de_consumo_do_grafico_e_a_da_TRILHA():
+    """O defeito medido em 01/09/2026, e a razão de este teste existir.
+
+    O gráfico punha `estoque` (filtrado pelos rótulos da trilha) ao lado de
+    `consumido` (filtrado por nada). No TRF1 a barra vermelha ficava maior que
+    a verde e o leitor perguntava "como consumimos mais do que marcamos?" — a
+    resposta era o recorte, não o mundo: 147.841 daqueles processos hoje são
+    `NAO_LEAD` e nunca foram precatório.
+
+    A série de consumo é `ambos`. Se alguém trocar de volta por `consumido`,
+    este teste reprova — foi conferido por mutação.
+    """
+    chaves, rotulos = _grafico('ch-est-trib')
+    assert chaves == ['estoque', 'ambos', 'fora'], (
+        f'a barra de consumo tem que ser `ambos` (o consumido recortado pela '
+        f'MESMA trilha do estoque) e a de fora tem que existir; veio {chaves}')
+    assert 'consumido' not in chaves, (
+        '`consumido` é o total não-filtrado: como barra ao lado do estoque ele '
+        'compara dois universos diferentes')
+    # e o rótulo diz QUAL é a régua — barra certa com rótulo genérico continua
+    # ensinando a comparação errada.
+    assert 'trilha' in rotulos[1].lower(), rotulos
+    assert 'fora' in rotulos[2].lower(), rotulos
+
+
+@pytest.mark.django_db
+def test_o_consumo_fora_da_trilha_nao_some_nem_se_soma(logado):
+    """Os 172.248 do TRF1 são informação boa: o Juriscope puxou e hoje não é
+    lead. Eles saem da comparação e entram como número PRÓPRIO — na terceira
+    barra e na coluna da tabela —, nunca somados por baixo do pano."""
+    p = dict(PAYLOAD, por_tribunal=[TRF1])
+    ctx, nao_medidos = EV._normalizar(p)
+
+    linha = ctx['linhas'][0]
+    assert (linha['ambos'], linha['fora'], linha['consumido']) == (
+        313826, 172248, 486074)
+    assert linha['ambos'] + linha['fora'] == linha['consumido']
+    assert not [n for n in nao_medidos if 'fora da trilha' in n]
+
+    g = ctx['g_tribunais'][0]
+    assert g['ambos'] == 313826 and g['fora'] == 172248
+
+    cache.set(CHAVE, p, 60)
+    html = _html(logado)
+    for numero in ('313.826', '172.248', '486.074'):
+        assert numero in html, f'{numero} sumiu da tela'
+
+
+def test_a_tabela_usa_a_MESMA_regua_do_grafico():
+    """A tabela dos 59 tribunais tinha o mesmo defeito: `estoque` e `consumido`
+    em colunas vizinhas, réguas diferentes. Agora a coluna colada no estoque é
+    a da trilha, e o total só aparece depois das suas duas parcelas."""
+    fonte = _fonte()
+    colunas = ('estoque', 'ambos', 'fora', 'consumido', 'consumos')
+    for k in colunas:
+        assert f'{{{{ l.{k}|format_int }}}}' in fonte, f'a coluna `{k}` sumiu'
+    ordem = [fonte.index(f'{{{{ l.{k}|format_int }}}}') for k in colunas]
+    assert ordem == sorted(ordem), (
+        'a ordem das colunas é estoque · nesta trilha · fora · total: o total '
+        'não pode voltar a encostar no estoque')
+    assert 'fora da trilha' in fonte, 'a coluna do consumo fora da trilha sumiu'
+
+
+def test_particao_do_consumo_que_NAO_fecha_e_denunciada_pelo_nome():
+    """`ambos` é subconjunto de `consumido` por construção. Se um payload
+    quebrar isso, o número quebrado FICA na tela (negativo grita) e o bloco
+    entra pelo nome no que não foi medido — nada de `max(x, 0)`."""
+    torto = dict(TRF1, t='IMPOSSIVEL', consumido=10, ambos=40)
+    ctx, nao_medidos = EV._normalizar(dict(PAYLOAD, por_tribunal=[torto]))
+    assert ctx['linhas'][0]['fora'] == -30
+    assert [n for n in nao_medidos if 'fora da trilha' in n], nao_medidos

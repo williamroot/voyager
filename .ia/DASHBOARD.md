@@ -738,6 +738,7 @@ a varredura custa minutos e medir na requisição derrubaria o site (regra nº 7
 | proibição | o número que a motivou (01/09/2026) |
 |---|---|
 | **não existe saldo**: `estoque − consumido` não é publicado | consumo distinto 811.360 é 14,7× o estoque de `PRECATORIO` (55.285); a subtração dá −756.075 e o estoque que de fato resta é 395.570 |
+| **duas barras lado a lado exigem a MESMA régua** (corolário, corrigido em 01/09) | `estoque` filtra pela trilha, `consumido` não filtra nada: no gráfico por tribunal o TRF1 aparecia com 486.074 de consumo contra 354.450 de estoque. A barra de consumo passou a ser `ambos` (313.826); os 172.248 de fora viraram série e coluna próprias |
 | **cliente não soma em silêncio** | os 405.740 processos do `juriscope` estão TODOS no `falcon`: somar dá 1.217.100 contra a união real de 811.360. A tela publica cliente, **união** e **sobreposição** |
 | **registro ≠ processo distinto** | 1.224.278 registros para 811.360 processos (51%). A unidade do bloco de resultado vem DECLARADA em `consumo_resultado_unidade`, não adivinhada |
 | **bloco sem medição sai pelo NOME** | `nao_medidos` junta o motivo do medidor com o nome do bloco na tela; zerado, nunca |
@@ -769,16 +770,49 @@ consumo_por_classificacao_atual[R]` é "classificado como R e nunca consumido"
 que dar o `so_estoque` do cruzamento. Não fechou, o bloco NÃO é publicado e o
 nome entra em `nao_medidos`.
 
+### A régua das barras por tribunal (o defeito de 01/09)
+
+O gráfico nasceu com duas séries — `estoque` e `consumido` — e elas **não são
+o mesmo universo**: `estoque` é recortado pelos rótulos da trilha, `consumido`
+não é recortado por nada. Lado a lado, TRF1, TJSP e TJMG apareciam consumindo
+mais do que temos marcado, e a resposta à pergunta "como?" era o recorte, não o
+mundo. TRF1 em 01/09/2026:
+
+| | na trilha | fora da trilha | total consumido |
+|---|---:|---:|---:|
+| consumido | **313.826** (300.713 PRE + 13.113 PRECATORIO) | **172.248** (147.841 `NAO_LEAD` + 24.407 `DIREITO_CREDITORIO`) | 486.074 |
+
+Com estoque de 354.450, a barra certa (313.826) fica **abaixo** do estoque, que
+é o que o mundo diz. O conserto:
+
+* a série de consumo é **`ambos`** — o consumido recortado pela MESMA trilha;
+* `fora = consumido − ambos` é uma **terceira série** rotulada (`#0284c7`) e uma
+  **coluna** da tabela. Não some (é informação boa: o cliente puxou 172.248 que
+  hoje não são lead) e não se soma por baixo do pano;
+* a ordem das colunas da tabela é `estoque · nesta trilha · fora · total`: as
+  duas de mesma régua ficam coladas e o total só aparece depois das suas duas
+  parcelas. O total continua no tooltip do gráfico, sem virar barra;
+* **controle**: `ambos ≤ consumido` em toda linha. Linha que violar mantém o
+  número negativo na tela (negativo grita) e o bloco entra em `nao_medidos` —
+  nada de `max(x, 0)`.
+
+O teste que reprova a volta atrás lê a chamada de `barras('ch-est-trib', …)` no
+próprio template (`tests/test_estoque_tela.py`): trocar `chave: 'ambos'` por
+`'consumido'` é uma edição de uma palavra no JavaScript, e teste de contexto
+não pegaria.
+
 ### Gráficos
 
-Dois de barras agrupadas horizontais, **eixo único e linear** (estoque ×
-consumido; e um cliente por cor). Nada de eixo duplo: seria a forma mais rápida
-de fazer 55 mil parecer do tamanho de 811 mil. As partições (cruzamento,
+Dois de barras agrupadas horizontais, **eixo único e linear** (estoque ·
+consumido na trilha · consumido fora dela; e um cliente por cor). Nada de eixo
+duplo: seria a forma mais rápida de fazer 55 mil parecer do tamanho de 811
+mil. As partições (cruzamento,
 resultado, "onde está hoje") são HTML, não donut — rótulo e número ao lado, a
 identidade nunca só na cor. A tabela no fim é a *table view* dos gráficos.
 
 **As cores das séries são hexadecimais FIXOS e validados**, não lidos do tema:
-`#059669`/`#ea580c` (estoque × consumido) e `#ea580c`/`#0284c7`/`#7c3aed`
+`#059669`/`#ea580c`/`#0284c7` (estoque · consumido na trilha · consumido fora)
+e `#ea580c`/`#0284c7`/`#7c3aed`
 (clientes) passam ΔE ≥ 9,2 em deutan/protan e contraste ≥ 3:1 sobre `#18181b` e
 `#ffffff`. O cromo neutro (grade, eixo, tooltip) continua vindo dos tokens, então
 o gráfico segue o tema. **Cliente além da terceira cor não ganha cor gerada**:
