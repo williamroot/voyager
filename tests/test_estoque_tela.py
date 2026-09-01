@@ -70,6 +70,8 @@ PAYLOAD = {
         'PRE_PRECATORIO': 490552, 'NAO_LEAD': 195683,
         'DIREITO_CREDITORIO': 74492, 'PRECATORIO': 50633,
     },
+    # 55.285 − 50.633 = 4.652 · 881.470 − 490.552 = 390.918 · soma 395.570,
+    # que é exatamente o `so_estoque` acima. O controle da decomposição.
 }
 
 
@@ -261,6 +263,50 @@ def test_cruzamento_nao_e_deduzido_dos_totais():
     ctx, faltando = EV._normalizar(p)
     assert ctx['cruzamento'] is None
     assert 'Cruzamento estoque × consumo' in faltando
+
+
+@pytest.mark.django_db
+def test_o_que_sobra_aparece_ABERTO_POR_ROTULO(logado):
+    """"395.570 em estoque" faz parecer que há muito precatório. Não há."""
+    cache.set(CHAVE, PAYLOAD, 60)
+    h = _html(logado)
+    assert 'O que sobra' in h
+    assert '4.652' in h                            # PRECATORIO que resta
+    assert '390.918' in h                          # PRE_PRECATORIO que resta
+    assert '91.6% já foi puxado' in h or '91,6% já foi puxado' in h
+
+
+def test_a_decomposicao_do_saldo_fecha_com_o_cruzamento():
+    """Soma das parcelas TEM que dar o `so_estoque`. É o controle do bloco."""
+    ctx, _ = EV._normalizar(PAYLOAD)
+    parcelas = [i['v']['n'] for i in ctx['saldo']['itens']]
+    assert sum(parcelas) == PAYLOAD['cruzamento']['so_estoque']
+    assert parcelas == [4652, 390918]
+
+
+@pytest.mark.django_db
+def test_decomposicao_que_NAO_fecha_nao_e_publicada(logado):
+    """Régua que não bate com a própria fonte não vai pra tela."""
+    p = dict(PAYLOAD)
+    p['cruzamento'] = dict(PAYLOAD['cruzamento'], so_estoque=999999)
+    ctx, faltando = EV._normalizar(p)
+    assert ctx['saldo'] is None
+    assert 'O que sobra, por rótulo' in faltando
+
+    cache.set(CHAVE, p, 60)
+    h = _html(logado)
+    assert '4.652' not in h                        # o card não foi publicado
+    assert 'Sem medição nesta passagem' in h
+    assert 'O que sobra, por rótulo' in h.split('Sem medição nesta passagem')[1]
+
+
+def test_o_saldo_nao_e_deduzido_quando_falta_o_rotulo():
+    """Parcela ausente derruba o bloco inteiro; meia decomposição mente."""
+    p = dict(PAYLOAD)
+    p['estoque_por_rotulo'] = {'PRECATORIO': 55285}      # falta PRE_PRECATORIO
+    ctx, faltando = EV._normalizar(p)
+    assert ctx['saldo'] is None
+    assert 'O que sobra, por rótulo' in faltando
 
 
 # ------------------------------------------------------- clientes dinâmicos

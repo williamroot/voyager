@@ -368,6 +368,53 @@ def _cruzamento(bruto):
     }
 
 
+def _saldo_por_rotulo(p, cruz, rotulos):
+    """O `so_estoque` aberto por rótulo — o número mais acionável da tela.
+
+    "395.570 em estoque, nunca consumido" passa a impressão de que há muito
+    precatório disponível, e é falso: medido em 01/09/2026, **4.652** são
+    `PRECATORIO` (91,6% desse rótulo JÁ foi puxado) e 390.918 são
+    `PRE_PRECATORIO`. Quem lê o agregado decide errado.
+
+    A conta é exata, não estimativa: para o rótulo R,
+    `estoque_por_rotulo[R] − consumo_por_classificacao_atual[R]` é
+    "classificado como R e nunca consumido", porque o segundo é o rótulo de
+    HOJE dos processos já consumidos — o mesmo universo, a mesma foto.
+
+    E ela vem com **controle**: a soma das parcelas tem que dar exatamente o
+    `so_estoque` do cruzamento. Se não der, a decomposição NÃO é publicada e o
+    nome dela entra em `nao_medidos`. Régua que não fecha com a própria fonte
+    é régua torta, e número medido com régua torta é pior que número nenhum.
+    """
+    por_rotulo = p.get('estoque_por_rotulo')
+    consumo_atual = p.get('consumo_por_classificacao_atual')
+    if not (isinstance(por_rotulo, dict) and isinstance(consumo_atual, dict)
+            and cruz and rotulos):
+        return None
+    alvo = next((f['v']['n'] for f in cruz['fatias'] if f['k'] == 'so_estoque'), None)
+    if alvo is None:
+        return None
+
+    itens, soma = [], 0
+    for r in rotulos:
+        est = _num(por_rotulo.get(r))
+        if est is None:
+            return None                     # parcela faltando: não publica
+        cons = _int(consumo_atual.get(r))
+        sobra = est['n'] - cons
+        soma += sobra
+        itens.append({'rotulo': str(r), 'v': _num(sobra),
+                      'estoque': est, 'consumido': _num(cons),
+                      'pct_puxado': _pct(cons, est['n'])})
+    if soma != alvo:
+        logger.error('estoque: decomposição do so_estoque não fecha — '
+                     '%s parcelas contra %s do cruzamento', soma, alvo)
+        return None
+    for i in itens:
+        i['pct'] = _pct(i['v']['n'], alvo) if alvo else None
+    return {'itens': itens, 'total': _num(alvo)}
+
+
 def _normalizar(bruto):
     """Payload cru → contexto de template. Devolve `(ctx, nao_medidos)`.
 
@@ -458,6 +505,12 @@ def _normalizar(bruto):
 
     hoje = _consumo_hoje(p)
 
+    # O `so_estoque` aberto por rótulo. Publicado só se fechar com o
+    # cruzamento — a conferência está em `_saldo_por_rotulo`.
+    saldo = _saldo_por_rotulo(p, cruz, rotulos)
+    if saldo is None and cruz is not None:
+        faltando.append('O que sobra, por rótulo')
+
     # séries dos gráficos. Cliente sem cor validada FICA DE FORA do gráfico (e
     # a tela diz que ficou) — cor gerada na hora é a porta de entrada da
     # paleta padrão do ECharts, que já pintou um mapa inteiro de cinza aqui.
@@ -481,6 +534,7 @@ def _normalizar(bruto):
         'resultados': resultados,
         'cruzamento': cruz,
         'consumo_hoje': hoje,
+        'saldo': saldo,
         'topo_grafico': TOPO_GRAFICO,
         'tem_mais_tribunais': len(linhas) > TOPO_GRAFICO,
         'g_tribunais': [{'t': l['t'], 'estoque': l['estoque'],

@@ -756,6 +756,19 @@ continua aparecendo. Zero medido aparece; zero inventado some e é denunciado.
 os dois números **separados** (`rotulos` + `estoque_por_rotulo`) — recorte
 escondido é recorte que ninguém confere.
 
+### O número mais acionável, e o mais fácil de ler errado
+
+`so_estoque` **agregado engana**. "395.570 no estoque, nunca consumido" faz
+parecer que há muito precatório disponível; aberto por rótulo são **4.652**
+`PRECATORIO` (91,6% desse rótulo JÁ foi puxado) e 390.918 `PRE_PRECATORIO`.
+A tela abre a fatia.
+
+A decomposição é exata, não estimativa: `estoque_por_rotulo[R] −
+consumo_por_classificacao_atual[R]` é "classificado como R e nunca consumido"
+— mesmo universo, mesma foto. E vem com **controle**: a soma das parcelas tem
+que dar o `so_estoque` do cruzamento. Não fechou, o bloco NÃO é publicado e o
+nome entra em `nao_medidos`.
+
 ### Gráficos
 
 Dois de barras agrupadas horizontais, **eixo único e linear** (estoque ×
