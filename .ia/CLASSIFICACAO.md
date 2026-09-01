@@ -197,6 +197,42 @@ Exemplos curados via `settings.ALGORITMO_EXEMPLOS_CNJS` (dict rótulo→CNJ); fa
 - Tabela paginada de leads pendentes
 - Export CSV (`leads_export_csv` view)
 
+### `/dashboard/estoque/` — estoque marcado × consumo (#113)
+
+Medição em `dashboard/estoque.py` (`aquecer()` no scheduler de 6/6 h, `ler()`
+só cache); tela em `dashboard/estoque_views.py`. Duas trilhas:
+`precatorio` = `PRECATORIO` + `PRE_PRECATORIO`, `direito_creditorio` = N3.
+
+Três achados medidos em 01/09/2026 que mudam como se lê qualquer número de
+consumo — valem além desta tela:
+
+1. **`estoque − consumido` não é saldo.** O consumo distinto (811.360) é 14,7×
+   o estoque de `PRECATORIO` (55.285). Consumo é histórico e cumulativo;
+   classificação é o rótulo de agora (o `F30_extinto_neg_ANTI` rebaixa lead a
+   `NAO_LEAD` depois do consumo). A partição medida substitui a conta:
+   `ambos` 541.185 · `so_estoque` 395.570 · `so_consumo` 270.175. O saldo real
+   da trilha é **395.570**, e dele só **4.652** são `PRECATORIO` — **91,6%**
+   desse rótulo já foi puxado.
+2. **`juriscope` ⊂ `falcon`.** Os 405.740 processos do juriscope estão TODOS no
+   falcon (interseção 405.740, exclusivos do juriscope **0**). Não são
+   consumidores paralelos: o juriscope parou em 2026-05-03 e o falcon começou
+   em 2026-05-17 — é o mesmo consumidor em duas fases, e 404.238 dos 405.740
+   são TRF1. Somar os dois dá 1.217.100 e conta 405.740 duas vezes.
+3. **Registro ≠ processo.** `LeadConsumption` não tem unique constraint:
+   1.224.278 registros para 811.360 processos (51%). `resultado` é contado por
+   REGISTRO — `validado + pendente + sem_expedicao` fecha em 1.224.278.
+
+Classificação de HOJE dos 811.360 já consumidos: `PRE_PRECATORIO` 490.552 ·
+`NAO_LEAD` 195.683 · `DIREITO_CREDITORIO` 74.492 · `PRECATORIO` 50.633 ·
+não classificado **0**.
+
+Custo: UMA varredura de `tribunals_process` com o consumo entrando como lado
+de hash — 46 a 60 s. Só o estoque por `GROUP BY` custa 58 s; o mesmo recorte
+pelo índice de `classificacao`, 135 s; o join a partir de `LeadConsumption`
+foi abortado depois de 400 s (o banco é I/O-bound: índice = leitura aleatória
+de heap). Dois campos de controle derrubam o bloco com o motivo — o catálogo
+(todo rótulo em `CLASSIF_CHOICES`) e o join (varredura × contagem sem join).
+
 ### `/dashboard/api/`
 - Cards stats por nível
 - Documentação completa dos endpoints com curl examples
