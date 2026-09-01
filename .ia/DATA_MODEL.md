@@ -1054,6 +1054,53 @@ Custo, medido em produção no `voyager-web-1` **depois** do deploy:
 Não encarece nada de forma perceptível: 2,32 µs contra os ~21 s que a mesma
 `sync_processo` gasta esperando o token do CNJ.
 
+#### A taxa de reabertura: 449/h → **0**
+
+A passada única de fechamento (4 shards do `repop_classe_assunto`, faixas
+disjuntas cobrindo `(0, 106.500.000]`) rodou em 01/09 das 16:25 às 17:16 UTC.
+Ela fecha por soma com a régua medida ANTES dela, e este é o campo de controle:
+
+| | shards (a+b+c+d) | régua independente às 16:23:45 |
+|---|---:|---:|
+| linhas lidas (pendentes) | 8.343 | `assunto_id` NULL = **8.343** ✅ |
+| `classe_id` ligadas | 8.073 | `classe_id` NULL = **8.073** ✅ |
+| `assunto_id` ligadas | 8.146 | |
+| órfãos de classe | **0** | como em 31/08 |
+| órfãos de assunto (abstenção) | **197** | `99999999`=120, `4010000x`, `15xxx` trabalhistas |
+| catálogo criado · deadlocks · lock_timeouts | 0 · 0 · 0 | rodou sem `--criar-catalogo` |
+
+Custo: 532–534 blocos de 50.000 pks por shard, 2.172–3.038 s cada, 2–3 esperas
+pelo freio (as DDLs do #111 estavam validando FK na mesma tabela; o brake do
+comando cedeu a vez sozinho, como projetado).
+
+E a medição que fecha a pendência — a mesma consulta, com a atividade do
+escritor como controle (`data_enriquecimento_datajud` nos últimos 15 min):
+
+| UTC | `classe_id` NULL | `assunto_id` NULL | datajud sincronizou (15 min) |
+|---|---:|---:|---:|
+| 31/08 22:05 (fim do backfill anterior) | 21 | 222 | — |
+| **01/09 16:01** (18 h depois, ANTES do fix) | **8.072** | 8.343 | — |
+| 01/09 17:18 (fim da passada) | **0** | 197 | — |
+| 01/09 17:30 | 0 | 197 | 404 |
+| 01/09 18:03 | 0 | 197 | 744 |
+| 01/09 18:35 | 0 | 197 | 467 |
+| 01/09 18:47 | 0 | 197 | 432 |
+| 01/09 19:26 | **0** | **197** | 412 |
+
+    taxa ANTES ..... 8.051 linhas / 17,93 h = 449 linhas/h
+    taxa DEPOIS .... 0 linhas / 2,17 h      =   0 linhas/h
+
+**Zero deixou de ser foto.** As 2 h 11 min não foram um período parado: o
+escritor culpado rodou o tempo todo, entre 412 e 744 processos sincronizados a
+cada 15 min (≈1.700–3.000/h) — na taxa antiga isso teria reaberto ~980 linhas.
+E `classe_id` chegou a **0**, não a 21: os 21 de 31/08 eram justamente a
+reabertura acontecendo durante a própria corrida.
+
+Os 197 de `assunto_id` **não são pendência**: são a abstenção declarada, e o
+número bate exatamente com o que os quatro shards contaram como órfão da TPU
+(185+5+4+3). Criar `99999999` no catálogo nacional para zerar a consulta seria
+trocar um número honesto por um bonito.
+
 Prova do deploy **dentro do processo** (não pelo disco), 01/09/2026:
 
 | processo | prova |
