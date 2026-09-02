@@ -1349,6 +1349,13 @@ qualquer migration que **acrescente** uma. Identidade e chave (`numero_cnj`,
 INSERT sem a coluna TEM que explodir. Tem controle positivo — se a sonda
 deixar de enxergar as 4 tabelas, ela falha em vez de passar medindo o vazio.
 
+**Controle negativo, porque catraca que nunca reprovou não se sabe se trava.**
+Rodando a `0057` para trás num banco limpo (estado da `0056`) e aplicando a
+mesma sonda, ela acusa **exatamente** as cinco colunas do incidente —
+`classe_cnj_codigo`, `classe_cnj_nome`, `fase_codigo`, `fase_nome`, `grau` —
+e nenhuma outra. É a prova de que o teste teria reprovado a `0054` no dia em
+que ela foi escrita, e de que o `reverse` da `0057` funciona.
+
 **Varredura das outras tabelas quentes, pedida e feita:** o padrão NOT
 NULL-sem-`DEFAULT` é o idioma do Django e está em toda parte (22 colunas em
 `tribunals_movimentacao`, 19 em `_process`, 8 em `_parte`, 5 em
@@ -1503,7 +1510,30 @@ retomar mede pelo par
 `EdicaoDiario.status` + `sum(IngestionRun.movimentacoes_novas WHERE id > 238932)`,
 que é a linha de base congelada às 01:11:20 UTC de 02/09/2026:
 
-    baseline .... ok 62 · itens_gravados 1.815.386 · runs tjsp-dje 1.312 failed / 73 success
+    baseline (01:11:20Z) .. ok 62 · itens_gravados 1.815.386
+                            runs tjsp-dje: 1.312 failed / 73 success
+
+**Medido às 02:5x UTC de 02/09, ~1h50 depois do restart** (o lote continua
+drenando; estes números são um PISO, não o total):
+
+| | baseline | depois | delta |
+|---|---:|---:|---:|
+| `EdicaoDiario` `ok` | 62 | **67** | +5 |
+| `sum(itens_gravados)` | 1.815.386 | **1.957.312** | **+141.926** |
+| `IngestionRun` do `tjsp-dje` desde 01:01Z | — | **5 `success`, 2 `running`, 0 `failed`** | — |
+| `sum(movimentacoes_novas)` desses runs | — | **214.241** | — |
+| `sum(processos_novos)` desses runs | — | **40.419** | — |
+| fila `diarios` | 305 | 299 | — |
+
+**Zero `failed` em 7 runs depois do restart, contra 1.312 antes.** É esse par
+que fecha o veredito — não o `StartedAt` do container. Os 214.241 são maiores
+que os 141.926 de `itens_gravados` porque duas unidades ainda estavam
+`running` na hora da medição e ainda não tinham carimbado a edição.
+
+Critérios do §13.7 relidos durante o lote: ES em **66%** (teto 85),
+`write.rejected` **0**, fila `es_index` no máximo **374** (teto 5.000), load1
+da `.102` **10,27** (teto 40), `MemAvailable` **16,2 GiB** (piso 6). Nenhum
+acionado.
 
 ### 14.7 O que NÃO foi feito, e por quê
 
