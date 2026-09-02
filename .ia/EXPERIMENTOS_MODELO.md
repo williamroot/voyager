@@ -200,6 +200,43 @@ pagamento → partes_doc → cessao → herdeiros.
 resume-safe) e `out/esp_gate/resultado_<t>.json` assim que fecha — sessão que cair não
 leva o trabalho junto (lição da v2.2).
 
+### 2.3 Resultados medidos (checkpoint incremental — 02/09/2026, 3090 do llmsv2)
+
+> Gravados em `llmsv2:/mnt/nas-data/voyager-train/out/esp_gate/resultado_<tarefa>.json`
+> assim que cada tarefa fecha. Harness commitado no git do harness (`32f8a32`).
+
+**Vazão medida:** 13,5 min por modelo em 800 exemplos (bs=8, 4-bit, 3090) — **~1,7 s/exemplo**,
+não os ~4,6 s/ex do gate de 31/07. A varredura dos 7 especialistas custa **~3h**, não 19h.
+
+#### acordao — 🔴 BLOCK
+
+| | v2.1 (baseline) | adapter_esp_acordao | Δ |
+|---|--:|--:|--:|
+| `acerto_doc` (n=707 pareados) | **98,40%** | 98,28% | **−0,12pp** |
+| `doc_perfeito` | 97,45% | 96,89% | −0,56pp |
+
+IC 95% bootstrap pareado (10k): **[−0,85, +0,64] pp** — exclui o +3pp exigido com folga.
+McNemar exato: b=11 / c=7, **p=0,48** (b+c=18 → discordância degenerada, declarado).
+Critério 1 (Δ≥3pp) ✗ · 2 (IC>0) ✗ · 3 (significância) ✗ → **BLOCK**, sem afrouxamento.
+
+Por campo (n): data 100→100 (45) · desfecho 99,64→98,91 (549) · orgao_julgador
+98,64→98,13 (589) · **relator 93,85→96,15 (130, +2,30pp)**. JSON inválido 1→1;
+falsa-abstenção 0,71%→0,71%. O único campo onde o especialista sobe é `relator` — e
++2,3pp em n=130 não sustenta o critério nem sozinho.
+
+**Controles — os dois passaram, a régua está de pé:**
+- **C1 (reprodução histórica):** o v2.1 no slice reproduz o gate publicado de 31/07
+  (ACÓRDÃO 98-100): desfecho 99,64 · orgao 98,64 · data 100 · relator 93,85 — dentro
+  da tolerância ±5pp. A régua concorda com a régua antiga.
+- **C2 (separação base×FT):** base Qwen2.5-7B **sem adapter** = 57,97% contra 96,86% do
+  v2.1 no MESMO subconjunto (n=200) → **gap 38,89pp** (exigido ≥20). A métrica mede
+  fine-tune de verdade; um empate A×B não é cegueira da régua.
+
+**Leitura:** `acordao` deixou de ser classe fraca com o janelamento (v2.1 já faz 98,4%,
+teto 100). A hipótese da interferência não tem onde ganhar aqui — e o adapter dedicado,
+com 3 épocas só nessa fatia, **empata dentro de ±0,7pp**. Não é que o especialista seja
+ruim: é que não sobra o que ganhar.
+
 ## 3. DPO-κ — preferências da fila de divergência
 
 **Hipótese.** O resíduo dominante do extrator não é formato (grammar
