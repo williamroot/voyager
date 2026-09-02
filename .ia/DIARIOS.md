@@ -1383,9 +1383,15 @@ sucesso posterior são da MESMA chave, no MESMO caderno: antes ela morria em
 3-16 s no primeiro `bulk_create`, com 0.
 
 Ressalva de leitura: sob a contenção medida no §14.3 (backfill de `fase` em 4
-processos + agregações de ~1.000 s) o caderno levou **~50 min**, contra os
-99-498 s medidos em 24/08 — a terceira porta divide I/O com o resto e é a
-primeira a sentir.
+processos + agregações de ~1.000 s) o caderno levou **~9 min** — 01:01:46 →
+~01:11 UTC —, contra os 99-498 s medidos em 24/08. A terceira porta divide I/O
+com o resto e é a primeira a sentir.
+
+⚠️ **E aqui eu quase publiquei um número errado, pela armadilha de fuso que a
+casa já registra.** O `asctime` do log sai em **-03** e todo o resto (`now()`,
+`started_at`, `docker inspect`) sai em **UTC**, no MESMO processo. Ler
+`22:01:46` do log como se fosse UTC transforma 9 minutos em 50 e uma vazão de
+~4 min/unidade em "dias". Toda hora deste §14 é UTC, de propósito.
 
 ### 14.5 Veredito da segmentação — as 2 falhas que NÃO eram o INSERT
 
@@ -1502,33 +1508,33 @@ critérios do §13.7 que se pode medir: ES em 66% (teto 85), `write.rejected` 0,
 fila `es_index` em 0 (teto 5.000), load1 da `.102` em 5,5 (teto 40),
 `MemAvailable` 17,7 GiB (piso 6).
 
-**A vazão real, e ela é o número desagradável:** ~50 min por caderno com 2
-réplicas, contra os 99-498 s medidos em 24/08. O gargalo não é a fonte nem a
-CPU — é o Postgres, dividido com o backfill de `fase` (4 processos) e com
-agregações de ~1.000 s. Nesse ritmo as 305 levam **dias**, não horas. Quem
-retomar mede pelo par
-`EdicaoDiario.status` + `sum(IngestionRun.movimentacoes_novas WHERE id > 238932)`,
-que é a linha de base congelada às 01:11:20 UTC de 02/09/2026:
+**A vazão medida:** **6 unidades fechadas em 24 min** com as 2 réplicas ⇒
+~4 min por unidade, ~15 unidades/h. Nesse ritmo as 305 levam da ordem de
+**20 h**, não dias — mas o ritmo depende do Postgres, que está dividido com o
+backfill de `fase` (4 processos) e com agregações de até 1.081 s, e pode piorar
+sem aviso. Quem retomar mede pelo par `EdicaoDiario.status` +
+`sum(IngestionRun.movimentacoes_novas WHERE started_at >= '2026-09-02 01:01Z')`,
+contra a linha de base congelada às 01:11:20 UTC de 02/09/2026:
 
     baseline (01:11:20Z) .. ok 62 · itens_gravados 1.815.386
                             runs tjsp-dje: 1.312 failed / 73 success
 
-**Medido às 02:5x UTC de 02/09, ~1h50 depois do restart** (o lote continua
-drenando; estes números são um PISO, não o total):
+**Medido em `2026-09-02 01:24:50 UTC`, 24 minutos depois do restart** (o lote
+continua drenando; estes números são um PISO, não o total):
 
-| | baseline | depois | delta |
+| | baseline (01:11:20Z) | 01:24:50Z | delta |
 |---|---:|---:|---:|
-| `EdicaoDiario` `ok` | 62 | **67** | +5 |
-| `sum(itens_gravados)` | 1.815.386 | **1.957.312** | **+141.926** |
-| `IngestionRun` do `tjsp-dje` desde 01:01Z | — | **5 `success`, 2 `running`, 0 `failed`** | — |
-| `sum(movimentacoes_novas)` desses runs | — | **214.241** | — |
-| `sum(processos_novos)` desses runs | — | **40.419** | — |
-| fila `diarios` | 305 | 299 | — |
+| `EdicaoDiario` `ok` | 62 | **68** | +6 |
+| `sum(itens_gravados)` | 1.815.386 | **2.006.577** | **+191.191** |
+| `IngestionRun` do `tjsp-dje` desde 01:01Z | — | **6 `success`, 2 `running`, 0 `failed`** | — |
+| `sum(movimentacoes_novas)` desses runs | — | **238.590** | — |
+| `sum(processos_novos)` desses runs | — | **44.870** | — |
+| fila `diarios` | 305 | 298 | — |
 
-**Zero `failed` em 7 runs depois do restart, contra 1.312 antes.** É esse par
-que fecha o veredito — não o `StartedAt` do container. Os 214.241 são maiores
-que os 141.926 de `itens_gravados` porque duas unidades ainda estavam
-`running` na hora da medição e ainda não tinham carimbado a edição.
+**Zero `failed` em 8 runs depois do restart, contra 1.312 antes.** É esse par
+que fecha o veredito — não o `StartedAt` do container. Os 238.590 passam dos
+191.191 de `itens_gravados` porque duas unidades ainda estavam `running` na
+hora da medição e ainda não tinham carimbado a edição.
 
 Critérios do §13.7 relidos durante o lote: ES em **66%** (teto 85),
 `write.rejected` **0**, fila `es_index` no máximo **374** (teto 5.000), load1
