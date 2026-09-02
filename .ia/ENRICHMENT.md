@@ -1999,6 +1999,15 @@ das 22 divergências. Conferido na faixa do piloto depois de escrever:
 pares (processo, parte) com ativo E passivo, fonte='djen' .... 0
 ```
 
+⚠️ **O 1,16% é da amostra, não da população que o backfill escreve.** A régua
+foi medida onde HÁ enricher — e enricher existe justamente nos processos mais
+litigiosos e multifásicos (566 dos 654 casos são TRF3, cheios de recurso
+inominado). Remedido em 02/09 na população real do backfill (4.000 processos
+com ZERO `ProcessoParte`, 16.338 specs): a abstenção cai para **0,11% dos
+nomes e 0,35% dos processos**. O custo da regra é uma ordem de grandeza menor
+do que a amostra sugeria — o que também quer dizer que a divergência de polo
+que ela conserta é mais rara ali.
+
 As outras 14 (2,1% dos 654) são janelas SÓ com publicação de recurso, onde o
 DJEN é coerente consigo mesmo e não há contradição a detectar. Não são
 corrigíveis com o dado que temos — e como o backfill só escreve onde NÃO há
