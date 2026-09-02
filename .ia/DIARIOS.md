@@ -1977,15 +1977,20 @@ texto, não segmenta, não toca no banco) e **`movimentacoes_novas` do
 | 4160-19 | 333 | 333 | 333 | **0** |
 | 4161-19 | 157 | 157 | 157 | **0** |
 
-**Treze de treze, casado no dígito.** O que a fonte imprime, o que o parser
-segmenta e o que o banco grava são o mesmo número — e as três medidas vêm de
-lugares diferentes.
+(Tabela = as 13 primeiras a fechar. O invariante se manteve nas seguintes:
+**19 de 19 edições reprocessadas até 03/09 01:0x UTC**, `extra = 0` em todas,
+**6.760** entradas recuperadas das 7.917 que a sonda contou nos PDFs. As 3
+restantes do grupo 1 e as 18 do grupo 2 seguiam na fila.)
+
+**Dezenove de dezenove, casado no dígito.** O que a fonte imprime, o que o
+parser segmenta e o que o banco grava são o mesmo número — e as três medidas
+vêm de lugares diferentes.
 
 ### 17.3 Duplicação em escala: **zero**, e melhor que a amostra de 1
 
 O §16.4 media numa edição só (925 novas contra 2 antigas órfãs) e eu havia
 registrado a duplicação como risco a confirmar. Confirmado, e para baixo:
-`novas` **=** `Δ itens_gravados` em 13 de 13, ou seja **nenhuma linha extra
+`novas` **=** `Δ itens_gravados` em **19 de 19**, ou seja **nenhuma linha extra
 além das entradas de pauta**. Não há neighbour reescrito, não há linha velha
 convivendo com a nova.
 
@@ -2078,4 +2083,6 @@ do gate**, não uma varredura manual.
 |---|---|
 | **o segundo eixo do gate** (inventário por marcador, não só fração) | **continua não feito, e continua sendo o conserto durável.** Este §17 limpou o passado; o segundo eixo é o que impede o futuro |
 | promoção a parte das edições do 19 coletadas após o teto | adiada pelo guarda de fairness; recuperável com `backfill_partes_djen` |
-| `r19_w1` / `r19_w2` | dois `rqworker diarios` avulsos criados na `.102` para dobrar a vazão do lote (`docker run`, fora do compose). **Remover quando a fila zerar** |
+| **o lote ainda drenava** ao fim desta sessão | 19 de 22 do grupo 1 e 0 de 18 do grupo 2 fechados. As 18 de janeiro são as MAIORES do caderno (até 7.371 páginas e 33.141 CNJs em `4127-19`) e cada uma leva dezenas de minutos com o banco sob a carga da Fase 3, do #106 e do #105 |
+| `r19_w1` / `r19_w2` | dois `rqworker diarios` avulsos criados na `.102` (`docker run`, fora do compose) para dobrar a vazão do lote. Um faxineiro `setsid` na própria `.102` os remove quando a fila zerar; **se ele morrer, remover à mão** (`docker rm -f r19_w1 r19_w2`) |
+| `4152-19`, `4154-19`, `3985-19` | as 3 do grupo 1 que faltavam fechar. A sonda já disse quanto esperar: **498 + 502 + 157 = 1.157** entradas |
