@@ -158,8 +158,9 @@
     <div>
       <div class="text-sm font-medium text-fg-soft">Backfills longos · cobertura medida</div>
       <div class="text-xs text-fg-subtle">
-        <code>proc_digits</code> no índice · <code>fase_codigo</code> nos processos ·
-        FKs <code>NOT VALID</code> — medido dos DADOS, não do container
+        <code>proc_digits</code> no índice · <code>fase_codigo</code> e
+        <code>partes</code> nos processos · FKs <code>NOT VALID</code> —
+        medido dos DADOS, não do container
       </div>
     </div>
     {% if not vigia_bf %}
@@ -183,7 +184,7 @@
       <div class="text-xs text-fg-subtle mt-1 font-mono">manage.py vigia_backfills --agora</div>
     </div>
   {% else %}
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
       <div>
         <div class="text-fg-subtle text-xs uppercase tracking-wider">proc_digits (ES)</div>
         {% if vigia_bf.proc_digits %}
@@ -218,6 +219,33 @@
           {% if vigia_bf.teto_fase %}
             <div class="text-xs text-fg-subtle">
               teto alcançável: {{ vigia_bf.teto_fase.pct_alcancavel }}% dos sem fase
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="text-2xl font-semibold mt-1 kpi-num text-danger">—</div>
+          <div class="text-xs text-danger mt-1">sem medida (não é "está tudo bem")</div>
+        {% endif %}
+      </div>
+      {% comment %}
+        `partes` publica DOIS percentuais de propósito. A cobertura total sobe
+        quando o enricher anda E quando este backfill anda; só a fatia
+        `fonte='djen'` diz que quem andou foi ELE. Um número só faria o card
+        ficar verde por trabalho de outro — a versão de card do "run verde,
+        log limpo, número redondo".
+      {% endcomment %}
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">partes (PG)</div>
+        {% if vigia_bf.partes %}
+          <div class="text-2xl font-semibold mt-1 kpi-num {% if vigia_bf.partes.faltam_estimado %}text-warning{% else %}text-accent-fg{% endif %}">{{ vigia_bf.partes.pct }}<span class="text-base">%</span></div>
+          <div class="text-xs text-fg-subtle mt-1">
+            ± {{ vigia_bf.partes.pct_erro_pp }} pp · faltam ~{{ vigia_bf.partes.faltam_estimado|format_int }}
+          </div>
+          <div class="text-xs text-fg-subtle">
+            do DJEN: {{ vigia_bf.partes.pct_djen }}% <span class="text-fg-subtle">(o que este backfill escreveu)</span>
+          </div>
+          {% if vigia_bf.teto_partes %}
+            <div class="text-xs text-fg-subtle">
+              teto alcançável: {{ vigia_bf.teto_partes.pct_alcancavel }}% dos sem parte
             </div>
           {% endif %}
         {% else %}

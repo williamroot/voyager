@@ -3,7 +3,7 @@
     manage.py vigia_backfills              # o retrato do CACHE (não toca no banco)
     manage.py vigia_backfills --medir      # RECALCULA dos dados, imprime, não grava
     manage.py vigia_backfills --agora      # força um tique síncrono e mostra o que fez
-    manage.py vigia_backfills --teto       # remede o teto alcançável do `fase` (caro)
+    manage.py vigia_backfills --teto       # remede os tetos alcançáveis (fase e partes; caro)
     manage.py vigia_backfills --parar      # kill switch (Redis)
     manage.py vigia_backfills --religar
     manage.py vigia_backfills --fk-off     # pausa só a auto-cura das FKs
@@ -57,7 +57,8 @@ class Command(BaseCommand):
             return
 
         if o['teto']:
-            r = V.medir_teto_fase(forcar=True)
+            r = {'teto_fase': V.medir_teto_fase(forcar=True),
+                 'teto_partes': V.medir_teto_partes(forcar=True)}
             self.stdout.write(json.dumps(r, ensure_ascii=False, indent=2, default=str))
             return
         if o['agora']:
@@ -66,8 +67,10 @@ class Command(BaseCommand):
             r = {'medido_em': timezone.now(),
                  'proc_digits': V.medir_proc_digits(),
                  'fase': V.medir_fase(),
+                 'partes': V.medir_partes_djen(),
                  'fks': V.medir_fks(),
-                 'teto_fase': V.medir_teto_fase()}
+                 'teto_fase': V.medir_teto_fase(),
+                 'teto_partes': V.medir_teto_partes()}
         else:
             r = V.estado()
             if not r:
@@ -136,6 +139,25 @@ class Command(BaseCommand):
                     f"{teto.get('medido_em')})")
         else:
             self.stdout.write(self.style.ERROR('\nfase_codigo: SEM MEDIDA'))
+
+        pt = r.get('partes')
+        if pt:
+            tp = r.get('teto_partes') or {}
+            self.stdout.write(
+                f"\npartes (tribunals_processoparte × tribunals_process)\n"
+                f"  cobertura ............. {pt['pct']}% ± {pt['pct_erro_pp']} pp "
+                f"({pt['amostra_n']:,} linhas em {pt['paginas_amostradas']:,} páginas)\n"
+                f"  … destas, do DJEN ..... {pt['pct_djen']}%   "
+                f"(`fonte='djen'` — é a fatia que ESTE backfill escreveu)\n"
+                f"  faltam (estimado) ..... {pt['faltam_estimado']:,}")
+            if tp:
+                self.stdout.write(
+                    f"  teto alcançável ....... {tp.get('pct_alcancavel')}% dos SEM "
+                    f"parte têm destinatário nas {tp.get('janela_movs')} movs mais "
+                    f"recentes (amostra {tp.get('amostra_sem_parte')}, medido "
+                    f"{tp.get('medido_em')})")
+        else:
+            self.stdout.write(self.style.ERROR('\npartes: SEM MEDIDA'))
 
         k = r.get('fks')
         if k:

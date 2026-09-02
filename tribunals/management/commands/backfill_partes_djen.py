@@ -80,6 +80,14 @@ class Command(BaseCommand):
         parser.add_argument('--carga', type=float, default=0.5,
                             help='fração do tempo em que pode ocupar o banco. '
                                  '0,5 = descansa o mesmo tempo que trabalhou.')
+        parser.add_argument('--parar-ms-id', type=float, default=25.0,
+                            help='teto de custo em ms por ID VARRIDO (não por '
+                                 'linha encontrada — ver a docstring). Acima '
+                                 'disso o banco está em contenção e o backfill '
+                                 'sai com ERRO. 0 = sem teto.')
+        parser.add_argument('--sem-checkpoint', action='store_true',
+                            help='varre uma faixa fechada sem guardar cursor. '
+                                 'Exige --de e --ate — ver a docstring.')
         parser.add_argument('--dry-run', action='store_true')
         parser.add_argument('--pausar', action='store_true')
         parser.add_argument('--despausar', action='store_true')
@@ -94,6 +102,18 @@ class Command(BaseCommand):
             raise CommandError('--lote tem que ser >= 1')
         if not 0 < o['carga'] <= 1:
             raise CommandError('--carga tem que estar em (0, 1]')
+        # Sem checkpoint E sem faixa fechada, um restart recomeça do ZERO — o
+        # defeito medido em 02/09/2026 nos outros backfills (351 reinícios,
+        # progresso líquido zero). Aqui isso é ERRO na largada, não surpresa
+        # três dias depois.
+        if not o['shard'] and not o['sem_checkpoint']:
+            raise CommandError(
+                'sem --shard não há checkpoint: um restart recomeçaria do pk '
+                'inicial e a varredura nunca chegaria ao fim. Use --shard '
+                '<nome>, ou --sem-checkpoint com --de e --ate para uma faixa '
+                'fechada.')
+        if o['sem_checkpoint'] and (o['de'] is None or o['ate'] is None):
+            raise CommandError('--sem-checkpoint exige --de e --ate (faixa fechada).')
 
         shard = o['shard']
         ini = o['de']
@@ -110,11 +130,14 @@ class Command(BaseCommand):
         tot = {k: 0 for k in (
             'janela', 'alvo', 'pulados_com_parte', 'sem_movimentacao',
             'sem_destinatario', 'so_segredo', 'descartados_segredo',
-            'com_marcador_segredo', 'linhas_tentadas', 'linhas_confirmadas',
+            'com_marcador_segredo', 'polo_abstido', 'linhas_tentadas',
+            'linhas_confirmadas',
         )}
         lotes = 0
         motivo_parada = 'faixa concluída'
         pk_min_tocado = pk_max_tocado = None
+        # Custo em ms por ID VARRIDO, suavizado. Ver `_custo_ms_id`.
+        ms_id = None
 
         while cursor < fim:
             if cache.get(PAUSA_KEY):
@@ -128,6 +151,7 @@ class Command(BaseCommand):
                 break
 
             t_lote = time.time()
+            cursor_antes = cursor
             ids, proximo = self._janela(cursor, fim, o['lote'], o['tribunal'])
             if not ids and proximo >= fim:
                 cursor = fim
@@ -140,7 +164,7 @@ class Command(BaseCommand):
                 tot['pulados_com_parte'] += len(ids) - len(alvo)
                 res = promover_lote(alvo, janela=o['janela_movs'], dry_run=o['dry_run'])
                 for k in ('alvo', 'sem_movimentacao', 'sem_destinatario', 'so_segredo',
-                          'descartados_segredo', 'com_marcador_segredo',
+                          'descartados_segredo', 'com_marcador_segredo', 'polo_abstido',
                           'linhas_tentadas', 'linhas_confirmadas'):
                     tot[k] += getattr(res, k)
                 if res.processos_tocados:
@@ -153,12 +177,19 @@ class Command(BaseCommand):
                 cache.set(CURSOR_KEY % shard, cursor, timeout=None)
 
             gasto = time.time() - t_lote
+            ms_id = self._custo_ms_id(ms_id, gasto, cursor - cursor_antes)
             if lotes % 20 == 1:
                 self.stdout.write(
                     f'  pk<{cursor:>10}  janela {tot["janela"]:>8}  '
                     f'alvo {tot["alvo"]:>8}  linhas {tot["linhas_confirmadas"]:>8}  '
-                    f'({gasto:.2f}s/lote)')
+                    f'({gasto:.2f}s/lote · {ms_id:.2f} ms/id varrido)')
                 self.stdout.flush()
+            # Teto de custo. Denominador = IDs VARRIDOS, e por isso ele não
+            # explode numa faixa que já estava toda preenchida — ver
+            # `_custo_ms_id`. Precisa de lastro: um lote lento é ruído.
+            if o['parar_ms_id'] and lotes >= 10 and ms_id > o['parar_ms_id']:
+                motivo_parada = 'teto de custo'
+                break
             # Freio proporcional: o banco é disk-I/O-bound e há drainers
             # aplicando ~126 mil events/h. Pausa fixa é freio fraco onde mais
             # importa — quanto mais caro o lote, mais tempo devolvido.
@@ -168,7 +199,16 @@ class Command(BaseCommand):
 
         dur = time.time() - t_inicio
         self._relatorio(tot, lotes, dur, cursor, motivo_parada,
-                        pk_min_tocado, pk_max_tocado, o)
+                        pk_min_tocado, pk_max_tocado, o, ms_id)
+        # Regra nº 2, e a lição de 02/09/2026: teto que sai com `exit 0` é
+        # indistinguível de "terminou". Foi assim que 351 reinícios de outro
+        # backfill passaram por progresso. O checkpoint já está gravado, então
+        # sair com erro NÃO perde lugar — só torna o teto visível.
+        if motivo_parada in ('teto de tempo', 'teto de processos', 'teto de custo'):
+            raise CommandError(
+                f'TETO ATINGIDO ({motivo_parada}) em pk {cursor} de {fim} — a '
+                f'faixa NÃO terminou. Retome com '
+                f'`backfill_partes_djen --shard {shard}`.')
 
     # -- driver: faixa CONTÍGUA de pk (ver docstring do módulo) --------------
     def _janela(self, de: int, ate: int, lote: int, tribunal: str | None):
@@ -202,7 +242,33 @@ class Command(BaseCommand):
                 largura = min(largura * 4, 2_000_000)
         return ids[:lote], (ids[lote] if len(ids) > lote else cursor)
 
-    def _relatorio(self, tot, lotes, dur, cursor, motivo, pk_lo, pk_hi, o):
+    #: Suavização do custo. Um lote sozinho não decide: `checkpoint`, `VACUUM`
+    #: e a busca do site produzem picos de segundos que somem na passada
+    #: seguinte, e um teto que dispara no primeiro pico é teto que ninguém liga.
+    ALFA = 0.2
+
+    @staticmethod
+    def _custo_ms_id(anterior, gasto_s: float, ids_varridos: int) -> float:
+        """ms por ID VARRIDO — o denominador é a LARGURA de pk percorrida.
+
+        É aqui que mora a lição de 02/09/2026. Os outros backfills longos
+        dividiam o tempo do bloco pelas linhas ENCONTRADAS, e numa faixa que já
+        estava preenchida o denominador ia a zero: o freio lia "16.808
+        ms/linha", o processo se declarava estrangulado e saía — com `exit 0`,
+        o `unless-stopped` ressuscitando e o cursor voltando ao início. **351
+        reinícios, progresso líquido zero.**
+
+        O tempo de um bloco é gasto VARRENDO pk, não processando linha: a faixa
+        deserta custa uma consulta barata e devolve largura grande (o
+        `_janela` abre o passo até 2 M), então ela pontua ms/id ~0, que é a
+        verdade — não custou nada. E a faixa densa e cara pontua alto, que
+        também é a verdade. O número mede o BANCO, não a sorte da faixa.
+        """
+        atual = 1000.0 * gasto_s / max(1, ids_varridos)
+        return atual if anterior is None else (
+            Command.ALFA * atual + (1 - Command.ALFA) * anterior)
+
+    def _relatorio(self, tot, lotes, dur, cursor, motivo, pk_lo, pk_hi, o, ms_id=None):
         w = self.stdout.write
         w('')
         w(f'lotes {lotes} · {dur:.0f}s · parou em pk {cursor} · motivo: {motivo}')
@@ -214,6 +280,8 @@ class Command(BaseCommand):
         w(f'    só destinatário de segredo ... {tot["so_segredo"]:>10,}')
         w(f'  destinatários descartados ...... {tot["descartados_segredo"]:>10,}')
         w(f'  processos com marcador segredo . {tot["com_marcador_segredo"]:>10,}')
+        w(f'  polo ABSTIDO (janela se contradiz) {tot["polo_abstido"]:>7,}  '
+          f'→ foram para `outros`')
         w(f'  ProcessoParte oferecidas ....... {tot["linhas_tentadas"]:>10,}')
         w(f'  ProcessoParte confirmadas ...... {tot["linhas_confirmadas"]:>10,}  '
           f'(contagem independente, fonte=djen)')
@@ -223,14 +291,17 @@ class Command(BaseCommand):
         if tot['janela']:
             w(f'  custo .......................... {dur / tot["janela"] * 1000:.2f}s '
               f'por 1.000 processos (com o freio de --carga {o["carga"]})')
+        if ms_id is not None:
+            w(f'  custo por ID VARRIDO ........... {ms_id:.2f} ms  '
+              f'(teto --parar-ms-id {o["parar_ms_id"]})')
         # Regra nº 2: teto atingido é ERRO registrado com o número REAL, nunca
         # um `return` discreto.
-        if motivo in ('teto de tempo', 'teto de processos'):
+        if motivo in ('teto de tempo', 'teto de processos', 'teto de custo'):
             logger.error(
                 'backfill_partes_djen parou por %s ANTES de terminar a faixa', motivo,
                 extra={'motivo': motivo, 'cursor': cursor, 'ate': o['ate'],
                        'processos': tot['janela'], 'linhas': tot['linhas_confirmadas'],
-                       'shard': o['shard']})
+                       'ms_id': ms_id, 'shard': o['shard']})
             w(self.style.ERROR(
                 f'TETO ATINGIDO ({motivo}) em pk {cursor} — a faixa NÃO terminou. '
                 f'{tot["janela"]:,} processos lidos, {tot["linhas_confirmadas"]:,} linhas.'))

@@ -482,3 +482,84 @@ def test_selo_vermelho_so_com_anomalia_de_verdade(monkeypatch):
             {'o_que': 'proc_digits', 'veredito': 'escrevendo'}]})
     alertas = _vigia_backfills_estado()['alertas']
     assert len(alertas) == 1 and alertas[0]['veredito'] == 'parado'
+
+
+# --------------------------------------------------------------------------- #
+# 8. `partes`: a cobertura do `backfill_partes_djen` (#121)
+# --------------------------------------------------------------------------- #
+@CACHE_LOCAL
+def test_partes_mede_dos_dados_e_separa_o_que_veio_do_djen(db):
+    """Duas barras, duas réguas: cobertura total e a fatia `fonte='djen'`.
+
+    Sem a segunda, o enricher subindo a barra e o backfill subindo a barra são
+    o mesmo número na tela — e só um deles é o que este vigia está vigiando.
+    Um card que fica verde por trabalho de outro é a versão em pixel do "run
+    verde, log limpo, número redondo".
+    """
+    from tribunals.models import Parte, Process, ProcessoParte, Tribunal
+    trib = Tribunal.objects.create(sigla='VGX', nome='vigia teste')
+    procs = [Process.objects.create(numero_cnj=f'000000{i}-11.2024.5.08.0009',
+                                    tribunal=trib) for i in range(3)]
+    p1 = Parte.objects.create(nome='DO ENRICHER', tipo='desconhecido')
+    p2 = Parte.objects.create(nome='DO DJEN', tipo='desconhecido')
+    ProcessoParte.objects.create(processo=procs[0], parte=p1, polo='ativo',
+                                 papel='AUTOR', fonte=None)
+    ProcessoParte.objects.create(processo=procs[1], parte=p2, polo='ativo',
+                                 papel='', fonte='djen')
+
+    r = V.medir_partes_djen()
+
+    # `TABLESAMPLE` numa tabela minúscula pode devolver 0 páginas; o que este
+    # teste trava é o CONTRATO do retorno, não a estatística.
+    for chave in ('linhas', 'amostra_n', 'com_parte', 'com_parte_djen', 'pct',
+                  'pct_djen', 'pct_erro_pp', 'faltam_estimado'):
+        assert chave in r, f'o card perderia `{chave}`'
+    assert r['com_parte_djen'] <= r['com_parte'], (
+        'a fatia do DJEN não pode ser maior que a cobertura total')
+
+
+@CACHE_LOCAL
+def test_teto_de_partes_nao_conta_lista_vazia_como_destinatario(db):
+    """`[]` não é ausência para `IS NOT NULL` — é o `exists` do ES de novo.
+
+    A esmagadora maioria das movimentações guarda `destinatarios = []`. Medir
+    por presença de coluna publicaria um teto de ~100% alcançável, e o card
+    diria que o backfill pode chegar onde ele não chega.
+    """
+    from django.utils import timezone as tz
+    from tribunals.models import Movimentacao, Process, Tribunal
+    trib = Tribunal.objects.create(sigla='VGY', nome='vigia teto')
+    p = Process.objects.create(numero_cnj='0000009-11.2024.5.08.0009', tribunal=trib)
+    Movimentacao.objects.create(processo=p, tribunal=trib, external_id='vgy-1',
+                                data_disponibilizacao=tz.now(),
+                                destinatarios=[], destinatario_advogados=[])
+    cache.delete(V.CHAVE_TETO_PARTES)
+
+    r = V.medir_teto_partes(forcar=True)
+
+    assert r['alcancavel'] <= r['amostra_sem_parte']
+    assert r['janela_movs'] == 3, 'medir fora da janela do backfill dá teto falso'
+    assert 'medido_em' in r, 'teto sem data é número sem idade'
+
+
+@CACHE_LOCAL
+def test_partes_parado_grita_com_o_comando_de_RETOMADA(caplog):
+    """Quem religa não pode ser convidado a passar `--de 0`.
+
+    O backfill guarda checkpoint por shard: o comando do alarme é a retomada,
+    e não a largada. Passar `--de 0` refaria a varredura inteira do zero.
+    """
+    cache.clear()
+    agora = timezone.now()
+    hist = [{'em': agora - datetime.timedelta(hours=7), 'partes': 60_000_000},
+            {'em': agora, 'partes': 60_000_000}]
+    r = {'parados': []}
+    with caplog.at_level(logging.ERROR):
+        V._alerta_parado(r, 'partes', 60_000_000,
+                         V._progresso(hist, 'partes', agora),
+                         V.PARTES_PISO_ALARME, 400_000,
+                         'backfill_partes_djen --shard nacional')
+    assert any(p['veredito'] == 'parado' for p in r['parados'])
+    msg = ' '.join(rec.getMessage() for rec in caplog.records)
+    assert '--shard nacional' in msg
+    assert '--de 0' not in msg

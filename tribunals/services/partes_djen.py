@@ -360,9 +360,50 @@ class SpecsProcesso:
     #: A fonte AFIRMOU segredo (marcador textual), não só mascarou o nome.
     marcador_segredo: bool = False
     vistos: set = field(default_factory=set)
+    #: Nomes cujo polo a própria janela contradiz — foram para `outros`.
+    polo_abstido: int = 0
 
     def __bool__(self) -> bool:
         return any(self.por_polo.values())
+
+
+def _polos_contraditorios(movimentacoes) -> set:
+    """Nomes que aparecem com MAIS DE UM polo dentro da mesma janela.
+
+    O JSONB do DJEN diz o polo da COMUNICAÇÃO, não o da ação. Quando o processo
+    tem recurso, as duas coisas divergem — e divergem legitimamente. Medido em
+    02/09/2026 (semente 20260902, 24 âncoras, 900 processos que JÁ TÊM parte de
+    enricher, `Process.id=2740674`):
+
+        mov0  RECURSO INOMINADO · RECORRENTE: INSS       → AGNALDO ISMAEL polo P
+        mov1  JUIZADO ESPECIAL  · AUTOR: AGNALDO ISMAEL  → AGNALDO ISMAEL polo A
+
+    As duas linhas estão CERTAS, cada uma sobre a sua fase. O que não pode
+    existir é o que o código fazia antes: como o dedupe é por `(nome, polo)`,
+    ele gravava as DUAS `ProcessoParte` — a mesma pessoa no polo ativo E no
+    passivo do mesmo processo, um fato impossível, e uma delas necessariamente
+    errada. Escolher uma seria chute; a regra nº 6 manda abster.
+
+    Então a pessoa entra em `outros` — que é o slot de abstenção que o modelo
+    já tem (é onde os advogados moram, pelo mesmo motivo: não dá pra provar o
+    lado). Perde-se o polo, não a parte.
+
+    Tamanho medido: **8 de 688 nomes (1,16%)** na amostra, e esses 8 explicavam
+    8 das 22 divergências de polo contra o enricher. As outras 14 (2,1% dos 654
+    que batem por nome) são janelas SÓ com publicação de recurso, onde o DJEN é
+    coerente consigo mesmo e não há contradição a detectar — ver `.ia/
+    ENRICHMENT.md`.
+    """
+    polos: dict = {}
+    for mov in movimentacoes:
+        for d in _como_lista(mov[0]):
+            if not isinstance(d, dict):
+                continue
+            nome = (d.get('nome') or '').strip()[:255]
+            if not nome or nome_de_segredo(nome):
+                continue
+            polos.setdefault(_chave_nome(nome), set()).add(polo_de(d.get('polo')))
+    return {k for k, v in polos.items() if len(v) > 1}
 
 
 def specs_do_processo(movimentacoes) -> SpecsProcesso:
@@ -390,6 +431,9 @@ def specs_do_processo(movimentacoes) -> SpecsProcesso:
             # quem ainda não tem rótulo.
             papeis.setdefault(k, v)
 
+    contraditorios = _polos_contraditorios(movimentacoes)
+    out.polo_abstido = len(contraditorios)
+
     for mov in movimentacoes:
         destinatarios, advogados = mov[0], mov[1]
         for d in _como_lista(destinatarios):
@@ -402,6 +446,10 @@ def specs_do_processo(movimentacoes) -> SpecsProcesso:
             if nome_de_segredo(nome):
                 out.descartados_segredo += 1
                 continue
+            # A janela se contradiz sobre o lado desta pessoa: abstém do polo,
+            # mantém a pessoa. Ver `_polos_contraditorios`.
+            if _chave_nome(nome) in contraditorios:
+                polo = ProcessoParte.POLO_OUTROS
             chave = ('n', nome, polo)
             if chave in out.vistos:
                 continue
@@ -560,6 +608,7 @@ class ResultadoLote:
     so_segredo: int = 0             # tinha destinatário, e TODOS eram de segredo
     descartados_segredo: int = 0    # destinatários individuais descartados
     com_marcador_segredo: int = 0   # processos onde a fonte AFIRMOU segredo
+    polo_abstido: int = 0           # nomes cujo polo a janela contradiz → `outros`
     partes_upsert: int = 0          # entidades Parte roteadas
     linhas_tentadas: int = 0        # ProcessoParte oferecidas ao bulk_create
     linhas_confirmadas: int = 0     # contagem INDEPENDENTE no banco, pós-insert
@@ -666,6 +715,7 @@ def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
             continue
         specs = specs_do_processo(lista)
         res.descartados_segredo += specs.descartados_segredo
+        res.polo_abstido += specs.polo_abstido
         if specs.marcador_segredo:
             res.com_marcador_segredo += 1
         if not specs:

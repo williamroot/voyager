@@ -248,6 +248,62 @@ def test_specs_conta_o_processo_que_so_tem_segredo():
     assert specs.marcador_segredo is True, 'a fonte AFIRMOU segredo e não registramos'
 
 
+def test_polo_contraditorio_na_janela_vira_outros():
+    """Caso REAL de produção, `Process.id=2740674` (TRF3), medido 02/09/2026.
+
+    A publicação do recurso inominado diz que AGNALDO ISMAEL é RECORRIDO
+    (polo P); a do juizado, que ele é AUTOR (polo A). As duas estão certas
+    sobre a sua fase — e o código gravava as DUAS `ProcessoParte`, a mesma
+    pessoa no ativo E no passivo do mesmo processo. Escolher uma é chute; a
+    regra nº 6 manda abster, e `outros` é o slot de abstenção.
+    """
+    specs = specs_do_processo([
+        ([{'nome': 'AGNALDO ISMAEL', 'polo': 'P'},
+          {'nome': 'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS', 'polo': 'A'}], []),
+        ([{'nome': 'AGNALDO ISMAEL', 'polo': 'A'},
+          {'nome': 'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS', 'polo': 'P'}], []),
+    ])
+    nomes = {polo: [s['nome'] for s in lista]
+             for polo, lista in specs.por_polo.items()}
+    assert nomes.get('ativo', []) == [], f'afirmou um polo que a fonte contradiz: {nomes}'
+    assert nomes.get('passivo', []) == []
+    assert sorted(nomes['outros']) == ['AGNALDO ISMAEL',
+                                       'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS']
+    assert specs.polo_abstido == 2, 'a abstenção precisa aparecer no relatório'
+
+
+def test_polo_coerente_na_janela_e_preservado():
+    """O controle que TEM que dar 100%: sem contradição, nada de abstenção.
+
+    Sem este par, a regra acima poderia estar mandando TUDO para `outros` e a
+    suíte ficaria verde — 96,6% dos destinatários que batem com o enricher têm
+    o polo certo, e jogá-los fora seria trocar uma perda por outra.
+    """
+    specs = specs_do_processo([
+        ([{'nome': 'FULANO DE TAL', 'polo': 'A'},
+          {'nome': 'BANCO XPTO S/A', 'polo': 'P'}], []),
+        ([{'nome': 'FULANO DE TAL', 'polo': 'A'}], []),
+    ])
+    assert [s['nome'] for s in specs.por_polo['ativo']] == ['FULANO DE TAL']
+    assert [s['nome'] for s in specs.por_polo['passivo']] == ['BANCO XPTO S/A']
+    assert specs.polo_abstido == 0
+
+
+def test_abstencao_de_polo_nao_apaga_o_papel_rotulado_pela_fonte():
+    """A relação da DEPRE (`diarios/`) rotula `ENTIDADE DEVEDORA` e polo P.
+
+    Se o mesmo ente aparecer noutra publicação do processo com polo A, o polo
+    some — mas o PAPEL, que é o dado da tela "Quem deve", não pode sumir junto.
+    """
+    specs = specs_do_processo([
+        ([{'nome': 'MUNICIPIO DE SAO PAULO', 'polo': 'P',
+           'papel': 'ENTIDADE DEVEDORA'}], []),
+        ([{'nome': 'MUNICIPIO DE SAO PAULO', 'polo': 'A'}], []),
+    ])
+    por_nome = {s['nome']: s for s in specs.por_polo['outros']}
+    assert por_nome['MUNICIPIO DE SAO PAULO']['papel'] == 'ENTIDADE DEVEDORA'
+
+
 def test_marcador_de_segredo_nao_e_afirmado_por_iniciais():
     """Iniciais também são usadas em família sem segredo decretado — não dá
     pra provar, então não afirmamos (regra nº 6)."""
@@ -393,3 +449,78 @@ def test_dry_run_conta_o_mesmo_que_a_execucao_real(cenario):
     seco = promover_lote(alvo, dry_run=True)
     real = promover_lote(alvo)
     assert seco.linhas_tentadas == real.linhas_tentadas
+
+
+# --------------------------------------------------------------------------
+# O comando: checkpoint, freio e teto (lições de 02/09/2026)
+# --------------------------------------------------------------------------
+def _rodar(**kw):
+    from django.core.management import call_command
+    from io import StringIO
+    out = StringIO()
+    call_command('backfill_partes_djen', stdout=out, stderr=out, **kw)
+    return out.getvalue()
+
+
+def test_sem_shard_e_sem_faixa_fechada_e_erro_na_largada():
+    """O defeito medido nos OUTROS backfills: sem checkpoint, cada restart
+    recomeça do pk inicial. Foram **351 reinícios com progresso líquido zero**.
+    Aqui isso é `CommandError` na largada, não descoberta três dias depois."""
+    from django.core.management.base import CommandError
+    with pytest.raises(CommandError, match='checkpoint'):
+        _rodar()
+    # `--sem-checkpoint` sozinho também não passa: sem `--ate` a faixa é aberta
+    # e o restart tem para onde voltar.
+    with pytest.raises(CommandError, match='faixa fechada'):
+        _rodar(sem_checkpoint=True, de=0)
+
+
+def test_faixa_fechada_sem_checkpoint_roda(cenario):
+    _, procs = cenario
+    saida = _rodar(sem_checkpoint=True, de=procs[0].id, ate=procs[-1].id + 1,
+                   carga=1.0)
+    assert 'lotes' in saida
+
+
+def test_teto_de_processos_sai_com_erro(cenario):
+    """Regra nº 2: teto atingido é ERRO registrado, nunca `return` discreto.
+
+    Sair com código 0 é o que tornava um teto indistinguível de "terminou" —
+    e foi por isso que ninguém viu o laço de reinício.
+    """
+    from django.core.management.base import CommandError
+    _, procs = cenario
+    with pytest.raises(CommandError, match='TETO ATINGIDO'):
+        _rodar(shard='teste', de=procs[0].id, ate=procs[-1].id + 1,
+               lote=1, max_processos=1, carga=1.0)
+
+
+def test_custo_e_medido_por_id_varrido_e_nao_por_linha_encontrada():
+    """O freio dos outros backfills dividia o tempo pelas linhas ENCONTRADAS.
+
+    Numa faixa já preenchida o denominador ia a zero e o número virava
+    "16.808 ms/linha" — o processo se declarava estrangulado e saía. Aqui o
+    denominador é a LARGURA de pk percorrida, que existe mesmo quando a faixa
+    não devolve linha nenhuma.
+    """
+    from tribunals.management.commands.backfill_partes_djen import Command
+    # 2 s para varrer 100 mil ids: caro em relógio, baratíssimo por id.
+    assert Command._custo_ms_id(None, 2.0, 100_000) == pytest.approx(0.02)
+    # o caso que quebrava: bloco de 1 s que não achou NENHUMA linha. Ele varreu
+    # 500 mil ids de faixa deserta, então custou 0,002 ms/id — não infinito.
+    assert Command._custo_ms_id(None, 1.0, 500_000) < 0.01
+    # suavização: um pico não decide sozinho
+    assert Command._custo_ms_id(1.0, 0.5, 100) == pytest.approx(1.8)
+
+
+def test_checkpoint_guarda_a_faixa_e_a_retomada_nao_relê(cenario):
+    """Checkpoint POR FAIXA: retomar não pode reler o que já passou."""
+    from django.core.cache import cache
+    from tribunals.management.commands.backfill_partes_djen import CURSOR_KEY
+    _, procs = cenario
+    cache.delete(CURSOR_KEY % 'teste2')
+    _rodar(shard='teste2', de=procs[0].id, ate=procs[-1].id + 1, carga=1.0)
+    assert cache.get(CURSOR_KEY % 'teste2') >= procs[-1].id
+    # sem `--de`, a retomada parte do checkpoint — e não há mais nada à frente
+    saida = _rodar(shard='teste2', ate=procs[-1].id + 1, carga=1.0)
+    assert 'faixa vazia' in saida

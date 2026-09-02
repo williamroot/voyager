@@ -9,6 +9,11 @@ sem `ssh` e `docker ps -a`, se algum ainda andava:
     r106_proc_digits   `es_backfill_proc_digits`     (Elasticsearch)
     r111_validar       `auditar_schema --validar-fks` (Postgres, 5 FKs)
 
+Em 02/09/2026 entrou o quarto, e ele chegou pelo lado oposto — não por estar
+parado sem ninguém ver, mas por **nunca ter sido ligado**:
+
+    r121_partes        `backfill_partes_djen --shard`  (Postgres)
+
 Dois estavam vivos **no host errado** (`voyager-workers`, .102) e por isso
 constavam como "desaparecidos" para quem olhou o `.103`. Um estava em **laço de
 reinício** (17 reinícios, progresso líquido zero, saindo com código 0 a cada
@@ -45,6 +50,7 @@ trabalho e onde mora o estado":
 | `VALIDATE CONSTRAINT` | 1 FK, ~40 min | `pg_constraint.convalidated` | **sim** |
 | `proc_digits` | 1 fatia-dia, até ~10 h | `must_not exists` no ES | não |
 | `fase_codigo` | faixa de pk, horas | `fase_em IS NULL` no Postgres | não |
+| `partes_djen` | faixa de pk, ~3 dias | cursor no Redis + cobertura no PG | não |
 
 As FKs são um conjunto FINITO (5), cada unidade cabe folgada no
 `DEFAULT_TIMEOUT` de 3600 s da fila `djen_audit`, e o estado já está no
@@ -99,13 +105,24 @@ vizinho.
    A amostra usa `s.get('proc_digits') is not None`, nunca
    `'proc_digits' in s`: doc antigo tem a CHAVE com valor `null` e passaria.
 
-2. **Cobertura de 100% não é o alvo do `fase_codigo`**. A fase só existe para
+2. **Cobertura de 100% não é o alvo do `fase_codigo` nem do `partes`**. A fase só existe para
    processo que tem publicação em diário com classe (`meio <> 'datajud'`).
    Medido em 02/09/2026 por amostra: **94,16%** dos processos sem fase têm uma
    publicação qualificável, ou seja, o teto alcançável é ~98,9% e não 100%. O
    tique remede esse teto a cada 24 h e publica os dois números lado a lado —
    sem isso o card mostraria "18% faltando" para sempre e ninguém saberia que
    uma parte é inalcançável por construção.
+
+   O `partes` tem o mesmo formato de teto e a mesma razão: parte só sai do
+   DJEN para processo que tem `Movimentacao.destinatarios` não-vazio, e o que
+   entrou só pela porta do Datajud não tem. `medir_teto_partes` olha as MESMAS
+   `JANELA_MOVS` que o backfill olha — um teto medido num universo maior que o
+   do backfill seria um alvo que ele nunca alcança.
+
+   E o `partes` publica DOIS percentuais, não um: a cobertura total e a fatia
+   com `fonte='djen'`. Sem a segunda, o enricher subindo a barra e o backfill
+   subindo a barra são o mesmo número na tela — e só um deles é o que este
+   vigia está vigiando.
 
 ## A amostragem do Postgres tem erro, e ele vai declarado
 
@@ -138,6 +155,7 @@ CHAVE_HIST = 'vigia:backfills:hist:v1'
 CHAVE_OFF = 'vigia:backfills:off'
 CHAVE_FK_OFF = 'vigia:backfills:fk_off'
 CHAVE_TETO_FASE = 'vigia:backfills:teto_fase:v1'
+CHAVE_TETO_PARTES = 'vigia:backfills:teto_partes:v1'
 CHAVE_FK_TENTATIVAS = 'vigia:backfills:fk_tentativas:v1'
 
 #: TTL do retrato. MAIOR que o tique de propósito — ver a docstring.
@@ -157,6 +175,9 @@ FASE_PISO_ALARME = int(os.environ.get('VIGIA_FASE_PISO_ALARME', 3_000_000))
 #: O `proc_digits` é contado EXATO pelo `_count` — não tem ruído amostral, e o
 #: piso existe só para não gritar no último milhão.
 DIGITS_PISO_ALARME = int(os.environ.get('VIGIA_DIGITS_PISO_ALARME', 500_000))
+#: `partes` sai da MESMA amostra de páginas do `fase` e tem o mesmo ruído. O
+#: universo é maior (86,7 M sem parte nenhuma), então o piso acompanha.
+PARTES_PISO_ALARME = int(os.environ.get('VIGIA_PARTES_PISO_ALARME', 3_000_000))
 
 #: Fração de páginas do `TABLESAMPLE SYSTEM`. 0,1% de `tribunals_process`
 #: (131 GB) ≈ 131 MB por passada — o preço de saber, a cada 15 min, se um
@@ -166,6 +187,18 @@ FASE_AMOSTRA_PCT = float(os.environ.get('VIGIA_FASE_AMOSTRA_PCT', 0.1))
 #: em `tribunals_movimentacao` por linha. Por isso roda no máximo 1×/24 h.
 TETO_AMOSTRA = int(os.environ.get('VIGIA_TETO_AMOSTRA', 2_000))
 TETO_TTL_S = 24 * 3600
+
+#: Fração de páginas para a cobertura de PARTES. Menor que a do `fase` porque
+#: aqui cada linha amostrada custa um probe de índice em
+#: `tribunals_processoparte` (67 M linhas), não só a leitura da página.
+PARTES_AMOSTRA_PCT = float(os.environ.get('VIGIA_PARTES_AMOSTRA_PCT', 0.02))
+#: Teto de linhas da amostra de partes — o `TABLESAMPLE` devolve páginas
+#: inteiras e uma tabela de 131 GB tem ~100 linhas por página.
+PARTES_AMOSTRA_MAX = int(os.environ.get('VIGIA_PARTES_AMOSTRA_MAX', 25_000))
+#: Amostra do teto do `partes`: dos SEM parte, quantos têm destinatário no
+#: JSONB. Cara (LATERAL em `tribunals_movimentacao`, 1,52 bi de linhas), então
+#: 1×/24 h como a do `fase`.
+TETO_PARTES_AMOSTRA = int(os.environ.get('VIGIA_TETO_PARTES_AMOSTRA', 1_200))
 
 #: Teto de relógio do `VALIDATE`. `tribunals_process` tem 131 GB e uma
 #: varredura medida em 01/09/2026 passava de 2.527 s ainda trabalhando — 55 min
@@ -430,6 +463,123 @@ def medir_teto_fase(forcar: bool = False) -> dict | None:
     return r
 
 
+def medir_partes_djen() -> dict:
+    """Cobertura de `ProcessoParte` nos processos — o alvo do `backfill_partes_djen`.
+
+    Mede DOS DADOS, como todo o resto deste módulo: uma amostra de páginas de
+    `tribunals_process` e um `EXISTS` em `tribunals_processoparte` por linha. O
+    cursor do backfill (`bf:partes_djen:<shard>:cursor`) NÃO entra aqui de
+    propósito — cursor é onde o processo acha que está, e o que interessa é
+    onde o ACERVO está. Perder o Redis não pode apagar a medição.
+
+    Publica três números, e os três importam:
+
+    * `pct_com_parte` — processos com QUALQUER `ProcessoParte`. É a barra que
+      o backfill sobe.
+    * `pct_djen` — a fatia que veio DESTE backfill (`fonte='djen'`). Sem ela
+      não dá para distinguir "o backfill andou" de "o enricher andou": as duas
+      coisas sobem a primeira barra, e só uma delas é a que estamos vigiando.
+    * `faltam_estimado` — processos sem parte nenhuma, extrapolado. É o que
+      alimenta o alarme de "parou".
+
+    `EXISTS`, e não `count(*) > 0`: o índice `(processo_id)` responde no
+    primeiro casamento, e um processo do TJSP com 40 partes custaria 40 vezes
+    mais para responder a mesma pergunta.
+    """
+    def _q(c):
+        c.execute("SELECT reltuples::bigint, relpages::bigint FROM pg_class "
+                  "WHERE relname = 'tribunals_process'")
+        est, pgs = c.fetchone()
+        c.execute('SELECT setseed(0.319)')
+        c.execute(f"""
+            WITH am AS (
+                SELECT id FROM tribunals_process
+                 TABLESAMPLE SYSTEM ({PARTES_AMOSTRA_PCT}) LIMIT %s
+            )
+            SELECT count(*),
+                   count(*) FILTER (WHERE EXISTS (
+                     SELECT 1 FROM tribunals_processoparte pp
+                      WHERE pp.processo_id = am.id)),
+                   count(*) FILTER (WHERE EXISTS (
+                     SELECT 1 FROM tribunals_processoparte pp
+                      WHERE pp.processo_id = am.id AND pp.fonte = 'djen'))
+              FROM am
+        """, [PARTES_AMOSTRA_MAX])
+        return (est, pgs) + tuple(c.fetchone())
+
+    est, pgs, n, com, djen = _com_teto(_q)
+    p = (com / n) if n else 0.0
+    # Mesmo ±2σ sobre PÁGINAS do `medir_fase` — e pela mesma razão: as linhas
+    # de uma página são vizinhas em pk, e a cobertura anda por faixa de pk.
+    pgs_amostra = max(1, int((pgs or 0) * PARTES_AMOSTRA_PCT / 100.0))
+    erro_pp = 200.0 * math.sqrt(max(p * (1 - p), 1e-9) / pgs_amostra)
+    return {
+        'linhas': est, 'amostra_n': n, 'com_parte': com, 'com_parte_djen': djen,
+        'pct': round(100.0 * p, 2) if n else None,
+        'pct_djen': round(100.0 * djen / n, 2) if n else None,
+        'pct_erro_pp': round(erro_pp, 2),
+        'faltam_estimado': int(est * (1 - p)) if est else None,
+        'paginas_amostradas': pgs_amostra,
+    }
+
+
+def medir_teto_partes(forcar: bool = False) -> dict | None:
+    """Quantos dos processos SEM parte são ALCANÇÁVEIS pelo DJEN.
+
+    100% não é o alvo aqui, pelo mesmo motivo do `teto_fase`: processo que só
+    existe pela porta do Datajud não tem `Movimentacao.destinatarios`, e não há
+    de onde tirar parte sem uma requisição externa. Publicar "faltam 82%" para
+    sempre, sem dizer que uma fatia é inalcançável, é o card que ninguém lê.
+
+    `jsonb_array_length(...) > 0` e **nunca** `destinatarios IS NOT NULL`: a
+    coluna guarda `[]` na esmagadora maioria das movimentações que não trazem
+    destinatário, e `[]` não é ausência para o `IS NOT NULL` — é a versão em
+    Postgres do `exists` do ES que conta string vazia como valor (regra nº 4).
+    Só as `JANELA_MOVS` mais recentes entram, que é exatamente o que o backfill
+    olha: medir num universo maior que o do backfill publicaria um teto que ele
+    nunca alcança.
+    """
+    if not forcar:
+        guardado = cache.get(CHAVE_TETO_PARTES)
+        if guardado:
+            return guardado
+
+    from tribunals.services.partes_djen import JANELA_MOVS
+
+    def _q(c):
+        c.execute('SELECT setseed(0.419)')
+        c.execute("""
+          WITH am AS (
+            SELECT id FROM tribunals_process TABLESAMPLE SYSTEM (0.01)
+          ), sem AS (
+            SELECT id FROM am
+             WHERE NOT EXISTS (SELECT 1 FROM tribunals_processoparte pp
+                                WHERE pp.processo_id = am.id)
+             LIMIT %s
+          )
+          SELECT count(*),
+                 count(*) FILTER (WHERE EXISTS (
+                   SELECT 1 FROM (
+                     SELECT destinatarios FROM tribunals_movimentacao m
+                      WHERE m.processo_id = s.id
+                      ORDER BY m.data_disponibilizacao DESC LIMIT %s) j
+                    WHERE jsonb_array_length(j.destinatarios) > 0))
+            FROM sem s
+        """, [TETO_PARTES_AMOSTRA, JANELA_MOVS])
+        return c.fetchone()
+
+    n, alcancavel = _com_teto(_q, segundos=SQL_TETO_TIMEOUT_S)
+    r = {'amostra_sem_parte': n, 'alcancavel': alcancavel,
+         'janela_movs': JANELA_MOVS,
+         'pct_alcancavel': round(100.0 * alcancavel / n, 2) if n else None,
+         'medido_em': timezone.now()}
+    try:
+        cache.set(CHAVE_TETO_PARTES, r, TETO_TTL_S)
+    except Exception:  # noqa: BLE001 — medir não pode derrubar o tique
+        logger.warning('vigia: não guardei o teto do partes', exc_info=True)
+    return r
+
+
 def medir_fks() -> dict:
     """FKs declaradas e ainda `NOT VALID`, e quem está validando agora.
 
@@ -612,10 +762,11 @@ def _historico() -> list:
         return []
 
 
-def _anexar_historico(agora, digits_falta, fase_falta, fks_pend) -> list:
+def _anexar_historico(agora, digits_falta, fase_falta, fks_pend,
+                      partes_falta=None) -> list:
     h = _historico()
     h.append({'em': agora, 'digits': digits_falta, 'fase': fase_falta,
-              'fks': fks_pend})
+              'fks': fks_pend, 'partes': partes_falta})
     h = h[-HIST_MAX:]
     try:
         cache.set(CHAVE_HIST, h, HIST_TTL_S)
@@ -675,6 +826,7 @@ def tick_vigia_backfills() -> dict:
     # ── as três medições, independentes ──────────────────────────────────
     for nome, fn in (('proc_digits', medir_proc_digits),
                      ('fase', medir_fase),
+                     ('partes', medir_partes_djen),
                      ('fks', medir_fks)):
         try:
             r[nome] = fn()
@@ -684,20 +836,25 @@ def tick_vigia_backfills() -> dict:
             logger.error('vigia: a medição de %s FALHOU (%s) — o retrato sai '
                          'sem ela, e "sem medida" NÃO é "está tudo bem"',
                          nome, str(exc)[:200])
-    try:
-        r['teto_fase'] = medir_teto_fase()
-    except Exception as exc:  # noqa: BLE001
-        r['teto_fase'] = None
-        r['erros'].append(f'teto_fase: {str(exc)[:200]}')
+    for nome, fn in (('teto_fase', medir_teto_fase),
+                     ('teto_partes', medir_teto_partes)):
+        try:
+            r[nome] = fn()
+        except Exception as exc:  # noqa: BLE001
+            r[nome] = None
+            r['erros'].append(f'{nome}: {str(exc)[:200]}')
 
     dig = r.get('proc_digits') or {}
     fase = r.get('fase') or {}
+    partes = r.get('partes') or {}
     fks = r.get('fks') or {}
     hist = _anexar_historico(agora, dig.get('faltam'), fase.get('faltam_estimado'),
-                             len(fks.get('pendentes') or []) if fks else None)
+                             len(fks.get('pendentes') or []) if fks else None,
+                             partes.get('faltam_estimado'))
 
     r['progresso_digits'] = _progresso(hist, 'digits', agora)
     r['progresso_fase'] = _progresso(hist, 'fase', agora)
+    r['progresso_partes'] = _progresso(hist, 'partes', agora)
     r['janela_h'] = JANELA_PROGRESSO_H
 
     # ── alarmes ──────────────────────────────────────────────────────────
@@ -723,6 +880,13 @@ def tick_vigia_backfills() -> dict:
                    FASE_PISO_ALARME,
                    int((fase.get('pct_erro_pp') or 0) / 100.0 * (fase.get('linhas') or 0)),
                    'backfill_fase --de <lo> --ate <hi>')
+    # `partes` entra com o comando de RETOMADA, não o de largada: ele guarda
+    # checkpoint por shard, então quem religa não precisa saber onde parou —
+    # e não pode ser tentado a passar `--de 0`.
+    _alerta_parado(r, 'partes', partes.get('faltam_estimado'), r['progresso_partes'],
+                   PARTES_PISO_ALARME,
+                   int((partes.get('pct_erro_pp') or 0) / 100.0 * (partes.get('linhas') or 0)),
+                   'backfill_partes_djen --shard nacional')
     _alerta_controles(r, dig)
 
     # ── auto-cura das FKs ────────────────────────────────────────────────
