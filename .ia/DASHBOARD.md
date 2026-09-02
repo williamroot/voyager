@@ -383,6 +383,32 @@ todos os tribunais numa passada (GROUP BY `tribunal_id`); hot path
   linhas legadas `'VALIDADO'` (path antigo pré-`lote_id`, já limpas em prod)
   que rachavam o funil em dois buckets.
 
+### `/dashboard/overview/estado/<UF>/` — warm de `agg_estado` (02/09/2026)
+
+Mesmo defeito do #64 acima, e ele deu **503** antes de virar warm: cache lazy
+sem ninguém aquecendo faz o próximo visitante pagar a agregação inteira a cada
+expiração. Aqui a conta é pior — a agregação custa ~20 s a frio e o teto do
+cliente ES é 30 s, então com qualquer carga concorrente (era o
+`update_by_query` do `proc_digits`) a soma vira `ConnectionTimeout`.
+
+- Job `warm_agg_estado` (`dashboard/tasks.py`), scheduler inline **60 min**.
+- Chave por `agg_estado.cache_key_estado()` — **uma** função para o warm e para
+  a view. Foi montar a chave em dois lugares que deixou o warm dos leads
+  computando e a view no miss.
+- Escreve com `agg_estado.WARM_TTL` (**4 h**), não com o `_WARM_TTL` de 7 dias
+  dos charts: warm morto tem que degradar para lento-e-correto (o `CACHE_TTL`
+  preguiçoso de 30 min), nunca para rápido-e-de-uma-semana-atrás.
+- Cobre as **28 UFs** (27 + `FED`) na **métrica default**. Medido: a passada
+  custa 324,8 s (2ª passada 360,2 s — o cache de requisição do ES não ajuda, o
+  custo é próprio da agregação), e o custo NÃO acompanha o tamanho do estado
+  (MG 0,44 s, SP 14,5 s, BA 26,5 s): não há "as caras" para recortar, há um
+  platô de ~13 s em 20 delas.
+- **Fora de propósito**: as lentes `possiveis` e `confirmados` do seletor.
+  Triplicariam a passada para ~16 min de ES por rodada. É lacuna CONHECIDA —
+  quem clica paga uma vez e o `CACHE_TTL` cobre a sessão. Se a tela passar a
+  abrir já numa lente filtrada, `agg_estado_warm_alvos()` muda junto.
+
+
 ### Página: Esteiras de processamento (`/dashboard/vetorizacao/`)
 
 View `vetorizacao` (`dashboard/views.py`). Layout premium herói→detalhe, tudo no

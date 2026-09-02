@@ -741,6 +741,138 @@ $V shell -c "import django_rq; q=django_rq.get_queue('djen_backfill'); \
 
 Nenhum dia se perde: o tique seguinte recalcula o conjunto pendente do zero.
 
+## Backfills longos — o vigia (#119, 02/09/2026)
+
+Três backfills de meses rodavam em produção e o único jeito de saber se ainda
+andavam era `ssh` + `docker ps -a`. A conferência do dia achou **cinco** estados
+diferentes, todos indistinguíveis de "terminou":
+
+| o que | o que parecia | o que era |
+|---|---|---|
+| `r105_fase_1..4` | sumiram do `docker ps -a` | **vivos**, no `.102` — quem olhou o `.103` leu "sumiram" |
+| `r105_fase_3` | rodando | **271 reinícios**, progresso líquido ZERO |
+| `r105_fase_1` | rodando | 38 reinícios; cada um voltava ao `--de` |
+| `r106_proc_digits` | container fora | `update_by_query` **VIVO dentro do ES** |
+| `r111_validar` | `Exited(1)` | cancelado por `pg_cancel_backend`, 5 FKs `NOT VALID` |
+
+### Ver, medir, parar
+
+```bash
+V="docker compose -f docker-compose-prod.yml exec -T web python manage.py"
+
+$V vigia_backfills            # o retrato do CACHE (não toca no banco)
+$V vigia_backfills --medir    # RECALCULA dos dados — a régua do antes/depois
+$V vigia_backfills --agora    # força um tique síncrono e imprime o que fez
+$V vigia_backfills --teto     # remede o teto ALCANÇÁVEL do `fase` (caro, 1×/24h)
+$V vigia_backfills --parar    # kill switch (Redis) — para a auto-cura, NÃO a medição
+$V vigia_backfills --religar
+$V vigia_backfills --fk-off   # pausa só o VALIDATE automático
+```
+
+Na tela: **`/dashboard/ingestao/saude/`**, card "Backfills longos · cobertura
+medida". O tique roda de 15 em 15 min; "medido há 45 min" já é o alarme.
+
+### 🔴 A régua "o container está de pé?" dá FALSO NEGATIVO no ES
+
+O `_update_by_query` roda **no cluster**, não no container. O container morre e
+a tarefa continua. Medido em 02/09 às 14:21 UTC, com o `r106_proc_digits` fora
+do `docker ps -a`:
+
+    task BmIw6rzPSxy5_QCB1mIdQA:305727375 — update-by-query [voyager-movimentacoes]
+    rodando há 1h04 · 8 fatias · 13.572.000 de 27.888.685 (48,7%)
+
+Declarar "parado" aí faz alguém **religar por cima e dobrar a carga** num nó
+que já derrubou a tela de estado com 503. Sempre confira por `_tasks`:
+
+```bash
+curl -s 'http://192.168.30.128:9200/_tasks?actions=*byquery*&detailed' | \
+  python3 -m json.tool | grep -E 'updated|total|requests_per_second'
+```
+
+⚠️ Num `slices=8` a resposta traz **1 pai + 8 filhas, e os contadores estão nas
+filhas** — o pai vem `updated=0, total=0, rps=0`. Somar as filhas não é
+detalhe: ler só o pai publica "não sei".
+
+⚠️ **Throttle.** Em 02/09 a tarefa foi estrangulada a **500 docs/s** com
+`POST _update_by_query/<task>/_rethrottle?requests_per_second=500` porque a
+agregação de `/dashboard/overview/estado/<UF>/` custa ~20 s a frio contra um
+teto de cliente de 30 s. **Não desestrangule sem medir a tela junto.** E saiba
+o que esperar: de 800 para 200 d/s a agregação foi de 22,16 s para 20,95 s —
+quase nada. Os 20 s são custo próprio da agregação; estrangular o vizinho não
+conserta o vizinho.
+
+### As FKs são dirigidas pelo tique; os outros dois, não
+
+Uma por vez, na fila `djen_audit` (timeout 3600 s), com guarda em
+`pg_stat_activity` **dentro do job**: `VALIDATE` pega `SHARE UPDATE EXCLUSIVE`,
+que conflita **consigo mesmo**, e o segundo espera para depois REFAZER 131 GB.
+
+O `proc_digits` e o `fase_codigo` continuam sendo container de uma vez só, e é
+decisão medida: as unidades são longas demais para fila (uma fatia de
+`proc_digits` leva até 10 h), o paralelismo seguro contra ES e Postgres é 1, e
+os dois já eram retomáveis por construção. O que faltava neles era alguém
+**reparar que pararam** — que é o que o tique faz.
+
+### Rodar/repontar os shards do `backfill_fase`
+
+⚠️ **Nunca `--restart unless-stopped` num shard.** Foi ele que transformou
+"acabei" em laço: o comando termina, o Docker ressuscita, e com
+`--sem-checkpoint` ele volta ao `--de`. Use `on-failure:5` — exit 0 (terminou)
+não ressuscita; exit 3 (parou no teto) e exit 1 (lock timeout) ressuscitam, e o
+checkpoint por faixa retoma de onde parou.
+
+```bash
+docker run -d --name r105_fase_1 --restart on-failure:5 \
+  --network voyager_default --env-file .env \
+  -v /home/ubuntu/voyager:/app -w /app voyager-web:prod \
+  python manage.py backfill_fase --de <lo> --ate <hi> \
+    --sleep 0.4 --freio-ms-linha 12 --parar-ms-linha 20
+```
+
+**Antes de escolher a faixa, MEÇA por banda de pk.** Em 02/09, dois dos quatro
+shards moíam faixas **100% prontas** e havia 2,76 M de ids **sem dono nenhum**:
+
+    11,96-14,74M  100%     44,42-53,2M  100% (fase_2 inteiro)
+    77,22-79,8M   100% (fase_3 inteiro) · 90,58-98,34M 100%
+    14,74-26,6M    43,2%  <- trabalho real
+    98,34-106,4M   60,1%  <- trabalho real
+    106,4M-topo    55,3%  <- NINGUÉM tinha esta faixa, e ela CRESCE
+
+O `--ate 0` quer dizer "até o `max(id)` no momento da largada" — é o jeito de
+um shard ficar dono da cauda.
+
+⚠️ O freio (`--parar-ms-linha`) mede **ms por id VARRIDO**, não por linha
+escrita. Faixa já preenchida devolve 1-10 linhas residuais, e dividir pelo que
+o `WHERE` deixou passar fazia um bloco de 18 s virar "2.012 ms/linha" e o
+comando desistir. Nas faixas densas os dois números coincidem, então os
+limiares querem dizer o que sempre quiseram.
+
+### Onde ele grita
+
+Logger `voyager.tribunals.vigia_backfills`:
+
+| alerta | leitura |
+|---|---|
+| `BACKFILL PARADO: <x> tem N pendentes e NÃO andou em H h` | o alarme que não existia. Retome com o comando que a mensagem imprime |
+| `com N tarefa(s) viva(s) no ES — não é parado` | INFO, não erro: **não religue por cima** |
+| `não li as tarefas do ES — o veredito fica ABSTIDO` | abstenção declarada; não conclua "parado" |
+| `o exists do ES VOLTOU A MENTIR` | a % do `_count` virou TETO. Meça por amostra antes de usar |
+| `N faltantes FORA da janela de detected_at` | a premissa da fatia caiu — fatiar por dia deixaria buraco |
+| `N FK(s) continuam NOT VALID e nada foi enfileirado` | veja o motivo no card (`ja_validando`/`fk_pausada`) |
+| `a medição de X FALHOU` | **"sem medida" não é "está tudo bem"** — o card mostra em vermelho |
+
+### O que o card NÃO diz (limites declarados)
+
+- **`fase_codigo` é AMOSTRA**, `TABLESAMPLE SYSTEM (0,1%)`. O `SYSTEM` sorteia
+  PÁGINAS e as linhas de uma página são vizinhas em pk — o n efetivo é o de
+  páginas, não o de linhas. Daí o `± pp` publicado (≈1,0 pp ≈ 1,1 M linhas) e o
+  piso de 3 M abaixo do qual o veredito é `reta_final`, não `parado`.
+- **100% não é o alvo do `fase`.** A fase só existe para processo com
+  publicação em diário com classe; medido, 87-94% dos que faltam são
+  alcançáveis. O card publica o teto ao lado da cobertura, com a data.
+- **`proc_digits` é `_count` exato**, e a amostra de 300 docs é o CONTROLE de
+  que o `_count` não está mentindo — não a medida.
+
 ## Watchdog de ingestão
 
 Cron `*/5 * * * *` em `djen.jobs.watchdog_ingestao` (fila `default`, `timeout=120`).
