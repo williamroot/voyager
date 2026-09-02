@@ -531,6 +531,23 @@ PÁGINA DEDICADA DE UM ESTADO (Mapa Comercial).
             const c = echarts.getInstanceByDom(el);
             if (c) c.resize();
           });
+          // O container pode NASCER 0x0: o "Quem deve" mora dentro de um
+          // `x-show`+`x-cloak`, e enquanto o Alpine nao revela o wrapper ele
+          // esta `display:none`. O `echarts.init` grava esse 0x0, o `resize()`
+          // logo apos tambem le 0, e quando o wrapper aparece NADA avisa o
+          // grafico — sobra a area com altura e sem desenho. Medido em
+          // 02/09/2026 no MA: o backend devolvia 15 itens (INSS 6.174,
+          // Imperatriz 1.663) e a tela mostrava um retangulo vazio.
+          // Observar o ELEMENTO cobre esse caso e qualquer grafico futuro que
+          // alguem ponha atras de um `x-show`; so o `window.resize` nao cobre.
+          if (window.ResizeObserver) {
+            const ro = new ResizeObserver(() => {
+              const c = echarts.getInstanceByDom(el);
+              if (c && el.clientWidth > 0 && el.clientHeight > 0) c.resize();
+            });
+            ro.observe(el);
+            el._voyRO = ro;
+          }
           el._resizeBound = true;
         }
         return chart;
