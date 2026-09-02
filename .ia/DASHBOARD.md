@@ -999,8 +999,9 @@ O conserto tem três partes:
 
 ### O confronto com o Datajud, e a lacuna negativa explicada
 
-Medido em 01/09/2026 20:58–21:14 (`manage.py datajud_conferir_acervo --json`,
-59 tribunais; o STF não tem índice no CNJ):
+Medido em 01/09/2026 pela rodada VIVA — 61 tribunais na régua, 60 com par
+válido, só o STF sem índice no CNJ. Bate número a número com a varredura
+manual (`manage.py datajud_conferir_acervo --json`) do mesmo dia:
 
 ```
 declarado bruto ......... 350.430.801
