@@ -1769,37 +1769,53 @@ worker_diarios` — o `-f` não é opcional).
 
 **As 12 edições que o gate reprovou foram reabertas** (`status='pendente'`,
 `tentativas=0` — sem isso o `tick` nunca mais as tocaria) e reprocessadas.
-Estado às **15:39:53 UTC**, com o lote ainda drenando:
+Estado final, às **15:43:28 UTC** — o lote inteiro drenou em ~14 minutos:
 
 | | valor |
 |---|---:|
-| das 12, fecharam `ok` | **9** (as 3 maiores ainda rodando) |
-| `itens_gravados` das 9 | **148.981** |
-| `IngestionRun` desde o deploy | **9 `success`, 0 `failed`** |
-| `movimentacoes_novas` | **31.054** |
-| `processos_novos` | **10.540** |
+| das 12, fecharam `ok` | **12 de 12** |
+| `itens_gravados` somados | **194.874** |
+| `IngestionRun` desde o deploy | **13 `success`** |
+| reprovas por COBERTURA | **0** (eram 12) |
+| `movimentacoes_novas` | **35.576** |
+| `processos_novos` | **12.446** |
+
+Os 3 `failed` do período não são do gate e estão documentados: dois são runs
+órfãos do restart do worker, fechados à mão com a causa real (o
+`watchdog_ingestao` não filtra por fonte e os chamaria de "worker crashou"), e
+o terceiro é o `deadlock detected` que eu mesmo provoquei — ver o aviso abaixo.
 
 Cobertura antes → depois, por edição reprocessada:
 
-| edição | antes | itens gravados |
+| edição | cobertura antes | itens gravados depois |
 |---|---:|---:|
 | 4142-11 | **42,0%** | 17.089 |
-| 4155-11 | 68,4% | (rodando) |
+| 4155-11 | 68,4% | 14.207 |
 | 4138-11 | 71,8% | 14.727 |
 | 4149-11 | 75,3% | 26.006 |
 | 4139-11 | 77,2% | 19.617 |
 | 4159-11 | 83,1% | 20.336 |
-| 4153-19 | 92,6% | (rodando) |
+| 4153-19 | 92,6% | ✓ |
 | 4162-19 | 92,7% | 11.167 |
 | 4145-19 | 93,3% | 13.643 |
-| 4135-19 | 94,3% | (rodando) |
+| 4135-19 | 94,3% | ✓ |
 | 4140-19 | 94,5% | 14.654 |
 | 4141-19 | 94,5% | 11.742 |
 
-`movimentacoes_novas` (31.054) é menor que `itens_gravados` (148.981) porque as
-edições reprovadas **já haviam gravado** a maior parte das linhas: o gate roda
-DEPOIS da persistência (§14.5). Os 31.054 são o que os dois formatos novos
-acrescentaram de fato.
+`movimentacoes_novas` (35.576) é muito menor que `itens_gravados` (194.874)
+porque as edições reprovadas **já haviam gravado** a maior parte das linhas: o
+gate roda DEPOIS da persistência (§14.5). Os **35.576** são o que os dois
+formatos novos acrescentaram de fato, e os **12.446 processos novos** são
+acervo que não existia em lugar nenhum.
+
+⚠️ **Erro meu, registrado porque o §10 já avisava e eu caí assim mesmo.** Ao
+re-enfileirar as unidades eu usei DOIS `job_id` diferentes para a mesma unidade
+(`r118:` e `r118b:`) achando que estava só garantindo que nenhuma ficasse de
+fora. As duas réplicas do `worker_diarios` pegaram cada uma o seu, rodaram o
+MESMO caderno em paralelo, e os dois `bulk_create` se travaram:
+`deadlock detected`. O `job_id` determinístico dedupa o JOB, não a INTENÇÃO de
+enfileirar — mudar o prefixo desliga a única proteção que existe. **Uma unidade,
+um `job_id`, e confira a fila antes de enfileirar de novo.**
 
 **O que ficou faltando — escrito para não virar surpresa:**
 
