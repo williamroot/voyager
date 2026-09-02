@@ -237,6 +237,38 @@ teto 100). A hipótese da interferência não tem onde ganhar aqui — e o adapt
 com 3 épocas só nessa fatia, **empata dentro de ±0,7pp**. Não é que o especialista seja
 ruim: é que não sobra o que ganhar.
 
+#### herdeiros — ⚠️ INCONCLUSIVO no critério pré-registrado (o controle C2 REPROVOU)
+
+Aqui o gate encontrou um defeito **na régua**, e a regra pré-registrada manda não
+emitir veredito quando um controle cai. O que foi medido:
+
+| | v2.1 | adapter_esp_herdeiros | Δ |
+|---|--:|--:|--:|
+| `acerto_doc` composto (n=478) | 83,71% | 83,20% | −0,52pp · IC [−2,22, +1,07] |
+| `falecido` (n=478) | **91,84%** | 89,96% | **−1,88pp** · IC [−3,77, −0,21] |
+| `herdeiros.f1_entidade` (n=130) | 27,92% | **36,44%** | **+8,52pp** · IC [+2,85, +14,45] · McNemar b=4/c=13 p=0,049 |
+
+**Por que C2 caiu:** o composto `acerto_doc` de herdeiros é dominado por `falecido`
+(presente em 478 dos 478 exemplos pontuáveis) — um campo FÁCIL, que a base **sem
+adapter nenhum** já acerta 82,98%. O gap base×v2.1 no composto ficou em 8,33pp, longe
+dos 20pp exigidos. Ou seja: nessa tarefa o composto não distingue modelo treinado de
+modelo cru, e **um veredito PASS/BLOCK tirado dele não valeria** — que é exatamente o
+que o controle existe para impedir.
+
+**O achado que o controle destravou (diagnóstico, NÃO o critério pré-registrado):**
+no campo que é o experimento inteiro, `herdeiros.f1_entidade`, a base **sem
+fine-tune** marca **43,28%** contra **24,88%** do v2.1 nos MESMOS 30 exemplos —
+**a base crua bate o campeão por 18,4pp**. Isso corrobora, com número, o diagnóstico
+escrito em 31/07 (`LABLOG`): 73-76% do gold de herdeiros está vazio, então **o SFT
+ensinou o modelo a não emitir herdeiros**. Nessa leitura, o +8,52pp do especialista
+não é capacidade nova — é **recuperação parcial de um dano que o próprio SFT causou**,
+e mesmo recuperado ele continuaria **abaixo da base**. Promover o adapter seria
+promover o menos pior de dois modelos piores que não treinar.
+
+⚠️ O controle da base rodou em 200 exemplos (n=30 no campo) — amostra pequena.
+**Ampliação para os 539 do slice está na fila**; até fechar, o "base > FT" é achado
+forte, não número final.
+
 ## 3. DPO-κ — preferências da fila de divergência
 
 **Hipótese.** O resíduo dominante do extrator não é formato (grammar
