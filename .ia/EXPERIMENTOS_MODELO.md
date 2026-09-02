@@ -389,6 +389,127 @@ seria destilar um professor que pode morrer no gate.
 
 ---
 
+## 5. Retreino de `herdeiros` com o gold v2.2 — ablação de RÓTULO (R120, 02/09/2026)
+
+**Hipótese.** O teto de `herdeiros` é o **rótulo**, não o modelo. Se for verdade,
+o MESMO treino, nas MESMAS linhas, com a MESMA receita, trocando só o rótulo
+(v2.1 → v2.2 re-rotulado pelo professor DeepSeek) tem de mover o ponteiro muito
+mais que os 7 adapters especialistas moveram (§2.3: −0,52 a +0,02pp).
+
+### 5.0 Medição do gold v2.2 — feita ANTES de treinar (a ordem importa)
+
+Retreinar num gold ainda vazio seria gastar GPU para reproduzir o dano. Medido na
+fonte (`llmsv2:/mnt/nas-data/voyager-train/data/`):
+
+| | train_mix v2.1 | train_mix **v2.2** | test_mix v2.1 | test_mix **v2.2** |
+|---|--:|--:|--:|--:|
+| linhas `campo=herdeiros` | 625 | 625 | 539 | 539 |
+| **gold VAZIO** | **73,44%** | **50,08%** | **75,88%** | **51,95%** |
+| nomes de herdeiro no gold | 384 | **894** | 270 | **809** |
+
+Os dois arquivos são **alinhados linha-a-linha** (mesmo prompt, mesma ordem): a
+troca é de rótulo puro. No train, 366 linhas mudaram — **168 vazio→preenchido** e
+**30 preenchido→vazio** (o relabel também TIRA rótulo errado, não só acrescenta).
+
+**Procedência do rótulo novo (o que o torna aceitável):** 96,4% dos nomes de
+herdeiro do gold v2.2 aparecem **literalmente** no texto da própria janela
+(+1,6-3,0% por todos os tokens); só **2,0%** (train) e **0,6%** (test) não têm
+suporte textual. No v2.1 esse número era 100% — o v2.1 nunca chutou, ele **calava**.
+Sobrou **1** desvio de schema (`falecido` como lista) em cada arquivo.
+
+**Os 50% que continuam vazios não são o mesmo dano.** Por classe no v2.2:
+`CERTIDAO_OBITO` 32,4% vazio, `HABILITACAO_HERDEIROS` 59,8%. E o gold é
+`{nome, papeis}`: documento cujo único nome é **inventariante** (331 no relabel)
+sai como `herdeiros: []` **por decisão**, não por omissão. Abstenção declarada ≠
+abstenção por incapacidade de decidir.
+
+### 5.1 Auditoria da RÉGUA (feita antes do pré-registro, com os modelos que já existiam)
+
+Ao reproduzir o achado do R115 encontrei um buraco no `score_v2`:
+
+```python
+if not gv:      # gold da lista vazio
+    continue    # <- a lista NAO e' pontuada
+```
+
+Com gold vazio, `herdeiros.f1_entidade` **não é calculado** — logo **emitir
+herdeiro onde o gold não tem nenhum é de graça**. A métrica do achado de 02/09 é
+condicionada aos 130 exemplos de gold não-vazio: ela mede recall e **nunca cobra
+falso positivo**. Um modelo tagarela sobe nela sem melhorar.
+
+Régua nova (`herd_score.py`, sem tocar no `score_v2`): **F1 por exemplo definido
+em TODOS os 539** — vazio×vazio = 1,0; vazio×cheio = **0,0** (emissão indevida
+custa); cheio×vazio = 0,0 — mais micro-P/R/F1 no slice inteiro, taxa de emissão
+indevida, e **grounding** (o nome emitido está no texto?), que é livre de régua.
+
+**C1 · reprodução ✅** — a régua nova reproduz o R115 **exatamente** na métrica
+dele: v2.1 27,92% · esp 36,44% · base 40,01%, IC base×v2.1 [+3,42, +20,82].
+
+**O que ela mostra — e por que as duas réguas de gold discordam em SINAL:**
+
+| régua do gold | v2.1 (F1/ex) | base crua (F1/ex) | Δ base−v2.1 | IC 95% |
+|---|--:|--:|--:|---|
+| **v2.1** (75,9% vazio) | 77,42% | 68,46% | **−8,96pp** | [−12,95, −5,01] |
+| **v2.2** (52,5% vazio) | 58,14% | **72,93%** | **+14,79pp** | [+11,21, +18,52] |
+
+Sob o gold velho a base parece pior porque emite; sob o gold novo ela é melhor
+porque **o que ela emitia era certo**: dos **383 falsos positivos** da base sob o
+gold v2.1, **263 viram verdadeiro positivo** sob o v2.2, e o **grounding da base é
+98,45%**. Não é tagarelice — é o gold velho que estava calado. Isso **fortalece** o
+achado do R115: com a régua consertada o gap base×campeão sobe de +12,09 para
+**+30,37pp** na métrica dele, e continua **+14,79pp** na métrica que cobra emissão.
+
+Custo do silêncio do campeão, medido: **recall de 18,75%** (147 de 784 nomes).
+
+### 5.2 Critério pré-registrado (commitado ANTES de treinar E e D)
+
+**Conjunto.** O MESMO `data/esp_gate/slice_herdeiros.jsonl` do R115 (539 linhas,
+`split=test`, zero CNJ em comum com qualquer treino). Gold **v2.2** = régua
+primária (`test_mix_v22`, alinhado linha-a-linha; **6 linhas com gold ambíguo saem
+da análise** → n=533). Tudo é reportado **também** sob a régua v2.1.
+
+**Modelos.** A = `adapter_v21` (campeão) · B = **Qwen2.5-7B base, sem adapter** ·
+C = `adapter_esp_herdeiros` (gold v2.1, protocolo 02/08) · **D = `adapter_herd_v21`**
+(novo) · **E = `adapter_herd_v22`** (novo). D e E são treinados nas **mesmas 497
+linhas, na mesma ordem, com a mesma receita** (QLoRA r=32/α=32, 4 épocas, lr 2e-4
+cosine, bs 1×accum 16, maxseq 4096, seed 42) — divergindo **só no rótulo**.
+Geração greedy, 4-bit nf4, `max_new=512`, idêntica ao gate.
+
+**Dev.** `data/esp/dev_esp_herdeiros.jsonl` **não pode ser usado**: não tem relabel
+v2.2, e o `load_best_model_at_end` selecionaria pelo rótulo que estamos consertando.
+O dev de D e E sai do **próprio train**, por hash-CNJ (85 de 459 CNJs, tag
+`R120-20260902`), disjunto, cada um com o seu rótulo. **0 CNJ** do train ou do dev
+aparece no slice do gate.
+
+**Decisão — PASS de E exige as QUATRO:**
+1. Δ(E − A) ≥ **+3,0pp** na primária, IC 95% pareado com limite inferior > 0 — bate o campeão;
+2. Δ(E − B) ≥ **+3,0pp** na primária, IC 95% pareado com limite inferior > 0 — **bate a base crua**. Sem isto, treinar é pagar por algo pior que não treinar;
+3. **não-regressão** de `falecido`: acc(E) ≥ acc(A) − 2,0pp;
+4. **guarda anti-alucinação** (livre de régua): grounding(E) ≥ grounding(B) − 2,0pp **e** emissão indevida(E) ≤ emissão indevida(B) + 3,0pp.
+
+Qualquer outra combinação é **BLOCK**. Empate não promove.
+
+**Ablação de rótulo (o achado, não o gate).** Δ(E − D) na primária com IC 95%
+pareado: mesmo código, mesmas linhas, mesma receita, **só o rótulo muda**. Reportada
+sempre — inclusive se o gate der BLOCK.
+
+**Consistência de régua (trava anti-Goodhart).** Se E ganhar de A e B nas DUAS
+réguas, o achado é robusto. Se ganhar só sob a v2.2, o veredito é registrado como
+**dependente de régua** — declarado, não afrouxado.
+
+**Limitação declarada antes de medir.** O gold v2.2 é relabel de um **professor**
+(DeepSeek), com spot-check humano κ 9/10 nos recuperados (31/07), não gold humano
+exaustivo; E treina em rótulo do MESMO professor que fez a régua. A defesa é (a) a
+base crua **nunca viu o professor** e já pontua 72,93% nessa régua — ela não é um
+dialeto privado; (b) o grounding, que não depende de gold nenhum.
+
+**Regra de parada.** Se E não bater B, **PARAR** — sem variações de hiperparâmetro
+até passar. E se E passar, o próximo custo (retreino multi-task v2.2 completo,
+~28h de 3090) só é gasto **depois** deste veredito, nunca antes.
+
+
+---
+
 ## Onde vive cada coisa
 
 | o quê | onde |
