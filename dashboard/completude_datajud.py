@@ -195,9 +195,12 @@ def precisa_rodada(estado: dict | None = None) -> bool:
     estado = cache.get(CHAVE) if estado is None else estado
     if not estado or '_rodada' not in estado:
         return True
-    esperado = (estado.get('_rodada') or {}).get('esperado') or 0
+    esperado = (estado.get('_rodada') or {}).get('esperado')
     pares = [v for k, v in estado.items() if k != '_rodada' and isinstance(v, dict)]
-    if len(pares) < esperado or not pares:
+    # `esperado` ausente é estado de versão anterior (ou rodada que morreu antes
+    # de gravá-lo): sem ele NÃO DÁ para saber se a régua fechou, e presumir que
+    # fechou congelaria o país numa régua de 11 tribunais. Na dúvida, mede.
+    if not esperado or not pares or len(pares) < esperado:
         return True
     return max(_idade_h(v.get('em')) for v in pares) >= IDADE_MAX_H
 

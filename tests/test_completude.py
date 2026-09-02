@@ -429,6 +429,10 @@ def test_precisa_rodada_pergunta_antes_de_gastar_rede():
         {'_rodada': {'esperado': 1}, 'A': {'em': agora}}) is False, 'remediu sem precisar'
     assert DJ.precisa_rodada(
         {'_rodada': {'esperado': 1}, 'A': {'em': velho}}) is True, 'deixou envelhecer'
+    # estado de versão anterior: sem `esperado` não dá pra saber se fechou, e
+    # presumir que fechou congelaria o país numa régua de 11 tribunais
+    assert DJ.precisa_rodada(
+        {'_rodada': {'em': agora}, 'A': {'em': agora}}) is True, 'presumiu régua cheia'
 
 
 def test_agendar_rodada_nao_mede_no_aquecimento():
