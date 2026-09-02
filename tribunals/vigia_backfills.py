@@ -105,8 +105,9 @@ vizinho.
    A amostra usa `s.get('proc_digits') is not None`, nunca
    `'proc_digits' in s`: doc antigo tem a CHAVE com valor `null` e passaria.
 
-2. **Cobertura de 100% não é o alvo do `fase_codigo` nem do `partes`**. A fase só existe para
-   processo que tem publicação em diário com classe (`meio <> 'datajud'`).
+2. **Cobertura de 100% não é o alvo do `fase_codigo` nem do `partes`**. A fase
+   só existe para processo que tem publicação em diário com classe
+   (`meio <> 'datajud'`).
    Medido em 02/09/2026 por amostra: **94,16%** dos processos sem fase têm uma
    publicação qualificável, ou seja, o teto alcançável é ~98,9% e não 100%. O
    tique remede esse teto a cada 24 h e publica os dois números lado a lado —
