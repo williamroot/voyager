@@ -6,9 +6,11 @@ páginas, e errar o recorte significa colar o texto de um processo no do
 vizinho — o pior erro possível, porque o dado fica plausível e a extração
 downstream aprende errado.
 
-CINCO FORMATOS DE BLOCO, todos conferidos em caderno real de 2009, 2012, 2015 e
+SETE FORMATOS DE BLOCO, todos conferidos em caderno real de 2009, 2012, 2015 e
 2025 — e nenhum deles foi descoberto lendo o caderno: cada um apareceu quando a
 medição de cobertura acusou CNJ impresso que não caía dentro de bloco nenhum.
+Os dois últimos (6 e 7) entraram em 02/09/2026, pelo mesmo caminho: doze
+edições reprovaram o gate de 95% e 100% dos CNJs órfãos estavam neles.
 
 1. `distribuicao` — relação de feitos distribuídos, um campo por linha:
        PROCESSO :1099645-98.2025.8.26.0100
@@ -35,6 +37,26 @@ medição de cobertura acusou CNJ impresso que não caía dentro de bloco nenhum
 
 4. `numero_primeiro` — pauta de julgamento virtual e resultado de julgamento:
    igual ao 3, mas SEM o 'Nº' na frente, e às vezes com ';' no lugar do ' - '.
+
+5b. `numero_primeiro` com ORDINAL na frente — a pauta de julgamento numerada
+   ('3 - 0000239-66.2022.8.26.0120 - Processo Digital. …'). Mesma anatomia do
+   formato 4; o que muda é a posição na sessão impressa antes do número.
+
+6. `precatorio` — a relação da DEPRE (ordem cronológica de precatórios), um
+   campo por linha:
+       Nº de ordem cronológica: 278/2026 (CANCELADO)
+       Processo: 0156916-80.2024.8.26.0500
+       Processo de origem: 0001538-65.2023.8.26.0210/0001
+       Vara: JUIZADO ESPECIAL CÍVEL E CRIMINAL - Foro: FORO DE GUAÍRA
+       Reqte: VERA LÚCIA DA SILVA E SILVA
+       Advogado: MARINA MACHIAVELI BRUNHARA (OAB 396304/SP)
+       Entidade devedora: SPPREV - SÃO PAULO PREVIDÊNCIA
+   É o único lugar do acervo onde o CREDOR, o ENTE DEVEDOR e o par
+   precatório↔processo de origem vêm impressos no mesmo registro. A régua
+   mecânica é da própria fonte e é rara: `Nº de ordem cronológica`, `Processo`,
+   `Processo de origem` e `Entidade devedora` aparecem o MESMO número de vezes
+   (2.568 cada, na relação de 10/03/2025). Se os quatro não baterem, o parser
+   errou — não é preciso gabarito externo.
 
 5. `lista` — a grade de distribuição da 2ª instância: só números, em duas
    colunas, sob 'Ao Des. Fulano' + a classe. Não tem ato; tem o fato de o
@@ -69,6 +91,9 @@ FORMATO_ATO = 'ato'
 FORMATO_2INST = 'segunda_instancia'
 FORMATO_NUMERO = 'numero_primeiro'
 FORMATO_LISTA = 'lista'
+#: formato 6 — a relação da DEPRE (ordem cronológica de precatórios). Ver o
+#: bloco de docstring do módulo.
+FORMATO_PRECATORIO = 'precatorio'
 
 _CNJ = CNJ_TOLERANTE.pattern
 #: âncora 1 — 'PROCESSO :<numero>'. Só o rótulo PROCESSO abre bloco; CLASSE,
@@ -100,8 +125,44 @@ _RE_ANCORA_2INST = re.compile(r'^N[ºo°]\s*\d')
 #: parece dado bom. Medido no caderno 12 de 2025: a âncora frouxa criava 791
 #: blocos, a estrita cria 697 — com a MESMA cobertura de CNJ (99,1%). Os 94
 #: blocos de diferença eram só ato picado no meio.
+#: O `<ordinal> - ` opcional na frente é a PAUTA NUMERADA (formato 4b), achada
+#: do mesmo jeito que as outras cinco: medindo a cobertura, não lendo o caderno.
+#: Em 02/09/2026 SEIS edições do caderno 19 reprovaram o gate entre 92,6% e
+#: 94,5% — todas a meio ponto do piso —, e 96,5% dos CNJs órfãos estavam em
+#: linha como `3 - 0000239-66.2022.8.26.0120 - Processo Digital. …`. A âncora
+#: exigia que a linha COMEÇASSE no número; a pauta imprime a posição na sessão
+#: antes dele. O `Processo (Digital|Físico)` continua obrigatório e é ele que
+#: impede a âncora frouxa de partir ato ao meio dentro de citação.
 _RE_ANCORA_NUMERO = re.compile(
-    rf'^{_CNJ}(?:\s*/\s*\d{{2,6}})?\s*(?:;|-)\s*Processo\s+(Digital|F[íi]sico)', re.I)
+    rf'^(?:\d{{1,5}}\s*-\s*)?{_CNJ}(?:\s*/\s*\d{{2,6}})?\s*(?:;|-)\s*'
+    rf'Processo\s+(Digital|F[íi]sico)', re.I)
+#: âncora 6 — a RELAÇÃO DA DEPRE (Diretoria de Execuções de Precatórios), no
+#: caderno 2 · 2ª Instância · Entrada e Distribuição. Um campo por linha, como
+#: o formato 1, mas com rótulos próprios e uma âncora própria: o registro ABRE
+#: no número de ordem cronológica e o `Processo:` dele é o precatório.
+#:
+#:     NATUREZA ALIMENTÍCIA                        ← cabeçalho da seção
+#:     Nº de ordem cronológica: 278/2026 (CANCELADO)
+#:     Processo: 0156916-80.2024.8.26.0500         ← o precatório (foro 0500)
+#:     Processo de origem: 0001538-65.2023.8.26.0210/0001
+#:     Vara: JUIZADO ESPECIAL CÍVEL E CRIMINAL - Foro: FORO DE GUAÍRA
+#:     Reqte: VERA LÚCIA DA SILVA E SILVA          ← o CREDOR
+#:     Advogado: MARINA MACHIAVELI BRUNHARA (OAB 396304/SP)
+#:     Entidade devedora: SPPREV - SÃO PAULO PREVIDÊNCIA   ← QUEM DEVE
+#:     Entidade agrupadora: FAZENDA DO ESTADO DE SÃO PAULO
+#:     Advogados: FERNANDA RIBEIRO DE MATTOS LUCCAS (OAB 136973/SP)
+#:     WLADIMIR RIBEIRO JUNIOR (OAB 125142/SP)     ← continuação SEM rótulo
+#:
+#: Não é um formato a mais na lista: é o único lugar do acervo onde o par
+#: precatório↔processo de origem e o ENTE DEVEDOR vêm impressos juntos. Medido
+#: em 02/09/2026, `ENT. DEVEDORA` existia em 2 (duas) `ProcessoParte` no acervo
+#: inteiro contra 4.550.742 de `AUTOR`.
+_RE_ANCORA_PRECATORIO = re.compile(r'^N[ºo°]?\s*de\s+ordem\s+cronol[óo]gica\s*:', re.I)
+#: o cabeçalho de natureza da relação ('NATUREZA ALIMENTÍCIA' / 'COMUM'), que
+#: NÃO é rotulado e vale para todos os registros seguintes até o próximo
+#: título. É o que separa a fila alimentar da comum — duas filas de pagamento
+#: com prazos diferentes.
+_RE_NATUREZA = re.compile(r'^NATUREZA\b', re.I)
 #: âncora 5 — GRADE de distribuição da 2ª instância: linha que é SÓ número, em
 #: tabela de duas colunas, sob 'Ao Des. Fulano' + a classe.
 #:
@@ -161,12 +222,36 @@ _CAMPOS_NAO_PARTE = frozenset({
     'NUMERO DE ORDEM', 'JUIZ', 'JUIZA', 'LOCAL',
     'ORIGEM', 'JUÍZO DEPREC.', 'JUIZO DEPREC.', 'IP', 'CF', 'TC', 'PORT', 'BO', 'PP',
 })
+#: rótulos da relação da DEPRE que não são parte nem advogado. Lista FECHADA de
+#: propósito (o oposto da de cima): aqui os rótulos são poucos e fixos, e tudo
+#: que sobrar é gente — credor, cessionário, ente devedor. Contados na relação
+#: inteira de 10/03/2025 (2.568 registros): PROCESSO 2.568 · PROCESSO DE ORIGEM
+#: 2.568 · VARA 2.568 · Nº DE ORDEM CRONOLÓGICA 2.568.
+_CAMPOS_PRECATORIO_NAO_PARTE = frozenset({
+    'PROCESSO', 'PROCESSO DE ORIGEM', 'VARA', 'FORO', 'CLASSE',
+    'Nº DE ORDEM CRONOLÓGICA', 'N DE ORDEM CRONOLOGICA', 'NO DE ORDEM CRONOLÓGICA',
+})
+#: rótulos de advogado na relação da DEPRE. Os nomes NÃO são lidos daqui: a
+#: linha `Advogados:` continua na linha SEGUINTE, sem rótulo (medido: 1.041
+#: ocorrências de uma única continuação em 10/03/2025), então quem os extrai é
+#: o `_advogados_com_oab` sobre o bloco inteiro. Esta lista serve só para o
+#: rótulo não virar nome de parte.
+_ROTULOS_ADVOGADO = ('ADVOGADO', 'ADVOGADA', 'ADVOGADOS', 'ADVOGADAS',
+                     'SOC. ADVOGADOS', 'SOC ADVOGADOS', 'DEF. PÚB', 'DEF. PUB',
+                     'DEFENSOR', 'DEFENSORA')
 #: papéis abreviados do DIÁRIO que a tabela do `enrichers/esaj.py` não cobre —
 #: lá os nomes vêm da consulta pública ('Embte'), aqui vêm do diário
 #: ('EMBARGTE'). Complemento, não fork: o `_polo` só cai aqui quando o esaj
 #: devolve 'outros'.
-_PAPEIS_ATIVO_DIARIO = ('embargte', 'embargant', 'imptte', 'querelante')
-_PAPEIS_PASSIVO_DIARIO = ('embargd', 'imptdo', 'querelad')
+#: `cessionári*` entra porque na relação da DEPRE ele SUBSTITUI o `Reqte` — é
+#: quem comprou o crédito e vai receber, e cessão de precatório é o negócio
+#: desta casa. `entidade agrupadora` é o ente que agrupa a dívida do devedor
+#: (a FAZENDA DO ESTADO por trás da SPPREV): passivo por construção.
+#: `sucessor`, `favorecido` e `invtante` NÃO entram — são 15 registros em 2.568
+#: e o polo deles não é óbvio o bastante para valer um chute (o nome é gravado
+#: assim mesmo, com o papel verbatim e o polo vazio).
+_PAPEIS_ATIVO_DIARIO = ('embargte', 'embargant', 'imptte', 'querelante', 'cessionári')
+_PAPEIS_PASSIVO_DIARIO = ('embargd', 'imptdo', 'querelad', 'entidade agrupadora')
 _RE_TEM_LETRA = re.compile(r'[A-Za-zÀ-ú]')
 _MARCADORES_DIGITAL = ('Processo Digital', 'Processo Físico', 'Processo Fisico')
 #: o cabeçalho dos formatos 2/3 separa campos por ' - ' e o da pauta (formato 4)
@@ -190,6 +275,10 @@ class Bloco:
     orgao_secao: str = ''
     #: 'Distribuição' quando o cabeçalho da relação declara feitos distribuídos
     tipo_comunicacao: str = ''
+    #: cabeçalho de natureza vigente na relação da DEPRE ('NATUREZA
+    #: ALIMENTÍCIA'). Vem de uma linha de CORPO sem rótulo, acima dos
+    #: registros, e vale até o próximo título.
+    natureza: str = ''
 
     @property
     def texto(self) -> str:
@@ -240,6 +329,11 @@ def _classificar(linha: Linha, corpo: float) -> str:
 
 
 def _ancora(texto: str) -> str | None:
+    # A relação da DEPRE vem primeiro por ser a mais específica: ela também tem
+    # uma linha `Processo:`, e o `_RE_ANCORA_DISTRIBUICAO` só não a rouba
+    # porque exige o rótulo em CAIXA ALTA. Depender desse acaso seria frágil.
+    if _RE_ANCORA_PRECATORIO.match(texto):
+        return FORMATO_PRECATORIO
     if _RE_ANCORA_DISTRIBUICAO.match(texto):
         return FORMATO_DISTRIBUICAO
     if _RE_ANCORA_ATO.match(texto):
@@ -294,6 +388,7 @@ def segmentar(paginas: Iterable[Pagina], tamanho_corpo: float) -> Iterator[Bloco
     """
     hierarquia = _Hierarquia()
     tipo_relacao = ''
+    natureza = ''
     atual: Bloco | None = None
     #: últimas linhas soltas de corpo — é o cabeçalho da grade de distribuição
     #: ('Ao Des. Leonel Costa' / 'Apelação'), que fica ACIMA da tabela.
@@ -315,6 +410,10 @@ def segmentar(paginas: Iterable[Pagina], tamanho_corpo: float) -> Iterator[Bloco
                 # vale mais. Já a seção 'Subseção III - Processos Distribuídos'
                 # declara o tipo dela no próprio título.
                 tipo_relacao = 'Distribuição' if 'DISTRIBU' in texto.upper() else ''
+                # A natureza é da RELAÇÃO, não do caderno: título novo, relação
+                # nova, e carregar 'ALIMENTÍCIA' para a seção seguinte seria
+                # afirmar sobre a fila de pagamento sem ter lido.
+                natureza = ''
                 contexto = []
                 continue
 
@@ -327,6 +426,12 @@ def segmentar(paginas: Iterable[Pagina], tamanho_corpo: float) -> Iterator[Bloco
                 contexto = []
                 continue
 
+            # Cabeçalho de natureza da relação da DEPRE: linha de corpo, sem
+            # rótulo, que vale para todos os registros até o próximo título.
+            if _RE_NATUREZA.match(texto):
+                natureza = texto
+                continue
+
             formato = _ancora(texto)
             if formato:
                 if atual is not None:
@@ -335,6 +440,7 @@ def segmentar(paginas: Iterable[Pagina], tamanho_corpo: float) -> Iterator[Bloco
                     formato=formato, pagina=pagina.numero,
                     orgao_secao=hierarquia.caminho(),
                     tipo_comunicacao=tipo_relacao,
+                    natureza=natureza,
                 )
                 atual.linhas.append(linha.texto)
                 continue
@@ -446,6 +552,44 @@ def _campos_rotulados(bloco: Bloco) -> tuple[dict, list[dict], list[dict]]:
     return campos, partes, advogados
 
 
+def _campos_precatorio(bloco: Bloco) -> tuple[dict, list[dict]]:
+    """Formato 6: um campo por linha, rótulos da DEPRE.
+
+    Não reusa `_campos_rotulados` de propósito, e o motivo é medido: lá o
+    rótulo `ADVOGADOS` (plural) não cai no ramo de advogado e viraria uma
+    PARTE chamada 'FERNANDA RIBEIRO DE MATTOS LUCCAS (OAB 136973/SP)' — 1.995
+    vezes numa relação só. E o valor de `Advogado:` aqui vem no formato
+    `NOME (OAB 396304/SP)`, não no `396304/SP - NOME` da distribuição, então o
+    `_RE_OAB_PREFIXO` falharia e gravaria o nome com a OAB colada e a inscrição
+    VAZIA. Os advogados saem todos do `_advogados_com_oab` sobre o bloco
+    inteiro, que é o único jeito de pegar a continuação sem rótulo.
+
+    Devolve (campos, partes). Rótulo desconhecido com letra no valor é PARTE
+    com o papel verbatim — a lista de papéis do TJSP é longa demais para
+    enumerar, e o polo fica vazio quando não se sabe (abster > chutar).
+    """
+    campos: dict[str, str] = {}
+    partes: list[dict] = []
+    for linha in bloco.linhas:
+        m = _RE_CAMPO.match(linha.strip())
+        if not m:
+            # Continuação sem rótulo (nome de advogado que transbordou a
+            # linha, ou o resto do `Vara: ... - Foro: ...`). Os advogados são
+            # colhidos do bloco inteiro; aqui não há o que fazer.
+            continue
+        rotulo = re.sub(r'\s+', ' ', m.group('rotulo')).strip().upper()
+        valor = m.group('valor').strip()
+        if not valor:
+            continue
+        if rotulo.startswith(_ROTULOS_ADVOGADO):
+            continue
+        if rotulo in _CAMPOS_PRECATORIO_NAO_PARTE or not _RE_TEM_LETRA.search(valor):
+            campos[rotulo] = valor
+            continue
+        partes.append({'nome': valor, 'polo': _polo(rotulo), 'papel': rotulo})
+    return campos, partes
+
+
 def _partes_rotuladas(texto: str) -> list[dict]:
     """Formatos 3 e 4: papéis rotulados na corrida de texto.
 
@@ -497,8 +641,15 @@ def _classe_do_cabecalho(texto: str) -> tuple[str, str]:
     # se perdia, e o vocabulário de classes inflava de 267 para 1.090 valores.
     # Nenhuma classe da TPU começa com parêntese: o que abre com '(' é sempre
     # aposto sobre o processo (apensamento, principal, número antigo).
+    # `startswith`, não igualdade: na pauta de julgamento o marcador vem colado
+    # à ladainha do artigo 7º da Res. 551/2011 ('Processo Digital. Petições
+    # para juntada devem ser apresentadas exclusivamente por meio eletrônico,
+    # nos termos do artigo 7º da Res. 551/2011'), 137 caracteres. Com
+    # igualdade, esse segmento virava a CLASSE, estourava o teto de 120 e a
+    # função abstinha — a classe verdadeira ('Agravo Interno Cível') vinha logo
+    # depois e se perdia em TODA a pauta, inclusive na que já era segmentada.
     partes = [p for p in partes
-              if p and p not in _MARCADORES_DIGITAL
+              if p and not p.startswith(_MARCADORES_DIGITAL)
               and not p.startswith('(') and not _RE_SO_NUMERO.match(p)]
     if not partes:
         return '', ''
@@ -540,6 +691,24 @@ def interpretar(bloco: Bloco) -> Publicacao:
         # fica vazio — e o `texto` avisa que é entrada de grade, não despacho.
         classe = bloco.linhas[-2] if len(bloco.linhas) > 1 else ''
         pub.nome_classe = classe if _RE_CLASSE_DA_GRADE.match(classe) else ''
+        return pub
+
+    if bloco.formato == FORMATO_PRECATORIO:
+        campos, partes = _campos_precatorio(bloco)
+        # `nome_classe` fica VAZIO: a relação não imprime classe da TPU, e
+        # escrever 'Precatório' aqui contaminaria `Process.classe_nome` via
+        # `preencher_classe_via_djen` com um rótulo que a fonte não disse.
+        # A vara/foro do registro vale mais que a seção — a seção é a DEPRE,
+        # que é a mesma para os 2.568 registros; a vara é a de ORIGEM.
+        pub.nome_orgao = campos.get('VARA') or bloco.orgao_secao
+        pub.tipo_comunicacao = bloco.natureza[:120]
+        pub.destinatarios = partes
+        pub.destinatario_advogados = _advogados_com_oab(corrido)
+        # O `Processo de origem` NÃO ganha campo próprio: ele fica verbatim no
+        # `texto` e o `search/entidades_texto.py` já o colhe para
+        # `cnjs_citados` no índice — que é exatamente o campo de "incidente
+        # vinculado". Inventar coluna para um dado que já tem lugar seria
+        # migration em tabela de 1,5 bi de linhas por nada.
         return pub
 
     if bloco.formato == FORMATO_DISTRIBUICAO:
