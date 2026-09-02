@@ -501,6 +501,15 @@ def test_agendar_rodada_nao_mede_no_aquecimento():
     assert not medir.called, 'mediu INLINE — é isso que segura o aquecimento'
 
 
+def test_ttl_da_trava_cobre_a_rodada_e_nao_muito_mais():
+    """`docker restart` mata a rodada sem passar pelo `finally`; é o TTL que
+    destrava. Curto demais deixa duas rodadas no ar; longo demais faz cada
+    deploy custar o dobro em país sem remedição."""
+    from dashboard import completude_datajud as DJ
+    assert DJ.LOCK_TTL > DJ.ORCAMENTO_S * 2, 'não cobre o pior caso da rodada'
+    assert DJ.LOCK_TTL <= DJ.ORCAMENTO_S * 5, 'tempo morto demais após um restart'
+
+
 def test_agendar_rodada_respeita_a_trava():
     from dashboard import completude_datajud as DJ
     with patch.object(DJ.cache, 'get', return_value=1), \

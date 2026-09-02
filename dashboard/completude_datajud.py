@@ -63,7 +63,6 @@ CHAVE = 'completude:datajud:confronto:v1'
 #: Trava de rodada. O aquecimento roda de 30 em 30 min e a rodada leva minutos;
 #: sem trava, uma rodada lenta viraria fila de rodadas contra a API do CNJ.
 CHAVE_LOCK = 'completude:datajud:rodando:v1'
-LOCK_TTL = 60 * 25
 
 #: 30 dias. O estado é a régua acumulada — perdê-lo joga fora rodadas já pagas
 #: ao CNJ. (O Redis de prod ganhou AOF em 31/08; antes disso todo restart
@@ -78,6 +77,14 @@ TTL_ESTADO = 60 * 60 * 24 * 30
 #: medição tem JOB PRÓPRIO — no mesmo job do aquecimento ela atrasaria a parte
 #: barata, que é a que a tela lê.
 ORCAMENTO_S = 180
+
+#: TTL da trava, DERIVADO do orçamento em vez de digitado. Ele só precisa
+#: cobrir o pior caso de uma rodada (orçamento + a última requisição), e cada
+#: minuto a mais é tempo morto: `docker restart` de worker mata a rodada sem
+#: passar pelo `finally`, e aí é este TTL que destrava. Com 25 min fixos, cada
+#: deploy custava 25 min de país sem remedição — e em dia de deploy isso é o
+#: dia inteiro.
+LOCK_TTL = ORCAMENTO_S * 4
 
 #: Acima disso a medição do tribunal é considerada velha e entra na fila da
 #: próxima rodada. 12 h mantém o país inteiro renovado em ~1 dia.
