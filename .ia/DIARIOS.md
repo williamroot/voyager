@@ -1447,20 +1447,49 @@ de o watermark NEGAR que ele existe. Reprocessar não conserta: o formato que
 falta continua faltando, e a gravação é idempotente. As duas ficam como dívida
 escrita, **fora** do lote reprocessado, de propósito.
 
-**ATUALIZAÇÃO (02/09, 01:23:45Z) — não são 2 edições, é um formato SISTEMÁTICO.**
-Já com a `0057` aplicada e o lote drenando, a `4162-19` (13/03/2025, o MESMO
-caderno 2 — Processamento Parte II) reprovou em **92,7%** (11.301 de 12.197),
-assinatura idêntica à da `4153-19` (92,6%). Ou seja: a pauta numerada não é
-acidente de uma edição — **o caderno 19 reprova sempre que a pauta aparece**, e
-há **47** unidades de caderno 19 catalogadas. Enquanto o formato não entrar no
-segmentador, cada uma delas vai gravar suas linhas e fechar `falha` com
-`itens_gravados=0`. Isto **eleva a prioridade** do item 1 do §14.7 de "dívida
-conhecida" para "a próxima coisa a fazer nesta porta".
+**ATUALIZAÇÃO (02/09, até 01:48Z) — não são 2 edições, são DUAS FAMÍLIAS
+SISTEMÁTICAS.** Com a `0057` aplicada e o lote drenando, mais duas reprovaram,
+uma de cada família:
 
-Note o que o mesmo evento prova do outro lado: das 12 unidades processadas
-depois do restart, **a única `failed` foi esta, por cobertura** — nenhuma por
-`NotNullViolation`. O gate reprovando é o gate FUNCIONANDO; foi ele que separou
-"o INSERT quebrou" de "o parser não conhece o formato".
+| unidade | data | caderno | cobertura | família |
+|---|---|---|---:|---|
+| `4155-11` | 28/02/2025 | 11 — Entrada e Distribuição | **68,4%** | DEPRE |
+| `4159-11` | 10/03/2025 | 11 — Entrada e Distribuição | **83,1%** | DEPRE |
+| `4153-19` | 26/02/2025 | 19 — Processamento II | **92,6%** | pauta numerada |
+| `4162-19` | 13/03/2025 | 19 — Processamento II | **92,7%** | pauta numerada |
+
+**A `4159-11` foi conferida por sonda barata** (baixa e extrai o texto, não
+segmenta) e a assinatura da DEPRE é aritmeticamente perfeita — as quatro
+âncoras do registro aparecem **exatamente o mesmo número de vezes**:
+
+    2.426 páginas · 22.847 CNJs impressos · 3.852 fora de bloco (16,9%)
+    'Nº de ordem cronológica' .. 2.568
+    'Entidade devedora' ........ 2.568
+    'Processo:' ................ 2.568
+    'Processo de origem:' ...... 2.568
+    pauta numerada ............. 0      ← família pura, sem mistura
+
+Esse quádruplo pareado é o gabarito mecânico de graça para quem for escrever o
+parser: se o número dos quatro não bater, o parser errou.
+
+**E aqui está a resposta parcial à pergunta que o §14.5 deixou aberta.** A
+relação da DEPRE varia de tamanho — **3.833** registros na `4155-11` (68,4%) e
+**2.568** na `4159-11` (83,1%). A cobertura anda JUNTO com o tamanho da
+relação, e o piso do gate é 95%. Pela mesma aritmética, uma relação de ~760
+registros num caderno de ~23 mil CNJs deixaria a edição **acima de 95%** e ela
+fecharia `ok` com a relação inteira perdida, em silêncio. **Isso é
+extrapolação, não medição** — nenhum dia assim foi observado, e o §14.7 segue
+dizendo que não foi medido. Mas deixa de ser hipótese solta: é o mesmo
+mecanismo, num tamanho menor.
+
+São **47 unidades de caderno 11 e 47 de caderno 19** catalogadas ⇒ até **94**
+unidades expostas a uma das duas famílias. Isto **eleva a prioridade** do item
+1 do §14.7 de "dívida conhecida" para "a próxima coisa a fazer nesta porta".
+
+Note o que os mesmos eventos provam do outro lado: das **22** unidades
+processadas depois do restart, **as 2 únicas `failed` foram por cobertura** —
+nenhuma por `NotNullViolation`. O gate reprovando é o gate FUNCIONANDO; foi ele
+que separou "o INSERT quebrou" de "o parser não conhece o formato".
 
 **Controle, para não confundir o gate com o formato:** `4161-11` (12/03/2025)
 e `4154-11` (27/02/2025), ambos `ok`, deram **100,0%** de cobertura, **0**
@@ -1560,7 +1589,7 @@ acionado.
 
 | pendência | estado |
 |---|---|
-| os dois formatos do §14.5 no segmentador (DEPRE e pauta numerada) | **NÃO feito, e é a próxima coisa a fazer.** É trabalho de parser com fixture real e gate próprio, e mexer no segmentador no meio de um reprocessamento de 305 unidades trocaria uma perda medida por uma não medida. Mas a pauta numerada já reprovou **3** edições de caderno 19 e há **47** catalogadas: o lote vai produzir mais `falha` desta família enquanto drena |
+| os dois formatos do §14.5 no segmentador (DEPRE e pauta numerada) | **NÃO feito, e é a próxima coisa a fazer.** É trabalho de parser com fixture real e gate próprio, e mexer no segmentador no meio de um reprocessamento de 305 unidades trocaria uma perda medida por uma não medida. Mas as duas famílias já reprovaram **4** edições (2 de caderno 11, 2 de caderno 19) e há **47 + 47** catalogadas: o lote vai produzir mais `falha` destas famílias enquanto drena |
 | medir se a relação da DEPRE já passou calada em edição `ok` | **NÃO medido.** Exige baixar e re-segmentar as 62 unidades `ok` (≈ 3 h de CPU) |
 | as 9.985 + 13.490 linhas que as 2 edições reprovadas gravaram | **estão no acervo e o watermark as nega.** Ninguém as reconcilia hoje |
 | `IngestionRun` `failed` do `tjsp-dje` (1.312) | não foram limpos — ficam como evidência datada |
