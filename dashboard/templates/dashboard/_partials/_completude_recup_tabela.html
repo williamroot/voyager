@@ -1,0 +1,56 @@
+{% load voyager_extras %}
+<div class="mt-4 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-[0.7rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+          <th class="py-2 pr-3">tribunal</th>
+          <th class="py-2 pr-3 text-right">dias no alvo</th>
+          <th class="py-2 pr-3 text-right">refeitos (razão)</th>
+          <th class="py-2 pr-3 text-right">refeitos (data)</th>
+          <th class="py-2 pr-3 text-right">falta (razão)</th>
+          <th class="py-2 pr-3 text-right">nunca refeito<br>
+            <span class="normal-case tracking-normal text-fg-muted">= o que resta, em dias</span></th>
+          <th class="py-2 pr-3 text-right">recuperado<br>
+            <span class="normal-case tracking-normal text-fg-muted">medido, publicações</span></th>
+          <th class="py-2 text-right">recuperável<br>
+            <span class="normal-case tracking-normal text-fg-muted">estimado em {{ recuperavel_em|date:"d/m/Y" }}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in linhas %}
+          <tr class="border-b border-border/50{% if r.fora_do_alvo %} opacity-60{% endif %}">
+            <td class="py-2 pr-3 font-medium text-fg">
+              {{ r.sigla }}
+              {% if r.fora_do_alvo %}
+                <span class="voy-tip text-[0.6rem] uppercase tracking-wider px-1 py-0.5 rounded
+                             bg-warning/10 border border-warning/30 text-warning align-middle"
+                      aria-describedby="tip-fora-{{ r.sigla }}">
+                  fora do alvo
+                  <span class="voy-tip-body" role="tooltip" id="tip-fora-{{ r.sigla }}">
+                    {{ r.fora_do_alvo }}. Fica na tabela porque sumir da tela é
+                    pior, e fica <b>fora das somas</b>: não é buraco nosso. Só
+                    ele é 43% do estimado que resta nesta fase.
+                  </span>
+                </span>
+              {% endif %}
+            </td>
+            <td class="py-2 pr-3 text-right font-mono text-fg-muted">{{ r.alvo|format_int }}</td>
+            <td class="py-2 pr-3 text-right font-mono text-mission-fg">
+              {{ r.flat|format_int }} <span class="text-fg-subtle">({{ r.pct_flat|pct_exato:0 }}%)</span>
+            </td>
+            <td class="py-2 pr-3 text-right font-mono text-fg-muted">
+              {{ r.pos_corte|format_int }} <span class="text-fg-subtle">({{ r.pct_corte|pct_exato:0 }}%)</span>
+            </td>
+            <td class="py-2 pr-3 text-right font-mono text-fg-subtle">{{ r.falta|format_int }}</td>
+            <td class="py-2 pr-3 text-right font-mono {% if r.nunca_refeito %}text-danger{% else %}text-fg-subtle{% endif %}">{{ r.nunca_refeito|format_int }}</td>
+            <td class="py-2 pr-3 text-right font-mono text-mission-fg">
+              {{ r.recuperado|format_int }}
+              <span class="text-fg-subtle">({{ r.dias_refeitos|format_int }}d)</span>
+            </td>
+            <td class="py-2 text-right font-mono text-warning">{{ r.recuperavel|format_int }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+

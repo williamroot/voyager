@@ -59,6 +59,42 @@ def format_int(value):
 
 
 @register.filter
+def pct_exato(value, casas=1):
+    """Porcentagem que **nunca arredonda para o extremo**: 99,97 não vira 100,0.
+
+    `floatformat:1` mostrou `100,0%` para 3.998 de 3.999 dias recuperados —
+    escondendo com o arredondamento justamente o único item que ainda dava
+    trabalho. Um teto que some é a assinatura das três perdas do CLAUDE.md:
+    run verde, log limpo, **número redondo**.
+
+    A regra: 0 e 100 só aparecem quando a divisão dá EXATAMENTE 0 ou 100
+    (`parte == 0` / `parte == total`, que em ponto flutuante é exato). Fora
+    disso, o número ganha as casas decimais necessárias para não mentir —
+    `99,97`, `0,03` — até um teto de 6 casas, quando passa a `<0,000001` /
+    `>99,999999` em vez de arredondar.
+
+    Devolve string já em pt-BR (vírgula decimal); `—` para não-número.
+    """
+    if value is None or value == '' or isinstance(value, bool):
+        return '—'
+    try:
+        p = float(value)
+    except (TypeError, ValueError):
+        return '—'
+    try:
+        casas = max(0, int(casas))
+    except (TypeError, ValueError):
+        casas = 1
+    if p == 0.0 or p == 100.0:
+        return f'{p:.{casas}f}'.replace('.', ',')
+    for c in range(casas, 7):
+        s = f'{p:.{c}f}'
+        if float(s) not in (0.0, 100.0):
+            return s.replace('.', ',')
+    return ('<0,000001' if p < 50 else '>99,999999')
+
+
+@register.filter
 def format_eta(value):
     """Segundos -> ETA humano: '~22min', '~2d 4h', '~3h 10min'.
 

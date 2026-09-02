@@ -201,6 +201,7 @@ Operação     → Ingestão · Saúde · Workers · Vetorização · Exportar �
 | `/dashboard/ingestao/` | `ingestao.html` | Saúde operacional (proxies, drift, runs) |
 | `/dashboard/ingestao/saude/` | `ingestao_saude.html` | Dashboard de saúde do pipeline — KPI strip + heatmap tribunal×fonte×dia + gráfico temporal |
 | `/dashboard/leads/` | `leads.html` | Pipeline de leads (Precatório/Pré/Direito Creditório) — KPIs + charts lazy + tabela paginada + export CSV |
+| `/dashboard/completude/` | `completude.html` | **Completude do acervo** — a única tela que põe o nosso número ao lado do da FONTE. Lê SÓ cache (`completude:acervo:v1`, aquecido por `dashboard/completude_warm.py` a cada 30 min). View em `dashboard/completude_views.py` |
 | `/dashboard/estoque/` | `estoque.html` | **Estoque × consumo** por tribunal, com chave Precatório ⇄ Direito creditório. Lê SÓ cache (`estoque:v1:<trilha>`, aquecido por `dashboard/estoque.py`). View em `dashboard/estoque_views.py` |
 | `/dashboard/leads/visibilidade/` | `leads/visibilidade.html` | Observabilidade do classificador — 8 KPIs + 5 charts (histograma de score, calibração por tribunal, funil, top FN, shadow status) + heatmap tribunal × ano CNJ. Requer `can_view_validacao_dashboard` |
 | `/dashboard/leads/validacao/` | `leads/validacao_overview.html` | Lista de lotes ativos do usuário; botão criar lote (precisa `can_publish_model`) |
@@ -959,3 +960,93 @@ JS. O Django parseia tag **mesmo dentro de comentário de JavaScript**, e o
 template inteiro morreu com `'block' tag with name 'content' appears more than
 once`. É primo do aviso que já estava aqui (cerquilha atravessando linha vaza
 literal na tela). Teste novo varre as linhas `//` procurando `{%`.
+
+
+## Página: Completude do acervo (`/dashboard/completude/`)
+
+A régua do princípio nº 1. Toda outra tela mede contagem PRÓPRIA; esta põe o
+nosso número ao lado do que a FONTE declara. Medição em
+`dashboard/completude_warm.py` (`warm_completude`, scheduler 30 min), constantes
+externas em `completude_medicoes.py`, confronto vivo com o CNJ em
+`completude_datajud.py`. A view **só lê cache** (regra nº 7).
+
+### A regra que a tela existe para cumprir: congelado nunca entra em conta com vivo
+
+Dois defeitos medidos em 01/09/2026, a mesma família do que já tinha sido
+consertado no gráfico de Estoque no mesmo dia:
+
+| o que a tela dizia | por quê |
+|---|---|
+| `TJSP · nunca refeito 0 · recuperável 64.895.691` | a coluna era a ESTIMATIVA de 18/08 fixa no código, ao lado de uma medição de agora. Lida junto, dizia "faltam 64,9 milhões" — e não faltavam |
+| `temos 344.630.543 · a fonte declara 343.235.554 · lacuna −1.394.989 · 100,4%` | o nosso lado era relido a cada 30 min, o declarado estava parado em 14/08. **Lacuna negativa** |
+
+O conserto tem três partes:
+
+1. **A porta não publica mais `pct`/`lacuna`.** A única diferença que sai na
+   tela é a do **CONFRONTO** — o par `(declarado, nosso)` colhido no MESMO
+   instante. Há teste que reprova a volta de `pct`/`lacuna` na porta.
+2. **A coluna `recuperável` ganhou a data da estimativa no cabeçalho** e uma
+   coluna irmã, `recuperado`, que é MEDIÇÃO: publicações que a re-coleta
+   pós-`CORTE_FLAT` trouxe num dia que já tinha sido coletado antes dele.
+   Medido em 02/09: 115.359.154 no país, 106.252.318 só na Fase 2.
+   **Não existe `estimado − recuperado`** — a estimativa erra para os dois
+   lados (o TRF4 devolveu 2,0× o que ela previa), então a subtração daria
+   "resto negativo" onde houve estimativa baixa. O que resta sai em DIAS.
+3. **O percentual parou de arredondar para o extremo** (filtro `pct_exato`):
+   3.998 de 3.999 é **99,97%**, nunca 100,0%. Esconder o último item com
+   arredondamento é a mesma assinatura das três perdas do CLAUDE.md — run
+   verde, log limpo, número redondo.
+
+### O confronto com o Datajud, e a lacuna negativa explicada
+
+Medido em 01/09/2026 20:58–21:14 (`manage.py datajud_conferir_acervo --json`,
+59 tribunais; o STF não tem índice no CNJ):
+
+```
+declarado bruto ......... 350.430.801
+− sem `numeroProcesso` ..   5.516.266   (não são processo: CNJ null, classe -1)
+= denominador válido .... 344.914.535
+nosso, no mesmo instante  344.630.543   (= o `_count` do índice inteiro)
+falta ...................     283.992   (0,082%)  ·  sobra 0
+```
+
+Os dois erros somados andavam **no mesmo sentido**, inflando a nossa cobertura
+até passar de 100%: o declarado congelado era 7,2 M mais baixo que o real de
+hoje, e as 5,5 M de linhas vazias do CNJ nunca eram descontadas. `falta` e
+`sobra` são publicadas **separadas** e por tribunal — somadas se anulariam.
+
+`completude_datajud.medir_rodada()` remede em **rodadas com orçamento de tempo**
+(240 s), sempre pelo tribunal com a medição mais velha, porque a API do CNJ
+custa ~46 s por tribunal quando a cota `varredura` está disputada — os 60 numa
+tacada levariam ~45 min, mais que o intervalo do aquecimento. Cada tribunal
+carrega a data da própria medição e a tela mostra a JANELA. Sem rodada viva, o
+card cai no retrato histórico **com a etiqueta “retrato de dd/mm/aaaa”** colada
+no número.
+
+### Fase 3 e a vazão — o que a Fase 2 sozinha escondia
+
+A tabela da Fase 2 fechou em **99,97%** e, sozinha, fazia quem lê concluir que a
+recuperação acabou. Acabou **um terço**: a mesma régua nos 19 tribunais de fora
+dá **16,16%** (7.174 dias-alvo, 6.015 nunca refeitos), e o nacional honesto é
+**5.157 de 11.173** dias. Por isso a Fase 3 tem tabela própria — mesmas colunas,
+via o partial `_partials/_completude_recup_tabela.html`, para que as duas nunca
+divirjam por edição.
+
+O **TJPR** (1.230 dias, 38,8 M estimados = 43% do que resta) está em
+`FORA_DO_ALVO`: aparece na tabela **com chip e opacidade reduzida**, e fora das
+somas. O cartão publica as duas leituras — 16,16% no alvo da casa, 14,7% com ele.
+
+E o bloco **Vazão da recuperação** publica runs-de-um-dia `success` por dia
+desde o corte, com o **PISO** (nº de tribunais ativos = a coleta diária) à
+vista: 59/dia é o piso, e sem ele 59 parece produção. Barra no piso em âmbar +
+aviso vermelho com os dias seguidos parados. Medido em 02/09: pico 1.641,
+27/08→31/08 no piso — o mutirão terminou e nenhum alarme disparou, porque todo
+run continuou verde.
+
+### Blocos sem medição saem pelo NOME
+
+Mesma régua da tela de Estoque: `_num()` devolve `None` para o que não é número
+e um dicionário (verdadeiro **mesmo com `n=0`**) para o que é. Zero MEDIDO
+aparece; zero inventado some e o nome do bloco vai para o card vermelho "Não
+medido nesta passada". `'0'` é string verdadeira no `{% if %}` do Django — por
+isso a guarda é pelo NÚMERO, nunca pelo texto formatado.

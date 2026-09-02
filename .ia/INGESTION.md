@@ -938,7 +938,7 @@ nada muda. E o `erros` virou **append** (`jsonb || jsonb`), nunca substituição
 ### As DUAS réguas da recuperação, reconciliadas com número
 
 A tela `/dashboard/completude/` mede a "Recuperação do teto por UF" com duas
-réguas (`dashboard/completude_warm.py::_recuperacao_por_tribunal`), de propósito:
+réguas (`dashboard/completude_warm.py::_recuperacao`), de propósito:
 razão itens/página >= 700 (o dia saiu pelo caminho flat) e run `success`
 posterior ao `CORTE_FLAT` (18/08 09:48). Cruzando as duas nos **3.945 dias-alvo**
 da Fase 2 (24/08/2026, 15h30):
@@ -961,7 +961,7 @@ da Fase 2 (24/08/2026, 15h30):
 * **156 dias são pendência de verdade** — nunca refeitos pelo caminho novo:
   TJRS 121 · TJSP 19 · TRF3 11 · TJRJ 3 · TRF6 1 · TRF2 1.
 
-**A tela mudou por causa disto** (24/08): `_recuperacao_por_tribunal` passou a
+**A tela mudou por causa disto** (24/08): `_recuperacao` passou a
 publicar uma TERCEIRA coluna, `nunca_refeito` (razão baixa **e** sem `success`
 pós-corte) — a única das três que pode chegar a zero. O número grande do cartão
 virou `pct_honesto` (96,0% = 3.945−156 / 3.945), com razão/data ao lado, e o
