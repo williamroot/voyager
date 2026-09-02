@@ -175,3 +175,26 @@ def test_fila_fora_do_ar_nao_derruba_a_coleta_da_movimentacao():
     assert Movimentacao.objects.filter(tribunal=t, external_id=item.external_id).exists(), (
         'a movimentação tem que estar gravada mesmo sem a promoção'
     )
+
+
+def test_a_procedencia_diz_de_onde_a_parte_veio():
+    """`fonte` existe para não mentir sobre procedência — e desde 02/09/2026 o
+    DJEN não é o único a escrever em `Movimentacao.destinatarios`.
+
+    Carimbar `'djen'` numa parte que veio do DJE/TJSP faria a coluna mentir
+    justamente onde ela existe para não mentir. E a contagem independente TEM
+    que acompanhar o carimbo: contar por `'djen'` uma passada que gravou
+    `'diario'` devolveria 0, e o job reportaria "não gravei" tendo gravado.
+    """
+    import inspect
+
+    from tribunals.services import partes_djen as svc
+
+    assert svc.FONTE_DIARIO == 'diario' and svc.FONTE == 'djen'
+    assert len(svc.FONTE_DIARIO) <= 16, 'ProcessoParte.fonte é varchar(16)'
+    assert inspect.signature(svc.promover_lote).parameters['fonte'].default == svc.FONTE
+    assert inspect.signature(svc._contar_linhas_djen).parameters['fonte'].default == svc.FONTE
+
+    # E o job dos diários passa a procedência certa.
+    codigo = inspect.getsource(__import__('diarios.jobs', fromlist=['x']).promover_partes)
+    assert 'fonte=FONTE_DIARIO' in codigo

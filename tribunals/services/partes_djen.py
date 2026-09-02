@@ -55,7 +55,15 @@ from tribunals.services.oab import canonizar_oab
 logger = logging.getLogger('voyager.partes_djen')
 
 #: Procedência gravada em toda linha criada aqui. NULL = legado/enricher.
+#: `'djen'` é o default histórico e quer dizer "promovida de
+#: `Movimentacao.destinatarios`" — e desde 02/09/2026 o DJEN não é o único a
+#: escrever nesse JSONB: os coletores de `diarios/` escrevem no MESMO campo,
+#: com dado que o DJEN não tem (papel rotulado, ente devedor). Carimbar as duas
+#: com `'djen'` faria a coluna de PROCEDÊNCIA mentir justamente onde ela existe
+#: para não mentir, então quem chama diz de onde veio (`FONTE_DIARIO`).
 FONTE = 'djen'
+#: Promovida a partir de uma coleta de diário próprio (`diarios/`).
+FONTE_DIARIO = 'diario'
 
 #: `papel` do DJEN é vazio de propósito — ver docstring. Não é `'DESTINATARIO'`
 #: porque isso inventaria um papel processual que a fonte não deu, e porque a
@@ -561,7 +569,7 @@ class ResultadoLote:
 
 
 def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
-                  dry_run: bool = False) -> ResultadoLote:
+                  dry_run: bool = False, fonte: str = FONTE) -> ResultadoLote:
     """Promove um lote JÁ FILTRADO (só processos sem `ProcessoParte`).
 
     Idempotência pela CONSTRAINT, não por delete: tudo aqui sai com
@@ -658,7 +666,7 @@ def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
                 vistos.add(chave)
                 linhas.append(ProcessoParte(
                     processo_id=pid, parte_id=parte_id, polo=polo,
-                    papel=papel, representa_id=None, fonte=FONTE,
+                    papel=papel, representa_id=None, fonte=fonte,
                 ))
     res.linhas_tentadas = len(linhas)
 
@@ -692,12 +700,18 @@ def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
         res.processos_tocados = sorted(specs_por_pid)
         # Contagem INDEPENDENTE: `bulk_create(ignore_conflicts=True)` não
         # devolve pk confiável, e o log do próprio job não é prova (regra nº 5).
-        res.linhas_confirmadas = _contar_linhas_djen(res.processos_tocados)
+        res.linhas_confirmadas = _contar_linhas_djen(res.processos_tocados, fonte)
     res.segundos_escrita = time.time() - t0
     return res
 
 
-def _contar_linhas_djen(process_ids: list[int]) -> int:
+def _contar_linhas_djen(process_ids: list[int], fonte: str = FONTE) -> int:
+    """Contagem INDEPENDENTE, no banco, das linhas que ESTE lote criou.
+
+    O `fonte` acompanha o da escrita de propósito: contar por `'djen'` uma
+    passada que carimbou `'diario'` devolveria 0 e o job reportaria "não
+    gravei" tendo gravado — número redondo, do jeito errado.
+    """
     if not process_ids:
         return 0
     with transaction.atomic():
@@ -706,6 +720,6 @@ def _contar_linhas_djen(process_ids: list[int]) -> int:
             cur.execute(
                 'SELECT count(*) FROM tribunals_processoparte '
                 'WHERE processo_id = ANY(%s) AND fonte = %s',
-                [list(process_ids), FONTE],
+                [list(process_ids), fonte],
             )
             return cur.fetchone()[0]

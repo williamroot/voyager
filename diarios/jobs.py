@@ -91,7 +91,11 @@ def promover_partes(process_ids: list[int]) -> dict:
     nossa), e a constraint `uniq_processo_parte_polo_papel_principal` faz o
     `bulk_create(ignore_conflicts=True)` ser seguro entre workers.
     """
-    from tribunals.services.partes_djen import promover_lote, sem_processoparte
+    from tribunals.services.partes_djen import (
+        FONTE_DIARIO,
+        promover_lote,
+        sem_processoparte,
+    )
 
     ids = [int(p) for p in (process_ids or [])]
     if not ids:
@@ -100,12 +104,15 @@ def promover_partes(process_ids: list[int]) -> dict:
     if not alvo:
         return {'recebidos': len(ids), 'alvo': 0, 'linhas': 0,
                 'motivo': 'todos já tinham ProcessoParte'}
-    res = promover_lote(alvo)
+    # `fonte='diario'`, não `'djen'`: a coluna existe para dizer DE ONDE a
+    # parte veio, e estas vieram do diário próprio — com papel rotulado e ente
+    # devedor, que é dado que o DJEN não tem.
+    res = promover_lote(alvo, fonte=FONTE_DIARIO)
     logger.info('promover_partes: %d recebidos, %d alvo, %d linhas confirmadas '
                 '(%d partes, %d descartadas por segredo)',
                 len(ids), len(alvo), res.linhas_confirmadas, res.partes_upsert,
                 res.descartados_segredo)
-    return {'recebidos': len(ids), 'alvo': len(alvo),
+    return {'recebidos': len(ids), 'alvo': len(alvo), 'fonte': FONTE_DIARIO,
             'linhas': res.linhas_confirmadas, 'partes': res.partes_upsert,
             'segredo': res.descartados_segredo}
 
