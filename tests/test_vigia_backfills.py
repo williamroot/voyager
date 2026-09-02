@@ -563,3 +563,21 @@ def test_partes_parado_grita_com_o_comando_de_RETOMADA(caplog):
     msg = ' '.join(rec.getMessage() for rec in caplog.records)
     assert '--shard nacional' in msg
     assert '--de 0' not in msg
+
+
+@CACHE_LOCAL
+def test_o_limite_da_amostra_de_partes_nao_estreita_o_intervalo(monkeypatch, db):
+    """Cortar LINHAS corta PÁGINAS junto — e o ±2σ tem que sentir.
+
+    Medido em 02/09/2026: com `pct=0,06` a amostra pedia ~64.500 linhas, o
+    `LIMIT` entregava 25.000, e o erro saía `±1,51 pp` calculado sobre as
+    páginas PEDIDAS. O honesto era ±2,43. Intervalo estreito demais é a pior
+    espécie de número redondo — ele encerra a investigação.
+    """
+    largo = V.medir_partes_djen()
+    monkeypatch.setattr(V, 'PARTES_AMOSTRA_MAX', 1)
+    apertado = V.medir_partes_djen()
+    if largo['amostra_n'] > 1 and apertado['amostra_n'] <= 1:
+        assert apertado['paginas_amostradas'] <= largo['paginas_amostradas'], (
+            'o LIMIT cortou a amostra e o número de páginas não mudou — '
+            'o erro publicado seria estreito demais')

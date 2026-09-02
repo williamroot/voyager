@@ -175,8 +175,17 @@ FASE_PISO_ALARME = int(os.environ.get('VIGIA_FASE_PISO_ALARME', 3_000_000))
 #: O `proc_digits` é contado EXATO pelo `_count` — não tem ruído amostral, e o
 #: piso existe só para não gritar no último milhão.
 DIGITS_PISO_ALARME = int(os.environ.get('VIGIA_DIGITS_PISO_ALARME', 500_000))
-#: `partes` sai da MESMA amostra de páginas do `fase` e tem o mesmo ruído. O
-#: universo é maior (86,7 M sem parte nenhuma), então o piso acompanha.
+#: `partes` é amostrado como o `fase` e tem o mesmo tipo de ruído. O universo é
+#: maior (≈87 M sem parte nenhuma), então o piso acompanha.
+#:
+#: Sensibilidade do alarme, medida em 02/09/2026 para não virar folclore: o
+#: ±2σ da amostra vale ≈2,9 M processos e o backfill entrega ≈1,07 M/h (1,43 M
+#: processos varridos por hora com `--carga 0.5`, dos quais ~81% não têm parte
+#: e 92,5% desses têm destinatário). Em 6 h de janela isso dá ≈6,4 M — o dobro
+#: do ruído com folga. Ou seja: o alarme acende quando a vazão cai abaixo de
+#: ~500 mil/h, e não acende sozinho quando ela está normal. Se um dia o
+#: `--carga` baixar muito, é ESTE número que precisa ser refeito antes de
+#: alguém concluir que o backfill parou.
 PARTES_PISO_ALARME = int(os.environ.get('VIGIA_PARTES_PISO_ALARME', 3_000_000))
 
 #: Fração de páginas do `TABLESAMPLE SYSTEM`. 0,1% de `tribunals_process`
@@ -512,6 +521,15 @@ def medir_partes_djen() -> dict:
     # Mesmo ±2σ sobre PÁGINAS do `medir_fase` — e pela mesma razão: as linhas
     # de uma página são vizinhas em pk, e a cobertura anda por faixa de pk.
     pgs_amostra = max(1, int((pgs or 0) * PARTES_AMOSTRA_PCT / 100.0))
+    # ⚠️ O `LIMIT` do `PARTES_AMOSTRA_MAX` corta LINHAS, e cortar linhas corta
+    # PÁGINAS junto. Sem esta correção o erro sairia calculado sobre as páginas
+    # que a fração PEDIU e não sobre as que a amostra USOU: medido em
+    # 02/09/2026, `pct=0,06` devolvia `±1,51 pp` com 25.000 de ~64.500 linhas —
+    # o valor honesto ali era ±2,43. Um intervalo de confiança estreito demais
+    # é a pior espécie de número redondo: ele ENCERRA a investigação.
+    n_pedido = (est or 0) * PARTES_AMOSTRA_PCT / 100.0
+    if n_pedido and n < n_pedido:
+        pgs_amostra = max(1, int(pgs_amostra * n / n_pedido))
     erro_pp = 200.0 * math.sqrt(max(p * (1 - p), 1e-9) / pgs_amostra)
     return {
         'linhas': est, 'amostra_n': n, 'com_parte': com, 'com_parte_djen': djen,
