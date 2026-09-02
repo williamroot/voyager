@@ -511,6 +511,33 @@ O prefixo real do cache do Django é `v:1:`, então o casamento é pelo MARCADOR
 `djen:coletando:` e nunca pelo começo da chave — casar pelo começo devolveria
 conjunto vazio e a duplicação de 27/08 voltaria calada.
 
+### O primeiro regime, medido (02/09/2026, 01:19–01:27 UTC)
+
+| | |
+|---|---|
+| antes (régua da tela, sem TJPR) | **6.015** dias nunca refeitos |
+| depois de 8 min de frota | **5.988** |
+| dias fechados `success` na janela | **18**, em 14 tribunais |
+| vazão observada | 18 dias / 7,15 min ⇒ **~151 dias/h** com 14 réplicas |
+
+⚠️ **Não leia essa vazão como o regime.** A fila sai do dia mais recente para o
+mais antigo, e o primeiro lote pega o **dia do corte (18/08)**, que é barato
+porque a coleta flat já valia em parte dele:
+
+    TRT9 18/08 ... novas=0      TRT4 18/08 ... novas=5
+    TRT15 18/08 .. novas=5      TRT1 18/08 ... novas=6      TRT3 18/08 .. novas=10
+
+Eles são alvo legítimo pela régua (razão baixa, sem `success` pós-corte) e saem
+da conta por uma releitura de segundos. Os dias **anteriores** ao corte custam e
+rendem de verdade — no mesmo lote:
+
+    TRT2 17/08 ... novas=38.179 (17 min)    TRT4 17/08 ... novas=6.455
+    TRT9 17/08 ... novas=5.523              TJPE 18/08 ... novas=2.250
+
+⇒ ETA honesto: entre **~40 h** (se o ritmo inicial se sustentar) e **~110 h**
+(se o dia médio custar o que custou o TRT2). Um número só seria chute — o card
+da `/dashboard/ingestao/saude/` mede ao vivo, e é ele que manda.
+
 ### Runbook
 
 ```bash
