@@ -16,6 +16,8 @@ Os dois primeiros casos são HIT na prática. Os três últimos eram MISS **por
 construção da chave**, não porque o dado fosse diferente: `nivel` não é usado
 por widget nenhum, e `dias` só muda `timeseries` e `funnel`.
 """
+import pytest
+
 from dashboard.views import (LEADS_CHART_KEYS, LEADS_KEYS_COM_DIAS,
                              leads_cache_key)
 
@@ -115,3 +117,52 @@ def test_warm_cobre_exatamente_as_chaves_que_a_view_le():
     # 4 keys × 1 = 12 chaves; sem duplicata na lista de alvos.
     assert len(alvos) == 12
     assert len(escritas) == 12
+
+
+# ── teto de RELÓGIO (02/09/2026) ─────────────────────────────────────────────
+#
+# O `SET LOCAL statement_timeout` sozinho não é teto de requisição: ele corta
+# UMA consulta. Medido em produção no recorte `?tribunal=TJSP&dias=365`, com o
+# banco sob quatro backfills:
+#
+#     kpis 87,69 s · timeseries 72,84 s  → HTTP 200 e SEM `pending`
+#     funnel 60,16 s · by-tribunal 60,14 s → `pending: True` (uma consulta
+#                                            sozinha estourava)
+#
+# 87,69 s é 2 s abaixo do corte de 90 s do nginx. O 504 que a #64 dizia ter
+# matado seguia vivo no recorte por tribunal — e agora sem acender o `pending`.
+
+def test_prazo_de_relogio_recusa_quando_o_orcamento_acaba():
+    """Muitas consultas RÁPIDAS somando mais que o teto têm que abster."""
+    from django.db import DatabaseError
+
+    from dashboard.views import PrazoDeRelogio
+
+    p = PrazoDeRelogio(0)          # orçamento já esgotado
+    with pytest.raises(DatabaseError) as exc:
+        p(lambda *a: None, 'SELECT 1', None, False, {})
+    # regra nº 2: teto é ALERTA com número, nunca corte mudo
+    assert 'teto de relógio' in str(exc.value)
+    assert 'SELECT 1' in str(exc.value)
+
+
+def test_prazo_de_relogio_deixa_passar_dentro_do_orcamento():
+    """Controle: com orçamento sobrando ele NÃO pode atrapalhar."""
+    from dashboard.views import PrazoDeRelogio
+
+    p = PrazoDeRelogio(60)
+    chamou = []
+    r = p(lambda *a: chamou.append(1) or 'ok', 'SELECT 1', None, False, {})
+    assert r == 'ok' and chamou == [1]
+    assert p.consultas == 1
+
+
+def test_prazo_conta_as_consultas_para_o_log():
+    """O log precisa dizer QUANTAS consultas passaram antes de estourar —
+    'estourou' sem número não diz se foi uma lenta ou cem rápidas."""
+    from dashboard.views import PrazoDeRelogio
+
+    p = PrazoDeRelogio(60)
+    for _ in range(3):
+        p(lambda *a: None, 'SELECT 1', None, False, {})
+    assert p.consultas == 3

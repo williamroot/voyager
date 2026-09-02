@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -2007,6 +2008,54 @@ LEADS_KEYS_COM_DIAS = frozenset({'timeseries', 'funnel'})
 LEADS_CHART_TIMEOUT_S = int(os.environ.get('LEADS_CHART_TIMEOUT_S', '60'))
 
 
+class PrazoDeRelogio:
+    """Teto do RELÓGIO da requisição inteira — não de cada consulta.
+
+    ⚠️ `SET LOCAL statement_timeout` limita **um statement**, e sozinho ele NÃO
+    é um teto de requisição. Medido em produção (02/09/2026, TJSP+365d, com o
+    banco sob quatro backfills):
+
+        kpis ................. 87,69 s  HTTP 200, SEM `pending`
+        timeseries ........... 72,84 s  HTTP 200, SEM `pending`
+        calibration .......... 30,65 s
+        funnel ............... 60,16 s  `pending: True`  ✅
+        by-tribunal .......... 60,14 s  `pending: True`  ✅
+
+    O `funnel` e o `by-tribunal` abstiveram porque neles UMA consulta estoura
+    os 60 s sozinha. O `kpis` faz várias de ~17 s: nenhuma passa do teto
+    individual, `DatabaseError` nunca é levantado, e o total foi a **2 segundos
+    do corte de 90 s do nginx** — ou seja, o 504 que a #64 dizia ter matado
+    continuava vivo no recorte por tribunal, agora sem nem acender a luz do
+    `pending`.
+
+    `connection.execute_wrapper` (API pública do Django) roda antes de CADA
+    statement. Aqui ele confere o relógio e recusa a próxima consulta quando o
+    orçamento acabou. Levanta `DatabaseError` de propósito: o `except` que já
+    existe abaixo transforma isso no `pending` que o `lazyChart` entende.
+
+    Regra nº 2 da casa: teto é alerta, nunca corte mudo — por isso a mensagem
+    carrega o SQL que seria a gota d'água, e não só "estourou".
+    """
+
+    def __init__(self, segundos: float):
+        self._fim = time.monotonic() + segundos
+        self.consultas = 0
+
+    def restante(self) -> float:
+        return self._fim - time.monotonic()
+
+    def __call__(self, execute, sql, params, many, context):
+        from django.db import DatabaseError as _DBErr
+        if self.restante() <= 0:
+            raise _DBErr(
+                f'teto de relógio de {LEADS_CHART_TIMEOUT_S}s estourado depois '
+                f'de {self.consultas} consultas — a próxima seria '
+                f'{" ".join(str(sql).split())[:120]!r}'
+            )
+        self.consultas += 1
+        return execute(sql, params, many, context)
+
+
 def leads_cache_key(key, tribunal, nivel, dias, cliente_nome):
     """Chave de cache canônica de um widget de leads. Usada pelo endpoint
     lazy e pelo warm job — TÊM que bater pra o warm popular o que a view lê.
@@ -2328,6 +2377,7 @@ def leads_chart_data(request, key):
     # `SET LOCAL` PRECISA estar dentro de `transaction.atomic()`: em
     # autocommit cada execute é a sua própria transação e o teto morre antes
     # da consulta que deveria limitar (ver .ia/OPS.md).
+    prazo = PrazoDeRelogio(LEADS_CHART_TIMEOUT_S)
     try:
         with transaction.atomic():
             with connection.cursor() as cur:
@@ -2335,7 +2385,12 @@ def leads_chart_data(request, key):
                     "SET LOCAL statement_timeout = %s",
                     [f'{LEADS_CHART_TIMEOUT_S}s'],
                 )
-            data = compute_leads_chart(key, tribunal, nivel, dias, cliente_nome)
+            # DOIS tetos, e são diferentes: o `statement_timeout` acima corta a
+            # consulta única que demora demais; o `PrazoDeRelogio` corta a SOMA
+            # de muitas consultas rápidas. Sem o segundo, `kpis` levou 87,69 s
+            # e devolveu 200 — ver a docstring de `PrazoDeRelogio`.
+            with connection.execute_wrapper(prazo):
+                data = compute_leads_chart(key, tribunal, nivel, dias, cliente_nome)
     except ValueError as e:
         return JsonResponse({'erro': str(e)}, status=400)
     except DatabaseError as e:
@@ -2343,8 +2398,10 @@ def leads_chart_data(request, key):
         # `lazyChart` segurar o skeleton e repetir em 10 s — o warm pode ter
         # populado nesse meio-tempo. Não é 200 com número errado nem 504.
         logger.error(
-            'leads_chart_data %s: estourou o teto de %ss (t=%s d=%s) — %s',
-            key, LEADS_CHART_TIMEOUT_S, tribunal, dias, e,
+            'leads_chart_data %s: estourou o teto de %ss (t=%s d=%s) após %d '
+            'consultas e %.1fs de relógio — %s',
+            key, LEADS_CHART_TIMEOUT_S, tribunal, dias, prazo.consultas,
+            LEADS_CHART_TIMEOUT_S - prazo.restante(), e,
         )
         return JsonResponse({'data': None, 'pending': True},
                             json_dumps_params={'default': str})
