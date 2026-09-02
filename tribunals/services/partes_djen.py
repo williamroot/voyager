@@ -568,6 +568,38 @@ class ResultadoLote:
     segundos_escrita: float = 0.0
 
 
+def sem_parte_de_terceiro(process_ids: list[int]) -> list[int]:
+    """Filtra para os que não têm parte de OUTRA procedência (`fonte IS NULL`).
+
+    Variante deliberadamente mais permissiva que `sem_processoparte`, e o
+    motivo é medido. `sem_processoparte` pula todo processo que já tenha
+    QUALQUER `ProcessoParte`, porque "a linha existente veio do enricher (com
+    CPF/CNPJ e papel) e é melhor que a nossa". Isso continua verdade para o
+    enricher — mas deixou de ser verdade quando o processo já tem linha da
+    NOSSA PRÓPRIA promoção: em 02/09/2026, os 823 processos da relação da DEPRE
+    com mais de 3 movimentações receberam linhas com `papel=''` (vindas de
+    outras publicações do mesmo processo) e, por já "terem parte", nunca mais
+    seriam alcançados pelo registro que traz o ENTE DEVEDOR rotulado.
+
+    Pular por causa de uma linha que nós mesmos escrevemos, e pior, para não
+    escrever a linha melhor, é o oposto do que a regra queria proteger.
+
+    `fonte IS NULL` = enricher/legado/Datajud: esses continuam intocados.
+    """
+    if not process_ids:
+        return []
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            _cursor_com_teto(cur, TIMEOUT_LEITURA_S)
+            cur.execute(
+                'SELECT DISTINCT processo_id FROM tribunals_processoparte '
+                'WHERE processo_id = ANY(%s) AND fonte IS NULL',
+                [list(process_ids)],
+            )
+            de_terceiro = {r[0] for r in cur.fetchall()}
+    return [pid for pid in process_ids if pid not in de_terceiro]
+
+
 def ler_movimentacoes_por_pk(mov_ids: list[int]) -> dict:
     """`{process_id: [(destinatarios, advogados, cabecalho), …]}` para
     movimentações NOMEADAS, sem janela.

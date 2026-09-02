@@ -95,13 +95,17 @@ def promover_partes(process_ids: list[int], mov_ids: list[int] | None = None) ->
         FONTE_DIARIO,
         ler_movimentacoes_por_pk,
         promover_lote,
-        sem_processoparte,
+        sem_parte_de_terceiro,
     )
 
     ids = [int(p) for p in (process_ids or [])]
     if not ids:
         return {'skip': 'lote vazio'}
-    alvo = sem_processoparte(ids)
+    # `sem_parte_de_terceiro`, não `sem_processoparte`: pular um processo
+    # porque NÓS MESMOS já escrevemos nele uma linha com `papel=''` — e assim
+    # nunca escrever a linha que traz o ente devedor rotulado — é o oposto do
+    # que aquela regra protege. O enricher (`fonte IS NULL`) continua intocado.
+    alvo = sem_parte_de_terceiro(ids)
     if not alvo:
         return {'recebidos': len(ids), 'alvo': 0, 'linhas': 0,
                 'motivo': 'todos já tinham ProcessoParte'}

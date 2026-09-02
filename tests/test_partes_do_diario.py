@@ -255,3 +255,36 @@ def test_ler_movimentacoes_por_pk_nao_tem_janela():
     # E `promover_lote` aceita a injeção sem perder o caminho antigo.
     par = inspect.signature(promover_lote).parameters['movs_por_processo']
     assert par.default is None, 'sem injeção, o comportamento antigo é o default'
+
+
+@pytest.mark.django_db
+def test_pular_por_linha_NOSSA_seria_o_oposto_da_regra():
+    """`sem_parte_de_terceiro` protege o enricher, não a nossa própria linha.
+
+    Os 823 processos da DEPRE com mais de 3 movimentações receberam linhas com
+    `papel=''` na primeira passada e, por já "terem parte", `sem_processoparte`
+    nunca mais os alcançaria — justamente para não escrever a linha MELHOR, a
+    que traz o ente devedor rotulado.
+    """
+    from tribunals.models import Parte, Process, Tribunal
+    from tribunals.services.partes_djen import (
+        sem_parte_de_terceiro,
+        sem_processoparte,
+    )
+
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJSP', defaults={'nome': 'TJSP', 'sigla_djen': 'TJSP'})
+    nosso = Process.objects.create(tribunal=t, numero_cnj='0000001-11.2024.8.26.0500')
+    deles = Process.objects.create(tribunal=t, numero_cnj='0000002-11.2024.8.26.0500')
+    limpo = Process.objects.create(tribunal=t, numero_cnj='0000003-11.2024.8.26.0500')
+    parte = Parte.objects.create(nome='SPPREV', tipo='desconhecido')
+    ProcessoParte.objects.create(processo=nosso, parte=parte,
+                                 polo=ProcessoParte.POLO_PASSIVO, papel='', fonte='diario')
+    ProcessoParte.objects.create(processo=deles, parte=parte,
+                                 polo=ProcessoParte.POLO_PASSIVO, papel='AUTOR', fonte=None)
+
+    ids = [nosso.pk, deles.pk, limpo.pk]
+    # A régua antiga pula os DOIS que têm parte.
+    assert sorted(sem_processoparte(ids)) == [limpo.pk]
+    # A nova pula só o do enricher — e volta para complementar o nosso.
+    assert sorted(sem_parte_de_terceiro(ids)) == sorted([nosso.pk, limpo.pk])
