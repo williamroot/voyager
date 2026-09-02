@@ -890,7 +890,7 @@ def espelhadas_no_lote(itens: list[ItemDiario], tribunal: Tribunal) -> int | Non
 CHUNK_ES = 500
 
 
-def _promover_partes(process_ids: list[int], tribunal) -> None:
+def _promover_partes(process_ids: list[int], tribunal, mov_ids=None) -> None:
     """Enfileira a promoção `destinatarios` → `ProcessoParte` do lote gravado.
 
     Só ENFILEIRA (fila `default`, lotes de `LOTE_PARTES`): a promoção lê as 3
@@ -908,7 +908,7 @@ def _promover_partes(process_ids: list[int], tribunal) -> None:
         from .jobs import LOTE_PARTES, promover_partes
         fila = get_queue('default')
         for i in range(0, len(process_ids), LOTE_PARTES):
-            fila.enqueue(promover_partes, process_ids[i:i + LOTE_PARTES])
+            fila.enqueue(promover_partes, process_ids[i:i + LOTE_PARTES], mov_ids)
     except Exception as exc:                                    # noqa: BLE001
         logger.warning('promoção de partes NÃO enfileirada para %s (%d processos): %s. '
                        'A movimentação está gravada; recupere com '
@@ -1069,7 +1069,15 @@ def persistir_movimentacoes(itens: list[ItemDiario], tribunal: Tribunal,
         # por muitos dados a menos.
         if getattr(settings, 'DIARIOS_PROMOVER_PARTES', True):
             proc_ids = sorted({por_cnj[i.cnj] for i in itens if i.cnj in por_cnj})
-            transaction.on_commit(lambda: _promover_partes(proc_ids, tribunal))
+            # Os pks das MOVIMENTAÇÕES do lote vão junto: a promoção lê o JSONB
+            # exatamente destas linhas, em vez das 3 mais recentes do processo.
+            # A diferença foi medida (02/09/2026, relação da DEPRE de
+            # 10/03/2025): 823 dos 2.568 processos (32%) têm mais de 3
+            # movimentações, e nenhum deles ganhou o ente devedor pela janela.
+            # `pks` só existe quando a entrega ao índice está ligada; sem ele a
+            # promoção cai na janela, que é pior mas não é errado.
+            mov_pks = list(pks) if getattr(settings, 'DIARIOS_INDEXAR_AO_GRAVAR', True) else None
+            transaction.on_commit(lambda: _promover_partes(proc_ids, tribunal, mov_pks))
 
         # `set(ext_ids)`, não `len(ext_ids)`: o lote pode trazer o MESMO
         # external_id duas vezes quando o diário imprime o mesmo ato duas vezes

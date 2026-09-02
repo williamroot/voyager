@@ -62,7 +62,7 @@ LOTE_PARTES = 500
 
 
 @job('default', timeout=1800)
-def promover_partes(process_ids: list[int]) -> dict:
+def promover_partes(process_ids: list[int], mov_ids: list[int] | None = None) -> dict:
     """`Movimentacao.destinatarios` → `Parte`/`ProcessoParte`, para o que a
     terceira porta acabou de gravar.
 
@@ -93,6 +93,7 @@ def promover_partes(process_ids: list[int]) -> dict:
     """
     from tribunals.services.partes_djen import (
         FONTE_DIARIO,
+        ler_movimentacoes_por_pk,
         promover_lote,
         sem_processoparte,
     )
@@ -104,10 +105,20 @@ def promover_partes(process_ids: list[int]) -> dict:
     if not alvo:
         return {'recebidos': len(ids), 'alvo': 0, 'linhas': 0,
                 'motivo': 'todos já tinham ProcessoParte'}
+    # As movimentações do LOTE, não as 3 mais recentes do processo. A janela de
+    # `JANELA_MOVS` é a heurística de quem varre por faixa de pk; aqui o
+    # coletor sabe o que acabou de gravar, e a diferença foi medida: dos 2.568
+    # processos da relação da DEPRE de 10/03/2025, **823 (32%)** têm mais de 3
+    # movimentações e NENHUM deles ganhou o ente devedor na primeira passada.
+    injetado = None
+    if mov_ids:
+        todas = ler_movimentacoes_por_pk([int(m) for m in mov_ids])
+        alvo_set = set(alvo)
+        injetado = {pid: linhas for pid, linhas in todas.items() if pid in alvo_set}
     # `fonte='diario'`, não `'djen'`: a coluna existe para dizer DE ONDE a
     # parte veio, e estas vieram do diário próprio — com papel rotulado e ente
     # devedor, que é dado que o DJEN não tem.
-    res = promover_lote(alvo, fonte=FONTE_DIARIO)
+    res = promover_lote(alvo, fonte=FONTE_DIARIO, movs_por_processo=injetado)
     logger.info('promover_partes: %d recebidos, %d alvo, %d linhas confirmadas '
                 '(%d partes, %d descartadas por segredo)',
                 len(ids), len(alvo), res.linhas_confirmadas, res.partes_upsert,

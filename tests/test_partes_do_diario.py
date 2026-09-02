@@ -198,3 +198,60 @@ def test_a_procedencia_diz_de_onde_a_parte_veio():
     # E o job dos diários passa a procedência certa.
     codigo = inspect.getsource(__import__('diarios.jobs', fromlist=['x']).promover_partes)
     assert 'fonte=FONTE_DIARIO' in codigo
+
+
+@pytest.mark.django_db(transaction=True)
+def test_promocao_le_as_movs_do_LOTE_e_nao_as_3_mais_recentes():
+    """O teto invisível que sobrou na primeira passada, medido em produção.
+
+    `promover_lote` lê as `JANELA_MOVS=3` movimentações mais recentes de cada
+    processo — heurística correta para quem varre por faixa de pk e não sabe o
+    que procura. O coletor SABE: ele acabou de gravar as linhas. Medido na
+    relação da DEPRE de 10/03/2025: dos 2.568 processos, **823 (32%)** têm mais
+    de 3 movimentações, e ZERO deles ganhou o ente devedor; os 1.445 que
+    ganharam estão TODOS na faixa de até 3.
+    """
+    from django.db import transaction
+
+    from diarios.base import id_bloco_impresso, persistir_movimentacoes
+    from djen.parser import ParsedItem
+    from tribunals.models import Movimentacao, Tribunal
+
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJSP', defaults={'nome': 'TJSP', 'sigla_djen': 'TJSP'})
+    Movimentacao.objects.filter(tribunal=t).delete()
+    texto = 'Entidade devedora: SPPREV - SÃO PAULO PREVIDÊNCIA'
+    item = ParsedItem(
+        cnj='0156916-80.2024.8.26.0500',
+        external_id=id_bloco_impresso('tjsp-dje', 4159, 11, 9, texto=texto),
+        data_disponibilizacao=dt.datetime(2025, 3, 10, 3, 0, tzinfo=dt.UTC),
+        texto=texto, meio='D', destinatarios=DEPRE_REAL,
+    )
+
+    fila = mock.MagicMock()
+    with mock.patch('django_rq.get_queue', return_value=fila):
+        with transaction.atomic():
+            persistir_movimentacoes([item], t, None)
+
+    promocoes = [c for c in fila.enqueue.call_args_list
+                 if c.args and getattr(c.args[0], '__name__', '') == 'promover_partes']
+    assert len(promocoes) == 1
+    mov_ids = promocoes[0].args[2]
+    esperado = list(Movimentacao.objects.filter(tribunal=t).values_list('id', flat=True))
+    assert mov_ids == esperado, (
+        'a promoção precisa receber os pks das movimentações do LOTE — sem '
+        'eles ela cai na janela das 3 mais recentes e perde 32% dos casos'
+    )
+
+
+def test_ler_movimentacoes_por_pk_nao_tem_janela():
+    """Controle de contrato: a função nova não aceita `janela`, de propósito."""
+    import inspect
+
+    from tribunals.services.partes_djen import ler_movimentacoes_por_pk, promover_lote
+
+    assert 'janela' not in inspect.signature(ler_movimentacoes_por_pk).parameters
+    assert ler_movimentacoes_por_pk([]) == {}
+    # E `promover_lote` aceita a injeção sem perder o caminho antigo.
+    par = inspect.signature(promover_lote).parameters['movs_por_processo']
+    assert par.default is None, 'sem injeção, o comportamento antigo é o default'

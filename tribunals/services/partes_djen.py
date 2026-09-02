@@ -568,8 +568,37 @@ class ResultadoLote:
     segundos_escrita: float = 0.0
 
 
+def ler_movimentacoes_por_pk(mov_ids: list[int]) -> dict:
+    """`{process_id: [(destinatarios, advogados, cabecalho), …]}` para
+    movimentações NOMEADAS, sem janela.
+
+    Existe porque a janela de `JANELA_MOVS=3` mais recentes é um teto invisível
+    para quem SABE quais linhas acabou de gravar. Medido em 02/09/2026, na
+    relação da DEPRE de 10/03/2025: dos 2.568 processos, **823 (32%) têm mais
+    de 3 movimentações**, e nenhum deles ganhou o ente devedor — a linha da
+    DEPRE não estava entre as 3 mais recentes. Os 1.445 que ganharam estão
+    TODOS na faixa de até 3. O coletor conhece os pks do lote; usá-los é trocar
+    uma heurística por um fato.
+    """
+    if not mov_ids:
+        return {}
+    por_processo: dict = {}
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            _cursor_com_teto(cur, TIMEOUT_LEITURA_S)
+            cur.execute(
+                'SELECT processo_id, destinatarios, destinatario_advogados, '
+                'left(texto, %s) FROM tribunals_movimentacao WHERE id = ANY(%s)',
+                [_CABECALHO_BYTES, list(mov_ids)],
+            )
+            for pid, dest, advs, cabecalho in cur.fetchall():
+                por_processo.setdefault(pid, []).append((dest, advs, cabecalho))
+    return por_processo
+
+
 def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
-                  dry_run: bool = False, fonte: str = FONTE) -> ResultadoLote:
+                  dry_run: bool = False, fonte: str = FONTE,
+                  movs_por_processo: dict | None = None) -> ResultadoLote:
     """Promove um lote JÁ FILTRADO (só processos sem `ProcessoParte`).
 
     Idempotência pela CONSTRAINT, não por delete: tudo aqui sai com
@@ -589,7 +618,11 @@ def promover_lote(process_ids: list[int], *, janela: int = JANELA_MOVS,
         return res
 
     t0 = time.time()
-    movs = ler_movimentacoes(process_ids, janela)
+    # `movs_por_processo` injetado = o chamador SABE quais linhas quer promover
+    # (ver `ler_movimentacoes_por_pk`). Sem ele, a heurística das `janela` mais
+    # recentes, que é o que o backfill por faixa de pk tem à disposição.
+    movs = (movs_por_processo if movs_por_processo is not None
+            else ler_movimentacoes(process_ids, janela))
     res.segundos_leitura = time.time() - t0
 
     eventos: dict = {}
