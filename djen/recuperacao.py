@@ -194,18 +194,32 @@ SELECT n.tribunal_id, n.janela_inicio,
  ORDER BY n.tribunal_id, n.janela_inicio DESC
 """
 
-#: Quantos dias-alvo da Fase 3 fecharam `success` pelo caminho novo numa janela.
-#: É MEDIÇÃO de vazão, não estimativa: conta o par (tribunal, dia) que saiu do
-#: conjunto pendente, não o número de jobs que rodaram.
+#: Quantos dias-alvo da Fase 3 foram RE-coletados numa janela.
+#:
+#: ⚠️ O `bool_or(... < corte)` é o que separa medição de propaganda, e ele custou
+#: uma medição errada em 02/09/2026: sem ele o número deu **14** — que eram as
+#: coletas diárias de ontem nos tribunais grandes, dias que nunca estiveram no
+#: conjunto pendente. É o mesmo filtro que `completude_warm._recuperacao` aplica
+#: (`if pre and pos`), e pelo mesmo motivo: só conta como recuperação o dia que
+#: a gente JÁ dava por coletado antes do corte e mesmo assim voltou.
+#:
+#: Vazão inflada não é só enfeite: é o alarme de "parado" que nunca dispara.
+#:
+#: E conta o PAR (tribunal, dia), não o job: contar jobs contaria a mesma página
+#: duas vezes e transformaria retrabalho em progresso.
 _SQL_VAZAO = """
-SELECT count(DISTINCT (tribunal_id, janela_inicio))
-  FROM tribunals_ingestionrun
- WHERE fonte = 'djen' AND janela_inicio = janela_fim
-   AND status = 'success'
-   AND tribunal_id = ANY(%(siglas)s)
-   AND started_at >= %(desde)s
-   AND paginas_lidas > 0
-   AND (COALESCE(movimentacoes_novas,0)+COALESCE(movimentacoes_duplicadas,0)) >= %(minitens)s
+SELECT count(*) FROM (
+  SELECT tribunal_id, janela_inicio
+    FROM tribunals_ingestionrun
+   WHERE fonte = 'djen' AND janela_inicio = janela_fim
+     AND tribunal_id = ANY(%(siglas)s)
+   GROUP BY tribunal_id, janela_inicio
+  HAVING bool_or(status = 'success' AND started_at >= %(desde)s
+                 AND paginas_lidas > 0
+                 AND (COALESCE(movimentacoes_novas,0)
+                      + COALESCE(movimentacoes_duplicadas,0)) >= %(minitens)s)
+     AND bool_or(started_at AT TIME ZONE 'UTC' < %(corte)s)
+) recoletados
 """
 
 
@@ -254,11 +268,16 @@ def dias_pendentes(siglas: list[str]) -> list[tuple[str, str, int]]:
 
 
 def vazao(siglas: list[str], horas: int = 24) -> int:
-    """Dias-alvo da Fase 3 que fecharam `success` nas últimas `horas`."""
+    """Dias que a Fase 3 RE-coletou nas últimas `horas`.
+
+    Só conta dia que já tinha run antes do corte: a coleta diária de ontem não
+    é recuperação, e deixá-la entrar transformaria o card em propaganda.
+    """
     desde = timezone.now() - datetime.timedelta(hours=horas)
 
     def _q(c):
         c.execute(_SQL_VAZAO, {'siglas': list(siglas), 'desde': desde,
+                               'corte': M.CORTE_FLAT,
                                'minitens': M.MIN_ITENS_DIA_GRANDE})
         return c.fetchone()[0]
 

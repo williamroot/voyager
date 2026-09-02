@@ -382,6 +382,17 @@ def test_a_tela_mostra_o_motivo_da_parada(logado):
 def test_vazao_conta_dia_refeito_e_nao_job(tribs):
     """Vazão é MEDIÇÃO do que saiu da conta. Contar jobs contaria a mesma
     página duas vezes e transformaria retrabalho em progresso."""
+    _run(tribs['TRT2'], DIA, quando=ANTES, itens=20_000, paginas=40)
     _run(tribs['TRT2'], DIA, quando=DEPOIS, itens=25_000, paginas=40)
     _run(tribs['TRT2'], DIA, quando=DEPOIS, itens=25_000, paginas=40)
     assert R.vazao(['TRT2'], horas=24 * 3650) == 1
+
+
+def test_a_coleta_diaria_normal_NAO_conta_como_vazao(tribs):
+    """MEDIDO em 02/09/2026: sem este filtro a vazão deu 14 no primeiro dia,
+    e eram as coletas diárias de ontem nos tribunais grandes — dias que nunca
+    estiveram no conjunto pendente. Vazão inflada é propaganda: ela faz o
+    alarme de "parado" nunca disparar, que é exatamente o defeito que esta
+    Fase existe para consertar."""
+    _run(tribs['TRT2'], DIA, quando=DEPOIS, itens=25_000, paginas=40)
+    assert R.vazao(['TRT2'], horas=24 * 3650) == 0
