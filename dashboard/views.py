@@ -2040,18 +2040,40 @@ class PrazoDeRelogio:
     def __init__(self, segundos: float):
         self._fim = time.monotonic() + segundos
         self.consultas = 0
+        self._ajustando = False
 
     def restante(self) -> float:
         return self._fim - time.monotonic()
 
     def __call__(self, execute, sql, params, many, context):
         from django.db import DatabaseError as _DBErr
-        if self.restante() <= 0:
+        restante = self.restante()
+        if restante <= 0:
             raise _DBErr(
                 f'teto de relógio de {LEADS_CHART_TIMEOUT_S}s estourado depois '
                 f'de {self.consultas} consultas — a próxima seria '
                 f'{" ".join(str(sql).split())[:120]!r}'
             )
+        # ⚠️ Conferir o relógio ENTRE statements não basta, e a primeira versão
+        # deste código provou isso em produção: `timeseries` levou 68,51 s com
+        # orçamento de 60 s. A última consulta começou dentro do prazo, passou
+        # na checagem, e rodou até o fim — o estouro cabe inteiro DENTRO de um
+        # statement, onde a checagem não olha.
+        #
+        # Por isso o teto de CADA consulta é reapertado para o que resta do
+        # orçamento. Assim o Postgres corta a que passaria do limite, e a soma
+        # não escapa. `_ajustando` evita recursão: este `execute` volta a
+        # passar por este mesmo wrapper.
+        if not self._ajustando:
+            self._ajustando = True
+            try:
+                context['cursor'].execute(
+                    'SET LOCAL statement_timeout = %s', [max(1, int(restante * 1000))]
+                )
+            except Exception:  # noqa: BLE001 — sem o aperto sobra o teto fixo
+                pass
+            finally:
+                self._ajustando = False
         self.consultas += 1
         return execute(sql, params, many, context)
 

@@ -166,3 +166,28 @@ def test_prazo_conta_as_consultas_para_o_log():
     for _ in range(3):
         p(lambda *a: None, 'SELECT 1', None, False, {})
     assert p.consultas == 3
+
+
+def test_prazo_aperta_o_teto_do_proximo_statement():
+    """Conferir entre statements não basta: o estouro cabe DENTRO de um.
+
+    Medido em produção depois da 1ª versão deste teto: `timeseries` levou
+    68,51 s com orçamento de 60 s — a última consulta começou dentro do prazo
+    e rodou até o fim. O prazo tem que reapertar o `statement_timeout` de cada
+    consulta para o que RESTA, senão a soma escapa.
+    """
+    from dashboard.views import PrazoDeRelogio
+
+    emitidos = []
+
+    class _Cur:
+        def execute(self, sql, params=None):
+            emitidos.append((sql, params))
+
+    p = PrazoDeRelogio(60)
+    p(lambda *a: None, 'SELECT 1', None, False, {'cursor': _Cur()})
+    assert emitidos, 'não reapertou o teto do statement'
+    sql, params = emitidos[0]
+    assert 'statement_timeout' in sql
+    # o valor tem que ser o RESTANTE (~60 s em ms), não o teto cheio de sempre
+    assert 0 < params[0] <= 60_000
