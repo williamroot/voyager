@@ -178,14 +178,14 @@ DIGITS_PISO_ALARME = int(os.environ.get('VIGIA_DIGITS_PISO_ALARME', 500_000))
 #: `partes` é amostrado como o `fase` e tem o mesmo tipo de ruído. O universo é
 #: maior (≈87 M sem parte nenhuma), então o piso acompanha.
 #:
-#: Sensibilidade do alarme, medida em 02/09/2026 para não virar folclore: o
-#: ±2σ da amostra vale ≈2,9 M processos e o backfill entrega ≈1,07 M/h (1,43 M
-#: processos varridos por hora com `--carga 0.5`, dos quais ~81% não têm parte
-#: e 92,5% desses têm destinatário). Em 6 h de janela isso dá ≈6,4 M — o dobro
-#: do ruído com folga. Ou seja: o alarme acende quando a vazão cai abaixo de
-#: ~500 mil/h, e não acende sozinho quando ela está normal. Se um dia o
-#: `--carga` baixar muito, é ESTE número que precisa ser refeito antes de
-#: alguém concluir que o backfill parou.
+#: Sensibilidade do alarme, medida em 02/09/2026 para não virar folclore: com
+#: `PARTES_AMOSTRA_PCT=0,08` o ±2σ vale ≈1,47 M processos, e o backfill varre
+#: ≈900 mil pks/h (`--carga 0.6`, medido na `.102`), dos quais ~81% não têm
+#: parte e 92,5% desses têm destinatário ⇒ ≈674 mil/h, ≈4,0 M na janela de
+#: 6 h — **2,7× o ruído**. Ou seja: o alarme acende abaixo de ~250 mil
+#: processos/h e não acende sozinho na vazão normal. Se um dia o `--carga`
+#: baixar, é ESTE número que precisa ser refeito ANTES de alguém concluir que
+#: o backfill parou.
 PARTES_PISO_ALARME = int(os.environ.get('VIGIA_PARTES_PISO_ALARME', 3_000_000))
 
 #: Fração de páginas do `TABLESAMPLE SYSTEM`. 0,1% de `tribunals_process`
@@ -197,13 +197,27 @@ FASE_AMOSTRA_PCT = float(os.environ.get('VIGIA_FASE_AMOSTRA_PCT', 0.1))
 TETO_AMOSTRA = int(os.environ.get('VIGIA_TETO_AMOSTRA', 2_000))
 TETO_TTL_S = 24 * 3600
 
-#: Fração de páginas para a cobertura de PARTES. Menor que a do `fase` porque
-#: aqui cada linha amostrada custa um probe de índice em
-#: `tribunals_processoparte` (67 M linhas), não só a leitura da página.
-PARTES_AMOSTRA_PCT = float(os.environ.get('VIGIA_PARTES_AMOSTRA_PCT', 0.02))
-#: Teto de linhas da amostra de partes — o `TABLESAMPLE` devolve páginas
-#: inteiras e uma tabela de 131 GB tem ~100 linhas por página.
-PARTES_AMOSTRA_MAX = int(os.environ.get('VIGIA_PARTES_AMOSTRA_MAX', 25_000))
+#: Fração de páginas para a cobertura de PARTES. Cada linha amostrada custa um
+#: probe de índice em `tribunals_processoparte` (105 M linhas), então a fração
+#: é o preço direto do alarme — e foi ESCOLHIDA pelo alarme, não pelo gosto.
+#:
+#: Medido em 02/09/2026, com o backfill rodando:
+#:
+#:     pct=0,02  →  10,4 s · ±2,72 pp · ruído 2,92 M
+#:     pct=0,08  →  28,3 s · ±1,37 pp · ruído 1,47 M
+#:
+#: O backfill derruba ≈4,0 M de pendente numa janela de 6 h. Contra o ruído de
+#: 2,92 M isso é margem de 1,4× — perto demais: numa passada azarada o vigia
+#: diria PARADO sobre um backfill que está andando, e alarme que acende sozinho
+#: é alarme que ninguém mais lê. Com 0,08 a margem vira 2,7×.
+#:
+#: Os 18 s a mais são 3% de duty cycle num tique de 15 min, contra 4× de folga
+#: no `SQL_TIMEOUT_S`. É o preço de o alarme querer dizer alguma coisa.
+PARTES_AMOSTRA_PCT = float(os.environ.get('VIGIA_PARTES_AMOSTRA_PCT', 0.08))
+#: Teto de linhas da amostra de partes. Folgado sobre as ~85 mil que 0,08 pede:
+#: ele existe para conter um `PARTES_AMOSTRA_PCT` digitado errado, não para
+#: morder no valor normal — e quando morde, o ±2σ sente (ver `medir_partes_djen`).
+PARTES_AMOSTRA_MAX = int(os.environ.get('VIGIA_PARTES_AMOSTRA_MAX', 120_000))
 #: Amostra do teto do `partes`: dos SEM parte, quantos têm destinatário no
 #: JSONB. Cara (LATERAL em `tribunals_movimentacao`, 1,52 bi de linhas), então
 #: 1×/24 h como a do `fase`.

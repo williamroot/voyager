@@ -693,6 +693,44 @@ Ele só sobrevive a restart porque o AOF foi ligado em 31/08/2026 (seção acima
 `PAUSADO` ao lado do número. Card vazio some da vista; número alto ao lado de
 "parado" não.
 
+### Rodar o `backfill_partes_djen` (#121, ligado em 02/09/2026)
+
+Promove `Movimentacao.destinatarios` a `Parte`/`ProcessoParte`. **Zero
+requisição externa** — o dado já está no banco. Estado antes de ligar: 18,66%
+de cobertura, teto alcançável ≈93,9%. Ver a régua de qualidade em
+[`ENRICHMENT.md`](ENRICHMENT.md).
+
+```bash
+ssh ubuntu@192.168.30.102   # backfills longos moram na .102, NÃO na .103
+docker run -d --name r121_partes --restart no --network host \
+  -v /home/ubuntu/voyager:/app -w /app --env-file /home/ubuntu/voyager/.env \
+  voyager-web:prod python manage.py backfill_partes_djen \
+    --shard nacional --carga 0.6 --parar-ms-id 25
+```
+
+⚠️ **`--restart no`, e é de propósito.** O teto agora sai com **exit ≠ 0** (era
+o `exit 0` que tornava teto indistinguível de "terminou" e alimentou os 351
+reinícios do `r105`). Com `on-failure` o container voltaria justamente quando o
+teto de custo dispara — ou seja, religaria carga em cima de um banco que já
+está em contenção. Quem vigia é o tique; ele mede a COBERTURA e grita com o
+comando de retomada.
+
+⚠️ **Nunca rodar sem `--shard`.** O comando recusa na largada: sem checkpoint,
+todo restart voltaria ao pk inicial. Para uma faixa fechada de teste use
+`--sem-checkpoint --de <lo> --ate <hi>`.
+
+| botão | efeito |
+|---|---|
+| `$V backfill_partes_djen --pausar` | kill switch no Redis, honrado a cada lote (medido: 0 escritas em 60 s) |
+| `$V backfill_partes_djen --despausar` | libera |
+| `--parar-ms-id 25` | teto de custo em ms por **id VARRIDO**. Ao estourar: exit ≠ 0 e ERRO no log |
+| retomar | o MESMO comando — o cursor está em `bf:partes_djen:nacional:cursor` |
+| rollback | `DELETE … WHERE processo_id >= X AND < Y AND fonte='djen'` em pedaços de 2.000 pks |
+
+Custo medido em 02/09 na `.102`, faixa `[40.000.000, 40.060.000)` com
+`--carga 0.35`: **4,03 ms por id varrido** (≈1,4 ms de banco), sem efeito
+mensurável na agregação da tela de estado (SP 8,72 s antes → 7,16 s durante).
+
 ### Onde ele grita, e o que fazer
 
 Logger `voyager.djen.recuperacao`:
@@ -763,7 +801,7 @@ V="docker compose -f docker-compose-prod.yml exec -T web python manage.py"
 $V vigia_backfills            # o retrato do CACHE (não toca no banco)
 $V vigia_backfills --medir    # RECALCULA dos dados — a régua do antes/depois
 $V vigia_backfills --agora    # força um tique síncrono e imprime o que fez
-$V vigia_backfills --teto     # remede o teto ALCANÇÁVEL do `fase` (caro, 1×/24h)
+$V vigia_backfills --teto     # remede os tetos ALCANÇÁVEIS (fase e partes; caro, 1×/24h)
 $V vigia_backfills --parar    # kill switch (Redis) — para a auto-cura, NÃO a medição
 $V vigia_backfills --religar
 $V vigia_backfills --fk-off   # pausa só o VALIDATE automático
@@ -854,6 +892,7 @@ Logger `voyager.tribunals.vigia_backfills`:
 | alerta | leitura |
 |---|---|
 | `BACKFILL PARADO: <x> tem N pendentes e NÃO andou em H h` | o alarme que não existia. Retome com o comando que a mensagem imprime |
+| `BACKFILL PARADO: partes …` | vazão abaixo de ~500 mil processos/h. Retome com `backfill_partes_djen --shard nacional` — **nunca com `--de 0`**, o cursor sabe onde parou |
 | `com N tarefa(s) viva(s) no ES — não é parado` | INFO, não erro: **não religue por cima** |
 | `não li as tarefas do ES — o veredito fica ABSTIDO` | abstenção declarada; não conclua "parado" |
 | `o exists do ES VOLTOU A MENTIR` | a % do `_count` virou TETO. Meça por amostra antes de usar |
@@ -1608,6 +1647,58 @@ profundidade-alvo medida + ZSET `enr:inflight:<sigla>`; ver `.ia/ENRICHMENT.md`.
 ```bash
 ssh 100.100.144.57 'docker exec -w /app voyager-web-1 python /tmp/sonda7.py'
 # imprime enqueued_at do job na frente e no fim de cada fila enrich_*
+```
+
+### Incidente-following do e-SAJ: ver, medir e estrangular (02/09/2026)
+
+O enriquecimento do **TJSP** segue os incidentes do processo — o precatório/RPV
+de cada beneficiário, que **não tem CNJ** e por isso nunca chega pelo DJEN
+(`.ia/ENRICHMENT.md` §"Incidentes vinculados"). Custa requisição num pool
+**COMPARTILHADO** com a ingestão, então tem os três controles abaixo.
+
+```python
+# quem segue (por tribunal) — as três portas: setting, lista, kill switch
+from enrichers.jobs import seguir_incidentes_de, incidentes_desligados
+seguir_incidentes_de('TJSP')     # True
+incidentes_desligados()          # set() = ninguém estrangulado
+
+# ESTRANGULAR AGORA, sem deploy (chave no Redis, efeito no próximo job)
+from enrichers.jobs import set_incidentes_desligados
+set_incidentes_desligados({'TJSP'})
+set_incidentes_desligados(set())          # volta
+```
+
+O que olhar:
+
+```sql
+-- o que entrou, e o que a fonte publicou de valor
+SELECT count(*) AS incidentes, count(DISTINCT processo_id) AS processos,
+       count(*) FILTER (WHERE valor IS NOT NULL) AS com_valor,
+       count(*) FILTER (WHERE cnj_proprio <> '') AS com_cnj_proprio
+FROM tribunals_incidente;
+
+-- o ganho de COMPLETUDE: incidente que TEM número e que o acervo não tem
+SELECT count(DISTINCT i.cnj_proprio) FROM tribunals_incidente i
+WHERE i.cnj_proprio <> '' AND NOT EXISTS (
+  SELECT 1 FROM tribunals_process p
+  WHERE p.tribunal_id='TJSP' AND p.numero_cnj = i.cnj_proprio);
+```
+
+Dois tetos, os dois **auditados** (teto é alerta, nunca corte mudo):
+
+| teto | valor | o que loga |
+|---|---|---|
+| contagem | `MAX_INCIDENTES = 100` | `teto de incidentes atingido: 100 de N lidos` |
+| tempo | `BUDGET_INCIDENTES_S = 240` | `teto de TEMPO do seguimento atingido: X de N` |
+
+O de tempo existe porque `ENRICH_TIMEOUT` é 300 s e o `_emit` do processo-pai
+só acontece **depois** do seguimento: sem ele, um processo grande com o pool
+degradado (9,2 s/requisição, medido em 02/09) estouraria o job e perderia
+também o cadastro do pai. Ver o `grep` dos dois no worker:
+
+```bash
+ssh ubuntu@voyager-workers \
+  'docker logs --since 1h voyager-worker_tjsp-12 2>&1 | grep -c "teto de"'
 ```
 
 ### Tribunal que rende zero: separar "fonte bloqueada" de "rota errada"

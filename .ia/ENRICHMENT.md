@@ -1956,6 +1956,81 @@ WHERE processo_id >= X AND processo_id < Y AND fonte='djen'`, em pedaços de
 2.000 pks — **112.377 linhas em 3 s**, sem tocar em nenhuma linha de enricher.
 É para isso que a coluna existe.
 
+#### A régua de qualidade, antes de ligar o volume (02/09/2026, #121)
+
+O backfill existia desde 25/08 e **nunca tinha sido ligado**. Promover 86,7 M
+com parser errado é escrever lixo em escala, então a largada foi precedida de
+uma medição contra a única fonte independente que temos: os 16 tribunais onde
+o **enricher** já escreveu parte (PJe/eSAJ, com CPF/CNPJ e papel).
+
+Desenho: semente 20260902, 24 âncoras × 3.000 pks, **900 processos que JÁ TÊM
+`ProcessoParte` de `fonte IS NULL`**. Para cada um, roda-se `specs_do_processo`
+exatamente como o backfill rodaria (`JANELA_MOVS=3`) e compara-se nome, polo e
+OAB com o que o enricher gravou. 698 destinatários e 1.024 advogados.
+
+| régua | resultado |
+|---|---|
+| nome bate no enricher | **654/698 = 93,7%** |
+| polo idêntico (sobre os que batem por nome) | **632/654 = 96,6%** |
+| OAB idêntica (sobre os pares COMPARÁVEIS) | **579/613 = 94,5%** |
+| … casos em que o enricher NÃO tinha OAB | 256 — nós **acrescentamos** |
+| papel preenchido | 13/698 = 1,9% (a fonte não rotula) |
+
+**As 22 divergências de polo não são erro de parser — são FASE.** O JSONB diz
+o polo da COMUNICAÇÃO; o enricher, o da AÇÃO. Conferido lendo o cabeçalho:
+
+```
+Process.id=81821397 (TJSP)
+  enricher  Luis Artur Piloto REQTE/ativo · Banco do Brasil REQDO/passivo
+  DJEN      "Recorrido: Luis Artur Piloto - Recorrente: Banco do Brasil S/A"
+            → polo P para o autor e A para o banco — CERTO, para o recurso
+```
+
+O que **estava** errado é o que o dedupe por `(nome, polo)` fazia com isso. Em
+`Process.id=2740674`, AGNALDO ISMAEL aparece como RECORRIDO numa movimentação
+e como AUTOR na outra, e saíam **duas `ProcessoParte`**: a mesma pessoa no polo
+ativo E no passivo do mesmo processo — um fato impossível, e uma delas
+necessariamente errada. Desde 02/09, quando a janela se contradiz sobre alguém
+o polo é **ABSTIDO** e a pessoa vai para `outros` (regra nº 6, e é onde os
+advogados já moram, pelo mesmo motivo). Custa **1,16% dos nomes** e elimina 8
+das 22 divergências. Conferido na faixa do piloto depois de escrever:
+
+```
+pares (processo, parte) com ativo E passivo, fonte='djen' .... 0
+```
+
+As outras 14 (2,1% dos 654) são janelas SÓ com publicação de recurso, onde o
+DJEN é coerente consigo mesmo e não há contradição a detectar. Não são
+corrigíveis com o dado que temos — e como o backfill só escreve onde NÃO há
+outra fonte, o polo da comunicação é o melhor sinal disponível ali. Fica
+registrado como caveat medido, não como defeito aberto.
+
+**Sobra medida e NÃO consertada:** 34 advogados (3,9% dos que batem por nome)
+têm OAB divergente, e a maioria é sufixo — `SP211735` (DJEN) vs `SP211735E`
+(enricher, lido do texto "OAB SP 211735E"). Isso cria uma `Parte` paralela para
+o mesmo advogado. Normalizar o sufixo foi descartado: `A`, `E`, `S`, `O` são
+seccional/estagiário/suplementar de verdade em parte dos casos, e fundi-los
+colaria advogados distintos. Trocaria um erro visível por um invisível.
+
+#### Ligado em 02/09/2026 — o estado antes
+
+Medido pelo vigia (`vigia_backfills --medir`), amostra de páginas de
+`tribunals_process`:
+
+```
+cobertura de ProcessoParte ........ 18,66% ± 2,66 pp
+… destas, com fonte='djen' ........  0,45%
+faltam (estimado) ................. 87.458.787 processos
+teto alcançável ................... 92,5% dos SEM parte têm destinatário
+                                     nas 3 movs mais recentes
+```
+
+⇒ o teto do backfill é ≈ **93,9%** de cobertura (18,66 + 81,34 × 0,925), não
+100%: processo que só entrou pela porta do Datajud não tem
+`Movimentacao.destinatarios` e não ganha parte sem requisição externa. Este é
+o número que o card publica ao lado da cobertura — sem ele a tela mostraria
+"faltam 81%" para sempre.
+
 ### Achado 2 — classe e órgão da própria movimentação, não promovidos
 
 Mesmo caminho, outro campo. `fallback_classe_via_djen` existe, mas só roda
