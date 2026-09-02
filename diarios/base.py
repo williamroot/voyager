@@ -907,6 +907,28 @@ def _promover_partes(process_ids: list[int], tribunal, mov_ids=None) -> None:
 
         from .jobs import LOTE_PARTES, promover_partes
         fila = get_queue('default')
+        # GUARDA DE FAIRNESS. A `default` não é nossa: nela também vivem o tick
+        # dos diários, o `reabastecer_filas_enriquecimento` e o
+        # `reabastecer_fila_datajud`. RQ é FIFO sem prioridade, então um
+        # backfill que enfileira 25 jobs por caderno empurra os crons para o
+        # fim — medido em 02/09/2026 no reprocessamento do caderno 19: 77 jobs
+        # de promoção na frente de 4 crons, e a projeção do lote inteiro era de
+        # ~850 (≈3,8 h de cron faminto). É a mesma lição que criou o
+        # `WATERMARK_POR_FONTE` ("quem enche primeiro monopoliza a FIFO").
+        #
+        # O teto olha a fila INTEIRA, não só os nossos jobs: é mais
+        # conservador, e contar por `func_name` exigiria buscar job a job.
+        # Bater no teto NÃO perde dado — a movimentação está gravada e o
+        # `manage.py backfill_partes_djen` alcança o processo depois. Mas é
+        # ALERTA registrado, nunca corte mudo.
+        teto = int(getattr(settings, 'DIARIOS_FILA_PARTES_MAX', 200) or 0)
+        if teto and fila.count >= teto:
+            logger.warning(
+                'promoção de partes ADIADA para %s: fila `default` com %d jobs '
+                '(teto %d). %d processos NÃO foram enfileirados; a movimentação '
+                'está gravada e o `backfill_partes_djen` os alcança.',
+                getattr(tribunal, 'sigla', tribunal), fila.count, teto, len(process_ids))
+            return
         for i in range(0, len(process_ids), LOTE_PARTES):
             fila.enqueue(promover_partes, process_ids[i:i + LOTE_PARTES], mov_ids)
     except Exception as exc:                                    # noqa: BLE001

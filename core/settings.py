@@ -473,6 +473,14 @@ DIARIOS_GATE_INDICE_ENABLED = env.bool('DIARIOS_GATE_INDICE_ENABLED', default=Tr
 # varrida. Desligar só faz sentido para dimensionar backfill: a movimentação
 # continua gravada e o `manage.py backfill_partes_djen` recupera depois.
 DIARIOS_PROMOVER_PARTES = env.bool('DIARIOS_PROMOVER_PARTES', default=True)
+# Guarda de FAIRNESS da fila `default`, que não é só nossa: lá vivem o tick dos
+# diários, o `reabastecer_filas_enriquecimento` e o `reabastecer_fila_datajud`.
+# RQ é FIFO sem prioridade. Medido em 02/09/2026 no reprocessamento do caderno
+# 19: 77 jobs de promoção na frente de 4 crons, com projeção de ~850 para o
+# lote inteiro (≈3,8 h de cron faminto). Bater no teto não perde dado — a
+# movimentação está gravada e o `backfill_partes_djen` alcança o processo
+# depois —, mas sai no log em WARNING com o número.
+DIARIOS_FILA_PARTES_MAX = env.int('DIARIOS_FILA_PARTES_MAX', default=200)
 # ── ORÇAMENTO DA TERCEIRA PORTA (diarios/orcamento.py) ───────────────────────
 # Teto de VAZÃO, que é coisa diferente do `WATERMARK_POR_FONTE=200` (teto de
 # PROFUNDIDADE da fila). Sem ele, o ritmo do backfill é o número de réplicas do

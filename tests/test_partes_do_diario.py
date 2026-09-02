@@ -119,6 +119,9 @@ def test_gravar_enfileira_a_promocao_a_parte_no_commit():
     )
 
     fila = mock.MagicMock()
+    fila.count = 0            # `MagicMock >= int` é truthy: a profundidade da
+                              # fila tem que ser um NÚMERO, senão o guarda de
+                              # fairness dispara e o teste mede o guarda.
     with mock.patch('django_rq.get_queue', return_value=fila):
         with transaction.atomic():
             persistir_movimentacoes([item], t, None)
@@ -229,6 +232,7 @@ def test_promocao_le_as_movs_do_LOTE_e_nao_as_3_mais_recentes():
     )
 
     fila = mock.MagicMock()
+    fila.count = 0
     with mock.patch('django_rq.get_queue', return_value=fila):
         with transaction.atomic():
             persistir_movimentacoes([item], t, None)
@@ -288,3 +292,55 @@ def test_pular_por_linha_NOSSA_seria_o_oposto_da_regra():
     assert sorted(sem_processoparte(ids)) == [limpo.pk]
     # A nova pula só o do enricher — e volta para complementar o nosso.
     assert sorted(sem_parte_de_terceiro(ids)) == sorted([nosso.pk, limpo.pk])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_promocao_nao_monopoliza_a_fila_default():
+    """A `default` não é nossa: nela também vivem o tick dos diários e os
+    `reabastecer_*` do enriquecimento e do Datajud.
+
+    RQ é FIFO sem prioridade. Medido em 02/09/2026 no reprocessamento do
+    caderno 19: 77 jobs de promoção na frente de 4 crons, com projeção de ~850
+    para o lote inteiro. Bater no teto NÃO perde dado — a movimentação está
+    gravada e o `backfill_partes_djen` alcança o processo depois.
+    """
+    from django.db import transaction
+    from django.test import override_settings
+
+    from diarios.base import id_bloco_impresso, persistir_movimentacoes
+    from djen.parser import ParsedItem
+    from tribunals.models import Movimentacao, Tribunal
+
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJSP', defaults={'nome': 'TJSP', 'sigla_djen': 'TJSP'})
+    Movimentacao.objects.filter(tribunal=t).delete()
+    texto = 'Entidade devedora: MUNICÍPIO DE BAURU'
+    item = ParsedItem(
+        cnj='0400001-11.2024.8.26.0500',
+        external_id=id_bloco_impresso('tjsp-dje', 4159, 11, 11, texto=texto),
+        data_disponibilizacao=dt.datetime(2025, 3, 10, 3, 0, tzinfo=dt.UTC),
+        texto=texto, meio='D', destinatarios=DEPRE_REAL,
+    )
+
+    fila = mock.MagicMock()
+    fila.count = 500                       # fila funda
+    with mock.patch('django_rq.get_queue', return_value=fila), \
+            override_settings(DIARIOS_FILA_PARTES_MAX=200):
+        with transaction.atomic():
+            persistir_movimentacoes([item], t, None)
+    promocoes = [c for c in fila.enqueue.call_args_list
+                 if c.args and getattr(c.args[0], '__name__', '') == 'promover_partes']
+    assert not promocoes, 'com a fila funda, a promoção espera'
+    # …e o acervo NÃO é perdido por causa disso.
+    assert Movimentacao.objects.filter(tribunal=t, external_id=item.external_id).exists()
+
+    # Controle positivo: com a fila rasa, enfileira normalmente.
+    Movimentacao.objects.filter(tribunal=t).delete()
+    fila2 = mock.MagicMock()
+    fila2.count = 3
+    with mock.patch('django_rq.get_queue', return_value=fila2), \
+            override_settings(DIARIOS_FILA_PARTES_MAX=200):
+        with transaction.atomic():
+            persistir_movimentacoes([item], t, None)
+    assert [c for c in fila2.enqueue.call_args_list
+            if c.args and getattr(c.args[0], '__name__', '') == 'promover_partes']
