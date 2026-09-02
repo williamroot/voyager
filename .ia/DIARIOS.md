@@ -1594,3 +1594,219 @@ acionado.
 | as 9.985 + 13.490 linhas que as 2 edições reprovadas gravaram | **estão no acervo e o watermark as nega.** Ninguém as reconcilia hoje |
 | `IngestionRun` `failed` do `tjsp-dje` (1.312) | não foram limpos — ficam como evidência datada |
 | ampliar o orçamento de 8 unidades/24 h | **não mexido.** §13.10 é claro: primeiro o disco do ES |
+
+---
+
+## 15. Os dois formatos que o segmentador não conhecia (#118, 02/09/2026)
+
+> **O que mudou:** o segmentador do DJE/TJSP passou de cinco para **sete**
+> formatos de bloco. Os dois novos são a **relação da DEPRE** (ordem
+> cronológica de precatórios) e a **pauta numerada** de julgamento. Não foram
+> descobertos lendo o caderno: apareceram porque **doze edições reprovaram o
+> gate de cobertura** entre 00:00 e 06:00 UTC de 02/09, e 100% dos CNJs órfãos
+> estavam num dos dois.
+
+### 15.1 Formato 6 — a relação da DEPRE, e por que ela vale mais que as outras
+
+    NATUREZA ALIMENTÍCIA                          ← cabeçalho da relação
+    Nº de ordem cronológica: 278/2026 (CANCELADO)
+    Processo: 0156916-80.2024.8.26.0500           ← o PRECATÓRIO (foro 0500)
+    Processo de origem: 0001538-65.2023.8.26.0210/0001
+    Vara: JUIZADO ESPECIAL CÍVEL E CRIMINAL - Foro: FORO DE GUAÍRA
+    Reqte: VERA LÚCIA DA SILVA E SILVA            ← o CREDOR
+    Advogado: MARINA MACHIAVELI BRUNHARA (OAB 396304/SP)
+    Entidade devedora: SPPREV - SÃO PAULO PREVIDÊNCIA        ← QUEM DEVE
+    Entidade agrupadora: FAZENDA DO ESTADO DE SÃO PAULO
+    Advogados: FERNANDA RIBEIRO DE MATTOS LUCCAS (OAB 136973/SP)
+    WLADIMIR RIBEIRO JUNIOR (OAB 125142/SP)       ← continuação SEM rótulo
+
+É o **único lugar do acervo** onde o credor, o ente devedor e o par
+precatório↔processo de origem vêm impressos no MESMO registro. O tamanho do
+buraco que isso fechava, medido por outra porta em 02/09/2026: `ENT. DEVEDORA`
+existia em **duas** `ProcessoParte` no acervo inteiro, contra **4.550.742** de
+`AUTOR`. A tela "Quem deve" do Overview não tinha de onde se alimentar.
+
+**A régua vem da fonte, e isso é raro.** A relação imprime quatro campos
+obrigatórios por registro e eles aparecem o MESMO número de vezes — medido na
+relação inteira de 10/03/2025:
+
+    Nº de ordem cronológica ... 2.568
+    Processo .................. 2.568
+    Processo de origem ........ 2.568
+    Entidade devedora ......... 2.568
+
+O teste conta os quatro marcadores NO PDF e exige que batam com o número de
+blocos. Se o parser errar, quem reprova é o caderno — não um número que eu
+escrevi à mão. Não é toda hora que um formato desconhecido vem com a própria
+conferência embutida.
+
+**Resultado no caderno 4159-11 (10/03/2025), com o segmentador novo:**
+
+| | antes | depois |
+|---|---:|---:|
+| cobertura de CNJ | **83,1%** | **100,0%** (0 de 22.847 fora) |
+| blocos `precatorio` | 0 | **2.568** |
+| com ente devedor no polo **P** | 0 | **2.568 / 2.568** |
+| com credor (polo A) | 0 | 2.553 |
+| com advogado + OAB | 0 | 2.551 |
+
+O total de blocos do caderno bateu com a coleta real em produção: a soma
+offline (2.568 precatório + 17.751 pauta + 17 de 2ª instância = **20.336**) é
+exatamente o `itens_gravados` que a unidade fechou.
+
+**Abstenções escritas, para não virarem descoberta amanhã:**
+
+| decisão | por quê |
+|---|---|
+| `nome_classe` fica **vazio** | a relação não imprime classe da TPU; escrever "Precatório" contaminaria `Process.classe_nome` via `preencher_classe_via_djen` com rótulo que a fonte não disse |
+| `sucessor`/`favorecido`/`invtante` ficam com **polo vazio** | 15 registros em 2.568, e o lado deles não é óbvio o bastante para valer um chute. O nome é gravado assim mesmo, com o papel verbatim |
+| `Processo de origem` **não ganha coluna** | fica verbatim no `texto`, de onde `search/entidades_texto.py` já o colhe para `cnjs_citados` — o campo de incidente vinculado que já existe no índice. Migration em tabela de 1,5 bi de linhas para um dado que já tem lugar seria custo puro |
+| `(CANCELADO)` não vira `status` | o DJEN grava `'P'` ali; um terceiro vocabulário no mesmo campo é a dívida que o STF já criou (§10). Fica verbatim no texto |
+| `NATUREZA ALIMENTÍCIA` vai para `tipo_comunicacao` | é o que a fonte imprime, e é o que decide em qual fila de pagamento o crédito entra |
+
+### 15.2 Formato 4b — a pauta numerada, e o bug que ela revelou
+
+A pauta de julgamento imprime a POSIÇÃO na sessão antes do número:
+
+    3 - 0000239-66.2022.8.26.0120 - Processo Digital. Petições para juntada …
+
+A âncora do formato 4 exigia que a linha COMEÇASSE no CNJ. Passou a aceitar um
+ordinal opcional na frente — e o `Processo (Digital|Físico)` continua
+obrigatório, que é o que impede a âncora frouxa de partir um ato ao meio dentro
+de citação de jurisprudência quebrada de linha.
+
+No caderno 4162-19 (13/03/2025): **92,7% → 99,7%**. Os 35 CNJs que sobram são
+citação de jurisprudência no corpo de decisões — menção, não perda.
+
+**E um bug que só apareceu por tabela.** A ladainha do art. 7º da Res. 551/2011
+vem COLADA em "Processo Digital" e tem **137 caracteres**.
+`_classe_do_cabecalho` comparava o marcador por IGUALDADE, então esse segmento
+virava a CLASSE, estourava o teto de 120 e a função abstinha — em **toda** a
+pauta, inclusive na que o segmentador já reconhecia antes desta mudança. Com
+prefixo em vez de igualdade:
+
+    caderno 4159-11 ... 17.751 / 17.751 blocos passam a sair com classe
+    caderno 4162-19 ...  1.139 /  1.139
+
+### 15.3 O achado que vale mais que os dois parsers: o gate é cego para bloco ERRADO
+
+A pergunta que o §14.5 deixou aberta era "existe dia em que a perda passa por
+baixo do gate?". A resposta foi medida, e ela é **diferente para cada um dos
+dois formatos** — o que é mais interessante que um "sim" ou um "não".
+
+Método: baixar as **45 edições que fecharam `ok`** dos cadernos 11 e 19,
+extrair o texto (sem segmentar — a pergunta é "quantos registros existem no
+PDF") e contar os marcadores dos dois formatos. Sonda barata, com controle
+positivo: ela tem que devolver não-zero onde se sabe que há registro.
+
+| | edições `ok` medidas | registros do formato encontrados |
+|---|---:|---:|
+| relação da DEPRE (caderno 11) | 23 | **0** |
+| pauta numerada (caderno 19) | 22 | **7.917**, em **22 de 22** edições |
+
+**A DEPRE nunca passou calada: o gate a pegou todas as vezes.** Nas 23 edições
+verdes do caderno 11 não há um único `Nº de ordem cronológica`. A relação é
+tudo-ou-nada — quando aparece, tem milhares de registros e derruba a cobertura
+para 42-83%, sempre abaixo do piso.
+
+**A pauta numerada passou calada em TODAS as 22.** E o número que explica o
+porquê é o mesmo em todas: o **tamanho da pauta como fração dos CNJs impressos
+no caderno**.
+
+| edição | entradas de pauta | CNJs no caderno | % | veredito do gate |
+|---|---:|---:|---:|---|
+| 4148-19 | 73 | 12.091 | **0,60%** | `ok` |
+| 4143-19 | 99 | 11.021 | **0,90%** | `ok` |
+| 3985-19 | 157 | 10.351 | **1,52%** | `ok` |
+| 4136-19 | 387 | 14.198 | **2,73%** | `ok` |
+| 4152-19 | 498 | 14.520 | **3,43%** | `ok` |
+| 4155-19 | 726 | 17.082 | **4,25%** | `ok` |
+| **4139-19** | **714** | **15.728** | **4,54%** | `ok` ← o maior que passou |
+| … | | | | |
+| **4162-19** | ~896 | 12.197 | **~7,3%** | **falha** (92,7%) |
+| **4153-19** | 1.170 | 16.303 | **~7,4%** | **falha** (92,6%) |
+
+**22 de 22 edições verdes ficam ABAIXO de 5%; 6 de 6 reprovadas ficam ACIMA.**
+A folga do piso de 95% é exatamente a linha divisória, e a separação é
+monotônica — não há um único caso fora de lugar. A extrapolação que o §14.5
+registrou como "aritmética, não medição" virou medição: **uma relação pequena
+passa por baixo do gate**, e passou 22 vezes.
+
+**A lição, que é maior que estes dois parsers:** um gate de proporção não é um
+gate de completude. Ele reprova a perda GRANDE e absolve a pequena pelo mesmo
+mecanismo que o faz funcionar — e um formato inteiro desconhecido, mas de
+volume modesto, atravessa todas as edições sem nunca acender uma luz. É a
+assinatura do `CLAUDE.md` ("run verde, log limpo, número redondo") com a
+agravante de a régua ser cúmplice. **Piso percentual precisa de um segundo
+eixo**: um inventário do que a fonte imprime, contado por marcador, não só a
+fração do que caiu dentro de algum bloco.
+
+**E a perda é de publicação inteira, não de atribuição.** Conferido no banco
+para três edições verdes, com `LIKE` como filtro sobre a âncora
+`tribunal + data_disponibilizacao`:
+
+| edição | pauta impressa | movs da edição | movs que ABREM numa entrada de pauta |
+|---|---:|---:|---:|
+| 3985-19 (12/06/2024) | 157 | 9.835 | **0** |
+| 4136-19 (03/02/2025) | 387 | 12.937 | **0** |
+| 4137-19 (04/02/2025) | 430 | 13.477 | **0** |
+
+Nenhuma das 974 entradas virou linha própria. (Um controle que quase virou
+falso positivo: contar as movs que CONTÊM a ladainha do art. 7º não prova
+nada — ela está no cabeçalho de praticamente toda publicação de 2ª instância,
+9.650 de 9.835 numa edição. Marcador onipresente não é evidência.)
+
+**Dívida NOVA, e não foi resolvida:** reprocessar essas 22 edições recupera a
+pauta, mas o `external_id` é hash do TEXTO — a linha nova não substitui a
+velha, convive com ela. Reprocessar as 22 é decisão de volume que não foi
+tomada aqui.
+
+### 15.4 O que entrou em produção, e o que ficou faltando
+
+Deploy do parser: `worker_diarios` da `.102` reiniciado em
+`2026-09-02T15:29:03Z` (`docker compose -f docker-compose-workers.yml restart
+worker_diarios` — o `-f` não é opcional).
+
+**As 12 edições que o gate reprovou foram reabertas** (`status='pendente'`,
+`tentativas=0` — sem isso o `tick` nunca mais as tocaria) e reprocessadas.
+Estado às **15:39:53 UTC**, com o lote ainda drenando:
+
+| | valor |
+|---|---:|
+| das 12, fecharam `ok` | **9** (as 3 maiores ainda rodando) |
+| `itens_gravados` das 9 | **148.981** |
+| `IngestionRun` desde o deploy | **9 `success`, 0 `failed`** |
+| `movimentacoes_novas` | **31.054** |
+| `processos_novos` | **10.540** |
+
+Cobertura antes → depois, por edição reprocessada:
+
+| edição | antes | itens gravados |
+|---|---:|---:|
+| 4142-11 | **42,0%** | 17.089 |
+| 4155-11 | 68,4% | (rodando) |
+| 4138-11 | 71,8% | 14.727 |
+| 4149-11 | 75,3% | 26.006 |
+| 4139-11 | 77,2% | 19.617 |
+| 4159-11 | 83,1% | 20.336 |
+| 4153-19 | 92,6% | (rodando) |
+| 4162-19 | 92,7% | 11.167 |
+| 4145-19 | 93,3% | 13.643 |
+| 4135-19 | 94,3% | (rodando) |
+| 4140-19 | 94,5% | 14.654 |
+| 4141-19 | 94,5% | 11.742 |
+
+`movimentacoes_novas` (31.054) é menor que `itens_gravados` (148.981) porque as
+edições reprovadas **já haviam gravado** a maior parte das linhas: o gate roda
+DEPOIS da persistência (§14.5). Os 31.054 são o que os dois formatos novos
+acrescentaram de fato.
+
+**O que ficou faltando — escrito para não virar surpresa:**
+
+| pendência | estado |
+|---|---|
+| as 22 edições `ok` do caderno 19 com **7.917** entradas de pauta perdidas | **NÃO reprocessadas.** Recuperá-las é decisão de volume, e o `external_id` é hash do TEXTO: a linha nova convive com a velha em vez de substituí-la |
+| segundo eixo do gate (inventário por marcador, não só fração) | **NÃO feito.** É a lição do §15.3 e vale para as três fontes, não só para esta |
+| as 9.985 + 13.490 linhas que as 2 edições do §14.5 gravaram com `itens_gravados=0` | reconciliadas pelo reprocessamento destas 12 — as unidades agora fecham `ok` com o total correto |
+| caderno 5 (Editais e Leilões) | continua fora do catálogo, com 4,7% de cobertura medida (§1) |
+| a cobertura do DJE/TJSP | **0,24%** (70 de 29.368 unidades declaradas na faixa, §14.6). Consertar o parser não move esse número — mas coletar 29 mil edições com o parser cego seria coletar 29 mil vezes um dado pela metade |
