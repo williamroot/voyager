@@ -267,9 +267,17 @@ def _tarefas_byquery(es) -> list:
     somado a "o pendente não caiu" produziria exatamente o falso "PAROU" que
     faz alguém religar por cima de uma tarefa viva.
 
-    Só as tarefas RAÍZ (`parent_task_id` ausente): um `update_by_query` com
-    `slices=8` aparece como 1 pai + 8 filhas, e contar as filhas faria "1
-    backfill" parecer "9 backfills".
+    Uma tarefa por BACKFILL, não por fatia: um `update_by_query` com `slices=8`
+    aparece como 1 pai + 8 filhas, e listar as filhas faria "1 backfill"
+    parecer "9 backfills".
+
+    ⚠️ Mas os CONTADORES moram nas filhas. Medido em produção (02/09/2026): o
+    pai `...:305727375` reporta `updated=0, total=0, rps=0` enquanto as 8
+    filhas somam 13,5 M de 27,9 M a 500 d/s. Ficar só com o pai — que foi a
+    primeira versão desta função, e ela foi para produção — publica `None%` e
+    `0.0 d/s`, ou seja, um card que diz "não sei" sobre a única coisa que ele
+    existe para dizer. Então: uma LINHA por pai, com os números SOMADOS das
+    filhas.
     """
     saida = []
     try:
@@ -279,22 +287,42 @@ def _tarefas_byquery(es) -> list:
         logger.warning('vigia: não li as tarefas do ES (%s) — o veredito de '
                        '`proc_digits` fica ABSTIDO, nunca "parado"', str(exc)[:120])
         return saida
+
+    brutas = {}
     for node in (t.get('nodes') or {}).values():
-        for tid, tk in (node.get('tasks') or {}).items():
-            if tk.get('parent_task_id'):
-                continue
-            st = tk.get('status') or {}
-            total = st.get('total') or 0
-            feito = (st.get('updated') or 0) + (st.get('created') or 0)
-            saida.append({
-                'id': tid,
-                'acao': tk.get('action'),
-                'updated': feito,
-                'total': total,
-                'pct': round(100.0 * feito / total, 1) if total else None,
-                'rps': st.get('requests_per_second'),
-                'minutos': round((tk.get('running_time_in_nanos') or 0) / 1e9 / 60, 1),
-            })
+        brutas.update(node.get('tasks') or {})
+
+    def _numeros(tk):
+        st = tk.get('parent_task_id') and {} or {}
+        st = tk.get('status') or {}
+        return ((st.get('updated') or 0) + (st.get('created') or 0),
+                st.get('total') or 0,
+                st.get('requests_per_second'))
+
+    for tid, tk in brutas.items():
+        if tk.get('parent_task_id'):
+            continue
+        feito, total, rps = _numeros(tk)
+        filhas = [f for f in brutas.values() if f.get('parent_task_id') == tid]
+        if filhas:
+            somas = [_numeros(f) for f in filhas]
+            feito = feito or sum(x[0] for x in somas)
+            total = total or sum(x[1] for x in somas)
+            # `-1` no ES quer dizer SEM throttle; somar -1 daria um número
+            # inventado. Só somam as filhas que declaram um teto de verdade.
+            tetos = [x[2] for x in somas if x[2] is not None and x[2] >= 0]
+            if not rps and tetos:
+                rps = round(sum(tetos), 1)
+        saida.append({
+            'id': tid,
+            'acao': tk.get('action'),
+            'updated': feito,
+            'total': total,
+            'fatias': len(filhas),
+            'pct': round(100.0 * feito / total, 1) if total else None,
+            'rps': rps,
+            'minutos': round((tk.get('running_time_in_nanos') or 0) / 1e9 / 60, 1),
+        })
     return saida
 
 

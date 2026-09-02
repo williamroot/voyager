@@ -101,21 +101,26 @@ def doc(i, digits='sentinela'):
 
 
 def tarefa_viva(updated=13_572_000, total=27_888_685, rps=500.0):
-    return {'nodes': {'n1': {'tasks': {
-        'ABC:305727375': {
-            'action': 'indices:data/write/update/byquery',
-            'running_time_in_nanos': 64 * 60 * 1_000_000_000,
-            'status': {'updated': updated, 'total': total,
-                       'requests_per_second': rps},
-        },
-        # a FILHA de um `slices=8` — não pode ser contada como um 2º backfill
-        'ABC:305727380': {
+    """Retrato do que o ES devolve de verdade num `slices=8`.
+
+    ⚠️ O PAI vem com `updated=0, total=0, rps=0` — medido em produção em
+    02/09/2026. Quem só lê o pai publica `None%` e `0.0 d/s`. Os números estão
+    nas 8 filhas, e é somando elas que se chega aos 13,5 M de 27,9 M.
+    """
+    tasks = {'ABC:305727375': {
+        'action': 'indices:data/write/update/byquery',
+        'running_time_in_nanos': 64 * 60 * 1_000_000_000,
+        'status': {'updated': 0, 'total': 0, 'requests_per_second': 0.0},
+    }}
+    for i in range(8):
+        tasks[f'ABC:30572738{i}'] = {
             'action': 'indices:data/write/update/byquery',
             'parent_task_id': 'ABC:305727375',
             'running_time_in_nanos': 64 * 60 * 1_000_000_000,
-            'status': {'updated': 1_700_000, 'total': 3_486_000},
-        },
-    }}}}
+            'status': {'updated': updated // 8, 'total': total // 8,
+                       'requests_per_second': rps / 8},
+        }
+    return {'nodes': {'n1': {'tasks': tasks}}}
 
 
 @pytest.fixture
@@ -162,10 +167,24 @@ def test_so_a_tarefa_raiz_conta_slices_nao_viram_oito_backfills(es):
     cache.clear()
     fake = es(docs=[doc(i, digits=None) for i in range(5)], tarefas=tarefa_viva())
     d = V.medir_proc_digits()
-    assert len(d['tarefas']) == 1
-    assert d['tarefas'][0]['id'] == 'ABC:305727375'
-    assert d['tarefas'][0]['rps'] == 500.0, 'o throttle tem que ir para a tela'
-    assert d['tarefas'][0]['pct'] == 48.7
+    assert len(d['tarefas']) == 1, 'as 8 fatias viraram 8 backfills'
+    t = d['tarefas'][0]
+    assert t['id'] == 'ABC:305727375' and t['fatias'] == 8
+    # os contadores do PAI são zero: sem somar as filhas, o card publica
+    # `None%` e `0.0 d/s` — foi o que foi para produção na 1ª versão.
+    assert t['pct'] == 48.7, f'não somou as fatias: pct={t["pct"]}'
+    assert t['updated'] == 13_572_000
+    assert t['rps'] == 500.0, 'o throttle tem que ir para a tela'
+
+
+@CACHE_LOCAL
+def test_rps_menos_um_do_es_nao_vira_teto_inventado(es):
+    """`-1` no ES é SEM throttle. Somá-lo daria um número que ninguém pediu."""
+    cache.clear()
+    t = tarefa_viva(rps=-8.0)      # cada fatia declara -1
+    es(docs=[doc(i, digits=None) for i in range(5)], tarefas=t)
+    d = V.medir_proc_digits()
+    assert d['tarefas'][0]['rps'] in (0.0, None), d['tarefas'][0]['rps']
 
 
 @CACHE_LOCAL
