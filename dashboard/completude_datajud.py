@@ -86,6 +86,19 @@ IDADE_MAX_H = 12
 #: Teto de espera do ES nas contagens por tribunal.
 ES_TIMEOUT = 30
 
+#: 🔴 TETO POR REQUISIÇÃO, e ele não é decoração. O `DatajudClient` de fábrica
+#: aceita `max_proxy_rotations=50` com `timeout=(10, 60)`: **uma** requisição
+#: pode levar 50 min, e o orçamento da rodada não a interrompe (ele só é
+#: conferido ENTRE tribunais). Medido em 01/09/2026: uma rodada mediu 3
+#: tribunais em 19 s e depois ficou 9 min parada numa quarta requisição.
+#:
+#: Aqui a régua tem pressa e nenhuma urgência: tribunal que não responde agora
+#: vira `erro` — que a tela mostra pelo nome — e volta na rodada seguinte. Não
+#: há nada a ganhar insistindo 50 vezes.
+CLIENTE_TIMEOUT = (10, 30)
+CLIENTE_ROTACOES = 6
+CLIENTE_RETRIES = 2
+
 #: Fração mínima de tribunais com PAR válido para a régua valer como confronto.
 #: Não é 100% porque há ausência legítima e conhecida — o STF não tem índice no
 #: CNJ. Mas metade da régua faltando não é ausência, é falha: publicar isso como
@@ -161,6 +174,11 @@ def medir_rodada(orcamento_s: int = ORCAMENTO_S,
         siglas = list(Tribunal.objects.order_by('sigla')
                       .values_list('sigla', flat=True))
         cli = DatajudClient(prefer_cortex=False)
+        # ver CLIENTE_TIMEOUT: sem isto uma requisição sozinha estoura o
+        # orçamento da rodada inteira e prende um worker `default` por minutos
+        cli.timeout = CLIENTE_TIMEOUT
+        cli.max_proxy_rotations = CLIENTE_ROTACOES
+        cli.max_retries = CLIENTE_RETRIES
         es = get_es()
         acervo = index_name('acervo')
     except Exception:  # noqa: BLE001
@@ -179,18 +197,25 @@ def medir_rodada(orcamento_s: int = ORCAMENTO_S,
         estado[sigla] = _medir_tribunal(cli, es, acervo, sigla)
         medidos += 1
 
+    dt = time.monotonic() - t0
+    if dt > 2 * orcamento_s:
+        # Teto é ALERTA, nunca corte mudo (regra nº 2): estourar o dobro do
+        # orçamento significa requisição pendurada, e isso precisa aparecer.
+        logger.error('completude/datajud: rodada levou %.0fs para orçamento de '
+                     '%ds (%d tribunais) — requisição pendurada no CNJ',
+                     dt, orcamento_s, medidos)
     estado['_rodada'] = {'em': _agora(), 'medidos': medidos,
                          'orcamento_s': orcamento_s,
+                         'estourou': dt > 2 * orcamento_s,
                          # quantos tribunais a régua PRECISA ter para fechar.
                          # Sem isto não dá pra distinguir "régua completa" de
                          # "régua que ainda só tem 10 dos 60" — e uma régua
                          # parcial publicada como total diria que a fonte
                          # declara 37 milhões.
                          'esperado': len(siglas),
-                         'dt_s': round(time.monotonic() - t0, 1)}
+                         'dt_s': round(dt, 1)}
     cache.set(CHAVE, estado, timeout=TTL_ESTADO)
-    logger.info('completude/datajud: %d tribunais medidos em %.0fs',
-                medidos, time.monotonic() - t0)
+    logger.info('completude/datajud: %d tribunais medidos em %.0fs', medidos, dt)
     return estado
 
 

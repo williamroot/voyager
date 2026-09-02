@@ -383,6 +383,33 @@ def test_agregar_so_fecha_com_a_regua_inteira():
     assert cheio['falta'] == 20 and cheio['sobra'] == 0
 
 
+def test_rodada_aperta_o_teto_do_cliente_do_cnj():
+    """Uma requisição de fábrica pode levar 50 min (50 rotações × 60 s).
+
+    O orçamento da rodada só é conferido ENTRE tribunais, então ele NÃO
+    interrompe isso — medido em prod: 3 tribunais em 19 s e 9 min parada na
+    quarta. A régua aperta o cliente; tribunal que não responde vira `erro` e
+    volta na rodada seguinte.
+    """
+    from dashboard import completude_datajud as DJ
+
+    class _Cli:
+        timeout = (10, 60)
+        max_proxy_rotations = 50
+        max_retries = 8
+
+    cli = _Cli()
+    with patch.object(DJ, 'cache'), \
+         patch('datajud.client.DatajudClient', return_value=cli), \
+         patch('search.client.get_es'), patch('search.client.index_name'), \
+         patch('tribunals.models.Tribunal') as T:
+        T.objects.order_by.return_value.values_list.return_value = []
+        DJ.medir_rodada(orcamento_s=0)
+    assert cli.timeout == DJ.CLIENTE_TIMEOUT
+    assert cli.max_proxy_rotations == DJ.CLIENTE_ROTACOES < 50
+    assert cli.max_retries == DJ.CLIENTE_RETRIES < 8
+
+
 def test_regua_cheia_de_erro_tambem_e_parcial():
     """Régua completa em NOMES e vazia em PARES não é confronto.
 
