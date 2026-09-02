@@ -1826,3 +1826,114 @@ um `job_id`, e confira a fila antes de enfileirar de novo.**
 | as 9.985 + 13.490 linhas que as 2 edições do §14.5 gravaram com `itens_gravados=0` | reconciliadas pelo reprocessamento destas 12 — as unidades agora fecham `ok` com o total correto |
 | caderno 5 (Editais e Leilões) | continua fora do catálogo, com 4,7% de cobertura medida (§1) |
 | a cobertura do DJE/TJSP | **0,24%** (70 de 29.368 unidades declaradas na faixa, §14.6). Consertar o parser não move esse número — mas coletar 29 mil edições com o parser cego seria coletar 29 mil vezes um dado pela metade |
+
+---
+
+## 16. Extraído não é PARTE — o ente devedor não aterrissava (02/09/2026)
+
+> **O parser extraía e o dado não chegava.** O formato 6 (§15.1) entrega
+> `Entidade devedora` no polo passivo, e o JSONB provou que chegou ao banco:
+> **2.568 de 2.568** movimentações da relação de 10/03/2025 com
+> `papel='ENTIDADE DEVEDORA'` e `polo='P'` em `Movimentacao.destinatarios`. E
+> `ProcessoParte` desses processos: **ZERO**. Para o produto isso é quase o
+> mesmo que não ter extraído — a tela "Quem deve" lê `ProcessoParte`, não o
+> JSONB. É o §12 outra vez, em outro campo: "coletado" não era "buscável";
+> agora "extraído" não era "parte".
+
+### 16.1 Onde o vínculo se perdia — QUATRO pontos, todos medidos antes do código
+
+| # | ponto | como foi medido |
+|---|---|---|
+| A | **ninguém promovia** | a promoção existe (`services/partes_djen.py`) mas é backfill por FAIXA DE PK disparado à mão. No Redis: **zero** checkpoints de shard. E as **218.068** `ProcessoParte` criadas nas 24 h anteriores eram todas do enricher (`fonte IS NULL`), nenhuma `fonte='djen'`. Processo que nasce hoje de uma coleta tem pk acima de qualquer faixa já varrida |
+| B | **o papel morria** | `specs_do_processo` lia o `polo` do JSONB (por isso o passivo sobrevivia) e tirava o `papel` só de uma tabela HTML no texto, pensada para o eproc. Rodando a função sobre o JSONB REAL de produção, os três saíam com `papel=''` |
+| C | **a janela de 3 movs** | `promover_lote` lê as `JANELA_MOVS=3` mais recentes. Dos 2.568 processos, **823 (32%) têm mais de 3** — e **nenhum** deles ganhou o ente devedor; os 1.445 que ganharam estão TODOS na faixa de até 3 |
+| D | **`sem_processoparte`** | pula processo que já tenha QUALQUER parte. Depois de C, os 823 tinham linhas com `papel=''` vindas de outras publicações — e por "já terem parte" nunca mais receberiam a linha MELHOR |
+
+C e D só apareceram DEPOIS de consertar A e B e medir de novo. Nenhum dos
+quatro era visível no código sem olhar o dado.
+
+### 16.2 As quatro curas
+
+| cura | onde |
+|---|---|
+| `papel_da_fonte()` + precedência **FONTE > TEXTO** | quem rotulou o campo foi o diário; `papeis_do_texto` é inferência e só entra quando a fonte cala. Com controle negativo: o caminho eproc (79,2% das publicações) continua tirando AUTOR/RÉU da tabela |
+| `diarios.jobs.promover_partes` + entrega no `on_commit` | mesmo remédio do §12: entregar na GRAVAÇÃO, não depender de varredura que alguém precisa lembrar de rodar |
+| `ler_movimentacoes_por_pk` + `promover_lote(movs_por_processo=)` | o coletor SABE quais linhas gravou; o `pks` do lote já existia no mesmo `on_commit`. Trocar heurística por fato |
+| `sem_parte_de_terceiro` (`fonte IS NULL`) | protege o ENRICHER, que é o que aquela regra queria proteger — não a nossa própria linha `papel=''` |
+
+**Assimetria deliberada:** fila fora do ar **não** derruba a coleta aqui.
+Índice ausente torna a edição inútil (não é buscável) e por isso derruba
+(§12); parte ausente é enriquecimento que o `backfill_partes_djen` recupera
+depois, e a movimentação — que é o acervo — já está gravada.
+
+**E a procedência passou a dizer a verdade.** `fonte='djen'` significava
+"promovida de `Movimentacao.destinatarios`" quando só o DJEN escrevia ali.
+Agora os diários escrevem no MESMO JSONB, com dado que o DJEN não tem, e o
+carimbo é `'diario'` (`FONTE_DIARIO`). A contagem independente acompanha o
+carimbo — contar por `'djen'` uma passada que gravou `'diario'` devolveria 0 e
+o job reportaria "não gravei" tendo gravado.
+
+### 16.3 ANTES/DEPOIS de uma edição, contado nos dois lados
+
+Edição `4159-11` (10/03/2025), a relação inteira da DEPRE — 2.568 registros:
+
+| | ANTES (16:10:46Z) | DEPOIS (16:22Z) |
+|---|---:|---:|
+| `ProcessoParte` dos 2.568 processos | **0** | **16.871** |
+| `ENTIDADE DEVEDORA` em polo **passivo** | **0** | **2.568** (100%) |
+| `ENTIDADE AGRUPADORA` em passivo | 0 | 317 |
+| `REQTE` em polo ativo | 0 | 2.504 |
+| no acervo INTEIRO, `ENTIDADE DEVEDORA` passivo | **0** | **2.568** |
+
+Os 2.568 saem em duas procedências — **1.445 `fonte='djen'`** (promovidas
+antes do carimbo novo) e **1.123 `fonte='diario'`** —, e isso fica registrado
+porque a constraint é `(processo, parte, polo, papel)` e **não inclui `fonte`**:
+re-promover não reescreve o carimbo antigo.
+
+E o que NÃO foi tocado: as **101** `ENT. DEVEDORA` em polo `outros` que já
+existiam continuam lá, intactas. São do enricher e-SAJ, e `sem_parte_de_terceiro`
+existe exatamente para não encostar nelas.
+
+⚠️ **Nota de unidade, porque ela já causou um engano:** `tribunals_partepapel`
+conta ENTIDADES DISTINTAS, não participações. "2 partes com ENT. DEVEDORA no
+acervo inteiro" eram 2 entidades em 101 participações. Para medir cobertura de
+papel, a tabela é `tribunals_processoparte`.
+
+### 16.4 As 22 edições verdes do caderno 19 — número e recomendação
+
+O §15.3 deixou 7.917 entradas de pauta em 22 edições `ok` como "decisão de
+volume". Com o vínculo funcionando elas passam a valer parte de verdade, e o
+custo de recuperá-las foi medido em vez de estimado — numa edição do caderno 19
+JÁ reprocessada hoje (`4162-19`):
+
+    movs da edição depois do reprocessamento .......... 11.198
+    linhas que ABREM numa entrada de pauta (novas) .....   925
+    linhas ANTIGAS com pauta no meio do texto (órfãs) ..     2
+
+**Duas.** A duplicação que eu tinha registrado como risco não se materializa
+neste caderno: as entradas de pauta estavam ÓRFÃS (descartadas), não engolidas
+por um bloco vizinho — por isso reprocessar cria linha nova sem deixar linha
+velha para trás.
+
+**Recomendação (quem decide o volume é o dono):** reprocessar as 22.
+
+| | valor |
+|---|---:|
+| publicações recuperadas | ~**7.917** |
+| linhas antigas órfãs, extrapolando os 2 medidos | ordem de **dezenas**, não milhares |
+| custo de relógio | ~10 min/caderno com 2 réplicas ⇒ ~**2 h** |
+| partes que vêm junto | Agravante/Agravado rotulados, com OAB (é 2ª instância) |
+| o que **não** vem | ente devedor — a DEPRE é caderno 11, não 19 |
+
+Não é o "quem deve"; é acervo de 2ª instância com parte rotulada. Vale, e vale
+menos que a DEPRE — por isso é recomendação, não ação tomada.
+
+### 16.5 O que ficou de fora
+
+| pendência | estado |
+|---|---|
+| as 22 edições do §16.4 | **não reprocessadas** — recomendação acima, com número |
+| as 23 edições `ok` do caderno 11 | não precisam: têm **zero** registros da DEPRE (§15.3) |
+| `fonte='djen'` nas 1.445 linhas promovidas antes do carimbo novo | ficam como estão; a constraint não inclui `fonte` |
+| o resto do acervo (86,7 M processos com destinatário e sem parte) | continua dependendo do `backfill_partes_djen`, que **não tem checkpoint e não está rodando** — é achado desta medição e não foi endereçado aqui |
+| segundo eixo do gate (§15.3) | continua não feito |
