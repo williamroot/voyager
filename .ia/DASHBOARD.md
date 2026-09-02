@@ -1038,8 +1038,9 @@ worker mata a rodada sem passar pelo `finally` — é o TTL que destrava.
 
 ### Fase 3 e a vazão — o que a Fase 2 sozinha escondia
 
-A tabela da Fase 2 fechou em **99,97%** e, sozinha, fazia quem lê concluir que a
-recuperação acabou. Acabou **um terço**: a mesma régua nos 19 tribunais de fora
+A tabela da Fase 2 fechou em **100,00% (3.999/3.999**, depois que o TJRS
+2025-09-19 voltou em 02/09 trazendo 33.224 publicações) e, sozinha, fazia quem
+lê concluir que a recuperação acabou. Acabou **um terço**: a mesma régua nos 19 tribunais de fora
 dá **16,16%** (7.174 dias-alvo, 6.015 nunca refeitos), e o nacional honesto é
 **5.157 de 11.173** dias. Por isso a Fase 3 tem tabela própria — mesmas colunas,
 via o partial `_partials/_completude_recup_tabela.html`, para que as duas nunca
