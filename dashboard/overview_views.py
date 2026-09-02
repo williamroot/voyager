@@ -120,7 +120,25 @@ def comercial_estado(request, uf):
     Mesmos filtros do mapa (`agg_overview.parse_filtros`) + `metrica`
     (possiveis|confirmados|todos). O `uf` da querystring é ignorado — manda o da
     rota. Contrato JSON completo no topo de `search/agg_estado.py`.
-    UF inválida → 400; ES fora → 503 (nunca 500 cru).
+    UF inválida → 400. Timeout do ES → **`pending`**, não 503 (ver abaixo).
+    ES genuinamente fora → 503 (nunca 500 cru).
+
+    ⚠️ **Timeout não é o mesmo que "fora do ar", e tratar os dois como 503 é o
+    que deixou a tela morta.** Medido em 02/09/2026: a agregação custa ~13-26 s
+    a frio (BA 26,5 s, SP 14,5 s) contra um teto de cliente de 30 s. Basta o
+    disco do nó estar disputado — e ele está, com backfills — para o
+    `_msearch` estourar. O usuário via **página quebrada** num caso em que o
+    dado existe e só demorou.
+
+    Pior: o warm cobre 28 UFs **só na métrica `todos`** (aquecer as três
+    triplicaria a passada para ~16 min de ES/hora, medido). Então `?metrica=
+    possiveis` — que é uma lente do próprio seletor da tela — caía sempre
+    aqui, e virava 503 toda vez.
+
+    `pending` faz a tela segurar o skeleton e repetir, como o `lazyChart` já
+    faz nos gráficos de leads (#64). Na segunda tentativa o cache costuma estar
+    quente. Devolver 200 com `pending` é honesto: não é dado errado nem
+    ausência de dado — é "ainda não".
     """
     filtros = agg_overview.parse_filtros(request.GET)
     metrica = request.GET.get('metrica', agg_estado_svc.METRICA_DEFAULT)
@@ -128,9 +146,17 @@ def comercial_estado(request, uf):
         payload = agg_estado_svc.agg_estado(uf, filtros, metrica)
     except agg_estado_svc.UfInvalida:
         return _json({'erro': f'UF inválida: {uf}'}, status=400)
-    except Exception:
-        logger.exception('comercial_estado: falha na agregação ES',
-                         extra={'uf': uf, 'metrica': metrica, 'filtros': filtros})
+    except Exception as e:
+        demorou = 'timeout' in type(e).__name__.lower() or 'timed out' in str(e).lower()
+        logger.exception(
+            'comercial_estado: falha na agregação ES (%s)',
+            'TIMEOUT — devolvendo pending' if demorou else 'erro — devolvendo 503',
+            extra={'uf': uf, 'metrica': metrica, 'filtros': filtros},
+        )
+        if demorou:
+            return _json({'pending': True, 'uf': uf, 'metrica': metrica,
+                          'motivo': 'a agregação passou do teto de espera; '
+                                    'o aquecimento vai popular o cache'})
         return _json({'erro': 'falha ao consultar o índice de busca'}, status=503)
     return _json(payload)
 

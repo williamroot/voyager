@@ -558,3 +558,49 @@ def test_glossario_sem_chave_morta(html):
     # `potencial`/`confirmado`/`todos` também entram por glosMetrica()
     usadas |= {'potencial', 'confirmado', 'todos'}
     assert definidas == usadas, f'chaves mortas: {sorted(definidas - usadas)}'
+
+
+# ── warm + `pending` (02/09/2026) ────────────────────────────────────────────
+#
+# A tela morria em `/dashboard/overview/estado/MA/?metrica=possiveis`. Medido
+# nas 12 combinações (6 UFs × 2 lentes), com o backfill do índice rodando:
+#
+#     metrica=todos ......... 0,01-0,93 s   (aquecida pelo warm)
+#     metrica=possiveis ..... 20,6 s e 503 em 5 de 6
+#
+# Duas causas somadas: o warm cobria só a lente default, e a view tratava
+# TIMEOUT como se o ES estivesse fora — 503 numa página cujo dado existe e só
+# demorou.
+
+def test_warm_cobre_a_lente_possiveis():
+    """`possiveis` não é 'um clique mais fundo': é a lente com que se chega na
+    tela por link. Se ela sair do warm, a tela volta a pagar 20 s na cara."""
+    from dashboard.tasks import agg_estado_warm_alvos
+
+    alvos = agg_estado_warm_alvos()
+    metricas = {m for _uf, m in alvos}
+    assert 'possiveis' in metricas, 'a lente que deu 503 tem que ser aquecida'
+    assert 'todos' in metricas
+
+
+def test_warm_aquece_a_lente_default_ANTES():
+    """Se a passada estourar o teto do job, o que sobra aquecido tem que ser o
+    caminho mais usado. Degradar precisa ser previsível, não sorteado."""
+    from dashboard.tasks import agg_estado_warm_alvos
+    from search import agg_estado as A
+
+    alvos = agg_estado_warm_alvos()
+    primeira_possiveis = next(i for i, (_u, m) in enumerate(alvos) if m == 'possiveis')
+    ultima_default = max(i for i, (_u, m) in enumerate(alvos) if m == A.METRICA_DEFAULT)
+    assert ultima_default < primeira_possiveis, (
+        'a lente default tem que terminar antes de a `possiveis` começar'
+    )
+
+
+def test_warm_nao_aquece_confirmados():
+    """Fica de fora com número: cada lente custa ~5,5 min de ES por rodada, e
+    ninguém chega na `confirmados` por link. Se alguém a acrescentar sem medir,
+    este teste obriga a atualizar a conta."""
+    from dashboard.tasks import agg_estado_warm_alvos
+
+    assert 'confirmados' not in {m for _uf, m in agg_estado_warm_alvos()}

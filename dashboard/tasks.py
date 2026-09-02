@@ -268,13 +268,30 @@ def agg_estado_warm_alvos():
        na cara, contra um teto de cliente de 30 s. Foi passar desse teto que
        deu 503 em 02/09.
 
-    2. **Só a métrica default (`todos`).** As outras duas lentes do seletor
-       (`possiveis`, `confirmados`) TRIPLICARIAM a passada para ~16 min de ES
-       por rodada, num nó que divide disco com a busca do site e com o backfill
-       do índice. Elas ficam de fora de propósito: são um clique mais fundo,
-       quem clica paga uma vez, e o `CACHE_TTL` de 30 min cobre a sessão.
-       **Isto é uma lacuna conhecida, não um esquecimento** — se a tela de
-       estado passar a abrir já numa lente filtrada, este alvo muda junto.
+    2. **`todos` E `possiveis`; `confirmados` fica de fora.**
+
+       A versão anterior aquecia só a `todos`, com a ressalva escrita de que
+       era "lacuna conhecida — se a tela passar a abrir já numa lente filtrada,
+       este alvo muda junto". **A condição se cumpriu no mesmo dia:** o dono do
+       produto reportou a tela morta em
+       `/dashboard/overview/estado/MA/?metrica=possiveis`, e medindo as 12
+       combinações (6 UFs × 2 lentes) o resultado foi
+
+           metrica=todos ......... 0,01-0,93 s  (aquecida)
+           metrica=possiveis ..... 20,6 s e **503 em 5 de 6**
+
+       `possiveis` não é "um clique mais fundo": é a lente com que se chega na
+       tela por link. Ela entra.
+
+       `confirmados` continua fora, e agora com um número: cada lente custa
+       ~5,5 min de ES por rodada; duas são ~11 min/h de um nó que divide disco
+       com a busca e com os backfills. A terceira levaria a ~16 min/h — e
+       diferente da `possiveis`, ninguém chega nela por link.
+
+       ⚠️ E o que torna a lacuna tolerável agora não é o warm: é a view, que
+       passou a devolver **`pending`** em timeout do ES em vez de 503
+       (`dashboard/overview_views.py`). Aquecer é otimização; **não morrer** é
+       o contrato.
 
     A 2ª passada não ficou mais barata (360,2 s), então o cache de requisição do
     ES não ajuda aqui: o custo é próprio da agregação. É por isso que o
@@ -286,7 +303,11 @@ def agg_estado_warm_alvos():
     cópia da lógica, não régua.
     """
     from search import agg_estado as A
-    return [(uf, A.METRICA_DEFAULT) for uf in sorted(A.UFS_VALIDAS)]
+    # ordem importa: a lente default de TODAS as UFs primeiro, e só depois a
+    # `possiveis`. Se a passada estourar o teto do job, o que sobra aquecido é
+    # o caminho mais usado — degradar tem que ser previsível.
+    return ([(uf, A.METRICA_DEFAULT) for uf in sorted(A.UFS_VALIDAS)]
+            + [(uf, 'possiveis') for uf in sorted(A.UFS_VALIDAS)])
 
 
 @job('warm', timeout=2400)
