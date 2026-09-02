@@ -2229,6 +2229,22 @@ não existe deploy atômico: web, scheduler, 5 drainers e dezenas de workers
 recarregam em momentos diferentes. Deixe o `DEFAULT` no banco — ele custa nada
 e é a única coisa que protege o escritor atrasado.
 
+**A regra foi repetida em 6 dias, e agora tem catraca (02/09/2026).** A
+migration `0054` (31/08) fez EXATAMENTE o mesmo com `classe_cnj_codigo`,
+`classe_cnj_nome`, `fase_codigo` e `fase_nome`, e fechou a terceira porta: 255
+de 377 `EdicaoDiario` do `tjsp-dje` em `falha`, 215 delas com
+`null value in column "classe_cnj_codigo"`, mais **1.043 `IngestionRun`** da
+fonte só em 01/09. Não faltou conhecimento — esta seção já existia. Faltou
+COBRANÇA. `tribunals/0057` devolve o `DEFAULT` às quatro (e registra em
+migration o de `grau`, que até então só existia por este ALTER de incidente) e
+`tests/test_default_no_banco.py` congela as 50 colunas NOT NULL-sem-`DEFAULT`
+das 4 tabelas quentes, reprovando quem acrescentar uma. Detalhe operacional
+medido em 02/09: o bloqueador do `ACCESS EXCLUSIVE` em `tribunals_process` não
+era UPDATE curto — eram SELECTs de agregação de **616 s a 1.081 s** segurando
+`AccessShare`, e **110 tentativas seguidas** de `lock_timeout='3s'` perderam.
+Planeje o laço em horas; não troque isso por um teto maior. Ver
+`.ia/DIARIOS.md` §14.
+
 E o alarme funcionou: **o −99,8% no KPI foi o que denunciou**. A métrica usa
 `data_disponibilizacao` e não `inserido_em` justamente para não ser mascarada
 pelo backfill — sem essa escolha, os 8 M ingeridos teriam escondido o dia morto.

@@ -1217,3 +1217,246 @@ ampliar o `tjsp-dje` é:
 3. catalogar a fatia seguinte, **de 2011 em diante** — nunca 2007-2010, que é
    `sem_aproveit` provado (§13.1) — e sempre em fatias, nunca o catálogo inteiro;
 4. só então pensar em réplica do `worker_diarios`.
+
+---
+
+## 14. A porta fechada por um INSERT (31/08 → 02/09/2026)
+
+> **Não era falta de trabalho: era `NotNullViolation`.** Entre 31/08 15:19 UTC
+> (quando a `tribunals/0054` foi aplicada) e 02/09 01:01 UTC (quando o
+> `worker_diarios` foi reiniciado), **toda** coleta do `tjsp-dje` que criasse
+> processo inédito falhou no primeiro `bulk_create`. Run vermelho desta vez —
+> mas ninguém estava olhando, e a porta ficou 46 h coletando zero.
+
+### 14.1 O estado, medido em 02/09/2026
+
+`EdicaoDiario` inteira, em produção (os três `fonte` que existem):
+
+| fonte | total | ok | pendente | falha | outros | faixa |
+|---|---:|---:|---:|---:|---:|---|
+| `tjsp-dje` | 377 | 62 | 50 | **257** | 8 | 2009-06-15 → 2025-03-13 |
+| `doe-sp` | 1 | 0 | 0 | 0 | 1 `vazia` | 2026-08-21 |
+| `qd-municipal` | 1 | 1 | 0 | 0 | 0 | 2026-08-21 |
+
+As 257 falhas do DJE/TJSP, agrupadas por `ultimo_erro`:
+
+    215 · null value in column "classe_cnj_codigo" of relation "tribunals_process"
+     40 · null value in column "grau"               of relation "tribunals_process"
+      2 · segmentação abaixo do piso   ← OUTRA natureza, ver §14.5
+
+Do outro lado, a mesma coisa contada por `IngestionRun`: **1.043 runs do
+`tjsp-dje` em 01/09 e 32 em 02/09** com `classe_cnj_codigo` na mensagem. O
+`tjsp-dje` acumulava **1.312 `failed` contra 73 `success`**.
+
+### 14.2 A causa — e a linha de log que prova a tese inteira
+
+A `0054` usou o idioma padrão do Django, `ADD COLUMN ... DEFAULT '' NOT NULL`
+seguido de `DROP DEFAULT`. Conferido por COLUNA em `pg_attrdef` (nunca por
+nome de migration):
+
+    classe_cnj_codigo  NOT NULL  default=None   ← sem rede
+    classe_cnj_nome    NOT NULL  default=None   ← sem rede
+    fase_codigo        NOT NULL  default=None   ← sem rede
+    fase_nome          NOT NULL  default=None   ← sem rede
+    fase_em            NULL      default=None
+    grau               NOT NULL  default=''     ← COM rede
+
+Coluna NOT NULL sem `DEFAULT` só aceita INSERT que **nomeie** a coluna, e o
+Django nomeia as colunas do model **carregado em memória**. O `worker_diarios`
+da `.102` tinha `StartedAt = 2026-08-24T20:06:49Z` — sete dias antes da `0054`.
+O bind mount `.:/app` entrega o arquivo novo; o processo Python não reimporta o
+módulo (é a mesma armadilha de `OPS.md`, "worker rodando código velho").
+
+**A prova está no `DETAIL` da própria exceção**, no log do
+`voyager-worker_diarios-1` de 02/09 00:49:01 UTC. A linha recusada termina em:
+
+    …, '', null, null, null, null, null)
+       ↑    ↑
+       │    └── classe_cnj_codigo, classe_cnj_nome, fase_codigo, fase_nome, fase_em
+       └─────── grau, PREENCHIDO PELO DEFAULT DO BANCO
+
+Mesmo INSERT, mesmo escritor atrasado, dois destinos. `grau` nasceu com o mesmo
+idioma na `0052` e derrubou o dia 25/08 (10.410 runs `failed`, **32**
+publicações contra 1,5 M do dia anterior); a cura foi um `SET DEFAULT ''` na
+mão, em 30 s, que **nenhuma migration registrava**. As 40 falhas de `grau` do
+catálogo são anteriores a essa cura.
+
+`bulk_create` é UM statement: um CNJ inédito sem a coluna derruba a **edição
+inteira**, não a linha.
+
+### 14.3 A cura: `DEFAULT` no banco + uma catraca
+
+**Reiniciar a frota é necessário e não é a cura.** Entre o `migrate` e o
+restart existe uma janela, e nesta casa ela é de DIAS: web, scheduler, 5
+drainers e ~240 workers recarregam em momentos diferentes, alguns só no
+próximo `--force-recreate`. O `DEFAULT` fecha a janela porque **só é usado por
+quem não conhece a coluna** — exatamente o escritor atrasado que se quer que
+sobreviva. Quem já nomeia a coluna não muda em nada.
+
+`tribunals/0057_default_no_banco_colunas_novas` devolve `DEFAULT ''` às quatro
+colunas da `0054` **e a `grau`** — este último de propósito: em produção o
+default de `grau` veio de um ALTER de incidente, então um banco novo nasceria
+sem ele, com prod e migrations divergindo em silêncio (a doença que a `0056`
+inventariou).
+
+Três detalhes que a migration carrega no docstring e valem para a próxima:
+
+1. **Ela pergunta antes de agir.** Se as cinco colunas já têm `DEFAULT`, não
+   emite ALTER e **não pede lock nenhum**. Isso não é elegância: o `web` de
+   produção roda `migrate --noinput && gunicorn` no comando do container, e
+   uma migration que estoura por lock **impede o `web` de subir**.
+2. **Laço com teto CURTO, nunca teto grande.** 40 tentativas de
+   `lock_timeout='3s'`, uma transação por tentativa (`atomic = False`). Não se
+   sobe o teto: ACCESS EXCLUSIVE **enfileira**, e um ALTER preso trava LEITURA
+   no banco inteiro (63 sessões em 25/08).
+3. **Falha alto no fim**, com o comando manual na mensagem. Não existe caminho
+   que a marque como aplicada sem ter aplicado.
+
+**O custo real de pegar esse lock, medido em 02/09** — e é o número que
+surpreende: o bloqueador de `tribunals_process` **não** é UPDATE curto. São
+SELECTs de agregação de **616 s a 1.081 s** segurando `AccessShare`, somados
+ao backfill de `fase` rodando em 4 processos. Contra isso, **110 tentativas
+seguidas** de `lock_timeout='3s'` perderam. Quem for aplicar ALTER em
+`tribunals_process` planeje o laço em HORAS, não em minutos — e não troque
+isso por um teto maior.
+
+**A catraca — que é o que faltava.** A regra ("coluna NOT NULL nova em tabela
+que já tem escritor em produção NUNCA fica sem `DEFAULT` no banco") já estava
+escrita em `.ia/OPS.md` desde **25/08**. A `0054` a repetiu **seis dias
+depois**. Não faltou conhecimento: faltou cobrança. `tests/test_default_no_banco.py`
+congela as **50** colunas NOT NULL-sem-`DEFAULT` das quatro tabelas quentes
+(`tribunals_process`, `_movimentacao`, `_processoparte`, `_parte`) e reprova
+qualquer migration que **acrescente** uma. Identidade e chave (`numero_cnj`,
+`tribunal_id`, `processo_id`, `parte_id`) ficam de fora de propósito: ali o
+INSERT sem a coluna TEM que explodir. Tem controle positivo — se a sonda
+deixar de enxergar as 4 tabelas, ela falha em vez de passar medindo o vazio.
+
+**Varredura das outras tabelas quentes, pedida e feita:** o padrão NOT
+NULL-sem-`DEFAULT` é o idioma do Django e está em toda parte (22 colunas em
+`tribunals_movimentacao`, 19 em `_process`, 8 em `_parte`, 5 em
+`_processoparte`). Isso **não** é perigo por si: coluna que sempre esteve lá
+não tem escritor que a desconheça. O perigo é a coluna NOVA, e a varredura por
+`attnum` + histórico de migrations diz que **as únicas colunas acrescentadas a
+tabela quente desde que os containers de hoje subiram são as cinco da `0052` e
+da `0054`** — `0053` é índice, `0055` é seed, `0056` é estado e FK. Nenhuma
+outra bomba armada hoje; a catraca é para a de amanhã.
+
+### 14.4 A prova de que reabriu
+
+`worker_diarios` reiniciado em `2026-09-02T01:01:05Z`
+(`docker compose -f docker-compose-workers.yml restart worker_diarios` — o
+`-f` não é opcional). Prova comportamental, não `StartedAt`:
+
+| `IngestionRun` | quando | movs novas | processos novos |
+|---|---|---:|---:|
+| 238925 / 238926 / 238927 | 02/09 00:48-00:49 (antes) | **0** | **0** |
+| 238929 (mesma unidade, `4123-15`) | 02/09 01:01 (depois) | **36.978 e subindo** | **9.142** |
+
+A mesma edição que falhava em 3-16 s passou a gravar dezenas de milhares de
+linhas. As 3 falhas anteriores e o sucesso posterior são da MESMA chave.
+
+### 14.5 Veredito da segmentação — as 2 falhas que NÃO eram o INSERT
+
+Estas duas são de outra natureza e são mais importantes que as 255. Medido
+baixando o caderno e rodando o mesmo segmentador do coletor, offline:
+
+| unidade | data | caderno | cobertura | CNJs fora |
+|---|---|---|---:|---:|
+| `4155-11` | 2025-02-28 | 2ª Inst. — **Entrada e Distribuição** Parte I | **68,4%** | 6.170 |
+| `4153-19` | 2025-02-26 | 2ª Inst. — Processamento Parte II | **92,6%** | 1.212 |
+
+**`4155-11` — 100% dos 6.170 órfãos são a relação da DEPRE.** Não é ruído, é
+um SEXTO formato de bloco que o segmentador não conhece:
+
+    3.833 (62,1%)  linha 'Processo: <CNJ>'            ← o precatório
+    2.337 (37,9%)  linha 'Processo de origem: <CNJ>'  ← o processo de conhecimento
+
+O registro impresso é este, campo a campo, e é **exatamente o produto desta
+casa**:
+
+    Nº de ordem cronológica: 2/2026
+    Processo: 0313356-07.2024.8.26.0500          ← foro 0500 = DEPRE
+    Processo de origem: 0000003-92.2024.8.26.0040/0003
+    Vara: 2ª VARA - Foro: FORO DE AMÉRICO BRASILIENSE
+    Reqte: GODOY E BRASILEIRO ADVOGADOS
+    Advogado: GILVANY MARIA MENDONCA B MARTINS (OAB 54762/SP)
+    Entidade devedora: MUNICÍPIO DE AMÉRICO BRASILIENSE
+
+Credor, advogado com OAB, **ente devedor**, ordem cronológica, o CNJ do
+precatório E o CNJ de origem — o par que a memória da casa registra como
+"incidentes CNJ vinculados", impresso pela própria fonte. O segmentador
+descarta o bloco inteiro.
+
+**`4153-19` — 96,5% dos 1.212 órfãos são pauta numerada**, um SÉTIMO formato:
+a linha abre com um ordinal antes do número (`3 - 0000239-66.2022.8.26.0120 -
+Processo Digital. …`), e a âncora `numero_primeiro` do segmentador exige que a
+linha COMECE no CNJ. O resto é resíduo legítimo e **não é perda**: 10 (0,8%)
+são citação de jurisprudência dentro do corpo de uma decisão
+(`(TJSP; Apelação Cível 0000051-09.2007.8.26.0279; Relator …)`) e 7 (0,6%) são
+CNJ partido entre linhas.
+
+**O achado que dói mais: as duas edições GRAVARAM.** O gate roda depois da
+persistência, então as linhas estão no acervo e a unidade diz `falha` com
+`itens_gravados=0`:
+
+| unidade | movimentações no banco | processos distintos | `itens_gravados` |
+|---|---:|---:|---:|
+| `4155-11` | **9.985** | 8.868 | 0 |
+| `4153-19` | **13.490** | 12.907 | 0 |
+
+É o "dado coletado pela metade" da regra nº 1 do `CLAUDE.md`, com a agravante
+de o watermark NEGAR que ele existe. Reprocessar não conserta: o formato que
+falta continua faltando, e a gravação é idempotente. As duas ficam como dívida
+escrita, **fora** do lote reprocessado, de propósito.
+
+**Controle, para não confundir o gate com o formato:** `4161-11` (12/03/2025)
+e `4154-11` (27/02/2025), ambos `ok`, deram **100,0%** de cobertura, **0**
+órfãos e **0** ocorrências de "ordem cronológica" no PDF. A relação da DEPRE é
+PERIÓDICA, não diária — quando ela aparece, o gate a pega; a pergunta que fica
+aberta é se existe dia em que ela aparece pequena o bastante para a edição
+fechar acima de 95% e a perda passar calada. **Não foi medido.**
+
+### 14.6 Cobertura real do DJE/TJSP — medida contra o denominador da FONTE
+
+O denominador não é estimado: veio do próprio catálogo do e-SAJ, numa
+requisição, em 02/09/2026 (`col.catalogar(...)`, nada baixado):
+
+    faixa que temos catalogada .... 2009-06-15 → 2025-03-13
+    dias que a fonte declara ......  3.671  (já descontadas as 406 datasSemDiario)
+    unidades declaradas ...........  29.368  (3.671 dias × 8 cadernos)
+    unidades NOSSAS na faixa ......     377
+      ok ..........................      62
+      pendente/falha ..............     307
+      inexistente/vazia/sem_aprov .       8
+
+    COBERTURA REAL = 62 / 29.368 = 0,211%
+    (contando também vazia+inexistente+sem_aproveit: 70/29.368 = 0,238%)
+
+E a jazida inteira que a fonte declara, para dimensionar: **33.296 unidades**
+em **4.162 dias**, 2007-10-01 → 2025-07-22.
+
+**Duas ressalvas honestas sobre esse denominador**, porque ele é um teto e não
+uma igualdade:
+
+1. o catálogo multiplica dia × 8 cadernos porque **quais** cadernos existem em
+   cada data só o download responde (§ do coletor). Alguns dias têm menos de 8
+   — é o que gera `inexistente`. O denominador real está entre ~26 mil e
+   29.368, e a cobertura real está entre 0,21% e 0,24%.
+2. o caderno 5 (Editais e Leilões, `cdCaderno=14`) está fora dos dois lados —
+   não entra no catálogo nem na conta.
+
+De qualquer forma a ordem de grandeza não muda e é ela que importa: **a
+terceira porta tem dois DÉCIMOS de um por cento** do DJE/TJSP na faixa que já
+catalogou, e menos de **0,2%** da jazida inteira. `doe-sp` e `qd-municipal`,
+com **1 edição cada, do mesmo dia (21/08/2026)**, são prova de conceito, não
+coleta — e a `doe-sp` fechou `vazia`.
+
+### 14.7 O que NÃO foi feito, e por quê
+
+| pendência | estado |
+|---|---|
+| os dois formatos do §14.5 no segmentador (DEPRE e pauta numerada) | **NÃO feito.** É trabalho de parser com fixture real e gate próprio, e mexer no segmentador no meio de um reprocessamento de 305 unidades trocaria uma perda medida por uma não medida |
+| medir se a relação da DEPRE já passou calada em edição `ok` | **NÃO medido.** Exige baixar e re-segmentar as 62 unidades `ok` (≈ 3 h de CPU) |
+| as 9.985 + 13.490 linhas que as 2 edições reprovadas gravaram | **estão no acervo e o watermark as nega.** Ninguém as reconcilia hoje |
+| `IngestionRun` `failed` do `tjsp-dje` (1.312) | não foram limpos — ficam como evidência datada |
+| ampliar o orçamento de 8 unidades/24 h | **não mexido.** §13.10 é claro: primeiro o disco do ES |
