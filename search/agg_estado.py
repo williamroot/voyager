@@ -209,9 +209,32 @@ logger = logging.getLogger('voyager.comercial.agg_estado')
 METRICAS = ('possiveis', 'confirmados', 'todos')
 METRICA_DEFAULT = 'todos'
 
-#: TTLs no padrão do agg_overview: 5min pro caso default, 2min quando filtrado
-CACHE_TTL = 300
-CACHE_TTL_FILTRADO = 120
+#: TTLs. Eram 5min/2min "no padrão do agg_overview" — e o padrão não servia
+#: aqui, porque esta agregação é MUITO mais cara que a do overview.
+#:
+#: Medido em produção (02/09/2026), com o `_msearch` do `voyager-processos`:
+#:
+#:     MA frio 22,16s · PA frio 20,95s · qualquer um quente 0,00s
+#:
+#: O teto do cliente ES é 30s. Ou seja: passada fria já nasce a dois terços do
+#: limite, e QUALQUER carga concorrente a empurra por cima — foi exatamente o
+#: que aconteceu neste dia, com o `update_by_query` do `proc_digits` rodando:
+#: `ConnectionTimeout` no msearch e **503 na tela do estado**.
+#:
+#: Não adianta estrangular o vizinho: baixar o backfill de 800 para 200 docs/s
+#: mudou 22,16s para 20,95s. Os 20s são o CUSTO da agregação num índice de
+#: 1,55 bi num nó só, disk-I/O-bound — não são culpa de quem está do lado.
+#:
+#: E não existe job de aquecimento para esta tela (há `warm_charts_leves`,
+#: `warm_kpis`, `warm_command_center` e outros dez; nenhum para `agg_estado`).
+#: Com 300s, o cache expirava e o PRÓXIMO visitante pagava os 20s na cara.
+#:
+#: 30min é a escolha honesta enquanto o warm não existe: o número é um
+#: agregado de estado sobre um acervo que muda devagar, então meia hora de
+#: defasagem custa muito menos que um 503. O warm dedicado continua sendo o
+#: conserto certo — ver #64, que é o MESMO defeito na tela de leads.
+CACHE_TTL = 1800
+CACHE_TTL_FILTRADO = 600
 _CACHE_PREFIX = 'comercial:agg:estado'
 
 #: quantos itens cada bloco devolve (+ "outros" agregando a cauda)
