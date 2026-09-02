@@ -428,7 +428,12 @@ def segmentar(paginas: Iterable[Pagina], tamanho_corpo: float) -> Iterator[Bloco
 
             # Cabeçalho de natureza da relação da DEPRE: linha de corpo, sem
             # rótulo, que vale para todos os registros até o próximo título.
-            if _RE_NATUREZA.match(texto):
+            # `atual is None` é obrigatório e não é zelo: sem ele, uma linha de
+            # DESPACHO que começasse com 'NATUREZA' (e o caderno cível está
+            # cheio de 'NATUREZA DA CAUSA', 'NATUREZA JURÍDICA') seria engolida
+            # aqui e sumiria do `texto` verbatim do ato — perda silenciosa
+            # dentro do conserto de uma perda silenciosa.
+            if atual is None and _RE_NATUREZA.match(texto):
                 natureza = texto
                 continue
 

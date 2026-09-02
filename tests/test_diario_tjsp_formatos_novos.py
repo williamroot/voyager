@@ -275,3 +275,29 @@ def test_classe_do_cabecalho_descarta_a_ladainha_da_res_551():
     classe, comarca = segmentador._classe_do_cabecalho(corrido)
     assert classe == 'Agravo Interno Cível'
     assert comarca == 'São Paulo'
+
+
+def test_natureza_nao_engole_linha_de_despacho():
+    """O cabeçalho de natureza só é lido FORA de bloco.
+
+    O caderno cível imprime 'NATUREZA DA CAUSA', 'NATUREZA JURÍDICA' dentro do
+    corpo de despachos. Sem a guarda de bloco aberto, essas linhas sumiriam do
+    `texto` verbatim — perda silenciosa dentro do conserto de uma perda
+    silenciosa. Este teste é a guarda, montado com o `Linha`/`Pagina` reais.
+    """
+    from diarios.fontes.tjsp_dje.pdf import Linha, Pagina
+
+    def ln(texto, tamanho=8.0):
+        return Linha(pagina=1, tamanho=tamanho, texto=texto)
+
+    pagina = Pagina(numero=1, linhas=[
+        ln('Processo 1005255-88.2015.8.26.0100 - Procedimento Ordinário - Vistos.'),
+        ln('NATUREZA DA CAUSA: indenizatória. Defiro a gratuidade.'),
+        ln('- ADV: CLAUDIO ROBERTO VIEIRA (OAB 186323/SP)'),
+    ])
+    blocos = list(segmentador.segmentar([pagina], tamanho_corpo=8.0))
+    assert len(blocos) == 1
+    assert 'NATUREZA DA CAUSA: indenizatória' in blocos[0].texto, (
+        'a linha de despacho foi engolida pelo cabeçalho de natureza'
+    )
+    assert blocos[0].natureza == ''
