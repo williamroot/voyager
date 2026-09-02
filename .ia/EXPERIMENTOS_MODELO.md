@@ -6,17 +6,22 @@
 > promove modelo sem passar no seu critério + κ humano (§12.0: nunca direto
 > em prod).
 >
-> **Dependência comum:** os experimentos 3 e 4 treinam SOBRE o "modelo
-> vencedor" — o que sair dos gates em andamento (v2.1 re-treino janelado
-> vs A/B de base Qwen3-8B). Os experimentos 1 e 2 são caminhos alternativos
-> caso v2.1/A/B não resolvam as classes fracas.
+> **Dependência comum (RESOLVIDA em 31/07):** os experimentos 3 e 4 treinam SOBRE
+> o "modelo vencedor". O vencedor É a **v2.1** (Qwen2.5-7B, gate PASS macro
+> 91,76) — o A/B Qwen3-8B reprovou. Nada mais os bloqueia tecnicamente.
 
-| # | experimento | hipótese em 1 linha | critério pré-registrado | status |
+| # | experimento | hipótese em 1 linha | critério pré-registrado | status (triado 02/09/2026) |
 |---|---|---|---|---|
-| 1 | DAPT | pré-treino no dialeto do acervo melhora o SFT | SFT-sobre-DAPT ≥ **+2pp macro** vs SFT direto | 🔵 TREINANDO (pod 3090, ETA ~76,5h ~$15) |
-| 2 | Especialistas | adapter por classe fraca vence o multi-task | ganha em **≥2 das 3** classes fracas por **≥3pp** | 🔵 TREINANDO (pod 3090, 7 adapters, ETA qui ~36h) |
-| 3 | DPO-κ | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura **>2pp** | 🟡 dataset PRONTO (2.688 pares), treino pós-gate |
-| 4 | Destilação 3B | classes fortes cabem num aluno 3B | aluno retém **≥97%** do professor nas fortes | 🟡 harness pronto (dry-run ok), aguarda vencedor |
+| 1 | DAPT | pré-treino no dialeto do acervo melhora o SFT | SFT-sobre-DAPT ≥ **+2pp macro** vs SFT direto | 🔴 **BLOCK (03/08)** — v2 +1,08pp / v1 +0,06pp; `partes` piora. Morto, ver §1 |
+| 2 | Especialistas | adapter por classe fraca vence o multi-task | ganha em **≥2 das 3** classes fracas por **≥3pp** | 🟠 **7 adapters treinados, gate NUNCA rodado** — o experimento está pago e não decidido |
+| 3 | DPO-κ | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura **>2pp** | 🟡 dataset PRONTO (2.688 pares); nunca treinou |
+| 4 | Destilação 3B | classes fortes cabem num aluno 3B | aluno retém **≥97%** do professor nas fortes | 🟡 harness pronto (dry-run ok); nunca rotulou |
+
+> **Triagem 02/09/2026.** O "vencedor" que 3 e 4 esperavam JÁ EXISTE desde 31/07
+> (**v2.1**, gate PASS macro 91,76) — a dependência que os travava caiu. O que
+> travou de verdade foi INFRA: o **pod 4090 e o pod 3090 foram destruídos** e
+> levaram junto o treino da v2.2 (dados no NAS, `adapter_v22` não existe). Nenhum
+> destes 3 pendentes depende de mais pesquisa: dependem de subir GPU e rodar.
 
 ---
 
@@ -76,9 +81,25 @@ Depois: SFT v2.1 idêntico (mesmo mix, seed, maxseq) sobre o checkpoint DAPT.
 vs SFT direto no MESMO test held-out por hash-CNJ (gate `eval_gate_v2.py`).
 Abaixo disso o custo (horas de GPU a cada ciclo de dado) não se paga.
 
-**Status.** 🔵 TREINANDO no pod 3090. Corpus fechado (números acima).
-O checkpoint DAPT também é candidato a base do Analista-7B
-(`.ia/ANALISTA.md`).
+**Status: 🔴 BLOCK (03/08/2026, trainpod 4090, 294 min de eval em 3.727 held-out
+`test_mix_v21`).** O critério NÃO foi atingido e o critério não foi afrouxado:
+
+| | SFT-direto (v2.1) | DAPT+SFT | Δ |
+|---|---|---|---|
+| macro v1 | 0,8730 | 0,8736 | **+0,06pp** |
+| macro v2 | 0,9176 | 0,9284 | **+1,08pp** |
+
+Por-campo v1: natureza / cessao / **valor_oficio (0,9235)** idênticos;
+ente_devedor +0,8pp; **`partes` −0,6pp (0,5139→0,5081) — o DAPT PIOROU o campo
+fraco**, que era justamente a hipótese. `adapter_dapt` não promovido; **v2.1
+segue campeão**. O adapter continua no NAS (`out/adapter_dapt`) só como
+candidato a base do Analista-7B (`.ia/ANALISTA.md`) — para o extrator, morreu.
+
+**A lição que vale mais que o experimento:** `valor_oficio` acerta **92% no
+held-out limpo** e deu **0 nos 28 ofícios do processo real de 1,5 GB**. Logo o
+gargalo do valor não é capacidade do modelo — é **documento real + roteamento/
+janelamento + verificação verbatim**. O conserto do valor↔parte é **SDK (#86/P4)**,
+não retrain.
 
 ## 2. Especialistas — adapter por classe fraca
 
@@ -103,8 +124,15 @@ multi-task em **≥2 das 3 classes fracas** por **≥3pp** cada (F1/acc da
 classe no gate). 1 de 3 = interferência não era o problema (é o dado) →
 mata o experimento e investe em gold.
 
-**Status.** 🔵 TREINANDO (pod 3090, sequencial). A comparação só fecha
-DEPOIS do gate v2.1 (baseline multi-task na mesma fatia) — não pré-julgar.
+**Status: 🟠 TREINADO, NÃO GATEADO (triagem 02/09/2026).** Os 7 adapters estão
+no NAS (`llmsv2:/mnt/nas-data/voyager-train/out/adapter_esp_{acordao,cessao,
+decisao,herdeiros,oficio,pagamento,partes_doc}`, 02/08). A GPU foi paga, o
+experimento NÃO foi respondido: **nunca rodou a comparação por-classe contra a
+mesma fatia do test** — que é o experimento inteiro. Falta só rodar
+`eval_gate_v2.py` por fatia (3090 do llmsv2 está livre; não precisa de pod).
+Enquanto não rodar, a hipótese "interferência do multi-task" segue em aberto —
+e a v2.1 fecha ACORDAO 98-100 / CESSAO 98-99, o que já enfraquece a premissa
+(as classes "fracas" do v2 deixaram de ser fracas com o janelamento).
 
 ## 3. DPO-κ — preferências da fila de divergência
 

@@ -6,7 +6,7 @@
 > entity-centric (`FICHA_PARTE.md`). Se você é um agente começando: **leia isto
 > primeiro**, depois abra o específico.
 >
-> Última consolidação: **2026-08-01**.
+> Última consolidação: **2026-09-02** (triagem de pendências de ML).
 
 ---
 
@@ -36,7 +36,8 @@ lever real foi **janelamento de docs longos**, não a base. Ver `LABLOG.md`.
 | **v2 "Ficha da Parte"** | 28-29/07 | PARCIAL — **ACORDAO 16%** | Causa = docs longos **dropados** do treino (>4096 tok). Lever confirmado: **janelar**. Extração vira por-DOCUMENTO (entity-centric). |
 | **v2.1** (CAMPEÃO) | 30-31/07 | **PASS macro 91,76** (loss 0,0082) | Janelamento recuperou 37k exemplos longos (dataset 211.928). Buracos do v2 tapados. GGUF md5 `0012607b1634e7b8f96c8f6a9d7bad21`. |
 | **A/B Qwen3-8B** | 31/07 | 🔴 **BLOCK** (+1,6 macro, regride DOC_PESSOAL) | Base alternativa não compensa. Ficamos no Qwen2.5-7B. Serviu pra **matar a dúvida** da base. |
-| **v2.2 (herdeiros)** | 31/07→ | 🔵 em treino/gate | Gold de herdeiros re-rotulado com professor (**DeepSeek** venceu bake-off); docs com herdeiro 25%→49% (363 recuperados). Corrige a fraqueza de herdeiros do v2.1. |
+| **v2.2 (herdeiros)** | 31/07→ | ⚫ **NÃO FECHOU** | Gold re-rotulado com professor (**DeepSeek** venceu o bake-off); docs com herdeiro 25%→49% (363 recuperados). **O dado está pronto no NAS (`data/*_v22.jsonl`); o `adapter_v22` NÃO existe** — o pod 4090 foi destruído com o treino em voo. Retomar = subir GPU e rodar (não é pesquisa nova). |
+| **DAPT** | 02-03/08 | 🔴 **BLOCK** | SFT-sobre-DAPT não bate SFT-direto: v2 macro +1,08pp, v1 +0,06pp (critério ≥+2pp) e **`partes` PIORA** (0,5139→0,5081). Pré-treino no dialeto próprio não paga o custo. Ver `EXPERIMENTOS_MODELO.md` §1. |
 
 **Métrica barata mente (meta-lição recorrente — já bateu 5×):** bit-index sample,
 herdeiros gold, vetorizados SET, docs-as-exhaustion, embed-probe. **Decidir só no
@@ -45,19 +46,28 @@ hash-CNJ (`eval_gate_v2.py`).
 
 ---
 
-## 3. Experimentos em curso (detalhe em `EXPERIMENTOS_MODELO.md`)
+## 3. Experimentos — situação REAL (detalhe em `EXPERIMENTOS_MODELO.md`)
 
-| # | Experimento | Hipótese | Critério pré-registrado | Status (01/08) |
+Nenhum está em curso. Um morreu no gate, um está pago e não medido, dois nunca
+dispararam:
+
+| # | Experimento | Hipótese | Critério pré-registrado | Status (02/09) |
 |---|---|---|---|---|
-| 1 | **DAPT** (pré-treino continuado) | adaptar ao texto dos autos (OCR/tabelas DEPRE) antes do SFT sobe tudo | bater SFT-direto no mesmo held-out | 🔵 **~92%** (step 3502/3814, loss 0,5585) |
-| 2 | **Destilação 3B** | nas classes fortes (ALVARA/PAGAMENTO 99-100) um 3B basta | aluno ≥ professor−2pp nas fortes | 🟡 harness pronto; dispara pós-gate |
-| 3 | **DPO-κ** | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura >2pp | 🟡 dataset pronto (2.688 pares) |
-| 4 | **Especialistas LoRA** (adapter por classe fraca) | ACORDAO/CESSAO/herdeiros ganham com adapter dedicado | bater multi-task por classe no gate | ✅ 7 adapters treinados; comparação pós-gate v2.1 |
+| 1 | **DAPT** (pré-treino continuado) | adaptar ao texto dos autos (OCR/tabelas DEPRE) antes do SFT sobe tudo | bater SFT-direto por ≥+2pp no mesmo held-out | 🔴 **BLOCK (03/08)** — +1,08pp; morto |
+| 2 | **Destilação 3B** | nas classes fortes (ALVARA/PAGAMENTO 99-100) um 3B basta | aluno ≥ professor−2pp nas fortes | 🟡 harness pronto; **nunca rotulou** (professor definido desde 31/07) |
+| 3 | **DPO-κ** | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura >2pp | 🟡 dataset pronto (2.688 pares); **nunca treinou** |
+| 4 | **Especialistas LoRA** (adapter por classe fraca) | ACORDAO/CESSAO/herdeiros ganham com adapter dedicado | bater multi-task por classe no gate | 🟠 7 adapters treinados; **gate NUNCA rodado** — GPU paga, pergunta sem resposta |
 
 **Regra dos experimentos:** nada é promovido sem passar os **gates** (mesmo TEST
 held-out, precisão@cobertura por campo). Gate BLOCK = modelo morre com autópsia
-documentada (não repetir o caminho). Mortos: prompt DSPy/GEPA natureza (Goodhart),
-quantização bit-index (recall BLOCK), pgvectorscale SBQ (limite estrutural).
+documentada (não repetir o caminho). Mortos: **DAPT** (03/08), prompt DSPy/GEPA
+natureza (Goodhart), quantização bit-index (recall BLOCK), pgvectorscale SBQ
+(limite estrutural), A/B Qwen3-8B.
+
+**Corolário que este ciclo escreveu:** gate BLOCK é resultado e é barato; o caro é
+o experimento que fica **sem veredito**. Adapter treinado e nunca gateado (nº 4)
+custou GPU e não respondeu nada — pior que um BLOCK, que pelo menos fecha a
+pergunta.
 
 ---
 
@@ -93,10 +103,16 @@ quantização bit-index (recall BLOCK), pgvectorscale SBQ (limite estrutural).
 | Onde | GPU | Papel | Custo | Acesso |
 |---|---|---|---|---|
 | **llmsv2** (lab, Tailscale) | RTX 3090 24GB | harness de treino/gate, mirror dos repos, empacota GGUF | luz | `ssh ubuntu@llmsv2` |
-| **trainpod** (QuickPod) | RTX 4090 24GB | treinos pesados (v2.2, A/B, DAPT) | ~$0,19-0,31/h | `ssh trainpod` (config pronta) |
+| ~~**trainpod** (QuickPod)~~ | RTX 4090 24GB | treinos pesados (v2.2, A/B, DAPT) | — | 🔴 **MORTO** (02/09: `Permission denied (publickey)` — pod destruído; levou a v2.2) |
 | **pod showcase** (QuickPod) | RTX 5090 32GB | **serve** os GGUF (não treina) | ~$0,50/h | ver `~/VOYAGER_ACCESS.md` §4.1 |
-| **pod 3090** (QuickPod) | RTX 3090 | DAPT + especialistas | ~$0,19/h | — |
-| **voyager-worker-mac** (lab, Tailscale) | Apple **M4** 10-core, 24GB unificados | **serve** GGUF via Metal (não treina) | $0 (hardware próprio) | `ssh davicordeiro@192.168.200.37` · [`GPU_MACOS.md`](GPU_MACOS.md) |
+| ~~**pod 3090** (QuickPod)~~ | RTX 3090 | DAPT + especialistas | — | 🔴 **MORTO** (adapters salvos no NAS antes de cair) |
+| **voyager-worker-mac** (lab, Tailscale) | Apple **M4** 10-core, 24GB unificados | **serve** GGUF via Metal (não treina) | $0 (hardware próprio) | 🔴 **offline há 4d em 02/09** — `ssh davicordeiro@192.168.200.37` · [`GPU_MACOS.md`](GPU_MACOS.md) |
+
+**Só sobrou uma GPU viva: a 3090 do `llmsv2`** (02/09: 4 MiB usados, ollama
+desligado, `zordon-extrair` sem timer). Todo trabalho de GPU pendente
+(gate dos especialistas, retreino v2.2, DPO-κ, destilação 3B, servir o GGUF pra
+showcase) cabe nela — a alternativa é subir pod novo e **sincronizar checkpoint
+pro NAS**, que é a lição que a v2.2 pagou.
 
 **Regra ops:** **NÃO treinar onde serve** e **não travar a 3090 do llmsv2** (é
 compartilhada com o bge-m3 da vetorização e com outro projeto). Mover treino pra
@@ -118,18 +134,30 @@ pra demo ao vivo. Detalhe em [`GPU_MACOS.md`](GPU_MACOS.md).
 
 ---
 
-## 6. Estado ATUAL dos treinos (snapshot 2026-08-01 ~19:53)
+## 6. Estado ATUAL dos treinos (verificado 2026-09-02 na fonte, não na UI)
 
-Fonte ao vivo: scheduler grava `treinos_status.json`; UI em `/dashboard/treinos`
-("Sala de Controle"). Contadores: 1 rodando · 9 concluídos · 4 na fila · ~$0,19/h.
+⚠️ **Nada está treinando.** Verificado por SSH no harness
+(`llmsv2:/mnt/nas-data/voyager-train/out/`) e nos pods:
 
-| Run | Estado | Loss | Nota |
-|---|---|---|---|
-| **v2.1** (Qwen2.5-7B QLoRA) | ✅ done (3045/3045) | **0,0082** | CAMPEÃO, empacotado, servindo |
-| **A/B Qwen3-8B** | ✅ done (3044/3045) | 0,0109 | reprovou gate → arquivado |
-| **7 Especialistas LoRA** | ✅ done | — | comparação por-classe pós-gate |
-| **DAPT** | 🔵 **91,8%** (3502/3814) | 0,5585 | quase fechando |
-| DPO-κ · Destilação 3B · Bake-off · Analista | ⏳ fila | — | disparam em sequência |
+| Run | Estado | Evidência |
+|---|---|---|
+| **v2.1** (Qwen2.5-7B QLoRA) | ✅ CAMPEÃO, empacotado | `out/extrator-v21-Q4_K_M.gguf` + `adapter_v21` |
+| **A/B Qwen3-8B** | 🔴 reprovou o gate → arquivado | +1,6 macro < 2 |
+| **7 Especialistas LoRA** | 🟠 treinados, **sem gate** | `out/adapter_esp_*` (7 dirs, 02/08) |
+| **DAPT** | 🔴 **BLOCK** | `out/adapter_dapt` (02/08); veredito 03/08 |
+| **v2.2 (herdeiros)** | ⚫ **nunca produziu adapter** | `data/*_v22.jsonl` existem; **`out/adapter_v22` não existe** |
+| DPO-κ · Destilação 3B | 🟡 dataset/harness prontos, nunca dispararam | — |
+
+**Infra:** `trainpod` (4090) e o pod 3090 **não respondem mais** (chave recusada /
+destruídos). O `voyager-worker-mac` que servia os GGUF está **offline há 4 dias** —
+`/dashboard/ia/showcase` não tem modelo atrás dele. A **3090 do llmsv2 está LIVRE**
+(4 MiB usados, ollama desligado): é a GPU disponível hoje, e é onde o gate dos
+especialistas e o retreino da v2.2 caberiam sem custo de pod.
+
+> **Lição operacional deste ciclo:** treino em pod efêmero sem checkpoint
+> sincronizado para o NAS = trabalho que evapora com o pod. A v2.2 tem o dado
+> caro (relabel com professor, κ 9/10) e não tem o modelo. Sincronizar
+> checkpoint → NAS é pré-requisito de qualquer treino novo em pod.
 
 ---
 
@@ -139,12 +167,17 @@ Fonte ao vivo: scheduler grava `treinos_status.json`; UI em `/dashboard/treinos`
   **2026-08-07** servido no **`voyager-worker-mac`** (Mac mini M4, Metal) em
   `100.105.16.107:8003`, junto de v1 (`:8001`) e v2 (`:8002`) — o pod 5090
   (`159.48.242.22:3200x`) saiu do ar. Ver [`GPU_MACOS.md`](GPU_MACOS.md).
+  ⚠️ **02/09/2026: o Mac está OFFLINE (last seen 4d) e as 3 portas não respondem
+  — a showcase está sem modelo.** Religar o Mac ou subir `llama-server` na 3090
+  livre do llmsv2 antes de prometer demo.
   ⚠️ ~1 ordem de grandeza mais lento (22,9 t/s vs ~150-200 da 5090).
 - A tela `/dashboard/ia/showcase` chama via proxy Django (`settings.SHOWCASE_MODELOS`).
 - **v2.2** entra no slot `:32004` quando gatear (`/opt/extrator/add_v22.sh`).
-- **Tier-2 modelo-decisor** (classificador híbrido) existe atrás de flag
-  `ARBITRO_MODELO` mas está **OFF** (A/B: 0 ganho + 50% mais lento em 1 doc;
-  reavaliar em lote).
+- **Tier-2 modelo-decisor** (classificador híbrido, task #85) existe atrás de
+  flag `ARBITRO_MODELO`, com testes, e está **OFF**. A decisão de manter OFF
+  repousa num A/B de **1 documento** (0 ganho, 50% mais lento) — pela regra da
+  casa isso é *dica*, não gatilho. Reavaliar exige lote rotulado (κ de
+  segmentação), não outra rodada de opinião.
 
 ---
 

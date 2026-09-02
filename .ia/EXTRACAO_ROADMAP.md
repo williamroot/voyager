@@ -128,10 +128,27 @@ Arquitetura já é embaraçosamente paralela (cada janela = chamada LLM independ
   (o merger tem os doc_ids) pra virar dado persistido, não só render.
 - **Gate:** precisão de OAB e de lado numa amostra; abstém quando ambíguo.
 
-## P6 — Passada de verificação (verbatim cross-check)  · qualidade · esforço M
+## P6 — Passada de verificação (verbatim cross-check)  · qualidade · ✅ FEITA (02/09)
 
-Task #86. Depois de extrair, 2º passe confirma cada campo lendo o contexto; mecânica
-verifica verbatim; abstém se não bate. Paga a latência em precisão (norma do usuário).
+Task #86. `extrator/verbatim.py`: todo LITERAL emitido (valor, data, nome,
+**vara/órgão**, CPF/CNPJ/OAB) tem de existir no texto DAQUELE doc; não existe →
+`null` + proveniência em `saida["verbatim"]`. Campo SEMÂNTICO (natureza, desfecho,
+papel, vínculo pessoa↔doc, classe) fica com o modelo. Rodado no caminho principal
+(`_processar_doc`) **e** nos 7 leitores dedicados.
+
+**A cobertura é contrato testado**, não lista mantida na mão: `GUARDAS_ESCALARES ∪
+CAMPOS_COMPOSTOS ∪ CAMPOS_SEMANTICOS` tem de ser exatamente `ABSTENCAO_VAZIA`;
+campo/tarefa novo sem decisão quebra a suíte (`tests/test_verbatim_cobertura.py`,
+mutação + controle nos 30 campos escalares).
+
+**Medido (autos reais 0027335, 150 págs):** vara de outro processo → 15/15 caem;
+vara certa → sobrevivem as 2 atribuições que o doc PROVA (as outras 13 eram
+transporte de contexto). A ficha não perde a vara (merger dedupa por nome canônico)
+— perde a alegação sem prova.
+
+**Falta desta task (fatias 4 e 5 do enunciado):** ligar o Tier-2 `ARBITRO_MODELO`
+(hoje OFF por um A/B de **1 documento** — dica, não gatilho: precisa de lote
+rotulado) e 2ª leitura / self-consistency nos campos críticos.
 
 ## P7 — O GESTOR (extração orientada a eventos)  · qualidade+custo · esforço G
 

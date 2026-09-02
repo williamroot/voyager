@@ -8,6 +8,115 @@ Formato: cada entrada = o que aconteceu + (quando for regresso) a **lição**.
 
 ---
 
+## 02/09 — Triagem das 7 pendências de ML + o buraco da vara (task #86)
+
+Sete tarefas de ML/extração abertas há semanas. O trabalho do dia foi **decidir
+quais ainda existem** — e uma delas rendeu conserto.
+
+### O que a triagem achou (evidência, não impressão)
+
+- **#23 (features extras no modelo DC→precatório)** — já respondida pela #25 e o
+  veredito é NEGATIVO: Cox com as mesmas features deu **C-index 0,688**, igual ao
+  KM servido, e só `log_valor` era novo (`.ia/JURIMETRIA.md` §Freshness). Mas o
+  dataset **já emite** tribunal/valor/órgão/classe/assunto
+  (`scripts/treinar_sobrevivencia_dataset.py`) e o fit **ignora tudo**
+  (`feats = ['ente_tipo','natureza']`). Ou seja: a pergunta do #23 continua
+  literalmente sem resposta — falta 1 linha de código e 1 varredura dupla de DB.
+- **#45 (Qwen2.5-7B + grammar no `llm.py`)** — meio obsoleta. O extrator que roda
+  de verdade (`zordon acervo/extrator_metadados.py`) **já** usa
+  `qwen2.5:7b-instruct-q4_K_M`; quem ficou no `gpt-oss:20b` é o `acervo/llm.py`
+  do caminho RAG — e esse caminho é o que o **DSPy tentou melhorar e levou BLOCK**.
+  O que sobra de válido é a outra metade do enunciado (grammar/JSON-Schema, enum
+  fechado, gate de confiança): nenhum dos dois caminhos tem, os dois usam JSON
+  livre. Metade morta, metade viva.
+- **#47 (`stream_extract.py` + watchdog)** — não existe em lugar nenhum
+  (`git ls-tree origin/main` do zordon: só `stream_backfill.py`). Vale, mas
+  **está atrás de #48**: orquestrar volume antes de medir precisão é fabricar
+  59k linhas em que ninguém confia.
+- **#48 (precisão@cobertura vs Juriscope)** — não existe harness. É a mais
+  importante das três, e o gate do DAPT explica por quê: `valor_oficio` acerta
+  **92% no held-out limpo** e deu **0 nos 28 ofícios do processo real de 1,5 GB**.
+  Held-out não é campo. Sem #48 não existe número que diga se a extração presta
+  no acervo de verdade — e é isso que #47 iria multiplicar por 59 mil.
+- **#61 (DSPy F3-4)** — a F2 fechou **BLOCK** (Goodhart: +30,8pp vs Falcon,
+  −37,5pp vs texto, McNemar p≈1e-23). A metade "promover" morreu com ela. A
+  metade que sobrevive (**adjudicar os 63 resíduos `falcon_disagree` com κ** para
+  estimar o ε do Falcon) não é DSPy — é a régua, e vale por si.
+- **#85 (classificador híbrido)** — **feita**: Tier-1 regex-guia + Tier-2 árbitro
+  on-device com enum fechado e abstenção (`pipeline._arbitrar_classes`,
+  `classificador.classificar_pagina_hibrido`), testes cobrindo ligado/desligado/
+  abstém. Fica OFF — mas o A/B que sustenta esse OFF é de **1 documento**.
+- **#86** — parcialmente feita, com um buraco de verdade. Ver abaixo.
+
+### O buraco: a vara nunca foi guardada
+
+A passada verbatim (`extrator/verbatim.py`, commit d8f3951) guardava valor, data,
+nome e CPF/CNPJ/OAB — e deixava passar **três literais** rotulados no código como
+"semântico": `oficio.vara_expedidora`, `decisao.vara_comarca`,
+`acordao.orgao_julgador`. Não são semânticos: são cópia do cabeçalho do ato. E são
+**o erro nº 1 já medido**: "vara plausível trocada" é o maior balde do dataset
+DPO-κ — **1.163 dos 2.688 pares**. Ou seja, sabíamos qual era o erro dominante e
+tínhamos deixado exatamente esse campo sem guarda.
+
+**Medido no PDF real dos autos 0027335-97.2021.8.26.0053** (150 págs → 49 docs):
+
+| cenário | atribuições de vara | sobrevivem |
+|---|--:|--:|
+| modelo diz a vara CERTA em todo doc | 15 | **2** |
+| modelo diz vara de OUTRO processo | 15 | **0** |
+
+Só **2 dos 15 documentos escrevem a vara**; nos outros 13 o modelo a transportava
+de outro lugar. E o custo disso na ficha é **zero**: o merger dedupa vara por nome
+canônico, então a ficha continua com `15ª Vara da Fazenda Pública` — muda só o
+`doc_ids`, de 15 documentos alegados para os 2 que provam.
+
+**O risco real não era deixar passar, era abster demais.** A primeira versão
+reprovou o próprio controle: `Décima Quinta Vara` não casava com `15ª Vara`
+(a canonização NFKD transforma `15ª` em `15A`). Fix: ordinal reduzido a número
+dos **dois lados** (`15ª`→`15`, `Décima Quinta`→`15`, `QUINTA`→`5`). Controle com
+as 6 grafias que aparecem no PDF real: **6/6 sobrevivem**; 3 varas de outro
+processo: **3/3 caem**.
+
+### A cobertura virou contrato (é o que faltava)
+
+`guardar_saida` era uma cadeia de `if/elif` — e cadeia de `if` não tem como provar
+que cobre tudo. Virou tabela (`GUARDAS_ESCALARES`) mais dois registros explícitos
+(`CAMPOS_COMPOSTOS`, `CAMPOS_SEMANTICOS`), e `tests/test_verbatim_cobertura.py`
+exige que a união dos três seja **exatamente** `ABSTENCAO_VAZIA`: tarefa ou campo
+novo sem decisão **quebra a suíte**. Em cima disso, para cada um dos 30 campos
+escalares: mutação (literal fabricado cai + deixa flag) e **CONTROLE** (literal
+verdadeiro sobrevive) — sem o controle, uma guarda que abstém de tudo "passaria".
+Gate conferido por mutação: desligar `orgao_verbatim` → 7 falhas; tirar um campo
+da tabela → 2 falhas.
+
+- 💥 **Achado de manutenção: a suíte do SDK estava VERMELHA na `main` desde
+  04/08** (3 testes). Os 7 leitores dedicados entraram e o invariante
+  `test_instrucoes_cobrem_as_7_tarefas` passou a falhar — e ficou falhando.
+  **Lição: invariante que falha e ninguém conserta deixa de ser invariante; vira
+  ruído que esconde o próximo.** Os 3 voltaram a afirmar o contrato novo (14
+  tarefas = 7 roteadas + 7 leitores; 6 chamadas ao LLM asseridas UMA A UMA;
+  homologação implicada do ofício com proveniência explícita). Suíte:
+  **158 passando/3 falhando → 256 passando/0 falhando**.
+
+### O que a triagem achou de infra (pior que o ML)
+
+- **`trainpod` (4090) e o pod 3090 estão destruídos.** O pod 4090 levou junto o
+  treino da **v2.2 (herdeiros)**: o dado caro está no NAS
+  (`data/herd_gold_v22.jsonl`, relabel com professor DeepSeek, κ 9/10),
+  **`out/adapter_v22` não existe**. **Lição: treino em pod efêmero sem checkpoint
+  sincronizado pro NAS é trabalho que evapora com o pod.**
+- **Os 7 adapters especialistas (`out/adapter_esp_*`) foram treinados e o gate
+  NUNCA rodou.** GPU paga, pergunta sem resposta. **Um BLOCK é um resultado; um
+  experimento sem veredito é só custo.**
+- **`voyager-worker-mac` offline há 4 dias** e as 3 portas do llama-server mudas →
+  `/dashboard/ia/showcase` está sem modelo atrás. A **3090 do llmsv2 está livre**
+  (4 MiB, ollama desligado): é a única GPU viva.
+- **A extração recorrente não roda mais**: sem timer `zordon-extrair` no llmsv2,
+  `zordon-db-1` do host de observabilidade parado há 5 semanas, ollama do llmsv2
+  fora. `.ia/MODELOS.md`/`EXPERIMENTOS_MODELO.md`/`TREINAMENTOS.md` diziam
+  "🔵 treinando" para tudo isso — **doc que descreve um estado que morreu é pior
+  que doc ausente: convida a retomar um experimento já enterrado.** Corrigidos.
+
 ## 01/08 — Showcase do Extrator: pipeline completo + jurimetria na ficha
 
 Tela investidor `/dashboard/ia/showcase` (IA LABS) fechada ponta-a-ponta, validada

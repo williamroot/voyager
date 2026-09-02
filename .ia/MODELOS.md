@@ -11,10 +11,10 @@
 | extrator-precatorio | **v1** | 🟡 empacotado (gate PASS, não deployado) | GGUF Q4_K_M `01cd53ff…ebf2` | llmsv2 `/mnt/nas-data/voyager-train/out/` |
 | extrator-precatorio | **v2 "Ficha da Parte"** | 🟡 gate PARCIAL — empacotado (amostra κ: ver card v2) | GGUF Q4 `59db32db…1de3` · adapter `5206de77…b333` | llmsv2 `out/precatorio-extrator-v2-q4_k_m.gguf` + `Modelfile.v2` |
 | extrator-precatorio | **v2.1** | 🟡 **gate PASS macro 91,76 — empacotado (CAMPEÃO)** | GGUF Q4_K_M `0012607b1634e7b8f96c8f6a9d7bad21` · `adapter_v21` | llmsv2 `out/extrator-v21-Q4_K_M.gguf` (4,68GB) |
-| extrator-precatorio | **v2.2 (herdeiros)** | 🔵 treinando (gold re-rotulado DeepSeek; test corrigido) | `adapter_v22` (em treino) | pod 4090 |
+| extrator-precatorio | **v2.2 (herdeiros)** | ⚫ **NÃO FECHOU** — dado pronto, adapter inexistente (o pod 4090 morreu com o treino) | dados `data/{herd_gold,train_mix,test_mix}_v22.jsonl` no NAS; **sem `adapter_v22`** | llmsv2 (dados) · pod 4090 **destruído** |
 | extrator-precatorio | **A/B Qwen3-8B** | 🔴 **gate não passou** (+1,6 macro <2; regride DOC_PESSOAL) → fica no Qwen2.5-7B | `adapter_ab_qwen3_v21` | pod 4090 |
-| extrator-precatorio | **especialistas** | 🔵 treinando (7 adapters sequenciais) | `adapter_esp_*` | pod 3090 ($0,186/h) |
-| extrator-precatorio | **DAPT** | 🔵 treinando (~76,5h) | adapter DAPT r=64 all-linear | pod 3090 ($0,19/h) |
+| extrator-precatorio | **especialistas** | 🟠 **7 adapters treinados, gate NUNCA rodado** — sem comparação por-classe, não decide nada | `adapter_esp_{acordao,cessao,decisao,herdeiros,oficio,pagamento,partes_doc}` | llmsv2 `out/` |
+| extrator-precatorio | **DAPT** | 🔴 **gate BLOCK (03/08)** — SFT-sobre-DAPT não bate SFT-direto: v2 macro **+1,08pp**, v1 **+0,06pp** (critério era ≥+2pp); `partes` até PIORA (0,5139→0,5081) | `adapter_dapt` (r=64 all-linear, 646MB) — **não promovido** | llmsv2 `out/adapter_dapt` |
 | classificador-leads | v7 | 🟢 ativa | — | ver `.ia/CLASSIFICACAO.md` |
 | emulador-autos (GBM) | — | ⚪ planejado | — | ver `.ia/EMULADOR_AUTOS.md` |
 | **estagio-credito (GBM)** | **estagio_v1** | 🟡 gate PASS (EMITIDO p=0,954 · MORTO p=0,926 · thr_morto 0,80) — empacotado, não plugado em views | joblib `6bf0c7a4…9e36` | curiosity `voyager/scripts/estagio/out/` · lib `tribunals/estagio.py` · doc `.ia/ESTAGIO_CREDITO.md` |
@@ -30,12 +30,15 @@
 | `estagio_labels.jsonl.gz` | `658258043d640b556a6e2c98eb6f2759` | 820.777 rótulos de estágio (supervisão cruzada autos×Falcon, evidências auditáveis) | voyager `scripts/estagio/build_labels.py` (roda no zordon) |
 | `estagio_features.csv.gz` | `c80691c8e69de3c23371b3af1529a39d` | 99.667 linhas de features 100% públicas (snapshot 2026-07-30) | voyager `scripts/estagio/build_features.py` (roda no host voyager) |
 
-Status: 🟢 ativa · 🟡 empacotado/shadow · 🔵 treinando · 🔴 morto (gate BLOCK) · ⚪ planejado
+Status: 🟢 ativa · 🟡 empacotado/shadow · 🔵 treinando · 🟠 artefato sem gate ·
+🔴 morto (gate BLOCK) · ⚫ interrompido sem veredito (≠ morto: ninguém mediu) ·
+⚪ planejado
 
-Mortos com autópsia (não repetir o caminho): prompt DSPy/GEPA natureza (Goodhart,
-`.ia/RAG_EVAL_OBS.md`), quantização bit-index (gate recall BLOCK,
-`.ia/QUANTIZACAO_INDICE_VETORIAL.md`), pgvectorscale SBQ (limite estrutural >930d,
-`.ia/PGVECTORSCALE_SBQ.md`).
+Mortos com autópsia (não repetir o caminho): **DAPT** (gate BLOCK 03/08 — o
+pré-treino no dialeto próprio não paga o custo; `.ia/LABLOG.md`), prompt DSPy/GEPA
+natureza (Goodhart, `.ia/RAG_EVAL_OBS.md`), quantização bit-index (gate recall
+BLOCK, `.ia/QUANTIZACAO_INDICE_VETORIAL.md`), pgvectorscale SBQ (limite estrutural
+>930d, `.ia/PGVECTORSCALE_SBQ.md`), A/B Qwen3-8B (base alternativa não compensa).
 
 ---
 
