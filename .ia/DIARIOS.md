@@ -1320,6 +1320,24 @@ seguidas** de `lock_timeout='3s'` perderam. Quem for aplicar ALTER em
 `tribunals_process` planeje o laço em HORAS, não em minutos — e não troque
 isso por um teto maior.
 
+**Aplicada em produção em `2026-09-02 01:13:58 UTC`**, pelo worker (nunca pelo
+boot do `web`). Conferido por coluna logo depois:
+
+    classe_cnj_codigo  DEFAULT ''::character varying
+    classe_cnj_nome    DEFAULT ''::character varying
+    fase_codigo        DEFAULT ''::character varying
+    fase_nome          DEFAULT ''::character varying
+    grau               DEFAULT ''::character varying
+    fase_em            NULL   (nullable, e continua sem default — está certo)
+
+E a prova de que a rede pega o escritor atrasado — um `INSERT` cru que **não
+nomeia nenhuma das cinco**, exatamente o que o Django de um container velho
+emite, dentro de uma transação revertida:
+
+    INSERT INTO tribunals_process (numero_cnj, tribunal_id, …) VALUES (…)
+      RETURNING id, grau, classe_cnj_codigo, classe_cnj_nome, fase_codigo, fase_nome, fase_em
+    → (106503467, '', '', '', '', '', None)      ← ANTES da 0057: NotNullViolation
+
 **A catraca — que é o que faltava.** A regra ("coluna NOT NULL nova em tabela
 que já tem escritor em produção NUNCA fica sem `DEFAULT` no banco") já estava
 escrita em `.ia/OPS.md` desde **25/08**. A `0054` a repetiu **seis dias
@@ -1350,10 +1368,17 @@ outra bomba armada hoje; a catraca é para a de amanhã.
 | `IngestionRun` | quando | movs novas | processos novos |
 |---|---|---:|---:|
 | 238925 / 238926 / 238927 | 02/09 00:48-00:49 (antes) | **0** | **0** |
-| 238929 (mesma unidade, `4123-15`) | 02/09 01:01 (depois) | **36.978 e subindo** | **9.142** |
+| 238929 (mesma unidade, `4123-15`) | 02/09 01:01 (depois) | **45.464** | **9.142+** |
 
-A mesma edição que falhava em 3-16 s passou a gravar dezenas de milhares de
-linhas. As 3 falhas anteriores e o sucesso posterior são da MESMA chave.
+A edição `4123-15` (15/01/2025, caderno 4 — Interior Parte III) fechou **`ok`
+com 45.464 `itens_gravados` e 0 duplicados**. As três falhas anteriores e o
+sucesso posterior são da MESMA chave, no MESMO caderno: antes ela morria em
+3-16 s no primeiro `bulk_create`, com 0.
+
+Ressalva de leitura: sob a contenção medida no §14.3 (backfill de `fase` em 4
+processos + agregações de ~1.000 s) o caderno levou **~50 min**, contra os
+99-498 s medidos em 24/08 — a terceira porta divide I/O com o resto e é a
+primeira a sentir.
 
 ### 14.5 Veredito da segmentação — as 2 falhas que NÃO eram o INSERT
 
@@ -1450,6 +1475,35 @@ terceira porta tem dois DÉCIMOS de um por cento** do DJE/TJSP na faixa que já
 catalogou, e menos de **0,2%** da jazida inteira. `doe-sp` e `qd-municipal`,
 com **1 edição cada, do mesmo dia (21/08/2026)**, são prova de conceito, não
 coleta — e a `doe-sp` fechou `vazia`.
+
+### 14.6b O reprocessamento das 307 — o que foi feito e a que custo
+
+As **305** unidades que a `NotNullViolation` fechou (256 `falha` + 49
+`pendente`, medidas às 01:11 UTC) foram reabertas com
+`status='pendente', tentativas=0` — sem isso o `tick` nunca mais tocaria nelas,
+porque `MAX_TENTATIVAS=5` e 250 já estavam em 5 — e enfileiradas na `diarios`.
+As **2** de segmentação ficaram FORA, de propósito (§14.5).
+
+**Por que enfileirar direto, e não esperar o orçamento:** o teto de 8
+unidades/24 h existe pela projeção de disco do §13.2, e ela é sobre **26.392**
+unidades (~772 GB). Estas 305 valem, à média medida de ~25 mil linhas por
+caderno, ~7,6 M linhas ⇒ **~8 GB de índice** contra **995 GB livres** no nó de
+ES: +0,3 ponto percentual de disco. O orçamento não é o instrumento certo para
+frear um lote deste tamanho, e o kill switch (`diarios_pausar tjsp-dje`)
+continua a um comando de distância. Verificados antes de soltar, os 10
+critérios do §13.7 que se pode medir: ES em 66% (teto 85), `write.rejected` 0,
+fila `es_index` em 0 (teto 5.000), load1 da `.102` em 5,5 (teto 40),
+`MemAvailable` 17,7 GiB (piso 6).
+
+**A vazão real, e ela é o número desagradável:** ~50 min por caderno com 2
+réplicas, contra os 99-498 s medidos em 24/08. O gargalo não é a fonte nem a
+CPU — é o Postgres, dividido com o backfill de `fase` (4 processos) e com
+agregações de ~1.000 s. Nesse ritmo as 305 levam **dias**, não horas. Quem
+retomar mede pelo par
+`EdicaoDiario.status` + `sum(IngestionRun.movimentacoes_novas WHERE id > 238932)`,
+que é a linha de base congelada às 01:11:20 UTC de 02/09/2026:
+
+    baseline .... ok 62 · itens_gravados 1.815.386 · runs tjsp-dje 1.312 failed / 73 success
 
 ### 14.7 O que NÃO foi feito, e por quê
 
