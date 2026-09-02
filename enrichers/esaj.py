@@ -278,6 +278,16 @@ class BaseEsajEnricher:
     #: real — teto é alerta, nunca corte mudo.
     MAX_INCIDENTES = 100
 
+    #: Teto de TEMPO do seguimento, em segundos. O teto de CONTAGEM sozinho não
+    #: protege o job: `ENRICH_TIMEOUT` é 300 s e o `_emit` do processo-pai só
+    #: acontece DEPOIS de seguir os incidentes — um processo com 100 incidentes
+    #: num pool degradado (medido em 02/09/2026: 9,2 s por requisição com
+    #: rotação) estouraria os 300 s e perderia TAMBÉM o cadastro do pai, que já
+    #: estava na mão. 240 s cabe dentro do timeout dos jobs que já estão na
+    #: fila, e num pool saudável (2 a 3 s) ainda compra ~80 a 100 incidentes.
+    #: Atingir o teto é ERRO com o número real, como o de contagem.
+    BUDGET_INCIDENTES_S = 240
+
     #: Faixas de CNJ que ESTE e-SAJ comprovadamente não tem — o tribunal roda um
     #: SEGUNDO sistema (eproc). `(prefixo, ano_mínimo, motivo)`; vazio = sem
     #: segunda fonte medida (abster > chutar). Ver `enrichers/faixas.py`.
@@ -517,7 +527,20 @@ class BaseEsajEnricher:
                 self.MAX_INCIDENTES, total,
                 extra={'incidentes_total': total, 'teto': self.MAX_INCIDENTES})
         fichas, falhas = [], 0
+        prazo = time.monotonic() + self.BUDGET_INCIDENTES_S
+        estourou_tempo = False
         for href in hrefs[:self.MAX_INCIDENTES]:
+            if time.monotonic() > prazo:
+                # Não é corte mudo: o pai é emitido com o que deu, e o número
+                # real vai para o log e para o censo do resultado.
+                estourou_tempo = True
+                self.logger.error(
+                    'teto de TEMPO do seguimento atingido: %s de %s incidentes '
+                    'lidos em %ss — o resto deste crédito não foi visto',
+                    len(fichas), total, self.BUDGET_INCIDENTES_S,
+                    extra={'incidentes_total': total, 'lidos': len(fichas),
+                           'budget_s': self.BUDGET_INCIDENTES_S})
+                break
             try:
                 ihtml = self._fetch_incidente(href)
             except Exception:
@@ -548,7 +571,8 @@ class BaseEsajEnricher:
             self._merge_partes(partes, ficha['partes'], fonte=FONTE_INCIDENTE)
             fichas.append({k: v for k, v in ficha.items() if k != 'partes'})
         return {'total': total, 'lidos': len(fichas), 'falhas': falhas,
-                'truncado': truncado, 'fichas': fichas}
+                'truncado': truncado or estourou_tempo,
+                'estourou_tempo': estourou_tempo, 'fichas': fichas}
 
     @staticmethod
     def _merge_partes(dest: dict, novo: dict, fonte: str = '') -> None:

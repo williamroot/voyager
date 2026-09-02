@@ -223,7 +223,7 @@ def test_censo_de_incidentes_do_pai_real():
     partes = {'ativo': [], 'passivo': [], 'outros': []}
     censo = e._agregar_incidentes(soup, partes)
     assert censo == {'total': 7, 'lidos': 7, 'falhas': 0, 'truncado': False,
-                     'fichas': censo['fichas']}
+                     'estourou_tempo': False, 'fichas': censo['fichas']}
     assert len(censo['fichas']) == 7
     # As partes do incidente entraram no pai, com o ente devedor no passivo.
     assert 'MUNICÍPIO DE SÃO JOSÉ DO RIO PRETO' in [p['nome'] for p in partes['passivo']]
@@ -282,3 +282,34 @@ def test_incidente_ilegivel_conta_como_falha_e_nao_some():
     assert censo['lidos'] == 0
     assert censo['falhas'] == 7
     assert censo['total'] == 7
+
+
+def test_teto_de_TEMPO_tambem_e_erro_e_o_pai_sobrevive():
+    """O teto de contagem sozinho não protege o job.
+
+    `ENRICH_TIMEOUT` é 300 s e o `_emit` do processo-pai só acontece DEPOIS do
+    seguimento: um processo com 100 incidentes num pool degradado (9,2 s por
+    requisição, medido em produção em 02/09/2026) estouraria o job e perderia
+    também o CADASTRO DO PAI, que já estava na mão. O budget corta o
+    seguimento, registra ERRO com o número real e devolve o que leu."""
+    from bs4 import BeautifulSoup
+    e = _EnricherDeTeste(_ler('esaj_incidente_precatorio.html'))
+    e.BUDGET_INCIDENTES_S = 0.0001          # o prazo vence no 1º incidente
+    soup = BeautifulSoup(_ler('esaj_cpopg_detalhe_com_incidentes.html'), 'html.parser')
+    censo, erros = _erros_do(e, soup, {'ativo': [], 'passivo': [], 'outros': []})
+    assert censo['total'] == 7
+    assert censo['estourou_tempo'] is True
+    assert censo['truncado'] is True, 'quem estourou o tempo também viu pela metade'
+    assert censo['lidos'] < 7
+    assert erros and 'TEMPO' in erros[0] and '7' in erros[0]
+
+
+def test_dentro_do_budget_nao_grita():
+    """Controle negativo: com prazo folgado, nenhum erro e tudo lido."""
+    from bs4 import BeautifulSoup
+    e = _EnricherDeTeste(_ler('esaj_incidente_precatorio.html'))
+    soup = BeautifulSoup(_ler('esaj_cpopg_detalhe_com_incidentes.html'), 'html.parser')
+    censo, erros = _erros_do(e, soup, {'ativo': [], 'passivo': [], 'outros': []})
+    assert censo['estourou_tempo'] is False
+    assert censo['lidos'] == 7
+    assert erros == []
