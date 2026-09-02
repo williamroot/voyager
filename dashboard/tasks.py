@@ -197,6 +197,29 @@ def warm_enriquecimento():
 _LEADS_PERIODOS = [7, 30, 90, 365]
 
 
+def leads_warm_alvos():
+    """Os pares (key, dias) que o warm precisa computar — e só eles.
+
+    Só `timeseries` e `funnel` mudam com o período; as outras quatro ignoram
+    `dias` (ver `LEADS_KEYS_COM_DIAS` em views.py). Manter o laço antigo (4
+    períodos × 6 keys) com a chave normalizada computaria 24 payloads pra
+    popular 12 chaves: 12 varreduras pesadas gravando por cima do MESMO
+    valor, cada uma segurando uma thread do scheduler por dezenas de segundos
+    (medido 01/09/2026: `by-tribunal` 41-76 s, `calibration` 35-91 s).
+
+    Função separada (e não inline no `_run`) de propósito: é o que o teste
+    importa pra conferir que o warm escreve exatamente as chaves que a view
+    lê. Régua embutida no `_run` não é régua — é cópia da lógica.
+    """
+    from .views import LEADS_CHART_KEYS, LEADS_KEYS_COM_DIAS
+
+    alvos = [(ck, d) for d in _LEADS_PERIODOS for ck in LEADS_CHART_KEYS
+             if ck in LEADS_KEYS_COM_DIAS]
+    alvos += [(ck, _LEADS_PERIODOS[0]) for ck in LEADS_CHART_KEYS
+              if ck not in LEADS_KEYS_COM_DIAS]
+    return alvos
+
+
 @job('warm', timeout=2400)
 def warm_leads_charts():
     """Pré-aquece os widgets da /dashboard/leads/ no filtro default
@@ -208,18 +231,17 @@ def warm_leads_charts():
     ficava presa em 'ACQUIRING SIGNAL'. Mesmo padrão de warm_charts_pesados.
     """
     def _run():
-        from .views import LEADS_CHART_KEYS, compute_leads_chart, leads_cache_key
-        for dias in _LEADS_PERIODOS:
-            for ck in LEADS_CHART_KEYS:
-                try:
-                    def _go(c=ck, d=dias):
-                        data = compute_leads_chart(c, None, None, d, 'juriscope')
-                        cache.set(leads_cache_key(c, None, None, d, 'juriscope'),
-                                  data, timeout=_WARM_TTL)
-                    _with_timeout(1800, _go)
-                except Exception as e:
-                    logger.warning('warm_leads_charts %s/d=%s: %s', ck, dias, e)
-                    _reset_connection()
+        from .views import compute_leads_chart, leads_cache_key
+        for ck, dias in leads_warm_alvos():
+            try:
+                def _go(c=ck, d=dias):
+                    data = compute_leads_chart(c, None, None, d, 'juriscope')
+                    cache.set(leads_cache_key(c, None, None, d, 'juriscope'),
+                              data, timeout=_WARM_TTL)
+                _with_timeout(1800, _go)
+            except Exception as e:
+                logger.warning('warm_leads_charts %s/d=%s: %s', ck, dias, e)
+                _reset_connection()
     _with_lock('lock:warm_leads_charts', 2700, _run)
 
 

@@ -1,5 +1,81 @@
 # pgvectorscale (StreamingDiskANN + SBQ) — escopo do índice vetorial da `acervo_chunk`
 
+> **🛑 REMEDIÇÃO 2026-09-01 (#68) — PARAR. A premissa mudou, e mudou pra pior:
+> não há escrita, não há leitura, e não há disco.**
+>
+> O #68 existe pra destravar o **teto de ESCRITA vetorial**. Fui medir o teto e
+> ele não está sendo tocado — nem por baixo, nem por cima:
+>
+> | o que | medido em 01-02/09/2026 | era (jul/2026) |
+> |---|---|---|
+> | último `acervo_chunk` gravado | **2026-08-18 13:36 UTC** (15 dias atrás) | fluxo contínuo |
+> | fila `vetorizar` / `vetorizar_write` | **0 / 0** (8 writers `active`, sem trabalho) | drenando |
+> | `chunk_emb_hnsw_half` — `idx_scan` | **0** | — |
+> | `acervo_chunk_documento_id` — `idx_scan` (CONTROLE) | **2.770.454** | — |
+> | RAM do host `.114` | **76 GiB** | 94 GB (doc) |
+> | `shared_buffers` | 24 GB | 24 GB |
+> | índice HNSW halfvec | **84 GB** | 57-58 GB |
+> | disco `/` | **712 GB de 787 GB — 96%, 35 GB livres** | ~514 GB livres |
+>
+> **1. O índice vetorial não é lido.** `chunk_emb_hnsw_half` é VÁLIDO, tem 84 GB e
+> **zero scans**, na mesma janela em que o `documento_id` da MESMA tabela levou
+> 2.770.454 — o controle que prova que o contador funciona. Confirmei por
+> **mutação**: rodei duas buscas vetoriais de verdade e o contador foi **0 → 2**;
+> as minhas foram as duas primeiras. Não há réplica servindo leitura
+> (`pg_stat_replication` = 0, `pg_is_in_recovery()` = false) e a tabela levou 11
+> seq scans no período. O `_cat`-equivalente aqui seria concluir pelo tamanho;
+> o número que encerra a investigação é o `idx_scan` com controle ao lado.
+>
+> **2. A busca vetorial É I/O-bound — mas isso hoje não custa nada, porque
+> ninguém busca.** Medido de verdade (não `EXPLAIN` de estimativa): **fria
+> 10,42 s** (847 blocos lidos do disco) contra **2,68 ms** quente. É o
+> disk-cliff previsto, 3.890×. É também o argumento mais forte a favor do #68 —
+> e ele vale zero enquanto o contador de scans for 0.
+>
+> **3. Não cabe construir nada.** Qualquer caminho do #68 (diskann 1-bit, rebuild
+> de halfvec, índice paralelo pra cutover) quer dezenas de GB. **Há 35 GB
+> livres.** O disco é o blocker antes da extensão, do recall e da RAM.
+>
+> **4. O acervo vetorial está pela metade, e a metade que falta não é do DB.**
+> Duas amostras `TABLESAMPLE SYSTEM (0.05)` independentes: **69,84%** e **64,93%**
+> dos chunks têm `embedding` (controle: `total = com + sem`, `id` não-nulo em
+> 100%). São ~35% de 61,6M — **~21M chunks sem vetor**, com a coleta parada há 15
+> dias e a fila vazia. O gargalo de hoje é o produtor (frota de embed), não o
+> escritor: ver memórias `frota-pods-quickpod-realidade` e
+> `pod-showcase-efemero-recuperacao`.
+>
+> **5. O bloqueio estrutural de 27/07 continua de pé.** `vectorscale 0.9.0` está
+> instalada e o AM `diskann` registrado; o fonte em
+> `~/pgvectorscale-build/.../meta_page.rs:325` ainda tem
+> `bq_num_bits_per_dimension > 1 && num_dimensions_to_index > 930 → error`. E
+> **0.9.0 (04/11/2025) segue sendo a última release** — 10 meses sem lançamento.
+> A 1024d continua só o 1-bit, que é o regime reprovado (overlap@8 0,49).
+>
+> ### Gate PRÉ-REGISTRADO (escrito ANTES de medir, pra quando isto voltar)
+>
+> O gate anterior deu BLOCK porque **a amostra mentiu** (328k deu 0,881; o corpus
+> cheio deu 0,49). Este é desenhado pra não cair nisso — e o item 0 é novo: antes
+> de medir recall, provar que alguém LÊ.
+>
+> 0. **Demanda**: `chunk_emb_hnsw_half.idx_scan` > 10.000 numa janela de 7 dias.
+>    Otimizar índice com 0 scans é custo puro. **Hoje: 2 (as minhas).**
+> 1. **Disco**: ≥ 150 GB livres em `/` na `.114` ANTES do build. **Hoje: 35 GB.**
+> 2. **Escrita viva**: `vetorizar_write` com vazão > 0 por 24 h seguidas.
+>    **Hoje: 0 há 15 dias.**
+> 3. **Recall**: `overlap@8 ≥ 0,90` contra o halfvec incumbente, **no corpus
+>    cheio**, com N ≥ 200 queries **amostradas do tráfego real** (não sintéticas),
+>    reportando também o pior decil — média alta com cauda zerada foi exatamente
+>    o que 6/20 queries com overlap 0 esconderam.
+> 4. **Latência**: p95 frio ≤ 2 s (o halfvec frio de hoje é 10,42 s).
+> 5. Qualquer item reprovado ⇒ **BLOCK**, sem "quase lá".
+>
+> **Ação recomendada agora: nenhuma migração.** O item de valor imediato não é o
+> #68 — é o disco a 96% num banco de 698 GB (`acervo_chunk` sozinha é 666 GB, dos
+> quais **527 GB de TOAST**). E existe um número grande e barato em cima da mesa:
+> os 84 GB do índice que ninguém lê valem 11 pontos percentuais de disco. **Não
+> executei o `DROP` — é decisão do dono**, e ele custa reconstruir se a busca
+> vetorial voltar a ser usada.
+
 > **⛔ ATUALIZAÇÃO 2026-07-27 — FAIL NO BUILD: 2-bit SBQ é IMPOSSÍVEL em 1024d.**
 > A extensão **pgvectorscale 0.9.0 foi compilada e instalada** com sucesso na VM do
 > DB (.114, PG18.4) — `CREATE EXTENSION vectorscale` OK, AM `diskann` registrado,

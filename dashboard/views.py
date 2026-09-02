@@ -1,4 +1,5 @@
 import logging
+import os
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -1948,11 +1949,40 @@ LEADS_CHART_KEYS = (
 )
 
 
+# Keys cujo payload MUDA com `dias`. As outras quatro usam janela fixa
+# (`kpis`: 7d/30d cravados) ou varrem o acervo inteiro (`calibration`,
+# `by-tribunal`, `distribuicao-score`) — `dias` entra e sai da função sem
+# tocar em nada.
+#
+# Medido em 01/09/2026, com a chave antiga que carregava `dias` pras seis:
+# `?dias=31` (qualquer valor fora do picker) era MISS garantido nas SEIS, e
+# `calibration` levou **90,75 s** — acima do `proxy_read_timeout 90s` do nginx
+# (`infra/nginx.conf`), isto é, 504 na cara do usuário. Com `dias` fora da
+# chave dessas quatro, o mesmo request vira HIT do warm (0,02 s).
+#
+# `nivel` saiu da chave inteiro: `compute_leads_chart` recebe o parâmetro e
+# NUNCA o usa (aparece uma vez na função — na assinatura). Na chave ele só
+# fragmentava: `?nivel=PRECATORIO` (que a própria UI põe nos links de lista e
+# export) forçava recomputar 40-64 s um payload idêntico ao já aquecido.
+LEADS_KEYS_COM_DIAS = frozenset({'timeseries', 'funnel'})
+
+# Teto de espera do caminho da requisição, abaixo dos 90 s do nginx. Estourar
+# não é 504: é `pending` (a tela mantém o skeleton e repete — ver `lazyChart`
+# em dashboard/base.html).
+LEADS_CHART_TIMEOUT_S = int(os.environ.get('LEADS_CHART_TIMEOUT_S', '60'))
+
+
 def leads_cache_key(key, tribunal, nivel, dias, cliente_nome):
     """Chave de cache canônica de um widget de leads. Usada pelo endpoint
     lazy e pelo warm job — TÊM que bater pra o warm popular o que a view lê.
+
+    `nivel` é aceito por compatibilidade de assinatura e IGNORADO de
+    propósito; `dias` só entra pras keys de `LEADS_KEYS_COM_DIAS`. Ver o
+    comentário dessas constantes: parâmetro que não muda o payload mas entra
+    na chave não é cache, é fragmentação — e aqui custava 504.
     """
-    return f'dashleads:{key}:t={tribunal or ""}:n={nivel or ""}:d={dias}:c={cliente_nome}'
+    d = dias if key in LEADS_KEYS_COM_DIAS else 'x'
+    return f'dashleads:{key}:t={tribunal or ""}:n=:d={d}:c={cliente_nome}'
 
 
 def compute_leads_chart(key, tribunal, nivel, dias, cliente_nome):
@@ -2243,19 +2273,54 @@ def leads_chart_data(request, key):
     job `warm_leads_charts`, que pré-aquece o filtro default).
     """
     from django.core.cache import cache
+    from django.db import DatabaseError, connection, transaction
 
     tribunal, nivel, dias, cliente_nome = _leads_filtros(request)
+    if key not in LEADS_CHART_KEYS:
+        return JsonResponse({'erro': f'key inválida: {key}'}, status=400)
+
     cache_key = leads_cache_key(key, tribunal, nivel, dias, cliente_nome)
     cached = _safe_cache_get(cache_key)
     if cached is not None:
         return JsonResponse({'data': cached}, json_dumps_params={'default': str})
 
+    # MISS. O warm cobre o recorte sem tribunal; o filtro por tribunal cai
+    # aqui e é caro (medido 01/09/2026, TJSP+365d: 11-57 s por widget, com o
+    # banco sob três backfills). Sem teto isso encosta nos 90 s do nginx e
+    # vira 504 — foi o que a #64 registrou. Com teto, o pior caso é a tela
+    # continuar no skeleton e repetir, que é honesto e não derruba nada.
+    #
+    # `SET LOCAL` PRECISA estar dentro de `transaction.atomic()`: em
+    # autocommit cada execute é a sua própria transação e o teto morre antes
+    # da consulta que deveria limitar (ver .ia/OPS.md).
     try:
-        data = compute_leads_chart(key, tribunal, nivel, dias, cliente_nome)
+        with transaction.atomic():
+            with connection.cursor() as cur:
+                cur.execute(
+                    "SET LOCAL statement_timeout = %s",
+                    [f'{LEADS_CHART_TIMEOUT_S}s'],
+                )
+            data = compute_leads_chart(key, tribunal, nivel, dias, cliente_nome)
     except ValueError as e:
         return JsonResponse({'erro': str(e)}, status=400)
+    except DatabaseError as e:
+        # Teto estourado (ou banco em contenção). ABSTÉM: `pending` faz o
+        # `lazyChart` segurar o skeleton e repetir em 10 s — o warm pode ter
+        # populado nesse meio-tempo. Não é 200 com número errado nem 504.
+        logger.error(
+            'leads_chart_data %s: estourou o teto de %ss (t=%s d=%s) — %s',
+            key, LEADS_CHART_TIMEOUT_S, tribunal, dias, e,
+        )
+        return JsonResponse({'data': None, 'pending': True},
+                            json_dumps_params={'default': str})
 
-    cache.set(cache_key, data, timeout=300)
+    # A leitura já era protegida (`_safe_cache_get`); a escrita não era, então
+    # Redis fora virava 500 DEPOIS de o payload estar pronto na mão. Perder o
+    # cache é aceitável; perder a resposta não.
+    try:
+        cache.set(cache_key, data, timeout=300)
+    except Exception:  # noqa: BLE001
+        logger.warning('leads_chart_data %s: cache.set falhou', key, exc_info=True)
     return JsonResponse({'data': data}, json_dumps_params={'default': str})
 
 

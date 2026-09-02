@@ -231,10 +231,18 @@ function leadsKpis() {
   return {
     d: {},
     fmtInt(n) { return n != null ? Number(n).toLocaleString('pt-BR') : '—'; },
-    load() {
+    // `pending` = o backend recusou computar no caminho da requisição (teto
+    // LEADS_CHART_TIMEOUT_S) e o warm ainda não populou. Mesmo contrato do
+    // `lazyChart` em base.html: segura o '—' e repete, em vez de fixar um
+    // payload vazio como se fosse resposta.
+    load(attempt) {
+      const n = attempt || 1;
       const u = new URL(window.location);
       fetch(`{% url 'dashboard:leads-chart' 'kpis' %}?${u.searchParams.toString()}`)
-        .then(r => r.json()).then(j => { this.d = j.data || j; });
+        .then(r => r.json()).then(j => {
+          if (j.pending && n <= 30) { setTimeout(() => this.load(n + 1), 10000); return; }
+          this.d = j.data || j;
+        });
     },
   };
 }
