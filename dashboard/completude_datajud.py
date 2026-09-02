@@ -234,11 +234,19 @@ def warm_completude_datajud() -> dict:
     """
     try:
         est = medir_rodada()
-        return {'ok': True, 'rodada': (est or {}).get('_rodada')}
+        rodada = (est or {}).get('_rodada') or {}
     finally:
         # solta a trava mesmo se a rodada estourar: trava que só expira por TTL
         # transforma um erro de 1 rodada em 25 min de país sem remedição
         cache.delete(CHAVE_LOCK)
+
+    # ENCADEIA enquanto a régua não fechou. Sem isto, a primeira régua levaria
+    # de 2 a 8 horas para existir (uma rodada a cada aquecimento, de 30 em 30
+    # min) e a tela ficaria nesse tempo todo no retrato histórico. A cadeia
+    # para sozinha: `precisa_rodada` fica falsa quando todos os tribunais têm
+    # medição recente, e `medidos > 0` impede laço quando nada avança.
+    seguinte = bool(rodada.get('medidos')) and agendar_rodada()
+    return {'ok': True, 'rodada': rodada, 'encadeou': seguinte}
 
 
 def agregar(estado: dict | None) -> dict | None:

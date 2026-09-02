@@ -456,6 +456,28 @@ def test_agendar_rodada_respeita_a_trava():
     assert not delay.called, 'empilhou rodada contra a API do CNJ'
 
 
+def test_rodada_encadeia_ate_a_regua_fechar_e_para():
+    """A primeira régua levaria horas se só o aquecimento (30min) a chamasse.
+
+    E a cadeia PARA sozinha — senão seria laço contra a API do CNJ.
+    """
+    from dashboard import completude_datajud as DJ
+    with patch.object(DJ, 'medir_rodada',
+                      return_value={'_rodada': {'medidos': 5, 'esperado': 60}}), \
+         patch.object(DJ, 'agendar_rodada', return_value=True) as ag, \
+         patch.object(DJ.cache, 'delete'):
+        assert DJ.warm_completude_datajud()['encadeou'] is True
+    assert ag.called
+
+    # rodada que não mediu nada NÃO encadeia: seria laço
+    with patch.object(DJ, 'medir_rodada',
+                      return_value={'_rodada': {'medidos': 0, 'esperado': 60}}), \
+         patch.object(DJ, 'agendar_rodada', return_value=True) as ag, \
+         patch.object(DJ.cache, 'delete'):
+        assert DJ.warm_completude_datajud()['encadeou'] is False
+    assert not ag.called
+
+
 def test_agregar_sem_par_nenhum_abstem():
     from dashboard import completude_datajud as DJ
     assert DJ.agregar(None) is None
