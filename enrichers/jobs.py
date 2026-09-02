@@ -179,6 +179,44 @@ def set_incidentes_desligados(siglas: set[str]) -> None:
     cache.set(_INCIDENTES_OFF_KEY, sorted(s.upper() for s in siglas), timeout=None)
 
 
+def seguir_incidentes_no(processo) -> bool:
+    """Este PROCESSO deve ter os incidentes seguidos no enriquecimento em massa?
+
+    Duas perguntas, e a segunda foi comprada com throughput medido em produção
+    em 02/09/2026, 25 minutos depois de ligar:
+
+    1. o tribunal está habilitado (`seguir_incidentes_de`);
+    2. o processo tem **sinal de precatório** (`tem_sinal_precatorio`), que é o
+       estrato do crédito.
+
+    Por que a segunda: a fila do refill NÃO é o estrato do crédito — ela pega a
+    cabeça do índice de `pendente`. Medido nas duas pontas:
+
+    | população | processos com incidente |
+    |---|---|
+    | estrato `tem_sinal_precatorio` (sonda de 01-02/09) | **58,5%** |
+    | o que o refill serve de fato (227 `ok` seguidos) | **5,3%** |
+
+    E o custo apareceu do outro lado: a vazão do enriquecimento do TJSP caiu de
+    **~74 jobs/min para ~10-15/min** (6 réplicas; cada job passou a gastar
+    1 + N requisições, e um processo de 45 incidentes ocupou um worker por
+    240 s inteiros — o teto de TEMPO logou `29 de 45`).
+
+    Pagar 1 + N requisições em 95% de processos que não têm incidente para
+    achar os 5% é gastar o pool COMPARTILHADO no lugar errado. Com o recorte, a
+    mesma requisição vai para onde a colheita é 11x maior.
+
+    `tem_sinal_precatorio` é tri-state: `NULL` = ainda não varremos, e nesse
+    caso NÃO se segue — o custo é certo e o retorno é desconhecido.
+    """
+    from django.conf import settings
+    if not seguir_incidentes_de(getattr(processo, 'tribunal_id', '')):
+        return False
+    if not getattr(settings, 'ESAJ_INCIDENTES_SO_COM_SINAL', True):
+        return True
+    return getattr(processo, 'tem_sinal_precatorio', None) is True
+
+
 def seguir_incidentes_de(sigla: str) -> bool:
     """Este tribunal segue incidente no enriquecimento EM MASSA?
 
@@ -255,7 +293,7 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
     # ele que move o acervo). Explícito continua mandando: o clique manual
     # pede o seguimento para qualquer e-SAJ.
     if seguir_incidentes is None:
-        seguir_incidentes = seguir_incidentes_de(p.tribunal_id)
+        seguir_incidentes = seguir_incidentes_no(p)
     # seguir_incidentes só faz sentido no e-SAJ (cada parte tem um incidente).
     if seguir_incidentes and isinstance(enricher, BaseEsajEnricher):
         result = enricher.enriquecer(p, direct_apply=direct_apply, seguir_incidentes=True)

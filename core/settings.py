@@ -567,6 +567,12 @@ ESAJ_SEGUIR_INCIDENTES = env.bool('ESAJ_SEGUIR_INCIDENTES', default=True)
 # com a ingestão —, tomada depois de medir o retorno desta fatia.
 # Kill switch sem deploy: `enrichers.jobs.set_incidentes_desligados({'TJSP'})`.
 ESAJ_INCIDENTES_TRIBUNAIS = env.list('ESAJ_INCIDENTES_TRIBUNAIS', default=['TJSP'])
+# Seguir incidente SÓ onde há sinal de precatório (`tem_sinal_precatorio`), que
+# é o estrato do crédito. A fila do refill não é esse estrato: medido em
+# 02/09/2026, 58,5% do estrato tem incidente contra 5,3% do que o refill serve
+# — e a vazão do enriquecimento do TJSP caiu de ~74 para ~10-15 jobs/min com o
+# seguimento ligado para todo mundo. `False` volta a seguir todos.
+ESAJ_INCIDENTES_SO_COM_SINAL = env.bool('ESAJ_INCIDENTES_SO_COM_SINAL', default=True)
 
 # LLM (Ollama OpenAI-compat) — narrativa de jurimetria. Fail-closed: sem key, a
 # narrativa fica desativada e o dossiê determinístico segue normal. Espelha o Horizon.

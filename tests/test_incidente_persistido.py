@@ -264,3 +264,47 @@ def test_valor_seco_do_esaj_e_lido_e_texto_solto_nao(proc):
     assert drainer._valor_do_incidente(None) is None
     assert drainer._valor_do_incidente('processo 18.113,27 de algo') is None
     assert drainer._valor_do_incidente('18113,27x') is None
+
+
+# ---------- 5. o recorte que paga a requisição onde ela rende ----------
+
+def test_segue_so_onde_ha_sinal_de_precatorio(settings, tjsp):
+    """A fila do refill NÃO é o estrato do crédito.
+
+    Medido em produção 25 min depois de ligar (02/09/2026): 58,5% do estrato
+    `tem_sinal_precatorio` tem incidente contra **5,3%** do que o refill serve
+    de fato (12 de 227 `ok` seguidos) — e a vazão do TJSP caiu de ~74 para
+    ~10-15 jobs/min, porque cada job passou a gastar 1+N requisições e um
+    processo de 45 incidentes ocupou um worker por 240 s.
+    """
+    from enrichers.jobs import seguir_incidentes_no, set_incidentes_desligados
+    set_incidentes_desligados(set())
+    settings.ESAJ_SEGUIR_INCIDENTES = True
+    settings.ESAJ_INCIDENTES_TRIBUNAIS = ['TJSP']
+    settings.ESAJ_INCIDENTES_SO_COM_SINAL = True
+
+    com = Process.objects.create(tribunal=tjsp, numero_cnj='1111111-11.2022.8.26.0001',
+                                 tem_sinal_precatorio=True)
+    sem = Process.objects.create(tribunal=tjsp, numero_cnj='2222222-22.2022.8.26.0001',
+                                 tem_sinal_precatorio=False)
+    # tri-state: NULL = ainda não varremos. Custo certo, retorno desconhecido.
+    nulo = Process.objects.create(tribunal=tjsp, numero_cnj='3333333-33.2022.8.26.0001',
+                                  tem_sinal_precatorio=None)
+    assert seguir_incidentes_no(com) is True
+    assert seguir_incidentes_no(sem) is False
+    assert seguir_incidentes_no(nulo) is False
+
+    # E o recorte é reversível por setting, sem virar regra escondida.
+    settings.ESAJ_INCIDENTES_SO_COM_SINAL = False
+    assert seguir_incidentes_no(sem) is True
+
+
+def test_recorte_nao_salva_tribunal_desligado(settings, tjsp):
+    """Controle: sinal de precatório NÃO liga tribunal que não está na lista."""
+    from enrichers.jobs import seguir_incidentes_no, set_incidentes_desligados
+    set_incidentes_desligados(set())
+    settings.ESAJ_SEGUIR_INCIDENTES = True
+    settings.ESAJ_INCIDENTES_TRIBUNAIS = ['TJAL']
+    p = Process.objects.create(tribunal=tjsp, numero_cnj='4444444-44.2022.8.26.0001',
+                               tem_sinal_precatorio=True)
+    assert seguir_incidentes_no(p) is False
