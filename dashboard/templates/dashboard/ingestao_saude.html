@@ -54,6 +54,91 @@
   </div>
 </div>
 
+{# ── Recuperação da Fase 3 ────────────────────────────────────────────────── #}
+{#
+  Este card existe porque a Fase 2 da recuperação nacional foi um mutirão
+  manual que terminou, ninguém religou, e a máquina ficou PARADA de 27/08 a
+  02/09/2026 sem que nada no sistema dissesse uma palavra. "Parou" é uma
+  situação legítima; "parou e ninguém viu" é o defeito.
+
+  Tudo aqui vem do cache escrito pelo tique (`djen/recuperacao.py`) — zero
+  query no caminho da requisição (regra nº 7).
+#}
+<div class="card mb-5">
+  <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Recuperação do acervo · Fase 3</div>
+      <div class="text-xs text-fg-subtle">
+        os 19 tribunais que sangram e ficaram fora da Fase 2 · dia nunca refeito
+        (razão &lt; 700 e sem <code>success</code> pós-corte)
+      </div>
+    </div>
+    {% if not recup_f3 %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-danger/15 text-danger">sem retrato</span>
+    {% elif recup_f3.motivo_parada %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-danger/15 text-danger">{{ recup_f3.motivo_parada }}</span>
+    {% elif recup_f3.idade_min and recup_f3.idade_min > 20 %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-warning/15 text-warning">tique atrasado</span>
+    {% else %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50 text-fg-subtle">vivo</span>
+    {% endif %}
+  </div>
+
+  {% if not recup_f3 %}
+    <div class="text-sm text-danger">
+      O tique não deixou retrato. Ou ele nunca rodou (o <code>scheduler</code> não
+      subiu com <code>recuperacao_fase3</code> agendado), ou o retrato venceu o TTL
+      de 6 h — e isso, sozinho, já é o alarme de que ele parou.
+      <div class="text-xs text-fg-subtle mt-1 font-mono">manage.py djen_recup_f3 --agora</div>
+    </div>
+  {% else %}
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">Dias nunca refeitos</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.pendentes %}text-warning{% else %}text-accent-fg{% endif %}">{{ recup_f3.pendentes|default:"—" }}</div>
+        <div class="text-xs text-fg-subtle mt-1">a fila de trabalho de verdade</div>
+      </div>
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">Refeitos em 24h</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.vazao_24h %}text-accent-fg{% else %}text-danger{% endif %}">{{ recup_f3.vazao_24h|default:"0" }}</div>
+        <div class="text-xs text-fg-subtle mt-1">dias que saíram da conta</div>
+      </div>
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">Em voo</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num">{{ recup_f3.em_voo|default:"0" }}</div>
+        <div class="text-xs text-fg-subtle mt-1">+{{ recup_f3.enfileirados|default:"0" }} no último tique</div>
+      </div>
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">Medido há</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.idade_min and recup_f3.idade_min > 20 %}text-warning{% endif %}">{{ recup_f3.idade_min|default:"—" }}<span class="text-base">min</span></div>
+        <div class="text-xs text-fg-subtle mt-1">o tique roda de 5 em 5 min</div>
+      </div>
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">TJPR</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num">{% if recup_f3.tjpr_ligado %}dentro{% else %}<span class="text-fg-subtle">fora</span>{% endif %}</div>
+        <div class="text-xs text-fg-subtle mt-1">1.152 dias · decisão comercial</div>
+      </div>
+    </div>
+
+    {% if recup_f3.teimosos %}
+      <div class="mt-3 text-xs text-danger">
+        {{ recup_f3.teimosos }} dia(s) já re-coletados 3+ vezes pelo caminho novo e
+        ainda na conta — isto é achado, não fila. Ver os ERROs de
+        <code>voyager.djen.recuperacao</code>.
+      </div>
+    {% endif %}
+
+    {% if recup_f3.por_tribunal %}
+      <div class="mt-3 flex flex-wrap gap-1 items-center text-xs">
+        <span class="text-fg-subtle mr-1">Pendentes por tribunal:</span>
+        {% for par in recup_f3.por_tribunal %}
+          <span class="chip">{{ par.0 }} <span class="text-fg-subtle">{{ par.1 }}</span></span>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endif %}
+</div>
+
 {# ── Link para detalhe de runs ────────────────────────────────────────────── #}
 <div class="mb-5 flex items-center gap-3">
   <a href="{% url 'dashboard:ingestao' %}" class="inline-flex items-center gap-1.5 text-xs text-accent-fg hover:underline">

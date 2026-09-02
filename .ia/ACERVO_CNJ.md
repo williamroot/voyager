@@ -382,6 +382,154 @@ R.objects.filter(fonte='djen', status='success').exclude(erros=[])  # tem que da
 
 ---
 
+## Fase 3 da recuperação — o mutirão virou processo (02/09/2026)
+
+### O que a Fase 2 deixou
+
+A Fase 2 refez, dia a dia, os 9 tribunais onde o crédito contra a Fazenda nasce
+e é pago (`completude_medicoes.FASE_2`): **3.999 dias-alvo, 1 nunca refeito** em
+02/09/2026 — 100,0% honesto.
+
+Sobram os **19 tribunais** que a medição de 18/08 provou que sangram e que
+ficaram fora dela. Medidos em 02/09/2026 com a MESMA régua da tela
+(`dashboard/completude_warm.py::_recuperacao`: dia-alvo = janela de 1 dia com
+≥9.000 itens; `nunca_refeito` = razão itens/página < 700 **E** sem run `success`
+depois de 18/08 09:48):
+
+| trib | alvo | flat | **nunca** | trib | alvo | flat | **nunca** |
+|---|---:|---:|---:|---|---:|---:|---:|
+| TJPR | 1.230 | 74 | **1.152** | TJMA | 535 | 247 | **272** |
+| TJMT | 932 | 180 | **750** | TJAM | 304 | 30 | **260** |
+| TRT3 | 550 | 43 | **502** | TJMS | 335 | 103 | **230** |
+| TRT2 | 528 | 33 | **479** | TJPE | 322 | 104 | **217** |
+| TRT15 | 514 | 27 | **478** | TJTO | 7 | 6 | **0** |
+| TRT1 | 503 | 18 | **476** | TJRR | 14 | 14 | **0** |
+| TRT9 | 513 | 41 | **470** | TJAP | 4 | 3 | **0** |
+| TRT4 | 500 | 29 | **468** | | | | |
+| TJSE | 534 | 84 | **448** | | | | |
+| TJBA | 402 | 18 | **378** | | | | |
+| TJCE | 371 | 69 | **301** | | | | |
+| TJSC | 306 | 17 | **286** | | | | |
+| | | | | **TOTAL** | **8.404** | **1.140** | **7.167** |
+
+⇒ **14,7% honesto** contra os 100,0% da Fase 2.
+
+### E a máquina estava PARADA — sem nenhum alarme
+
+Runs `success` de janela-1-dia por dia, desde o corte:
+
+    18/08: 293 · 19/08: 1.131 · 20/08: 208 · 21/08: 774 · 22/08: 270
+    23/08: 1.641 · 24/08: 371 · 25/08: 206 · 26/08: 359
+    27/08: 80 · 28/08: 59 · 29/08: 59 · 30/08: 59 · 31/08: 61 · 01/09: 184
+
+De 27/08 em diante são **~59/dia**, que é a coleta diária dos 59 tribunais e
+mais nada. O pico medido tinha sido 1.641/dia. A recuperação da Fase 2 foi um
+mutirão manual: ele terminou, ninguém religou, e **nada no sistema disse uma
+palavra por seis dias**. Confirmado no dia: fila `djen_backfill` em 0, 14
+`worker_ingestion` ociosos, circuito fechado.
+
+Este é o defeito que a Fase 3 conserta — não o buraco no acervo, o buraco no
+processo. Um container solto que roda e morre calado reproduz exatamente isto.
+
+### O que subiu: `djen/recuperacao.py`
+
+Um tique a cada 5 min (`tick_recuperacao_fase3`, agendado no
+`djen/scheduler.py`) que:
+
+* **recalcula** o conjunto pendente do `IngestionRun` a cada passada, com a
+  régua IMPORTADA de `dashboard.completude_medicoes` — nunca copiada. Se a
+  régua da tela mudar, a fila de trabalho muda junto; uma segunda cópia dos
+  limiares daria a tela dizendo que falta e o coletor achando que acabou;
+* **não guarda estado**: reinício de worker, deploy, restart do Redis e queda do
+  scheduler não perdem lugar nenhum. Retomar é recalcular;
+* **se auto-cura**: dia que falhou, que foi adiado pelo circuito ou que morreu
+  com o work-horse reaparece no conjunto do tique seguinte. Não depende de
+  FailedJobRegistry nem de ninguém reenfileirar;
+* **fala quando para**: pausado, circuito aberto, fila cheia, teto do tique,
+  vazão zero e dia teimoso saem como WARNING/ERROR **com o número real** e vão
+  para o card em `/dashboard/ingestao/saude/`.
+
+A unidade é `recoletar_dia`, e ela é `backfill_dia` **menos** o `_dia_coberto`.
+Isto não é detalhe: **todo dia da Fase 3 já tem run `success`** — foi assim que
+o teto de 10 páginas por fatia de UF os decapitou, com run verde e log limpo.
+`backfill_dia` pularia os 7.167 sem ler uma linha. O que se manteve dele é a
+trava `_chave_coleta` (`SET NX EX`): sem ela, medido em 27/08/2026, o TJSP de um
+dia foi coletado por 12 runs concorrentes — 7.437 páginas contra as 264 que o
+dia exige.
+
+### Controle de admissão, e por que a fila é pequena
+
+O teto contra o CNJ é **réplicas × `DJEN_PAGINAS_PARALELAS`** (≤ 64), hoje
+14 × 3 = 42 streams — e 42 já foi o ponto em que a DJEN começou a devolver 500
+(24/08/2026). **Encher a fila não aumenta a pressão sobre o CNJ**, ela é fixa
+pela frota; encher só produz casca (medido: 344 de 1.945 ids eram casca, e casca
+faz o watchdog achar que o dia já está a caminho). Por isso o alvo é de 40 jobs
+em voo, não de 7.167.
+
+A `djen_backfill` é a **segunda** fila do `worker_ingestion`
+(`rqworker djen_ingestion djen_backfill`): a fronteira diária tem prioridade
+sobre a recuperação por construção do RQ, não por gentileza deste módulo.
+
+### Dia teimoso é achado, não fila
+
+O conjunto pendente encolhe monotonicamente: toda re-coleta que fecha `success`
+tira o dia da conta. Um dia que continua na conta depois de 3 re-coletas
+pós-corte não é trabalho — é sintoma (a fonte não serve mais o dia, ou a régua
+não descreve o caso). Ele **sai da fila e vira ERRO com nome e número**;
+insistir queimaria banda do CNJ para sempre.
+
+### O TJPR está fora, e a decisão não é do código
+
+1.152 dias e ~38,8 M estimados — **43% de todo o volume que resta**. Ficou fora
+da Fase 2 por decisão comercial do dono do produto, não por limitação técnica.
+Entra com uma linha, sem deploy: `manage.py djen_recup_f3 --tjpr-on`.
+
+### Runbook
+
+```bash
+# COMO ACOMPANHAR — do cache, sem tocar no banco
+docker compose -f docker-compose-prod.yml exec -T web \
+  python manage.py djen_recup_f3
+# e a tela: /dashboard/ingestao/saude/ (card "Recuperação do acervo · Fase 3")
+
+# MEDIR AGORA, do banco (a régua do antes/depois)
+... python manage.py djen_recup_f3 --medir
+
+# COMO PARAR — kill switch no Redis, vale em segundos, sem deploy
+... python manage.py djen_recup_f3 --parar
+# o tique segue MEDINDO (o card continua vivo, dizendo PAUSADO)
+
+# COMO RELIGAR
+... python manage.py djen_recup_f3 --religar
+
+# FORÇAR UM TIQUE AGORA (síncrono, imprime o que fez)
+... python manage.py djen_recup_f3 --agora
+
+# INCLUIR O TJPR — decisão comercial, não técnica
+... python manage.py djen_recup_f3 --tjpr-on
+```
+
+**Onde ele grita**, e o que cada alerta significa:
+
+| alerta (logger `voyager.djen.recuperacao`) | o que fazer |
+|---|---|
+| `PAUSADO por kill switch` | alguém parou de propósito. `--religar` |
+| `circuito ABERTO — N dias esperando` | nada a fazer: o dia não se perde, o tique volta em minutos |
+| `fila djen_backfill com N jobs (teto ...)` | outra rota inundou a fila; ver `djen_faxina_fila` |
+| `A recuperação da Fase 3 está PARADA` | pendente > 0 e nada em voo — é o estado de 27/08 a 02/09 |
+| `VAZÃO ZERO` | a fila anda e nada sai da conta: procure o **worker**, não a fila |
+| `N dias já foram re-coletados 3+ vezes` | achado. Investigue o dia antes de insistir |
+
+**Se o card sumir da tela**, o retrato venceu o TTL de 6 h — e isso, sozinho, já
+é o alarme de que o tique parou. Confira o `scheduler` (`recuperacao_fase3` tem
+que estar agendado) e lembre que o bind mount entrega o arquivo mas o Python
+**não recarrega**: prova boa é `StartedAt` posterior ao `git pull` mais o card
+voltando a andar.
+
+---
+
+---
+
 ## O que o esqueleto do Datajud já tem e o Postgres jogava fora (25/08/2026)
 
 Dois campos que a auditoria de completude do DADO ranqueou (`ENRICHMENT.md`,

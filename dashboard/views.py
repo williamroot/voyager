@@ -1606,7 +1606,37 @@ def ingestao_saude(request):
         'tribunais': Tribunal.objects.filter(ativo=True).order_by('sigla'),
         'kpis': queries.pipeline_kpis(
             tribunais=[tribunal_filtro] if tribunal_filtro else None),
+        # Recuperação da Fase 3: leitura de CACHE, zero query. O tique
+        # (`djen.recuperacao`) mede fora do caminho da requisição — regra nº 7,
+        # e uma medição de rodapé sem teto já derrubou o site uma vez.
+        # `None` = o tique não deixou retrato, e a tela diz isso em vermelho:
+        # card vazio some da vista, card que grita "sem retrato" não.
+        'recup_f3': _recup_f3_estado(),
     })
+
+
+def _recup_f3_estado():
+    """Retrato da recuperação da Fase 3, com a IDADE calculada aqui.
+
+    A idade é o alarme barato: o retrato tem TTL de 6 h, então um card com
+    "medido há 4 h" já diz que o tique de 5 min parou — sem precisar de
+    nenhuma outra sonda.
+    """
+    from django.utils import timezone
+    try:
+        from djen.recuperacao import estado
+        r = estado()
+    except Exception:  # noqa: BLE001 — a página de saúde não cai por causa disto
+        return None
+    if not r:
+        return None
+    quando = r.get('medido_em')
+    try:
+        r = dict(r)
+        r['idade_min'] = int((timezone.now() - quando).total_seconds() / 60)
+    except Exception:  # noqa: BLE001
+        r['idade_min'] = None
+    return r
 
 
 @login_required

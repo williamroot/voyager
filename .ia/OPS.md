@@ -569,6 +569,92 @@ docker compose exec web python manage.py djen_backfill TRF3
 
 `run_backfill` é resilient — pula chunks `success`, retenta `failed`.
 
+## Recuperação do acervo — Fase 3 (operar)
+
+Cron `*/5min` em `djen.recuperacao.tick_recuperacao_fase3` (fila `default`,
+`timeout=120`), agendado no `djen/scheduler.py` como `recuperacao_fase3`. Ele
+devolve à `djen_backfill` os dias **nunca refeitos** dos 19 tribunais que
+sangram e ficaram fora da Fase 2. Contexto, números e a régua estão em
+[`ACERVO_CNJ.md`](ACERVO_CNJ.md#fase-3-da-recuperação--o-mutirão-virou-processo-02092026).
+
+**Por que ele existe:** a Fase 2 foi um mutirão manual. Terminou, ninguém
+religou, e de **27/08 a 02/09/2026** a recuperação ficou parada com a fila em
+zero, 14 `worker_ingestion` ociosos e **nenhum alarme** — o país fechava ~59
+runs de janela-1-dia por dia, que é só a coleta diária, contra um pico medido de
+1.641. Parar é permitido; parar calado é o defeito.
+
+### Ver, parar, religar
+
+```bash
+V="docker compose -f docker-compose-prod.yml exec -T web python manage.py"
+
+$V djen_recup_f3            # estado (lê o CACHE — não toca no banco)
+$V djen_recup_f3 --medir    # recalcula do banco: a régua do antes/depois
+$V djen_recup_f3 --agora    # força um tique síncrono e imprime o que fez
+$V djen_recup_f3 --parar    # kill switch (Redis `djen:recup_f3:off`)
+$V djen_recup_f3 --religar
+$V djen_recup_f3 --tjpr-on  # 1.152 dias / 38,8M — DECISÃO COMERCIAL, não técnica
+```
+
+Na tela: **`/dashboard/ingestao/saude/`**, card "Recuperação do acervo · Fase 3"
+— dias nunca refeitos, refeitos em 24 h, em voo, e **há quantos minutos foi
+medido**. O tique roda de 5 em 5 min; "medido há 40 min" já é o alarme.
+
+⚠️ O kill switch vive no **Redis**, não em env: parar não pode custar um deploy.
+Ele só sobrevive a restart porque o AOF foi ligado em 31/08/2026 (seção acima).
+
+⚠️ `--parar` **não** cega a tela: o tique continua medindo e o card mostra
+`PAUSADO` ao lado do número. Card vazio some da vista; número alto ao lado de
+"parado" não.
+
+### Onde ele grita, e o que fazer
+
+Logger `voyager.djen.recuperacao`:
+
+| alerta | leitura |
+|---|---|
+| `PAUSADO por kill switch` | alguém parou de propósito → `--religar` |
+| `circuito ABERTO — N dias esperando` | **não é falha**: nenhum dia se perde, o tique volta em minutos |
+| `fila djen_backfill com N jobs (teto ...)` | outra rota inundou a fila → `djen_faxina_fila` |
+| `A recuperação da Fase 3 está PARADA` | pendente > 0, nada em voo, nada enfileirado — o estado de 27/08 |
+| `VAZÃO ZERO` | a fila anda e nada sai da conta → procure o **worker**, não a fila |
+| `N dias já foram re-coletados 3+ vezes` | achado, não fila. Investigue o dia antes de insistir |
+
+### Deploy (o que precisa reiniciar)
+
+O código roda em **dois** lugares e os dois precisam do processo novo:
+
+```bash
+# .103 — o scheduler é quem AGENDA o tique
+ssh ubuntu@voyager 'cd ~/voyager && git pull --ff-only && \
+  docker compose -f docker-compose-prod.yml up -d --force-recreate scheduler'
+
+# .102 — os workers é que EXECUTAM `recoletar_dia`
+ssh ubuntu@voyager-workers 'cd ~/voyager && git pull --ff-only && \
+  docker compose -f docker-compose-workers.yml up -d --force-recreate worker_ingestion'
+```
+
+⚠️ O `-f docker-compose-workers.yml` **não é opcional** — sem ele o restart
+acerta o container homônimo do compose default e sai verde (seção "Restart de
+enricher" acima).
+
+⚠️ O bind mount `.:/app` entrega o arquivo; **o Python não recarrega**. Prova boa
+é `StartedAt` posterior ao `git pull` **mais** comportamento: o card andando e
+`recuperacao_fase3` no log do scheduler.
+
+### Parar TUDO em emergência
+
+`--parar` só desliga o enfileiramento novo — o que já está na fila continua. Para
+esvaziar de fato:
+
+```bash
+$V djen_recup_f3 --parar
+$V shell -c "import django_rq; q=django_rq.get_queue('djen_backfill'); \
+  [q.remove(i) for i in q.get_job_ids() if i.startswith('f3:')]"
+```
+
+Nenhum dia se perde: o tique seguinte recalcula o conjunto pendente do zero.
+
 ## Watchdog de ingestão
 
 Cron `*/5 * * * *` em `djen.jobs.watchdog_ingestao` (fila `default`, `timeout=120`).

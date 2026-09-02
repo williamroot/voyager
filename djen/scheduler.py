@@ -107,6 +107,32 @@ def create_scheduler() -> BlockingScheduler:
         )
         logger.info('agendado tick_backfill %s (cada 10min)', t.sigla)
 
+    # RECUPERAÇÃO DA FASE 3 — a cada 5 min. Os 19 tribunais que sangram e que
+    # ficaram fora da Fase 2: 7.167 dias nunca refeitos de 8.404 dia-alvo em
+    # 02/09/2026 (14,7% honesto contra os 100,0% da Fase 2).
+    #
+    # É cron e não container solto por um motivo medido: a Fase 2 foi mutirão
+    # manual, terminou, ninguém religou, e de 27/08 a 02/09 o país inteiro
+    # fechou ~59 runs de janela-1-dia por dia — a coleta diária dos 59
+    # tribunais e mais nada. O pico tinha sido 1.641/dia. Zero alarme, porque
+    # não havia nada dizendo que aquilo deveria estar acontecendo.
+    #
+    # O tique não guarda estado: recalcula o conjunto pendente do
+    # `IngestionRun` a cada passada, com a MESMA régua da tela. Reinício,
+    # deploy e queda de Redis não perdem lugar. Kill switch em segundos:
+    # `manage.py djen_recup_f3 --parar`. Ver `djen/recuperacao.py`.
+    from djen.recuperacao import tick_recuperacao_fase3
+    scheduler.add_job(
+        tick_recuperacao_fase3.delay,
+        'interval',
+        minutes=5,
+        id='recuperacao_fase3',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info('agendado recuperacao_fase3 (cada 5min)')
+
     # Refresh do pool de proxies: a cada 15 min
     scheduler.add_job(
         refresh_proxy_pool.delay,
