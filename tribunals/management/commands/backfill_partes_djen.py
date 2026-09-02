@@ -13,6 +13,24 @@
     python manage.py backfill_partes_djen --pausar
     python manage.py backfill_partes_djen --despausar
 
+Duas travas que vieram da autópsia dos outros backfills longos (02/09/2026 —
+351 reinícios com progresso líquido ZERO entre `r105_fase_1` e `r105_fase_3`):
+
+    1. **`--shard` é obrigatório** para faixa aberta. Sem checkpoint, todo
+       restart volta ao pk inicial e a varredura nunca chega ao fim; agora isso
+       é `CommandError` na largada em vez de descoberta três dias depois. Faixa
+       fechada de teste: `--sem-checkpoint --de <lo> --ate <hi>`.
+
+    2. **Teto sai com `exit ≠ 0`.** Era o `exit 0` que tornava "estourei o
+       teto" indistinguível de "terminei" — e, com `--restart unless-stopped`,
+       alimentava o laço. O checkpoint já está gravado quando o erro sobe:
+       sair com erro não perde lugar, só torna o teto visível.
+
+    E o teto de custo (`--parar-ms-id`) mede **ms por ID VARRIDO**, nunca por
+    linha encontrada. Numa faixa já preenchida o segundo denominador vai a
+    zero e um bloco normal vira "16.808 ms/linha" — o freio se declarava
+    estrangulado onde não havia estrangulamento nenhum.
+
 Por que a faixa de `Process.id` e não `--tribunal`, que seria o natural:
 
     `tribunals/models.py` declara `Index(fields=['tribunal', '-id'],
