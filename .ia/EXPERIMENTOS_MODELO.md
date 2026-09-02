@@ -13,7 +13,7 @@
 | # | experimento | hipótese em 1 linha | critério pré-registrado | status (triado 02/09/2026) |
 |---|---|---|---|---|
 | 1 | DAPT | pré-treino no dialeto do acervo melhora o SFT | SFT-sobre-DAPT ≥ **+2pp macro** vs SFT direto | 🔴 **BLOCK (03/08)** — v2 +1,08pp / v1 +0,06pp; `partes` piora. Morto, ver §1 |
-| 2 | Especialistas | adapter por classe fraca vence o multi-task | ganha em **≥2 das 3** classes fracas por **≥3pp** (detalhe pré-registrado em §2.2) | 🔵 **gate EM EXECUÇÃO (R115, 02/09)** — critério e procedência commitados antes de medir |
+| 2 | Especialistas | adapter por classe fraca vence o multi-task | ganha em **≥2 das 3** classes fracas por **≥3pp** (§2.2) | 🔴 **BLOCK (02/09)** — 0 de 3; Δ entre −0,52 e +0,02pp, IC exclui o ganho nas 7. Morto, ver §2.3 |
 | 3 | DPO-κ | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura **>2pp** | 🟡 dataset PRONTO (2.688 pares); nunca treinou |
 | 4 | Destilação 3B | classes fortes cabem num aluno 3B | aluno retém **≥97%** do professor nas fortes | 🟡 harness pronto (dry-run ok); nunca rotulou |
 
@@ -124,7 +124,7 @@ multi-task em **≥2 das 3 classes fracas** por **≥3pp** cada (F1/acc da
 classe no gate). 1 de 3 = interferência não era o problema (é o dado) →
 mata o experimento e investe em gold.
 
-**Status: 🟠 TREINADO, NÃO GATEADO até 02/09/2026 — gate EM EXECUÇÃO (R115).** Os 7
+**Status: 🔴 BLOCK (02/09/2026, R115) — experimento RESPONDIDO e encerrado.** Os 7
 adapters estão no NAS (`llmsv2:/mnt/nas-data/voyager-train/out/adapter_esp_{acordao,
 cessao,decisao,herdeiros,oficio,pagamento,partes_doc}`, 02/08). A GPU foi paga e o
 experimento nunca foi respondido: **nunca rodou a comparação por-classe contra a
@@ -200,74 +200,122 @@ pagamento → partes_doc → cessao → herdeiros.
 resume-safe) e `out/esp_gate/resultado_<t>.json` assim que fecha — sessão que cair não
 leva o trabalho junto (lição da v2.2).
 
-### 2.3 Resultados medidos (checkpoint incremental — 02/09/2026, 3090 do llmsv2)
+### 2.3 RESULTADO — 🔴 **BLOCK nos 7**, família BLOCK (02/09/2026, 3090 do llmsv2)
 
-> Gravados em `llmsv2:/mnt/nas-data/voyager-train/out/esp_gate/resultado_<tarefa>.json`
-> assim que cada tarefa fecha. Harness commitado no git do harness (`32f8a32`).
+> Artefatos: `llmsv2:/mnt/nas-data/voyager-train/out/esp_gate/resultado_<tarefa>.json`
+> (+ `preds_*.jsonl` das 17 execuções, para re-pontuar sem GPU).
+> Harness no git do harness: `32f8a32`. Critério commitado ANTES em `c714f8f`.
 
-**Vazão medida:** 13,5 min por modelo em 800 exemplos (bs=8, 4-bit, 3090) — **~1,7 s/exemplo**,
-não os ~4,6 s/ex do gate de 31/07. A varredura dos 7 especialistas custa **~3h**, não 19h.
+**Custo real:** 1,7 s/exemplo (13,5 min por modelo em 800), não os ~4,6 s/ex do gate de
+31/07 — a varredura dos 7 saiu em **~3h20 de GPU**, não 19h.
 
-#### acordao — 🔴 BLOCK
+#### Tabela do gate — nenhum especialista bate o v2.1 no domínio dele
 
-| | v2.1 (baseline) | adapter_esp_acordao | Δ |
-|---|--:|--:|--:|
-| `acerto_doc` (n=707 pareados) | **98,40%** | 98,28% | **−0,12pp** |
-| `doc_perfeito` | 97,45% | 96,89% | −0,56pp |
+| tarefa | n pareado | v2.1 | especialista | Δ (pp) | IC 95% pareado (pp) | McNemar (b/c, p) | veredito |
+|---|--:|--:|--:|--:|---|---|---|
+| **acordao** | 707 | 98,40% | 98,28% | **−0,12** | [−0,85, +0,64] | 11/7, p=0,481 ⚠️ | 🔴 BLOCK |
+| **cessao** | 800 | 98,31% | 98,33% | **+0,02** | [−0,62, +0,69] | 13/11, p=0,839 ⚠️ | 🔴 BLOCK |
+| **herdeiros** | 478 | 83,71% | 83,20% | **−0,52** | [−2,22, +1,07] | 12/15, p=0,701 | 🔴 BLOCK |
+| decisao | 737 | 99,54% | 99,43% | −0,10 | [−0,32, +0,11] | 4/1, p=0,375 ⚠️ | 🔴 BLOCK |
+| oficio | 797 | 99,07% | 98,89% | −0,18 | [−0,45, +0,07] | 7/3, p=0,344 ⚠️ | 🔴 BLOCK |
+| pagamento | 702 | 98,22% | 98,10% | −0,12 | [−0,69, +0,50] | 9/6, p=0,607 ⚠️ | 🔴 BLOCK |
+| partes_doc | 709 | 78,05% | 77,68% | −0,37 | [−1,77, +1,10] | 57/59, p=0,926 | 🔴 BLOCK |
 
-IC 95% bootstrap pareado (10k): **[−0,85, +0,64] pp** — exclui o +3pp exigido com folga.
-McNemar exato: b=11 / c=7, **p=0,48** (b+c=18 → discordância degenerada, declarado).
-Critério 1 (Δ≥3pp) ✗ · 2 (IC>0) ✗ · 3 (significância) ✗ → **BLOCK**, sem afrouxamento.
+⚠️ = discordância degenerada (b+c<25): o McNemar não tem poder ali e o IC pareado é
+quem decide — como estava pré-registrado. **Em NENHUMA tarefa o IC inclui o +3pp
+exigido**; em 6 das 7 o IC nem sequer inclui um ganho de +1,1pp. Não é "não deu para
+provar o ganho": é **ganho descartado com precisão de décimos de ponto**.
 
-Por campo (n): data 100→100 (45) · desfecho 99,64→98,91 (549) · orgao_julgador
-98,64→98,13 (589) · **relator 93,85→96,15 (130, +2,30pp)**. JSON inválido 1→1;
-falsa-abstenção 0,71%→0,71%. O único campo onde o especialista sobe é `relator` — e
-+2,3pp em n=130 não sustenta o critério nem sozinho.
+**Família (critério de 31/07: ≥2 de {acordao, cessao, herdeiros} por ≥3pp): 0 de 3 →
+🔴 BLOCK.** Nenhum PASS individual fora delas.
 
-**Controles — os dois passaram, a régua está de pé:**
-- **C1 (reprodução histórica):** o v2.1 no slice reproduz o gate publicado de 31/07
-  (ACÓRDÃO 98-100): desfecho 99,64 · orgao 98,64 · data 100 · relator 93,85 — dentro
-  da tolerância ±5pp. A régua concorda com a régua antiga.
-- **C2 (separação base×FT):** base Qwen2.5-7B **sem adapter** = 57,97% contra 96,86% do
-  v2.1 no MESMO subconjunto (n=200) → **gap 38,89pp** (exigido ≥20). A métrica mede
-  fine-tune de verdade; um empate A×B não é cegueira da régua.
+#### Controles
 
-**Leitura:** `acordao` deixou de ser classe fraca com o janelamento (v2.1 já faz 98,4%,
-teto 100). A hipótese da interferência não tem onde ganhar aqui — e o adapter dedicado,
-com 3 épocas só nessa fatia, **empata dentro de ±0,7pp**. Não é que o especialista seja
-ruim: é que não sobra o que ganhar.
+**C1 (reprodução histórica) ✅** — o v2.1 no slice de `acordao` reproduz o gate publicado
+de 31/07 (ACÓRDÃO 98-100): desfecho 99,64 · orgao_julgador 98,64 · data 100 · relator
+93,85, dentro da tolerância ±5pp. A régua nova concorda com a régua antiga.
 
-#### herdeiros — ⚠️ INCONCLUSIVO no critério pré-registrado (o controle C2 REPROVOU)
+**C2 (base sem adapter ≥20pp abaixo do v2.1, mesmo subconjunto) — 5 de 7 ✅**
 
-Aqui o gate encontrou um defeito **na régua**, e a regra pré-registrada manda não
-emitir veredito quando um controle cai. O que foi medido:
+| tarefa | n | base | v2.1 | gap (pp) | passa |
+|---|--:|--:|--:|--:|---|
+| oficio | 200 | 48,98% | 98,22% | +49,24 | ✅ |
+| pagamento | 200 | 56,22% | 99,00% | +42,78 | ✅ |
+| acordao | 200 | 57,97% | 96,86% | +38,89 | ✅ |
+| partes_doc | 200 | 50,08% | 83,58% | +33,50 | ✅ |
+| herdeiros | **539** | 58,58% | 83,71% | +25,13 | ✅ |
+| cessao | 800 | 82,96% | 98,31% | +15,35 | ❌ |
+| decisao | 200 | 87,67% | 99,49% | +11,83 | ❌ |
 
-| | v2.1 | adapter_esp_herdeiros | Δ |
-|---|--:|--:|--:|
-| `acerto_doc` composto (n=478) | 83,71% | 83,20% | −0,52pp · IC [−2,22, +1,07] |
-| `falecido` (n=478) | **91,84%** | 89,96% | **−1,88pp** · IC [−3,77, −0,21] |
-| `herdeiros.f1_entidade` (n=130) | 27,92% | **36,44%** | **+8,52pp** · IC [+2,85, +14,45] · McNemar b=4/c=13 p=0,049 |
+`cessao` e `decisao` **não limpam a barra**, e a barra **não foi afrouxada depois do
+resultado**: os vereditos dessas duas ficam registrados **com a ressalva** de que ali o
+controle não provou separação suficiente. A causa é estrutural e vale anotar para o
+próximo gate: são tarefas de **teto** (v2.1 em 98,3% e 99,5%) onde a base crua já faz
+83% e 88% — 20pp absolutos é uma barra impossível quando só sobram 12-17pp de espaço.
+**Barra de controle tem de ser em redução de erro, não em pontos absolutos** — mas
+trocar isso agora seria mover a trave, então fica como correção pré-registrada do
+próximo ciclo.
 
-**Por que C2 caiu:** o composto `acerto_doc` de herdeiros é dominado por `falecido`
-(presente em 478 dos 478 exemplos pontuáveis) — um campo FÁCIL, que a base **sem
-adapter nenhum** já acerta 82,98%. O gap base×v2.1 no composto ficou em 8,33pp, longe
-dos 20pp exigidos. Ou seja: nessa tarefa o composto não distingue modelo treinado de
-modelo cru, e **um veredito PASS/BLOCK tirado dele não valeria** — que é exatamente o
-que o controle existe para impedir.
+#### O achado que pagou as 3h: em `herdeiros`, **a base crua bate o campeão**
 
-**O achado que o controle destravou (diagnóstico, NÃO o critério pré-registrado):**
-no campo que é o experimento inteiro, `herdeiros.f1_entidade`, a base **sem
-fine-tune** marca **43,28%** contra **24,88%** do v2.1 nos MESMOS 30 exemplos —
-**a base crua bate o campeão por 18,4pp**. Isso corrobora, com número, o diagnóstico
-escrito em 31/07 (`LABLOG`): 73-76% do gold de herdeiros está vazio, então **o SFT
-ensinou o modelo a não emitir herdeiros**. Nessa leitura, o +8,52pp do especialista
-não é capacidade nova — é **recuperação parcial de um dano que o próprio SFT causou**,
-e mesmo recuperado ele continuaria **abaixo da base**. Promover o adapter seria
-promover o menos pior de dois modelos piores que não treinar.
+Único campo do gate inteiro com movimento grande, e ele aponta para o **dado**, não para
+o adapter:
 
-⚠️ O controle da base rodou em 200 exemplos (n=30 no campo) — amostra pequena.
-**Ampliação para os 539 do slice está na fila**; até fechar, o "base > FT" é achado
-forte, não número final.
+| `herdeiros.f1_entidade` (n=130 pareados) | valor | vs v2.1 |
+|---|--:|---|
+| v2.1 (campeão em produção) | **27,92%** | — |
+| adapter_esp_herdeiros | **36,44%** | +8,52pp · IC [+2,85, +14,45] · McNemar p=0,049 |
+| **Qwen2.5-7B base, SEM fine-tune nenhum** | **40,01%** | **+12,09pp · IC [+3,42, +20,82]** |
+
+O IC do base×v2.1 **exclui o zero**: a base sem treino nenhum extrai herdeiros melhor
+que o modelo que está em produção. E o especialista (36,44%) **não alcança a base**
+(+3,57pp a favor da base, IC [−4,74, +11,78] — aí sim inconclusivo).
+
+Isso confirma com número o diagnóstico escrito em 31/07 (`LABLOG`): **73-76% do gold de
+herdeiros está vazio**, então o SFT ensinou o modelo a **não emitir herdeiros**. O
++8,52pp do especialista não é capacidade nova — é **recuperação parcial de um dano que
+o próprio SFT causou**, e ainda assim fica abaixo de não ter treinado. O especialista
+também **piora `falecido`**: 91,84% → 89,96% (−1,88pp, IC [−3,77, −0,21], exclui o zero).
+
+⚠️ **Este achado só ficou de pé porque o controle foi ampliado.** Na primeira medição, com
+o controle em 200 exemplos (n=30 no campo), o gap base×v2.1 parecia **+18,4pp** e o
+`falecido` da base parecia 82,98% — os 200 primeiros do slice são os prompts mais curtos
+(o slice é ordenado por tamanho para o batching), uma amostra enviesada para fácil. Com
+os 539, o `falecido` da base caiu para 61,92% e o gap do campo desceu para +12,09pp. O
+sinal sobreviveu, **menor**. Amostra pequena mentiu de novo — a 6ª vez registrada nesta casa.
+
+#### Procedência: por que o N pequeno do `dev_esp` NÃO contaminou isto
+
+O gate **não usou** `data/esp/dev_esp_*` (onde `herdeiros` tem só 336 exemplos e que foi
+o `--dev_file` do próprio treino, com `load_best_model_at_end`). Mediu no
+`test_mix_v21.jsonl` (`split=test`), o MESMO held-out do macro 91,76 — e o corte de
+`herdeiros` ali tem **539 linhas / 478 pontuáveis / 130 com o campo `herdeiros`**, com
+zero CNJ em comum com o treino de qualquer um dos dois modelos.
+
+#### Autópsia — por que a hipótese da interferência morreu
+
+1. **Não sobrou espaço.** Em 6 das 7 tarefas o v2.1 já está em **98-99,5%**. O
+   janelamento da v2.1 (31/07) resolveu o que o experimento de 02/08 foi desenhado para
+   resolver: ACORDAO e CESSAO deixaram de ser classes fracas ANTES dos adapters
+   existirem. O experimento nasceu respondendo a uma pergunta que o dado já tinha fechado.
+2. **O especialista não tem mais dado, tem menos concorrência** — e menos concorrência
+   não vale nada: a fatia de treino dele é a MESMA que o v2.1 já viu (contagem idêntica
+   em 6 de 7 tarefas). Se a interferência multi-task fosse o gargalo, apareceria aqui.
+   Não apareceu em nenhuma das sete.
+3. **Onde há espaço, o gargalo é o rótulo.** As duas únicas tarefas longe do teto são
+   `partes_doc` (78%) e `herdeiros` (83,7% composto / 27,9% no campo) — e em `herdeiros`
+   está provado que o problema é o gold vazio, porque **não treinar vai melhor**.
+   Adapter nenhum conserta rótulo.
+
+**Consequência prática:** os 7 `adapter_esp_*` **não vão para produção** e o roteamento
+por `doc_classe` com troca de adapter **não precisa ser construído** — economia de
+complexidade de serving que este BLOCK compra. O v2.1 segue campeão, sozinho.
+
+**O que este gate NÃO mediu** (dito, não estimado): (a) os 7 adapters com **grammar GBNF**
+— o gate roda geração livre, como o gate v2.1, então `partes_doc` carrega 4,6% de JSON
+inválido nos dois modelos e a grammar mexeria nisso igualmente para ambos; (b)
+`herdeiros` sob o **gold v2.2 re-rotulado** (`data/*_v22.jsonl`), que existe e nunca virou
+modelo — é justamente a hipótese "o problema é o rótulo" que este gate acabou de reforçar.
 
 ## 3. DPO-κ — preferências da fila de divergência
 

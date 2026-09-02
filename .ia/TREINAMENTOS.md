@@ -37,6 +37,7 @@ lever real foi **janelamento de docs longos**, não a base. Ver `LABLOG.md`.
 | **v2.1** (CAMPEÃO) | 30-31/07 | **PASS macro 91,76** (loss 0,0082) | Janelamento recuperou 37k exemplos longos (dataset 211.928). Buracos do v2 tapados. GGUF md5 `0012607b1634e7b8f96c8f6a9d7bad21`. |
 | **A/B Qwen3-8B** | 31/07 | 🔴 **BLOCK** (+1,6 macro, regride DOC_PESSOAL) | Base alternativa não compensa. Ficamos no Qwen2.5-7B. Serviu pra **matar a dúvida** da base. |
 | **v2.2 (herdeiros)** | 31/07→ | ⚫ **NÃO FECHOU** | Gold re-rotulado com professor (**DeepSeek** venceu o bake-off); docs com herdeiro 25%→49% (363 recuperados). **O dado está pronto no NAS (`data/*_v22.jsonl`); o `adapter_v22` NÃO existe** — o pod 4090 foi destruído com o treino em voo. Retomar = subir GPU e rodar (não é pesquisa nova). |
+| **Especialistas (7 LoRA)** | 02/08 → gate 02/09 | 🔴 **BLOCK nos 7** (Δ −0,52 a +0,02pp) | Adapter por classe NÃO vence o multi-task: o v2.1 já faz 98-99,5% em 6 das 7 tarefas. E em `herdeiros` a **base sem fine-tune bate o campeão** (40,0 vs 27,9) — o gargalo é o RÓTULO. |
 | **DAPT** | 02-03/08 | 🔴 **BLOCK** | SFT-sobre-DAPT não bate SFT-direto: v2 macro +1,08pp, v1 +0,06pp (critério ≥+2pp) e **`partes` PIORA** (0,5139→0,5081). Pré-treino no dialeto próprio não paga o custo. Ver `EXPERIMENTOS_MODELO.md` §1. |
 
 **Métrica barata mente (meta-lição recorrente — já bateu 5×):** bit-index sample,
@@ -48,26 +49,26 @@ hash-CNJ (`eval_gate_v2.py`).
 
 ## 3. Experimentos — situação REAL (detalhe em `EXPERIMENTOS_MODELO.md`)
 
-Nenhum está em curso. Um morreu no gate, um está pago e não medido, dois nunca
-dispararam:
+Nenhum está em curso. **Dois morreram no gate** (DAPT 03/08, especialistas 02/09) e
+dois nunca dispararam:
 
 | # | Experimento | Hipótese | Critério pré-registrado | Status (02/09) |
 |---|---|---|---|---|
 | 1 | **DAPT** (pré-treino continuado) | adaptar ao texto dos autos (OCR/tabelas DEPRE) antes do SFT sobe tudo | bater SFT-direto por ≥+2pp no mesmo held-out | 🔴 **BLOCK (03/08)** — +1,08pp; morto |
 | 2 | **Destilação 3B** | nas classes fortes (ALVARA/PAGAMENTO 99-100) um 3B basta | aluno ≥ professor−2pp nas fortes | 🟡 harness pronto; **nunca rotulou** (professor definido desde 31/07) |
 | 3 | **DPO-κ** | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura >2pp | 🟡 dataset pronto (2.688 pares); **nunca treinou** |
-| 4 | **Especialistas LoRA** (adapter por classe fraca) | ACORDAO/CESSAO/herdeiros ganham com adapter dedicado | bater multi-task por classe no gate | 🟠 7 adapters treinados; **gate NUNCA rodado** — GPU paga, pergunta sem resposta |
+| 4 | **Especialistas LoRA** (adapter por classe fraca) | ACORDAO/CESSAO/herdeiros ganham com adapter dedicado | bater multi-task por classe no gate (≥2 de 3 por ≥3pp) | 🔴 **BLOCK (02/09)** — 0 de 3; IC 95% pareado exclui o ganho nas 7. Respondido e morto |
 
 **Regra dos experimentos:** nada é promovido sem passar os **gates** (mesmo TEST
 held-out, precisão@cobertura por campo). Gate BLOCK = modelo morre com autópsia
-documentada (não repetir o caminho). Mortos: **DAPT** (03/08), prompt DSPy/GEPA
-natureza (Goodhart), quantização bit-index (recall BLOCK), pgvectorscale SBQ
-(limite estrutural), A/B Qwen3-8B.
+documentada (não repetir o caminho). Mortos: **especialistas LoRA** (02/09), **DAPT**
+(03/08), prompt DSPy/GEPA natureza (Goodhart), quantização bit-index (recall BLOCK),
+pgvectorscale SBQ (limite estrutural), A/B Qwen3-8B.
 
-**Corolário que este ciclo escreveu:** gate BLOCK é resultado e é barato; o caro é
-o experimento que fica **sem veredito**. Adapter treinado e nunca gateado (nº 4)
-custou GPU e não respondeu nada — pior que um BLOCK, que pelo menos fecha a
-pergunta.
+**Corolário que este ciclo escreveu — e fechou:** gate BLOCK é resultado e é barato; o
+caro é o experimento que fica **sem veredito**. O nº 4 ficou 1 mês assim; custou **3h20
+de GPU** para ser respondido (1,7 s/exemplo, não os 4,6 estimados) e a resposta é
+inequívoca. Um experimento pendurado é mais caro que o gate que o mataria.
 
 ---
 
@@ -108,11 +109,16 @@ pergunta.
 | ~~**pod 3090** (QuickPod)~~ | RTX 3090 | DAPT + especialistas | — | 🔴 **MORTO** (adapters salvos no NAS antes de cair) |
 | **voyager-worker-mac** (lab, Tailscale) | Apple **M4** 10-core, 24GB unificados | **serve** GGUF via Metal (não treina) | $0 (hardware próprio) | 🔴 **offline há 4d em 02/09** — `ssh davicordeiro@192.168.200.37` · [`GPU_MACOS.md`](GPU_MACOS.md) |
 
-**Só sobrou uma GPU viva: a 3090 do `llmsv2`** (02/09: 4 MiB usados, ollama
-desligado, `zordon-extrair` sem timer). Todo trabalho de GPU pendente
-(gate dos especialistas, retreino v2.2, DPO-κ, destilação 3B, servir o GGUF pra
-showcase) cabe nela — a alternativa é subir pod novo e **sincronizar checkpoint
-pro NAS**, que é a lição que a v2.2 pagou.
+**Só sobrou uma GPU viva: a 3090 do `llmsv2`.** Em 02/09 ela rodou o **gate dos
+especialistas** (~3h20, 17 execuções, veredito BLOCK nos 7) e **voltou a ficar livre**.
+O trabalho de GPU que resta (retreino v2.2, DPO-κ, destilação 3B, servir o GGUF pra
+showcase) cabe nela — a alternativa é subir pod novo e **sincronizar checkpoint pro
+NAS**, que é a lição que a v2.2 pagou.
+
+**Vazão medida no gate (02/09, útil para orçar):** Qwen2.5-7B 4-bit nf4, bs=8,
+maxseq 4096, max_new 512 → **1,7 s/exemplo** (13,5 min por 800). Carregar o modelo do
+NAS custa **~2,3 min** por execução — em varredura de muitas fatias isso domina, vale
+agrupar por adapter.
 
 **Regra ops:** **NÃO treinar onde serve** e **não travar a 3090 do llmsv2** (é
 compartilhada com o bge-m3 da vetorização e com outro projeto). Mover treino pra
@@ -143,7 +149,7 @@ pra demo ao vivo. Detalhe em [`GPU_MACOS.md`](GPU_MACOS.md).
 |---|---|---|
 | **v2.1** (Qwen2.5-7B QLoRA) | ✅ CAMPEÃO, empacotado | `out/extrator-v21-Q4_K_M.gguf` + `adapter_v21` |
 | **A/B Qwen3-8B** | 🔴 reprovou o gate → arquivado | +1,6 macro < 2 |
-| **7 Especialistas LoRA** | 🟠 treinados, **sem gate** | `out/adapter_esp_*` (7 dirs, 02/08) |
+| **7 Especialistas LoRA** | 🔴 **BLOCK (02/09)** — gateados, nenhum promove | `out/adapter_esp_*` + `out/esp_gate/resultado_*.json` |
 | **DAPT** | 🔴 **BLOCK** | `out/adapter_dapt` (02/08); veredito 03/08 |
 | **v2.2 (herdeiros)** | ⚫ **nunca produziu adapter** | `data/*_v22.jsonl` existem; **`out/adapter_v22` não existe** |
 | DPO-κ · Destilação 3B | 🟡 dataset/harness prontos, nunca dispararam | — |

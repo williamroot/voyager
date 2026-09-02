@@ -273,6 +273,63 @@ no doc real 0027335 (150 págs, e-SAJ TJSP) no **modelo real** (v2.1), ~10s, on-
   (3.312/h) evitou matar frota produtiva. **Regra: contadores Redis/amostras pequenas =
   dica, NUNCA gatilho de decisão irreversível. O gatilho é a verdade-de-campo.**
 
+## 02/09 — gate dos 7 especialistas: BLOCK nos sete, e a base crua bate o campeão
+
+- 🔴 **Experimento nº 4 RESPONDIDO — BLOCK nos 7.** Os `adapter_esp_*` estavam treinados
+  desde 02/08 e **nunca gateados**: um mês de GPU paga sem pergunta respondida. Fechou em
+  **~3h20** na 3090 do llmsv2. Δ contra o v2.1 no domínio de cada um: **de −0,52pp a
+  +0,02pp**, e o **IC 95% pareado exclui o +3pp exigido nas SETE**. Família (≥2 de
+  {acordao, cessao, herdeiros}): **0 de 3**. Tabela completa em
+  `.ia/EXPERIMENTOS_MODELO.md` §2.3.
+- 📌 **Critério pré-registrado e COMMITADO ANTES de medir** (`c714f8f`), com procedência
+  auditada na fonte antes de qualquer geração. Nada foi afrouxado depois — inclusive a
+  barra do controle C2, que **duas tarefas não limparam** e ficou registrado assim.
+- 🧪 **Procedência: o dev set dos especialistas MENTIRIA.** `data/esp/dev_esp_*` foi o
+  `--dev_file` do próprio treino, com `load_best_model_at_end=True` +
+  `metric_for_best_model=eval_loss` → **serviu de seleção de modelo**. Medir ali seria o
+  Goodhart do DSPy/GEPA de novo. O gate mediu no `test_mix_v21` (`split=test`), o MESMO
+  held-out do macro 91,76, com **0 CNJ** em comum com o treino dos dois modelos.
+  **Lição: "held-out" não é o arquivo chamado dev — é o arquivo que o treino não olhou.**
+- 🥇 **O ACHADO: em `herdeiros`, a base SEM fine-tune bate o campeão.**
+  `herdeiros.f1_entidade` (n=130): v2.1 **27,92%** · especialista **36,44%** · **Qwen2.5-7B
+  base, cru, 40,01%** — base×v2.1 = **+12,09pp, IC [+3,42, +20,82] (exclui o zero)**.
+  Confirma com número o diagnóstico de 31/07: com **73-76% do gold vazio**, o SFT
+  **ensinou o modelo a não emitir herdeiros**. O ganho do especialista é recuperação
+  parcial de dano próprio — e nem alcança a base. **Conserto = rótulo (o gold v2.2 já
+  existe no NAS), não adapter.** O especialista ainda PIORA `falecido` (−1,88pp, IC
+  [−3,77, −0,21]).
+- 📉 **A amostra pequena mentiu de novo — 6ª vez.** Com o controle em 200 exemplos o gap
+  do achado parecia **+18,4pp** (n=30) e o `falecido` da base parecia 82,98%. Ampliado
+  para os 539 do slice: `falecido` da base caiu para **61,92%** e o gap desceu para
+  **+12,09pp** (n=130). O sinal sobreviveu, **menor**. Causa do viés: o slice é ordenado
+  **por tamanho de prompt** (para o batching), então "os 200 primeiros" são os textos
+  mais curtos = amostra enviesada para fácil. **Lição: subconjunto de um arquivo ordenado
+  NÃO é amostra aleatória — se for cortar, corte com seed, não com `head`.**
+- 🧯 **Guerra de orquestradores, de novo (a lição de 29/07 não estava no código).** Um
+  comando de lançamento que falhou no meio ainda subiu o driver em background: **dois
+  drivers no mesmo alvo**, escrevendo no MESMO `preds_*.jsonl` e ocupando 2× a VRAM.
+  Pego em ~2 min pela conferência de `nvidia-smi --query-compute-apps`. Fix durável:
+  **`flock` no driver** (1 dono por gate). **Lição: "1 dono por treino" só vale quando é
+  o programa que garante, não o operador.**
+- 🐛 **Bug meu na régua, achado antes de virar veredito:** o controle (base sem adapter,
+  200 exemplos) entrava na interseção do pareamento e **encolhia a comparação A×B de 707
+  para 138 exemplos**. Corrigido para o controle tomar subconjunto próprio; re-pontuar
+  não custou GPU porque **geração e pontuação são scripts separados** — decisão de design
+  que se pagou no mesmo dia.
+- 🧱 **Barra de controle absoluta não serve para tarefa de teto.** C2 exigia base ≥20pp
+  abaixo do v2.1; passou em 5 de 7 e falhou em `cessao` (+15,35) e `decisao` (+11,83) —
+  onde o v2.1 está em 98,3% e 99,5% e a base crua já faz 83% e 88%: **não existem 20pp
+  para ganhar**. A barra **não foi movida** (os dois vereditos ficam com a ressalva); a
+  correção — medir controle em **redução de erro**, não em pontos absolutos — fica
+  pré-registrada para o próximo gate.
+- 💰 **Custo real ≠ custo estimado:** a varredura foi orçada em 19h e saiu em **~3h20**
+  (**1,7 s/exemplo**, não 4,6). Foi essa medição, feita na primeira tarefa, que justificou
+  gatear os 7 em vez de parar no primeiro BLOCK: a economia que justificava parar não
+  existia. **Lição: reorçar com a vazão medida antes de decidir cortar escopo.**
+- ✅ **Consequência de produto:** o v2.1 segue campeão **sozinho**; o roteamento de
+  adapter por `doc_classe` no serving **não precisa ser construído** — o BLOCK compra essa
+  simplicidade. A 3090 está **livre** e pode voltar a servir a showcase.
+
 ---
 
 ## Mortos com autópsia (pré-ciclo — não repetir o caminho)

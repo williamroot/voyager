@@ -13,7 +13,7 @@
 | extrator-precatorio | **v2.1** | 🟡 **gate PASS macro 91,76 — empacotado (CAMPEÃO)** | GGUF Q4_K_M `0012607b1634e7b8f96c8f6a9d7bad21` · `adapter_v21` | llmsv2 `out/extrator-v21-Q4_K_M.gguf` (4,68GB) |
 | extrator-precatorio | **v2.2 (herdeiros)** | ⚫ **NÃO FECHOU** — dado pronto, adapter inexistente (o pod 4090 morreu com o treino) | dados `data/{herd_gold,train_mix,test_mix}_v22.jsonl` no NAS; **sem `adapter_v22`** | llmsv2 (dados) · pod 4090 **destruído** |
 | extrator-precatorio | **A/B Qwen3-8B** | 🔴 **gate não passou** (+1,6 macro <2; regride DOC_PESSOAL) → fica no Qwen2.5-7B | `adapter_ab_qwen3_v21` | pod 4090 |
-| extrator-precatorio | **especialistas** | 🟠 **7 adapters treinados, gate NUNCA rodado** — sem comparação por-classe, não decide nada | `adapter_esp_{acordao,cessao,decisao,herdeiros,oficio,pagamento,partes_doc}` | llmsv2 `out/` |
+| extrator-precatorio | **especialistas (7 LoRA por classe)** | 🔴 **gate BLOCK (02/09)** — nenhum dos 7 bate o v2.1 no domínio dele: Δ de **−0,52pp a +0,02pp**, IC 95% pareado exclui o +3pp exigido nas SETE. Família 0 de 3. Não promovidos, roteamento por `doc_classe` cancelado | `adapter_esp_{acordao,cessao,decisao,herdeiros,oficio,pagamento,partes_doc}` — **não promovidos** | llmsv2 `out/` · resultados `out/esp_gate/resultado_*.json` |
 | extrator-precatorio | **DAPT** | 🔴 **gate BLOCK (03/08)** — SFT-sobre-DAPT não bate SFT-direto: v2 macro **+1,08pp**, v1 **+0,06pp** (critério era ≥+2pp); `partes` até PIORA (0,5139→0,5081) | `adapter_dapt` (r=64 all-linear, 646MB) — **não promovido** | llmsv2 `out/adapter_dapt` |
 | classificador-leads | v7 | 🟢 ativa | — | ver `.ia/CLASSIFICACAO.md` |
 | emulador-autos (GBM) | — | ⚪ planejado | — | ver `.ia/EMULADOR_AUTOS.md` |
@@ -34,13 +34,58 @@ Status: 🟢 ativa · 🟡 empacotado/shadow · 🔵 treinando · 🟠 artefato 
 🔴 morto (gate BLOCK) · ⚫ interrompido sem veredito (≠ morto: ninguém mediu) ·
 ⚪ planejado
 
-Mortos com autópsia (não repetir o caminho): **DAPT** (gate BLOCK 03/08 — o
+Mortos com autópsia (não repetir o caminho): **especialistas LoRA por classe**
+(gate BLOCK 02/09 — o v2.1 já está em 98-99,5% em 6 das 7 tarefas; interferência
+multi-task não era o gargalo, e onde há espaço o gargalo é o RÓTULO:
+`.ia/EXPERIMENTOS_MODELO.md` §2.3), **DAPT** (gate BLOCK 03/08 — o
 pré-treino no dialeto próprio não paga o custo; `.ia/LABLOG.md`), prompt DSPy/GEPA
 natureza (Goodhart, `.ia/RAG_EVAL_OBS.md`), quantização bit-index (gate recall
 BLOCK, `.ia/QUANTIZACAO_INDICE_VETORIAL.md`), pgvectorscale SBQ (limite estrutural
 >930d, `.ia/PGVECTORSCALE_SBQ.md`), A/B Qwen3-8B (base alternativa não compensa).
 
 ---
+
+## Model card — **especialistas LoRA por classe** (treinados 02/08, gate 02/09/2026)
+
+**O que eram.** 7 adapters QLoRA r=32 sobre Qwen2.5-7B-Instruct, um por tarefa
+(`acordao, cessao, decisao, herdeiros, oficio, pagamento, partes_doc`), cada um treinado
+SÓ na fatia da sua tarefa (2-4 épocas). Hipótese: as classes fracas perdiam no
+multi-task por **interferência**, e um adapter dedicado aprenderia o template sem
+competir por capacidade. Serving previsto: troca de adapter roteada por `doc_classe`.
+
+**Gate (02/09, R115).** Held-out `test_mix_v21` (`split=test`, o mesmo do macro 91,76),
+slice por tarefa gravado uma vez e lido pelos dois modelos → **pareamento exato por
+exemplo**. Métrica = `score_v2()` do `eval_gate_v2.py` sem alteração. Significância =
+McNemar exato + bootstrap pareado 10k. Critério pré-registrado e **commitado antes de
+medir** (`c714f8f`): Δ ≥ +3pp E IC 95% > 0 E significância.
+
+| tarefa | n | v2.1 | especialista | Δ | IC 95% |
+|---|--:|--:|--:|--:|---|
+| acordao | 707 | 98,40% | 98,28% | −0,12pp | [−0,85, +0,64] |
+| cessao | 800 | 98,31% | 98,33% | +0,02pp | [−0,62, +0,69] |
+| herdeiros | 478 | 83,71% | 83,20% | −0,52pp | [−2,22, +1,07] |
+| decisao | 737 | 99,54% | 99,43% | −0,10pp | [−0,32, +0,11] |
+| oficio | 797 | 99,07% | 98,89% | −0,18pp | [−0,45, +0,07] |
+| pagamento | 702 | 98,22% | 98,10% | −0,12pp | [−0,69, +0,50] |
+| partes_doc | 709 | 78,05% | 77,68% | −0,37pp | [−1,77, +1,10] |
+
+**Veredito: 🔴 BLOCK nos 7. Família BLOCK (0 de 3).** Nenhum IC inclui o +3pp exigido.
+
+**Controles.** C1 (reproduzir o ACÓRDÃO 98-100 do gate de 31/07) ✅. C2 (base sem adapter
+≥20pp abaixo do v2.1) ✅ em 5 de 7 — falha em `cessao` (+15,35) e `decisao` (+11,83), que
+são tarefas de teto onde a barra absoluta de 20pp é inatingível por construção. Barra
+**não** foi afrouxada; a correção (medir em redução de erro) fica pré-registrada para o
+próximo ciclo.
+
+**Achado colateral que vale mais que o experimento.** Em `herdeiros.f1_entidade` (n=130):
+v2.1 **27,92%** · especialista **36,44%** · **base SEM fine-tune 40,01%** — a base crua
+bate o campeão por **+12,09pp (IC [+3,42, +20,82], exclui o zero)**. Confirma o
+diagnóstico de 31/07: com 73-76% do gold vazio, o SFT **ensinou o modelo a não emitir
+herdeiros**. Conserto = rótulo (o gold v2.2 já existe no NAS), não adapter.
+
+**Limitações do gate.** Geração livre, sem grammar GBNF (igual ao gate v2.1) — daí os
+4,6% de JSON inválido em `partes_doc`, presentes nos DOIS modelos. Não mediu o
+`herdeiros` sob o gold v2.2 re-rotulado.
 
 ## Model card — extrator-precatorio **v1** (28/07/2026)
 
