@@ -157,11 +157,58 @@ def set_enrich_pausados(siglas: set[str]) -> None:
     cache.set(_PAUSA_KEY, sorted(s.upper() for s in siglas), timeout=None)
 
 
+#: Kill switch do incidente-following, por tribunal. Chave de cache (Redis),
+#: não setting: o custo do seguimento é REQUISIÇÃO num pool COMPARTILHADO com
+#: a ingestão, e desligar isso não pode depender de deploy.
+_INCIDENTES_OFF_KEY = 'enrich:incidentes:off'
+
+
+def incidentes_desligados() -> set[str]:
+    from django.core.cache import cache
+    return set(cache.get(_INCIDENTES_OFF_KEY) or [])
+
+
+def set_incidentes_desligados(siglas: set[str]) -> None:
+    """Desliga o seguimento de incidentes nos tribunais dados, sem deploy:
+
+        from enrichers.jobs import set_incidentes_desligados
+        set_incidentes_desligados({'TJSP'})   # estrangula
+        set_incidentes_desligados(set())      # volta
+    """
+    from django.core.cache import cache
+    cache.set(_INCIDENTES_OFF_KEY, sorted(s.upper() for s in siglas), timeout=None)
+
+
+def seguir_incidentes_de(sigla: str) -> bool:
+    """Este tribunal segue incidente no enriquecimento EM MASSA?
+
+    Três portas, e a ordem importa: o master switch do setting, a lista de
+    tribunais habilitados e o kill switch do Redis. O clique manual não passa
+    por aqui — ele pede explicitamente, porque ali existe alguém esperando a
+    ficha do crédito inteira na tela.
+
+    Começa só pelo TJSP de propósito (`ESAJ_INCIDENTES_TRIBUNAIS`): é onde
+    precatório vira lead e onde a sonda mediu 58,5% de processos com
+    incidente. Abrir para o resto de `TRIBUNAIS_JURISCOPE` é decisão de
+    ORÇAMENTO de requisição, tomada depois de medir o retorno da primeira
+    fatia — não antes.
+    """
+    from django.conf import settings
+    if not getattr(settings, 'ESAJ_SEGUIR_INCIDENTES', False):
+        return False
+    sigla = (sigla or '').upper()
+    if sigla in incidentes_desligados():
+        return False
+    habilitados = {s.upper() for s in getattr(settings, 'ESAJ_INCIDENTES_TRIBUNAIS', ())}
+    return sigla in habilitados
+
+
 # @job('default') é mantido pra trabalhar como fallback se algo enfileirar
 # direto via .delay() sem passar pela queue per-tribunal.
 @job('default', timeout=ENRICH_TIMEOUT)
 def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
-                         direct_apply: bool = False, seguir_incidentes: bool = False) -> dict:
+                         direct_apply: bool = False,
+                         seguir_incidentes: bool | None = None) -> dict:
     # prefer_cortex=None → resolve do setting (default True: Cortex-first pra
     # passar o WAF; datacenter fica de fallback). Cobre TODOS os paths de enqueue.
     if prefer_cortex is None:
@@ -204,6 +251,11 @@ def enriquecer_processo(process_id: int, prefer_cortex: bool | None = None,
         prefer_cortex = False
     logger.info('enriquecer_processo inicio %s %s', p.tribunal_id, p.numero_cnj)
     enricher = cls(prefer_cortex=prefer_cortex)
+    # `None` = decide aqui, pelo tribunal (o refill enfileira sem kwargs, e é
+    # ele que move o acervo). Explícito continua mandando: o clique manual
+    # pede o seguimento para qualquer e-SAJ.
+    if seguir_incidentes is None:
+        seguir_incidentes = seguir_incidentes_de(p.tribunal_id)
     # seguir_incidentes só faz sentido no e-SAJ (cada parte tem um incidente).
     if seguir_incidentes and isinstance(enricher, BaseEsajEnricher):
         result = enricher.enriquecer(p, direct_apply=direct_apply, seguir_incidentes=True)

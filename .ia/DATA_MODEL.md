@@ -510,6 +510,54 @@ Duas consequências práticas:
     no teste vai errar para o lado errado, e quem assertar `total_processos`
     num teste está provando o contrário do que produção faz.
 
+## Incidente (`tribunals/models.py`, migration 0058)
+
+O **precatório que o tribunal não numerou**. No e-SAJ, cada beneficiário do
+crédito tem um incidente próprio pendurado no processo — e a sonda de
+01-02/09/2026 (100 processos do TJSP, sementes 20260901/20260902) mediu que
+**201 dos 210 incidentes (95,7%) são `Precatório`/`Requisição de Pequeno
+Valor` e não têm CNJ nenhum**: o e-SAJ os identifica por
+`<classe> (<CNJ do principal>) (<seq>)` e por um `processo.codigo` interno.
+
+Sem número não há porta pelo DJEN nem pelo Datajud. **Não é dado que falta no
+acervo: é dado que não pode entrar por CNJ.**
+
+| coluna | o que é |
+|---|---|
+| `processo` | FK para o processo-pai (`CASCADE`) |
+| `codigo_esaj` | `processo.codigo` do e-SAJ — a chave natural, que é do TRIBUNAL |
+| `tipo` | `PRECATORIO` / `RPV` / **vazio** (classe não medida — o rótulo cru fica em `classe`) |
+| `sequencial` | ordem dentro do principal (`01`, `12`, `87`) |
+| `cnj_principal` | CNJ do pai |
+| `cnj_proprio` | o CNJ DELE quando existe (cumprimento, IDPJ — 4,3%); vazio afirma que ele não tem |
+| `situacao` | `Extinto`, … (`span.unj-tag`) — publicado em 3 de 5 |
+| `foro` / `vara` / `assunto` / `controle` / `recebido_em` | contexto processual do requisitório |
+| `valor` | valor requisitado DAQUELE beneficiário. **NULL = a fonte não publicou** (4 de 5), nunca zero |
+| `requerentes` / `ent_devedoras` | JSONB verbatim: quem recebe e quem deve |
+| `fonte` | `'esaj'` — mesmo idioma de `ProcessoParte.fonte` |
+
+**Por que tabela própria** (decisão do dono do produto, 02/09/2026):
+`tribunals_process` é único por `(tribunal, numero_cnj)`; encaixar o precatório
+ali exigiria **fabricar um CNJ que o tribunal não deu** — inventar
+identificador que não existe no mundo é o "abster > chutar" ao contrário. E
+JSONB no pai seria dado sem consulta (a ficha da parte filtra por tipo, por
+ente devedor e por valor).
+
+**Idempotência**: unique `(processo, codigo_esaj)` + `bulk_create(update_conflicts)`
+no `enrichers/drainer.py::gravar_incidentes`. Re-coletar ATUALIZA; `coletado_em`
+(a data da descoberta) nunca é reescrito. Ficha sem `codigo_esaj` é descartada
+e **contada** em ERROR — chave vazia faria dois precatórios diferentes virarem
+um na unique.
+
+**O que ele NÃO faz**: evento sem a chave `incidentes` não apaga nada. O
+payload não distingue "este processo não tem" de "este evento veio do caminho
+em massa com o seguimento desligado", e apagar na dúvida faria de todo
+enriquecimento comum um apagador silencioso.
+
+As mesmas pessoas entram como `ProcessoParte` do processo-pai com
+`fonte='esaj_incidente'` (o `Ent. Devedora` no **polo passivo** — é o polo que
+a tela "Quem deve" filtra, mesma convenção do ente devedor do diário, #118).
+
 ## ER (alto nível)
 
 ```

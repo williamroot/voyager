@@ -169,6 +169,10 @@ _RE_CABECALHO_INCIDENTE = re.compile(
 
 TIPO_PRECATORIO = 'PRECATORIO'
 TIPO_RPV = 'RPV'
+#: Procedência gravada em `ProcessoParte.fonte` para quem veio do incidente —
+#: mesmo idioma de `'djen'`/`'diario'` (`tribunals/services/partes_djen.py`).
+#: NULL continua querendo dizer "cadastro do enricher/legado".
+FONTE_INCIDENTE = 'esaj_incidente'
 #: Rótulo do cabeçalho → tipo canônico. Só entra o que foi MEDIDO na sonda;
 #: qualquer outra classe fica com `tipo=None` e o `classe` cru ao lado —
 #: abster > chutar (regra nº 6 do CLAUDE.md).
@@ -185,6 +189,12 @@ _RE_PAPEL_ENT_DEVEDORA = re.compile(r'^ENT\.?\s*(IDADE)?\s*DEVEDORA?\b')
 def _sem_acento(txt: str) -> str:
     return ''.join(ch for ch in unicodedata.normalize('NFKD', txt or '')
                    if not unicodedata.combining(ch))
+
+
+def _codigo_do_href(href: str) -> str:
+    """`processo.codigo` do link do incidente ('G0000J7130001'), ou ''."""
+    m = re.search(r'processo\.codigo=([A-Za-z0-9]+)', href or '')
+    return m.group(1)[:32] if m else ''
 
 
 def tipo_de_incidente(classe: str) -> Optional[str]:
@@ -243,8 +253,30 @@ class BaseEsajEnricher:
         self.pool = pool or ProxyScrapePool.singleton()
         # prefer_cortex: clique manual (rápido) OU host que bloqueia o pool (TJAL).
         self.prefer_cortex = prefer_cortex or self.PREFER_CORTEX
+        #: IP/sessão que respondeu o ÚLTIMO detalhe. O e-SAJ atrela o
+        #: JSESSIONID ao IP; guardar isto é o que permite ler os incidentes do
+        #: processo pela sessão já aberta, sem um `open.do` por incidente.
+        self._proxy_da_sessao: Optional[dict] = None
 
-    MAX_INCIDENTES = 12  # teto de incidentes seguidos por processo (custo de proxy)
+    #: Teto de incidentes seguidos por processo. **100**, e o número tem prova.
+    #:
+    #: Distribuição medida (53 processos conclusivos do estrato de crédito do
+    #: TJSP, sementes 20260901/20260902; 31 têm incidente, 210 no total):
+    #:
+    #:     0 x 22 · 1 x 11 · 2 x 10 · 3 x 3 · 4 x 3 · 5 · 7 · **59** · **87**
+    #:
+    #: O teto antigo de 12 truncava **2 processos de 53** — e colhia
+    #: **41,9% dos incidentes**. Os dois maiores sozinhos guardam 146 dos 210
+    #: (69,5%), porque um processo com 87 precatórios é um processo com 87
+    #: BENEFICIÁRIOS: é o crédito mais valioso da amostra, não o menos. Um teto
+    #: que parece inofensivo pela contagem de processos e come dois terços do
+    #: dado é a assinatura exata do `for pagina in range(1, 11)`.
+    #:
+    #: Custo: com a sessão do pai reusada (1 requisição por incidente em vez de
+    #: 2), 100% do dado custa 210 requisições onde o teto de 12 custava 176
+    #: para 41,9%. Passar de 100 continua sendo ERRO registrado com o número
+    #: real — teto é alerta, nunca corte mudo.
+    MAX_INCIDENTES = 100
 
     #: Faixas de CNJ que ESTE e-SAJ comprovadamente não tem — o tribunal roda um
     #: SEGUNDO sistema (eproc). `(prefixo, ano_mínimo, motivo)`; vazio = sem
@@ -348,7 +380,9 @@ class BaseEsajEnricher:
         inc = (self._agregar_incidentes(soup, partes)
                if seguir_incidentes else None)
 
-        self._emit(stream.build_ok_payload(**base, dados=dados, partes=partes), direct_apply)
+        self._emit(stream.build_ok_payload(
+            **base, dados=dados, partes=partes,
+            incidentes=inc['fichas'] if inc else None), direct_apply)
         resultado = {
             'cnj': processo.numero_cnj,
             'status': 'ok',
@@ -501,14 +535,30 @@ class BaseEsajEnricher:
             if ficha is None:      # não é página de incidente: abstém
                 falhas += 1
                 continue
-            self._merge_partes(partes, ficha['partes'])
+            # A chave natural do incidente é do TRIBUNAL, não nossa: o
+            # `processo.codigo` que o próprio link carrega. É ele que torna a
+            # re-coleta idempotente (unique `(processo, codigo_esaj)`) sem que
+            # a gente invente identificador nenhum. Sem código, a ficha não
+            # tem como ser reencontrada — o escritor a descarta e conta.
+            ficha['codigo_esaj'] = _codigo_do_href(href)
+            # Procedência na PARTE, mesmo idioma do `fonte='diario'` do #118:
+            # esta pessoa não veio do cadastro do processo-pai, veio do
+            # precatório dela. Sem o carimbo, o ente devedor do requisitório
+            # fica indistinguível do réu da ação.
+            self._merge_partes(partes, ficha['partes'], fonte=FONTE_INCIDENTE)
             fichas.append({k: v for k, v in ficha.items() if k != 'partes'})
         return {'total': total, 'lidos': len(fichas), 'falhas': falhas,
                 'truncado': truncado, 'fichas': fichas}
 
     @staticmethod
-    def _merge_partes(dest: dict, novo: dict) -> None:
-        """Agrega partes de um incidente em dest, dedup por (polo, nome)."""
+    def _merge_partes(dest: dict, novo: dict, fonte: str = '') -> None:
+        """Agrega partes de um incidente em dest, dedup por (polo, nome).
+
+        `fonte` carimba a PROCEDÊNCIA na linha que o drainer vai gravar. A
+        parte que já existia no pai não é recarimbada: quem chegou primeiro é
+        o cadastro do processo, e reescrever a procedência dele seria mentir
+        na coluna que existe justamente para não mentir.
+        """
         vistos = {(polo, p.get('nome', '')) for polo, lst in dest.items() for p in lst}
         for polo, lst in (novo or {}).items():
             dest.setdefault(polo, [])
@@ -516,7 +566,7 @@ class BaseEsajEnricher:
                 chave = (polo, p.get('nome', ''))
                 if chave not in vistos:
                     vistos.add(chave)
-                    dest[polo].append(p)
+                    dest[polo].append(dict(p, fonte=fonte) if fonte else p)
 
     def _extrair_incidentes(self, soup) -> list:
         """hrefs dos links de incidente (.incidente / seção incidentesRecursos_).
@@ -685,6 +735,10 @@ class BaseEsajEnricher:
 
             resolvido = self._resolver_200(resp.text, cnj_fmt, path, proxies)
             if resolvido is not None:
+                # Sessão viva e atada a este IP: os incidentes deste processo
+                # saem por ela, sem refazer o `open.do` (metade das
+                # requisições do seguimento).
+                self._proxy_da_sessao = proxies
                 return resolvido
             # 200 AMBÍGUO = provável soft-error/throttle do e-SAJ vindo com 200,
             # ou lista sem o nosso número. TRANSITÓRIO: rotaciona. Se esgotar as
@@ -786,16 +840,40 @@ class BaseEsajEnricher:
             return None
         return resp.text
 
+    #: Marcadores de que a resposta do incidente traz DADO (e não a página de
+    #: desafio). Não se rejeita por 'captcha' no texto: TODA página e-SAJ tem
+    #: captcha no JS do header. A do incidente tem `nomeParteEAdvogado` mesmo
+    #: sem `classeProcesso`; a de desafio não tem nenhum destes.
+    _MARCAS_INCIDENTE = ('classeProcesso', 'numeroProcesso',
+                         'nomeParteEAdvogado', 'classAttorney')
+
     def _fetch_incidente(self, href: str) -> Optional[str]:
         """Detalhe de um incidente pelo href real do link `.incidente` (que já
-        traz cdLocal+codigo+foro). Rotaciona proxy. None se não obteve detalhe.
+        traz cdLocal+codigo+foro). `None` se não obteve detalhe.
 
-        NÃO usa `consultaDeRequisitorios=true`: esse param (fluxo autenticado do
-        Juriscope) dispara CAPTCHA na consulta pública. O show.do do incidente
-        abre SEM login/captcha (2026-07-06). Checagem tolerante: a página do
-        incidente pode não ter `classeProcesso` — aceita `numeroProcesso`/detalhe."""
-        open_url = f'{self.BASE_URL}/cpopg/open.do'
+        **Reusa a sessão do pai.** O e-SAJ atrela o `JSESSIONID` ao IP, e o
+        incidente está no mesmo site que acabamos de abrir para ler o processo:
+        o `open.do` por incidente era uma requisição inteira gasta para
+        reconstruir uma sessão que já estava de pé. Medido na sonda de
+        02/09/2026: o seguimento cai de **2 requisições por incidente para 1**
+        — ≈3,2 M em vez de ≈6,5 M para o estrato de crédito do TJSP, e o pool
+        é COMPARTILHADO com a ingestão.
+
+        Se a sessão herdada falhar (IP caiu, sessão expirou), cai no caminho
+        antigo: rotação de proxy com `open.do`. Nunca vira `nao_encontrado`
+        mudo — sem detalhe devolve `None` e o chamador conta como falha.
+
+        NÃO usa `consultaDeRequisitorios=true`: esse param (fluxo autenticado
+        do Juriscope) dispara CAPTCHA na consulta pública.
+        """
         url = href if href.startswith('http') else f'{self.BASE_URL}{href}'
+
+        if self._proxy_da_sessao:
+            html = self._pedir_incidente(url, self._proxy_da_sessao, abrir=False)
+            if html is not None:
+                return html
+
+        open_url = f'{self.BASE_URL}/cpopg/open.do'
         tentados: set = set()
         bloqueios_dc = 0
         for _ in range(1, self.MAX_PROXY_ROTATIONS + 1):
@@ -823,14 +901,32 @@ class BaseEsajEnricher:
             if resp.status_code >= 500:
                 continue
             resp.raise_for_status()
-            # NÃO rejeitar por 'captcha' no texto: TODA página e-SAJ tem captcha no
-            # JS do header. Confiar nos markers de dado — a página do incidente tem
-            # nomeParteEAdvogado mesmo sem classeProcesso; a página-desafio de captcha
-            # não tem nenhum desses.
-            if any(m in resp.text for m in ('classeProcesso', 'numeroProcesso',
-                                            'nomeParteEAdvogado', 'classAttorney')):
+            if any(m in resp.text for m in self._MARCAS_INCIDENTE):
+                # A sessão que funcionou passa a ser a herdada dos próximos
+                # incidentes deste mesmo processo.
+                self._proxy_da_sessao = proxies
                 return resp.text
             return None
+        return None
+
+    def _pedir_incidente(self, url: str, proxies: dict,
+                         abrir: bool = True) -> Optional[str]:
+        """Um GET no incidente pela sessão/IP dados. `None` = não deu certo
+        (transporte, bloqueio, ou 200 sem marcador de dado) — o chamador
+        decide se rotaciona."""
+        try:
+            if abrir:
+                self.session.get(f'{self.BASE_URL}/cpopg/open.do', proxies=proxies,
+                                 timeout=self.timeout)
+            resp = self.session.get(url, proxies=proxies, timeout=self.timeout,
+                                    allow_redirects=True)
+        except (requests.ConnectionError, requests.Timeout,
+                requests.exceptions.ChunkedEncodingError):
+            return None
+        if resp.status_code != 200:
+            return None
+        if any(m in resp.text for m in self._MARCAS_INCIDENTE):
+            return resp.text
         return None
 
     # ---------- Parsing ----------

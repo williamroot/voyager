@@ -1059,3 +1059,103 @@ class FonteDiario(models.Model):
 
     def __str__(self):
         return f'{self.source_id} · {self.nome}'
+
+
+class Incidente(models.Model):
+    """O incidente do e-SAJ — o precatório/RPV que o tribunal NÃO numerou.
+
+    Por que uma tabela própria, e não um `Process` com CNJ sintético nem um
+    JSONB no pai (decisão do dono do produto, 02/09/2026)
+    ------------------------------------------------------------------------
+    Sonda ao vivo de 01-02/09/2026 (100 processos do TJSP, sementes
+    20260901/20260902, estrato `tem_sinal_precatorio`): dos **210 incidentes**
+    lidos, **201 (95,7%) são `Precatório`/`Requisição de Pequeno Valor` e não
+    têm número CNJ nenhum**. O e-SAJ os identifica por
+    `<classe> (<CNJ do principal>) (<seq>)` — "Precatório - 00012" — e por um
+    `processo.codigo` interno.
+
+    Eles não estão *faltando* no acervo: eles **não podem entrar por CNJ**. O
+    DJEN e o Datajud são indexados por número de processo; sem número, não há
+    porta. Fabricar um CNJ sintético para caber em `tribunals_process` (que é
+    único por `(tribunal, numero_cnj)`) seria inventar identificador que não
+    existe no mundo — o "abster > chutar" ao contrário. Guardar como JSONB no
+    pai seria dado sem consulta: a ficha da parte precisa filtrar por tipo,
+    por ente devedor e por valor.
+
+    A chave natural existe e é do tribunal: `codigo_esaj` (o `processo.codigo`
+    do link). Estável, único dentro do e-SAJ, e é o que torna a re-coleta
+    idempotente — `(processo, codigo_esaj)` é a unique.
+
+    Um crédito, três degraus (medido na fixture
+    `tests/fixtures/tjsp/esaj_cpopg_detalhe_com_incidentes.html`):
+    conhecimento `1012705-02.2021.8.26.0576` → cumprimento
+    `0018347-36.2022.8.26.0576` (tem CNJ) → **7 precatórios/RPV** (não têm).
+    Do crédito inteiro temos 1 de 9 nós — e é sobre esse pedaço que o Estágio
+    do Crédito decide hoje.
+
+    Abstenção por campo: o que a fonte não publica fica **vazio**, e a tela diz
+    que está vazio. `valor` é `NULL` quando o e-SAJ não publicou o valor
+    requisitado (medido: publicado em 1 de 5 páginas da sonda) — nunca zero.
+    """
+
+    #: Carimbo de procedência, mesmo idioma de `ProcessoParte.fonte`
+    #: (`'diario'`, `'djen'`): quem escreveu esta linha.
+    FONTE_ESAJ = 'esaj'
+
+    TIPO_PRECATORIO = 'PRECATORIO'
+    TIPO_RPV = 'RPV'
+
+    processo = models.ForeignKey(
+        Process, on_delete=models.CASCADE, related_name='incidentes',
+    )
+    #: `processo.codigo` do e-SAJ (ex.: `G0000J7130001`). Chave natural — é o
+    #: identificador que o tribunal DÁ. Vazio nunca é gravado (o escritor
+    #: descarta a ficha sem código e conta o descarte).
+    codigo_esaj = models.CharField(max_length=32, blank=True)
+    #: `PRECATORIO` / `RPV` / vazio. Vazio = classe que a sonda não mediu; o
+    #: rótulo cru fica em `classe`, ao lado, sem chute.
+    tipo = models.CharField(max_length=16, blank=True)
+    classe = models.CharField(max_length=120, blank=True)
+    #: A ordem do incidente dentro do principal ('01', '12', '87').
+    sequencial = models.CharField(max_length=8, blank=True)
+    #: O CNJ do processo-pai (o do `a.processoPrinc`, quando ele existe).
+    cnj_principal = models.CharField(max_length=25, blank=True)
+    #: O CNJ DELE, nos casos em que ele tem um (cumprimento de sentença, IDPJ
+    #: — 4,3% dos medidos). Vazio no precatório/RPV: é a afirmação de que ele
+    #: não tem número, não uma ausência de leitura.
+    cnj_proprio = models.CharField(max_length=25, blank=True)
+    situacao = models.CharField(max_length=60, blank=True)
+    foro = models.CharField(max_length=255, blank=True)
+    vara = models.CharField(max_length=255, blank=True)
+    assunto = models.CharField(max_length=255, blank=True)
+    #: Número de controle da DEPRE ('2021/002588').
+    controle = models.CharField(max_length=40, blank=True)
+    recebido_em = models.DateField(null=True, blank=True)
+    #: Valor requisitado DAQUELE beneficiário. NULL = a fonte não publicou.
+    valor = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    #: Quem RECEBE e quem DEVE, verbatim da fonte (nome, documento, oab, papel).
+    #: As mesmas pessoas entram em `ProcessoParte` do processo-pai com
+    #: `fonte='esaj_incidente'`; aqui ficam presas ao incidente que as gerou,
+    #: que é o que a ficha da parte precisa para dizer "este valor é dela".
+    requerentes = models.JSONField(default=list, blank=True)
+    ent_devedoras = models.JSONField(default=list, blank=True)
+    fonte = models.CharField(max_length=16, blank=True)
+    coletado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=['processo', 'codigo_esaj'],
+                             name='uniq_incidente_processo_codigo'),
+        ]
+        indexes = [
+            # "todos os precatórios do TJSP" e "quanto entrou hoje".
+            models.Index(fields=['tipo'], name='incid_tipo_idx'),
+            # O elo da cadeia: o incidente que TEM CNJ e que talvez não esteja
+            # no acervo — é esta busca que mede o ganho de completude.
+            models.Index(fields=['cnj_proprio'], name='incid_cnj_proprio_idx'),
+            models.Index(fields=['coletado_em'], name='incid_coletado_em_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.tipo or self.classe} {self.sequencial} · {self.cnj_principal}'

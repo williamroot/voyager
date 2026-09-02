@@ -560,6 +560,13 @@ ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=False)
 # chega a 87 — ligar isso em massa é decisão de ORÇAMENTO de requisição, não
 # de captcha. Ver `.ia/ENRICHMENT.md` §"Incidentes vinculados".
 ESAJ_SEGUIR_INCIDENTES = env.bool('ESAJ_SEGUIR_INCIDENTES', default=True)
+# Quais tribunais seguem incidente no enriquecimento EM MASSA. Começa só pelo
+# TJSP: é onde precatório vira lead (`TRIBUNAIS_JURISCOPE`) e onde a sonda
+# mediu 58,5% de processos com incidente e 4,0 incidentes por processo. Abrir
+# para o resto é decisão de ORÇAMENTO de requisição — o pool é COMPARTILHADO
+# com a ingestão —, tomada depois de medir o retorno desta fatia.
+# Kill switch sem deploy: `enrichers.jobs.set_incidentes_desligados({'TJSP'})`.
+ESAJ_INCIDENTES_TRIBUNAIS = env.list('ESAJ_INCIDENTES_TRIBUNAIS', default=['TJSP'])
 
 # LLM (Ollama OpenAI-compat) — narrativa de jurimetria. Fail-closed: sem key, a
 # narrativa fica desativada e o dossiê determinístico segue normal. Espelha o Horizon.

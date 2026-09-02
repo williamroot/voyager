@@ -229,6 +229,33 @@ amostradas** (`TABLESAMPLE SYSTEM (0.2) REPEATABLE (20260902)`), com os
 controles `ADVOGADO` (93.130), `REQTE` (1.608) e `EXEQTE` (1.183) todos
 presentes. O incidente-following existe em código e não produziu acervo.
 
+### Ligado em produção (02/09/2026) — só TJSP, e por quê
+
+O seguimento em massa é decidido **por tribunal**, dentro do
+`enriquecer_processo` (o refill enfileira sem kwargs, e é ele que move o
+acervo): `ESAJ_INCIDENTES_TRIBUNAIS` (default `['TJSP']`) × master switch
+`ESAJ_SEGUIR_INCIDENTES` × kill switch no Redis
+(`enrichers.jobs.set_incidentes_desligados({'TJSP'})` — desligar o custo de
+REQUISIÇÃO num pool COMPARTILHADO não pode depender de deploy).
+
+Começa pelo TJSP porque é onde precatório vira lead (`TRIBUNAIS_JURISCOPE`) e
+onde a sonda mediu 58,5% de processos com incidente. Abrir para o resto é
+decisão de orçamento, depois de medir o retorno desta fatia.
+
+**Teto = 100 incidentes por processo, e o número tem prova.** Distribuição
+medida (53 processos conclusivos, 210 incidentes): `0×22 · 1×11 · 2×10 · 3×3 ·
+4×3 · 5 · 7 · 59 · 87`. O teto antigo de 12 truncava **2 processos de 53** e
+colhia **41,9% dos incidentes** — os dois maiores guardam 146 dos 210, porque
+um processo com 87 precatórios é um processo com 87 BENEFICIÁRIOS. Teto que
+parece inofensivo pela contagem de processos e come dois terços do dado é o
+`for pagina in range(1, 11)` outra vez. Passar de 100 continua sendo ERRO com o
+número real.
+
+**Custo por incidente caiu pela metade**: `_fetch_incidente` reusa a sessão do
+pai (o e-SAJ atrela o `JSESSIONID` ao IP, e o incidente é o mesmo site) — 1
+requisição por incidente em vez de 2. Conferido no caminho real: 8 requisições
+para 1 processo + 7 incidentes.
+
 ### O que já está entregue (02/09/2026)
 
 - `BaseEsajEnricher.parsear_incidente(html)` — ficha determinística do
@@ -248,10 +275,10 @@ presentes. O incidente-following existe em código e não produziu acervo.
 
 | falta | tamanho medido |
 |---|---|
-| **onde guardar** um incidente sem CNJ (model + FK para o principal) | não existe hoje; `Process` é único por `(tribunal, numero_cnj)` |
-| ligar o incidente-following no caminho em massa | ~477 k processos do estrato têm incidente; **≈ 3,2 M incidentes** |
-| custo de requisição | 2 req por incidente hoje (`open.do` + `show.do`) ⇒ **≈ 6,5 M**; reusar a sessão do pai derruba para ~3,2 M |
-| teto real por processo | `MAX_INCIDENTES=12` contra máximos de 59 e 87 — decisão de orçamento, não de parser |
+| ~~onde guardar um incidente sem CNJ~~ | **FEITO**: `tribunals_incidente` (migration 0058), chave natural `codigo_esaj` do próprio e-SAJ |
+| ligar para o resto de `TRIBUNAIS_JURISCOPE` | TJSP ligado em 02/09; ~477 k processos do estrato têm incidente, **≈ 3,2 M incidentes** no total |
+| ~~custo de requisição~~ | **FEITO**: sessão do pai reusada ⇒ 1 req por incidente (≈ 3,2 M em vez de 6,5 M) |
+| ~~teto real por processo~~ | **FEITO**: 100 (cobre 100% do medido; 12 colhia 41,9%) |
 | CNJ novos que o seguimento descobre | ≈ 0,094 incidente-com-CNJ por processo do estrato ⇒ **≈ 77 k CNJ**, dos quais 4 de 5 não estão no acervo (**≈ 61 k**) |
 
 ## Um tribunal, mais de um sistema — a varredura dos 60 (29/08/2026)

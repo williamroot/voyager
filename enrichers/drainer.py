@@ -24,7 +24,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from tribunals.models import (
-    Assunto, ClasseJudicial, Movimentacao, Parte, Process, ProcessoParte,
+    Assunto, ClasseJudicial, Incidente, Movimentacao, Parte, Process, ProcessoParte,
 )
 
 from .parsers import (
@@ -340,6 +340,119 @@ def _merge_doc_defaults(existing: Parte, defaults: dict) -> dict:
 
 # ---------- aplicação ----------
 
+#: Campos da ficha que o upsert reescreve. `coletado_em` fica de fora de
+#: propósito: ele é quando VIMOS o incidente pela primeira vez, e re-coletar
+#: não pode reescrever a data da descoberta.
+_CAMPOS_INCIDENTE = (
+    'tipo', 'classe', 'sequencial', 'cnj_principal', 'cnj_proprio', 'situacao',
+    'foro', 'vara', 'assunto', 'controle', 'recebido_em', 'valor',
+    'requerentes', 'ent_devedoras', 'fonte', 'atualizado_em',
+)
+
+
+#: Valor do incidente SEM cifrão. O e-SAJ imprime `18.113,27` seco no
+#: `#valorAcaoProcesso` da página do incidente (medido em 02/09/2026), e o
+#: `parse_valor_brl` compartilhado exige `$` — devolvia `None` para 100% dos
+#: valores do requisitório. Regex ANCORADA na string inteira de propósito: um
+#: `search` solto pescaria número de dentro de qualquer texto, e valor errado
+#: no crédito é pior que valor ausente.
+_RE_VALOR_SECO = re.compile(r'^\d{1,3}(?:\.\d{3})*,\d{2}$')
+
+
+def _valor_do_incidente(texto: str):
+    """`'R$ 1.234,56'` ou `'18.113,27'` → Decimal; qualquer outra coisa → None.
+
+    `None` é ABSTENÇÃO, não zero: a fonte publicou o valor em 1 das 5 páginas
+    da sonda, e zero seria uma afirmação sobre quanto o beneficiário recebe.
+    """
+    texto = (texto or '').strip()
+    if not texto:
+        return None
+    com_cifrao = parse_valor_brl(texto)
+    if com_cifrao is not None:
+        return com_cifrao
+    if _RE_VALOR_SECO.match(texto):
+        return parse_valor_brl(f'R$ {texto}')
+    return None
+
+
+def _linha_incidente(process_id: int, ficha: dict) -> Incidente | None:
+    """Ficha do enricher → linha, ou `None` se ela não tem chave natural.
+
+    O `codigo_esaj` é o `processo.codigo` do próprio e-SAJ. Sem ele a linha
+    não teria como ser reencontrada numa re-coleta, e a unique
+    `(processo, codigo_esaj)` faria a SEGUNDA ficha sem código colidir com a
+    primeira — duas coisas diferentes viram uma. Descartar e CONTAR é o certo.
+    """
+    codigo = (ficha.get('codigo_esaj') or '').strip()[:32]
+    if not codigo:
+        return None
+    data = parse_data_br(ficha.get('recebido_em') or '')
+    return Incidente(
+        processo_id=process_id,
+        codigo_esaj=codigo,
+        tipo=(ficha.get('tipo') or '')[:16],
+        classe=(ficha.get('classe') or '')[:120],
+        sequencial=(ficha.get('sequencial') or '')[:8],
+        cnj_principal=(ficha.get('cnj_principal') or '')[:25],
+        cnj_proprio=(ficha.get('cnj_proprio') or '')[:25],
+        situacao=(ficha.get('situacao') or '')[:60],
+        foro=(ficha.get('foro') or '')[:255],
+        vara=(ficha.get('vara') or '')[:255],
+        assunto=(ficha.get('assunto') or '')[:255],
+        controle=(ficha.get('controle') or '')[:40],
+        recebido_em=data.date() if data else None,
+        # NULL quando o e-SAJ não publicou o valor (4 de 5 páginas da sonda).
+        # Nunca zero: zero é uma afirmação sobre o crédito.
+        valor=_valor_do_incidente(ficha.get('valor')),
+        requerentes=ficha.get('requerentes') or [],
+        ent_devedoras=ficha.get('ent_devedoras') or [],
+        fonte=Incidente.FONTE_ESAJ,
+    )
+
+
+def gravar_incidentes(por_processo: dict) -> dict:
+    """Upsert das fichas de incidente de N processos, em um statement.
+
+    `por_processo` = `{process_id: [ficha, ...]}`. Idempotente pela unique
+    `(processo, codigo_esaj)`: re-enriquecer o mesmo processo ATUALIZA a linha
+    em vez de duplicá-la, e é por isso que a chave é a do tribunal e não uma
+    nossa.
+
+    **Não apaga o que não veio.** Um evento sem incidente pode significar duas
+    coisas — "o processo não tem" e "este evento veio do caminho em massa com
+    o seguimento desligado" — e o payload não distingue as duas. Apagar na
+    dúvida transformaria cada enriquecimento comum num apagador silencioso do
+    que a passada anterior colheu. Quem apaga incidente que sumiu da fonte é
+    uma varredura própria, com medição, não o caminho de escrita.
+    """
+    linhas, sem_codigo = [], 0
+    vistos: set = set()
+    for pid, fichas in (por_processo or {}).items():
+        for ficha in fichas or []:
+            linha = _linha_incidente(pid, ficha)
+            if linha is None:
+                sem_codigo += 1
+                continue
+            chave = (pid, linha.codigo_esaj)
+            if chave in vistos:      # a mesma página listada 2 vezes no pai
+                continue
+            vistos.add(chave)
+            linhas.append(linha)
+    if sem_codigo:
+        logger.error('ficha de incidente sem `processo.codigo` — descartada',
+                     extra={'sem_codigo': sem_codigo})
+    if not linhas:
+        return {'gravados': 0, 'sem_codigo': sem_codigo}
+    Incidente.objects.bulk_create(
+        linhas,
+        update_conflicts=True,
+        update_fields=list(_CAMPOS_INCIDENTE),
+        unique_fields=['processo', 'codigo_esaj'],
+    )
+    return {'gravados': len(linhas), 'sem_codigo': sem_codigo}
+
+
 def apply_event(event: dict) -> None:
     """Aplica um evento individual. Levanta exception em caso de falha —
     o caller usa savepoint pra isolar."""
@@ -405,7 +518,7 @@ def apply_event(event: dict) -> None:
         # A FASE (migration 0054). A classe do detalhe do PJe/e-SAJ é a classe
         # ATUAL no sistema do tribunal — é a fase, não o cadastro do CNJ. Foi
         # este canal que provou 10 das 12 discordâncias que o texto do diário
-        # não alcançava (partes EXEQUENTE × INSS no polo passivo, medição #105
+        # não alcançava (partes EXEQUENTE x INSS no polo passivo, medição #105
         # de 31/08/2026): o PJe dizia cumprimento contra a fazenda enquanto o
         # Datajud declarava `Procedimento do Juizado Especial Cível`.
         #
@@ -438,6 +551,10 @@ def apply_event(event: dict) -> None:
                         processo=processo, parte=p_principal,
                         polo=polo, papel=papel_principal,
                         representa=None,
+                        # Procedência declarada pelo produtor do evento
+                        # (`'esaj_incidente'` para quem veio do precatório).
+                        # NULL = cadastro do enricher, como sempre foi.
+                        fonte=principal.get('fonte') or None,
                     )
                     seen_principais[chave] = pp_principal
                 for rep in principal.get('representantes') or []:
@@ -448,7 +565,11 @@ def apply_event(event: dict) -> None:
                         processo=processo, parte=p_rep,
                         polo=polo, papel=rep.get('papel') or 'ADVOGADO',
                         representa=pp_principal,
+                        fonte=rep.get('fonte') or principal.get('fonte') or None,
                     )
+
+        if event.get('incidentes'):
+            gravar_incidentes({pid: event['incidentes']})
 
         now_ts = timezone.now()
         processo.enriquecido_em = now_ts
@@ -798,7 +919,7 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
     mudaram o Postgres; `skipped` conta events ignorados por idempotência
     (proc.enriquecido_em >= scraped_at do event). Caller usa só pra log.
 
-    Substitui o per-event apply (~30 queries × 1000 events = 30k queries)
+    Substitui o per-event apply (~30 queries x 1000 events = 30k queries)
     por bulk ops:
       1. Carrega todos os Process num in_bulk
       2. Bulk upsert ClasseJudicial + Assunto
@@ -905,9 +1026,11 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
                     if not p_id:
                         continue
                     p_papel = principal.get('papel') or ''
+                    p_fonte = principal.get('fonte') or None
                     principal_rows.append(ProcessoParte(
                         processo_id=pid, parte_id=p_id,
                         polo=polo, papel=p_papel, representa_id=None,
+                        fonte=p_fonte,
                     ))
                     for rep in principal.get('representantes') or []:
                         r_key = _route_parte(rep)
@@ -917,6 +1040,7 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
                         rep_pending.append((
                             pid, r_id, polo, rep.get('papel') or 'ADVOGADO',
                             (pid, p_id, polo, p_papel),
+                            rep.get('fonte') or p_fonte,
                         ))
 
         if principal_rows:
@@ -948,16 +1072,25 @@ def apply_batch(events: list[dict]) -> tuple[int, int]:
             }
             if rep_pending:
                 rep_rows = []
-                for proc_id, parte_id, polo, papel, principal_key in rep_pending:
+                for proc_id, parte_id, polo, papel, principal_key, r_fonte in rep_pending:
                     pp_pid = principal_pp_id.get(principal_key)
                     if not pp_pid:
                         continue
                     rep_rows.append(ProcessoParte(
                         processo_id=proc_id, parte_id=parte_id,
                         polo=polo, papel=papel, representa_id=pp_pid,
+                        fonte=r_fonte,
                     ))
                 if rep_rows:
                     ProcessoParte.objects.bulk_create(rep_rows)
+
+        # Incidentes (e-SAJ): o precatório/RPV que não tem CNJ. Um statement
+        # para o batch inteiro, dentro da MESMA transação — se o batch rola
+        # para trás por deadlock, os incidentes rolam junto.
+        com_incidente = {pid: valid[pid]['incidentes'] for pid in ok_pids
+                         if valid[pid].get('incidentes')}
+        if com_incidente:
+            gravar_incidentes(com_incidente)
 
         # Fallback classe pra erro/nao_encontrado
         fallback_by_pid = _bulk_fallback_classe(valid, processos)

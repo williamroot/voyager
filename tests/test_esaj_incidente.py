@@ -241,16 +241,22 @@ def _erros_do(e, soup, partes):
 
 def test_teto_atingido_e_erro_com_o_numero_real():
     """Regra nº 2: teto é ERRO registrado com o número real, nunca `return`
-    discreto. Medido: existe processo com 87 incidentes e o teto é 12."""
+    discreto.
+
+    O teto vale 100 porque a distribuição foi medida (53 processos do estrato
+    de crédito, 210 incidentes): com 12, dois processos eram truncados e a
+    colheita ficava em **41,9% dos incidentes** — os dois maiores (59 e 87)
+    guardam 146 dos 210. Teto que parece inofensivo pela contagem de PROCESSOS
+    e come dois terços do DADO é o `for pagina in range(1, 11)` de novo."""
     from bs4 import BeautifulSoup
     e = _EnricherDeTeste(_ler('esaj_incidente_precatorio.html'))
-    soup = BeautifulSoup(_pai_com_incidentes(80), 'html.parser')
+    soup = BeautifulSoup(_pai_com_incidentes(100), 'html.parser')
     censo, erros = _erros_do(e, soup, {'ativo': [], 'passivo': [], 'outros': []})
-    assert censo['total'] == 87
+    assert censo['total'] == 107
     assert censo['truncado'] is True
     assert censo['lidos'] == BaseEsajEnricher.MAX_INCIDENTES
     assert len(e.buscados) == BaseEsajEnricher.MAX_INCIDENTES, 'não pode gastar proxy além do teto'
-    assert erros and '87' in erros[0], \
+    assert erros and '107' in erros[0], \
         'o teto foi cortado calado — é exatamente o for pagina in range(1, 11)'
 
 

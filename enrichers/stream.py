@@ -101,11 +101,20 @@ def parse_entry(fields: dict) -> Optional[dict]:
 
 
 def build_ok_payload(*, process_id: int, tribunal: str, numero_cnj: str,
-                     scraped_at: str, dados: dict, partes: dict) -> dict:
+                     scraped_at: str, dados: dict, partes: dict,
+                     incidentes: Optional[list] = None) -> dict:
     """Payload pra resultado bem-sucedido. `dados` e `partes` são os mesmos
     dicts produzidos por _extrair_dados/_extrair_partes — drainer não
-    precisa reparsear HTML."""
-    return {
+    precisa reparsear HTML.
+
+    `incidentes` são as fichas de `BaseEsajEnricher.parsear_incidente` (o
+    precatório/RPV que não tem CNJ). A chave só entra quando há incidente:
+    payload sem ela é o caso normal de todo enricher que não é e-SAJ, e o
+    drainer trata ausência como "não seguimos incidentes neste evento" — NÃO
+    como "este processo não tem nenhum". A diferença importa: a segunda leitura
+    apagaria os incidentes de um processo cujo evento veio do caminho em massa
+    com o seguimento desligado."""
+    payload = {
         'v': SCHEMA_VERSION,
         'status': STATUS_OK,
         'process_id': process_id,
@@ -115,6 +124,9 @@ def build_ok_payload(*, process_id: int, tribunal: str, numero_cnj: str,
         'dados': dados,
         'partes': partes,
     }
+    if incidentes:
+        payload['incidentes'] = incidentes
+    return payload
 
 
 def build_nao_encontrado_payload(*, process_id: int, tribunal: str,
