@@ -1937,3 +1937,145 @@ menos que a DEPRE — por isso é recomendação, não ação tomada.
 | `fonte='djen'` nas 1.445 linhas promovidas antes do carimbo novo | ficam como estão; a constraint não inclui `fonte` |
 | o resto do acervo (86,7 M processos com destinatário e sem parte) | continua dependendo do `backfill_partes_djen`, que **não tem checkpoint e não está rodando** — é achado desta medição e não foi endereçado aqui |
 | segundo eixo do gate (§15.3) | continua não feito |
+
+---
+
+## 17. O caderno 19 inteiro — o que o reprocessamento das 47 mediu
+
+> **A ordem foi do dono, e a lógica é a do §15.3 levada até o fim:** se a régua
+> não distingue "verde" de "verde com buraco", então "já está `ok`" não é
+> motivo para não reprocessar — é justamente a categoria suspeita.
+
+### 17.1 O que são as 47
+
+| grupo | n | o que é | ação |
+|---|---:|---|---|
+| **1** | **22** | `ok` coletadas com o parser VELHO (12/06/2024 e 03/02→12/03/2025) | reprocessadas |
+| **2** | **18** | **nunca coletadas** (07/01→30/01/2025) | coletadas pela 1ª vez |
+| 3 | 6 | já reprocessadas hoje com o parser novo (§15.4) | não repetidas — seria 1 h de banco carregado para `novas=0` |
+| 4 | 1 | `4146-19`, `inexistente` | terminal por decisão da fonte (§4) |
+
+### 17.2 Recuperação — e a régua fecha SOZINHA, edição por edição
+
+Duas contagens independentes: **`pauta` contada no PDF** (sonda que só extrai
+texto, não segmenta, não toca no banco) e **`movimentacoes_novas` do
+`IngestionRun`** (o que o banco recebeu). Elas não se conversam.
+
+| edição | pauta no PDF | novas no banco | Δ `itens_gravados` | extra |
+|---|---:|---:|---:|---:|
+| 4143-19 | 99 | 99 | 99 | **0** |
+| 4144-19 | 407 | 407 | 407 | **0** |
+| 4148-19 | 73 | 73 | 73 | **0** |
+| 4149-19 | 134 | 134 | 134 | **0** |
+| 4150-19 | 96 | 96 | 96 | **0** |
+| 4151-19 | 369 | 369 | 369 | **0** |
+| 4155-19 | 726 | 726 | 726 | **0** |
+| 4156-19 | 374 | 374 | 374 | **0** |
+| 4157-19 | 106 | 106 | 106 | **0** |
+| 4158-19 | 571 | 571 | 571 | **0** |
+| 4159-19 | 574 | 574 | 574 | **0** |
+| 4160-19 | 333 | 333 | 333 | **0** |
+| 4161-19 | 157 | 157 | 157 | **0** |
+
+**Treze de treze, casado no dígito.** O que a fonte imprime, o que o parser
+segmenta e o que o banco grava são o mesmo número — e as três medidas vêm de
+lugares diferentes.
+
+### 17.3 Duplicação em escala: **zero**, e melhor que a amostra de 1
+
+O §16.4 media numa edição só (925 novas contra 2 antigas órfãs) e eu havia
+registrado a duplicação como risco a confirmar. Confirmado, e para baixo:
+`novas` **=** `Δ itens_gravados` em 13 de 13, ou seja **nenhuma linha extra
+além das entradas de pauta**. Não há neighbour reescrito, não há linha velha
+convivendo com a nova.
+
+O motivo é o do §15.3: no caderno 19 as entradas de pauta ficavam **órfãs**
+(descartadas por não terem âncora), não engolidas por um bloco vizinho. Bloco
+vizinho intacto ⇒ `external_id` (hash do texto) intacto ⇒ nada duplica.
+
+### 17.4 As 22 medidas × as 18 nunca medidas — e a estação do ano
+
+Este era o teste que valia mais que as publicações. As 18 foram medidas com a
+MESMA sonda das 22, antes de qualquer coleta:
+
+    22 edições `ok` (fev-mar/2025) ....... 7.917 entradas · média 360/edição
+    18 nunca coletadas (jan/2025) ........ 4.918 entradas · média 273/edição
+
+A média mais baixa **não** enfraquece a tese: ela esconde dois regimes, e o
+corte é o **recesso forense**.
+
+| regime | edições | pauta | média | cadernos |
+|---|---:|---:|---:|---|
+| recesso/retomada (07→17/01) | 9 | **118** | 13 | 48 a 3.419 páginas · 367 a 2.561 CNJs |
+| regime normal (20→30/01) | 9 | **4.800** | **533** | 2.683 a 7.371 páginas · 12,8 a **33,1 mil** CNJs |
+
+Não há pauta de julgamento onde não há sessão. Em 20/01 o caderno salta de
+1.442 para 12.894 CNJs e a pauta reaparece — **e no regime normal as 18
+rendem MAIS por edição (533) que as 22 (360)**.
+
+**E a linha dos 5% se sustentou na população inteira, com dois casos novos que
+teriam REPROVADO o gate:**
+
+| edição | pauta / CNJs | % | o gate diria |
+|---|---:|---:|---|
+| 4133-19 | 82 / 15.609 | 0,53% | passa |
+| 4127-19 | 444 / 33.141 | 1,34% | passa |
+| 4126-19 | 406 / 12.894 | 3,15% | passa |
+| 4131-19 | 596 / 12.822 | 4,65% | passa (raspando) |
+| 4130-19 | 887 / 18.761 | 4,73% | passa (raspando) |
+| **4132-19** | 812 / 13.061 | **6,22%** | **REPROVA** |
+| **4125-19** | 93 / 1.442 | **6,45%** | **REPROVA** |
+
+Somando aos 6 que reprovaram de fato (7,3-7,4%) e às 22 que passaram
+(0,60-4,54%): **35 edições, e a separação continua monotônica em torno da folga
+de 5% do piso**. Nenhum caso fora de lugar em nenhum dos dois lados. A tese do
+§15.3 está confirmada em campo — e o corolário também: **o gate teria pego
+4125 e 4132 se elas tivessem sido coletadas antes**, o que reforça que o
+problema nunca foi o gate estar quebrado, e sim ele medir a coisa errada.
+
+### 17.5 Um achado de OPERAÇÃO que o lote produziu: a fila `default` não é nossa
+
+Com 40 unidades na fila, a promoção a parte (§16) enfileirou **77 jobs na
+frente de 4 crons** (`reabastecer_filas_enriquecimento` ×2,
+`reabastecer_fila_datajud` ×2), com projeção de **~850** para o lote inteiro —
+cerca de **3,8 h de cron faminto**. RQ é FIFO sem prioridade, e a `default`
+também é do tick dos diários e dos reabastecimentos.
+
+É a lição que criou o `WATERMARK_POR_FONTE` ("quem enche primeiro monopoliza a
+FIFO"), agora do outro lado. `DIARIOS_FILA_PARTES_MAX` (200) freia a promoção
+quando a fila está funda — e **freia alto**: cada bloqueio sai no log com o
+número de processos adiados. Nada se perde: a movimentação está gravada e o
+`manage.py backfill_partes_djen` alcança o processo depois.
+
+    promoção de partes ADIADA para TJSP: fila `default` com 201 jobs
+    (teto 200). 457 processos NÃO foram enfileirados; a movimentação está
+    gravada e o `backfill_partes_djen` os alcança.
+
+**Consequência a cobrar:** as partes das edições do caderno 19 coletadas depois
+do teto **não foram promovidas**. São Agravante/Agravado com OAB, não o ente
+devedor (esse é o caderno 11, e já está feito — §16.3).
+
+### 17.6 O caderno 11 (DEPRE) — decisão: NÃO reconferir com o parser
+
+A pergunta em aberto era se a relação da DEPRE também passa por baixo do gate.
+**Não vou reconferir com o parser, e o motivo é que a medida já existe em
+DOIS instrumentos independentes.** A sonda das 23 edições verdes do caderno 11
+contou, separadamente, quatro marcadores do registro — e nas 23:
+
+    'Nº de ordem cronológica'  → 0
+    'Entidade devedora'        → 0
+
+Dois marcadores diferentes, ambos zerados, nas mesmas 23 edições. Rodar o
+parser mediria a MESMA âncora textual de novo — não é um terceiro instrumento,
+é o mesmo com outra roupa. E o comportamento da DEPRE é tudo-ou-nada
+(2.568 registros quando aparece, 17-58% dos CNJs, sempre reprovando), o oposto
+da pauta. Se algum dia ela aparecer pequena, quem vai pegar é o **segundo eixo
+do gate**, não uma varredura manual.
+
+### 17.7 O que ficou de fora
+
+| pendência | estado |
+|---|---|
+| **o segundo eixo do gate** (inventário por marcador, não só fração) | **continua não feito, e continua sendo o conserto durável.** Este §17 limpou o passado; o segundo eixo é o que impede o futuro |
+| promoção a parte das edições do 19 coletadas após o teto | adiada pelo guarda de fairness; recuperável com `backfill_partes_djen` |
+| `r19_w1` / `r19_w2` | dois `rqworker diarios` avulsos criados na `.102` para dobrar a vazão do lote (`docker run`, fora do compose). **Remover quando a fila zerar** |
