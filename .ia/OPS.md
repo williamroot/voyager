@@ -569,6 +569,78 @@ docker compose exec web python manage.py djen_backfill TRF3
 
 `run_backfill` é resilient — pula chunks `success`, retenta `failed`.
 
+## 🔴 `up -d --force-recreate <serviço>` RECRIA O `web` JUNTO (02/09/2026)
+
+Custou **9 minutos de site fora** (01:06–01:15 UTC), e o comando parecia
+cirúrgico:
+
+```bash
+docker compose -f docker-compose-prod.yml up -d --force-recreate scheduler
+```
+
+O `scheduler` tem `depends_on: web`. O `--force-recreate` **desce pelas
+dependências**: o `web` foi recriado junto, sem ninguém pedir. E o `web` roda
+`migrate --noinput` no entrypoint.
+
+### Por que recriar o `web` é caro nesta casa
+
+Havia uma migration pendente (`tribunals.0057`, um `ALTER COLUMN ... SET
+DEFAULT` na `tribunals_process`) que **falha de propósito** em 3 s de
+`lock_timeout` — o autor escreveu, com razão, que subir o teto compra o
+auto-jam. Só que a `tribunals_process` estava sob os `UPDATE` do backfill do
+R105, em transações de 13 a 73 s. A cada boot o `migrate` pedia
+`ACCESS EXCLUSIVE`, perdia em 3 s, e o container morria:
+
+    RestartCount = 19, health=starting, o tempo todo
+
+**Crash-loop, não lentidão.** Nenhum `web` sobe enquanto a migration não passa.
+
+### O que fazer
+
+```bash
+# CERTO — mexe só no serviço nomeado
+docker compose -f docker-compose-prod.yml up -d --no-deps --force-recreate scheduler
+
+# ou, quando só se quer recarregar o processo (bind mount já entregou o código)
+docker compose -f docker-compose-prod.yml restart scheduler
+```
+
+⚠️ `restart` **não** relê a config do compose nem do `.env` — serve para
+recarregar o Python, não para aplicar mudança de configuração.
+
+### Se o `web` já estiver em crash-loop por migration
+
+Não deixe o container brigar sozinho: ele e você disputariam o mesmo lock, e
+dois `migrate` concorrentes na mesma migration é pedir problema.
+
+```bash
+# 1. PARE o crash-loop primeiro
+docker stop voyager-web-1
+
+# 2. rode o migrate num container de uma vez só, em laço curto até ganhar o lock
+cd ~/voyager && for i in $(seq 12); do
+  docker run --rm --network host --env-file .env -v $PWD:/app -w /app \
+    voyager-web:prod python -u manage.py migrate --noinput 2>&1 | tail -3
+  sleep 2
+done
+
+# 3. confirme pelo CATÁLOGO, não pelo log
+docker run --rm --network host --env-file .env -v $PWD:/app -w /app \
+  voyager-web:prod python manage.py showmigrations tribunals | tail -3
+
+# 4. só então
+docker compose -f docker-compose-prod.yml up -d web scheduler
+```
+
+Medido no dia: o laço ganhou o lock na **1ª tentativa** depois que o
+crash-loop parou de disputá-lo. Antes disso, 19 boots seguidos falharam.
+
+⚠️ **Não faça `--fake`.** Aqui não foi preciso, e a tentação é grande: o
+`ALTER ... SET DEFAULT` é idempotente, então dá para aplicá-lo à mão e carimbar
+a migration. Se algum dia for inevitável, confira **coluna a coluna** em
+`information_schema.columns` antes — carimbar o que não foi aplicado é
+exatamente a divergência prod × migrations que a 0056 existiu para inventariar.
+
 ## Recuperação do acervo — Fase 3 (operar)
 
 Cron `*/5min` em `djen.recuperacao.tick_recuperacao_fase3` (fila `default`,
