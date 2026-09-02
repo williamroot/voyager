@@ -484,6 +484,33 @@ insistir queimaria banda do CNJ para sempre.
 da Fase 2 por decisão comercial do dono do produto, não por limitação técnica.
 Entra com uma linha, sem deploy: `manage.py djen_recup_f3 --tjpr-on`.
 
+### A prova de UM dia, antes de soltar a frota (02/09/2026)
+
+`TRT2 2026-08-17`, escolhido por ser o mais recente pendente do primeiro
+tribunal da ordem:
+
+| | páginas | novas | duplicadas | razão |
+|---|---:|---:|---:|---:|
+| run 180843 · 17/08, caminho por UF | 37 | 18.350 | 0 | **495,9** |
+| run 238930 · 02/09, caminho flat | 58 | **38.179** | 18.350 | **974,6** |
+
+O controle é a coluna `duplicadas`: **18.350 = exatamente o total que o run
+antigo tinha**. Isto é, a re-coleta releu tudo o que já tínhamos e trouxe mais
+38.179 em cima. O dia tem 56.529 publicações; tínhamos **32,5%**.
+
+Um dia. Um tribunal. E são 6.014 dias iguais a esse esperando (sem o TJPR).
+
+E a trava foi provada em produção, não lida no código — com o job em voo:
+
+```
+chaves cruas: ['v:1:djen:coletando:TRT2:2026-08-17']
+_travados(): {('TRT2', '2026-08-17')}
+```
+
+O prefixo real do cache do Django é `v:1:`, então o casamento é pelo MARCADOR
+`djen:coletando:` e nunca pelo começo da chave — casar pelo começo devolveria
+conjunto vazio e a duplicação de 27/08 voltaria calada.
+
 ### Runbook
 
 ```bash
