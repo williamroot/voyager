@@ -150,9 +150,23 @@ def create_scheduler() -> BlockingScheduler:
     # 15 min e não 5: a passada custa dois `_count` num índice de 1,55 bi e
     # uma amostra de páginas de uma tabela de 131 GB, e o banco é
     # disk-I/O-bound. Medir de menos não vê; medir demais vira o problema.
+    #
+    # ⚠️ INLINE no thread pool, **sem `.delay`** — e isto foi medido, não
+    # escolhido por gosto. Com `.delay` na fila `default` o primeiro tique
+    # automático ficou 17 min sem rodar: a `default` tem 2 réplicas e estava
+    # cheia de lotes de `diarios.jobs.promover_partes`. Um vigia que mede de 15
+    # em 15 min não pode ficar atrás de backlog — ele publicaria "medido há 40
+    # min" e o alarme de retrato velho acenderia por congestionamento de fila,
+    # não por backfill parado. Alarme que acende pelo motivo errado é alarme
+    # gasto. Mesmo raciocínio (e mesma fila) do `warm_workers_cache_inline`.
+    #
+    # A passada é leitura pura (dois `_count`, uma amostra, um `TABLESAMPLE`,
+    # um `pg_constraint`), toda ela com teto de espera — regra nº 7 —, e o
+    # único trabalho pesado que ela dispara (`VALIDATE`) vai para a fila
+    # `djen_audit`, nunca inline.
     from tribunals.vigia_backfills import tick_vigia_backfills
     scheduler.add_job(
-        tick_vigia_backfills.delay,
+        tick_vigia_backfills,
         'interval',
         minutes=15,
         id='vigia_backfills',

@@ -192,7 +192,12 @@ ES_SEMENTE = 119
 #: Tetos de espera. Nada no caminho de nada sem teto (regra nº 7).
 SQL_TIMEOUT_S = int(os.environ.get('VIGIA_SQL_TIMEOUT_S', 120))
 SQL_TETO_TIMEOUT_S = int(os.environ.get('VIGIA_SQL_TETO_TIMEOUT_S', 300))
-ES_TIMEOUT_S = int(os.environ.get('VIGIA_ES_TIMEOUT_S', 240))
+#: 120 s e não 240: o tique roda INLINE no thread pool do scheduler (ver
+#: `djen/scheduler.py`), então o pior caso da passada tem que caber com folga
+#: no intervalo de 15 min. Medido: os `_count` levam segundos; 120 s é 20× a
+#: medida e só dispara com o cluster em contenção — e aí falha ALTO, com
+#: `erros` no retrato, em vez de segurar a thread.
+ES_TIMEOUT_S = int(os.environ.get('VIGIA_ES_TIMEOUT_S', 120))
 
 #: Janela do `detected_at` que contém 100% dos faltantes de `proc_digits`.
 #: IMPORTADA do comando, nunca copiada: se a premissa da fatia mudar lá, o
