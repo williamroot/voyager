@@ -58,13 +58,30 @@ concorrentes — 7.437 páginas contra as 264 que o dia exige, 28×. Não perde
 dado: queima a banda do CNJ, e é ela que abre o circuito e adia os dias dos
 outros tribunais.
 
-## O TJPR está fora, e é decisão comercial
+## O TJPR entrou — e a "decisão comercial" era folclore
 
-1.152 dias e 38,8 milhões de publicações estimadas — 43% de todo o volume que
-resta. Ele ficou fora da Fase 2 por decisão do dono do produto, não por
-limitação técnica. Entra com UMA linha, sem deploy:
+1.152 dias e ~38,8 milhões de publicações estimadas: **43% de todo o volume que
+resta na Fase 3**.
 
-    manage.py djen_recup_f3 --tjpr-on
+A justificativa que circulava — "está fora por decisão comercial" — foi
+rastreada em 02/09/2026 e **não tem procedência**: nasceu num comentário de
+`dashboard/completude_medicoes.py` (commit 34b1e3d, 20/08), sem nenhuma
+fundamentação, e foi copiada de documento em documento até virar premissa. Não
+existia ADR.
+
+O fato medido é outro, e mais fraco do que a frase sugeria: o TJPR não está em
+`TRIBUNAIS_JURISCOPE` (`djen/ingestion.py:39`), a lista dos 10 tribunais em que
+o Falcon lê precatório — medida em 06/08/2026 sobre 2,43 M precatórios. Isso
+justifica **despriorizar**, não excluir: acervo e lead são coisas diferentes, e
+o produto desta casa é o acervo (princípio nº 1).
+
+**O dono decidiu incluir em 02/09/2026.** Ver ADR-036.
+
+A escotilha continua existindo — mas o seu uso agora é DESLIGAR em segundos se
+o TJPR pressionar a API do CNJ, não mantê-lo fora por padrão:
+
+    manage.py djen_recup_f3 --tjpr-on    # ligado desde 02/09/2026
+    manage.py djen_recup_f3 --tjpr-off   # escotilha de emergência
 
 ## Vazão e o teto contra o CNJ
 
@@ -93,16 +110,41 @@ from dashboard import completude_medicoes as M
 
 logger = logging.getLogger('voyager.djen.recuperacao')
 
-#: Ordem de ataque: TRTs e TJs médios primeiro. Não é volume puro — é onde a
-#: publicação trabalhista e os TJs de porte médio somam mais dia-alvo por
-#: requisição. O TJPR NÃO está aqui (ver o topo do arquivo).
+#: Ordem de ataque. O **TJMA vem primeiro**, e a razão não é volume — ele tinha
+#: 272 dias por refazer e estava em 14º lugar nesta lista.
+#:
+#: A régua que o promoveu é a única com fonte e data no repositório:
+#: `djen/ingestion.py:39`, `TRIBUNAIS_JURISCOPE` — os 10 tribunais em que o
+#: Falcon de fato lê precatório e ele vira lead, medido em 06/08/2026 sobre
+#: 2,43 M precatórios. Dos que ainda sangram na Fase 3, **o TJMA é o único que
+#: está nessa lista**. Ele foi tratado como resto por 15 dias.
+#:
+#: (Os outros da lista do Juriscope ou já fecharam na Fase 2 — TJSP, TRF3,
+#: TJMG, TRF4, TRF6, TRF2 — ou não sangram: TRF1, TRF5, TJAL estão entre os 18
+#: descartados com prova no `.ia/ACERVO_CNJ.md`.)
+#:
+#: Depois dele, TRTs e TJs médios: é onde a publicação trabalhista e os TJs de
+#: porte médio somam mais dia-alvo por requisição.
 ORDEM_FASE_3 = [
+    'TJMA',
     'TRT2', 'TRT3', 'TRT15', 'TRT1', 'TRT9', 'TRT4',
-    'TJBA', 'TJSC', 'TJPE', 'TJCE', 'TJAM', 'TJMT', 'TJMS', 'TJMA', 'TJSE',
+    'TJBA', 'TJSC', 'TJPE', 'TJCE', 'TJAM', 'TJMT', 'TJMS', 'TJSE',
     'TJRR', 'TJAP', 'TJTO',
 ]
 
-#: Fora por decisão comercial, pronto para entrar com uma linha.
+#: ⚠️ NÃO é "decisão comercial" — isso era folclore. Rastreado em 02/09/2026:
+#: a frase nasceu num comentário de `dashboard/completude_medicoes.py` no
+#: commit 34b1e3d (20/08), sem justificativa em lugar nenhum, e foi repetida de
+#: documento em documento até virar premissa. Não há ADR.
+#:
+#: O fato MEDIDO é outro: o TJPR não está em `TRIBUNAIS_JURISCOPE` — precatório
+#: não vira lead lá. Isso justificava despriorizar, não excluir.
+#:
+#: O dono do produto decidiu em 02/09/2026 **INCLUIR** o TJPR: 1.152 dias e
+#: ~38,8 M de publicações, 43% de tudo que resta na Fase 3. O acervo vem
+#: inteiro mesmo onde o lead não vem. Ver ADR-036 em `.ia/DECISIONS.md`.
+#: A escotilha continua existindo para poder DESLIGAR em segundos se ele
+#: pressionar a API do CNJ — não para mantê-lo fora por padrão.
 TJPR = 'TJPR'
 
 #: Chaves no Redis. Kill switch e escotilha do TJPR moram aqui, não em env:

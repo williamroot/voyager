@@ -49,7 +49,14 @@ class Command(BaseCommand):
             cache.set(R.CHAVE_TJPR, 1, None)
             self.stdout.write(self.style.WARNING(
                 'TJPR INCLUÍDO — 1.152 dias e ~38,8M de publicações estimadas, '
-                '43% do que resta. Isto é decisão do dono do produto.'))
+                '43% do que resta. Decisão do dono do produto (ADR-036).'))
+            # A linha "TJPR ... fora" que aparece logo abaixo vem do RETRATO em
+            # cache do último tique — de ANTES desta escrita. Sem este aviso a
+            # saída se contradiz em três linhas e parece que a flag não pegou
+            # (aconteceu em 02/09/2026). Confira ao vivo com `--medir`.
+            self.stdout.write(
+                '  ↳ o retrato abaixo é do último tique (até 5 min atrás) e '
+                'ainda dirá "fora". Para ler AO VIVO: --medir')
         if o['tjpr_off']:
             cache.delete(R.CHAVE_TJPR)
             self.stdout.write('TJPR fora.')

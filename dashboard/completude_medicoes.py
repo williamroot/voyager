@@ -137,16 +137,33 @@ RECUPERAVEL_POR_TRIBUNAL = {
     'TJSE': 216_095, 'TJMS': 210_786, 'TRF2': 183_233, 'TJTO': 103_000,
 }
 
-#: Ordem da Fase 2 — onde o crédito contra a Fazenda nasce e é pago. Não é
-#: volume puro: o TJPR é o 2º do país e está FORA por decisão comercial.
+#: Ordem da Fase 2 — onde o crédito contra a Fazenda nasce e é pago.
+#:
+#: ⚠️ Esta linha dizia "o TJPR é o 2º do país e está FORA por decisão
+#: comercial". **Era folclore, e nasceu AQUI** — commit 34b1e3d, 20/08/2026,
+#: sem nenhuma justificativa, e de tão repetida virou premissa em três outros
+#: arquivos. Rastreado em 02/09/2026: não havia ADR.
+#:
+#: Repare também que a Fase 2 nunca foi a lista comercial. Comparada com
+#: `TRIBUNAIS_JURISCOPE` (`djen/ingestion.py:39`, medida em 06/08/2026 sobre
+#: 2,43 M precatórios): ela INCLUI TJRS/TJGO/TJRJ, que o Juriscope não lê, e
+#: EXCLUÍA TJMA, que ele lê. Por isso o TJMA foi promovido à frente da Fase 3
+#: em 02/09 — ver `djen/recuperacao.py`.
 FASE_2 = ['TJSP', 'TRF3', 'TJMG', 'TJRS', 'TJGO', 'TJRJ', 'TRF4', 'TRF6', 'TRF2']
 
-#: Tribunal que sangra e que NÃO é buraco nosso: está fora do alvo por decisão,
-#: não por falha. Ele aparece na tabela — some da tela seria pior —, mas
-#: marcado, e fora das somas de "o que falta recuperar". O TJPR sozinho é 43%
-#: do estimado que resta na Fase 3 (38.807.963 de 89.637.928): somá-lo ao
-#: buraco faria a Fase 3 parecer o dobro do problema que ela é para nós.
-FORA_DO_ALVO = {'TJPR': 'fora do alvo por decisão comercial'}
+#: Tribunal que sangra e NÃO é buraco nosso: aparece na tabela marcado, e fora
+#: das somas de "o que falta recuperar".
+#:
+#: **Vazio desde 02/09/2026.** O único ocupante era o TJPR, e o dono do produto
+#: decidiu incluí-lo na recuperação (ADR-036): 1.152 dias e ~38,8 M, 43% do que
+#: resta na Fase 3. Ele agora É alvo, e some dele o número cresce — a tela deve
+#: mostrar o problema inteiro, não a versão confortável dele.
+#:
+#: A estrutura fica porque a categoria é legítima: um dia pode haver tribunal
+#: que sangra e que deliberadamente não perseguimos. Mas quem puser alguém aqui
+#: **escreve o ADR junto** — foi a ausência dele que deixou um comentário
+#: governar 43% do trabalho por quinze dias.
+FORA_DO_ALVO: dict[str, str] = {}
 
 #: Um dia grande coletado pelo caminho FATIADO tem razão itens/página ~490-500
 #: (as 27 fatias terminam cada uma numa página parcial); o caminho flat dá

@@ -1015,3 +1015,56 @@ existente por um backfill que leia o `voyager-acervo` por `proc`; isso é
 possível **sem tocar no Datajud**, mas é job novo e não entra aqui. E nem o
 backfill de assunto nem o `grau` reindexam no Elasticsearch: `bulk_update` e
 `.update()` não disparam `post_save`.
+
+---
+
+## ADR-036: o TJPR entra na recuperação, e a "decisão comercial" não existia (2026-09-02)
+
+**Contexto.** A Fase 3 da recuperação nacional deixava o TJPR de fora — 1.152
+dias-alvo e ~38,8 M de publicações estimadas, **43% de todo o volume que resta**.
+A justificativa, repetida em quatro lugares, era "está fora por decisão
+comercial do dono do produto".
+
+Ao ser perguntado *qual* foi a decisão, o rastreamento (02/09/2026) devolveu:
+
+- a frase nasceu num **comentário** de `dashboard/completude_medicoes.py`,
+  commit `34b1e3d` (20/08/2026). A mensagem daquele commit não a justifica;
+- de lá foi copiada para `.ia/ACERVO_CNJ.md`, para `djen/recuperacao.py` e para
+  a flag `djen_recup_f3 --tjpr-on`, ganhando aparência de premissa a cada cópia;
+- **não havia ADR.** Um comentário sem fonte governou 43% do trabalho pendente
+  por quinze dias.
+
+**A régua que EXISTE.** `TRIBUNAIS_JURISCOPE` (`djen/ingestion.py:39`) — os 10
+tribunais em que o Falcon de fato lê precatório e ele vira lead, medido em
+06/08/2026 sobre 2,43 M precatórios: TJSP, TRF1, TRF3, TRF4, TJMG, TRF6, TRF5,
+TJAL, TRF2, TJMA. **O TJPR não está nela.** Isso é real, medido e datado — mas
+justifica *despriorizar*, não *excluir*.
+
+E ela expõe outra coisa: a `FASE_2` **nunca foi** a lista comercial. Ela inclui
+TJRS/TJGO/TJRJ, que o Juriscope não lê, e excluía o **TJMA**, que ele lê e que
+tinha 272 dias por refazer — tratado como resto por quinze dias.
+
+**Decisão.** Em 02/09/2026 o dono do produto, apresentado a esses fatos:
+
+1. **inclui o TJPR** na Fase 3 (`--tjpr-on`, ligado em 02/09);
+2. **promove o TJMA** ao primeiro lugar da `ORDEM_FASE_3`;
+3. manda registrar este ADR.
+
+**Por quê.** Acervo e lead são coisas diferentes, e o produto desta casa é o
+acervo (princípio nº 1 do `CLAUDE.md`: *o produto é o acervo*). Um tribunal de
+onde não sai lead hoje continua sendo 38,8 milhões de publicações do país que
+temos pela metade — e "de onde não sai lead hoje" é uma medição de agosto de
+2026, não uma lei.
+
+**Consequências.**
+
+- `FORA_DO_ALVO` fica **vazio** em `completude_medicoes.py`. A Fase 3 passa a
+  publicar o número maior (8.419 dias-alvo em vez de 7.188): a tela mostra o
+  problema inteiro, não a versão confortável.
+- ETA da Fase 3 sobe de ~49 h para ~58 h no ritmo medido (~145 dias/h).
+- A escotilha `--tjpr-off` **continua existindo**, mas com outro propósito:
+  desligar em segundos se o TJPR pressionar a API do CNJ (o teto é
+  réplicas × páginas, e o circuito aberto adia os dias dos outros tribunais).
+  Não é mais o estado padrão.
+- **Regra que fica:** quem puser um tribunal em `FORA_DO_ALVO` escreve o ADR
+  junto. Foi a ausência dele que deixou isto acontecer.
