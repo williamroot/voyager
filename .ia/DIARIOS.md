@@ -1977,22 +1977,42 @@ texto, não segmenta, não toca no banco) e **`movimentacoes_novas` do
 | 4160-19 | 333 | 333 | 333 | **0** |
 | 4161-19 | 157 | 157 | 157 | **0** |
 
-(Tabela = as 13 primeiras a fechar. O invariante se manteve nas seguintes:
-**19 de 19 edições reprocessadas até 03/09 01:0x UTC**, `extra = 0` em todas,
-**6.760** entradas recuperadas das 7.917 que a sonda contou nos PDFs. As 3
-restantes do grupo 1 e as 18 do grupo 2 seguiam na fila.)
+(Tabela = as 13 primeiras a fechar; o invariante se manteve nas 22.)
 
-**Dezenove de dezenove, casado no dígito.** O que a fonte imprime, o que o
-parser segmenta e o que o banco grava são o mesmo número — e as três medidas
-vêm de lugares diferentes.
+**FECHAMENTO das 22, em 02/09/2026 22:57 UTC:**
+
+    pauta contada nos PDFs .................. 7.917
+    Δ `itens_gravados` no banco ............. 7.917   ← igual, no dígito
+    linhas extras (duplicação) ..............     0
+    `movimentacoes_novas` ................... 7.415   (ver ressalva abaixo)
+
+**Vinte e duas de vinte e duas, casado no dígito.** O que a fonte imprime, o
+que o parser segmenta e o que o banco grava são o mesmo número — e as três
+medidas vêm de lugares diferentes.
+
+⚠️ **A ressalva dos 502, e ela é minha:** `movimentacoes_novas` fica 502 abaixo
+porque a edição `4154-19` teve suas 502 linhas gravadas por um run que **eu
+abortei** (o restart para ativar o guarda do §17.5), e a re-execução as contou
+como `dup`. Mesmo efeito em `4132-19` e `4134-19` do grupo 2, 500 cada — um
+lote de `BATCH_SIZE` exato em cada caso. **É contagem, não dado**, e a prova é
+por `external_id`:
+
+    4132-19 ... 12.128 linhas · 12.128 external_id distintos · 0 duplicadas
+    4134-19 ... 14.175 linhas · 14.175 external_id distintos · 0 duplicadas
+
+Por isso a régua que vale é o **Δ `itens_gravados`** (o que a unidade TEM),
+não `movimentacoes_novas` (o que ESTA execução criou): a segunda depende de
+quantas vezes a unidade foi interrompida.
 
 ### 17.3 Duplicação em escala: **zero**, e melhor que a amostra de 1
 
 O §16.4 media numa edição só (925 novas contra 2 antigas órfãs) e eu havia
 registrado a duplicação como risco a confirmar. Confirmado, e para baixo:
-`novas` **=** `Δ itens_gravados` em **19 de 19**, ou seja **nenhuma linha extra
-além das entradas de pauta**. Não há neighbour reescrito, não há linha velha
-convivendo com a nova.
+`Δ itens_gravados` **=** pauta contada no PDF em **22 de 22**, ou seja
+**nenhuma linha extra além das entradas de pauta**. Não há neighbour reescrito,
+não há linha velha convivendo com a nova. E o controle por `external_id`
+distinto fecha em 0 duplicadas nas duas edições onde a contagem de `novas`
+divergiu.
 
 O motivo é o do §15.3: no caderno 19 as entradas de pauta ficavam **órfãs**
 (descartadas por não terem âncora), não engolidas por um bloco vizinho. Bloco
@@ -2077,12 +2097,28 @@ parser mediria a MESMA âncora textual de novo — não é um terceiro instrumen
 da pauta. Se algum dia ela aparecer pequena, quem vai pegar é o **segundo eixo
 do gate**, não uma varredura manual.
 
+### 17.6b Resultado final das 47
+
+| grupo | n | resultado |
+|---|---:|---|
+| 1 — `ok` do parser velho | 22 | **7.917** entradas de pauta recuperadas, **0** duplicadas |
+| 2 — nunca coletadas | 18 | **181.029** linhas de acervo NOVO |
+| 3 — já feitas hoje | 6 | (§15.4) |
+| 4 — `inexistente` | 1 | terminal por decisão da fonte |
+| **caderno 19 inteiro** | **47** | `itens_gravados` **356.466 → 545.412** = **+188.946 linhas** · **46 `ok`, 0 falha** |
+
+⚠️ **Uma armadilha de sonda que eu mesmo armei e quase paguei:** montei um
+faxineiro para remover os dois workers avulsos "quando a fila zerar". **Fila
+zerada não é trabalho terminado** — job em voo vive no `StartedJobRegistry`, e
+a fila marcou 0 com TRÊS edições ainda rodando. O faxineiro ia matar dois
+workers no meio da coleta. Desarmei a tempo e a espera correta é
+`queue.count + len(StartedJobRegistry)`. É a mesma família do §13.10: número
+parado não distingue "acabou" de "está acontecendo fora do lugar onde eu olho".
+
 ### 17.7 O que ficou de fora
 
 | pendência | estado |
 |---|---|
 | **o segundo eixo do gate** (inventário por marcador, não só fração) | **continua não feito, e continua sendo o conserto durável.** Este §17 limpou o passado; o segundo eixo é o que impede o futuro |
 | promoção a parte das edições do 19 coletadas após o teto | adiada pelo guarda de fairness; recuperável com `backfill_partes_djen` |
-| **o lote ainda drenava** ao fim desta sessão | 19 de 22 do grupo 1 e 0 de 18 do grupo 2 fechados. As 18 de janeiro são as MAIORES do caderno (até 7.371 páginas e 33.141 CNJs em `4127-19`) e cada uma leva dezenas de minutos com o banco sob a carga da Fase 3, do #106 e do #105 |
-| `r19_w1` / `r19_w2` | dois `rqworker diarios` avulsos criados na `.102` (`docker run`, fora do compose) para dobrar a vazão do lote. Um faxineiro `setsid` na própria `.102` os remove quando a fila zerar; **se ele morrer, remover à mão** (`docker rm -f r19_w1 r19_w2`) |
-| `4152-19`, `4154-19`, `3985-19` | as 3 do grupo 1 que faltavam fechar. A sonda já disse quanto esperar: **498 + 502 + 157 = 1.157** entradas |
+| `r19_w1` / `r19_w2` | dois `rqworker diarios` avulsos criados na `.102` (`docker run`, fora do compose) para dobrar a vazão. **Removidos** ao fim do lote |
