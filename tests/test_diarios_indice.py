@@ -35,6 +35,22 @@ from unittest import mock
 import pytest
 from django.utils import timezone
 
+JOB_INDICE = 'search.jobs.indexar_movimentacoes_bulk'
+
+
+def _enfileirados_no_indice(fila) -> list:
+    """Só as chamadas de ENTREGA AO ÍNDICE.
+
+    `persistir_movimentacoes` fala com DUAS filas no mesmo `on_commit` desde
+    02/09/2026 — `es_index` (entrega ao índice) e `default` (promoção a
+    `ProcessoParte`, ver `diarios/base.py::_promover_partes`). Contar
+    `enqueue.call_count` cru media "quantas filas foram tocadas", não "a edição
+    foi entregue ao índice", e passou a somar as duas. A régua tem que nomear o
+    job que ela está medindo.
+    """
+    return [c for c in fila.enqueue.call_args_list
+            if c.args and c.args[0] == JOB_INDICE]
+
 
 # ── 1. a entrega ao índice acontece na GRAVAÇÃO, não no próximo poller ───────
 @pytest.mark.django_db(transaction=True)
@@ -72,13 +88,13 @@ def test_persistir_entrega_o_lote_ao_indice_no_commit():
             novas, dup = persistir_movimentacoes(itens, t, None)
             # dentro da transação NADA foi enfileirado: entregar pks de linhas
             # que podem sofrer rollback é enfileirar fantasma.
-            assert fila.enqueue.call_count == 0
+            assert not _enfileirados_no_indice(fila)
         # ...e no commit, exatamente um job de lote com os 3 pks.
-        assert fila.enqueue.call_count == 1
+        assert len(_enfileirados_no_indice(fila)) == 1
 
     assert (novas, dup) == (3, 0)
-    nome, args = fila.enqueue.call_args[0][0], fila.enqueue.call_args[0][1]
-    assert nome == 'search.jobs.indexar_movimentacoes_bulk'
+    nome, args = _enfileirados_no_indice(fila)[0].args[:2]
+    assert nome == JOB_INDICE
     assert sorted(args) == sorted(
         Movimentacao.objects.filter(tribunal=t).values_list('id', flat=True))
 
@@ -115,7 +131,7 @@ def test_recoleta_reentrega_ao_indice_mesmo_sem_linha_nova():
     with mock.patch('django_rq.get_queue', return_value=fila), transaction.atomic():
         novas, dup = persistir_movimentacoes([item], t, None)
     assert (novas, dup) == (0, 1), 'a segunda passada não grava linha nova'
-    assert fila.enqueue.call_count == 2, 'mas ENTREGA ao índice nas duas'
+    assert len(_enfileirados_no_indice(fila)) == 2, 'mas ENTREGA ao índice nas duas'
 
 
 @pytest.mark.django_db(transaction=True)

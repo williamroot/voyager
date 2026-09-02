@@ -54,6 +54,62 @@ def coletar(fonte: str, chave: str, sobrepor: bool = False) -> dict:
         return {'skip': 'adiado', 'chave': chave, 'motivo': str(exc)[:120]}
 
 
+#: Quantos processos por job de promoção. `promover_lote` lê as 3
+#: movimentações mais recentes de cada um pelo índice
+#: `mov_processo_data_disp_idx` — medido em 1,26 s por 1.000 processos. 500 é o
+#: mesmo lote da gravação, então um lote coletado vira um job de promoção.
+LOTE_PARTES = 500
+
+
+@job('default', timeout=1800)
+def promover_partes(process_ids: list[int]) -> dict:
+    """`Movimentacao.destinatarios` → `Parte`/`ProcessoParte`, para o que a
+    terceira porta acabou de gravar.
+
+    POR QUE ESTE JOB EXISTE (medido em 02/09/2026, e é o §12 outra vez)
+    -------------------------------------------------------------------
+    O coletor da DEPRE passou a extrair o ente devedor, e o JSONB provou que
+    ele chegou ao banco: **2.568 de 2.568** movimentações da relação de
+    10/03/2025 com `papel='ENTIDADE DEVEDORA'` e `polo='P'` em
+    `Movimentacao.destinatarios`. E `ProcessoParte` desses processos:
+    **ZERO linhas**.
+
+    A promoção EXISTE (`tribunals/services/partes_djen.py`) mas é um backfill
+    por FAIXA DE PK, disparado à mão. Conferido no Redis: nenhum checkpoint de
+    shard; e as 218.068 `ProcessoParte` criadas nas 24 h anteriores eram todas
+    do enricher (`fonte IS NULL`), nenhuma de `fonte='djen'`. Ou seja: processo
+    que nasce HOJE de uma coleta de diário nunca é alcançado — a faixa de pk
+    dele já ficou para trás.
+
+    É exatamente a doença do §12 num campo diferente: "coletado" não era
+    "buscável", e agora "extraído" não era "parte". A cura é a mesma —
+    **entrega no `on_commit` da gravação**, não uma varredura que alguém
+    precisa lembrar de rodar.
+
+    Idempotente e conservador por construção, tudo herdado do serviço:
+    `sem_processoparte` pula quem já tem parte (a do enricher é melhor que a
+    nossa), e a constraint `uniq_processo_parte_polo_papel_principal` faz o
+    `bulk_create(ignore_conflicts=True)` ser seguro entre workers.
+    """
+    from tribunals.services.partes_djen import promover_lote, sem_processoparte
+
+    ids = [int(p) for p in (process_ids or [])]
+    if not ids:
+        return {'skip': 'lote vazio'}
+    alvo = sem_processoparte(ids)
+    if not alvo:
+        return {'recebidos': len(ids), 'alvo': 0, 'linhas': 0,
+                'motivo': 'todos já tinham ProcessoParte'}
+    res = promover_lote(alvo)
+    logger.info('promover_partes: %d recebidos, %d alvo, %d linhas confirmadas '
+                '(%d partes, %d descartadas por segredo)',
+                len(ids), len(alvo), res.linhas_confirmadas, res.partes_upsert,
+                res.descartados_segredo)
+    return {'recebidos': len(ids), 'alvo': len(alvo),
+            'linhas': res.linhas_confirmadas, 'partes': res.partes_upsert,
+            'segredo': res.descartados_segredo}
+
+
 @job('default', timeout=300)
 def tick(fonte: str) -> dict:
     """Alimenta a fila `diarios` com unidades pendentes, respeitando o teto.

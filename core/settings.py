@@ -464,6 +464,15 @@ DIARIOS_INDEXAR_AO_GRAVAR = env.bool('DIARIOS_INDEXAR_AO_GRAVAR', default=True)
 # à mão por `manage.py diarios_coletar`, e um gate que só roda com o
 # agendamento ligado não teria pego o caso que o criou.
 DIARIOS_GATE_INDICE_ENABLED = env.bool('DIARIOS_GATE_INDICE_ENABLED', default=True)
+# Promoção `Movimentacao.destinatarios` → `Parte`/`ProcessoParte` no
+# `on_commit` da gravação (`diarios/base.py::_promover_partes`). Existe porque
+# "extraído" não era "parte": medido em 02/09/2026, os 2.568 registros da
+# relação da DEPRE de 10/03/2025 chegaram ao JSONB com `ENTIDADE DEVEDORA` em
+# polo passivo e `ProcessoParte` desses processos era ZERO — o promotor é um
+# backfill por FAIXA DE PK e processo novo tem pk acima de qualquer faixa já
+# varrida. Desligar só faz sentido para dimensionar backfill: a movimentação
+# continua gravada e o `manage.py backfill_partes_djen` recupera depois.
+DIARIOS_PROMOVER_PARTES = env.bool('DIARIOS_PROMOVER_PARTES', default=True)
 # ── ORÇAMENTO DA TERCEIRA PORTA (diarios/orcamento.py) ───────────────────────
 # Teto de VAZÃO, que é coisa diferente do `WATERMARK_POR_FONTE=200` (teto de
 # PROFUNDIDADE da fila). Sem ele, o ritmo do backfill é o número de réplicas do

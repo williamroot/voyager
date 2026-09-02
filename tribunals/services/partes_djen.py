@@ -304,6 +304,35 @@ def papeis_do_texto(cabecalho: str | None) -> dict:
     return {k: v for k, v in fora.items() if v}
 
 
+#: Teto do `ProcessoParte.papel` (varchar 120). Cortar aqui e não no banco
+#: porque um papel truncado no meio ainda é um papel legível; um `DataError` no
+#: meio de um lote de 500 derruba a coleta inteira.
+_MAX_PAPEL = 120
+
+
+def papel_da_fonte(destinatario: dict) -> str:
+    """O papel que a PRÓPRIA fonte imprimiu no registro, quando ela imprime.
+
+    O DJEN não imprime (medido: 10 em 23.771 destinatários = 0,04%) e por isso
+    este módulo nasceu lendo o papel só do TEXTO. Mas os coletores de
+    `diarios/` gravam o rótulo verbatim no mesmo JSONB — e no caso que motivou
+    esta função ele é o dado, não um enfeite: a relação da DEPRE imprime
+    `Entidade devedora:` e `Reqte:` em campos rotulados, um por linha.
+
+    Medido em 02/09/2026: os 2.568 registros da relação de 10/03/2025 entraram
+    em `Movimentacao.destinatarios` com `papel='ENTIDADE DEVEDORA'` e
+    `polo='P'`, e `specs_do_processo` devolvia `papel=''` para os três — o polo
+    sobrevivia, o papel morria aqui. Para a tela "Quem deve" isso é quase o
+    mesmo que não ter extraído.
+
+    A precedência é: **fonte antes de texto**. Quem rotulou o campo foi o
+    diário; o `papeis_do_texto` é inferência sobre uma tabela HTML e só entra
+    quando a fonte não disse nada.
+    """
+    valor = destinatario.get('papel') if isinstance(destinatario, dict) else None
+    return re.sub(r'\s+', ' ', str(valor or '')).strip()[:_MAX_PAPEL]
+
+
 def _chave_nome(nome: str) -> str:
     """Nome comparável entre JSONB e texto: sem acento, sem pontuação, upper."""
     import unicodedata
@@ -372,9 +401,13 @@ def specs_do_processo(movimentacoes) -> SpecsProcesso:
             out.por_polo.setdefault(polo, []).append({
                 'nome': nome, 'documento': '', 'tipo_documento': '',
                 'oab': '', 'tipo': 'desconhecido',
-                # rótulo vindo do TEXTO. Vazio = não achamos, e vazio é o que a
-                # coluna já guardava — nunca chutamos um papel por posição.
-                'papel': papeis.get(_chave_nome(nome), ''),
+                # Papel: o que a FONTE rotulou vence o que o TEXTO sugere. O
+                # DJEN não rotula (0,04%) e cai no `papeis_do_texto`; os
+                # coletores de `diarios/` rotulam, e ali o rótulo É o dado —
+                # `ENTIDADE DEVEDORA` no polo passivo é o "quem deve".
+                # Vazio nos dois = não achamos, e vazio é o que a coluna já
+                # guardava. Nunca chutamos um papel por posição.
+                'papel': papel_da_fonte(d) or papeis.get(_chave_nome(nome), ''),
             })
 
         for a in _como_lista(advogados):

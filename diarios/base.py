@@ -890,6 +890,32 @@ def espelhadas_no_lote(itens: list[ItemDiario], tribunal: Tribunal) -> int | Non
 CHUNK_ES = 500
 
 
+def _promover_partes(process_ids: list[int], tribunal) -> None:
+    """Enfileira a promoção `destinatarios` → `ProcessoParte` do lote gravado.
+
+    Só ENFILEIRA (fila `default`, lotes de `LOTE_PARTES`): a promoção lê as 3
+    movimentações mais recentes de cada processo e escreve — trabalho de banco
+    que não pode ficar no caminho da gravação de um caderno de 2.000 páginas.
+
+    Falha aqui é WARNING, não exceção. Ver o comentário no chamador: sem parte
+    a edição continua sendo acervo; sem índice, não.
+    """
+    if not process_ids:
+        return
+    try:
+        from django_rq import get_queue
+
+        from .jobs import LOTE_PARTES, promover_partes
+        fila = get_queue('default')
+        for i in range(0, len(process_ids), LOTE_PARTES):
+            fila.enqueue(promover_partes, process_ids[i:i + LOTE_PARTES])
+    except Exception as exc:                                    # noqa: BLE001
+        logger.warning('promoção de partes NÃO enfileirada para %s (%d processos): %s. '
+                       'A movimentação está gravada; recupere com '
+                       '`manage.py backfill_partes_djen`.',
+                       getattr(tribunal, 'sigla', tribunal), len(process_ids), exc)
+
+
 def _entregar_ao_indice(pks: list[int]) -> int:
     """Enfileira a indexação EM LOTE das linhas recém-gravadas. Propaga erro.
 
@@ -1022,6 +1048,28 @@ def persistir_movimentacoes(itens: list[ItemDiario], tribunal: Tribunal,
                 if run is not None:
                     run.erros.append({'erro': 'indice_lote_incompleto', 'detalhe': msg})
             transaction.on_commit(lambda: _entregar_ao_indice(pks))
+
+        # PROMOÇÃO A PARTE — o mesmo remédio do índice, num campo diferente.
+        #
+        # Medido em 02/09/2026, depois de o coletor da DEPRE passar a extrair o
+        # ente devedor: 2.568 de 2.568 movimentações da relação de 10/03/2025
+        # com `papel='ENTIDADE DEVEDORA'` e `polo='P'` no JSONB, e ZERO linhas
+        # em `ProcessoParte` para esses processos. O promotor existe
+        # (`tribunals/services/partes_djen.py`) mas é backfill por FAIXA DE PK
+        # disparado à mão — e processo que nasce hoje de uma coleta tem pk
+        # acima de qualquer faixa já varrida, então nunca é alcançado.
+        # Extraído sem aterrissar é "coletado pela metade": a tela "Quem deve"
+        # lê `ProcessoParte`, não `Movimentacao.destinatarios`.
+        #
+        # Diferença deliberada em relação à entrega ao índice: aqui a falha NÃO
+        # derruba a coleta. Índice ausente torna a edição inútil (não é
+        # buscável); parte ausente é enriquecimento que o backfill de partes
+        # recupera depois, e a movimentação — que é o acervo — já está gravada.
+        # Perder a edição inteira por causa disso seria trocar um dado a menos
+        # por muitos dados a menos.
+        if getattr(settings, 'DIARIOS_PROMOVER_PARTES', True):
+            proc_ids = sorted({por_cnj[i.cnj] for i in itens if i.cnj in por_cnj})
+            transaction.on_commit(lambda: _promover_partes(proc_ids, tribunal))
 
         # `set(ext_ids)`, não `len(ext_ids)`: o lote pode trazer o MESMO
         # external_id duas vezes quando o diário imprime o mesmo ato duas vezes
