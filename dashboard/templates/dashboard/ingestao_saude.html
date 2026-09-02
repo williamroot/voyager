@@ -95,22 +95,22 @@
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
       <div>
         <div class="text-fg-subtle text-xs uppercase tracking-wider">Dias nunca refeitos</div>
-        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.pendentes %}text-warning{% else %}text-accent-fg{% endif %}">{{ recup_f3.pendentes|default:"—" }}</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.pendentes %}text-warning{% else %}text-accent-fg{% endif %}">{{ recup_f3.pendentes|default_if_none:"—" }}</div>
         <div class="text-xs text-fg-subtle mt-1">a fila de trabalho de verdade</div>
       </div>
       <div>
         <div class="text-fg-subtle text-xs uppercase tracking-wider">Refeitos em 24h</div>
-        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.vazao_24h %}text-accent-fg{% else %}text-danger{% endif %}">{{ recup_f3.vazao_24h|default:"0" }}</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.vazao_24h %}text-accent-fg{% else %}text-danger{% endif %}">{{ recup_f3.vazao_24h|default_if_none:"—" }}</div>
         <div class="text-xs text-fg-subtle mt-1">dias que saíram da conta</div>
       </div>
       <div>
         <div class="text-fg-subtle text-xs uppercase tracking-wider">Em voo</div>
-        <div class="text-2xl font-semibold mt-1 kpi-num">{{ recup_f3.em_voo|default:"0" }}</div>
-        <div class="text-xs text-fg-subtle mt-1">+{{ recup_f3.enfileirados|default:"0" }} no último tique</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num">{{ recup_f3.em_voo|default_if_none:"—" }}</div>
+        <div class="text-xs text-fg-subtle mt-1">+{{ recup_f3.enfileirados|default_if_none:"—" }} no último tique</div>
       </div>
       <div>
         <div class="text-fg-subtle text-xs uppercase tracking-wider">Medido há</div>
-        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.idade_min and recup_f3.idade_min > 20 %}text-warning{% endif %}">{{ recup_f3.idade_min|default:"—" }}<span class="text-base">min</span></div>
+        <div class="text-2xl font-semibold mt-1 kpi-num {% if recup_f3.idade_min and recup_f3.idade_min > 20 %}text-warning{% endif %}">{{ recup_f3.idade_min|default_if_none:"—" }}<span class="text-base">min</span></div>
         <div class="text-xs text-fg-subtle mt-1">o tique roda de 5 em 5 min</div>
       </div>
       <div>

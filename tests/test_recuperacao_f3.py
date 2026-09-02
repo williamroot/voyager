@@ -364,6 +364,33 @@ def test_a_tela_publica_o_numero_e_o_estado(logado):
     assert 'Fase 3' in corpo
 
 
+def test_zero_na_tela_e_ZERO_e_nao_um_travessao(logado):
+    """`|default:` do Django dispara em QUALQUER valor falso, e `0` é falso.
+
+    Visto em prod em 02/09/2026: com o tique medindo há 0 min, o card imprimia
+    "— min", que se lê como "não medi". O caso grave é o outro: `pendentes = 0`
+    é o **estado de chegada** desta Fase, e ele apareceria como travessão — o
+    fim do trabalho indistinguível de medição ausente. `default_if_none` é o
+    filtro certo, e este teste é quem cobra.
+    """
+    cache.set(R.CHAVE_ESTADO, {
+        'medido_em': timezone.now(), 'pendentes': 0, 'vazao_24h': 0,
+        'em_voo': 0, 'enfileirados': 0, 'tjpr_ligado': True, 'teimosos': 0,
+        'por_tribunal': [], 'motivo_parada': None,
+    }, 60)
+    corpo = logado.get('/dashboard/ingestao/saude/').content.decode()
+    # O recorte é o ladrilho, não a página: procurar `>0<` no card inteiro
+    # passaria com o defeito de pé, porque os outros quatro números também são
+    # zero. (Conferido por mutação: com `|default:` a versão frouxa passava.)
+    for rotulo in ('Dias nunca refeitos', 'Refeitos em 24h', 'Em voo'):
+        i = corpo.find(rotulo)
+        assert i > 0, f'ladrilho `{rotulo}` sumiu do card'
+        ladrilho = corpo[i:i + 320]
+        assert '>0<' in ladrilho, (
+            f'`{rotulo}` imprimiu travessão no lugar do zero — chegar a zero '
+            f'ficaria indistinguível de não ter medido')
+
+
 def test_a_tela_diz_quando_NAO_HA_retrato(logado):
     """Retrato vencido é, sozinho, o alarme de que o tique parou. Card vazio
     some da vista; card que grita não."""
