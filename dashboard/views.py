@@ -1641,6 +1641,13 @@ def _vigia_backfills_estado():
             (timezone.now() - r.get('medido_em')).total_seconds() / 60)
     except Exception:  # noqa: BLE001
         r['idade_min'] = None
+    # `parados` guarda o veredito de TODOS, inclusive os saudáveis
+    # (`escrevendo`, `reta_final`, `aquecendo`). Pintar o selo de vermelho com
+    # base no tamanho dessa lista acendia alarme num card sadio — e alarme que
+    # acende sempre é alarme que ninguém mais lê. Só estes três são anomalia.
+    r['alertas'] = [p for p in (r.get('parados') or [])
+                    if p.get('veredito') in ('parado', 'janela_furada',
+                                             'exists_mente')]
     return r
 
 

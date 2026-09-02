@@ -405,3 +405,31 @@ def test_cache_key_de_estado_normaliza_uf_e_metrica():
     assert A.cache_key_estado('sp', 'todos') == A.cache_key_estado('SP', 'TODOS')
     # métrica desconhecida cai no default, nunca cria chave nova
     assert A.cache_key_estado('SP', 'inventada') == A.cache_key_estado('SP', 'todos')
+
+
+# --------------------------------------------------------------------------- #
+# 7. O selo do card: alarme que acende sempre é alarme que ninguém lê
+# --------------------------------------------------------------------------- #
+@CACHE_LOCAL
+def test_selo_vermelho_so_com_anomalia_de_verdade(monkeypatch):
+    """`escrevendo`, `reta_final` e `aquecendo` são estados SADIOS.
+
+    Pintar o selo pelo tamanho de `parados` acendia "2 alerta(s)" em vermelho
+    num card perfeitamente saudável — pego renderizando o card com o retrato
+    REAL de produção em 02/09/2026.
+    """
+    from dashboard.views import _vigia_backfills_estado
+    monkeypatch.setattr(
+        'tribunals.vigia_backfills.estado',
+        lambda: {'medido_em': timezone.now(), 'parados': [
+            {'o_que': 'proc_digits', 'veredito': 'escrevendo'},
+            {'o_que': 'fase', 'veredito': 'aquecendo'}]})
+    assert _vigia_backfills_estado()['alertas'] == []
+
+    monkeypatch.setattr(
+        'tribunals.vigia_backfills.estado',
+        lambda: {'medido_em': timezone.now(), 'parados': [
+            {'o_que': 'fase', 'veredito': 'parado'},
+            {'o_que': 'proc_digits', 'veredito': 'escrevendo'}]})
+    alertas = _vigia_backfills_estado()['alertas']
+    assert len(alertas) == 1 and alertas[0]['veredito'] == 'parado'

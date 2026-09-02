@@ -164,8 +164,10 @@
     </div>
     {% if not vigia_bf %}
       <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-danger/15 text-danger">sem retrato</span>
-    {% elif vigia_bf.parados %}
-      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-danger/15 text-danger">{{ vigia_bf.parados|length }} alerta(s)</span>
+    {% elif vigia_bf.alertas %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-danger/15 text-danger">{{ vigia_bf.alertas|length }} alerta(s)</span>
+    {% elif vigia_bf.erros %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-danger/15 text-danger">sem medida</span>
     {% elif vigia_bf.idade_min and vigia_bf.idade_min > 45 %}
       <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-warning/15 text-warning">tique atrasado</span>
     {% else %}
