@@ -1016,12 +1016,25 @@ hoje, e as 5,5 M de linhas vazias do CNJ nunca eram descontadas. `falta` e
 `sobra` são publicadas **separadas** e por tribunal — somadas se anulariam.
 
 `completude_datajud.medir_rodada()` remede em **rodadas com orçamento de tempo**
-(240 s), sempre pelo tribunal com a medição mais velha, porque a API do CNJ
+(180 s), sempre pelo tribunal com a medição mais velha, porque a API do CNJ
 custa ~46 s por tribunal quando a cota `varredura` está disputada — os 60 numa
 tacada levariam ~45 min, mais que o intervalo do aquecimento. Cada tribunal
 carrega a data da própria medição e a tela mostra a JANELA. Sem rodada viva, o
 card cai no retrato histórico **com a etiqueta “retrato de dd/mm/aaaa”** colada
 no número.
+
+Quatro guardas, cada uma por um jeito de a régua mentir:
+
+| guarda | o que ela impede |
+|---|---|
+| `parcial` = régua sem TODOS os tribunais | publicar 10 medidos como país: "a fonte declara 37.193.323" ao lado de "temos 344.630.543" |
+| `COBERTURA_MINIMA = 0.90` | régua cheia em NOMES e vazia em PARES (cota do CNJ fora ⇒ todo tribunal com `erro`). Não é 100% porque a ausência do STF é legítima |
+| `precisa_rodada()` — e `esperado` ausente ⇒ mede | estado de versão anterior sem `esperado` fazia `esperado or 0` concluir "régua cheia" e congelava o confronto em 11 tribunais por 12 h |
+| encadeamento + `medidos > 0` | a primeira régua levaria 2-8 h a uma rodada por aquecimento; e a cadeia não vira laço quando nada avança |
+
+O job é **separado** do aquecimento (`warm_completude` só AGREGA o que já está
+medido) e a trava `CHAVE_LOCK` (TTL 25 min) impede fila de rodadas. Restart de
+worker mata a rodada sem passar pelo `finally` — é o TTL que destrava.
 
 ### Fase 3 e a vazão — o que a Fase 2 sozinha escondia
 
