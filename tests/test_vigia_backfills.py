@@ -359,6 +359,55 @@ def test_enfileira_no_maximo_uma_fk_por_tique(monkeypatch):
 
 
 @CACHE_LOCAL
+def test_fk_teimosa_sai_da_fila_e_vira_achado(monkeypatch, caplog):
+    """FK que não cabe no teto seria re-enfileirada para sempre, varrendo
+    131 GB a cada 15 min — a mesma perda silenciosa com outra roupa."""
+    cache.clear()
+    fila = FilaFake()
+    monkeypatch.setattr('django_rq.get_queue', lambda n: fila)
+    for _ in range(V.FK_TENTATIVAS_MAX):
+        V._marcar_tentativa('fk_a')
+
+    r = V._enfileirar_fk([['tribunals_process', 'fk_a'],
+                          ['tribunals_process', 'fk_b']], validando=[])
+
+    assert r['enfileirada'] == 'fk_b', 'insistiu na teimosa e pulou a que anda'
+    assert r['teimosas'] == ['fk_a']
+    assert any('achado, não fila' in rec.getMessage() for rec in caplog.records)
+
+
+@CACHE_LOCAL
+def test_validar_com_sucesso_zera_o_contador_de_tentativas():
+    """Senão uma falha transitória (lock, restart) condenaria a FK para sempre."""
+    cache.clear()
+    V._marcar_tentativa('fk_a')
+    V._marcar_tentativa('fk_a')
+    assert V._tentativas()['fk_a'] == 2
+    V._marcar_tentativa('fk_a', delta=0)
+    assert V._tentativas()['fk_a'] == 0
+
+
+@CACHE_LOCAL
+def test_todas_teimosas_nao_enfileira_nada_e_diz_por_que(monkeypatch):
+    cache.clear()
+    fila = FilaFake()
+    monkeypatch.setattr('django_rq.get_queue', lambda n: fila)
+    for _ in range(V.FK_TENTATIVAS_MAX):
+        V._marcar_tentativa('fk_a')
+    r = V._enfileirar_fk([['t', 'fk_a']], validando=[])
+    assert r['motivo'] == 'todas_teimosas' and fila.enfileirados == []
+
+
+@CACHE_LOCAL
+def test_teto_do_validate_e_menor_que_o_do_job():
+    """Se o SQL não estourar ANTES do RQ, o erro vem como "work-horse morto" e
+    o operador perde o nome da constraint e o tempo gasto."""
+    assert V.FK_SQL_TIMEOUT_S < V.FK_JOB_TIMEOUT_S
+    # e ambos com folga sobre a varredura medida de 2.527 s que ainda trabalhava
+    assert V.FK_SQL_TIMEOUT_S > 2 * 2527
+
+
+@CACHE_LOCAL
 def test_kill_switch_das_fks_nao_cega_a_medicao(monkeypatch):
     """Parar a auto-cura não pode apagar o número — card vazio some da vista."""
     cache.clear()

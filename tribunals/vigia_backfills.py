@@ -138,6 +138,7 @@ CHAVE_HIST = 'vigia:backfills:hist:v1'
 CHAVE_OFF = 'vigia:backfills:off'
 CHAVE_FK_OFF = 'vigia:backfills:fk_off'
 CHAVE_TETO_FASE = 'vigia:backfills:teto_fase:v1'
+CHAVE_FK_TENTATIVAS = 'vigia:backfills:fk_tentativas:v1'
 
 #: TTL do retrato. MAIOR que o tique de propósito — ver a docstring.
 ESTADO_TTL_S = 12 * 3600
@@ -165,6 +166,21 @@ FASE_AMOSTRA_PCT = float(os.environ.get('VIGIA_FASE_AMOSTRA_PCT', 0.1))
 #: em `tribunals_movimentacao` por linha. Por isso roda no máximo 1×/24 h.
 TETO_AMOSTRA = int(os.environ.get('VIGIA_TETO_AMOSTRA', 2_000))
 TETO_TTL_S = 24 * 3600
+
+#: Teto de relógio do `VALIDATE`. `tribunals_process` tem 131 GB e uma
+#: varredura medida em 01/09/2026 passava de 2.527 s ainda trabalhando — 55 min
+#: seria apertado, e apertado aqui não é seguro: é LAÇO. O `VALIDATE` pega
+#: SHARE UPDATE EXCLUSIVE, que não bloqueia INSERT/UPDATE/DELETE, então
+#: demorar não trava produção; o que trava é morrer no timeout e recomeçar.
+FK_JOB_TIMEOUT_S = int(os.environ.get('VIGIA_FK_JOB_TIMEOUT_S', 4 * 3600))
+FK_SQL_TIMEOUT_S = int(os.environ.get('VIGIA_FK_SQL_TIMEOUT_S', 3 * 3600))
+
+#: Quantas vezes uma FK pode falhar antes de virar ACHADO em vez de fila.
+#:
+#: Sem isto, uma FK que não cabe no teto seria re-enfileirada para sempre,
+#: varrendo 131 GB a cada 15 min sem nunca terminar — a mesma perda silenciosa
+#: com outra roupa. Depois do teto ela SAI da fila e entra no ERRO, com nome.
+FK_TENTATIVAS_MAX = int(os.environ.get('VIGIA_FK_TENTATIVAS_MAX', 3))
 
 #: Amostra de conteúdo do ES por passada. Pequena de propósito: ela não é a
 #: medida (o `_count` é), é o CONTROLE de que o `_count` ainda diz a verdade.
@@ -438,7 +454,24 @@ def medir_fks() -> dict:
 # Auto-cura das FKs
 # ─────────────────────────────────────────────────────────────────────────────
 
-@job('djen_audit', timeout=3600)
+def _tentativas() -> dict:
+    try:
+        return dict(cache.get(CHAVE_FK_TENTATIVAS) or {})
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _marcar_tentativa(nome: str, delta: int = 1) -> int:
+    t = _tentativas()
+    t[nome] = max(0, t.get(nome, 0) + delta) if delta > 0 else 0
+    try:
+        cache.set(CHAVE_FK_TENTATIVAS, t, 30 * 24 * 3600)
+    except Exception:  # noqa: BLE001
+        pass
+    return t[nome]
+
+
+@job('djen_audit', timeout=FK_JOB_TIMEOUT_S)
 def validar_uma_fk(tabela: str, nome: str) -> dict:
     """`VALIDATE CONSTRAINT` de UMA FK. A unidade de trabalho do tique.
 
@@ -480,13 +513,25 @@ def validar_uma_fk(tabela: str, nome: str) -> dict:
 
     import time
     t0 = time.monotonic()
-    logger.info('vigia fk: VALIDATE %s.%s — começou', tabela, nome)
-    # 55 min: abaixo do timeout de 3600 s do job, para o erro sair do Postgres
-    # com nome e não do RQ como "work-horse morto".
-    with transaction.atomic(), connection.cursor() as c:
-        c.execute("SET LOCAL statement_timeout = '3300s'")
-        c.execute(f'ALTER TABLE "{tabela}" VALIDATE CONSTRAINT "{nome}"')
+    n = _marcar_tentativa(nome)
+    logger.info('vigia fk: VALIDATE %s.%s — começou (tentativa %d)',
+                tabela, nome, n)
+    try:
+        # `SET LOCAL` DENTRO da transação: o pgbouncer é transaction-mode, e um
+        # `SET` solto iria para outra conexão. O teto é menor que o do job para
+        # o erro sair do POSTGRES com nome, e não do RQ como "work-horse morto".
+        with transaction.atomic(), connection.cursor() as c:
+            c.execute('SET LOCAL statement_timeout = %s', [FK_SQL_TIMEOUT_S * 1000])
+            c.execute(f'ALTER TABLE "{tabela}" VALIDATE CONSTRAINT "{nome}"')
+    except Exception as exc:  # noqa: BLE001
+        logger.error('vigia fk: %s.%s FALHOU em %.0fs na tentativa %d/%d (%s). '
+                     'Depois de %d falhas ela sai da fila e vira ACHADO — '
+                     'insistir varre %s de graça a cada tique',
+                     tabela, nome, time.monotonic() - t0, n, FK_TENTATIVAS_MAX,
+                     str(exc)[:160], FK_TENTATIVAS_MAX, tabela)
+        raise
     dur = time.monotonic() - t0
+    _marcar_tentativa(nome, delta=0)          # validou: zera o contador
     logger.info('vigia fk: VALIDADA %s.%s em %.0fs (0 violações — o ALTER teria '
                 'falhado com a linha ofensora)', tabela, nome, dur)
     return {'fk': nome, 'tabela': tabela, 'segundos': round(dur, 1)}
@@ -509,7 +554,23 @@ def _enfileirar_fk(pendentes: list, validando: list) -> dict:
 
     import django_rq
     fila = django_rq.get_queue('djen_audit')
-    tabela, nome = pendentes[0]
+    # FK teimosa sai da FILA e entra no relatório. Insistir nela varre a tabela
+    # inteira a cada tique sem nunca terminar — perda silenciosa com outra
+    # roupa. Mesmo desenho do `TENTATIVAS_MAX` da Fase 3.
+    tent = _tentativas()
+    teimosas = [n for t, n in pendentes if tent.get(n, 0) >= FK_TENTATIVAS_MAX]
+    r['teimosas'] = teimosas
+    if teimosas:
+        logger.error(
+            'vigia fk: %s já falhou %d+ vezes e NÃO será re-enfileirada. Isto é '
+            'achado, não fila: a varredura não cabe no teto de %d s. Rode à mão '
+            'numa janela, com `auditar_schema --validar-fks --validate-timeout`',
+            teimosas, FK_TENTATIVAS_MAX, FK_SQL_TIMEOUT_S)
+    elegiveis = [(t, n) for t, n in pendentes if tent.get(n, 0) < FK_TENTATIVAS_MAX]
+    if not elegiveis:
+        r['motivo'] = 'todas_teimosas'
+        return r
+    tabela, nome = elegiveis[0]
     job_id = f'vigia:fk:{nome}'
     # id determinístico: se o job desta FK já está na fila ou rodando, não
     # abrimos um segundo. `fetch_job` devolve None para id que não existe mais,
@@ -527,7 +588,8 @@ def _enfileirar_fk(pendentes: list, validando: list) -> dict:
             existente.delete()          # sobra de execução anterior
         except Exception:  # noqa: BLE001
             pass
-    fila.enqueue(validar_uma_fk, tabela, nome, job_id=job_id, job_timeout=3600)
+    fila.enqueue(validar_uma_fk, tabela, nome, job_id=job_id,
+                 job_timeout=FK_JOB_TIMEOUT_S)
     r['enfileirada'] = nome
     logger.info('vigia fk: enfileirada %s.%s (%d FKs ainda NOT VALID)',
                 tabela, nome, len(pendentes))
