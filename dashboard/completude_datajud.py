@@ -86,6 +86,14 @@ IDADE_MAX_H = 12
 #: Teto de espera do ES nas contagens por tribunal.
 ES_TIMEOUT = 30
 
+#: Fração mínima de tribunais com PAR válido para a régua valer como confronto.
+#: Não é 100% porque há ausência legítima e conhecida — o STF não tem índice no
+#: CNJ. Mas metade da régua faltando não é ausência, é falha: publicar isso como
+#: "a fonte declara" poria um total de meio país ao lado do nosso número
+#: inteiro, que é exatamente o tipo de comparação que esta tela existe pra não
+#: fazer. Abaixo do piso, o card fica no retrato histórico e mostra o progresso.
+COBERTURA_MINIMA = 0.90
+
 
 def _agora() -> datetime.datetime:
     return datetime.datetime.now()
@@ -286,7 +294,8 @@ def agregar(estado: dict | None) -> dict | None:
         # PARCIAL enquanto a régua não cobre todos os tribunais. Publicar uma
         # régua de 10 tribunais como se fosse o país diria "a fonte declara 37
         # milhões" ao lado de "temos 344 milhões" — pior que não publicar.
-        'parcial': not esperado or len(linhas) < esperado,
+        'parcial': (not esperado or len(linhas) < esperado
+                    or len(validos) < COBERTURA_MINIMA * esperado),
         'medidos': len(linhas),
         'esperado': esperado,
         'tribunais': len(validos),

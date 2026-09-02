@@ -233,17 +233,18 @@ Padrões herdados (não regredir):
           subestima (dia que já era bom nunca precisou ser refeito).
         </p>
         <p class="text-xs text-fg-subtle mt-2 max-w-3xl">
-          <b>Por que a coluna “falta (razão)” não chega a zero</b>, medido em
-          24/08/2026: dos {{ resumo_recup.falta_razao|default:297 }} dias com
-          razão baixa, <b>{{ resumo_recup.falso_pos|format_int }}</b> JÁ foram
-          refeitos pelo caminho novo. O conserto do OOM tornou o
+          <b>Por que a coluna “falta (razão)” não chega a zero.</b> Dos
+          {{ resumo_recup.falta_razao|format_int }} dias com razão baixa,
+          <b>{{ resumo_recup.falso_pos|format_int }}</b> JÁ foram refeitos pelo
+          caminho novo — estes dois números são de agora. O mecanismo foi
+          isolado em <b>24/08/2026</b>: o conserto do OOM tornou o
           <code>itensPorPagina</code> dinâmico (orçamento de bytes), então num
           tribunal de publicação pesada a página cai pra 100–300 itens e a razão
-          cai junto — TJGO 2026-08-24 fechou hoje com razão 207 e 62.612 itens.
-          A razão passou a medir o <b>peso da publicação</b>, não o caminho da
-          coleta. A coluna que pode chegar a zero é
-          <b>nunca refeito</b>: {{ resumo_recup.nunca_refeito|format_int }} dias
-          — e em 24/08 <b>todos já estavam na fila</b>, esperando vazão.
+          cai junto — o TJGO fechou o dia 2026-08-24 com razão 207 e 62.612
+          itens, pelo caminho novo. A razão passou a medir o <b>peso da
+          publicação</b>, não o caminho da coleta. A coluna que pode chegar a
+          zero é <b>nunca refeito</b>:
+          {{ resumo_recup.nunca_refeito|format_int }} dias.
         </p>
         <p class="text-xs text-fg-subtle mt-2 max-w-3xl">
           <b>O que a coluna “recuperado” diz, e o que a “recuperável” não diz.</b>

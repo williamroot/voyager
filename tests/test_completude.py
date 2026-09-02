@@ -383,6 +383,27 @@ def test_agregar_so_fecha_com_a_regua_inteira():
     assert cheio['falta'] == 20 and cheio['sobra'] == 0
 
 
+def test_regua_cheia_de_erro_tambem_e_parcial():
+    """Régua completa em NOMES e vazia em PARES não é confronto.
+
+    Se a cota do CNJ estourar, todo tribunal entra no estado com `erro` e a
+    régua "fecha" com 5 pares. Publicar isso poria um declarado de meio país
+    ao lado do nosso número inteiro.
+    """
+    from dashboard import completude_datajud as DJ
+    em = datetime.datetime.now()
+    bom = {'declarado': 100, 'invalidos': 0, 'nosso': 90, 'em': em, 'erro': None}
+    ruim = {'declarado': None, 'invalidos': None, 'nosso': None,
+            'em': em, 'erro': 'cota'}
+    estado = {'_rodada': {'esperado': 10}, 'A': dict(bom)}
+    estado.update({f'X{i}': dict(ruim) for i in range(9)})
+    assert DJ.agregar(estado)['parcial'] is True
+    # com só uma ausência (o STF, que não tem índice) a régua vale
+    ok = {'_rodada': {'esperado': 10}, 'STF': dict(ruim)}
+    ok.update({f'T{i}': dict(bom) for i in range(9)})
+    assert DJ.agregar(ok)['parcial'] is False
+
+
 def test_agregar_nao_desconta_invalido_que_nao_mediu():
     """Descontar um número que não se mediu seria inventar completude."""
     from dashboard import completude_datajud as DJ
