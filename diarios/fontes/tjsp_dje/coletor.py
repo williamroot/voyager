@@ -16,6 +16,7 @@ esta porta e o DJEN gravem o mesmo ato duas vezes.
 """
 
 import logging
+import re
 from collections.abc import Iterator
 from datetime import date, datetime, time
 
@@ -37,6 +38,8 @@ from diarios.base import (
     registrar,
 )
 
+from diarios.inventario import Inventario, MarcadorRegistro
+
 from . import catalogo, pdf, segmentador
 
 logger = logging.getLogger('voyager.diarios.tjsp_dje')
@@ -49,6 +52,36 @@ SUFIXO_CNJ_TJSP = '.8.26.'
 #: caderno administrativo e as edições pré-2010 (numeração '583.00.2010.119027')
 #: legitimamente quase não têm CNJ.
 MINIMO_PARA_AFERIR_COBERTURA = 200
+
+#: SEGUNDO EIXO — as linhas que abrem um registro no DJE/TJSP, e o formato de
+#: bloco que cada uma tem que virar. Contadas no TEXTO EXTRAÍDO.
+#:
+#: Os dois primeiros são a relação da DEPRE, e são um caso raro: o registro tem
+#: QUATRO campos obrigatórios, e na relação de 10/03/2025 os quatro deram
+#: **2.568 cada**. Declarar dois deles (não um) é de propósito — se um dia os
+#: números divergirem entre si, a divergência aparece no `impresso` antes de
+#: virar conclusão sobre o parser.
+#:
+#: `Processo:` NÃO entra: ele existe fora da DEPRE (é a âncora do formato 1 em
+#: caixa alta, e aparece em despacho citando "Processo: nº ..."). Marcador que
+#: dispara fora do formato inflaria o `impresso` e produziria alarme falso —
+#: e alarme falso em gate é pior que gate ausente, porque ensina a ignorar.
+MARCADORES_TJSP = (
+    MarcadorRegistro(
+        nome='ordem cronológica (DEPRE)',
+        padrao=re.compile(r'^N[ºo°]?\s*de\s+ordem\s+cronol[óo]gica\s*:', re.I),
+        formato=segmentador.FORMATO_PRECATORIO),
+    MarcadorRegistro(
+        nome='entidade devedora (DEPRE)',
+        padrao=re.compile(r'^Entidade devedora\s*:', re.I),
+        formato=segmentador.FORMATO_PRECATORIO),
+    MarcadorRegistro(
+        nome='pauta numerada',
+        padrao=re.compile(
+            r'^\d{1,5}\s*-\s*\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}'
+            r'(?:\s*/\s*\d{2,6})?\s*(?:;|-)\s*Processo\s+(?:Digital|F[íi]sico)', re.I),
+        formato=segmentador.FORMATO_PAUTA),
+)
 
 
 @registrar
@@ -79,6 +112,9 @@ class ColetorDjeTjsp(ColetorDiario):
     #: Fica FORA do catálogo até existir segmentador próprio — coletar com 4,7%
     #: de cobertura seria gravar lacuna e chamar de acervo.
     CADERNOS_SEM_SEGMENTADOR = frozenset({14})
+
+    #: segundo eixo do gate (`diarios/inventario.py`)
+    MARCADORES_DE_REGISTRO = MARCADORES_TJSP
 
     def __init__(self):
         super().__init__()
@@ -187,6 +223,11 @@ class ColetorDjeTjsp(ColetorDiario):
         cnjs_em_bloco: set[str] = set()
         contagem = {'blocos': 0, 'itens': 0, 'sem_cnj': 0, 'outro_tribunal': 0}
         primeira = True
+        # SEGUNDO EIXO: alimentado LINHA A LINHA do texto extraído, no mesmo
+        # passeio das páginas — nada é lido duas vezes e nada acumula além de
+        # contadores. A comparação é contra `Bloco.formato`, que vem do outro
+        # lado do segmentador: dois caminhos de código sobre a mesma entrada.
+        inventario = Inventario(marcadores=tuple(self.MARCADORES_DE_REGISTRO))
 
         def _paginas():
             """Passa as páginas para o segmentador e, de quebra, anota TODOS os
@@ -197,10 +238,13 @@ class ColetorDjeTjsp(ColetorDiario):
                     pdf.conferir_data(pagina, unidade.data)
                     primeira = False
                 cnjs_no_texto.update(achar_cnjs(pagina.texto))
+                for linha in pagina.linhas:
+                    inventario.ver_linha(linha.texto, achar_cnjs(linha.texto))
                 yield pagina
 
         for bloco in segmentador.segmentar(_paginas(), tamanho_corpo):
             contagem['blocos'] += 1
+            inventario.ver_bloco(bloco.formato)
             cnjs_em_bloco.update(achar_cnjs(bloco.texto_corrido))
             pub = segmentador.interpretar(bloco)
             if not pub.cnj:
@@ -231,10 +275,12 @@ class ColetorDjeTjsp(ColetorDiario):
                 meio_completo=meio_completo,
             )
 
-        self._aferir_cobertura(unidade, cnjs_no_texto, cnjs_em_bloco, contagem)
+        self._aferir_cobertura(unidade, cnjs_no_texto, cnjs_em_bloco, contagem,
+                               inventario)
 
     def _aferir_cobertura(self, unidade: UnidadeColeta, cnjs_no_texto: set[str],
-                          cnjs_em_bloco: set[str], contagem: dict) -> None:
+                          cnjs_em_bloco: set[str], contagem: dict,
+                          inventario: Inventario | None = None) -> None:
         """Falha alto quando a segmentação deixou processo de fora.
 
         O e-SAJ não declara quantas publicações tem no caderno (por isso
@@ -276,9 +322,43 @@ class ColetorDjeTjsp(ColetorDiario):
             )
 
         piso = float(getattr(settings, 'DIARIOS_COBERTURA_MINIMA', 0.95))
+
+        # ── SEGUNDO EIXO — inventário por marcador ──────────────────────────
+        # Logado SEMPRE, mesmo sem divergência: é o número que diz o que a
+        # fonte imprimiu, e ele tem que estar no log do dia bom para servir de
+        # referência no dia ruim.
+        divergencias = []
+        if inventario is not None and inventario.mede:
+            orfaos = cnjs_no_texto - cnjs_em_bloco
+            divergencias = inventario.conferir(orfaos)
+            logger.info('%s/%s: inventário da fonte %s → blocos %s%s',
+                        self.slug, unidade.chave, dict(inventario.impresso),
+                        dict(inventario.segmentado),
+                        ' (assinaturas TRUNCADAS)' if inventario.assinaturas_truncadas else '')
+        elif inventario is not None:
+            # Abstenção explícita: fonte sem marcador declarado NÃO é fonte
+            # aprovada. Sem esta linha, "não medido" e "medido e ok" ficam com
+            # a mesma cara no log — que é a doença que este eixo trata.
+            logger.info('%s/%s: inventário por marcador NÃO MEDIDO '
+                        '(a fonte não declara marcador)', self.slug, unidade.chave)
+
+        # A ORDEM importa e é deliberada. O eixo de proporção continua sendo o
+        # primeiro a falar: ele é o que a `OPS.md` e a `DIARIOS.md` já ensinam a
+        # ler, e uma perda grande tem que continuar produzindo a MESMA mensagem
+        # de sempre. O eixo novo entra exatamente onde o antigo se cala — na
+        # perda que cabe dentro da folga dos 5%.
         if total >= MINIMO_PARA_AFERIR_COBERTURA and cobertura is not None and cobertura < piso:
             raise ColetorError(
                 f'{self.slug}/{unidade.chave}: só {dentro} dos {total} CNJs impressos '
                 f'caíram dentro de um bloco ({cobertura:.1%} < {piso:.0%}) — '
                 'segmentação suspeita, unidade não vai ser dada como coletada'
+                + (f' | inventário também acusa: {divergencias[0]}' if divergencias else '')
+            )
+
+        if divergencias:
+            raise ColetorError(
+                f'{self.slug}/{unidade.chave}: inventário divergente — '
+                + ' ; '.join(str(d) for d in divergencias)
+                + f' (cobertura de CNJ {cobertura:.1%}, ACIMA do piso — '
+                  f'esta perda não seria vista pelo eixo de proporção)'
             )

@@ -94,6 +94,17 @@ FORMATO_LISTA = 'lista'
 #: formato 6 — a relação da DEPRE (ordem cronológica de precatórios). Ver o
 #: bloco de docstring do módulo.
 FORMATO_PRECATORIO = 'precatorio'
+#: formato 4b — a PAUTA numerada. Anatomia idêntica à do formato 4; o que muda
+#: é a posição na sessão impressa antes do número. Tem constante PRÓPRIA por um
+#: motivo de GATE, não de parsing: o segundo eixo (`diarios/inventario.py`)
+#: compara "registros que a fonte imprimiu" com "blocos daquele formato", e
+#: essa comparação só morde quando o balde de formato é EXCLUSIVO do marcador.
+#: Medido em 02/09/2026 na edição real `4148-19`: com a pauta caindo em
+#: `numero_primeiro` junto com 415 blocos da forma sem ordinal, a perna do
+#: inventário não disparava (415 >= 73) e quem pegou foi a perna das
+#: assinaturas. Com balde próprio, a perna A dispara no PRIMEIRO registro
+#: perdido — 73 impressos contra 0 blocos.
+FORMATO_PAUTA = 'pauta'
 
 _CNJ = CNJ_TOLERANTE.pattern
 #: âncora 1 — 'PROCESSO :<numero>'. Só o rótulo PROCESSO abre bloco; CLASSE,
@@ -134,7 +145,12 @@ _RE_ANCORA_2INST = re.compile(r'^N[ºo°]\s*\d')
 #: antes dele. O `Processo (Digital|Físico)` continua obrigatório e é ele que
 #: impede a âncora frouxa de partir ato ao meio dentro de citação.
 _RE_ANCORA_NUMERO = re.compile(
-    rf'^(?:\d{{1,5}}\s*-\s*)?{_CNJ}(?:\s*/\s*\d{{2,6}})?\s*(?:;|-)\s*'
+    rf'^{_CNJ}(?:\s*/\s*\d{{2,6}})?\s*(?:;|-)\s*'
+    rf'Processo\s+(Digital|F[íi]sico)', re.I)
+#: a MESMA âncora com o ordinal da sessão na frente. Separada da de cima para
+#: o bloco sair com `FORMATO_PAUTA` e o inventário ter um balde exclusivo.
+_RE_ANCORA_PAUTA = re.compile(
+    rf'^\d{{1,5}}\s*-\s*{_CNJ}(?:\s*/\s*\d{{2,6}})?\s*(?:;|-)\s*'
     rf'Processo\s+(Digital|F[íi]sico)', re.I)
 #: âncora 6 — a RELAÇÃO DA DEPRE (Diretoria de Execuções de Precatórios), no
 #: caderno 2 · 2ª Instância · Entrada e Distribuição. Um campo por linha, como
@@ -340,6 +356,8 @@ def _ancora(texto: str) -> str | None:
         return FORMATO_ATO
     if _RE_ANCORA_2INST.match(texto):
         return FORMATO_2INST
+    if _RE_ANCORA_PAUTA.match(texto):
+        return FORMATO_PAUTA
     if _RE_ANCORA_NUMERO.match(texto):
         return FORMATO_NUMERO
     return None
@@ -729,7 +747,7 @@ def interpretar(bloco: Bloco) -> Publicacao:
     classe, comarca = _classe_do_cabecalho(corrido)
     pub.nome_classe = classe
     pub.destinatario_advogados = _advogados_com_oab(corrido)
-    if bloco.formato in (FORMATO_2INST, FORMATO_NUMERO):
+    if bloco.formato in (FORMATO_2INST, FORMATO_NUMERO, FORMATO_PAUTA):
         pub.destinatarios = _partes_rotuladas(corrido)
         if comarca:
             pub.nome_orgao = f'{bloco.orgao_secao} - {comarca}' if bloco.orgao_secao else comarca

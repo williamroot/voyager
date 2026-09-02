@@ -666,6 +666,22 @@ class ColetorDiario(ABC):
     janela_inicio: date | None = None
     janela_fim: date | None = None
 
+    # -- SEGUNDO EIXO DO GATE (ver `diarios/inventario.py`) -------------------
+    #: As linhas que ABREM um registro na fonte, e o `Bloco.formato` que cada
+    #: uma tem que virar. Vazio = a fonte não declara marcador, e então o eixo
+    #: se ABSTÉM — nunca reporta 100%.
+    #:
+    #: Existe porque o eixo de PROPORÇÃO (cobertura de CNJ) é estruturalmente
+    #: cego para a perda pequena: medido em 02/09/2026, a pauta numerada do
+    #: caderno 19 do DJE/TJSP passou calada em 22 de 22 edições verdes, com
+    #: 7.917 registros, todos entre 0,60% e 4,54% dos CNJs — abaixo da folga do
+    #: piso de 95%. Um formato inteiro desconhecido, de volume modesto,
+    #: atravessa todas as edições sem acender luz.
+    #:
+    #: A contagem é feita sobre o TEXTO EXTRAÍDO, nunca sobre a saída do
+    #: segmentador: comparar o parser consigo mesmo é circular.
+    MARCADORES_DE_REGISTRO: tuple = ()
+
     # -- conduta de rede ------------------------------------------------------
     modo_proxy: str = PROXY_DIRETO
     rps: float = 2.0

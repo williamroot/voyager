@@ -227,7 +227,7 @@ def test_pauta_numerada_cobre_todo_cnj_impresso():
 def test_pauta_numerada_abre_bloco_e_extrai_classe_partes_e_oab():
     blocos, _, _ = _segmentar(PAUTA)
     pubs = [segmentador.interpretar(b) for b in blocos
-            if b.formato == segmentador.FORMATO_NUMERO]
+            if b.formato == segmentador.FORMATO_PAUTA]
     assert len(pubs) >= 30, f'só {len(pubs)} blocos de pauta'
     primeiro = pubs[0]
     assert primeiro.cnj == '2376731-90.2024.8.26.0000'
@@ -248,7 +248,7 @@ def test_pauta_numerada_todos_os_blocos_saem_com_classe():
     inclusive na que já era segmentada antes desta mudança."""
     blocos, _, _ = _segmentar(PAUTA)
     pubs = [segmentador.interpretar(b) for b in blocos
-            if b.formato == segmentador.FORMATO_NUMERO]
+            if b.formato == segmentador.FORMATO_PAUTA]
     sem_classe = [p for p in pubs if not p.nome_classe]
     assert not sem_classe, f'{len(sem_classe)} de {len(pubs)} blocos sem classe'
 
@@ -258,9 +258,15 @@ def test_ancora_da_pauta_exige_o_marcador_de_processo():
     âncora dispararia dentro de citação de jurisprudência quebrada de linha —
     o erro que PARTE um ato ao meio e o atribui ao processo citado."""
     a = segmentador._ancora
+    # Balde PRÓPRIO (`FORMATO_PAUTA`), e não `FORMATO_NUMERO`: o segundo eixo
+    # do gate só morde quando o formato é exclusivo do marcador — ver
+    # `diarios/inventario.py` e a medição da edição `4148-19`.
     assert a('3 - 0000239-66.2022.8.26.0120 - Processo Digital. Petições') == \
-        segmentador.FORMATO_NUMERO
+        segmentador.FORMATO_PAUTA
     assert a('12 - 0004389-73.2012.8.26.0045 - Processo Físico - Apelação') == \
+        segmentador.FORMATO_PAUTA
+    # …e a forma SEM ordinal continua no balde antigo.
+    assert a('0004389-73.2012.8.26.0045 - Processo Físico - Apelação') == \
         segmentador.FORMATO_NUMERO
     assert a('3 - 0000239-66.2022.8.26.0120 - Apelação Cível - Cândido Mota') is None
     assert a('fls. 3 - 0000239-66.2022.8.26.0120 - Processo Digital') is None
