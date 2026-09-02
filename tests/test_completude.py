@@ -388,6 +388,35 @@ def test_agregar_so_fecha_com_a_regua_inteira():
     assert cheio['falta'] == 20 and cheio['sobra'] == 0
 
 
+def test_rodada_grava_a_cada_tribunal_e_nao_so_no_fim():
+    """Rodada morta por restart de worker não pode jogar fora o que já pagou.
+
+    A rodada anterior media 6 tribunais em 215 s e gravava só no fim; um
+    `docker restart` no meio devolvia a régua ao estado anterior, e o CNJ
+    tinha sido consultado à toa.
+    """
+    from dashboard import completude_datajud as DJ
+    gravacoes = []
+
+    def _guarda(chave, valor, timeout=None):
+        if chave == DJ.CHAVE:
+            gravacoes.append(len([k for k in valor if k != '_rodada']))
+
+    with patch.object(DJ.cache, 'get', return_value={}), \
+         patch.object(DJ.cache, 'set', side_effect=_guarda), \
+         patch.object(DJ, '_medir_tribunal',
+                      return_value={'declarado': 1, 'invalidos': 0, 'nosso': 1,
+                                    'em': datetime.datetime.now(), 'erro': None}), \
+         patch('datajud.client.DatajudClient'), \
+         patch('search.client.get_es'), patch('search.client.index_name'), \
+         patch('tribunals.models.Tribunal') as T:
+        T.objects.order_by.return_value.values_list.return_value = ['A', 'B', 'C']
+        DJ.medir_rodada(orcamento_s=60)
+    # uma gravação por tribunal + a do fim
+    assert gravacoes[:3] == [1, 2, 3], gravacoes
+    assert len(gravacoes) >= 4, 'não gravou o fechamento da rodada'
+
+
 def test_rodada_aperta_o_teto_do_cliente_do_cnj():
     """Uma requisição de fábrica pode levar 50 min (50 rotações × 60 s).
 

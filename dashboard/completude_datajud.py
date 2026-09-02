@@ -203,6 +203,13 @@ def medir_rodada(orcamento_s: int = ORCAMENTO_S,
             break                      # a fila está ordenada: o resto é novo
         estado[sigla] = _medir_tribunal(cli, es, acervo, sigla)
         medidos += 1
+        # GRAVA A CADA TRIBUNAL, não só no fim. Rodada morre — `docker restart`
+        # de worker mata sem passar pelo `finally` — e gravar só no fim jogava
+        # fora os 6 tribunais que ela já tinha pago ao CNJ. É a mesma lição do
+        # `datajud_conferir_acervo`, que perdia 25 min por causa da última
+        # consulta: run que morre não chega ao fim, e o que ele já sabia morre
+        # junto. Custa um SET no Redis por tribunal.
+        cache.set(CHAVE, estado, timeout=TTL_ESTADO)
 
     dt = time.monotonic() - t0
     if dt > 2 * orcamento_s:
