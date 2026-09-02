@@ -22,6 +22,12 @@ O que este módulo NÃO faz, de propósito (regra nº 6 — abster > chutar):
   `destinatario_advogados` como duas listas irmãs, sem nenhum vínculo
   advogado→representado. Inventar o vínculo seria chute.
 * **`documento` fica vazio.** Não há CPF/CNPJ no payload.
+* **O `polo` é abstido quando a janela se contradiz.** O JSONB diz o polo da
+  COMUNICAÇÃO, não o da ação: num processo com recurso, o autor aparece como
+  RECORRIDO (polo P) numa publicação e como AUTOR (polo A) noutra, e as duas
+  estão certas sobre a sua fase. Como o dedupe é por `(nome, polo)`, isso
+  gravava a MESMA pessoa no ativo E no passivo do mesmo processo — um fato
+  impossível. Agora ela vai inteira para `outros`. Ver `_polos_contraditorios`.
 * **`papel` fica vazio.** Medido: `papel` existe em 10 de 23.771 destinatários
   (0,04%) — e só nos que vêm dos coletores de `diarios/`, não do DJEN.
 * **Não substitui o enricher.** Destinatário é quem foi intimado NAQUELA
@@ -39,6 +45,12 @@ Formato real do dado, medido em produção (24 âncoras × 400 pks, semente
 `polo` tem QUATRO valores, não dois: `A` 13.003 · `P` 10.519 · `T` 228 · `D` 21.
 `T`/`D` são terceiro/custos legis (Ministério Público, administradora judicial)
 — mapeiam para `outros`, junto com os advogados.
+
+E o polo tem uma régua, medida em 02/09/2026 contra o enricher (24 âncoras,
+900 processos que têm as DUAS origens): **96,6% dos destinatários que batem
+por nome saem com o polo idêntico** ao que o PJe/eSAJ gravou. O nome bate em
+93,7% e a OAB em 94,5% dos pares comparáveis — em 256 outros o enricher NÃO
+tinha OAB e nós acrescentamos. Ver `.ia/ENRICHMENT.md`.
 """
 from __future__ import annotations
 
