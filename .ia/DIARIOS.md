@@ -2122,3 +2122,128 @@ parado não distingue "acabou" de "está acontecendo fora do lugar onde eu olho"
 | **o segundo eixo do gate** (inventário por marcador, não só fração) | **continua não feito, e continua sendo o conserto durável.** Este §17 limpou o passado; o segundo eixo é o que impede o futuro |
 | promoção a parte das edições do 19 coletadas após o teto | adiada pelo guarda de fairness; recuperável com `backfill_partes_djen` |
 | `r19_w1` / `r19_w2` | dois `rqworker diarios` avulsos criados na `.102` (`docker run`, fora do compose) para dobrar a vazão. **Removidos** ao fim do lote |
+
+---
+
+## 18. O SEGUNDO EIXO do gate — inventário do que a fonte imprime
+
+> Este é o conserto durável que os §15-§17 ficaram devendo. Eles limparam o
+> passado; **este eixo é o que impede o futuro.**
+
+### 18.1 Por que o eixo antigo não podia pegar o caso que importa
+
+O eixo que existia mede **proporção**: dos CNJs impressos no caderno, quantos
+caíram dentro de algum bloco; reprova abaixo de 95%. Ele funciona — foi ele que
+pegou as doze edições de 02/09. E é **estruturalmente cego** para a perda
+pequena. Não é opinião:
+
+- a relação da DEPRE varia de tamanho: **3.833** registros derrubaram a
+  cobertura a 68,4%, **2.568** a 83,1%, e uma de ~760 fecharia **acima de 95%**;
+- a pauta numerada passou calada em **22 de 22** edições verdes — **7.917**
+  registros, todos entre **0,60% e 4,54%** dos CNJs; as seis que reprovaram
+  estavam em 7,3-7,4%;
+- **duas edições nunca coletadas teriam reprovado** (6,22% e 6,45%): o acaso de
+  QUANDO coletamos decidia se veríamos.
+
+**Gate de proporção não é gate de completude.** Ele reprova a perda grande e
+absolve a pequena pelo MESMO mecanismo.
+
+### 18.2 O que o eixo novo mede — duas pernas, e a segunda é obrigatória
+
+**Perna A — inventário por marcador.** Cada fonte declara, em
+`MARCADORES_DE_REGISTRO`, as linhas que **abrem um registro** e o `Bloco.formato`
+que cada uma tem que virar. Conta-se a linha no **texto extraído** e exige-se
+`blocos[formato] >= registros[marcador]`. Falta é ERRO **com os dois números**,
+**independente de quanto aquilo representa em CNJ**. É `>=` e não `==` porque um
+balde de formato pode receber mais de um marcador.
+
+**Perna B — assinatura dos órfãos.** A perna A só conhece o que já foi
+declarado; um formato novo não tem marcador, e ali ela herdaria a mesma
+cegueira. Então os CNJs que ficaram **fora de bloco** são agrupados pela FORMA
+da linha (runs de dígito viram `#`) e a forma que se repete acima de um piso é
+ERRO que **nomeia o suspeito**. Não é heurística inventada: é exatamente o que
+foi feito à mão em 02/09 para achar os dois formatos — 100% dos 6.170 órfãos de
+`4155-11` caíram em duas formas; 96,5% dos 1.212 de `4153-19` numa só. **Um
+formato é, por definição, repetitivo — e é a repetição que o denuncia sem
+marcador.**
+
+### 18.3 Independência do segmentador — a condição que faz isto valer
+
+A perna A conta `Pagina.linhas` (texto extraído do PDF) e compara com
+`Bloco.formato` (saída do segmentador): **dois caminhos de código sobre a mesma
+entrada**. `Inventario.ver_bloco` recebe **só o nome do formato, nunca o
+texto** — e há teste travando a assinatura da função, porque no dia em que ela
+receber texto alguém vai contar marcador ali dentro e o eixo vira circular. É o
+erro que a régua do nicho 12078 quase cometeu ao usar `codigo_classe` como
+prova de si mesmo.
+
+### 18.4 A prova, na edição REAL que passou calada
+
+`4148-19` (19/02/2025) — a de MENOR fração de todas: **73 registros em 12.091
+CNJs = 0,60%**. Rodando o segmentador no estado em que ela de fato fechou `ok`
+em produção:
+
+| | eixo 1 (proporção) | eixo 2 (inventário) |
+|---|---|---|
+| segmentador **cego** (como era) | **99,0% → PASSA** | **ACUSA por dois caminhos:** perna A `73 impressos × 0 blocos do formato pauta`; perna B `68 CNJs órfãos com a MESMA forma de linha` |
+| segmentador **atual** | 99,6% → passa | **nada a acusar** (sem falso positivo) |
+
+E **em produção**, com o eixo já deployado (`worker_diarios` reiniciado em
+`2026-09-02T23:15:58Z`), a mesma edição recoletada:
+
+    tjsp-dje/4148-19: 11.293 blocos → 11.220 itens; cobertura de CNJ 12.044/12.091 = 99,6%
+    tjsp-dje/4148-19: inventário da fonte {'pauta numerada': 73}
+                      → blocos {'segunda_instancia': 10787, 'ato': 18, 'pauta': 73, 'numero_primeiro': 415}
+
+**73 impressos, 73 blocos** — o número de fora bateu com o de dentro, ao vivo e
+igual ao offline. E numa edição de recesso (`4117-19`, sem pauta e sem DEPRE) o
+log diz `inventário da fonte {}` — nada impresso, nada a cobrar.
+
+### 18.5 Três decisões que precisam estar escritas
+
+1. **`FORMATO_PAUTA` ganhou constante própria por causa do GATE, não do
+   parsing.** Com a pauta caindo no balde `numero_primeiro` junto com 415
+   blocos da forma sem ordinal, a perna A **não disparava** (415 >= 73) e só a
+   perna B pegava. **A perna A só morde quando o balde é EXCLUSIVO do
+   marcador** — quem for declarar marcador novo precisa saber disso.
+2. **A ordem é deliberada: o eixo de proporção fala primeiro.** Perda grande
+   tem que continuar produzindo a MESMA mensagem que a `OPS.md` já ensina a
+   ler — foi ela que separou "o INSERT quebrou" de "o parser não conhece o
+   formato". O eixo novo entra onde o antigo se cala, com prefixo próprio
+   (`inventário divergente`) e dizendo na mensagem que **a cobertura estava
+   ACIMA do piso**.
+3. **`EdicaoDiario.itens_esperados` NÃO foi usado, e o motivo importa.** Ele
+   parece a casa natural (o DEJT declara "1 até 20 de 16.717"), mas o runner o
+   compara contra o TOTAL de itens com piso percentual
+   (`achados < alvo * 0,95`). Como o total de blocos é ordens de grandeza maior
+   que o de registros marcados, a comparação passaria sempre — seria **um
+   segundo número percentual ao lado do primeiro**, com a mesma cegueira. O
+   inventário mora no gate da fonte, por marcador, sem percentual.
+
+### 18.6 O que este eixo NÃO cobre — escrito antes de alguém descobrir
+
+**Formato desconhecido, pequeno, E cujos CNJs já caem dentro de outro bloco.**
+Se as linhas de um formato novo forem **engolidas** por um bloco vizinho em vez
+de ficarem órfãs, os CNJs contam como cobertos, não há órfão para agrupar, e a
+perna B não vê nada; a perna A também não, porque não há marcador declarado.
+Esse resíduo continua descoberto pelos **dois** eixos.
+
+Duas observações honestas sobre ele: (a) nas 35 edições medidas em 02/09 o
+padrão real foi o oposto — as entradas ficavam ÓRFÃS, não engolidas (foi por
+isso que o reprocessamento não duplicou nada, §17.3); (b) a única defesa
+conhecida contra esse caso é alguém abrir um caderno de vez em quando. Não há
+régua automática para ele, e dizer que há seria o tipo de conforto falso que
+este documento inteiro existe para evitar.
+
+**E o eixo só está armado para o `tjsp-dje`.** `dejt`, `stf`, `doe-sp` e
+`qd-municipal` não declaram marcador: nelas o eixo **se abstém** e o log diz
+`inventário por marcador NÃO MEDIDO`. Abstenção não é aprovação — e essa linha
+existe justamente para que "não medido" e "medido e ok" não tenham a mesma cara
+no log.
+
+| onde | estado |
+|---|---|
+| `diarios/inventario.py` | mecanismo (as duas pernas, assinatura, teto declarado) |
+| `ColetorDiario.MARCADORES_DE_REGISTRO` | contrato; vazio = abstém |
+| `diarios/fontes/tjsp_dje/coletor.py::MARCADORES_TJSP` | 3 marcadores (2 da DEPRE, 1 da pauta) |
+| `tests/test_gate_inventario.py` | 11 testes, incluindo o que trava a independência |
