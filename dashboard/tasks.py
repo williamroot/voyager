@@ -245,6 +245,86 @@ def warm_leads_charts():
     _with_lock('lock:warm_leads_charts', 2700, _run)
 
 
+def agg_estado_warm_alvos():
+    """Os pares `(uf, metrica)` que o warm da tela de estado computa — e só eles.
+
+    MEDIDO em produção (02/09/2026), agregação FRIA, uma passada por UF, com o
+    `update_by_query` do `proc_digits` rodando estrangulado a 500 d/s:
+
+        BA 26,5s · AL 19,9s · CE 19,9s · AM 17,0s · AP 16,8s · GO 16,3s
+        AC 15,3s · SP 14,5s · RS 14,0s · PR 13,8s · RR 13,7s · PB 13,7s
+        RJ 13,4s · RN 13,2s · PE 13,2s · SE 13,1s · RO 13,1s · SC 13,0s
+        TO 12,8s · PI 12,7s · DF 6,4s · MS 5,8s · FED 3,9s
+        MT 0,71s · MA 0,69s · ES 0,58s · MG 0,44s · PA 0,42s
+
+        SOMA da passada ....... 324,8 s  (2ª passada: 360,2 s)
+
+    Duas decisões saem daí, e as duas são medição, não gosto:
+
+    1. **As 28 UFs entram.** A soma é ~5,5 min, não os ~9 min estimados, e o
+       custo NÃO acompanha o tamanho do estado (MG 0,44 s, SP 14,5 s) — não há
+       "as UFs caras" para recortar, há um platô de ~13 s em 20 delas. Cortar
+       metade economizaria ~2,5 min e deixaria metade do país pagando 13-26 s
+       na cara, contra um teto de cliente de 30 s. Foi passar desse teto que
+       deu 503 em 02/09.
+
+    2. **Só a métrica default (`todos`).** As outras duas lentes do seletor
+       (`possiveis`, `confirmados`) TRIPLICARIAM a passada para ~16 min de ES
+       por rodada, num nó que divide disco com a busca do site e com o backfill
+       do índice. Elas ficam de fora de propósito: são um clique mais fundo,
+       quem clica paga uma vez, e o `CACHE_TTL` de 30 min cobre a sessão.
+       **Isto é uma lacuna conhecida, não um esquecimento** — se a tela de
+       estado passar a abrir já numa lente filtrada, este alvo muda junto.
+
+    A 2ª passada não ficou mais barata (360,2 s), então o cache de requisição do
+    ES não ajuda aqui: o custo é próprio da agregação. É por isso que o
+    intervalo é de 60 min e não de 30 — ver `djen/scheduler.py`.
+
+    Função separada (e não inline no `_run`) pelo mesmo motivo do
+    `leads_warm_alvos`: é o que o teste importa para conferir que o warm
+    escreve exatamente as chaves que a view lê. Régua embutida no `_run` é
+    cópia da lógica, não régua.
+    """
+    from search import agg_estado as A
+    return [(uf, A.METRICA_DEFAULT) for uf in sorted(A.UFS_VALIDAS)]
+
+
+@job('warm', timeout=2400)
+def warm_agg_estado():
+    """Pré-aquece `/dashboard/overview/estado/<UF>/` no recorte sem filtro.
+
+    A tela dava **503** em 02/09/2026: a agregação custa ~20 s a frio, o teto do
+    cliente ES é 30 s, e o `update_by_query` do backfill de `proc_digits` na
+    mesma máquina empurrava a soma por cima — `ConnectionTimeout` no `_msearch`.
+    O remendo do dia foi subir o `CACHE_TTL` de 300 s para 1800 s; o conserto é
+    este warm, e é o MESMO defeito do #64 na tela de leads (cache lazy sem
+    ninguém aquecendo: a cada expiração, o próximo visitante paga).
+
+    ⚠️ A chave vem de `agg_estado.cache_key_estado` — a MESMA função que a view
+    usa. Montar a string aqui de novo é como o #64 acabou com um warm que
+    computava e uma view que continuava no miss.
+
+    ⚠️ Escreve com `WARM_TTL` (4 h) e não com o `_WARM_TTL` de 7 dias dos
+    charts: warm morto tem que degradar para lento-e-correto, nunca para
+    rápido-e-de-uma-semana-atrás.
+    """
+    def _run():
+        from search import agg_estado as A
+        for uf, metrica in agg_estado_warm_alvos():
+            try:
+                def _go(u=uf, m=metrica):
+                    payload = A.agg_estado(u, None, m)
+                    cache.set(A.cache_key_estado(u, m, None), payload,
+                              timeout=A.WARM_TTL)
+                # 120 s por UF: 4× o pior medido (BA, 26,5 s). Uma UF que
+                # estoura não pode levar as outras 27 junto.
+                _with_timeout(120, _go)
+            except Exception as e:
+                logger.warning('warm_agg_estado %s/%s: %s', uf, metrica, e)
+                _reset_connection()
+    _with_lock('lock:warm_agg_estado', 3300, _run)
+
+
 # Charts da /dashboard/leads/visibilidade/ (observabilidade de classificação).
 # Cada tupla: (nome, builder). O `nome` TEM que bater com o usado nos endpoints
 # `chart_*` em views.py — a chave de cache é derivada dele. Builders sem args =

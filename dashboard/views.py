@@ -1613,7 +1613,35 @@ def ingestao_saude(request):
         # `None` = o tique não deixou retrato, e a tela diz isso em vermelho:
         # card vazio some da vista, card que grita "sem retrato" não.
         'recup_f3': _recup_f3_estado(),
+        # Backfills longos: mesma regra — leitura de CACHE, zero query. O
+        # tique (`tribunals/vigia_backfills.py`) mede fora do caminho da
+        # requisição.
+        'vigia_bf': _vigia_backfills_estado(),
     })
+
+
+def _vigia_backfills_estado():
+    """Retrato do vigia dos backfills longos, com a IDADE calculada aqui.
+
+    A idade é o alarme mais barato que existe nesta tela: o retrato tem TTL de
+    12 h e o tique roda de 15 em 15 min, então "medido há 3 h" já diz que o
+    tique morreu — sem precisar de nenhuma outra sonda, e sem `docker ps -a`.
+    """
+    from django.utils import timezone
+    try:
+        from tribunals.vigia_backfills import estado
+        r = estado()
+    except Exception:  # noqa: BLE001 — a página de saúde não cai por causa disto
+        return None
+    if not r:
+        return None
+    r = dict(r)
+    try:
+        r['idade_min'] = int(
+            (timezone.now() - r.get('medido_em')).total_seconds() / 60)
+    except Exception:  # noqa: BLE001
+        r['idade_min'] = None
+    return r
 
 
 def _recup_f3_estado():

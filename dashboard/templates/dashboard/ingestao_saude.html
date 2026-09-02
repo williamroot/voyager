@@ -55,7 +55,7 @@
 </div>
 
 {# ── Recuperação da Fase 3 ────────────────────────────────────────────────── #}
-{#
+{% comment %}
   Este card existe porque a Fase 2 da recuperação nacional foi um mutirão
   manual que terminou, ninguém religou, e a máquina ficou PARADA de 27/08 a
   02/09/2026 sem que nada no sistema dissesse uma palavra. "Parou" é uma
@@ -63,7 +63,7 @@
 
   Tudo aqui vem do cache escrito pelo tique (`djen/recuperacao.py`) — zero
   query no caminho da requisição (regra nº 7).
-#}
+{% endcomment %}
 <div class="card mb-5">
   <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
     <div>
@@ -136,6 +136,152 @@
         {% endfor %}
       </div>
     {% endif %}
+  {% endif %}
+</div>
+
+{% comment %} ── Backfills longos (#119) ──────────────────────────────────────────────── {% endcomment %}
+{% comment %}
+  Este card existe porque três backfills de meses rodavam em produção e o
+  único jeito de saber se ainda andavam era `ssh` + `docker ps -a`. Em
+  02/09/2026 essa conferência mostrou dois deles no host errado, um em laço de
+  reinício com progresso ZERO e um cancelado 8 h antes — e nada, em lugar
+  nenhum, tinha dito uma palavra.
+
+  Os números aqui são COBERTURA MEDIDA DOS DADOS (índice do ES, tabela do
+  Postgres, `pg_constraint`), nunca do container: um backfill cujo container
+  sumiu e um que terminou dão retratos DIFERENTES. Tudo vem do cache escrito
+  pelo tique (`tribunals/vigia_backfills.py`) — zero query no caminho da
+  requisição (regra nº 7).
+{% endcomment %}
+<div class="card mb-5">
+  <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
+    <div>
+      <div class="text-sm font-medium text-fg-soft">Backfills longos · cobertura medida</div>
+      <div class="text-xs text-fg-subtle">
+        <code>proc_digits</code> no índice · <code>fase_codigo</code> nos processos ·
+        FKs <code>NOT VALID</code> — medido dos DADOS, não do container
+      </div>
+    </div>
+    {% if not vigia_bf %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-danger/15 text-danger">sem retrato</span>
+    {% elif vigia_bf.parados %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-danger/15 text-danger">{{ vigia_bf.parados|length }} alerta(s)</span>
+    {% elif vigia_bf.idade_min and vigia_bf.idade_min > 45 %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-warning/15 text-warning">tique atrasado</span>
+    {% else %}
+      <span class="text-[0.65rem] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-muted/50 text-fg-subtle">vivo</span>
+    {% endif %}
+  </div>
+
+  {% if not vigia_bf %}
+    <div class="text-sm text-danger">
+      O tique não deixou retrato. Ou ele nunca rodou (o <code>scheduler</code> não
+      subiu com <code>vigia_backfills</code> agendado), ou o retrato venceu o TTL
+      de 12 h — e isso, sozinho, já é o alarme de que ele parou.
+      <div class="text-xs text-fg-subtle mt-1 font-mono">manage.py vigia_backfills --agora</div>
+    </div>
+  {% else %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">proc_digits (ES)</div>
+        {% if vigia_bf.proc_digits %}
+          <div class="text-2xl font-semibold mt-1 kpi-num {% if vigia_bf.proc_digits.faltam %}text-warning{% else %}text-accent-fg{% endif %}">{{ vigia_bf.proc_digits.pct_exists }}<span class="text-base">%</span></div>
+          <div class="text-xs text-fg-subtle mt-1">
+            faltam {{ vigia_bf.proc_digits.faltam|format_int }} de {{ vigia_bf.proc_digits.docs|format_int }}
+          </div>
+          <div class="text-xs text-fg-subtle">
+            amostra pelo conteúdo: {{ vigia_bf.proc_digits.pct_amostra }}%
+            ({{ vigia_bf.proc_digits.amostra_ok }}/{{ vigia_bf.proc_digits.amostra_n }})
+          </div>
+          {% comment %} A tarefa vive no ES, não no container: `docker ps` dá falso
+             negativo aqui e faz religar por cima. Ver vigia_backfills.py. {% endcomment %}
+          {% for t in vigia_bf.proc_digits.tarefas %}
+            <div class="text-xs text-accent-fg">
+              ES escrevendo: {{ t.pct }}% ({{ t.updated|format_int }}/{{ t.total|format_int }})
+              · {{ t.rps }} d/s · há {{ t.minutos }} min
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-2xl font-semibold mt-1 kpi-num text-danger">—</div>
+          <div class="text-xs text-danger mt-1">sem medida (não é "está tudo bem")</div>
+        {% endif %}
+      </div>
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">fase_codigo (PG)</div>
+        {% if vigia_bf.fase %}
+          <div class="text-2xl font-semibold mt-1 kpi-num {% if vigia_bf.fase.faltam_estimado %}text-warning{% else %}text-accent-fg{% endif %}">{{ vigia_bf.fase.pct }}<span class="text-base">%</span></div>
+          <div class="text-xs text-fg-subtle mt-1">
+            ± {{ vigia_bf.fase.pct_erro_pp }} pp · faltam ~{{ vigia_bf.fase.faltam_estimado|format_int }}
+          </div>
+          {% if vigia_bf.teto_fase %}
+            <div class="text-xs text-fg-subtle">
+              teto alcançável: {{ vigia_bf.teto_fase.pct_alcancavel }}% dos sem fase
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="text-2xl font-semibold mt-1 kpi-num text-danger">—</div>
+          <div class="text-xs text-danger mt-1">sem medida (não é "está tudo bem")</div>
+        {% endif %}
+      </div>
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">FKs NOT VALID</div>
+        {% if vigia_bf.fks %}
+          <div class="text-2xl font-semibold mt-1 kpi-num {% if vigia_bf.fks.pendentes %}text-warning{% else %}text-accent-fg{% endif %}">{{ vigia_bf.fks.pendentes|length }}</div>
+          <div class="text-xs text-fg-subtle mt-1">
+            {% if vigia_bf.fks.validando %}validando 1 agora{% elif vigia_bf.fk_acao.enfileirada %}enfileirada: {{ vigia_bf.fk_acao.enfileirada }}{% else %}{{ vigia_bf.fk_acao.motivo|default:"nada em voo" }}{% endif %}
+          </div>
+          <div class="text-xs text-fg-subtle">uma por vez — VALIDATE conflita consigo mesmo</div>
+        {% else %}
+          <div class="text-2xl font-semibold mt-1 kpi-num text-danger">—</div>
+          <div class="text-xs text-danger mt-1">sem medida</div>
+        {% endif %}
+      </div>
+      <div>
+        <div class="text-fg-subtle text-xs uppercase tracking-wider">Medido há</div>
+        <div class="text-2xl font-semibold mt-1 kpi-num {% if vigia_bf.idade_min and vigia_bf.idade_min > 45 %}text-warning{% endif %}">{{ vigia_bf.idade_min|default_if_none:"—" }}<span class="text-base">min</span></div>
+        <div class="text-xs text-fg-subtle mt-1">o tique roda de 15 em 15 min</div>
+        {% if vigia_bf.pausado %}<div class="text-xs text-warning">kill switch LIGADO</div>{% endif %}
+      </div>
+    </div>
+
+    {% for p in vigia_bf.parados %}
+      {% if p.veredito == 'parado' %}
+        <div class="mt-3 text-xs text-danger">
+          <b>{{ p.o_que }} PAROU</b>: {{ p.faltam|format_int }} pendentes e nenhum
+          progresso em {{ p.horas }} h (variação de {{ p.delta|format_int }}). Isto é o
+          alarme que não existia — ver os ERROs de <code>voyager.tribunals.vigia_backfills</code>.
+        </div>
+      {% elif p.veredito == 'janela_furada' %}
+        <div class="mt-3 text-xs text-danger">
+          <b>{{ p.o_que }}</b>: {{ p.faltam|format_int }} faltantes FORA da janela de
+          <code>detected_at</code> que o backfill fatia — a premissa caiu e fatiar por
+          dia deixaria buraco.
+        </div>
+      {% elif p.veredito == 'exists_mente' %}
+        <div class="mt-3 text-xs text-danger">
+          <b>{{ p.o_que }}</b>: a amostra achou valor vazio ou malformado — o
+          <code>exists</code> voltou a mentir e a % do <code>_count</code> é TETO, não valor.
+        </div>
+      {% elif p.veredito == 'escrevendo' %}
+        <div class="mt-2 text-xs text-fg-subtle">
+          {{ p.o_que }}: tarefa viva no Elasticsearch — o backfill está andando
+          mesmo com o container fora do ar. Não religue por cima.
+        </div>
+      {% elif p.veredito == 'reta_final' %}
+        <div class="mt-2 text-xs text-fg-subtle">
+          {{ p.o_que }}: reta final ({{ p.faltam|format_int }} pendentes) — abaixo do
+          piso em que a amostragem distingue "parado" de "quase pronto".
+        </div>
+      {% elif p.veredito == 'aquecendo' %}
+        <div class="mt-2 text-xs text-fg-subtle">
+          {{ p.o_que }}: ainda sem janela de histórico suficiente para julgar progresso.
+        </div>
+      {% endif %}
+    {% endfor %}
+
+    {% for e in vigia_bf.erros %}
+      <div class="mt-2 text-xs text-danger">medição falhou — {{ e }}</div>
+    {% endfor %}
   {% endif %}
 </div>
 

@@ -10,6 +10,40 @@
     manage.py shell -c "from django.core.cache import cache; \\
         cache.set('tribunals:backfill_fase:off', True)"
 
+O FREIO MEDE ms POR ID ESCANEADO, NÃO ms POR LINHA ESCRITA (02/09/2026, #119)
+-----------------------------------------------------------------------------
+A primeira versão dividia o tempo do bloco pelas linhas ENCONTRADAS. Num
+trecho de pk já preenchido — que é o estado normal de uma retomada — o bloco
+devolve 1 a 10 linhas residuais, e `dt/n` explode: 16.808 ms/linha num bloco
+que levou 16,8 s de relógio. O freio interpretava "barato e vazio" como
+"carésimo" e mandava PARAR.
+
+Isso não é teoria. Medido em 02/09/2026: o shard `r105_fase_3` (pk 77,22 M →
+79,80 M, faixa que uma amostra provou **100% preenchida**) rodou **17
+reinícios** em poucas horas — sobe, varre ~6 blocos, bate no freio, sai com
+código **0**, o `restart: unless-stopped` do Docker o ressuscita, e como ele
+rodava `--sem-checkpoint` voltava sempre para o `--de`. Progresso líquido:
+zero, para sempre, queimando I/O de um banco que é disk-I/O-bound. Run verde,
+log limpo, número redondo — a assinatura das três perdas do `CLAUDE.md`.
+
+O custo real de um bloco é o que ele custa ao BANCO, e isso é proporcional aos
+ids varridos, não às linhas que o `WHERE` deixou passar. Na faixa densa os dois
+números coincidem (19.835 linhas em 20.000 ids ⇒ 4,97 ms/linha e 4,93 ms/id),
+então os limiares `--freio-ms-linha` / `--parar-ms-linha` continuam querendo
+dizer o que sempre quiseram — eles só param de mentir quando a faixa é rala.
+
+CHECKPOINT É POR FAIXA, E SAIR NO TETO É EXIT != 0
+--------------------------------------------------
+A watermark era UMA chave global: com 4 shards simultâneos eles se
+sobrescreviam, e por isso todos rodavam `--sem-checkpoint` — o que faz cada
+reinício recomeçar do `--de` e jogar fora horas de varredura. Agora a chave é
+`tribunals:backfill_fase:wm:<de>-<ate>`: cada shard tem a sua, e reinício
+retoma de onde parou.
+
+E parar no teto (`--teto-linhas`) ou no freio agora sai com código **3**, não
+0. Enquanto saía 0, `docker ps -a` mostrava `Exited (0)` para "terminou" e
+para "desisti no meio" — dois estados opostos com o mesmo carimbo.
+
 O que é FASE, e por que não é a classe do CNJ (#105, 31/08/2026)
 ----------------------------------------------------------------
 O cabeçalho que o tribunal escreve no diário diz a classe com que o processo
@@ -51,7 +85,7 @@ import logging
 import time
 
 from django.core.cache import cache
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
 logger = logging.getLogger('voyager.tribunals.backfill_fase')
@@ -59,6 +93,13 @@ logger = logging.getLogger('voyager.tribunals.backfill_fase')
 WM = 'tribunals:backfill_fase:wm'
 OFF = 'tribunals:backfill_fase:off'
 BLOCO_IDS = 20_000
+
+
+def wm_key(de: int, ate: int) -> str:
+    """Watermark POR FAIXA. Uma chave global fazia os shards se sobrescreverem
+    (e por isso todos rodavam `--sem-checkpoint`, perdendo tudo a cada
+    reinício). A faixa está no nome porque a faixa É a identidade do shard."""
+    return f'{WM}:{de}-{ate}'
 
 #: A publicação mais recente COM classe de cada processo da faixa. `meio <>
 #: 'datajud'` porque movimento do Datajud carrega a classe cadastral (ver
@@ -102,15 +143,32 @@ class Command(BaseCommand):
         parser.add_argument('--json', action='store_true')
 
     def handle(self, *args, **o):
+        chave = wm_key(o['de'], o['ate'])
         if o['zerar_checkpoint']:
-            cache.delete(WM)
-            self.stdout.write('checkpoint apagado.')
+            cache.delete(chave)
+            self.stdout.write(f'checkpoint apagado ({chave}).')
             return
 
         with connection.cursor() as cur:
             cur.execute('SELECT max(id) FROM tribunals_process')
             topo = o['ate'] or (cur.fetchone()[0] or 0)
-        cur_pk = o['de'] or (0 if o['sem_checkpoint'] else (cache.get(WM) or 0))
+        # O checkpoint só ADIANTA dentro da faixa deste shard: `--de` continua
+        # sendo o piso (quem passa `--de` está declarando onde a faixa começa)
+        # e o checkpoint nunca pode empurrar para fora dela.
+        cur_pk = o['de']
+        if not o['sem_checkpoint']:
+            salvo = cache.get(chave)
+            if salvo is not None and o['de'] < int(salvo) < topo:
+                cur_pk = int(salvo)
+                # Vai para o LOG sempre e para o stdout só fora do `--json`:
+                # com `--json`, a saída inteira tem que ser um objeto JSON, e
+                # uma linha solta na frente quebra quem consome o comando.
+                logger.info('backfill_fase: retomando de %d (checkpoint %s); '
+                            '--de era %d', cur_pk, chave, o['de'])
+                if not o['json']:
+                    self.stdout.write(
+                        f'retomando de {cur_pk:,} (checkpoint {chave}); '
+                        f'--de era {o["de"]:,}')
         bloco = max(1, o['bloco'])
         sleep = o['sleep']
 
@@ -126,57 +184,80 @@ class Command(BaseCommand):
                 break
             if o['limite_blocos'] and blocos >= o['limite_blocos']:
                 break
+            lo = cur_pk
             hi = min(cur_pk + bloco, topo)
             tb = time.monotonic()
-            n = self._um_bloco(cur_pk, hi, tot, o)
+            n = self._um_bloco(lo, hi, tot, o)
             dt_ms = (time.monotonic() - tb) * 1000
             cur_pk = hi
             blocos += 1
             if not o['sem_checkpoint']:
-                cache.set(WM, cur_pk, None)
+                cache.set(chave, cur_pk, None)
             if o['teto_linhas'] and tot['escritos'] >= o['teto_linhas']:
                 teto_batido = True
                 break
-            if n:
-                janela.append(dt_ms / n)
-                del janela[:-5]
-                logger.info('backfill_fase: pk %d-%d · %d linhas · %.2f ms/linha',
-                            hi - bloco, hi, n, dt_ms / n)
-                if dt_ms / n > o['freio_ms_linha']:
-                    sleep = min(sleep * 2, 30.0)
-                elif dt_ms / n < o['freio_ms_linha'] / 2 and sleep > o['sleep']:
-                    sleep = max(o['sleep'], sleep / 2)
-                if len(janela) == 5 and sum(janela) / 5 > o['parar_ms_linha']:
-                    custo_caro = True
-                    break
+
+            # O CUSTO É POR ID VARRIDO, não por linha encontrada. Ver a
+            # docstring: dividir pelas linhas faz um bloco já preenchido (o
+            # estado normal de uma retomada) parecer 3.000× mais caro do que é,
+            # e foi assim que um shard entrou em laço de reinício. E a medição
+            # roda MESMO com n == 0: bloco vazio custa I/O igual.
+            ms_por_id = dt_ms / max(1, hi - lo)
+            janela.append(ms_por_id)
+            del janela[:-5]
+            logger.info('backfill_fase: pk %d-%d · %d linhas · %.2f ms/id · '
+                        '%.0f ms no bloco', lo, hi, n, ms_por_id, dt_ms)
+            if ms_por_id > o['freio_ms_linha']:
+                sleep = min(sleep * 2, 30.0)
+            elif ms_por_id < o['freio_ms_linha'] / 2 and sleep > o['sleep']:
+                sleep = max(o['sleep'], sleep / 2)
+            if len(janela) == 5 and sum(janela) / 5 > o['parar_ms_linha']:
+                custo_caro = True
+                break
             time.sleep(sleep)
 
         dur = time.monotonic() - t0
         # Regra nº 2: teto atingido é ERRO com o número real, não corte mudo.
+        motivo = None
         if teto_batido:
+            motivo = (f'TETO: {tot["escritos"]:,} linhas (teto={o["teto_linhas"]:,}), '
+                      f'FALTA de {cur_pk:,} a {topo:,}')
             logger.error('backfill_fase PAROU NO TETO: %d linhas (teto=%d), pk %d '
                          'de %d — FALTA de %d a %d', tot['escritos'],
                          o['teto_linhas'], cur_pk, topo, cur_pk, topo)
         if custo_caro:
-            logger.error('backfill_fase PAROU POR CUSTO: %.2f ms/linha na média de '
+            media = sum(janela) / len(janela)
+            motivo = (f'CUSTO: {media:.2f} ms/id na média de 5 blocos '
+                      f'(teto {o["parar_ms_linha"]:.1f}), FALTA de {cur_pk:,} '
+                      f'a {topo:,}')
+            logger.error('backfill_fase PAROU POR CUSTO: %.2f ms/id na média de '
                          '5 blocos (teto %.1f) — FALTA de %d a %d',
-                         sum(janela) / len(janela), o['parar_ms_linha'], cur_pk, topo)
+                         media, o['parar_ms_linha'], cur_pk, topo)
 
         saida = {**tot, 'pk_parada': cur_pk, 'pk_topo': topo, 'blocos': blocos,
                  'segundos': round(dur, 1), 'teto_batido': teto_batido,
                  'custo_caro': custo_caro, 'sem_reparo': o['sem_reparo']}
         if o['json']:
             self.stdout.write(json.dumps(saida))
-            return
-        self.stdout.write(
-            f'com publicação classificada {tot["com_publicacao"]:,} · '
-            f'fase nova/mais recente {tot["sobe_fase"]:,} · '
-            f'escritos {tot["escritos"]:,}')
-        self.stdout.write(
-            '  a fase DIFERE do `classe_codigo` gravado em '
-            f'{tot["fase_difere_da_classe_codigo"]:,} — é o tamanho da colisão '
-            'nesta faixa')
-        self.stdout.write(f'{blocos} blocos · {dur:.1f}s · pk {cur_pk:,}/{topo:,}')
+        else:
+            self.stdout.write(
+                f'com publicação classificada {tot["com_publicacao"]:,} · '
+                f'fase nova/mais recente {tot["sobe_fase"]:,} · '
+                f'escritos {tot["escritos"]:,}')
+            self.stdout.write(
+                '  a fase DIFERE do `classe_codigo` gravado em '
+                f'{tot["fase_difere_da_classe_codigo"]:,} — é o tamanho da colisão '
+                'nesta faixa')
+            self.stdout.write(f'{blocos} blocos · {dur:.1f}s · pk {cur_pk:,}/{topo:,}')
+
+        # Sair no teto NÃO é terminar. Enquanto isto saía com código 0, o
+        # `docker ps -a` carimbava `Exited (0)` tanto em "varreu a faixa
+        # inteira" quanto em "desisti na primeira curva" — e a diferença entre
+        # os dois é justamente o que a tabela do CLAUDE.md chama de perda
+        # silenciosa.
+        if motivo:
+            raise CommandError(f'backfill_fase parou antes do fim — {motivo}',
+                               returncode=3)
 
     # ------------------------------------------------------------------ #
 

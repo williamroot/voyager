@@ -1,0 +1,388 @@
+"""Vigia dos backfills longos (#119) — cada teste cerca um jeito de mentir.
+
+O risco desta peça não é dar erro: é dizer "tudo bem" enquanto um backfill de
+659 milhões de documentos está morto, ou dizer "parado" para um que está a todo
+vapor e fazer alguém religar por cima. Os dois enganos custam caro, e o segundo
+custa mais — em 02/09/2026 a tarefa do ES que ninguém via estava estrangulada a
+500 docs/s justamente porque a soma dela com a tela de estado dava 503.
+
+Cada teste abaixo cerca uma dessas mentiras:
+
+  - container fora do ar com `update_by_query` VIVO não é "parado";
+  - erro ao ler as tarefas do ES ABSTÉM, nunca conclui "parado";
+  - pendente parado de verdade sai como ERRO com o número real;
+  - reta final não acende alarme (alarme que acende sempre é alarme gasto);
+  - `proc_digits` vazio/malformado derruba a fé no `_count` (`exists` mente);
+  - doc com a CHAVE presente e valor `null` conta como AUSENTE;
+  - medição que falha não apaga as outras duas do retrato;
+  - FK: uma por vez, nunca duas (VALIDATE conflita consigo mesmo);
+  - o warm da tela de estado escreve a MESMA chave que a view lê.
+"""
+import datetime
+import logging
+
+import pytest
+from django.core.cache import cache
+from django.test import override_settings
+from django.utils import timezone
+
+from tribunals import vigia_backfills as V
+
+CACHE_LOCAL = override_settings(CACHES={'default': {
+    'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+    'LOCATION': 'test-vigia-backfills'}})
+
+
+@pytest.fixture(autouse=True)
+def _propaga_para_o_caplog():
+    """`settings.LOGGING` põe `propagate: False` no logger `voyager` (evita
+    saída duplicada em produção), e o `caplog` do pytest consome pelo root —
+    sem isto, TODA asserção sobre alarme passaria por vacuidade. Mesmo padrão
+    de `tests/test_classificador_reload.py`."""
+    lg = logging.getLogger('voyager')
+    antes, lg.propagate = lg.propagate, True
+    yield
+    lg.propagate = antes
+
+
+# --------------------------------------------------------------------------- #
+# Dublê do ES. Entende só as formas que o módulo produz — de propósito.
+# --------------------------------------------------------------------------- #
+class FakeES:
+    def __init__(self, docs=None, tarefas=None, erro_tasks=False):
+        self.docs = docs or []
+        self._tarefas = tarefas if tarefas is not None else {'nodes': {}}
+        self.erro_tasks = erro_tasks
+        self.tasks = self
+
+    # -- count -------------------------------------------------------------
+    def count(self, index=None, query=None, request_timeout=None):
+        return {'count': len(self._filtra(query))}
+
+    def _filtra(self, q):
+        b = (q or {}).get('bool')
+        if b is None:
+            return list(self.docs)
+        saida = []
+        for d in self.docs:
+            ok = True
+            for cl in b.get('must_not', []):
+                if 'exists' in cl and d.get(cl['exists']['field']) is not None:
+                    ok = False
+                if 'range' in cl:
+                    ok = False        # fora-da-janela: nossos docs estão dentro
+            for cl in b.get('filter', []):
+                if 'exists' in cl and d.get(cl['exists']['field']) is None:
+                    ok = False
+            if ok:
+                saida.append(d)
+        return saida
+
+    # -- search (amostra) ---------------------------------------------------
+    def search(self, index=None, size=None, request_timeout=None,
+               source_includes=None, query=None):
+        return {'hits': {'hits': [{'_source': d} for d in self.docs[:size]]}}
+
+    # -- tasks --------------------------------------------------------------
+    def list(self, actions=None, detailed=None, request_timeout=None):
+        if self.erro_tasks:
+            raise RuntimeError('ES fora')
+        return self._tarefas
+
+
+def doc(i, digits='sentinela'):
+    proc = f'{i:07d}-11.2024.8.26.0100'
+    d = {'proc': proc}
+    if digits == 'sentinela':
+        d['proc_digits'] = ''.join(c for c in proc if c.isdigit())
+    elif digits is not None:
+        d['proc_digits'] = digits
+    return d
+
+
+def tarefa_viva(updated=13_572_000, total=27_888_685, rps=500.0):
+    return {'nodes': {'n1': {'tasks': {
+        'ABC:305727375': {
+            'action': 'indices:data/write/update/byquery',
+            'running_time_in_nanos': 64 * 60 * 1_000_000_000,
+            'status': {'updated': updated, 'total': total,
+                       'requests_per_second': rps},
+        },
+        # a FILHA de um `slices=8` — não pode ser contada como um 2º backfill
+        'ABC:305727380': {
+            'action': 'indices:data/write/update/byquery',
+            'parent_task_id': 'ABC:305727375',
+            'running_time_in_nanos': 64 * 60 * 1_000_000_000,
+            'status': {'updated': 1_700_000, 'total': 3_486_000},
+        },
+    }}}}
+
+
+@pytest.fixture
+def es(monkeypatch):
+    def _mk(**kw):
+        fake = FakeES(**kw)
+        monkeypatch.setattr('search.client.get_es', lambda: fake)
+        monkeypatch.setattr('search.client.index_name',
+                            lambda s: f'voyager-{s}')
+        return fake
+    return _mk
+
+
+# --------------------------------------------------------------------------- #
+# 1. O erro que o coordenador mediu: a tarefa vive no ES, não no container
+# --------------------------------------------------------------------------- #
+@CACHE_LOCAL
+def test_tarefa_viva_no_es_nao_e_parado_mesmo_sem_progresso_nenhum(es, caplog):
+    """`docker ps -a` vazio + `_count` imóvel + tarefa viva = ESCREVENDO.
+
+    Medido em 02/09/2026: o container `r106_proc_digits` tinha sumido e o
+    `update_by_query` estava em 48,7% havia 1h04. Concluir "parado" aqui faz
+    alguém religar por cima e DOBRAR a carga num nó que já deu 503.
+    """
+    cache.clear()
+    es(docs=[doc(i, digits=None) for i in range(50)], tarefas=tarefa_viva())
+    agora = timezone.now()
+    # histórico com pendente IMÓVEL há 8 h — o pior caso para o alarme
+    cache.set(V.CHAVE_HIST, [{'em': agora - datetime.timedelta(hours=8),
+                              'digits': 50, 'fase': None, 'fks': 0}], 3600)
+
+    r = V.tick_vigia_backfills()
+
+    vereditos = {p['veredito'] for p in r['parados'] if p['o_que'] == 'proc_digits'}
+    assert 'parado' not in vereditos, 'declarou parado um backfill que ESTÁ escrevendo'
+    assert 'escrevendo' in vereditos
+    assert not any('BACKFILL PARADO' in x.message for x in caplog.records
+                   if 'proc_digits' in str(x.args))
+
+
+@CACHE_LOCAL
+def test_so_a_tarefa_raiz_conta_slices_nao_viram_oito_backfills(es):
+    """`slices=8` = 1 pai + 8 filhas. Contar as filhas faria 1 virar 9."""
+    cache.clear()
+    fake = es(docs=[doc(i, digits=None) for i in range(5)], tarefas=tarefa_viva())
+    d = V.medir_proc_digits()
+    assert len(d['tarefas']) == 1
+    assert d['tarefas'][0]['id'] == 'ABC:305727375'
+    assert d['tarefas'][0]['rps'] == 500.0, 'o throttle tem que ir para a tela'
+    assert d['tarefas'][0]['pct'] == 48.7
+
+
+@CACHE_LOCAL
+def test_erro_ao_ler_tarefas_abstem_nunca_conclui_parado(es, caplog):
+    """`[]` por ERRO não é `[]` por ausência. Abster > chutar."""
+    cache.clear()
+    es(docs=[doc(i, digits=None) for i in range(5)], erro_tasks=True)
+    d = V.medir_proc_digits()
+    assert d['tarefas'] == []
+    assert any('ABSTIDO' in rec.message for rec in caplog.records)
+
+
+# --------------------------------------------------------------------------- #
+# 2. Parado de verdade sai com o número real — e reta final não acende
+# --------------------------------------------------------------------------- #
+@CACHE_LOCAL
+def test_parado_de_verdade_e_erro_com_o_numero_real(caplog):
+    cache.clear()
+    agora = timezone.now()
+    hist = [{'em': agora - datetime.timedelta(hours=7), 'fase': 19_300_000},
+            {'em': agora, 'fase': 19_300_000}]
+    r = {'parados': []}
+    prog = V._progresso(hist, 'fase', agora)
+    V._alerta_parado(r, 'fase', 19_300_000, prog, V.FASE_PISO_ALARME, 400_000,
+                     'backfill_fase')
+    assert r['parados'][0]['veredito'] == 'parado'
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any('BACKFILL PARADO' in m and '19,300,000' in m for m in msgs), msgs
+
+
+@CACHE_LOCAL
+def test_reta_final_nao_acende_alarme():
+    """Alarme que acende sozinho no fim é alarme gasto (lição de 21/08/2026)."""
+    agora = timezone.now()
+    hist = [{'em': agora - datetime.timedelta(hours=7), 'fase': 1000},
+            {'em': agora, 'fase': 1000}]
+    r = {'parados': []}
+    V._alerta_parado(r, 'fase', 1000, V._progresso(hist, 'fase', agora),
+                     V.FASE_PISO_ALARME, 0, 'backfill_fase')
+    assert r['parados'][0]['veredito'] == 'reta_final'
+
+
+@CACHE_LOCAL
+def test_progresso_dentro_do_ruido_amostral_nao_conta_como_progresso():
+    """Queda menor que o ±2σ da amostragem não prova que andou."""
+    agora = timezone.now()
+    hist = [{'em': agora - datetime.timedelta(hours=7), 'fase': 19_300_000},
+            {'em': agora, 'fase': 19_100_000}]          # -200k, ruído é 400k
+    r = {'parados': []}
+    V._alerta_parado(r, 'fase', 19_100_000, V._progresso(hist, 'fase', agora),
+                     V.FASE_PISO_ALARME, 400_000, 'backfill_fase')
+    assert r['parados'][0]['veredito'] == 'parado'
+
+
+@CACHE_LOCAL
+def test_sem_janela_de_historico_o_veredito_e_aquecendo_nao_parado():
+    agora = timezone.now()
+    hist = [{'em': agora, 'fase': 19_300_000}]
+    r = {'parados': []}
+    V._alerta_parado(r, 'fase', 19_300_000, V._progresso(hist, 'fase', agora),
+                     V.FASE_PISO_ALARME, 0, 'backfill_fase')
+    assert r['parados'][0]['veredito'] == 'aquecendo'
+
+
+# --------------------------------------------------------------------------- #
+# 3. As duas mentiras do `exists`
+# --------------------------------------------------------------------------- #
+@CACHE_LOCAL
+def test_proc_digits_vazio_nao_conta_como_presente(es, caplog):
+    """`exists` conta string vazia como valor. A amostra tem que pegar."""
+    cache.clear()
+    es(docs=[doc(i, digits='') for i in range(10)])
+    d = V.medir_proc_digits()
+    assert d['amostra_vazio'] == 10 and d['amostra_ok'] == 0
+    r = {'parados': []}
+    V._alerta_controles(r, d)
+    assert any(p['veredito'] == 'exists_mente' for p in r['parados'])
+    assert any('VOLTOU A MENTIR' in rec.getMessage() for rec in caplog.records)
+
+
+@CACHE_LOCAL
+def test_chave_presente_com_valor_null_conta_como_AUSENTE(es):
+    """`'campo' in _source` MENTE: doc antigo tem a chave com `null`.
+
+    Este é o defeito que virou 60/60 → 38/60 numa medição desta casa. O módulo
+    usa `.get(...) is not None`; trocar por `in` faria estes 10 docs contarem
+    como preenchidos.
+    """
+    cache.clear()
+    es(docs=[doc(i, digits=None) | {'proc_digits': None} for i in range(10)])
+    d = V.medir_proc_digits()
+    assert d['amostra_ausente'] == 10, 'chave com null passou por preenchida'
+    assert d['amostra_ok'] == 0
+
+
+@CACHE_LOCAL
+def test_proc_digits_com_tamanho_errado_e_malformado_nao_ok(es):
+    cache.clear()
+    es(docs=[doc(i, digits='123') for i in range(10)])
+    d = V.medir_proc_digits()
+    assert d['amostra_errado'] == 10 and d['amostra_ok'] == 0
+
+
+@CACHE_LOCAL
+def test_faltante_fora_da_janela_e_erro_a_premissa_da_fatia_caiu(caplog):
+    r = {'parados': []}
+    V._alerta_controles(r, {'fora_da_janela': 4_212, 'amostra_n': 300,
+                            'amostra_ok': 300, 'amostra_vazio': 0,
+                            'amostra_errado': 0, 'pct_exists': 57.7,
+                            'pct_amostra': 100.0})
+    assert any(p['veredito'] == 'janela_furada' for p in r['parados'])
+    assert any('deixaria buraco' in rec.getMessage() for rec in caplog.records)
+
+
+# --------------------------------------------------------------------------- #
+# 4. O retrato não pode sumir
+# --------------------------------------------------------------------------- #
+@CACHE_LOCAL
+def test_medicao_que_falha_nao_apaga_as_outras_do_retrato(monkeypatch, es):
+    """Retrato que some é o defeito que este módulo existe para consertar."""
+    cache.clear()
+    es(docs=[doc(i) for i in range(5)])
+    monkeypatch.setattr(V, 'medir_fase',
+                        lambda: (_ for _ in ()).throw(RuntimeError('PG em contenção')))
+    monkeypatch.setattr(V, 'medir_fks', lambda: {'pendentes': [], 'validando': []})
+    monkeypatch.setattr(V, 'medir_teto_fase', lambda forcar=False: None)
+
+    r = V.tick_vigia_backfills()
+
+    assert r['fase'] is None
+    assert any('fase:' in e for e in r['erros'])
+    assert r['proc_digits'] is not None, 'a falha de uma medição apagou a outra'
+    assert V.estado() is not None, 'o tique não deixou retrato'
+
+
+# --------------------------------------------------------------------------- #
+# 5. FKs: uma por vez. VALIDATE conflita CONSIGO MESMO.
+# --------------------------------------------------------------------------- #
+class FilaFake:
+    def __init__(self):
+        self.enfileirados = []
+
+    def fetch_job(self, job_id):
+        return None
+
+    def enqueue(self, fn, *a, **kw):
+        self.enfileirados.append((a, kw.get('job_id')))
+
+
+@CACHE_LOCAL
+def test_nao_enfileira_fk_enquanto_alguem_valida(monkeypatch):
+    cache.clear()
+    fila = FilaFake()
+    monkeypatch.setattr('django_rq.get_queue', lambda n: fila)
+    r = V._enfileirar_fk([['tribunals_process', 'fk_a'], ['x', 'fk_b']],
+                         validando=[[123, 900, 'active', 'IO']])
+    assert r['motivo'] == 'ja_validando'
+    assert fila.enfileirados == [], 'abriu um 2º VALIDATE — ele espera e REFAZ'
+
+
+@CACHE_LOCAL
+def test_enfileira_no_maximo_uma_fk_por_tique(monkeypatch):
+    cache.clear()
+    fila = FilaFake()
+    monkeypatch.setattr('django_rq.get_queue', lambda n: fila)
+    r = V._enfileirar_fk([['tribunals_process', 'fk_a'],
+                          ['tribunals_process', 'fk_b'],
+                          ['tribunals_processoparte', 'fk_c']], validando=[])
+    assert r['enfileirada'] == 'fk_a'
+    assert len(fila.enfileirados) == 1
+    assert fila.enfileirados[0][1] == 'vigia:fk:fk_a', 'job_id não determinístico'
+
+
+@CACHE_LOCAL
+def test_kill_switch_das_fks_nao_cega_a_medicao(monkeypatch):
+    """Parar a auto-cura não pode apagar o número — card vazio some da vista."""
+    cache.clear()
+    cache.set(V.CHAVE_FK_OFF, 1, None)
+    fila = FilaFake()
+    monkeypatch.setattr('django_rq.get_queue', lambda n: fila)
+    r = V._enfileirar_fk([['t', 'fk_a']], validando=[])
+    assert r['motivo'] == 'fk_pausada' and fila.enfileirados == []
+
+
+# --------------------------------------------------------------------------- #
+# 6. O warm da tela de estado escreve a MESMA chave que a view lê
+# --------------------------------------------------------------------------- #
+def test_warm_de_estado_cobre_exatamente_as_chaves_que_a_view_le():
+    """O defeito do #64: warm computando e view no miss porque a chave era
+    montada em dois lugares. Aqui há UMA função de chave, e o teste prova que
+    o alvo do warm bate com ela."""
+    from dashboard.tasks import agg_estado_warm_alvos
+    from search import agg_estado as A
+
+    alvos = agg_estado_warm_alvos()
+    assert {uf for uf, _ in alvos} == set(A.UFS_VALIDAS), \
+        'alguma UF válida ficaria sem warm — e é ela que paga os 20 s'
+    assert {m for _, m in alvos} == {A.METRICA_DEFAULT}, \
+        'warm de métrica não-default triplica a passada de ES (ver a docstring)'
+    # a chave do warm é a chave da view, byte a byte
+    for uf, metrica in alvos[:3]:
+        assert (A.cache_key_estado(uf, metrica, None)
+                == f'{A._CACHE_PREFIX}:{uf}:{metrica}:v1')
+
+
+def test_warm_ttl_do_estado_e_maior_que_o_intervalo_e_menor_que_uma_semana():
+    """4 h: três passadas podem falhar antes de alguém pagar a agregação fria,
+    e warm morto degrada para lento-e-correto, não para uma semana atrás."""
+    from search import agg_estado as A
+    assert A.WARM_TTL > 3600, 'menor que o intervalo do warm: expira entre passadas'
+    assert A.WARM_TTL < 24 * 3600, 'número de ontem servido com cara de novo'
+
+
+def test_cache_key_de_estado_normaliza_uf_e_metrica():
+    """Chave que aceita 'sp' e 'SP' como coisas diferentes é fragmentação, não
+    cache — foi o que custou 504 na tela de leads (#64)."""
+    from search import agg_estado as A
+    assert A.cache_key_estado('sp', 'todos') == A.cache_key_estado('SP', 'TODOS')
+    # métrica desconhecida cai no default, nunca cria chave nova
+    assert A.cache_key_estado('SP', 'inventada') == A.cache_key_estado('SP', 'todos')

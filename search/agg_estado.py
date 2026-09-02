@@ -237,6 +237,36 @@ CACHE_TTL = 1800
 CACHE_TTL_FILTRADO = 600
 _CACHE_PREFIX = 'comercial:agg:estado'
 
+#: TTL do que o WARM escreve. Maior que o intervalo do warm (60 min) para que
+#: três passadas possam falhar antes de alguém pagar a agregação fria — e
+#: MUITO menor que os 7 dias do `_WARM_TTL` dos charts.
+#:
+#: A diferença não é gosto. Sete dias fariam a tela continuar publicando um
+#: número de uma semana atrás, com cara de novo, depois que o warm morresse —
+#: que é exatamente a falha silenciosa que o `vigia_backfills` existe para
+#: acabar. Com 4 h, warm morto degrada para o caminho preguiçoso
+#: (`CACHE_TTL`), que é lento e correto, em vez de rápido e velho.
+WARM_TTL = 4 * 3600
+
+
+def cache_key_estado(uf: str, metrica: str, filtros: dict | None = None) -> str:
+    """A chave de cache da página do estado — UMA função, dois chamadores.
+
+    O `agg_estado()` e o warm (`dashboard.tasks.warm_agg_estado`) TÊM que
+    derivar a mesma string, e a única forma de garantir isso é não haver duas
+    derivações. Foi assim que o #64 descobriu que o warm da tela de leads
+    computava 24 payloads para popular 12 chaves e ainda deixava a view no
+    miss: a chave era montada em dois lugares, e os dois discordavam.
+    """
+    uf = normalizar_uf(uf)
+    metrica = normalizar_metrica(metrica)
+    filtros = {k: v for k, v in (filtros or {}).items() if k != 'uf'}
+    if filtros:
+        chave = json.dumps(filtros, sort_keys=True, default=str)
+        return (f'{_CACHE_PREFIX}:{uf}:{metrica}:f:'
+                f'{hashlib.md5(chave.encode()).hexdigest()}')
+    return f'{_CACHE_PREFIX}:{uf}:{metrica}:v1'
+
 #: quantos itens cada bloco devolve (+ "outros" agregando a cauda)
 TOP_N = 15
 #: buckets pedidos ao ES pra entidade — MUITO folgado de propósito: as grafias
@@ -746,14 +776,8 @@ def agg_estado(uf: str, filtros: dict | None = None,
     metrica = normalizar_metrica(metrica)
     filtros = {k: v for k, v in (filtros or {}).items() if k != 'uf'}
 
-    if filtros:
-        chave = json.dumps(filtros, sort_keys=True, default=str)
-        cache_key = (f'{_CACHE_PREFIX}:{uf}:{metrica}:f:'
-                     f'{hashlib.md5(chave.encode()).hexdigest()}')
-        ttl = CACHE_TTL_FILTRADO
-    else:
-        cache_key = f'{_CACHE_PREFIX}:{uf}:{metrica}:v1'
-        ttl = CACHE_TTL
+    cache_key = cache_key_estado(uf, metrica, filtros)
+    ttl = CACHE_TTL_FILTRADO if filtros else CACHE_TTL
     cached = cache.get(cache_key)
     if cached is not None:
         return cached

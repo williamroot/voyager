@@ -24,6 +24,7 @@ from search.sync_incremental import tick_sync_es_incremental
 from dashboard.tasks import (
     refresh_ingestion_rate_hora,
     refresh_materialized_views,
+    warm_agg_estado,
     warm_charts_leves,
     warm_cobertura_enriquecimento,
     warm_charts_pesados,
@@ -132,6 +133,34 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
     logger.info('agendado recuperacao_fase3 (cada 5min)')
+
+    # ── Vigia dos backfills longos (#119, 02/09/2026) ────────────────────
+    #
+    # Três backfills de meses estavam em produção e o único jeito de saber se
+    # ainda andavam era `ssh` + `docker ps -a` — que, em 02/09, mostrou dois
+    # deles no host errado, um em laço de reinício com progresso zero e um
+    # cancelado horas antes. Nenhum desses estados acendia luz nenhuma.
+    #
+    # O tique mede a cobertura A PARTIR DOS DADOS (índice do ES, tabela do
+    # Postgres, `pg_constraint`), nunca do container, publica a DATA da
+    # medição e grita com número real quando o pendente não anda. Ele também
+    # é o motorista das FKs `NOT VALID` — uma por vez, porque `VALIDATE`
+    # conflita consigo mesmo. Ver `tribunals/vigia_backfills.py`.
+    #
+    # 15 min e não 5: a passada custa dois `_count` num índice de 1,55 bi e
+    # uma amostra de páginas de uma tabela de 131 GB, e o banco é
+    # disk-I/O-bound. Medir de menos não vê; medir demais vira o problema.
+    from tribunals.vigia_backfills import tick_vigia_backfills
+    scheduler.add_job(
+        tick_vigia_backfills.delay,
+        'interval',
+        minutes=15,
+        id='vigia_backfills',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info('agendado vigia_backfills (cada 15min)')
 
     # Refresh do pool de proxies: a cada 15 min
     scheduler.add_job(
@@ -315,6 +344,13 @@ def create_scheduler() -> BlockingScheduler:
         (warm_leads_visibilidade_charts, 'warm_leads_visibilidade_charts', {'minutes': 15}),
         (warm_tribunal_status,       'warm_tribunal_status',       {'minutes': 15}),
         (warm_cobertura_enriquecimento, 'warm_cobertura_enriquecimento', {'hours': 6}),
+        # 60 min, e não os 30 do resto da família: a passada custa 324,8 s
+        # MEDIDOS (2ª passada 360,2 s — o cache de requisição do ES não ajuda,
+        # o custo é próprio da agregação). A 30 min isso seria 20% do nó de ES
+        # ocupado com aquecimento, num nó que ainda serve a busca do site e o
+        # backfill do índice; a 60 min são 10%, e a defasagem máxima da tela
+        # continua abaixo do `CACHE_TTL` de 30 min que ela já tolerava.
+        (warm_agg_estado,            'warm_agg_estado',            {'minutes': 60}),
     ):
         scheduler.add_job(
             warm_fn,
