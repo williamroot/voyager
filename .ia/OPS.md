@@ -595,6 +595,20 @@ R105, em transações de 13 a 73 s. A cada boot o `migrate` pedia
 
 **Crash-loop, não lentidão.** Nenhum `web` sobe enquanto a migration não passa.
 
+⚠️ **A migration não era minha, e é isso que torna a armadilha geral.** Ela
+entrou no `git pull` de 00:59:39 (commit `9f7dee5`, de outro agente, empurrado
+às 00:48). Numa árvore compartilhada, `git pull` em prod traz a migration de
+QUALQUER um — e o próximo restart do `web`, seja de quem for e por que motivo
+for, é quem paga. Antes de recriar o `web`, pergunte:
+
+```bash
+docker run --rm --network host --env-file .env -v $PWD:/app -w /app \
+  voyager-web:prod python manage.py showmigrations --plan | grep -c "^\[ \]"
+```
+
+Zero pendente = restart barato. Diferente de zero = o restart É um deploy de
+schema, e merece a janela de um.
+
 ### O que fazer
 
 ```bash
