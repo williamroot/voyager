@@ -28,8 +28,9 @@
                   fora do alvo
                   <span class="voy-tip-body" role="tooltip" id="tip-fora-{{ r.sigla }}">
                     {{ r.fora_do_alvo }}. Fica na tabela porque sumir da tela é
-                    pior, e fica <b>fora das somas</b>: não é buraco nosso. Só
-                    ele é 43% do estimado que resta nesta fase.
+                    pior, e fica <b>fora das somas</b>: não é buraco nosso.{% if resumo_fase3.pct_fora_estimado %}
+                    Sozinho, ele é {{ resumo_fase3.pct_fora_estimado|pct_exato:0 }}%
+                    do estimado que resta nesta fase.{% endif %}
                   </span>
                 </span>
               {% endif %}

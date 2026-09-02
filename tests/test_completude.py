@@ -304,14 +304,19 @@ def test_tjpr_aparece_marcado_e_fora_das_somas(logado):
              'resumo_fase3': {'alvo': 7174, 'nunca_refeito': 6015, 'refeitos': 1159,
                               'pct_honesto': 16.1556, 'fora_dias': 1230,
                               'fora_nunca': 1152, 'alvo_com_fora': 8404,
+                              'recuperavel': 863_224, 'fora_estimado': 38_807_963,
                               'nunca_com_fora': 7167, 'pct_com_fora': 14.72},
              'recup_nacional': {'alvo_da_casa': 11173, 'refeitos_da_casa': 5157}}
     with patch('dashboard.completude_views.cache.get', return_value=dados):
-        h = logado.get(reverse(URL)).content.decode()
+        r = logado.get(reverse(URL))
+    h = r.content.decode()
     assert 'TJPR' in h, 'sumiu da tela'
     assert 'fora do alvo' in h, 'entrou como se fosse buraco nosso'
     assert '16,16' in h and '14,7' in h, 'não deu as DUAS leituras do total'
     assert '8.404' in h
+    # o peso do que está fora é CALCULADO: 38.807.963 de 39.671.187
+    assert r.context['resumo_fase3']['pct_fora_estimado'] > 97
+    assert '98%' in h, 'o peso do fora-do-alvo saiu digitado, não medido'
 
 
 @pytest.mark.django_db

@@ -82,6 +82,20 @@ def _dias_no_piso(serie: list, piso: int) -> int | None:
     return n
 
 
+def _resumo_fase3(r: dict) -> dict:
+    """Acrescenta o peso do que está FORA DO ALVO — calculado, nunca digitado.
+
+    O tooltip do TJPR dizia "43% do estimado que resta". Número digitado em
+    texto envelhece igual a número congelado em constante: some do radar de
+    quem edita e passa a mentir na primeira vez que o mundo muda.
+    """
+    if not r:
+        return {}
+    total_est = _int(r.get('recuperavel')) + _int(r.get('fora_estimado'))
+    return {**r, 'pct_fora_estimado':
+            (100.0 * _int(r.get('fora_estimado')) / total_est) if total_est else None}
+
+
 def _confronto(dados: dict) -> dict:
     """O par `(declarado, nosso)` do Datajud, medido no MESMO instante.
 
@@ -177,7 +191,7 @@ def completude(request):
         'resumo_recup': dados.get('resumo_recup') or {},
         'recup_nacional': recup_nac,
         'fase3': dados.get('fase3') or [],
-        'resumo_fase3': dados.get('resumo_fase3') or {},
+        'resumo_fase3': _resumo_fase3(dados.get('resumo_fase3') or {}),
         'vazao': vazao,
         'confronto': _confronto(dados),
         'recuperavel_em': M.RECUPERAVEL_MEDIDO_EM,
