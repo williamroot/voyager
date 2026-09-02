@@ -534,9 +534,31 @@ rendem de verdade — no mesmo lote:
     TRT2 17/08 ... novas=38.179 (17 min)    TRT4 17/08 ... novas=6.455
     TRT9 17/08 ... novas=5.523              TJPE 18/08 ... novas=2.250
 
-⇒ ETA honesto: entre **~40 h** (se o ritmo inicial se sustentar) e **~110 h**
-(se o dia médio custar o que custou o TRT2). Um número só seria chute — o card
-da `/dashboard/ingestao/saude/` mede ao vivo, e é ele que manda.
+### A janela que fecha a conta (25,1 min, 01:25–01:51 UTC)
+
+O regime de 7 min acima era otimista, e a janela larga mostra por quanto:
+
+| medida | de → para | vazão |
+|---|---|---:|
+| `pendentes` (a régua da tela) | 5.988 → 5.937 | **122 dias/h** |
+| `vazao_24h` (dias re-coletados) | 16 → 74 | 139 dias/h |
+
+**As duas discordam em 7 dias, e a diferença não é ruído.** `vazao_24h` conta o
+dia que recebeu uma re-coleta `success`; `pendentes` conta o dia cuja re-coleta
+o tirou da régua. Um dia que fecha `success` e em seguida ganha um run `failed`
+mais recente volta a ser `nunca` — ele andou e não saiu. Quando as duas
+divergirem muito, a que manda é `pendentes`: ela é a régua publicada.
+
+Com **122 dias/h**, medido:
+
+    5.937 dias (sem TJPR) ......... ~49 h  ≈ 2,0 dias
+    7.089 dias (com TJPR) ......... ~58 h  ≈ 2,4 dias
+
+⚠️ Isto é o ritmo com a fila ainda na parte barata (agosto/2026). Quanto mais
+fundo no passado, mais o dia se parece com o TRT2 de 17/08 (17 min, 38.179
+novas) e menos com o dia do corte. Trate como **piso do tempo**, não como
+promessa — o card da `/dashboard/ingestao/saude/` mede ao vivo, e é ele que
+manda.
 
 ### Runbook
 
