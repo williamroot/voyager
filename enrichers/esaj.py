@@ -25,6 +25,7 @@ import datetime as _dt
 import logging
 import re
 import time
+import unicodedata
 from typing import Optional
 
 import requests
@@ -132,6 +133,67 @@ def classificar_resposta(html: str) -> str:
 
 def _so_digitos(valor: str) -> str:
     return re.sub(r'\D', '', valor or '')
+
+
+# --- O incidente do e-SAJ: o precatório que NÃO tem CNJ ----------------------
+#
+# Sonda de 100 processos do TJSP (sementes 20260901/20260902, estrato
+# `tem_sinal_precatorio`, 90 conclusivos): dos **210 incidentes** lidos, **201
+# (95,7%) são `Precatório` / `Requisição de Pequeno Valor` e não têm número CNJ
+# nenhum**. O e-SAJ os identifica por `<classe> (<CNJ do PRINCIPAL>) (<seq>)` e
+# por um `processo.codigo` interno. Processo sem CNJ não entra no DJEN nem no
+# Datajud: a página do incidente é a ÚNICA porta para ele.
+#
+# E é lá que está a ficha do crédito **por beneficiário**: `Reqte` (quem
+# recebe), `Ent. Devedora` (quem deve) e, quando o e-SAJ publica,
+# `#valorAcaoProcesso` (o valor requisitado daquele beneficiário — presente em
+# 1 das 5 páginas da sonda; ausente é ABSTENÇÃO, nunca zero).
+#
+# Duas correções de premissa, as duas medidas em 02/09/2026 sobre 5 páginas
+# reais de incidente (`tests/fixtures/tjsp/esaj_incidente_*.html`):
+#
+#   1. **Não há captcha.** 5 de 5 abriram pelo `show.do` sem `uuidCaptcha`
+#      (60 a 84 KB, com `#tablePartesPrincipais`). O comentário de
+#      `ESAJ_SEGUIR_INCIDENTES` em `core/settings.py` afirmava o contrário.
+#   2. **Não há `#classeProcesso`** (0 de 5). Quem diz o que o incidente é
+#      é o cabeçalho `span.unj-larger` — por isso o parser é ancorado NELE, e
+#      não numa busca de substring pela página (a armadilha documentada no topo
+#      deste módulo).
+#
+# O discriminador processo/incidente é estrutural: o processo traz o próprio
+# número em `#numeroProcesso`; o incidente não traz número nenhum.
+_RE_CABECALHO_INCIDENTE = re.compile(
+    r'^(?P<classe>.+?)\s*\((?P<principal>\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})\)'
+    r'(?:\s*\((?P<seq>\d+)\))?$'
+)
+
+TIPO_PRECATORIO = 'PRECATORIO'
+TIPO_RPV = 'RPV'
+#: Rótulo do cabeçalho → tipo canônico. Só entra o que foi MEDIDO na sonda;
+#: qualquer outra classe fica com `tipo=None` e o `classe` cru ao lado —
+#: abster > chutar (regra nº 6 do CLAUDE.md).
+_TIPOS_INCIDENTE = (
+    ('requisicao de pequeno valor', TIPO_RPV),
+    ('precatorio', TIPO_PRECATORIO),
+)
+#: Papéis do incidente (o "cabeçalho" do #78). `Reqte` é o credor; `Ent.
+#: Devedora` é o ente que deve. Medidos em 5 de 5 páginas da sonda.
+_RE_PAPEL_REQUERENTE = re.compile(r'^(REQTE|REQUERENTE)\b')
+_RE_PAPEL_ENT_DEVEDORA = re.compile(r'^ENT\.?\s*(IDADE)?\s*DEVEDORA?\b')
+
+
+def _sem_acento(txt: str) -> str:
+    return ''.join(ch for ch in unicodedata.normalize('NFKD', txt or '')
+                   if not unicodedata.combining(ch))
+
+
+def tipo_de_incidente(classe: str) -> Optional[str]:
+    """`'Precatório'` → `PRECATORIO`; classe não medida → `None` (abstém)."""
+    alvo = _sem_acento(classe or '').strip().lower()
+    for rotulo, tipo in _TIPOS_INCIDENTE:
+        if alvo.startswith(rotulo):
+            return tipo
+    return None
 
 
 class EsajEnricherError(Exception):
@@ -283,44 +345,166 @@ class BaseEsajEnricher:
             self._emit(stream.build_erro_payload(**base, erro=f'parse: {exc}'), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
 
-        n_inc = (self._agregar_incidentes(soup, dados, partes, grau)
-                 if seguir_incidentes else 0)
+        inc = (self._agregar_incidentes(soup, partes)
+               if seguir_incidentes else None)
 
         self._emit(stream.build_ok_payload(**base, dados=dados, partes=partes), direct_apply)
-        return {
+        resultado = {
             'cnj': processo.numero_cnj,
             'status': 'ok',
             'classe_raw': dados.get('classe'),
             'partes_total': sum(len(v) for v in partes.values()),
-            'incidentes_seguidos': n_inc,
+            'incidentes_seguidos': inc['lidos'] if inc else 0,
+        }
+        if inc is not None:
+            resultado.update(
+                incidentes_total=inc['total'],
+                incidentes_falhas=inc['falhas'],
+                incidentes_truncados=inc['truncado'],
+                incidentes=inc['fichas'],
+            )
+        return resultado
+
+    def parsear_incidente(self, html) -> Optional[dict]:
+        """Ficha do incidente (precatório/RPV) do e-SAJ — ou `None` se a página
+        não for um incidente. Determinístico, sem LLM, e ABSTÉM em vez de chutar.
+
+        O que sai (campo ausente na fonte sai vazio, nunca inventado):
+
+            tipo           PRECATORIO / RPV / None (classe não medida)
+            classe         rótulo cru do cabeçalho ('Precatório')
+            sequencial     '01' — a ordem do incidente dentro do principal
+            cnj_principal  o CNJ do processo-pai, formatado
+            cnj_proprio    o CNJ DELE, quando ele tem um (cumprimento de
+                           sentença, IDPJ); vazio no precatório/RPV, que não
+                           tem número nenhum — 95,7% dos casos
+            situacao       'Extinto' (`span.unj-tag`) — 3 de 5 na sonda
+            assunto/foro/vara/controle/recebido_em
+            valor          `#valorAcaoProcesso` cru, em BRL (1 de 5 na sonda)
+            requerentes[]  quem RECEBE  (papel `Reqte`)      ← #78
+            ent_devedoras[] quem DEVE   (papel `Ent. Devedora`) ← #78
+            partes{}       o mesmo conteúdo no formato de polos do drainer
+
+        Quem separa processo de incidente é a ESTRUTURA (`id=`/classe CSS),
+        nunca frase solta:
+
+        1. o processo comum traz o próprio número em
+           `span#numeroProcesso.unj-larger-1`; o incidente não tem esse `id` —
+           o cabeçalho dele é `span.unj-larger` (outro seletor de classe, não
+           um prefixo: `unj-larger-1` NÃO casa `.unj-larger`).
+        2. esse cabeçalho tem que casar `<classe> (<CNJ>) (<seq>)`.
+
+        E o número entre parênteses é o CNJ **sob o qual os autos correm**, que
+        nem sempre é o do principal. As duas formas reais, medidas:
+
+        · **precatório/RPV** — não tem número nenhum, corre sob os autos do
+          principal: o cabeçalho traz o CNJ DO PRINCIPAL e o link
+          `a.processoPrinc` traz o MESMO número. Por isso ele nunca chega pelo
+          DJEN, que é indexado por CNJ.
+        · **cumprimento de sentença / IDPJ** — tem CNJ próprio: o cabeçalho traz
+          o DELE e o `a.processoPrinc` aponta para OUTRO, o principal. É o elo
+          da cadeia conhecimento → cumprimento → precatório.
+
+        Ler os dois campos como se fossem o mesmo fato (e abster na
+        divergência) transformaria o segundo caso em silêncio; eles são fatos
+        DIFERENTES e saem em campos diferentes.
+        """
+        soup = html if isinstance(html, BeautifulSoup) else BeautifulSoup(html or '', 'html.parser')
+        if soup.select_one('#numeroProcesso'):
+            return None
+        larger = soup.select_one('#containerDadosPrincipaisProcesso span.unj-larger')
+        cabecalho = ' '.join(larger.get_text(' ', strip=True).split()) if larger else ''
+        m = _RE_CABECALHO_INCIDENTE.match(cabecalho.replace('\xa0', ' ').strip())
+        if not m:
+            return None
+        dos_autos = m.group('principal')
+
+        link = soup.select_one('a.processoPrinc')
+        do_link = ' '.join(link.get_text(' ', strip=True).split()) if link else ''
+        if do_link and _so_digitos(do_link) != _so_digitos(dos_autos):
+            cnj_proprio, cnj_principal = dos_autos, do_link
+        else:
+            cnj_proprio, cnj_principal = '', dos_autos
+
+        def t(sel: str) -> str:
+            el = soup.select_one(sel)
+            return ' '.join(el.get_text(' ', strip=True).split()) if el else ''
+
+        partes = self._extrair_partes(soup)
+        planas = [p for lst in partes.values() for p in lst]
+        return {
+            'tipo': tipo_de_incidente(m.group('classe')),
+            'classe': m.group('classe').strip(),
+            'sequencial': m.group('seq') or '',
+            'cnj_principal': cnj_principal,
+            'cnj_proprio': cnj_proprio,
+            'situacao': t('#containerDadosPrincipaisProcesso span.unj-tag'),
+            'assunto': t('#assuntoProcesso'),
+            'foro': t('#foroProcesso'),
+            'vara': t('#varaProcesso'),
+            'controle': t('#numeroControleProcesso'),
+            'recebido_em': t('#dataHoraDistribuicaoProcesso'),
+            'valor': t('#valorAcaoProcesso'),
+            'requerentes': [p for p in planas
+                            if _RE_PAPEL_REQUERENTE.match(p.get('papel', ''))],
+            'ent_devedoras': [p for p in planas
+                              if _RE_PAPEL_ENT_DEVEDORA.match(p.get('papel', ''))],
+            'partes': partes,
         }
 
-    def _agregar_incidentes(self, soup, dados: dict, partes: dict, grau: str) -> int:
-        """Incidente-following (só no fetch manual/dossiê): no e-SAJ cada parte/
-        beneficiário costuma ter um incidente próprio (o precatório/requisição
-        dela). A página principal mostra o processo-pai; os dados por parte
-        estão nos incidentes. Segue os links, parseia cada um e AGREGA as
-        partes (+ o maior valor). Espelha o Juriscope (esajsp.py)."""
-        n_inc = 0
-        for href in self._extrair_incidentes(soup)[:self.MAX_INCIDENTES]:
+    def _agregar_incidentes(self, soup, partes: dict) -> dict:
+        """Incidente-following: no e-SAJ cada beneficiário do crédito tem um
+        incidente próprio (o precatório/RPV dele), e 95,7% deles não têm CNJ
+        nenhum — não existem no DJEN nem no Datajud. Segue os links, parseia
+        cada um com `parsear_incidente` e AGREGA as partes no processo-pai.
+
+        O que este método deliberadamente NÃO faz mais (era código morto e uma
+        semântica errada, as duas medidas em 02/09/2026):
+
+        · promover `classe` do incidente para o pai — dependia de
+          `#classeProcesso`, que **não existe** na página do incidente (0 de 5).
+          Nunca disparou uma vez. E, se disparasse, escreveria 'Precatório' na
+          classe de um processo que é o cumprimento de sentença.
+        · promover `valor_causa` do incidente para o pai — o valor do
+          requisitório é de UM beneficiário, não a causa do processo. Somar ou
+          copiar seria confiança falsa; ele agora sai na ficha, com dono.
+
+        Devolve o CENSO (`total`, `lidos`, `falhas`, `truncado`): o teto é
+        alerta, nunca corte mudo — regra nº 2 do CLAUDE.md. Medido: existem
+        processos com 59 e 87 incidentes, e o teto de 12 os cortava calado.
+        """
+        hrefs = self._extrair_incidentes(soup)
+        total = len(hrefs)
+        truncado = total > self.MAX_INCIDENTES
+        if truncado:
+            self.logger.error(
+                'teto de incidentes atingido: %s de %s lidos — o crédito deste '
+                'processo está sendo visto pela metade',
+                self.MAX_INCIDENTES, total,
+                extra={'incidentes_total': total, 'teto': self.MAX_INCIDENTES})
+        fichas, falhas = [], 0
+        for href in hrefs[:self.MAX_INCIDENTES]:
             try:
                 ihtml = self._fetch_incidente(href)
             except Exception:
+                falhas += 1
                 continue
             if not ihtml:
+                falhas += 1
                 continue
             try:
-                isoup = BeautifulSoup(ihtml, 'html.parser')
-                self._merge_partes(partes, self._extrair_partes(isoup))
-                idados = self._extrair_dados(isoup, grau)
-                if idados.get('valor_causa') and not dados.get('valor_causa'):
-                    dados['valor_causa'] = idados['valor_causa']
-                if idados.get('classe') and 'precat' in (idados['classe'] or '').lower():
-                    dados['classe'] = idados['classe']
-                n_inc += 1
+                ficha = self.parsear_incidente(ihtml)
             except Exception:
+                self.logger.exception('falha ao parsear incidente')
+                falhas += 1
                 continue
-        return n_inc
+            if ficha is None:      # não é página de incidente: abstém
+                falhas += 1
+                continue
+            self._merge_partes(partes, ficha['partes'])
+            fichas.append({k: v for k, v in ficha.items() if k != 'partes'})
+        return {'total': total, 'lidos': len(fichas), 'falhas': falhas,
+                'truncado': truncado, 'fichas': fichas}
 
     @staticmethod
     def _merge_partes(dest: dict, novo: dict) -> None:
@@ -760,10 +944,16 @@ class BaseEsajEnricher:
         'embte', 'embargant', 'impte', 'impetrant', 'agvte', 'agravant',
         'rclte', 'reclamant', 'recte', 'recorrent',
     )
+    # `ent. devedora` é o polo passivo do INCIDENTE de precatório/RPV: é o ente
+    # que DEVE o crédito. Medido em 5 de 5 páginas de incidente da sonda de
+    # 02/09/2026 — e caía em 'outros' por não estar nesta lista, ou seja, o
+    # devedor do precatório ficava fora do polo passivo justamente na fatia do
+    # acervo que o produto vende ("quem deve", `search/agg_estado.py`).
     _PAPEIS_PASSIVO = (
         'exectd', 'reqd', 'requerid', 'apd', 'apelad',
         'embd', 'embargad', 'impd', 'impetrad', 'agvd', 'agravad',
         'rcld', 'reclamad', 'recd', 'recorrid', 'executad',
+        'ent. devedor', 'ent devedor', 'entidade devedor',
     )
     # Formas CURTAS vão por igualdade, nunca por prefixo: 'ré'/'re' como
     # prefixo engoliria 'requerente', 'reclamante' e 'recorrente' — o polo

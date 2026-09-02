@@ -99,6 +99,21 @@ docs relevantes), não da memória do modelo.
 5. **Métrica nova**: F1 de entidade **pós-canonicalização** (mata ruído de grafia
    que punia o 54%), exatidão de valores por parte, cobertura de pagamentos.
 
+## Fonte pública da ficha: o incidente do e-SAJ (02/09/2026)
+
+Antes dos autos, o **e-SAJ já publica a ficha do crédito por beneficiário** —
+de graça, sem LLM. Cada precatório/RPV do TJSP é um *incidente* do processo, e
+a página dele traz `Reqte` (quem recebe), `Ent. Devedora` (quem deve) e, quando
+publicado, o valor requisitado daquele beneficiário.
+
+`BaseEsajEnricher.parsear_incidente()` extrai isso de forma determinística e
+abstém quando a fonte não publica (ver `.ia/ENRICHMENT.md` §"Incidentes
+vinculados no e-SAJ"). Medido: **95,7% desses incidentes não têm CNJ nenhum** —
+não chegam pelo DJEN nem pelo Datajud, e portanto não existem no acervo hoje.
+É o caminho mais barato para `valor_a_receber` **por parte** num processo do
+TJSP, e o que falta é onde guardar (o incidente não tem número para virar
+`Process`).
+
 ## Gaps a fechar
 
 - [ ] Classe **ALVARA** explícita no doc_classificador (hoje cai em OUTROS/DECISAO;

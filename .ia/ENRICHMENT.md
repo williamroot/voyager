@@ -163,6 +163,97 @@ de decidir qualquer coisa paga.
 pública acrescenta é **valor da causa** e o **assunto com código**, mais os
 eventos. Dimensione a decisão por esses campos, não por "partes".
 
+## Incidentes vinculados no e-SAJ: o precatório NÃO tem CNJ (01-02/09/2026)
+
+**Veredito: o crédito do TJSP se espalha, sim — mas 95,7% dos degraus não têm
+número CNJ nenhum. Eles não estão faltando no acervo: eles não podem entrar
+por CNJ, nem pelo DJEN nem pelo Datajud. A página do incidente é a única
+porta.**
+
+### O que foi medido
+
+Sonda ao vivo em 100 processos do TJSP (páginas aleatórias do heap, sementes
+20260901/20260902), dois estratos: geral (`enriquecimento_status='ok'`) e o do
+crédito (`tem_sinal_precatorio`, **816.017** processos). Controle: 100% dos CNJ
+vêm do nosso banco e 4 de 4 processos-pai foram achados lá — se o controle
+cair, a sonda mediu a fonte fora do ar, não o fenômeno.
+
+| medida | estrato do crédito |
+|---|---|
+| respostas conclusivas | 53 (`detalhe`), 3 `segredo`, 24 inconclusivas por proxy |
+| processos **com** incidente vinculado | **31 = 58,5%** |
+| incidentes lidos | **210** (média 4,0 por processo; máximos **59** e **87**) |
+| `Precatório` / `Requisição de Pequeno Valor` | **201 = 95,7%**, e **nenhum tem CNJ** |
+| incidentes COM CNJ próprio | 9 (cumprimento de sentença, IDPJ) |
+| desses, **fora** do nosso acervo | 6 de 9 |
+
+O e-SAJ identifica o precatório por `<classe> (<CNJ do principal>) (<seq>)` —
+"Precatório - 00012" — e por um `processo.codigo` interno. É um processo sem
+número: o DJEN, que é indexado por CNJ, nunca o publica.
+
+E é lá que está a ficha do crédito **por beneficiário**: `Reqte` (quem recebe),
+`Ent. Devedora` (quem deve) e `#valorAcaoProcesso` (o valor requisitado
+daquele beneficiário, publicado em 1 das 5 páginas da sonda).
+
+Um caso real, a cadeia inteira, na fixture
+`tests/fixtures/tjsp/esaj_cpopg_detalhe_com_incidentes.html`:
+`1012705-02.2021.8.26.0576` (conhecimento) → `0018347-36.2022.8.26.0576`
+(cumprimento provisório, **tem** CNJ) → **7 precatórios/RPV** (não têm).
+Conferido no banco em 02/09/2026: temos **só o degrau do meio** — o
+conhecimento não está no acervo e os 7 precatórios não podem estar. **1 de 9
+nós** de um crédito, e o processo que temos está `ok`, com 14 movimentações e
+`tem_sinal_precatorio = true`. É esse o "pedaço" sobre o qual o Estágio do
+Crédito decide hoje.
+
+### Três premissas que a sonda derrubou
+
+1. **"O incidente exige captcha"** (comentário de `ESAJ_SEGUIR_INCIDENTES` em
+   `core/settings.py`) — **falso**: 5 de 5 páginas abriram pelo `show.do` sem
+   `uuidCaptcha`, com 60 a 84 KB e `#tablePartesPrincipais`. O mesmo comentário
+   dizia "default OFF" enquanto o default no código era `True`.
+2. **A promoção de classe/valor do incidente para o pai era código morto** —
+   dependia de `#classeProcesso`, que **não existe** na página do incidente
+   (0 de 5). Nunca disparou. E, se disparasse, escreveria `Precatório` na classe
+   de um processo que é o cumprimento — e o valor de UM beneficiário no
+   `valor_causa` do processo.
+3. **O teto `MAX_INCIDENTES = 12` cortava calado** — com 59 e 87 incidentes
+   medidos, o processo saía `ok` mostrando 12. Agora é ERRO com o número real
+   (regra nº 2).
+
+### Cobertura hoje: zero no acervo
+
+`seguir_incidentes` só é passado por `enqueue_enriquecimento_manual` (o clique
+na UI); o enriquecimento em massa nunca passa a flag. Prova por dado, não por
+leitura de código: **0 participações com papel `ENT. DEVEDORA` em 217.964
+amostradas** (`TABLESAMPLE SYSTEM (0.2) REPEATABLE (20260902)`), com os
+controles `ADVOGADO` (93.130), `REQTE` (1.608) e `EXEQTE` (1.183) todos
+presentes. O incidente-following existe em código e não produziu acervo.
+
+### O que já está entregue (02/09/2026)
+
+- `BaseEsajEnricher.parsear_incidente(html)` — ficha determinística do
+  incidente: `tipo` (PRECATORIO/RPV/None), `classe`, `sequencial`,
+  `cnj_principal`, `cnj_proprio`, `situacao`, `assunto`/`foro`/`vara`/
+  `controle`/`recebido_em`, `valor`, **`requerentes[]`** e
+  **`ent_devedoras[]`** (o #78, sem LLM). Abstém: página que não é incidente
+  devolve `None`; campo que a fonte não publica sai vazio.
+- `Ent. Devedora` passou a mapear para o **polo passivo** (caía em `outros`, e é
+  o passivo que alimenta o "quem deve" do Overview, `search/agg_estado.py`).
+- `_agregar_incidentes` devolve censo (`total`, `lidos`, `falhas`, `truncado`)
+  e o resultado do job carrega `incidentes[]` com as fichas.
+- 22 testes sobre HTML REAL (`tests/test_esaj_incidente.py`), conferidos por
+  mutação.
+
+### O que falta, com tamanho
+
+| falta | tamanho medido |
+|---|---|
+| **onde guardar** um incidente sem CNJ (model + FK para o principal) | não existe hoje; `Process` é único por `(tribunal, numero_cnj)` |
+| ligar o incidente-following no caminho em massa | ~477 k processos do estrato têm incidente; **≈ 3,2 M incidentes** |
+| custo de requisição | 2 req por incidente hoje (`open.do` + `show.do`) ⇒ **≈ 6,5 M**; reusar a sessão do pai derruba para ~3,2 M |
+| teto real por processo | `MAX_INCIDENTES=12` contra máximos de 59 e 87 — decisão de orçamento, não de parser |
+| CNJ novos que o seguimento descobre | ≈ 0,094 incidente-com-CNJ por processo do estrato ⇒ **≈ 77 k CNJ**, dos quais 4 de 5 não estão no acervo (**≈ 61 k**) |
+
 ## Um tribunal, mais de um sistema — a varredura dos 60 (29/08/2026)
 
 **Veredito: 15 dos 59 tribunais com acervo rodam mais de um sistema, e em

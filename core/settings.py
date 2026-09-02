@@ -528,11 +528,20 @@ DJEN_CORTEX_RATIO_DEGRADED = env.float('DJEN_CORTEX_RATIO_DEGRADED', default=1.0
 # WAF que exigem residencial caem no Cortex via _next_proxy quando o pool é
 # bloqueado. True volta a Cortex-first (2026-07-12: invertido a pedido).
 ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=False)
-# Seguir incidentes no e-SAJ (cada parte tem um incidente/precatório). O DETALHE
-# do incidente exige captcha (uuidCaptcha) na consulta pública → só funciona com
-# captcha-solver OU sessão e-SAJ autenticada (como o Juriscope). Default OFF até
-# essa decisão de infra; o código está pronto (enrichers/esaj.py) e degrada pro
-# processo-pai. (2026-07-06)
+# Seguir incidentes no e-SAJ (cada beneficiário do crédito tem um incidente —
+# o precatório/RPV dele). Vale SÓ para o caminho manual/dossiê
+# (`enqueue_enriquecimento_manual`); o enriquecimento em massa nunca passa a
+# flag, então hoje o incidente-following não cobre o acervo (medido em
+# 02/09/2026: 0 participações com papel `ENT. DEVEDORA` em 217.964 amostradas,
+# com os controles `ADVOGADO`/`REQTE`/`EXEQTE` todos presentes).
+#
+# ⚠️ O comentário anterior dizia que o detalhe do incidente exige captcha
+# (`uuidCaptcha`) e que por isso o default era OFF. As duas coisas estavam
+# erradas: o default era True, e a sonda de 02/09/2026 abriu 5 de 5 páginas de
+# incidente pelo `show.do` SEM captcha (60 a 84 KB, com partes). O que custa é
+# proxy: um processo do estrato de crédito tem 4,0 incidentes em média e
+# chega a 87 — ligar isso em massa é decisão de ORÇAMENTO de requisição, não
+# de captcha. Ver `.ia/ENRICHMENT.md` §"Incidentes vinculados".
 ESAJ_SEGUIR_INCIDENTES = env.bool('ESAJ_SEGUIR_INCIDENTES', default=True)
 
 # LLM (Ollama OpenAI-compat) — narrativa de jurimetria. Fail-closed: sem key, a
