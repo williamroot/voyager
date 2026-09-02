@@ -567,6 +567,28 @@ TIMEOUT_ESCRITA_S = 60
 
 
 def _cursor_com_teto(cur, segundos: int) -> None:
+    """Põe o teto NA TRANSAÇÃO CORRENTE. Recusa-se a rodar fora de uma.
+
+    ⚠️ `SET LOCAL` em autocommit **parece certo e não faz nada**: cada
+    `execute` vira a sua própria transação e o teto morre antes da consulta que
+    deveria limitar. É o pior dos defeitos possíveis aqui — o código fica
+    bonito, o teste de leitura passa, e o teto só falta no dia em que importa.
+
+    Todos os chamadores deste helper abrem `transaction.atomic()`; esta guarda
+    existe porque **convenção não é garantia**. `tests/test_set_local_timeout.py`
+    varre o código procurando `SET LOCAL` sem `atomic()` acima, mas é um scanner
+    léxico: extrair a chamada para um helper (como aqui) o cega. Em 02/09/2026
+    ele acusou exatamente esta linha, e a acusação era falsa — os 7 chamadores
+    estavam todos protegidos. Em vez de ensinar o scanner a ignorar o helper,
+    o helper passou a **provar em tempo de execução** o que o scanner só
+    conseguia supor: assim a garantia vale para o chamador de amanhã também.
+    """
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError(
+            '`SET LOCAL statement_timeout` fora de transaction.atomic(): em '
+            'autocommit ele é SILENCIOSAMENTE INÓCUO e o backfill roda sem '
+            f'teto ({segundos}s pedidos). Abra a transação no chamador.'
+        )
     cur.execute('SET LOCAL statement_timeout = %s', [int(segundos * 1000)])
 
 

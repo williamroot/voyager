@@ -179,6 +179,17 @@ def test_todo_set_local_de_teto_esta_dentro_de_uma_transacao():
                     protegido = True
                     break
                 if r_ant < recuo and anterior.lstrip().startswith(('def ', 'class ')):
+                    # Chegamos ao `def` que contém a linha sem achar `atomic()`.
+                    # Uma saída, e SÓ uma: helper que PROVA a transação em
+                    # tempo de execução (`in_atomic_block`). Aconteceu em
+                    # 02/09/2026 — este scanner é léxico e extrair a chamada
+                    # para um helper o cega; a resposta certa não foi ignorar o
+                    # helper, foi o helper passar a garantir o que o scanner só
+                    # supunha. Aceitar aqui sem exigir a guarda seria trocar
+                    # uma régua por um comentário.
+                    corpo = '\n'.join(linhas[max(0, i - 30):i + 5])
+                    if 'in_atomic_block' in corpo and 'raise' in corpo:
+                        protegido = True
                     break
             if not protegido:
                 ofensores.append(
@@ -187,3 +198,30 @@ def test_todo_set_local_de_teto_esta_dentro_de_uma_transacao():
         'SET LOCAL de teto fora de transaction.atomic() — silenciosamente '
         'inócuo, a pior das quatro variações:\n  ' + '\n  '.join(ofensores)
     )
+
+
+def test_o_helper_de_teto_RECUSA_fora_de_transacao():
+    """A guarda que o scanner passou a aceitar tem que existir de verdade.
+
+    Sem este teste, a saída que ensinei ao scanner em 02/09/2026 vira um
+    buraco: bastaria alguém escrever `in_atomic_block` e `raise` num comentário
+    para o `SET LOCAL` passar. Aqui a guarda é EXERCITADA.
+
+    Cursor de mentira de propósito: a guarda dispara ANTES de tocar no cursor,
+    então o teste não precisa de banco — e um teste que precisa de banco para
+    provar uma invariante de código é um teste que ninguém roda.
+    """
+    import pytest
+
+    from tribunals.services import partes_djen as P
+
+    class _CursorQueNaoDeveSerUsado:
+        def execute(self, *a, **k):  # pragma: no cover
+            raise AssertionError('a guarda deixou passar: o SET LOCAL rodou '
+                                 'fora de transação')
+
+    with pytest.raises(RuntimeError) as exc:
+        P._cursor_com_teto(_CursorQueNaoDeveSerUsado(), 60)
+    msg = str(exc.value)
+    assert 'atomic' in msg, 'a mensagem tem que dizer o que fazer'
+    assert 'INÓCUO' in msg.upper(), 'e por que isso importa'
