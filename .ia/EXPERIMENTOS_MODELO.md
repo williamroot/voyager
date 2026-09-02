@@ -13,7 +13,7 @@
 | # | experimento | hipótese em 1 linha | critério pré-registrado | status (triado 02/09/2026) |
 |---|---|---|---|---|
 | 1 | DAPT | pré-treino no dialeto do acervo melhora o SFT | SFT-sobre-DAPT ≥ **+2pp macro** vs SFT direto | 🔴 **BLOCK (03/08)** — v2 +1,08pp / v1 +0,06pp; `partes` piora. Morto, ver §1 |
-| 2 | Especialistas | adapter por classe fraca vence o multi-task | ganha em **≥2 das 3** classes fracas por **≥3pp** | 🟠 **7 adapters treinados, gate NUNCA rodado** — o experimento está pago e não decidido |
+| 2 | Especialistas | adapter por classe fraca vence o multi-task | ganha em **≥2 das 3** classes fracas por **≥3pp** (detalhe pré-registrado em §2.2) | 🔵 **gate EM EXECUÇÃO (R115, 02/09)** — critério e procedência commitados antes de medir |
 | 3 | DPO-κ | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura **>2pp** | 🟡 dataset PRONTO (2.688 pares); nunca treinou |
 | 4 | Destilação 3B | classes fortes cabem num aluno 3B | aluno retém **≥97%** do professor nas fortes | 🟡 harness pronto (dry-run ok); nunca rotulou |
 
@@ -124,15 +124,81 @@ multi-task em **≥2 das 3 classes fracas** por **≥3pp** cada (F1/acc da
 classe no gate). 1 de 3 = interferência não era o problema (é o dado) →
 mata o experimento e investe em gold.
 
-**Status: 🟠 TREINADO, NÃO GATEADO (triagem 02/09/2026).** Os 7 adapters estão
-no NAS (`llmsv2:/mnt/nas-data/voyager-train/out/adapter_esp_{acordao,cessao,
-decisao,herdeiros,oficio,pagamento,partes_doc}`, 02/08). A GPU foi paga, o
-experimento NÃO foi respondido: **nunca rodou a comparação por-classe contra a
-mesma fatia do test** — que é o experimento inteiro. Falta só rodar
-`eval_gate_v2.py` por fatia (3090 do llmsv2 está livre; não precisa de pod).
-Enquanto não rodar, a hipótese "interferência do multi-task" segue em aberto —
-e a v2.1 fecha ACORDAO 98-100 / CESSAO 98-99, o que já enfraquece a premissa
-(as classes "fracas" do v2 deixaram de ser fracas com o janelamento).
+**Status: 🟠 TREINADO, NÃO GATEADO até 02/09/2026 — gate EM EXECUÇÃO (R115).** Os 7
+adapters estão no NAS (`llmsv2:/mnt/nas-data/voyager-train/out/adapter_esp_{acordao,
+cessao,decisao,herdeiros,oficio,pagamento,partes_doc}`, 02/08). A GPU foi paga e o
+experimento nunca foi respondido: **nunca rodou a comparação por-classe contra a
+mesma fatia do test** — que é o experimento inteiro. Em 02/09 a 3090 do llmsv2 foi
+liberada e o gate foi disparado com o critério abaixo, **pré-registrado e commitado
+antes da primeira medição**.
+
+### 2.1 Procedência do dado (auditada em 02/09/2026, ANTES de medir)
+
+Medido na fonte, não na doc:
+
+| achado | evidência |
+|---|---|
+| split é limpo por hash-CNJ nos 3 níveis | `train_esp_*` ∩ `dev_esp_*` = **0 CNJ** em todas as 7 tarefas; `dev_esp_*` ∩ `train_mix_v21` = **0**; `train_esp_*` ∩ `test_mix_v21` = **0** |
+| ⚠️ **`dev_esp_*` NÃO é held-out honesto** | foi o `--dev_file` do treino (`train_summary.json`), com `load_best_model_at_end=True` + `metric_for_best_model=eval_loss` sobre 400 exemplos dele → **serviu de seleção de modelo**. Medir o especialista ali é Goodhart (o erro do DSPy/GEPA). **Descartado do gate.** |
+| a fatia de treino do especialista ≈ a fatia que o v2.1 já viu | `train_esp_<t>` tem a MESMA contagem de `train_mix_v21` filtrado por tarefa em 6 de 7 (só `cessao` difere: 1.099 vs 1.352). Ou seja: o especialista **não tem mais dado**, tem menos concorrência — que é exatamente a hipótese da interferência |
+| tudo é `source=v2` (por-documento) | os 7 conjuntos `esp` são 100% `v2`; nenhum exemplo `v1` por-processo |
+
+**Consequência:** o gate mede em `data/test_mix_v21.jsonl` (`split=test`, o MESMO
+held-out por hash-CNJ onde o v2.1 tirou macro 91,76), nunca em `dev_esp_*`.
+
+### 2.2 Critério pré-registrado (R115, 02/09/2026 — commitado antes de rodar)
+
+**Conjunto.** Para cada tarefa `t`: linhas de `test_mix_v21.jsonl` com `source=v2`,
+`campo=t` e `doc_classe` ∈ classes vistas no `train_esp_t`. Ordem canônica
+(`cnj`,`janela`) → embaralho `seed=20260902` → cap **N=800** (o que houver, se menos).
+O slice é gravado UMA vez em `data/esp_gate/slice_<t>.jsonl` e **os dois modelos leem
+o mesmo arquivo, na mesma ordem, com o mesmo batching** → pareamento exato por exemplo.
+
+**Modelos.** A = `out/adapter_v21` (campeão, baseline) · B = `out/adapter_esp_<t>` ·
+C = `Qwen2.5-7B-Instruct` **sem adapter** (só controle). Greedy (`do_sample=False`),
+`max_new=512`, `maxseq=4096`, 4-bit nf4 — idêntico ao `eval_gate_v2.py`.
+
+**Métrica.** Scorer = `score_v2()` do `eval_gate_v2.py` **sem alteração** (mesma
+canonicalização de nome/valor/data/enum, mesmo F1 de entidade). Por exemplo:
+`acerto_doc` = média das métricas pontuadas daquele exemplo ∈ [0,1]; gold vazio sai do
+numerador e entra na conta de abstenção. **Primária da tarefa = média de `acerto_doc`.**
+Secundárias sempre reportadas: métrica por campo, JSON inválido, falsa-abstenção.
+
+**Significância (pareada, sem afrouxamento posterior).**
+- **McNemar exato** (binomial bicaudal) sobre `doc_perfeito` (todos os campos do exemplo corretos);
+- **bootstrap pareado** 10.000 reamostragens (`seed=20260902`) na diferença de médias → IC 95%.
+
+**Decisão por especialista — PASS exige as TRÊS:**
+1. Δ(B−A) na primária **≥ +3,0pp**;
+2. limite inferior do IC 95% pareado **> 0**;
+3. McNemar **p < 0,05** a favor de B — ou, se `doc_perfeito` for degenerado
+   (discordantes b+c < 25), o item 2 basta **e o fato é declarado no veredito**.
+
+Qualquer outro resultado é **BLOCK**. Explicitamente: **empate não promove** (Δ entre
+−3 e +3pp = BLOCK) — adapter por classe custa roteamento, VRAM e um artefato a mais
+por ciclo de dado; empate não paga esse custo. Δ ≤ −3pp com IC excluindo 0 = BLOCK
+com autópsia "o especialista PIORA".
+
+**Veredito da família (o experimento nº 4).** Mantido o critério original de 31/07 nas
+MESMAS 3 classes: **família PASS ⟺ ≥2 de {acordao, cessao, herdeiros} passam**.
+Especialista que passe fora dessas 3 é registrado como PASS individual e **não**
+ressuscita a família.
+
+**Regra de parada (economia de GPU, fixada antes):** roda `acordao` primeiro. Se o IC
+95% da diferença **excluir +3pp** (isto é, dá para descartar o ganho exigido), o gate
+PARA e reporta — 16h de GPU economizadas. Ordem se seguir: acordao → decisao → oficio →
+pagamento → partes_doc → cessao → herdeiros.
+
+**Controles — se qualquer um falhar, PARAR: a régua está torta, não o modelo.**
+- **C1 · reprodução histórica.** O baseline A no slice de `acordao` tem de reproduzir o
+  gate publicado do v2.1 (ACÓRDÃO 98-100, `LABLOG` 31/07) dentro de ±5pp. Se A vier
+  muito abaixo, nenhum veredito desta rodada vale.
+- **C2 · separação base×FT.** O modelo C (base sem adapter) tem de ficar **≥20pp abaixo**
+  de A no mesmo slice. Se base ≈ FT, a métrica não está medindo fine-tune nenhum.
+
+**Checkpoint.** Cada tarefa grava `out/esp_gate/preds_<tag>.jsonl` (incremental,
+resume-safe) e `out/esp_gate/resultado_<t>.json` assim que fecha — sessão que cair não
+leva o trabalho junto (lição da v2.2).
 
 ## 3. DPO-κ — preferências da fila de divergência
 
