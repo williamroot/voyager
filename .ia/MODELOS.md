@@ -11,7 +11,7 @@
 | extrator-precatorio | **v1** | 🟡 empacotado (gate PASS, não deployado) | GGUF Q4_K_M `01cd53ff…ebf2` | llmsv2 `/mnt/nas-data/voyager-train/out/` |
 | extrator-precatorio | **v2 "Ficha da Parte"** | 🟡 gate PARCIAL — empacotado (amostra κ: ver card v2) | GGUF Q4 `59db32db…1de3` · adapter `5206de77…b333` | llmsv2 `out/precatorio-extrator-v2-q4_k_m.gguf` + `Modelfile.v2` |
 | extrator-precatorio | **v2.1** | 🟡 **gate PASS macro 91,76 — empacotado (CAMPEÃO)** | GGUF Q4_K_M `0012607b1634e7b8f96c8f6a9d7bad21` · `adapter_v21` | llmsv2 `out/extrator-v21-Q4_K_M.gguf` (4,68GB) |
-| extrator-precatorio | **v2.2 (herdeiros)** | ⚫ **NÃO FECHOU** — dado pronto, adapter inexistente (o pod 4090 morreu com o treino) | dados `data/{herd_gold,train_mix,test_mix}_v22.jsonl` no NAS; **sem `adapter_v22`** | llmsv2 (dados) · pod 4090 **destruído** |
+| extrator-precatorio | **v2.2 (herdeiros) — ablação de rótulo** | 🔴 **gate BLOCK (03/09)** — 3 de 4 critérios passam (bate o v2.1 **+21,39pp** e a base crua **+6,59pp**, e melhora `falecido` +6,95pp), mas **reprova a guarda de emissão indevida** (12,86% vs teto 9,07%). **Hipótese confirmada:** trocar só o RÓTULO vale **+17,88pp**, IC [+13,72, +21,97] | `adapter_herd_v22` (md5 `28ddcbff2836b7f89558f6ac7f1f8ded`) + `adapter_herd_v21` (controle) — **não promovidos** | llmsv2 `out/` · resultados `out/esp_gate/r120_final_v2{1,2}.json` |
 | extrator-precatorio | **A/B Qwen3-8B** | 🔴 **gate não passou** (+1,6 macro <2; regride DOC_PESSOAL) → fica no Qwen2.5-7B | `adapter_ab_qwen3_v21` | pod 4090 |
 | extrator-precatorio | **especialistas (7 LoRA por classe)** | 🔴 **gate BLOCK (02/09)** — nenhum dos 7 bate o v2.1 no domínio dele: Δ de **−0,52pp a +0,02pp**, IC 95% pareado exclui o +3pp exigido nas SETE. Família 0 de 3. Não promovidos, roteamento por `doc_classe` cancelado | `adapter_esp_{acordao,cessao,decisao,herdeiros,oficio,pagamento,partes_doc}` — **não promovidos** | llmsv2 `out/` · resultados `out/esp_gate/resultado_*.json` |
 | extrator-precatorio | **DAPT** | 🔴 **gate BLOCK (03/08)** — SFT-sobre-DAPT não bate SFT-direto: v2 macro **+1,08pp**, v1 **+0,06pp** (critério era ≥+2pp); `partes` até PIORA (0,5139→0,5081) | `adapter_dapt` (r=64 all-linear, 646MB) — **não promovido** | llmsv2 `out/adapter_dapt` |
@@ -26,6 +26,7 @@
 | `train_extracao_v2.jsonl` (v1) | `277f07b5cc2a09e58166a339095faed1` | 10.850 ex-ouro por-processo | zordon `eval/build_train_extracao.py` |
 | `train_fichaparte_full.jsonl` (v2) | `177f4f0ed7ba2a9768f90df28d14e4ed` | 196.360 ex por-documento | zordon `eval/build_train_fichaparte.py` |
 | dataset **v2.1** | `2b90e642…` | **211.928 ex** (37.146 longos recuperados via janelamento) | zordon commit `bd4b2b9` |
+| `herd_gold_v22.jsonl` | 1.189 docs re-rotulados (professor DeepSeek, κ 9/10 nos recuperados) — traz `{nome, papeis}` | fatia `herdeiros` do mix v2.2: vazio **50,08%** (train) / **51,95%** (test) contra 73,44/75,88 do v2.1; 96,4% dos nomes são **literais** no texto | ⚠️ o mix **descarta os `papeis`** e treina lista chapada de nomes — causa medida do BLOCK de 03/09 |
 | **DPO pairs v1** (`eval/dpo_pairs_v1.jsonl`) | — (auditoria em `eval/relatorio_dpo_pairs.md`) | 2.688 pares (1.289 forte×fraca / 27 correções humanas / 1.372 abstenção) | zordon `eval/build_dpo_pairs.py` |
 | `estagio_labels.jsonl.gz` | `658258043d640b556a6e2c98eb6f2759` | 820.777 rótulos de estágio (supervisão cruzada autos×Falcon, evidências auditáveis) | voyager `scripts/estagio/build_labels.py` (roda no zordon) |
 | `estagio_features.csv.gz` | `c80691c8e69de3c23371b3af1529a39d` | 99.667 linhas de features 100% públicas (snapshot 2026-07-30) | voyager `scripts/estagio/build_features.py` (roda no host voyager) |
@@ -34,7 +35,11 @@ Status: 🟢 ativa · 🟡 empacotado/shadow · 🔵 treinando · 🟠 artefato 
 🔴 morto (gate BLOCK) · ⚫ interrompido sem veredito (≠ morto: ninguém mediu) ·
 ⚪ planejado
 
-Mortos com autópsia (não repetir o caminho): **especialistas LoRA por classe**
+Mortos com autópsia (não repetir o caminho): **`herdeiros` treinado em alvo sem papel**
+(gate BLOCK 03/09 — o rótulo v2.2 conserta 18pp de silêncio mas, com os `papeis`
+descartados no mix, o modelo aprende *nome perto de espólio = herdeiro* e emite
+advogado/inventariante/polo passivo: `.ia/EXPERIMENTOS_MODELO.md` §5.3),
+**especialistas LoRA por classe**
 (gate BLOCK 02/09 — o v2.1 já está em 98-99,5% em 6 das 7 tarefas; interferência
 multi-task não era o gargalo, e onde há espaço o gargalo é o RÓTULO:
 `.ia/EXPERIMENTOS_MODELO.md` §2.3), **DAPT** (gate BLOCK 03/08 — o

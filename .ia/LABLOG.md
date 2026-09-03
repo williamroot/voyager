@@ -8,6 +8,88 @@ Formato: cada entrada = o que aconteceu + (quando for regresso) a **lição**.
 
 ---
 
+## 03/09 — herdeiros com o gold v2.2: BLOCK no gate, hipótese CONFIRMADA (+17,88pp só do rótulo)
+
+O dono do produto escolheu, entre quatro usos da única GPU viva, **retreinar
+`herdeiros` com o gold v2.2** — preferiu o conserto de raiz a religar a showcase.
+Deu certo como ciência e **reprovou como produto**, e as duas coisas são o resultado.
+
+### Primeiro medir o gold, depois queimar GPU
+
+A ordem era essa e ela evitou trabalho perdido. O gold v2.2 tem **50,08%** (train) e
+**51,95%** (test) de `herdeiros` vazio contra os **73,44%/75,88%** do v2.1 — os nomes
+de herdeiro vão de 384→**894** e 270→**809**. E não é rótulo inventado: **96,4%** dos
+nomes novos aparecem **literalmente** na janela (2,0% sem suporte). O relabel também
+**tira**: 30 linhas foram de preenchido→vazio, além das 168 vazio→preenchido.
+
+### O buraco na régua do achado de ontem
+
+Ao reproduzir o R115 apareceu isto no `score_v2`: `if not gv: continue` — **com gold
+de lista vazio a lista não é pontuada**. Ou seja, `herdeiros.f1_entidade` mede só os
+130 exemplos de gold cheio e **emitir herdeiro onde o gold não tem nenhum sai de
+graça**. Métrica de recall vestida de F1.
+
+Régua nova (`herd_score.py`, sem tocar no `score_v2`): **F1 por exemplo em todos os
+539**, vazio×cheio = 0. Ela **reproduz o R115 exatamente** (27,92 / 36,44 / 40,01 e os
+ICs) — e mostra que o achado dele **não só sobrevive como cresce** sob o gold
+consertado: dos **383 falsos positivos** da base crua sob o gold velho, **263 viram
+verdadeiros** sob o novo, com grounding de **98,45%**. Não era tagarelice; era o gold
+que estava calado. O campeão em produção tem **recall de 18,75%**.
+
+### O experimento: mesma linha, mesma receita, só o rótulo muda
+
+Dois adapters QLoRA idênticos (mesmas 497 linhas na mesma ordem, mesmo dev recortado
+por hash-CNJ, mesma seed), divergindo **só no rótulo**. Na régua v2.2:
+
+| | F1/ex | micro-R | `f1_entidade` | `falecido` |
+|---|--:|--:|--:|--:|
+| rótulo velho (`adapter_herd_v21`) | 61,64% | 31,63% | 31,05% | 85,87% |
+| **rótulo novo (`adapter_herd_v22`)** | **79,53%** | **70,79%** | **71,10%** | **92,17%** |
+
+**Δ = +17,88pp, IC 95% pareado [+13,72, +21,97], McNemar p=2,7×10⁻¹³.** Contra o
+campeão v2.1: **+21,39pp**. Contra a base crua (que ontem ganhava): **+6,59pp**,
+IC [+2,86, +10,27]. Controle de protocolo ✅ (meu `herd_v21` 61,64 ≈ `esp_herdeiros`
+60,68 de 02/08).
+
+**Os 7 especialistas moveram −0,52 a +0,02pp no mesmo campo. O rótulo move 18.** A
+hipótese "o teto é o DADO" deixou de ser leitura de resíduo e virou ablação pareada.
+
+### E mesmo assim: 🔴 BLOCK
+
+O critério pré-registrado (`2b68c55`, antes de treinar) exigia **quatro** condições.
+Passaram três com folga — bate o v2.1, bate a base crua, e **melhora** `falecido`
+(+6,95pp). Reprovou a quarta: **emissão indevida 12,86% contra o teto de 9,07%**
+(base + 3pp). Não afrouxei, como o R115 não afrouxou o C2 que falhou em duas tarefas.
+**O adapter não vai para produção.**
+
+- 🔬 **Autópsia na população INTEIRA (36 casos, não amostra):** ~27 (75%) são **erro
+  real de papel** — co-exequente de ação coletiva, **advogado com número de OAB**,
+  inventariante, o **polo passivo** ("Requerido: Aldo Luis Pessagno") e um vazamento
+  do próprio falecido; 3 (8%) são gold ainda calado (o texto diz "HERDEIROS DE X:" e
+  o gold está vazio); 6 (17%) ambíguos no próprio documento.
+- ⚠️ **A amostra pequena mentiu de novo — 7ª vez.** Nos 8 primeiros casos a leitura
+  dava **38% de gold calado**, e isso quase virou "a guarda reprovou por culpa do
+  gold". Nos 36: **8%**. **Lição, de novo: se for cortar, corte com seed — e quando o
+  resíduo cabe inteiro na mão, leia o resíduo inteiro.**
+- 🎯 **A causa tem nome e endereço, e é dado outra vez.** O gold v2.2 traz
+  `{nome, papeis:[herdeiro|inventariante|conjuge|sucessor]}` — foi a correção de 31/07
+  para não excluir a viúva-inventariante. **Mas o alvo do treino no mix é lista chapada
+  de nomes** (894 de 894 `str`, nenhum `dict`): os papéis são **descartados ao montar o
+  mix**. O modelo recebe "às vezes emite, às vezes não" sem a razão junto e aprende o
+  atalho *nome perto de espólio = herdeiro*. **Próximo lever: levar o papel para dentro
+  do alvo e re-rodar esta mesma ablação de 2h26** — é `mix_datasets`, não modelo.
+- 🧭 **Dependência de régua, declarada:** sob o gold v2.1 o sinal inverte na primária
+  (E fica −18,76pp do campeão) e se mantém na métrica do R115 (+22,21pp). Estava
+  previsto no pré-registro; fica registrado, não corrigido a posteriori.
+- 🛠️ **Bug de harness consertado de passagem:** `train_peft_v2.py` chamava
+  `trainer.train(resume_from_checkpoint=True)` — com diretório vazio o transformers
+  4.46 levanta `ValueError` e o supervisor entraria em **loop de falha** no primeiro
+  treino. Agora só retoma se existe checkpoint.
+- 💰 **Custo: 2h26 de 3090** (2 treinos de 63 min + 2 gerações de ~9 min). O retreino
+  multi-task completo (~28h) **não foi gasto**: a regra de parada dizia que ele só vem
+  depois de um veredito, e o veredito é BLOCK. **A GPU está livre** — a showcase, que
+  era o próximo uso na fila, pode entrar.
+
 ## 02/09 — Triagem das 7 pendências de ML + o buraco da vara (task #86)
 
 Sete tarefas de ML/extração abertas há semanas. O trabalho do dia foi **decidir

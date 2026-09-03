@@ -16,6 +16,7 @@
 | 2 | Especialistas | adapter por classe fraca vence o multi-task | ganha em **≥2 das 3** classes fracas por **≥3pp** (§2.2) | 🔴 **BLOCK (02/09)** — 0 de 3; Δ entre −0,52 e +0,02pp, IC exclui o ganho nas 7. Morto, ver §2.3 |
 | 3 | DPO-κ | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura **>2pp** | 🟡 dataset PRONTO (2.688 pares); nunca treinou |
 | 4 | Destilação 3B | classes fortes cabem num aluno 3B | aluno retém **≥97%** do professor nas fortes | 🟡 harness pronto (dry-run ok); nunca rotulou |
+| 5 | **Rótulo v2.2 em `herdeiros`** | o teto de `herdeiros` é o RÓTULO, não o modelo | bater v2.1 **e** a base crua por ≥3pp, sem regredir `falecido`, com guarda anti-alucinação (§5.2) | 🔴 **BLOCK (03/09)** — 3 de 4 critérios passam com folga, a **guarda de emissão indevida reprova** (12,86% vs teto 9,07%). Hipótese CONFIRMADA (+17,88pp só do rótulo), adapter **não promovido**. Ver §5.3 |
 
 > **Triagem 02/09/2026.** O "vencedor" que 3 e 4 esperavam JÁ EXISTE desde 31/07
 > (**v2.1**, gate PASS macro 91,76) — a dependência que os travava caiu. O que
@@ -506,6 +507,108 @@ dialeto privado; (b) o grounding, que não depende de gold nenhum.
 **Regra de parada.** Se E não bater B, **PARAR** — sem variações de hiperparâmetro
 até passar. E se E passar, o próximo custo (retreino multi-task v2.2 completo,
 ~28h de 3090) só é gasto **depois** deste veredito, nunca antes.
+
+
+### 5.3 RESULTADO — 🔴 **BLOCK**, e a hipótese **CONFIRMADA** (03/09/2026, 3090 do llmsv2)
+
+> Artefatos: `out/adapter_herd_v22` (md5 `28ddcbff2836b7f89558f6ac7f1f8ded`) e
+> `out/adapter_herd_v21`; preds `out/esp_gate/preds_herd_v2{1,2}.jsonl`; resultados
+> `out/esp_gate/r120_final_v2{1,2}.json`. Harness no git do harness: `2510121`.
+> Critério commitado ANTES em `2b68c55`. **Custo: 2h26 de 3090** (2 treinos de 63 min
+> + 2 gerações de ~9 min); a GPU voltou a ficar livre.
+
+#### A ablação de rótulo — o achado
+
+Dois adapters, **mesmas 497 linhas na mesma ordem, mesma receita, mesmo dev, mesma
+seed**. Só o rótulo muda:
+
+| régua v2.2 (primária) | F1/ex | micro-F1 | R115 `f1_entidade` | `falecido` |
+|---|--:|--:|--:|--:|
+| `adapter_herd_v21` (rótulo velho) | 61,64% | 44,36% | 31,05% | 85,87% |
+| **`adapter_herd_v22`** (rótulo novo) | **79,53%** | **73,03%** | **71,10%** | **92,17%** |
+| **Δ só do RÓTULO** | **+17,88pp** | +28,67 | +40,05 | +6,30 |
+
+**IC 95% pareado [+13,72, +21,97]pp · McNemar b=27/c=111, p=2,7×10⁻¹³.**
+
+Compare com o que a **arquitetura** rendeu no mesmo campo: os 7 adapters
+especialistas moveram **−0,52 a +0,02pp** (§2.3). **Trocar o rótulo vale ~18pp;
+trocar o modelo valeu zero.** Não é mais hipótese.
+
+**Controle de protocolo ✅** — o `adapter_herd_v21` (meu protocolo) reproduz o
+`adapter_esp_herdeiros` (protocolo de 02/08): 61,64% vs 60,68%. O ganho não vem do
+jeito de treinar.
+
+#### O gate — 3 de 4 critérios passam, e o quarto reprova
+
+| régua v2.2 | v2.1 (A) | base crua (B) | esp (C) | herd_v21 (D) | **herd_v22 (E)** |
+|---|--:|--:|--:|--:|--:|
+| **F1/ex (primária)** | 58,14% | 72,93% | 60,68% | 61,64% | **79,53%** |
+| micro-P / micro-R | 74,2 / **18,8** | 76,8 / 50,6 | 79,5 / 25,6 | 74,3 / 31,6 | 75,4 / **70,8** |
+| `f1_entidade` (R115) | 19,33% | 49,70% | 26,26% | 31,05% | **71,10%** |
+| `falecido` | 85,22% | 70,87% | 85,22% | 85,87% | **92,17%** |
+| grounding | 96,46% | 98,45% | 96,05% | 94,01% | 97,96% |
+| **emissão indevida** | 6,79% | **6,07%** | 8,21% | 10,71% | **12,86%** |
+
+| critério pré-registrado | medido | veredito |
+|---|---|---|
+| 1 · Δ(E−A) ≥ +3pp, IC>0 | **+21,39pp**, IC [+16,87, +25,80], p=2,2×10⁻¹³ | ✅ |
+| 2 · Δ(E−B) ≥ +3pp, IC>0 — **bate a base crua** | **+6,59pp**, IC [+2,86, +10,27], p=0,0081 | ✅ |
+| 3 · `falecido` ≥ A − 2pp | 92,17% vs teto de 83,22% — **melhora** +6,95pp | ✅ |
+| 4a · grounding ≥ B − 2pp | 97,96% vs teto 96,45% | ✅ |
+| **4b · emissão indevida ≤ B + 3pp** | **12,86% vs teto 9,07%** | 🔴 **REPROVA** |
+
+**Veredito: 🔴 BLOCK.** O critério exigia as quatro e **não foi afrouxado depois de
+ver o número** — é a regra que o R115 seguiu quando o C2 falhou em duas tarefas.
+`adapter_herd_v22` **não vai para produção**.
+
+#### Autópsia — por que ele emite demais (população INTEIRA, não amostra)
+
+Adjudiquei **os 36 casos** em que o gold v2.2 diz `herdeiros: []` e o E emitiu
+(não uma amostra — todos):
+
+| o que é | casos | exemplo |
+|---|--:|---|
+| **erro real de PAPEL** | ~27 (75%) | co-exequente de ação coletiva (`_i=395`: 13 nomes todos "(EXEQUENTE)"), **advogado com OAB** (`_i=349`: "REPRESENTANTES POLO ATIVO … DF21163"), inventariante (`_i=452`), o **polo passivo** (`_i=532`: "Requerido: Aldo Luis Pessagno"), e um vazamento do próprio falecido (`_i=117`) |
+| gold ainda calado (modelo certo) | 3 (8%) | `_i=239` "**HERDEIROS DE CYRO RICARDO NUNES:** O 'DE CUJUS' DEIXA TRÊS FILHOS" + os 3 nomes; `_i=262` "os herdeiros LUIZ CARLOS… e MARCIA…"; `_i=175` "Requerente e **Herdeiro**: Sueli…" |
+| ambíguo no próprio documento | 6 (17%) | `_i=229`, onde o texto lista os mesmos nomes como falecidos e como "Exequente e Herdeiro" |
+
+⚠️ **A amostra pequena mentiu de novo — 7ª vez nesta casa.** Nos 8 primeiros casos
+(seed fixa) a leitura dava **3/8 = 38% de gold calado**, o que quase virou "a guarda
+reprovou por causa do gold". Nos **36**, são **3/36 = 8%**. A reprovação é real.
+
+#### A causa, e ela é de novo o dado — mas agora com nome e endereço
+
+O gold v2.2 extrai **`{nome, papeis:[herdeiro|inventariante|conjuge|sucessor]}`** — foi
+exatamente a correção de 31/07, para não repetir o erro de excluir a viúva-inventariante.
+**Mas o alvo de treino no mix é uma lista chapada de nomes** (`herdeiros: ["A","B"]` —
+medido: 894 de 894 são `str`, nenhum `dict`). Os papéis **são jogados fora ao montar o
+mix**. O modelo então recebe "às vezes emite, às vezes não" **sem a razão junto**, e
+aprende o atalho disponível: *nome perto de um espólio = herdeiro*. Os 27 erros são
+todos desse formato.
+
+**Próximo lever (não precisa de GPU para preparar):** levar o papel para dentro do alvo
+(`herdeiros: [{nome, papel}]`, com o enum fechado e a regra de abstenção explícita) e
+re-rodar **esta mesma ablação de 2h26**. É mudança de `mix_datasets`, não de modelo.
+
+#### Consistência de régua — declarada, não afrouxada
+
+Sob a régua do gold **v2.1** o sinal inverte na primária: E fica **−18,76pp** abaixo do
+v2.1 e **−9,80pp** abaixo da base — mas **+22,21pp** e **+10,12pp** acima deles na
+métrica do R115. O veredito é **dependente de régua**, como o pré-registro previa. As
+duas réguas discordam porque a v2.1 cobra por emitir o que ela mesma não rotulou; a
+v2.2 é a adotada pelo motivo medido em §5.1 (263 dos 383 "falsos positivos" da base
+viram verdadeiros sob ela, com grounding de 98,45%).
+
+#### O que este ciclo NÃO mediu (dito, não estimado)
+
+- **O v2.2 multi-task completo.** Só a fatia `herdeiros` foi retreinada. As ~28h de
+  3090 do retreino do mix inteiro **não foram gastas** — a regra de parada dizia que
+  esse custo só vem depois de um veredito, e o veredito é BLOCK.
+- **`partes_doc` sob rótulo consertado.** É o outro campo de teto (78%) e ninguém
+  re-rotulou. A ablação aqui só autoriza a **suspeita** de que lá também é o rótulo.
+- **Grammar GBNF.** Geração livre nos cinco modelos, como no gate v2.1.
+- **κ humano no gold v2.2 inteiro.** O que existe é o spot-check de 31/07 (9/10 nos
+  recuperados) mais os 36 casos adjudicados aqui — não uma auditoria exaustiva.
 
 
 ---

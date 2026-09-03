@@ -6,7 +6,7 @@
 > entity-centric (`FICHA_PARTE.md`). Se você é um agente começando: **leia isto
 > primeiro**, depois abra o específico.
 >
-> Última consolidação: **2026-09-02** (triagem de pendências de ML).
+> Última consolidação: **2026-09-03** (ablação de rótulo em `herdeiros`).
 
 ---
 
@@ -36,9 +36,11 @@ lever real foi **janelamento de docs longos**, não a base. Ver `LABLOG.md`.
 | **v2 "Ficha da Parte"** | 28-29/07 | PARCIAL — **ACORDAO 16%** | Causa = docs longos **dropados** do treino (>4096 tok). Lever confirmado: **janelar**. Extração vira por-DOCUMENTO (entity-centric). |
 | **v2.1** (CAMPEÃO) | 30-31/07 | **PASS macro 91,76** (loss 0,0082) | Janelamento recuperou 37k exemplos longos (dataset 211.928). Buracos do v2 tapados. GGUF md5 `0012607b1634e7b8f96c8f6a9d7bad21`. |
 | **A/B Qwen3-8B** | 31/07 | 🔴 **BLOCK** (+1,6 macro, regride DOC_PESSOAL) | Base alternativa não compensa. Ficamos no Qwen2.5-7B. Serviu pra **matar a dúvida** da base. |
-| **v2.2 (herdeiros)** | 31/07→ | ⚫ **NÃO FECHOU** | Gold re-rotulado com professor (**DeepSeek** venceu o bake-off); docs com herdeiro 25%→49% (363 recuperados). **O dado está pronto no NAS (`data/*_v22.jsonl`); o `adapter_v22` NÃO existe** — o pod 4090 foi destruído com o treino em voo. Retomar = subir GPU e rodar (não é pesquisa nova). |
+| **v2.2 (herdeiros)** | 31/07 → gate 03/09 | 🔴 **BLOCK** (3 de 4 critérios) | Gold re-rotulado com professor (**DeepSeek**): vazio **73%→50%**, nomes 384→894, **96,4% literais no texto**. Ablação pareada (mesmas linhas, mesma receita, **só o rótulo muda**): **+17,88pp**, IC [+13,72, +21,97] — contra os −0,52/+0,02pp que os especialistas renderam. Bate v2.1 (+21,39) E a base crua (+6,59). **Reprova a guarda de emissão indevida** (12,86% vs teto 9,07%): 75% do resíduo é erro de PAPEL (advogado, inventariante, co-exequente, polo passivo). Causa: o mix **descarta os `papeis` do gold**. |
 | **Especialistas (7 LoRA)** | 02/08 → gate 02/09 | 🔴 **BLOCK nos 7** (Δ −0,52 a +0,02pp) | Adapter por classe NÃO vence o multi-task: o v2.1 já faz 98-99,5% em 6 das 7 tarefas. E em `herdeiros` a **base sem fine-tune bate o campeão** (40,0 vs 27,9) — o gargalo é o RÓTULO. |
 | **DAPT** | 02-03/08 | 🔴 **BLOCK** | SFT-sobre-DAPT não bate SFT-direto: v2 macro +1,08pp, v1 +0,06pp (critério ≥+2pp) e **`partes` PIORA** (0,5139→0,5081). Pré-treino no dialeto próprio não paga o custo. Ver `EXPERIMENTOS_MODELO.md` §1. |
+
+| **Ablação de rótulo `herdeiros`** | 03/09 | 🔴 **BLOCK** no gate, ✅ **hipótese confirmada** | Trocar só o RÓTULO vale **+17,88pp**; trocar o MODELO valeu zero. E a régua do achado de 02/09 tinha um buraco: `score_v2` não pontua lista de gold vazio → **emitir de graça**. Ver `EXPERIMENTOS_MODELO.md` §5. |
 
 **Métrica barata mente (meta-lição recorrente — já bateu 5×):** bit-index sample,
 herdeiros gold, vetorizados SET, docs-as-exhaustion, embed-probe. **Decidir só no
@@ -58,6 +60,7 @@ dois nunca dispararam:
 | 2 | **Destilação 3B** | nas classes fortes (ALVARA/PAGAMENTO 99-100) um 3B basta | aluno ≥ professor−2pp nas fortes | 🟡 harness pronto; **nunca rotulou** (professor definido desde 31/07) |
 | 3 | **DPO-κ** | preferências da fila κ matam o chute | falsa-afirmação **−50%** sem perder cobertura >2pp | 🟡 dataset pronto (2.688 pares); **nunca treinou** |
 | 4 | **Especialistas LoRA** (adapter por classe fraca) | ACORDAO/CESSAO/herdeiros ganham com adapter dedicado | bater multi-task por classe no gate (≥2 de 3 por ≥3pp) | 🔴 **BLOCK (02/09)** — 0 de 3; IC 95% pareado exclui o ganho nas 7. Respondido e morto |
+| 5 | **Rótulo v2.2 em `herdeiros`** | o teto do campo é o RÓTULO, não o modelo | bater v2.1 **e** a base crua por ≥3pp + guarda anti-alucinação | 🔴 **BLOCK (03/09)** — 3 de 4; hipótese CONFIRMADA (+17,88pp só do rótulo), adapter não promovido. Próximo lever = levar `papeis` para o alvo do mix |
 
 **Regra dos experimentos:** nada é promovido sem passar os **gates** (mesmo TEST
 held-out, precisão@cobertura por campo). Gate BLOCK = modelo morre com autópsia
@@ -110,7 +113,9 @@ inequívoca. Um experimento pendurado é mais caro que o gate que o mataria.
 | **voyager-worker-mac** (lab, Tailscale) | Apple **M4** 10-core, 24GB unificados | **serve** GGUF via Metal (não treina) | $0 (hardware próprio) | 🔴 **offline há 4d em 02/09** — `ssh davicordeiro@192.168.200.37` · [`GPU_MACOS.md`](GPU_MACOS.md) |
 
 **Só sobrou uma GPU viva: a 3090 do `llmsv2`.** Em 02/09 ela rodou o **gate dos
-especialistas** (~3h20, 17 execuções, veredito BLOCK nos 7) e **voltou a ficar livre**.
+especialistas** (~3h20, 17 execuções, BLOCK nos 7); em 02-03/09 a **ablação de rótulo
+de `herdeiros`** (2h26: 2 treinos de 63 min + 2 gerações de ~9 min, veredito BLOCK com
+hipótese confirmada) e **voltou a ficar livre** — a showcase é o próximo uso na fila.
 O trabalho de GPU que resta (retreino v2.2, DPO-κ, destilação 3B, servir o GGUF pra
 showcase) cabe nela — a alternativa é subir pod novo e **sincronizar checkpoint pro
 NAS**, que é a lição que a v2.2 pagou.
@@ -151,7 +156,7 @@ pra demo ao vivo. Detalhe em [`GPU_MACOS.md`](GPU_MACOS.md).
 | **A/B Qwen3-8B** | 🔴 reprovou o gate → arquivado | +1,6 macro < 2 |
 | **7 Especialistas LoRA** | 🔴 **BLOCK (02/09)** — gateados, nenhum promove | `out/adapter_esp_*` + `out/esp_gate/resultado_*.json` |
 | **DAPT** | 🔴 **BLOCK** | `out/adapter_dapt` (02/08); veredito 03/08 |
-| **v2.2 (herdeiros)** | ⚫ **nunca produziu adapter** | `data/*_v22.jsonl` existem; **`out/adapter_v22` não existe** |
+| **v2.2 (herdeiros)** | 🔴 **BLOCK (03/09)** — adapter existe, não promovido | `out/adapter_herd_v22` (md5 `28ddcbff…`) + `out/adapter_herd_v21` (controle) · `out/esp_gate/r120_final_v2{1,2}.json` |
 | DPO-κ · Destilação 3B | 🟡 dataset/harness prontos, nunca dispararam | — |
 
 **Infra:** `trainpod` (4090) e o pod 3090 **não respondem mais** (chave recusada /
