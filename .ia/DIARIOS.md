@@ -59,6 +59,13 @@ Tudo abaixo é MEDIDO contra a fonte viva em 16/08/2026, não estimado.
 
 ### `dejt` — Diário Eletrônico da Justiça do Trabalho (TST + 24 TRTs)
 
+> ⚠️ **A FONTE ESTÁ FORA DO AR desde 18/08/2026**, declarado pelo próprio CSJT.
+> `dejt.jt.jus.br` responde 302 para uma página de aviso e o coletor recusa a
+> tela (`sem javax.faces.ViewState`). Existe um espelho de contingência com o
+> acervo inteiro — e ele traz um `robots.txt` com `Disallow: /`. Tudo em
+> **[§19](#19-as-duas-portas-que-estavam-prontas-e-desligadas--por-quê-medido-03092026)**,
+> junto com os dois eixos do gate que passaram a existir para esta fonte.
+
 | | |
 |---|---|
 | **Dá** | inventário de 18 anos (95.679 linhas) numa requisição. Publicação com partes+papel, advogados+OAB, órgão (do outline do PDF), tipo, texto verbatim. Gabarito **da própria fonte** por edição (a pesquisa avançada declara "1 até 20 de 16.717") |
@@ -2242,18 +2249,20 @@ conhecida contra esse caso é alguém abrir um caderno de vez em quando. Não h�
 régua automática para ele, e dizer que há seria o tipo de conforto falso que
 este documento inteiro existe para evitar.
 
-**E o eixo só está armado para o `tjsp-dje`.** `dejt`, `stf`, `doe-sp` e
-`qd-municipal` não declaram marcador: nelas o eixo **se abstém** e o log diz
-`inventário por marcador NÃO MEDIDO`. Abstenção não é aprovação — e essa linha
-existe justamente para que "não medido" e "medido e ok" não tenham a mesma cara
-no log.
+**Em 02/09/2026 o eixo só estava armado para o `tjsp-dje`.** Em 03/09 o `dejt`
+também passou a declarar marcador (§19.5). `stf`, `doe-sp` e `qd-municipal`
+continuam sem: nelas o eixo **se abstém** e o log diz `inventário por marcador
+NÃO MEDIDO`. Abstenção não é aprovação — e essa linha existe justamente para
+que "não medido" e "medido e ok" não tenham a mesma cara no log.
 
 | onde | estado |
 |---|---|
 | `diarios/inventario.py` | mecanismo (as duas pernas, assinatura, teto declarado) |
 | `ColetorDiario.MARCADORES_DE_REGISTRO` | contrato; vazio = abstém |
 | `diarios/fontes/tjsp_dje/coletor.py::MARCADORES_TJSP` | 3 marcadores (2 da DEPRE, 1 da pauta) |
+| `diarios/fontes/dejt/coletor.py::MARCADORES_DEJT` | 2 marcadores (matéria e Distribuição) — §19.5 |
 | `tests/test_gate_inventario.py` | 11 testes, incluindo o que trava a independência |
+| `tests/test_gate_inventario_dejt.py` | 12 testes do eixo armado no DEJT |
 
 ---
 
@@ -2493,20 +2502,77 @@ esta régua não separa as duas causas hoje. Fica registrado como não separado.
 
 Nenhum dos 10 critérios do §13.7 foi acionado.
 
-### 19.5 O que ficou de fora
+### 19.5 O caderno 1 não é lacuna esporádica: é 5 de 5
+
+O §10 já registrava que "o caderno 1 (Administrativo) fecha `vazia` mesmo tendo
+CNJ impresso" e chamava isso de "lacuna pequena e SILENCIOSA". Com o volume
+aberto dá para medir a frequência, e ela não é ocasional. Todas as unidades que
+fecharam numa hora de coleta, agrupadas por caderno:
+
+| caderno | unidades | cobertura mín / mediana / máx | CNJs no caderno (mediana) |
+|---:|---:|---:|---:|
+| **10** (1 · Administrativo) | 5 | **15,8% / 57,7% / 76,9%** | **50** |
+| 11 (2 · 2ª Inst. Entrada e Distribuição I) | 4 | 100,0 / 100,0 / 100,0 | 17.417 |
+| 12 (3 · 1ª Inst. Capital I) | 3 | 99,8 / 99,8 / 99,9 | 32.813 |
+| 13 (4 · 1ª Inst. Interior II) | 4 | 99,7 / 99,9 / 100,0 | 52.794 |
+| 15 (4 · 1ª Inst. Interior III) | 2 | 99,9 / 99,9 / 99,9 | 54.432 |
+| 18 (4 · 1ª Inst. Interior I) | 2 | 99,9 / 99,9 / 99,9 | 61.101 |
+| 20 (3 · 1ª Inst. Capital II) | 4 | 99,9 / 100,0 / 100,0 | 28.589 |
+
+**Cinco unidades abaixo do piso de 95%, e as cinco são o caderno 10.** Nenhuma
+reprovou, e o motivo é mecânico: `MINIMO_PARA_AFERIR_COBERTURA=200` e o caderno
+Administrativo tem **13 a 78** CNJs impressos. Abaixo de 200 a edição não é
+aferida contra nada — o gate se abstém, corretamente, mas a abstenção sai com a
+mesma cara de aprovação no `diarios_status`.
+
+Ordem de grandeza da perda, para dimensionar a dívida sem exagerá-la: ~50 CNJs
+por unidade a ~42% fora de bloco, em 3.671 unidades da faixa ⇒ da ordem de
+**77 mil publicações**. Contra os ~90 milhões que a faixa inteira promete, é
+0,1% — pequeno, e **100% sistemático e 100% silencioso**, que é a combinação
+que este documento inteiro existe para não deixar passar. Não foi consertado
+aqui: é parser de outro layout, com gate próprio, como foram a DEPRE e a pauta.
+
+### 19.6 A fila `default` oscila NO teto — e é assim que ela foi desenhada
+
+Achado operacional que vale para quem for subir mais réplicas. Com o
+`worker_diarios` em 4, a fila `default` (que é do `tick` dos diários, dos
+reabastecimentos, do watchdog **e do tique da Fase 3**) sai de **0** e passa a
+oscilar em torno de **200** — que é exatamente `DIARIOS_FILA_PARTES_MAX`. Não é
+coincidência: o guarda de fairness do §17.5 adia a promoção a parte sempre que a
+`default` passa de 200, então ele **regula** a fila nesse número. Medido: 511
+adiamentos em 10 minutos, cada um com o número no log.
+
+O efeito colateral é latência de cron, e ela é **em rajada, não constante**:
+`tick_recuperacao_fase3` ficou **13 minutos sem rodar** e depois rodou 4 vezes
+em 4 minutos. A causa é a cauda de duração dos jobs da `default` — mediana
+**12 s**, máximo medido **188 s**, com 2 réplicas de `worker_default`.
+
+**Não subi `worker_default`, de propósito.** Os dois critérios que o dono nomeou
+seguem intactos (vazão da Fase 3 e a tela de estado, §19.4) e a fila se
+autocorrige; acrescentar concorrência de escrita a um Postgres já
+disk-I/O-bound para consertar uma oscilação que se resolve sozinha seria trocar
+um não-problema medido por um risco não medido. Fica escrito como o **primeiro
+lugar onde olhar** se alguém subir o `worker_diarios` acima de 4:
+
+    o sintoma é `tick_todas` parado na fila `default` por 20-30 min
+    a consequência é a fila `diarios` esvaziando sem refill — e a coleta parando
+    a sonda é: docker logs do worker_default | grep 'tick tjsp-dje'
+              (um container por vez — §13.10)
+
+### 19.7 O que ficou de fora
 
 | pendência | estado |
 |---|---|
 | a sonda do denominador completa (29.368 HEADs, ~10 h a 2 rps) | **parcial: 13,9%** quando esta seção fechou. O número publicado é da bissecção; a sonda é o controle, e já mediu a ausência esporádica em 0,063% |
 | era 2007-10-01 → 2009-06-14 | fora da faixa catalogada. As estreias já estão medidas (§19.1), mas nenhuma unidade foi catalogada nem coletada |
-| o **caderno 1 (Administrativo)** | segue fechando com cobertura de 15,8%, 57,7% e 76,9% nesta rodada **sem o gate disparar**: `MINIMO_PARA_AFERIR_COBERTURA=200` e ele tem 26-78 CNJs. É a lacuna do §10, agora com número novo — e ela se repetirá em ~460 unidades desta fatia |
+| o **caderno 1 (Administrativo)** | ver §19.5: não é esporádico, é **5 de 5** — e não foi consertado |
 | catalogar 2011 → 2022 | **não feito de propósito.** São ~16.500 unidades reais; o §13.2 manda expandir o disco do ES antes de janela larga |
 | `DIARIOS_FILA_PARTES_MAX` | não mexido (200). Com 4 réplicas a promoção a parte adia mais — o `backfill_partes_djen` alcança depois (§17.5) |
 | as 22 edições do §16.4 / caderno 5 | inalterados |
 
 ---
 
-## 19. As duas portas que estavam prontas e desligadas — por quê, medido (03/09/2026)
+## 20. As duas portas que estavam prontas e desligadas — por quê, medido (03/09/2026)
 
 > **Veredito: nenhuma das duas pode ser ligada hoje, e as razões são
 > diferentes — nem uma nem outra é "faltou apertar o botão".**
@@ -2514,7 +2580,7 @@ Nenhum dos 10 critérios do §13.7 foi acionado.
 > | fonte | por que estava desligada | por que continua |
 > |---|---|---|
 > | `dejt` | recorte `DIARIOS_FONTES_AGENDADAS=tjsp-dje` (uma fonte por vez) **+** a sonda de 24/08 achou HTTP 503 | **a fonte saiu do ar em 18/08/2026 e quem declara isso é o CSJT.** Não é o nosso lado |
-> | `stf` | mesmo recorte **+** as duas decisões do §5 que o documento marca como "olho humano ANTES" | as duas continuam abertas, e apareceu uma **terceira**, que é defeito e não decisão (§19.7) |
+> | `stf` | mesmo recorte **+** as duas decisões do §5 que o documento marca como "olho humano ANTES" | as duas continuam abertas, e apareceu uma **terceira**, que é defeito e não decisão (§20.7) |
 >
 > Nenhum kill switch estava ligado: `diarios_pausar --listar` devolve
 > `{"pausadas": [], "tudo_pausado": false}` com as 5 fontes registradas. E
@@ -2522,11 +2588,11 @@ Nenhum dos 10 critérios do §13.7 foi acionado.
 > `ultima_data_catalogada: null`. Nunca rodaram em produção.
 >
 > **O que saiu daqui:** o DEJT era a fonte mais desprotegida das cinco — **três
-> réguas, três silêncios** (§19.4) — e agora tem os dois eixos do gate armados,
-> medidos contra **7 cadernos reais** (§19.5). Ligar deixou de ser um projeto e
+> réguas, três silêncios** (§20.4) — e agora tem os dois eixos do gate armados,
+> medidos contra **7 cadernos reais** (§20.5). Ligar deixou de ser um projeto e
 > virou uma decisão.
 
-### 19.1 O DEJT está fora do ar desde 18/08/2026 — e é a fonte que diz isso
+### 20.1 O DEJT está fora do ar desde 18/08/2026 — e é a fonte que diz isso
 
 A sonda de 24/08 (§13.6) registrou HTTP **503**. Hoje o sintoma é outro, e o
 novo sintoma é melhor, porque tem texto:
@@ -2558,7 +2624,7 @@ diarios_coletar dejt --de 2024-07-10 --ate 2024-07-10 --dry-run
 É a defesa de "200 que não é dado" funcionando num caso que ninguém escreveu o
 teste para: **a fonte inteira desapareceu e o coletor não inventou acervo.**
 
-### 19.2 Existe um espelho de contingência — e ele é melhor de ler e pior de catalogar
+### 20.2 Existe um espelho de contingência — e ele é melhor de ler e pior de catalogar
 
 `https://dejt-caderno.jt.jus.br/?data=AAAA-MM-DD`. Medido em 03/09/2026:
 
@@ -2574,7 +2640,7 @@ teste para: **a fonte inteira desapareceu e o coletor não inventou acervo.**
 
 1. **Não tem a pesquisa avançada** — ou seja, não tem o gabarito
    `"1 até 20 de 16.717"`. `ColetorDEJT.esperado()` devolve `None` por desenho
-   em qualquer erro, então hoje ele devolve `None` **sempre**. Ver §19.4.
+   em qualquer erro, então hoje ele devolve `None` **sempre**. Ver §20.4.
 2. **Não tem catálogo em bloco.** O JSF entregava as **95.679** edições de 18
    anos em UMA resposta (50,8 MB, 37 s). O espelho é **um GET por dia**:
    ~6.640 requisições para o mesmo inventário.
@@ -2591,7 +2657,7 @@ outra conversa — e é do dono do produto. O que foi feito aqui foram **9
 requisições de diagnóstico** (7 cadernos + 2 listagens), o suficiente para
 medir e nem perto de uma varredura.
 
-### 19.3 O `stf` responde — o que trava é semântica, e agora são três
+### 20.3 O `stf` responde — o que trava é semântica, e agora são três
 
 Medido em 03/09/2026: `GET /decisoes-publicacoes/api/public/ultimo-dje` →
 **HTTP 200 em 0,13 s**, devolvendo `"2026-09-03"` (o DJe de hoje). Sem WAF na
@@ -2617,7 +2683,7 @@ A porta está viva. O que não está resolvido:
    linha do STF entrar em `Movimentacao` — e mora em arquivos que este trabalho
    não toca.
 
-### 19.4 O DEJT era a fonte mais desprotegida das cinco — três réguas, três silêncios
+### 20.4 O DEJT era a fonte mais desprotegida das cinco — três réguas, três silêncios
 
 Este é o achado que mais surpreendeu, e ele não depende de a fonte estar fora do
 ar. Antes de 03/09/2026, uma coleta do DEJT passava por:
@@ -2632,7 +2698,7 @@ Três réguas, três silêncios, um sintoma só de fora: **run verde**. É a mes
 assinatura da tabela do `CLAUDE.md`, e desta vez ela estava armada numa fonte
 que cobre a Justiça do Trabalho inteira.
 
-### 19.5 O que ficou armado — e os 7 cadernos que sustentam cada número
+### 20.5 O que ficou armado — e os 7 cadernos que sustentam cada número
 
 Territórios: só `diarios/fontes/dejt/`. `base.py`, `jobs.py`, `models.py` e
 `inventario.py` **não foram tocados** — o mecanismo do §18 serviu como está,
@@ -2644,23 +2710,55 @@ GATE, não do parsing: com as duas âncoras no mesmo balde, as ~900 matérias
 `Processo Nº` cobririam sozinhas a conta da Distribuição inteira e a perna A
 ficaria muda (§18.5, decisão 1).
 
-Medido em 6 cadernos, pelos **três** caminhos que têm que concordar — regex no
-texto colado, contagem linha a linha, e blocos produzidos:
+Medido em **7 cadernos**, pelos **três** caminhos que têm que concordar — regex
+no texto colado, contagem linha a linha, e blocos produzidos:
 
-| caderno | `Processo Nº` impressos × blocos | `Distribuição` impressas × blocos | descartes |
-|---|---|---|---|
-| TRT22 10/07/2024 | 890 × 890 | 109 × 109 | 0 |
-| TRT16 10/07/2024 | 1.102 × 1.102 | 154 × 154 | 0 |
-| TRT16 10/03/2022 | 1.395 × 1.392 | 0 × 0 | 3 pré-CNJ |
-| TRT16 11/03/2020 | 2.190 × 2.187 | 0 × 0 | 3 pré-CNJ |
-| TRT22 15/03/2018 | 750 × 744 | 0 × 0 | 6 pré-CNJ |
-| TRT16 15/03/2018 | 1.237 × 1.181 | 0 × 0 | **56 pré-CNJ** |
+| caderno | páginas | `Processo Nº` impressos × blocos | `Distribuição` impressas × blocos | descartes |
+|---|---|---|---|---|
+| TRT3 10/07/2024 | 13.853 | 16.954 × 16.940 | 1.828 × 1.828 | 14 pré-CNJ |
+| TRT22 10/07/2024 | 612 | 890 × 890 | 109 × 109 | 0 |
+| TRT16 10/07/2024 | 641 | 1.102 × 1.102 | 154 × 154 | 0 |
+| TRT16 10/03/2022 | 805 | 1.395 × 1.392 | 0 × 0 | 3 pré-CNJ |
+| TRT16 11/03/2020 | 1.207 | 2.190 × 2.187 | 0 × 0 | 3 pré-CNJ |
+| TRT22 15/03/2018 | 2.210 | 750 × 744 | 0 × 0 | 6 pré-CNJ |
+| TRT16 15/03/2018 | 1.400 | 1.237 × 1.181 | 0 × 0 | **56 pré-CNJ** |
 
-**Zero falso positivo:** a âncora de Distribuição nunca casou fora de uma seção
-de Distribuição em nenhum dos 6.
+> **O 7º caderno pagou a própria viagem — ele reprovou o marcador, não a
+> edição.** Com os 6 primeiros o marcador de Distribuição parecia perfeito:
+> 109×109 e 154×154, batendo no dígito. No TRT3 ele acusou **2.870 impressas ×
+> 1.828 blocos** e teria reprovado a **edição de referência do DEJT** por uma
+> perda de 1.042 registros. Fui olhar: das 2.870 linhas com a forma
+> `SIGLA CNJ`, só 1.828 estão na seção que o outline declara `Distribuição`; as
+> outras 1.042 estão dentro de `Notificação`, e uma delas
+> (`AIRR 0004300-04.2002.5.03.0009`) aparece **4 vezes seguidas** — é citação
+> no corpo de um ato, não registro.
+>
+> Era **falso positivo do meu marcador**, exatamente o que o comentário do
+> `MARCADORES_TJSP` avisa: *"marcador que dispara fora do formato inflaria o
+> `impresso` e produziria alarme falso — e alarme falso em gate é pior que gate
+> ausente, porque ensina a ignorar"*. A cura é `_ver_linha`: a linha
+> `SIGLA CNJ` só conta como registro **dentro da seção que o OUTLINE do PDF
+> declara Distribuição** — informação da FONTE, não do segmentador, então a
+> independência do §18.3 fica de pé.
+>
+> A lição operacional, que vale para o próximo marcador de qualquer fonte:
+> **um marcador validado só em caderno pequeno não está validado.** Os 6
+> primeiros somam 6.875 páginas e não continham UM caso; o 7º, sozinho, tem
+> 13.853 e continha 1.042.
+>
+> **E a cura teve o próprio erro, na medida seguinte.** A primeira versão do
+> recorte por seção cortava em `range(inicio, fim)`, com `fim` = página em que
+> a seção SEGUINTE começa. Só que **seção troca no meio da página**: as linhas
+> de Distribuição impressas depois do meio dessa página sumiam da contagem, e o
+> `impresso` do TRT22 caiu de 109 para **107** e o do TRT16 de 154 para
+> **144**. Nenhum alarme — a comparação da perna A é `>=`, então subcontar
+> passa **calado**. Foi o log de rotina (`inventário da fonte {...} → blocos
+> {...}`, impresso SEMPRE, mesmo sem divergência) que mostrou a diferença. É
+> exatamente para isso que ele existe: **o número do dia bom é a referência do
+> dia ruim.**
 
-**A diferença precisa ter NOME, e a conta tem que fechar.** As 68 diferenças da
-coluna `Processo Nº` são **68 de 68 (100%)** de numeração trabalhista PRÉ-CNJ
+**A diferença precisa ter NOME, e a conta tem que fechar.** As 82 diferenças da
+coluna `Processo Nº` são **82 de 82 (100%)** de numeração trabalhista PRÉ-CNJ
 (`Processo Nº ROS-02029/2006-002-16-00.5`) — acervo real que existe e para o
 qual não há de-para com `Process.numero_cnj`. Reprovar a edição por isso pararia
 a fonte; calar sobre isso é a perda silenciosa. O meio-termo é a **conta**:
@@ -2682,10 +2780,10 @@ piso `DIARIOS_COBERTURA_MINIMA` (0,95), com o `sem_aproveit` do §4 na frente �
 edição com registro impresso e ZERO aproveitável fecha terminal **com o motivo
 escrito**, nunca como `vazia`.
 
-Resultado sobre os 6 cadernos reais: **5 passam, 1 reprova** — e a que reprova é
-o §19.6.
+Resultado sobre os 7 cadernos reais: **6 passam, 1 reprova** — e a que reprova
+é o §20.6.
 
-### 19.6 O TERCEIRO formato do DEJT, que o eixo achou no primeiro caderno de teste
+### 20.6 O TERCEIRO formato do DEJT, que o eixo achou no primeiro caderno de teste
 
 TRT22 de 15/03/2018 reprovou: **628 de 678 CNJs impressos (92,6%)** dentro de
 bloco. Os 50 órfãos, agrupados pela forma da linha (perna B):
@@ -2714,7 +2812,7 @@ cadernos de 2018 seria trocar um número por outro. O gate agora reprova a
 edição em vez de gravá-la pela metade, que é o comportamento correto enquanto a
 decisão não vem.
 
-### 19.7 Cobertura contra o denominador da FONTE — o que deu para medir e o que não deu
+### 20.7 Cobertura contra o denominador da FONTE — o que deu para medir e o que não deu
 
 **Não deu para medir ao vivo, e isto é abstenção, não estimativa:** o
 denominador do DEJT (`"1 até 20 de N"`) mora na pesquisa avançada, que está no
@@ -2737,17 +2835,19 @@ advogado+OAB = 97,4%).
 **A cobertura do DEJT contra o acervo declarado ao CNJ continua NÃO MEDIDA**, e
 não por esquecimento: é a mesma lacuna que o §2 já declara para as três portas.
 
-### 19.8 O que ficou de fora, dito na cara
+### 20.8 O que ficou de fora, dito na cara
 
 | item | estado |
 |---|---|
-| transporte para `dejt-caderno.jt.jus.br` | **não escrito.** Trava em `Disallow: /` (§19.2), que é decisão do dono do produto |
+| transporte para `dejt-caderno.jt.jus.br` | **não escrito.** Trava em `Disallow: /` (§20.2), que é decisão do dono do produto |
 | `esperado()` do DEJT | continua apontando para o host morto; devolve `None` e o runner segue sem gabarito. Os dois eixos novos é que seguram |
 | parser do 3º formato (`Processo   :`) | **não escrito.** Achado, nomeado, medido em 1 caderno (45 ocorrências). Quantos cadernos o têm: não medido |
+| parser do 4º formato (`<CNJ> - ROT`) | **não escrito.** A perna B o achou no TRT3 de 10/07/2024: **160 CNJs órfãos** na forma `#-#.#.#.#.# - ROT` (o CNJ vem ANTES da sigla, invertido em relação à Distribuição). Nunca tinha aparecido em nenhuma medição desta fonte |
+| recorte de seção por PÁGINA | é aproximação: o outline dá a página em que a seção começa, e seção troca no meio da página. `_paginas_de_distribuicao` admite a página de fronteira. O exato exigiria offset de caractere, que significa colar o caderno inteiro uma segunda vez na memória (regra nº 1) |
 | parser da era pré-PJe (2008-2017) | continua faltando — 49% do inventário (46.845 edições) |
 | de-para da numeração pré-CNJ trabalhista | continua faltando. Agora ao menos é CONTADO por edição (`descartes['pre_cnj']`) |
 | `segmentavel_desde=2018-01-01` | **não mexido**, e agora se sabe que está otimista para o TRT22 |
-| `stf` | **não ligado.** Duas decisões do §5 abertas + o defeito do §19.3.3 |
+| `stf` | **não ligado.** Duas decisões do §5 abertas + o defeito do §20.3.3 |
 | eixo armado para `stf`, `doe-sp`, `qd-municipal` | continuam abstendo (`NÃO MEDIDO` no log) |
 
 | onde | o que mudou |
