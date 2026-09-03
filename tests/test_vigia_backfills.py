@@ -661,3 +661,24 @@ def test_bytes_por_linha_ausente_nao_vira_zero():
     r = V.medir_magistrados()
     assert r['bytes_por_linha'] is None or r['bytes_por_linha'] > 0
     assert r['projecao_bytes'] is None or r['projecao_bytes'] > 0
+
+
+@pytest.mark.django_db
+@CACHE_LOCAL
+def test_a_contagem_cara_nao_leva_junto_o_numero_do_orcamento(monkeypatch):
+    """O tamanho é catálogo e custa nada; a contagem exata varre índice e vai
+    encarecer. Num `try` só, o dia em que a contagem estourar o teto apagaria
+    o card inteiro — inclusive o ORÇAMENTO, que é o número que não pode sumir.
+    """
+    real = V._com_teto
+
+    def _falha_na_contagem(fn, segundos=V.SQL_TIMEOUT_S):
+        if segundos == V.MAG_CONTA_TIMEOUT_S:
+            raise RuntimeError('canceling statement due to statement timeout')
+        return real(fn, segundos)
+
+    monkeypatch.setattr(V, '_com_teto', _falha_na_contagem)
+    r = V.medir_magistrados()
+    assert r['bytes'] is not None, 'o orçamento sumiu junto com a contagem'
+    assert r['fonte_linhas'] == 'reltuples', \
+        'caiu para estimativa e não disse — a procedência tem de ir na tela'

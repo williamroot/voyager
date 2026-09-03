@@ -256,6 +256,13 @@ SQL_TETO_TIMEOUT_S = int(os.environ.get('VIGIA_SQL_TETO_TIMEOUT_S', 300))
 #: `erros` no retrato, em vez de segurar a thread.
 ES_TIMEOUT_S = int(os.environ.get('VIGIA_ES_TIMEOUT_S', 120))
 
+#: Teto da contagem EXATA de `MagistradoAtuacao`. Medida em 03/09/2026 com
+#: 23.278 linhas: 0,00 s. A tabela caminha para dezenas de milhões, e é por
+#: isso que o teto existe ANTES de doer — estourá-lo não apaga o número do
+#: orçamento, só troca a contagem exata por `reltuples`, com a procedência
+#: publicada ao lado.
+MAG_CONTA_TIMEOUT_S = int(os.environ.get('VIGIA_MAG_CONTA_TIMEOUT_S', 60))
+
 #: Janela do `detected_at` que contém 100% dos faltantes de `proc_digits`.
 #: IMPORTADA do comando, nunca copiada: se a premissa da fatia mudar lá, o
 #: alarme daqui muda junto. Uma segunda cópia produziria o pior resultado —
@@ -645,17 +652,44 @@ def medir_magistrados() -> dict:
         LINHAS_PROJETADAS, ORCAMENTO_PADRAO, PAUSA_KEY, TABELAS, ZERO_KEY,
     )
 
-    def _q(c):
+    def _tamanho(c):
         c.execute('SELECT coalesce(sum(pg_total_relation_size(k.oid)), 0) '
                   'FROM pg_class k WHERE k.relname = ANY(%s)', [list(TABELAS)])
-        (bytes_tot,) = c.fetchone()
+        return int(c.fetchone()[0])
+
+    def _conta(c):
         c.execute('SELECT count(*) FROM tribunals_magistradoatuacao')
         (n_atu,) = c.fetchone()
         c.execute('SELECT count(*) FROM tribunals_magistrado')
-        (n_mag,) = c.fetchone()
-        return int(bytes_tot), int(n_atu), int(n_mag)
+        return int(n_atu), int(c.fetchone()[0])
 
-    bytes_tot, n_atu, n_mag = _com_teto(_q)
+    def _estimativa(c):
+        c.execute("SELECT relname, reltuples::bigint FROM pg_class "
+                  "WHERE relname = ANY(%s)", [list(TABELAS)])
+        d = dict(c.fetchall())
+        return (max(0, d.get('tribunals_magistradoatuacao', 0)),
+                max(0, d.get('tribunals_magistrado', 0)))
+
+    # As duas medições são SEPARADAS de propósito. O tamanho é catálogo e
+    # custa nada; a contagem exata varre índice e vai encarecer conforme a
+    # tabela cresce. Juntas num `try` só, o dia em que a contagem estourar o
+    # teto levaria junto o número do ORÇAMENTO — que é o único que não pode
+    # sumir da tela. Card vazio some da vista.
+    bytes_tot = _com_teto(_tamanho)
+    fonte_linhas = 'count'
+    try:
+        n_atu, n_mag = _com_teto(_conta, segundos=MAG_CONTA_TIMEOUT_S)
+    except Exception as exc:  # noqa: BLE001
+        # `reltuples` só anda quando o autovacuum passa: numa tabela que só
+        # cresce ele fica ATRASADO, e atrasado aqui infla os bytes/linha para
+        # cima. Vai publicado com a procedência para ninguém confundir a
+        # estimativa com a medida.
+        logger.warning('vigia: `count(*)` de magistrados estourou %s s (%s) — '
+                       'caí para `reltuples`, que é ESTIMATIVA e fica atrasada '
+                       'numa tabela que só cresce', MAG_CONTA_TIMEOUT_S,
+                       str(exc)[:120])
+        n_atu, n_mag = _com_teto(_estimativa)
+        fonte_linhas = 'reltuples'
     zero = cache.get(ZERO_KEY) or {}
     zero_bytes = int(zero.get('bytes') or 0)
     gasto = bytes_tot - zero_bytes
@@ -668,7 +702,7 @@ def medir_magistrados() -> dict:
         'orcamento_bytes': ORCAMENTO_PADRAO,
         'pct_orcamento': round(100.0 * gasto / ORCAMENTO_PADRAO, 2)
                          if ORCAMENTO_PADRAO else None,
-        'atuacoes': n_atu, 'magistrados': n_mag,
+        'atuacoes': n_atu, 'magistrados': n_mag, 'fonte_linhas': fonte_linhas,
         'bytes_por_linha': bpl,
         'projecao_linhas': LINHAS_PROJETADAS,
         'projecao_bytes': int(bpl * LINHAS_PROJETADAS) if bpl else None,
