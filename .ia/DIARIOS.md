@@ -2323,33 +2323,37 @@ caderno), nunca por multiplicação:
 | recorte 2011+ (o do §13.10) | 3.299 | **20.388** | 26.392 | +29,4% |
 
 **Dois instrumentos independentes, e é isso que autoriza publicar o número.**
-Além da bissecção, uma sonda percorre a população inteira das 29.368
-combinações em **ordem EMBARALHADA com semente fixa** (`SONDA_RPS=2`, HEAD
-apenas) — de propósito: uma execução parcial é uma **amostra aleatória** da
-população, não um prefixo enviesado por ano. Com 2.962 unidades sondadas
-(10,1%):
+Além da bissecção, uma sonda percorreu a população das 29.368 combinações em
+**ordem EMBARALHADA com semente fixa** (`SONDA_RPS=2`, HEAD apenas) — de
+propósito: uma execução parcial é uma **amostra aleatória** da população, não um
+prefixo enviesado por ano. Fechou em **16.082 unidades únicas, 54,8%** da
+população:
 
-    contraexemplos ao modelo das estreias .... 0
-    denominador PELA AMOSTRA ................. 23.024   IC95 [22.584 ; 23.464]
+    denominador PELA AMOSTRA ................. 22.749   IC95 [22.560 ; 22.939]
     denominador PELA BISSECÇÃO ............... 22.620   ← dentro do intervalo
 
 Um contraexemplo seria um caderno 19 existindo antes de 2023-11-27, ou um dos
 seis "de sempre" faltando.
 
-**E a sonda achou dois, o que é melhor notícia do que "zero".** Com 4.086
-unidades sondadas (13,9%), **nenhuma** unidade existe antes da estreia do seu
-caderno (0 de 891) — a bissecção está certa. Mas **2 de 3.195** que o modelo
-diz existirem NÃO existem: caderno 11 em 19/01/2024 e caderno 12 em 24/03/2020.
-As duas foram reconferidas com 6 HEADs cada e com **GET real**: `6/6 "não"` e o
-corpo é o HTML de erro. **São ausências ESPORÁDICAS verdadeiras** — caderno que
-falta num dia isolado, sem padrão de era.
+**E a sonda achou contraexemplos, o que é melhor notícia do que "zero" —
+porque eles separam os dois erros possíveis, e só um deles aconteceu:**
 
-    ausência esporádica ..... 2 em 3.195 = 0,063%   (IC95: ± 0,09 pp)
-    projetada sobre a faixa .. ~14 unidades de 22.620
-    denominador corrigido .... ~22.606
+    unidades ANTES da estreia do seu caderno que EXISTEM ....  0 de 3.616
+    unidades DEPOIS da estreia que NÃO existem .............   5 de 12.466  = 0,040%
 
-Ou seja: o modelo das estreias erra por **0,06%**, e o número que vale continua
-sendo **22.620** (com a ressalva de que ele é teto por uma dezena de unidades).
+**A bissecção está certa: zero em 3.616.** Nenhum caderno 19 ou 20 aparece
+antes de 2023-11-27, nenhum caderno 15 antes de 2008-12-02. O que existe são
+**ausências ESPORÁDICAS** — caderno que falta num dia isolado, sem padrão de
+era: 12/07/2016 cd 12, 13/03/2020 cd 18, 24/03/2020 cd 12, 19/01/2024 cd 11,
+16/02/2024 cd 13. Duas delas foram reconferidas com 6 HEADs cada e com **GET
+real**: `6/6 "não"` e o corpo é o HTML de erro.
+
+    ausência esporádica ...... 0,040%  ⇒ ~9 unidades de 22.620
+    denominador corrigido .... ~22.611
+
+Ou seja: o modelo das estreias erra por **0,04%**, e o número que vale continua
+sendo **22.620** (com a ressalva de que ele é teto por menos de uma dezena de
+unidades).
 
 **Isto é, de quebra, o controle do §19.2:** a mesma sonda que declarou "existe"
 para as 5 unidades falsamente `inexistente` declarou "não existe" para estas 2,
@@ -2622,7 +2626,7 @@ lugar onde olhar** se alguém subir o `worker_diarios` acima de 4:
 
 | pendência | estado |
 |---|---|
-| a sonda do denominador completa (29.368 HEADs, ~10 h a 2 rps) | **parcial: 13,9%** quando esta seção fechou. O número publicado é da bissecção; a sonda é o controle, e já mediu a ausência esporádica em 0,063% |
+| a sonda do denominador completa (29.368 HEADs) | **parou em 54,8%** (16.082 unidades únicas, dois processos em paralelo, HEAD apenas, ~2,5 h). O número publicado é da bissecção; a sonda é o controle, e mediu a ausência esporádica em 0,040%. Terminar os 45% restantes trocaria um IC de ±190 por um número exato — não muda decisão nenhuma hoje |
 | era 2007-10-01 → 2009-06-14 | fora da faixa catalogada. As estreias já estão medidas (§19.1), mas nenhuma unidade foi catalogada nem coletada |
 | o **caderno 1 (Administrativo)** | ver §19.5: não é esporádico, é **5 de 5** — e não foi consertado |
 | catalogar 2011 → 2022 | **não feito de propósito.** São ~16.500 unidades reais; o §13.2 manda expandir o disco do ES antes de janela larga |
