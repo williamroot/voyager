@@ -53,6 +53,7 @@ import io
 import logging
 import re
 import unicodedata
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
@@ -87,6 +88,31 @@ RE_ANCORA_DISTRIBUICAO = re.compile(r'(?m)^[ \t]*[A-Za-zÇç]{2,10}[ \t]+' + _CN
 RE_SIGLA_CLASSE = re.compile(r'(?m)^[ \t]*(?:Processo\s+N[º°o]\s*)?([A-Za-zÇç]{2,10})\s*[- ]\s*\d{7}-')
 RE_INTIMADOS = re.compile(r'Intimado\(s\)\s*/\s*Citado\(s\)\s*:', re.IGNORECASE)
 TIPO_DISTRIBUICAO = 'distribuicao'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Formatos de bloco — existem por causa do GATE, não do parsing
+# ─────────────────────────────────────────────────────────────────────────────
+#: Cada âncora do caderno tem um balde EXCLUSIVO, e é essa exclusividade que faz
+#: a perna A do segundo eixo (`diarios/inventario.py`) morder: se as duas
+#: âncoras caíssem no mesmo balde, `blocos_do_formato >= registros_do_marcador`
+#: passaria com a Distribuição inteira perdida, porque as ~900 matérias
+#: `Processo Nº` cobririam a conta sozinhas. É exatamente a armadilha que o
+#: `FORMATO_PAUTA` do TJSP documenta (DIARIOS.md §18.5, decisão 1).
+FORMATO_PROCESSO = 'processo'
+FORMATO_DISTRIBUICAO = 'distribuicao'
+
+#: Onde o CNJ do ato pode estar: o CABEÇALHO do bloco, nunca o corpo (o corpo
+#: cita outros processos). Mesmo limite usado por `_montar_bloco` e pela
+#: classificação do descarte — se um dia divergirem, um bloco seria dado como
+#: "sem CNJ" e classificado por um trecho que o outro nem olhou.
+LIMITE_CABECALHO = 300
+
+#: Numeração trabalhista PRÉ-CNJ, como o caderno a imprime:
+#: 'ROS-02029/2006-002-16-00.5', 'ED/ROS-01011/2012-002-16-00.4'. Não é
+#: `Process.numero_cnj` e não há de-para — por isso o bloco é descartado. O que
+#: esta regex faz é dar NOME ao descarte, para o gate distinguir "acervo de era
+#: que ainda não sabemos ler" de "o parser quebrou".
+RE_NUMERO_PRE_CNJ = re.compile(r'\b\d{4,6}[-/]\d{4}[-.]\d{3}[-.]\d{2}[-.]\d{2}\b')
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Papéis — vocabulário fechado, verbatim do caderno
@@ -146,6 +172,10 @@ class Bloco:
     sigla_classe: str = ''           # 'ATOrd', 'ROT'... NÃO é classe CNJ
     partes: list[dict] = field(default_factory=list)
     advogados: list[dict] = field(default_factory=list)
+    #: qual âncora produziu este bloco (`FORMATO_PROCESSO`/`FORMATO_DISTRIBUICAO`).
+    #: NÃO é dado da publicação: é o que o segundo eixo do gate confere contra o
+    #: que a fonte imprimiu. Ver `diarios/inventario.py`.
+    formato: str = FORMATO_PROCESSO
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -333,18 +363,39 @@ def _pagina_de(offsets: list[int], pos: int) -> int:
     return max(1, bisect.bisect_right(offsets, pos))
 
 
-def blocos(paginas: list[str], secoes: list[tuple[int, str, str]]) -> Iterator[Bloco]:
-    """Recorta o caderno em matérias. É a função que o gate mede."""
+def blocos(paginas: list[str], secoes: list[tuple[int, str, str]],
+           descartes: Counter | None = None) -> Iterator[Bloco]:
+    """Recorta o caderno em matérias. É a função que o gate mede.
+
+    `descartes` (opcional) recebe a CONTABILIDADE do que foi jogado fora, por
+    motivo. Ela existe porque o segundo eixo do gate compara marcadores
+    impressos com blocos produzidos, e a diferença precisa ter NOME: sem isso,
+    68 matérias de numeração pré-CNJ medidas em 6 cadernos (§ abaixo) e um
+    formato novo que o parser não conhece produziriam o mesmo número, e o gate
+    não saberia qual dos dois está olhando.
+
+    Baldes:
+      · `pre_cnj` — o cabeçalho traz a numeração trabalhista ANTIGA
+        ('ROS-02029/2006-002-16-00.5'). É acervo real que existe e que ainda
+        não sabemos casar com `Process.numero_cnj`: dívida CONHECIDA, medida em
+        100% (68 de 68) dos descartes de TRT16/TRT22 em 2018/2020/2022/2024.
+      · `desconhecido` — descartado sem numeração reconhecível de nenhuma era.
+        É o que o gate tem que reprovar: ou o cabeçalho mudou, ou há formato
+        novo. Medido: **0** nas mesmas 6 edições.
+      · `vazio` — âncora que não delimitou corpo nenhum.
+    """
     texto, offsets = _colar_paginas(paginas)
     marcas = _marcadores(paginas, offsets, secoes)
 
-    ancoras: list[int] = []
+    # (offset, formato): o formato viaja com a âncora até o bloco, porque é a
+    # âncora — e só ela — que sabe qual registro da fonte deu origem a ele.
+    ancoras: list[tuple[int, str]] = []
     for m in RE_ANCORA_PROCESSO.finditer(texto):
         if not _e_distribuicao(_secao_em(marcas, m.start())[1]):
-            ancoras.append(m.start())
+            ancoras.append((m.start(), FORMATO_PROCESSO))
     for m in RE_ANCORA_DISTRIBUICAO.finditer(texto):
         if _e_distribuicao(_secao_em(marcas, m.start())[1]):
-            ancoras.append(m.start())
+            ancoras.append((m.start(), FORMATO_DISTRIBUICAO))
     ancoras.sort()
     if not ancoras:
         return
@@ -354,20 +405,26 @@ def blocos(paginas: list[str], secoes: list[tuple[int, str, str]]) -> Iterator[B
     fronteiras = sorted({m[0] for m in marcas} | {len(texto)})
 
     sem_cnj = 0
-    for i, inicio in enumerate(ancoras):
-        proxima_ancora = ancoras[i + 1] if i + 1 < len(ancoras) else len(texto)
+    for i, (inicio, formato) in enumerate(ancoras):
+        proxima_ancora = ancoras[i + 1][0] if i + 1 < len(ancoras) else len(texto)
         j = bisect.bisect_right(fronteiras, inicio)
         proxima_fronteira = fronteiras[j] if j < len(fronteiras) else len(texto)
         fim = min(proxima_ancora, proxima_fronteira)
         corpo = texto[inicio:fim].strip('\n')
         if not corpo:
+            if descartes is not None:
+                descartes['vazio'] += 1
             continue
         unidade, tipo, subtipo = _secao_em(marcas, inicio)
-        bloco = _montar_bloco(corpo, _pagina_de(offsets, inicio), unidade, tipo, subtipo)
+        bloco = _montar_bloco(corpo, _pagina_de(offsets, inicio), unidade, tipo, subtipo,
+                              formato=formato)
         if bloco is None:
             # Bloco sem CNJ no cabeçalho é DESCARTADO, não remendado com um CNJ
             # citado no corpo. Fica contado no log para virar dívida visível.
             sem_cnj += 1
+            if descartes is not None:
+                descartes['pre_cnj' if RE_NUMERO_PRE_CNJ.search(corpo[:LIMITE_CABECALHO])
+                          else 'desconhecido'] += 1
             continue
         yield bloco
     if sem_cnj:
@@ -376,11 +433,11 @@ def blocos(paginas: list[str], secoes: list[tuple[int, str, str]]) -> Iterator[B
 
 
 def _montar_bloco(corpo: str, pagina: int, unidade: str, tipo: str,
-                  subtipo: str) -> Bloco | None:
+                  subtipo: str, *, formato: str = FORMATO_PROCESSO) -> Bloco | None:
     # O CNJ vem do CABEÇALHO do bloco (primeiros 300 chars), nunca do corpo:
     # o corpo cita outros processos, e emprestar um deles ao ato é atribuição
     # errada — o erro que a casa proíbe.
-    achados = achar_cnjs(corpo[:300])
+    achados = achar_cnjs(corpo[:LIMITE_CABECALHO])
     if not achados:
         return None
     sigla = RE_SIGLA_CLASSE.match(corpo)
@@ -389,7 +446,7 @@ def _montar_bloco(corpo: str, pagina: int, unidade: str, tipo: str,
         cnj=achados[0], texto=corpo, pagina=pagina, unidade=unidade, tipo=tipo,
         subtipo=subtipo,
         sigla_classe=(sigla.group(1) if sigla else ''),
-        partes=partes, advogados=advogados,
+        partes=partes, advogados=advogados, formato=formato,
     )
 
 

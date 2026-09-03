@@ -2803,13 +2803,25 @@ piso `DIARIOS_COBERTURA_MINIMA` (0,95), com o `sem_aproveit` do §4 na frente �
 edição com registro impresso e ZERO aproveitável fecha terminal **com o motivo
 escrito**, nunca como `vazia`.
 
-Resultado sobre os 7 cadernos reais: **6 passam, 1 reprova** — e a que reprova
-é o §20.6.
+Resultado sobre os 7 cadernos reais: **5 passam, 2 reprovam** — e as duas que
+reprovam são o §20.6.
 
-### 20.6 O TERCEIRO formato do DEJT, que o eixo achou no primeiro caderno de teste
+| caderno | cobertura de CNJ | inventário | veredito |
+|---|---|---|---|
+| TRT22 10/07/2024 | 701/703 = 99,7% | 890 × 890 · 109 × 109 | passa |
+| TRT16 10/07/2024 | 918/918 = 100,0% | 1.102 × 1.102 · 154 × 154 | passa |
+| TRT16 10/03/2022 | 1.094/1.094 = 100,0% | 1.395 × 1.392 (3 pré-CNJ) | passa |
+| TRT16 11/03/2020 | 1.402/1.402 = 100,0% | 2.190 × 2.187 (3 pré-CNJ) | passa |
+| TRT16 15/03/2018 | 892/893 = 99,9% | 1.237 × 1.181 (56 pré-CNJ) | passa |
+| **TRT22 15/03/2018** | **628/678 = 92,6%** | 750 × 744 + 45 órfãos iguais | **REPROVA** (eixo 1) |
+| **TRT3 10/07/2024** | 12.216/12.707 = 96,1% | 16.954 × 16.940 · 1.828 × 1.828 | **REPROVA** (eixo 2, perna B) |
 
-TRT22 de 15/03/2018 reprovou: **628 de 678 CNJs impressos (92,6%)** dentro de
-bloco. Os 50 órfãos, agrupados pela forma da linha (perna B):
+### 20.6 DOIS formatos que o DEJT imprime e o segmentador não lê
+
+#### O terceiro formato — `Processo   :` (TRT22, 15/03/2018)
+
+TRT22 de 15/03/2018 reprovou pelo eixo 1: **628 de 678 CNJs impressos (92,6%)**
+dentro de bloco. Os 50 órfãos, agrupados pela forma da linha (perna B):
 
 ```
   45  'Processo : #-#.#.#.#.#'        ← 'Processo   : 0000817-80.2012.5.22.0107'
@@ -2834,6 +2846,35 @@ está otimista para pelo menos um TRT.** Não foi mexido — mexer sem medir mai
 cadernos de 2018 seria trocar um número por outro. O gate agora reprova a
 edição em vez de gravá-la pela metade, que é o comportamento correto enquanto a
 decisão não vem.
+
+#### O quarto formato — `<CNJ> - ROT`, e ele está na edição de VITRINE do DEJT
+
+Este é o achado que mais importa dos dois, porque não é de era antiga nem de
+tribunal pequeno: é o **TRT3 de 10/07/2024**, a edição que este documento usa
+como referência de qualidade da fonte inteira ("62,7 MB, 13.853 páginas, 18.768
+matérias contra 16.717 declaradas, 96,7% com partes").
+
+```
+dejt/trt3_2024-07-10: cobertura de CNJ 12.216/12.707 = 96,1%   ← PASSA no eixo 1
+                      inventário {Processo Nº: 16.954, Distribuição: 1.828}
+                             → blocos {processo: 16.940, distribuicao: 1.828}
+GATE REPROVOU: 160 CNJs fora de bloco com a MESMA forma de linha
+               '#-#.#.#.#.# - ROT' — formato provavelmente desconhecido
+```
+
+**96,1% passa. O inventário por marcador bate nas duas colunas. E há 160
+matérias fora.** O CNJ vem ANTES da sigla
+(`0010177-81.2023.5.03.0010 - ROT`), invertido em relação à âncora de
+Distribuição (`ATOrd 0010177-81.2023.5.03.0010`) — nenhuma das duas âncoras o
+alcança, e nenhum marcador o declara. Quem o denunciou foi a **perna B,
+sozinha, pela repetição da forma da linha**, que é exatamente o caso que ela
+existe para cobrir (§18.2).
+
+É o §18.1 reproduzido noutra fonte e com números próprios: **160 registros =
+1,26% dos CNJs impressos**, folgadamente dentro dos 5% de tolerância do eixo de
+proporção, e invisível para o gabarito da fonte (que nesta mesma edição dava
+112% e absolvia). Gate de proporção não é gate de completude — de novo, e agora
+na edição que a documentação usava como prova de que a fonte estava boa.
 
 ### 20.7 Cobertura contra o denominador da FONTE — o que deu para medir e o que não deu
 
@@ -2876,5 +2917,5 @@ não por esquecimento: é a mesma lacuna que o §2 já declara para as três por
 | onde | o que mudou |
 |---|---|
 | `diarios/fontes/dejt/segmentador.py` | `FORMATO_PROCESSO`/`FORMATO_DISTRIBUICAO`, `Bloco.formato`, `RE_NUMERO_PRE_CNJ`, `blocos(..., descartes)` |
-| `diarios/fontes/dejt/coletor.py` | `MARCADORES_DEJT` (2), `MARCADORES_DE_REGISTRO`, `_aferir_cobertura` (os dois eixos + `sem_aproveit`) |
-| `tests/test_gate_inventario_dejt.py` | 10 testes, incluindo o do balde exclusivo e o do 3º formato |
+| `diarios/fontes/dejt/coletor.py` | `MARCADORES_DEJT` (2), `MARCADORES_DE_REGISTRO`, `_paginas_de_distribuicao`, `_ver_linha`, `_aferir_cobertura` (os dois eixos + `sem_aproveit`) |
+| `tests/test_gate_inventario_dejt.py` | 12 testes: balde exclusivo, 3º formato, descarte nomeado, e o falso positivo do marcador |

@@ -20,6 +20,9 @@ e se coleta com `--sobrepor`, conscientemente, não por acidente.
 
 import contextlib
 import logging
+import re
+import unicodedata
+from collections import Counter
 from collections.abc import Iterator
 from datetime import date, datetime, time
 
@@ -34,11 +37,15 @@ from diarios.base import (
     RespostaInvalida,
     UnidadeColeta,
     UnidadeInexistente,
+    UnidadeSemDadoAproveitavel,
+    achar_cnjs,
     fingerprint_ato,
     id_bloco_impresso,
     registrar,
 )
+from diarios.inventario import Inventario, MarcadorRegistro
 
+from . import segmentador
 from .catalogo import (
     CADERNO_JUDICIARIO,
     SEM_TRIBUNAL_NO_VOYAGER,
@@ -55,9 +62,115 @@ logger = logging.getLogger('voyager.diarios.dejt')
 MEIO = 'D'
 MEIO_COMPLETO = 'Diário Eletrônico da Justiça do Trabalho (DEJT)'
 
+#: SEGUNDO EIXO DO GATE (`diarios/inventario.py`) — as linhas que ABREM um
+#: registro no DEJT, e o formato de bloco que cada uma tem que virar. Contadas
+#: no TEXTO EXTRAÍDO, nunca na saída do segmentador.
+#:
+#: São exatamente as duas âncoras do caderno, e cada uma tem balde EXCLUSIVO
+#: (ver `segmentador.FORMATO_*`) — sem isso a perna A não morde, porque as ~900
+#: matérias `Processo Nº` cobririam sozinhas a conta da Distribuição inteira.
+#:
+#: MEDIDO em 7 cadernos reais antes de declarar (TRT3, TRT16 e TRT22, edições de
+#: 2018, 2020, 2022 e 2024), pelos três caminhos que têm que concordar — regex no
+#: texto colado, contagem linha a linha, e blocos produzidos:
+#:
+#:   TRT3  10/07/2024 16.954 impressos · 16.940 blocos | 1.828 distrib. · 1.828
+#:   TRT22 10/07/2024    890 impressos ·    890 blocos |   109 distrib. ·   109
+#:   TRT16 10/07/2024  1.102 impressos ·  1.102 blocos |   154 distrib. ·   154
+#:   TRT16 10/03/2022  1.395 impressos ·  1.392 blocos |     0 · 0
+#:   TRT16 11/03/2020  2.190 impressos ·  2.187 blocos |     0 · 0
+#:   TRT22 15/03/2018    750 impressos ·    744 blocos |     0 · 0
+#:   TRT16 15/03/2018  1.237 impressos ·  1.181 blocos |     0 · 0
+#:
+#: As diferenças da coluna `Processo Nº` são **82 de 82 (100%)** de numeração
+#: pré-CNJ — dívida conhecida, contada e nomeada em `_aferir_cobertura`.
+#:
+#: E a coluna da Distribuição só bate porque o marcador é aplicado dentro da
+#: seção que o outline declara Distribuição: no TRT3 há **1.042 linhas com a
+#: MESMA forma fora dela**, que são citação e não registro. Ver `_ver_linha` —
+#: foi o 7º caderno que revelou isso, e os 6 primeiros não teriam revelado.
+NOME_MARCADOR_MATERIA = 'matéria (Processo Nº)'
+NOME_MARCADOR_DISTRIBUICAO = 'linha de Distribuição'
+
+MARCADORES_DEJT = (
+    MarcadorRegistro(
+        nome=NOME_MARCADOR_MATERIA,
+        padrao=re.compile(r'^Processo\s+N[º°o]\b'),
+        formato=segmentador.FORMATO_PROCESSO),
+    MarcadorRegistro(
+        nome=NOME_MARCADOR_DISTRIBUICAO,
+        padrao=re.compile(r'^[A-Za-zÇç]{2,10}[ \t]+\d{7}-\d{2}\.\d{4}\.5\.\d{2}\.\d{4}$'),
+        formato=segmentador.FORMATO_DISTRIBUICAO),
+)
+
+#: Piso de blocos abaixo do qual não faz sentido cobrar cobertura de CNJ: um
+#: caderno de recesso tem meia dúzia de atos e a divisão vira ruído. Mesmo
+#: espírito do `MINIMO_PARA_AFERIR_COBERTURA` do TJSP.
+MINIMO_PARA_AFERIR_COBERTURA = 50
+
 
 def _br(d: date) -> str:
     return d.strftime('%d/%m/%Y')
+
+
+def _paginas_de_distribuicao(total: int, secoes) -> set[int]:
+    """Índices de página que a seção de Distribuição TOCA, segundo o outline.
+
+    A informação é da FONTE (o índice que o próprio PDF carrega), não do
+    segmentador — é isso que mantém a perna A independente (DIARIOS.md §18.3).
+
+    O `+ 1` no fim não é folga arbitrária: **seção troca no meio da página.** O
+    outline diz em que página cada seção COMEÇA, então a última página de uma
+    seção é também a primeira da seguinte. Cortando em `fim` (exclusivo), as
+    linhas de Distribuição impressas depois do meio dessa página ficavam de
+    fora da contagem — medido: TRT22 10/07/2024 caía de 109 para **107** e
+    TRT16 de 154 para **144**. Não dava alarme falso (a comparação é `>=`), mas
+    subcontar o impresso é enfraquecer o gate em silêncio, que é pior.
+
+    O custo do `+ 1` é admitir UMA página de fronteira por seção; no TRT3, o
+    caderno onde a citação `SIGLA CNJ` é frequente, isso não muda a conta.
+    """
+    paginas: set[int] = set()
+    marcos = sorted((int(p), t) for p, _u, t in (secoes or []))
+    for i, (inicio, tipo) in enumerate(marcos):
+        fim = marcos[i + 1][0] if i + 1 < len(marcos) else total - 1
+        if segmentador.TIPO_DISTRIBUICAO in _sem_acento(tipo).lower():
+            paginas.update(range(max(0, inicio), max(0, fim) + 1))
+    return paginas
+
+
+def _sem_acento(s: str) -> str:
+    return ''.join(c for c in unicodedata.normalize('NFD', s or '')
+                   if unicodedata.category(c) != 'Mn')
+
+
+def _ver_linha(inventario: Inventario, linha: str, cnjs, *, em_distribuicao: bool) -> None:
+    """`ver_linha` com a ÚNICA correção que esta fonte exige.
+
+    A linha `SIGLA CNJ` só é REGISTRO dentro da seção que o outline declara
+    como Distribuição. Fora dela, a mesma FORMA é citação no corpo de outra
+    matéria — e contá-la como registro infla o `impresso` e produz alarme
+    falso, que em gate é pior que gate ausente (ensina a ignorar).
+
+    Isto NÃO é teoria: foi medido no 7º caderno de validação, o TRT3 de
+    10/07/2024 (13.853 páginas), e só nele. Das **2.870** linhas com a forma
+    `SIGLA CNJ`, apenas **1.828** estão em Distribuição; as outras **1.042**
+    estão dentro de seções `Notificação` — inclusive
+    `AIRR 0004300-04.2002.5.03.0009` repetida 4 vezes seguidas, que é citação e
+    não ato. Sem esta correção a perna A acusaria `2.870 impressos x 1.828
+    blocos` e reprovaria a edição de referência do DEJT por perda que não
+    existe. Nos 6 cadernos menores o erro era invisível: em TRT16/TRT22 as
+    duas contagens batiam exatamente (109x109, 154x154).
+
+    A restauração do contador é feita AQUI, e não em `diarios/inventario.py`,
+    porque o mecanismo do §18 é compartilhado com o `tjsp-dje`: marcador
+    sensível a seção é contrato novo, e contrato novo se discute antes de
+    escrever.
+    """
+    antes = inventario.impresso[NOME_MARCADOR_DISTRIBUICAO]
+    inventario.ver_linha(linha, cnjs)
+    if not em_distribuicao:
+        inventario.impresso[NOME_MARCADOR_DISTRIBUICAO] = antes
 
 
 @registrar
@@ -80,6 +193,9 @@ class ColetorDEJT(ColetorDiario):
     janela_horaria = (20, 6)
 
     caderno = CADERNO_JUDICIARIO
+
+    #: segundo eixo do gate (`diarios/inventario.py`)
+    MARCADORES_DE_REGISTRO = MARCADORES_DEJT
 
     # ── época em que o segmentador foi VALIDADO ──────────────────────────────
     # A janela acima é sobre DEDUPE (até quando o DEJT é a única porta). Esta
@@ -261,7 +377,26 @@ class ColetorDEJT(ColetorDiario):
         # critério de idempotência do runner é justamente `novas=0`.
         ids_vistos: set[str] = set()
         repetidos = 0
-        for bloco in blocos(paginas, secoes):
+
+        # ── SEGUNDO EIXO: alimentado do TEXTO EXTRAÍDO, no mesmo passeio das
+        # páginas. `Inventario.ver_bloco` recebe só o NOME do formato, nunca o
+        # texto — é essa assinatura que impede o eixo de virar circular.
+        inventario = Inventario(marcadores=tuple(self.MARCADORES_DE_REGISTRO))
+        cnjs_no_texto: set[str] = set()
+        cnjs_em_bloco: set[str] = set()
+        distribuicao_na_pagina = _paginas_de_distribuicao(len(paginas), secoes)
+        for numero, pagina in enumerate(paginas):
+            em_distribuicao = numero in distribuicao_na_pagina
+            for linha in pagina.split('\n'):
+                limpa = linha.strip()
+                achados = achar_cnjs(limpa)
+                cnjs_no_texto.update(achados)
+                _ver_linha(inventario, limpa, achados, em_distribuicao=em_distribuicao)
+        descartes: Counter = Counter()
+
+        for bloco in blocos(paginas, secoes, descartes):
+            inventario.ver_bloco(bloco.formato)
+            cnjs_em_bloco.update(achar_cnjs(bloco.texto))
             external_id = id_bloco_impresso(
                 # Coordenada física + hash do conteúdo. O ordinal do bloco na
                 # página NÃO serve: qualquer ajuste no recorte (e vai haver, o
@@ -297,6 +432,121 @@ class ColetorDEJT(ColetorDiario):
             )
         logger.info('dejt %s: %d páginas → %d matérias (%d blocos repetidos na edição)',
                     unidade.chave, len(paginas), vistos, repetidos)
+        self._aferir_cobertura(unidade, cnjs_no_texto, cnjs_em_bloco,
+                               inventario=inventario, descartes=descartes, vistos=vistos)
+
+    # ── gate ────────────────────────────────────────────────────────────────
+    def _aferir_cobertura(self, unidade: UnidadeColeta, cnjs_no_texto: set[str],
+                          cnjs_em_bloco: set[str], *, inventario: Inventario,
+                          descartes: Counter, vistos: int) -> None:
+        """Os DOIS eixos, nesta ordem: proporção primeiro, inventário depois.
+
+        Até 03/09/2026 esta fonte não tinha eixo nenhum de segmentação: o único
+        gate era o `esperado()`, o gabarito da pesquisa avançada do DEJT — que
+        devolve `None` em qualquer erro e, com a fonte fora do ar desde
+        18/08/2026, devolve `None` SEMPRE. Ou seja, coletar hoje seria coletar
+        com zero régua. Estes dois eixos vivem no PDF e não dependem do host.
+
+        O que a medição de 6 cadernos ensinou e que está codificado aqui: a
+        diferença entre marcador impresso e bloco produzido no DEJT tem uma
+        causa conhecida e UMA só — matéria com numeração trabalhista pré-CNJ,
+        que o segmentador descarta de propósito por não haver de-para. Foram
+        **68 de 68** descartes (100%) em TRT16/TRT22 de 2018 a 2024. Por isso o
+        gate não usa tolerância percentual (que seria só um segundo número
+        percentual ao lado do primeiro, DIARIOS.md §18.5): ele exige que a
+        diferença esteja INTEIRAMENTE explicada pelo balde `pre_cnj`. Um único
+        descarte `desconhecido` reprova.
+        """
+        total = len(cnjs_no_texto)
+        dentro = len(cnjs_no_texto & cnjs_em_bloco)
+        cobertura = (dentro / total) if total else None
+        logger.info(
+            'dejt/%s: cobertura de CNJ %d/%d = %s; descartes %s',
+            unidade.chave, dentro, total,
+            # NUNCA "100,0%" com denominador zero — era assim que um caderno
+            # inteiramente descartado parecia coleta perfeita (DIARIOS.md §4).
+            f'{100 * cobertura:.1f}%' if cobertura is not None else 'n/a (nenhum CNJ impresso)',
+            dict(descartes) or '{}')
+
+        # Havia matéria e NADA é aproveitável: terminal, com o motivo escrito.
+        # É o `sem_aproveit` do §4 — a diferença entre "dia vazio" e "acervo que
+        # existe e que ainda não sabemos ler".
+        impressos = inventario.total_impresso()
+        if impressos >= MINIMO_PARA_AFERIR_COBERTURA and vistos == 0:
+            raise UnidadeSemDadoAproveitavel(
+                f'dejt/{unidade.chave}: a fonte imprimiu {impressos} registros e ZERO virou '
+                f'matéria aproveitável (descartes: {dict(descartes)}). Isto NÃO é edição '
+                'vazia: é acervo que existe e que este parser não sabe ler.'
+            )
+
+        divergencias = []
+        if inventario.mede:
+            orfaos = cnjs_no_texto - cnjs_em_bloco
+            divergencias = inventario.conferir(orfaos)
+            logger.info('dejt/%s: inventário da fonte %s → blocos %s%s',
+                        unidade.chave, dict(inventario.impresso), dict(inventario.segmentado),
+                        ' (assinaturas TRUNCADAS)' if inventario.assinaturas_truncadas else '')
+        else:
+            # Abstenção EXPLÍCITA — "não medido" e "medido e ok" não podem ter a
+            # mesma cara no log.
+            logger.info('dejt/%s: inventário por marcador NÃO MEDIDO '
+                        '(a fonte não declara marcador)', unidade.chave)
+
+        piso = float(getattr(settings, 'DIARIOS_COBERTURA_MINIMA', 0.95))
+        if total >= MINIMO_PARA_AFERIR_COBERTURA and cobertura is not None and cobertura < piso:
+            raise ColetorError(
+                f'dejt/{unidade.chave}: só {dentro} dos {total} CNJs impressos caíram dentro '
+                f'de um bloco ({cobertura:.1%} < {piso:.0%}) — segmentação suspeita, unidade '
+                'não vai ser dada como coletada'
+                # TODAS as divergências, não só a primeira: quando o eixo de
+                # proporção reprova, é justamente ali que a perna B costuma ter
+                # o NOME do formato desconhecido — e perdê-lo por causa de um
+                # `[0]` deixaria a causa raiz de fora da mensagem. Medido no
+                # TRT22 de 15/03/2018: 92,6% de cobertura E 45 CNJs órfãos na
+                # forma `Processo : #-#.#.#.#.#`, que o segmentador não lê.
+                + (' | inventário também acusa: '
+                   + '; '.join(str(d) for d in divergencias) if divergencias else '')
+            )
+
+        # Perna B (formato DESCONHECIDO) reprova sempre: ela só fala quando ≥30
+        # CNJs órfãos compartilham a MESMA forma de linha, e isso não tem
+        # explicação conhecida nesta fonte — é o suspeito nomeado.
+        assinaturas = [d for d in divergencias if d.tipo == 'assinatura']
+        if assinaturas:
+            raise ColetorError(
+                f'dejt/{unidade.chave}: inventário divergente — {assinaturas[0]}. '
+                'A cobertura de CNJ estava ACIMA do piso — quem pegou foi o segundo eixo.'
+            )
+
+        # Perna A: a diferença precisa estar EXPLICADA pela conta, não por um
+        # adjetivo. `impresso - segmentado` tem que caber dentro do balde
+        # `pre_cnj`, E não pode haver descarte de causa desconhecida.
+        #
+        # A conta é indispensável, e isto foi pago: a primeira versão desta
+        # função só olhava `desconhecidos`, e num caso em que a seção de
+        # Distribuição inteira não virou bloco (20 impressos x 0 blocos, ZERO
+        # descarte, porque as âncoras nem foram reconhecidas) ela rebaixava a
+        # perda a um WARNING que dizia, sem ironia, "diferença EXPLICADA por 0
+        # matérias". Perda total anunciada como explicada por nada — a
+        # assinatura exata da doença que este eixo trata.
+        marcadores = [d for d in divergencias if d.tipo == 'marcador']
+        desconhecidos = descartes.get('desconhecido', 0) + descartes.get('vazio', 0)
+        pre_cnj = descartes.get('pre_cnj', 0)
+        faltando = sum(d.impresso - (d.segmentado or 0) for d in marcadores)
+        if marcadores and (desconhecidos or faltando > pre_cnj):
+            raise ColetorError(
+                f'dejt/{unidade.chave}: inventário divergente — '
+                + '; '.join(str(d) for d in marcadores)
+                + f'. Faltam {faltando} bloco(s) e a numeração pré-CNJ explica só {pre_cnj}'
+                + (f'; {desconhecidos} descarte(s) SEM numeração reconhecível de nenhuma era'
+                   if desconhecidos else '')
+                + '. A cobertura de CNJ estava ACIMA do piso — quem pegou foi o segundo eixo.'
+            )
+        if marcadores:
+            logger.warning(
+                'dejt/%s: %s — diferença EXPLICADA por %d matéria(s) de numeração pré-CNJ '
+                '(dívida conhecida: falta o de-para com Process.numero_cnj)',
+                unidade.chave, marcadores[0], pre_cnj)
 
     # ── gabarito da própria fonte ───────────────────────────────────────────
     def esperado(self, unidade: UnidadeColeta) -> int | None:
