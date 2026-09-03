@@ -468,15 +468,43 @@ docker compose exec web python manage.py djen_status
 ## Diários próprios (3ª porta) — parar e ver
 
 **LIGADA desde 24/08/2026**, uma fonte de cinco: `DIARIOS_SCHEDULER_ENABLED=1`,
-`DIARIOS_FONTES_AGENDADAS=tjsp-dje`, `DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE=8`
+`DIARIOS_FONTES_AGENDADAS=tjsp-dje`, **`DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE=1000`**
 (nos `.env` da `.102` **e** da `.103`). Runbook completo, com os números medidos
 e os 10 critérios de parada, em [`DIARIOS.md` §13](DIARIOS.md#13-ligada--o-que-foi-ligado-em-24082026-com-que-números-e-quando-desligar).
 
+> **Mudou em 03/09/2026 (#122):** orçamento de **8 → 1.000** unidades/24 h e
+> `worker_diarios` de **2 → 4** réplicas, para drenar a fatia 2023-2024 recém
+> catalogada (3.704 unidades novas). 1.000/24 h é ~26 GB de índice por dia =
+> **+0,9 ponto percentual** de disco do ES, com 14,5 pontos até a guarda de 85%.
+> Medido com 4 réplicas: **~46 unidades/h**, `write.rejected` 0, fila `es_index`
+> em 34% do teto, vazão da Fase 3 **inalterada** (2.177 → 2.189 dias/24 h).
+> Ver [`DIARIOS.md` §19](DIARIOS.md#19-o-denominador-real-da-fonte--e-a-ausência-que-virava-perda-03092026).
+
 Quem roda o quê: o cron `diarios_tick_todas` (10 min) vive no **scheduler da
 `.103`** e só enfileira; o `tick` em si roda no **`worker_default` da `.102`**,
-e é lá que ficam o orçamento e as guardas. Coleta é `worker_diarios` (2
-réplicas, só na `.102`). Mudou `.env`? **`up -d --force-recreate`** — `restart`
-NÃO relê o `.env`.
+e é lá que ficam o orçamento e as guardas. Coleta é `worker_diarios` (4
+réplicas desde 03/09, só na `.102`). Mudou `.env`? **`up -d --force-recreate`**
+— `restart` NÃO relê o `.env`. Para o orçamento basta recriar o
+`worker_default` (é ele que decide), sempre com `--no-deps`:
+
+```bash
+docker compose -f docker-compose-workers.yml up -d --force-recreate --no-deps worker_default
+```
+
+⚠️ **`--scale worker_diarios=N` RECRIA as réplicas que já existiam** e mata a
+coleta em voo delas — um caderno leva 4-10 min e volta do zero, e cada morte
+deixa um `IngestionRun` `running` órfão que o `watchdog_ingestao` (que não
+filtra por fonte) vai chamar de "worker crashou" em 1 h. Ou se sobe worker
+avulso com `docker run` (foi o que o §17.5 fez), ou se aceita o custo **e se
+fecham os runs à mão, com a causa real em `erros`**. As réplicas por `--scale`
+**não são persistidas** no compose: um `up -d` sem a flag volta para 2.
+
+⚠️ **`por_status.inexistente` subindo na fatia de 2023 é ESPERADO**, e é a
+única exceção conhecida à regra "inexistente crescendo = layout mudou". Os
+cadernos **19 e 20 do DJE/TJSP só existem a partir de 2023-11-27** (medido por
+bissecção, `DIARIOS.md` §19.1): 426 unidades catalogadas em 2023 não existem na
+fonte e vão fechar `inexistente` corretamente. Fora dessa fatia, continua sendo
+alarme.
 
 Aqui só o que se digita às 3h da manhã quando alguém do outro lado reclama:
 
