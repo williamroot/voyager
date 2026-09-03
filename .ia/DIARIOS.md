@@ -63,7 +63,7 @@ Tudo abaixo é MEDIDO contra a fonte viva em 16/08/2026, não estimado.
 > `dejt.jt.jus.br` responde 302 para uma página de aviso e o coletor recusa a
 > tela (`sem javax.faces.ViewState`). Existe um espelho de contingência com o
 > acervo inteiro — e ele traz um `robots.txt` com `Disallow: /`. Tudo em
-> **[§19](#19-as-duas-portas-que-estavam-prontas-e-desligadas--por-quê-medido-03092026)**,
+> **[§20](#20-as-duas-portas-que-estavam-prontas-e-desligadas--por-quê-medido-03092026)**,
 > junto com os dois eixos do gate que passaram a existir para esta fonte.
 
 | | |
@@ -2250,7 +2250,7 @@ régua automática para ele, e dizer que há seria o tipo de conforto falso que
 este documento inteiro existe para evitar.
 
 **Em 02/09/2026 o eixo só estava armado para o `tjsp-dje`.** Em 03/09 o `dejt`
-também passou a declarar marcador (§19.5). `stf`, `doe-sp` e `qd-municipal`
+também passou a declarar marcador (§20.5). `stf`, `doe-sp` e `qd-municipal`
 continuam sem: nelas o eixo **se abstém** e o log diz `inventário por marcador
 NÃO MEDIDO`. Abstenção não é aprovação — e essa linha existe justamente para
 que "não medido" e "medido e ok" não tenham a mesma cara no log.
@@ -2260,7 +2260,7 @@ que "não medido" e "medido e ok" não tenham a mesma cara no log.
 | `diarios/inventario.py` | mecanismo (as duas pernas, assinatura, teto declarado) |
 | `ColetorDiario.MARCADORES_DE_REGISTRO` | contrato; vazio = abstém |
 | `diarios/fontes/tjsp_dje/coletor.py::MARCADORES_TJSP` | 3 marcadores (2 da DEPRE, 1 da pauta) |
-| `diarios/fontes/dejt/coletor.py::MARCADORES_DEJT` | 2 marcadores (matéria e Distribuição) — §19.5 |
+| `diarios/fontes/dejt/coletor.py::MARCADORES_DEJT` | 2 marcadores (matéria e Distribuição) — §20.5 |
 | `tests/test_gate_inventario.py` | 11 testes, incluindo o que trava a independência |
 | `tests/test_gate_inventario_dejt.py` | 12 testes do eixo armado no DEJT |
 
@@ -2476,6 +2476,14 @@ continua sendo alarme.
 | réplicas do `worker_diarios` | 2 | **4** | `--scale`, **não persistido** no compose |
 | `DIARIOS_FILA_ES_MAX` | 5.000 | **5.000** | não mexido — é ele que barra se eu exagerar |
 | `DIARIOS_ES_DISCO_MAX_PCT` | 85 | **85** | não mexido |
+
+⚠️ **O `.env` da `.103` foi editado mas o container NÃO foi recriado**, de
+propósito: o valor lá é decorativo (quem decide o orçamento é o `worker_default`
+da `.102`) e recriar o `scheduler` teria custado o warm dos cards — o mesmo
+tropeço que o cabeçalho desta tarefa avisa. Consequência: até o próximo
+`--force-recreate` na `.103`, o processo vivo de lá ainda tem `8` em memória e o
+arquivo tem `1.000`. Não muda nada hoje, e é a primeira coisa que vai parecer
+errada para quem conferir por `docker exec … env`.
 
 1.000 unidades/24 h é teto de verdade: a ~46 unidades/h medidas com 4 réplicas,
 24 h dão ~1.100 — o orçamento fica **junto** da capacidade, não uma ordem de
