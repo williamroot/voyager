@@ -1514,6 +1514,13 @@ requisição, em 02/09/2026 (`col.catalogar(...)`, nada baixado):
     COBERTURA REAL = 62 / 29.368 = 0,211%
     (contando também vazia+inexistente+sem_aproveit: 70/29.368 = 0,238%)
 
+> ⚠️ **O denominador desta subseção está SUPERESTIMADO em 29,8% — ver §19.1.**
+> A ressalva 1 logo abaixo estava certa: `dias × 8` é teto, não igualdade.
+> Medido em 03/09/2026 por bissecção sobre o catálogo (124 requisições `HEAD`,
+> zero PDF), os cadernos **19 e 20 só existem a partir de 2023-11-27** — logo a
+> faixa tem **22.620** unidades, não 29.368, e as coberturas deste §14.6 e do
+> §15.4 devem ser lidas com esse denominador.
+
 E a jazida inteira que a fonte declara, para dimensionar: **33.296 unidades**
 em **4.162 dias**, 2007-10-01 → 2025-07-22.
 
@@ -2247,3 +2254,231 @@ no log.
 | `ColetorDiario.MARCADORES_DE_REGISTRO` | contrato; vazio = abstém |
 | `diarios/fontes/tjsp_dje/coletor.py::MARCADORES_TJSP` | 3 marcadores (2 da DEPRE, 1 da pauta) |
 | `tests/test_gate_inventario.py` | 11 testes, incluindo o que trava a independência |
+
+---
+
+## 19. O denominador REAL da fonte — e a ausência que virava perda (03/09/2026)
+
+> **A ordem era volume. O primeiro achado foi que a régua do volume estava
+> errada por 30%**: o denominador do DJE/TJSP não é `dias × 8`. Seis dos oito
+> cadernos existem desde sempre; os cadernos **19 e 20 estreiam em
+> 2023-11-27**. Contar as unidades que a fonte NÃO tem inflava o denominador em
+> **6.748** e fazia a cobertura parecer menor do que é.
+>
+> E o segundo achado é pior que o primeiro: as **5** unidades marcadas
+> `inexistente` — status TERMINAL, que nunca mais é retentado — **existem**.
+> Conferido contra a fonte viva com GET real: as 5 devolveram `%PDF`.
+
+### 19.1 O denominador, medido: **22.620**, não 29.368
+
+O §14.6 registrou `3.671 dias × 8 cadernos = 29.368` e teve a honestidade de
+marcar as duas ressalvas: "quais cadernos existem em cada data só o download
+responde" e "o denominador real está entre ~26 mil e 29.368". As duas estavam
+certas. O que faltava era o instrumento.
+
+**O instrumento é `HEAD`, e ele custa ~400 bytes.** O `downloadCaderno.do`
+responde ao HEAD e a resposta já separa os dois casos, sem baixar um byte de
+PDF:
+
+| resposta ao HEAD | significa |
+|---|---|
+| `Content-Type: application/octet-stream` + `Content-disposition: attachment; filename="caderno3-…pdf"` | o caderno EXISTE |
+| `Content-Type: text/html` + `Content-Length: 398` | não existe naquela data |
+
+Com isso, a estreia de cada caderno sai por **bissecção** sobre as 4.162
+edições do catálogo — **124 requisições, zero PDF**, cada uma confirmada nas 3
+edições seguintes:
+
+| caderno | `cdCaderno` | última edição SEM | primeira edição COM | edições com |
+|---|---:|---|---|---:|
+| 1 Administrativo | 10 | 2007-11-05 | **2007-11-06** | 4.138 |
+| 2 · 2ª Inst. Entrada e Distribuição I | 11 | 2007-11-05 | **2007-11-06** | 4.138 |
+| 3 · 1ª Inst. Capital I | 12 | 2007-11-05 | **2007-11-06** | 4.138 |
+| 4 · 1ª Inst. Interior II | 13 | 2007-11-05 | **2007-11-06** | 4.138 |
+| 4 · 1ª Inst. Interior I | 18 | 2007-12-19 | **2007-12-20** | 4.109 |
+| 4 · 1ª Inst. Interior III | 15 | 2008-12-01 | **2008-12-02** | 3.879 |
+| 2 · 2ª Inst. Processamento II | 19 | 2023-11-24 | **2023-11-27** | 382 |
+| 3 · 1ª Inst. Capital II | 20 | 2023-11-24 | **2023-11-27** | 382 |
+
+**Os cadernos 19 e 20 têm 20 meses de vida, não 16 anos.** É o caderno 19 —
+o da pauta numerada que o §15 e o §17 inteiros perseguiram.
+
+Daí os denominadores, todos por soma direta (edição a edição, caderno a
+caderno), nunca por multiplicação:
+
+| janela | edições | **unidades REAIS** | `dias × 8` diria | erro do atalho |
+|---|---:|---:|---:|---:|
+| jazida inteira 2007-10-01 → 2025-07-22 | 4.162 | **25.304** | 33.296 | +31,6% |
+| janela do coletor 2007-10-01 → 2025-03-13 | 4.077 | **24.624** | 32.616 | +32,5% |
+| **faixa catalogada 2009-06-15 → 2025-03-13** | 3.671 | **22.620** | 29.368 | **+29,8%** |
+| recorte 2011+ (o do §13.10) | 3.299 | **20.388** | 26.392 | +29,4% |
+
+**Dois instrumentos independentes, e é isso que autoriza publicar o número.**
+Além da bissecção, uma sonda percorre a população inteira das 29.368
+combinações em **ordem EMBARALHADA com semente fixa** (`SONDA_RPS=2`, HEAD
+apenas) — de propósito: uma execução parcial é uma **amostra aleatória** da
+população, não um prefixo enviesado por ano. Com 2.962 unidades sondadas
+(10,1%):
+
+    contraexemplos ao modelo das estreias .... 0
+    denominador PELA AMOSTRA ................. 23.024   IC95 [22.584 ; 23.464]
+    denominador PELA BISSECÇÃO ............... 22.620   ← dentro do intervalo
+
+Um contraexemplo seria um caderno 19 existindo antes de 2023-11-27, ou um dos
+seis "de sempre" faltando. Zero em 2.962.
+
+**Cobertura real da terceira porta, contra o denominador da FONTE:**
+
+| | antes (15:46 UTC) | depois (ver §19.4) |
+|---|---:|---:|
+| unidades `ok` | 250 | — |
+| denominador da faixa | 22.620 | 22.620 |
+| **cobertura** | **1,105%** | — |
+
+Contra o denominador inflado de 29.368 esse mesmo 250 dava 0,85%. A ordem de
+grandeza não muda — continua sendo **cerca de um por cento** — mas a régua
+agora é da fonte, não de uma multiplicação.
+
+**O que este denominador NÃO cobre**, escrito antes que alguém descubra: o
+caderno 5 (Editais e Leilões, `cdCaderno=14`) continua fora dos dois lados, e
+`inexistente` esporádico (caderno que falta num dia isolado) é resíduo que só a
+sonda completa mede — ela estava em 10,1% quando esta seção foi escrita.
+
+### 19.2 `inexistente` é TERMINAL — e as 5 que estavam lá EXISTEM
+
+O §4 é explícito: `inexistente` significa "a fonte diz que não existe unidade
+nesse dia" e **nunca** é retentado. Um status assim é uma afirmação forte, e
+por isso ele foi conferido contra a fonte viva. As cinco unidades que estavam
+com esse carimbo:
+
+| unidade | data | caderno | HEAD | **GET real** |
+|---|---|---:|---|---|
+| `4130-15` | 24/01/2025 | 15 | existe | **`%PDF-1.5`** |
+| `4130-18` | 24/01/2025 | 18 | existe | **`%PDF-1.6`** |
+| `4138-12` | 05/02/2025 | 12 | existe | **`%PDF-1.6`** |
+| `4141-11` | 10/02/2025 | 11 | existe | **`%PDF-1.5`** |
+| `4146-19` | 17/02/2025 | 19 | existe | **`%PDF-1.6`** |
+
+Controle negativo na mesma passada: `15/06/2009` caderno 20 (que a bissecção
+diz não existir) devolveu `\n\n<html>\n\t<head>`. A sonda sabe dizer "não".
+
+**Cinco de cinco.** O e-SAJ tinha servido, uma vez, a página de 851 bytes de
+`Erro ao acessar o caderno selecionado` — HTTP 200, `text/html` — para caderno
+que ele tem. Não é reproduzível: 12 sondas seguidas na mesma unidade deram 12
+"existe", distribuídas pelos três nós do cluster (`cdje1`/`cdje2`/`cdje3`).
+Foi transitório. E uma observação transitória fechava o watermark **para
+sempre**, com `IngestionRun.status='success'` e o log limpo — os três da tabela
+do `CLAUDE.md` de uma vez, num status cuja definição é "nunca mais tentar".
+
+**Tamanho, para não virar anedota:** 5 em ~260 unidades fechadas = **1,9%**. No
+lote de 3.813 pendentes que esta sessão abriu, seriam da ordem de **70
+cadernos** — ~1,8 milhão de publicações — perdidos sem retentativa e sem
+alarme. É a mesma família da lição do §12 ("coletado" ≠ "buscável") e do §16
+("extraído" ≠ "parte"): aqui, **"a fonte disse que não tem" ≠ "a fonte não
+tem"**.
+
+**A cura (commits `9247de2` + `28eeeee`):** ausência continua não sendo falha,
+mas passa a exigir **confirmação**. Uma observação deixa a unidade `pendente`
+com o motivo escrito; `CONFIRMACOES_DE_AUSENCIA = 3` observações a fecham. O
+custo são 2 requisições de 851 bytes a mais por unidade que de fato não existe
+— contra um download de caderno que chega a 62 MB. **A assimetria é o
+argumento**, a mesma da guarda de disco do §13.3.
+
+⚠️ **E o conserto estava errado na primeira versão — o dado é que corrigiu.** A
+versão 1 contava `EdicaoDiario.tentativas`. Ao reabrir as cinco unidades
+apareceu o número que derruba isso: elas estavam com **`tentativas` 4 e 5**,
+queimadas em FALHAS de outra natureza (a `NotNullViolation` do §14), não em
+ausências. Com o contador errado, uma ÚNICA observação fecharia o watermark de
+qualquer unidade que já tivesse tropeçado antes — ou seja, **o conserto não
+consertaria justamente os cinco casos que o motivaram**. A versão 2 conta
+ausência **SEGUIDA** (marca em `ultimo_erro`, que todo outro desfecho
+reescreve) e **não consome tentativa**: queimar `MAX_TENTATIVAS` com ausência
+deixaria a unidade parada em `pendente` com `tentativas=5`, invisível para o
+tick — dívida sem status, que é pior que o status errado.
+
+Três testes em `tests/test_diarios_base.py`, com **controle negativo rodado**:
+trocando o contador de volta por `tentativas`, os três reprovam.
+
+**As 5 foram reabertas** (`status='pendente'`, `tentativas=0`, com o motivo no
+`ultimo_erro`) e voltaram para a fila.
+
+### 19.3 O volume aberto — e por que a fatia é esta
+
+    catálogo 2023-01-01 → 2024-12-31 ...... 3.712 unidades vistas, 3.704 NOVAS
+    2ª passada (idempotência) .............     0 novas
+    pendentes: 119 → 3.813
+
+Por que 2023-2024 e não a jazida: o §13.2 barra o backfill inteiro pelo disco
+do ES (~772 GB projetados). Esta fatia, drenada por completo, são
+3.286 unidades × ~26 MB ≈ **85 GB de índice** — o nó de ES sairia de **70,5%**
+para ~**73,4%**, contra a guarda automática de 85%. Cabe com folga, e é o
+pedaço mais recente da jazida, que é a ordem em que o `tick` já trabalha.
+
+**Nota de leitura obrigatória para quem for conferir:** das 3.712 unidades
+catalogadas nesta fatia, **426 não existem na fonte** — são os cadernos 19 e 20
+de 2023-01-01 a 2023-11-24 (§19.1). Elas vão fechar `inexistente` **depois de 3
+observações**, e isso é o comportamento CORRETO. `por_status.inexistente`
+subindo para ~426 nesta fatia **não** é a fonte tendo mudado de layout (o
+sintoma que o `OPS.md` ensina a temer) — é a estreia dos cadernos, medida por
+bissecção e confirmada pela sonda. Fora desta fatia, `inexistente` crescendo
+continua sendo alarme.
+
+**Os tetos foram SUBIDOS, nunca tirados** (a regra do §13.10):
+
+| botão | de | para | onde |
+|---|---:|---:|---|
+| `DIARIOS_TETO_UNIDADES_DIA_TJSP_DJE` | 8 | 120 → **1.000** | `.env` da `.102` (efetivo) e da `.103` |
+| réplicas do `worker_diarios` | 2 | **4** | `--scale`, **não persistido** no compose |
+| `DIARIOS_FILA_ES_MAX` | 5.000 | **5.000** | não mexido — é ele que barra se eu exagerar |
+| `DIARIOS_ES_DISCO_MAX_PCT` | 85 | **85** | não mexido |
+
+1.000 unidades/24 h é teto de verdade: a ~46 unidades/h medidas com 4 réplicas,
+24 h dão ~1.100 — o orçamento fica **junto** da capacidade, não uma ordem de
+grandeza acima. Em disco, 1.000 unidades/dia são ~26 GB de índice = **+0,9
+ponto percentual por dia**, com 14,5 pontos até a guarda.
+
+⚠️ **`docker compose --scale worker_diarios=4` RECRIA as réplicas que já
+existiam** — e mata a coleta em voo delas. Foi por isso que o §17.5 subiu
+workers avulsos com `docker run` em vez de `--scale`. Custo desta sessão: 3
+cadernos re-baixados e **10 `IngestionRun` órfãos**, fechados à mão com a causa
+real (`watchdog_ingestao` não filtra por fonte e os chamaria de "worker
+crashou"). Quem for repetir: ou usa avulsos, ou aceita o custo e fecha os runs.
+
+### 19.4 Carga — medida antes, durante e depois
+
+Baseline às 15:35-15:46 UTC, com a Fase 3, o `backfill_partes_djen`, o
+`update_by_query` do #106 e o seguimento de incidentes do e-SAJ todos rodando.
+
+| régua | teto | ANTES (15:46) | COM a coleta (16:04-16:12) |
+|---|---|---:|---:|
+| disco do nó de ES | **85%** | 70,35% | 70,50% |
+| `write.rejected` do ES | **>0** | 0 | **0** |
+| fila `es_index` | **5.000** | 0 | 1.718 (34%) |
+| `load1` da `.102` | **40** | 4,04 | 8-13 (pico 25,9 no `--scale`) |
+| `MemAvailable` da `.102` | **6.000 MiB** | 17.932 | 15.942 |
+| **vazão 24 h da Fase 3** | não pode cair | **2.177** dias | **2.189** dias |
+| pendentes da Fase 3 | — | 3.648 | 3.607 |
+| `agg_estado('AC')` a frio | 30 s (cliente) | **26,0 s** (e 1 timeout antes) | **26,3 s** |
+| `agg_estado('SP')` a frio | 30 s (cliente) | **TIMEOUT 2×** (>30 s) | **14,4 s** |
+
+**A tela de estado já estourava o teto ANTES de eu abrir o volume** — `SP` deu
+`ConnectionTimeout` em 30,03 s e 30,24 s às 15:38, com a terceira porta no
+orçamento de 8/24 h e sem nada meu rodando. Quem manda nessa régua hoje é o
+`update_by_query` do #106, que estava em **9 tarefas com 11.516 s de vida** no
+nó de ES (load 18, RAM 97%). Durante a coleta o mesmo `SP` respondeu em
+**14,4 s**. Ou seja: **não piorou** — mas seria desonesto ler isso como
+"a coleta é de graça"; o certo é que o sinal está dominado por outra coisa e
+esta régua não separa as duas causas hoje. Fica registrado como não separado.
+
+Nenhum dos 10 critérios do §13.7 foi acionado.
+
+### 19.5 O que ficou de fora
+
+| pendência | estado |
+|---|---|
+| a sonda do denominador completa (29.368 HEADs, ~10 h a 2 rps) | **parcial: 10,1%**, com 0 contraexemplos. O número publicado é da bissecção; a sonda é o controle |
+| era 2007-10-01 → 2009-06-14 | fora da faixa catalogada. As estreias já estão medidas (§19.1), mas nenhuma unidade foi catalogada nem coletada |
+| o **caderno 1 (Administrativo)** | segue fechando com cobertura de 15,8%, 57,7% e 76,9% nesta rodada **sem o gate disparar**: `MINIMO_PARA_AFERIR_COBERTURA=200` e ele tem 26-78 CNJs. É a lacuna do §10, agora com número novo — e ela se repetirá em ~460 unidades desta fatia |
+| catalogar 2011 → 2022 | **não feito de propósito.** São ~16.500 unidades reais; o §13.2 manda expandir o disco do ES antes de janela larga |
+| `DIARIOS_FILA_PARTES_MAX` | não mexido (200). Com 4 réplicas a promoção a parte adia mais — o `backfill_partes_djen` alcança depois (§17.5) |
+| as 22 edições do §16.4 / caderno 5 | inalterados |
