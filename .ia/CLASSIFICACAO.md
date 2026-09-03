@@ -109,6 +109,41 @@ D1 + D2 (top 20%) capturam ~87% dos leads. Modelo bem calibrado: probabilidade p
 | **F1×F15** | Cumprimento × volume movs | **+1.61** (sinergia forte) |
 | F1×F2 | Cumprimento × precatório tipo_com | −0.04 |
 
+### Qual campo de classe o F1 lê (03/09/2026)
+
+`F1_cumprim` e `_is_classe_precatorio_autuado` leem a **FASE**
+(`fase_codigo`/`fase_nome`), com queda para o par legado
+`classe_codigo`/`classe_nome` quando a fase ainda não foi provada — helper
+`_classe_efetiva()` em `tribunals/classificador.py`.
+
+Motivo: a migration 0054 (#105) separou cadastro do CNJ (`classe_cnj_*`) da
+classe que o tribunal PUBLICOU (`fase_*`), e `classe_codigo` virou legado que
+mistura os dois. O backfill de fase fechou em 03/09/2026 — `fase_codigo` cobre
+**100%** dos processos contra 61% (TJMA), 72% (TJMT) e 95% (TJAL) do campo
+antigo. Lendo o campo antigo, o classificador via `F1 = 0` em:
+
+| tribunal | Cumprimento pela fase, invisível ao F1 | `fase_nome`='PRECATÓRIO' em NAO_LEAD |
+|---|---:|---:|
+| TJMA | 169.321 | 32.987 |
+| TJMT | 116.295 | 23.923 |
+| TJAL | 11.121 | 1.264 |
+
+F1 pesa +1,92, a interação F1×F15 +1,61, e a regra de sinal F14/F20 **exige**
+`F1 == 1` antes de promover — sem F1 o processo não sobe nem pelo LR nem pela
+regra.
+
+**Raio medido antes do deploy** (200 processos mais recentes × 59 tribunais =
+11.800): 652 mudanças (5,5%), sendo 499 → N3, 145 → N2, **2 → N1** e só 6
+rebaixamentos (DC→NAO_LEAD). **Zero rebaixamento de N1.** TJSP, TRF1, TRF3,
+TJMG, TJMS, STJ, TST e 4 TRTs não mudam nada — onde fase e campo legado
+concordam, o veredito é o mesmo. Maiores movimentos: TRT16 38,5%, TJSC 21%,
+TJRS/TJTO 18%. ⚠️ A amostra é enviesada para processos ativos (ordenada por
+`ultima_movimentacao_em`); não serve como projeção para o acervo inteiro.
+
+⚠️ F1 (código) e F10 (nome) leem a **mesma** fonte de propósito. Em fontes
+diferentes o mesmo processo seria Cumprimento por um campo e Juizado pelo outro,
+com +1,92 e −1,13 brigando sobre o mesmo fato.
+
 **Insight chave**: features dominantes são **F15 (volume de movs)** e **F1 (classe Cumprimento)**, com sinergia F1×F15 = +1.61. Texto (F11/F12) adiciona moderado. Interações de "expedição explícita" (F19/F20) deram peso quase zero porque esses termos raramente aparecem nas movs públicas DJEN/Datajud — vivem nos autos completos do PJe que o Juriscope baixa.
 
 ## Arquitetura do pipeline

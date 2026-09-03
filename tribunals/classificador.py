@@ -406,15 +406,46 @@ def _is_anti_classe(classe_nome: str) -> int:
                or 'procedimento comum' in n)
 
 
+def _classe_efetiva(processo) -> tuple[str, str]:
+    """(código, nome) da classe que o classificador deve enxergar.
+
+    Prefere a **FASE** — a classe com que o tribunal PUBLICOU o processo — e só
+    cai para `classe_codigo`/`classe_nome` quando a fase ainda não foi provada.
+
+    Por que a fase e não o campo antigo: o v6 foi treinado sobre a classe que
+    vinha do DJEN, que é justamente a fase. A migration 0054 (#105) separou o
+    fato em dois campos e `classe_codigo` virou legado que mistura cadastro e
+    publicação; `fase_codigo` é o sucessor limpo. O próprio model diz: um
+    Juizado Especial Cível (436 no cadastro) em fase de Cumprimento contra a
+    Fazenda (12078 na publicação) É lead, e o cadastro nunca vai dizer isso.
+
+    Medido em 03/09/2026, o campo antigo simplesmente não está lá: `fase_codigo`
+    cobre 100% dos processos contra 61% (TJMA), 72% (TJMT) e 95% (TJAL) de
+    `classe_codigo`. São 169.321 / 116.295 / 11.121 processos que são
+    Cumprimento pela fase e tinham `F1_cumprim = 0` — e F1 pesa +1,92, a
+    interação F1×F15 +1,61, e a regra de sinal F14/F20 EXIGE `F1 == 1` antes de
+    promover. Sem isso o processo não sobe nem pelo LR nem pela regra.
+
+    O par (código, nome) é devolvido JUNTO, da mesma fonte: misturar
+    `fase_codigo` com `classe_nome` fabricaria um par que não existe em lugar
+    nenhum, e `_is_classe_precatorio_autuado` decide justamente pela coerência
+    entre os dois.
+    """
+    cod = (processo.fase_codigo or '').strip()
+    if cod:
+        return cod, (processo.fase_nome or '')
+    return (processo.classe_codigo or '').strip(), (processo.classe_nome or '')
+
+
 def _is_classe_precatorio_autuado(processo) -> bool:
     """True quando o processo É um precatório autuado (classe CNJ 1265).
 
     Exige código E nome coerentes, e rejeita carta precatória — ver comentário
     em CLASSES_PRECATORIO_AUTUADO.
     """
-    if (processo.classe_codigo or '').strip() not in CLASSES_PRECATORIO_AUTUADO:
+    cod, nome = _classe_efetiva(processo)
+    if cod not in CLASSES_PRECATORIO_AUTUADO:
         return False
-    nome = processo.classe_nome or ''
     if _RE_NOME_CARTA_PRECATORIA.search(nome):
         return False
     return bool(_RE_NOME_PRECATORIO.search(nome))
@@ -433,8 +464,11 @@ def compute_features(processo) -> dict:
     """
     from .models import ProcessoParte
 
-    classe_cod = (processo.classe_codigo or '')
-    classe_nome = processo.classe_nome or ''
+    # Fase antes de classe — ver `_classe_efetiva`. F1 e F10 leem a MESMA
+    # fonte de propósito: um lê o código e o outro o nome do mesmo fato, e
+    # deixá-los em fontes diferentes produziria um processo que é Cumprimento
+    # por um campo e Juizado pelo outro.
+    classe_cod, classe_nome = _classe_efetiva(processo)
     ano = _ano_cnj(processo.numero_cnj)
     f1 = int(classe_cod in CLASSES_CUMPRIMENTO)
     f10 = _is_anti_classe(classe_nome)
