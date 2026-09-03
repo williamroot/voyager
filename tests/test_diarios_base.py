@@ -530,9 +530,11 @@ def test_ausencia_precisa_ser_confirmada_antes_de_virar_terminal():
         edicao.refresh_from_db()
         assert r['status'] == EdicaoDiario.PENDENTE, (
             f'{vista}ª observação NÃO pode fechar um status terminal')
+        assert r['ausencia_nao_confirmada'] == vista
         assert edicao.status == EdicaoDiario.PENDENTE
-        assert edicao.tentativas == vista, 'a observação tem que contar tentativa'
-        assert 'NÃO confirmada' in edicao.ultimo_erro, 'o motivo tem que ficar escrito'
+        assert edicao.tentativas == 0, (
+            'ausência não é falha: não pode gastar o orçamento de MAX_TENTATIVAS')
+        assert f'({vista}/' in edicao.ultimo_erro, 'o número da observação tem que ficar escrito'
 
     r = coletar_unidade(coletor, edicao)
     edicao.refresh_from_db()
@@ -552,3 +554,74 @@ def test_confirmacao_de_ausencia_cabe_dentro_do_teto_de_tentativas():
     from diarios.jobs import MAX_TENTATIVAS
 
     assert CONFIRMACOES_DE_AUSENCIA < MAX_TENTATIVAS
+
+
+@pytest.mark.django_db
+def test_ausencia_conta_ausencia_seguida_e_nao_o_contador_de_falhas():
+    """O DADO que corrigiu o conserto, e por isso ele tem teste próprio.
+
+    As 5 unidades falsamente `inexistente` estavam com `tentativas` **4 e 5** —
+    gastas em FALHAS de outra natureza (a `NotNullViolation` do §14 do
+    `.ia/DIARIOS.md`), não em ausências. Se o contador de confirmação fosse
+    `tentativas`, uma ÚNICA observação de "200 que não é dado" fecharia o
+    watermark de qualquer unidade que já tivesse tropeçado antes — que é
+    exatamente o caso medido em produção.
+
+    A régua: falha anterior NÃO adianta o relógio da ausência.
+    """
+    from diarios.base import (CONFIRMACOES_DE_AUSENCIA, UnidadeInexistente,
+                              catalogar_fonte, coletar_unidade)
+    from diarios.models import EdicaoDiario
+    from tribunals.models import Tribunal
+
+    Tribunal.objects.get_or_create(sigla='TJSP', defaults={'nome': 'TJSP', 'sigla_djen': 'TJSP'})
+    EdicaoDiario.objects.filter(fonte='fake-dje').delete()
+    coletor = _fake_coletor(itens=1)
+    catalogar_fonte(coletor, date(2015, 7, 1), date(2015, 7, 31))
+    edicao = EdicaoDiario.objects.get(fonte='fake-dje', chave='4246-12')
+
+    # o estado real de produção: 4 tentativas queimadas em falha de INSERT
+    edicao.marcar(EdicaoDiario.FALHA, erro='null value in column "classe_cnj_codigo"')
+    EdicaoDiario.objects.filter(pk=edicao.pk).update(tentativas=4)
+    edicao.refresh_from_db()
+
+    def nao_existe(unidade):
+        raise UnidadeInexistente('e-SAJ não tem o caderno 12 em 05/02/2025')
+        yield  # pragma: no cover — mantém a assinatura de gerador
+
+    coletor.coletar = nao_existe
+    r = coletar_unidade(coletor, edicao)
+    edicao.refresh_from_db()
+    assert r['status'] == EdicaoDiario.PENDENTE, (
+        'tentativas=4 de FALHA não pode valer como ausência confirmada')
+    assert r['ausencia_nao_confirmada'] == 1, 'o relógio da ausência começa em 1'
+    assert edicao.tentativas == 4, 'e não pode consumir mais tentativa'
+
+
+@pytest.mark.django_db
+def test_qualquer_outro_desfecho_zera_o_relogio_da_ausencia():
+    """"Confirmada" quer dizer SEGUIDA. Uma coleta que deu certo (ou uma falha)
+    no meio do caminho reescreve `ultimo_erro` e o contador recomeça — abster
+    para o lado de perguntar de novo, nunca para o lado de fechar terminal."""
+    from diarios.base import UnidadeInexistente, catalogar_fonte, coletar_unidade
+    from diarios.models import EdicaoDiario
+    from tribunals.models import Tribunal
+
+    Tribunal.objects.get_or_create(sigla='TJSP', defaults={'nome': 'TJSP', 'sigla_djen': 'TJSP'})
+    EdicaoDiario.objects.filter(fonte='fake-dje').delete()
+    coletor = _fake_coletor(itens=1)
+    catalogar_fonte(coletor, date(2015, 7, 1), date(2015, 7, 31))
+    edicao = EdicaoDiario.objects.get(fonte='fake-dje', chave='4246-12')
+
+    def nao_existe(unidade):
+        raise UnidadeInexistente('e-SAJ não tem o caderno')
+        yield  # pragma: no cover
+
+    coletor.coletar = nao_existe
+    assert coletar_unidade(coletor, edicao)['ausencia_nao_confirmada'] == 1
+    edicao.refresh_from_db()
+    edicao.marcar(EdicaoDiario.FALHA, erro='timeout no download')   # desfecho de outra natureza
+    edicao.refresh_from_db()
+    assert coletar_unidade(coletor, edicao)['ausencia_nao_confirmada'] == 1, (
+        'o relógio tem que recomeçar, não continuar de onde parou'
+    )

@@ -123,7 +123,24 @@ MAX_EXTERNAL_ID = 64
 #: terminal honesto.
 CONFIRMACOES_DE_AUSENCIA = 3
 
+#: A marca que o contador de ausências deixa em `EdicaoDiario.ultimo_erro`.
+#: Contar por AÍ, e não por `tentativas`, é deliberado — e a razão veio do
+#: dado: as 5 unidades falsamente `inexistente` estavam com `tentativas` 4 e 5,
+#: gastas em FALHAS de outra natureza (a `NotNullViolation` do §14). Somar
+#: falha com ausência faria uma única observação fechar o watermark de
+#: qualquer unidade que já tivesse tropeçado antes — exatamente o caso medido.
+#: Como todo outro desfecho reescreve `ultimo_erro`, o que este contador mede é
+#: ausência SEGUIDA, que é o que a palavra "confirmada" quer dizer.
+MARCA_AUSENCIA = 'ausência NÃO confirmada'
+_RE_AUSENCIA = re.compile(re.escape(MARCA_AUSENCIA) + r' \((\d+)/')
+
 _SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9-]{2,15}$')
+
+
+def _ausencias_seguidas(edicao) -> int:
+    """Quantas vezes SEGUIDAS a fonte já disse que não tem esta unidade."""
+    m = _RE_AUSENCIA.search(edicao.ultimo_erro or '')
+    return int(m.group(1)) if m else 0
 
 
 def validar_slug(slug: str) -> str:
@@ -1294,11 +1311,15 @@ def coletar_unidade(coletor: ColetorDiario, edicao, sobrepor: bool = False,  # n
         # fonte e as 5 EXISTIAM (GET real devolvendo `%PDF`). Uma observação
         # transitória de "200 que não é dado" estava fechando o watermark para
         # sempre, com run `success`.
-        vistas = (edicao.tentativas or 0) + 1
+        vistas = _ausencias_seguidas(edicao) + 1
         if vistas < CONFIRMACOES_DE_AUSENCIA:
+            # `contar_tentativa=False`: ausência NÃO é falha, e gastar o
+            # orçamento de `MAX_TENTATIVAS` com ela deixaria a unidade parada
+            # em `pendente` com `tentativas=5` — invisível para o tick. Quem
+            # termina este laço é o contador de ausências, não o de falhas.
             edicao.marcar(
-                EdicaoDiario.PENDENTE,
-                erro=f'ausência NÃO confirmada ({vistas}/{CONFIRMACOES_DE_AUSENCIA}): {exc}'[:500])
+                EdicaoDiario.PENDENTE, contar_tentativa=False,
+                erro=f'{MARCA_AUSENCIA} ({vistas}/{CONFIRMACOES_DE_AUSENCIA}): {exc}'[:500])
             if run is not None:
                 run.status = IngestionRun.STATUS_SUCCESS
                 run.finished_at = timezone.now()
