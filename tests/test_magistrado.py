@@ -113,3 +113,66 @@ def test_o_html_nao_usa_cor_fora_do_config():
     for proibida in ('text-warn-fg', 'bg-warn/', 'border-warn/',
                      'text-success-fg', 'intcomma'):
         assert proibida not in tpl, f'`{proibida}` não existe nesta base'
+
+
+# ── premium: série, SVG e matriz ─────────────────────────────────────────────
+def test_serie_marca_o_mes_corrente_como_parcial():
+    """Bucket incompleto desenhado como cheio sugere QUEDA onde só há mês pela
+    metade. É a lição que o `buildVolumeChart` do base.html já carregava."""
+    import datetime
+    hoje = datetime.date.today()
+    serie = D._serie_mensal([f'{hoje:%Y-%m}-01', '2026-01-15'])
+    corrente = [x for x in serie if x['parcial']]
+    assert len(corrente) == 1
+    assert corrente[0]['mes'] == f'{hoje:%Y-%m}'
+
+
+def test_serie_e_continua_zero_explicito_nao_buraco():
+    """Buraco no eixo faz o olho interpolar e inventar atividade que não houve."""
+    serie = D._serie_mensal(['2026-01-10', '2026-04-10'])
+    assert [x['mes'] for x in serie] == ['2026-01', '2026-02', '2026-03', '2026-04']
+    assert [x['n'] for x in serie] == [1, 0, 0, 1]
+
+
+def test_media_mensal_ignora_o_mes_incompleto():
+    """Incluir o corrente puxa a média para baixo e sugere desaceleração falsa."""
+    import datetime
+    hoje = datetime.date.today()
+    bruto = _procs([{'condenacao'}])
+    bruto['datas'] = ['2026-01-05'] * 10 + [f'{hoje:%Y-%m}-01']
+    a = D.analisar(bruto)
+    # 10 no mês completo; o corrente (1) não entra na conta
+    assert a['destaque']['media_mes'] is not None
+    completos = [x for x in a['serie'] if not x['parcial']]
+    assert a['destaque']['media_mes'] == round(
+        sum(x['n'] for x in completos) / len(completos), 1)
+
+
+def test_svg_da_serie_e_autocontido_e_marca_o_parcial():
+    """WeasyPrint NÃO roda JavaScript: se o PDF dependesse do ECharts sairia um
+    retângulo vazio, e gráfico faltando parece defeito de impressão em vez de
+    ausência deliberada."""
+    svg = D._svg_serie([{'mes': '2026-01', 'n': 5, 'parcial': False},
+                        {'mes': '2026-02', 'n': 3, 'parcial': True}])
+    assert svg.startswith('<svg') and svg.endswith('</svg>')
+    assert 'polyline' in svg, 'a linha dos meses completos'
+    assert 'rotate(45' in svg, 'o losango do mês parcial'
+    assert '<script' not in svg, 'o PDF não executa script'
+
+
+def test_svg_vazio_quando_nao_ha_serie():
+    assert D._svg_serie([]) == ''
+
+
+def test_matriz_cobre_todos_os_pares_e_so_promove_os_confiaveis():
+    """O eixo único responde 'o que anda com condenação'. A matriz responde
+    'o que anda com o quê' — e os `fortes` NÃO podem incluir célula pequena,
+    senão o ranking é liderado por acaso de amostra."""
+    bruto = _procs([{'condenacao', 'protetiva'}] * 8
+                   + [{'condenacao'}] * 8 + [{'protetiva'}] * 8
+                   + [{'preventiva', 'condenacao'}] + [set()] * 8)
+    a = D.analisar(bruto)
+    m = a['matriz']
+    assert len(m['celulas']) >= 3
+    for c in m['fortes']:
+        assert c['confiavel'], 'par de célula pequena não pode liderar'

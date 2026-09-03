@@ -131,6 +131,55 @@ achando que tem um score de juiz.
     {% endif %}
   </div>
 
+  {% comment %}
+  HERO — os quatro números que respondem a pergunta antes de qualquer tabela.
+  `media_mes` é sobre meses COMPLETOS: incluir o corrente puxaria a média para
+  baixo e sugeriria desaceleração que é só mês pela metade.
+  {% endcomment %}
+  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card-tight">
+      <div class="text-[0.68rem] uppercase tracking-wider text-fg-subtle">Processos</div>
+      <div class="mt-1 text-2xl font-mono tabular-nums text-fg-soft">
+        {{ d.n_processos|format_int }}</div>
+      <div class="text-[0.7rem] text-fg-subtle mt-0.5">
+        em {{ d.publicacoes|format_int }} publicações</div>
+    </div>
+    <div class="card-tight">
+      <div class="text-[0.68rem] uppercase tracking-wider text-fg-subtle">Período</div>
+      <div class="mt-1 text-2xl font-mono tabular-nums text-fg-soft">
+        {% if d.destaque.periodo %}{{ d.destaque.periodo.0 }}{% else %}—{% endif %}</div>
+      <div class="text-[0.7rem] text-fg-subtle mt-0.5">
+        até {% if d.destaque.periodo %}{{ d.destaque.periodo.1 }}{% else %}—{% endif %}</div>
+    </div>
+    <div class="card-tight">
+      <div class="text-[0.68rem] uppercase tracking-wider text-fg-subtle">Publicações / mês</div>
+      <div class="mt-1 text-2xl font-mono tabular-nums text-fg-soft">
+        {{ d.destaque.media_mes|default:"—" }}</div>
+      <div class="text-[0.7rem] text-fg-subtle mt-0.5">média de meses completos</div>
+    </div>
+    <div class="card-tight">
+      <div class="text-[0.68rem] uppercase tracking-wider text-fg-subtle">Vara principal</div>
+      <div class="mt-1 text-2xl font-mono tabular-nums text-fg-soft">
+        {% if d.destaque.orgao_principal %}{{ d.destaque.orgao_principal.1 }}{% else %}—{% endif %}</div>
+      <div class="text-[0.7rem] text-fg-subtle mt-0.5">
+        de {{ d.n_processos }} processos</div>
+    </div>
+  </div>
+
+  <section class="card-tight">
+    <h3 class="text-[0.95rem] font-semibold text-fg-soft">Atividade ao longo do tempo</h3>
+    <p class="text-[0.72rem] text-fg-subtle mt-0.5 mb-3">
+      Publicações por mês. Mês sem publicação aparece como <b>zero explícito</b>,
+      não como buraco — buraco no eixo faz o olho interpolar e inventar atividade
+      que não houve. O mês corrente está <b>incompleto</b> e sai destacado, fora
+      da linha: bucket parcial desenhado como cheio sugere queda onde só há mês
+      pela metade.
+    </p>
+    <div class="chart-cell relative" style="height: 220px">
+      <div id="ch-serie" class="absolute inset-0"></div>
+    </div>
+  </section>
+
   <div class="grid gap-5 lg:grid-cols-2">
     <section class="card-tight">
       <h3 class="text-[0.95rem] font-semibold text-fg-soft">Onde atua</h3>
@@ -194,6 +243,36 @@ achando que tem um score de juiz.
       {% endfor %}
     </div>
   </section>
+
+  {% if d.matriz.fortes %}
+  <section class="card-tight">
+    <h3 class="text-[0.95rem] font-semibold text-fg-soft">
+      Os pares que mais se associam</h3>
+    <p class="text-[0.72rem] text-fg-subtle mt-0.5 mb-3">
+      Entre os <b>{{ d.matriz.celulas|length }}</b> pares possíveis, estes são os
+      de maior associação <b>entre os que têm amostra suficiente</b> — os de
+      célula pequena ficam de fora daqui em vez de liderarem o ranking por
+      acaso de amostra.
+    </p>
+    <div class="space-y-2">
+      {% for c in d.matriz.fortes %}
+      <div class="rounded-lg border border-border bg-surface px-3.5 py-2.5
+                  flex items-center justify-between gap-4">
+        <div class="text-sm text-fg-muted">
+          {{ c.rot_a }} <span class="text-fg-subtle">×</span> {{ c.rot_b }}
+        </div>
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-[0.7rem] text-fg-subtle font-mono tabular-nums">
+            {{ c.tabela.0 }} juntos</span>
+          <span class="font-mono tabular-nums text-sm
+                       {% if c.phi > 0 %}text-accent-fg{% else %}text-fg-muted{% endif %}">
+            φ {{ c.phi|floatformat:2 }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
   <section class="card-tight">
     <h3 class="text-[0.95rem] font-semibold text-fg-soft">
@@ -285,6 +364,47 @@ achando que tem um score de juiz.
     </dl>
   </section>
 
+  {{ d.serie|json_script:"serie-magistrado" }}
+  <script>
+    (function () {
+      const el = document.getElementById('ch-serie');
+      const raw = document.getElementById('serie-magistrado');
+      if (!el || !raw) return;
+      let serie;
+      try { serie = JSON.parse(raw.textContent); } catch (e) { return; }
+      if (!serie.length) return;
+      const g = chartGridColors();
+      // O parcial SAI da linha e entra como ponto isolado: incluí-lo faria a
+      // última perna despencar e alguém leria tendência num mês pela metade.
+      const completos = serie.filter(p => !p.parcial);
+      const parcial = serie.map(p => (p.parcial ? p.n : null));
+      setupChart(el, {
+        grid: { left: 38, right: 12, top: 16, bottom: 26 },
+        tooltip: { trigger: 'axis',
+          formatter: function (ps) {
+            const p = ps[0];
+            const item = serie[p.dataIndex];
+            return p.axisValue + '<br/><b>' + item.n + '</b> publicações'
+                   + (item.parcial ? '<br/><i>mês incompleto</i>' : '');
+          } },
+        xAxis: { type: 'category', data: serie.map(p => p.mes),
+                 axisLabel: { color: g.axisLabel, fontSize: 10,
+                              interval: Math.max(0, Math.floor(serie.length / 12)) },
+                 axisLine: { lineStyle: { color: g.axisLine } } },
+        yAxis: { type: 'value', minInterval: 1,
+                 axisLabel: { color: g.axisLabel, fontSize: 10 },
+                 splitLine: { lineStyle: { color: g.splitLine } } },
+        series: [
+          { type: 'line', smooth: true, symbol: 'circle', symbolSize: 4,
+            areaStyle: { opacity: 0.12 },
+            data: serie.map(p => (p.parcial ? null : p.n)) },
+          { type: 'scatter', symbolSize: 9, data: parcial,
+            itemStyle: { opacity: 0.55 },
+            tooltip: { show: false } },
+        ],
+      });
+    })();
+  </script>
   {% endwith %}
   {% elif buscou and not erro %}
   <div class="card-tight text-center py-12">

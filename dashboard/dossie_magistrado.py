@@ -105,6 +105,7 @@ def coletar(nome: str, tribunal: str, teto: int = TETO_PUBLICACOES) -> dict:
     total = resp['hits']['total']['value']
 
     processos: dict[str, dict] = {}
+    datas_todas: list[str] = []
     for h in hits:
         s = h['_source']
         proc = s.get('proc')
@@ -115,6 +116,12 @@ def coletar(nome: str, tribunal: str, teto: int = TETO_PUBLICACOES) -> dict:
         })
         d['pubs'] += 1
         data = str(s.get('publish_date') or '')[:10]
+        if data:
+            # TODAS as datas, não só a última: a linha do tempo mede ATIVIDADE
+            # (publicações por mês). Um processo atravessa meses, então usar só
+            # a data mais recente do caso desenharia um gráfico de "casos que
+            # terminaram", que é outra coisa e ninguém pediu.
+            datas_todas.append(data)
         if data > d['data']:
             d['data'] = data
         d['classe'] = d['classe'] or (s.get('classe_nome') or '')
@@ -128,7 +135,7 @@ def coletar(nome: str, tribunal: str, teto: int = TETO_PUBLICACOES) -> dict:
         'nome': nome, 'tribunal': tribunal,
         'publicacoes': len(hits), 'publicacoes_no_indice': total,
         'teto_batido': len(hits) >= teto and total > len(hits),
-        'processos': processos,
+        'processos': processos, 'datas': datas_todas,
     }
 
 
@@ -158,6 +165,63 @@ def _phi(processos: dict, a_chave: str, b_chave: str) -> tuple:
                     * (ambos + so_b) * (so_a + nenhum))
     phi = ((ambos * nenhum - so_a * so_b) / den) if den else None
     return phi, (ambos, so_a, so_b, nenhum)
+
+
+def _serie_mensal(datas: list[str]) -> list[dict]:
+    """Publicações por mês — a linha do tempo de ATIVIDADE.
+
+    ⚠️ O mês corrente sai marcado `parcial`. É a lição do `buildVolumeChart`
+    do `base.html`: bucket incompleto desenhado como completo sugere **queda**
+    onde só há mês pela metade. O gráfico exclui o parcial da linha e o mostra
+    tracejado, para o leitor ver que existe sem ler como tendência.
+    """
+    import collections
+
+    if not datas:
+        return []
+    meses = collections.Counter(d[:7] for d in datas if d)
+    if not meses:
+        return []
+    corrente = _dt.date.today().strftime('%Y-%m')
+    ini, fim = min(meses), max(meses)
+    # série CONTÍNUA: mês sem publicação é zero explícito, não buraco. Buraco
+    # no eixo faz o olho interpolar e inventar atividade que não houve.
+    saida, ano, mes = [], int(ini[:4]), int(ini[5:7])
+    while f'{ano:04d}-{mes:02d}' <= fim:
+        chave = f'{ano:04d}-{mes:02d}'
+        saida.append({'mes': chave, 'n': meses.get(chave, 0),
+                      'parcial': chave == corrente})
+        mes += 1
+        if mes > 12:
+            mes, ano = 1, ano + 1
+    return saida
+
+
+def _matriz(procs: dict) -> dict:
+    """Coocorrência de TODOS os pares — não só contra um eixo.
+
+    O eixo único responde "o que anda com condenação". A matriz responde
+    "o que anda com o quê", que é a pergunta da jurimetria e é onde aparece
+    o par que ninguém pensou em procurar.
+    """
+    chaves = list(MARCADORES)
+    presentes = [k for k in chaves
+                 if any(k in d['marcadores'] for d in procs.values())]
+    celulas = []
+    for i, a in enumerate(presentes):
+        for b in presentes[i + 1:]:
+            phi, tab = _phi(procs, a, b)
+            celulas.append({
+                'a': a, 'b': b, 'rot_a': ROTULO.get(a, a), 'rot_b': ROTULO.get(b, b),
+                'phi': phi, 'tabela': tab,
+                'confiavel': min(tab) >= CELULA_MINIMA,
+                'nunca_sozinho_b': tab[2] == 0 and tab[0] > 0,
+            })
+    fortes = sorted((c for c in celulas if c['confiavel'] and c['phi'] is not None),
+                    key=lambda c: -abs(c['phi']))[:5]
+    return {'chaves': presentes,
+            'rotulos': [ROTULO.get(k, k) for k in presentes],
+            'celulas': celulas, 'fortes': fortes}
 
 
 def analisar(bruto: dict, eixo: str = 'condenacao') -> dict:
@@ -191,9 +255,21 @@ def analisar(bruto: dict, eixo: str = 'condenacao') -> dict:
           'marcadores': sorted(d['marcadores'])} for p, d in procs.items()),
         key=lambda c: c['data'], reverse=True,
     )
+    serie = _serie_mensal(bruto.get('datas') or [])
+    ativos = [x for x in serie if not x['parcial']]
+    destaque = {
+        'orgao_principal': a_orgao[0] if (a_orgao := orgaos.most_common(1)) else None,
+        'classe_principal': classes.most_common(1)[0] if classes else None,
+        'ato_mais_frequente': freq.most_common(1)[0] if freq else None,
+        'periodo': (serie[0]['mes'], serie[-1]['mes']) if serie else None,
+        # média sobre meses COMPLETOS: incluir o corrente puxaria para baixo
+        'media_mes': (round(sum(x['n'] for x in ativos) / len(ativos), 1)
+                      if ativos else None),
+    }
     return {
-        **{k: v for k, v in bruto.items() if k != 'processos'},
+        **{k: v for k, v in bruto.items() if k not in ('processos', 'datas')},
         'n_processos': n, 'eixo': eixo,
+        'serie': serie, 'matriz': _matriz(procs), 'destaque': destaque,
         'frequencia': [{'chave': k, 'rotulo': ROTULO.get(k, k), 'n': v,
                         'pct': 100.0 * v / n if n else 0}
                        for k, v in freq.most_common()],
@@ -209,6 +285,62 @@ def analisar(bruto: dict, eixo: str = 'condenacao') -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # render
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _svg_serie(serie: list[dict], largura: int = 520, altura: int = 110) -> str:
+    """Linha do tempo em SVG puro, para o PDF.
+
+    ⚠️ **WeasyPrint não roda JavaScript.** A tela usa ECharts; se o PDF
+    dependesse dele, sairia com um retângulo vazio — e um relatório com o
+    gráfico faltando é pior que um sem gráfico, porque parece defeito de
+    impressão em vez de ausência deliberada. SVG é desenhado aqui, no servidor,
+    e vive dentro do próprio arquivo.
+
+    O mês PARCIAL sai como losango solto, fora da linha, pelo mesmo motivo da
+    tela: bucket incompleto desenhado como cheio vira "queda" no olho de quem lê.
+    """
+    if not serie:
+        return ''
+    m_esq, m_dir, m_top, m_bai = 26, 6, 10, 16
+    w = largura - m_esq - m_dir
+    h = altura - m_top - m_bai
+    topo = max((p['n'] for p in serie), default=0) or 1
+    n = len(serie)
+    passo = w / max(n - 1, 1)
+
+    def xy(i, v):
+        return (m_esq + i * passo, m_top + h - (v / topo) * h)
+
+    completos = [(i, p) for i, p in enumerate(serie) if not p['parcial']]
+    pts = ' '.join(f'{x:.1f},{y:.1f}' for x, y in (xy(i, p['n']) for i, p in completos))
+    P = [f"<svg viewBox='0 0 {largura} {altura}' width='100%' height='{altura}' "
+         f"xmlns='http://www.w3.org/2000/svg' role='img'>"]
+    # eixo e duas guias horizontais — sem grade cheia, que compete com a linha
+    for frac in (0, 0.5, 1.0):
+        y = m_top + h - frac * h
+        P.append(f"<line x1='{m_esq}' y1='{y:.1f}' x2='{largura - m_dir}' y2='{y:.1f}' "
+                 f"stroke='#e6e6e6' stroke-width='0.6'/>")
+        P.append(f"<text x='{m_esq - 4}' y='{y + 3:.1f}' font-size='7' fill='#999' "
+                 f"text-anchor='end'>{int(topo * frac)}</text>")
+    if pts:
+        area = (f"{m_esq},{m_top + h:.1f} {pts} "
+                f"{m_esq + completos[-1][0] * passo:.1f},{m_top + h:.1f}")
+        P.append(f"<polygon points='{area}' fill='#b13' opacity='0.10'/>")
+        P.append(f"<polyline points='{pts}' fill='none' stroke='#b13' "
+                 f"stroke-width='1.4' stroke-linejoin='round'/>")
+    for i, p in enumerate(serie):
+        if not p['parcial']:
+            continue
+        x, y = xy(i, p['n'])
+        P.append(f"<rect x='{x - 2.6:.1f}' y='{y - 2.6:.1f}' width='5.2' height='5.2' "
+                 f"transform='rotate(45 {x:.1f} {y:.1f})' fill='#b13' opacity='0.45'/>")
+    # rótulos: primeiro, meio e último — mais que isso vira borrão em 520px
+    for i in {0, n // 2, n - 1}:
+        x = m_esq + i * passo
+        P.append(f"<text x='{x:.1f}' y='{altura - 4}' font-size='7' fill='#999' "
+                 f"text-anchor='middle'>{serie[i]['mes']}</text>")
+    P.append('</svg>')
+    return ''.join(P)
+
 
 def _e(v) -> str:
     return _html.escape(str(v if v is not None else ''))
@@ -286,6 +418,21 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
         P.append(f"<tr><td>{_e(org) or '—'}</td><td class='num'>{qtd}</td></tr>")
     P.append("</table>")
 
+    # linha do tempo — SVG, porque o WeasyPrint não roda JS
+    if a.get('serie'):
+        P.append("<h2>Atividade ao longo do tempo</h2>")
+        P.append("<div class='nota'>Publicações por mês. Mês sem publicação é "
+                 "<b>zero explícito</b>, não buraco. O mês corrente está "
+                 "<b>incompleto</b> e sai como losango fora da linha — bucket "
+                 "parcial desenhado como cheio sugere queda onde só há mês pela "
+                 "metade.</div>")
+        P.append(_svg_serie(a['serie']))
+        dq = a.get('destaque') or {}
+        if dq.get('media_mes') is not None:
+            P.append(f"<p class='sub' style='margin-top:2mm'>Média de "
+                     f"<b>{dq['media_mes']}</b> publicações por mês, sobre meses "
+                     f"completos.</p>")
+
     # atuação
     P.append("<h2>O que julga</h2>")
     P.append("<table><tr><th>Classe processual</th><th class='num'>Processos</th></tr>")
@@ -314,6 +461,23 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
                  f"<td class='num'>{f['pct']:.1f}%</td>"
                  f"<td>{_barra(f['pct'])}</td></tr>")
     P.append("</table>")
+
+    # os pares mais fortes da matriz inteira
+    fortes = (a.get('matriz') or {}).get('fortes') or []
+    if fortes:
+        P.append("<h2>Os pares que mais se associam</h2>")
+        P.append(f"<div class='nota'>Entre os "
+                 f"<b>{len((a.get('matriz') or {}).get('celulas') or [])}</b> pares "
+                 f"possíveis, estes são os de maior associação <b>entre os que têm "
+                 f"amostra suficiente</b> — os de célula pequena ficam de fora "
+                 f"daqui em vez de liderarem o ranking por acaso de amostra.</div>")
+        P.append("<table><tr><th>Par</th><th class='num'>juntos</th>"
+                 "<th class='num'>φ</th></tr>")
+        for c in fortes:
+            P.append(f"<tr><td>{_e(c['rot_a'])} × {_e(c['rot_b'])}</td>"
+                     f"<td class='num'>{c['tabela'][0]}</td>"
+                     f"<td class='num'>{c['phi']:+.2f}</td></tr>")
+        P.append("</table>")
 
     # correlação
     eixo_rot = ROTULO.get(a['eixo'], a['eixo'])
