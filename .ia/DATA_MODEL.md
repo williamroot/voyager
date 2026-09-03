@@ -586,11 +586,16 @@ produtivo.
 `unique(tribunal, orgao_chave, nome_chave)` · índices `(tribunal, nome_chave)`
 e `(nome_chave)`.
 
-**Consequência declarada:** magistrado que atua em dois órgãos tem **duas
-linhas**. É proposital — o que a fonte prova é "esta pessoa assinou neste
-órgão". Juntar as duas numa pessoa só é decisão de quem consome, e por isso
-existe o índice `(tribunal, nome_chave)`: o agrupamento é **explícito**, não
-herdado de graça.
+**Consequência declarada, e ela é GRANDE:** magistrado que atua em dois órgãos
+tem **duas linhas**. Rodando o backfill sobre 147.592 publicações reais
+(03/09/2026): **2.549 linhas para 877 pessoas**, **32,6% das pessoas com mais
+de um órgão**, e uma com **77 linhas**. A causa é o `nome_orgao` do TJSP, que
+não é a vara nem a câmara — é a subseção do diário, com andar e sala
+(`'Subseção IX - Intimações de Acórdãos - … - Pateo do Colégio - sala 215'`).
+
+⇒ **a ficha de uma PESSOA agrupa por `(tribunal_id, nome_chave)`** — é para
+isso que `mag_trib_nome_idx` existe. A tripla é a unidade PROVADA, não a
+pessoa; o agrupamento é escolha **explícita** de quem consome.
 
 ⚠️ **Quem consultar tem de normalizar com as MESMAS funções.** Normalizar
 diferente não dá erro: dá ficha vazia, que na tela é indistinguível de "não

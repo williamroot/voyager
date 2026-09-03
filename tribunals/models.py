@@ -1175,10 +1175,21 @@ class Magistrado(models.Model):
     Por isso a unique é sobre as TRÊS colunas normalizadas. Consequência
     aceita e declarada: **magistrado que atua em dois órgãos tem duas linhas.**
     Isto é proposital — o que a fonte prova é "esta pessoa assinou neste órgão".
-    Juntar as duas linhas numa pessoa só é decisão de quem consome, e por isso
-    existe o índice `(tribunal, nome_chave)`: quem quiser a pessoa através dos
-    órgãos agrupa por ele **explicitamente**, em vez de herdar a fusão de
-    graça.
+
+    ⚠️ **E a fan-out é grande, então quem monta ficha PRECISA saber.** Rodando
+    o backfill sobre 147.592 publicações reais (03/09/2026): **2.549 linhas
+    para 877 pessoas**; **32,6% das pessoas têm mais de um órgão**, e uma tem
+    **77 linhas**. A causa é o `nome_orgao` do TJSP, que não é a vara nem a
+    câmara — é a subseção do diário, com andar e sala:
+
+        'Subseção IX - Intimações de Acórdãos - Seção de Direito Privado -
+         Processamento 9º Grupo - 17ª Câmara Direito Privado - Pateo do
+         Colégio - sala 215'
+
+    Logo: **a ficha de uma PESSOA agrupa por `(tribunal_id, nome_chave)`** — é
+    para isso que o índice `mag_trib_nome_idx` existe. A tripla é a unidade
+    PROVADA (o que a fonte afirma), não a pessoa. Agrupar é escolha explícita
+    de quem consome, nunca fusão herdada de graça.
 
     `nome` × `nome_chave`
     ---------------------
