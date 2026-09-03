@@ -2506,7 +2506,7 @@ Baseline às 15:35-15:46 UTC, com a Fase 3, o `backfill_partes_djen`, o
 |---|---|---:|---:|
 | disco do nó de ES | **85%** | 70,35% | 70,50% |
 | `write.rejected` do ES | **>0** | 0 | **0** |
-| fila `es_index` | **5.000** | 0 | 1.718 (34%) |
+| fila `es_index` | **5.000** | 0 | **4.786 (96%)** — ver abaixo |
 | `load1` da `.102` | **40** | 4,04 | 8-13 (pico 25,9 no `--scale`) |
 | `MemAvailable` da `.102` | **6.000 MiB** | 17.932 | 15.942 |
 | **vazão 24 h da Fase 3** | não pode cair | **2.177** dias | **2.189** dias |
@@ -2514,14 +2514,41 @@ Baseline às 15:35-15:46 UTC, com a Fase 3, o `backfill_partes_djen`, o
 | `agg_estado('AC')` a frio | 30 s (cliente) | **26,0 s** (e 1 timeout antes) | **26,3 s** |
 | `agg_estado('SP')` a frio | 30 s (cliente) | **TIMEOUT 2×** (>30 s) | **14,4 s** |
 
+⚠️ **E o pico da `es_index` corrige um número que eu mesmo publiquei antes.**
+O amostrador de 3 em 3 minutos nunca viu mais que **1.916** — eu tinha escrito
+"34% do teto". Quando a coleta foi PAUSADA e a fila parou de receber, o
+resíduo em dreno subiu até **4.786**, ou **96% da guarda de 5.000**. Ou seja: o
+que a amostra periódica mostrava era o vale, não o pico, e a `DIARIOS_FILA_ES_MAX`
+é o **constrangimento que de fato aperta** com 4 réplicas — ela teria disparado.
+Lição de sonda, do mesmo tipo do §13.10: **amostrar de 3 em 3 minutos uma fila
+que oscila em segundos mede o vale.** Quem for subir de 4 réplicas tem que subir
+`DIARIOS_FILA_ES_MAX` junto — e isso é exatamente o que o §13.5 já mandava, agora
+com o número que prova.
+
 **A tela de estado já estourava o teto ANTES de eu abrir o volume** — `SP` deu
 `ConnectionTimeout` em 30,03 s e 30,24 s às 15:38, com a terceira porta no
 orçamento de 8/24 h e sem nada meu rodando. Quem manda nessa régua hoje é o
 `update_by_query` do #106, que estava em **9 tarefas com 11.516 s de vida** no
 nó de ES (load 18, RAM 97%). Durante a coleta o mesmo `SP` respondeu em
 **14,4 s**. Ou seja: **não piorou** — mas seria desonesto ler isso como
-"a coleta é de graça"; o certo é que o sinal está dominado por outra coisa e
-esta régua não separa as duas causas hoje. Fica registrado como não separado.
+"a coleta é de graça". Então a causa foi SEPARADA, com o experimento que só
+custa apertar o próprio botão: `diarios_pausar tjsp-dje`, esperar
+`em voo = 0` e `fila = 0` (o kill switch levou **menos de 1 minuto** para
+esvaziar as duas), e medir de novo com a terceira porta COMPLETAMENTE parada:
+
+    AC ... ERRO 30,13 s · ERRO 30,03 s · OK 25,73 s
+    SP ... ERRO 30,01 s
+    load do nó de ES ... 14,93 · `update_by_query` do #106 ainda em 9 tarefas
+
+**Mesma distribuição do baseline, com a minha variável desligada.** A tela de
+estado não está estourando o teto por causa da terceira porta — está por causa
+do `update_by_query` do #106, que rodava havia ~4 h no mesmo nó. Isso não
+absolve a coleta de custar alguma coisa; absolve-a de ser a causa DESTA régua,
+que é uma afirmação diferente e mais forte que "não piorou".
+
+`diarios_pausar --religar tjsp-dje` devolveu a fila a 194 e 4 unidades em voo
+no tick seguinte — o kill switch foi exercitado nos dois sentidos, em produção,
+que é a única forma de saber que ele responde.
 
 Nenhum dos 10 critérios do §13.7 foi acionado.
 

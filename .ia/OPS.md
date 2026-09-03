@@ -476,8 +476,12 @@ e os 10 critérios de parada, em [`DIARIOS.md` §13](DIARIOS.md#13-ligada--o-que
 > `worker_diarios` de **2 → 4** réplicas, para drenar a fatia 2023-2024 recém
 > catalogada (3.704 unidades novas). 1.000/24 h é ~26 GB de índice por dia =
 > **+0,9 ponto percentual** de disco do ES, com 14,5 pontos até a guarda de 85%.
-> Medido com 4 réplicas: **~46 unidades/h**, `write.rejected` 0, fila `es_index`
-> em 34% do teto, vazão da Fase 3 **inalterada** (2.177 → 2.189 dias/24 h).
+> Medido com 4 réplicas: **~51 unidades/h**, `write.rejected` 0, vazão da Fase 3
+> **inalterada** (2.177 → 2.193 dias/24 h) — e a fila `es_index` com pico de
+> **4.786 de 5.000 (96%)**, que é o constrangimento que de fato aperta.
+> ⚠️ Amostrar essa fila de 3 em 3 minutos mede o VALE (deu 1.916): o pico só
+> apareceu ao pausar a coleta e ver o resíduo drenar. **Subir de 4 réplicas
+> exige subir `DIARIOS_FILA_ES_MAX` junto.**
 > Ver [`DIARIOS.md` §19](DIARIOS.md#19-o-denominador-real-da-fonte--e-a-ausência-que-virava-perda-03092026).
 
 Quem roda o quê: o cron `diarios_tick_todas` (10 min) vive no **scheduler da
