@@ -5,7 +5,7 @@ from django.views.generic.base import RedirectView
 from . import views, completude_views
 from . import acompanhamento_views
 from . import busca_views
-from . import estoque_views
+from . import estoque_views, magistrado_views
 from . import overview_views
 from . import showcase_analise
 from . import showcase_chunks
@@ -63,6 +63,10 @@ urlpatterns = [
     # Estoque — quanto marcamos x quanto o cliente ja consumiu, por tribunal.
     # Le SO cache (a agregacao custa ~52 s). Ver dashboard/estoque_views.py.
     path('estoque/', estoque_views.estoque, name='estoque'),
+    # Jurimetria de magistrado. A view tem teto e cache: o `match_phrase` sobre
+    # 1,6 bi de docs custa segundos e o ES divide disco com os backfills.
+    path('magistrado/', magistrado_views.magistrado, name='magistrado'),
+    path('magistrado/pdf/', magistrado_views.magistrado_pdf, name='magistrado-pdf'),
     path('acompanhamento/', acompanhamento_views.acompanhamento, name='acompanhamento'),
     path('acompanhamento/<int:pk>/', acompanhamento_views.acompanhamento_nota,
          name='acompanhamento-nota'),

@@ -532,7 +532,7 @@
 
       {# ---- 🚀 IA LABS — Centro de Inteligência (grupo premium) ---- #}
       <div class="nav-group nav-group-premium"
-           x-data="navGroup('ialabs', {% if '/dashboard/ia' in request.path or '/dashboard/modelos' in request.path or '/dashboard/jurimetria' in request.path or '/dashboard/acervo' in request.path or '/extrair' in request.path or '/analisar' in request.path or '/analises' in request.path %}true{% else %}false{% endif %})"
+           x-data="navGroup('ialabs', {% if '/dashboard/ia' in request.path or '/dashboard/modelos' in request.path or '/dashboard/jurimetria' in request.path or '/dashboard/acervo' in request.path or '/extrair' in request.path or '/analisar' in request.path or '/analises' in request.path or '/dashboard/magistrado' in request.path %}true{% else %}false{% endif %})"
            :class="{ open: open, 'nav-anim': anim }">
         <button type="button" class="nav-group-btn" @click="toggle()" :aria-expanded="open">
           <span aria-hidden="true">🚀</span> IA LABS
@@ -598,6 +598,11 @@
               <a href="{{ jurimetria_url }}" class="nav-item {% if request.path == jurimetria_url %}active{% endif %}">
                 {% voy_icon "trending-up" "w-4 h-4" %}
                 Jurimetria
+              </a>
+              {% url 'dashboard:magistrado' as magistrado_url %}
+              <a href="{{ magistrado_url }}" class="nav-item {% if request.path == magistrado_url %}active{% endif %}">
+                {% voy_icon "users" "w-4 h-4" %}
+                Magistrado
               </a>
               {% url 'dashboard:acervo-busca' as acervo_busca_url %}
               <a href="{{ acervo_busca_url }}" class="nav-item {% if request.path == acervo_busca_url %}active{% endif %}">
