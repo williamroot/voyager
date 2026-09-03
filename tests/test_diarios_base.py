@@ -492,3 +492,63 @@ def test_fora_da_janela_nao_coleta_sem_sobrepor():
     edicao = EdicaoDiario.objects.create(fonte='fake-dje', chave='4246-12',
                                         data=date(2025, 7, 21), tribunal_id='TJSP')
     assert coletar_unidade(coletor, edicao)['status'] == EdicaoDiario.FORA_DA_JANELA
+
+
+@pytest.mark.django_db
+def test_ausencia_precisa_ser_confirmada_antes_de_virar_terminal():
+    """REGRESSÃO 03/09/2026 — `inexistente` é TERMINAL, logo tem que ser PROVADO.
+
+    As 5 unidades do `tjsp-dje` que estavam `inexistente` em produção foram
+    reconferidas contra a fonte viva com GET real: **as 5 devolveram `%PDF`**.
+    Os cadernos existem. O e-SAJ tinha servido, uma vez, a página de 851 bytes
+    de "Erro ao acessar o caderno selecionado" (HTTP 200, `text/html`) para
+    caderno que ele tem — e essa única observação fechava o watermark PARA
+    SEMPRE, com `IngestionRun.status='success'` e o log limpo.
+
+    A régua: uma observação deixa a unidade PENDENTE (e conta tentativa);
+    `CONFIRMACOES_DE_AUSENCIA` observações a fecham. Nunca a primeira.
+    """
+    from diarios.base import (CONFIRMACOES_DE_AUSENCIA, UnidadeInexistente,
+                              catalogar_fonte, coletar_unidade)
+    from diarios.models import EdicaoDiario
+    from tribunals.models import Tribunal
+
+    Tribunal.objects.get_or_create(sigla='TJSP', defaults={'nome': 'TJSP', 'sigla_djen': 'TJSP'})
+    EdicaoDiario.objects.filter(fonte='fake-dje').delete()
+    coletor = _fake_coletor(itens=1)
+
+    def nao_existe(unidade):
+        raise UnidadeInexistente('e-SAJ não tem o caderno 15 em 24/01/2025')
+        yield  # pragma: no cover — mantém a assinatura de gerador
+
+    coletor.coletar = nao_existe
+    catalogar_fonte(coletor, date(2015, 7, 1), date(2015, 7, 31))
+    edicao = EdicaoDiario.objects.get(fonte='fake-dje', chave='4246-12')
+
+    for vista in range(1, CONFIRMACOES_DE_AUSENCIA):
+        r = coletar_unidade(coletor, edicao)
+        edicao.refresh_from_db()
+        assert r['status'] == EdicaoDiario.PENDENTE, (
+            f'{vista}ª observação NÃO pode fechar um status terminal')
+        assert edicao.status == EdicaoDiario.PENDENTE
+        assert edicao.tentativas == vista, 'a observação tem que contar tentativa'
+        assert 'NÃO confirmada' in edicao.ultimo_erro, 'o motivo tem que ficar escrito'
+
+    r = coletar_unidade(coletor, edicao)
+    edicao.refresh_from_db()
+    assert r['status'] == EdicaoDiario.INEXISTENTE, 'confirmada, aí sim fecha'
+    assert edicao.status == EdicaoDiario.INEXISTENTE
+    assert 'confirmada em' in edicao.ultimo_erro
+
+
+@pytest.mark.django_db
+def test_confirmacao_de_ausencia_cabe_dentro_do_teto_de_tentativas():
+    """Se `CONFIRMACOES_DE_AUSENCIA` alcançasse `MAX_TENTATIVAS`, a unidade
+    pararia de ser selecionada pelo tick (`tentativas__lt=MAX_TENTATIVAS`) e
+    ficaria `pendente` para sempre — dívida INVISÍVEL no lugar de um status
+    terminal honesto. Trocar uma perda medida por uma não medida é o oposto
+    do que este conserto faz."""
+    from diarios.base import CONFIRMACOES_DE_AUSENCIA
+    from diarios.jobs import MAX_TENTATIVAS
+
+    assert CONFIRMACOES_DE_AUSENCIA < MAX_TENTATIVAS

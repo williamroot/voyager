@@ -98,6 +98,31 @@ FONTE_DJEN = 'djen'
 #: some no ignore_conflicts. Por isso estourar o limite é ERRO, não warning.
 MAX_EXTERNAL_ID = 64
 
+#: Quantas observações independentes de "a fonte não tem esta unidade" são
+#: exigidas antes de fechar o watermark em `inexistente`, que é TERMINAL e
+#: nunca mais é retentado.
+#:
+#: POR QUE ISTO EXISTE — medido em produção em 03/09/2026. As 5 unidades do
+#: `tjsp-dje` que estavam marcadas `inexistente` foram reconferidas contra a
+#: fonte viva, com o instrumento mais forte que existe (GET real, olhando os
+#: magic bytes): **as 5 devolveram `%PDF`**. Ou seja, os cinco cadernos
+#: EXISTEM, e o e-SAJ tinha servido a página de 851 bytes de "Erro ao acessar
+#: o caderno selecionado" — HTTP 200, `text/html` — para caderno que ele tem.
+#: Uma única observação transitória fechava o watermark PARA SEMPRE, com o run
+#: em `success` e o log limpo. São ~1,9% das unidades tentadas (5 em ~260):
+#: no lote de 3.823 que este backfill abre, seriam ~73 cadernos, da ordem de
+#: 1,8 milhão de publicações, perdidos em silêncio e sem retentativa.
+#:
+#: O custo do conserto é uma requisição de 851 bytes a mais por unidade que de
+#: fato não existe (os cadernos 19 e 20 antes de 2023-11-27, por exemplo) —
+#: contra um download de caderno que chega a 62 MB. A assimetria é o argumento.
+#:
+#: Fica ABAIXO de `MAX_TENTATIVAS` (5, em `diarios/jobs.py`) de propósito: se
+#: fosse igual ou maior, a unidade pararia de ser selecionada pelo tick e
+#: ficaria `pendente` para sempre — dívida invisível no lugar de um status
+#: terminal honesto.
+CONFIRMACOES_DE_AUSENCIA = 3
+
 _SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9-]{2,15}$')
 
 
@@ -1263,14 +1288,39 @@ def coletar_unidade(coletor: ColetorDiario, edicao, sobrepor: bool = False,  # n
             run.finished_at = timezone.now()
             run.save(update_fields=['status', 'finished_at', 'erros'])
     except UnidadeInexistente as exc:
-        # Ausência ≠ falha. Fecha o watermark para sempre — nunca mais retenta.
-        edicao.marcar(EdicaoDiario.INEXISTENTE, erro=str(exc)[:500])
+        # Ausência ≠ falha — mas ausência é TERMINAL, e por isso precisa ser
+        # CONFIRMADA. Ver `CONFIRMACOES_DE_AUSENCIA`: em 03/09/2026 as 5
+        # unidades `inexistente` do `tjsp-dje` foram reconferidas contra a
+        # fonte e as 5 EXISTIAM (GET real devolvendo `%PDF`). Uma observação
+        # transitória de "200 que não é dado" estava fechando o watermark para
+        # sempre, com run `success`.
+        vistas = (edicao.tentativas or 0) + 1
+        if vistas < CONFIRMACOES_DE_AUSENCIA:
+            edicao.marcar(
+                EdicaoDiario.PENDENTE,
+                erro=f'ausência NÃO confirmada ({vistas}/{CONFIRMACOES_DE_AUSENCIA}): {exc}'[:500])
+            if run is not None:
+                run.status = IngestionRun.STATUS_SUCCESS
+                run.finished_at = timezone.now()
+                run.erros.append({'erro': 'ausencia_nao_confirmada',
+                                  'vistas': vistas, 'exigidas': CONFIRMACOES_DE_AUSENCIA,
+                                  'detalhe': str(exc)[:200]})
+                run.save(update_fields=['status', 'finished_at', 'erros'])
+            logger.warning(
+                'coleta %s/%s: a fonte disse que não tem esta unidade (%s). Ausência '
+                'NÃO confirmada — %d de %d observações. A unidade segue PENDENTE.',
+                coletor.slug, edicao.chave, exc, vistas, CONFIRMACOES_DE_AUSENCIA)
+            return {'chave': edicao.chave, 'status': EdicaoDiario.PENDENTE,
+                    'ausencia_nao_confirmada': vistas}
+        edicao.marcar(EdicaoDiario.INEXISTENTE,
+                      erro=f'ausência confirmada em {vistas} observações: {exc}'[:500])
         if run is not None:
             run.status = IngestionRun.STATUS_SUCCESS
             run.finished_at = timezone.now()
-            run.erros.append({'erro': 'unidade_inexistente', 'detalhe': str(exc)[:200]})
+            run.erros.append({'erro': 'unidade_inexistente', 'vistas': vistas,
+                              'detalhe': str(exc)[:200]})
             run.save(update_fields=['status', 'finished_at', 'erros'])
-        return {'chave': edicao.chave, 'status': EdicaoDiario.INEXISTENTE}
+        return {'chave': edicao.chave, 'status': EdicaoDiario.INEXISTENTE, 'vistas': vistas}
     except UnidadeSemDadoAproveitavel as exc:
         # HAVIA publicação e NADA serve (era pré-CNJ). Terminal como o
         # inexistente, mas com o motivo escrito: dívida visível ≠ dia vazio.
