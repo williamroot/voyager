@@ -215,3 +215,44 @@ def test_a_tela_declara_de_onde_o_numero_veio():
     assert "d.origem == 'model'" in tpl
     assert 'assinatura' in tpl and 'menção' in tpl
     assert 'citada' in tpl, 'o caminho por texto tem que avisar que inclui citação'
+
+
+# ── localizar ────────────────────────────────────────────────────────────────
+def test_localizar_recusa_termo_curto():
+    """Duas letras casam meio cadastro e a varredura fica cara à toa."""
+    from dashboard.magistrado_views import localizar
+    r = localizar('ab')
+    assert r['erro'] and r['pessoas'] == []
+
+
+def test_localizar_agrupa_por_PESSOA():
+    """Sem agrupar, buscar 'Sampaio' devolve o mesmo nome 77 vezes — uma por
+    subseção do diário — e a tela parece quebrada."""
+    import inspect
+    from dashboard import magistrado_views as V
+    fonte = inspect.getsource(V.localizar)
+    assert ".values('tribunal_id', 'nome_chave')" in fonte
+    assert 'nome_chave' in fonte and 'orgao_chave' not in fonte
+
+
+def test_localizar_nunca_mostra_a_chave_normalizada():
+    """`nome_chave` é MAIÚSCULA, sem acento e sem conectivo. Mostrá-la seria
+    entregar o artefato interno no lugar do nome da pessoa."""
+    import inspect
+    from dashboard import magistrado_views as V
+    fonte = inspect.getsource(V.localizar)
+    assert "amostra.get('nome')" in fonte, 'o nome de exibição vem de uma linha real'
+
+
+def test_a_tela_de_busca_avisa_que_nao_ha_documento_desempatador():
+    """Medido em 03/09/2026: a publicação traz nome, órgão e data e nada mais.
+    A OAB que aparece no texto (18,3% das publicações) é a dos ADVOGADOS —
+    magistrado não tem OAB ativa. É aqui, onde a pessoa é ESCOLHIDA, que o
+    aviso precisa estar: escolha errada produz ficha convincente de outra."""
+    from pathlib import Path
+    tpl = (Path(__file__).resolve().parents[1]
+           / 'dashboard/templates/dashboard/magistrado_buscar.html').read_text(encoding='utf-8')
+    assert 'Homônimos' in tpl
+    for termo in ('OAB', 'CPF', 'matrícula'):
+        assert termo in tpl, f'a tela tem que dizer que NÃO há {termo}'
+    assert 'advogados' in tpl, 'e de quem é a OAB que aparece'

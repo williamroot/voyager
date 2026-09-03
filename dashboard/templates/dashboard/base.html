@@ -599,6 +599,11 @@
                 {% voy_icon "trending-up" "w-4 h-4" %}
                 Jurimetria
               </a>
+              {% url 'dashboard:magistrado-buscar' as mag_buscar_url %}
+              <a href="{{ mag_buscar_url }}" class="nav-item {% if request.path == mag_buscar_url %}active{% endif %}">
+                {% voy_icon "search" "w-4 h-4" %}
+                Localizar magistrado
+              </a>
               {% url 'dashboard:magistrado' as magistrado_url %}
               <a href="{{ magistrado_url }}" class="nav-item {% if request.path == magistrado_url %}active{% endif %}">
                 {% voy_icon "users" "w-4 h-4" %}

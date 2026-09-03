@@ -166,3 +166,94 @@ def magistrado_pdf(request):
     resp = HttpResponse(pdf, content_type='application/pdf')
     resp['Content-Disposition'] = f'attachment; filename="dossie-{slug}.pdf"'
     return resp
+
+# ─────────────────────────────────────────────────────────────────────────────
+# localizar
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Quantas PESSOAS a busca devolve por vez. Não é corte mudo: a tela diz
+#: quantas achou e quantas está mostrando (regra nº 2).
+TETO_RESULTADOS = 60
+
+#: Abaixo disto a busca é recusada — dois caracteres casam meio cadastro e a
+#: varredura fica cara à toa.
+MINIMO_BUSCA = 3
+
+
+def localizar(termo: str, tribunal: str = '') -> dict:
+    """Magistrados cujo nome contém `termo`, agrupados por PESSOA.
+
+    ## Por que agrupar aqui também
+
+    `Magistrado` é a tripla `(tribunal, órgão, nome)` — a unidade PROVADA, o
+    que a fonte afirma. Uma listagem crua repetiria a mesma pessoa uma vez por
+    órgão: medido, `LUIS AUGUSTO SAMPAIO ARRUDA` tem **77 linhas** porque
+    `nome_orgao` no TJSP é a subseção do diário, com andar e sala. Sem o
+    agrupamento, buscar "Sampaio" devolve o mesmo nome dezenas de vezes e a
+    tela parece quebrada.
+
+    ## O teto, e por que ele é declarado
+
+    `nome_chave__contains` **não usa** o índice btree (curinga à esquerda). Com
+    876 pessoas isso custa 2 ms; com o backfill nacional a tabela cresce muito,
+    e aí custa. O teto existe desde já, e a tela **diz** quando o atingiu — em
+    vez de mostrar 60 e deixar quem lê achar que são todos.
+    """
+    from django.db.models import Count, Max, Min
+
+    from tribunals.models import Magistrado
+    from tribunals.services.magistrados import normalizar_nome_magistrado
+
+    chave = normalizar_nome_magistrado(termo or '')
+    if len(chave) < MINIMO_BUSCA:
+        return {'erro': f'Digite ao menos {MINIMO_BUSCA} letras do nome.',
+                'pessoas': [], 'total': 0}
+
+    qs = Magistrado.objects.filter(nome_chave__contains=chave)
+    if tribunal:
+        qs = qs.filter(tribunal_id=tribunal.upper())
+
+    # uma linha por PESSOA; `orgaos` é a fan-out da tripla, que a tela mostra
+    # para o leitor saber que uma pessoa pode ter dezenas de registros de órgão
+    agrupado = (qs.values('tribunal_id', 'nome_chave')
+                  .annotate(orgaos=Count('id'),
+                            desde=Min('primeira_em'), ate=Max('ultima_em'))
+                  .order_by('-orgaos', 'nome_chave'))
+    total = agrupado.count()
+    pagina = list(agrupado[:TETO_RESULTADOS])
+
+    # o nome de EXIBIÇÃO vem de uma linha real, nunca da chave normalizada: a
+    # chave é maiúscula, sem acento e sem conectivo, e mostrá-la na tela seria
+    # entregar ao usuário o artefato interno em vez do nome da pessoa
+    for p in pagina:
+        amostra = (Magistrado.objects
+                   .filter(tribunal_id=p['tribunal_id'], nome_chave=p['nome_chave'])
+                   .values('nome', 'orgao', 'cargo').first()) or {}
+        p['nome'] = amostra.get('nome') or p['nome_chave']
+        p['orgao'] = amostra.get('orgao') or ''
+        p['cargo'] = amostra.get('cargo') or ''
+    return {'erro': None, 'pessoas': pagina, 'total': total,
+            'truncado': total > len(pagina), 'teto': TETO_RESULTADOS}
+
+
+@login_required
+@require_GET
+def magistrado_buscar(request):
+    """GET /dashboard/magistrado/buscar/?q=…&tribunal=… — localizar a pessoa.
+
+    Existe porque a ficha exige **nome completo e exato** (a busca no texto é
+    por frase), e ninguém sabe de cabeça como o diário grafa o nome. Aqui se
+    acha; lá se analisa.
+    """
+    termo = (request.GET.get('q') or '').strip()
+    tribunal = (request.GET.get('tribunal') or '').upper()
+    ctx = {'q': termo, 'tribunal': tribunal, 'tribunais': TRIBUNAIS,
+           'resultado': None, 'buscou': bool(termo)}
+    if termo:
+        try:
+            ctx['resultado'] = localizar(termo, tribunal)
+        except Exception:  # noqa: BLE001
+            logger.exception('magistrado_buscar falhou', extra={'q': termo})
+            ctx['resultado'] = {'erro': 'A busca não respondeu. Tente de novo.',
+                                'pessoas': [], 'total': 0}
+    return render(request, 'dashboard/magistrado_buscar.html', ctx)

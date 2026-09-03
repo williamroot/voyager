@@ -67,6 +67,10 @@ urlpatterns = [
     # 1,6 bi de docs custa segundos e o ES divide disco com os backfills.
     path('magistrado/', magistrado_views.magistrado, name='magistrado'),
     path('magistrado/pdf/', magistrado_views.magistrado_pdf, name='magistrado-pdf'),
+    # localizar vem ANTES da ficha no fluxo: a ficha exige nome completo e
+    # exato (busca por frase), e ninguém sabe de cabeça a grafia do diário.
+    path('magistrado/buscar/', magistrado_views.magistrado_buscar,
+         name='magistrado-buscar'),
     path('acompanhamento/', acompanhamento_views.acompanhamento, name='acompanhamento'),
     path('acompanhamento/<int:pk>/', acompanhamento_views.acompanhamento_nota,
          name='acompanhamento-nota'),
