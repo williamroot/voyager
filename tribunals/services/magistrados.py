@@ -7,8 +7,20 @@ TJSP. O dado existe — está escrito no corpo das publicações que já ingerim
 e nunca foi lido por nada nesta casa. Medido em 03/09/2026 no índice de
 publicações:
 
-    5.631.275 publicações do TJSP carregam o marcador `Magistrado(a)`
+    5.631.275 publicações do TJSP casam a frase `Magistrado(a)`
     8.472.693 no país inteiro, espalhadas por 59 tribunais
+
+⚠️ **Esse número do ES INFLA ~5,3% e o denominador honesto é menor.** O
+analisador `portuguese_asciifolding` quebra `Magistrado(a)` nos tokens
+`magistrado` + `a`, então o `match_phrase` casa também "magistrado a quo".
+Conferido contra a string LITERAL em 600 documentos que o ES devolveu:
+**568 (94,7%) contêm de fato `Magistrado(a)`**. TJSP ≈ **5,33 M**.
+
+⚠️ **E ele é de 2ª INSTÂNCIA.** A juíza de 1º grau do caso que originou este
+módulo NÃO aparece nesse formato — o 1º grau assina com o cargo colado ao
+nome (`RAFAELA CALDEIRA GONÇALVES Juíza de Direito.`). Quem construísse a
+ficha só sobre essa jazida entregaria uma tela que não responde à pergunta que
+a motivou. Por isso `MARCADORES` tem TRÊS entradas, não uma.
 
 PRINCÍPIO: MARCADOR, NUNCA MODELO
 ---------------------------------
