@@ -93,3 +93,27 @@ def test_voy_tip_usa_o_corpo_e_nao_data_tip():
     texto = alvo.read_text(encoding='utf-8')
     assert 'data-tip' not in texto, 'data-tip não é lido pelo .voy-tip'
     assert texto.count('voy-tip-body') >= 2, 'os dois chips precisam de corpo'
+
+
+def test_card_resumo_7d_nao_usa_cor_fora_do_config():
+    """O card novo entra na mesma varredura dos outros.
+
+    Em 02/09/2026 três chips ficaram INVISÍVEIS porque alguém usou `warn` — que
+    não existe; o token é `warning`. Tailwind não avisa: classe inexistente
+    vira nada, e o defeito passa em review porque o HTML parece certo.
+    """
+    from pathlib import Path
+    alvo = (Path(__file__).resolve().parents[1]
+            / 'dashboard/templates/dashboard/acompanhamento.html')
+    html = alvo.read_text(encoding='utf-8')
+    assert 'resumo_blocos' in html, 'o card do resumo sumiu do template'
+    # o bloco do card, delimitado pelo comentário que o abre
+    ini = html.index('RESUMO EXECUTIVO — 7 DIAS')
+    fim = html.index('AVANÇOS DA SEMANA')
+    trecho = html[ini:fim]
+    for proibida in ('text-warn-fg', 'bg-warn/', 'border-warn/',
+                     'text-success-fg', 'bg-success/'):
+        assert proibida not in trecho, (
+            f'`{proibida}` não existe no config inline do base.html — '
+            f'a classe vira NADA e o elemento fica invisível'
+        )

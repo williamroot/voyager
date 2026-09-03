@@ -163,8 +163,16 @@ def calcular() -> dict | None:
                        'medido_em': m['medido_em'], 'nota': m['nota']})
     if not linhas:
         return None
+    # o resumo executivo entra no MESMO payload e no MESMO aquecimento: uma
+    # medição a mais não justifica um segundo job, um segundo cache e um
+    # segundo lugar onde o número pode envelhecer sozinho.
+    try:
+        resumo = resumo_7d()
+    except Exception:
+        logger.warning('marcos: resumo 7d falhou', exc_info=True)
+        resumo = None
     return {'em': timezone.now().isoformat(), 'marcos': linhas,
-            'nao_medidos': falhas}
+            'nao_medidos': falhas, 'resumo': resumo}
 
 
 def aquecer() -> dict | None:
@@ -183,3 +191,152 @@ def aquecer() -> dict | None:
 def ler():
     """O que a TELA usa. Só cache — o portão sozinho custa segundos."""
     return cache.get(CHAVE)
+
+# ═══ RESUMO EXECUTIVO DOS 7 DIAS ═══════════════════════════════════════════
+#
+# O card de `MARCOS` acima é a régua POR MÉTRICA: uma linha, um antes, um
+# agora. Ele responde "isto regrediu?". Não responde "o que mudou na semana",
+# porque sete réguas soltas não formam um quadro.
+#
+# Este resumo agrupa em duas perguntas que o dono do produto faz de verdade:
+#
+#   COBERTURA — o que ENTROU no acervo que antes não estava lá;
+#   PESQUISA  — o que ficou ALCANÇÁVEL, que é coisa diferente. Dado coletado e
+#               invisível na tela vale o mesmo que dado não coletado — foi
+#               exatamente esse buraco (94 M publicações fora de alcance) que
+#               originou a busca no texto.
+#
+# Mesma disciplina do resto do arquivo, e ela não é negociável aqui:
+#
+#   * o AGORA é medido a cada aquecimento, nunca digitado;
+#   * o ANTES é constante COM DATA, porque o dia já passou;
+#   * item que não deu para medir SAI, com o motivo — meia régua dá confiança
+#     sem cobertura, que é pior que régua nenhuma;
+#   * nada de denominador inventado. Onde não há total declarado pela fonte, o
+#     item mostra o número absoluto e diz que não há denominador.
+
+def _diarios_dje():
+    """Edições do DJE/TJSP: `ok`, falhas e linhas gravadas."""
+    from diarios.models import EdicaoDiario as E
+    qs = E.objects.filter(fonte='tjsp-dje')
+    ok = qs.filter(status=E.OK).count()
+    falha = qs.filter(status=E.FALHA).count()
+    from django.db.models import Sum
+    linhas = qs.aggregate(g=Sum('itens_gravados'))['g'] or 0
+    return {'ok': ok, 'falha': falha, 'linhas': linhas}
+
+
+def _incidentes_esaj():
+    """Incidentes do e-SAJ — a porta que não passa por CNJ.
+
+    95,7% deles são Precatório/RPV e NÃO têm número de processo próprio: não
+    entram por DJEN nem por Datajud. Antes de 02/09 não havia onde guardá-los.
+    """
+    n = _sql_um('SELECT count(*) FROM tribunals_incidente')
+    if n is None:
+        return None
+    sem_cnj = _sql_um("SELECT count(*) FROM tribunals_incidente "
+                      "WHERE cnj_proprio IS NULL OR cnj_proprio = ''")
+    return {'total': n, 'sem_cnj': sem_cnj}
+
+
+def _ente_devedor_passivo():
+    """Participações de ENTE DEVEDOR no polo PASSIVO.
+
+    É o que alimenta o "quem deve" do Overview. Ficou em ZERO por meses: os
+    dois caminhos que trariam o ente estavam fechados — um por parser (a
+    relação da DEPRE, descartada por ser um formato desconhecido), outro por
+    código morto no e-SAJ. `papel` é indexado; polo entra no filtro.
+    """
+    return _sql_um("""SELECT count(*) FROM tribunals_processoparte
+                       WHERE polo = 'passivo'
+                         AND upper(papel) LIKE '%%ENTIDADE DEVEDORA%%'""")
+
+
+def _recuperacao_fase3():
+    """Dias-alvo da Fase 3 ainda por refazer — lido do retrato do tique."""
+    from djen import recuperacao as R
+    r = R.estado()
+    return r.get('pendentes') if r else None
+
+
+def _es_count(indice):
+    from search.client import get_es, index_name
+    return get_es().count(index=index_name(indice), request_timeout=30)['count']
+
+
+def _movs_indexadas():
+    return _es_count('movimentacoes')
+
+
+def _acervo_nacional():
+    return _es_count('acervo')
+
+
+#: Cada item: rótulo, o ANTES com data, como medir o AGORA, e a nota que diz
+#: o que aquilo significa para quem lê. `unidade` só existe para a tela não
+#: precisar adivinhar.
+RESUMO_COBERTURA = [
+    {'k': 'fase3', 'rotulo': 'Dias de coleta ainda por refazer',
+     'antes': '7.167 e PARADO', 'medido_em': '02/09', 'sobe': False,
+     'fn': _recuperacao_fase3,
+     'nota': 'a recuperação nacional era um mutirão manual que terminou em '
+             '27/08 e ninguém religou; agora é tique agendado que se auto-cura'},
+    {'k': 'dje', 'rotulo': 'Diários do TJSP coletados',
+     'antes': '62 ok e 255 FALHAS', 'medido_em': '02/09', 'sobe': True,
+     'fn': lambda: (lambda d: f"{d['ok']} ok · {d['falha']} falha"
+                    if d else None)(_diarios_dje()),
+     'nota': 'a terceira porta estava fechada por uma coluna NOT NULL sem '
+             'default: 253 das 255 falhas eram a MESMA linha'},
+    {'k': 'ente', 'rotulo': 'Entes devedores no polo passivo',
+     'antes': 0, 'medido_em': '02/09', 'sobe': True,
+     'fn': _ente_devedor_passivo,
+     'nota': 'é o que alimenta o "quem deve" — a tela existia e não tinha '
+             'de onde se alimentar'},
+    {'k': 'incid', 'rotulo': 'Incidentes do e-SAJ (precatório/RPV)',
+     'antes': 0, 'medido_em': '02/09', 'sobe': True,
+     'fn': lambda: (lambda d: f"{d['total']} ({d['sem_cnj']} sem CNJ próprio)"
+                    if d else None)(_incidentes_esaj()),
+     'nota': '95,7% não têm número de processo: não entram por DJEN nem por '
+             'Datajud, e até 02/09 não havia onde guardá-los'},
+]
+
+RESUMO_PESQUISA = [
+    {'k': 'movs', 'rotulo': 'Publicações alcançáveis pela busca',
+     'antes': '1,557 bi', 'medido_em': '02/09', 'sobe': True,
+     'fn': _movs_indexadas,
+     'nota': 'o que a busca de texto enxerga; coletado e não indexado vale o '
+             'mesmo que não coletado'},
+    {'k': 'acervo', 'rotulo': 'Esqueleto nacional (Datajud)',
+     'antes': '344.630.543', 'medido_em': '01/09', 'sobe': True,
+     'fn': _acervo_nacional,
+     'nota': 'confrontado com o declarado ao CNJ: falta 0,082%, sobra 0 — o '
+             '"100,4%" de antes somava número congelado com linha sem CNJ'},
+]
+
+
+def _medir(itens, onde):
+    linhas, falhas = [], []
+    for m in itens:
+        try:
+            agora = m['fn']()
+        except Exception:
+            logger.warning('resumo7d/%s: não consegui medir %s', onde, m['k'],
+                           exc_info=True)
+            agora = None
+        if agora is None:
+            falhas.append(m['rotulo'])
+            continue
+        linhas.append({'k': m['k'], 'rotulo': m['rotulo'], 'antes': m['antes'],
+                       'agora': agora, 'sobe': m['sobe'],
+                       'medido_em': m['medido_em'], 'nota': m['nota']})
+    return linhas, falhas
+
+
+def resumo_7d() -> dict | None:
+    """Os dois blocos do resumo executivo. `None` se nada deu para medir."""
+    cob, f1 = _medir(RESUMO_COBERTURA, 'cobertura')
+    pes, f2 = _medir(RESUMO_PESQUISA, 'pesquisa')
+    if not cob and not pes:
+        return None
+    return {'cobertura': cob, 'pesquisa': pes, 'nao_medidos': f1 + f2}

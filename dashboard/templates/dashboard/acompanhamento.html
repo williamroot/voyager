@@ -358,6 +358,99 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
   {% endif %}
 
   {% comment %}
+  ═══ RESUMO EXECUTIVO — 7 DIAS ════════════════════════════════════════════
+  Vem ANTES das réguas de propósito: quem abre esta tela quer primeiro o
+  quadro, depois o detalhe. As réguas abaixo respondem "isto regrediu?"; este
+  card responde "o que mudou na semana", que é outra pergunta.
+
+  Duas colunas porque são duas perguntas diferentes, e confundi-las já custou
+  caro aqui: COBERTURA é o que entrou no acervo; PESQUISA é o que ficou
+  alcançável. Dado coletado e invisível na tela vale o mesmo que dado não
+  coletado — foi assim que 94 milhões de publicações ficaram fora de alcance
+  sem ninguém notar.
+
+  Todo "agora" é medido no aquecimento; todo "antes" é constante datada. Item
+  que não deu para medir NÃO aparece — e o rodapé diz quantos foram, porque
+  sumiço silencioso é o defeito que esta tela inteira existe para combater.
+  {% endcomment %}
+  {% if marcos.resumo %}
+  <section class="card-tight relative overflow-hidden">
+    <div aria-hidden="true"
+         class="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full
+                bg-mission/10 blur-3xl"></div>
+
+    <div class="relative flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-[1rem] font-semibold text-fg-soft flex items-center gap-2">
+          {% voy_icon "trajectory" "w-5 h-5 text-mission" %}
+          Os últimos 7 dias, em duas perguntas
+        </h2>
+        <p class="text-xs text-fg-subtle mt-1 max-w-3xl">
+          <b class="text-fg-soft">Cobertura</b> é o que <b>entrou</b> no acervo.
+          <b class="text-fg-soft">Pesquisa</b> é o que ficou <b>alcançável</b> —
+          e as duas não são a mesma coisa: dado coletado que a tela não enxerga
+          vale o mesmo que dado não coletado.
+          <span class="voy-tip cursor-help underline decoration-dotted"
+                aria-describedby="tip-resumo7d">como isto é medido<span
+                class="voy-tip-body" id="tip-resumo7d" role="tooltip">O
+            <b>agora</b> de cada linha é medido a cada aquecimento, nunca
+            digitado. O <b>antes</b> é constante com a data em que foi medido,
+            porque o dia já passou e não se recalcula. Linha que não deu para
+            medir sai da lista — meia régua dá confiança sem cobertura.</span></span>
+        </p>
+      </div>
+    </div>
+
+    <div class="relative mt-4 grid gap-4 lg:grid-cols-2">
+      {% for bloco in resumo_blocos %}
+      <div>
+        <div class="flex items-baseline gap-2 mb-2">
+          <h3 class="text-[0.78rem] uppercase tracking-wider font-semibold text-fg-muted">
+            {{ bloco.titulo }}</h3>
+          <span class="text-[0.7rem] text-fg-subtle">{{ bloco.legenda }}</span>
+        </div>
+        <div class="space-y-2">
+          {% for i in bloco.itens %}
+          <div class="rounded-lg border border-border bg-surface px-3.5 py-3">
+            <div class="text-[0.82rem] text-fg-soft font-medium leading-snug">{{ i.rotulo }}</div>
+            <div class="mt-1.5 flex items-baseline gap-2 flex-wrap">
+              <span class="font-mono text-[0.78rem] text-fg-subtle line-through
+                           decoration-fg-subtle/50 tabular-nums">{{ i.antes }}</span>
+              <span class="text-fg-subtle text-xs" aria-hidden="true">→</span>
+              <span class="font-mono text-[1.05rem] tabular-nums
+                           {% if i.sobe %}text-accent-fg{% else %}text-mission-fg{% endif %}"
+                    >{{ i.agora }}</span>
+              <span class="text-[0.68rem] text-fg-subtle">antes medido em {{ i.medido_em }}</span>
+            </div>
+            <div class="text-[0.7rem] text-fg-subtle mt-1.5 leading-relaxed">{{ i.nota }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% comment %}
+    O rodapé existe para o caso RUIM. Se uma linha não pôde ser medida ela some
+    do card — e some SEM AVISO seria exatamente o defeito que esta tela
+    denuncia. Guardado por `|length` e não pelo valor formatado: `'0'` é string
+    verdadeira no `{% if %}` do Django, e já pintou de âmbar um card que estava
+    perfeito.
+    {% endcomment %}
+    {% if marcos.resumo.nao_medidos|length %}
+    <div class="relative mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2
+                text-[0.72rem] text-fg-soft flex items-start gap-2">
+      {% voy_icon "anomaly" "w-4 h-4 shrink-0 mt-0.5 text-warning" %}
+      <span><b>{{ marcos.resumo.nao_medidos|length }}</b> linha(s) fora do quadro
+        por não ter dado para medir agora:
+        {{ marcos.resumo.nao_medidos|join:" · " }}. Ausência aqui é
+        <b>abstenção</b>, nunca zero.</span>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% comment %}
   ═══ AVANÇOS DA SEMANA ════════════════════════════════════════════════════
   O relato fica na timeline abaixo; aqui fica a RÉGUA. A diferença importa: um
   relato diz "consertamos a duplicação", a régua diz 2,70 → 1,02 — e é a régua

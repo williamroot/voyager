@@ -137,3 +137,26 @@ def test_seed_traz_as_descobertas_reais_e_e_idempotente(logado):
     # toda nota semeada de descoberta tem que carregar prova
     for nota in N.objects.filter(tipo=N.TIPO_DESCOBERTA):
         assert nota.numeros, f'descoberta sem número medido: {nota.titulo}'
+
+
+def test_bloco_vazio_nao_vira_coluna_fantasma():
+    """Coluna com cabeçalho e nada embaixo parece falha de carregamento — o
+    leitor não distingue "não medimos" de "quebrou"."""
+    from dashboard.acompanhamento_views import _resumo_blocos
+
+    assert _resumo_blocos(None) == []
+    assert _resumo_blocos({}) == []
+    assert _resumo_blocos({'resumo': {'cobertura': [], 'pesquisa': []}}) == []
+    so_cob = _resumo_blocos({'resumo': {'cobertura': [{'k': 'x'}], 'pesquisa': []}})
+    assert len(so_cob) == 1 and so_cob[0]['titulo'] == 'Cobertura'
+
+
+def test_resumo_entra_no_mesmo_payload_dos_marcos():
+    """Uma medição a mais não justifica um segundo cache — e um segundo lugar
+    onde o número pode envelhecer sozinho."""
+    import inspect
+
+    from dashboard import marcos_semana
+
+    fonte = inspect.getsource(marcos_semana.calcular)
+    assert 'resumo' in fonte, 'o resumo tem que sair no payload do `calcular()`'

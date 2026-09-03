@@ -87,6 +87,8 @@ def acompanhamento(request):
     areas = (NotaAcompanhamento.objects.exclude(area='')
              .values_list('area', flat=True).distinct().order_by('area'))
 
+    _marcos = marcos_semana.ler()
+
     return render(request, 'dashboard/acompanhamento.html', {
         'notas': notas,
         'grupos': grupos,
@@ -106,10 +108,39 @@ def acompanhamento(request):
         # em julho (regra nº 7). Sem cache, o card diz que não mediu.
         'cobertura': cobertura_nacional.ler(),
         # idem: só cache. O portão sozinho custa segundos.
-        'marcos': marcos_semana.ler(),
+        'marcos': _marcos,
+        # Os dois blocos do resumo executivo, já com título e legenda: a tela
+        # não deve adivinhar como se chama um bloco de dados. Sai VAZIO quando
+        # o resumo não foi medido — e o `{% if marcos.resumo %}` do template
+        # esconde a seção inteira em vez de mostrar um esqueleto sem número.
+        'resumo_blocos': _resumo_blocos(_marcos),
         # idem: só cache. O sorteio no índice custa ~25 s.
         'integridade': integridade.ler(),
     })
+
+
+def _resumo_blocos(marcos):
+    """Os dois blocos do resumo de 7 dias, prontos para a tela.
+
+    Título e legenda moram AQUI e não no template porque são conteúdo, não
+    marcação — e porque o template não pode ser o lugar onde se decide o que um
+    bloco de dados significa.
+
+    Bloco sem item nenhum não entra: uma coluna com cabeçalho e nada embaixo
+    parece falha de carregamento, e o leitor não tem como distinguir "não
+    medimos" de "quebrou".
+    """
+    r = (marcos or {}).get('resumo')
+    if not r:
+        return []
+    defs = (
+        ('cobertura', 'Cobertura',
+         'o que ENTROU no acervo'),
+        ('pesquisa', 'Pesquisa',
+         'o que ficou ALCANÇÁVEL pela tela'),
+    )
+    return [{'titulo': titulo, 'legenda': legenda, 'itens': r[chave]}
+            for chave, titulo, legenda in defs if r.get(chave)]
 
 
 @login_required
