@@ -170,7 +170,7 @@ class Command(BaseCommand):
                 f"    sem pg_read_all_settings) — o teto é o que declaramos\n"
                 f"  magistrados ........... {mg['magistrados']:,}\n"
                 f"  atuações .............. {mg['atuacoes']:,}"
-                f"{'' if mg.get('fonte_linhas') == 'count' else '  ⚠ ESTIMATIVA (reltuples, atrasada)'}\n"
+                f"{'  ⚠ ESTIMATIVA (reltuples, atrasada)' if mg.get('fonte_linhas') == 'reltuples' else ''}\n"
                 f"  disco ................. {mg['bytes'] / gb:.3f} GiB "
                 f"(zero em {mg['zero_em'] or '—'})\n"
                 f"  orçamento ............. {mg['gasto_bytes'] / gb:.3f} de "
