@@ -2432,6 +2432,21 @@ trocando o contador de volta por `tentativas`, os três reprovam.
 **As 5 foram reabertas** (`status='pendente'`, `tentativas=0`, com o motivo no
 `ultimo_erro`) e voltaram para a fila.
 
+**Prova comportamental EM PRODUÇÃO, não só teste.** A unidade `3865-19` —
+caderno 19 em 24/11/2023, **três dias antes da estreia dele** (§19.1), ou seja
+uma ausência que se sabe VERDADEIRA — foi coletada três vezes à mão no
+`worker_diarios` da `.102`:
+
+| passada | retorno do runner | `EdicaoDiario` |
+|---|---|---|
+| 1ª | `{'status': 'pendente', 'ausencia_nao_confirmada': 1}` | `pendente`, WARNING com "1 de 3 observações" |
+| 2ª | `{'status': 'pendente', 'ausencia_nao_confirmada': 2}` | `pendente` |
+| 3ª | `{'status': 'inexistente', 'vistas': 3}` | **`inexistente`**, `tentativas=1`, `ultimo_erro='ausência confirmada em 3 observações: …'` |
+
+`tentativas=1` depois de três passadas é o outro lado do conserto aparecendo:
+ausência não queima o orçamento de falhas. E a unidade fecha terminal — o
+status continua existindo e continua funcionando, só que agora com prova.
+
 ### 19.3 O volume aberto — e por que a fatia é esta
 
     catálogo 2023-01-01 → 2024-12-31 ...... 3.712 unidades vistas, 3.704 NOVAS
