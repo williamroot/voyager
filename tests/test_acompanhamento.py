@@ -160,3 +160,15 @@ def test_resumo_entra_no_mesmo_payload_dos_marcos():
 
     fonte = inspect.getsource(marcos_semana.calcular)
     assert 'resumo' in fonte, 'o resumo tem que sair no payload do `calcular()`'
+
+
+def test_format_int_serve_numero_E_texto_no_resumo():
+    """O resumo mistura número (1594829388) e texto ("250 ok · 0 falha") na
+    mesma posição. `format_int` cobre os dois: `humanize` não está instalado
+    aqui, e um `intcomma` importado por reflexo quebraria a tela inteira."""
+    from dashboard.templatetags.voyager_extras import format_int
+
+    assert format_int(1594829388) == '1.594.829.388'
+    assert format_int('250 ok · 0 falha') == '250 ok · 0 falha'
+    assert format_int('7.167 e PARADO') == '7.167 e PARADO'
+    assert format_int(None) == '—'

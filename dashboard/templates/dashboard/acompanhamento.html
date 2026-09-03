@@ -414,12 +414,19 @@ Server-rendered sem fetch: é lista com filtro, e o estado mora na querystring
           <div class="rounded-lg border border-border bg-surface px-3.5 py-3">
             <div class="text-[0.82rem] text-fg-soft font-medium leading-snug">{{ i.rotulo }}</div>
             <div class="mt-1.5 flex items-baseline gap-2 flex-wrap">
+              {% comment %}
+              `format_int` e não `intcomma`: `django.contrib.humanize` NÃO está
+              instalado aqui. E ele serve para os DOIS casos sem um segundo
+              filtro — número vira `1.594.829.388`, e texto como
+              "250 ok · 0 falha" passa intacto, porque o filtro devolve
+              `str(value)` quando o `int()` falha.
+              {% endcomment %}
               <span class="font-mono text-[0.78rem] text-fg-subtle line-through
-                           decoration-fg-subtle/50 tabular-nums">{{ i.antes }}</span>
+                           decoration-fg-subtle/50 tabular-nums">{{ i.antes|format_int }}</span>
               <span class="text-fg-subtle text-xs" aria-hidden="true">→</span>
               <span class="font-mono text-[1.05rem] tabular-nums
                            {% if i.sobe %}text-accent-fg{% else %}text-mission-fg{% endif %}"
-                    >{{ i.agora }}</span>
+                    >{{ i.agora|format_int }}</span>
               <span class="text-[0.68rem] text-fg-subtle">antes medido em {{ i.medido_em }}</span>
             </div>
             <div class="text-[0.7rem] text-fg-subtle mt-1.5 leading-relaxed">{{ i.nota }}</div>
