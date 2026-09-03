@@ -176,3 +176,42 @@ def test_matriz_cobre_todos_os_pares_e_so_promove_os_confiaveis():
     assert len(m['celulas']) >= 3
     for c in m['fortes']:
         assert c['confiavel'], 'par de célula pequena não pode liderar'
+
+
+# ── procedência: model (assinatura) × texto (menção) ─────────────────────────
+def test_dossie_do_model_agrupa_por_PESSOA_nao_pela_tripla():
+    """Medido no backfill real: 2.549 linhas para 877 pessoas, 32,6% com mais
+    de um órgão e UMA com 77 — porque `nome_orgao` no TJSP é a subseção do
+    diário, com andar e sala. Filtrar pela tripla publicaria 77 fichas do
+    mesmo desembargador."""
+    import inspect
+
+    fonte = inspect.getsource(D.coletar_do_model)
+    assert 'nome_chave=chave' in fonte, 'a resolução é por (tribunal, nome_chave)'
+    assert 'orgao_chave' not in fonte, (
+        'a tripla é a unidade PROVADA, não a pessoa — filtrar por órgão aqui '
+        'quebra a ficha em uma por subseção do diário'
+    )
+
+
+def test_normalizacao_vem_do_servico_nunca_reimplementada():
+    """Normalizar diferente do escritor não dá erro: dá ficha VAZIA, que é
+    indistinguível de 'este magistrado não existe'."""
+    import inspect
+
+    fonte = inspect.getsource(D.coletar_do_model)
+    assert 'from tribunals.services.magistrados import normalizar_nome_magistrado' in fonte
+    assert '.upper()' not in fonte.split('normalizar_nome_magistrado(nome)')[0][-200:], (
+        'não normalize à mão antes de chamar o serviço'
+    )
+
+
+def test_a_tela_declara_de_onde_o_numero_veio():
+    """Duas fichas do mesmo magistrado com números diferentes não é bug — é a
+    diferença entre ASSINATURA e MENÇÃO. Sem dizer qual foi usada, seria."""
+    from pathlib import Path
+    tpl = (Path(__file__).resolve().parents[1]
+           / 'dashboard/templates/dashboard/magistrado.html').read_text(encoding='utf-8')
+    assert "d.origem == 'model'" in tpl
+    assert 'assinatura' in tpl and 'menção' in tpl
+    assert 'citada' in tpl, 'o caminho por texto tem que avisar que inclui citação'

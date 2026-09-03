@@ -140,6 +140,77 @@ def coletar(nome: str, tribunal: str, teto: int = TETO_PUBLICACOES) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# coleta a partir do MODEL (o caminho bom) — ver `coletar()` para o legado
+# ─────────────────────────────────────────────────────────────────────────────
+
+def coletar_do_model(nome: str, tribunal: str) -> dict | None:
+    """Dossiê a partir de `Magistrado`/`MagistradoAtuacao`. `None` se vazio.
+
+    ## Por que este caminho substitui o `coletar()` por texto
+
+    **1. Menção não é assinatura.** `match_phrase(body, nome)` acha a pessoa
+    CITADA em decisão alheia — medido: *"reconhece-se a prevenção daquela
+    Magistrada"* entra na conta, e citação de precedente faz um ministro do STJ
+    virar autor de ato de vara. O extrator (`services/magistrados.py`) só
+    atribui quando o marcador declara assinatura, e conta o resto como
+    `citacao`.
+
+    **2. A tripla `(tribunal, órgão, nome)` NÃO é a pessoa.** Este módulo
+    agrupava por órgão e estava errado. Medido no backfill real de 147.592
+    publicações: **2.549 linhas para 877 pessoas**, 32,6% com mais de um órgão,
+    e **uma com 77 linhas** — porque `nome_orgao` no TJSP é a subseção do
+    diário, com andar e sala. Filtrar pela tripla publicaria 77 fichas do mesmo
+    desembargador. A ficha de uma PESSOA agrupa por `(tribunal_id, nome_chave)`,
+    que é para o que o índice `mag_trib_nome_idx` existe.
+
+    ⚠️ A normalização vem de `services.magistrados` e **não é reimplementada
+    aqui**: normalizar diferente do escritor não dá erro — dá ficha vazia, que
+    é indistinguível de "este magistrado não existe".
+    """
+    from tribunals.models import Magistrado, MagistradoAtuacao
+    from tribunals.services.magistrados import normalizar_nome_magistrado
+
+    chave = normalizar_nome_magistrado(nome)
+    if not chave:
+        return None
+    linhas = list(Magistrado.objects.filter(
+        tribunal_id=tribunal.upper(), nome_chave=chave))
+    if not linhas:
+        return None
+
+    atuacoes = (MagistradoAtuacao.objects
+                .filter(magistrado__in=linhas)
+                .select_related('processo')
+                .values('processo_id', 'publicado_em', 'formato', 'cargo',
+                        'magistrado__orgao',
+                        'processo__numero_cnj', 'processo__classe_nome'))
+
+    processos: dict[str, dict] = {}
+    datas: list[str] = []
+    for a in atuacoes:
+        proc = a['processo__numero_cnj'] or f"id:{a['processo_id']}"
+        d = processos.setdefault(proc, {
+            'data': '', 'classe': a['processo__classe_nome'] or '',
+            'orgao': a['magistrado__orgao'] or '', 'marcadores': set(), 'pubs': 0,
+        })
+        d['pubs'] += 1
+        if a['publicado_em']:
+            iso = a['publicado_em'].isoformat()
+            datas.append(iso)
+            if iso > d['data']:
+                d['data'] = iso
+    return {
+        'nome': linhas[0].nome, 'tribunal': tribunal.upper(),
+        'publicacoes': len(atuacoes), 'publicacoes_no_indice': len(atuacoes),
+        'teto_batido': False, 'processos': processos, 'datas': datas,
+        # a ficha diz de quantos ÓRGÃOS ela foi montada: é a fan-out da tripla
+        # aparecendo na tela em vez de virar surpresa
+        'orgaos_do_magistrado': len(linhas),
+        'origem': 'model',
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # análise
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -556,5 +627,17 @@ def render_pdf(a: dict) -> bytes:
 
 
 def dossie(nome: str, tribunal: str, eixo: str = 'condenacao') -> dict:
-    """Atalho: coleta + análise. `render_pdf(dossie(...))` fecha o caminho."""
-    return analisar(coletar(nome, tribunal), eixo=eixo)
+    """Coleta + análise. `render_pdf(dossie(...))` fecha o caminho.
+
+    Prefere o MODEL e cai para o texto quando ele ainda não foi populado — as
+    tabelas nascem vazias de propósito (o backfill nacional projeta ~184-191 M
+    de linhas e é decisão de disco). A ficha diz de qual caminho veio, porque
+    os dois medem coisas diferentes: o model conta ASSINATURA, o texto conta
+    MENÇÃO, e menção infla com citação de precedente.
+    """
+    bruto = coletar_do_model(nome, tribunal)
+    if not bruto or not bruto['processos']:
+        bruto = coletar(nome, tribunal)
+        bruto['origem'] = 'texto'
+        bruto['orgaos_do_magistrado'] = None
+    return analisar(bruto, eixo=eixo)

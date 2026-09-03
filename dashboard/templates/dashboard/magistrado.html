@@ -119,6 +119,42 @@ achando que tem um score de juiz.
         {% voy_icon "dossier" "w-4 h-4 text-fg-muted" %} Baixar dossiê (PDF)
       </a>
     </div>
+    {% comment %}
+    A PROCEDÊNCIA fica na tela porque os dois caminhos medem coisas
+    DIFERENTES, e a diferença muda a leitura:
+
+      model → ASSINATURA. O extrator só atribui quando o marcador declara que
+              a pessoa assinou o ato.
+      texto → MENÇÃO. `match_phrase` acha a pessoa CITADA em decisão alheia
+              ("reconhece-se a prevenção daquela Magistrada") e citação de
+              precedente faz um ministro do STJ virar autor de ato de vara.
+
+    Duas fichas do mesmo magistrado com números diferentes não é bug: é a
+    diferença entre as duas perguntas. Sem dizer qual foi usada, seria.
+    {% endcomment %}
+    <div class="mt-3 flex flex-wrap items-center gap-2 text-[0.72rem]">
+      {% if d.origem == 'model' %}
+        <span class="inline-flex items-center gap-1.5 rounded-md border border-accent/40
+                     bg-accent/10 px-2 py-1 text-fg-soft">
+          {% voy_icon "circle-check" "w-3.5 h-3.5 text-accent-fg" %}
+          Fonte: <b>assinatura</b> — o marcador declara quem assinou o ato
+        </span>
+        {% if d.orgaos_do_magistrado and d.orgaos_do_magistrado > 1 %}
+        <span class="text-fg-subtle">
+          Reunidos <b class="text-fg-muted">{{ d.orgaos_do_magistrado }}</b> registros de
+          órgão da mesma pessoa — no TJSP o órgão da publicação é a subseção do
+          diário, com andar e sala, e não a vara.
+        </span>
+        {% endif %}
+      {% else %}
+        <span class="inline-flex items-center gap-1.5 rounded-md border border-warning/40
+                     bg-warning/10 px-2 py-1 text-fg-soft">
+          {% voy_icon "anomaly" "w-3.5 h-3.5 text-warning" %}
+          Fonte: <b>menção no texto</b> — inclui a pessoa <b>citada</b> em decisão
+          alheia, não só quem assinou
+        </span>
+      {% endif %}
+    </div>
     {% if d.teto_batido %}
     <div class="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2
                 text-[0.78rem] text-fg-soft flex items-start gap-2">
