@@ -68,6 +68,7 @@ class Command(BaseCommand):
                  'proc_digits': V.medir_proc_digits(),
                  'fase': V.medir_fase(),
                  'partes': V.medir_partes_djen(),
+                 'magistrados': V.medir_magistrados(),
                  'fks': V.medir_fks(),
                  'teto_fase': V.medir_teto_fase(),
                  'teto_partes': V.medir_teto_partes()}
@@ -159,6 +160,35 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.ERROR('\npartes: SEM MEDIDA'))
 
+        mg = r.get('magistrados')
+        if mg:
+            gb = 1024 ** 3
+            self.stdout.write(
+                f"\nmagistrados (tribunals_magistrado + …atuacao)\n"
+                f"  ⚠ a régua aqui é DISCO, não cobertura: o disco livre do host\n"
+                f"    do banco NÃO é observável desta cadeira (sem ssh no .101,\n"
+                f"    sem pg_read_all_settings) — o teto é o que declaramos\n"
+                f"  magistrados ........... {mg['magistrados']:,}\n"
+                f"  atuações .............. {mg['atuacoes']:,}\n"
+                f"  disco ................. {mg['bytes'] / gb:.3f} GiB "
+                f"(zero em {mg['zero_em'] or '—'})\n"
+                f"  orçamento ............. {mg['gasto_bytes'] / gb:.3f} de "
+                f"{mg['orcamento_bytes'] / gb:.3f} GiB  ({mg['pct_orcamento']}%)\n"
+                f"  BYTES POR LINHA ....... {mg['bytes_por_linha']}  "
+                f"(medido: disco ÷ count(*), os dois exatos)\n"
+                f"  projeção {mg['projecao_linhas']:,} linhas: "
+                f"{(mg['projecao_bytes'] or 0) / gb:.1f} GiB")
+            if mg.get('pausado'):
+                self.stdout.write(self.style.WARNING(
+                    '  kill switch do backfill LIGADO (pausado de propósito — '
+                    'o número continua na tela)'))
+            if mg.get('zero_tabela_vazia') is False:
+                self.stdout.write(self.style.WARNING(
+                    '  ⚠ o zero foi gravado com as tabelas JÁ preenchidas: o '
+                    'orçamento conta a partir dele, não desde a primeira linha'))
+        else:
+            self.stdout.write(self.style.ERROR('\nmagistrados: SEM MEDIDA'))
+
         k = r.get('fks')
         if k:
             self.stdout.write(f"\nFKs NOT VALID .......... {len(k['pendentes'])}")
@@ -177,7 +207,8 @@ class Command(BaseCommand):
 
         for p in r.get('parados') or []:
             estilo = self.style.ERROR if p['veredito'] in (
-                'parado', 'janela_furada', 'exists_mente') else self.style.WARNING
+                'parado', 'janela_furada', 'exists_mente',
+                'orcamento_cheio') else self.style.WARNING
             self.stdout.write(estilo(
                 f"\n! {p['o_que']}: {p['veredito']}"
                 + (f" — faltam {p['faltam']:,}" if p.get('faltam') else '')))

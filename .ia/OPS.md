@@ -943,6 +943,54 @@ Logger `voyager.tribunals.vigia_backfills`:
   alcançáveis. O card publica o teto ao lado da cobertura, com a data.
 - **`proc_digits` é `_count` exato**, e a amostra de 300 docs é o CONTROLE de
   que o `_count` não está mentindo — não a medida.
+- **`magistrados` não mede cobertura, mede DISCO.** Ver abaixo.
+
+### Rodar o `backfill_magistrados` (#125, 03/09/2026)
+
+Lê o nome de quem ASSINOU o ato do TEXTO das publicações que já temos — zero
+requisição externa. O extrator é determinístico (`tribunals/services/
+magistrados.py`), abstém quando não dá para provar, e o gabarito verbatim
+reprovou 0 nomes em 42.281 publicações de 60 tribunais.
+
+**A régua aqui não é cobertura, é ESPAÇO.** A projeção é de ~184 a 191 M de
+linhas num banco que já tem 2.325 GB, e o número que decidiria se cabe — o
+disco livre do host do banco — **não é observável de dentro**: `ssh` no `.101`
+recusa, o papel `voyager` não tem `pg_read_all_settings` (`SHOW data_directory`
+→ *permission denied to examine*) nem `pg_ls_dir`. Conferido em 03/09/2026.
+
+Por isso o freio é um **orçamento em BYTES que se mede sozinho**: o comando
+grava o ZERO (`pg_total_relation_size` das duas tabelas) no Redis na primeira
+largada, remede a cada lote e calcula **bytes por linha REAIS** — delta de
+disco ÷ `rowcount` do `ON CONFLICT DO NOTHING`, as duas pontas exatas.
+
+```bash
+ssh ubuntu@192.168.30.102   # backfills longos moram na .102, NÃO na .103
+docker run -d --name r125_magistrados --restart no --network host \
+  -v /home/ubuntu/voyager:/app -w /app --env-file /home/ubuntu/voyager/.env \
+  voyager-web:prod python manage.py backfill_magistrados \
+    --shard nacional --orcamento-bytes 20GB --carga 0.4 --parar-ms-id 25
+```
+
+| botão | efeito |
+|---|---|
+| `$V backfill_magistrados --estado` | orçamento, linhas, **bytes/linha medidos** e a projeção. Não escreve nada |
+| `$V backfill_magistrados --pausar` / `--despausar` | kill switch no Redis, honrado a cada lote. Pausar **não cega a tela**: o card mostra `pausado` com o número do lado |
+| `--orcamento-bytes 20GB` | teto de DISCO. Ao estourar: **exit ≠ 0**, ERRO no log com bytes/linha e extrapolação |
+| `--parar-ms-id 25` | teto de custo em ms por **id VARRIDO** (nunca por linha encontrada — só ~11% das publicações produzem linha) |
+| `--conferir` | controle: conta as publicações do trecho no banco e compara com as lidas. Caro; é de piloto |
+| retomar | o MESMO comando — o cursor está em `bf:magistrados:nacional:cursor` |
+| rollback | `DELETE FROM tribunals_magistradoatuacao WHERE movimentacao_id >= X AND < Y` em pedaços |
+
+⚠️ **`--restart no`, e é de propósito** — mesma razão do `r121_partes`: o teto
+sai com exit ≠ 0, e `on-failure` religaria carga exatamente quando o freio
+dispara.
+
+⚠️ **Nunca sem `--shard`** (ou `--sem-checkpoint --de --ate`): o comando recusa
+na largada. Sem cursor, todo restart volta ao pk inicial.
+
+⚠️ **O `--pausar` é o jeito certo de parar.** Parar matando o container deixa o
+vigia gritando `parado` a cada 15 min — que é o comportamento correto para
+quem morreu, e ruído para quem parou de propósito.
 
 ## Watchdog de ingestão
 

@@ -613,6 +613,69 @@ def medir_teto_partes(forcar: bool = False) -> dict | None:
     return r
 
 
+def medir_magistrados() -> dict:
+    """Espaço e linhas de `Magistrado`/`MagistradoAtuacao` — o orçamento do #125.
+
+    Este é o único dos backfills vigiados cuja régua **não é cobertura, é
+    DISCO**. O alvo declarado são ~184 a 191 M de linhas sobre 1.618.133.888
+    movimentações (R124, duas amostras: 11,39% e 11,83%), e a projeção de
+    espaço que autorizou a largada era DERIVADA de outra tabela
+    (`tribunals_processoparte`: 36 GB / 109.258.115 linhas = ~354 B/linha).
+    Derivada não é medida — então o que este tique publica é a medição:
+    `pg_total_relation_size` (catálogo, exato) ÷ `count(*)` (exato).
+
+    ⚠️ **E o disco livre do host do banco não é observável de dentro.** Em
+    03/09/2026: `ssh` para o `.101` recusa, e o papel `voyager` não tem
+    `pg_read_all_settings` (`SHOW data_directory` → *permission denied to
+    examine*) nem `pg_ls_dir`. Por isso o alarme aqui é o ORÇAMENTO — um teto
+    que nós mesmos declaramos e medimos —, e não "está acabando o disco", que
+    é a pergunta certa e não tem resposta desta cadeira.
+
+    `count(*)` exato e não `reltuples`: `reltuples` só anda quando o autovacuum
+    passa, e numa tabela que só cresce ele fica sistematicamente ATRASADO — o
+    denominador atrasado infla os bytes/linha para cima. A conta é uma
+    varredura de índice em tabela ainda pequena; quando ela ficar cara, é o
+    `SQL_TIMEOUT_S` que decide, e a medida sai com `erros` no retrato em vez
+    de segurar a thread.
+
+    Não lê o cursor do backfill: cursor é onde o processo ACHA que está. O que
+    interessa é o que está gravado.
+    """
+    from tribunals.management.commands.backfill_magistrados import (
+        LINHAS_PROJETADAS, ORCAMENTO_PADRAO, PAUSA_KEY, TABELAS, ZERO_KEY,
+    )
+
+    def _q(c):
+        c.execute('SELECT coalesce(sum(pg_total_relation_size(k.oid)), 0) '
+                  'FROM pg_class k WHERE k.relname = ANY(%s)', [list(TABELAS)])
+        (bytes_tot,) = c.fetchone()
+        c.execute('SELECT count(*) FROM tribunals_magistradoatuacao')
+        (n_atu,) = c.fetchone()
+        c.execute('SELECT count(*) FROM tribunals_magistrado')
+        (n_mag,) = c.fetchone()
+        return int(bytes_tot), int(n_atu), int(n_mag)
+
+    bytes_tot, n_atu, n_mag = _com_teto(_q)
+    zero = cache.get(ZERO_KEY) or {}
+    zero_bytes = int(zero.get('bytes') or 0)
+    gasto = bytes_tot - zero_bytes
+    # Bytes por linha MEDIDO. `None` quando não há denominador — ausente ≠ 0,
+    # e um 0 aqui viraria "cabe tudo".
+    bpl = round(gasto / n_atu, 1) if n_atu else None
+    return {
+        'bytes': bytes_tot, 'zero_bytes': zero_bytes, 'gasto_bytes': gasto,
+        'zero_em': zero.get('em'), 'zero_tabela_vazia': zero.get('tabela_vazia'),
+        'orcamento_bytes': ORCAMENTO_PADRAO,
+        'pct_orcamento': round(100.0 * gasto / ORCAMENTO_PADRAO, 2)
+                         if ORCAMENTO_PADRAO else None,
+        'atuacoes': n_atu, 'magistrados': n_mag,
+        'bytes_por_linha': bpl,
+        'projecao_linhas': LINHAS_PROJETADAS,
+        'projecao_bytes': int(bpl * LINHAS_PROJETADAS) if bpl else None,
+        'pausado': bool(cache.get(PAUSA_KEY)),
+    }
+
+
 def medir_fks() -> dict:
     """FKs declaradas e ainda `NOT VALID`, e quem está validando agora.
 
@@ -796,10 +859,16 @@ def _historico() -> list:
 
 
 def _anexar_historico(agora, digits_falta, fase_falta, fks_pend,
-                      partes_falta=None) -> list:
+                      partes_falta=None, mag_linhas=None) -> list:
     h = _historico()
     h.append({'em': agora, 'digits': digits_falta, 'fase': fase_falta,
-              'fks': fks_pend, 'partes': partes_falta})
+              'fks': fks_pend, 'partes': partes_falta,
+              # ⚠️ `magistrados` guarda LINHAS GRAVADAS, e as outras colunas
+              # guardam PENDENTE. Ou seja: aqui o número SOBE quando o
+              # trabalho anda, e o `_progresso` — que calcula `base − atual` —
+              # devolve delta NEGATIVO. Quem lê tem de inverter o sinal, e é
+              # o que `_alerta_magistrados` faz, uma vez, com nome.
+              'magistrados': mag_linhas})
     h = h[-HIST_MAX:]
     try:
         cache.set(CHAVE_HIST, h, HIST_TTL_S)
@@ -860,6 +929,7 @@ def tick_vigia_backfills() -> dict:
     for nome, fn in (('proc_digits', medir_proc_digits),
                      ('fase', medir_fase),
                      ('partes', medir_partes_djen),
+                     ('magistrados', medir_magistrados),
                      ('fks', medir_fks)):
         try:
             r[nome] = fn()
@@ -880,14 +950,16 @@ def tick_vigia_backfills() -> dict:
     dig = r.get('proc_digits') or {}
     fase = r.get('fase') or {}
     partes = r.get('partes') or {}
+    mgs = r.get('magistrados') or {}
     fks = r.get('fks') or {}
     hist = _anexar_historico(agora, dig.get('faltam'), fase.get('faltam_estimado'),
                              len(fks.get('pendentes') or []) if fks else None,
-                             partes.get('faltam_estimado'))
+                             partes.get('faltam_estimado'), mgs.get('atuacoes'))
 
     r['progresso_digits'] = _progresso(hist, 'digits', agora)
     r['progresso_fase'] = _progresso(hist, 'fase', agora)
     r['progresso_partes'] = _progresso(hist, 'partes', agora)
+    r['progresso_magistrados'] = _progresso(hist, 'magistrados', agora)
     r['janela_h'] = JANELA_PROGRESSO_H
 
     # ── alarmes ──────────────────────────────────────────────────────────
@@ -920,6 +992,7 @@ def tick_vigia_backfills() -> dict:
                    PARTES_PISO_ALARME,
                    int((partes.get('pct_erro_pp') or 0) / 100.0 * (partes.get('linhas') or 0)),
                    'backfill_partes_djen --shard nacional')
+    _alerta_magistrados(r, mgs, r['progresso_magistrados'])
     _alerta_controles(r, dig)
 
     # ── auto-cura das FKs ────────────────────────────────────────────────
@@ -972,6 +1045,87 @@ def _alerta_parado(r: dict, rotulo: str, faltam, prog: dict, piso: int,
         'dizendo isso — retome com `%s`',
         rotulo, f'{faltam:,}', prog.get('horas') or 0, f'{delta:,}',
         f'{ruido:,}', comando)
+
+
+def _alerta_magistrados(r: dict, mg: dict, prog: dict) -> None:
+    """O alarme do #125 é o ORÇAMENTO DE DISCO, não a cobertura.
+
+    Os outros quatro vigiados perguntam "quanto falta?". Este pergunta "quanto
+    já custou?", e a diferença não é de estilo: o trabalho inteiro projeta
+    ~190 M de linhas num banco de 2.325 GB cujo **disco livre não é
+    observável** desta cadeira (nem `ssh` no `.101`, nem `pg_read_all_settings`
+    — conferido em 03/09/2026). Um teto que nós declaramos e medimos é a única
+    coisa honesta que sobra.
+
+    Os vereditos, e por que cada um existe:
+
+    * `nao_iniciado` — tabelas vazias. Não grita: elas são criadas vazias de
+      propósito (a migration `0059` não enche nada), e "ninguém ligou ainda" é
+      um estado legítimo, não uma falha;
+    * `pausado` — kill switch do backfill (`--pausar`). Mesma escolha do
+      `djen_recup_f3`: pausar NÃO cega a tela, o número continua ao lado da
+      palavra PAUSADO. É este o veredito de quem parou de propósito;
+    * `orcamento_cheio` — bateu o teto. **ERRO com número** (regra nº 2), e o
+      log traz os bytes/linha MEDIDOS e a extrapolação, que é exatamente o que
+      alguém precisa para decidir a fatia seguinte;
+    * `orcamento_80` — aviso com antecedência, para a decisão não ser tomada
+      com o disco já comprometido;
+    * `parado` — cresceu zero na janela, com orçamento sobrando e sem kill
+      switch. É o estado que este módulo inteiro existe para achar: o backfill
+      que morreu e cujo silêncio é indistinguível de "terminou".
+
+    ⚠️ O `_progresso` calcula `base − atual` sobre uma coluna de PENDENTE. Aqui
+    a coluna é de LINHAS GRAVADAS, que sobe. Por isso o crescimento é `−delta`,
+    e a inversão está escrita aqui, uma vez, com nome.
+    """
+    if not mg:
+        return
+    veredito = None
+    if not mg.get('atuacoes'):
+        veredito = 'nao_iniciado'
+    elif mg.get('pausado'):
+        veredito = 'pausado'
+
+    orc = mg.get('orcamento_bytes') or 0
+    gasto = mg.get('gasto_bytes') or 0
+    if orc and gasto >= orc:
+        veredito = 'orcamento_cheio'
+        logger.error(
+            'ORÇAMENTO DE DISCO ESTOURADO em magistrados: %s GiB gastos de %s '
+            'GiB, %s atuações gravadas, %s B/linha MEDIDOS. A extrapolação '
+            'medida para %s linhas é %s GiB — decida a fatia seguinte com '
+            'ESTE número, não com a projeção derivada de 300 B/linha',
+            round(gasto / 1024 ** 3, 3), round(orc / 1024 ** 3, 3),
+            f"{mg.get('atuacoes'):,}", mg.get('bytes_por_linha'),
+            f"{mg.get('projecao_linhas'):,}",
+            round((mg.get('projecao_bytes') or 0) / 1024 ** 3, 1))
+    elif orc and gasto >= 0.8 * orc and veredito != 'pausado':
+        veredito = 'orcamento_80'
+        logger.warning(
+            'magistrados já consumiu %s%% do orçamento de disco (%s GiB de '
+            '%s GiB, %s B/linha medidos)', mg.get('pct_orcamento'),
+            round(gasto / 1024 ** 3, 3), round(orc / 1024 ** 3, 3),
+            mg.get('bytes_por_linha'))
+
+    if veredito is None:
+        cresceu = -(prog.get('delta') or 0)
+        if prog.get('veredito'):
+            veredito = prog['veredito']          # aquecendo / sem_medida
+        elif cresceu <= 0:
+            veredito = 'parado'
+            logger.error(
+                'BACKFILL PARADO: `magistrados` tem %s atuações, orçamento com '
+                '%s GiB livres, kill switch DESLIGADO, e não cresceu em %.1f h. '
+                'Retome com `backfill_magistrados --shard nacional`',
+                f"{mg.get('atuacoes'):,}",
+                round((orc - gasto) / 1024 ** 3, 3), prog.get('horas') or 0)
+
+    if veredito:
+        r['parados'].append({
+            'o_que': 'magistrados', 'veredito': veredito,
+            'faltam': None, 'gasto_bytes': gasto, 'orcamento_bytes': orc,
+            'bytes_por_linha': mg.get('bytes_por_linha'),
+            'atuacoes': mg.get('atuacoes')})
 
 
 def _alerta_controles(r: dict, dig: dict) -> None:

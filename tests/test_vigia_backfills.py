@@ -581,3 +581,83 @@ def test_o_limite_da_amostra_de_partes_nao_estreita_o_intervalo(monkeypatch, db)
         assert apertado['paginas_amostradas'] <= largo['paginas_amostradas'], (
             'o LIMIT cortou a amostra e o número de páginas não mudou — '
             'o erro publicado seria estreito demais')
+
+
+# --------------------------------------------------------------------------- #
+# 7. magistrados (#125): a régua é DISCO, e o alarme é o ORÇAMENTO
+# --------------------------------------------------------------------------- #
+def _mg(**kw):
+    """Retrato mínimo de `medir_magistrados`, com o que o alarme lê."""
+    base = {'atuacoes': 1_000_000, 'magistrados': 5_000, 'bytes_por_linha': 300.0,
+            'gasto_bytes': 1024 ** 3, 'orcamento_bytes': 20 * 1024 ** 3,
+            'projecao_linhas': 190_000_000, 'projecao_bytes': 57 * 1024 ** 3,
+            'pausado': False}
+    base.update(kw)
+    return base
+
+
+@CACHE_LOCAL
+def test_tabela_vazia_e_NAO_INICIADO_e_nao_grita():
+    """A migration cria as tabelas vazias de propósito. "Ninguém ligou ainda"
+    é estado legítimo — gritar aqui seria alarme que nasce aceso."""
+    r = {'parados': []}
+    V._alerta_magistrados(r, _mg(atuacoes=0, gasto_bytes=0),
+                          {'veredito': None, 'delta': 0, 'horas': 6.0})
+    assert r['parados'][0]['veredito'] == 'nao_iniciado'
+
+
+@CACHE_LOCAL
+def test_pausado_de_proposito_nao_e_parado_e_o_numero_continua_na_tela():
+    """Mesma escolha do `djen_recup_f3`: `--parar` não cega a tela. Card vazio
+    some da vista; número alto ao lado de PAUSADO, não."""
+    r = {'parados': []}
+    V._alerta_magistrados(r, _mg(pausado=True),
+                          {'veredito': None, 'delta': 0, 'horas': 6.0})
+    (p,) = r['parados']
+    assert p['veredito'] == 'pausado'
+    assert p['atuacoes'] == 1_000_000 and p['bytes_por_linha'] == 300.0
+
+
+@CACHE_LOCAL
+def test_orcamento_estourado_e_ERRO_com_a_extrapolacao_medida(caplog):
+    """Regra nº 2: teto é alerta COM NÚMERO. E o número que interessa a quem
+    vai decidir a fatia seguinte é a extrapolação MEDIDA, não a derivada."""
+    r = {'parados': []}
+    with caplog.at_level(logging.ERROR):
+        V._alerta_magistrados(r, _mg(gasto_bytes=21 * 1024 ** 3),
+                              {'veredito': None, 'delta': -500, 'horas': 6.0})
+    assert r['parados'][0]['veredito'] == 'orcamento_cheio'
+    texto = caplog.text
+    assert 'ORÇAMENTO DE DISCO ESTOURADO' in texto and '57.0 GiB' in texto
+
+
+@CACHE_LOCAL
+def test_crescimento_inverte_o_sinal_do_progresso():
+    """O histórico deste vigia guarda PENDENTE nas outras colunas e LINHAS
+    GRAVADAS nesta. `base − atual` fica negativo quando o trabalho anda; ler
+    isso como "não andou" declararia parado um backfill que está escrevendo."""
+    r = {'parados': []}
+    V._alerta_magistrados(r, _mg(), {'veredito': None, 'delta': -250_000,
+                                     'horas': 6.0})
+    assert r['parados'] == [], 'cresceu 250 mil linhas e foi chamado de parado'
+
+
+@CACHE_LOCAL
+def test_parado_de_verdade_grita_com_o_comando_de_retomada(caplog):
+    r = {'parados': []}
+    with caplog.at_level(logging.ERROR):
+        V._alerta_magistrados(r, _mg(), {'veredito': None, 'delta': 0,
+                                         'horas': 6.0})
+    assert r['parados'][0]['veredito'] == 'parado'
+    assert 'backfill_magistrados --shard nacional' in caplog.text
+
+
+@pytest.mark.django_db
+@CACHE_LOCAL
+def test_bytes_por_linha_ausente_nao_vira_zero():
+    """Zero aqui viraria "cabe tudo" — o pior arredondamento possível numa
+    régua de disco."""
+    cache.clear()
+    r = V.medir_magistrados()
+    assert r['bytes_por_linha'] is None or r['bytes_por_linha'] > 0
+    assert r['projecao_bytes'] is None or r['projecao_bytes'] > 0
