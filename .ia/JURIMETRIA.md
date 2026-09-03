@@ -132,7 +132,7 @@ Alpha = **precificar T (tempo-até-pagamento) e risco por ente devedor melhor qu
 ## Fundação (Fase 0 — pré-requisito)
 | Gap | Ação |
 |---|---|
-| Sem `relator` | capturar do enricher + do Acordao |
+| Sem `relator` | capturar do enricher + do Acordao — **e do TEXTO da publicação**, que é a porta barata: `tribunals/services/magistrados.py` lê o nome de quem assinou por marcador declarado, sem consultar tribunal nenhum. Model `Magistrado`/`MagistradoAtuacao` (migration 0059); identidade `(tribunal, órgão, nome)`, nunca só o nome — 56 de 195 publicações com uma mesma grafia são de outros 5 estados. Ver `.ia/DATA_MODEL.md` |
 | Natureza não estruturada | materializar ALIMENTAR/COMUM (extract_fields + classe TPU) |
 | Classe/assunto incompleto (TJMG/TJSP hist.) | `preencher_classe_via_djen` em massa |
 | Partes duplicadas (máscara TRF3/TJSP) | `dedup_partes` + consolidar mascaradas |

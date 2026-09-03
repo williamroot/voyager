@@ -1159,3 +1159,175 @@ class Incidente(models.Model):
 
     def __str__(self):
         return f'{self.tipo or self.classe} {self.sequencial} · {self.cnj_principal}'
+
+
+class Magistrado(models.Model):
+    """Quem ASSINA o ato, lido do TEXTO da publicação (`services/magistrados.py`).
+
+    A IDENTIDADE É `(tribunal, órgão, nome)` — E ISSO NÃO É ZELO
+    -----------------------------------------------------------
+    Medido em 03/09/2026: `match_phrase` por *"Rafaela Caldeira Gonçalves"* no
+    corpo das publicações devolve **195 documentos**, e **56 deles são de
+    TJCE, TJRO, TJPE, TJPI e TJMA** — pessoas diferentes com o mesmo nome. Uma
+    chave só pelo nome funde quatro magistrados numa ficha e ninguém percebe,
+    porque o resultado parece um profissional produtivo.
+
+    Por isso a unique é sobre as TRÊS colunas normalizadas. Consequência
+    aceita e declarada: **magistrado que atua em dois órgãos tem duas linhas.**
+    Isto é proposital — o que a fonte prova é "esta pessoa assinou neste órgão".
+    Juntar as duas linhas numa pessoa só é decisão de quem consome, e por isso
+    existe o índice `(tribunal, nome_chave)`: quem quiser a pessoa através dos
+    órgãos agrupa por ele **explicitamente**, em vez de herdar a fusão de
+    graça.
+
+    `nome` × `nome_chave`
+    ---------------------
+    `nome` é a grafia EXIBIDA, verbatim como a fonte imprimiu (`'Rafaela
+    Caldeira Gonçalves'`, `'RAFAELA CALDEIRA GONÇALVES'` — a fonte usa as
+    duas). `nome_chave` é `magistrados.normalizar_nome_magistrado(nome)`:
+    maiúscula, sem acento, sem tratamento (`Dr.`/`Des.`/`Ministro`) e sem
+    conectivo. As quatro grafias acima colapsam em `RAFAELA CALDEIRA
+    GONCALVES`. Mesma coisa para `orgao`/`orgao_chave`.
+
+    ⚠️ Quem for consultar este model **tem de usar as mesmas funções** para
+    normalizar o termo de busca. Normalizar diferente não dá erro: dá ficha
+    vazia, que na tela é indistinguível de "não temos o dado".
+
+    `n_publicacoes` — AUSENTE ≠ ZERO
+    --------------------------------
+    É `NULL` até alguém contar (mesma convenção de
+    `voyager-entidades.n_processos`, `SEARCH_SCHEMA.md` decisão 8). Zero é
+    medição legítima e ranqueia abaixo de desconhecido; `NULL` afirma que não
+    perguntamos. A contagem VIVA sai de `MagistradoAtuacao`, que é fato e não
+    contador — nesta casa contador mantido por trigger já foi encontrado
+    ausente do banco três vezes (`mov_update_process_agg`, `pp_total_ins`,
+    `process_set_ano_cnj`).
+
+    O QUE ESTE MODEL NÃO É
+    ----------------------
+    Não é nota, ranking nem score de magistrado, e não guarda nenhum campo que
+    permita virar um. Ele descreve **padrão de atuação**: onde a pessoa assina,
+    em que classe, em que volume. Mérito (deferiu/indeferiu) exige o inteiro
+    teor, que a intimação não traz.
+    """
+
+    #: Procedência: o nome saiu do TEXTO da publicação, não de consulta ao
+    #: tribunal. Mesmo idioma de `ProcessoParte.fonte` e `Incidente.fonte`.
+    FONTE_TEXTO = 'texto_publicacao'
+
+    tribunal = models.ForeignKey(
+        Tribunal, on_delete=models.PROTECT, related_name='magistrados')
+    #: grafia EXIBIDA, verbatim da fonte
+    nome = models.CharField(max_length=255, blank=True)
+    #: `normalizar_nome_magistrado(nome)` — a chave
+    nome_chave = models.CharField(max_length=255, blank=True)
+    #: `Movimentacao.nome_orgao`, verbatim da fonte
+    orgao = models.CharField(max_length=255, blank=True)
+    #: `normalizar_orgao(orgao)` — a chave. Vazio é valor legítimo: 74,9% dos
+    #: processos têm `orgao_julgador` em branco (`SEARCH_SCHEMA.md`), e órgão
+    #: em branco é uma identidade tão real quanto as outras — o que não se
+    #: pode é confundi-la com as demais.
+    orgao_chave = models.CharField(max_length=255, blank=True)
+    #: o cargo que a fonte imprimiu ao lado ('Juíza de Direito', 'Relator').
+    #: Vazio = a fonte não publicou. Nunca inferido do órgão.
+    cargo = models.CharField(max_length=120, blank=True)
+    #: qual marcador provou a atribuição pela primeira vez
+    #: (`magistrados.FORMATO_*`) — auditoria de procedência fina.
+    formato = models.CharField(max_length=32, blank=True)
+    fonte = models.CharField(max_length=24, blank=True)
+    #: NULL = não contamos. Nunca 0 por omissão.
+    n_publicacoes = models.IntegerField(null=True, blank=True)
+    n_publicacoes_em = models.DateTimeField(null=True, blank=True)
+    primeira_em = models.DateField(null=True, blank=True)
+    ultima_em = models.DateField(null=True, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=['tribunal', 'orgao_chave', 'nome_chave'],
+                             name='uniq_magistrado_tribunal_orgao_nome'),
+        ]
+        indexes = [
+            # a pessoa ATRAVÉS dos órgãos — agrupamento explícito de quem consome
+            models.Index(fields=['tribunal', 'nome_chave'], name='mag_trib_nome_idx'),
+            # homônimo entre tribunais: é esta consulta que prova que a chave
+            # precisa do tribunal
+            models.Index(fields=['nome_chave'], name='mag_nome_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.nome} · {self.tribunal_id} · {self.orgao}'
+
+
+class MagistradoAtuacao(models.Model):
+    """A PROVA: uma publicação em que o marcador atribuiu o ato a esta pessoa.
+
+    UMA LINHA POR PUBLICAÇÃO, E NÃO UM CONTADOR
+    -------------------------------------------
+    A alternativa barata seria `(magistrado, processo, n_publicacoes)`. Ela foi
+    recusada: contador derivado nesta casa tem histórico — `Parte.total_processos`
+    está preenchido em 39,3% da base porque o trigger que o mantinha **não
+    existe** no banco de produção, e o mesmo aconteceu com
+    `mov_update_process_agg`. Fato bruto é idempotente
+    (`ignore_conflicts` sobre a unique) e não precisa de ninguém para
+    continuar verdadeiro.
+
+    ⚠️ **Custo declarado, medido e não arredondado para baixo.** Na amostra nacional
+    com salto (42.281 publicações, 03/09/2026) **11,39%** das publicações produzem
+    atribuição, e o sorteio independente no ES (600 do TJSP) dá 11,83%. Sobre as
+    **1.618.133.888** linhas de `tribunals_movimentacao` isso projeta
+    **~184 a 191 milhões de linhas** — não "dezenas de milhões". Num banco que já
+    é I/O-bound, encher isso é decisão de quem opera o disco. A migration cria a
+    tabela VAZIA de propósito, e o backfill entra por FAIXA FECHADA de pk, nunca
+    por `--tribunal` (`.ia/DATA_MODEL.md`: não existe índice que sirva a
+    `tribunal + ORDER BY id`).
+
+    POR QUE `movimentacao_id` É `BigIntegerField` E NÃO `ForeignKey`
+    ---------------------------------------------------------------
+    `ADD CONSTRAINT ... FOREIGN KEY` pede `SHARE ROW EXCLUSIVE` na tabela
+    REFERENCIADA. `tribunals_movimentacao` tem ~1,4 bilhão de linhas e a
+    ingestão escreve nela 24 horas por dia; nesta casa todo lock **enfileira**
+    (63 sessões travadas em 25/08/2026 atrás de um `ALTER TABLE`). A FK não
+    compraria nada que a unique `(magistrado, movimentacao_id)` já não dê — o
+    escritor sempre parte de uma `Movimentacao` que acabou de ler — e custaria
+    o auto-jam. `processo` tem FK de verdade porque é a coluna pela qual se
+    consulta, e a migration a cria em laço com `lock_timeout` curto.
+
+    A unidade de ANÁLISE é o processo, não a publicação
+    --------------------------------------------------
+    Medido pelo dossiê do caso concreto: **141 publicações = 132 processos**.
+    Contar por publicação infla quem foi intimado várias vezes no mesmo feito.
+    Por isso `processo_id` é denormalizado aqui: `COUNT(DISTINCT processo_id)`
+    resolve sem tocar em `tribunals_movimentacao`.
+    """
+
+    magistrado = models.ForeignKey(
+        Magistrado, on_delete=models.CASCADE, related_name='atuacoes')
+    processo = models.ForeignKey(
+        Process, on_delete=models.CASCADE, related_name='magistrados')
+    #: pk de `tribunals_movimentacao` — a publicação que PROVA a atribuição.
+    #: Sem FK de propósito (ver docstring).
+    movimentacao_id = models.BigIntegerField()
+    #: qual marcador declarado produziu esta atribuição
+    formato = models.CharField(max_length=32, blank=True)
+    cargo = models.CharField(max_length=120, blank=True)
+    #: `Movimentacao.data_disponibilizacao` — é `publish_date` no ES.
+    #: ⚠️ o campo do ES chama-se `publish_date`; pedir `data` devolve `None`
+    #: em 100% dos documentos, sem erro (medido em 195 de 195, 03/09/2026).
+    publicado_em = models.DateField(null=True, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=['magistrado', 'movimentacao_id'],
+                             name='uniq_atuacao_magistrado_mov'),
+        ]
+        indexes = [
+            models.Index(fields=['magistrado', '-publicado_em'],
+                         name='atu_mag_data_idx'),
+            models.Index(fields=['processo'], name='atu_processo_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.magistrado_id} · mov {self.movimentacao_id}'

@@ -558,6 +558,83 @@ As mesmas pessoas entram como `ProcessoParte` do processo-pai com
 `fonte='esaj_incidente'` (o `Ent. Devedora` no **polo passivo** — é o polo que
 a tela "Quem deve" filtra, mesma convenção do ente devedor do diário, #118).
 
+## Magistrado / MagistradoAtuacao (`tribunals/models.py`, migration 0059)
+
+**Quem ASSINOU o ato**, lido do TEXTO da publicação — dado que já estava no
+acervo e que nada nesta casa lia. Extrator determinístico em
+`tribunals/services/magistrados.py`; régua em `manage.py medir_magistrados`;
+escritor em `manage.py backfill_magistrados`.
+
+### A identidade é `(tribunal, órgão, nome normalizado)` — e o preço de não ser
+
+Medido em 03/09/2026: `match_phrase` por *"Rafaela Caldeira Gonçalves"* no
+corpo das publicações devolve **195 documentos**, e **56 são de TJCE, TJRO,
+TJPE, TJPI e TJMA** — pessoas diferentes com o mesmo nome. Chave só por nome
+funde quatro magistrados numa ficha, e o resultado parece um profissional
+produtivo.
+
+| coluna | o que é |
+|---|---|
+| `tribunal` | FK `Tribunal` (**a FK aponta para `sigla`**, não para `id` — a PK dele é a sigla) |
+| `nome` / `nome_chave` | grafia EXIBIDA verbatim × chave (`normalizar_nome_magistrado`) |
+| `orgao` / `orgao_chave` | `Movimentacao.nome_orgao` verbatim × chave (`normalizar_orgao`) |
+| `cargo` | o que a fonte imprimiu (`Juíza de Direito`, `Relator`). Vazio = não publicou; nunca inferido do órgão |
+| `formato` | qual marcador provou (`esaj_magistrado` / `assinatura_cargo` / `rotulo_relator`) |
+| `fonte` | `'texto_publicacao'` — mesmo idioma de `ProcessoParte.fonte` e `Incidente.fonte` |
+| `n_publicacoes` / `n_publicacoes_em` | **NULL = não contamos**, nunca 0 por omissão (convenção de `voyager-entidades.n_processos`) |
+
+`unique(tribunal, orgao_chave, nome_chave)` · índices `(tribunal, nome_chave)`
+e `(nome_chave)`.
+
+**Consequência declarada:** magistrado que atua em dois órgãos tem **duas
+linhas**. É proposital — o que a fonte prova é "esta pessoa assinou neste
+órgão". Juntar as duas numa pessoa só é decisão de quem consome, e por isso
+existe o índice `(tribunal, nome_chave)`: o agrupamento é **explícito**, não
+herdado de graça.
+
+⚠️ **Quem consultar tem de normalizar com as MESMAS funções.** Normalizar
+diferente não dá erro: dá ficha vazia, que na tela é indistinguível de "não
+temos o dado".
+
+### `MagistradoAtuacao` — fato bruto, não contador
+
+Uma linha por **(magistrado, publicação)**, com `processo_id` denormalizado.
+Contador derivado tem histórico nesta casa: `Parte.total_processos` está
+preenchido em 39,3% porque o trigger que o mantinha **não existe** no banco.
+Fato bruto é idempotente (`ignore_conflicts` sobre a unique) e continua
+verdadeiro sozinho.
+
+**A unidade de análise é o processo**, não a publicação — no caso concreto,
+141 publicações = 132 processos. Daí o `processo_id` aqui: `COUNT(DISTINCT
+processo_id)` resolve sem tocar em `tribunals_movimentacao`.
+
+**`movimentacao_id` é `bigint` puro, sem FK, de propósito.**
+`ADD CONSTRAINT ... FOREIGN KEY` pede `SHARE ROW EXCLUSIVE` na tabela
+REFERENCIADA; `tribunals_movimentacao` tem ~1,4 bilhão de linhas e recebe
+INSERT 24 h por dia, e nesta casa todo lock enfileira (63 sessões em 25/08).
+A unique `(magistrado_id, movimentacao_id)` já dá a idempotência.
+`tests/test_magistrado_schema.py` **trava a ausência** para que ela não pareça
+esquecimento.
+
+### A migration 0059, e a armadilha que ela pagou
+
+Mesma receita da 0058 (tabelas e índices primeiro, sem FK nenhuma; FKs depois,
+uma transação por tentativa, `lock_timeout = '3s'`, falha alto no fim). Duas
+diferenças que valem para a próxima:
+
+1. **`tribunals_tribunal` não tem coluna `id`** — a PK é `sigla`. `REFERENCES
+   ... ("id")` escrito por hábito falha com `column "id" does not exist`;
+2. …e falhava **dentro do laço de lock**, gastando 40 tentativas num erro que
+   nenhuma espera conserta. A 0059 só repete em `SQLSTATE 55P03`
+   (`lock_not_available`); qualquer outro sobe na hora, com o erro original.
+
+**As tabelas nascem VAZIAS de propósito.** Duas amostras independentes de
+03/09/2026 — 42.281 publicações no Postgres com salto pseudoaleatório (11,39%
+produzem atribuição) e 600 sorteadas no ES (11,83%) — projetam **~184 a 191
+milhões de linhas** em `tribunals_magistradoatuacao` sobre as 1.618.133.888 de
+`tribunals_movimentacao`. Encher isso é decisão de quem opera o disco, entra
+por faixa fechada de pk e não é efeito colateral de um `git pull`.
+
 ## ER (alto nível)
 
 ```
