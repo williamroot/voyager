@@ -2359,11 +2359,20 @@ precisa existir. O que ele não podia é ser dado sem prova.
 
 **Cobertura real da terceira porta, contra o denominador da FONTE:**
 
-| | antes (15:46 UTC) | depois (ver §19.4) |
+| | antes (15:46 UTC) | depois (17:14 UTC, 88 min) |
 |---|---:|---:|
-| unidades `ok` | 250 | — |
+| unidades `ok` | 250 | **313** |
+| `itens_gravados` | 6.883.607 | **8.496.018** |
 | denominador da faixa | 22.620 | 22.620 |
-| **cobertura** | **1,105%** | — |
+| **cobertura** | **1,105%** | **1,384%** |
+
+Em 88 minutos: **+63 unidades**, **+1,61 milhão de linhas**, e — o número que
+mede acervo e não trabalho — **230.890 `Process` novos**, processos que o
+acervo não tinha em lugar nenhum. 66 runs `success`, **0 reprovas de gate**, e
+as 10 `failed` são todas as minhas, de restart, com a causa escrita em `erros`.
+A cobertura sobe 0,28 ponto percentual por hora e meia; nesse ritmo a fatia
+catalogada (3.764 pendentes) leva da ordem de **3 dias**, e o orçamento de
+1.000/24 h é o que a segura.
 
 Contra o denominador inflado de 29.368 esse mesmo 250 dava 0,85%. A ordem de
 grandeza não muda — continua sendo **cerca de um por cento** — mas a régua
