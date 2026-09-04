@@ -274,6 +274,121 @@ canônica. DV inválido é **400** (`cpf_dv_invalido`), não "0 resultados".
   só existem em docs reindexados pós-7d03bab — filtrar por eles restringe ao subset.
 - `valor_causa` tem outliers de digitação (o serviço não higieniza).
 
+## Busca POR PARTE ao vivo no tribunal (`/api/v1/busca/tribunal/*`)
+
+As buscas acima leem o ÍNDICE. Esta fala com a **consulta pública do tribunal**,
+ao vivo, e existe pelo motivo medido: no ES, `participacoes.documento` cobre
+**0,14%** e `participacoes.oab`, **0,067%**. Buscar CPF no índice e achar zero é
+ausência de dado, não de processo — a única fonte que responde "quais processos
+esta pessoa tem" é o formulário do tribunal.
+
+Serviço: `enrichers/busca/` (contrato no `base.py`; catálogo do que cada fonte
+aceita no `registry.py`). Views: `api/busca_tribunal_views.py`. Auth: a mesma
+`HasAPIKeyOrBearer`. Matriz medida por tribunal × critério, com fixture de cada
+desfecho: `.ia/ENRICHMENT.md` §"Busca POR PARTE".
+
+**Assíncrona**, e não por gosto: uma página do e-SAJ vai de 0,2 s a 71 s, um
+POST no PJe leva ~20 s, e "em todos" fala com nove fontes. Um job por tribunal,
+fila `busca_ao_vivo`.
+
+| Método | Path | Descrição |
+|---|---|---|
+| POST | `/api/v1/busca/tribunal/` | cria a busca ⇒ **202** com `run_id` (ou **200** com a resposta em cache) |
+| GET | `/api/v1/busca/tribunal/<run_id>/` | andamento + resultados parciais |
+| GET | `/api/v1/busca/tribunal/catalogo/` | o que cada fonte aceita, o teto dela e **desde quando foi medida** |
+
+### POST — corpo
+
+```json
+{"criterio": "documento|nome|oab|advogado",
+ "valor": "111.444.777-35",
+ "tribunais": ["TJSP","TJMG"] | "todos",
+ "forcar": false}
+```
+
+`criterio` fora da lista, CPF com DV quebrado, raiz de CNPJ (8 dígitos, que
+nenhum formulário de tribunal aceita) e nome com menos de 4 letras são **400 com
+mensagem humana** — recusados antes de gastar IP do pool. Tribunal fora do
+catálogo é 400 dizendo quais existem.
+
+`forcar: true` ignora o cache de **6 h** (mesma pergunta + mesmo escopo). Teto de
+**20 buscas/minuto por ApiClient**: cada uma pode virar nove jobs de scraping no
+pool que o enriquecimento em massa também usa.
+
+### GET — a resposta, e por que ela é assim
+
+```json
+{"versao": "busca-tribunal-1", "run_id": "...", "status": "running|concluido|erro",
+ "criterio": "documento", "valor": "111.444.777-35", "encontrados": 250,
+ "novos_no_acervo": 61,
+ "resultados": [{"numero_cnj": "...", "tribunal": "TJSP", "classe": "...",
+                 "assunto": "...", "orgao": "...", "distribuicao": "...",
+                 "url_fonte": "...", "partes_na_lista": ["AUTOR", "RÉU"]}],
+ "por_tribunal": {"TJSP": {"status": "ok", "paginas_lidas": 10, "encontrados": 250,
+                           "total_declarado": 1000, "total_e_teto": true,
+                           "truncado": true, "motivo_truncagem": "...", "levou_s": 88.2}},
+ "avisos": [{"codigo": "truncado", "tribunal": "TJSP", "mensagem": "..."}],
+ "erros": [], "em_cache": false}
+```
+
+O estado é **por tribunal** porque as quatro maneiras de não achar nada são
+coisas diferentes, e achatá-las num status único é exatamente o erro que esta
+feature existe para não cometer:
+
+| `status` do tribunal | significa | aviso |
+|---|---|---|
+| `ok` / `vazio` | a fonte respondeu; achou / não achou | — |
+| `criterio_indisponivel` | **a fonte não tem esse campo** (o TJPA não busca por nome de advogado) | `criterio_indisponivel` |
+| `refinar` | a fonte se RECUSOU a responder: "muitos processos, refine sua busca" | `refinar` |
+| `fonte_indisponivel` | não respondeu (WAF, timeout, outra página) — re-tentável | `fonte_indisponivel` |
+| `erro` | falha inesperada naquele tribunal; os outros seguem | — |
+
+Outros avisos: `truncado` (bateu o teto da fonte, o de páginas ou o de tempo —
+sempre com o número real), `fonte_inconsistente` (o TRF5 anuncia 30 resultados
+mostrando 1) e `nao_verificado` (aquele critério nunca foi exercitado ao vivo
+naquele tribunal — hoje, só o TRF3).
+
+O TRF5 é o caso extremo do `truncado`: ele **conta** certo e renderiza um único
+resultado, então toda busca ali volta com 1 processo e o aviso do que ficou de
+fora.
+
+`status` do run é `concluido` mesmo com tribunal indisponível: a busca
+aconteceu, e o que deu errado está dito por tribunal. Só vira `erro` quando
+**nenhuma** fonte respondeu.
+
+### O que ela faz com o que acha
+
+Tudo que é achado e ainda não está no acervo entra: `hidratar_cnj` cria o
+`Process`, puxa os movimentos do Datajud e enfileira o enricher do tribunal
+(fila `busca_hidratacao`, separada porque o rate limit do Datajud é global). A
+segunda busca igual sai do índice, de graça. Teto de **500 processos por
+consulta**; passar disso é ERRO registrado em `erros[]` com o número real, nunca
+um corte mudo.
+
+### Tetos, em um lugar só
+
+| teto | valor | onde |
+|---|---|---|
+| páginas por tribunal | 40 (= 1.000 no e-SAJ, o teto DELE) | `enrichers/busca/jobs.py` |
+| tempo por tribunal | 240 s | idem |
+| ingestão por consulta | 1.000 processos | `enrichers/busca/ingestao.py` |
+| cache da mesma pergunta | 6 h | `api/busca_tribunal_views.py` |
+| buscas por minuto/cliente | 20 | idem |
+| **teto da FONTE** | 1.000 (e-SAJ) · 30 (PJe) · sem teto (TJPA, TJMT) | medido — `registry.py` |
+
+Os nossos tetos são deliberadamente ≥ o da fonte: um teto interno menor faria a
+busca gastar o scraping, achar 823 processos e entregar 250 — e ainda chamar
+isso de "truncado pela fonte".
+
+**Prova de esgotamento por fonte** (04/09/2026): e-SAJ 823 declarados = 823
+colhidos (33 páginas, 51 s) · TJMT 112 = 112 (3 requisições) · TJPA 198 = 198
+(9 requisições). O PJe não pagina: uma resposta, no máximo 30.
+
+Tamanho de página por fonte, medido: e-SAJ **25** (fixo, seguimos o link
+"próxima") · TJMT `Take` **50** (60 passa, 75 dá HTTP 422) · TJPA **25 a 56** —
+ele não respeita o valor pedido, então a parada é "não veio processo novo", e
+não a aritmética de páginas.
+
 ## Busca de processos da TELA (`/dashboard/api/busca/*`)
 
 JSON interno (**sessão logada**, `@require_GET`). Mesmo serviço da v1
