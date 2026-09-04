@@ -144,7 +144,7 @@ class BuscaEsaj(BuscaPorParte):
             params['consultaDeRequisitorios'] = 'true'
         return params
 
-    def paginar(self, criterio: str, valor: str, teto_paginas: int = 10,
+    def paginar(self, criterio: str, valor: str, teto_paginas: int = 40,
                 so_requisitorios: bool = False) -> Iterator[PaginaResultado]:
         self.exigir_suporte(criterio)
         self._abrir_sessao()

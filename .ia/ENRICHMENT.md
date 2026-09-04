@@ -2579,6 +2579,39 @@ Conjuntos disjuntos entre critérios diferentes e quase iguais entre dois
 critérios que apontam para a mesma pessoa: o filtro está sendo aplicado. Se
 tudo voltasse igual, seria o `documento=` do TJMT de novo.
 
+### Prova de esgotamento — as três fontes que paginam
+
+Regra nº 5 (medir a completude dos DOIS lados) aplicada a cada motor que tem
+paginação. Todas em 04/09/2026:
+
+| fonte | busca | declarado | colhido | requisições | tempo |
+|---|---|---:|---:|---:|---:|
+| e-SAJ (TJSP) | OAB 329754/SP | 823 | **823 distintos** | 33 páginas | 51 s |
+| TJMT | `advogadoOAB=20688` | 112 | **112 distintos** | 3 (`Take=50`) | 2 s |
+| TJPA | CNPJ 60.746.948/0001-12 | 198 | **198 distintos** | 9 (páginas de 25) | 26 s |
+
+O PJe não entra porque não pagina: uma resposta, no máximo 30.
+
+Esse teste pegou **dois cortes nossos** que se disfarçavam de limite da fonte:
+
+1. **teto de 10 páginas no e-SAJ** — colhia 250 de 823 e marcava `truncado`.
+   Nosso teto nunca pode ser menor que o da fonte;
+2. **página 0 no TJPA** — o `consilium-rest` conta a partir de **1**, e a
+   página 0 devolve `listaResultado: []` (200, JSON válido) ou até
+   **404 PARTE_NAO_ENCONTRADA** para nome que existe. Com `pagina - 1`, a busca
+   no TJPA voltava vazia SEMPRE, sem erro nenhum.
+
+Dois detalhes de paginação que só aparecem esgotando:
+
+- o **TJPA não sinaliza fim**: passada a última página cheia ele repete uma
+  linha indefinidamente (páginas 3 a 6 de uma busca por nome devolveram sempre
+  o mesmo processo). A parada é "esta página não trouxe nada novo";
+- o `qtdRegistrosTotal` do TJPA **muda de página para página** no
+  `processobynomeparteexato` (57, 27, 1) — vale o da primeira. No
+  `processobycnpj` ele é estável (198 em todas).
+
+O `Take` do TJMT vai até **60**; **75 devolve HTTP 422**. Usamos 50.
+
 ### REST: os dois melhores, e a armadilha do parâmetro ignorado
 
 **TJMT** — `GET hellsgate.tjmt.jus.br/consultaprocessual/ProcessosJudiciais/v2`

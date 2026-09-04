@@ -36,7 +36,7 @@ def _nome_da_classe(valor) -> str:
     return str(valor or '')
 
 
-def parse_tjmt(corpo: dict, pagina: int = 1) -> PaginaResultado:
+def parse_tjmt(corpo: dict, pagina: int = 1, por_pagina: int = 50) -> PaginaResultado:
     """`{pagina, totalRegistros, itens:[...]}` do `ProcessosJudiciais/v2`.
 
     O CNJ vem em `numeroUnico` (20 dígitos crus). `partes` vem RICO nesta
@@ -70,7 +70,10 @@ def parse_tjmt(corpo: dict, pagina: int = 1) -> PaginaResultado:
         pagina=pagina,
         total_declarado=int(total) if isinstance(total, int) else None,
         total_e_teto=False,
-        tem_proxima=bool(total and pagina * max(len(itens), 1) < total and itens),
+        # Pelo TAMANHO DA PÁGINA pedido, não pelo que veio nela: a última
+        # página traz menos itens, e usar `len(itens)` faria a conta achar que
+        # ainda falta muito (3 × 12 = 36 < 112) e pedir uma página vazia.
+        tem_proxima=bool(total and pagina * por_pagina < total and itens),
     )
 
 
@@ -87,6 +90,32 @@ def parece_base_inteira(total_com_filtro: int | None,
 
 
 # ── TJPA ──────────────────────────────────────────────────────────────────────
+
+def rota_tjpa(base: str, criterio: str, valor: str, pagina: int,
+              por_pagina: int = 50) -> str:
+    """URL da página `pagina` do `consilium-rest`, **contada a partir de 1**.
+
+    Mora no módulo puro porque é REGRA, não transporte — e regra precisa de
+    teste barato. O índice é 1-BASED, e isso não é detalhe de estilo: medido em
+    04/09/2026, `processobycnpj/60746948000112/0/50` devolve
+    `{"qtdRegistrosTotal": 0, "listaResultado": []}` — 200, JSON válido, zero
+    resultado — enquanto a página **1** do MESMO CNPJ devolve 25 processos de
+    198. No `processobynomeparteexato`, a página 0 chega a responder
+    **404 PARTE_NAO_ENCONTRADA** para um nome que existe.
+
+    A primeira versão deste cliente mandava `pagina - 1`, por hábito de API
+    0-based, e por isso a busca no TJPA voltava vazia SEMPRE, sem erro nenhum:
+    o falso-negativo mais caro possível.
+    """
+    digitos = re.sub(r'\D', '', valor or '')
+    if criterio == 'documento':
+        recurso = 'processobycnpj' if len(digitos) == 14 else 'processobycpf'
+        return f'{base}/{recurso}/{digitos}/{pagina}/{por_pagina}'
+    if criterio == 'oab':
+        uf = (re.sub(r'[^A-Za-z]', '', valor or '') or 'PA').upper()[:2]
+        return f'{base}/processobyoab/{digitos}/{uf}/{pagina}/{por_pagina}'
+    return f'{base}/processobynomeparteexato/{valor}/{pagina}/{por_pagina}'
+
 
 def parse_tjpa(corpo: dict, pagina: int = 1, por_pagina: int = 20) -> PaginaResultado:
     """`{qtdRegistrosTotal, listaResultado:[{listaProcessos:[...]}]}`.

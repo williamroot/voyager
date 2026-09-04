@@ -4264,8 +4264,12 @@ foram de fato exercitados.
 
 Fechado em 04/09/2026 (tarde): OAB e nome de advogado foram exercitados no TRF1,
 TRF5 e TJMA, com OAB e nome colhidos de processos reais de cada tribunal. Restam
-duas lacunas no catálogo — o TRF3 inteiro e `advogado` no TJPA, que a fonte não
-oferece.
+no catálogo o TRF3 inteiro, `advogado` no TJPA (a fonte não oferece) e `oab` no
+TJPA — este último por falta de uma OAB real para testar: a rota existe no
+bundle, mas a única que tentei devolveu 204, e 204 não distingue "advogado sem
+processo" de "rota que não funciona". O TJPA não expõe OAB nas partes, então a
+OAB tem de vir de fora (uma consulta da OAB/PA, ou um caso conhecido do
+comercial).
 
 ⚠️ **O TRF5 responde, mas entrega 1 processo por consulta.** A fonte conta certo
 (rodapés 16, 13, 30 em buscas diferentes) e renderiza uma única linha; não há

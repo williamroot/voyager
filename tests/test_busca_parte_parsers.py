@@ -231,3 +231,43 @@ def test_tjpa_desambiguacao_ordena_por_quantidade():
 def test_cnj_de_20_digitos_vira_mascara():
     assert R.formatar_cnj('10455680820268110041') == '1045568-08.2026.8.11.0041'
     assert R.formatar_cnj('123') == '123'
+
+
+# ── paginação: o teto é o da FONTE, e o índice é o que ela usa ───────────────
+
+def test_tjpa_pagina_e_1_indexed():
+    """A página 0 do TJPA devolve zero — e às vezes 404 — para busca que existe.
+
+    Medido em 04/09/2026: `processobycnpj/60746948000112/0/50` devolve
+    `listaResultado: []`; a página **1** do mesmo CNPJ devolve 25 processos de
+    198. A primeira versão deste cliente mandava `pagina - 1` e por isso a
+    busca no TJPA voltava vazia sempre, sem erro nenhum.
+    """
+    base = 'https://x/consilium-rest'
+    assert R.rota_tjpa(base, 'documento', '60.746.948/0001-12', 1) == \
+        f'{base}/processobycnpj/60746948000112/1/50'
+    assert R.rota_tjpa(base, 'documento', '111.444.777-35', 2) == \
+        f'{base}/processobycpf/11144477735/2/50'
+    assert R.rota_tjpa(base, 'oab', '1000/PA', 1) == \
+        f'{base}/processobyoab/1000/PA/1/50'
+    assert R.rota_tjpa(base, 'nome', 'MARIA JOSE DOS SANTOS', 1) == \
+        f'{base}/processobynomeparteexato/MARIA JOSE DOS SANTOS/1/50'
+    # o que NÃO pode acontecer: página 0 na primeira requisição
+    for criterio, valor in (('documento', '11144477735'), ('nome', 'FULANO'),
+                            ('oab', '1000/PA')):
+        assert '/0/' not in R.rota_tjpa(base, criterio, valor, 1)
+
+
+def test_tjmt_ultima_pagina_nao_promete_outra():
+    """`tem_proxima` sai do TAMANHO DA PÁGINA, não do que veio nela.
+
+    Com 112 registros e páginas de 50, a terceira traz 12 — usar `len(itens)`
+    faria a conta dar 3 × 12 = 36 < 112 e pedir uma quarta página vazia.
+    """
+    def pagina(n, itens):
+        return R.parse_tjmt({'totalRegistros': 112,
+                             'itens': [{'numeroUnico': f'{i:020d}'} for i in range(itens)]},
+                            n, por_pagina=50)
+    assert pagina(1, 50).tem_proxima is True
+    assert pagina(2, 50).tem_proxima is True
+    assert pagina(3, 12).tem_proxima is False

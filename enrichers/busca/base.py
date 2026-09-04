@@ -141,8 +141,13 @@ class BuscaPorParte:
             raise CriterioIndisponivel(self.TRIBUNAL, criterio)
 
     def paginar(self, criterio: str, valor: str,
-                teto_paginas: int = 10) -> Iterator[PaginaResultado]:
-        """Páginas de resultado, uma a uma, até acabar ou bater o teto.
+                teto_paginas: int = 40) -> Iterator[PaginaResultado]:
+        """Páginas de resultado, uma a uma, até ACABAR — ou bater o teto.
+
+        O default é 40 porque é o que esgota a fonte mais generosa (o e-SAJ:
+        25 por página, 1.000 no total). Nosso teto nunca deve ser MENOR que o
+        da fonte: em 04/09/2026 o de 10 páginas colhia 250 de 823 processos e
+        chamava isso de "truncado", como se o corte fosse dela.
 
         Atingir `teto_paginas` NÃO é o fim silencioso da iteração: quem chama
         compara o que colheu com `total_declarado` e registra o truncamento

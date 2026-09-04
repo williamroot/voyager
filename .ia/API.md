@@ -378,8 +378,16 @@ um corte mudo.
 
 Os nossos tetos são deliberadamente ≥ o da fonte: um teto interno menor faria a
 busca gastar o scraping, achar 823 processos e entregar 250 — e ainda chamar
-isso de "truncado pela fonte". Medido: o e-SAJ esgota 823 processos em 33
-páginas e 51 s, sem erro.
+isso de "truncado pela fonte".
+
+**Prova de esgotamento por fonte** (04/09/2026): e-SAJ 823 declarados = 823
+colhidos (33 páginas, 51 s) · TJMT 112 = 112 (3 requisições) · TJPA 198 = 198
+(9 requisições). O PJe não pagina: uma resposta, no máximo 30.
+
+Tamanho de página por fonte, medido: e-SAJ **25** (fixo, seguimos o link
+"próxima") · TJMT `Take` **50** (60 passa, 75 dá HTTP 422) · TJPA **25 a 56** —
+ele não respeita o valor pedido, então a parada é "não veio processo novo", e
+não a aritmética de páginas.
 
 ## Busca de processos da TELA (`/dashboard/api/busca/*`)
 
