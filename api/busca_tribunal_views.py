@@ -15,9 +15,10 @@ tem esse critério", "a fonte pediu para refinar", "a fonte estava fora" e
 diferentes.
 """
 import logging
+from datetime import timedelta
 
-from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -145,7 +146,7 @@ def _avisos(run: BuscaTribunalRun) -> list[dict]:
 
 def _run_em_cache(criterio: str, normalizado: str, tribunais: list[str]):
     """Mesma pergunta, mesmo escopo, respondida há pouco."""
-    desde = timezone.now() - timezone.timedelta(hours=CACHE_HORAS)
+    desde = timezone.now() - timedelta(hours=CACHE_HORAS)
     candidatos = BuscaTribunalRun.objects.filter(
         criterio=criterio, valor_normalizado=normalizado,
         status=BuscaTribunalRun.STATUS_CONCLUIDO, criado_em__gte=desde,
@@ -210,7 +211,9 @@ def ler_busca(request, run_id):
     """Andamento e parciais. Pode ser chamado enquanto os jobs ainda rodam."""
     try:
         run = BuscaTribunalRun.objects.get(pk=run_id)
-    except (BuscaTribunalRun.DoesNotExist, ValueError, TypeError):
+    except (BuscaTribunalRun.DoesNotExist, ValidationError, ValueError, TypeError):
+        # ValidationError é o que sai de um `pk` que não é UUID — sem ele, uma
+        # URL torta viraria 500 em vez de "não achei esta busca".
         return Response({'erro': 'busca_nao_encontrada'},
                         status=status.HTTP_404_NOT_FOUND)
     return Response(_resposta_do_run(run))
@@ -231,5 +234,4 @@ def catalogo(request):
         'tribunais': catalogo_publico(),
         'cache_horas': CACHE_HORAS,
         'rate_por_minuto': RATE_POR_MINUTO,
-        'debug': settings.DEBUG,
     })

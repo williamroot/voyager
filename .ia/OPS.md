@@ -4226,3 +4226,67 @@ varredura chegando na mesma faixa —, escreve em `tribunals_process` (a tabela
 onde outro backfill tem precedência de escrita) e o resultado dela é um
 subconjunto do que a varredura entrega de qualquer jeito. Campainha é para o
 poller ENXERGAR escrita nova; backfill de campo antigo é reindex.
+
+## Busca por parte ao vivo (`worker_busca`)
+
+Serviço novo em `docker-compose-workers.yml`, 4 réplicas, consumindo DUAS filas
+nesta ordem: `busca_ao_vivo` (um job por tribunal, gente esperando na tela) e
+`busca_hidratacao` (o que a busca achou e ainda não está no acervo). O rqworker
+esvazia a primeira antes de olhar a segunda — é a prioridade desejada.
+
+```bash
+docker compose -f docker-compose-workers.yml up -d worker_busca
+docker compose -f docker-compose-workers.yml logs -f worker_busca
+```
+
+### Conferir uma fonte sem tela e sem API key
+
+```bash
+docker exec -w /app voyager-worker_busca-1 \
+    python manage.py busca_parte TJMG nome "MARIA DAS GRACAS SILVA"
+docker exec -w /app voyager-worker_busca-1 \
+    python manage.py busca_parte TJSP documento 60.746.948/0001-12 --paginas 3
+```
+
+Só leitura por padrão (`--ingerir` é o que escreve). É o comando que exercita o
+CÓDIGO DE PRODUÇÃO — registry, motor, parser —, ao contrário do
+`scripts/recon_busca_parte.py`, que faz requisição crua para medir a fonte.
+
+### O TRF3 ainda não foi medido — e a medição é aqui
+
+O host inteiro do TRF3 (`pje1g.trf3.jus.br`, e até `www.trf3.jus.br`) responde
+`ReadTimeout` a partir de IP residencial: é bloqueio de borda, não da rota da
+busca. Por isso ele está no catálogo com `verificado_em: null`, e toda resposta
+que o envolve carrega o aviso `nao_verificado`. Para fechar isso, rode o comando
+acima de dentro do container (que sai pela malha de proxies) e, dando certo,
+mova `TRF3` para `_MEDIDO` em `enrichers/busca/registry.py` com os critérios que
+foram de fato exercitados.
+
+Mesma pendência, menor: OAB e nome de advogado nunca foram exercitados no TRF1 e
+no TRF5, e nome de advogado não foi exercitado no TJMA.
+
+### Quando alguém disser "a busca não achou nada"
+
+A resposta já separa os quatro sabores de vazio (`.ia/API.md`
+§"Busca POR PARTE ao vivo"). Leia `por_tribunal[SIGLA].status` antes de qualquer
+outra coisa:
+
+| status | o que fazer |
+|---|---|
+| `vazio` | a fonte respondeu e não tem. Fim. |
+| `refinar` | a fonte recusou por amplitude — é para o usuário refinar, não para reiniciar |
+| `fonte_indisponivel` | é re-tentável: veja `mensagem` (WAF, timeout, "não é a tabela que conheço") |
+| `criterio_indisponivel` | aquela fonte não tem esse campo — não é falha |
+| `erro` | falha inesperada; o `logger` `voyager.busca.jobs` tem o traceback |
+
+E confira `avisos[]`: `truncado` diz que a resposta está incompleta **com o
+número real**, e `fonte_inconsistente` é a fonte se contradizendo (o TRF5
+anuncia 30 resultados mostrando 1).
+
+### Tetos que podem precisar de ajuste
+
+`TETO_PAGINAS` (10) e `TETO_TEMPO_S` (180) em `enrichers/busca/jobs.py`;
+`TETO_INGESTAO` (500) em `enrichers/busca/ingestao.py`; `CACHE_HORAS` (6) e
+`RATE_POR_MINUTO` (20) em `api/busca_tribunal_views.py`. Mexer em qualquer um
+muda o custo no pool de proxies, que é COMPARTILHADO com o enriquecimento em
+massa — medir a profundidade das filas `enrich_*` antes e depois.

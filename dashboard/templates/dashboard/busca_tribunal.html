@@ -1,0 +1,158 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}Buscar no tribunal{% endblock %}
+
+{% block content %}
+{% include 'dashboard/_partials/page_header.html' with title='Buscar no tribunal' subtitle='Consulta pública, ao vivo — por CPF/CNPJ, nome, OAB ou advogado' %}
+
+<div class="space-y-4">
+
+  <div class="card">
+    <form id="form-busca" class="space-y-3">
+      <div class="flex gap-3 items-end flex-wrap">
+        <div>
+          <label for="criterio" class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">Buscar por</label>
+          <select id="criterio" class="px-3 py-2 bg-muted border border-border rounded-lg text-sm">
+            {% for c in criterios %}<option value="{{ c.id }}">{{ c.rotulo }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="flex-1 min-w-[16rem]">
+          <label for="valor" class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">Valor</label>
+          <input id="valor" type="search" autofocus placeholder="000.000.000-00"
+                 class="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent/50">
+        </div>
+        <label class="flex items-center gap-2 text-xs text-fg-subtle pb-2">
+          <input id="forcar" type="checkbox" class="accent-accent"> ignorar cache (6h)
+        </label>
+        <button type="submit" class="btn-mission px-5 py-2 rounded-lg text-sm font-medium">Buscar</button>
+      </div>
+
+      <div>
+        <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">Tribunais</div>
+        <div id="tribunais" class="flex gap-3 flex-wrap text-xs">
+          {% for f in fontes %}
+          <label class="flex items-center gap-1" title="{{ f.nota }}">
+            <input type="checkbox" class="accent-accent trib" value="{{ f.tribunal }}"
+                   data-criterios="{{ f.criterios|join:',' }}"
+                   data-medidos="{{ f.criterios_medidos|join:',' }}" checked>
+            <span>{{ f.tribunal }}</span>
+            {% if not f.verificado_em %}<span title="nunca conferido ao vivo">⚠</span>{% endif %}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div id="painel" class="hidden card">
+    <div class="flex items-center gap-2 mb-3">
+      <span id="pulso" class="pulsar w-2 h-2 rounded-full bg-accent inline-block"></span>
+      <span id="resumo" class="text-sm"></span>
+    </div>
+    <div id="avisos" class="space-y-1 mb-3"></div>
+    <div id="fontes" class="grid gap-2 mb-4" style="grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))"></div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead class="text-fg-subtle">
+          <tr class="text-left">
+            <th class="py-1 pr-3">Processo</th><th class="py-1 pr-3">Tribunal</th>
+            <th class="py-1 pr-3">Classe</th><th class="py-1">Órgão</th>
+          </tr>
+        </thead>
+        <tbody id="linhas"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const CRIAR = "{{ criar_url }}", LER = "{{ ler_url }}";
+  const $ = (id) => document.getElementById(id);
+  const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g,
+    (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  // O seletor de tribunal reflete o CATÁLOGO: fonte que não tem o critério
+  // aparece desligada e cinza, com o motivo no title. Deixá-la marcada faria a
+  // tela pedir uma busca que já se sabe que não existe — e o "0 resultados"
+  // que voltasse pareceria resposta da fonte.
+  function ajustarTribunais() {
+    const criterio = $('criterio').value;
+    document.querySelectorAll('.trib').forEach((el) => {
+      const aceita = (el.dataset.criterios || '').split(',').includes(criterio);
+      const medido = (el.dataset.medidos || '').split(',').includes(criterio);
+      el.disabled = !aceita;
+      if (!aceita) el.checked = false;
+      const rotulo = el.parentElement;
+      rotulo.style.opacity = aceita ? '1' : '0.35';
+      rotulo.title = !aceita ? 'esta fonte não oferece este critério'
+        : (medido ? '' : 'este critério nunca foi conferido ao vivo nesta fonte');
+    });
+  }
+  $('criterio').addEventListener('change', ajustarTribunais);
+  ajustarTribunais();
+
+  let timer = null;
+
+  function pintar(d) {
+    $('painel').classList.remove('hidden');
+    const rodando = d.status === 'running';
+    $('pulso').style.visibility = rodando ? 'visible' : 'hidden';
+    $('resumo').textContent =
+      `${d.encontrados} processo(s) · ${d.novos_no_acervo} novo(s) no acervo · `
+      + (rodando ? 'consultando…' : d.status)
+      + (d.em_cache ? ' · resposta em cache' : '');
+
+    $('avisos').innerHTML = (d.avisos || []).map((a) =>
+      `<div class="text-xs px-2 py-1 rounded border border-border bg-muted">
+         <b>${esc(a.tribunal)}</b> · ${esc(a.mensagem)}</div>`).join('');
+
+    $('fontes').innerHTML = Object.entries(d.por_tribunal || {}).map(([sigla, e]) => {
+      const total = e.total_declarado == null ? '—'
+        : e.total_declarado + (e.total_e_teto ? ' (teto da fonte)' : '');
+      return `<div class="text-xs border border-border rounded p-2">
+        <div class="flex justify-between"><b>${esc(sigla)}</b><span>${esc(e.status || '')}</span></div>
+        <div class="text-fg-subtle">achados ${e.encontrados || 0} · a fonte declara ${esc(total)}</div>
+        ${e.mensagem ? `<div class="text-fg-subtle mt-1">${esc(e.mensagem)}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    $('linhas').innerHTML = (d.resultados || []).slice(0, 500).map((p) =>
+      `<tr class="border-t border-border">
+         <td class="py-1 pr-3 font-mono">${esc(p.numero_cnj)}</td>
+         <td class="py-1 pr-3">${esc(p.tribunal)}</td>
+         <td class="py-1 pr-3">${esc(p.classe)}</td>
+         <td class="py-1">${esc(p.orgao)}</td></tr>`).join('');
+
+    if (rodando) timer = setTimeout(() => acompanhar(d.run_id), 2000);
+  }
+
+  async function acompanhar(runId) {
+    const r = await fetch(`${LER}?run=${encodeURIComponent(runId)}`);
+    if (r.ok) pintar(await r.json());
+  }
+
+  $('form-busca').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (timer) clearTimeout(timer);
+    const tribunais = [...document.querySelectorAll('.trib:checked')].map((e) => e.value);
+    const resp = await fetch(CRIAR, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json',
+                'X-CSRFToken': (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || ''},
+      body: JSON.stringify({criterio: $('criterio').value, valor: $('valor').value,
+                            tribunais, forcar: $('forcar').checked}),
+    });
+    const d = await resp.json();
+    if (!resp.ok) {
+      $('painel').classList.remove('hidden');
+      $('resumo').textContent = d.mensagem || d.erro || 'erro';
+      $('avisos').innerHTML = ''; $('fontes').innerHTML = ''; $('linhas').innerHTML = '';
+      return;
+    }
+    pintar(d);
+  });
+})();
+</script>
+{% endblock %}
