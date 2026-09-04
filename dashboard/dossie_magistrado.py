@@ -92,7 +92,13 @@ def coletar(nome: str, tribunal: str, teto: int = TETO_PUBLICACOES) -> dict:
     """
     from search.client import get_es, index_name
 
-    es = get_es().options(request_timeout=240)
+    # 240 s era teto de nada: o Cloudflare à frente corta em ~100 s, então quem
+    # esperava via a página DELE, não o nosso aviso — e a thread do gunicorn
+    # ficava presa 4 min depois de o leitor já ter ido embora. 75 s garante que
+    # a resposta é sempre NOSSA. Medido em 04/09/2026: um `match_phrase` real
+    # sobre `voyager-movimentacoes` levou 44 s com o índice ocupado pelos
+    # backfills, então o teto tem folga sem virar espera infinita (regra nº 7).
+    es = get_es().options(request_timeout=75)
     consulta = {'bool': {'filter': [
         {'match_phrase': {'body': nome}},
         {'term': {'tribunal': tribunal}},

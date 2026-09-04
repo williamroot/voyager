@@ -188,6 +188,68 @@ _CONECTIVOS = frozenset({'DE', 'DA', 'DO', 'DAS', 'DOS', 'E', 'DEL', 'D'})
 #: 03/09/2026 no TJSP, `'sob a presidência desta'` saiu como nome de
 #: magistrado. Nome de magistrado publicado nunca vem em caixa baixa; o que
 #: vem em caixa baixa é texto corrido, e texto corrido tem que PARAR a leitura.
+
+#: MARCAS DE QUEM NÃO É PESSOA FÍSICA.
+#:
+#: `_RUIDO` é lista de PARADA: o token interrompe o caminhamento e o que já foi
+#: juntado vira nome. Isso é certo para rótulo e endereço, e ERRADO para nome de
+#: pessoa jurídica — parar em `ESTADO` transforma
+#: `'ESTADO DE MINAS GERAIS'` em `'MINAS GERAIS'`, que continua não sendo um
+#: magistrado mas agora PARECE um nome de gente. Trocar erro visível por erro
+#: plausível é o defeito que o princípio nº 1 chama de "pior que zero".
+#:
+#: Por isso esta lista age sobre o nome INTEIRO e **recusa o candidato**
+#: (abster > chutar, regra nº 6). A recusa é contada em `erros['nao_pessoa']`,
+#: nunca descartada em silêncio.
+#:
+#: Medido em 04/09/2026 sobre 164.630 linhas do cadastro: **24.025 (14,6%)**
+#: casam uma destas marcas — 16,7% só no TJMG, onde a relação de acórdão
+#: imprime a parte ao lado do rótulo `Relator`. Amostra do topo por volume:
+#: `MINISTÉRIO PÚBLICO DO ESTADO DE MINAS GERAIS` (56 linhas),
+#: `ESTADO DE MINAS GERAIS` (48), `BRADESCO ADMINISTRADORA CONSORCIO LTDA`,
+#: `CONDOMINIO DO EDIFICIO JOAQUIM CARDOSO NAVES`, `PREFEITO DE GUAXUPÉ`.
+#:
+#: ⚠️ NÃO entram aqui tokens que também são sobrenome brasileiro. `SA` ficou de
+#: fora de propósito: `_sem_acento('Sá')` é `'SA'`, e a lista mataria a pessoa.
+_MARCAS_NAO_PESSOA = frozenset({
+    # ente público
+    'ESTADO', 'ESTADOS', 'MUNICIPIO', 'MUNICIPAL', 'MUNICIPAIS', 'PREFEITURA',
+    'PREFEITO', 'PREFEITA', 'MINISTERIO', 'INSTITUTO', 'FUNDACAO', 'AUTARQUIA',
+    'UNIAO', 'FAZENDA', 'PREVIDENCIA', 'DEFENSORIA', 'PROCURADORIA',
+    'DELEGACIA', 'SECRETARIA', 'DEPARTAMENTO', 'AGENCIA', 'CONSELHO',
+    'JUSTICA', 'GOVERNO', 'CAMARA', 'ASSEMBLEIA',
+    # empresa
+    'LTDA', 'EIRELI', 'BANCO', 'CAIXA', 'SEGURO', 'SEGUROS', 'SEGURADORA',
+    'COMPANHIA', 'SOCIEDADE', 'EMPRESA', 'EMPREENDIMENTOS', 'PARTICIPACOES',
+    'ADMINISTRADORA', 'DISTRIBUIDORA', 'CONSORCIO', 'IMOBILIARIA',
+    'CONSTRUTORA', 'INDUSTRIA', 'COMERCIO', 'SERVICOS', 'TRANSPORTES',
+    'TELECOMUNICACOES', 'ENERGIA', 'SANEAMENTO', 'HOSPITAL', 'UNIVERSIDADE',
+    'FACULDADE',
+    # coletivo
+    'CONDOMINIO', 'EDIFICIO', 'SINDICATO', 'ASSOCIACAO', 'COOPERATIVA',
+    'ESPOLIO', 'MASSA', 'FALIDA',
+    # gabarito de template não preenchido — 169 linhas de `INSIRA AQUI O NOME`
+    'INSIRA', 'PREENCHA', 'DIGITE',
+    # fragmento de prosa que o rótulo capturou como se fosse nome
+    # ('RESSALVA DO PONTO DE VISTA', 'LIVRE CONVICÇÃO MOTIVADA',
+    #  'AMPLA DISCRICIONARIDADE' — todos no TRF3)
+    'RESSALVA', 'CONVICCAO', 'DISCRICIONARIDADE', 'DISCRICIONARIEDADE',
+})
+
+
+def marca_nao_pessoa(nome: str | None) -> str:
+    """A marca que prova que `nome` não é pessoa física — `''` se é gente.
+
+    Devolve a marca (e não um booleano) para que o motivo da recusa possa ser
+    lido, contado e auditado: quem investiga um número quer saber QUAL palavra
+    reprovou, não só que reprovou.
+    """
+    for tok in (nome or '').split():
+        chave = _sem_acento(tok.strip('.,;:()')).upper()
+        if chave in _MARCAS_NAO_PESSOA:
+            return chave
+    return ''
+
 _RE_TOKEN_NOME = re.compile(r"^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]*$")
 
 #: Nome brasileiro publicado não passa disso. Teto é alerta, não corte mudo:
@@ -361,6 +423,17 @@ def _nome_para_tras(texto: str, fim: int) -> tuple[str, int, int, str]:
             break                     # separador de campo: o nome acabou aqui
         limpo, motivo = _aceita(tok)
         if motivo:
+            break
+        # `;` separa PESSOAS na relação do TJMG:
+        #     'RITA MARLENE DO CARMO INACIO; VICENTE MAURICIO ROMEIRO Relator'
+        # Andando para trás, um token terminado em `;` só aparece DEPOIS que o
+        # nome corrente já começou — ele fecha o registro ANTERIOR, e engoli-lo
+        # cola duas pessoas num campo só. Medido em 04/09/2026: 16.801 linhas
+        # do cadastro (10,2%) tinham `;` no nome. `_aceita` limpa a pontuação,
+        # então sem esta parada o separador some sem deixar rastro.
+        # Quando ainda não há peça, o `;` fecha o PRÓPRIO nome
+        # ('FULANO; Relator') e o token entra normalmente.
+        if pecas and tok.rstrip().endswith(';'):
             break
         desloc = tok.find(limpo)
         pecas.append((ini_t + desloc, ini_t + desloc + len(limpo)))
@@ -580,10 +653,17 @@ def ler(texto: str | None) -> Leitura:
     # gabarito mecânico: cada nome tem de ser a fatia de onde disse ter vindo
     aprovadas = []
     for a in achados:
-        if a.verbatim_ok(limpo):
-            aprovadas.append(a)
-        else:
+        if not a.verbatim_ok(limpo):
             leitura._conta('verbatim')
+            continue
+        # o nome pode ser fatia verbatim do texto e ainda assim não ser de uma
+        # PESSOA: a relação do acórdão imprime a parte ao lado do rótulo. Aqui
+        # se recusa o candidato inteiro — encurtá-lo daria um nome plausível.
+        marca = marca_nao_pessoa(a.nome)
+        if marca:
+            leitura._conta('nao_pessoa')
+            continue
+        aprovadas.append(a)
     leitura.atribuicoes = _dedup(aprovadas)
     return leitura
 

@@ -274,3 +274,80 @@ def test_texto_sem_marcador_nenhum_nao_inventa_abstencao():
 def test_texto_vazio_nao_levanta():
     for t in (None, '', '   ', '<p></p>'):
         assert mag.ler(t).atribuicoes == []
+
+
+# --------------------------------------------------------------------------- #
+# 9. Quem NÃO é pessoa física
+#
+# Medido em prod (04/09/2026, 164.630 linhas do cadastro): 24.025 registros
+# (14,6%) tinham nome de ente público ou empresa — 16,7% só no TJMG, onde a
+# relação de acórdão imprime a PARTE ao lado do rótulo `Relator`. A tela de
+# localizar magistrado listava `MINISTÉRIO PÚBLICO DO ESTADO DE MINAS GERAIS`
+# como pessoa, com órgão e período, indistinguível de um juiz de verdade.
+#
+# A recusa é do candidato INTEIRO, nunca um encurtamento: parar em `ESTADO`
+# devolveria `MINAS GERAIS`, que continua errado e agora parece certo.
+# --------------------------------------------------------------------------- #
+NAO_PESSOA = [
+    'MINISTÉRIO PÚBLICO DO ESTADO DE MINAS GERAIS Relator',
+    'ESTADO DE MINAS GERAIS Relator',
+    'ESTADO DO TOCANTINS RELATOR',
+    'MUNICÍPIO DE RIBEIRÃO DAS NEVES MG Relator',
+    'PREFEITO DE GUAXUPÉ Relator',
+    'BRADESCO ADMINISTRADORA CONSORCIO LTDA Relator',
+    'CONDOMINIO DO EDIFICIO JOAQUIM CARDOSO NAVES Relator',
+    'Relator: INSIRA AQUI O NOME',
+    'Relator: RESSALVA DO PONTO DE VISTA',
+]
+
+
+@pytest.mark.parametrize('texto', NAO_PESSOA)
+def test_ente_publico_e_empresa_nao_viram_magistrado(texto):
+    assert mag.extrair(texto) == []
+
+
+@pytest.mark.parametrize('texto', NAO_PESSOA)
+def test_a_recusa_de_nao_pessoa_e_contada_nao_engolida(texto):
+    """Abstenção é DADO (§ do módulo). Sem o contador, uma lista nova que
+    recusasse demais reduziria o cadastro em silêncio."""
+    assert mag.ler(texto).erros.get('nao_pessoa', 0) >= 1
+
+
+def test_a_marca_devolvida_diz_QUAL_palavra_reprovou():
+    assert mag.marca_nao_pessoa('ESTADO DE MINAS GERAIS') == 'ESTADO'
+    assert mag.marca_nao_pessoa('BRADESCO ADMINISTRADORA CONSORCIO LTDA') in (
+        'ADMINISTRADORA', 'CONSORCIO', 'LTDA')
+    assert mag.marca_nao_pessoa('Maria Beatriz de Aquino Gariglio') == ''
+
+
+def test_sobrenome_que_vira_marca_ao_perder_o_acento_nao_e_recusado():
+    """`_sem_acento('Sá')` é `'SA'`. Se `SA` entrasse na lista de empresa, todo
+    magistrado de sobrenome Sá sumiria do cadastro — e sumiria calado."""
+    assert mag.marca_nao_pessoa('JOSE MARIA DE SA') == ''
+    assert mag.extrair('JOSE MARIA DE SA Juiz de Direito') == ['JOSE MARIA DE SA']
+
+
+# --------------------------------------------------------------------------- #
+# 10. `;` separa PESSOAS
+#
+# Medido: 16.801 linhas (10,2%) tinham `;` no nome — duas pessoas coladas num
+# campo só, porque `_aceita` LIMPA a pontuação e o caminhamento para trás
+# atravessava o separador sem deixar rastro.
+# --------------------------------------------------------------------------- #
+def test_ponto_e_virgula_nao_cola_duas_pessoas_no_mesmo_nome():
+    texto = 'RITA MARLENE DO CARMO INACIO; VICENTE MAURICIO ROMEIRO Relator'
+    assert mag.extrair(texto) == ['VICENTE MAURICIO ROMEIRO']
+
+
+def test_ponto_e_virgula_que_FECHA_o_proprio_nome_nao_o_descarta():
+    """`'FULANO; Relator'` — aqui o `;` é o fecho do nome, não separador de
+    duas pessoas. Distinguir os dois casos é a razão de a parada ser
+    condicionada a já haver peça coletada."""
+    assert mag.extrair('FULANO DE TAL SOUZA; Relator') == ['FULANO DE TAL SOUZA']
+
+
+def test_a_virgula_continua_sendo_limpa_e_nao_para_o_nome():
+    """A vírgula de `'… Maluf, Relator'` é pontuação do MESMO registro. Tratá-la
+    como o `;` quebraria o formato que motivou o strip original."""
+    assert mag.extrair('Jorge Rachid Mubarack Maluf, Relator') == [
+        'Jorge Rachid Mubarack Maluf']

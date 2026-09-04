@@ -53,11 +53,54 @@ from django.views.decorators.http import require_GET
 
 logger = logging.getLogger('voyager.dashboard.magistrado')
 
-#: Tribunais oferecidos. Começa no TJSP porque é onde o marcador do e-SAJ
-#: nomeia o magistrado no cabeçalho — 5,6 M publicações medidas. Em outros
-#: tribunais o formato muda, e oferecer sem medir seria prometer cobertura
-#: que não existe.
-TRIBUNAIS = ['TJSP']
+#: Fallback de tribunais quando o cadastro não pode ser consultado. NÃO é a
+#: lista oferecida — ver `tribunais()`.
+#:
+#: Já foi `['TJSP']` fixo, e isso quebrou a tela de um jeito que só apareceu
+#: medindo: em 04/09/2026 o cadastro tinha 164.630 linhas e **zero do TJSP**
+#: (TJMG 139.501, TRF3 14.029, TRF1 8.858, TJCE 2.177, TJAM 65). O seletor
+#: oferecia o único tribunal sem gente, e todo resultado do localizar levava a
+#: `'Tribunal fora da cobertura medida'` — 123.673 pessoas achadas, nenhuma
+#: ficha abrível. Constante escrita à mão envelhece; o cadastro, não.
+TRIBUNAIS_FALLBACK = ['TJSP']
+
+#: Quanto tempo o seletor confia na medição. O backfill acrescenta tribunal
+#: novo em horas, não em segundos — meia hora de atraso no `<select>` é barato,
+#: um `COUNT` por request não é.
+CACHE_TTL_TRIBUNAIS = 60 * 30
+
+
+def tribunais() -> list[str]:
+    """Os tribunais que o cadastro REALMENTE tem, medidos, não declarados.
+
+    Ordenado por volume: quem abre a tela vê primeiro onde há mais gente.
+    """
+    chave = f'{_PREFIXO}:tribunais'
+    try:
+        guardado = cache.get(chave)
+    except Exception:  # noqa: BLE001 — Redis fora não derruba a tela
+        guardado = None
+    if guardado:
+        return guardado
+    try:
+        from django.db.models import Count
+
+        from tribunals.models import Magistrado
+        achados = [r['tribunal_id'] for r in (
+            Magistrado.objects.values('tribunal_id')
+            .annotate(n=Count('id')).order_by('-n'))]
+    except Exception:  # noqa: BLE001
+        logger.exception('magistrado: não consegui medir os tribunais do cadastro')
+        return list(TRIBUNAIS_FALLBACK)
+    if not achados:
+        # cadastro vazio (backfill ainda não passou) — devolver `[]` deixaria o
+        # `<select>` sem opção nenhuma e a tela pareceria quebrada
+        return list(TRIBUNAIS_FALLBACK)
+    try:
+        cache.set(chave, achados, CACHE_TTL_TRIBUNAIS)
+    except Exception:  # noqa: BLE001
+        logger.warning('magistrado: cache.set dos tribunais falhou', exc_info=True)
+    return achados
 
 CACHE_TTL = 60 * 30
 _PREFIXO = 'magistrado:dossie:v1'
@@ -76,8 +119,11 @@ def _valida(nome: str, tribunal: str) -> str | None:
     if ' ' not in nome.strip():
         return ('Informe nome e sobrenome. Um termo só não identifica ninguém: '
                 'a busca é por frase exata no texto da publicação.')
-    if tribunal not in TRIBUNAIS:
-        return f'Tribunal fora da cobertura medida. Disponível: {", ".join(TRIBUNAIS)}.'
+    disponiveis = tribunais()
+    if tribunal not in disponiveis:
+        return (f'{tribunal} não está no cadastro de magistrados. '
+                f'Disponíveis hoje: {", ".join(disponiveis[:8])}'
+                + (' …' if len(disponiveis) > 8 else '') + '.')
     return None
 
 
@@ -110,9 +156,11 @@ def _dossie(nome: str, tribunal: str) -> dict | None:
 def magistrado(request):
     """GET /dashboard/magistrado/?nome=…&tribunal=TJSP — a ficha."""
     nome = (request.GET.get('nome') or '').strip()
-    tribunal = (request.GET.get('tribunal') or 'TJSP').upper()
+    # sem `tribunal` na URL, o padrão é o PRIMEIRO do cadastro (o de maior
+    # volume), nunca uma sigla escrita à mão que pode não existir mais
+    tribunal = (request.GET.get('tribunal') or tribunais()[0]).upper()
 
-    contexto = {'nome': nome, 'tribunal': tribunal, 'tribunais': TRIBUNAIS,
+    contexto = {'nome': nome, 'tribunal': tribunal, 'tribunais': tribunais(),
                 'dossie': None, 'erro': None, 'buscou': bool(nome)}
     if not nome:
         return render(request, 'dashboard/magistrado.html', contexto)
@@ -147,7 +195,7 @@ def magistrado_pdf(request):
     forma de garantir isso é não medir duas vezes.
     """
     nome = (request.GET.get('nome') or '').strip()
-    tribunal = (request.GET.get('tribunal') or 'TJSP').upper()
+    tribunal = (request.GET.get('tribunal') or tribunais()[0]).upper()
     if _valida(nome, tribunal):
         return HttpResponse('parâmetros inválidos', status=400)
 
@@ -247,7 +295,7 @@ def magistrado_buscar(request):
     """
     termo = (request.GET.get('q') or '').strip()
     tribunal = (request.GET.get('tribunal') or '').upper()
-    ctx = {'q': termo, 'tribunal': tribunal, 'tribunais': TRIBUNAIS,
+    ctx = {'q': termo, 'tribunal': tribunal, 'tribunais': tribunais(),
            'resultado': None, 'buscou': bool(termo)}
     if termo:
         try:
