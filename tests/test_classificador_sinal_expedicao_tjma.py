@@ -8,7 +8,11 @@ from __future__ import annotations
 import pytest
 
 import tribunals.classificador as clf
-from tribunals.classificador import HARDCODED_WEIGHTS, classificar
+from tribunals.classificador import (
+    HARDCODED_WEIGHTS,
+    PRECATORIO_SINAL_FEATURES,
+    classificar,
+)
 from tribunals.models import ClassificadorVersao, Process
 
 
@@ -88,7 +92,18 @@ def test_tjal_continua_promovendo_sem_guard():
 
 
 @pytest.mark.django_db
-def test_tjsp_fora_do_escopo_nao_promove():
+def test_tribunal_fora_do_escopo_nao_promove():
+    """A regra de sinal é escopada por tribunal — quem está fora não sobe.
+
+    O exemplo sai de `PRECATORIO_SINAL_FEATURES`, não de uma sigla escrita à
+    mão. Este teste usava 'TJSP' e passou a falhar em 06/07/2026, quando
+    `d556ca6` ligou a regra no TJSP de propósito (com comando dedicado) e
+    ninguém veio atualizar os dois testes que usavam o TJSP como exemplo de
+    "fora". Ficou vermelho por dois meses afirmando um fato que tinha deixado
+    de ser verdade. Derivando do código, isso não se repete.
+    """
+    fora = next(t for t in ('TRF1', 'TRF3', 'TJMS', 'TJPR')
+                if t not in PRECATORIO_SINAL_FEATURES)
     cat, score, _ = classificar(
-        _proc('TJSP'), features={'F1_cumprim': 1, 'F20_exp_juriscope': 1})
+        _proc(fora), features={'F1_cumprim': 1, 'F20_exp_juriscope': 1})
     assert score != 1.0
