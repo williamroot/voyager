@@ -144,12 +144,12 @@ def _proxies() -> dict:
         return {}
     if p == 'cortex':
         try:
-            import django  # noqa: F401
+            import django
             os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
             django.setup()
             from djen.proxies import cortex_proxy_url
             p = cortex_proxy_url()
-        except Exception as exc:  # noqa: BLE001 — recon avisa e segue direto
+        except Exception as exc:
             print(f'!! PROXY=cortex indisponível fora do container ({exc}); indo direto')
             return {}
     return {'http': p, 'https': p}
@@ -467,7 +467,7 @@ def recon_rest(sigla: str, criterio: str, valor: str, timeout: int) -> None:
             tentativas.append({'url': url, 'status': r.status_code,
                                'bytes': len(r.text or ''), 'amostra': corpo})
             print(f'   {r.status_code} {url[:110]}')
-        except Exception as exc:  # noqa: BLE001 — recon registra a falha e segue
+        except Exception as exc:
             tentativas.append({'url': url, 'erro': str(exc)[:200]})
             print(f'   ERRO {url[:110]} :: {str(exc)[:120]}')
         time.sleep(1.0)
