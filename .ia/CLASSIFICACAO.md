@@ -192,14 +192,35 @@ com +1,92 e −1,13 brigando sobre o mesmo fato.
 
 ### Triggers de classificação
 
-1. **In-process após sync** (caminho quente — sub-segundo):
-   - `datajud.ingestion.sync_processo()` → chama `classificar_e_persistir()` no fim quando há mov nova
-   - `djen.ingestion.ingest_processo()` → idem (per-CNJ)
+**Só existe UM gatilho automático**, e ele é por MOVIMENTAÇÃO.
 
-2. **Batch periódico** (caminho frio — drena backlog):
-   - `tribunals.jobs.reclassificar_recentes` (cron 1h, fila `classificacao`)
-   - Pega processos com mov nos últimos 7 dias **OU** nunca classificados (cap 5M)
-   - Splitta em batches de 1000 → `reclassificar_batch.delay()` (workers paralelos)
+1. **Cron único por prioridade** — `tribunals.jobs.reclassificar_por_prioridade`,
+   registrado em `djen/scheduler.py` a cada **20 min**, fila `classificacao`:
+   - Grupo 1: `classificacao_em IS NULL` **OU**
+     `classificacao_em < ultima_movimentacao_em`, ordenado por
+     `ultima_movimentacao_em DESC`, cap 50.000 por run.
+   - Grupo 2 (só quando o grupo 1 esvazia): já classificados, `classificacao_em ASC`.
+   - Splitta em batches de 500 → `reclassificar_batch.delay()`.
+
+   ⚠️ **Não há classificação in-process na ingestão.** `411f327` (06/05/2026,
+   *"classificação unificada em cron único por prioridade"*) removeu de
+   propósito as chamadas inline de `datajud/ingestion.py` e
+   `djen/ingestion.py`, e substituiu `reclassificar_recentes` (1h) por este
+   cron. Processo novo **espera o cron**; não é classificado ao ser ingerido.
+   `classificar_e_persistir` só é chamado de `tribunals/jobs.py`.
+
+   ⚠️ **O gatilho é cego a mudança de CLASSE.** Os dois critérios do grupo 1
+   olham movimentação. Quando a classe chega DEPOIS do veredito — varredura do
+   Datajud, enricher e-SAJ, backfill de fase — nada revisita o processo, e o
+   grupo 2 só roda se o grupo 1 esvaziar, o que num acervo em ingestão contínua
+   não acontece. Medido em 03/09/2026: dado do Datajud posterior ao veredito em
+   **221.836 processos do TJAL (33%)** e **851.045 do TJMA (30%)**, com 78% dos
+   rótulos do TJMA ainda de maio. Reclassificar o TJAL inteiro rendeu +1.241 N1
+   e tirou 20.050 do N3 — metade com veto explícito de "pago" ou "extinto".
+
+2. **Manual, por tribunal** — `manage.py reclassificar_<tribunal>_*` ou
+   enfileirar `reclassificar_batch` direto. É o que se usa depois de mexer em
+   feature, regra ou campo lido pelo classificador.
 
 3. **Re-treino** (manual):
    - Treinar nova versão → criar `ClassificadorVersao(versao='vN', pesos=..., shadow=True)` por 7d
