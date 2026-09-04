@@ -127,3 +127,57 @@ def test_f10_e_f1_leem_a_mesma_fonte():
     f = compute_features(p)
     assert f['F1_cumprim'] == 1
     assert f['F10_juizado_ANTI'] == 0
+
+
+# ---------------------------------------------------------------------------
+# A regressão de 03/09/2026: "fase substitui legado" custou 835 rebaixamentos
+# ---------------------------------------------------------------------------
+# `_classe_efetiva` preferia a fase incondicionalmente. Mas a fase é a classe do
+# ÚLTIMO ATO PUBLICADO, não o estágio: um Cumprimento cujo último ato saiu num
+# recurso tem fase apontando para o recurso, e o crédito continua lá. Medido nos
+# 859 rebaixados de PRECATORIO: 835 tinham `F1_cumprim` indo de 1 para 0.
+
+def _p(classe_codigo='', classe_nome='', fase_codigo='', fase_nome=''):
+    return Process(tribunal_id='TJMA', numero_cnj='0800001-11.2024.8.10.0001',
+                   classe_codigo=classe_codigo, classe_nome=classe_nome,
+                   fase_codigo=fase_codigo, fase_nome=fase_nome)
+
+
+@pytest.mark.parametrize('classe,fase,esperado,quantos', [
+    ('156',   '198',   '156',   377),   # último ato numa Apelação Cível
+    ('12078', '1114',  '12078', 221),
+    ('12078', '198',   '12078',  62),
+    ('12078', '7',     '12078',  50),   # último ato num Procedimento Comum
+    ('156',   '436',   '156',    16),   # último ato num Juizado
+    ('12078', '460',   '12078',  12),
+])
+def test_fase_de_incidente_nao_apaga_o_cumprimento(classe, fase, esperado, quantos):
+    """Cada par aqui é um caso REAL contado nos 835 rebaixamentos."""
+    cod, _ = _classe_efetiva(_p(classe_codigo=classe, fase_codigo=fase))
+    assert cod == esperado, f'{quantos} processos dependiam disso'
+
+
+def test_ganho_original_preservado_fase_supre_legado_vazio():
+    """O motivo de a mudança existir: 297k processos com o legado VAZIO."""
+    cod, _ = _classe_efetiva(_p(classe_codigo='', fase_codigo='12078'))
+    assert cod == '12078'
+
+
+def test_1265_ganha_de_cumprimento_venha_de_onde_vier():
+    """O sinal mais forte primeiro: senão a regra da 1265 nunca dispara."""
+    assert _classe_efetiva(_p(classe_codigo='1265', classe_nome='PRECATÓRIO',
+                              fase_codigo='156', fase_nome='Cumprimento'))[0] == '1265'
+    assert _classe_efetiva(_p(classe_codigo='156', classe_nome='Cumprimento',
+                              fase_codigo='1265', fase_nome='PRECATÓRIO'))[0] == '1265'
+
+
+def test_1265_sobrevive_a_ultimo_ato_em_recurso():
+    p = _p(classe_codigo='1265', classe_nome='PRECATÓRIO',
+           fase_codigo='198', fase_nome='Apelação Cível')
+    assert _is_classe_precatorio_autuado(p) is True
+
+
+def test_nenhum_dos_dois_e_nicho_a_fase_ganha_por_cobertura():
+    cod, nome = _classe_efetiva(_p(classe_codigo='7', classe_nome='Procedimento Comum',
+                                   fase_codigo='198', fase_nome='Apelação Cível'))
+    assert (cod, nome) == ('198', 'Apelação Cível')

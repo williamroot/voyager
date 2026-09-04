@@ -132,6 +132,22 @@ F1 pesa +1,92, a interação F1×F15 +1,61, e a regra de sinal F14/F20 **exige**
 `F1 == 1` antes de promover — sem F1 o processo não sobe nem pelo LR nem pela
 regra.
 
+⚠️ **A primeira versão desta mudança substituía o legado pela fase, e isso foi
+regressão.** Em 03/09/2026 custou **835 rebaixamentos indevidos** de PRECATORIO
+(795 TJMA, 40 TJAL), `F1_cumprim` indo de 1 para 0 — 426 deles já consumidos
+pelo Juriscope. Os pares que causaram:
+
+    classe='156'   fase='198'   377   Cumprimento, último ato numa Apelação
+    classe='12078' fase='1114'  221
+    classe='12078' fase='7'      50   último ato num Procedimento Comum
+    classe='156'   fase='436'    16   último ato num Juizado (F10 ligava junto)
+
+A fase é a classe do **último ato publicado**, não o estágio do processo. Um
+Cumprimento contra a Fazenda cujo último ato saiu num incidente tem fase
+apontando para o incidente — e o crédito continua lá. Os dois campos são
+evidência PARCIAL do mesmo fato, cada um cego de um jeito: **união, não
+substituição**, e o sinal mais forte (1265) antes do mais fraco (Cumprimento).
+
 **Raio medido antes do deploy** (200 processos mais recentes × 59 tribunais =
 11.800): 652 mudanças (5,5%), sendo 499 → N3, 145 → N2, **2 → N1** e só 6
 rebaixamentos (DC→NAO_LEAD). **Zero rebaixamento de N1.** TJSP, TRF1, TRF3,

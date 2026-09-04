@@ -409,32 +409,55 @@ def _is_anti_classe(classe_nome: str) -> int:
 def _classe_efetiva(processo) -> tuple[str, str]:
     """(código, nome) da classe que o classificador deve enxergar.
 
-    Prefere a **FASE** — a classe com que o tribunal PUBLICOU o processo — e só
-    cai para `classe_codigo`/`classe_nome` quando a fase ainda não foi provada.
+    Escolhe, entre a FASE (`fase_*`, a classe com que o tribunal PUBLICOU o
+    processo por último) e o par legado (`classe_*`), aquele que carrega a
+    evidência MAIS FORTE de nicho — Cumprimento ou precatório autuado. Só
+    quando nenhum dos dois é nicho é que a fase ganha por cobertura.
 
-    Por que a fase e não o campo antigo: o v6 foi treinado sobre a classe que
-    vinha do DJEN, que é justamente a fase. A migration 0054 (#105) separou o
-    fato em dois campos e `classe_codigo` virou legado que mistura cadastro e
-    publicação; `fase_codigo` é o sucessor limpo. O próprio model diz: um
-    Juizado Especial Cível (436 no cadastro) em fase de Cumprimento contra a
-    Fazenda (12078 na publicação) É lead, e o cadastro nunca vai dizer isso.
+    ## Por que não é "fase substitui legado"
 
-    Medido em 03/09/2026, o campo antigo simplesmente não está lá: `fase_codigo`
-    cobre 100% dos processos contra 61% (TJMA), 72% (TJMT) e 95% (TJAL) de
-    `classe_codigo`. São 169.321 / 116.295 / 11.121 processos que são
-    Cumprimento pela fase e tinham `F1_cumprim = 0` — e F1 pesa +1,92, a
-    interação F1×F15 +1,61, e a regra de sinal F14/F20 EXIGE `F1 == 1` antes de
-    promover. Sem isso o processo não sobe nem pelo LR nem pela regra.
+    Foi o que esta função fazia entre 03/09 e 04/09/2026, e custou **835
+    rebaixamentos indevidos** de PRECATORIO (795 no TJMA, 40 no TJAL), com
+    `F1_cumprim` indo de 1 para 0. Os pares que causaram dizem o motivo:
 
-    O par (código, nome) é devolvido JUNTO, da mesma fonte: misturar
-    `fase_codigo` com `classe_nome` fabricaria um par que não existe em lugar
-    nenhum, e `_is_classe_precatorio_autuado` decide justamente pela coerência
-    entre os dois.
+        classe='156'   fase='198'    377   Cumprimento, último ato publicado
+                                           num recurso (Apelação Cível)
+        classe='12078' fase='1114'   221
+        classe='12078' fase='7'       50   -> Procedimento Comum
+        classe='156'   fase='436'     16   -> Juizado (e o F10 ligava junto)
+
+    A fase é a classe do ÚLTIMO ATO PUBLICADO, não o estágio do processo. Um
+    Cumprimento de Sentença contra a Fazenda cujo último ato saiu num incidente
+    tem fase apontando para o incidente — e o crédito continua lá.
+
+    ## Por que também não é "legado manda"
+
+    Porque o legado simplesmente não está lá: `fase_codigo` cobre 100% dos
+    processos contra 61% (TJMA), 72% (TJMT) e 95% (TJAL) de `classe_codigo`.
+    Lendo só o legado, 169.321 / 116.295 / 11.121 processos que são Cumprimento
+    pela fase ficavam com `F1 = 0`, e 58.174 que o tribunal publicou como
+    `fase_nome = 'PRECATÓRIO'` nunca chegavam à regra da classe 1265.
+
+    Os dois campos são evidência PARCIAL do mesmo fato, cada um cego de um
+    jeito. União, não substituição.
+
+    ## O par vem sempre junto
+
+    Costurar `fase_codigo` com `classe_nome` fabricaria um par que não existe em
+    lugar nenhum, e `_is_classe_precatorio_autuado` decide justamente pela
+    coerência entre código e nome.
     """
-    cod = (processo.fase_codigo or '').strip()
-    if cod:
-        return cod, (processo.fase_nome or '')
-    return (processo.classe_codigo or '').strip(), (processo.classe_nome or '')
+    fase = ((processo.fase_codigo or '').strip(), processo.fase_nome or '')
+    legado = ((processo.classe_codigo or '').strip(), processo.classe_nome or '')
+    # Do sinal mais forte para o mais fraco: 1265 (o crédito já requisitado)
+    # antes de Cumprimento (o precursor). Sem essa ordem, um processo com
+    # `classe_codigo='1265'` e `fase_codigo='156'` devolveria o 156 e a regra
+    # da classe 1265 nunca dispararia.
+    for grupo in (CLASSES_PRECATORIO_AUTUADO, CLASSES_CUMPRIMENTO):
+        for cod, nome in (fase, legado):
+            if cod in grupo:
+                return cod, nome
+    return fase if fase[0] else legado
 
 
 def _is_classe_precatorio_autuado(processo) -> bool:
