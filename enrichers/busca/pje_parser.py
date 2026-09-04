@@ -8,13 +8,16 @@ Cada linha tem três células:
          "POLO ATIVO X POLO PASSIVO"
     td2  última movimentação, com a data entre parênteses
 
-E o `<tfoot>` diz "N resultados encontrados" — **N nunca passa de 30**, que é o
-teto da fonte, não o total (medido: 12 quando há 12; 30 em três buscas de
-volumes muito diferentes). Não existe scroller nem link de próxima página:
-acima de 30, o dado não é alcançável por este critério.
+E o `<tfoot>` diz "N resultados encontrados". Esse N é a CONTAGEM da fonte, e
+ela para de crescer em **30**: não existe scroller nem link de próxima página,
+então acima de 30 o dado não é alcançável por este critério.
 
-Zero resultados tem uma cara própria e traiçoeira: o rodapé fica
-"resultados encontrados", SEM número.
+Duas coisas que parecem "nenhum resultado" e não são:
+
+- **rodapé sem número** ("resultados encontrados", seco) é como o PJe escreve
+  zero;
+- **rodapé maior que o número de linhas** é a fonte contando certo e mostrando
+  menos. O TRF5 conta 16 e renderiza UMA linha — ver `_conciliar_total`.
 """
 from __future__ import annotations
 
@@ -136,27 +139,34 @@ def parse_lista(html: str, tribunal: str, base_url: str = '',
 def _conciliar_total(rodape: int | None, lidos: int) -> dict:
     """Concilia o que o rodapé diz com o que a tabela mostrou.
 
-    O rodapé NÃO é contagem em toda instalação. Medido em 04/09/2026 no TRF5,
-    buscando pelo CNPJ do INSS: rodapé "30 resultados encontrados", tabela com
-    **uma** linha. Ali o 30 é o tamanho da página, e repassá-lo como total faria
-    a API publicar um número que a própria fonte contradiz na mesma resposta.
+    A primeira leitura desta função estava ERRADA, e a correção veio de medir
+    mais. Com uma amostra só (TRF5: rodapé "30", uma linha), a conclusão foi
+    "o rodapé é o tamanho da página". Com **seis** buscas no TRF5, em
+    04/09/2026, o padrão apareceu:
 
-    Regra: o total só é aceito quando bate com o que veio. Divergindo, a
-    resposta diz "não sei" (`None`) e registra a anomalia — abster > chutar.
+        nome "MARIA JOSE DOS SANTOS"      1 linha · rodapé 30
+        nome "JOAO BATISTA DE OLIVEIRA"   1 linha · rodapé 30
+        OAB 18191                         1 linha · rodapé 16
+        advogado "KLEBER TABOSA..."       1 linha · rodapé 13
+        nome raro                         0 linhas · rodapé sem número
+        CNPJ do INSS                      1 linha · rodapé 30
 
-    E o TETO se mede pelas LINHAS, nunca pelo rodapé: 30 linhas é a fonte
-    truncando, 30 no rodapé com 1 linha não é.
+    O rodapé VARIA com a busca (16, 13, 30) — logo é contagem, não tamanho de
+    página. Quem está truncada é a TABELA: a consulta pública do TRF5 conta
+    certo e renderiza **uma** linha. Nos outros quatro PJe o rodapé bate com as
+    linhas (12 para 12, 30 para 30).
+
+    Então o total é aceito como total, e a diferença vira aviso: "a fonte
+    contou N e devolveu M". Dizer `None` aqui, como a versão anterior fazia,
+    jogava fora a única informação confiável da resposta.
     """
-    if rodape is not None and lidos and rodape != lidos:
-        return {
-            'total_declarado': None,
-            'total_e_teto': lidos >= TETO_PJE,
-            'aviso_fonte': (f'a fonte anuncia {rodape} resultados mas devolveu '
-                            f'{lidos} na mesma resposta — o número publicado por '
-                            f'este tribunal não é a contagem'),
-        }
+    faltando = (rodape - lidos) if (rodape is not None and rodape > lidos) else 0
     return {
         'total_declarado': rodape,
-        'total_e_teto': lidos >= TETO_PJE,
-        'aviso_fonte': '',
+        # O teto do PJe aparece na CONTAGEM: 30 é onde ela para de crescer.
+        'total_e_teto': bool(rodape and rodape >= TETO_PJE),
+        'aviso_fonte': (
+            f'a fonte contou {rodape} processos e devolveu {lidos} nesta '
+            f'resposta — {faltando} não vieram, e ela não oferece página seguinte'
+            if faltando else ''),
     }

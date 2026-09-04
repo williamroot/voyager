@@ -2424,9 +2424,9 @@ pública do tribunal é a única fonte que responde de verdade.
 | TJSP | e-SAJ | ✅ | ✅ | ✅ | ✅ | `#contadorDeProcessos` | `trocarPagina.do` | **1.000** |
 | TJAL | e-SAJ | ✅ | ✅ | ✅ | ✅ | idem | idem | idem (não exercido) |
 | TJMG | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | rodapé "N resultados" | **não tem** | **30** |
-| TJMA | PJe fPP | ✅ | ✅ | ✅ (sem UF) | — | idem | não tem | 30 |
-| TRF1 | PJe fPP | ✅ | ✅ | — | — | idem | não tem | 30 |
-| TRF5 | PJe fPP | ✅ | ✅ | — | — | idem | não tem | 30 |
+| TJMA | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | idem | não tem | 30 |
+| TRF1 | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | idem | não tem | 30 |
+| TRF5 | PJe fPP | ✅\* | ✅\* | ✅\* | ✅\* | idem | não tem | **1 linha** |
 | TRF3 | PJe fPP | \*\* | \*\* | \*\* | \*\* | — | — | — |
 | TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` | — | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
 | TJMT | REST | ✅ `parteCpfCnpj` | ✅ `parteNome` | ✅ `advogadoOAB` | ✅ `NomeOab`, `advogadoCPF` | `totalRegistros` | `Skip`/`Take` | sem teto observado |
@@ -2436,8 +2436,12 @@ pública do tribunal é a única fonte que responde de verdade.
 borda, não da rota da busca. O recon dele tem de rodar do container, com
 `PROXY=cortex`, como os enrichers. Célula vazia é "não medido", nunca "não tem".
 
+\* No TRF5 os quatro critérios respondem, mas a fonte **renderiza apenas o
+primeiro resultado** — ver §"O TRF5 conta certo e mostra uma linha".
+
 Um traço vazio (—) é critério ainda não exercitado naquele tribunal, não
-ausência provada.
+ausência provada. Depois da rodada de 04/09/2026 (tarde) só restam duas
+lacunas: o TRF3 inteiro e `advogado` no TJPA, que a fonte não oferece.
 
 ### e-SAJ: cinco desfechos, e três deles parecem "zero"
 
@@ -2475,7 +2479,9 @@ fosse tudo.
 
 ### PJe: 30 resultados, sem paginação, e a UF da OAB que zera a busca
 
-**O teto de 30 é da fonte, e foi provado com um caso intermediário:**
+**O teto de 30 é da CONTAGEM da fonte, e foi provado com um caso intermediário**
+(no TJMG, TJMA e TRF1 o rodapé bate com o número de linhas; o TRF5 é a exceção
+tratada abaixo):
 
 | busca (TJMG) | rodapé |
 |---|---|
@@ -2520,6 +2526,48 @@ pública antiga, com captcha de imagem em `consultaPublicaForm`). Dez tentativas
 seguidas depois vieram todas com o `fPP`. Intermitente: o coletor precisa
 detectar "não é o form que eu conheço" e re-tentar em sessão nova, não concluir
 "tribunal sem busca".
+
+### O TRF5 conta certo e mostra UMA linha
+
+Primeiro eu li o rodapé do TRF5 ("30 resultados encontrados" numa resposta com
+uma linha) como *tamanho de página*. **Errado, e a correção veio de medir mais.**
+Seis buscas, 04/09/2026:
+
+| busca | linhas na tabela | rodapé |
+|---|---:|---:|
+| nome "MARIA JOSE DOS SANTOS" | 1 | 30 |
+| nome "JOAO BATISTA DE OLIVEIRA" | 1 | 30 |
+| OAB 18191 | 1 | **16** |
+| advogado "KLEBER TABOSA BRASILEIRO" | 1 | **13** |
+| nome raro | 0 | (sem número) |
+| CNPJ do INSS | 1 | 30 |
+
+O rodapé **varia com a busca** — logo é contagem, não tamanho de página. Quem
+está truncada é a TABELA: o `<tbody>` traz um `<tr>` e o slot
+`<div class="pull-left" title="Paginação">` vem **vazio**; não há scroller no
+HTML, e um GET na `listView.seam` depois do POST devolve o formulário limpo. O
+navegador de um humano receberia exatamente isso.
+
+Consequência prática: **no TRF5 a busca por parte alcança 1 processo por
+consulta**, e a resposta da API sai sempre `truncado`, com "a fonte contou 16 e
+devolveu 1". Aceitar o total e avisar o que falta é melhor do que descartá-lo:
+o número é a única informação confiável daquela resposta.
+
+### O filtro do PJe FILTRA — prova por interseção
+
+Um teste barato que vale para qualquer fonte nova, e que teria pego a armadilha
+do TJMT: buscar critérios diferentes e comparar os conjuntos. No TRF1, três
+buscas de 30 resultados cada:
+
+| par | processos em comum |
+|---|---:|
+| nome × documento | **0** |
+| nome × OAB | 1 |
+| OAB × nome do advogado (a MESMA pessoa: OAB 83437 = EVERTON RICARDO DA SILVA) | **21** |
+
+Conjuntos disjuntos entre critérios diferentes e quase iguais entre dois
+critérios que apontam para a mesma pessoa: o filtro está sendo aplicado. Se
+tudo voltasse igual, seria o `documento=` do TJMT de novo.
 
 ### REST: os dois melhores, e a armadilha do parâmetro ignorado
 

@@ -131,6 +131,14 @@ def buscar_no_tribunal(run_id: str, sigla: str) -> dict:
                 motivo_truncagem = (
                     f'a fonte limita a resposta a {motor.TETO_DA_FONTE} '
                     f'processos por consulta')
+            elif (pagina.total_declarado or 0) > len(colhidos) and not pagina.tem_proxima:
+                # A fonte CONTOU mais do que mostrou e não oferece continuação —
+                # é o caso do TRF5, que conta 16 e renderiza uma linha. Sem esta
+                # marca, a resposta entregaria 1 processo como se fosse tudo.
+                truncado = True
+                motivo_truncagem = (
+                    f'a fonte contou {pagina.total_declarado} processos e '
+                    f'devolveu {len(colhidos)}, sem oferecer página seguinte')
             if paginas >= TETO_PAGINAS and pagina.tem_proxima:
                 truncado = True
                 motivo_truncagem = f'teto de {TETO_PAGINAS} páginas por tribunal'

@@ -346,7 +346,11 @@ feature existe para não cometer:
 Outros avisos: `truncado` (bateu o teto da fonte, o de páginas ou o de tempo —
 sempre com o número real), `fonte_inconsistente` (o TRF5 anuncia 30 resultados
 mostrando 1) e `nao_verificado` (aquele critério nunca foi exercitado ao vivo
-naquele tribunal — vale para o TRF3 inteiro e para OAB/advogado no TRF1 e TRF5).
+naquele tribunal — hoje, só o TRF3).
+
+O TRF5 é o caso extremo do `truncado`: ele **conta** certo e renderiza um único
+resultado, então toda busca ali volta com 1 processo e o aviso do que ficou de
+fora.
 
 `status` do run é `concluido` mesmo com tribunal indisponível: a busca
 aconteceu, e o que deu errado está dito por tribunal. Só vira `erro` quando

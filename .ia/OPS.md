@@ -4262,8 +4262,15 @@ acima de dentro do container (que sai pela malha de proxies) e, dando certo,
 mova `TRF3` para `_MEDIDO` em `enrichers/busca/registry.py` com os critérios que
 foram de fato exercitados.
 
-Mesma pendência, menor: OAB e nome de advogado nunca foram exercitados no TRF1 e
-no TRF5, e nome de advogado não foi exercitado no TJMA.
+Fechado em 04/09/2026 (tarde): OAB e nome de advogado foram exercitados no TRF1,
+TRF5 e TJMA, com OAB e nome colhidos de processos reais de cada tribunal. Restam
+duas lacunas no catálogo — o TRF3 inteiro e `advogado` no TJPA, que a fonte não
+oferece.
+
+⚠️ **O TRF5 responde, mas entrega 1 processo por consulta.** A fonte conta certo
+(rodapés 16, 13, 30 em buscas diferentes) e renderiza uma única linha; não há
+scroller no HTML. Toda busca ali sai `truncado` com "a fonte contou N e devolveu
+1" — não é o nosso cliente que está perdendo dado.
 
 ### Quando alguém disser "a busca não achou nada"
 

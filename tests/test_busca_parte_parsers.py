@@ -116,6 +116,9 @@ def test_esaj_tjal_usa_o_mesmo_parser():
     ('tjma/busca_oab.html', 'TJMA', 4, 4, False),
     ('trf1/busca_nome.html', 'TRF1', 30, 30, True),
     ('trf1/busca_documento.html', 'TRF1', 30, 30, True),
+    ('trf1/busca_oab.html', 'TRF1', 30, 30, True),
+    ('trf1/busca_advogado.html', 'TRF1', 30, 30, True),
+    ('tjma/busca_advogado.html', 'TJMA', 30, 30, True),
 ])
 def test_pje_conta_o_que_veio(arquivo, tribunal, itens, total, teto):
     pagina = P.parse_lista(ler(arquivo), tribunal)
@@ -144,17 +147,29 @@ def test_pje_zero_resultados_nao_traz_numero_no_rodape():
     assert P.total_declarado(ler('tjmg/busca_nome_raro.html')) == 0
 
 
-def test_pje_rodape_que_contradiz_a_tabela_vira_abstencao():
-    """TRF5: rodapé anuncia 30, tabela traz 1. O 30 é tamanho de página.
+def test_pje_lista_truncada_pela_fonte_mantem_o_total():
+    """TRF5: a fonte CONTA 16 e renderiza uma linha.
 
-    Publicar 30 como total seria repassar um número que a própria resposta
-    desmente. A saída é dizer "não sei" e registrar a anomalia.
+    Medido em seis buscas (rodapés 30, 30, 16, 13, zero, 30 — sempre 1 linha):
+    o rodapé varia com a busca, logo é contagem. Quem está truncada é a tabela.
+    O total tem de sobreviver na resposta, com o aviso do que não veio — jogá-lo
+    fora entregaria 1 processo como se fosse tudo o que existe.
     """
-    pagina = P.parse_lista(ler('trf5/busca_nome.html'), 'TRF5')
+    pagina = P.parse_lista(ler('trf5/busca_oab.html'), 'TRF5')
     assert len(pagina.itens) == 1
-    assert pagina.total_declarado is None
+    assert pagina.total_declarado == 16
     assert pagina.total_e_teto is False
-    assert 'não é a contagem' in pagina.aviso_fonte
+    assert 'contou 16' in pagina.aviso_fonte and 'devolveu 1' in pagina.aviso_fonte
+
+
+def test_pje_lista_completa_nao_gera_aviso():
+    """Nos outros quatro PJe o rodapé bate com as linhas — nada a avisar."""
+    for arquivo, tribunal in (('tjmg/busca_nome_12.html', 'TJMG'),
+                              ('trf1/busca_oab.html', 'TRF1'),
+                              ('tjma/busca_advogado.html', 'TJMA')):
+        pagina = P.parse_lista(ler(arquivo), tribunal)
+        assert pagina.aviso_fonte == '', arquivo
+        assert pagina.total_declarado == len(pagina.itens), arquivo
 
 
 def test_pje_resposta_sem_tabela_nao_e_resultado():

@@ -52,16 +52,19 @@ CATALOGO: dict[str, Fonte] = {
                   'alcançável por este critério'),
     'TJAL': Fonte('TJAL', 'esaj', frozenset(CRITERIOS), 1000, True, _MEDIDO, frozenset(CRITERIOS),
                   'mesmo software do TJSP; o teto de 1.000 não foi exercido aqui'),
-    'TRF1': Fonte('TRF1', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset({'documento', 'nome'}),
+    'TRF1': Fonte('TRF1', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
     'TRF3': Fonte('TRF3', 'pje', frozenset(CRITERIOS), 30, False, None, frozenset(),
                   'não medido: o host recusa conexão fora da malha de proxies'),
-    'TRF5': Fonte('TRF5', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset({'documento', 'nome'}),
-                  'o rodapé anuncia 30 mesmo quando a tabela traz 1 — o número '
-                  'publicado por este tribunal não é a contagem'),
+    # O TRF5 CONTA certo e mostra UMA linha: seis buscas, rodapés 30/30/16/13/
+    # zero/30, sempre uma linha na tabela. Não é o nosso cliente que trunca —
+    # a resposta não contém as outras. Toda busca aqui sai `truncado`.
+    'TRF5': Fonte('TRF5', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
+                  'a fonte conta certo mas renderiza só o primeiro resultado: '
+                  'a busca por parte alcança 1 processo por consulta'),
     'TJMG': Fonte('TJMG', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
-    'TJMA': Fonte('TJMA', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset({'documento', 'nome', 'oab'}),
+    'TJMA': Fonte('TJMA', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
     'TJPA': Fonte('TJPA', 'rest', frozenset({'documento', 'nome', 'oab'}), None, True,
                   _MEDIDO, frozenset({'documento', 'nome', 'oab'}),
