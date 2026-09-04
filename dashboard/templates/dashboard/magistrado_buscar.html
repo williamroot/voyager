@@ -75,6 +75,47 @@ Padrões da casa: token é `warning`, nunca `warn`; `humanize` não instalado
     </div>
   </div>
 
+
+  {% comment %}
+  COBERTURA DA VARREDURA — o aviso que faltava.
+
+  A busca por magistrado do TJSP não trazia nada e a tela não sabia dizer por
+  quê: o seletor é medido no cadastro, então tribunal ainda não varrido some da
+  lista, e a omissão parece resposta. Medido em 04/09/2026: as movimentações do
+  TJSP moram entre os pk 464.177.590 e 2.198.876.932, e a varredura estava em
+  104.050.890 — 4,3%. `'não medido'` não pode ter a mesma cara de `'medido e
+  vazio'` (`.ia/DIARIOS.md` §18).
+  {% endcomment %}
+  {% if cobertura and not cobertura.completo %}
+  <div class="card-tight border-accent/40 bg-accent/5">
+    <div class="flex items-start gap-2">
+      {% voy_icon "trajectory" "w-5 h-5 shrink-0 mt-0.5 text-accent" %}
+      <div class="grow min-w-0">
+        <p class="text-sm text-fg-soft">
+          O cadastro está sendo construído: <b>{{ cobertura.pct }}%</b> do acervo
+          varrido. <b class="text-fg-soft">Ausência aqui não é prova de ausência</b> —
+          um magistrado pode existir e ainda não ter sido lido.
+        </p>
+        <div class="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+          <div class="h-full rounded-full bg-accent"
+               style="width: {{ cobertura.pct }}%"></div>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.72rem] text-fg-subtle font-mono">
+          {% for s in cobertura.shards %}
+          <span>{{ s.nome }}: {{ s.pct }}%</span>
+          {% endfor %}
+        </div>
+        <p class="mt-2 text-[0.72rem] text-fg-subtle">
+          O TJSP está na faixa alta do acervo e é varrido pelo shard
+          <span class="font-mono">tjsp</span> — enquanto ele não avançar, buscar
+          por magistrado paulista devolve vazio por <b>falta de varredura</b>,
+          não por falta do magistrado.
+        </p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if resultado.erro %}
   <div class="card-tight border-warning/50 bg-warning/10">
     <div class="flex items-start gap-2">
@@ -156,9 +197,11 @@ Padrões da casa: token é `warning`, nunca `warn`; `humanize` não instalado
       Nenhum magistrado com esse nome no cadastro.
     </p>
     <p class="text-[0.75rem] text-fg-subtle mt-2 max-w-xl mx-auto">
-      O cadastro é preenchido por um backfill que ainda está correndo o acervo —
-      ausência aqui pode ser <b>“ainda não chegamos nesse trecho”</b>, não
-      “este magistrado não existe”.
+      O cadastro é preenchido por um backfill que já varreu
+      <b>{{ cobertura.pct|default:"0" }}%</b> do acervo — ausência aqui é, muito
+      provavelmente, <b>“ainda não chegamos nesse trecho”</b>, e não
+      “este magistrado não existe”. Enquanto a varredura não fecha, esta tela
+      não pode afirmar ausência.
     </p>
   </div>
   {% endif %}

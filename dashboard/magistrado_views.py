@@ -102,6 +102,53 @@ def tribunais() -> list[str]:
         logger.warning('magistrado: cache.set dos tribunais falhou', exc_info=True)
     return achados
 
+
+#: Onde os dois shards do backfill guardam o cursor. Mesma chave do
+#: `backfill_magistrados` — se ela mudar lá, a barra de cobertura para de
+#: informar e a tela volta a mentir por omissão.
+CURSOR_KEY = 'bf:magistrados:%s:cursor'
+
+#: Os shards e a faixa de pk de cada um. Tem de casar com o `--ate` do
+#: container: `nacional` [40M, 464M), `tjsp` [464M, 2,4bi).
+SHARDS = (('nacional', 0, 464_000_000), ('tjsp', 464_000_000, 2_400_000_000))
+
+
+def cobertura() -> dict:
+    """Quanto do acervo o extrator já varreu — para a tela DIZER, não omitir.
+
+    ## Por que esta função existe
+
+    Em 04/09/2026 a busca por magistrado do TJSP não trazia nada, e a tela não
+    tinha como dizer por quê. Medido: as movimentações do TJSP moram entre os
+    pk **464.177.590 e 2.198.876.932**, e o backfill tinha varrido só até
+    **104.050.890** — 4,3% da tabela. Não havia TJSP no cadastro porque ninguém
+    tinha chegado lá, e a tela apresentava isso como "nenhum magistrado com
+    esse nome".
+
+    Isso é o `'não medido'` com cara de `'medido e vazio'` (`.ia/DIARIOS.md`
+    §18). O seletor de tribunal é MEDIDO no cadastro, então um tribunal ainda
+    não varrido simplesmente some da lista — a omissão é mais convincente que
+    um erro, e por isso pior.
+
+    Só lê Redis: dois `GET`, sem tocar no banco.
+    """
+    total = sum(fim - ini for _, ini, fim in SHARDS)
+    varrido = 0
+    fatias = []
+    for nome, ini, fim in SHARDS:
+        try:
+            cur = cache.get(CURSOR_KEY % nome)
+        except Exception:  # noqa: BLE001
+            cur = None
+        # cursor ausente = shard nunca rodou; nunca contar como se tivesse
+        # varrido a faixa inteira (seria o erro que ENCERRA a investigação)
+        pos = max(ini, min(int(cur), fim)) if cur is not None else ini
+        varrido += pos - ini
+        fatias.append({'nome': nome, 'de': ini, 'ate': fim, 'cursor': pos,
+                       'pct': round(100 * (pos - ini) / (fim - ini), 1)})
+    return {'pct': round(100 * varrido / total, 1), 'shards': fatias,
+            'completo': varrido >= total}
+
 CACHE_TTL = 60 * 30
 _PREFIXO = 'magistrado:dossie:v1'
 
@@ -161,6 +208,7 @@ def magistrado(request):
     tribunal = (request.GET.get('tribunal') or tribunais()[0]).upper()
 
     contexto = {'nome': nome, 'tribunal': tribunal, 'tribunais': tribunais(),
+                'cobertura': cobertura(),
                 'dossie': None, 'erro': None, 'buscou': bool(nome)}
     if not nome:
         return render(request, 'dashboard/magistrado.html', contexto)
@@ -177,9 +225,18 @@ def magistrado(request):
                             'em instantes.')
         return render(request, 'dashboard/magistrado.html', contexto)
     if not payload.get('n_processos'):
-        contexto['erro'] = (f'Nenhuma publicação de "{nome}" no {tribunal}. '
-                            f'Confira a grafia completa do nome — a busca é por '
-                            f'frase exata, e abreviações não casam.')
+        cob = contexto['cobertura']
+        contexto['erro'] = (
+            f'Nenhuma publicação de "{nome}" no {tribunal}. '
+            f'Confira a grafia completa do nome — a busca é por frase exata, e '
+            f'abreviações não casam.'
+            # a ficha lê o ES (que está completo), mas quem chegou aqui veio da
+            # busca, que lê o cadastro. Dizer só "não achei" faria o leitor
+            # concluir ausência quando a causa pode ser varredura incompleta.
+            + ('' if cob.get('completo') else
+               f' A varredura do cadastro está em {cob.get("pct")}% do acervo — '
+               f'se o nome veio de outra fonte, ele pode existir e ainda não '
+               f'ter sido lido.'))
         return render(request, 'dashboard/magistrado.html', contexto)
 
     contexto['dossie'] = payload
@@ -296,6 +353,7 @@ def magistrado_buscar(request):
     termo = (request.GET.get('q') or '').strip()
     tribunal = (request.GET.get('tribunal') or '').upper()
     ctx = {'q': termo, 'tribunal': tribunal, 'tribunais': tribunais(),
+           'cobertura': cobertura(),
            'resultado': None, 'buscou': bool(termo)}
     if termo:
         try:
