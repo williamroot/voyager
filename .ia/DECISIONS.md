@@ -1068,3 +1068,76 @@ temos pela metade — e "de onde não sai lead hoje" é uma medição de agosto 
   Não é mais o estado padrão.
 - **Regra que fica:** quem puser um tribunal em `FORA_DO_ALVO` escreve o ADR
   junto. Foi a ausência dele que deixou isto acontecer.
+
+## ADR-037: a busca por parte DESCOBRE números e para aí (2026-09-04)
+
+**Contexto.** A tela de consulta do JURISCOPE busca processo por CPF/nome/OAB na
+cópia local dele, e por isso mostra coisas como "TJMG: 48,42% (34.923 de
+72.121)". Trocar aquilo pelo nosso índice não resolve o problema real: no
+`voyager-processos`, `participacoes.documento` cobre **0,14%** e
+`participacoes.oab`, **0,067%**. A única fonte que responde "quais processos
+esta pessoa tem" é o formulário de consulta pública do tribunal — e nenhum dos
+16 enrichers sabia usá-lo: todos buscam por número CNJ.
+
+**Decisão.** A busca por parte é uma camada NOVA (`enrichers/busca/`) que
+descobre **números de processo** e entrega esses números para
+`datajud.hidratacao.hidratar_cnj`. Ela não abre o processo, não parseia detalhe,
+não cria `Parte`, não publica no stream de enriquecimento.
+
+**Por quê.** O parser de detalhe de cada tribunal já existe, já roda em produção
+e já tem teste. Um segundo parser lendo a mesma página seria um segundo lugar
+para o mesmo dado divergir — e o caminho de escrita (stream → drainer → bulk)
+foi construído para não saturar o lock manager do Postgres com centenas de
+workers. Uma feature de tela não tem por que abrir aquele caminho de novo.
+
+**Consequências.**
+
+- O que a busca traz vira acervo pelo caminho normal: `hidratar_cnj` cria o
+  `Process`, sincroniza os movimentos do Datajud e enfileira o enricher do
+  tribunal. A segunda busca igual sai do índice, de graça.
+- A hidratação vai para fila própria (`busca_hidratacao`) porque
+  `hidratar_cnj` faz uma requisição ao Datajud por processo e aquele bucket de
+  rate limit é global, compartilhado com a varredura do acervo.
+- A busca fica com fila própria (`busca_ao_vivo`) pela lição da fila `leads` do
+  JURISCOPE: ação de usuário não divide fila com trabalho em massa. As
+  `enrich_*` têm centenas de milhares de itens de backlog.
+- O que a busca NÃO faz continua não sendo feito: partes, valor e incidentes só
+  aparecem depois que o enricher roda. A resposta diz isso (`novos_no_acervo`).
+
+## ADR-038: o estado é POR TRIBUNAL porque "não achei" tem quatro sabores (2026-09-04)
+
+**Contexto.** O recon de 04/09/2026 mediu, ao vivo, nove tribunais e quatro
+critérios. Três descobertas mudam o que uma resposta honesta pode dizer:
+
+1. o e-SAJ tem um desfecho "**foram encontrados muitos processos, refine sua
+   busca**" — a fonte recusando responder — e outro "multiplas consultas
+   simultâneas", que é pacing. Os dois chegam como uma página sem nenhum
+   resultado;
+2. o contador do e-SAJ trava em **1.000** e o PJe devolve no máximo **30** sem
+   paginar. Os dois números se parecem com um total;
+3. o TRF5 anuncia "30 resultados encontrados" numa resposta com **uma** linha, e
+   o TJMT responde 200 com a **base inteira** (11,6 milhões) quando o parâmetro
+   não é o que ele conhece.
+
+**Decisão.** A resposta da API carrega o estado de CADA fonte separadamente
+(`por_tribunal`), com cinco status distintos (`ok`/`vazio`,
+`criterio_indisponivel`, `refinar`, `fonte_indisponivel`, `erro`), mais
+`avisos[]` em português. `total_declarado` e `total_e_teto` são campos
+separados. O catálogo (`registry.py`) guarda, por (tribunal, critério), se
+aquilo já foi exercitado ao vivo — e a resposta avisa quando não foi.
+
+**Por quê.** Um status único no topo achataria as quatro respostas em "concluído
+com 0 resultados", que é exatamente a frase que faz alguém concluir "esta pessoa
+não tem processo". A regra nº 6 do `CLAUDE.md` (*abster > chutar*) aplicada a um
+contrato de API significa devolver "não sei" com o motivo, não um zero limpo.
+
+**Consequências.**
+
+- Toda busca no TJMT confere o total contra o baseline sem filtro; batendo, é
+  `fonte_indisponivel`, não resultado.
+- Rodapé do PJe que contradiz a tabela vira `total_declarado: null` mais aviso.
+- `TRF3` fica no catálogo com `verificado_em: null` — o host recusa conexão fora
+  da malha de proxies, então o recon dele tem de rodar do container. Habilitado
+  pelo motor, mas declarado como não medido.
+- Bater qualquer teto (páginas, tempo, ingestão) é ERRO no log e `truncado` na
+  resposta, com o número real — teto é alerta, nunca corte mudo (regra nº 2).

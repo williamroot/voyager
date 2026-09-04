@@ -5,6 +5,7 @@ from django.db.models import Q, UniqueConstraint
 from django.utils.translation import gettext_lazy as _
 
 import re
+import uuid
 
 # Formato CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO — os 4 dígitos do ano começam na posição 12.
 _CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
@@ -1342,3 +1343,72 @@ class MagistradoAtuacao(models.Model):
 
     def __str__(self):
         return f'{self.magistrado_id} · mov {self.movimentacao_id}'
+
+
+class BuscaTribunalRun(models.Model):
+    """Uma busca POR PARTE feita ao vivo na consulta pública dos tribunais.
+
+    Existe por três razões, e nenhuma delas é "log":
+
+    1. **é a resposta**. A busca é assíncrona (uma consulta ao e-SAJ leva de
+       0,2 s a 71 s, e são vários tribunais em paralelo), então o cliente
+       recebe um id e volta para ler o andamento aqui;
+    2. **é o cache**. Repetir a mesma pergunta em minutos gastaria IP do pool
+       compartilhado para receber a mesma resposta;
+    3. **é a auditoria**. Busca por CPF é consulta a dado de pessoa: quem
+       perguntou, o quê e quando fica registrado.
+
+    `por_tribunal` guarda o estado de cada fonte separadamente — inclusive as
+    RECUSAS ("o TJPA não busca por nome de advogado") e os TRUNCAMENTOS ("li
+    250 de 1.842"), que são resposta, não erro. Um status único no topo
+    achataria isso em "concluído" e perderia justamente o que o usuário precisa
+    saber para não ler ausência de dado como ausência de processo.
+    """
+
+    STATUS_RUNNING = 'running'
+    STATUS_CONCLUIDO = 'concluido'
+    STATUS_ERRO = 'erro'
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, 'Em execução'),
+        (STATUS_CONCLUIDO, 'Concluído'),
+        (STATUS_ERRO, 'Erro'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    criterio = models.CharField(max_length=16)
+    #: O que foi digitado, como foi digitado — é o que a tela mostra de volta.
+    valor = models.CharField(max_length=255)
+    #: A forma canônica (dígitos do CPF, OAB sem máscara, nome sem acento):
+    #: é por ela que o cache reconhece a mesma pergunta escrita de outro jeito.
+    valor_normalizado = models.CharField(max_length=255, db_index=True)
+    tribunais = models.JSONField(default=list)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES,
+                              default=STATUS_RUNNING, db_index=True)
+    #: {sigla: {status, paginas_lidas, requisicoes, total_declarado,
+    #:          total_e_teto, encontrados, truncado, motivo, aviso_fonte}}
+    por_tribunal = models.JSONField(default=dict)
+    #: Os processos achados, achatados: [{cnj, tribunal, classe, ...}]. Ficam
+    #: aqui e não numa tabela filha porque são resultado de UMA pergunta, com
+    #: validade curta — quem vira acervo vira `Process` pela hidratação.
+    resultados = models.JSONField(default=list)
+    encontrados = models.PositiveIntegerField(default=0)
+    #: Quantos desses NÃO estavam no acervo e foram enfileirados para entrar.
+    novos_no_acervo = models.PositiveIntegerField(default=0)
+    erros = models.JSONField(default=list)
+    api_client = models.ForeignKey(
+        'tribunals.ApiClient', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='buscas_tribunal',
+    )
+    criado_em = models.DateTimeField(auto_now_add=True, db_index=True)
+    finalizado_em = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-criado_em']
+        indexes = [
+            # O índice do CACHE: "esta mesma pergunta foi feita há pouco?".
+            models.Index(fields=['criterio', 'valor_normalizado', '-criado_em'],
+                         name='busca_run_cache_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.criterio}={self.valor} · {self.status}'

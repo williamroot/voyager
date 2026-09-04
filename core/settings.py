@@ -252,6 +252,16 @@ RQ_QUEUES = {
     # 62 MB, e um job desses na fila do DJEN empurraria a fronteira diária pro
     # fim da linha. Timeout longo porque baixar+segmentar um caderno é minutos.
     'diarios':        {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 7200,  **_RQ_CONN},
+    # Busca POR PARTE ao vivo na consulta pública (CPF/nome/OAB → CNJs).
+    # Fila própria porque é AÇÃO DE USUÁRIO esperando resposta: as `enrich_*`
+    # carregam centenas de milhares de itens de backlog e a `manual` é do
+    # enricher. Um job = um tribunal, e o teto de tempo por tribunal é 180 s.
+    'busca_ao_vivo':  {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 300,   **_RQ_CONN},
+    # O que a busca achou e ainda não está no acervo. Separada da busca porque
+    # `hidratar_cnj` faz 1 requisição ao Datajud por processo, e aquele bucket
+    # de rate limit é global — segurar isso dentro do job de busca faria a tela
+    # esperar pelo pacing da API do CNJ.
+    'busca_hidratacao': {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600, **_RQ_CONN},
 
 }
 

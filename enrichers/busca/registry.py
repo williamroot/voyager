@@ -35,6 +35,11 @@ class Fonte:
     pagina: bool
     #: Data do recon que exercitou esta fonte. `None` = não medido.
     verificado_em: str | None
+    #: Quais critérios foram de fato EXERCITADOS ao vivo neste tribunal. O
+    #: motor oferece os quatro em toda instalação PJe/e-SAJ, mas oferecer não é
+    #: ter medido: no TRF1 só documento e nome foram exercidos. A diferença
+    #: aparece na resposta como aviso, em vez de virar confiança falsa.
+    criterios_medidos: frozenset[str] = frozenset()
     #: O que quem consome precisa saber antes de interpretar o resultado.
     nota: str = ''
 
@@ -42,27 +47,27 @@ class Fonte:
 _MEDIDO = '2026-09-04'
 
 CATALOGO: dict[str, Fonte] = {
-    'TJSP': Fonte('TJSP', 'esaj', frozenset(CRITERIOS), 1000, True, _MEDIDO,
+    'TJSP': Fonte('TJSP', 'esaj', frozenset(CRITERIOS), 1000, True, _MEDIDO, frozenset(CRITERIOS),
                   'a fonte trava o contador em 1.000; acima disso não é '
                   'alcançável por este critério'),
-    'TJAL': Fonte('TJAL', 'esaj', frozenset(CRITERIOS), 1000, True, _MEDIDO,
+    'TJAL': Fonte('TJAL', 'esaj', frozenset(CRITERIOS), 1000, True, _MEDIDO, frozenset(CRITERIOS),
                   'mesmo software do TJSP; o teto de 1.000 não foi exercido aqui'),
-    'TRF1': Fonte('TRF1', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO,
+    'TRF1': Fonte('TRF1', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset({'documento', 'nome'}),
                   'a consulta pública devolve no máximo 30 e não pagina'),
-    'TRF3': Fonte('TRF3', 'pje', frozenset(CRITERIOS), 30, False, None,
+    'TRF3': Fonte('TRF3', 'pje', frozenset(CRITERIOS), 30, False, None, frozenset(),
                   'não medido: o host recusa conexão fora da malha de proxies'),
-    'TRF5': Fonte('TRF5', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO,
+    'TRF5': Fonte('TRF5', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset({'documento', 'nome'}),
                   'o rodapé anuncia 30 mesmo quando a tabela traz 1 — o número '
                   'publicado por este tribunal não é a contagem'),
-    'TJMG': Fonte('TJMG', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO,
+    'TJMG': Fonte('TJMG', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
-    'TJMA': Fonte('TJMA', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO,
+    'TJMA': Fonte('TJMA', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset({'documento', 'nome', 'oab'}),
                   'a consulta pública devolve no máximo 30 e não pagina'),
     'TJPA': Fonte('TJPA', 'rest', frozenset({'documento', 'nome', 'oab'}), None, True,
-                  _MEDIDO,
+                  _MEDIDO, frozenset({'documento', 'nome', 'oab'}),
                   'busca por nome exige a grafia exata; use a desambiguação '
                   'de nomes antes'),
-    'TJMT': Fonte('TJMT', 'rest', frozenset(CRITERIOS), None, True, _MEDIDO,
+    'TJMT': Fonte('TJMT', 'rest', frozenset(CRITERIOS), None, True, _MEDIDO, frozenset(CRITERIOS),
                   'total real e paginação; filtro desconhecido é ignorado pela '
                   'API, então toda busca confere o total contra o baseline'),
 }
@@ -93,10 +98,8 @@ def _fabricar(sigla: str) -> BuscaPorParte:
     motores = {'esaj': BuscaEsaj, 'pje': BuscaPje}
 
     fonte = CATALOGO[sigla]
-    if fonte.motor == 'rest':
-        classe = BuscaTjmt if sigla == 'TJMT' else BuscaTjpa
-    else:
-        classe = motores[fonte.motor]
+    classe = ((BuscaTjmt if sigla == 'TJMT' else BuscaTjpa)
+              if fonte.motor == 'rest' else motores[fonte.motor])
     return classe(enrichers[sigla])
 
 
@@ -133,6 +136,17 @@ def tribunais_com(criterio: str) -> list[str]:
     return sorted(s for s, f in CATALOGO.items() if criterio in f.criterios)
 
 
+def foi_medido(sigla: str, criterio: str) -> bool:
+    """Este critério já foi exercitado ao vivo NESTE tribunal?
+
+    Serve ao aviso da resposta: uma busca por OAB no TRF1 usa o mesmo motor que
+    funciona no TJMG, mas ninguém a rodou contra o TRF1 — e "0 resultados" numa
+    fonte nunca exercitada não é um fato sobre a pessoa buscada.
+    """
+    fonte = CATALOGO.get((sigla or '').upper())
+    return bool(fonte and criterio in fonte.criterios_medidos)
+
+
 def catalogo_publico() -> list[dict]:
     """O catálogo como a API o expõe — inclusive o que não foi medido."""
     return [{
@@ -142,5 +156,6 @@ def catalogo_publico() -> list[dict]:
         'teto_da_fonte': f.teto_da_fonte,
         'pagina': f.pagina,
         'verificado_em': f.verificado_em,
+        'criterios_medidos': sorted(f.criterios_medidos),
         'nota': f.nota,
     } for f in sorted(CATALOGO.values(), key=lambda x: x.tribunal)]
