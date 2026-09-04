@@ -38,6 +38,17 @@ Itens pendentes ou planejados, organizados por prioridade.
 
 ## Alta — desbloqueiam casos de uso
 
+- [ ] **Busca POR PARTE ao vivo — deploy e as duas medições que faltam.** Código
+      pronto e testado (`enrichers/busca/`, `POST /api/v1/busca/tribunal/`,
+      tela `/dashboard/busca-tribunal/`, worker `worker_busca`, migration 0060).
+      Falta: (1) deploy + `docker compose -f docker-compose-workers.yml up -d
+      worker_busca`; (2) medir o **TRF3** de dentro do container — o host recusa
+      conexão fora da malha de proxies (`manage.py busca_parte TRF3 nome "..."`);
+      (3) medir **`oab` no TJPA**, que precisa de uma OAB real do PA (a fonte não
+      expõe OAB nas partes, e a que testei devolveu 204). Feitas as medições,
+      mover os critérios para `criterios_medidos` em `enrichers/busca/registry.py`.
+      Do outro lado, o Juriscope troca a busca local dele por esta API.
+
 - [ ] **Backfill TRF1+TRF3 100% até hoje** — em curso (parado em 18/10/2024 — re-disparado pelo watchdog)
 - [ ] **`pg_dump` diário automático** — job RQ na fila `default` ~03:00 + retenção 30d local + S3 opcional
 - [ ] **2FA no admin** via `django-otp` — pra exposição pública
