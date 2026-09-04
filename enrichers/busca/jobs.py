@@ -28,17 +28,24 @@ logger = logging.getLogger('voyager.busca.jobs')
 FILA = 'busca_ao_vivo'
 FILA_HIDRATACAO = 'busca_hidratacao'
 
-#: Teto de páginas por tribunal. No e-SAJ são 25 por página, então 10 páginas =
-#: 250 processos; no PJe existe uma página só. Bater o teto é ERRO registrado
-#: com o número real, e a resposta marca `truncado`.
-TETO_PAGINAS = 10
+#: Teto de páginas por tribunal. **40**, e o número não é escolhido: é o que
+#: esgota o teto da própria fonte — o e-SAJ entrega 25 por página e não conta
+#: além de 1.000, então 40 páginas cobrem tudo o que ele está disposto a dar. No
+#: PJe existe uma página só.
+#:
+#: Estava em 10, e isso era um corte NOSSO disfarçado de teto: medido em
+#: 04/09/2026 numa busca por OAB no TJSP, a fonte declarou **823** processos e
+#: entregou os 823 em **33 páginas, sem um único erro, em 51 s** — com 10
+#: páginas colhíamos 250 e marcávamos "truncado" como se a limitação fosse dela.
+TETO_PAGINAS = 40
 
-#: Teto de tempo por tribunal. O e-SAJ já levou 71 s numa única página (CNPJ com
-#: mil processos), então o teto não pode ser apertado; mas também não pode ser o
-#: timeout do job, senão o run perde o que já tinha colhido.
-TETO_TEMPO_S = 180
+#: Teto de tempo por tribunal. As 33 páginas acima levaram 51 s (quase tudo
+#: pacing), mas uma ÚNICA página do e-SAJ já levou 71 s num CNPJ com mil
+#: processos — o teto tem de caber no caso lento sem virar o timeout do job,
+#: senão o run perde o que já tinha colhido.
+TETO_TEMPO_S = 240
 
-JOB_TIMEOUT = TETO_TEMPO_S + 120
+JOB_TIMEOUT = TETO_TEMPO_S + 120  # folga para fechar o run e ingerir
 
 #: Estados terminais de um tribunal dentro do run.
 OK = 'ok'
@@ -237,8 +244,8 @@ def _ingerir(run_id: str, numeros: list[str]) -> None:
             travado.erros = [*travado.erros, {
                 'tipo': 'teto_de_ingestao',
                 'mensagem': (f'{saida["fora_do_teto"]} processos encontrados '
-                             f'ficaram fora do acervo: a busca ingere no máximo '
-                             f'500 por consulta'),
+                             f'ficaram fora do acervo — teto de ingestão por '
+                             f'consulta'),
             }]
         travado.save(update_fields=['novos_no_acervo', 'erros'])
 

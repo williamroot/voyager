@@ -23,11 +23,15 @@ import logging
 
 logger = logging.getLogger('voyager.busca.ingestao')
 
-#: Teto de processos trazidos para o acervo por busca. Não é economia de disco:
-#: é o freio para uma consulta ampla (um advogado com 823 processos, um CNPJ com
-#: o teto de 1.000) não virar mil jobs de hidratação de uma vez. Atingir o teto
-#: é ERRO registrado no run, com o número real — nunca um corte mudo.
-TETO_INGESTAO = 500
+#: Teto de processos trazidos para o acervo por busca. **1.000**, que é o teto
+#: da fonte mais generosa (o e-SAJ não conta além disso): um teto de ingestão
+#: MENOR que o da coleta faria a busca achar 823 processos, mostrar 823 e trazer
+#: 500 — perder metade no último metro, depois de já ter gasto o scraping.
+#:
+#: O freio continua existindo para o caso patológico (as duas fontes REST não
+#: têm teto declarado). Atingir o teto é ERRO registrado no run, com o número
+#: real — nunca um corte mudo.
+TETO_INGESTAO = 1000
 
 
 def separar_novos(numeros: list[str]) -> tuple[list[str], list[str]]:

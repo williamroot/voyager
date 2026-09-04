@@ -40,11 +40,17 @@ DESFECHO_AMBIGUO = 'ambiguo'
 #: "1000 Processos encontrados". Número redondo é piso disfarçado.
 TETO_ESAJ = 1000
 
-#: Pausa mínima entre páginas da MESMA sessão. Medido no TJSP: sem pausa, o
-#: `trocarPagina.do` devolveu "multiplas consultas simultâneas" 3 vezes em 3;
-#: com 1,5 s, veio a página completa 3 de 3. Fica em 2 s por margem — a
-#: requisição em si custa 0,1 a 0,3 s, então a espera é o gasto todo.
-PAUSA_ENTRE_PAGINAS_S = 2.0
+#: Pausa entre páginas da MESMA sessão. Sem ela, o `trocarPagina.do` devolve
+#: "multiplas consultas simultâneas" — 3 vezes em 3. Com 1,5 s a página vem
+#: completa: primeiro 3 de 3, e depois **32 transições consecutivas sem um
+#: único erro**, esgotando uma busca de 823 processos em 51 s. É esse segundo
+#: teste que fixa o número: 1,5 s não é o mínimo que funcionou uma vez, é o que
+#: sustentou a paginação inteira.
+#:
+#: A requisição em si custa 0,1 a 0,3 s — a espera é praticamente o gasto todo,
+#: e é por isso que ela não sobe "por margem": cada 0,5 s a mais custa 16 s numa
+#: busca de 33 páginas.
+PAUSA_ENTRE_PAGINAS_S = 1.5
 
 _MARCADORES = (
     (DESFECHO_VAZIO, 'não existem informações'),

@@ -2470,6 +2470,16 @@ Fixtures: `tests/fixtures/tjsp/busca_{nome,oab,documento,documento_vazio,muitos,
 Sem a pausa, o coletor lê a página 1 e conclui que acabou. A resposta em si é
 rápida (0,1–0,3 s por página); o custo é só a espera.
 
+**A paginação esgota — medido dos dois lados.** Busca por OAB no TJSP,
+04/09/2026: o contador declarou **823** processos e a paginação entregou
+**823 distintos em 33 páginas, com zero erro, em 51 s** (pausa de 1,5 s entre
+páginas, que responde por quase todo o tempo). Não há degradação na página
+funda, e o link "próxima" some sozinho na última.
+
+Isto é o teste da regra nº 5 (medir a completude dos DOIS lados) e ele derrubou
+um teto NOSSO: o coletor parava em 10 páginas — 250 de 823 — e marcava
+"truncado", como se o corte fosse da fonte.
+
 **O teto é 1.000 e ele se disfarça de total.** O `#contadorDeProcessos` do CNPJ
 do Bradesco (`60.746.948/0001-12`) diz exatamente `1000 Processos encontrados`,
 e a primeira página levou **71 s**. Número redondo é piso disfarçado (regra nº 3

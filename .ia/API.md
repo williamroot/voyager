@@ -369,12 +369,17 @@ um corte mudo.
 
 | teto | valor | onde |
 |---|---|---|
-| páginas por tribunal | 10 (≈250 no e-SAJ) | `enrichers/busca/jobs.py` |
-| tempo por tribunal | 180 s | idem |
-| ingestão por consulta | 500 processos | `enrichers/busca/ingestao.py` |
+| páginas por tribunal | 40 (= 1.000 no e-SAJ, o teto DELE) | `enrichers/busca/jobs.py` |
+| tempo por tribunal | 240 s | idem |
+| ingestão por consulta | 1.000 processos | `enrichers/busca/ingestao.py` |
 | cache da mesma pergunta | 6 h | `api/busca_tribunal_views.py` |
 | buscas por minuto/cliente | 20 | idem |
 | **teto da FONTE** | 1.000 (e-SAJ) · 30 (PJe) · sem teto (TJPA, TJMT) | medido — `registry.py` |
+
+Os nossos tetos são deliberadamente ≥ o da fonte: um teto interno menor faria a
+busca gastar o scraping, achar 823 processos e entregar 250 — e ainda chamar
+isso de "truncado pela fonte". Medido: o e-SAJ esgota 823 processos em 33
+páginas e 51 s, sem erro.
 
 ## Busca de processos da TELA (`/dashboard/api/busca/*`)
 
