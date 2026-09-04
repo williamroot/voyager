@@ -2405,3 +2405,149 @@ TJDFT, 401 no TJMT e 403 no TJAP/TJRO, e não dá pra separar "tribunal fora" de
 "sonda errada" só com o código. Pausar por isso seria o vigia produzindo a
 confiança falsa que ele existe para evitar.
 
+
+## Busca POR PARTE na consulta pública — matriz medida (04/09/2026)
+
+Todo enricher deste documento sabe uma coisa só: achar processo **por número
+CNJ**. A pergunta "quais processos esta pessoa tem" é outro formulário, e nunca
+tinha sido medida. A tabela abaixo é o resultado do recon
+(`scripts/recon_busca_parte.py`), com fixture real de cada desfecho em
+`tests/fixtures/<sigla>/busca_*.html|json`.
+
+Por que isto importa: no índice do Voyager, `participacoes.documento` cobre
+**0,14%** e `participacoes.oab` **0,067%** dos 71,3 M de processos (`.ia/API.md`).
+Buscar CPF no ES e achar zero é ausência de DADO, não de processo. A consulta
+pública do tribunal é a única fonte que responde de verdade.
+
+| Tribunal | Motor | documento | nome da parte | OAB | nome do advogado | total declarado | paginação | teto da fonte |
+|---|---|---|---|---|---|---|---|---|
+| TJSP | e-SAJ | ✅ | ✅ | ✅ | ✅ | `#contadorDeProcessos` | `trocarPagina.do` | **1.000** |
+| TJAL | e-SAJ | ✅ | ✅ | ✅ | ✅ | idem | idem | idem (não exercido) |
+| TJMG | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | rodapé "N resultados" | **não tem** | **30** |
+| TJMA | PJe fPP | ✅ | ✅ | ✅ (sem UF) | — | idem | não tem | 30 |
+| TRF1 | PJe fPP | ✅ | ✅ | — | — | idem | não tem | 30 |
+| TRF5 | PJe fPP | ✅ | ✅ | — | — | idem | não tem | 30 |
+| TRF3 | PJe fPP | \*\* | \*\* | \*\* | \*\* | — | — | — |
+| TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` | — | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
+| TJMT | REST | ✅ `parteCpfCnpj` | ✅ `parteNome` | ✅ `advogadoOAB` | ✅ `NomeOab`, `advogadoCPF` | `totalRegistros` | `Skip`/`Take` | sem teto observado |
+
+\*\* TRF3 **não foi medido**: o host inteiro (`pje1g.trf3.jus.br` e até
+`www.trf3.jus.br`) dá `ReadTimeout` a partir de IP residencial — bloqueio de
+borda, não da rota da busca. O recon dele tem de rodar do container, com
+`PROXY=cortex`, como os enrichers. Célula vazia é "não medido", nunca "não tem".
+
+Um traço vazio (—) é critério ainda não exercitado naquele tribunal, não
+ausência provada.
+
+### e-SAJ: cinco desfechos, e três deles parecem "zero"
+
+O `classificar_resposta` de hoje conhece detalhe, segredo, lista e
+"não existem informações". A busca por parte acrescenta dois, e **os dois se
+leem como lista vazia** se ninguém olhar:
+
+| desfecho | marcador | o que é |
+|---|---|---|
+| lista | `a.linkProcesso` + `#contadorDeProcessos` | achou |
+| vazio | `#mensagemRetorno` = "Não existem informações disponíveis…" | não achou (terminal) |
+| **muitos** | `#mensagemRetorno` = "Foram encontrados **muitos processos** … refine sua busca" | a fonte se recusa a responder — pedir refino, nunca dizer "não tem" |
+| **simultâneas** | `#mensagemRetorno` = "Foram identificadas **multiplas consultas simultâneas**" | TRANSITÓRIO: você pediu rápido demais (ver pacing) |
+| redireciona | URL final vira `show.do` | 1 resultado só: não há lista, é o detalhe |
+
+Fixtures: `tests/fixtures/tjsp/busca_{nome,oab,documento,documento_vazio,muitos,consultas_simultaneas,nome_pagina2}.html`.
+
+**Pacing entre páginas é obrigatório.** Medido no TJSP, mesma sessão, busca de
+823 processos:
+
+| pausa antes do `trocarPagina.do` | resultado |
+|---|---|
+| 0 s | "multiplas consultas simultâneas", 0 links — **3 tentativas de 3** |
+| 1,5 s | página completa, 25 links novos — **3 de 3** |
+
+Sem a pausa, o coletor lê a página 1 e conclui que acabou. A resposta em si é
+rápida (0,1–0,3 s por página); o custo é só a espera.
+
+**O teto é 1.000 e ele se disfarça de total.** O `#contadorDeProcessos` do CNPJ
+do Bradesco (`60.746.948/0001-12`) diz exatamente `1000 Processos encontrados`,
+e a primeira página levou **71 s**. Número redondo é piso disfarçado (regra nº 3
+do CLAUDE.md): quem tem mais de mil processos não é alcançável por este
+critério, e a resposta da API tem de dizer isso em vez de entregar 1.000 como se
+fosse tudo.
+
+### PJe: 30 resultados, sem paginação, e a UF da OAB que zera a busca
+
+**O teto de 30 é da fonte, e foi provado com um caso intermediário:**
+
+| busca (TJMG) | rodapé |
+|---|---|
+| "ADALGISA PEREIRA DE MENEZES" (raro) | `resultados encontrados` (sem número) = 0 |
+| "JOAQUIM PEREIRA DE ALMEIDA" | **12** resultados |
+| "MARIA DAS GRAÇAS SILVA" | **30** |
+| "MARIA APARECIDA" (muito comum) | **30** |
+| "SEBASTIAO RODRIGUES DA COSTA" | **30** |
+
+O rodapé é `<tfoot>` da `fPP:processosTable`, e **não existe scroller nem link
+de próxima página** — procurados um a um no HTML (`próxima`, `scroller`,
+`datascroller`, `page`: zero ocorrências). Acima de 30 o dado não é alcançável
+por este critério: a saída honesta é dizer o teto e sugerir refinar pelos
+filtros que o mesmo form oferece (classe judicial, data de autuação).
+
+**Três armadilhas do PJe que devolvem ZERO em vez de erro:**
+
+1. **Host errado.** `pje1g.trf1.jus.br/consultapublica` responde 200, serve um
+   form `fPP` idêntico e devolve tabela vazia para QUALQUER busca — inclusive
+   "INSTITUTO NACIONAL DO SEGURO SOCIAL". O host da consulta pública é
+   `pje1g-consultapublica.trf1.jus.br`. Mesma história no TRF5: `pje.trf5` (sem
+   o `1g`) é o PJe com login e serve uma consulta pública antiga, com captcha de
+   imagem e sem o form `fPP`.
+2. **Botão errado.** O `<input id="fPP:searchProcessos">` visível é
+   `type=button`; quem submete é o `A4J.AJAX.Submit` do `executarPesquisa`, com
+   um id gerado (`fPP:j_id248` no TRF1). Postar com o `searchProcessos` devolve
+   200 e uma resposta AJAX que atualiza só a div de mensagens — sem tabela e sem
+   erro. É a heurística que `_find_search_script_id` já usa para o CNJ.
+3. **UF da OAB preenchida.** Medido no TJMG com a OAB `MG65417`, colhida de um
+   processo real: com a UF selecionada (o combo guarda ÍNDICE — "0"=AC, "1"=AL,
+   …, "12"=MG) a busca devolve **0**; com a UF **sem seleção**, devolve **6**.
+   Mandar a sigla crua ("MG") é pior ainda: o Seam redireciona para
+   `errorUnexpected.seam`. Regra: só o número, UF em branco.
+
+**Ids de campo são por instalação.** `nomeAdv` é `fPP:j_id186:nomeAdv` no TJMA,
+`fPP:j_id184:nomeAdv` no TRF1 e `fPP:j_id180:nomeAdv` no TRF5. Procurar o `name`
+literal faz o critério "não existir" no tribunal errado. Casar por **sufixo**
+(`:nomeAdv`, `:documentoParte`, `:nomeParte`, `:numeroOAB`) — estável nos cinco.
+
+O TRF5 serviu, numa tentativa, uma página **diferente** na mesma URL (consulta
+pública antiga, com captcha de imagem em `consultaPublicaForm`). Dez tentativas
+seguidas depois vieram todas com o `fPP`. Intermitente: o coletor precisa
+detectar "não é o form que eu conheço" e re-tentar em sessão nova, não concluir
+"tribunal sem busca".
+
+### REST: os dois melhores, e a armadilha do parâmetro ignorado
+
+**TJMT** — `GET hellsgate.tjmt.jus.br/consultaprocessual/ProcessosJudiciais/v2`
+com `Skip`/`Take` e `X-Fingerprint` (o mesmo do enricher). Os nomes dos
+parâmetros saem do bundle da SPA (`chunk-VDMA6QP5.js`, `getProcessosJudiciais`):
+`parteCpfCnpj` (só dígitos), `parteNome`, `advogadoOAB`, `advogadoCPF`,
+`NomeOab`, `numeroUnico`, `comarca`, `AnoInicio`/`AnoFim`, `ExibirArquivados`.
+
+⚠️ **Parâmetro que ele não conhece é IGNORADO, e a resposta é 200 com a base
+inteira.** `documento=`, `nomeCpfCnpj=` e `cpfCnpj=` devolveram os mesmos
+`totalRegistros: 11.672.774` do baseline sem filtro
+(`tests/fixtures/tjmt/busca_parametro_ignorado.json`). Um coletor que confiasse
+no 200 traria processos aleatórios como se fossem "os processos deste CPF". O
+nome certo filtra de verdade: `parteNome=MARIA JOSE DOS SANTOS` → 1.159;
+`advogadoOAB=20688` → 112; `parteCpfCnpj=<cpf fictício>` → 0.
+
+**Teste de sanidade obrigatório** para esta fonte: uma busca com filtro nunca
+pode devolver o mesmo total da busca sem filtro.
+
+**TJPA** — `consilium-rest`, rotas lidas do bundle (`main.*.js`):
+`processobycpf/{cpf}/{pagina}/{tamanho}`, `processobycnpj/…`,
+`processobyoab/{numero}/{orgao}/{pagina}/{tamanho}`,
+`processobynomeparteexato/{nome}/{pagina}/{tamanho}` e
+`processobynomeparte/{nome}` — esta última é um **desambiguador**: devolve
+`[{nome, quantidade, sistema}]`, os nomes reais que casam com o que foi digitado,
+para então buscar o exato. Chutar nomes de rota dá **405** em todas
+(foi o primeiro resultado do recon); os nomes certos vieram do bundle.
+
+Os dois REST dão **total real e paginação de verdade** — são as únicas fontes
+sem teto observado.
