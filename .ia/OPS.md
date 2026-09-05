@@ -992,6 +992,65 @@ na largada. Sem cursor, todo restart volta ao pk inicial.
 vigia gritando `parado` a cada 15 min — que é o comportamento correto para
 quem morreu, e ruído para quem parou de propósito.
 
+#### `--tribunal`: priorizar um tribunal (05/09/2026)
+
+A varredura por pk atende o acervo na ordem em que ele foi inserido, e isso é
+um problema de PRODUTO quando alguém precisa de um tribunal específico: em
+04/09 a tela de magistrado do TJSP não trazia nada porque as publicações dele
+moram entre os pk 464.177.590 e 2.198.876.932 e o cursor estava em 104.050.890.
+Ao ritmo de então, 14 dias.
+
+`--tribunal TJSP` **não muda o cursor** — continua a mesma faixa de pk, só
+acrescenta `AND tribunal_id = %s` na janela. O ganho vem de duas medições:
+
+| consulta, mesmo trecho de pk | tempo |
+|---|---|
+| `SELECT id, processo_id, texto … LIMIT 500` | **13,722 ms** |
+| `SELECT id, processo_id … LIMIT 500` | **0,373 ms** |
+
+Ler o `texto` é **97% do custo** — ele é TOAST, e `tribunal_id` mora na tupla,
+então o filtro decide ANTES de o texto ser lido. E o tribunal é
+**clusterizado**: em `[700.000.000, 701.000.000)` há zero publicação do TJSP, e
+o salto de deserto (agora filtrado) pulou **11,7 M de pk em 21,1 s** — o mesmo
+trecho lido linha a linha levaria ~83 min.
+
+Medido em produção: **54,40 M pk/h contra 5,34 M pk/h da varredura completa —
+10,2×**, e com MENOS I/O, porque para de ler texto que ia ser descartado.
+
+```bash
+# semeie o cursor do shard novo com o do shard que ele substitui
+$V shell -c "from django.core.cache import cache; \
+  cache.set('bf:magistrados:tjsp_only:cursor', <pk>, timeout=None)"
+
+docker run -d --name r127_magistrados_tjsp_only --restart unless-stopped \
+  --network host -v /home/ubuntu/voyager:/app voyager-web:prod \
+  python manage.py backfill_magistrados --shard tjsp_only --tribunal TJSP \
+    --orcamento-bytes 20GB --carga 0.4 --parar-ms-id 25
+```
+
+⚠️ **O `--shard` TEM de mencionar o tribunal** — o comando recusa senão. O
+cursor é por shard: reaproveitar o de uma varredura completa numa filtrada
+marcaria como visto o que nunca foi lido, e o contrário também (a faixa
+"concluída" pelo filtro não foi varrida para os outros tribunais).
+
+⚠️ **`--conferir` conta o mesmo universo do filtro.** Sem isso ele acusaria
+"li 195 M de 1,62 bi" e reprovaria uma varredura correta — controle que grita
+errado ensina a ignorar controle. Rodado no acervo real:
+`controle: 261.604 lidas de 261.604 — cobertura 100.00%`.
+
+⚠️ **O salto de deserto filtrado pode não responder.** Não há índice
+`(tribunal_id, id)`; o `min(id)` filtrado varre o índice de pk até o primeiro
+casamento e de pk 0 estoura os 120 s. No timeout o comando **avança 5 M de pk
+às cegas e registra o aviso** em vez de morrer — com `--restart
+unless-stopped`, morrer significaria voltar ao mesmo deserto para morrer de
+novo (os 351 reinícios com progresso zero, outra roupa).
+
+ℹ️ **Zero atuação num trecho pode estar certo.** `tribunals_movimentacao`
+mistura publicação de diário com ANDAMENTO do enriquecimento: em
+`[597,3M, 597,4M)` do TJSP o texto médio tem **34 caracteres**
+(`'Outras Decisões'`, `'Petição'`, `'Remessa'`). Não há assinatura ali para
+achar.
+
 ## Watchdog de ingestão
 
 Cron `*/5 * * * *` em `djen.jobs.watchdog_ingestao` (fila `default`, `timeout=120`).
