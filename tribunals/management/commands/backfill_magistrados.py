@@ -554,16 +554,26 @@ class Command(BaseCommand):
         if tribunal:
             sql += ' AND tribunal_id = %s'
             args.append(tribunal)
+        # O teto da SONDA não é o teto de uma consulta de tela: ela é uma
+        # travessia, e cortá-la cedo é o pior dos mundos — paga-se o tempo
+        # inteiro e não se leva a resposta. Medido em 05/09/2026: a sonda
+        # filtrada varre ~555 mil pk/s, então 120 s atravessam 66 M — e o
+        # deserto do TJSP entre 1,05 bi e 1,50 bi tem 450 M. Com o teto curto,
+        # a banda `tjsp_b` ficou 100% do tempo em sonda que morria, avançando
+        # 5 M por 120 s: 3 horas para atravessar o que UMA consulta de ~13 min
+        # resolve. Sem filtro o `min(id)` usa o índice de pk e responde na
+        # hora, então o teto largo só vale para o caso caro.
+        teto = 900_000 if tribunal else 120_000
         try:
             with transaction.atomic():
                 with connection.cursor() as cur:
-                    cur.execute('SET LOCAL statement_timeout = %s', [120_000])
+                    cur.execute('SET LOCAL statement_timeout = %s', [teto])
                     cur.execute(sql, args)
                     return cur.fetchone()[0], False
         except OperationalError:
-            # sem `(tribunal_id, id)` o `min(id)` filtrado varre o índice de pk
-            # até o primeiro casamento: numa cauda longa ele NÃO responde. Quem
-            # chama decide o que fazer — aqui só se diz a verdade.
+            # nem com 900 s: aí o deserto é grande demais para uma travessia
+            # só. Quem chama avança às cegas — a verdade sai daqui, a decisão
+            # não.
             return None, True
 
     #: Suavização do custo. Um lote sozinho não decide: `checkpoint`, `VACUUM`
