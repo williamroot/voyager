@@ -1045,6 +1045,45 @@ casamento e de pk 0 estoura os 120 s. No timeout o comando **avança 5 M de pk
 unless-stopped`, morrer significaria voltar ao mesmo deserto para morrer de
 novo (os 351 reinícios com progresso zero, outra roupa).
 
+#### Chapa máxima: bandas em paralelo (05/09/2026)
+
+O `--tribunal` sozinho já dá 10×; o resto vem de **partir a faixa em bandas sem
+sobreposição** e subir o duty cycle. Configuração medida em produção — cinco
+varreduras a `--carga 0.9`:
+
+```
+nacional   [ 355 M,  464 M)   r125
+tjsp_a     [ 775 M, 1050 M)   r127   --shard tjsp_only
+tjsp_b     [1050 M, 1500 M)   r12b   --shard tjsp_b
+tjsp_c     [1500 M, 1950 M)   r12c   --shard tjsp_c
+tjsp_d     [1950 M, 2400 M)   r12d   --shard tjsp_d
+```
+
+Vazão somada em janela de 10,8 min: **1.212,7 M pk/h** contra 5,34 M pk/h de
+uma varredura completa a `--carga 0.4`. Colheita no mesmo intervalo: **+4.808
+magistrados do TJSP** (26.707/h) e **+214.429 atuações** (1,19 M/h).
+
+Efeito no site: busca com **mediana de 0,21 s** (linha de base 0,47 s), home
+0,04 s. O que segura o disco não são as varreduras — é o warm job do dashboard
+(`tribunals_process` com `GROUP BY`, um deles rodando havia 601 s).
+
+⚠️ **`--restart no` em TODAS as bandas.** Subi as primeiras com
+`unless-stopped` por descuido: o teto de orçamento sai com exit ≠ 0, e o
+restart religaria a carga exatamente quando o freio dispara. `docker update
+--restart=no <container>` conserta sem derrubar.
+
+⚠️ **O cursor pode viver só na RAM.** `_janela` só devolvia depois de juntar
+`lote` linhas, e num deserto ela nunca junta: o avanço ficava na variável
+local. A banda `tjsp_b` perdeu **duas travessias de 450 M** com o container
+`Up` e o log limpo. Hoje `AVANCO_MAX_SEM_LOTE` (20 M de pk) devolve o controle
+mesmo de mãos vazias — o teto é de PROGRESSO NÃO SALVO, não de trabalho.
+**Diagnóstico:** compare o `pk<` do log com o cursor no Redis; se o log anda e
+o cursor não, é isto.
+
+⚠️ **Sonda de saúde com UMA amostra mente.** O alerta gritou "busca em 6,8 s"
+quando a mediana real era 0,21 s — pico de cache frio coincidindo com os warm
+jobs. Alerta que grita por pico ensina a ignorar alerta. Use mediana de três.
+
 ℹ️ **Zero atuação num trecho pode estar certo.** `tribunals_movimentacao`
 mistura publicação de diário com ANDAMENTO do enriquecimento: em
 `[597,3M, 597,4M)` do TJSP o texto médio tem **34 caracteres**
