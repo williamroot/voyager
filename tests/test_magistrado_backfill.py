@@ -303,3 +303,66 @@ def test_faixa_aberta_sem_shard_e_recusada_na_largada():
     with pytest.raises(CommandError) as saida:
         call_command('backfill_magistrados', de=0, ate=10 ** 6, verbosity=0)
     assert 'checkpoint' in str(saida.value)
+
+
+# --------------------------------------------------------------------------- #
+# --tribunal: varrer SÓ um tribunal
+#
+# Medido em 05/09/2026: ler o campo `texto` é 97% do custo do lote (13,7 ms
+# contra 0,37 ms sem ele, no MESMO trecho de pk). O TJSP é 11,3% do acervo, e a
+# varredura completa lia o `texto` dos outros 88,7% para descartá-los. Com o
+# filtro no SQL o `tribunal_id` — que mora na tupla, sem TOAST — decide antes,
+# e o texto só é lido para quem interessa.
+#
+# O cursor NÃO muda: continua a mesma faixa de pk. Por isso o perigo aqui não é
+# performance, é COBERTURA — um filtro que perde linha entrega um cadastro
+# incompleto com run verde, que é a assinatura das três perdas do CLAUDE.md.
+# --------------------------------------------------------------------------- #
+@CACHE_LOCAL
+def test_o_filtro_por_tribunal_le_TUDO_do_tribunal_e_nada_dos_outros():
+    _mov('TJSP', '1000000-11.2026.8.26.0100', 'sp-1', ASSINA, '1ª Vara Cível')
+    _mov('TJSP', '1000000-22.2026.8.26.0100', 'sp-2', ASSINA_OUTRA_CAIXA, '1ª Vara Cível')
+    _mov('TJMG', '2000000-33.2026.8.13.0024', 'mg-1', ASSINA, '2ª Vara Cível')
+
+    _rodar(tribunal='TJSP')
+
+    siglas = set(Magistrado.objects.values_list('tribunal_id', flat=True))
+    assert siglas == {'TJSP'}, f'vazou tribunal de fora do filtro: {siglas}'
+    # as DUAS publicações do TJSP entraram — filtro que perde metade também
+    # deixaria só uma sigla e passaria no assert de cima
+    assert MagistradoAtuacao.objects.count() == 2
+
+
+@CACHE_LOCAL
+def test_o_controle_dos_dois_lados_conta_o_MESMO_universo_do_filtro(capsys):
+    """`--conferir` sem o filtro acusaria "li 2 de 3" e reprovaria uma
+    varredura correta. Controle que grita errado ensina a ignorar controle."""
+    _mov('TJSP', '1000000-11.2026.8.26.0100', 'sp-1', ASSINA, '1ª Vara Cível')
+    _mov('TJSP', '1000000-22.2026.8.26.0100', 'sp-2', ASSINA_OUTRA_CAIXA, '1ª Vara Cível')
+    _mov('TJMG', '2000000-33.2026.8.13.0024', 'mg-1', ASSINA, '2ª Vara Cível')
+
+    _rodar(tribunal='TJSP', conferir=True, verbosity=1)
+
+    saida = capsys.readouterr()
+    assert 'cobertura 100.00%' in saida.out + saida.err
+    assert 'CONTROLE REPROVADO' not in saida.out + saida.err
+
+
+@CACHE_LOCAL
+def test_sigla_que_nao_existe_e_recusada_na_largada():
+    """Sigla errada varreria 2,4 bilhões de pk para achar zero linha — e
+    terminaria verde, dizendo 'faixa concluída'."""
+    with pytest.raises(CommandError, match='não existe'):
+        _rodar(tribunal='TJXX')
+
+
+@CACHE_LOCAL
+def test_shard_que_nao_menciona_o_tribunal_e_recusado():
+    """O cursor é POR SHARD. Reaproveitar o cursor de uma varredura COMPLETA
+    numa varredura filtrada marcaria como visto o que nunca foi lido — e o
+    contrário também: a faixa 'concluída' pelo filtro não foi varrida para os
+    outros tribunais."""
+    _mov('TJSP', '1000000-11.2026.8.26.0100', 'sp-1', ASSINA, '1ª Vara Cível')
+    with pytest.raises(CommandError, match='não menciona'):
+        call_command('backfill_magistrados', de=0, ate=10 ** 12,
+                     shard='nacional', tribunal='TJSP', verbosity=0)
