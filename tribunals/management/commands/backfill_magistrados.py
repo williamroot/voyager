@@ -112,6 +112,7 @@ from collections import Counter
 from django.core.cache import cache
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
+from django.db.utils import OperationalError
 from django.db.models import Count, Max, Min
 from django.utils import timezone
 
@@ -141,6 +142,11 @@ TABELAS = ('tribunals_magistrado', 'tribunals_magistradoatuacao')
 
 #: Chaves no Redis (AOF ligado desde 31/08/2026 — sobrevivem a restart).
 PAUSA_KEY = 'bf:magistrados:pausado'
+#: Passo do avanço às cegas quando o salto de deserto não responde. Largo o
+#: bastante para atravessar um vazio típico sem rastejar, curto o bastante para
+#: a janela seguinte ainda medir o custo antes de andar de novo.
+PASSO_CEGO = 5_000_000
+
 CURSOR_KEY = 'bf:magistrados:%s:cursor'
 #: O ZERO do orçamento. Gravado UMA vez, na primeira largada com a tabela
 #: vazia, e nunca reescrito: o orçamento mede o trabalho inteiro, não a rodada.
@@ -509,13 +515,30 @@ class Command(BaseCommand):
                 # ao índice onde está a próxima linha — é um `Index Only Scan`
                 # que para no primeiro casamento, e ele responde EXATO em vez
                 # de adivinhar o tamanho do buraco.
-                cursor = self._proxima_pk(topo, ate, tribunal)
-                if cursor is None:
+                proximo, esgotou = self._proxima_pk(topo, ate, tribunal)
+                if esgotou:
+                    # o salto NÃO respondeu no tempo. Deixar a exceção subir
+                    # mataria o processo, e com `--restart unless-stopped` o
+                    # container voltaria no mesmo cursor, no mesmo deserto,
+                    # para morrer de novo — o `exit 0` que alimentou 351
+                    # reinícios com progresso zero, agora com outra roupa.
+                    # Avançar um passo largo é pior que o salto exato e MUITO
+                    # melhor que um loop: o cursor anda, e o trecho pulado
+                    # continua dentro da faixa das próximas janelas.
+                    cursor = min(topo + PASSO_CEGO, ate)
+                    self.stderr.write(self.style.WARNING(
+                        f'salto de deserto não respondeu em [{topo}, {ate}) — '
+                        f'avançando {PASSO_CEGO:,} pk às cegas. Não é perda: '
+                        f'o trecho é varrido pela janela seguinte.'))
+                    continue
+                if proximo is None:
                     return linhas, ate      # não há mais nada até `ate`
+                cursor = proximo
         return linhas, cursor
 
     @staticmethod
-    def _proxima_pk(de: int, ate: int, tribunal: str | None = None) -> int | None:
+    def _proxima_pk(de: int, ate: int,
+                    tribunal: str | None = None) -> tuple[int | None, bool]:
         """Menor pk existente em `[de, ate)`, ou `None`. Salta o buraco.
 
         Com `--tribunal`, o deserto é o deserto DELE: perguntar pela próxima
@@ -531,11 +554,17 @@ class Command(BaseCommand):
         if tribunal:
             sql += ' AND tribunal_id = %s'
             args.append(tribunal)
-        with transaction.atomic():
-            with connection.cursor() as cur:
-                cur.execute('SET LOCAL statement_timeout = %s', [120_000])
-                cur.execute(sql, args)
-                return cur.fetchone()[0]
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cur:
+                    cur.execute('SET LOCAL statement_timeout = %s', [120_000])
+                    cur.execute(sql, args)
+                    return cur.fetchone()[0], False
+        except OperationalError:
+            # sem `(tribunal_id, id)` o `min(id)` filtrado varre o índice de pk
+            # até o primeiro casamento: numa cauda longa ele NÃO responde. Quem
+            # chama decide o que fazer — aqui só se diz a verdade.
+            return None, True
 
     #: Suavização do custo. Um lote sozinho não decide: `checkpoint`, `VACUUM`
     #: e a busca do site produzem picos que somem na passada seguinte.
