@@ -220,6 +220,11 @@ class Command(BaseCommand):
         parser.add_argument('--de', type=int, help='pk inicial (inclusivo)')
         parser.add_argument('--ate', type=int,
                             help=f'pk final (EXCLUSIVO). Default: {PK_MAX_PADRAO}')
+        parser.add_argument('--tribunal', default=None,
+                            help='varre SÓ este tribunal (sigla). Não muda o '
+                                 'cursor: continua a mesma faixa de pk, só '
+                                 'deixa de LER o `texto` de quem não é dele — '
+                                 'e ler o texto é 97%% do custo do lote.')
         parser.add_argument('--shard', default=None,
                             help='nome do checkpoint no Redis. Sem isto não há '
                                  'checkpoint e um restart volta ao pk inicial.')
@@ -281,6 +286,23 @@ class Command(BaseCommand):
                 '--shard <nome>, ou --sem-checkpoint com --de e --ate.')
         if opts['sem_checkpoint'] and (opts['de'] is None or opts['ate'] is None):
             raise CommandError('--sem-checkpoint exige --de e --ate (faixa fechada).')
+        if opts['tribunal']:
+            opts['tribunal'] = opts['tribunal'].upper()
+            from tribunals.models import Tribunal
+            if not Tribunal.objects.filter(sigla=opts['tribunal']).exists():
+                raise CommandError(
+                    f'tribunal {opts["tribunal"]!r} não existe na tabela '
+                    f'`tribunals_tribunal`. Sigla errada varreria 2,4 bilhões '
+                    f'de pk para achar zero linha, com run verde no fim.')
+            if not opts['shard'] and not opts['sem_checkpoint']:
+                pass    # já barrado abaixo
+            elif opts['shard'] and opts['tribunal'].lower() not in opts['shard'].lower():
+                raise CommandError(
+                    f'--shard {opts["shard"]!r} não menciona '
+                    f'{opts["tribunal"]}: o cursor é POR SHARD, e reaproveitar '
+                    f'o cursor de uma varredura completa numa varredura '
+                    f'filtrada marcaria como visto o que nunca foi lido. '
+                    f'Use --shard {opts["tribunal"].lower()}_only.')
         if not 0 < opts['carga'] <= 1:
             raise CommandError('--carga tem que estar em (0, 1]')
         if opts['lote'] < 1:
@@ -317,7 +339,8 @@ class Command(BaseCommand):
         self.stdout.write(
             f'orçamento {self._gb(orcamento) if orcamento else "SEM TETO"} · '
             f'já gastos {self._gb(gasto_antes)} · faixa [{de}, {ate}) · '
-            f'shard {o["shard"] or "—"}')
+            f'shard {o["shard"] or "—"}'
+            + (f' · SÓ {o["tribunal"]}' if o['tribunal'] else ''))
 
         c: Counter = Counter()
         erros: Counter = Counter()
@@ -340,7 +363,7 @@ class Command(BaseCommand):
 
             t_lote = time.time()
             cursor_antes = cursor
-            linhas, cursor = self._janela(cursor, ate, o['lote'])
+            linhas, cursor = self._janela(cursor, ate, o['lote'], o['tribunal'])
             if not linhas and cursor >= ate:
                 break
 
@@ -411,7 +434,7 @@ class Command(BaseCommand):
         if not o['dry_run']:
             bytes_agora = bytes_ocupados()
         if o['conferir']:
-            self._conferir(de, cursor, c)
+            self._conferir(de, cursor, c, o['tribunal'])
         self._resumo(c, erros, de, cursor, ate, o, motivo,
                      bytes_ini, bytes_agora, int(zero['bytes']), orcamento,
                      time.time() - t_inicio, ms_id)
@@ -431,7 +454,7 @@ class Command(BaseCommand):
                    'rodada estão medidos acima, e a extrapolação também.'))
 
     # -- leitura: uma JANELA de pk por vez ---------------------------------- #
-    def _janela(self, de: int, ate: int, lote: int):
+    def _janela(self, de: int, ate: int, lote: int, tribunal: str | None = None):
         """`(linhas, proximo_cursor)` — nunca o resultado inteiro na RAM.
 
         Cresce a largura até juntar `lote` publicações ou bater em `ate`: o
@@ -448,12 +471,19 @@ class Command(BaseCommand):
         verde e log limpo. É o `for pagina in range(1, 11)` do `CLAUDE.md` com
         outra roupa, e por isso `--conferir` existe.
         """
-        largura = max(lote * 2, 2_000)
+        # Com filtro de tribunal a janela tem de ser MAIS LARGA na mesma
+        # proporção da fatia dele no acervo, senão cada lote vira uma dezena de
+        # idas ao banco. O TJSP é 11,3% do índice, o TJMG 18,2% — 12× cobre o
+        # caso ruim sem estourar a memória, porque o `texto` só vem para quem
+        # passa no filtro.
+        largura = max(lote * (24 if tribunal else 2), 2_000)
+        filtro = ' AND tribunal_id = %s' if tribunal else ''
         linhas: list = []
         cursor = de
         while cursor < ate and len(linhas) < lote:
             topo = min(cursor + largura, ate)
             pedido = lote - len(linhas)
+            args = [cursor, topo] + ([tribunal] if tribunal else []) + [pedido]
             with transaction.atomic():
                 with connection.cursor() as cur:
                     cur.execute('SET LOCAL statement_timeout = %s', [120_000])
@@ -461,8 +491,9 @@ class Command(BaseCommand):
                         'SELECT id, processo_id, tribunal_id, nome_orgao, '
                         '       data_disponibilizacao, texto '
                         '  FROM tribunals_movimentacao '
-                        ' WHERE id >= %s AND id < %s ORDER BY id LIMIT %s',
-                        [cursor, topo, pedido])
+                        ' WHERE id >= %s AND id < %s' + filtro +
+                        ' ORDER BY id LIMIT %s',
+                        args)
                     rows = cur.fetchall()
             linhas.extend(rows)
             if len(rows) >= pedido:
@@ -478,19 +509,32 @@ class Command(BaseCommand):
                 # ao índice onde está a próxima linha — é um `Index Only Scan`
                 # que para no primeiro casamento, e ele responde EXATO em vez
                 # de adivinhar o tamanho do buraco.
-                cursor = self._proxima_pk(topo, ate)
+                cursor = self._proxima_pk(topo, ate, tribunal)
                 if cursor is None:
                     return linhas, ate      # não há mais nada até `ate`
         return linhas, cursor
 
     @staticmethod
-    def _proxima_pk(de: int, ate: int) -> int | None:
-        """Menor pk existente em `[de, ate)`, ou `None`. Salta o buraco."""
+    def _proxima_pk(de: int, ate: int, tribunal: str | None = None) -> int | None:
+        """Menor pk existente em `[de, ate)`, ou `None`. Salta o buraco.
+
+        Com `--tribunal`, o deserto é o deserto DELE: perguntar pela próxima
+        linha qualquer devolveria a de outro tribunal, a janela seguinte não
+        acharia nada e o salto viraria um passo. O `min(id)` filtrado usa
+        `mov_tribunal_ativo_idx`? Não — não há `(tribunal_id, id)`. Então este
+        caminho pode ser caro numa cauda longa, e é por isso que ele tem teto
+        próprio: melhor um `statement_timeout` explodindo do que uma varredura
+        que rasteja em silêncio.
+        """
+        sql = 'SELECT min(id) FROM tribunals_movimentacao WHERE id >= %s AND id < %s'
+        args = [de, ate]
+        if tribunal:
+            sql += ' AND tribunal_id = %s'
+            args.append(tribunal)
         with transaction.atomic():
             with connection.cursor() as cur:
                 cur.execute('SET LOCAL statement_timeout = %s', [120_000])
-                cur.execute('SELECT min(id) FROM tribunals_movimentacao '
-                            'WHERE id >= %s AND id < %s', [de, ate])
+                cur.execute(sql, args)
                 return cur.fetchone()[0]
 
     #: Suavização do custo. Um lote sozinho não decide: `checkpoint`, `VACUUM`
@@ -586,7 +630,8 @@ class Command(BaseCommand):
                 ' ON CONFLICT DO NOTHING', params)
             return max(0, cur.rowcount)
 
-    def _conferir(self, de: int, ate: int, c: Counter) -> None:
+    def _conferir(self, de: int, ate: int, c: Counter,
+                  tribunal: str | None = None) -> None:
         """Regra nº 5: medir dos DOIS lados. Quantas linhas o trecho TINHA?
 
         A contagem própria (`lidas`) não prova varredura nenhuma — ela prova
@@ -595,11 +640,20 @@ class Command(BaseCommand):
         pulando para o topo da janela (22,7% de cobertura com run verde), e é
         por isso que ele existe em vez de uma afirmação na docstring.
         """
+        # Com `--tribunal` o controle tem de contar O MESMO universo que o
+        # laço leu. Um `count(*)` sem o filtro acusaria "li 195M de 1,62bi" e
+        # reprovaria uma varredura correta — controle que grita errado ensina a
+        # ignorar controle, que é pior do que não ter.
+        sql = ('SELECT count(*) FROM tribunals_movimentacao '
+               'WHERE id >= %s AND id < %s')
+        args = [de, ate]
+        if tribunal:
+            sql += ' AND tribunal_id = %s'
+            args.append(tribunal)
         with transaction.atomic():
             with connection.cursor() as cur:
                 cur.execute('SET LOCAL statement_timeout = %s', [600_000])
-                cur.execute('SELECT count(*) FROM tribunals_movimentacao '
-                            'WHERE id >= %s AND id < %s', [de, ate])
+                cur.execute(sql, args)
                 no_banco = cur.fetchone()[0]
         c['conferido_no_banco'] = no_banco
         falta = no_banco - c['lidas']
