@@ -145,6 +145,10 @@ PAUSA_KEY = 'bf:magistrados:pausado'
 #: Passo do avanço às cegas quando o salto de deserto não responde. Largo o
 #: bastante para atravessar um vazio típico sem rastejar, curto o bastante para
 #: a janela seguinte ainda medir o custo antes de andar de novo.
+#: Quanto a janela pode avançar sem devolver o controle a quem persiste o
+#: cursor. Não é teto de trabalho — é teto de PROGRESSO NÃO SALVO.
+AVANCO_MAX_SEM_LOTE = 20_000_000
+
 PASSO_CEGO = 5_000_000
 
 CURSOR_KEY = 'bf:magistrados:%s:cursor'
@@ -487,6 +491,19 @@ class Command(BaseCommand):
         linhas: list = []
         cursor = de
         while cursor < ate and len(linhas) < lote:
+            # DEVOLVER O CURSOR ANTES DE ENCHER O LOTE, quando o trecho é
+            # deserto. Quem persiste o cursor é o laço de fora, a cada janela —
+            # e esta função só voltava depois de juntar `lote` linhas. Num
+            # deserto de 450 M de pk (o `tjsp_b`, entre 1,05 bi e 1,50 bi) ela
+            # nunca voltava: o progresso vivia só na variável local, e cada
+            # restart recomeçava a travessia do zero. Medido em 05/09/2026 —
+            # duas travessias inteiras perdidas, cursor parado em
+            # 1.050.000.000 com o container "Up" e o log limpo.
+            #
+            # Devolver lista vazia é resposta legítima: o laço de fora grava o
+            # cursor, mede o custo, honra o kill switch e chama de novo.
+            if cursor - de >= AVANCO_MAX_SEM_LOTE:
+                return linhas, cursor
             topo = min(cursor + largura, ate)
             pedido = lote - len(linhas)
             args = [cursor, topo] + ([tribunal] if tribunal else []) + [pedido]
