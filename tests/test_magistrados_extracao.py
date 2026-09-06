@@ -351,3 +351,47 @@ def test_a_virgula_continua_sendo_limpa_e_nao_para_o_nome():
     como o `;` quebraria o formato que motivou o strip original."""
     assert mag.extrair('Jorge Rachid Mubarack Maluf, Relator') == [
         'Jorge Rachid Mubarack Maluf']
+
+
+# --------------------------------------------------------------------------- #
+# 11. Cabeçalho, cargo de servidor e pronome colados no nome
+#
+# Medido em 06/09/2026 sobre 847.533 linhas do cadastro em produção:
+# 2.160 (0,25%) carregavam um cargo de NÃO-magistrado dentro do nome e 230
+# começavam com pronome. Frequência baixa, dano alto: `'JOAO BATISTA GOMES
+# MOREIRA PODER JUDICIÁRIO'` e `'Eu, Rafaela Caldeira Gonçalves'` são a MESMA
+# pessoa que já está no cadastro sob o nome limpo — o cadastro ganha um
+# homônimo de si mesmo, que é justo o que a tela de localizar existe para
+# evitar.
+#
+# Aqui a lista de PARADA é a ferramenta certa (ao contrário de `_MARCAS_NAO_
+# PESSOA`, que recusa o candidato inteiro), porque o lixo vem DEPOIS do nome:
+# parar nele devolve o nome CERTO, não um encurtamento plausível.
+# --------------------------------------------------------------------------- #
+def test_cabecalho_institucional_nao_entra_no_nome():
+    assert mag.extrair('Relator: JOAO BATISTA GOMES MOREIRA PODER JUDICIÁRIO') \
+        == ['JOAO BATISTA GOMES MOREIRA']
+
+
+def test_pronome_de_abertura_nao_gruda_no_nome():
+    """`'Eu, Fulano'` e `'Fulano'` são a mesma pessoa. Sem isto o cadastro
+    fabrica um homônimo de si mesmo."""
+    assert mag.extrair('Eu, Rafaela Caldeira Gonçalves Juíza de Direito') \
+        == ['Rafaela Caldeira Gonçalves']
+
+
+def test_servidor_que_lavra_o_expediente_nao_e_magistrado():
+    """`'Escrevente Técnico Judiciário'` é quem LAVROU o ato, não quem decidiu.
+    Andando para trás o cargo dele para o caminhamento antes de qualquer peça
+    de nome, e a leitura vira abstenção — que é o resultado seguro."""
+    assert mag.extrair(
+        'Eu, FERNANDO YASSUYUKI IWAMOTO Escrevente Técnico Judiciário') == []
+
+
+@pytest.mark.parametrize('texto', [
+    'Relator: CONFORME RODAPÉ',
+    'Relator: NOS TERMOS',
+    'Relator: DOU PARCIAL PROVIMENTO',
+])
+def test_formula_de_expediente_nao_vira_nome(texto):
+    assert mag.extrair(texto) == []

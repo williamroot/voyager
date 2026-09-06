@@ -151,6 +151,27 @@ _RUIDO = frozenset({
     'MAGISTRADAS', 'MINISTROS', 'MINISTRAS', 'RELATORES', 'DOUTORES',
     'DIREITO', 'SUBSTITUTO', 'SUBSTITUTA', 'TITULAR', 'RESPONDENDO',
     'RESPONDENTE', 'AUXILIAR', 'COOPERADOR', 'COOPERADORA',
+    # CABEÇALHO INSTITUCIONAL colado no fim do nome. Medido em 06/09/2026:
+    # `'RAFAEL PAULO SOARES PINTO PODER JUDICIÁRIO'`, `'JOAO BATISTA GOMES
+    # MOREIRA PODER JUDICIÁRIO'` — o rótulo `Relator:` fica logo antes do nome
+    # e o cabeçalho da página logo depois, sem separador que denuncie. Como
+    # PARADA isto acerta nas duas direções: para frente corta o lixo e devolve
+    # o nome CERTO; para trás para de cara e vira abstenção, que é o seguro.
+    'PODER', 'JUDICIARIO', 'JUDICIARIA', 'FORUM',
+    # CARGO DE QUEM NÃO É MAGISTRADO. `'Eu, FERNANDO YASSUYUKI IWAMOTO
+    # Escrevente Técnico Judiciário'` foi gravado como magistrado do TJSP — é o
+    # SERVIDOR que lavrou o expediente, não quem decidiu. 2.160 linhas (0,25%)
+    # carregavam um destes dentro do nome.
+    'ESCREVENTE', 'ESCRIVAO', 'DIRETOR', 'DIRETORA', 'CHEFE', 'ANALISTA',
+    'TECNICO', 'TECNICA', 'OFICIAL', 'ASSESSOR', 'ASSESSORA', 'ESTAGIARIO',
+    'ESTAGIARIA', 'SERVIDOR', 'SERVIDORA', 'PERITO', 'PERITA', 'ADVOGADO',
+    'ADVOGADA', 'PROMOTOR', 'PROMOTORA', 'PROCURADOR', 'PROCURADORA',
+    'DEFENSOR', 'DEFENSORA', 'CONCILIADOR', 'CONCILIADORA', 'MEDIADOR',
+    'MEDIADORA',
+    # PRONOME E VERBO que abrem a fórmula do expediente (`'Eu, Fulano'`,
+    # `'Nos termos'`, `'Dou parcial provimento'`). Sem eles o nome sai com o
+    # pronome grudado e a MESMA pessoa vira duas no cadastro — 230 linhas.
+    'EU', 'NOS', 'CONFORME', 'DOU', 'SERVE',
     # endereço do rodapé, que encosta na assinatura em vários tribunais
     # (medido no TJCE: `'… Fortaleza Rua … Juiz de Direito'` virava nome)
     'RUA', 'AVENIDA', 'AV', 'PRACA', 'ALAMEDA', 'RODOVIA', 'ENDERECO',
