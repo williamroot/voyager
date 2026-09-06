@@ -139,25 +139,28 @@ class Command(BaseCommand):
                 MagistradoAtuacao.objects.filter(magistrado_id__in=pks).delete()
                 apagadas += Magistrado.objects.filter(id__in=pks).delete()[0]
 
+        def _fundir(pk, trib, orgao_chave, limpa) -> bool:
+            bom = Magistrado.objects.filter(
+                tribunal_id=trib, orgao_chave=orgao_chave,
+                nome_chave=limpa).exclude(pk=pk).first()
+            if bom is None:
+                return False
+            # a unique é (magistrado, movimentacao_id): mover em massa pode
+            # colidir com atuação que a linha boa já tem. `ignore_conflicts`
+            # não serve num UPDATE, então move o que não colide e apaga o resto.
+            jah = set(MagistradoAtuacao.objects.filter(magistrado=bom)
+                      .values_list('movimentacao_id', flat=True))
+            mover = MagistradoAtuacao.objects.filter(magistrado_id=pk)
+            if jah:
+                mover.filter(movimentacao_id__in=jah).delete()
+                mover = MagistradoAtuacao.objects.filter(magistrado_id=pk)
+            mover.update(magistrado=bom)
+            Magistrado.objects.filter(id=pk).delete()
+            return True
+
         for pk, trib, orgao_chave, nome, chave, limpa in dup:
             with transaction.atomic():
-                bom = Magistrado.objects.filter(
-                    tribunal_id=trib, orgao_chave=orgao_chave,
-                    nome_chave=limpa).exclude(pk=pk).first()
-                if bom is None:            # sumiu entre a medição e a escrita
-                    continue
-                # a unique é (magistrado, movimentacao_id): mover em massa pode
-                # colidir com atuação que a linha boa já tem. `ignore_conflicts`
-                # não serve num UPDATE, então move o que não colide e apaga o resto.
-                jah = set(MagistradoAtuacao.objects.filter(magistrado=bom)
-                          .values_list('movimentacao_id', flat=True))
-                mover = MagistradoAtuacao.objects.filter(magistrado_id=pk)
-                if jah:
-                    mover.filter(movimentacao_id__in=jah).delete()
-                    mover = MagistradoAtuacao.objects.filter(magistrado_id=pk)
-                mover.update(magistrado=bom)
-                Magistrado.objects.filter(id=pk).delete()
-                fundidas += 1
+                fundidas += bool(_fundir(pk, trib, orgao_chave, limpa))
 
         for pk, trib, orgao_chave, nome, chave, limpa in torto:
             with transaction.atomic():
@@ -165,6 +168,14 @@ class Command(BaseCommand):
                 if normalizar_nome_magistrado(exibicao) != limpa:
                     # a chave limpa e o nome limpo têm de contar a MESMA coisa;
                     # divergir aqui é sinal de que a normalização mudou
+                    continue
+                # CORRIDA REAL, não hipótese: entre classificar e escrever, a
+                # varredura que está rodando cria a linha limpa e o renomear
+                # bate na unique. Medido em 06/09/2026, TJSP, 'CAMILA
+                # SILVESTRINI PAIM'. Quem virou duplicata no meio do caminho é
+                # tratado como duplicata — não como erro.
+                if _fundir(pk, trib, orgao_chave, limpa):
+                    fundidas += 1
                     continue
                 Magistrado.objects.filter(id=pk).update(
                     nome=exibicao, nome_chave=limpa)
