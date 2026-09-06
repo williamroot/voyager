@@ -788,8 +788,46 @@ def extrair_magistrados_novos() -> dict:
             'um primeiro uso, e investigue se não for.',
             CURSOR_KEY % SHARD_INCREMENTAL)
 
+    # TETO DE TEMPO NÃO É FALHA NUMA PASSADA QUE SE REPETE.
+    #
+    # O comando levanta `CommandError` ao bater qualquer teto — e está certo
+    # para uma empreitada, que tem hora para acabar. Para um job de hora em
+    # hora, "não terminei a faixa" é o estado NORMAL num dia útil: entram
+    # ~1,5 M de publicações e a passada seguinte continua do cursor.
+    #
+    # Deixar subir faria o job falhar toda hora, e um job que sempre falha é um
+    # alarme gasto — ninguém olha no dia em que a falha é de verdade.
+    #
+    # A régua não é o motivo declarado pelo comando: é se o CURSOR ANDOU.
+    # Andou e não terminou = progresso. Não andou = problema, e aí sobe.
+    from django.core.management.base import CommandError
+    try:
+        _rodar(SHARD_INCREMENTAL)
+    except CommandError as e:
+        depois = cache.get(CURSOR_KEY % SHARD_INCREMENTAL)
+        andou = (depois is not None and antes is not None
+                 and int(depois) > int(antes))
+        if not andou:
+            logger.error('extrair_magistrados_novos: parou SEM andar '
+                         '(cursor %s): %s', depois, e)
+            raise
+        logger.info('extrair_magistrados_novos: %s — cursor %s -> %s, '
+                    'continua na próxima passada', e, antes, depois)
+        return {'status': 'parcial', 'cursor': depois,
+                'avanco_pk': int(depois) - int(antes)}
+
+    depois = cache.get(CURSOR_KEY % SHARD_INCREMENTAL)
+    avanco = (int(depois) - int(antes)) if (antes and depois) else None
+    logger.info('extrair_magistrados_novos: faixa concluída, cursor %s -> %s '
+                '(avanço %s pk)', antes, depois,
+                f'{avanco:,}' if avanco is not None else '—')
+    return {'status': 'ok', 'cursor': depois, 'avanco_pk': avanco}
+
+
+def _rodar(shard: str) -> None:
+    from django.core.management import call_command
     call_command('backfill_magistrados',
-                 shard=SHARD_INCREMENTAL,
+                 shard=shard,
                  carga=CARGA,
                  max_segundos=TETO_SEGUNDOS,
                  # SEM teto de disco aqui, e é decisão consciente: o orçamento
@@ -803,9 +841,3 @@ def extrair_magistrados_novos() -> dict:
                  orcamento_bytes='0',
                  parar_ms_id=25.0,
                  verbosity=0)
-
-    depois = cache.get(CURSOR_KEY % SHARD_INCREMENTAL)
-    avanco = (int(depois) - int(antes)) if (antes and depois) else None
-    logger.info('extrair_magistrados_novos: cursor %s -> %s (avanço %s pk)',
-                antes, depois, f'{avanco:,}' if avanco is not None else '—')
-    return {'status': 'ok', 'cursor': depois, 'avanco_pk': avanco}
