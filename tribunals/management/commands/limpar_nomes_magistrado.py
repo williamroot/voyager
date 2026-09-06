@@ -97,10 +97,11 @@ class Command(BaseCommand):
         lixo, dup, torto, duvida = [], [], [], []
         for a in alvos:
             pk, trib, orgao_chave, nome, chave, limpa = a
+            toks_orig = (chave or '').split()
             toks_limpa = limpa.split()
             if len(toks_limpa) < MIN_TOKENS_NOME or marca_nao_pessoa(limpa):
                 lixo.append(a)
-            elif toks[0] in CABECALHO:
+            elif toks_orig and toks_orig[0] in CABECALHO:
                 # a fatia começou dentro do cabeçalho: o resto é a continuação
                 # dele, não um nome. Renomear daria erro plausível.
                 duvida.append(a)
