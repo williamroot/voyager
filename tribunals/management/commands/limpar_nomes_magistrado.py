@@ -20,6 +20,11 @@ manter fabrica um homônimo dela mesma.
    As atuações migram para ela e a linha suja some. Nada se perde.
 3. **nome torto** — a versão limpa não existe. RENOMEIA no lugar: as atuações
    são boas, só o nome estava errado.
+4. **duvidoso** — o resto tem duas palavras mas não convence
+   (`'CONFORME ASSEVEROU O'` → `'ASSEVEROU O'`). NÃO MEXE, e conta. Renomear
+   trocaria um erro VISÍVEL por um plausível, que é o defeito que o princípio
+   nº 1 chama de pior que zero; apagar poderia levar junto um nome com inicial
+   (`'MARIA J SILVA'`). Abster > chutar (regra nº 6).
 
 `--dry-run` é o padrão de leitura desta casa: mede e imprime, não escreve.
 """
@@ -30,7 +35,8 @@ from django.db import transaction
 
 from tribunals.models import Magistrado, MagistradoAtuacao
 from tribunals.services.magistrados import (
-    MIN_TOKENS_NOME, _RUIDO, _sem_acento, normalizar_nome_magistrado)
+    MIN_TOKENS_NOME, _RUIDO, _sem_acento, marca_nao_pessoa,
+    normalizar_nome_magistrado)
 
 #: Só o ruído que aparece DENTRO de um nome já gravado. `_RUIDO` inteiro tem
 #: token que nunca chegaria a virar nome (`'INTIME'`, `'PUBLIQUE'`), e varrer
@@ -76,11 +82,16 @@ class Command(BaseCommand):
             limpa = ' '.join(t for t in toks if t not in NO_NOME)
             alvos.append((pk, trib, orgao_chave, nome, chave, limpa))
 
-        lixo, dup, torto = [], [], []
+        lixo, dup, torto, duvida = [], [], [], []
         for a in alvos:
             pk, trib, orgao_chave, nome, chave, limpa = a
-            if len(limpa.split()) < MIN_TOKENS_NOME:
+            toks_limpa = limpa.split()
+            if len(toks_limpa) < MIN_TOKENS_NOME or marca_nao_pessoa(limpa):
                 lixo.append(a)
+            elif any(len(t) == 1 for t in toks_limpa):
+                # pode ser prosa (`'ASSEVEROU O'`) ou inicial de nome real
+                # (`'MARIA J SILVA'`). Não dá para provar qual: não mexe.
+                duvida.append(a)
             elif Magistrado.objects.filter(tribunal_id=trib,
                                            orgao_chave=orgao_chave,
                                            nome_chave=limpa).exclude(pk=pk).exists():
@@ -92,8 +103,10 @@ class Command(BaseCommand):
             f'linhas contaminadas: {len(alvos):,}\n'
             f'  lixo (apagar) ...........  {len(lixo):,}\n'
             f'  duplicata (fundir) ......  {len(dup):,}\n'
-            f'  nome torto (renomear) ...  {len(torto):,}')
-        for rot, grupo in (('lixo', lixo), ('duplicata', dup), ('torto', torto)):
+            f'  nome torto (renomear) ...  {len(torto):,}\n'
+            f'  duvidoso (NÃO MEXE) .....  {len(duvida):,}')
+        for rot, grupo in (('lixo', lixo), ('duplicata', dup), ('torto', torto),
+                           ('duvidoso', duvida)):
             for a in grupo[:3]:
                 self.stdout.write(f'    [{rot}] {a[1]} {a[4][:46]!r} -> {a[5][:40]!r}')
 
@@ -142,4 +155,4 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f'apagadas {apagadas:,} · fundidas {fundidas:,} · '
-            f'renomeadas {renomeadas:,}'))
+            f'renomeadas {renomeadas:,} · intocadas {len(duvida):,}'))
