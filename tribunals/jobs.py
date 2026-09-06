@@ -834,10 +834,18 @@ def _rodar(shard: str) -> None:
                  # se mede a partir de um ZERO compartilhado no Redis, que é do
                  # backfill de recuperação. Herdá-lo faria esta passada recusar
                  # a largada assim que aquele gastasse o teto — o incremental
-                 # morreria por causa do vizinho. O custo próprio é pequeno e
-                 # MEDIDO: 4,2 M pub/dia × 0,0053 linha/pub × 2,1 KB ≈ 47 MB/dia
-                 # (~17 GB/ano). Quem vigia esse crescimento é o
-                 # `vigia_backfills`, não este teto.
+                 # morreria por causa do vizinho.
+                 #
+                 # O custo próprio DEPENDE do que o trecho contém, e a diferença
+                 # é de 30×: numa faixa de andamento do enriquecimento a taxa é
+                 # **0,0053 linha/publicação**; numa faixa de publicação de
+                 # diário de verdade (sexta, 04/09), **0,1562**. Medido a 260,8
+                 # B/linha, o dia útil custa ~171 MB e o fim de semana quase
+                 # nada — ordem de 60 GB/ano no pior caso, não os 47 MB/dia que
+                 # eu tinha estimado com a amostra errada.
+                 #
+                 # Quem vigia esse crescimento é o `vigia_backfills`, não este
+                 # teto — e ele PRECISA vigiar, porque 60 GB/ano é material.
                  orcamento_bytes='0',
                  parar_ms_id=25.0,
                  verbosity=0)
