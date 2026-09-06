@@ -176,6 +176,30 @@ def create_scheduler() -> BlockingScheduler:
     )
     logger.info('agendado vigia_backfills (cada 15min)')
 
+    # Magistrado das publicações que acabaram de chegar: de hora em hora.
+    #
+    # O backfill varre o acervo UMA vez; a ingestão traz 4,2 M de publicações
+    # por dia (medido em 06/09/2026) e nada no caminho dela olhava para
+    # magistrado. Sem esta passada o cadastro nasce velho no dia seguinte ao
+    # backfill — e a tela mostraria cobertura alta com ausência recente, que é
+    # a pior combinação: parece completo e não está.
+    #
+    # De hora em hora, e não a cada 5 min, porque cada passada tem ~175 mil
+    # publicações pela frente e o extrator faz 6.550/s: sobra folga de 20×
+    # contra o teto de 10 min. `max_instances=1` + `coalesce` para que um dia
+    # ruim não empilhe passadas em cima do mesmo cursor.
+    from tribunals.jobs import extrair_magistrados_novos
+    scheduler.add_job(
+        extrair_magistrados_novos.delay,
+        'interval',
+        minutes=60,
+        id='extrair_magistrados_novos',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info('agendado extrair_magistrados_novos (cada 60min)')
+
     # Refresh do pool de proxies: a cada 15 min
     scheduler.add_job(
         refresh_proxy_pool.delay,

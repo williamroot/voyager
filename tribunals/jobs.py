@@ -716,3 +716,96 @@ def registrar_consumo_leads(cliente_id: int, consumos: list[dict],
     duplicados = len(procs) - criados
     return {'criados': criados, 'duplicados': duplicados,
             'nao_encontrados': nao_encontrados}
+
+
+# --------------------------------------------------------------------------- #
+# Magistrado do que ACABOU de chegar
+# --------------------------------------------------------------------------- #
+#: Fila e shard da passada incremental. O nome do shard é o do cursor no Redis
+#: (`bf:magistrados:incremental:cursor`) e não pode mudar sem migrar o cursor.
+SHARD_INCREMENTAL = 'incremental'
+
+#: Teto de relógio da passada. Medido em 06/09/2026: entram **4,2 milhões de
+#: publicações por dia** (faixa de ~5,0 M de pk), e o extrator faz 6.550/s — o
+#: dia inteiro cabe em ~11 min. Rodando de hora em hora, cada passada tem ~175
+#: mil publicações pela frente e 10 min é folga de 20×. O teto existe para o
+#: dia em que NÃO for: bater nele é ERRO no log, não `return` discreto
+#: (regra nº 2), e a passada seguinte continua do cursor.
+TETO_SEGUNDOS = 600
+
+#: Fração do tempo em que pode ocupar o banco. Mais baixa que a do backfill de
+#: recuperação (0,9) de propósito: aquele é empreitada com hora para acabar,
+#: este roda para sempre no mesmo banco que serve o site.
+CARGA = 0.3
+
+
+@job('default', timeout=900)
+def extrair_magistrados_novos() -> dict:
+    """Lê o magistrado das publicações que entraram desde a última passada.
+
+    ## Por que existe
+
+    O backfill varre o acervo UMA vez. A ingestão traz 4,2 M de publicações por
+    dia, e nada no caminho dela olhava para magistrado — medido em 06/09/2026,
+    `grep magistrado djen/` devolvia zero. Sem esta passada o cadastro nasce
+    velho no dia seguinte ao backfill: a tela mostraria cobertura alta e
+    ausência recente, que é a pior combinação — parece completo e não está.
+
+    ## Por que chama o COMANDO e não reimplementa
+
+    Extrator diferente entre ingestão e varredura é a garantia de que os dois
+    vão divergir, e o dia em que divergirem ninguém vai perceber: os dois
+    números continuam subindo. Aqui roda o MESMO `backfill_magistrados`, com o
+    mesmo cursor no Redis, o mesmo kill switch e o mesmo orçamento de bytes.
+
+    ## Por que não é gancho no `bulk_create`
+
+    `bulk_create(ignore_conflicts=True)` **não devolve pk**, e
+    `MagistradoAtuacao` precisa de `movimentacao_id`. Pendurar ali exigiria um
+    SELECT extra por página no caminho quente da ingestão — que é onde a regra
+    nº 7 já cobrou o preço uma vez. A passada por faixa de pk lê o mesmo dado,
+    fora do caminho crítico, com teto de tempo e freio proporcional.
+    """
+    from django.core.cache import cache
+    from django.core.management import call_command
+
+    from tribunals.management.commands.backfill_magistrados import (
+        CURSOR_KEY, PAUSA_KEY)
+
+    if cache.get(PAUSA_KEY):
+        logger.warning('extrair_magistrados_novos: kill switch ligado, pulando')
+        return {'status': 'pausado'}
+
+    antes = cache.get(CURSOR_KEY % SHARD_INCREMENTAL)
+    if antes is None:
+        # Cursor ausente NÃO pode ancorar em `agora`: seria a perda silenciosa
+        # do watermark (medida em 31/08/2026 — 524.945 docs faltando com os
+        # três instrumentos verdes). Sem cursor o comando começa em 0 e
+        # RE-VARRE, que é caro e visível. Caro e visível > barato e mudo.
+        logger.error(
+            'extrair_magistrados_novos: cursor %r AUSENTE — a passada vai '
+            'recomeçar do pk 0. Semeie com o max(id) da tabela se isto for '
+            'um primeiro uso, e investigue se não for.',
+            CURSOR_KEY % SHARD_INCREMENTAL)
+
+    call_command('backfill_magistrados',
+                 shard=SHARD_INCREMENTAL,
+                 carga=CARGA,
+                 max_segundos=TETO_SEGUNDOS,
+                 # SEM teto de disco aqui, e é decisão consciente: o orçamento
+                 # se mede a partir de um ZERO compartilhado no Redis, que é do
+                 # backfill de recuperação. Herdá-lo faria esta passada recusar
+                 # a largada assim que aquele gastasse o teto — o incremental
+                 # morreria por causa do vizinho. O custo próprio é pequeno e
+                 # MEDIDO: 4,2 M pub/dia × 0,0053 linha/pub × 2,1 KB ≈ 47 MB/dia
+                 # (~17 GB/ano). Quem vigia esse crescimento é o
+                 # `vigia_backfills`, não este teto.
+                 orcamento_bytes='0',
+                 parar_ms_id=25.0,
+                 verbosity=0)
+
+    depois = cache.get(CURSOR_KEY % SHARD_INCREMENTAL)
+    avanco = (int(depois) - int(antes)) if (antes and depois) else None
+    logger.info('extrair_magistrados_novos: cursor %s -> %s (avanço %s pk)',
+                antes, depois, f'{avanco:,}' if avanco is not None else '—')
+    return {'status': 'ok', 'cursor': depois, 'avanco_pk': avanco}
