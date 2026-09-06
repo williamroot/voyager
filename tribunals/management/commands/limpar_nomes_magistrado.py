@@ -51,6 +51,18 @@ NO_NOME = frozenset({
     'EU', 'NOS', 'CONFORME', 'DOU', 'SERVE',
 }) & _RUIDO
 
+#: Ruído de ABERTURA: a fórmula do expediente vem ANTES do nome, então tirá-lo
+#: do começo devolve a pessoa (`'Eu, Rafaela Caldeira Gonçalves'`).
+ABERTURA = frozenset({'EU', 'NOS', 'CONFORME', 'DOU', 'SERVE'}) & NO_NOME
+
+#: Ruído de CABEÇALHO/CARGO. No FIM do nome ele é sujeira colada e o que sobra
+#: é a pessoa (`'JOAO BATISTA GOMES MOREIRA PODER JUDICIARIO'`). No COMEÇO é
+#: outra coisa: quer dizer que a fatia começou DENTRO do cabeçalho, e o que
+#: sobra tende a ser a continuação dele, não gente —
+#: `'JUDICIARIA MINAS GERAIS'` → `'MINAS GERAIS'`, que passaria em qualquer
+#: régua de forma e não é pessoa nenhuma.
+CABECALHO = NO_NOME - ABERTURA
+
 
 def _limpar_exibicao(nome: str) -> str:
     """Tira do nome de EXIBIÇÃO os mesmos tokens, preservando acento e caixa.
@@ -88,6 +100,10 @@ class Command(BaseCommand):
             toks_limpa = limpa.split()
             if len(toks_limpa) < MIN_TOKENS_NOME or marca_nao_pessoa(limpa):
                 lixo.append(a)
+            elif toks[0] in CABECALHO:
+                # a fatia começou dentro do cabeçalho: o resto é a continuação
+                # dele, não um nome. Renomear daria erro plausível.
+                duvida.append(a)
             elif any(len(t) == 1 for t in toks_limpa):
                 # pode ser prosa (`'ASSEVEROU O'`) ou inicial de nome real
                 # (`'MARIA J SILVA'`). Não dá para provar qual: não mexe.
