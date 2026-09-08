@@ -194,7 +194,10 @@ def _fabricar(sigla: str):
     }
     base, lista, detalhe = urls[sigla]
     classe = type(f'{sigla}Leve', (_EnricherLeve,), {
-        'TRIBUNAL_SIGLA': sigla, 'BASE_URL': base, 'PREFER_CORTEX': False,
+        # NÃO declare aqui atributo que o enricher real não tem: foi assim que
+        # `PREFER_CORTEX` (que só existe no e-SAJ) passou batido e quebrou os
+        # cinco PJe na primeira busca em produção.
+        'TRIBUNAL_SIGLA': sigla, 'BASE_URL': base,
         'LIST_URL': base + (lista or ''), 'DETALHE_PATH': detalhe or '',
         'SEARCH_PATH': '/consultaprocessual/ProcessosJudiciais/v2',
     })
