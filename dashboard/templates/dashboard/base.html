@@ -500,6 +500,17 @@
         <span class="nav-tag" aria-hidden="true">✨</span>
       </a>
       {% endif %}
+      {% comment %} Vizinha da busca no índice, e separada dela de propósito:
+         esta vai à consulta pública do tribunal AO VIVO, é assíncrona e
+         responde por tribunal. O ícone `search` é o mesmo conferido no sprite.
+         {% endcomment %}
+      {% url 'dashboard:busca-tribunal' as busca_trib_url %}
+      {% if busca_trib_url %}
+      <a href="{{ busca_trib_url }}" class="nav-item {% if request.path == busca_trib_url %}active{% endif %}">
+        {% voy_icon "search" "w-4 h-4" %}
+        <span class="nav-label">Buscar no tribunal</span>
+      </a>
+      {% endif %}
       <a href="{{ overview_url }}" class="nav-item {% if request.path == overview_url %}active{% endif %}">
         {% voy_icon "probe" "w-4 h-4" %}
         Visão geral

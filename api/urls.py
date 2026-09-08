@@ -2,6 +2,7 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
+from . import busca_tribunal_views
 from . import busca_views
 from . import diarios_views
 from . import leads as leads_views
@@ -37,6 +38,16 @@ urlpatterns = [
     path('busca/processos/<str:cnj>/movimentacoes/',
          busca_views.busca_processo_movimentacoes, name='busca-processo-movs'),
     path('busca/movimentacoes/', busca_views.busca_movimentacoes, name='busca-movimentacoes'),
+
+    # Busca POR PARTE ao vivo na consulta pública dos tribunais (assíncrona).
+    # `catalogo` vem ANTES da rota com <run_id> — senão "catalogo" seria lido
+    # como um id de run e a rota nunca casaria.
+    path('busca/tribunal/catalogo/', busca_tribunal_views.catalogo,
+         name='busca-tribunal-catalogo'),
+    path('busca/tribunal/', busca_tribunal_views.criar_busca,
+         name='busca-tribunal-criar'),
+    path('busca/tribunal/<str:run_id>/', busca_tribunal_views.ler_busca,
+         name='busca-tribunal-ler'),
 
     # Diários Oficiais (Jusbrasil/Digesto-compat)
     path('diarios-oficiais/doc/buscar', diarios_views.diario_buscar, name='diario-buscar'),

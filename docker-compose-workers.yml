@@ -571,3 +571,32 @@ services:
       #     no Postgres (já disk-I/O-bound), não antes: §5.2 do DIARIOS.md.
       replicas: 2
     restart: unless-stopped
+
+  worker_busca:
+    image: voyager-web:prod
+    # As DUAS filas no mesmo worker, nesta ordem: `busca_ao_vivo` primeiro
+    # porque tem gente esperando na tela; a hidratação do que foi achado pode
+    # esperar alguns segundos. O rqworker esvazia a primeira antes de olhar a
+    # segunda, que é exatamente a prioridade desejada.
+    command: python manage.py rqworker busca_ao_vivo busca_hidratacao
+    env_file: .env
+    volumes:
+      - .:/app
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # 512m: o job de busca é o mesmo perfil dos enrichers e-SAJ/PJe (HTML de
+    # 35-130 KB por página, parser BS4, nada acumulado além da página) e aqueles
+    # rodam com 512-640m há meses.
+    mem_limit: 512m
+    deploy:
+      # 4 réplicas: um job = um tribunal, e uma busca "em todos" enfileira até
+      # 9. Com 4 workers os nove terminam em duas levas, e o pior caso medido
+      # por tribunal é 71 s (e-SAJ com mil processos). Subir isso é decisão
+      # DEPOIS de medir a pressão no pool de proxies, que é compartilhado com
+      # o enriquecimento em massa.
+      replicas: 4
+    restart: unless-stopped

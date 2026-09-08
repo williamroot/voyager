@@ -1,0 +1,43 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 384 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+14 TL
+(AMOSTRA DE TESTE - CAMADA DE PRE-PROCESSAMENTO) Tj T*
+() Tj T*
+(Este documento existe para validar a conversao para Markdown.) Tj T*
+(Frase-chave de verificacao: PIPOCA-VERDE-1568) Tj T*
+() Tj T*
+(Valores para conferir no OCR: R$ 12.345,67 - clausula 4.2 - CNPJ 00.000.000/0001-91) Tj T*
+(Acentuacao: coracao, atencao, pressao, judicial, licao.) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000676 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+746
+%%EOF

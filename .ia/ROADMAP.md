@@ -38,7 +38,26 @@ Itens pendentes ou planejados, organizados por prioridade.
 
 ## Alta — desbloqueiam casos de uso
 
-- [ ] **Backfill TRF1+TRF3 100% até hoje** — em curso (parado em 18/10/2024 — re-disparado pelo watchdog)
+- [ ] **Furar o teto de 30 do PJe fatiando por janela de autuação.** O teto é por
+      CONSULTA, não por parte: o mesmo formulário `fPP` que hoje só recebe o
+      documento carrega `dataAutuacaoInicioInputDate`/`dataAutuacaoFimInputDate`
+      e `classeJudicial` (confirmado no HAR do TRF3, 04/09/2026). Buscar o mesmo
+      CNPJ ano a ano faz cada janela devolver até 30, e a soma cobre o que uma
+      consulta só nunca traz — medido: a UFSCar tem 1.372 processos no TRF3 e a
+      consulta pública entrega 30. Vale para os cinco PJe. Cuidado ao desenhar:
+      cada janela é uma requisição, e o custo por requisição na busca por ente
+      grande já é de minutos.
+- [ ] **Medir o teto na área LOGADA do PJe.** O cliente autenticado do JURISCOPE
+      (`datamodel/processors/trf3.py`) monta um form bem mais rico — OAB,
+      jurisdição, órgão julgador e **valor da causa** —, mas só busca por CNJ,
+      então ninguém sabe se o teto de 30 cai lá. Para precatório, o filtro de
+      valor seria o mais útil de todos.
+- [ ] **Busca POR PARTE ao vivo — deploy.** Código pronto, testado e com a
+      matriz 9 × 4 validada ao vivo (36/36). Falta: deploy + `docker compose -f
+      docker-compose-workers.yml up -d worker_busca`, e refazer
+      `scripts/validar_busca_parte.py` de dentro do container (para exercitar a
+      malha de proxies, que a rodada de fora não cobre). Do outro lado, o
+      Juriscope troca a busca local dele por esta API.
 - [ ] **`pg_dump` diário automático** — job RQ na fila `default` ~03:00 + retenção 30d local + S3 opcional
 - [ ] **2FA no admin** via `django-otp` — pra exposição pública
 

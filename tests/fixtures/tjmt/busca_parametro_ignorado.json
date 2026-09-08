@@ -1,0 +1,20 @@
+[
+  {
+    "url": "https://hellsgate.tjmt.jus.br/consultaprocessual/ProcessosJudiciais/v2?Skip=0&Take=10&documento=111.444.777-35",
+    "status": 200,
+    "bytes": 51447,
+    "amostra": "{\"pagina\":0,\"totalPaginas\":1167278,\"totalRegistros\":11672774,\"itens\":[{\"links\":{\"detalhe\":\"http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/10404888920268110000/15150992\"},\"nomePartePoloAtivo\":\"\",\"nomePartePoloPassivo\":\"\",\"ultimoEvento\":{\"data\":\"2026-09-04T16:10:19.755-04:00\",\"descricao\":\"Ato ordinatório praticado\",\"tipo\":\"Ato ordinatório\",\"idProcesso\":0,\"idProcessoEvento\":253334864,\"c"
+  },
+  {
+    "url": "https://hellsgate.tjmt.jus.br/consultaprocessual/ProcessosJudiciais/v2?Skip=0&Take=10&nomeParte=111.444.777-35",
+    "status": 200,
+    "bytes": 51447,
+    "amostra": "{\"pagina\":0,\"totalPaginas\":1167278,\"totalRegistros\":11672774,\"itens\":[{\"links\":{\"detalhe\":\"http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/10404888920268110000/15150992\"},\"nomePartePoloAtivo\":\"\",\"nomePartePoloPassivo\":\"\",\"ultimoEvento\":{\"data\":\"2026-09-04T16:10:19.755-04:00\",\"descricao\":\"Ato ordinatório praticado\",\"tipo\":\"Ato ordinatório\",\"idProcesso\":0,\"idProcessoEvento\":253334864,\"c"
+  },
+  {
+    "url": "https://hellsgate.tjmt.jus.br/consultaprocessual/ProcessosJudiciais/v2?Skip=0&Take=10&cpfCnpj=11144477735",
+    "status": 200,
+    "bytes": 51447,
+    "amostra": "{\"pagina\":0,\"totalPaginas\":1167278,\"totalRegistros\":11672774,\"itens\":[{\"links\":{\"detalhe\":\"http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/10404888920268110000/15150992\"},\"nomePartePoloAtivo\":\"\",\"nomePartePoloPassivo\":\"\",\"ultimoEvento\":{\"data\":\"2026-09-04T16:10:19.755-04:00\",\"descricao\":\"Ato ordinatório praticado\",\"tipo\":\"Ato ordinatório\",\"idProcesso\":0,\"idProcessoEvento\":253334864,\"c"
+  }
+]

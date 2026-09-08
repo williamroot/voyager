@@ -4,6 +4,7 @@ from django.views.generic.base import RedirectView
 
 from . import views, completude_views
 from . import acompanhamento_views
+from . import busca_tribunal_views
 from . import busca_views
 from . import estoque_views, magistrado_views
 from . import overview_views
@@ -131,6 +132,13 @@ urlpatterns = [
     # Reusa o mesmo serviço da API externa /api/v1/busca/* (search/busca_api.py);
     # o que muda aqui é o envelope de cobertura ("CPF varre 0,14% da base").
     path('busca/', busca_views.busca_page, name='busca'),
+    # Busca POR PARTE ao vivo na consulta pública (tela nova, mecânica outra:
+    # assíncrona e por tribunal — ver dashboard/busca_tribunal_views.py).
+    path('busca-tribunal/', busca_tribunal_views.pagina, name='busca-tribunal'),
+    path('api/busca-tribunal/criar/', busca_tribunal_views.criar,
+         name='busca-tribunal-criar'),
+    path('api/busca-tribunal/ler/', busca_tribunal_views.ler,
+         name='busca-tribunal-ler'),
     path('api/busca/processos/', busca_views.busca_processos,
          name='busca-processos'),
     path('api/busca/varas/', busca_views.busca_varas, name='busca-varas'),

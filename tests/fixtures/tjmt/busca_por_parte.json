@@ -1,0 +1,1994 @@
+{
+  "parteNome": {
+    "params": {
+      "parteNome": "MARIA JOSE DOS SANTOS"
+    },
+    "status": 200,
+    "total": 1159,
+    "amostra": [
+      {
+        "links": {
+          "detalhe": "http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/10455680820268110041/6170494"
+        },
+        "nomePartePoloAtivo": "",
+        "nomePartePoloPassivo": "",
+        "ultimoEvento": {
+          "data": "2026-09-03T17:49:03.639-04:00",
+          "descricao": "Expedida/certificada a intimação eletrônica",
+          "tipo": "Expedida/certificada",
+          "idProcesso": 0,
+          "idProcessoEvento": 476030797,
+          "codigoTipoEvento": 12265,
+          "parametroArquivamento": 1000000151,
+          "sigilo": false,
+          "valorComplemento": null,
+          "tipoComplemento": null,
+          "documentos": null
+        },
+        "partes": [
+          {
+            "dataNascimento": "1952-06-29T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA JOSE DOS SANTOS"
+            },
+            "tipo": {
+              "idTipoParte": 47,
+              "descricao": "REPRESENTANTE"
+            },
+            "tipoParticipacaoProcessual": "Ativo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "A",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 5412148,
+            "nome": "MARIA JOSE DOS SANTOS MADEIRO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "81506945449"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 47,
+              "descricao": "REPRESENTANTE"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 250259,
+            "nome": "MUNICÍPIO DE GUARANTÃ DO NORTE",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "03239019000183"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 47,
+              "descricao": "REPRESENTANTE"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 5668,
+            "nome": "ESTADO DE MATO GROSSO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "03507415000144"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 47,
+              "descricao": "REPRESENTANTE"
+            },
+            "tipoParticipacaoProcessual": "Ativo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "A",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 5669,
+            "nome": "MINISTÉRIO PÚBLICO DO ESTADO DE MATO GROSSO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "14921092000157"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "ULISSES DUARTE JÚNIOR",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "58280871187"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "7459"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "VANDERLEI NEZZI",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "65179200130"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "8452"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 137242,
+            "nome": "HOSPITAL E MATERNIDADE DOIS PINHEIROS LTDA - EPP",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "14931414000149"
+              }
+            ]
+          }
+        ],
+        "idSistema": 1,
+        "jurisdicao": {
+          "idJurisdicao": 172,
+          "nome": "VÁRZEA GRANDE SAÚDE"
+        },
+        "idOrgaoJulgador": 735,
+        "orgaoJulgador": "CEJUSC - CENTRO JUDICIÁRIO DE SOLUÇÃO DE CONFLITO E CIDADANIA DA SAÚDE PÚBLICA",
+        "idOrgaoJulgadorColegiado": 0,
+        "orgaoJulgadorColegiado": null,
+        "dataHoraInicio": "2026-07-17T17:53:54.617",
+        "dataDessobrestamento": null,
+        "dataSobrestamento": null,
+        "idGrauJurisdicao": 1,
+        "idInstancia": 1,
+        "valorCausa": 1621.0,
+        "codigoProcesso": 6170494,
+        "processoCriminal": false,
+        "codigoProcessoStr": "6170494",
+        "arquivado": false,
+        "dataArquivamento": null,
+        "cadeiraCompetenteNome": null,
+        "historicoArquivamento": [],
+        "count": 0,
+        "protocolo": {
+          "numero": 1045568,
+          "ano": 2026,
+          "dataProtocolo": null
+        },
+        "numeroUnico": "10455680820268110041",
+        "segredo": false,
+        "classe": {
+          "idClasse": 0,
+          "codigo": 65,
+          "nome": "AÇÃO CIVIL PÚBLICA CÍVEL",
+          "hierarquia": "PROCESSO CÍVEL E DO TRABALHO (2) | PROCESSO DE CONHECIMENTO (1106) | PROCEDIMENTO DE CONHECIMENTO (1107) | PROCEDIMENTOS ESPECIAIS (26) | PROCEDIMENTOS REGIDOS POR OUTROS CÓDIGOS, LEIS ESPARSAS E REGIMENTOS (62) | AÇÃO CIVIL PÚBLICA CÍVEL (65)",
+          "permitida": true
+        },
+        "idNivelVisibilidade": 0
+      },
+      {
+        "links": {
+          "detalhe": "http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/10193779120248110041/4567576"
+        },
+        "nomePartePoloAtivo": "",
+        "nomePartePoloPassivo": "",
+        "ultimoEvento": {
+          "data": "2026-09-03T16:28:20.006-04:00",
+          "descricao": "Juntada de Petição de ciência",
+          "tipo": "Petição",
+          "idProcesso": 0,
+          "idProcessoEvento": 476005974,
+          "codigoTipoEvento": 85,
+          "parametroArquivamento": 215,
+          "sigilo": false,
+          "valorComplemento": null,
+          "tipoComplemento": null,
+          "documentos": null
+        },
+        "partes": [
+          {
+            "dataNascimento": "1956-09-02T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "IZAURA ARCANJO DOS SANTOS"
+            },
+            "tipo": {
+              "idTipoParte": 2,
+              "descricao": "REQUERIDO"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 3970737,
+            "nome": "MARIA JOSE DOS SANTOS",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "28241578873"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1980-04-17T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "LIZABETE MARIA ARCANJO"
+            },
+            "tipo": {
+              "idTipoParte": 5,
+              "descricao": "AUTOR(A)"
+            },
+            "tipoParticipacaoProcessual": "Ativo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "A",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "RAFAELA KERLY MOREIRA DA COSTA",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "00576551112"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "19786/O"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 3970732,
+            "nome": "RERMERSON ARCANJO FILHO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "69301549115"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 217,
+              "descricao": "CUSTOS LEGIS"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 5669,
+            "nome": "MINISTÉRIO PÚBLICO DO ESTADO DE MATO GROSSO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "14921092000157"
+              }
+            ]
+          }
+        ],
+        "idSistema": 1,
+        "jurisdicao": {
+          "idJurisdicao": 10,
+          "nome": "DIAMANTINO"
+        },
+        "idOrgaoJulgador": 176,
+        "orgaoJulgador": "1ª VARA CÍVEL DE DIAMANTINO",
+        "idOrgaoJulgadorColegiado": 0,
+        "orgaoJulgadorColegiado": null,
+        "dataHoraInicio": "2024-05-10T17:33:42.296",
+        "dataDessobrestamento": null,
+        "dataSobrestamento": null,
+        "idGrauJurisdicao": 1,
+        "idInstancia": 1,
+        "valorCausa": 1412.0,
+        "codigoProcesso": 4567576,
+        "processoCriminal": false,
+        "codigoProcessoStr": "4567576",
+        "arquivado": false,
+        "dataArquivamento": null,
+        "cadeiraCompetenteNome": null,
+        "historicoArquivamento": [],
+        "count": 0,
+        "protocolo": {
+          "numero": 1019377,
+          "ano": 2024,
+          "dataProtocolo": null
+        },
+        "numeroUnico": "10193779120248110041",
+        "segredo": false,
+        "classe": {
+          "idClasse": 0,
+          "codigo": 58,
+          "nome": "INTERDIÇÃO/CURATELA",
+          "hierarquia": "PROCESSO CÍVEL E DO TRABALHO (2) | PROCESSO DE CONHECIMENTO (1106) | PROCEDIMENTO DE CONHECIMENTO (1107) | PROCEDIMENTOS ESPECIAIS (26) | PROCEDIMENTOS ESPECIAIS DE JURISDIÇÃO VOLUNTÁRIA (50) | INTERDIÇÃO/CURATELA (58)",
+          "permitida": true
+        },
+        "idNivelVisibilidade": 0
+      }
+    ]
+  },
+  "parteCpfCnpj": {
+    "params": {
+      "parteCpfCnpj": "11144477735"
+    },
+    "status": 200,
+    "total": 0,
+    "amostra": []
+  },
+  "advogadoOAB": {
+    "params": {
+      "advogadoOAB": "20688"
+    },
+    "status": 200,
+    "total": 112,
+    "amostra": [
+      {
+        "links": {
+          "detalhe": "http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/00053094920168110037/33647807"
+        },
+        "nomePartePoloAtivo": "",
+        "nomePartePoloPassivo": "",
+        "ultimoEvento": {
+          "data": "2025-02-14T14:00:27-04:00",
+          "descricao": "Processo Encaminhado para Distribuição no Sistema PJE - Processo Judicial Eletrônico",
+          "tipo": "Expedição de documento",
+          "idProcesso": 0,
+          "idProcessoEvento": 10037000013283222,
+          "codigoTipoEvento": 60,
+          "parametroArquivamento": 0,
+          "sigilo": false,
+          "valorComplemento": null,
+          "tipoComplemento": null,
+          "documentos": null
+        },
+        "partes": [
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 14,
+              "descricao": "Impetrado(a)"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": null,
+              "descricao": null
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "FERNANDA LEMOS FERNANDES RIGO",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "00472814133"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "18480/B"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "ROSECLER SZADKOSKI",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "56728115153"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "MT-7325/O"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "JANAINA OTTONELLI WOLFF",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "17269"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "ELYJAKSON DA SILVA LOPES",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "01531479111"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "MT-21816/O"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "GIOVANA BACH",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "00335015131"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "MT-23696/O"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "RENATA CARRETO",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "28403381816"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "MT-18929/B"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 8511,
+            "nome": "PREFEITO MUNICIPAL DE PRIMAVERA DO LESTE - MT",
+            "documentos": []
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 14,
+              "descricao": "Impetrado(a)"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": null,
+              "descricao": null
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "RAFAEL SOLDERA",
+                "documentos": null
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 109004,
+            "nome": "SECRETÁRIA DE ADMINISTRAÇÃO DO MUNICÍPIO DE PRIMAVERA DO LESTE -MT",
+            "documentos": []
+          },
+          {
+            "dataNascimento": "1962-02-24T00:00:00",
+            "filiacao": {
+              "nomePai": "JACY RODRIGUES DA SILVA E MARGA MANN DA SILVA",
+              "nomeMae": "JACY RODRIGUES DA SILVA E MARGA MANN DA SILVA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "Impetrante(s)"
+            },
+            "tipoParticipacaoProcessual": "Ativo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": null,
+              "descricao": null
+            },
+            "idTipoParticipacaoProcessual": "A",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "RAFAEL SOLDERA DALLEK",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "02251568140"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "20688"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "JULIANA PADILHA DE LIMA",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "01173902163"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "MT 21010/O"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 22865,
+            "nome": "JOSÉ GILBERTO RODRIGUES DA SILVA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "35141212068"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 14,
+              "descricao": "Impetrado(a)"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": null,
+              "descricao": null
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 101992,
+            "nome": "SECRETARIA MUNICIPAL DE ASSISTENCIA SOCIAL DE PRIMAVERA DO LESTE",
+            "documentos": []
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 14,
+              "descricao": "Impetrado(a)"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": null,
+              "descricao": null
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 114434,
+            "nome": "ASSESSOR JURÍDICO DA PREFEITURA MUNICIPAL DE PRIMAVERA DO LESTE-MT",
+            "documentos": []
+          }
+        ],
+        "idSistema": 5,
+        "jurisdicao": {
+          "idJurisdicao": 37,
+          "nome": "Primavera do Leste"
+        },
+        "idOrgaoJulgador": 209,
+        "orgaoJulgador": "Quarta Vara Cível",
+        "idOrgaoJulgadorColegiado": 0,
+        "orgaoJulgadorColegiado": null,
+        "dataHoraInicio": "2016-07-15T00:00:00",
+        "dataDessobrestamento": null,
+        "dataSobrestamento": null,
+        "idGrauJurisdicao": 0,
+        "idInstancia": 1,
+        "valorCausa": 1000.0,
+        "codigoProcesso": 33647807,
+        "processoCriminal": false,
+        "codigoProcessoStr": "33647807",
+        "arquivado": true,
+        "dataArquivamento": "2021-05-17T00:00:00",
+        "cadeiraCompetenteNome": null,
+        "historicoArquivamento": [
+          {
+            "idProcessoEvento": 0,
+            "data": "2021-05-17T00:00:00-04:00"
+          }
+        ],
+        "count": 0,
+        "protocolo": {
+          "numero": 0,
+          "ano": 0,
+          "dataProtocolo": null
+        },
+        "numeroUnico": "00053094920168110037",
+        "segredo": false,
+        "classe": {
+          "idClasse": 0,
+          "codigo": 120,
+          "nome": "Mandado de Segurança Cível",
+          "hierarquia": "Mandado de Segurança->Procedimentos Regidos por Outros Códigos, Leis Esparsas e Regimentos->Procedimentos Especiais->Procedimento de Conhecimento->Processo de Conhecimento->PROCESSO CÍVEL E DO TRABALHO",
+          "permitida": true
+        },
+        "idNivelVisibilidade": 0
+      },
+      {
+        "links": {
+          "detalhe": "http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/00072881720148110037/33218007"
+        },
+        "nomePartePoloAtivo": "",
+        "nomePartePoloPassivo": "",
+        "ultimoEvento": {
+          "data": "2024-02-28T12:31:41-04:00",
+          "descricao": "Processo enviado Em Carga para Central de Arrecadação  .",
+          "tipo": "Remessa",
+          "idProcesso": 0,
+          "idProcessoEvento": 10037000013280762,
+          "codigoTipoEvento": 123,
+          "parametroArquivamento": 0,
+          "sigilo": false,
+          "valorComplemento": null,
+          "tipoComplemento": null,
+          "documentos": null
+        },
+        "partes": [
+          {
+            "dataNascimento": "1976-10-15T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 13,
+              "descricao": "Requerente"
+            },
+            "tipoParticipacaoProcessual": "Ativo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": null,
+              "descricao": null
+            },
+            "idTipoParticipacaoProcessual": "A",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "RAFAEL SOLDERA DALLEK",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "02251568140"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "20688"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "WAGNER AUGUSTO BUSS",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "85039543115"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "12628 B- MT"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 85380,
+            "nome": "ELIENE ANGELICA BARBOZA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "88459462153"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 19,
+              "descricao": "Requerido(a)"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": null,
+              "descricao": null
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 6297,
+            "nome": "MUNICIPIO DE PRIMAVERA DO LESTE",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "01974088000105"
+              }
+            ]
+          }
+        ],
+        "idSistema": 5,
+        "jurisdicao": {
+          "idJurisdicao": 37,
+          "nome": "Primavera do Leste"
+        },
+        "idOrgaoJulgador": 209,
+        "orgaoJulgador": "Quarta Vara Cível",
+        "idOrgaoJulgadorColegiado": 0,
+        "orgaoJulgadorColegiado": null,
+        "dataHoraInicio": "2014-08-18T00:00:00",
+        "dataDessobrestamento": null,
+        "dataSobrestamento": null,
+        "idGrauJurisdicao": 0,
+        "idInstancia": 1,
+        "valorCausa": 21668.72,
+        "codigoProcesso": 33218007,
+        "processoCriminal": false,
+        "codigoProcessoStr": "33218007",
+        "arquivado": true,
+        "dataArquivamento": "2018-07-18T00:00:00",
+        "cadeiraCompetenteNome": null,
+        "historicoArquivamento": [
+          {
+            "idProcessoEvento": 0,
+            "data": "2018-07-18T00:00:00-04:00"
+          }
+        ],
+        "count": 0,
+        "protocolo": {
+          "numero": 0,
+          "ano": 0,
+          "dataProtocolo": null
+        },
+        "numeroUnico": "00072881720148110037",
+        "segredo": false,
+        "classe": {
+          "idClasse": 0,
+          "codigo": 22,
+          "nome": "Procedimento Sumário",
+          "hierarquia": "Procedimento Sumário->Procedimento de Conhecimento->Processo de Conhecimento->PROCESSO CÍVEL E DO TRABALHO",
+          "permitida": true
+        },
+        "idNivelVisibilidade": 0
+      }
+    ]
+  },
+  "NomeOab": {
+    "params": {
+      "NomeOab": "JOAO"
+    },
+    "status": 200,
+    "total": 507896,
+    "amostra": [
+      {
+        "links": {
+          "detalhe": "http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/10404888920268110000/15150992"
+        },
+        "nomePartePoloAtivo": "",
+        "nomePartePoloPassivo": "",
+        "ultimoEvento": {
+          "data": "2026-09-04T16:10:19.755-04:00",
+          "descricao": "Ato ordinatório praticado",
+          "tipo": "Ato ordinatório",
+          "idProcesso": 0,
+          "idProcessoEvento": 253334864,
+          "codigoTipoEvento": 11383,
+          "parametroArquivamento": 286,
+          "sigilo": false,
+          "valorComplemento": null,
+          "tipoComplemento": null,
+          "documentos": null
+        },
+        "partes": [
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 53,
+              "descricao": "AGRAVADO"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 8161833,
+            "nome": "CARTOS SOCIEDADE DE CREDITO DIRETO S.A.",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "21332862000191"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 53,
+              "descricao": "AGRAVADO"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "DENNER DE BARROS E MASCARENHAS BARBOSA",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "56896204168"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "13245"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 8008344,
+            "nome": "FUTURO SOCIEDADE DE CREDITO DIRETO S.A.",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "45745537000119"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 53,
+              "descricao": "AGRAVADO"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 8993,
+            "nome": "BANCO DO BRASIL SA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "00000000000191"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1958-12-04T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "ANDRELINA DE ARRUDA SILVA"
+            },
+            "tipo": {
+              "idTipoParte": 52,
+              "descricao": "AGRAVANTE"
+            },
+            "tipoParticipacaoProcessual": "Ativo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "A",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "DENY SULIVAN BARRETO CAMPOS RAMOS",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "02272470190"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "25973"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "RODOLFO AMORIM MOLINA",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "00891430199"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "21636"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 13588372,
+            "nome": "JOAO BATISTA DA SILVA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "24109045134"
+              }
+            ]
+          }
+        ],
+        "idSistema": 2,
+        "jurisdicao": {
+          "idJurisdicao": 2,
+          "nome": "TJMT - 2º Grau"
+        },
+        "idOrgaoJulgador": 20,
+        "orgaoJulgador": "Gabinete 1 - Terceira Câmara de Direito Privado",
+        "idOrgaoJulgadorColegiado": 9,
+        "orgaoJulgadorColegiado": "Terceira Câmara de Direito Privado",
+        "dataHoraInicio": "2026-08-28T19:04:28.836",
+        "dataDessobrestamento": null,
+        "dataSobrestamento": null,
+        "idGrauJurisdicao": 2,
+        "idInstancia": 2,
+        "valorCausa": 1383795.66,
+        "codigoProcesso": 15150992,
+        "processoCriminal": false,
+        "codigoProcessoStr": "15150992",
+        "arquivado": false,
+        "dataArquivamento": null,
+        "cadeiraCompetenteNome": null,
+        "historicoArquivamento": [],
+        "count": 0,
+        "protocolo": {
+          "numero": 1040488,
+          "ano": 2026,
+          "dataProtocolo": null
+        },
+        "numeroUnico": "10404888920268110000",
+        "segredo": false,
+        "classe": {
+          "idClasse": 0,
+          "codigo": 202,
+          "nome": "AGRAVO DE INSTRUMENTO",
+          "hierarquia": "PROCESSO CÍVEL E DO TRABALHO (2) | RECURSOS (197) | AGRAVOS (200) | AGRAVO DE INSTRUMENTO (202)",
+          "permitida": true
+        },
+        "idNivelVisibilidade": 0
+      },
+      {
+        "links": {
+          "detalhe": "http://consultaprocessual-api.tjmt.jus.br/ProcessosJudiciais/10418607320268110000/15205505"
+        },
+        "nomePartePoloAtivo": "",
+        "nomePartePoloPassivo": "",
+        "ultimoEvento": {
+          "data": "2026-09-04T16:09:48.34-04:00",
+          "descricao": "Conclusos para decisão",
+          "tipo": "Conclusão",
+          "idProcesso": 0,
+          "idProcessoEvento": 253335847,
+          "codigoTipoEvento": 51,
+          "parametroArquivamento": 251,
+          "sigilo": false,
+          "valorComplemento": null,
+          "tipoComplemento": null,
+          "documentos": null
+        },
+        "partes": [
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 13497839,
+            "nome": "IBRASP - INSTITUTO BRASILEIRO DE APOIO A ADMINISTRACAO PUBLICA - LTDA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "31096331000109"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 6901,
+            "nome": "MUNICIPIO DE RIBEIRAO CASCALHEIRA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "24772113000173"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1982-11-26T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARINALVA FURTADO PIMENTEL"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23741936,
+            "nome": "NOELAHAM PIMENTEL ALVES",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "02151426165"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1991-04-05T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA LUCIA DOMINGOS VIEIRA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23741935,
+            "nome": "WELLEM DOMINGOS VIEIRA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "15429909718"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1966-04-15T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA DAS NEVES SOBRINHOS"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23741934,
+            "nome": "MARIA LUCIA DOMINGOS VIEIRA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "42991200197"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1985-11-29T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA LUCIA DOMINGOS VIEIRA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 22789951,
+            "nome": "WEDY EDUARDO DOMINGOS VIEIRA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "10506270750"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1990-01-27T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA DAS DORES REIS PEREIRA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23741933,
+            "nome": "DAYANE RODRIGUES DOS REIS",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "02939334137"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1995-09-11T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA APARECIDA DE FREITA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23732950,
+            "nome": "LORENA DE FREITA SILVA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "05369997160"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1993-04-15T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA ELIANE SOUSA COIMBRA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23732948,
+            "nome": "JOYCE SOUSA COIMBRA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "02654007243"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1979-02-21T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA ABADIA DE ARAUJO"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23732949,
+            "nome": "IDELMO TEIXEIRA DE ARAUJO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "87006090130"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1981-10-22T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA DULCE VIEIRA DE BARROS"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23732947,
+            "nome": "UGLENIA VIEIRA BARROS BUENO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "69534225134"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1976-04-24T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "ADELAIDE SOARES MIRANDA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23732945,
+            "nome": "WILSON SOARES MIRANDA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "77809866168"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1985-09-10T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "JOSELIA LEITE MORAIS"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 167782,
+            "nome": "RENATA MORAIS BRESCIANI",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "00959970169"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1984-08-31T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA CARDOSO GUIMARAES SILVA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23727454,
+            "nome": "RAIMUNDA GUIMARAES COELHO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "03172891364"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1980-10-21T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA DE LOURDES MELO SIMIEMA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23727453,
+            "nome": "DANIELY MELO SIMIEMA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "91333873115"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1957-02-14T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "FRANCISCA MENDONCA AGUIAR"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23727452,
+            "nome": "UBIRATAN AGUIAR",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "82660271887"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1995-06-19T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "LINDALVA DOS SANTOS FERREIRA"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 1536859,
+            "nome": "TATIANE RODRIGUES ALVES",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "06293623193"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1994-11-30T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARCIA ADRIANA DE BARROS"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23727450,
+            "nome": "AMANDA GABRIELA DE BARROS SILVA BARBOSA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "13729017799"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1991-10-30T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "TEREZINHA SOARES RODRIGUES"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 131285,
+            "nome": "ALISSON SOARES FERREIRA",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "03201596124"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1988-06-25T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "MARIA RITA DA SILVA ARAUJO"
+            },
+            "tipo": {
+              "idTipoParte": 10,
+              "descricao": "TERCEIRO INTERESSADO"
+            },
+            "tipoParticipacaoProcessual": "Outros",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "T",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 22906446,
+            "nome": "ALCIDES ANTONIO DE ARAUJO JUNIOR",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "03264624141"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1996-06-02T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "RAQUEL BORHER ALVES"
+            },
+            "tipo": {
+              "idTipoParte": 53,
+              "descricao": "AGRAVADO"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "MICHAEL RODRIGO DA SILVA GRACA",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "01966897162"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "18970"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "JOAO CARLOS DISARSZ ALVES",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "01853087165"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "26179"
+                  }
+                ]
+              },
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "DEVANIR BATISTA DA GRACA JUNIOR",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "03972137192"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "29974"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 13497837,
+            "nome": "PAOLA GIOVANNA BORHER ALVES VENGRUS",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "09689875914"
+              }
+            ]
+          },
+          {
+            "dataNascimento": null,
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": null
+            },
+            "tipo": {
+              "idTipoParte": 53,
+              "descricao": "AGRAVADO"
+            },
+            "tipoParticipacaoProcessual": "Passivo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "P",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [],
+            "idProcesso": 0,
+            "idPessoaProcesso": 12070,
+            "nome": "MINISTERIO PUBLICO DO ESTADO DE MATO GROSSO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CNPJ",
+                "numero": "14921092000157"
+              }
+            ]
+          },
+          {
+            "dataNascimento": "1997-02-18T00:00:00",
+            "filiacao": {
+              "nomePai": null,
+              "nomeMae": "IVONETE VICENTE DOS SANTOS"
+            },
+            "tipo": {
+              "idTipoParte": 52,
+              "descricao": "AGRAVANTE"
+            },
+            "tipoParticipacaoProcessual": "Ativo",
+            "tipoPessoaProcesso": {
+              "idTipoPessoaProcesso": 1,
+              "descricao": "Parte"
+            },
+            "idTipoParticipacaoProcessual": "A",
+            "menorIdade": false,
+            "vitima": false,
+            "advogados": [
+              {
+                "idProcesso": 0,
+                "idPessoaProcesso": 0,
+                "nome": "THIAGO DE PAULA ANDRADE",
+                "documentos": [
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "CPF",
+                    "numero": "72766832149"
+                  },
+                  {
+                    "idTipoDocumento": 0,
+                    "descricaoTipo": "OAB",
+                    "numero": "40854"
+                  }
+                ]
+              }
+            ],
+            "idProcesso": 0,
+            "idPessoaProcesso": 23759957,
+            "nome": "ANGELA VICENTE CORREA VIRIATO",
+            "documentos": [
+              {
+                "idTipoDocumento": 0,
+                "descricaoTipo": "CPF",
+                "numero": "06206830152"
+              }
+            ]
+          }
+        ],
+        "idSistema": 2,
+        "jurisdicao": {
+          "idJurisdicao": 2,
+          "nome": "TJMT - 2º Grau"
+        },
+        "idOrgaoJulgador": 108,
+        "orgaoJulgador": "Gabinete 3 - Segunda Câmara de Direito Público e Coletivo",
+        "idOrgaoJulgadorColegiado": 16,
+        "orgaoJulgadorColegiado": "Segunda Câmara de Direito Público e Coletivo",
+        "dataHoraInicio": "2026-09-04T13:37:06.96",
+        "dataDessobrestamento": null,
+        "dataSobrestamento": null,
+        "idGrauJurisdicao": 2,
+        "idInstancia": 2,
+        "valorCausa": 1000.0,
+        "codigoProcesso": 15205505,
+        "processoCriminal": false,
+        "codigoProcessoStr": "15205505",
+        "arquivado": false,
+        "dataArquivamento": null,
+        "cadeiraCompetenteNome": null,
+        "historicoArquivamento": [],
+        "count": 0,
+        "protocolo": {
+          "numero": 1041860,
+          "ano": 2026,
+          "dataProtocolo": null
+        },
+        "numeroUnico": "10418607320268110000",
+        "segredo": false,
+        "classe": {
+          "idClasse": 0,
+          "codigo": 202,
+          "nome": "AGRAVO DE INSTRUMENTO",
+          "hierarquia": "PROCESSO CÍVEL E DO TRABALHO (2) | RECURSOS (197) | AGRAVOS (200) | AGRAVO DE INSTRUMENTO (202)",
+          "permitida": true
+        },
+        "idNivelVisibilidade": 0
+      }
+    ]
+  }
+}

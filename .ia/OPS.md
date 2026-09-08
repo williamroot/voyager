@@ -4324,3 +4324,85 @@ varredura chegando na mesma faixa —, escreve em `tribunals_process` (a tabela
 onde outro backfill tem precedência de escrita) e o resultado dela é um
 subconjunto do que a varredura entrega de qualquer jeito. Campainha é para o
 poller ENXERGAR escrita nova; backfill de campo antigo é reindex.
+
+## Busca por parte ao vivo (`worker_busca`)
+
+Serviço novo em `docker-compose-workers.yml`, 4 réplicas, consumindo DUAS filas
+nesta ordem: `busca_ao_vivo` (um job por tribunal, gente esperando na tela) e
+`busca_hidratacao` (o que a busca achou e ainda não está no acervo). O rqworker
+esvazia a primeira antes de olhar a segunda — é a prioridade desejada.
+
+```bash
+docker compose -f docker-compose-workers.yml up -d worker_busca
+docker compose -f docker-compose-workers.yml logs -f worker_busca
+```
+
+### Conferir uma fonte sem tela e sem API key
+
+```bash
+docker exec -w /app voyager-worker_busca-1 \
+    python manage.py busca_parte TJMG nome "MARIA DAS GRACAS SILVA"
+docker exec -w /app voyager-worker_busca-1 \
+    python manage.py busca_parte TJSP documento 60.746.948/0001-12 --paginas 3
+```
+
+Só leitura por padrão (`--ingerir` é o que escreve). É o comando que exercita o
+CÓDIGO DE PRODUÇÃO — registry, motor, parser —, ao contrário do
+`scripts/recon_busca_parte.py`, que faz requisição crua para medir a fonte.
+
+### Medição: fechada, e como refazer
+
+Os nove tribunais × quatro critérios foram exercitados pelos motores de produção
+em 04/09/2026 — **36 de 36 células respondem**. A matriz e os números por célula
+estão em `.ia/ENRICHMENT.md` §"A matriz completa". Para refazer (depois de
+deploy, ou quando um tribunal mudar de layout):
+
+```bash
+docker exec -w /app voyager-worker_busca-1 python scripts/validar_busca_parte.py
+SIGLAS=TRF3,TJMG docker exec ... python scripts/validar_busca_parte.py   # recorte
+```
+
+Roda com a malha de proxies dentro do container e direto fora dele. Célula que
+volta ZERO é sinal de layout mudado ou de alvo que perdeu os processos — os
+ALVOS são dados reais de cada acervo e estão no topo do script.
+
+⚠️ **Cabeçalho é por tribunal, e TRF3 e TRF5 querem opostos** (medido, 3 de 3):
+o TRF3 recusa User-Agent de navegador e o de ferramenta (dá ReadTimeout de 40 s)
+e aceita o UA do agente; o TRF5 faz o contrário — com o UA do agente ele serve a
+consulta pública ANTIGA, com captcha e sem o formulário. O motor resolve isso em
+`UA_POR_TRIBUNAL` (`enrichers/busca/pje.py`), com fallback automático para o
+outro UA quando o `fPP` não vem.
+
+Consequência para o diagnóstico: **"formulário sem ViewState" quase nunca é
+parser quebrado** — é cabeçalho errado ou página legada. Confira o UA antes de
+abrir o HTML.
+
+E fica registrado, porque a suspeita chegou a ser levantada aqui: o **enricher**
+do TRF3 usa `requests` com o UA do agente, que é justamente o que aquele Akamai
+aceita. Ele nunca esteve cego.
+
+### Quando alguém disser "a busca não achou nada"
+
+A resposta já separa os quatro sabores de vazio (`.ia/API.md`
+§"Busca POR PARTE ao vivo"). Leia `por_tribunal[SIGLA].status` antes de qualquer
+outra coisa:
+
+| status | o que fazer |
+|---|---|
+| `vazio` | a fonte respondeu e não tem. Fim. |
+| `refinar` | a fonte recusou por amplitude — é para o usuário refinar, não para reiniciar |
+| `fonte_indisponivel` | é re-tentável: veja `mensagem` (WAF, timeout, "não é a tabela que conheço") |
+| `criterio_indisponivel` | aquela fonte não tem esse campo — não é falha |
+| `erro` | falha inesperada; o `logger` `voyager.busca.jobs` tem o traceback |
+
+E confira `avisos[]`: `truncado` diz que a resposta está incompleta **com o
+número real**, e `fonte_inconsistente` é a fonte se contradizendo (o TRF5
+anuncia 30 resultados mostrando 1).
+
+### Tetos que podem precisar de ajuste
+
+`TETO_PAGINAS` (10) e `TETO_TEMPO_S` (180) em `enrichers/busca/jobs.py`;
+`TETO_INGESTAO` (500) em `enrichers/busca/ingestao.py`; `CACHE_HORAS` (6) e
+`RATE_POR_MINUTO` (20) em `api/busca_tribunal_views.py`. Mexer em qualquer um
+muda o custo no pool de proxies, que é COMPARTILHADO com o enriquecimento em
+massa — medir a profundidade das filas `enrich_*` antes e depois.

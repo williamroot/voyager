@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/markitdown-read.sh",
+            "timeout": 90
+          }
+        ]
+      }
+    ]
+  }
+}
