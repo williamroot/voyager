@@ -94,9 +94,13 @@ class BuscaPje(BuscaPorParte):
     POR_PAGINA = TETO_PJE
 
     def __init__(self, enricher_cls, prefer_cortex: bool | None = None):
+        # `PREFER_CORTEX` é atributo do e-SAJ; o `BasePjeEnricher` não tem
+        # nenhum. Ler direto quebrava com AttributeError na PRIMEIRA busca de
+        # qualquer tribunal PJe — e não foi pego antes porque o enricher leve
+        # do validador declarava o atributo, escondendo o defeito.
         self.enricher = enricher_cls(
-            prefer_cortex=(enricher_cls.PREFER_CORTEX if prefer_cortex is None
-                           else prefer_cortex))
+            prefer_cortex=(getattr(enricher_cls, 'PREFER_CORTEX', False)
+                           if prefer_cortex is None else prefer_cortex))
         self.TRIBUNAL = enricher_cls.TRIBUNAL_SIGLA
         self.base_url = enricher_cls.BASE_URL
         self.list_url = enricher_cls.LIST_URL
