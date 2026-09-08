@@ -208,9 +208,17 @@ class BuscaTjmt(_BuscaRest):
 
 
 class BuscaTjpa(_BuscaRest):
-    """`consilium-rest` — sete rotas, todas lidas do bundle da SPA."""
+    """`consilium-rest` — sete rotas, todas lidas do bundle da SPA.
 
-    CRITERIOS_SUPORTADOS = frozenset({DOCUMENTO, NOME, OAB})
+    `ADVOGADO` não tem rota própria e mesmo assim é suportado: no TJPA o
+    advogado é **participante do processo**, então ele responde pela rota do
+    nome da parte. Medido em 08/09/2026 com uma advogada real de Belém — o
+    desambiguador devolve "BERNARDO ARAUJO DA LUZ (116)" e a rota exata pagina
+    os 116. Ausência de ROTA não era ausência de BUSCA, e a versão anterior
+    deste catálogo dizia "a fonte não oferece" por ter lido só o bundle.
+    """
+
+    CRITERIOS_SUPORTADOS = frozenset({DOCUMENTO, NOME, OAB, ADVOGADO})
     TETO_DA_FONTE = None
     #: Tamanho pedido na URL. O TJPA não o respeita à risca — pedindo 50, o
     #: `processobycnpj` devolveu 25 e o `processobynomeparteexato`, 56 —, então

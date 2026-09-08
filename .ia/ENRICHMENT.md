@@ -2428,7 +2428,7 @@ pública do tribunal é a única fonte que responde de verdade.
 | TRF1 | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | idem | não tem | 30 |
 | TRF5 | PJe fPP | ✅\* | ✅\* | ✅\* | ✅\* | idem | não tem | **1 linha** |
 | TRF3 | PJe fPP | ✅ | ✅ | ✅\*\* | ✅ | rodapé "N resultados" | não tem | **30** |
-| TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` \*\*\* | — | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
+| TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` \*\*\* | ✅ (pela rota do NOME) | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
 | TJMT | REST | ✅ `parteCpfCnpj` | ✅ `parteNome` | ✅ `advogadoOAB` | ✅ `NomeOab`, `advogadoCPF` | `totalRegistros` | `Skip`/`Take` | sem teto observado |
 
 \*\* No TRF3 a UF da OAB é OBRIGATÓRIA — o inverso do TJMG. Ver §"A UF da OAB é
@@ -2687,13 +2687,34 @@ TJAL declarando **2.000**, o dobro — ou o teto de lá é outro, ou havia 2.000
 mesmo; sem um caso entre mil e dois mil não dá para separar), o TRF5 contando
 certo e entregando uma linha, e as duas fontes REST paginando de verdade.
 
-**As 36 células respondem.** A última a cair foi `oab` no TJPA, e o que faltava
-não era alvo — era formato: ver abaixo.
+**As 36 células respondem** — e desde 08/09 são **36 de 36 critérios oferecidos**,
+porque o TJPA também busca por advogado (ver abaixo). Duas células foram as
+últimas a cair, e nenhuma delas era limitação da fonte: `oab` no TJPA era
+formato, e `advogado` no TJPA era leitura errada minha.
 
 Rodar isso é barato e pega o que teste unitário não pega: cada célula desta
 matriz já foi, em algum momento de 04/09, um **zero silencioso** (host
 quase-certo, botão errado, página 0, UF da OAB, filtro ignorado) — todos com
 HTTP 200 e nenhum com erro.
+
+### TJPA busca por advogado — ausência de ROTA não é ausência de BUSCA
+
+O bundle da SPA tem sete rotas e nenhuma se chama "por advogado". Daí eu havia
+escrito, no catálogo e na tabela, "a fonte não oferece". **Errado**, e a pergunta
+que derrubou isso foi simples: *"TJPA não deixa por advogado?"*
+
+No TJPA o advogado é **participante do processo**, então ele responde pela rota
+do nome da parte. Medido em 08/09/2026, partindo de um processo real da OAB
+016499:
+
+    partes do processo        -> BERNARDO ARAUJO DA LUZ (ADVOGADO)
+    processobynomeparte(...)  -> "BERNARDO ARAUJO DA LUZ": 116
+    processobynomeparteexato  -> total 116, paginando (50 + 43)
+
+Então `advogado` e `nome` caem na mesma rota, e o catálogo passa a oferecer os
+quatro critérios no TJPA. A lição vale para o próximo tribunal REST: ler o
+bundle diz quais ROTAS existem, não quais BUSCAS são possíveis — quem responde
+isso é uma consulta com dado real.
 
 ### TJPA: a OAB precisa de `OAB-<UF>` e de ZEROS À ESQUERDA
 

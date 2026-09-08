@@ -84,6 +84,7 @@ ALVOS: dict[str, dict[str, str]] = {
         'documento': '60.746.948/0001-12',        # Bradesco — 198, paginando
         'nome': 'MARIA JOSE DOS SANTOS',          # 45 (exato)
         'oab': '16499/PA',                        # 34 (só com zeros à esquerda)
+        'advogado': 'BERNARDO ARAUJO DA LUZ',     # 116 (advogado é parte no TJPA)
     },
     'TJMT': {
         'documento': '60.746.948/0001-12',
