@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Iterator
 
 import requests
@@ -64,7 +65,16 @@ def _so_digitos(valor: str) -> str:
 class _BuscaRest(BuscaPorParte):
     """Chassi comum: rotação de proxy em volta de um GET que devolve JSON."""
 
-    MAX_ROTACOES = 6
+    #: Rotações por requisição. 10, e não 6, pelo mesmo motivo do e-SAJ: numa
+    #: malha em que boa parte dos IPs não responde, poucas tentativas viram
+    #: "fonte indisponível" com a fonte de pé.
+    MAX_ROTACOES = 10
+
+    #: Pausa entre PÁGINAS. As duas APIs punem rajada: o TJPA devolve 429 e o
+    #: TJMT bloqueia com 403 — medido na primeira busca real em produção, que
+    #: trouxe 300 de 1.158 processos e aí levou 403 em seis IPs seguidos.
+    #: Paginar rápido demais não acelera nada: queima o pool e para no meio.
+    PAUSA_ENTRE_PAGINAS_S = 1.0
 
     #: `(conectar, ler)` da busca. As duas APIs REST responderam em 2 a 26 s nas
     #: medições, mas o padrão vale: buscar por parte é varredura do lado deles.
@@ -82,7 +92,7 @@ class _BuscaRest(BuscaPorParte):
             from djen.proxies import cortex_proxy_url
             cortex = cortex_proxy_url(self.enricher.pool)
         ultimo = None
-        for _ in range(self.MAX_ROTACOES):
+        for tentativa in range(1, self.MAX_ROTACOES + 1):
             proxy = self.enricher._next_proxy(tentados)
             if not proxy and self.enricher.pool is not None:
                 break
@@ -101,9 +111,13 @@ class _BuscaRest(BuscaPorParte):
                     self.enricher.pool.mark_bad(proxy)
                 continue
             if resp.status_code in (400, 401, 403, 429):
+                # 403/429 aqui é RAJADA, não IP ruim: trocar de endereço e
+                # disparar de novo no mesmo instante queima o pool inteiro.
+                # Espera crescente entre as tentativas — 1s, 2s, 3s...
                 ultimo = f'bloqueado {resp.status_code}'
-                if proxy != cortex:
+                if proxy != cortex and self.enricher.pool is not None:
                     self.enricher.pool.mark_bad(proxy)
+                time.sleep(min(tentativa, 5))
                 continue
             if resp.status_code >= 500:
                 ultimo = f'servidor {resp.status_code}'
@@ -192,6 +206,7 @@ class BuscaTjmt(_BuscaRest):
             if not resultado.tem_proxima or not resultado.itens:
                 return
             pagina += 1
+            time.sleep(self.PAUSA_ENTRE_PAGINAS_S)
 
     def _conferir_sanidade(self, resultado: PaginaResultado, chave: str) -> None:
         """Uma busca com filtro não pode devolver o total da busca sem filtro.
@@ -280,3 +295,4 @@ class BuscaTjpa(_BuscaRest):
             resultado.tem_proxima = True
             yield resultado
             pagina += 1
+            time.sleep(self.PAUSA_ENTRE_PAGINAS_S)

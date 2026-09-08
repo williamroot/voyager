@@ -4381,6 +4381,26 @@ E fica registrado, porque a suspeita chegou a ser levantada aqui: o **enricher**
 do TRF3 usa `requests` com o UA do agente, que é justamente o que aquele Akamai
 aceita. Ele nunca esteve cego.
 
+### A malha de proxies é outro teste — e ela pegou dois defeitos
+
+A primeira busca real em produção nos 9 tribunais (08/09/2026, 71s, 481
+processos, 135 enfileirados para o acervo) mostrou o que rodar de fora do
+container não mostra:
+
+| tribunal | o que aconteceu | por quê |
+|---|---|---|
+| TJAL | `transporte — HTTPSConnectionPool(host='www2.tjal...')` | o motor escolhia UM IP e desistia; o pool do TJAL responde ~37% dos endereços (ADR-021) e o enricher sempre rotacionou até 8 |
+| TJMT | `6 proxies sem sucesso (último: bloqueado 403)` depois de trazer 300 de 1.158 | paginação sem pausa: as duas APIs REST punem rajada (429 no TJPA, 403 no TJMT) |
+
+Corrigido: rotação de IP na ABERTURA da conversa e-SAJ (a paginação seguinte
+não pode trocar de IP — o JSESSIONID está atado a ele), pausa de 1 s entre
+páginas nos REST, espera crescente ao levar 403/429, e 10 rotações em vez de 6.
+
+E a terceira, que é de leitura: **queda no meio da paginação não é "fonte
+indisponível"**. Se já colhemos alguma coisa, o tribunal sai como `ok` +
+`truncado` com o motivo. Antes, o TJMT que trouxe 300 processos e caiu aparecia
+como se não tivesse trazido nada — jogando fora scraping já pago.
+
 ### Quando alguém disser "a busca não achou nada"
 
 A resposta já separa os quatro sabores de vazio (`.ia/API.md`

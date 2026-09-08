@@ -77,9 +77,12 @@ class BuscaEsaj(BuscaPorParte):
     POR_PAGINA = 25
 
     def __init__(self, enricher_cls, prefer_cortex: bool | None = None):
+        # `getattr` pelo mesmo motivo do motor PJe: o motor não deve assumir
+        # atributo do enricher. Aqui o e-SAJ tem `PREFER_CORTEX`, mas ler
+        # direto é o padrão que já quebrou os cinco PJe em produção.
         self.enricher = enricher_cls(
-            prefer_cortex=(enricher_cls.PREFER_CORTEX if prefer_cortex is None
-                           else prefer_cortex))
+            prefer_cortex=(getattr(enricher_cls, 'PREFER_CORTEX', False)
+                           if prefer_cortex is None else prefer_cortex))
         self.TRIBUNAL = enricher_cls.TRIBUNAL_SIGLA
         self.base_url = enricher_cls.BASE_URL
         # O enricher desta instância é exclusivo da busca, então trocar o
@@ -93,6 +96,39 @@ class BuscaEsaj(BuscaPorParte):
     @property
     def session(self) -> requests.Session:
         return self.enricher.session
+
+    def _abrir_com_rotacao(self, criterio: str, valor: str,
+                           so_requisitorios: bool) -> tuple[str, str]:
+        """Abre a conversa e faz a primeira busca, trocando de IP até conseguir.
+
+        Isto NÃO é zelo excessivo: o pool do TJAL responde por volta de 37% dos
+        IPs (ADR-021), então uma tentativa só falha na maioria das vezes — foi
+        exatamente o que aconteceu na primeira busca real em produção
+        (`transporte — HTTPSConnectionPool(host='www2.tjal.jus.br')`). O
+        enricher sempre rotacionou; o motor de busca não, e a diferença ficou
+        invisível enquanto rodei tudo fora do container, sem proxy.
+
+        A rotação vale só para a ABERTURA. Depois que a conversa está de pé, o
+        JSESSIONID está atado àquele IP e trocar no meio derruba a paginação —
+        por isso uma queda depois da primeira página vira resultado PARCIAL,
+        não erro (ver `buscar_no_tribunal`).
+        """
+        tentativas = getattr(self.enricher, 'MAX_PROXY_ROTATIONS', 8)
+        ultimo = None
+        for tentativa in range(1, tentativas + 1):
+            try:
+                self._abrir_sessao()
+                resp = self._get(f'{self.base_url}/cpopg/search.do',
+                                 params=self._params(criterio, valor, so_requisitorios))
+                return resp.text, resp.url
+            except FonteIndisponivel as exc:
+                ultimo = str(exc)
+                logger.info('e-SAJ não respondeu por este IP; rotacionando',
+                            extra={'tribunal': self.TRIBUNAL, 'tentativa': tentativa,
+                                   'de': tentativas, 'motivo': ultimo[:80]})
+        raise FonteIndisponivel(
+            f'{self.TRIBUNAL}: {tentativas} IPs tentados sem sucesso'
+            + (f' (último: {ultimo})' if ultimo else ''))
 
     def _abrir_sessao(self) -> None:
         """Escolhe um IP e abre a conversa (`open.do`) por ele.
@@ -171,11 +207,7 @@ class BuscaEsaj(BuscaPorParte):
     def paginar(self, criterio: str, valor: str, teto_paginas: int = 40,
                 so_requisitorios: bool = False) -> Iterator[PaginaResultado]:
         self.exigir_suporte(criterio)
-        self._abrir_sessao()
-
-        params = self._params(criterio, valor, so_requisitorios)
-        resp = self._get(f'{self.base_url}/cpopg/search.do', params=params)
-        html, url_final = resp.text, resp.url
+        html, url_final = self._abrir_com_rotacao(criterio, valor, so_requisitorios)
 
         pagina = 1
         while True:

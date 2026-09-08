@@ -174,7 +174,16 @@ def buscar_no_tribunal(run_id: str, sigla: str) -> dict:
         # palavra.
         estado = {'status': REFINAR, 'mensagem': str(exc)}
     except FonteIndisponivel as exc:
-        estado = {'status': INDISPONIVEL, 'mensagem': str(exc)}
+        # Se JÁ colhemos alguma coisa, a fonte não está indisponível: ela
+        # respondeu e caiu no meio. Descartar o que veio seria jogar fora
+        # scraping já pago e, pior, dizer "não respondeu" sobre uma busca que
+        # trouxe resultado — o TJMT trouxe 300 de 1.158 antes de levar 403 na
+        # paginação, e a resposta saiu como se não tivesse trazido nada.
+        if colhidos:
+            estado = {'status': OK, 'truncado': True,
+                      'motivo_truncagem': f'a fonte parou de responder no meio: {exc}'}
+        else:
+            estado = {'status': INDISPONIVEL, 'mensagem': str(exc)}
     except Exception as exc:
         logger.exception('busca %s: falha inesperada em %s', run_id, sigla)
         estado = {'status': ERRO, 'mensagem': f'{type(exc).__name__}: {str(exc)[:200]}'}
@@ -182,8 +191,10 @@ def buscar_no_tribunal(run_id: str, sigla: str) -> dict:
     estado.update({
         'paginas_lidas': paginas,
         'encontrados': len(colhidos),
-        'truncado': truncado,
-        'motivo_truncagem': motivo_truncagem,
+        # `setdefault` e não sobrescrita: o ramo de exceção acima pode já ter
+        # marcado o truncamento com um motivo mais específico.
+        'truncado': estado.get('truncado', truncado),
+        'motivo_truncagem': estado.get('motivo_truncagem', motivo_truncagem),
         'levou_s': round(time.monotonic() - inicio, 1),
     })
     _atualizar(run_id, sigla, estado)
