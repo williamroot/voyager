@@ -78,12 +78,18 @@ CATALOGO: dict[str, Fonte] = {
                   'a consulta pública devolve no máximo 30 e não pagina'),
     'TJMA': Fonte('TJMA', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
-    'TJPA': Fonte('TJPA', 'rest', frozenset({'documento', 'nome', 'oab'}), None, True,
-                  _MEDIDO, frozenset({'documento', 'nome', 'oab'}),
+    # `advogado` entra pela MESMA rota do nome da parte: no TJPA o advogado é
+    # indexado como participante. Medido em 08/09/2026 — o desambiguador
+    # devolve "BERNARDO ARAUJO DA LUZ (116)" e a rota exata pagina os 116.
+    # Antes daqui constava "a fonte não oferece", conclusão tirada da ausência
+    # de rota própria no bundle: ausência de ROTA não é ausência de BUSCA.
+    'TJPA': Fonte('TJPA', 'rest', frozenset(CRITERIOS), None, True,
+                  _MEDIDO, frozenset(CRITERIOS),
                   'páginas contam a partir de 1 e a fonte não sinaliza fim: '
                   'paginamos até não vir processo novo. Busca por nome exige a '
                   'grafia exata (use a desambiguação antes) e a OAB vai com '
-                  'zeros à esquerda, em `OAB-<UF>`'),
+                  'zeros à esquerda, em `OAB-<UF>`. Busca por ADVOGADO usa a '
+                  'mesma rota do nome: lá o advogado é parte'),
     'TJMT': Fonte('TJMT', 'rest', frozenset(CRITERIOS), None, True, _MEDIDO, frozenset(CRITERIOS),
                   'total real e paginação (Take até 60; 75 dá HTTP 422); filtro '
                   'desconhecido é ignorado pela API, então toda busca confere o '
