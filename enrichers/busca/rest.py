@@ -16,8 +16,6 @@ from collections.abc import Iterator
 
 import requests
 
-from djen.proxies import cortex_proxy_url
-
 from .base import (
     ADVOGADO,
     DOCUMENTO,
@@ -36,6 +34,27 @@ from .rest_parser import (
 )
 
 logger = logging.getLogger('voyager.busca.rest')
+
+#: Cabeçalhos que cada API exige. Ficam AQUI e não no enricher porque são
+#: propriedade da fonte, não do transporte: o TJPA devolve 429/bloqueio para
+#: User-Agent identificador e exige o `Referer` da origem oficial.
+HEADERS = {
+    'TJPA': {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        'Referer': 'https://consulta-processual-unificada-prd.tjpa.jus.br/',
+        'Origin': 'https://consulta-processual-unificada-prd.tjpa.jus.br',
+    },
+    'TJMT': {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Origin': 'https://consultaprocessual.tjmt.jus.br',
+        'Referer': 'https://consultaprocessual.tjmt.jus.br/',
+    },
+}
 
 
 def _so_digitos(valor: str) -> str:
@@ -58,18 +77,22 @@ class _BuscaRest(BuscaPorParte):
     def _get_json(self, url: str, params: dict | None = None,
                   headers: dict | None = None):
         tentados: set = set()
-        cortex = cortex_proxy_url(self.enricher.pool)
+        cortex = None
+        if self.enricher.pool is not None:
+            from djen.proxies import cortex_proxy_url
+            cortex = cortex_proxy_url(self.enricher.pool)
         ultimo = None
         for _ in range(self.MAX_ROTACOES):
             proxy = self.enricher._next_proxy(tentados)
-            if not proxy:
+            if not proxy and self.enricher.pool is not None:
                 break
             if proxy != cortex:
                 tentados.add(proxy)
             try:
                 resp = self.enricher.session.get(
-                    url, params=params, headers=headers or {},
-                    proxies={'http': proxy, 'https': proxy},
+                    url, params=params,
+                    headers=dict(HEADERS.get(self.TRIBUNAL, {}), **(headers or {})),
+                    proxies=({'http': proxy, 'https': proxy} if proxy else None),
                     timeout=self.TIMEOUT_BUSCA)
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError) as exc:
@@ -126,9 +149,13 @@ class BuscaTjmt(_BuscaRest):
         self._total_sem_filtro: int | None = None
 
     def _headers(self) -> dict:
-        from enrichers.tjmt import gerar_fingerprint
         # Fresco a cada requisição: o servidor valida a janela de timestamp.
-        return {'X-Fingerprint': gerar_fingerprint()}
+        # Vem de `enrichers/fingerprints.py`, que é puro — importar o módulo do
+        # enricher aqui puxaria Django e impediria o motor de rodar fora do
+        # container (é assim que `scripts/validar_busca_parte.py` funciona).
+        from enrichers.fingerprints import tjmt
+
+        return {'X-Fingerprint': tjmt()}
 
     def _baseline(self) -> int | None:
         """Total da MESMA consulta sem nenhum filtro, para a prova de sanidade.

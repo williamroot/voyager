@@ -2427,14 +2427,13 @@ pública do tribunal é a única fonte que responde de verdade.
 | TJMA | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | idem | não tem | 30 |
 | TRF1 | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | idem | não tem | 30 |
 | TRF5 | PJe fPP | ✅\* | ✅\* | ✅\* | ✅\* | idem | não tem | **1 linha** |
-| TRF3 | PJe fPP | ✅\*\* | \*\* | \*\* | \*\* | rodapé "N resultados" | não tem | **30** |
+| TRF3 | PJe fPP | ✅ | ✅ | ✅\*\* | ✅ | rodapé "N resultados" | não tem | **30** |
 | TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` | — | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
 | TJMT | REST | ✅ `parteCpfCnpj` | ✅ `parteNome` | ✅ `advogadoOAB` | ✅ `NomeOab`, `advogadoCPF` | `totalRegistros` | `Skip`/`Take` | sem teto observado |
 
-\*\* TRF3: a FONTE foi medida (HAR de um navegador, busca por documento — 30
-resultados, teto), mas o NOSSO cliente não chega nela: o Akamai Bot Manager
-dropa quem não passa o desafio. Ver §"TRF3: o muro é o Akamai Bot Manager, e o
-teto de 30 vale lá também". Célula vazia é "não medido", nunca "não tem".
+\*\* No TRF3 a UF da OAB é OBRIGATÓRIA — o inverso do TJMG. Ver §"A UF da OAB é
+inversa entre tribunais". O TRF3 só responde a cliente com fingerprint de
+navegador (§"TRF3: o muro é o Akamai Bot Manager").
 
 \* No TRF5 os quatro critérios respondem, mas a fonte **renderiza apenas o
 primeiro resultado** — ver §"O TRF5 conta certo e mostra uma linha".
@@ -2661,6 +2660,72 @@ autenticado do JURISCOPE (`datamodel/processors/trf3.py`) monta, entre outros,
 o teto de 30 cai lá, ninguém mediu: aquele cliente só busca por CNJ, que devolve
 um processo. Medir isso é barato para quem tem a credencial, e o filtro de VALOR
 seria especialmente útil para precatório.
+
+### A matriz completa, rodada ao vivo (`scripts/validar_busca_parte.py`)
+
+Nove tribunais × quatro critérios, pelos MOTORES DE PRODUÇÃO, com alvos colhidos
+de processos reais de cada acervo. **35 das 36 células respondem.** Números da
+rodada de 04/09/2026 (primeira página; `declarado` é o que a fonte diz ter):
+
+| tribunal | documento | nome | OAB | advogado |
+|---|---|---|---|---|
+| TJSP | 25 de **1.000** | 25 de 34 | 25 de 823 | 25 de 824 |
+| TJAL | 25 de **2.000** | 4 de 4 | 2 de 2 | 25 de 144 |
+| TJMG | **30** de 30 | 12 de 12 | 6 de 6 | **30** de 30 |
+| TJMA | 6 de 6 | **30** de 30 | 4 de 4 | **30** de 30 |
+| TRF1 | **30** de 30 | **30** de 30 | **30** de 30 | **30** de 30 |
+| TRF3 | **30** de 30 | **30** de 30 | **30** de 30 | **30** de 30 |
+| TRF5 | 1 de 30 | 1 de 30 | 1 de 16 | 1 de 13 |
+| TJPA | 25 de 198 | 59 de 57 | *sem alvo* | *a fonte não tem* |
+| TJMT | 50 de **201.693** | 50 de 1.158 | 50 de 112 | 50 de 507.830 |
+
+O que a matriz mostra de uma vez: o teto de 30 do PJe, o de 1.000 do e-SAJ (e o
+TJAL declarando **2.000**, o dobro — ou o teto de lá é outro, ou havia 2.000
+mesmo; sem um caso entre mil e dois mil não dá para separar), o TRF5 contando
+certo e entregando uma linha, e as duas fontes REST paginando de verdade.
+
+A única célula vazia é `oab` no TJPA, e por falta de ALVO: a rota existe, mas não
+temos uma OAB do PA para exercitá-la — a fonte não expõe OAB nas partes.
+
+Rodar isso é barato e pega o que teste unitário não pega: cada célula desta
+matriz já foi, em algum momento de 04/09, um **zero silencioso** (host
+quase-certo, botão errado, página 0, UF da OAB, filtro ignorado) — todos com
+HTTP 200 e nenhum com erro.
+
+### A UF da OAB é INVERSA entre tribunais
+
+Medido no mesmo dia, mesma busca, mesmo código:
+
+| tribunal | UF em branco | UF preenchida |
+|---|---:|---:|
+| **TJMG** | **6 resultados** | 0 |
+| **TRF3** | 0 | **30 resultados** |
+
+Fixar qualquer um dos dois lados cega metade dos tribunais — e cega em silêncio,
+porque o outro responde "0 resultados" com HTTP 200. Por isso o cliente tenta
+**em branco** e, só se vier zero, repete **com a UF** (`enrichers/busca/pje.py`).
+Custa uma requisição a mais, e só quando não achou nada.
+
+Lembrando que o combo guarda ÍNDICE, não sigla ("0"=AC, "1"=AL, …): mandar `MG`
+cru faz o Seam redirecionar para `errorUnexpected.seam`.
+
+### O muro do TRF3 se resolve no TRANSPORTE, não no IP
+
+O Akamai Bot Manager não olha o endereço, olha o handshake. Com `requests`, o
+TRF3 aceita o TCP, completa o TLS e some — 45 s sem um byte, de qualquer IP,
+residencial ou não. Com `curl_cffi` imitando Chrome (`impersonate='chrome131'`),
+o **mesmo endereço** e o **mesmo código** recebem HTTP 200 em **0,2 s**.
+
+Não é evasão inventada aqui: é o transporte que o JURISCOPE já usa em produção
+no cliente autenticado do TRF3 (`datamodel/processors/trf3.py`). O motor PJe da
+busca passou a usá-lo para todos os tribunais — ver `NAVEGADOR_IMITADO` em
+`enrichers/busca/pje.py`. Quem depende disso hoje é o TRF3; para os outros
+quatro é seguro por igual (o fingerprint de navegador não é rejeitado por
+ninguém que aceitava `requests`).
+
+⚠️ E fica a pergunta operacional: o **enricher** do TRF3 usa `requests`. Se ele
+estiver batendo no mesmo muro, está cego — confira antes de mexer em outra coisa
+(`.ia/OPS.md`).
 
 ### Prova de esgotamento — as três fontes que paginam
 

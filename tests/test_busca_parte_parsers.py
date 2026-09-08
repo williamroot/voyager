@@ -120,6 +120,9 @@ def test_esaj_tjal_usa_o_mesmo_parser():
     # cliente chegar). Prova que o teto de 30 é da fonte: o CNPJ buscado tem
     # 1.372 processos no nosso índice e a resposta traz 30.
     ('trf3/busca_documento.html', 'TRF3', 30, 30, True),
+    ('trf3/busca_nome.html', 'TRF3', 30, 30, True),
+    ('trf3/busca_oab.html', 'TRF3', 30, 30, True),
+    ('trf3/busca_advogado.html', 'TRF3', 30, 30, True),
     ('trf1/busca_oab.html', 'TRF1', 30, 30, True),
     ('trf1/busca_advogado.html', 'TRF1', 30, 30, True),
     ('tjma/busca_advogado.html', 'TJMA', 30, 30, True),

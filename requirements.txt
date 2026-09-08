@@ -11,6 +11,12 @@ APScheduler==3.10.4
 psycopg[binary]==3.2.3
 redis==5.2.0
 requests==2.32.3
+# Cliente HTTP que imita o fingerprint TLS/JA3 e HTTP/2 de um navegador. É o que
+# faz o TRF3 responder: ele está atrás do Akamai Bot Manager, que não olha o IP
+# e sim o handshake — com `requests` o servidor completa o TLS e depois some,
+# de qualquer endereço. Mesma biblioteca e mesma versão do cliente autenticado
+# do JURISCOPE, que já usa isso em produção no TRF3.
+curl_cffi==0.7.4
 beautifulsoup4==4.12.3
 lxml==5.3.0
 gunicorn==23.0.0

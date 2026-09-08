@@ -54,6 +54,34 @@ PAUSA_ANTES_DO_POST_S = 0.4
 #: no TRF3 passou de um minuto sem responder (medido no navegador, 04/09/2026).
 TIMEOUT_BUSCA = (10, 180)
 
+#: Perfil de navegador que o `curl_cffi` imita no TLS/JA3 e no HTTP/2.
+#:
+#: **É isto que faz o TRF3 responder.** Ele está atrás do Akamai Bot Manager
+#: (os cookies `ak_bmsc`/`bm_sv` do HAR provam), e o Akamai não olha o IP: olha
+#: o handshake. Com `requests`, o servidor aceita o TCP, completa o TLS e depois
+#: fica 45 s sem devolver um byte — de qualquer IP, residencial ou não. Com o
+#: fingerprint de Chrome, o MESMO endereço e o MESMO código recebem HTTP 200 em
+#: 0,2 s (medido em 04/09/2026, sem proxy nenhum).
+#:
+#: Não é evasão inventada aqui: é o transporte que o JURISCOPE já usa em
+#: produção no cliente autenticado do TRF3 (`datamodel/processors/trf3.py`,
+#: `impersonate='chrome131'`).
+NAVEGADOR_IMITADO = 'chrome131'
+
+#: Cabeçalhos de navegador. O fingerprint sozinho não basta: o Akamai também lê
+#: o conjunto de headers, e uma requisição com JA3 de Chrome e `Accept: */*` de
+#: script é incoerente.
+HEADERS_NAVEGADOR = {
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,'
+              'image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-User': '?1',
+}
+
 
 class BuscaPje(BuscaPorParte):
     CRITERIOS_SUPORTADOS = frozenset({DOCUMENTO, NOME, OAB, ADVOGADO})
@@ -71,6 +99,75 @@ class BuscaPje(BuscaPorParte):
         # Instância dedicada à busca: mexer no timeout aqui não toca o
         # enriquecimento em massa.
         self.enricher.timeout = TIMEOUT_BUSCA
+        self._sessao = None
+        self._proxies: dict = {}
+        self._tentados: set = set()
+
+    # ── transporte ───────────────────────────────────────────────────────────
+    #
+    # A busca NÃO usa o `_get`/`_post` do enricher, e a diferença é o cliente:
+    # ali é `requests`, aqui é `curl_cffi` imitando Chrome. Ver
+    # NAVEGADOR_IMITADO — sem isso o TRF3 não responde a ninguém.
+
+    def _abrir_sessao(self):
+        # Imports tardios: `curl_cffi` é do transporte e `djen.proxies` puxa o
+        # settings do Django. Deixá-los aqui é o que permite rodar o motor (e o
+        # `scripts/validar_busca_parte.py`) de fora do container.
+        from curl_cffi import requests as cr
+
+        proxy = self.enricher._next_proxy(self._tentados)
+        if proxy:
+            from djen.proxies import cortex_proxy_url
+            if proxy != cortex_proxy_url(self.enricher.pool):
+                self._tentados.add(proxy)
+        self._proxies = {'http': proxy, 'https': proxy} if proxy else {}
+        self._sessao = cr.Session(impersonate=NAVEGADOR_IMITADO)
+        return self._sessao
+
+    def _pedir(self, metodo: str, url: str, **kwargs):
+        """GET/POST pela sessão-navegador, com uma rotação de IP em bloqueio.
+
+        Menos rotações que o enricher de propósito: aqui o muro típico não é o
+        IP (o Akamai olha o handshake), e insistir em endereços novos só gasta
+        pool. Erro de transporte vira `FonteIndisponivel`, nunca "não achei".
+        """
+        from curl_cffi import requests as cr
+
+        if self._sessao is None:
+            self._abrir_sessao()
+        cabecalhos = dict(HEADERS_NAVEGADOR, **kwargs.pop('headers', {}))
+        ultimo = None
+        for tentativa in (1, 2):
+            try:
+                resp = self._sessao.request(
+                    metodo, url, headers=cabecalhos, proxies=self._proxies or None,
+                    timeout=TIMEOUT_BUSCA[1], **kwargs)
+            except cr.exceptions.RequestsError as exc:
+                ultimo = f'transporte: {str(exc)[:120]}'
+                self._abrir_sessao()
+                continue
+            if resp.status_code in (403, 429) or resp.status_code >= 500:
+                ultimo = f'HTTP {resp.status_code}'
+                if tentativa == 1:
+                    # Uma segunda chance, com IP e sessão novos: o desafio do
+                    # Akamai é por sessão, e um 403 pode ser sensor expirado.
+                    self._abrir_sessao()
+                    continue
+                break
+            return resp
+        raise FonteIndisponivel(f'{self.TRIBUNAL}: {ultimo or "sem resposta"}')
+
+    def _get(self, url: str):
+        return self._pedir('GET', url)
+
+    def _post(self, url: str, dados: dict):
+        return self._pedir('POST', url, data=dados, headers={
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': self.base_url,
+            'Referer': self.list_url,
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+        })
 
     # ── formulário ───────────────────────────────────────────────────────────
 
@@ -102,7 +199,8 @@ class BuscaPje(BuscaPorParte):
                 return m.group(1)
         return None
 
-    def _montar_payload(self, soup: BeautifulSoup, criterio: str, valor: str) -> dict:
+    def _montar_payload(self, soup: BeautifulSoup, criterio: str, valor: str,
+                        com_uf: bool = False) -> dict:
         vs = soup.find('input', {'name': 'javax.faces.ViewState'})
         if not vs or not vs.get('value'):
             # Erro de LAYOUT é reservado para layout: WAF e sessão perdida já
@@ -119,11 +217,10 @@ class BuscaPje(BuscaPorParte):
         payload = dict(self.enricher._extract_form_fields(soup))
         if criterio == OAB:
             payload[campo] = re.sub(r'[^0-9]', '', valor)
-            # A UF fica no valor de "sem seleção" que o próprio form traz. Ver
-            # o comentário no topo do módulo: preencher a UF zera a busca.
             combo = self._campo_por_sufixo(soup, ':estadoComboOAB')
             if combo:
-                payload[combo] = self._valor_sem_selecao(soup, combo)
+                payload[combo] = (self._valor_da_uf(soup, combo, valor) if com_uf
+                                  else self._valor_sem_selecao(soup, combo))
         else:
             payload[campo] = valor
 
@@ -140,6 +237,18 @@ class BuscaPje(BuscaPorParte):
             botao: botao,
         })
         return payload
+
+    @staticmethod
+    def _valor_da_uf(soup: BeautifulSoup, nome_do_select: str, valor: str) -> str:
+        """Índice do `<option>` da UF (o combo guarda posição, não sigla)."""
+        uf = (re.sub(r'[^A-Za-z]', '', valor or '') or '').upper()[:2]
+        select = soup.find('select', {'name': nome_do_select})
+        if not select or not uf:
+            return ''
+        for opcao in select.find_all('option'):
+            if opcao.get_text(strip=True).upper() == uf:
+                return opcao.get('value', '')
+        return ''
 
     @staticmethod
     def _valor_sem_selecao(soup: BeautifulSoup, nome_do_select: str) -> str:
@@ -164,12 +273,30 @@ class BuscaPje(BuscaPorParte):
         """
         self.exigir_suporte(criterio)
 
-        resp = self.enricher._get(self.list_url)
+        resp = self._get(self.list_url)
         soup = BeautifulSoup(resp.text, 'html.parser')
         payload = self._montar_payload(soup, criterio, valor)
 
         time.sleep(PAUSA_ANTES_DO_POST_S)
-        resp = self.enricher._post(self.list_url, payload)
+        resp = self._post(self.list_url, payload)
+
+        # A UF da OAB é INVERSA entre instalações, e não há como saber qual sem
+        # tentar. Medido em 04/09/2026, mesma busca, mesmo código:
+        #
+        #     TJMG   UF em branco -> 6 resultados   |  UF preenchida -> 0
+        #     TRF3   UF em branco -> 0              |  UF preenchida -> 30
+        #
+        # Fixar qualquer um dos dois lados cega metade dos tribunais — e cega em
+        # silêncio, porque o outro lado responde "0 resultados" com HTTP 200.
+        # Então: tenta em branco, e só se vier zero paga uma requisição a mais
+        # com a UF. O custo é uma requisição, e só quando não achou nada.
+        if criterio == OAB and tem_tabela(resp.text) and not parse_lista(resp.text, self.TRIBUNAL).itens:
+            logger.info('busca por OAB vazia sem UF; repetindo com a UF',
+                        extra={'tribunal': self.TRIBUNAL})
+            soup = BeautifulSoup(self._get(self.list_url).text, 'html.parser')
+            payload = self._montar_payload(soup, criterio, valor, com_uf=True)
+            time.sleep(PAUSA_ANTES_DO_POST_S)
+            resp = self._post(self.list_url, payload)
 
         if not tem_tabela(resp.text):
             # Não é "não achou": é outra página. O TRF5 já serviu, na mesma

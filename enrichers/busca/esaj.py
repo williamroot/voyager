@@ -18,8 +18,6 @@ from collections.abc import Iterator
 
 import requests
 
-from djen.proxies import cortex_proxy_url
-
 from .base import (
     ADVOGADO,
     DOCUMENTO,
@@ -105,7 +103,17 @@ class BuscaEsaj(BuscaPorParte):
         """
         proxy = self.enricher._next_proxy(self._tentados)
         if not proxy:
-            raise FonteIndisponivel(f'{self.TRIBUNAL}: pool sem proxy disponível')
+            # Sem pool CONFIGURADO (`pool is None`) a saída é direta — é o modo
+            # do `scripts/validar_busca_parte.py` fora do container. Com pool
+            # configurado e vazio, o certo continua sendo falhar: sair pelo IP
+            # do worker queimaria justamente o endereço que não se pode perder.
+            if self.enricher.pool is not None:
+                raise FonteIndisponivel(f'{self.TRIBUNAL}: pool sem proxy disponível')
+            self._proxies = {}
+            self.session.cookies.clear()
+            self._get(f'{self.base_url}/cpopg/open.do')
+            return
+        from djen.proxies import cortex_proxy_url
         if proxy != cortex_proxy_url(self.enricher.pool):
             self._tentados.add(proxy)
         self._proxies = {'http': proxy, 'https': proxy}
@@ -137,7 +145,10 @@ class BuscaEsaj(BuscaPorParte):
 
     def _queimar_proxy(self) -> None:
         atual = (self._proxies or {}).get('https')
-        if atual and atual != cortex_proxy_url(self.enricher.pool):
+        if not atual or self.enricher.pool is None:
+            return
+        from djen.proxies import cortex_proxy_url
+        if atual != cortex_proxy_url(self.enricher.pool):
             self.enricher.pool.mark_bad(atual)
 
     # ── busca ────────────────────────────────────────────────────────────────
