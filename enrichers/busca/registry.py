@@ -58,21 +58,22 @@ CATALOGO: dict[str, Fonte] = {
                   'o teto desta instalação pode ser maior'),
     'TRF1': Fonte('TRF1', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
-    # MEDIDO pelo nosso cliente em 04/09/2026, os quatro critérios, 30 em cada
-    # (o teto). O que faltava era transporte: o Akamai Bot Manager dropa quem
-    # não tem fingerprint de navegador, e nenhum proxy resolvia. Resolveu o
-    # `curl_cffi` com `impersonate` — ver NAVEGADOR_IMITADO em `busca/pje.py`.
+    # MEDIDO pelo nosso cliente em 04/09/2026, os quatro critérios, 30 em cada.
+    # O Akamai daqui recusa UA de navegador sobre handshake de Python e UA de
+    # ferramenta conhecida — com o UA honesto do enricher, passa em 0,1 s.
     'TRF3': Fonte('TRF3', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO,
                   frozenset(CRITERIOS),
-                  'atrás do Akamai Bot Manager: só responde a cliente com '
-                  'fingerprint de navegador. A UF da OAB aqui é OBRIGATÓRIA — o '
-                  'inverso do TJMG'),
+                  'o Akamai daqui recusa User-Agent de navegador (e o de '
+                  'ferramenta): use o UA do agente. A UF da OAB é OBRIGATÓRIA — '
+                  'o inverso do TJMG'),
     # O TRF5 CONTA certo e mostra UMA linha: seis buscas, rodapés 30/30/16/13/
     # zero/30, sempre uma linha na tabela. Não é o nosso cliente que trunca —
     # a resposta não contém as outras. Toda busca aqui sai `truncado`.
     'TRF5': Fonte('TRF5', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a fonte conta certo mas renderiza só o primeiro resultado: '
-                  'a busca por parte alcança 1 processo por consulta'),
+                  'a busca por parte alcança 1 processo por consulta. Exige '
+                  'User-Agent de NAVEGADOR — com o do agente serve a consulta '
+                  'antiga, com captcha e sem o formulário'),
     'TJMG': Fonte('TJMG', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
     'TJMA': Fonte('TJMA', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),

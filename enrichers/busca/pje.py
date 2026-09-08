@@ -54,32 +54,37 @@ PAUSA_ANTES_DO_POST_S = 0.4
 #: no TRF3 passou de um minuto sem responder (medido no navegador, 04/09/2026).
 TIMEOUT_BUSCA = (10, 180)
 
-#: Perfil de navegador que o `curl_cffi` imita no TLS/JA3 e no HTTP/2.
-#:
-#: **É isto que faz o TRF3 responder.** Ele está atrás do Akamai Bot Manager
-#: (os cookies `ak_bmsc`/`bm_sv` do HAR provam), e o Akamai não olha o IP: olha
-#: o handshake. Com `requests`, o servidor aceita o TCP, completa o TLS e depois
-#: fica 45 s sem devolver um byte — de qualquer IP, residencial ou não. Com o
-#: fingerprint de Chrome, o MESMO endereço e o MESMO código recebem HTTP 200 em
-#: 0,2 s (medido em 04/09/2026, sem proxy nenhum).
-#:
-#: Não é evasão inventada aqui: é o transporte que o JURISCOPE já usa em
-#: produção no cliente autenticado do TRF3 (`datamodel/processors/trf3.py`,
-#: `impersonate='chrome131'`).
-NAVEGADOR_IMITADO = 'chrome131'
+#: User-Agent do enricher: honesto, diz o que somos.
+UA_AGENTE = 'voyager-ops/0.1 (+pje-consulta-publica)'
 
-#: Cabeçalhos de navegador. O fingerprint sozinho não basta: o Akamai também lê
-#: o conjunto de headers, e uma requisição com JA3 de Chrome e `Accept: */*` de
-#: script é incoerente.
-HEADERS_NAVEGADOR = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,'
-              'image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
-    'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'same-origin',
-    'Sec-Fetch-User': '?1',
+#: User-Agent de navegador. Não é disfarce: é o que faz o TRF5 servir o
+#: formulário ATUAL — ver `UA_POR_TRIBUNAL`.
+UA_NAVEGADOR = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
+#: Qual User-Agent cada instalação quer — e eles são INVERSOS entre si.
+#: Medido em 04/09/2026, três tentativas de cada:
+#:
+#: | tribunal | UA `voyager-ops`              | UA de navegador          |
+#: |----------|-------------------------------|--------------------------|
+#: | TRF3     | **HTTP 200 em 0,1 s**         | ReadTimeout 40 s (3/3)   |
+#: | TRF5     | consulta pública ANTIGA,      | **formulário `fPP`**     |
+#: |          | com captcha e sem `fPP` (3/3) | (3/3)                    |
+#:
+#: São dois comportamentos diferentes, e nenhum é "anti-bot" no sentido usual:
+#: o TRF3 (Akamai) recusa a INCOERÊNCIA — UA de navegador sobre handshake de
+#: Python, ou UA de ferramenta conhecida (`python-requests` também leva
+#: timeout) —, e o TRF5 faz negociação de conteúdo, servindo a versão legada
+#: para quem não se apresenta como navegador.
+#:
+#: Trocar de cliente HTTP não resolve nem um nem outro: com `curl_cffi`
+#: imitando Chrome o TRF5 se comporta igual, porque quem ele lê é o UA. O que
+#: resolve é mandar, para cada fonte, o cabeçalho que ela espera.
+UA_POR_TRIBUNAL = {'TRF5': UA_NAVEGADOR}
+
+CABECALHOS_BASE = {
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
 }
 
 
@@ -96,79 +101,12 @@ class BuscaPje(BuscaPorParte):
         self.base_url = enricher_cls.BASE_URL
         self.list_url = enricher_cls.LIST_URL
         self.detalhe_path = enricher_cls.DETALHE_PATH
-        # Instância dedicada à busca: mexer no timeout aqui não toca o
-        # enriquecimento em massa.
+        # Instância dedicada à busca: mexer no timeout e nos cabeçalhos aqui
+        # não toca o enriquecimento em massa.
         self.enricher.timeout = TIMEOUT_BUSCA
-        self._sessao = None
-        self._proxies: dict = {}
-        self._tentados: set = set()
-
-    # ── transporte ───────────────────────────────────────────────────────────
-    #
-    # A busca NÃO usa o `_get`/`_post` do enricher, e a diferença é o cliente:
-    # ali é `requests`, aqui é `curl_cffi` imitando Chrome. Ver
-    # NAVEGADOR_IMITADO — sem isso o TRF3 não responde a ninguém.
-
-    def _abrir_sessao(self):
-        # Imports tardios: `curl_cffi` é do transporte e `djen.proxies` puxa o
-        # settings do Django. Deixá-los aqui é o que permite rodar o motor (e o
-        # `scripts/validar_busca_parte.py`) de fora do container.
-        from curl_cffi import requests as cr
-
-        proxy = self.enricher._next_proxy(self._tentados)
-        if proxy:
-            from djen.proxies import cortex_proxy_url
-            if proxy != cortex_proxy_url(self.enricher.pool):
-                self._tentados.add(proxy)
-        self._proxies = {'http': proxy, 'https': proxy} if proxy else {}
-        self._sessao = cr.Session(impersonate=NAVEGADOR_IMITADO)
-        return self._sessao
-
-    def _pedir(self, metodo: str, url: str, **kwargs):
-        """GET/POST pela sessão-navegador, com uma rotação de IP em bloqueio.
-
-        Menos rotações que o enricher de propósito: aqui o muro típico não é o
-        IP (o Akamai olha o handshake), e insistir em endereços novos só gasta
-        pool. Erro de transporte vira `FonteIndisponivel`, nunca "não achei".
-        """
-        from curl_cffi import requests as cr
-
-        if self._sessao is None:
-            self._abrir_sessao()
-        cabecalhos = dict(HEADERS_NAVEGADOR, **kwargs.pop('headers', {}))
-        ultimo = None
-        for tentativa in (1, 2):
-            try:
-                resp = self._sessao.request(
-                    metodo, url, headers=cabecalhos, proxies=self._proxies or None,
-                    timeout=TIMEOUT_BUSCA[1], **kwargs)
-            except cr.exceptions.RequestsError as exc:
-                ultimo = f'transporte: {str(exc)[:120]}'
-                self._abrir_sessao()
-                continue
-            if resp.status_code in (403, 429) or resp.status_code >= 500:
-                ultimo = f'HTTP {resp.status_code}'
-                if tentativa == 1:
-                    # Uma segunda chance, com IP e sessão novos: o desafio do
-                    # Akamai é por sessão, e um 403 pode ser sensor expirado.
-                    self._abrir_sessao()
-                    continue
-                break
-            return resp
-        raise FonteIndisponivel(f'{self.TRIBUNAL}: {ultimo or "sem resposta"}')
-
-    def _get(self, url: str):
-        return self._pedir('GET', url)
-
-    def _post(self, url: str, dados: dict):
-        return self._pedir('POST', url, data=dados, headers={
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Origin': self.base_url,
-            'Referer': self.list_url,
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-        })
-
+        self.enricher.session.headers.update(dict(
+            CABECALHOS_BASE,
+            **{'User-Agent': UA_POR_TRIBUNAL.get(self.TRIBUNAL, UA_AGENTE)}))
     # ── formulário ───────────────────────────────────────────────────────────
 
     @staticmethod
@@ -260,6 +198,27 @@ class BuscaPje(BuscaPorParte):
         primeira = select.find('option')
         return primeira.get('value', '') if primeira else ''
 
+    def _abrir_formulario(self) -> BeautifulSoup:
+        """Carrega o `fPP` — e, se não vier, tenta com o OUTRO User-Agent.
+
+        O mapa `UA_POR_TRIBUNAL` cobre o que já foi medido; este fallback cobre
+        o que ainda não foi. Sem ele, um tribunal que passe a negociar conteúdo
+        por UA (como o TRF5 faz) vira "formulário sem ViewState" — um erro de
+        layout que manda o próximo a olhar isto caçar parser, quando o problema
+        é cabeçalho.
+        """
+        resp = self.enricher._get(self.list_url)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        if soup.find('form', {'id': 'fPP'}):
+            return soup
+
+        atual = self.enricher.session.headers.get('User-Agent')
+        outro = UA_NAVEGADOR if atual == UA_AGENTE else UA_AGENTE
+        logger.info('formulário fPP ausente; repetindo com o outro User-Agent',
+                    extra={'tribunal': self.TRIBUNAL, 'de': atual, 'para': outro})
+        self.enricher.session.headers['User-Agent'] = outro
+        return BeautifulSoup(self.enricher._get(self.list_url).text, 'html.parser')
+
     # ── busca ────────────────────────────────────────────────────────────────
 
     def paginar(self, criterio: str, valor: str,
@@ -273,12 +232,11 @@ class BuscaPje(BuscaPorParte):
         """
         self.exigir_suporte(criterio)
 
-        resp = self._get(self.list_url)
-        soup = BeautifulSoup(resp.text, 'html.parser')
+        soup = self._abrir_formulario()
         payload = self._montar_payload(soup, criterio, valor)
 
         time.sleep(PAUSA_ANTES_DO_POST_S)
-        resp = self._post(self.list_url, payload)
+        resp = self.enricher._post(self.list_url, payload)
 
         # A UF da OAB é INVERSA entre instalações, e não há como saber qual sem
         # tentar. Medido em 04/09/2026, mesma busca, mesmo código:
@@ -293,10 +251,10 @@ class BuscaPje(BuscaPorParte):
         if criterio == OAB and tem_tabela(resp.text) and not parse_lista(resp.text, self.TRIBUNAL).itens:
             logger.info('busca por OAB vazia sem UF; repetindo com a UF',
                         extra={'tribunal': self.TRIBUNAL})
-            soup = BeautifulSoup(self._get(self.list_url).text, 'html.parser')
+            soup = BeautifulSoup(self.enricher._get(self.list_url).text, 'html.parser')
             payload = self._montar_payload(soup, criterio, valor, com_uf=True)
             time.sleep(PAUSA_ANTES_DO_POST_S)
-            resp = self._post(self.list_url, payload)
+            resp = self.enricher._post(self.list_url, payload)
 
         if not tem_tabela(resp.text):
             # Não é "não achou": é outra página. O TRF5 já serviu, na mesma

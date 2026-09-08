@@ -4268,13 +4268,20 @@ Roda com a malha de proxies dentro do container e direto fora dele. Célula que
 volta ZERO é sinal de layout mudado ou de alvo que perdeu os processos — os
 ALVOS são dados reais de cada acervo e estão no topo do script.
 
-⚠️ **O TRF3 só responde a cliente com fingerprint de navegador** (Akamai Bot
-Manager). A busca usa `curl_cffi` com `impersonate` e passa. O **enricher** dele
-ainda usa `requests` — se estiver batendo no mesmo muro, está cego em produção:
+⚠️ **Cabeçalho é por tribunal, e TRF3 e TRF5 querem opostos** (medido, 3 de 3):
+o TRF3 recusa User-Agent de navegador e o de ferramenta (dá ReadTimeout de 40 s)
+e aceita o UA do agente; o TRF5 faz o contrário — com o UA do agente ele serve a
+consulta pública ANTIGA, com captcha e sem o formulário. O motor resolve isso em
+`UA_POR_TRIBUNAL` (`enrichers/busca/pje.py`), com fallback automático para o
+outro UA quando o `fPP` não vem.
 
-```bash
-docker exec -w /app voyager-worker_trf3-1 python manage.py enriquecer_processo <cnj>
-```
+Consequência para o diagnóstico: **"formulário sem ViewState" quase nunca é
+parser quebrado** — é cabeçalho errado ou página legada. Confira o UA antes de
+abrir o HTML.
+
+E fica registrado, porque a suspeita chegou a ser levantada aqui: o **enricher**
+do TRF3 usa `requests` com o UA do agente, que é justamente o que aquele Akamai
+aceita. Ele nunca esteve cego.
 
 ### Quando alguém disser "a busca não achou nada"
 

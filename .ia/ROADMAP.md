@@ -58,10 +58,6 @@ Itens pendentes ou planejados, organizados por prioridade.
       `scripts/validar_busca_parte.py` de dentro do container (para exercitar a
       malha de proxies, que a rodada de fora não cobre). Do outro lado, o
       Juriscope troca a busca local dele por esta API.
-- [ ] **Conferir se o ENRICHER do TRF3 está cego.** A busca só passa no TRF3 com
-      fingerprint de navegador (`curl_cffi`); o enricher usa `requests`, que o
-      Akamai Bot Manager dropa. Se estiver mesmo cego, a correção é a mesma —
-      ver `NAVEGADOR_IMITADO` em `enrichers/busca/pje.py`.
 - [ ] **`pg_dump` diário automático** — job RQ na fila `default` ~03:00 + retenção 30d local + S3 opcional
 - [ ] **2FA no admin** via `django-otp` — pra exposição pública
 

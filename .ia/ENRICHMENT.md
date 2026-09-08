@@ -2731,25 +2731,53 @@ Custa uma requisição a mais, e só quando não achou nada.
 Lembrando que o combo guarda ÍNDICE, não sigla ("0"=AC, "1"=AL, …): mandar `MG`
 cru faz o Seam redirecionar para `errorUnexpected.seam`.
 
-### O muro do TRF3 se resolve no TRANSPORTE, não no IP
+### O que o TRF3 e o TRF5 recusam é o CABEÇALHO — e em direções opostas
 
-O Akamai Bot Manager não olha o endereço, olha o handshake. Com `requests`, o
-TRF3 aceita o TCP, completa o TLS e some — 45 s sem um byte, de qualquer IP,
-residencial ou não. Com `curl_cffi` imitando Chrome (`impersonate='chrome131'`),
-o **mesmo endereço** e o **mesmo código** recebem HTTP 200 em **0,2 s**.
+Este achado começou errado duas vezes, e as duas leituras erradas foram minhas.
+A primeira: "bloqueio de IP" (a malha residencial deu o mesmo resultado). A
+segunda: "o Akamai dropa cliente automatizado, precisa de fingerprint de
+navegador" — cheguei a trocar o cliente por `curl_cffi` imitando Chrome, e
+funcionou, o que *parecia* confirmar. Só que o muro era meu: o recon usava UA de
+Chrome sobre `requests` desde a primeira requisição.
 
-Não é evasão inventada aqui: é o transporte que o JURISCOPE já usa em produção
-no cliente autenticado do TRF3 (`datamodel/processors/trf3.py`). O motor PJe da
-busca passou a usá-lo para todos os tribunais — ver `NAVEGADOR_IMITADO` em
-`enrichers/busca/pje.py`. Quem depende disso hoje é o TRF3; para os outros
-quatro é seguro por igual (o fingerprint de navegador não é rejeitado por
-ninguém que aceitava `requests`).
+Medido em 04/09/2026, três tentativas de cada, contra
+`pje1g.trf3.jus.br/pje/ConsultaPublica/listView.seam`:
 
-⚠️ E fica a pergunta operacional: o **enricher** do TRF3 usa `requests`. Se ele
-estiver batendo no mesmo muro, está cego — confira antes de mexer em outra coisa
-(`.ia/OPS.md`).
+| cliente | User-Agent | resultado |
+|---|---|---|
+| `requests` | **`voyager-ops/0.1`** (o do enricher) | **HTTP 200 em 0,1 s** |
+| `requests` | de navegador (Chrome) | ReadTimeout 40 s |
+| `requests` | nenhum (`python-requests/2.x`) | ReadTimeout 40 s |
+| `curl_cffi` (Chrome) | qualquer um | HTTP 200 |
 
-### Prova de esgotamento — as três fontes que paginam
+Ou seja: o Akamai Bot Manager do TRF3 **não recusa cliente automatizado** — ele
+recusa a INCOERÊNCIA (UA de navegador com handshake TLS de Python) e o UA de
+ferramenta conhecida. Um agente que se identifica pelo que é passa direto, com
+`requests` puro. **O enricher do TRF3, que usa exatamente esse UA, nunca esteve
+cego.**
+
+E o TRF5 faz o oposto, na mesma medição:
+
+| cliente | User-Agent | o que volta |
+|---|---|---|
+| `requests` ou `curl_cffi` | `voyager-ops/0.1` | a consulta pública **ANTIGA**, com captcha e sem `fPP` (3/3) |
+| `requests` ou `curl_cffi` | de navegador | o **formulário atual** `fPP` (3/3) |
+
+Lá é negociação de conteúdo por UA: quem não se apresenta como navegador recebe
+a versão legada. Trocar o cliente não muda nada — nos dois tribunais quem decide
+é o cabeçalho.
+
+Por isso o motor manda, para cada fonte, o UA que ela espera (`UA_POR_TRIBUNAL`
+em `enrichers/busca/pje.py`, hoje com uma exceção: TRF5) e, se o `fPP` não vier,
+repete com o outro UA antes de desistir. Sem esse fallback, um tribunal que
+passe a negociar conteúdo vira "formulário sem ViewState" — erro de layout, que
+manda o próximo a olhar isto caçar parser quando o problema é cabeçalho.
+
+`curl_cffi` **não é necessário** e foi removido das dependências. Fica anotado
+como saída conhecida se algum tribunal passar a exigir handshake de navegador —
+é o que o JURISCOPE já usa no cliente AUTENTICADO do TRF3, onde há login SSO.
+
+### Prova de esgotamento — as três fontes que paginam### Prova de esgotamento — as três fontes que paginam
 
 Regra nº 5 (medir a completude dos DOIS lados) aplicada a cada motor que tem
 paginação. Todas em 04/09/2026:

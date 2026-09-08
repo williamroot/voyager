@@ -110,15 +110,23 @@ class _EnricherLeve:
         import requests
         self.timeout = (10, 180)
         self.session = requests.Session()
+        # Sem User-Agent fixo: quem decide é o motor, por tribunal
+        # (`UA_POR_TRIBUNAL` em `enrichers/busca/pje.py`) — TRF3 e TRF5 querem
+        # cabeçalhos opostos.
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'pt-BR,pt;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
         })
 
     def _next_proxy(self, _excluir, **__):
         return None
+
+    def _get(self, url):
+        return self.session.get(url, timeout=self.timeout)
+
+    def _post(self, url, data):
+        return self.session.post(url, data=data, timeout=self.timeout, headers={
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
 
     def _extract_form_fields(self, soup):
         form = soup.find('form', {'id': 'fPP'})
