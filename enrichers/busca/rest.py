@@ -47,6 +47,10 @@ class _BuscaRest(BuscaPorParte):
 
     MAX_ROTACOES = 6
 
+    #: `(conectar, ler)` da busca. As duas APIs REST responderam em 2 a 26 s nas
+    #: medições, mas o padrão vale: buscar por parte é varredura do lado deles.
+    TIMEOUT_BUSCA = (10, 180)
+
     def __init__(self, enricher_cls, prefer_cortex: bool | None = None):
         self.enricher = enricher_cls(prefer_cortex=bool(prefer_cortex))
         self.TRIBUNAL = enricher_cls.TRIBUNAL_SIGLA
@@ -66,7 +70,7 @@ class _BuscaRest(BuscaPorParte):
                 resp = self.enricher.session.get(
                     url, params=params, headers=headers or {},
                     proxies={'http': proxy, 'https': proxy},
-                    timeout=getattr(self.enricher, 'REQUEST_TIMEOUT', (10, 60)))
+                    timeout=self.TIMEOUT_BUSCA)
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError) as exc:
                 ultimo = f'transporte: {str(exc)[:120]}'

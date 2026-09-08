@@ -370,7 +370,8 @@ um corte mudo.
 | teto | valor | onde |
 |---|---|---|
 | páginas por tribunal | 40 (= 1.000 no e-SAJ, o teto DELE) | `enrichers/busca/jobs.py` |
-| tempo por tribunal | 240 s | idem |
+| tempo por tribunal | 300 s | idem |
+| espera por requisição | `(10, 180)` conectar/ler | `esaj.py`, `pje.py`, `rest.py` |
 | ingestão por consulta | 1.000 processos | `enrichers/busca/ingestao.py` |
 | cache da mesma pergunta | 6 h | `api/busca_tribunal_views.py` |
 | buscas por minuto/cliente | 20 | idem |
@@ -383,6 +384,12 @@ isso de "truncado pela fonte".
 **Prova de esgotamento por fonte** (04/09/2026): e-SAJ 823 declarados = 823
 colhidos (33 páginas, 51 s) · TJMT 112 = 112 (3 requisições) · TJPA 198 = 198
 (9 requisições). O PJe não pagina: uma resposta, no máximo 30.
+
+A espera por requisição é maior que a do enricher (`(10, 60)`) de propósito:
+ele pede um processo pelo número, a busca manda o tribunal varrer a base. Medido:
+71 s numa única página do e-SAJ (CNPJ do Bradesco) e mais de um minuto no CNPJ
+do INSS no TRF3. Com 60 s, a busca por ente público grande morreria em
+`fonte_indisponivel` — e é ali que estão os precatórios.
 
 Tamanho de página por fonte, medido: e-SAJ **25** (fixo, seguimos o link
 "próxima") · TJMT `Take` **50** (60 passa, 75 dá HTTP 422) · TJPA **25 a 56** —

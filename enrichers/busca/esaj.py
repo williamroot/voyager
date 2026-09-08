@@ -62,6 +62,16 @@ CB_PESQUISA = {
 #: anterior.
 RETENTATIVAS_SIMULTANEAS = 3
 
+#: `(conectar, ler)` da BUSCA — deliberadamente maior que os `(10, 60)` do
+#: enricher, e o motivo é que são operações diferentes: o enricher pede UM
+#: processo pelo número; a busca por parte manda o tribunal varrer a base dele.
+#:
+#: Medido: o CNPJ do Bradesco no e-SAJ levou **71 s** só na primeira página, e
+#: uma busca pelo CNPJ do INSS no PJe do TRF3 (no navegador, 04/09/2026) passou
+#: de um minuto sem responder. Com 60 s de leitura, a busca por ente público
+#: grande morre em `FonteIndisponivel` — justamente onde estão os precatórios.
+TIMEOUT_BUSCA = (10, 180)
+
 
 class BuscaEsaj(BuscaPorParte):
     CRITERIOS_SUPORTADOS = frozenset({DOCUMENTO, NOME, OAB, ADVOGADO})
@@ -74,6 +84,9 @@ class BuscaEsaj(BuscaPorParte):
                            else prefer_cortex))
         self.TRIBUNAL = enricher_cls.TRIBUNAL_SIGLA
         self.base_url = enricher_cls.BASE_URL
+        # O enricher desta instância é exclusivo da busca, então trocar o
+        # timeout dele não afeta o enriquecimento em massa.
+        self.enricher.timeout = TIMEOUT_BUSCA
         self._proxies: dict = {}
         self._tentados: set = set()
 

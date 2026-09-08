@@ -48,6 +48,12 @@ SUFIXO_CAMPO = {
 
 PAUSA_ANTES_DO_POST_S = 0.4
 
+#: `(conectar, ler)` da BUSCA — ver o comentário gêmeo em `esaj.py`. O enricher
+#: usa `(10, 60)`, que é o certo para pedir UM processo pelo número; a busca por
+#: parte manda o tribunal varrer a base dele, e uma consulta pelo CNPJ do INSS
+#: no TRF3 passou de um minuto sem responder (medido no navegador, 04/09/2026).
+TIMEOUT_BUSCA = (10, 180)
+
 
 class BuscaPje(BuscaPorParte):
     CRITERIOS_SUPORTADOS = frozenset({DOCUMENTO, NOME, OAB, ADVOGADO})
@@ -62,6 +68,9 @@ class BuscaPje(BuscaPorParte):
         self.base_url = enricher_cls.BASE_URL
         self.list_url = enricher_cls.LIST_URL
         self.detalhe_path = enricher_cls.DETALHE_PATH
+        # Instância dedicada à busca: mexer no timeout aqui não toca o
+        # enriquecimento em massa.
+        self.enricher.timeout = TIMEOUT_BUSCA
 
     # ── formulário ───────────────────────────────────────────────────────────
 

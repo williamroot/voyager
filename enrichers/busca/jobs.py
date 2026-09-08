@@ -39,11 +39,14 @@ FILA_HIDRATACAO = 'busca_hidratacao'
 #: páginas colhíamos 250 e marcávamos "truncado" como se a limitação fosse dela.
 TETO_PAGINAS = 40
 
-#: Teto de tempo por tribunal. As 33 páginas acima levaram 51 s (quase tudo
-#: pacing), mas uma ÚNICA página do e-SAJ já levou 71 s num CNPJ com mil
-#: processos — o teto tem de caber no caso lento sem virar o timeout do job,
-#: senão o run perde o que já tinha colhido.
-TETO_TEMPO_S = 240
+#: Teto de tempo por tribunal. As 33 páginas de uma busca por OAB levaram 51 s
+#: (quase tudo pacing), mas o caso que dimensiona isto é o outro: uma ÚNICA
+#: página pode levar minutos quando o critério é um ente público grande — 71 s
+#: medidos no CNPJ do Bradesco (e-SAJ) e mais de um minuto no CNPJ do INSS
+#: (PJe do TRF3, no navegador). Com `TIMEOUT_BUSCA` de 180 s por requisição, o
+#: teto do tribunal tem de deixar espaço para uma requisição lenta E para o que
+#: vier depois — senão o run perde o que já tinha colhido.
+TETO_TEMPO_S = 300
 
 JOB_TIMEOUT = TETO_TEMPO_S + 120  # folga para fechar o run e ingerir
 

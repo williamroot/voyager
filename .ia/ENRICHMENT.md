@@ -2578,6 +2578,31 @@ Conjuntos disjuntos entre critérios diferentes e quase iguais entre dois
 critérios que apontam para a mesma pessoa: o filtro está sendo aplicado. Se
 tudo voltasse igual, seria o `documento=` do TJMT de novo.
 
+### Buscar por ente público grande é LENTO na fonte — e o timeout do enricher não serve
+
+Observado no TRF3, em 04/09/2026, com a consulta pública aberta **no navegador**:
+buscar pelo CNPJ do INSS (`29.979.036/0001-40`) passou de um minuto sem
+responder. No e-SAJ, a mesma classe de consulta já tinha sido medida: o CNPJ do
+Bradesco levou **71 s** só na primeira página.
+
+O motivo é estrutural, não um mau dia da fonte: o enricher pede **um** processo
+pelo número; a busca por parte manda o tribunal **varrer a base dele**. São
+operações de custo diferente, e não podem compartilhar o mesmo teto de espera.
+
+Por isso a busca usa `TIMEOUT_BUSCA = (10, 180)` em vez dos `(10, 60)` do
+enricher (`enrichers/busca/esaj.py`, `pje.py`, `rest.py`), e o teto de tempo por
+tribunal subiu para 300 s. Com 60 s de leitura, a busca por ente público grande
+morreria em `FonteIndisponivel` — e é **exatamente ali que estão os
+precatórios**: quem tem milhares de processos contra si é a Fazenda, não o
+cidadão.
+
+⚠️ **E o custo/benefício disso no PJe é ruim, por construção**: minutos de
+espera para receber **30 resultados**, que é o teto dele. Quando o critério for
+um ente público grande, o caminho útil não é insistir no documento — é refinar
+no próprio formulário (classe judicial, data de autuação, que o `fPP` oferece)
+ou usar o índice, onde o ente aparece inteiro. A busca ao vivo por documento
+rende quando o documento é de uma PESSOA.
+
 ### TRF3: o domínio inteiro dropa cliente que não é navegador (04/09/2026)
 
 A primeira leitura foi "bloqueio de borda contra IP residencial". **Errado.**
