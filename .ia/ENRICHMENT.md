@@ -2427,13 +2427,14 @@ pública do tribunal é a única fonte que responde de verdade.
 | TJMA | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | idem | não tem | 30 |
 | TRF1 | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | idem | não tem | 30 |
 | TRF5 | PJe fPP | ✅\* | ✅\* | ✅\* | ✅\* | idem | não tem | **1 linha** |
-| TRF3 | PJe fPP | \*\* | \*\* | \*\* | \*\* | — | — | — |
+| TRF3 | PJe fPP | ✅\*\* | \*\* | \*\* | \*\* | rodapé "N resultados" | não tem | **30** |
 | TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` | — | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
 | TJMT | REST | ✅ `parteCpfCnpj` | ✅ `parteNome` | ✅ `advogadoOAB` | ✅ `NomeOab`, `advogadoCPF` | `totalRegistros` | `Skip`/`Take` | sem teto observado |
 
-\*\* TRF3 **não foi medido** — e a segunda tentativa, com proxy, mostrou que o
-problema não é o IP. Ver §"TRF3: o domínio inteiro dropa cliente que não é
-navegador". Célula vazia é "não medido", nunca "não tem".
+\*\* TRF3: a FONTE foi medida (HAR de um navegador, busca por documento — 30
+resultados, teto), mas o NOSSO cliente não chega nela: o Akamai Bot Manager
+dropa quem não passa o desafio. Ver §"TRF3: o muro é o Akamai Bot Manager, e o
+teto de 30 vale lá também". Célula vazia é "não medido", nunca "não tem".
 
 \* No TRF5 os quatro critérios respondem, mas a fonte **renderiza apenas o
 primeiro resultado** — ver §"O TRF5 conta certo e mostra uma linha".
@@ -2603,51 +2604,63 @@ no próprio formulário (classe judicial, data de autuação, que o `fPP` oferec
 ou usar o índice, onde o ente aparece inteiro. A busca ao vivo por documento
 rende quando o documento é de uma PESSOA.
 
-### TRF3: o domínio inteiro dropa cliente que não é navegador (04/09/2026)
+### TRF3: o muro é o Akamai Bot Manager, e o teto de 30 vale lá também
 
-A primeira leitura foi "bloqueio de borda contra IP residencial". **Errado.**
-Repetido pela malha de proxies residenciais da casa (Cortex, IPs brasileiros —
-`api.ipify.org` confirma a saída), o TRF3 se comporta igual:
+Duas leituras minhas caíram aqui, nesta ordem: primeiro "bloqueio de borda
+contra IP residencial" (errado — a malha residencial da casa dá o mesmo
+resultado), depois "o domínio inteiro está fora" (errado de novo). O HAR de uma
+busca feita **no navegador**, em 04/09/2026, resolveu as duas.
 
-| alvo | pelo Cortex | direto |
-|---|---|---|
-| `www.trf3.jus.br` (site institucional!) | ReadTimeout | ReadTimeout |
-| `pje1g.trf3.jus.br/pje/ConsultaPublica/` | ReadTimeout | ReadTimeout |
-| `pje2g.trf3.jus.br/pje/ConsultaPublica/` | ReadTimeout | ReadTimeout |
-| `web.trf3.jus.br/consultas/Internet/consultaprocessual` | ReadTimeout | ReadTimeout |
-| `frontend-pje.app.trf3.jus.br` | ReadTimeout | ReadTimeout |
-| `pje1g-consultapublica.trf3.jus.br` (fora do Akamai) | **403 nginx** | **403 nginx** |
+**O TRF3 responde normalmente a um navegador.** Oito requisições, todas HTTP 200,
+e o POST da busca em 8,0 s. O que o navegador carrega e nós não:
 
-O que a camada de baixo diz, e é o ponto:
+    cookie: ak_bmsc=9F40367107811648AD90C00250D99226~00000000000…
+    cookie: bm_sv=B371D32668DEC8B8A40362DD8F6CF2F2~YAAQ0ykRAk21Zz…
 
-- **TCP/443 conecta** em todos os seis (Akamai `2.17.47.x` e o `200.9.86.236`);
-- **o TLS completa** — `TLSv1.3`, `CN=www.trf3.jus.br`, `Verify return code: 0`;
-- em **HTTP/1.1** o servidor fica 45 s sem devolver **um byte**;
-- em **HTTP/2** ele mata o stream: `curl: (92) HTTP/2 stream 1 was not closed
-  cleanly: INTERNAL_ERROR`.
+`ak_bmsc` e `bm_sv` são os cookies do **Akamai Bot Manager**. Isso explica
+exatamente o que medimos por fora: TCP conecta, TLS completa (`TLSv1.3`,
+`Verify return code: 0`) e aí o servidor **não responde** — 45 s sem um byte em
+HTTP/1.1, `INTERNAL_ERROR` no stream em HTTP/2. Não é o IP: é o sensor. Trocar
+de proxy não muda nada, e a origem alternativa (`pje1g-consultapublica`,
+`200.9.86.236`, fora do Akamai) responde 403 de nginx a qualquer um.
 
-Handshake aceito e resposta nunca enviada é assinatura de **anti-bot que dropa
-em silêncio**, não de allowlist de IP — se fosse o IP, o TLS não subiria, e
-trocar para residencial teria mudado alguma coisa. Não mudou.
+**E o teto de 30 vale igual no TRF3.** A busca do HAR foi por documento
+(`fPP:dpDec:documentoParte = 45.358.058/0001-40`, a UFSCar), e o nosso índice
+diz que essa autarquia tem **1.372** processos no TRF3. A fonte devolveu:
 
-A URL está certa: `pje1g.trf3.jus.br/pje/ConsultaPublica/listView.seam` é a que
-o próprio TRF3 publica na Carta de Serviços. O que não temos é um cliente que
-aquele muro aceite.
+| medida | valor |
+|---|---|
+| linhas na tabela | **30** |
+| rodapé | `30 resultados encontrados` |
+| CNJs distintos | 30 |
+| scroller / "próxima página" no HTML | **nenhum** |
 
-⚠️ **Isto levanta uma pergunta operacional maior que a busca**: o enricher do
-TRF3 usa exatamente esses hosts e esse tipo de cliente. Se o muro vale para ele
-também, o TRF3 está cego em produção — e cego em silêncio, que é o defeito que
-este projeto menos tolera. **Conferir antes de qualquer outra coisa**:
+Ou seja: 30 de 1.372, num **navegador de verdade**. O teto não é limitação do
+nosso cliente nem do nosso parser — é da consulta pública. A fixture é a própria
+resposta do navegador (`tests/fixtures/trf3/busca_documento.html`, gravada do
+HAR sem cookie nenhum) e o parser do WS-2 a lê inteira: 30 itens, `total_e_teto`,
+classe, assunto e partes.
 
-```bash
-docker exec -w /app voyager-worker_trf3-1 \
-    python manage.py enriquecer_processo <cnj-do-trf3>
-# e no banco: quantos Process do TRF3 têm enriquecimento_status='ok' nos últimos dias
-```
+**A saída para o teto está no MESMO formulário.** O payload do HAR mostra que a
+consulta pública do TRF3 carrega, além do documento:
 
-Se o enricher também estiver morto, o caminho não é procurar proxy: é decidir
-entre navegador real (Playwright) e pedir acesso ao TRF3 — a mesma decisão do
-eproc do TJSP, e ela é do dono do produto.
+    fPP:dataAutuacaoDecoration:dataAutuacaoInicioInputDate
+    fPP:dataAutuacaoDecoration:dataAutuacaoFimInputDate
+    fPP:j_id192:classeJudicial
+
+Quer dizer que o teto de 30 é por CONSULTA, não por parte: fatiando a mesma
+busca em janelas de autuação (ano a ano, por exemplo) cada janela devolve até 30
+e a soma cobre o que uma consulta só nunca traria. Vale para os cinco PJe, não
+só para o TRF3 — o campo está no form de todos. Ainda não implementado; anotado
+no ROADMAP.
+
+**E a área logada?** Ela tem um formulário ainda mais rico — o cliente
+autenticado do JURISCOPE (`datamodel/processors/trf3.py`) monta, entre outros,
+`fPP:decorationDados:numeroOAB`, `jurisdicaoCombo`, `orgaoJulgadorCombo` e
+**`valorDaCausaDecoration:valorCausaInicial/Final`**, que a pública não tem. Se
+o teto de 30 cai lá, ninguém mediu: aquele cliente só busca por CNJ, que devolve
+um processo. Medir isso é barato para quem tem a credencial, e o filtro de VALOR
+seria especialmente útil para precatório.
 
 ### Prova de esgotamento — as três fontes que paginam
 

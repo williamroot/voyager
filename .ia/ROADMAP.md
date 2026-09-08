@@ -38,6 +38,20 @@ Itens pendentes ou planejados, organizados por prioridade.
 
 ## Alta — desbloqueiam casos de uso
 
+- [ ] **Furar o teto de 30 do PJe fatiando por janela de autuação.** O teto é por
+      CONSULTA, não por parte: o mesmo formulário `fPP` que hoje só recebe o
+      documento carrega `dataAutuacaoInicioInputDate`/`dataAutuacaoFimInputDate`
+      e `classeJudicial` (confirmado no HAR do TRF3, 04/09/2026). Buscar o mesmo
+      CNPJ ano a ano faz cada janela devolver até 30, e a soma cobre o que uma
+      consulta só nunca traz — medido: a UFSCar tem 1.372 processos no TRF3 e a
+      consulta pública entrega 30. Vale para os cinco PJe. Cuidado ao desenhar:
+      cada janela é uma requisição, e o custo por requisição na busca por ente
+      grande já é de minutos.
+- [ ] **Medir o teto na área LOGADA do PJe.** O cliente autenticado do JURISCOPE
+      (`datamodel/processors/trf3.py`) monta um form bem mais rico — OAB,
+      jurisdição, órgão julgador e **valor da causa** —, mas só busca por CNJ,
+      então ninguém sabe se o teto de 30 cai lá. Para precatório, o filtro de
+      valor seria o mais útil de todos.
 - [ ] **Busca POR PARTE ao vivo — deploy e as duas medições que faltam.** Código
       pronto e testado (`enrichers/busca/`, `POST /api/v1/busca/tribunal/`,
       tela `/dashboard/busca-tribunal/`, worker `worker_busca`, migration 0060).

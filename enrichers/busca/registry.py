@@ -54,8 +54,16 @@ CATALOGO: dict[str, Fonte] = {
                   'mesmo software do TJSP; o teto de 1.000 não foi exercido aqui'),
     'TRF1': Fonte('TRF1', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
+    # A FONTE do TRF3 está medida (HAR de um navegador: busca por documento,
+    # 30 resultados, teto) e o parser lê a resposta dela inteira. O que não
+    # temos é TRANSPORTE: o Akamai Bot Manager (`ak_bmsc`/`bm_sv`) dropa quem
+    # não passa o sensor, e nenhum proxy muda isso. Por isso `verificado_em`
+    # fica NULO: o critério do catálogo é "esta busca já rodou pelo NOSSO
+    # cliente", e essa ainda não rodou.
     'TRF3': Fonte('TRF3', 'pje', frozenset(CRITERIOS), 30, False, None, frozenset(),
-                  'não medido: o host recusa conexão fora da malha de proxies'),
+                  'a consulta pública responde (30 por consulta, sem paginar), mas '
+                  'o Akamai Bot Manager bloqueia cliente sem sensor — nosso cliente '
+                  'ainda não chega lá'),
     # O TRF5 CONTA certo e mostra UMA linha: seis buscas, rodapés 30/30/16/13/
     # zero/30, sempre uma linha na tabela. Não é o nosso cliente que trunca —
     # a resposta não contém as outras. Toda busca aqui sai `truncado`.
