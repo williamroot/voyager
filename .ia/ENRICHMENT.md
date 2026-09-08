@@ -2428,12 +2428,15 @@ pública do tribunal é a única fonte que responde de verdade.
 | TRF1 | PJe fPP | ✅ | ✅ | ✅ (sem UF) | ✅ | idem | não tem | 30 |
 | TRF5 | PJe fPP | ✅\* | ✅\* | ✅\* | ✅\* | idem | não tem | **1 linha** |
 | TRF3 | PJe fPP | ✅ | ✅ | ✅\*\* | ✅ | rodapé "N resultados" | não tem | **30** |
-| TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` | — | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
+| TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` \*\*\* | — | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
 | TJMT | REST | ✅ `parteCpfCnpj` | ✅ `parteNome` | ✅ `advogadoOAB` | ✅ `NomeOab`, `advogadoCPF` | `totalRegistros` | `Skip`/`Take` | sem teto observado |
 
 \*\* No TRF3 a UF da OAB é OBRIGATÓRIA — o inverso do TJMG. Ver §"A UF da OAB é
 inversa entre tribunais". O TRF3 só responde a cliente com fingerprint de
 navegador (§"TRF3: o muro é o Akamai Bot Manager").
+
+\*\*\* No TJPA a OAB vai como `OAB-<UF>` e com zeros à esquerda (6 dígitos) —
+ver §"TJPA: a OAB precisa de `OAB-<UF>` e de ZEROS À ESQUERDA".
 
 \* No TRF5 os quatro critérios respondem, mas a fonte **renderiza apenas o
 primeiro resultado** — ver §"O TRF5 conta certo e mostra uma linha".
@@ -2676,7 +2679,7 @@ rodada de 04/09/2026 (primeira página; `declarado` é o que a fonte diz ter):
 | TRF1 | **30** de 30 | **30** de 30 | **30** de 30 | **30** de 30 |
 | TRF3 | **30** de 30 | **30** de 30 | **30** de 30 | **30** de 30 |
 | TRF5 | 1 de 30 | 1 de 30 | 1 de 16 | 1 de 13 |
-| TJPA | 25 de 198 | 59 de 57 | *sem alvo* | *a fonte não tem* |
+| TJPA | 25 de 198 | 59 de 57 | 34 de 25 | *a fonte não tem* |
 | TJMT | 50 de **201.693** | 50 de 1.158 | 50 de 112 | 50 de 507.830 |
 
 O que a matriz mostra de uma vez: o teto de 30 do PJe, o de 1.000 do e-SAJ (e o
@@ -2684,13 +2687,32 @@ TJAL declarando **2.000**, o dobro — ou o teto de lá é outro, ou havia 2.000
 mesmo; sem um caso entre mil e dois mil não dá para separar), o TRF5 contando
 certo e entregando uma linha, e as duas fontes REST paginando de verdade.
 
-A única célula vazia é `oab` no TJPA, e por falta de ALVO: a rota existe, mas não
-temos uma OAB do PA para exercitá-la — a fonte não expõe OAB nas partes.
+**As 36 células respondem.** A última a cair foi `oab` no TJPA, e o que faltava
+não era alvo — era formato: ver abaixo.
 
 Rodar isso é barato e pega o que teste unitário não pega: cada célula desta
 matriz já foi, em algum momento de 04/09, um **zero silencioso** (host
 quase-certo, botão errado, página 0, UF da OAB, filtro ignorado) — todos com
 HTTP 200 e nenhum com erro.
+
+### TJPA: a OAB precisa de `OAB-<UF>` e de ZEROS À ESQUERDA
+
+Duas exigências que não estão documentadas em lugar nenhum e que devolvem
+**zero em vez de erro** quando desrespeitadas:
+
+| chamada | resposta |
+|---|---|
+| `processobyoab/16499/**PA**/1/50` | HTTP **204**, sem conteúdo |
+| `processobyoab/16499/**OAB-PA**/1/50` | 200, `qtdRegistrosTotal: 0` |
+| `processobyoab/**016499**/OAB-PA/1/50` | 200, **34 processos** |
+
+O órgão expedidor sai do bundle da SPA (`ORGAO_EXPEDITOR = "OAB-" + uf`), e o
+zero à esquerda só apareceu variando o formato com uma OAB real do Pará
+(16.499, colhida de um escritório de Belém — a fonte não expõe OAB nas partes,
+então não dá para tirar uma do próprio acervo).
+
+Antes disso, oito números espaçados (1.000, 2.000, … 15.000) tinham devolvido
+zero, e a leitura fácil seria "a rota não funciona". Era o formato.
 
 ### A UF da OAB é INVERSA entre tribunais
 

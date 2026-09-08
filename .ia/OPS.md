@@ -4252,43 +4252,29 @@ Só leitura por padrão (`--ingerir` é o que escreve). É o comando que exercit
 CÓDIGO DE PRODUÇÃO — registry, motor, parser —, ao contrário do
 `scripts/recon_busca_parte.py`, que faz requisição crua para medir a fonte.
 
-### O TRF3 ainda não foi medido — e o proxy NÃO resolve
+### Medição: fechada, e como refazer
 
-Tentado pela malha residencial (Cortex) em 04/09/2026: o domínio inteiro do TRF3
-continua sem responder — inclusive `www.trf3.jus.br`. TCP conecta, TLS completa,
-e aí o servidor fica 45 s sem mandar um byte (HTTP/1.1) ou mata o stream
-(HTTP/2, `INTERNAL_ERROR`). Isso é anti-bot dropando em silêncio, não allowlist
-de IP. Detalhe e tabela em `.ia/ENRICHMENT.md` §"TRF3: o domínio inteiro dropa
-cliente que não é navegador".
+Os nove tribunais × quatro critérios foram exercitados pelos motores de produção
+em 04/09/2026 — **36 de 36 células respondem**. A matriz e os números por célula
+estão em `.ia/ENRICHMENT.md` §"A matriz completa". Para refazer (depois de
+deploy, ou quando um tribunal mudar de layout):
 
-Por isso o TRF3 segue no catálogo com `verificado_em: null` e toda resposta que
-o envolve carrega o aviso `nao_verificado`.
+```bash
+docker exec -w /app voyager-worker_busca-1 python scripts/validar_busca_parte.py
+SIGLAS=TRF3,TJMG docker exec ... python scripts/validar_busca_parte.py   # recorte
+```
 
-⚠️ **Antes de mexer na busca, confira o ENRICHER do TRF3**: ele usa os mesmos
-hosts e o mesmo tipo de cliente. Se estiver batendo no mesmo muro, o TRF3 está
-cego em produção — em silêncio.
+Roda com a malha de proxies dentro do container e direto fora dele. Célula que
+volta ZERO é sinal de layout mudado ou de alvo que perdeu os processos — os
+ALVOS são dados reais de cada acervo e estão no topo do script.
+
+⚠️ **O TRF3 só responde a cliente com fingerprint de navegador** (Akamai Bot
+Manager). A busca usa `curl_cffi` com `impersonate` e passa. O **enricher** dele
+ainda usa `requests` — se estiver batendo no mesmo muro, está cego em produção:
 
 ```bash
 docker exec -w /app voyager-worker_trf3-1 python manage.py enriquecer_processo <cnj>
 ```
-
-Confirmado que o enricher funciona, a busca também funcionará: rode
-`manage.py busca_parte TRF3 nome "..."` de dentro do container e mova `TRF3`
-para `_MEDIDO` em `enrichers/busca/registry.py` com os critérios exercitados.
-
-Fechado em 04/09/2026 (tarde): OAB e nome de advogado foram exercitados no TRF1,
-TRF5 e TJMA, com OAB e nome colhidos de processos reais de cada tribunal. Restam
-no catálogo o TRF3 inteiro, `advogado` no TJPA (a fonte não oferece) e `oab` no
-TJPA — este último por falta de uma OAB real para testar: a rota existe no
-bundle, mas a única que tentei devolveu 204, e 204 não distingue "advogado sem
-processo" de "rota que não funciona". O TJPA não expõe OAB nas partes, então a
-OAB tem de vir de fora (uma consulta da OAB/PA, ou um caso conhecido do
-comercial).
-
-⚠️ **O TRF5 responde, mas entrega 1 processo por consulta.** A fonte conta certo
-(rodapés 16, 13, 30 em buscas diferentes) e renderiza uma única linha; não há
-scroller no HTML. Toda busca ali sai `truncado` com "a fonte contou N e devolveu
-1" — não é o nosso cliente que está perdendo dado.
 
 ### Quando alguém disser "a busca não achou nada"
 

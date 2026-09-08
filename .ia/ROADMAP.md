@@ -52,18 +52,16 @@ Itens pendentes ou planejados, organizados por prioridade.
       jurisdição, órgão julgador e **valor da causa** —, mas só busca por CNJ,
       então ninguém sabe se o teto de 30 cai lá. Para precatório, o filtro de
       valor seria o mais útil de todos.
-- [ ] **Busca POR PARTE ao vivo — deploy e as duas medições que faltam.** Código
-      pronto e testado (`enrichers/busca/`, `POST /api/v1/busca/tribunal/`,
-      tela `/dashboard/busca-tribunal/`, worker `worker_busca`, migration 0060).
-      Falta: (1) deploy + `docker compose -f docker-compose-workers.yml up -d
-      worker_busca`; (2) medir o **TRF3** de dentro do container — o host recusa
-      conexão fora da malha de proxies (`manage.py busca_parte TRF3 nome "..."`);
-      (3) medir **`oab` no TJPA**, que precisa de uma OAB real do PA (a fonte não
-      expõe OAB nas partes, e a que testei devolveu 204). Feitas as medições,
-      mover os critérios para `criterios_medidos` em `enrichers/busca/registry.py`.
-      Do outro lado, o Juriscope troca a busca local dele por esta API.
-
-- [ ] **Backfill TRF1+TRF3 100% até hoje** — em curso (parado em 18/10/2024 — re-disparado pelo watchdog)
+- [ ] **Busca POR PARTE ao vivo — deploy.** Código pronto, testado e com a
+      matriz 9 × 4 validada ao vivo (36/36). Falta: deploy + `docker compose -f
+      docker-compose-workers.yml up -d worker_busca`, e refazer
+      `scripts/validar_busca_parte.py` de dentro do container (para exercitar a
+      malha de proxies, que a rodada de fora não cobre). Do outro lado, o
+      Juriscope troca a busca local dele por esta API.
+- [ ] **Conferir se o ENRICHER do TRF3 está cego.** A busca só passa no TRF3 com
+      fingerprint de navegador (`curl_cffi`); o enricher usa `requests`, que o
+      Akamai Bot Manager dropa. Se estiver mesmo cego, a correção é a mesma —
+      ver `NAVEGADOR_IMITADO` em `enrichers/busca/pje.py`.
 - [ ] **`pg_dump` diário automático** — job RQ na fila `default` ~03:00 + retenção 30d local + S3 opcional
 - [ ] **2FA no admin** via `django-otp` — pra exposição pública
 

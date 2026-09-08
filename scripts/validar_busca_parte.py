@@ -83,7 +83,7 @@ ALVOS: dict[str, dict[str, str]] = {
     'TJPA': {
         'documento': '60.746.948/0001-12',        # Bradesco — 198, paginando
         'nome': 'MARIA JOSE DOS SANTOS',          # 45 (exato)
-        'oab': '1000/PA',                         # 204 — nunca deu positivo
+        'oab': '16499/PA',                        # 34 (só com zeros à esquerda)
     },
     'TJMT': {
         'documento': '60.746.948/0001-12',

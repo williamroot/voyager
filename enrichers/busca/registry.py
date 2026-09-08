@@ -77,15 +77,12 @@ CATALOGO: dict[str, Fonte] = {
                   'a consulta pública devolve no máximo 30 e não pagina'),
     'TJMA': Fonte('TJMA', 'pje', frozenset(CRITERIOS), 30, False, _MEDIDO, frozenset(CRITERIOS),
                   'a consulta pública devolve no máximo 30 e não pagina'),
-    # `oab` fica FORA de `criterios_medidos`: a rota existe no bundle, mas a
-    # única OAB que consegui testar devolveu 204 (sem conteúdo), e 204 não
-    # distingue "advogado sem processo" de "rota que não funciona". O TJPA não
-    # expõe OAB nas partes, então não há de onde colher uma real.
     'TJPA': Fonte('TJPA', 'rest', frozenset({'documento', 'nome', 'oab'}), None, True,
-                  _MEDIDO, frozenset({'documento', 'nome'}),
+                  _MEDIDO, frozenset({'documento', 'nome', 'oab'}),
                   'páginas contam a partir de 1 e a fonte não sinaliza fim: '
                   'paginamos até não vir processo novo. Busca por nome exige a '
-                  'grafia exata — use a desambiguação de nomes antes'),
+                  'grafia exata (use a desambiguação antes) e a OAB vai com '
+                  'zeros à esquerda, em `OAB-<UF>`'),
     'TJMT': Fonte('TJMT', 'rest', frozenset(CRITERIOS), None, True, _MEDIDO, frozenset(CRITERIOS),
                   'total real e paginação (Take até 60; 75 dá HTTP 422); filtro '
                   'desconhecido é ignorado pela API, então toda busca confere o '

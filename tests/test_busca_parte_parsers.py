@@ -255,8 +255,12 @@ def test_tjpa_pagina_e_1_indexed():
         f'{base}/processobycnpj/60746948000112/1/50'
     assert R.rota_tjpa(base, 'documento', '111.444.777-35', 2) == \
         f'{base}/processobycpf/11144477735/2/50'
+    # OAB: órgão expedidor `OAB-<UF>` e número com zeros à esquerda (6 dígitos).
+    # Medido: `16499/PA` devolve 0 processos; `016499/OAB-PA` devolve 34.
+    assert R.rota_tjpa(base, 'oab', '16499/PA', 1) == \
+        f'{base}/processobyoab/016499/OAB-PA/1/50'
     assert R.rota_tjpa(base, 'oab', '1000/PA', 1) == \
-        f'{base}/processobyoab/1000/PA/1/50'
+        f'{base}/processobyoab/001000/OAB-PA/1/50'
     assert R.rota_tjpa(base, 'nome', 'MARIA JOSE DOS SANTOS', 1) == \
         f'{base}/processobynomeparteexato/MARIA JOSE DOS SANTOS/1/50'
     # o que NÃO pode acontecer: página 0 na primeira requisição

@@ -112,8 +112,18 @@ def rota_tjpa(base: str, criterio: str, valor: str, pagina: int,
         recurso = 'processobycnpj' if len(digitos) == 14 else 'processobycpf'
         return f'{base}/{recurso}/{digitos}/{pagina}/{por_pagina}'
     if criterio == 'oab':
+        # Duas exigências que só aparecem medindo, e que devolvem ZERO em vez
+        # de erro quando desrespeitadas (04/09/2026):
+        #
+        #   1. o órgão expedidor é `OAB-<UF>`, não `<UF>`. Com `PA` a resposta
+        #      é 204; com `OAB-PA` vem 200 com JSON — a própria SPA monta
+        #      assim (`ORGAO_EXPEDITOR = "OAB-" + uf` no bundle);
+        #   2. o número vai com ZEROS À ESQUERDA, em seis dígitos. Medido com
+        #      uma OAB real do Pará: `16499` devolve 0 processos e `016499`
+        #      devolve 34.
         uf = (re.sub(r'[^A-Za-z]', '', valor or '') or 'PA').upper()[:2]
-        return f'{base}/processobyoab/{digitos}/{uf}/{pagina}/{por_pagina}'
+        return (f'{base}/processobyoab/{digitos.zfill(6)}/OAB-{uf}'
+                f'/{pagina}/{por_pagina}')
     return f'{base}/processobynomeparteexato/{valor}/{pagina}/{por_pagina}'
 
 
