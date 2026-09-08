@@ -2431,10 +2431,9 @@ pública do tribunal é a única fonte que responde de verdade.
 | TJPA | REST | ✅ `processobycpf` / `processobycnpj` | ✅ `processobynomeparte` (desambiguação) + `processobynomeparteexato` | ✅ `processobyoab` | — | `qtdRegistrosTotal` | `/{pagina}/{tamanho}` | sem teto observado |
 | TJMT | REST | ✅ `parteCpfCnpj` | ✅ `parteNome` | ✅ `advogadoOAB` | ✅ `NomeOab`, `advogadoCPF` | `totalRegistros` | `Skip`/`Take` | sem teto observado |
 
-\*\* TRF3 **não foi medido**: o host inteiro (`pje1g.trf3.jus.br` e até
-`www.trf3.jus.br`) dá `ReadTimeout` a partir de IP residencial — bloqueio de
-borda, não da rota da busca. O recon dele tem de rodar do container, com
-`PROXY=cortex`, como os enrichers. Célula vazia é "não medido", nunca "não tem".
+\*\* TRF3 **não foi medido** — e a segunda tentativa, com proxy, mostrou que o
+problema não é o IP. Ver §"TRF3: o domínio inteiro dropa cliente que não é
+navegador". Célula vazia é "não medido", nunca "não tem".
 
 \* No TRF5 os quatro critérios respondem, mas a fonte **renderiza apenas o
 primeiro resultado** — ver §"O TRF5 conta certo e mostra uma linha".
@@ -2578,6 +2577,52 @@ buscas de 30 resultados cada:
 Conjuntos disjuntos entre critérios diferentes e quase iguais entre dois
 critérios que apontam para a mesma pessoa: o filtro está sendo aplicado. Se
 tudo voltasse igual, seria o `documento=` do TJMT de novo.
+
+### TRF3: o domínio inteiro dropa cliente que não é navegador (04/09/2026)
+
+A primeira leitura foi "bloqueio de borda contra IP residencial". **Errado.**
+Repetido pela malha de proxies residenciais da casa (Cortex, IPs brasileiros —
+`api.ipify.org` confirma a saída), o TRF3 se comporta igual:
+
+| alvo | pelo Cortex | direto |
+|---|---|---|
+| `www.trf3.jus.br` (site institucional!) | ReadTimeout | ReadTimeout |
+| `pje1g.trf3.jus.br/pje/ConsultaPublica/` | ReadTimeout | ReadTimeout |
+| `pje2g.trf3.jus.br/pje/ConsultaPublica/` | ReadTimeout | ReadTimeout |
+| `web.trf3.jus.br/consultas/Internet/consultaprocessual` | ReadTimeout | ReadTimeout |
+| `frontend-pje.app.trf3.jus.br` | ReadTimeout | ReadTimeout |
+| `pje1g-consultapublica.trf3.jus.br` (fora do Akamai) | **403 nginx** | **403 nginx** |
+
+O que a camada de baixo diz, e é o ponto:
+
+- **TCP/443 conecta** em todos os seis (Akamai `2.17.47.x` e o `200.9.86.236`);
+- **o TLS completa** — `TLSv1.3`, `CN=www.trf3.jus.br`, `Verify return code: 0`;
+- em **HTTP/1.1** o servidor fica 45 s sem devolver **um byte**;
+- em **HTTP/2** ele mata o stream: `curl: (92) HTTP/2 stream 1 was not closed
+  cleanly: INTERNAL_ERROR`.
+
+Handshake aceito e resposta nunca enviada é assinatura de **anti-bot que dropa
+em silêncio**, não de allowlist de IP — se fosse o IP, o TLS não subiria, e
+trocar para residencial teria mudado alguma coisa. Não mudou.
+
+A URL está certa: `pje1g.trf3.jus.br/pje/ConsultaPublica/listView.seam` é a que
+o próprio TRF3 publica na Carta de Serviços. O que não temos é um cliente que
+aquele muro aceite.
+
+⚠️ **Isto levanta uma pergunta operacional maior que a busca**: o enricher do
+TRF3 usa exatamente esses hosts e esse tipo de cliente. Se o muro vale para ele
+também, o TRF3 está cego em produção — e cego em silêncio, que é o defeito que
+este projeto menos tolera. **Conferir antes de qualquer outra coisa**:
+
+```bash
+docker exec -w /app voyager-worker_trf3-1 \
+    python manage.py enriquecer_processo <cnj-do-trf3>
+# e no banco: quantos Process do TRF3 têm enriquecimento_status='ok' nos últimos dias
+```
+
+Se o enricher também estiver morto, o caminho não é procurar proxy: é decidir
+entre navegador real (Playwright) e pedir acesso ao TRF3 — a mesma decisão do
+eproc do TJSP, e ela é do dono do produto.
 
 ### Prova de esgotamento — as três fontes que paginam
 

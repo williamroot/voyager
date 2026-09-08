@@ -4252,15 +4252,29 @@ Só leitura por padrão (`--ingerir` é o que escreve). É o comando que exercit
 CÓDIGO DE PRODUÇÃO — registry, motor, parser —, ao contrário do
 `scripts/recon_busca_parte.py`, que faz requisição crua para medir a fonte.
 
-### O TRF3 ainda não foi medido — e a medição é aqui
+### O TRF3 ainda não foi medido — e o proxy NÃO resolve
 
-O host inteiro do TRF3 (`pje1g.trf3.jus.br`, e até `www.trf3.jus.br`) responde
-`ReadTimeout` a partir de IP residencial: é bloqueio de borda, não da rota da
-busca. Por isso ele está no catálogo com `verificado_em: null`, e toda resposta
-que o envolve carrega o aviso `nao_verificado`. Para fechar isso, rode o comando
-acima de dentro do container (que sai pela malha de proxies) e, dando certo,
-mova `TRF3` para `_MEDIDO` em `enrichers/busca/registry.py` com os critérios que
-foram de fato exercitados.
+Tentado pela malha residencial (Cortex) em 04/09/2026: o domínio inteiro do TRF3
+continua sem responder — inclusive `www.trf3.jus.br`. TCP conecta, TLS completa,
+e aí o servidor fica 45 s sem mandar um byte (HTTP/1.1) ou mata o stream
+(HTTP/2, `INTERNAL_ERROR`). Isso é anti-bot dropando em silêncio, não allowlist
+de IP. Detalhe e tabela em `.ia/ENRICHMENT.md` §"TRF3: o domínio inteiro dropa
+cliente que não é navegador".
+
+Por isso o TRF3 segue no catálogo com `verificado_em: null` e toda resposta que
+o envolve carrega o aviso `nao_verificado`.
+
+⚠️ **Antes de mexer na busca, confira o ENRICHER do TRF3**: ele usa os mesmos
+hosts e o mesmo tipo de cliente. Se estiver batendo no mesmo muro, o TRF3 está
+cego em produção — em silêncio.
+
+```bash
+docker exec -w /app voyager-worker_trf3-1 python manage.py enriquecer_processo <cnj>
+```
+
+Confirmado que o enricher funciona, a busca também funcionará: rode
+`manage.py busca_parte TRF3 nome "..."` de dentro do container e mova `TRF3`
+para `_MEDIDO` em `enrichers/busca/registry.py` com os critérios exercitados.
 
 Fechado em 04/09/2026 (tarde): OAB e nome de advogado foram exercitados no TRF1,
 TRF5 e TJMA, com OAB e nome colhidos de processos reais de cada tribunal. Restam
