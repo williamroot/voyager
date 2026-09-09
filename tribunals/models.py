@@ -271,6 +271,26 @@ class Process(models.Model):
             # AND tem_sinal_precatorio — composto líder tribunal.
             models.Index(fields=['tribunal', 'tem_sinal_precatorio'],
                          name='proc_trib_sinalprec_idx'),
+            # A API de leads (`GET /api/v1/leads/`) filtra tribunal+classificação
+            # e ordena por `-ultima_movimentacao_em` com LIMIT pequeno. Sem este
+            # composto o planner escolhia `proc_tribunal_ult_mov_idx` — que só
+            # casa `tribunal_id` — e caminhava o TJSP inteiro do mais recente
+            # para trás procurando as raras linhas do nível pedido: 17,6 M de
+            # custo, gunicorn matando o worker, e o pull do Juriscope perdendo o
+            # nível 2 do TJSP todo dia (09/09/2026).
+            #
+            # PARCIAL de propósito: 3,56 M das 126 M linhas têm classificação de
+            # lead (2,8%). O índice cheio custaria ~7 GB para responder a uma
+            # consulta que só olha essas. O planner PROVA que
+            # `classificacao = 'PRE_PRECATORIO'` implica o `IN` da condição —
+            # conferido no PG 17.9 de produção antes de escrever a migration.
+            models.Index(
+                fields=['tribunal', 'classificacao', '-ultima_movimentacao_em',
+                        '-classificacao_score', '-id'],
+                name='proc_leads_api_idx',
+                condition=Q(classificacao__in=[
+                    'PRECATORIO', 'PRE_PRECATORIO', 'DIREITO_CREDITORIO']),
+            ),
         ]
 
     def __str__(self):

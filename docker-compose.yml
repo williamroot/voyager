@@ -43,10 +43,14 @@ services:
     # collectstatic no boot = auto-cura + pega mudanças de static a cada deploy.
     # "|| true": se falhar (perm/etc), mantém o staticfiles da imagem no volume —
     # NUNCA derruba o web por causa de static (gunicorn sempre sobe).
+    # ⚠️ Continuação SEM indentação extra — ver o comentário do
+    # docker-compose-prod.yml: linha mais indentada num escalar `>` preserva a
+    # quebra, e a quebra dentro do `sh -c` corta o comando. Aqui os `&&` no fim
+    # de cada linha seguravam a emenda por sorte; em prod não seguraram.
     command: >
       sh -c "python manage.py migrate --noinput &&
-             (python manage.py collectstatic --noinput || echo 'WARN: collectstatic falhou; usando staticfiles da imagem') &&
-             gunicorn core.wsgi:application -b 0.0.0.0:8000 -w 4 -k gthread --threads 4 --access-logfile -"
+      (python manage.py collectstatic --noinput || echo 'WARN: collectstatic falhou; usando staticfiles da imagem') &&
+      gunicorn core.wsgi:application -b 0.0.0.0:8000 -w 4 -k gthread --threads 4 --access-logfile -"
     env_file: .env
     depends_on:
       postgres:

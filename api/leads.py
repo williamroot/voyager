@@ -16,6 +16,8 @@ import uuid
 import django_rq
 from rq import Retry
 
+from django.conf import settings
+from django.db import OperationalError, connection, transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
@@ -39,6 +41,24 @@ def _autenticar(request) -> ApiClient | None:
     if not key:
         return None
     return ApiClient.objects.filter(api_key=key, ativo=True).first()
+
+
+def _linhas_com_teto(qs, limit: int, segundos: int) -> list:
+    """Materializa `qs[:limit]` sob `statement_timeout` de verdade.
+
+    Sem teto, uma consulta ruim aqui não falha: ela SEGURA o worker do gunicorn
+    até o arbiter matá-lo (30 s), e a query continua queimando I/O no Postgres
+    depois que o cliente já foi embora. Foi o que aconteceu com o
+    `PRE_PRECATORIO` do TJSP em 09/09/2026 — três vezes por dia, todo dia.
+
+    `SET LOCAL` dentro de `transaction.atomic()` porque o pgbouncer roda em
+    transaction-mode: um `SET` solto vale para uma conexão e a query seguinte
+    sai por outra. É o padrão da casa (`djen/jobs.py::_leitura_com_teto`).
+    """
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            cur.execute('SET LOCAL statement_timeout = %s', [int(segundos * 1000)])
+        return list(qs[:limit])
 
 
 @api_view(['GET'])
@@ -92,7 +112,21 @@ def listar_leads(request):
         consumidos = LeadConsumption.objects.filter(cliente=cliente).values('processo_id')
         qs = qs.exclude(pk__in=consumidos)
 
-    rows = list(qs[:limit])
+    teto = settings.LEADS_SQL_TIMEOUT_SECONDS
+    try:
+        rows = _linhas_com_teto(qs, limit, teto)
+    except OperationalError as exc:
+        # 503 e não 500: para o Juriscope isto é falha TRANSITÓRIA (ele pula a
+        # rodada e tenta de novo), e o log fica com o recorte que reproduz.
+        logger.warning(
+            'listar_leads estourou %ss (nivel=%s tribunal=%s limit=%s '
+            'min_score=%s devedor_publico=%s): %s',
+            teto, nivel, tribunal or '-', limit, min_score, devedor_publico, exc)
+        return Response(
+            {'erro': f'consulta excedeu o teto de {teto}s no banco',
+             'nivel': nivel, 'tribunal': tribunal or None},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
     base_url = 'https://voyager.was.dev.br'  # ajuste se mudar
     results = [
         {

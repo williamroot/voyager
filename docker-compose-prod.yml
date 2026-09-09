@@ -4,13 +4,21 @@ services:
       context: .
       target: runtime
     image: voyager-web:prod
+    # ⚠️ NÃO indente as linhas de continuação. No escalar dobrado (`>`) do YAML,
+    # linha MAIS indentada que a primeira PRESERVA a quebra — e a quebra dentro
+    # do `sh -c "..."` é separador de comando para o shell. Com a indentação
+    # antiga, o shell executava `gunicorn ... -b 0.0.0.0:8000` sozinho e as
+    # flags viravam comandos seguintes que nunca rodavam: produção subiu por
+    # meses com **1 worker `sync` e timeout de 30 s** em vez de 12 `gthread`
+    # com 300 s (`[INFO] Using worker: sync` no log, um único "Booting worker").
+    # Efeito: qualquer requisição lenta parava o site inteiro até o arbiter
+    # matar o worker. Descoberto em 09/09/2026 caçando o 500 da API de leads.
     command: >
       sh -c "python manage.py collectstatic --noinput &&
-             python manage.py migrate --noinput &&
-             gunicorn core.wsgi:application -b 0.0.0.0:8000
-                     -w 12 -k gthread --threads 6
-                     --timeout 300 --graceful-timeout 30
-                     --access-logfile - --error-logfile -"
+      python manage.py migrate --noinput &&
+      gunicorn core.wsgi:application -b 0.0.0.0:8000
+      -w 12 -k gthread --threads 6 --timeout 300 --graceful-timeout 30
+      --access-logfile - --error-logfile -"
     env_file: .env
     volumes:
       - .:/app
