@@ -70,6 +70,11 @@ urlpatterns = [
     path('magistrado/pdf/', magistrado_views.magistrado_pdf, name='magistrado-pdf'),
     # localizar vem ANTES da ficha no fluxo: a ficha exige nome completo e
     # exato (busca por frase), e ninguém sabe de cabeça a grafia do diário.
+    # Ponte CNJ -> ficha. A listagem da busca por parte só tem o número; o
+    # `processo-detail` quer o pk. Sem esta rota, cada linha do resultado era
+    # um beco sem saída.
+    path('processos/cnj/<str:cnj>/', busca_tribunal_views.processo_por_cnj,
+         name='processo-por-cnj'),
     path('magistrado/buscar/', magistrado_views.magistrado_buscar,
          name='magistrado-buscar'),
     path('acompanhamento/', acompanhamento_views.acompanhamento, name='acompanhamento'),

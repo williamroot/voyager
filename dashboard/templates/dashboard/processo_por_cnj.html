@@ -1,0 +1,86 @@
+{% extends 'dashboard/base.html' %}
+{% load voyager_extras %}
+
+{% block title %}{{ numero_cnj }}{% endblock %}
+
+{% block content %}
+{% comment %}
+PROCESSO AINDA NÃO NO ACERVO.
+
+Esta tela só aparece quando o número NÃO está no banco — se estivesse, a view
+teria redirecionado para a ficha completa antes de renderizar qualquer coisa.
+
+Ela existe para não mentir: "trazendo do tribunal" é diferente de "ficha
+pronta", e servir uma ficha vazia com o número no topo seria exatamente o
+`exists` do ES — casca com cara de dado.
+{% endcomment %}
+
+<div class="max-w-2xl mx-auto space-y-4">
+
+  <div class="card">
+    <div class="flex items-start gap-3">
+      {% voy_icon "uplink" "w-6 h-6 shrink-0 mt-0.5 text-accent" %}
+      <div class="grow min-w-0">
+        <h1 class="text-lg font-semibold text-fg-soft font-mono">{{ numero_cnj }}</h1>
+        <p class="text-sm text-fg-muted mt-1">
+          {% if tribunal %}<b>{{ tribunal }}</b> · {% endif %}
+          Este processo <b>ainda não está no acervo</b>. A busca achou o número
+          na consulta pública do tribunal; trazer os autos é outra requisição.
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-4 flex items-center gap-2 text-sm">
+      <span id="pulso" class="pulsar w-2 h-2 rounded-full bg-accent inline-block"></span>
+      <span id="estado" class="text-fg-muted">
+        {% if pedido_agora %}Pedido enviado — buscando no tribunal…
+        {% else %}Já havia um pedido em andamento para este número — aguardando…{% endif %}
+      </span>
+    </div>
+
+    <p class="text-[0.72rem] text-fg-subtle mt-3">
+      A página se atualiza sozinha e abre a ficha assim que o processo entrar.
+      Pode levar alguns segundos — e pode falhar, se o tribunal não responder.
+      Se falhar, esta mensagem continua aqui em vez de virar uma ficha vazia.
+    </p>
+  </div>
+
+  {% if url_fonte %}
+  <div class="card-tight">
+    <a href="{{ url_fonte }}" target="_blank" rel="noopener noreferrer"
+       class="inline-flex items-center gap-2 text-sm text-fg-soft hover:text-accent">
+      {% voy_icon "search" "w-4 h-4" %}
+      Ver agora na consulta pública do tribunal
+    </a>
+    <p class="text-[0.72rem] text-fg-subtle mt-1">
+      Abre a página do próprio tribunal, sem passar pelo acervo — é o que existe
+      de "ao vivo" de verdade enquanto a hidratação não termina.
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  // Pergunta pela MESMA rota: ela redireciona sozinha quando o processo chega.
+  // Sem endpoint novo — a única fonte de verdade sobre "já está no acervo?" é
+  // a consulta que a view faz.
+  const AQUI = window.location.pathname;
+  let tentativas = 0;
+  const timer = setInterval(async () => {
+    tentativas += 1;
+    try {
+      const r = await fetch(AQUI, {redirect: 'follow', headers: {'X-Sonda': '1'}});
+      if (r.redirected && !r.url.includes('/cnj/')) { window.location = r.url; return; }
+    } catch (e) { /* rede instável não muda o estado da tela */ }
+    if (tentativas >= 20) {          // ~2 min: teto explícito, não espera infinita
+      clearInterval(timer);
+      document.getElementById('pulso').style.visibility = 'hidden';
+      document.getElementById('estado').textContent =
+        'O tribunal não devolveu este processo em 2 minutos. Recarregue para '
+        + 'tentar de novo, ou abra na fonte pública acima.';
+    }
+  }, 6000);
+})();
+</script>
+{% endblock %}

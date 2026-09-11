@@ -205,3 +205,52 @@ def test_catalogo_diz_o_que_cada_fonte_aceita_e_desde_quando(http):
     # TRF3 entra pelo motor, mas nunca foi medido — e o catálogo não finge.
     assert por_sigla['TRF3']['verificado_em'] is None
     assert por_sigla['TJSP']['verificado_em'] == '2026-09-04'
+
+
+# --------------------------------------------------------------------------- #
+# OAB exige UF — e isto é correção, não usabilidade
+#
+# Medido em 11/09/2026: `normalizar_oab('123456')` devolvia `'123456'`, sem UF
+# nenhuma e sem reclamar. O valor descia até a fonte, que procurava uma
+# inscrição inexistente naquele formato e devolvia zero — e a tela dizia
+# "nenhum processo", indistinguível de uma busca bem-feita.
+#
+# A inscrição da OAB NÃO é única no país: 123.456/SP e 123.456/PA são advogados
+# diferentes. Número sem UF não é busca ampla, é busca impossível.
+# --------------------------------------------------------------------------- #
+from enrichers.busca.entrada import EntradaInvalida, validar
+
+
+def test_oab_sem_uf_e_recusada_em_vez_de_buscar_o_impossivel():
+    with pytest.raises(EntradaInvalida) as e:
+        validar('oab', '123456')
+    assert e.value.codigo == 'oab_sem_uf'
+
+
+def test_oab_com_uf_no_seletor_vira_a_forma_canonica():
+    assert validar('oab', '123456', 'SP')['normalizado'] == 'SP123456'
+
+
+@pytest.mark.parametrize('valor', ['123456/SP', 'SP123456', 'sp 123.456'])
+def test_a_uf_embutida_continua_valendo_para_quem_ja_manda_assim(valor):
+    """A API v1 tem cliente que manda a UF dentro do valor. Exigir o campo novo
+    quebraria esses clientes sem ganho nenhum."""
+    assert validar('oab', valor)['normalizado'] == 'SP123456'
+
+
+def test_uf_do_seletor_nao_atropela_a_uf_digitada():
+    """`('123456/SP', 'PA')` é o usuário se contradizendo. Escolher por ele
+    qual vale seria adivinhar — e adivinhar aqui devolve o acervo de outro
+    advogado."""
+    assert validar('oab', '123456/SP', 'PA')['normalizado'] == 'SP123456'
+
+
+def test_uf_que_nao_existe_e_recusada():
+    with pytest.raises(EntradaInvalida) as e:
+        validar('oab', '123456', 'XX')
+    assert e.value.codigo == 'uf_invalida'
+
+
+def test_sufixo_de_letra_da_oab_sobrevive():
+    """`CE5864A` existe no acervo — a régua não pode matar a forma real."""
+    assert validar('oab', '5864A', 'CE')['normalizado'] == 'CE5864A'

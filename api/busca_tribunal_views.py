@@ -170,7 +170,11 @@ def criar_busca(request):
 
     corpo = request.data if isinstance(request.data, dict) else {}
     try:
-        entrada = validar(corpo.get('criterio'), corpo.get('valor'))
+        # `uf` é opcional e só é lido na OAB. A API aceita as duas formas —
+        # `{'valor': '123456', 'uf': 'SP'}` e `{'valor': '123456/SP'}` — para
+        # não quebrar cliente que já manda a UF embutida.
+        entrada = validar(corpo.get('criterio'), corpo.get('valor'),
+                          corpo.get('uf') or '')
     except EntradaInvalida as exc:
         return Response({'erro': exc.codigo, 'mensagem': exc.mensagem},
                         status=status.HTTP_400_BAD_REQUEST)

@@ -17,6 +17,22 @@
             {% for c in criterios %}<option value="{{ c.id }}">{{ c.rotulo }}</option>{% endfor %}
           </select>
         </div>
+        {% comment %}
+        SELETOR DE UF — só na OAB, e não é enfeite.
+
+        A inscrição da OAB NÃO é única no país: o 123.456/SP e o 123.456/PA são
+        advogados diferentes. Antes, o campo era texto livre e o normalizador
+        aceitava `123456` sem UF nenhuma — a busca descia assim até a fonte,
+        não achava nada, e a tela dizia "nenhum processo", indistinguível de
+        uma busca bem-feita. O backend agora RECUSA (ver `_validar_oab`); aqui
+        o seletor faz o certo ser o caminho fácil.
+        {% endcomment %}
+        <div id="campo-uf" class="hidden">
+          <label for="uf" class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">UF</label>
+          <select id="uf" class="px-3 py-2 bg-muted border border-border rounded-lg text-sm">
+            {% for u in ufs %}<option value="{{ u }}"{% if u == 'SP' %} selected{% endif %}>{{ u }}</option>{% endfor %}
+          </select>
+        </div>
         <div class="flex-1 min-w-[16rem]">
           <label for="valor" class="block text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">Valor</label>
           <input id="valor" type="search" autofocus placeholder="000.000.000-00"
@@ -69,6 +85,8 @@
 <script>
 (function () {
   const CRIAR = "{{ criar_url }}", LER = "{{ ler_url }}";
+  const OAB = "{{ criterio_oab }}";
+  const ABRIR = "{{ abrir_url }}";   // contém o literal CNJ, trocado por linha
   const $ = (id) => document.getElementById(id);
   const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g,
     (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -90,8 +108,15 @@
         : (medido ? '' : 'este critério nunca foi conferido ao vivo nesta fonte');
     });
   }
-  $('criterio').addEventListener('change', ajustarTribunais);
-  ajustarTribunais();
+  // O placeholder também muda: na OAB o campo passa a ser SÓ o número, e
+  // deixar '000.000.000-00' ali convidaria a digitar a UF junto de novo.
+  function ajustarCampos() {
+    const ehOab = $('criterio').value === OAB;
+    $('campo-uf').classList.toggle('hidden', !ehOab);
+    $('valor').placeholder = ehOab ? '123456 (só o número)' : '000.000.000-00';
+  }
+  $('criterio').addEventListener('change', () => { ajustarTribunais(); ajustarCampos(); });
+  ajustarTribunais(); ajustarCampos();
 
   let timer = null;
 
@@ -118,12 +143,26 @@
       </div>`;
     }).join('');
 
-    $('linhas').innerHTML = (d.resultados || []).slice(0, 500).map((p) =>
-      `<tr class="border-t border-border">
-         <td class="py-1 pr-3 font-mono">${esc(p.numero_cnj)}</td>
+    // Cada linha abre a ficha em ABA NOVA. A rota resolve o CNJ: se o processo
+    // já está no acervo ela redireciona para a ficha completa; se não, mostra a
+    // página de espera com o link da fonte pública. A tela não decide isso —
+    // quem sabe se está no banco é o servidor, e perguntar daqui seria uma
+    // consulta por linha.
+    $('linhas').innerHTML = (d.resultados || []).slice(0, 500).map((p) => {
+      const cnj = String(p.numero_cnj || '');
+      const q = new URLSearchParams();
+      if (p.tribunal) q.set('tribunal', p.tribunal);
+      if (p.url_fonte) q.set('fonte', p.url_fonte);
+      const href = ABRIR.replace('CNJ', encodeURIComponent(cnj))
+                   + (q.toString() ? `?${q}` : '');
+      return `<tr class="border-t border-border hover:bg-muted/60">
+         <td class="py-1 pr-3 font-mono">
+           <a href="${href}" target="_blank" rel="noopener"
+              class="text-accent hover:underline">${esc(cnj)}</a></td>
          <td class="py-1 pr-3">${esc(p.tribunal)}</td>
          <td class="py-1 pr-3">${esc(p.classe)}</td>
-         <td class="py-1">${esc(p.orgao)}</td></tr>`).join('');
+         <td class="py-1">${esc(p.orgao)}</td></tr>`;
+    }).join('');
 
     if (rodando) timer = setTimeout(() => acompanhar(d.run_id), 2000);
   }
@@ -142,6 +181,7 @@
       headers: {'Content-Type': 'application/json',
                 'X-CSRFToken': (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || ''},
       body: JSON.stringify({criterio: $('criterio').value, valor: $('valor').value,
+                            uf: ($('criterio').value === OAB ? $('uf').value : ''),
                             tribunais, forcar: $('forcar').checked}),
     });
     const d = await resp.json();
