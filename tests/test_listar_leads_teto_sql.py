@@ -57,10 +57,20 @@ def test_statement_timeout_vale_na_mesma_transacao(tribunal):
     assert visto['timeout'] == '7s'
 
 
-@pytest.mark.django_db
-def test_teto_volta_a_zero_depois_da_transacao(tribunal):
-    """A conexão é reaproveitada (pgbouncer + CONN_MAX_AGE): o teto não pode
-    vazar para a próxima requisição, que pode ser um relatório legítimo."""
+@pytest.mark.django_db(transaction=True)
+def test_teto_volta_a_zero_depois_da_transacao():
+    """A conexão é reaproveitada (pgbouncer): o teto não pode vazar para a
+    próxima requisição, que pode ser um relatório legítimo.
+
+    `transaction=True` é o contrato do teste, não detalhe de harness: o
+    `django_db` comum abre uma transação em volta de TUDO, e aí o `atomic()`
+    do `_linhas_com_teto` vira SAVEPOINT. O escopo do `SET LOCAL` é a
+    TRANSAÇÃO, não o savepoint — então o teto sobrevive ao bloco e o teste
+    acusa um vazamento que só existe dentro do pytest. Sem o wrapper, o
+    `atomic()` é BEGIN/COMMIT de verdade, como em produção (`ATOMIC_REQUESTS`
+    desligado e `CONN_MAX_AGE=0` em `core/settings.py`), e quem restaura o
+    valor no commit é o próprio Postgres.
+    """
 
     class QsVazio:
         def __getitem__(self, _fatia):
