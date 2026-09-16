@@ -126,6 +126,20 @@ Retorna processos classificados não-consumidos pelo cliente. Filtra `LeadConsum
 }
 ```
 
+**Índice que sustenta essa ordenação**: `proc_leads_api_idx` — parcial
+`(tribunal_id, classificacao, ultima_movimentacao_em DESC, classificacao_score
+DESC, id DESC)` WHERE `classificacao IN (PRECATORIO, PRE_PRECATORIO,
+DIREITO_CREDITORIO)`. Sem ele o planner casava só `tribunal_id`
+(`proc_tribunal_ult_mov_idx`) e caminhava o tribunal inteiro atrás das poucas
+linhas do nível pedido — o TJSP nível 2 não respondia (09/09/2026). Mexeu na
+ordenação ou nos filtros? Confira o plano antes de deployar.
+
+**`503` quando o banco demora**: a listagem roda sob `statement_timeout` de
+`LEADS_SQL_TIMEOUT_SECONDS` (default 20 s, abaixo do timeout do gunicorn). Se
+estourar, a resposta é `503 {"erro": "consulta excedeu o teto de 20s no banco",
+"nivel": ..., "tribunal": ...}` e o recorte vai pro log em WARNING. Para o
+Juriscope, 5xx é falha transitória: ele pula a rodada e volta na próxima.
+
 ### `POST /api/v1/leads/consumed/` — **assíncrono (202)**
 
 Body (`lote_id` UUID obrigatório):

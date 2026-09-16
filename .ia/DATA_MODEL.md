@@ -61,8 +61,20 @@ atualizado_em      datetime  auto_now
 
 constraint:  unique(tribunal, numero_cnj)
 indexes:     (tribunal, numero_cnj), (tribunal, -ultima_mov), inserido_em,
-             enriquecido_em, classe_codigo, orgao_julgador_codigo
+             enriquecido_em, classe_codigo, orgao_julgador_codigo,
+             proc_leads_api_idx  PARCIAL (tribunal, classificacao,
+                                 -ultima_mov, -score, -id)
+                                 WHERE classificacao IN (PRECATORIO,
+                                 PRE_PRECATORIO, DIREITO_CREDITORIO)
 ```
+
+**`proc_leads_api_idx` serve a API de leads e só ela** (migration 0061). É
+parcial porque 3,56 M das 126 M linhas têm classificação de lead — 2,8%. A
+consulta `WHERE tribunal + classificacao ORDER BY -ultima_movimentacao_em LIMIT
+n` sem ele cai em `proc_tribunal_ult_mov_idx`, que casa **só o tribunal**, e o
+planner caminha o tribunal inteiro: 17,6 M de custo no TJSP nível 2, worker do
+gunicorn morto aos 30 s, `n2: 0` no pull do Juriscope todo dia. Quanto MENOR o
+`limit`, mais o planner gosta do caminho errado.
 
 **⚠️ `classe`/`assunto` são o ESPELHO de `classe_codigo`/`assunto_codigo`, não
 um segundo fato.** A FK só normaliza a string para dar filtro e join; quem

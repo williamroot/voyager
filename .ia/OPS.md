@@ -2304,6 +2304,62 @@ Monitorar backfill: `pg_stat_activity` (nenhuma query deve passar de ~30s) +
 profundidade das filas `enrich_*` (bounded pelo `QUEUE_HIGH_WATER=100k`). Escalar
 os `worker_<sigla>` novos conforme o DB aguentar.
 
+## Produção subiu por meses com 1 worker `sync` (armadilha do `>` do YAML)
+
+**Descoberto em 09/09/2026**, caçando o 500 da API de leads. O `command:` do
+`web` no `docker-compose-prod.yml` era um escalar dobrado (`>`) com as flags do
+gunicorn em linhas MAIS indentadas que a primeira. Nesse caso o YAML **preserva
+a quebra** — e a quebra, dentro do `sh -c "..."`, é separador de comando:
+
+    gunicorn core.wsgi:application -b 0.0.0.0:8000      <- roda assim, sozinho
+            -w 12 -k gthread --threads 6                <- nunca executado
+            --timeout 300 --graceful-timeout 30         <- nunca executado
+
+Resultado: **1 worker `sync`, timeout de 30 s** em vez de 12 `gthread` com 300 s.
+Com um único worker sync, QUALQUER requisição lenta para o site inteiro até o
+arbiter matar o worker. Era o amplificador do incidente da API de leads.
+
+Como conferir em 5 s (vale para qualquer serviço com `command: >`):
+
+```bash
+docker logs voyager-web-1 2>&1 | grep -m2 -E "Using worker|Booting worker"
+#   [INFO] Using worker: sync      <- ERRADO (esperado: gthread)
+#   [INFO] Booting worker with pid <- UMA linha só (esperado: 12)
+
+docker exec voyager-web-1 sh -c 'tr "\0" " " < /proc/116/cmdline'   # pid do master
+#   ...gunicorn core.wsgi:application -b 0.0.0.0:8000   <- sem NENHUMA flag
+
+python3 -c "import yaml;print(repr(yaml.safe_load(open('docker-compose-prod.yml'))['services']['web']['command']))"
+#   qualquer \n no meio do sh -c é a armadilha
+```
+
+O conserto é não indentar a continuação. O `docker inspect --format '{{.Config.Cmd}}'`
+**não** denuncia: ele mostra o texto com as flags, que o shell descarta depois.
+
+## Índice `proc_leads_api_idx` — como construir em produção
+
+Migration `0061`, `CREATE INDEX CONCURRENTLY IF NOT EXISTS`. Pela regra da
+seção seguinte, o build NÃO deve sair pelo `migrate` do entrypoint do `web`.
+Rode direto no host do banco, imune a restart de container:
+
+```bash
+ssh ubuntu@100.68.5.114
+nohup psql -h localhost -U voyager -d voyager -c "
+CREATE INDEX CONCURRENTLY IF NOT EXISTS proc_leads_api_idx
+    ON tribunals_process (tribunal_id, classificacao,
+                          ultima_movimentacao_em DESC,
+                          classificacao_score DESC, id DESC)
+ WHERE classificacao IN ('PRECATORIO','PRE_PRECATORIO','DIREITO_CREDITORIO');
+" > /tmp/idx_leads.log 2>&1 &
+
+# depois: validade (índice inválido é pior que ausente — o writer mantém, o planner ignora)
+psql -h localhost -U voyager -d voyager -c "
+SELECT indisvalid, indisready, pg_size_pretty(pg_relation_size('proc_leads_api_idx'))
+  FROM pg_index WHERE indexrelid = 'proc_leads_api_idx'::regclass;"
+```
+
+Com o índice no lugar, `migrate` aplica a `0061` como no-op (`IF NOT EXISTS`).
+
 ## Migration com AddIndexConcurrently — NÃO deixe o entrypoint do web rodar junto
 
 **Incidente 2026-07-01:** rodei `migrate` (com `AddIndexConcurrently`) detached
