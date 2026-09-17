@@ -20,6 +20,7 @@ from .tjro import TjroEnricher
 from .trf1 import Trf1Enricher
 from .trf3 import Trf3Enricher
 from .trf5 import Trf5Enricher
+from .trt2 import Trt2Enricher
 
 logger = logging.getLogger('voyager.enrichers.jobs')
 
@@ -42,6 +43,10 @@ _ENRICHERS = {
     'TJAC': TjacEnricher,
     'TJPA': TjpaEnricher,
     'TJMT': TjmtEnricher,
+    # TRT2: SPA Angular + REST + captcha de imagem (solve_image/CapSolver).
+    # Ativação MANUAL apenas — NÃO está em TRIBUNAIS_COM_ENRICHER (auto-enqueue
+    # na ingestão custaria ~$14-28k de CapSolver pra ~14,6M processos).
+    'TRT2': Trt2Enricher,
 }
 
 ENRICH_TIMEOUT = 300

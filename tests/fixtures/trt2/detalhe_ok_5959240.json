@@ -1,0 +1,1609 @@
+{
+  "id": 5959240,
+  "numero": "1000296-68.2024.5.02.0006",
+  "classe": "ATOrd",
+  "orgaoJulgador": "6ª Vara do Trabalho de São Paulo",
+  "segredoJustica": false,
+  "justicaGratuita": true,
+  "distribuidoEm": "2024-02-29T11:58:33.853",
+  "autuadoEm": "2024-02-29T11:58:33.653",
+  "valorDaCausa": 1267071.0,
+  "poloAtivo": [
+    {
+      "id": 29608663,
+      "idPessoa": 6686903,
+      "nome": "J. B. C. P.",
+      "login": "40506720578",
+      "tipo": "RECLAMANTE",
+      "polo": "ATIVO",
+      "situacao": "ATIVO",
+      "representantes": [
+        {
+          "id": 30451450,
+          "idPessoa": 273359,
+          "nome": "VANESSA APARECIDA REDONDO",
+          "login": "32518849807",
+          "tipo": "ADVOGADO",
+          "documento": "325.188.498-07",
+          "tipoDocumento": "CPF",
+          "endereco": {
+            "logradouro": "Rua Hermann Frank",
+            "numero": "136",
+            "bairro": "Vila Charlote",
+            "municipio": "SAO PAULO",
+            "estado": "SP",
+            "cep": "03275-080"
+          },
+          "polo": "ATIVO",
+          "situacao": "ATIVO",
+          "papeis": [
+            {
+              "id": 1005,
+              "nome": "Advogado",
+              "identificador": "advogado"
+            }
+          ],
+          "utilizaLoginSenha": true
+        },
+        {
+          "id": 29608664,
+          "idPessoa": 1662261,
+          "nome": "NATHALIA ROQUE LEAO",
+          "login": "36205805880",
+          "tipo": "ADVOGADO",
+          "documento": "362.058.058-80",
+          "tipoDocumento": "CPF",
+          "endereco": {
+            "logradouro": "SOCRATES",
+            "numero": "341",
+            "complemento": "APTO 182",
+            "bairro": "VILA SOFIA",
+            "municipio": "SAO PAULO",
+            "estado": "SP",
+            "cep": "04671-070"
+          },
+          "polo": "ATIVO",
+          "situacao": "ATIVO",
+          "papeis": [
+            {
+              "id": 1005,
+              "nome": "Advogado",
+              "identificador": "advogado"
+            }
+          ],
+          "utilizaLoginSenha": true
+        }
+      ],
+      "utilizaLoginSenha": false
+    }
+  ],
+  "poloPassivo": [
+    {
+      "id": 29608715,
+      "idPessoa": 6031,
+      "nome": "C. C. I.",
+      "login": "45543915000181",
+      "tipo": "RECLAMADO",
+      "polo": "PASSIVO",
+      "situacao": "ATIVO",
+      "representantes": [
+        {
+          "id": 29766813,
+          "idPessoa": 8135,
+          "nome": "ALEXANDRE LAURIA DUTRA",
+          "login": "26792799807",
+          "tipo": "ADVOGADO",
+          "documento": "267.927.998-07",
+          "tipoDocumento": "CPF",
+          "endereco": {
+            "logradouro": "Avenida Paulista, 1754",
+            "numero": "1754",
+            "complemento": "13 andar",
+            "bairro": "Bela Vista",
+            "municipio": "SAO PAULO",
+            "estado": "SP",
+            "cep": "01310-920"
+          },
+          "polo": "PASSIVO",
+          "situacao": "ATIVO",
+          "papeis": [
+            {
+              "id": 1005,
+              "nome": "Advogado",
+              "identificador": "advogado"
+            }
+          ],
+          "utilizaLoginSenha": true
+        }
+      ],
+      "utilizaLoginSenha": false
+    }
+  ],
+  "poloOutros": [
+    {
+      "id": 30460726,
+      "idPessoa": 1535216,
+      "nome": "J. C. F. D.",
+      "login": "30391014803",
+      "tipo": "PERITO",
+      "polo": "TERCEIROS",
+      "situacao": "ATIVO",
+      "papeis": [
+        {
+          "id": 5200,
+          "nome": "Perito",
+          "identificador": "Perito"
+        }
+      ],
+      "utilizaLoginSenha": true
+    }
+  ],
+  "assuntos": [
+    {
+      "id": 4415,
+      "codigo": "13875",
+      "descricao": "Adicional de Insalubridade",
+      "principal": true
+    }
+  ],
+  "itensProcesso": [
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2026-09-04T17:11:02.76657",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 605056
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2026-09-02T12:15:14.927772",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 605056
+    },
+    {
+      "titulo": "Decorrido o prazo de CARREFOUR COMERCIO E INDUSTRIA LTDA em 25/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-26T00:15:34.219186",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Decorrido o prazo de JOAO BATISTA DA COSTA PRATES em 25/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-26T00:15:34.197821",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-25T10:50:51.929728",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 605056
+    },
+    {
+      "titulo": "Decorrido o prazo de JULIO CESAR FERREIRA DUTRA em 21/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-22T00:56:26.678027",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 20/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-19T16:00:25.436528",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 19/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-19T16:00:25.347714",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 20/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-19T16:00:25.104925",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 19/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-19T16:00:25.044932",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-18T12:49:28.599492",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 3042493
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-18T12:49:28.599492",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 3042493
+    },
+    {
+      "titulo": "Proferido despacho de mero expediente",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-18T12:48:28.599492",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 3042493
+    },
+    {
+      "id": 481309583,
+      "idUnicoDocumento": "9a14ea0",
+      "titulo": "Despacho - retificação de erro material",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2026-08-18T12:48:28.599492",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "NAYRA GONCALVES NAGAYA",
+      "usuarioCriador": 158413,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Conclusos os autos para despacho (genérica) a NAYRA GONCALVES NAGAYA",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-18T11:18:20.375146",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 158413
+    },
+    {
+      "titulo": "Iniciada a execução",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-17T15:32:48.371641",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 89883
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 18/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-17T04:58:12.957764",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 17/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-17T04:58:12.93341",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 18/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-17T04:58:12.853157",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 17/08/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-17T04:58:12.830211",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JULIO CESAR FERREIRA DUTRA",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-14T09:12:07.468068",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 3042493
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-14T09:12:07.468068",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 3042493
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-14T09:12:07.468068",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 3042493
+    },
+    {
+      "id": 480177917,
+      "idUnicoDocumento": "1c96499",
+      "titulo": "Decisão sentença de liquidação ",
+      "tipo": "Decisão",
+      "tipoConteudo": "PDF",
+      "data": "2026-08-14T09:11:07.468068",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "NAYRA GONCALVES NAGAYA",
+      "usuarioCriador": 89883,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Homologada a liquidação",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-14T09:11:07.468068",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 3042493
+    },
+    {
+      "titulo": "Conclusos os autos para decisão (genérica) a NAYRA GONCALVES NAGAYA",
+      "tipoConteudo": "HTML",
+      "data": "2026-08-12T17:06:31.388579",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 89883
+    },
+    {
+      "titulo": "Decorrido o prazo de JOAO BATISTA DA COSTA PRATES em 05/05/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-05-06T00:57:23.797916",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 22/04/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-04-17T09:56:57.799809",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 17/04/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-04-17T09:56:57.775118",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2026-04-17T08:59:48.618715",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2026-04-16T13:27:18.110705",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 89883
+    },
+    {
+      "titulo": "Juntada a petição de Apresentação de Cálculos",
+      "tipoConteudo": "HTML",
+      "data": "2026-04-15T11:19:34.29435",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 07/04/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-04-06T13:42:49.548303",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 06/04/2026",
+      "tipoConteudo": "HTML",
+      "data": "2026-04-06T13:42:49.522853",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2026-03-31T14:45:34.657916",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 231144
+    },
+    {
+      "id": 453051490,
+      "idUnicoDocumento": "ebbc89e",
+      "titulo": "Despacho trânsito - reclamada apresentar cálculos",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2026-03-31T14:44:34.657916",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "FREDERICO MONACCI CERUTTI",
+      "usuarioCriador": 89883,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Proferido despacho de mero expediente",
+      "tipoConteudo": "HTML",
+      "data": "2026-03-31T14:44:34.657916",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 231144
+    },
+    {
+      "titulo": "Conclusos os autos para despacho (genérica) a FREDERICO MONACCI CERUTTI",
+      "tipoConteudo": "HTML",
+      "data": "2026-03-30T15:01:27.328918",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 89883
+    },
+    {
+      "titulo": "Iniciada a liquidação",
+      "tipoConteudo": "HTML",
+      "data": "2026-03-27T00:10:36.506117",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 158413
+    },
+    {
+      "titulo": "Transitado em julgado em 28/11/2025",
+      "tipoConteudo": "HTML",
+      "data": "2026-03-27T00:10:25.872692",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 158413
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2026-02-04T10:53:06.007953",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Recebidos os autos para prosseguir",
+      "tipoConteudo": "HTML",
+      "data": "2025-12-02T10:51:35.431628",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "id": 434702564,
+      "idUnicoDocumento": "2090113",
+      "titulo": "Decisão GE",
+      "tipo": "Decisão",
+      "tipoConteudo": "PDF",
+      "data": "2025-10-27T19:08:43.179795",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "mostrarHeaderData": true,
+      "usuarioJuntada": "AMAURY RODRIGUES PINTO JUNIOR",
+      "instancia": "3"
+    },
+    {
+      "id": 434702561,
+      "idUnicoDocumento": "bfddef8",
+      "titulo": "Despacho GE",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2025-09-23T11:16:30.795092",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "mostrarHeaderData": true,
+      "usuarioJuntada": "ALOYSIO SILVA CORRÊA DA VEIGA",
+      "instancia": "3"
+    },
+    {
+      "id": 434702555,
+      "idUnicoDocumento": "9dcf6b2",
+      "titulo": "Despacho AIRR",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2025-06-10T09:49:18.854742",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "mostrarHeaderData": true,
+      "usuarioJuntada": "FRANCISCO FERREIRA JORGE NETO",
+      "instancia": "2"
+    },
+    {
+      "id": 434702550,
+      "idUnicoDocumento": "28cfc00",
+      "titulo": "Decisão Recurso de Revista",
+      "tipo": "Decisão",
+      "tipoConteudo": "PDF",
+      "data": "2025-05-26T17:09:45.906042",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "mostrarHeaderData": true,
+      "usuarioJuntada": "FRANCISCO FERREIRA JORGE NETO",
+      "instancia": "2"
+    },
+    {
+      "id": 434702543,
+      "idUnicoDocumento": "b217ec7",
+      "titulo": "Acórdão",
+      "tipo": "Acórdão",
+      "tipoConteudo": "HTML",
+      "data": "2025-03-28T16:51:51.276",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "mostrarHeaderData": true,
+      "usuarioJuntada": "RICARDO NINO BALLARINI",
+      "instancia": "2"
+    },
+    {
+      "id": 434702541,
+      "idUnicoDocumento": "449968b",
+      "titulo": "Ata da Audiência",
+      "tipo": "Ata da Audiência",
+      "tipoConteudo": "PDF",
+      "data": "2024-11-04T18:47:18.583683",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "mostrarHeaderData": true,
+      "usuarioJuntada": "ANTERO ARANTES MARTINS",
+      "instancia": "2"
+    },
+    {
+      "id": 434702538,
+      "idUnicoDocumento": "e719326",
+      "titulo": "Despacho",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2024-10-09T08:34:20.329166",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "mostrarHeaderData": true,
+      "usuarioJuntada": "GABRIEL LOPES COUTINHO FILHO",
+      "instancia": "2"
+    },
+    {
+      "id": 434702537,
+      "idUnicoDocumento": "e7911db",
+      "titulo": "Despacho",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2024-10-02T14:07:50.635507",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "mostrarHeaderData": true,
+      "usuarioJuntada": "RICARDO NINO BALLARINI",
+      "instancia": "2"
+    },
+    {
+      "titulo": "Remetidos os autos para Órgão jurisdicional competente  para processar recurso",
+      "tipoConteudo": "HTML",
+      "data": "2024-10-01T17:04:24.949",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 6744303
+    },
+    {
+      "titulo": "Decorrido o prazo de JOAO BATISTA DA COSTA PRATES em 30/09/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-10-01T01:11:25.542817",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Juntada a petição de Contrarrazões",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-20T11:28:37.340235",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 18/09/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-17T06:20:30.286004",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 17/09/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-17T06:20:30.234018",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-16T17:13:53.027172",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 15674
+    },
+    {
+      "titulo": "Recebido(s) o(s) Recurso Ordinário de CARREFOUR COMERCIO E INDUSTRIA LTDA sem efeito suspensivo",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-16T17:12:53.027172",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 15674
+    },
+    {
+      "id": 367783362,
+      "idUnicoDocumento": "958a800",
+      "titulo": "Admissibilidade de RO",
+      "tipo": "Decisão",
+      "tipoConteudo": "PDF",
+      "data": "2024-09-16T17:12:53.027172",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "LUCIANA SIQUEIRA ALVES GARCIA",
+      "usuarioCriador": 6744303,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Conclusos os autos para decisão de admissibilidade do recurso a LUCIANA SIQUEIRA ALVES GARCIA",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-16T15:50:50.661507",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 6744303
+    },
+    {
+      "titulo": "Decorrido o prazo de JOAO BATISTA DA COSTA PRATES em 13/09/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-14T00:54:55.673329",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Audiência de julgamento cancelada (01/08/2024 12:06 Sala Dra. Fernanda - Julgamento - 6ª Vara do Trabalho de São Paulo)",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-13T15:44:03.687152",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 6744303
+    },
+    {
+      "titulo": "Juntada a petição de Recurso Ordinário",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-12T13:21:47.938471",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 03/09/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-02T07:38:05.582026",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 02/09/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-02T07:38:05.527399",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 03/09/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-02T07:38:05.412061",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 02/09/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-09-02T07:38:05.378305",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-29T20:53:59.70065",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 16139
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-29T20:53:59.70065",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "id": 364876674,
+      "idUnicoDocumento": "5aa2956",
+      "titulo": "Sentença",
+      "tipo": "Sentença",
+      "tipoConteudo": "PDF",
+      "data": "2024-08-29T20:52:59.70065",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "FERNANDA MIYATA FERREIRA",
+      "usuarioCriador": 423111,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Não acolhidos os Embargos de Declaração de CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-29T20:52:59.70065",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "titulo": "Decorrido o prazo de JOAO BATISTA DA COSTA PRATES em 21/08/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-22T00:50:38.15636",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Conclusos os autos para julgamento dos Embargos de Declaração a FERNANDA MIYATA FERREIRA",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-15T15:37:55.395371",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 6303046
+    },
+    {
+      "titulo": "Juntada a petição de Embargos de Declaração",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-15T11:45:09.018483",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 09/08/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-08T06:32:26.477698",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 08/08/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-08T06:32:26.424259",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 09/08/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-08T06:32:26.271402",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 08/08/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-08T06:32:26.21209",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-07T17:10:05.671341",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 16139
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-07T17:10:05.671341",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "titulo": "Julgado(s) procedente(s) em parte o(s) pedido(s) (Ação Trabalhista - Rito Ordinário (985) / \n ) de JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-07T17:09:05.671341",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "id": 361459458,
+      "idUnicoDocumento": "357cf1b",
+      "titulo": "Sentença",
+      "tipo": "Sentença",
+      "tipoConteudo": "PDF",
+      "data": "2024-08-07T17:09:05.671341",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "FERNANDA MIYATA FERREIRA",
+      "usuarioCriador": 16139,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Arbitradas e não dispensadas as custas processuais no valor de R$ 200,00",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-07T17:09:05.671341",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "titulo": "Concedida a assistência judiciária gratuita a JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2024-08-07T17:09:05.671341",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-23T17:57:03.692219",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-23T11:39:56.991934",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Juntada a petição de Razões Finais",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-18T17:19:34.530177",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Juntada a petição de Razões Finais",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-18T11:24:14.845465",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Conclusos os autos para julgamento Proferir sentença a FERNANDA MIYATA FERREIRA",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-17T18:26:00.946493",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 85350
+    },
+    {
+      "titulo": "Audiência de julgamento designada (01/08/2024 12:06 Sala Dra. Fernanda - Julgamento - 6ª Vara do Trabalho de São Paulo)",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-17T12:50:05.705135",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "titulo": "Audiência de instrução realizada (17/07/2024 10:35 SALA DE AUDIÊNCIAS - PAR - 6ª Vara do Trabalho de São Paulo)",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-17T12:50:05.65784",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "id": 358422824,
+      "idUnicoDocumento": "e0f49b3",
+      "titulo": "Ata da Audiência",
+      "tipo": "Ata da Audiência",
+      "tipoConteudo": "PDF",
+      "data": "2024-07-17T12:50:05.394053",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "FERNANDA MIYATA FERREIRA",
+      "usuarioCriador": 85350,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-09T15:31:35.885878",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2024-07-02T10:43:26.512922",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-29T17:43:57.825575",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Juntada a petição de Apresentação de Quesitos",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-29T09:45:51.516749",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Juntada a petição de Apresentação de Quesitos",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-28T14:58:15.304844",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Juntada a petição de Réplica",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-28T14:32:59.205765",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Expedido(a) notificação a(o) JULIO CESAR FERREIRA DUTRA",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-24T16:08:31.156452",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 6303046
+    },
+    {
+      "titulo": "Audiência de instrução designada (17/07/2024 10:35 SALA DE AUDIÊNCIAS - PAR - 6ª Vara do Trabalho de São Paulo)",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-24T15:11:42.825527",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "titulo": "Audiência una realizada (24/05/2024 11:20 SALA DE AUDIÊNCIAS - PAR - 6ª Vara do Trabalho de São Paulo)",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-24T15:11:42.773535",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 16139
+    },
+    {
+      "id": 350554062,
+      "idUnicoDocumento": "b2dfd18",
+      "titulo": "Ata da Audiência",
+      "tipo": "Ata da Audiência",
+      "tipoConteudo": "PDF",
+      "data": "2024-05-24T15:11:42.150187",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "FERNANDA MIYATA FERREIRA",
+      "usuarioCriador": 6303046,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Juntada a petição de Apresentação de Substabelecimento com Reserva de Poderes",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-24T08:54:24.026443",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Juntada a petição de Contestação",
+      "tipoConteudo": "HTML",
+      "data": "2024-05-22T16:59:07.770858",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Decorrido o prazo de CARREFOUR COMERCIO E INDUSTRIA LTDA em 05/04/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-04-06T07:45:32.816571",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Decorrido o prazo de JOAO BATISTA DA COSTA PRATES em 04/04/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-04-06T04:50:24.384445",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 03/04/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-04-03T03:17:04.931142",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 02/04/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-04-03T03:17:04.83917",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2024-04-01T18:43:37.332312",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 15674
+    },
+    {
+      "titulo": "Proferido despacho de mero expediente",
+      "tipoConteudo": "HTML",
+      "data": "2024-04-01T18:42:37.332312",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 15674
+    },
+    {
+      "id": 342227090,
+      "idUnicoDocumento": "4d4d7e6",
+      "titulo": "Despacho",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2024-04-01T18:42:37.332312",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "LUCIANA SIQUEIRA ALVES GARCIA",
+      "usuarioCriador": 6516843,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Conclusos os autos para despacho (genérica) a LUCIANA SIQUEIRA ALVES GARCIA",
+      "tipoConteudo": "HTML",
+      "data": "2024-04-01T17:30:01.859082",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 6516843
+    },
+    {
+      "titulo": "Juntada a petição de Manifestação",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-28T15:16:28.366122",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 1312448
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 25/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-24T02:57:15.189065",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 22/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-24T02:57:15.008686",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 25/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-24T02:57:14.395052",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 22/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-24T02:57:14.136388",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-21T10:05:32.610963",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 15674
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-21T10:05:32.610963",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 15674
+    },
+    {
+      "titulo": "Proferido despacho de mero expediente",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-21T10:04:32.610963",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 15674
+    },
+    {
+      "id": 340889347,
+      "idUnicoDocumento": "96a3319",
+      "titulo": "Despacho",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2024-03-21T10:04:32.610963",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "LUCIANA SIQUEIRA ALVES GARCIA",
+      "usuarioCriador": 6303046,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Conclusos os autos para despacho (genérica) a LUCIANA SIQUEIRA ALVES GARCIA",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-20T17:38:08.72213",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 6303046
+    },
+    {
+      "titulo": "Audiência una designada (24/05/2024 11:20 SALA DE AUDIÊNCIAS - PAR - 6ª Vara do Trabalho de São Paulo)",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-20T17:37:48.646771",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 6303046
+    },
+    {
+      "titulo": "Audiência una cancelada (29/05/2024 11:20 SALA DE AUDIÊNCIAS - PAR - 6ª Vara do Trabalho de São Paulo)",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-20T17:37:48.594013",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 6303046
+    },
+    {
+      "titulo": "Juntada a petição de Solicitação de Habilitação",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-15T13:39:22.633715",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 8135
+    },
+    {
+      "titulo": "Decorrido o prazo de CARREFOUR COMERCIO E INDUSTRIA LTDA em 12/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-13T01:44:52.774715",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Decorrido o prazo de JOAO BATISTA DA COSTA PRATES em 12/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-13T01:44:52.221019",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 05/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-05T05:55:01.980187",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 04/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-05T05:55:01.90425",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Publicado(a) o(a) intimação em 05/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-05T05:55:01.633628",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Disponibilizado\n(a) o(a) intimação no Diário da Justiça Eletrônico do dia 04/03/2024",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-05T05:55:01.562461",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 0
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) JOAO BATISTA DA COSTA PRATES",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-01T17:51:49.502808",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 15674
+    },
+    {
+      "titulo": "Expedido(a) intimação a(o) CARREFOUR COMERCIO E INDUSTRIA LTDA",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-01T17:51:49.502808",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 15674
+    },
+    {
+      "titulo": "Proferido despacho de mero expediente",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-01T17:50:49.502808",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 15674
+    },
+    {
+      "id": 337901103,
+      "idUnicoDocumento": "e852d97",
+      "titulo": "Despacho",
+      "tipo": "Despacho",
+      "tipoConteudo": "PDF",
+      "data": "2024-03-01T17:50:49.502808",
+      "ativo": true,
+      "documentoSigiloso": false,
+      "usuarioPerito": false,
+      "documento": true,
+      "publico": true,
+      "usuarioJuntada": "LUCIANA SIQUEIRA ALVES GARCIA",
+      "usuarioCriador": 6303046,
+      "instancia": "1"
+    },
+    {
+      "titulo": "Conclusos os autos para despacho (genérica) a LUCIANA SIQUEIRA ALVES GARCIA",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-01T16:55:45.963041",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 6303046
+    },
+    {
+      "titulo": "Juntada a petição de Solicitação de Habilitação",
+      "tipoConteudo": "HTML",
+      "data": "2024-03-01T16:31:32.570093",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 1312448
+    },
+    {
+      "titulo": "Audiência una designada (29/05/2024 11:20 - 6ª Vara do Trabalho de São Paulo)",
+      "tipoConteudo": "HTML",
+      "data": "2024-02-29T11:58:34.994",
+      "ativo": true,
+      "documento": false,
+      "mostrarHeaderData": true,
+      "usuarioCriador": 1662261
+    },
+    {
+      "titulo": "Distribuído por sorteio",
+      "tipoConteudo": "HTML",
+      "data": "2024-02-29T11:58:33.963",
+      "ativo": true,
+      "documento": false,
+      "usuarioCriador": 1662261
+    }
+  ],
+  "expedientes": [
+    {
+      "destinatario": "J. B. C. P.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2026-08-18T00:00:00",
+      "dataCiencia": "2026-08-20T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "C. C. I.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2026-08-18T00:00:00",
+      "dataCiencia": "2026-08-20T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. C. F. D.",
+      "tipo": "Intimação",
+      "meio": "Enviar Via Sistema",
+      "dataCriacao": "2026-08-14T00:00:00",
+      "dataCiencia": "2026-08-14T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. B. C. P.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2026-08-14T00:00:00",
+      "dataCiencia": "2026-08-18T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "C. C. I.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2026-08-14T00:00:00",
+      "dataCiencia": "2026-08-18T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. B. C. P.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2026-04-16T00:00:00",
+      "dataCiencia": "2026-04-22T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "C. C. I.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2026-03-31T00:00:00",
+      "dataCiencia": "2026-04-07T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. B. C. P.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-09-16T00:00:00",
+      "dataCiencia": "2024-09-18T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. B. C. P.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-08-29T00:00:00",
+      "dataCiencia": "2024-09-03T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "C. C. I.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-08-29T00:00:00",
+      "dataCiencia": "2024-09-03T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. B. C. P.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-08-07T00:00:00",
+      "dataCiencia": "2024-08-09T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "C. C. I.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-08-07T00:00:00",
+      "dataCiencia": "2024-08-09T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. C. F. D.",
+      "tipo": "Intimação",
+      "meio": "Enviar Via Sistema",
+      "dataCriacao": "2024-05-24T00:00:00",
+      "dataCiencia": "2024-05-24T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "C. C. I.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-04-01T00:00:00",
+      "dataCiencia": "2024-04-03T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. B. C. P.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-03-21T00:00:00",
+      "dataCiencia": "2024-03-25T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "C. C. I.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-03-21T00:00:00",
+      "dataCiencia": "2024-03-25T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "J. B. C. P.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-03-01T00:00:00",
+      "dataCiencia": "2024-03-05T00:00:00",
+      "fechado": true
+    },
+    {
+      "destinatario": "C. C. I.",
+      "tipo": "Intimação",
+      "meio": "Diário Eletrônico",
+      "dataCriacao": "2024-03-01T00:00:00",
+      "dataCiencia": "2024-03-05T00:00:00",
+      "fechado": true
+    }
+  ],
+  "juizoDigital": false,
+  "tarefa": "Conclusão ao magistrado"
+}
