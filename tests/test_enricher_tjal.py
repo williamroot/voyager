@@ -429,20 +429,20 @@ def test_pool_exausto_vira_erro(processo):
     assert len(captured) == 1 and captured[0]['status'] == 'erro'
 
 
-# ----------------- 7. TJAL via pool ProxyScrape (ADR-021, 2026-06-17) -----------------
+# ----------------- 7. TJAL via Cortex (2026-10-05) -----------------
 
-def test_tjal_usa_pool_como_tjsp():
-    """ADR-021 (2026-06-17): www2.tjal.jus.br voltou a responder ~37% dos IPs do
-    pool ProxyScrape e o gateway Cortex passou a flapar → TJAL roteia pelo pool
-    (default), Cortex vira fallback. PREFER_CORTEX=False, igual ao TJSP."""
-    assert TjalEnricher.PREFER_CORTEX is False
+def test_tjal_prefere_cortex_e_tjsp_segue_no_pool():
+    """2026-10-05: a subconta ProxyScrape passou a ter só IPs classificados como
+    BR, e o www2.tjal recusa todos (8 de 8 sem resposta). Direto e pelo Cortex
+    ele responde 200 → TJAL volta a PREFER_CORTEX=True. O TJSP aceita o pool."""
+    assert TjalEnricher.PREFER_CORTEX is True
     assert TjspEnricher.PREFER_CORTEX is False
-    assert _make_enricher().prefer_cortex is False
+    assert _make_enricher().prefer_cortex is True
 
 
-def test_tjal_sai_pelo_pool_datacenter(processo):
-    """Com PREFER_CORTEX=False, TJAL paraleliza pelos 2500+ IPs do pool
-    ProxyScrape (Cortex só como fallback em bloqueio/erro)."""
+def test_tjal_sai_pelo_cortex(processo):
+    """Com PREFER_CORTEX=True a 1ª request do TJAL já sai pelo Cortex, sem
+    gastar rotações em IPs do pool que o tribunal recusa."""
     pool = _mock_pool()
     e = _make_enricher(pool=pool)
     open_pg = _resp('<html>ok</html>')
@@ -460,6 +460,4 @@ def test_tjal_sai_pelo_pool_datacenter(processo):
         result = e.enriquecer(processo)
 
     assert result['status'] == 'ok'
-    # 1ª request sai por um IP do pool datacenter (10.0.0.x), não pelo Cortex.
-    assert seen[0] and seen[0].get('http', '').startswith('http://10.0.0.'), seen
-    pool.get.assert_called()  # consultou o pool
+    assert seen[0] and seen[0].get('http') == 'http://cortex.gw:8800', seen

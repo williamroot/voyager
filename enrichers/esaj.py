@@ -1166,7 +1166,10 @@ class TjalEnricher(BaseEsajEnricher):
     # não bloqueio do TJAL) e o gateway Cortex caiu (ProxyError em 100%). Com
     # MAX_PROXY_ROTATIONS=8, 37%/IP ⇒ ~99,8% de sucesso por processo. Volta pro
     # pool (default) pra paralelizar pelos 2500+ IPs e não depender do Cortex.
-    PREFER_CORTEX = False
+    # 2026-10-05: a subconta ProxyScrape passou a ter só IPs classificados como
+    # BR, e o www2.tjal recusa todos (8 de 8 sem resposta; direto e pelo Cortex
+    # respondem 200). Volta pro Cortex.
+    PREFER_CORTEX = True
 
     # --- TJAL: o eproc ACABOU de começar (2026), e é isso que se quer pegar --
     #
