@@ -34,10 +34,12 @@ class ProxyScrapePool:
     _instances: dict[str, 'ProxyScrapePool'] = {}
     _lock = threading.Lock()
 
-    def __init__(self, name: str = 'default', api_key: Optional[str] = None):
+    def __init__(self, name: str = 'default', api_key: Optional[str] = None,
+                 subaccount_id: Optional[str] = None):
         self.name = name
         self.redis = redis.from_url(settings.REDIS_URL, decode_responses=True)
         self.api_key = api_key or settings.PROXYSCRAPE_API_KEY
+        self.subaccount_id = subaccount_id or getattr(settings, 'PROXYSCRAPE_SUBACCOUNT_ID', '')
         self.bad_ttl = settings.PROXY_BAD_TTL_SECONDS
         self.cortex_bad_ttl = getattr(settings, 'CORTEX_BAD_TTL_SECONDS', 15)
         self.refresh_threshold = getattr(settings, 'DJEN_POOL_REFRESH_THRESHOLD', 20)
@@ -192,65 +194,50 @@ class ProxyScrapePool:
         logger.info('pool[%s] carregado do arquivo: %d proxies', self.name, len(proxies))
         return len(proxies)
 
-    # Endpoints tentados em ordem. O datacenter_shared exige plano específico;
-    # se retornar "Invalid session", cai no endpoint genérico (funciona com
-    # qualquer plano pago). Ambos retornam ip:port por linha.
-    _REFRESH_URLS = [
-        'https://api.proxyscrape.com/v2/account/datacenter_shared/proxy-list'
-        '?auth={key}&type=getproxies&protocol=http&format=normal&country=BR',
-        'https://api.proxyscrape.com/v2/?request=getproxies'
-        '&auth={key}&protocol=http&country=BR',
-    ]
+    # Account API v4. A v2 (`?auth=<token de 20 chars>`) morreu junto com a
+    # assinatura da subconta que tinha o token (Account 3, vencida em
+    # 28/09/2026): a v4 autentica pela key de 64 chars no header `api-token` e
+    # exige o UUID da subconta datacenter_shared na URL.
+    #
+    # `country[]=all`: a subconta ativa só tem IPs dos EUA — pedir `br`
+    # devolve uma página de erro em HTML, não uma lista vazia.
+    #
+    # Não há mais fallback para o endpoint público (`?request=getproxies`). Ele
+    # dependia do `auth=` da v2 e, quando "funcionava", trazia proxies
+    # públicos: em 05/10/2026 o pool era 28 IPs, todos queimados. Se a API
+    # recusar, o pool fica com a última lista boa e a recusa sai em ERROR.
+    _REFRESH_URL = (
+        'https://api.proxyscrape.com/v4/account/{subconta}/datacenter_shared/proxy-list'
+        '?type=displayproxies&protocol=http&country%5B%5D=all'
+    )
 
     def refresh(self) -> int:
         if not self.api_key:
             logger.warning('pool[%s] sem API key — pool vazio', self.name)
             self.redis.set(self._list_key, json.dumps([]))
             return 0
-        text = None
-        rate_limitado = 0
-        for url_tpl in self._REFRESH_URLS:
-            url = url_tpl.format(key=self.api_key)
-            try:
-                resp = requests.get(url, timeout=30)
-            except requests.RequestException as exc:
-                logger.warning('pool[%s] endpoint indisponível, tentando próximo: %s', self.name, exc)
-                continue
-            if resp.status_code == 429:
-                rate_limitado += 1
-            # A recusa por PLANO/ASSINATURA vem com status de erro (401), então
-            # tem que ser lida ANTES do `raise_for_status` — senão ela cai no
-            # `except` acima e vira um "endpoint indisponível" genérico, que foi
-            # exatamente como a assinatura vencida passou meses sem ser vista.
-            corpo = resp.text.lower()
-            if 'invalid session' in corpo or 'unauthorized' in corpo or 'expired' in corpo:
-                # NÃO é só "plano não suporta este endpoint": é aqui que uma
-                # ASSINATURA VENCIDA entra sem fazer barulho. Em 29/08/2026 o
-                # endpoint pago devolvia `{"status": "unauthorized", "info":
-                # "Your subscription is expired."}` e o código caía calado no
-                # endpoint genérico, que traz proxies públicos: o pool de 2.500
-                # IPs virou 14 — e ninguém foi avisado. Todo o resto (pool 100%
-                # queimado o tempo todo, tráfego inteiro no Cortex, tempestade
-                # de refresh) é consequência disso. Downgrade é ERRO, não nota.
-                nivel = logger.error if 'expired' in corpo else logger.warning
-                nivel('pool[%s] endpoint pago RECUSOU (HTTP %s): %s — caindo no '
-                      'endpoint genérico (proxies públicos, lista muito menor)',
-                      self.name, resp.status_code,
-                      ' '.join(resp.text.split())[:160])
-                continue
-            try:
-                resp.raise_for_status()
-            except requests.RequestException as exc:
-                logger.warning('pool[%s] endpoint indisponível, tentando próximo: %s', self.name, exc)
-                continue
-            text = resp.text
-            break
-        if text is None:
-            if rate_limitado:
-                self._armar_cooldown_refresh(rate_limitado)
-            logger.error('pool[%s] todos os endpoints falharam%s', self.name,
-                         f' ({rate_limitado} com HTTP 429)' if rate_limitado else '')
+        if not self.subaccount_id:
+            logger.error('pool[%s] sem PROXYSCRAPE_SUBACCOUNT_ID — refresh não roda', self.name)
             return 0
+        url = self._REFRESH_URL.format(subconta=self.subaccount_id)
+        try:
+            resp = requests.get(url, headers={'api-token': self.api_key}, timeout=30)
+        except requests.RequestException as exc:
+            logger.error('pool[%s] API ProxyScrape indisponível: %s', self.name, exc)
+            return 0
+        if resp.status_code == 429:
+            self._armar_cooldown_refresh(1)
+            return 0
+        # Recusa por key/assinatura/whitelist vem como 4xx com o motivo no
+        # corpo. Em 29/08/2026 uma assinatura vencida passou meses sem ser
+        # vista porque o 401 era logado como "endpoint indisponível" e o código
+        # caía calado nos proxies públicos. Downgrade é ERRO, não nota.
+        if resp.status_code >= 400:
+            logger.error('pool[%s] API ProxyScrape RECUSOU (HTTP %s): %s — pool mantém '
+                         'a última lista', self.name, resp.status_code,
+                         ' '.join(resp.text.split())[:160])
+            return 0
+        text = resp.text
         proxies = []
         for line in text.splitlines():
             line = line.strip()
@@ -259,6 +246,12 @@ class ProxyScrapePool:
             if not line.startswith('http'):
                 line = f'http://{line}'
             proxies.append(line)
+        if not proxies:
+            # 200 com página de erro (ex.: país que a subconta não tem) não pode
+            # apagar a última lista boa.
+            logger.error('pool[%s] API ProxyScrape respondeu sem proxies: %s — pool mantém '
+                         'a última lista', self.name, ' '.join(text.split())[:160])
+            return 0
         pipe = self.redis.pipeline(transaction=False)
         pipe.set(self._list_key, json.dumps(proxies))
         # Limpa bad_zset: proxies recém-buscados merecem chance nova.

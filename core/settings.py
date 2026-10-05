@@ -348,6 +348,9 @@ DJEN_RSS_ALERTA_MB = env.int('DJEN_RSS_ALERTA_MB', default=700)
 
 # Proxies
 PROXYSCRAPE_API_KEY = env('PROXYSCRAPE_API_KEY', default='')
+# UUID da subconta datacenter_shared ativa (Account API v4). Listar as
+# subcontas: GET https://api.proxyscrape.com/v4/account/subaccounts com header api-token.
+PROXYSCRAPE_SUBACCOUNT_ID = env('PROXYSCRAPE_SUBACCOUNT_ID', default='')
 # API key alternativa para workers Datajud numa máquina específica.
 # Quando definida, DatajudClient usa pool isolada (Redis: voyager:proxies:datajud:*)
 # sem interferir na pool padrão das outras máquinas.
