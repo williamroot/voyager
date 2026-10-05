@@ -11,6 +11,8 @@ min que era a única legítima. Sem reposição, o pool de 2.500 IPs virou 25.
 Um freio que mora na memória do processo é inerte num modelo fork-por-job, do
 mesmo jeito que `SET LOCAL` é inerte em autocommit.
 """
+import json
+
 from djen.proxies import ProxyScrapePool
 
 
@@ -82,6 +84,7 @@ def _pool(redis_fake):
     p.name = 'teste'
     p.redis = redis_fake
     p.api_key = 'x'
+    p.subaccount_id = 'sub-uuid'
     p.bad_ttl = 120
     p.refresh_threshold = 20
     p._list_key = 'voyager:proxies:teste:list'
@@ -137,6 +140,9 @@ def test_cooldown_expirado_libera_de_novo():
 # indisponível" — e o código caía calado no endpoint público, que devolve 14
 # proxies. O pool documentado como "2.500" era 14, e tudo o mais (pool 100%
 # queimado, tráfego inteiro no Cortex, tempestade de refresh) vinha daí.
+#
+# Em 05/10/2026 o acesso migrou para a Account API v4 e o fallback público
+# saiu: recusa da API é ERRO e o pool fica com a última lista boa.
 
 
 class _RespFake:
@@ -144,38 +150,96 @@ class _RespFake:
         self.status_code = status
         self.text = text
 
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            import requests
-            raise requests.HTTPError(str(self.status_code))
 
-
-def test_assinatura_vencida_e_erro_e_cai_no_endpoint_publico(monkeypatch):
+class _Coletor:
     """O log do projeto não propaga pra raiz, então o teste pendura um handler
     no próprio logger — senão ele mediria a config de logging, não o código."""
-    import logging
 
+    def __init__(self, logger):
+        import logging
+
+        self.registros = []
+        coletor = self
+
+        class _H(logging.Handler):
+            def emit(self, record):
+                coletor.registros.append(record)
+
+        self.logger, self.h = logger, _H()
+
+    def __enter__(self):
+        self.logger.addHandler(self.h)
+        return self
+
+    def __exit__(self, *exc):
+        self.logger.removeHandler(self.h)
+
+    def erros(self):
+        import logging
+        return [x for x in self.registros if x.levelno >= logging.ERROR]
+
+
+def _api(monkeypatch, *respostas):
     import djen.proxies as mod
 
-    respostas = [
-        _RespFake(401, '{"status": "unauthorized", "info": "Your subscription is expired."}'),
-        _RespFake(200, '1.2.3.4:8080\n5.6.7.8:3128\n'),
-    ]
-    monkeypatch.setattr(mod.requests, 'get', lambda *a, **kw: respostas.pop(0))
+    fila = list(respostas)
+    chamadas = []
 
-    capturados: list[logging.LogRecord] = []
+    def _get(url, **kw):
+        chamadas.append((url, kw))
+        return fila.pop(0)
 
-    class _Coletor(logging.Handler):
-        def emit(self, record):
-            capturados.append(record)
+    monkeypatch.setattr(mod.requests, 'get', _get)
+    return chamadas
 
-    h = _Coletor()
-    mod.logger.addHandler(h)
-    try:
-        assert _pool(_RedisFake()).refresh() == 2, 'devia ter usado o endpoint genérico'
-    finally:
-        mod.logger.removeHandler(h)
 
-    erros = [x for x in capturados if x.levelno >= logging.ERROR]
-    assert erros, 'assinatura vencida entrou sem ERROR — downgrade mudo de novo'
-    assert 'expired' in erros[0].getMessage().lower()
+def test_refresh_usa_api_v4_da_subconta_com_header_api_token(monkeypatch):
+    chamadas = _api(monkeypatch, _RespFake(200, '1.2.3.4:3129\n5.6.7.8:3129\n'))
+    r = _RedisFake()
+    p = _pool(r)
+
+    assert p.refresh() == 2
+    url, kw = chamadas[0]
+    assert url.startswith(
+        'https://api.proxyscrape.com/v4/account/sub-uuid/datacenter_shared/proxy-list?')
+    assert 'protocol=http' in url and 'country%5B%5D=all' in url
+    assert 'auth=' not in url
+    assert kw['headers'] == {'api-token': 'x'}
+    assert json.loads(r.get(p._list_key)) == ['http://1.2.3.4:3129', 'http://5.6.7.8:3129']
+
+
+def test_assinatura_vencida_e_erro_e_mantem_a_lista_anterior(monkeypatch):
+    import djen.proxies as mod
+
+    chamadas = _api(monkeypatch, _RespFake(
+        401, '{"status": "unauthorized", "info": "Your subscription is expired."}'))
+    r = _RedisFake()
+    p = _pool(r)
+    r.set(p._list_key, json.dumps(['http://9.9.9.9:3129']))
+
+    with _Coletor(mod.logger) as log:
+        assert p.refresh() == 0
+
+    assert len(chamadas) == 1, 'não pode cair em outro endpoint (proxies públicos)'
+    assert json.loads(r.get(p._list_key)) == ['http://9.9.9.9:3129']
+    assert log.erros(), 'assinatura vencida entrou sem ERROR — downgrade mudo de novo'
+    assert 'expired' in log.erros()[0].getMessage().lower()
+
+
+def test_200_sem_proxies_nao_apaga_a_lista(monkeypatch):
+    _api(monkeypatch, _RespFake(200, '<!DOCTYPE html><title>Not Found</title>'))
+    r = _RedisFake()
+    p = _pool(r)
+    r.set(p._list_key, json.dumps(['http://9.9.9.9:3129']))
+
+    assert p.refresh() == 0
+    assert json.loads(r.get(p._list_key)) == ['http://9.9.9.9:3129']
+
+
+def test_429_no_refresh_arma_o_cooldown(monkeypatch):
+    _api(monkeypatch, _RespFake(429, 'error code: 1015'))
+    r = _RedisFake()
+    p = _pool(r)
+
+    assert p.refresh() == 0
+    assert p.status()['refresh_em_cooldown'] is True
