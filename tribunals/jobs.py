@@ -94,22 +94,47 @@ def reclassificar_batch(process_ids: list[int]) -> dict:
 
 _CLASSIF_BATCH_SIZE = 500
 _CLASSIF_CAP_POR_RUN = 50_000
+#: Fatia do cap reservada ao grupo 2 (mais antigos) em TODA passada.
+_CLASSIF_FATIA_MAIS_ANTIGOS = 0.2
 
 
 @job('classificacao', timeout=14400)
 def reclassificar_por_prioridade(
     cap: int = _CLASSIF_CAP_POR_RUN,
     batch_size: int = _CLASSIF_BATCH_SIZE,
+    fatia_mais_antigos: float | None = None,
 ) -> dict:
     """Cron único de classificação por prioridade.
 
     Grupo 1 (prioridade): processos com classificacao_em < ultima_movimentacao_em
-    ou nunca classificados — ordenados por ultima_movimentacao_em DESC (mais recentes primeiro).
-    Grupo 2 (fallback): processos já classificados, ordenados por classificacao_em ASC
-    (reclassifica os mais antigos quando o grupo 1 esgota).
-    Idle quando todos os processos estão com classificação atualizada.
+    ou nunca classificados — ordenados por ultima_movimentacao_em DESC (mais
+    recentes primeiro).
+    Grupo 2 (mais antigos): processos já classificados, ordenados por
+    classificacao_em ASC — re-roda o classificador ATUAL em veredito velho.
+
+    ## Por que o grupo 2 tem fatia GARANTIDA (13/10/2026)
+
+    Antes, o grupo 2 só rodava quando o grupo 1 esvaziava — e num acervo em
+    ingestão contínua o grupo 1 nunca esvazia. Resultado medido: **16.966**
+    processos do TRF3 que são Cumprimento só pela `fase_codigo` (com movimento
+    no último ano) seguiam `NAO_LEAD`, classificados ANTES do fix do F1 pela
+    fase (b1a5d3a/b1898a3, 03 e 04/09/2026) e nunca revisitados — nenhum deles
+    tem movimento novo depois do veredito, então o grupo 1 não os vê. Perfil
+    igual classificado depois do fix: 17% N2, 14% DC.
+
+    Agora `fatia_mais_antigos` (default `CLASSIF_FATIA_MAIS_ANTIGOS`, 20%) do
+    cap vai SEMPRE para o grupo 2, e o que o grupo 1 não usar também. O grupo 1
+    continua com a maior parte. Para o estoque conhecido, o comando
+    `reclassificar_classificados_antes` faz a passada de uma vez.
     """
-    pids = list(
+    if fatia_mais_antigos is None:
+        fatia_mais_antigos = getattr(settings, 'CLASSIF_FATIA_MAIS_ANTIGOS',
+                                     _CLASSIF_FATIA_MAIS_ANTIGOS)
+    fatia_mais_antigos = min(max(float(fatia_mais_antigos), 0.0), 1.0)
+    reserva_g2 = int(cap * fatia_mais_antigos)
+    cap_g1 = cap - reserva_g2
+
+    pids_g1 = list(
         Process.objects
         .filter(ultima_movimentacao_em__isnull=False)
         .filter(
@@ -117,33 +142,45 @@ def reclassificar_por_prioridade(
             Q(classificacao_em__lt=F('ultima_movimentacao_em'))
         )
         .order_by('-ultima_movimentacao_em')
-        .values_list('id', flat=True)[:cap]
-    )
-    grupo = 'desatualizados'
+        .values_list('id', flat=True)[:cap_g1]
+    ) if cap_g1 > 0 else []
 
-    if not pids:
-        pids = list(
+    # O grupo 2 leva a reserva E o que sobrou do grupo 1.
+    cap_g2 = cap - len(pids_g1)
+    pids_g2: list[int] = []
+    if cap_g2 > 0:
+        ja = set(pids_g1)
+        # Lê com folga do tamanho do grupo 1: um veredito velho COM movimento
+        # novo já foi escolhido lá e não pode comer a vaga do grupo 2.
+        pids_g2 = [
+            pid for pid in
             Process.objects
             .filter(classificacao_em__isnull=False)
             .order_by('classificacao_em')
-            .values_list('id', flat=True)[:cap]
-        )
-        grupo = 'mais_antigos'
+            .values_list('id', flat=True)[:cap_g2 + len(ja)]
+            if pid not in ja
+        ][:cap_g2]
 
+    pids = pids_g1 + pids_g2
     if not pids:
         logger.info('reclassificar_por_prioridade: idle — todos processos atualizados')
         return {'status': 'idle', 'enfileirados': 0, 'versao': VERSAO}
 
     n_jobs = 0
+    # Grupo 1 primeiro na fila: movimento novo continua sendo o mais urgente.
     for i in range(0, len(pids), batch_size):
         reclassificar_batch.delay(pids[i:i + batch_size])
         n_jobs += 1
 
+    grupo = ('desatualizados+mais_antigos' if pids_g1 and pids_g2
+             else 'desatualizados' if pids_g1 else 'mais_antigos')
     logger.info(
-        'reclassificar_por_prioridade: grupo=%s pids=%d batches=%d versao=%s',
-        grupo, len(pids), n_jobs, VERSAO,
+        'reclassificar_por_prioridade: grupo=%s desatualizados=%d mais_antigos=%d '
+        'batches=%d versao=%s',
+        grupo, len(pids_g1), len(pids_g2), n_jobs, VERSAO,
     )
-    return {'grupo': grupo, 'pids_total': len(pids), 'enfileirados': n_jobs, 'versao': VERSAO}
+    return {'grupo': grupo, 'pids_total': len(pids), 'desatualizados': len(pids_g1),
+            'mais_antigos': len(pids_g2), 'enfileirados': n_jobs, 'versao': VERSAO}
 
 
 # ============================================================================

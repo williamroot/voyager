@@ -564,6 +564,36 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # Cache pré-calculado da listagem de leads (`api/leads_cache.py`). A consulta
+    # ao vivo do `GET /api/v1/leads/` passava dos 20 s às 08:00 (503 em 10/13
+    # dias no TRF3, 12/13 no TJSP até 13/10/2026). O job roda a mesma consulta
+    # fora da requisição, com teto próprio por combinação, e a API serve do
+    # Redis enquanto o cálculo tiver menos de LEADS_CACHE_MAX_IDADE_S.
+    # Duas entradas: o intervalo (frescor ao longo do dia) e a passada fixa das
+    # 07:40 (horário de São Paulo — timezone do scheduler), que garante cache
+    # recente para o pull das 08:00 mesmo se o intervalo estiver atrasado.
+    from api.leads_cache import precomputar_leads_cache
+    scheduler.add_job(
+        precomputar_leads_cache.delay,
+        'interval',
+        minutes=settings.LEADS_CACHE_INTERVALO_MIN,
+        id='leads_cache_precomputo',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        precomputar_leads_cache.delay,
+        'cron',
+        hour=7,
+        minute=40,
+        id='leads_cache_precomputo_0740',
+        replace_existing=True,
+        misfire_grace_time=600,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Completude do acervo — mede os DOIS lados (nosso número vs o que a fonte
     # declara) fora do caminho da requisição. É caro (conta 1,39 bilhão de docs
     # no ES + agrega IngestionRun), por isso 30 min e nunca no hot path.
