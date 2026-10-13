@@ -819,6 +819,33 @@ def _set_auto_pausados(siglas: set[str]) -> None:
     cache.set(_AUTO_PAUSA_KEY, sorted(s.upper() for s in siglas), timeout=None)
 
 
+def _veredito_da_porta(url: str, r, exige_viewstate: bool,
+                       detalhe: str) -> tuple[str, str] | None:
+    """A página de consulta ainda é a porta de que o enricher vive?
+
+    Medido no TRF3 (13/10/2026): desde 14/09 o `listView.seam` responde 302
+    para uma SPA Angular em outro host; o `requests` segue, a SPA vem 200 com
+    corpo grande e a sonda dizia "viva" — enquanto o enricher gravava ~147 mil
+    `ViewState não encontrado` em 5 dias e queimava ~170 mil requisições/dia
+    do pool COMPARTILHADO. Para PJe/JSF isto é fonte morta (o enricher não tem
+    como seguir); para os outros sistemas não sabemos, e abster > chutar.
+
+    `None` = nada a dizer sobre a porta; segue a régua de sempre.
+    """
+    from enrichers.pje import porta_mudou, tem_viewstate
+
+    novo_host = porta_mudou(url, r)
+    if novo_host:
+        return (('morta' if exige_viewstate else 'duvida'),
+                f'{detalhe}: redirecionou para outro host ({novo_host})')
+    if (exige_viewstate and r.ok and len(r.content) > VIGIA_BYTES_MINIMOS
+            and not tem_viewstate(r.text)):
+        # 2xx grande que não é o formulário: o enricher vai falhar em TODO job
+        # com "ViewState não encontrado". Não é instabilidade.
+        return 'morta', f'{detalhe}: sem javax.faces.ViewState na consulta'
+    return None
+
+
 def sondar_fonte(sigla: str) -> tuple[str, str]:
     """`('viva'|'morta'|'duvida', motivo)` — por MAIORIA de sondas independentes.
 
@@ -834,13 +861,19 @@ def sondar_fonte(sigla: str) -> tuple[str, str]:
     """
     import requests
     from concurrent.futures import ThreadPoolExecutor
-    from enrichers.pje import _detect_pje_server_error, _detectar_desafio_waf
+    from enrichers.pje import (
+        BasePjeEnricher, _detect_pje_server_error, _detectar_desafio_waf,
+    )
     from djen.proxies import ProxyScrapePool
 
     cls = _ENRICHERS.get(sigla)
     url = getattr(cls, 'LIST_URL', '') or getattr(cls, 'BASE_URL', '')
     if not url:
         return 'duvida', 'sem URL de sonda'
+    # PJe de formulário JSF: a `LIST_URL` TEM de trazer o ViewState (é dele que
+    # o enricher vive). Só para esses "200 grande" não basta para dizer viva.
+    exige_viewstate = (isinstance(cls, type) and issubclass(cls, BasePjeEnricher)
+                       and getattr(cls, 'SONDA_EXIGE_VIEWSTATE', True))
 
     pool = ProxyScrapePool()
 
@@ -860,6 +893,9 @@ def sondar_fonte(sigla: str) -> tuple[str, str]:
         # coleta que estava funcionando.
         if _detectar_desafio_waf(r):
             return 'duvida', f'{detalhe} (desafio WAF)'
+        porta = _veredito_da_porta(url, r, exige_viewstate, detalhe)
+        if porta:
+            return porta
         marcador = _detect_pje_server_error(r.text)
         if marcador:
             return 'morta', f'pagina de erro ({marcador})'

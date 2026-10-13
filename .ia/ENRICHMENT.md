@@ -14,7 +14,7 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | Tribunal | Sistema | Implementado | Notas |
 |---|---|---|---|
 | TRF1 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf1.py` (subclasse) |
-| TRF3 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf3.py` (subclasse) |
+| TRF3 | PJe consulta pública (sem login) → **SPA nova desde 14/09/2026** | **Quebrado** | `enrichers/trf3.py` (subclasse). Desde 14/09/2026 o `listView.seam` responde **302 para uma SPA Angular** em `pje1g-consultapublica.trf3.jus.br` (sem `javax.faces.ViewState`). O enricher JSF não serve mais: ~147 mil `ViewState não encontrado` em 5 dias e ~170 mil requisições/dia queimadas no pool até 13/10/2026. O vigia agora lê isso como fonte morta e pausa (§"Vigia das fontes"). **Reescrever para a SPA é tarefa separada** (precisa de recon do protocolo). |
 | TRF5 | PJe consulta pública (sem login) | **Sim** | `enrichers/trf5.py` (subclasse) — path `/pjeconsulta/` |
 | TJMA | PJe consulta pública (sem login) | **Sim** | `enrichers/tjma.py` (subclasse) — `pje.tjma.jus.br/pje/...`, sem WAF; script de pesquisa é `executarPesquisa` (sem `ReCaptcha`) — capturado via fallback `A4J.AJAX.Submit` na base; CPF/CNPJ sem máscara |
 | TRF2 | E-PROC | **Não (só DJEN+Datajud ativos)** | Subdomain público `eproc-consulta.trf2.jus.br` existe mas exige captcha (`#divInfraCaptcha`) e tem IDs randomizados por sessão. Sistema interno tem login + 2FA. Parser autenticado de referência em `~/projetos/JURISCOPE/falcon/datamodel/processors/trf2.py` (965 linhas). |
@@ -2336,6 +2336,19 @@ de ~290 recriações de container.
 
 ### Pendências deixadas em aberto
 
+- **Refill sem prioridade por recência (medido em 13/10/2026)**: o
+  `_reabastecer_impl` pega a cabeça do `proc_trib_enriq_idx (tribunal_id,
+  enriquecimento_status)`, cuja ordem dentro da chave é a física (TID), não a
+  do processo mais novo. Preferir o mais recente sai caro com os índices de
+  hoje: `ORDER BY ultima_movimentacao_em DESC LIMIT 20000` sobre os pendentes
+  do TRF1 (119 mil) levou **6,3 s** (ordena tudo, 111 mil blocos lidos) — e o
+  TJSP tem 12 M de pendentes. `ORDER BY id DESC` também não tem índice útil:
+  `proc_enriq_id_idx (enriquecimento_status, id DESC)` não tem `tribunal_id` e
+  caminharia o espaço GLOBAL de pendentes (o incidente de 01/07/2026). Fazer
+  direito exige índice parcial novo, p.ex. `(tribunal_id, id DESC) WHERE
+  enriquecimento_status = 'pendente'`, com `CREATE INDEX CONCURRENTLY` em
+  migration própria `atomic=False` e build fora do entrypoint do `web` (OPS.md
+  §"Migration com AddIndexConcurrently"). Não feito nesta rodada.
 - **TJSP com 0,6% de `ok`** (10.480 `nao_encontrado`/h, terminal): entregue à
   auditoria de qualidade. Não é vazão — a fila do TJSP é a mais saudável que
   existe (1,0 cópia).
@@ -2381,6 +2394,9 @@ Regras do vigia:
 | HTTP 4xx | **abstém** (`duvida`) — pode ser a NOSSA `LIST_URL` |
 | desafio de WAF (202 + `x-amzn-waf-action`) | **abstém** — é anti-bot, não fonte fora |
 | erro de rede | **abstém** — a sonda mede o proxy tanto quanto a fonte |
+| PJe/JSF: redirect para **outro host** | **pausa** — a porta mudou de lugar (TRF3, 14/09/2026) |
+| PJe/JSF: 2xx grande **sem** `<input name="javax.faces.ViewState">` | **pausa** — a página não é mais o formulário de que o enricher vive |
+| outro sistema: redirect para outro host | **abstém**, e diz o host no relatório (pode ser SSO/CDN legítimo) |
 | fonte voltou E a pausa é dele | **despausa** |
 | pausa é de humano | não toca, nem sonda |
 
@@ -2399,6 +2415,22 @@ log de produção registrou `vigia DESPAUSOU TJPA — fonte voltou: inconclusivo
 
 ⚠️ Desafio de WAF não é fonte fora. O 202 do `awselb` vem com 0 bytes e caía em
 "2xx pequeno demais": o TJPE foi pausado enquanto respondia 61% dos jobs.
+
+⚠️ **HTTP 200 grande não prova que a fonte está viva** (13/10/2026). O
+`listView.seam` do TRF3 passou a responder 302 para uma SPA Angular em outro
+host; o `requests` segue o redirect, a SPA vem 200 com corpo grande e o vigia
+dizia `viva` por um mês, enquanto o enricher gravava `javax.faces.ViewState não
+encontrado (HTTP 200)` em ~147 mil processos em 5 dias e o
+`tick_requeue_erros_enricher` reciclava `erro → pendente` até 12 tentativas —
+~170 mil requisições/dia do pool compartilhado. Para enricher PJe/JSF
+(`BasePjeEnricher.SONDA_EXIGE_VIEWSTATE`), "viva" agora exige o ELEMENTO
+`<input name="javax.faces.ViewState">` (`enrichers/pje.py::tem_viewstate`, não
+substring — PATTERNS.md) e nenhum redirect para outro host
+(`enrichers/pje.py::porta_mudou`). O próprio enricher também diz `consulta
+pública mudou de host: ... redirecionou para <host>` no erro, em vez do
+genérico do ViewState. Os PJe que davam `ok` em 13/10/2026 (TRF1, TRF5, TJMG,
+TJMA, TJCE, TJPE, TJRJ) servem o ViewState no mesmo GET — é dele que o enricher
+depende, então a regra nova não pausa fonte que estava funcionando.
 
 ⚠️ O 4xx não pausar não é frouxidão: um GET seco na `LIST_URL` devolve 404 no
 TJDFT, 401 no TJMT e 403 no TJAP/TJRO, e não dá pra separar "tribunal fora" de

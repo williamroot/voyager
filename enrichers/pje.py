@@ -16,6 +16,7 @@ import logging
 import re
 import time
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -153,6 +154,43 @@ def _detectar_desafio_waf(resp: requests.Response) -> bool:
     return 'awswaf' in corpo or 'challenge.js' in corpo
 
 
+#: O `<input name="javax.faces.ViewState">` do formulário JSF da consulta
+#: pública. Pergunta pelo ELEMENTO, não pela palavra (PATTERNS.md: `'marcador'
+#: in html` casa comentário, CSS e JS).
+_VIEWSTATE_INPUT_RE = re.compile(
+    r'<input\b[^>]*\bname\s*=\s*["\']javax\.faces\.ViewState["\']', re.IGNORECASE)
+
+
+def tem_viewstate(html: str) -> bool:
+    """`True` se a página traz o input `javax.faces.ViewState` do JSF."""
+    return bool(html) and _VIEWSTATE_INPUT_RE.search(html) is not None
+
+
+def porta_mudou(url_pedida: str, resp) -> str | None:
+    """Host para onde a consulta pública REDIRECIONOU, se for outro host.
+
+    Caso que motivou (medido em 13/10/2026): desde 14/09/2026 o
+    `pje1g.trf3.jus.br/pje/ConsultaPublica/listView.seam` responde 302 para uma
+    SPA Angular em `pje1g-consultapublica.trf3.jus.br`. O `requests` segue o
+    redirect, a SPA vem com HTTP 200 e corpo grande, e o vigia lia "viva"
+    enquanto o enricher gravava `javax.faces.ViewState não encontrado` ~147 mil
+    vezes em 5 dias. Redirect para OUTRO host na página de consulta não é
+    instabilidade: é a porta que mudou de lugar.
+
+    Tolerante a dublê de teste (`MagicMock`): sem `history` em lista ou sem
+    `url` em texto, não afirma nada.
+    """
+    historico = getattr(resp, 'history', None)
+    url_final = getattr(resp, 'url', None)
+    if not isinstance(historico, list) or not historico or not isinstance(url_final, str):
+        return None
+    pedido = (urlparse(url_pedida).hostname or '').lower()
+    final = (urlparse(url_final).hostname or '').lower()
+    if final and pedido and final != pedido:
+        return final
+    return None
+
+
 class BasePjeEnricher:
     """Subclasse define BASE_URL, LIST_URL, DETALHE_PATH e TRIBUNAL_SIGLA."""
 
@@ -179,6 +217,13 @@ class BasePjeEnricher:
     #: sem segunda fonte, ou não medido (abster > chutar). Ver `faixas.py` para
     #: o método e a evidência exigida antes de acrescentar uma linha.
     FORA_DA_FONTE_FAIXAS: tuple = ()
+
+    #: A página `LIST_URL` TEM de trazer o formulário JSF (`javax.faces.ViewState`)
+    #: — é dele que `_buscar_em_grau` tira o ViewState. O vigia das fontes
+    #: (`enrichers/jobs.py::sondar_fonte`) usa isto para ler "2xx grande sem
+    #: ViewState" e "redirect para outro host" como FONTE MORTA, e não como
+    #: viva. Subclasse que buscar por outro caminho desliga.
+    SONDA_EXIGE_VIEWSTATE: bool = True
 
     def __init__(self, pool: Optional[ProxyScrapePool] = None, prefer_cortex: bool = False):
         if not (self.BASE_URL and self.LIST_URL and self.DETALHE_PATH and self.TRIBUNAL_SIGLA):
@@ -587,6 +632,14 @@ class BasePjeEnricher:
         low = (resp.text or '')[:4096].lower()
         if _detectar_desafio_waf(resp) or 'token.awswaf.com' in low:
             raise PjeWafChallenge(f'aws_waf_challenge (HTTP {resp.status_code})')
+        # A porta mudou de host (TRF3, 14/09/2026: 302 para uma SPA Angular).
+        # Dizer isso no erro, em vez do genérico "ViewState não encontrado",
+        # manda quem lê o `enriquecimento_erro` direto para a causa.
+        novo_host = porta_mudou(list_url, resp)
+        if novo_host:
+            raise PjeEnricherError(
+                f'consulta pública mudou de host: {list_url} redirecionou para '
+                f'{novo_host} (HTTP {resp.status_code}) — enricher precisa ser refeito')
         soup = BeautifulSoup(resp.text, 'html.parser')
         vs = soup.find('input', {'name': 'javax.faces.ViewState'})
         if not vs or not vs.get('value'):

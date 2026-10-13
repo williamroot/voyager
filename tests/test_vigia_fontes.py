@@ -168,3 +168,122 @@ def test_4xx_em_get_seco_nao_prova_que_a_fonte_caiu(vigia, status, bytes_, deve_
     with patch('requests.get', return_value=resp):
         jobs.tick_vigia_fontes()
     assert (vigia['pausados'] == {'TJMG'}) is deve_pausar, porque
+
+
+# ── A porta mudou de lugar (TRF3, 14/09/2026) ───────────────────────────────
+#
+# O `listView.seam` do TRF3 passou a responder 302 para uma SPA Angular em
+# `pje1g-consultapublica.trf3.jus.br`. O `requests` segue o redirect, a SPA
+# vem com HTTP 200 e corpo grande, e o vigia dizia "viva" — enquanto o
+# enricher gravava "javax.faces.ViewState não encontrado (HTTP 200)" em ~147
+# mil processos em 5 dias e queimava ~170 mil requisições/dia do pool.
+#
+# A SPA abaixo é CONSTRUÍDA (o host não responde da máquina de dev). O que
+# importa nela está medido: HTTP 200, corpo > 4.000 bytes, outro host, e
+# nenhum `<input name="javax.faces.ViewState">`.
+from enrichers.pje import BasePjeEnricher, porta_mudou, tem_viewstate  # noqa: E402
+from enrichers.trf3 import Trf3Enricher  # noqa: E402
+
+SPA_TRF3 = ('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
+            '<title>Consulta Processual</title><base href="/">'
+            '<link rel="stylesheet" href="styles.css"></head><body>'
+            '<app-root></app-root><script src="runtime.js" type="module"></script>'
+            '<script src="main.js" type="module"></script>'
+            + ('<!-- bundle -->' * 400) + '</body></html>')
+FORM_JSF = ('<html><body><form id="fPP" name="fPP">'
+            '<input type="hidden" name="javax.faces.ViewState" '
+            'id="javax.faces.ViewState" value="j_id1" />'
+            + ('x' * 5000) + '</form></body></html>')
+
+
+def _redirecionada(texto: str, url_final: str, status: int = 200):
+    r = _resposta(texto, status=status)
+    r.history = [_resposta('', status=302)]
+    r.url = url_final
+    return r
+
+
+@pytest.fixture
+def vigia_trf3(vigia, monkeypatch):
+    monkeypatch.setattr(jobs, '_ENRICHERS', {'TRF3': Trf3Enricher})
+    return vigia
+
+
+def test_redirect_para_outro_host_pausa_pje(vigia_trf3):
+    spa = _redirecionada(
+        SPA_TRF3, 'https://pje1g-consultapublica.trf3.jus.br/consulta-publica')
+    assert len(spa.content) > jobs.VIGIA_BYTES_MINIMOS, 'controle: a SPA é "grande"'
+    with patch('requests.get', return_value=spa):
+        rel = jobs.tick_vigia_fontes()
+    assert vigia_trf3['pausados'] == {'TRF3'}
+    assert vigia_trf3['auto'] == {'TRF3'}, 'a pausa é do vigia: ele despausa se a porta voltar'
+    assert 'pje1g-consultapublica.trf3.jus.br' in rel['TRF3'], rel['TRF3']
+
+
+def test_pje_200_grande_sem_viewstate_e_fonte_morta(vigia_trf3):
+    with patch('requests.get', return_value=_resposta(SPA_TRF3)):
+        rel = jobs.tick_vigia_fontes()
+    assert vigia_trf3['pausados'] == {'TRF3'}
+    assert 'ViewState' in rel['TRF3']
+
+
+def test_pje_com_formulario_jsf_continua_viva(vigia_trf3):
+    """Controle positivo: sem ele, um vigia que pausa TUDO passaria nos dois
+    testes acima."""
+    vigia_trf3['pausados'] = {'TRF3'}
+    vigia_trf3['auto'] = {'TRF3'}
+    with patch('requests.get', return_value=_resposta(FORM_JSF)):
+        rel = jobs.tick_vigia_fontes()
+    assert vigia_trf3['pausados'] == set()
+    assert 'despausado' in rel['TRF3']
+
+
+def test_redirect_no_mesmo_host_nao_e_porta_mudada(vigia_trf3):
+    mesmo = _redirecionada(
+        FORM_JSF, 'https://pje1g.trf3.jus.br/pje/ConsultaPublica/listView.seam?x=1')
+    with patch('requests.get', return_value=mesmo):
+        jobs.tick_vigia_fontes()
+    assert vigia_trf3['pausados'] == set()
+
+
+def test_redirect_de_outro_sistema_so_abstem(vigia):
+    """Fora do PJe/JSF não sabemos se redirect de host é normal (SSO, CDN):
+    abster > chutar. Fica DITO no relatório, sem pausar."""
+    outro = _redirecionada(PAGINA_BOA, 'https://outro.exemplo.jus.br/consulta')
+    with patch('requests.get', return_value=outro):
+        rel = jobs.tick_vigia_fontes()
+    assert vigia['pausados'] == set()
+    assert 'inconclusivo' in rel['TJMG'] and 'outro.exemplo.jus.br' in rel['TJMG']
+
+
+def test_viewstate_e_o_elemento_nao_a_palavra():
+    assert tem_viewstate(FORM_JSF)
+    assert not tem_viewstate(SPA_TRF3)
+    assert not tem_viewstate('<!-- javax.faces.ViewState some daqui -->' + 'x' * 5000)
+    assert not tem_viewstate("<script>var k='javax.faces.ViewState';</script>")
+
+
+def test_porta_mudou_nao_afirma_sem_prova():
+    assert porta_mudou('https://a.jus.br/x', _resposta('ok')) is None, \
+        'dublê sem history/url não pode virar "mudou de host"'
+    assert porta_mudou('https://a.jus.br/x', _redirecionada('', 'https://a.jus.br/y')) is None
+    assert porta_mudou('https://a.jus.br/x',
+                       _redirecionada('', 'https://b.jus.br/y')) == 'b.jus.br'
+
+
+def test_enricher_diz_que_a_porta_mudou_no_erro(monkeypatch):
+    """O `enriquecimento_erro` tem de apontar a causa, não o sintoma."""
+    from enrichers.pje import PjeEnricherError
+
+    enr = Trf3Enricher.__new__(Trf3Enricher)
+    enr.logger = MagicMock()
+    spa = _redirecionada(
+        SPA_TRF3, 'https://pje1g-consultapublica.trf3.jus.br/consulta-publica')
+    monkeypatch.setattr(enr, '_get', lambda url: spa, raising=False)
+    with pytest.raises(PjeEnricherError, match='mudou de host'):
+        enr._buscar_em_grau('5000001-00.2024.4.03.6100', '1g')
+
+
+def test_todo_enricher_pje_exige_viewstate_na_sonda():
+    assert BasePjeEnricher.SONDA_EXIGE_VIEWSTATE is True
+    assert Trf3Enricher.SONDA_EXIGE_VIEWSTATE is True
