@@ -128,6 +128,14 @@ def listar_leads(request):
              'nivel': nivel, 'tribunal': tribunal or None},
             status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+    # Uma linha por pedido: é por ela que o runbook prova que o pull das 08:00
+    # saiu do cache (o Juriscope não guarda o campo `fonte`).
+    logger.info(
+        'listar_leads fonte=%s cliente=%s nivel=%s tribunal=%s min_score=%s '
+        'devedor_publico=%s limit=%s count=%s cache_idade_s=%s',
+        fonte, cliente.id, nivel, tribunal or '-', min_score, devedor_publico,
+        limit, len(rows), meta_cache['idade_s'] if meta_cache else '-')
+
     base_url = 'https://voyager.was.dev.br'  # ajuste se mudar
     results = [
         {

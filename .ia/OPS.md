@@ -2387,9 +2387,11 @@ ssh ubuntu@voyager 'cd ~/voyager && docker compose -f docker-compose-prod.yml ex
 ssh ubuntu@voyager 'cd ~/voyager && docker compose -f docker-compose-prod.yml exec -T web \
   python manage.py shell -c "from api.leads_cache import precomputar_leads_cache as p; print(p.delay().id)"'
 
-# a prova que importa: o pull das 08:00 respondeu 200 e do cache
+# a prova que importa: o pull das 08:00 (11:00 UTC) saiu do cache, sem 503.
+# Cada pedido loga `listar_leads fonte=cache|ao_vivo ... count=N`; estouro
+# loga `listar_leads estourou 20s`. O asctime do log é -03 (PATTERNS.md).
 ssh ubuntu@voyager 'cd ~/voyager && docker compose -f docker-compose-prod.yml logs --since 2h web \
-  | grep -E "listar_leads|/api/v1/leads/"'
+  | grep -E "listar_leads (fonte|estourou)|cache esgotou"'
 ```
 
 Kill switch **sem deploy** (chave no Redis, efeito na próxima requisição) — a
