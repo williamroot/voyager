@@ -189,7 +189,7 @@ web                       1   Django + Gunicorn
 scheduler                 1   APScheduler + ThreadPoolExecutor(20). Warm jobs inline.
 worker_manual             2   fila 'manual' (cliques on-demand)
 worker_classificacao      8   fila 'classificacao' (batch ML, hot reload v6)
-worker_leads_consumo      4   fila 'leads_consumo' (consumo Juriscope async, idempotente)
+worker_leads_consumo      4   fila 'leads_consumo' (consumo Juriscope async, idempotente + pré-cálculo do cache de leads)
 enrichment_drainer_p0..p3 4   drainer do stream Redis (RODA SÓ AQUI — não nas auxiliares)
 nginx                     1   reverse proxy
 cloudflared               1   tunnel pra voyager.was.dev.br
@@ -389,6 +389,7 @@ manual           — UI clicks (alta prioridade)
 datajud          — Datajud sync per-CNJ
 classificacao    — batch ML (TIMEOUT 4h)
 leads_consumo    — consumo Juriscope async (POST /leads/consumed/, idempotente por lote_id)
+                   + precomputar_leads_cache (cache do GET /leads/, 15 min + 07:40)
 diarios          — coleta de diários próprios (DJE/TJSP, DEJT, STF, DOEs de entes)
 ```
 
@@ -2359,6 +2360,49 @@ SELECT indisvalid, indisready, pg_size_pretty(pg_relation_size('proc_leads_api_i
 ```
 
 Com o índice no lugar, `migrate` aplica a `0061` como no-op (`IF NOT EXISTS`).
+
+## Cache da listagem de leads (`GET /api/v1/leads/`) — operar
+
+Desde 13/10/2026 (`api/leads_cache.py`). Contrato em [`API.md`](API.md).
+
+- **Quem calcula**: `precomputar_leads_cache`, fila `leads_consumo` (o
+  `worker_leads_consumo` do `.103`), agendado pelo `scheduler` a cada
+  `LEADS_CACHE_INTERVALO_MIN` (15) + passada fixa às **07:40 de São Paulo**
+  (10:40 UTC) para o pull das 08:00 do Juriscope. Trava `lock:leads_cache_precomputo`
+  impede duas passadas juntas.
+- **Custo medido** (13/10/2026, frio): ~21 s por combinação pesada (TRF3 N2,
+  TJSP N2); ~17 combinações do `falcon` ⇒ alguns minutos de uma consulta por vez
+  a cada 15 min. Se pesar no banco, suba `LEADS_CACHE_INTERVALO_MIN` (a passada
+  das 07:40 continua garantindo o pull) — exige recriar o `scheduler`.
+- **Tetos** (todos ERROR no log quando batem, nunca corte mudo):
+  `LEADS_CACHE_SQL_TIMEOUT_SECONDS` (120 s por combinação),
+  `LEADS_CACHE_ORCAMENTO_S` (1.800 s por passada), `LEADS_CACHE_MAX_COMBOS` (80).
+
+```bash
+# última passada: ok/falhas/fora do orçamento e o tempo de cada combinação
+ssh ubuntu@voyager 'cd ~/voyager && docker compose -f docker-compose-prod.yml exec -T web \
+  python manage.py shell -c "from api.leads_cache import ultima_execucao as u; import json; print(json.dumps(u(), indent=1, default=str))"'
+
+# rodar uma passada agora (enfileira; quem executa é o worker_leads_consumo)
+ssh ubuntu@voyager 'cd ~/voyager && docker compose -f docker-compose-prod.yml exec -T web \
+  python manage.py shell -c "from api.leads_cache import precomputar_leads_cache as p; print(p.delay().id)"'
+
+# a prova que importa: o pull das 08:00 respondeu 200 e do cache
+ssh ubuntu@voyager 'cd ~/voyager && docker compose -f docker-compose-prod.yml logs --since 2h web \
+  | grep -E "listar_leads|/api/v1/leads/"'
+```
+
+Kill switch **sem deploy** (chave no Redis, efeito na próxima requisição) — a
+API volta inteira para o ao vivo; o job pode continuar, ele só escreve no Redis:
+
+```bash
+ssh ubuntu@voyager 'cd ~/voyager && docker compose -f docker-compose-prod.yml exec -T web \
+  python manage.py shell -c "from api.leads_cache import desligar_cache; desligar_cache()"'
+# religar: desligar_cache(False)
+```
+
+O setting `LEADS_CACHE_ENABLED=false` faz o mesmo de forma permanente, mas
+exige recriar o `web` (restart não relê `.env`) — prefira a chave.
 
 ## Migration com AddIndexConcurrently — NÃO deixe o entrypoint do web rodar junto
 

@@ -5,6 +5,8 @@ com chave única; chave inválida → 403.
 
 Endpoints:
   GET  /api/leads/            — lista próximos N leads não consumidos
+                                (servida do cache pré-calculado quando ele é
+                                recente — ver `api/leads_cache.py`)
   POST /api/leads/consumed/   — marca processos como consumidos
   GET  /api/leads/stats/      — métricas agregadas
 """
@@ -17,8 +19,8 @@ import django_rq
 from rq import Retry
 
 from django.conf import settings
-from django.db import OperationalError, connection, transaction
-from django.db.models import Count, Q
+from django.db import OperationalError
+from django.db.models import Count
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -26,11 +28,13 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from tribunals.classificador import CLASSES_FAZENDA_PUBLICA
 from tribunals.jobs import registrar_consumo_leads
 from tribunals.models import (
     ApiClient, ClassificadorVersao, LeadConsumption, Process,
 )
+
+from . import leads_cache
+from .leads_cache import executar_com_teto
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +55,10 @@ def _linhas_com_teto(qs, limit: int, segundos: int) -> list:
     depois que o cliente já foi embora. Foi o que aconteceu com o
     `PRE_PRECATORIO` do TJSP em 09/09/2026 — três vezes por dia, todo dia.
 
-    `SET LOCAL` dentro de `transaction.atomic()` porque o pgbouncer roda em
-    transaction-mode: um `SET` solto vale para uma conexão e a query seguinte
-    sai por outra. É o padrão da casa (`djen/jobs.py::_leitura_com_teto`).
+    O `SET LOCAL` mora em `leads_cache.executar_com_teto` (pgbouncer em
+    transaction-mode: o `SET` tem de estar na MESMA transação da query).
     """
-    with transaction.atomic():
-        with connection.cursor() as cur:
-            cur.execute('SET LOCAL statement_timeout = %s', [int(segundos * 1000)])
-        return list(qs[:limit])
+    return executar_com_teto(lambda: list(qs[:limit]), segundos)
 
 
 @api_view(['GET'])
@@ -92,36 +92,37 @@ def listar_leads(request):
     if nivel not in dict(Process.CLASSIF_CHOICES):
         return Response({'erro': f'nivel inválido: {nivel}'}, status=400)
 
-    qs = (
-        Process.objects.filter(classificacao=nivel,
-                               classificacao_score__gte=min_score)
-        .select_related('tribunal')
-        .order_by('-ultima_movimentacao_em', '-classificacao_score', '-id')
-    )
-    if tribunal:
-        qs = qs.filter(tribunal_id=tribunal)
-    if devedor_publico:
-        qs = qs.filter(
-            Q(classe_codigo__in=CLASSES_FAZENDA_PUBLICA)
-            | Q(classe_nome__icontains='fazenda públ')
-            | Q(classe_nome__icontains='fazenda pub')
-        )
-    if not incluir_consumidos:
-        # Exclui processos que esse cliente já consumiu — qualquer registro
-        # em LeadConsumption pra esse cliente x processo conta.
-        consumidos = LeadConsumption.objects.filter(cliente=cliente).values('processo_id')
-        qs = qs.exclude(pk__in=consumidos)
-
     teto = settings.LEADS_SQL_TIMEOUT_SECONDS
+    fonte = 'ao_vivo'
+    meta_cache = None
     try:
-        rows = _linhas_com_teto(qs, limit, teto)
+        servido = None
+        if not incluir_consumidos:
+            # Registra a combinação pedida: é por ela que o pré-cálculo sabe o
+            # que calcular (`api/leads_cache.py`). O `limit` não entra — o
+            # Juriscope varia o limite do N2 conforme o que sobrou do N1.
+            leads_cache.registrar_pedido(
+                cliente.id, leads_cache.chave_combo(nivel, tribunal, min_score,
+                                                    devedor_publico))
+            if leads_cache.servir_cache_ligado():
+                servido = leads_cache.servir_do_cache(
+                    cliente.id, nivel, tribunal, min_score, devedor_publico,
+                    limit, teto)
+        if servido is not None:
+            rows, meta_cache = servido
+            fonte = 'cache'
+        else:
+            qs = leads_cache.montar_queryset(cliente.id, nivel, tribunal, min_score,
+                                             devedor_publico, incluir_consumidos)
+            rows = _linhas_com_teto(qs, limit, teto)
     except OperationalError as exc:
         # 503 e não 500: para o Juriscope isto é falha TRANSITÓRIA (ele pula a
         # rodada e tenta de novo), e o log fica com o recorte que reproduz.
         logger.warning(
             'listar_leads estourou %ss (nivel=%s tribunal=%s limit=%s '
-            'min_score=%s devedor_publico=%s): %s',
-            teto, nivel, tribunal or '-', limit, min_score, devedor_publico, exc)
+            'min_score=%s devedor_publico=%s fonte=%s): %s',
+            teto, nivel, tribunal or '-', limit, min_score, devedor_publico,
+            fonte, exc)
         return Response(
             {'erro': f'consulta excedeu o teto de {teto}s no banco',
              'nivel': nivel, 'tribunal': tribunal or None},
@@ -149,6 +150,11 @@ def listar_leads(request):
         'nivel': nivel,
         'tribunal': tribunal or None,
         'min_score': min_score,
+        # `cache`: pré-calculado por `precomputar_leads_cache` (ver
+        # `api/leads_cache.py`); `ao_vivo`: a consulta sob o teto de 20 s.
+        'fonte': fonte,
+        'cache_idade_s': meta_cache['idade_s'] if meta_cache else None,
+        'cache': meta_cache,
         'results': results,
     })
 

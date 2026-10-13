@@ -245,7 +245,12 @@ Próximos N leads não consumidos pelo cliente.
 
 Query params: `nivel`, `tribunal`, `limit` (1..10000, default 5000), `min_score` (0..1), `incluir_consumidos`.
 
-Por default exclui processos com registro em `LeadConsumption` para esse cliente. Anti-join via `Exists(OuterRef)` pra escalar com 100k+ consumos.
+Por default exclui processos com registro em `LeadConsumption` para esse cliente.
+
+Desde 13/10/2026 é servido de um **cache pré-calculado** (`api/leads_cache.py`,
+job `precomputar_leads_cache` a cada 15 min + 07:40) quando ele tem menos de
+2 h; senão, consulta ao vivo sob o teto de 20 s. A resposta traz
+`fonte: "cache"|"ao_vivo"`. Detalhes em [`API.md`](API.md).
 
 ### `POST /api/v1/leads/consumed/` — assíncrono (202)
 Requer `lote_id` (UUID) no body: `{lote_id, consumos: [{cnj, resultado}, ...]}`. Enfileira o job RQ `registrar_consumo_leads` (fila `leads_consumo`) e responde `202 {enfileirado, lote_id, recebidos}`. Idempotente por `(cliente, processo, lote_id)` — retry/reenvio não duplica nem perde. Detalhes em [`API.md`](API.md) e ADR-024.

@@ -110,7 +110,7 @@ Documentação completa + casos de uso: ver [`CLASSIFICACAO.md`](CLASSIFICACAO.m
 
 ### `GET /api/v1/leads/?nivel=PRECATORIO&tribunal=TRF1&limit=5000&min_score=0`
 
-Retorna processos classificados não-consumidos pelo cliente. Filtra `LeadConsumption` via `Exists(OuterRef)` (anti-join — escala com 100k+ consumos).
+Retorna processos classificados não-consumidos pelo cliente. Exclui `LeadConsumption` do cliente com `NOT IN` (o plano real é um *hashed SubPlan* sobre `(cliente_id, processo_id)` — 969 mil consumos do `falcon` em 13/10/2026, ~0,2 s quente). O caro não é montar o conjunto: é caminhar o índice por cima dos consumidos (ver cache abaixo).
 
 **Ordenação**: `(-ultima_movimentacao_em, -classificacao_score, -id)` — mais recentes primeiro, score como tiebreaker. Vale pra todos os tribunais. Motivação: pra precatórios, a expedição de ofício mais recente implica ordem orçamentária mais distante (CF art. 100 §5º — expedição após 02/abril vai pro orçamento de ano+2), então recência da última mov é o sinal operacional mais útil pro consumidor.
 
@@ -133,6 +133,44 @@ DIREITO_CREDITORIO)`. Sem ele o planner casava só `tribunal_id`
 (`proc_tribunal_ult_mov_idx`) e caminhava o tribunal inteiro atrás das poucas
 linhas do nível pedido — o TJSP nível 2 não respondia (09/09/2026). Mexeu na
 ordenação ou nos filtros? Confira o plano antes de deployar.
+
+**Cache pré-calculado (13/10/2026)** — `api/leads_cache.py`. A consulta ao
+vivo passava dos 20 s às 08:00 (503 em 10/13 dias no TRF3 e 12/13 no TJSP):
+leads já consumidos com movimento recente ficam no topo do índice e o `NOT IN`
+os descarta um a um (TRF3 N2: 151.060 linhas removidas pelo filtro, 73.141 heap
+fetches, 9,2 s quente; 21 s frio). O job `precomputar_leads_cache` (fila
+`leads_consumo`, a cada `LEADS_CACHE_INTERVALO_MIN`=15 min + passada fixa às
+**07:40** de São Paulo) roda a MESMA consulta com teto próprio de
+`LEADS_CACHE_SQL_TIMEOUT_SECONDS`=120 s por combinação e guarda no Redis até
+10.000 ids ordenados por cliente × `(nivel, tribunal, min_score,
+devedor_publico)`. Combinações = as que o cliente pediu nos últimos 7 dias
+(toda chamada registra a sua em `leads:combos:v1:<cliente_id>`) + as sementes
+do pull do Juriscope (`LEADS_CACHE_SEMENTES_*`). Clientes = `ApiClient` ativo
+que consumiu nos últimos 30 dias.
+
+Com cache de menos de `LEADS_CACHE_MAX_IDADE_S` (2 h), a listagem: tira os
+consumidos depois do cálculo (uma consulta no índice `(cliente_id,
+processo_id)`), re-confere nível/score/tribunal/devedor na linha ATUAL, mantém
+a ordem e devolve até `limit`. Sem cache recente (ou com
+`incluir_consumidos=true`), cai na consulta ao vivo de sempre. A resposta diz
+de onde veio:
+
+```json
+{"count": 1800, "limit": 1800, "nivel": "PRE_PRECATORIO", "tribunal": "TRF3",
+ "min_score": 0.2, "fonte": "cache", "cache_idade_s": 1210,
+ "cache": {"gerado_em": "2026-10-14T10:40:03+00:00", "idade_s": 1210,
+           "ids_no_cache": 10000, "completo": false,
+           "descartados_consumidos": 12, "descartados_reclassificados": 3,
+           "esgotado": false},
+ "results": [...]}
+```
+
+`fonte: "ao_vivo"` traz `cache: null`. **Teto é alerta**: se o cache acabar
+antes do `limit` (`esgotado: true`), com `completo: true` é só "não há mais
+leads"; com `completo: false` (o cálculo bateu os 10.000) sai WARNING no log —
+pode haver lead além do que foi guardado. Kill switch sem deploy:
+`api.leads_cache.desligar_cache()` (chave no Redis; volta tudo para o ao vivo). Operação em
+[`OPS.md`](OPS.md) §"Cache da listagem de leads".
 
 **`503` quando o banco demora**: a listagem roda sob `statement_timeout` de
 `LEADS_SQL_TIMEOUT_SECONDS` (default 20 s, abaixo do timeout do gunicorn). Se

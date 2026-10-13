@@ -617,6 +617,42 @@ DJEN_POOL_DEGRADED_TTL_SECONDS = env.int('DJEN_POOL_DEGRADED_TTL_SECONDS', defau
 # rodando órfã no Postgres (foi o que o TJSP nível 2 fez em 09/09/2026).
 LEADS_SQL_TIMEOUT_SECONDS = env.int('LEADS_SQL_TIMEOUT_SECONDS', default=20)
 
+# Cache pré-calculado da listagem de leads (`api/leads_cache.py`). Em 13/10/2026
+# o pull das 08:00 do Juriscope tinha falhado (503) em 10/13 dias no TRF3 e
+# 12/13 no TJSP: a consulta ao vivo passa dos 20 s frio. O job
+# `precomputar_leads_cache` (fila `leads_consumo`) roda a MESMA consulta fora da
+# requisição, com teto próprio, e a API serve do Redis enquanto o cálculo for
+# recente. Sem cache recente, volta à consulta ao vivo.
+LEADS_CACHE_ENABLED = env.bool('LEADS_CACHE_ENABLED', default=True)
+# Idade máxima para servir do cache; acima disto, consulta ao vivo.
+LEADS_CACHE_MAX_IDADE_S = env.int('LEADS_CACHE_MAX_IDADE_S', default=7200)
+# Vida da chave no Redis (só para diagnóstico depois de passar da idade máxima).
+LEADS_CACHE_TTL_S = env.int('LEADS_CACHE_TTL_S', default=6 * 3600)
+# Teto de espera de CADA combinação no pré-cálculo. Medido em 13/10/2026 (frio):
+# TRF3 N2 ≥0,2 limit 10.000 = 21,0 s; TJSP N2 ≥0,2 = 21,9 s.
+LEADS_CACHE_SQL_TIMEOUT_SECONDS = env.int('LEADS_CACHE_SQL_TIMEOUT_SECONDS', default=120)
+# Orçamento de tempo de UMA passada inteira e teto de combinações por passada.
+# Passar de qualquer um é ERROR no log, nunca corte mudo.
+LEADS_CACHE_ORCAMENTO_S = env.int('LEADS_CACHE_ORCAMENTO_S', default=1800)
+LEADS_CACHE_MAX_COMBOS = env.int('LEADS_CACHE_MAX_COMBOS', default=80)
+# Intervalo do pré-cálculo no scheduler (além da passada fixa das 07:40).
+LEADS_CACHE_INTERVALO_MIN = env.int('LEADS_CACHE_INTERVALO_MIN', default=15)
+# Cliente entra no pré-cálculo se consumiu nesta janela; combinação entra se
+# foi pedida nesta janela.
+LEADS_CACHE_CLIENTE_DIAS = env.int('LEADS_CACHE_CLIENTE_DIAS', default=30)
+LEADS_CACHE_COMBO_DIAS = env.int('LEADS_CACHE_COMBO_DIAS', default=7)
+# Sementes: as combinações do pull diário do Juriscope (VOYAGER_TRIBUNAIS e
+# VOYAGER_MIN_SCORE_N1/N2/N3 do lado deles), para o primeiro pull depois do
+# deploy já achar cache sem ter sido pedido antes.
+LEADS_CACHE_SEMENTES_TRIBUNAIS = env.list(
+    'LEADS_CACHE_SEMENTES_TRIBUNAIS',
+    default=['TRF1', 'TRF3', 'TJMG', 'TJMA', 'TJSP', 'TJAL', 'TJPA', 'TJMT'])
+LEADS_CACHE_SEMENTES_DC_TRIBUNAIS = env.list(
+    'LEADS_CACHE_SEMENTES_DC_TRIBUNAIS', default=['TJSP'])
+LEADS_CACHE_SEMENTE_SCORE_N1 = env.float('LEADS_CACHE_SEMENTE_SCORE_N1', default=0.70)
+LEADS_CACHE_SEMENTE_SCORE_N2 = env.float('LEADS_CACHE_SEMENTE_SCORE_N2', default=0.20)
+LEADS_CACHE_SEMENTE_SCORE_N3 = env.float('LEADS_CACHE_SEMENTE_SCORE_N3', default=0.25)
+
 # Classificador — hot reload de pesos
 # TTL do cache em memória do classificador. A cada N segundos, o classificador
 # tenta recarregar a ClassificadorVersao(ativa=True) do DB. Em erro/inválido,
