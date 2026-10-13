@@ -199,7 +199,10 @@ com +1,92 e −1,13 brigando sobre o mesmo fato.
    - Grupo 1: `classificacao_em IS NULL` **OU**
      `classificacao_em < ultima_movimentacao_em`, ordenado por
      `ultima_movimentacao_em DESC`, cap 50.000 por run.
-   - Grupo 2 (só quando o grupo 1 esvazia): já classificados, `classificacao_em ASC`.
+   - Grupo 2: já classificados, `classificacao_em ASC` (veredito mais antigo
+     primeiro). **Desde 13/10/2026 tem fatia GARANTIDA** em toda passada:
+     `CLASSIF_FATIA_MAIS_ANTIGOS` (default 0,2 → 10.000 dos 50.000), mais o que
+     o grupo 1 não usar. Antes ele só rodava com o grupo 1 vazio — nunca.
    - Splitta em batches de 500 → `reclassificar_batch.delay()`.
 
    ⚠️ **Não há classificação in-process na ingestão.** `411f327` (06/05/2026,
@@ -218,9 +221,26 @@ com +1,92 e −1,13 brigando sobre o mesmo fato.
    rótulos do TJMA ainda de maio. Reclassificar o TJAL inteiro rendeu +1.241 N1
    e tirou 20.050 do N3 — metade com veto explícito de "pago" ou "extinto".
 
+   ⚠️ **O custo medido da fome do grupo 2 (13/10/2026)**: **16.966**
+   processos do TRF3 Cumprimento só pela `fase_codigo` (movimento no último
+   ano; 38.576 sem esse recorte) seguiam `NAO_LEAD` com veredito anterior ao
+   fix do F1 pela fase (b1a5d3a/b1898a3, 03–04/09/2026). Nenhum tinha
+   movimento depois do veredito — o grupo 1 não os via. O mesmo perfil
+   classificado depois do fix sai 17% N2 e 14% DC. A fatia garantida é o
+   conserto estrutural; o estoque sai de uma vez pelo comando abaixo.
+
 2. **Manual, por tribunal** — `manage.py reclassificar_<tribunal>_*` ou
    enfileirar `reclassificar_batch` direto. É o que se usa depois de mexer em
    feature, regra ou campo lido pelo classificador.
+
+   Genérico por data do veredito: `manage.py reclassificar_classificados_antes`
+   (default: TRF3, `NAO_LEAD`, Cumprimento pela fase e não pelo legado,
+   `classificacao_em < 2026-09-04`, movimento nos últimos 365 dias). Enfileira
+   `reclassificar_batch` na fila `classificacao` em lotes de 500, com pausa e
+   freio pela profundidade da fila (`--fila-max`). Sempre `--dry-run` antes
+   (imprime a contagem; seleção do default levou ~112 s frio em prod).
+   Retomável: quem já foi reclassificado ganha `classificacao_em` novo e sai
+   do recorte.
 
 3. **Re-treino** (manual):
    - Treinar nova versão → criar `ClassificadorVersao(versao='vN', pesos=..., shadow=True)` por 7d

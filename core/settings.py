@@ -659,6 +659,12 @@ LEADS_CACHE_SEMENTE_SCORE_N3 = env.float('LEADS_CACHE_SEMENTE_SCORE_N3', default
 # mantém o cache atual (ou cai pra hardcoded fallback no boot).
 CLASSIFICADOR_RELOAD_TTL = env.int('CLASSIFICADOR_RELOAD_TTL', default=60)
 
+# Fatia do cap do `reclassificar_por_prioridade` reservada ao grupo 2 (veredito
+# mais antigo), em toda passada. Antes o grupo 2 só rodava com o grupo 1 vazio
+# — o que nunca acontece com ingestão contínua — e 16.966 Cumprimentos do TRF3
+# ficaram NAO_LEAD com o classificador de antes do fix do F1 pela fase.
+CLASSIF_FATIA_MAIS_ANTIGOS = env.float('CLASSIF_FATIA_MAIS_ANTIGOS', default=0.2)
+
 # Shadow mode — fração [0, 1] de classificações principais que disparam
 # também a aplicação das ClassificadorVersao(shadow=True) em job async.
 # 0.0 desliga (default em testes); 0.1 = 10% sample em prod.
