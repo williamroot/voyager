@@ -39,8 +39,9 @@ def buscar_diarios(query, tribunal=None, data_inicio=None, data_fim=None, size=1
         logger.error('MCP buscar_diarios erro: %s', e)
         return {'error': str(e)}
 
-    return {
-        'total': pagina['total'],
+    total = pagina['total']
+    out = {
+        'total': total,
         # `parcial` = o ES estourou o próprio timeout e devolveu o que tinha:
         # resultado incompleto, não "só existe isso".
         'parcial': pagina.get('parcial', False),
@@ -55,6 +56,11 @@ def buscar_diarios(query, tribunal=None, data_inicio=None, data_fim=None, size=1
             'docurl': r.get('docurl'),
         } for r in pagina['results']],
     }
+    if total.get('relation') == 'gte':
+        # 10.000 "gte" é o max do track_total_hits do ES: um PISO, não o total.
+        out['nota_total'] = (f'pelo menos {total["value"]} publicações — piso do ES, não o total. '
+                             'Pra contar: agregar(indice="publicacoes", texto=..., filtros/faixas).')
+    return out
 
 
 def get_documento(doc_id):

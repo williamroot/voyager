@@ -25,6 +25,10 @@ logger = logging.getLogger('voyager.mcp.macro')
 #: teto de espera de uma agregação (lado ES) e da requisição (lado client).
 ES_TIMEOUT = '20s'
 REQUEST_TIMEOUT = 30
+#: Frase/termo no corpo das publicações: o ES IGNORA o `timeout` do corpo nessa
+#: consulta (medido 14/10/2026: "requisição de pequeno valor" em 2026 = 42s com
+#: timed_out=false; só TJSP em set-out/2026 = 31s). Teto maior, mas teto.
+REQUEST_TIMEOUT_TEXTO_PUBLICACOES = 60
 
 #: `visao_geral` custa ~15s a frio (acervo CNJ: 350M docs) — medido 14/10/2026.
 VISAO_GERAL_TTL = 3600
@@ -114,9 +118,9 @@ def _indice(nome: str) -> str:
     return index_name(INDICES[nome]['sufixo'])
 
 
-def _search(nome_ou_indice: str, body: dict) -> dict:
+def _search(nome_ou_indice: str, body: dict, request_timeout: int = REQUEST_TIMEOUT) -> dict:
     indice = _indice(nome_ou_indice) if nome_ou_indice in INDICES else nome_ou_indice
-    resp = _es().search(index=indice, body=body, request_timeout=REQUEST_TIMEOUT)
+    resp = _es().search(index=indice, body=body, request_timeout=request_timeout)
     return dict(resp.body) if hasattr(resp, 'body') else dict(resp)
 
 
@@ -285,10 +289,16 @@ def agregar(indice='processos', agrupar_por=None, filtros=None, faixas=None, tex
         if not body['aggs']:
             del body['aggs']
 
-        resp = _search(indice, body)
+        espera = REQUEST_TIMEOUT_TEXTO_PUBLICACOES if (indice == 'publicacoes' and must) else REQUEST_TIMEOUT
+        resp = _search(indice, body, request_timeout=espera)
     except MacroParamError as e:
         return {'error': str(e)}
     except Exception as e:
+        from elastic_transport import ConnectionTimeout
+        if isinstance(e, ConnectionTimeout):
+            logger.warning('MCP agregar estourou %ss: indice=%s agrupar_por=%s', espera, indice, agrupar_por)
+            return {'error': f'consulta pesada demais: passou de {espera}s sem resposta. Estreite com '
+                             'filtros (tribunal, uf) e faixas de data menores, ou agrupe por menos campos.'}
         logger.error('MCP agregar erro: %s', e)
         return {'error': f'{type(e).__name__}: {e}'}
 
@@ -310,8 +320,13 @@ def agregar(indice='processos', agrupar_por=None, filtros=None, faixas=None, tex
         if outros:
             out['outros'] = outros
             avisos.append(f'{outros} documentos ficaram fora do top {top} de "{agrupar_por[0]}"')
-        if aggs['g1'].get('doc_count_error_upper_bound'):
-            out['erro_max_contagem'] = aggs['g1']['doc_count_error_upper_bound']
+        erro = aggs['g1'].get('doc_count_error_upper_bound')
+        if erro == -1:
+            # ES devolve -1 quando a ordem é por sub-agregação: o erro existe e não é calculável
+            avisos.append('ordenado por valor: o top-N é aproximado (cada shard manda só o seu topo) — '
+                          'confirme um grupo específico filtrando por ele')
+        elif erro:
+            out['erro_max_contagem'] = erro
     if out['parcial']:
         avisos.append(f'o ES estourou o timeout de {ES_TIMEOUT}: números INCOMPLETOS — '
                       'estreite os filtros (tribunal, faixa de data) e repita')
@@ -326,6 +341,14 @@ def agregar(indice='processos', agrupar_por=None, filtros=None, faixas=None, tex
 def _por_tribunal(resp: dict) -> dict:
     return {b['key']: b['doc_count']
             for b in ((resp.get('aggregations') or {}).get('t') or {}).get('buckets', [])}
+
+
+def _por_classificacao(agg: dict) -> dict:
+    out: dict = {}
+    for b in agg.get('buckets', []):
+        chave = b['key'] if b['key'] not in ('', '__sem__') else 'SEM_CLASSIFICACAO'
+        out[chave] = out.get(chave, 0) + b['doc_count']
+    return out
 
 
 def _calcular_visao_geral() -> dict:
@@ -391,9 +414,8 @@ def _calcular_visao_geral() -> dict:
             'com_sinal_precatorio': (a.get('sinal') or {}).get('doc_count'),
             'com_valor_causa': (a.get('com_valor') or {}).get('value'),
             'soma_valor_causa': (a.get('valor') or {}).get('value'),
-            'por_classificacao': {
-                ('SEM_CLASSIFICACAO' if b['key'] == '__sem__' else b['key']): b['doc_count']
-                for b in (a.get('classif') or {}).get('buckets', [])},
+            # campo ausente e string vazia (14,7M docs, medido 14/10/2026) são o mesmo "não classificado"
+            'por_classificacao': _por_classificacao(a.get('classif') or {}),
         }
     if acervo:
         out['acervo_cnj'] = {'total': _total(acervo)}
@@ -476,9 +498,13 @@ def descrever_base():
             'processos ≠ acervo: `processos` é o que conhecemos em detalhe; `acervo` é o que o '
             'tribunal declarou ao CNJ (sem partes nem valor). Compare os dois antes de dizer "não existe".',
             'tem_sinal_precatorio=null significa "não computado", não "não tem".',
-            'valor_causa ausente é comum: soma/média valem só sobre quem TEM valor. Diga isso.',
-            'classificacao é de um modelo de ML e só existe pra processos classificados — '
-            'ausência não é NAO_LEAD.',
+            'valor_causa ausente é comum (~4% dos processos têm) e tem outliers absurdos (ex.: TJSP '
+            'ano 1992 soma R$ 3 trilhões em 9.697 processos): soma/média valem só sobre quem TEM valor '
+            'e são puxadas por erro de cadastro — prefira mediana e diga isso.',
+            'classificacao vazia ("" ou ausente) = não classificado, não NAO_LEAD.',
+            'Busca por frase no corpo das publicações é lenta (30-60s por mês de dados): '
+            'sempre filtre tribunal e uma faixa de data curta.',
+            'classificacao é de um modelo de ML e só existe pra processos classificados.',
             'Campos de texto (partes, advs, assunto, body) não agregam; use `texto` pra filtrar.',
             'Há publish_date inválidas (ano 8026) no índice de publicações: filtre por faixa de data.',
             'Se a resposta vier com `parcial: true` ou `outros`, o número NÃO é o universo — diga.',

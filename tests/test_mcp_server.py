@@ -407,7 +407,7 @@ def test_agregar_monta_query_e_le_grupos(monkeypatch):
     from mcp_server import macro
     visto = {}
 
-    def fake(indice, body):
+    def fake(indice, body, **kw):
         visto.update(indice=indice, body=body)
         return _resp_es(1000, {
             'm': {'value': 5e6},
@@ -439,7 +439,7 @@ def test_agregar_monta_query_e_le_grupos(monkeypatch):
 def test_agregar_campo_numerico_nao_usa_missing_string(monkeypatch):
     from mcp_server import macro
     visto = {}
-    monkeypatch.setattr(macro, '_search', lambda i, b: visto.update(b=b) or _resp_es(1, {'g1': {'buckets': []}}))
+    monkeypatch.setattr(macro, '_search', lambda i, b, **kw: visto.update(b=b) or _resp_es(1, {'g1': {'buckets': []}}))
     macro.agregar(agrupar_por=['ano_cnj'])
     assert 'missing' not in visto['b']['aggs']['g1']['terms']
 
@@ -448,7 +448,7 @@ def test_agregar_data_vira_histograma_e_parcial_avisa(monkeypatch):
     from mcp_server import macro
     visto = {}
 
-    def fake(indice, body):
+    def fake(indice, body, **kw):
         visto.update(indice=indice, body=body)
         return _resp_es(5, {'g1': {'buckets': [{'key_as_string': '2026-01-01', 'key': 1, 'doc_count': 5}]}},
                         timed_out=True)
@@ -477,11 +477,13 @@ def test_visao_geral_cruza_processos_com_acervo(monkeypatch):
 
     monkeypatch.setattr(agg_overview, '_indice_entidades', lambda: 'voyager-entidades')
 
-    def fake(indice, body):
+    def fake(indice, body, **kw):
         if indice == 'processos':
             return _resp_es(150, {'t': {'buckets': [{'key': 'TJSP', 'doc_count': 100},
                                                      {'key': 'TRF3', 'doc_count': 50}]},
-                                  'classif': {'buckets': [{'key': '__sem__', 'doc_count': 90}]},
+                                  'classif': {'buckets': [{'key': '__sem__', 'doc_count': 90},
+                                                          {'key': '', 'doc_count': 10},
+                                                          {'key': 'PRECATORIO', 'doc_count': 5}]},
                                   'enriquecido': {'doc_count': 40}, 'sinal': {'doc_count': 7},
                                   'valor': {'value': 1.5e6}, 'com_valor': {'value': 60}})
         if indice == 'acervo':
@@ -497,7 +499,8 @@ def test_visao_geral_cruza_processos_com_acervo(monkeypatch):
     out = macro.visao_geral()
 
     assert out['processos']['total'] == 150
-    assert out['processos']['por_classificacao'] == {'SEM_CLASSIFICACAO': 90}
+    # string vazia e campo ausente são o mesmo "não classificado"
+    assert out['processos']['por_classificacao'] == {'SEM_CLASSIFICACAO': 100, 'PRECATORIO': 5}
     assert out['publicacoes']['com_data_no_futuro'] == 2
     assert out['entidades']['total'] == 11
     linhas = {ln['tribunal']: ln for ln in out['por_tribunal']}
@@ -515,7 +518,7 @@ def test_visao_geral_nao_cacheia_resultado_com_erro(monkeypatch):
     monkeypatch.setattr(macro.cache, 'get', lambda k: None)
     monkeypatch.setattr(macro.cache, 'set', lambda *a, **k: salvos.append(a))
 
-    def fake(indice, body):
+    def fake(indice, body, **kw):
         if indice == 'acervo':
             raise ConnectionError('timeout')
         return _resp_es(1)
@@ -533,3 +536,39 @@ def test_mcp_sem_barra_nao_redireciona(client):
                        content_type='application/json', HTTP_AUTHORIZATION=f'Bearer {token}')
     assert resp.status_code == 200
     assert 'tools' in resp.json()['result']
+
+
+def test_agregar_ordenado_por_valor_avisa_top_aproximado(monkeypatch):
+    from mcp_server import macro
+    monkeypatch.setattr(macro, '_search', lambda i, b, **kw: _resp_es(3, {
+        'm': {'value': 9.0},
+        'g1': {'doc_count_error_upper_bound': -1, 'buckets': [{'key': 2020, 'doc_count': 3, 'm': {'value': 9.0}}]}}))
+    out = macro.agregar(agrupar_por=['ano_cnj'], metrica='soma', ordenar='valor')
+    assert 'erro_max_contagem' not in out
+    assert any('aproximado' in a for a in out['avisos'])
+
+
+def test_agregar_timeout_vira_mensagem_util_e_texto_em_publicacoes_espera_mais(monkeypatch):
+    from elastic_transport import ConnectionTimeout
+
+    from mcp_server import macro
+    esperas = []
+
+    def lento(indice, body, request_timeout=None):
+        esperas.append(request_timeout)
+        raise ConnectionTimeout('Connection timed out')
+
+    monkeypatch.setattr(macro, '_search', lento)
+    out = macro.agregar(indice='publicacoes', texto='"rpv"', agrupar_por=['tribunal'])
+    assert 'Estreite' in out['error']
+    macro.agregar(indice='processos', agrupar_por=['tribunal'])
+    assert esperas == [macro.REQUEST_TIMEOUT_TEXTO_PUBLICACOES, macro.REQUEST_TIMEOUT]
+
+
+def test_buscar_diarios_total_piso_ganha_nota(monkeypatch):
+    from mcp_server import delegates
+    from search import busca_api
+    monkeypatch.setattr(busca_api, 'buscar_movimentacoes', lambda **kw: {
+        'total': {'value': 10000, 'relation': 'gte'}, 'parcial': False, 'results': []})
+    out = delegates.buscar_diarios('precatório')
+    assert 'piso' in out['nota_total']
