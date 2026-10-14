@@ -1160,6 +1160,7 @@ def buscar_movimentacoes(q=None, filtros=None, ordenar=None,
         'versao': VERSAO,
         'size': size,
         'ordenar': ordenar_efetivo,
+        'parcial': bool(resp.get('timed_out')),
         'filtros': _ecoar_filtros(filtros, q=q or None),
     })
     return pagina

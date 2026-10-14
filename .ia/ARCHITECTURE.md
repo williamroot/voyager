@@ -80,8 +80,10 @@ voyager/
 │                 - management/commands/entes_frescor.py: selo de frescor por
 │                   município (o campo `level` da API do QD mente)
 ├── mcp_server/    MCP (Model Context Protocol) server pra LLMs/agentes.
-│                 - server.py: HTTP/JSON-RPC 2.0 (12 tools, resources, SSE)
-│                 - delegates.py: lógica de cada tool (reusa api/ e search/)
+│                 - server.py: Streamable HTTP/JSON-RPC 2.0 (43 tools, resources,
+│                   prompts); registra também as tools de dashboard/jurimetria_tools.py
+│                 - delegates.py: tools de processo/publicação (reusa api/ e search/)
+│                 - macro.py: panorama e perguntas sobre a base (agregar, visao_geral)
 │                 - auth.py: mcp_token + rate limit (token-bucket Redis)
 │                 - management/commands/: gerar_mcp_token
 ```

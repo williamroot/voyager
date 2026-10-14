@@ -4,6 +4,7 @@ import time
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 
 from tribunals.models import ApiClient
 
@@ -16,7 +17,8 @@ def validate_mcp_token(token):
         return None
     try:
         return ApiClient.objects.get(mcp_token=token, ativo=True)
-    except (ApiClient.DoesNotExist, ValueError):
+    except (ApiClient.DoesNotExist, ValueError, ValidationError):
+        # Token que nem é UUID ⇒ o UUIDField levanta ValidationError: é 403, não 500.
         return None
 
 

@@ -556,25 +556,66 @@ Body = query DSL Elasticsearch 7.14 (passthrough pro cluster). Response = envelo
 ### MCP Server
 
 O Voyager também expõe um **MCP (Model Context Protocol) server** em `/mcp/`
-pra LLMs/agentes (Claude Desktop, Cursor, etc.) conversarem sobre processos.
+pra LLMs/agentes (Claude Desktop, Claude Code, Cursor, etc.) conversarem sobre
+processos **e sobre a base inteira** (panorama, contagens, séries).
 
 | Método | Path | Descrição |
 |---|---|---|
+| POST | `/mcp` ou `/mcp/` | **Streamable HTTP** (spec MCP): TODO request JSON-RPC chega aqui — `initialize`, `ping`, `tools/*`, `resources/*`, `prompts/*`. Notificação (sem `id`) ⇒ 202 |
+| GET | `/mcp/` | 405 (sem stream servidor→cliente, como a spec permite) |
 | GET | `/mcp/.well-known/mcp.json` | Descriptor (tools, versão, auth) |
-| POST | `/mcp/` | Initialize (handshake) |
-| POST | `/mcp/messages` | JSON-RPC (`tools/list`, `tools/call`) |
-| GET | `/mcp/sse` | SSE stream (compat) |
-| POST | `/mcp/resources` | Resources (`resources/list`, `resources/read`) |
+| POST | `/mcp/messages` | Legado: `tools/list`, `tools/call` (erro de protocolo sai com HTTP 400/500) |
+| POST | `/mcp/resources` | Legado: `resources/list`, `resources/read` |
+| GET | `/mcp/sse` | Placeholder (compat) |
 
-Auth: `Authorization: Bearer <mcp_token>` (gerar via `python manage.py gerar_mcp_token <nome_cliente>`).
+> Até 14/10/2026 o `POST /mcp/` respondia o resultado do `initialize` pra
+> **qualquer** método: Claude Code/Desktop conectava e nunca via uma tool. E
+> `POST /mcp` (sem barra, o que a página de setup ensina) levava 301 — que o
+> cliente segue trocando POST por GET. Os dois testados em `tests/test_mcp_server.py`.
 
-12 tools disponíveis: `buscar_diarios`, `get_documento`, `get_processo`, `list_movimentacoes`,
-`get_partes`, `listar_fontes`, `status_cobertura`, `monitorar_termo`, `monitorar_processo`,
-`listar_detections`, `get_pdf`, `classificacao_lead` (gated por `MCP_ENABLE_CLASSIFICACAO`).
+Auth: `Authorization: Bearer <mcp_token>`. O token é do **`ApiClient`**, não do
+usuário: `python manage.py gerar_mcp_token <nome_cliente>` — **gira** o token
+(o anterior morre na hora). Pra dar acesso a uma pessoa, crie um `ApiClient`
+próprio dela (a `api_key` dele é aleatória e não é entregue). Token que nem é
+UUID ⇒ 403 (era 500). Rate limit: `MCP_RATE_LIMIT_RPM` (60) por cliente.
 
-Configuração Claude Desktop:
-```json
-{"mcpServers": {"voyager": {"url": "https://voyager.was.dev.br/mcp/sse", "token": "<mcp_token>"}}}
+`initialize` devolve `instructions` (como usar as bases e as ressalvas do dado),
+que o cliente põe no contexto do modelo.
+
+**Tools (43)** — todas com `annotations` (`readOnlyHint`; `openWorldHint` nas que
+consultam serviço externo). Só `monitorar_termo`/`monitorar_processo` escrevem.
+
+| Grupo | Tools | Onde |
+|---|---|---|
+| **Macro / perguntas** | `visao_geral`, `descrever_base`, `agregar`, `mapa_precatorios`, `panorama_estado`, `ranking_entidades`, `ficha_entidade`, `buscar_processos` | `mcp_server/macro.py` |
+| Processo/publicação | `buscar_diarios`, `get_documento`, `get_processo`, `list_movimentacoes`, `get_partes`, `contexto_processo`, `get_pdf`, `classificacao_lead`¹ | `mcp_server/delegates.py` |
+| Busca legada | `buscar_entidades`, `buscar_valores`, `buscar_por_parte`, `jurimetria` | `mcp_server/delegates.py` |
+| Cobertura/monitor. | `listar_fontes`, `status_cobertura`, `monitorar_termo`, `monitorar_processo`, `listar_detections` | `mcp_server/delegates.py` |
+| Jurimetria/Zordon/fontes públicas | as 18 de `dashboard/jurimetria_tools.py` (`dossie_jurimetrico`, `buscar_zordon`, `ler_chunks`, `ente_fiscal`, `capag_rating`, `atualizar_valor`, ...) — **menos `ler_arquivo`** (lê anexo do chat por id; fora do chat não há dono pra conferir) | registradas em `server.py` |
+
+¹ gated por `MCP_ENABLE_CLASSIFICACAO`.
+
+`agregar` é a tool de perguntas: `indice` (`processos` | `acervo` | `publicacoes`),
+`agrupar_por` (até 2 campos; data vira histograma por ano/mês/dia), `filtros`
+(igualdade/lista/null), `faixas` (range), `texto`, `metrica`
+(contagem/soma/media/mediana/min/max). Campos numa lista FECHADA por índice
+(`macro.INDICES`); `track_total_hits` sempre; devolve `parcial` (ES estourou o
+timeout de 20s), `outros` (fora do top-N) e `avisos`. `visao_geral` roda 4
+agregações em paralelo (~15s a frio, medido) e cacheia 1h — só se veio
+completa. `buscar_diarios` usa `search.busca_api.buscar_movimentacoes` (a busca da
+tela); antes era `query_string` cru sem timeout e estourava 30s.
+
+**Resources:** `voyager://fontes`, `voyager://base`, `voyager://visao-geral`
+(`resources/list`) + templates `voyager://processo/{cnj}`,
+`voyager://movimentacao/{id}`, `voyager://contexto/{cnj}` (`resources/templates/list`).
+
+**Prompts:** `panorama_do_acervo`, `responder_pergunta`, `analisar_processo`,
+`perfil_devedor` — roteiros que encadeiam as tools certas.
+
+Configuração Claude Code:
+```bash
+claude mcp add --transport http voyager https://voyager.was.dev.br/mcp \
+  --header "Authorization: Bearer <mcp_token>"
 ```
 
 ### Página de configuração
