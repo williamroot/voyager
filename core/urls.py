@@ -3,6 +3,8 @@ from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView, TemplateView
 
+from mcp_server.server import mcp_endpoint
+
 
 class FaviconRedirect(RedirectView):
     """Redirect lazy pra /static/dashboard/favicon.svg.
@@ -23,6 +25,9 @@ urlpatterns = [
     path('django-rq/', include('django_rq.urls')),
     path('', include('django_prometheus.urls')),
     path('api/v1/', include('api.urls')),
+    # Sem a barra também: a página de setup ensina `.../mcp`, e o APPEND_SLASH
+    # responderia 301 — que o cliente segue trocando POST por GET.
+    path('mcp', mcp_endpoint),
     path('mcp/', include('mcp_server.server')),
     path('dashboard/', include('dashboard.urls')),
     path('', include('accounts.urls')),

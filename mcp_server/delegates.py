@@ -16,37 +16,45 @@ logger = logging.getLogger('voyager.mcp')
 
 
 def buscar_diarios(query, tribunal=None, data_inicio=None, data_fim=None, size=10):
-    """Busca textual em diários oficiais via Elasticsearch."""
-    try:
-        from search.client import get_es, index_name
+    """Busca textual em diários oficiais — o MESMO serviço da tela de busca.
 
-        es = get_es()
-        must = [{'query_string': {'query': query}}]
-        filtros = []
+    Antes era um `query_string` cru sobre 1,8 bi de publicações, sem `timeout`
+    no ES: estourava os 30s do client e devolvia só "Connection timed out".
+    `buscar_movimentacoes` ordena por score (termina cedo) e tem teto de espera.
+    """
+    try:
+        from search.busca_api import BuscaParamError, buscar_movimentacoes
+
+        filtros = {}
         if tribunal:
-            filtros.append({'term': {'tribunal': tribunal}})
+            filtros['tribunal'] = [t.strip().upper() for t in tribunal.split(',') if t.strip()]
         if data_inicio:
-            filtros.append({'range': {'publish_date': {'gte': data_inicio}}})
+            filtros['publicado_gte'] = data_inicio
         if data_fim:
-            filtros.append({'range': {'publish_date': {'lte': data_fim}}})
-        body = {
-            'query': {'bool': {'must': must, 'filter': filtros}} if filtros else {'query_string': {'query': query}},
-            'size': min(size, 100),
-        }
-        result = es.search(index=index_name('movimentacoes'), body=body)
-        hits = result.get('hits', {}).get('hits', [])
-        return [{
-            'id': h['_source'].get('id') or int(h['_id']),
-            'tribunal': h['_source'].get('tribunal'),
-            'publish_date': h['_source'].get('publish_date'),
-            'body_snippet': (h['_source'].get('body') or '')[:500],
-            'docurl': h['_source'].get('docurl'),
-            'proc': h['_source'].get('proc'),
-            'score': h.get('_score'),
-        } for h in hits]
+            filtros['publicado_lte'] = data_fim
+        pagina = buscar_movimentacoes(q=query, filtros=filtros, ordenar='relevancia', size=size)
+    except BuscaParamError as e:
+        return {'error': str(e)}
     except Exception as e:
         logger.error('MCP buscar_diarios erro: %s', e)
-        return [{'error': str(e)}]
+        return {'error': str(e)}
+
+    return {
+        'total': pagina['total'],
+        # `parcial` = o ES estourou o próprio timeout e devolveu o que tinha:
+        # resultado incompleto, não "só existe isso".
+        'parcial': pagina.get('parcial', False),
+        'resultados': [{
+            'id': r.get('id'),
+            'tribunal': r.get('tribunal'),
+            'publish_date': r.get('publish_date'),
+            'proc': r.get('proc'),
+            'tipo_comunicacao': r.get('tipo_comunicacao'),
+            'nome_orgao': r.get('nome_orgao'),
+            'trechos': r.get('highlight') or [],
+            'docurl': r.get('docurl'),
+        } for r in pagina['results']],
+    }
 
 
 def get_documento(doc_id):
