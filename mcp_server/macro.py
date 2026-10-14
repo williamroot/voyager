@@ -30,7 +30,10 @@ REQUEST_TIMEOUT = 30
 #: timed_out=false; só TJSP em set-out/2026 = 31s). Teto maior, mas teto.
 REQUEST_TIMEOUT_TEXTO_PUBLICACOES = 60
 
-#: `visao_geral` custa ~15s a frio (acervo CNJ: 350M docs) — medido 14/10/2026.
+#: `visao_geral` custa ~15-23s a frio (acervo CNJ: 350M docs) — medido 14/10/2026.
+#: Com o ES ocupado passou de 30s e voltou sem `processos`; o teto é maior porque
+#: ela roda no máximo 1x/h (cache).
+VISAO_GERAL_REQUEST_TIMEOUT = 60
 VISAO_GERAL_TTL = 3600
 VISAO_GERAL_CACHE = 'mcp:visao_geral:v1'
 
@@ -386,7 +389,7 @@ def _calcular_visao_geral() -> dict:
     def rodar(item):
         nome, (indice, body) = item
         try:
-            return nome, _search(indice, body), None
+            return nome, _search(indice, body, request_timeout=VISAO_GERAL_REQUEST_TIMEOUT), None
         except Exception as e:
             logger.error('MCP visao_geral %s erro: %s', nome, e)
             return nome, None, f'{type(e).__name__}: {e}'
