@@ -493,10 +493,17 @@ def test_visao_geral_cruza_processos_com_acervo(monkeypatch):
                                 'futuras': {'doc_count': 2}, 'd7': {'doc_count': 3}})
         return _resp_es(11)
 
-    monkeypatch.setattr(macro, '_search', fake)
+    esperas = set()
+
+    def fake_com_espera(indice, body, request_timeout=None):
+        esperas.add(request_timeout)
+        return fake(indice, body)
+
+    monkeypatch.setattr(macro, '_search', fake_com_espera)
     monkeypatch.setattr(macro.cache, 'get', lambda k: None)
     monkeypatch.setattr(macro.cache, 'set', lambda *a, **k: None)
     out = macro.visao_geral()
+    assert esperas == {macro.VISAO_GERAL_REQUEST_TIMEOUT}
 
     assert out['processos']['total'] == 150
     # string vazia e campo ausente são o mesmo "não classificado"
