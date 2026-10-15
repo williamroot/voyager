@@ -154,6 +154,9 @@ PRECATORIO_SINAL_FEATURES = {
     'TJMA': ('F14_oficio_text', 'F20_exp_juriscope'),
     'TJSP': ('F14_oficio_text', 'F20_exp_juriscope'),
     'TJMG': ('F20_exp_juriscope',),
+    # TJRS: só o F31 (intimação da expedição do precatório). O F20 ali promove
+    # ordem de expedição e RPV SEFAZ — ver SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL.
+    'TJRS': ('F31_exp_precatorio_tjrs',),
 }
 
 # Derivado — quem só precisa saber "este tribunal tem regra de sinal?".
@@ -202,6 +205,25 @@ SCORE_REBAIXAMENTO_SINAL = 0.10
 
 CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 
+# Sinal de EXPEDIÇÃO do TJRS (F31): o ato ordinatório padrão do eproc depois que
+# a requisição é expedida — "Ficam as partes intimadas da expedição do(s)
+# precatório(s) para, querendo, manifestarem-se no prazo de 5 dias. Inexistindo
+# oposição, os autos serão distribuídos no sistema eproc 2g."
+#
+# Medido em 2026-10-14 contra 41 processos com os AUTOS COMPLETOS baixados do
+# eproc (com/sem ofício conferido na íntegra): 30/32 com ofício, 0/9 sem. Os 2
+# que escapam são INSS previdenciário com requisição do TRF4 (competência
+# delegada) — não é precatório do TJRS.
+#
+# Por que não o F20: no TJRS ele casa "determinada expedição" (ordem, 0/4 com
+# ofício) e "pequeno valor enviada" (RPV SEFAZ, sem documento e paga em ~2
+# meses). E por que as alternâncias com entidade: o DJEN do TJRS publica o
+# texto em HTML com acento codificado ("expedi&ccedil;&atilde;o") — os 38
+# acertos da amostra estão TODOS nessa forma; a regex só com "ç/ã" casava zero.
+SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL = (
+    r'intimad\w*\s+da\s+expedi(ç|c|&ccedil;)(ã|a|&atilde;)o\s+d[oa]\(?s?\)?\s+precat'
+)
+
 # Agrega todos os counts de movimentações em uma única passagem pela tabela,
 # eliminando os ~10 round-trips separados do código anterior.
 _MOVS_AGG_SQL = """
@@ -220,6 +242,7 @@ _MOVS_AGG_SQL = """
                           THEN 1 ELSE 0 END), 0) AS f19_n,
         COALESCE(SUM(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
                           THEN 1 ELSE 0 END), 0) AS f20_n,
+        COALESCE(SUM(CASE WHEN texto ~* '__SINAL_F31__' THEN 1 ELSE 0 END), 0) AS f31_n,
         MAX(CASE WHEN texto ~* 'alvar[áa]\\s+(judicial|de\\s+levantamento)|expe[çc]am?-se\\s+(o\\s+)?alvar[áa]|autorizo[^.]{0,150}sequestro|defiro[^.]{0,100}sequestro|sequestro\\s+do\\s+numer[áa]rio|julgo\\s+extint[oa]|mandado\\s+de\\s+levantamento'
                  THEN data_disponibilizacao END) AS pago_max_dt,
         MAX(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
@@ -231,7 +254,7 @@ _MOVS_AGG_SQL = """
         MAX(data_disponibilizacao) AS ult_mov_dt
     FROM tribunals_movimentacao
     WHERE processo_id = %s
-"""
+""".replace('__SINAL_F31__', SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL)
 
 # Thresholds (revisáveis com base em produção)
 THRESHOLD_PRECATORIO = 0.70
@@ -501,7 +524,8 @@ def compute_features(processo) -> dict:
         row = cur.fetchone()
 
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
-     f13_n, f14_n, f19_n, f20_n, pago_max_dt, exped_max_dt, extneg_max_dt, ult_mov_dt) = row
+     f13_n, f14_n, f19_n, f20_n, f31_n, pago_max_dt, exped_max_dt, extneg_max_dt,
+     ult_mov_dt) = row
 
     if not total_movs:
         return _empty_features(ano, f1, f10)
@@ -553,6 +577,8 @@ def compute_features(processo) -> dict:
         'F24_pago_pos_exped_ANTI': f24,
         # Sinal-anti de desfecho terminal negativo (override, todos os tribunais).
         'F30_extinto_neg_ANTI': f25,
+        # Sinal de expedição do TJRS (peso LR 0: atua só como regra de sinal).
+        'F31_exp_precatorio_tjrs': int(f31_n > 0),
     }
 
 
@@ -570,6 +596,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F21_diasUltMovZ': f21, 'F23_logPartes': 0.0,
         'F1xF11': 0, 'F1xF15': 0.0, 'F1xF20': 0,
         'F24_pago_pos_exped_ANTI': 0, 'F30_extinto_neg_ANTI': 0,
+        'F31_exp_precatorio_tjrs': 0,
     }
 
 
