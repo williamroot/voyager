@@ -646,7 +646,7 @@ LEADS_CACHE_COMBO_DIAS = env.int('LEADS_CACHE_COMBO_DIAS', default=7)
 # deploy já achar cache sem ter sido pedido antes.
 LEADS_CACHE_SEMENTES_TRIBUNAIS = env.list(
     'LEADS_CACHE_SEMENTES_TRIBUNAIS',
-    default=['TRF1', 'TRF3', 'TJMG', 'TJMA', 'TJSP', 'TJAL', 'TJPA', 'TJMT'])
+    default=['TRF1', 'TRF3', 'TJMG', 'TJMA', 'TJSP', 'TJAL', 'TJPA', 'TJMT', 'TJRS'])
 LEADS_CACHE_SEMENTES_DC_TRIBUNAIS = env.list(
     'LEADS_CACHE_SEMENTES_DC_TRIBUNAIS', default=['TJSP'])
 LEADS_CACHE_SEMENTE_SCORE_N1 = env.float('LEADS_CACHE_SEMENTE_SCORE_N1', default=0.70)
