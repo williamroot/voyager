@@ -40,6 +40,10 @@ _OVERRIDES_DESC = {
         'da inicial / prescrição) sendo a última palavra (sem expedição posterior) → '
         'crédito não existe, rebaixa QUALQUER lead a NAO_LEAD (score 0,10). Override '
         'GLOBAL (todos os tribunais), fora dos pesos da LR.',
+    'F31_exp_precatorio_tjrs':
+        'intimação da expedição do precatório no DJEN (ato ordinatório do eproc TJRS) → '
+        'promove Cumprimento a PRECATORIO (score 1,0). Peso LR 0 (atua como regra); '
+        'gated por tribunal (PRECATORIO_SINAL_FEATURES, só TJRS).',
 }
 
 
