@@ -98,10 +98,16 @@ _RE_ENTE_POSITIVO = re.compile(
     # autarquia de ensino: "CENTRO UNIVERSITARIO MUNICIPAL DE FRANCA"
     r'|\bcentro\s+universit[áa]rio\s+(municipal|estadual)\b', re.I)
 _RE_FORMA_PRIVADA = re.compile(
-    r'\b(ltda|eireli|epp|me|s\s?/\s?a|s\.\s?a\.?|s\s?a|cia|companhia|cooperativa'
+    r'\b(ltda|eireli|epp|me|s\s?/\s?a|s\.\s?a\.?|s\s?a|cia|companhia|cooperativas?'
     r'|associa[çc][ãa]o|sindicato|banco|seguradora|condom[íi]nio|servi[çc]o\s+social'
     r'|clube|igreja|caixa\s+de\s+assist[êe]ncia|ordem\s+dos\s+advogados|oab'
     r'|institui[çc][õo]es\s+(de\s+ensino|educacionais)|uniesp|faculdade'
+    # amostra aleatória de 300 mil docs do ES no deploy (16/10/2026): os 19
+    # falsos positivos do "Estado de <UF>" — federações (Unimed, FECOMERCIO),
+    # concessionária de energia, CEF, SEBRAE ("Centro de Apoio aos Pequenos
+    # Empreendimentos"), mantenedora privada (IESP) e comissão da OAB.
+    r'|federa[çc][ãa]o|unimed|caixa\s+econ[ôo]mica|distribui[çc][ãa]o\s+de\s+energia'
+    r'|pequenos\s+empreendimentos|sebrae|instituto\s+educacional|exame\s+de\s+ordem'
     # centro universitário só é privado se não se declara municipal/estadual:
     # "CENTRO UNIVERSITARIO MUNICIPAL DE …" é autarquia municipal.
     r'|centro\s+universit[áa]rio(?!\s+(municipal|estadual|p[úu]blico)))\b', re.I)
