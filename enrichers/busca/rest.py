@@ -31,6 +31,8 @@ from .rest_parser import (
     parse_tjmt,
     parse_tjpa,
     parse_tjpa_nomes,
+    parse_tjrs_nomes,
+    parse_tjrs_processos,
     rota_tjpa,
 )
 
@@ -296,3 +298,181 @@ class BuscaTjpa(_BuscaRest):
             yield resultado
             pagina += 1
             time.sleep(self.PAUSA_ENTRE_PAGINAS_S)
+
+
+class BuscaTjrs(BuscaPorParte):
+    """Consulta processual pública do TJRS (eproc) — rotas lidas do bundle da SPA.
+
+    Dois critérios, os dois exercitados ao vivo em 15/10/2026:
+
+    * **nome** — em DOIS passos, como a SPA: `eprocBuscaPorNomesDaParte`
+      devolve as PARTES (nome, CPF/CNPJ mascarado, `codParte1g`/`codParte2g`),
+      500 por página, ativos e baixados; `eprocBuscaProcessosPorCodParte` lista
+      os processos de cada uma. Só as grafias IGUAIS ao nome pedido seguem; as
+      parecidas que a pesquisa fonética trouxe e não seguimos vão no aviso.
+    * **oab** — `eprocBuscaProcessosPorOAB`. A janela é `registroInicial` …
+      `registroInicial + 1999` (2.000 linhas por chamada, qualquer que seja o
+      `registroFinal`) e o fim é **404** "Nenhum registro". Medido com uma OAB
+      real de Porto Alegre: janelas 1, 1001 e 2001 trouxeram 2.000, 2.000 e
+      1.433 linhas; 3001 deu 404; 3.394 processos distintos na união.
+
+    Fora: **documento** (a consulta pública não busca por CPF/CNPJ — só mostra
+    a máscara no resultado do nome) e **advogado** por nome (não há rota).
+
+    Paginação honesta (revisão do PR #27): uma página só é emitida com
+    processo novo, `tem_proxima` diz a verdade (lookahead de uma página), e
+    o fim é a FONTE dizer que acabou (página curta / 404) — página inteira de
+    repetidos não encerra. Teto de requisições atingido sai como `aviso_fonte`
+    na última página, com `tem_proxima=True`: o job conta como truncado.
+    """
+
+    CRITERIOS_SUPORTADOS = frozenset({NOME, OAB})
+    TETO_DA_FONTE = None
+    POR_PAGINA = 500
+    JANELA_OAB = 2000
+    SITUACOES = ('A', 'B')
+    TIMEOUT_BUSCA = (10, 180)
+    PAUSA_ENTRE_PAGINAS_S = 0.5
+    #: Requisições por página emitida, no máximo — as que vêm só com repetidos
+    #: ou de partes sem processo não viram página, mas também não são de graça.
+    REQUISICOES_POR_PAGINA = 4
+
+    def __init__(self, enricher_cls, prefer_cortex: bool | None = None):
+        self.enricher = enricher_cls(prefer_cortex=bool(prefer_cortex))
+        self.TRIBUNAL = enricher_cls.TRIBUNAL_SIGLA
+        self.avisos: list[str] = []
+
+    def _get(self, caminho: str, params: dict):
+        from enrichers.tjrs import TjrsEnricherError
+        try:
+            status, corpo = self.enricher.get_api(caminho, params, timeout=self.TIMEOUT_BUSCA)
+        except TjrsEnricherError as exc:
+            raise FonteIndisponivel(f'TJRS: {exc}') from exc
+        return None if status == 404 else corpo
+
+    def partes_por_nome(self, nome: str, teto_requisicoes: int = 20) -> list[dict]:
+        """Todas as partes de grafia igual, paginando a pesquisa nas duas situações."""
+        from .rest_parser import _sem_acento
+        alvo = _sem_acento(nome)
+        partes: dict[str, dict] = {}
+        parecidas: set[str] = set()
+        feitas = 0
+        for situacao in self.SITUACOES:
+            pagina = 1
+            while True:
+                if feitas >= teto_requisicoes:
+                    self.avisos.append(
+                        f'a lista de partes com nome parecido passou de {feitas} páginas '
+                        f'de {self.POR_PAGINA}; o resto não foi lido')
+                    return list(partes.values())
+                corpo = self._get('/eprocBuscaPorNomesDaParte', {
+                    'totalRegistrosPorPagina': str(self.POR_PAGINA), 'numeroPagina': str(pagina),
+                    'nomeParte': nome, 'tipoPesquisa': 'F', 'situacao': situacao, 'perfil': '0'})
+                feitas += 1
+                linhas = (corpo or {}).get('data') or []
+                for p in parse_tjrs_nomes(corpo, nome):
+                    partes.setdefault(p['codParte1g'], p)
+                parecidas.update(str(b.get('nome') or '').strip() for b in linhas
+                                 if _sem_acento(str(b.get('nome') or '')) != alvo)
+                if len(linhas) < self.POR_PAGINA:
+                    break
+                pagina += 1
+        parecidas.discard('')
+        if parecidas:
+            self.avisos.append(
+                f'{len(parecidas)} grafia(s) parecida(s) não seguida(s) — a busca usa só a '
+                f'grafia exata (ex.: {", ".join(sorted(parecidas)[:3])})')
+        return list(partes.values())
+
+    def paginar(self, criterio: str, valor: str,
+                teto_paginas: int = 40) -> Iterator[PaginaResultado]:
+        self.exigir_suporte(criterio)
+        self.avisos = []
+        teto_req = teto_paginas * self.REQUISICOES_POR_PAGINA
+        brutas = (self._lotes_oab(valor, teto_req) if criterio == OAB
+                  else self._lotes_nome(valor, teto_req))
+        vistos: set[str] = set()
+        pendente: PaginaResultado | None = None
+        emitidas = 0
+        for itens in brutas:
+            novos = [i for i in itens if i.numero_cnj not in vistos]
+            if not novos:
+                continue
+            vistos.update(i.numero_cnj for i in novos)
+            if pendente is not None:
+                pendente.tem_proxima = True
+                yield pendente
+                emitidas += 1
+                if emitidas >= teto_paginas:
+                    return              # o job vê teto + tem_proxima → truncado
+            pendente = PaginaResultado(itens=novos, pagina=emitidas + 1, tem_proxima=False)
+        if pendente is None and self.avisos:
+            pendente = PaginaResultado(itens=[], pagina=1)
+        if pendente is not None:
+            if self.avisos:
+                pendente.aviso_fonte = '; '.join(self.avisos)
+                if any('não foi lido' in a or 'teto' in a for a in self.avisos):
+                    pendente.tem_proxima = True
+            yield pendente
+
+    def _lotes_nome(self, nome: str, teto_req: int):
+        feitas = 0
+        for parte in self.partes_por_nome(nome):
+            for situacao in self.SITUACOES:
+                numero = 1
+                while True:
+                    if feitas >= teto_req:
+                        self.avisos.append(f'teto de {teto_req} requisições atingido')
+                        return
+                    params = {'totalRegistrosPorPagina': str(self.POR_PAGINA),
+                              'numeroPagina': str(numero),
+                              'codParte1g': parte['codParte1g'],
+                              'tipoPesquisa': 'F', 'situacao': situacao, 'perfil': '0'}
+                    if parte['codParte2g']:
+                        params['codParte2g'] = parte['codParte2g']
+                    corpo = self._get('/eprocBuscaProcessosPorCodParte', params)
+                    feitas += 1
+                    linhas = len((corpo or {}).get('data') or [])
+                    yield parse_tjrs_processos(corpo)
+                    if linhas < self.POR_PAGINA:
+                        break
+                    numero += 1
+                    time.sleep(self.PAUSA_ENTRE_PAGINAS_S)
+
+    def _lotes_oab(self, valor: str, teto_req: int):
+        uf, numero = oab_tjrs(valor)
+        feitas = 0
+        for situacao in self.SITUACOES:
+            inicio = 1
+            while True:
+                if feitas >= teto_req:
+                    self.avisos.append(f'teto de {teto_req} requisições atingido')
+                    return
+                corpo = self._get('/eprocBuscaProcessosPorOAB', {
+                    'ufOAB': uf, 'numeroOAB': numero, 'situacao': situacao,
+                    'registroInicial': str(inicio),
+                    'registroFinal': str(inicio + self.JANELA_OAB - 1),
+                    'comarca': '', 'ordenarPor': 'M'})
+                feitas += 1
+                linhas = (corpo or {}).get('data') or []
+                if not linhas:
+                    break
+                yield parse_tjrs_processos(corpo)
+                inicio += self.JANELA_OAB
+                time.sleep(self.PAUSA_ENTRE_PAGINAS_S)
+
+
+def oab_tjrs(valor: str) -> tuple[str, str]:
+    """`'RS083749'` → `('RS', '83749')`; `'12345A/RS'` → `('RS', '12345A')`.
+
+    UF: as duas letras do começo (ou do fim, depois de `/`); padrão RS. Número:
+    sem zero à esquerda (medido: `83749` responde), preservando a letra de
+    sufixo da inscrição suplementar (`12345A`) — ela é parte do número.
+    """
+    bruto = (valor or '').upper().replace(' ', '')
+    m = re.match(r'^([A-Z]{2})?[-/]?0*(\d+)([A-Z]?)(?:[-/]([A-Z]{2}))?$', bruto)
+    if not m:
+        digitos = _so_digitos(bruto)
+        return 'RS', str(int(digitos)) if digitos else ''
+    uf = m.group(1) or m.group(4) or 'RS'
+    return uf, m.group(2) + m.group(3)

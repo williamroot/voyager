@@ -12,6 +12,11 @@ com F31 e F1, então reclassificar o resto não muda nada e gasta a fila. A
 varredura usa a mesma regex do classificador (fonte única) e o índice por
 tribunal da movimentação — ~5 min no TJRS inteiro.
 
+15/10/2026: o mesmo alvo cobre o F32 (precatório convertido em RPV) — todo
+processo com F32 tem F31, por definição — e o F31 ampliado (eventos "precatório
+preparada para envio/enviada ao tribunal"). Rodar de novo depois do deploy
+rebaixa os convertidos (~274) e promove os que só tinham o evento (~322).
+
 Uso:
   python manage.py reclassificar_tjrs_precatorio --dry-run
   python manage.py reclassificar_tjrs_precatorio --apply

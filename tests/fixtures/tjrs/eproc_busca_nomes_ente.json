@@ -1,0 +1,25 @@
+{
+ "data": [
+  {
+   "nome": "MUNICÍPIO DE CRUZ ALTA",
+   "cpfCnpj": "",
+   "codParte1g": "11709815977186298157199821550",
+   "codParte2g": null
+  },
+  {
+   "nome": "MUNICÍPIO DE CRUZ ALTA / RS",
+   "cpfCnpj": "887.7**.***/****-**",
+   "codParte1g": "711267650152651860420000000002",
+   "codParte2g": "41296668072451390530000000002"
+  },
+  {
+   "nome": "MUNICIPIO DE CRUZ ALTA/RS",
+   "cpfCnpj": "",
+   "codParte1g": "11608289105394653924420971023",
+   "codParte2g": null
+  }
+ ],
+ "exceptionKey": 0,
+ "messages": null,
+ "uri": null
+}

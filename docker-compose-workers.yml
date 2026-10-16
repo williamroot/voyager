@@ -324,6 +324,25 @@ services:
     deploy: {replicas: 14}  # REST (SPA), ~2,1M @ 17% (rebalance 2026-07-02: 4→14)
     restart: unless-stopped
 
+  worker_tjrs:
+    image: voyager-web:prod
+    command: python manage.py rqworker enrich_tjrs
+    env_file: .env
+    volumes: [".:/app"]
+    # HTTP com proxy rotativo: cada IP novo abre pool próprio. 1024 (default
+    # do Docker) esgota e o worker passa a falhar TUDO com errno 24.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    mem_limit: 512m
+    # REST (SPA) com credencial ALTCHA (7 consultas cada, ~0,5 s de CPU para
+    # gerar). Começa baixo de propósito: o TJRS tem ~5,9 M processos pendentes
+    # e o limite de taxa da API por IP não foi medido além de 60 credenciais
+    # em 40 s. Subir réplicas só depois de olhar a taxa de 403/429 no log.
+    deploy: {replicas: 4}
+    restart: unless-stopped
+
   worker_tjpa:
     image: voyager-web:prod
     command: python manage.py rqworker enrich_tjpa

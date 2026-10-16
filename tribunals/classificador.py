@@ -220,9 +220,80 @@ CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 # meses). E por que as alternâncias com entidade: o DJEN do TJRS publica o
 # texto em HTML com acento codificado ("expedi&ccedil;&atilde;o") — os 38
 # acertos da amostra estão TODOS nessa forma; a regex só com "ç/ã" casava zero.
+#
+# 15/10/2026: a mesma família ganhou os EVENTOS do eproc que o DJEN republica
+# no ato ordinatório ("O ato refere-se ao seguinte evento: Evento 41 -
+# Requisição de pagamento de precatório preparada para envio" / "... enviada
+# ao tribunal"). Medido no banco de produção (15/10/2026): 413 processos TJRS
+# citam um dos dois eventos SEM a intimação acima (322 deles Cumprimento, que é
+# o que a regra promove). Amostra de 20 conferida na consulta pública do TJRS:
+# 20/20 com o precatório distribuído no 2º grau (processo vinculado
+# `…8.21.7000`, evento "precatório enviada ao tribunal"). O texto que casa É o
+# evento do eproc republicado — "Evento 91 - Requisição de pagamento de
+# precatório enviada ao tribunal" —, a mesma verdade usada na conferência.
 SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL = (
     r'intimad\w*\s+da\s+expedi(ç|c|&ccedil;)(ã|a|&atilde;)o\s+d[oa]\(?s?\)?\s+precat'
+    r'|requisi(ç|c|&ccedil;)(ã|a|&atilde;)o(\s|&nbsp;)+de(\s|&nbsp;)+pagamento(\s|&nbsp;)+de'
+    r'(\s|&nbsp;)+precat(ó|o|&oacute;)rio(\s|&nbsp;)+(preparada(\s|&nbsp;)+para(\s|&nbsp;)+envio'
+    r'|enviada(\s|&nbsp;)+ao(\s|&nbsp;)+tribunal)'
 )
+
+# Sinal ANTI do TJRS (F32): o precatório expedido virou RPV. É o caso que o QA
+# do JURISCOPE achou em 5232029-64.2026.8.21.0001 — o crédito cabia no teto de
+# pequeno valor, a parte renunciou ao excedente, o juízo homologou e mandou
+# cancelar o precatório ("Cancele-se o precatório expedido"), e a RPV foi
+# expedida e entrou na fila da SEFAZ. O F31 (a intimação da expedição) continua
+# lá no histórico e promovia o processo a PRECATORIO para sempre.
+#
+# O que NÃO serve (medido em 15/10/2026, verdade tirada dos eventos públicos do
+# eproc e do estado do precatório no 2º grau, amostra aleatória por estrato):
+#
+#   * "RPV expedida/transmitida/na fila da SEFAZ" DEPOIS do F31: 77 de 85 ainda
+#     têm o precatório vivo no 2º grau. A RPV ali é quase sempre a dos
+#     honorários de sucumbência ou do valor incontroverso — o próprio ato do F31
+#     avisa que "havendo créditos a serem quitados por meio de RPV, a
+#     requisição será expedida após a distribuição do precatório". Rebaixar por
+#     RPV derrubaria ~90% de precatórios verdadeiros.
+#   * alvará DEPOIS do F31: 19 de 20 com precatório vivo (é o pagamento da RPV).
+#
+# O que serve — e por isso é a regra: a decisão que HOMOLOGA A RENÚNCIA ao
+# excedente do crédito ("homologo a renúncia ao crédito no que exceda ao
+# limite de dez salários mínimos") ou que CANCELA o precatório, publicada
+# DEPOIS da última expedição (F31). Precisão na amostra conferida: 224/232 com
+# o precatório morto ou em cancelamento (os 8 restantes: 5 com o ofício de
+# cancelamento já expedido e a baixa do 2º grau ainda por vir; 3 de verdade —
+# renúncia de UM litisconsorte, de parte do crédito, e de uma RPV).
+#
+# O veto (mesmo texto) tira as decisões em que a renúncia/cancelamento é de
+# OUTRO crédito e o precatório principal continua: renúncia "ao crédito dos
+# honorários" e "prossiga-se com a expedição/distribuição do precatório".
+_S = r'(\s|&nbsp;)+'
+_E = r'(é|e|&eacute;)'
+_O = r'(ó|o|&oacute;)'
+_U = r'(ú|u|&uacute;)'
+_A = r'(á|a|&aacute;)'
+_C_AT = r'(ç|c|&ccedil;)(ã|a|&atilde;)'
+CONVERSAO_RPV_TJRS_SQL = (
+    # homologo a renúncia [do exequente|da parte autora] ao [valor do] crédito
+    # [no que exceda|excedente|que excede]
+    r'homolog\w*' + _S + r'(a' + _S + r')?ren' + _U + r'ncia' + _S
+    + r'(d[oa]' + _S + r'(exequente|parte' + _S + r'autora|credor\w*)' + _S + r')?ao' + _S
+    + r'(valor' + _S + r'(do' + _S + r'cr' + _E + r'dito' + _S + r')?|cr' + _E + r'dito' + _S + r')?'
+    + r'(no' + _S + r'que' + _S + r'exced|excedente|que' + _S + r'exced)'
+    # cancele-se o precatório / cancelado o precatório / determino o cancelamento do precatório
+    + r'|cancel' + _E + r'-se' + _S + r'o' + _S + r'precat' + _O + r'rio'
+    + r'|cancelad[oa]' + _S + r'o' + _S + r'precat' + _O + r'rio'
+    + r'|determino' + _S + r'o' + _S + r'cancelamento' + _S + r'do' + _S + r'precat' + _O + r'rio'
+)
+VETO_CONVERSAO_RPV_TJRS_SQL = (
+    r'ren' + _U + r'ncia' + _S + r'ao' + _S + r'cr' + _E + r'dito' + _S + r'd(os|e)' + _S
+    + r'(valores' + _S + r'dos' + _S + r')?honor' + _A + r'rios'
+    + r'|prossiga-se' + _S + r'com' + _S + r'a' + _S + r'(distribui|expedi)' + _C_AT + r'o'
+    + _S + r'do' + _S + r'precat'
+)
+
+# Rollout por tribunal, como as demais regras de sinal.
+CONVERSAO_RPV_SINAL_TRIBUNAIS = {'TJRS'}
 
 # Agrega todos os counts de movimentações em uma única passagem pela tabela,
 # eliminando os ~10 round-trips separados do código anterior.
@@ -243,6 +314,11 @@ _MOVS_AGG_SQL = """
         COALESCE(SUM(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
                           THEN 1 ELSE 0 END), 0) AS f20_n,
         COALESCE(SUM(CASE WHEN texto ~* '__SINAL_F31__' THEN 1 ELSE 0 END), 0) AS f31_n,
+        MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__SINAL_F31__'
+                 THEN data_disponibilizacao END) AS f31_max_dt,
+        MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__CONV_F32__'
+                      AND texto !~* '__VETO_F32__'
+                 THEN data_disponibilizacao END) AS f32_max_dt,
         MAX(CASE WHEN texto ~* 'alvar[áa]\\s+(judicial|de\\s+levantamento)|expe[çc]am?-se\\s+(o\\s+)?alvar[áa]|autorizo[^.]{0,150}sequestro|defiro[^.]{0,100}sequestro|sequestro\\s+do\\s+numer[áa]rio|julgo\\s+extint[oa]|mandado\\s+de\\s+levantamento'
                  THEN data_disponibilizacao END) AS pago_max_dt,
         MAX(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
@@ -254,7 +330,9 @@ _MOVS_AGG_SQL = """
         MAX(data_disponibilizacao) AS ult_mov_dt
     FROM tribunals_movimentacao
     WHERE processo_id = %s
-""".replace('__SINAL_F31__', SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL)
+""".replace('__SINAL_F31__', SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL) \
+ .replace('__CONV_F32__', CONVERSAO_RPV_TJRS_SQL) \
+ .replace('__VETO_F32__', VETO_CONVERSAO_RPV_TJRS_SQL)
 
 # Thresholds (revisáveis com base em produção)
 THRESHOLD_PRECATORIO = 0.70
@@ -502,6 +580,15 @@ def _sigmoid(z: float) -> float:
     return 1.0 / (1.0 + math.exp(-z))
 
 
+def f32_convertido(f31_max_dt, f32_max_dt) -> int:
+    """1 se a conversão em RPV veio DEPOIS (ou no mesmo dia) da última expedição.
+
+    "Depois da última" é o que separa o processo que voltou a expedir
+    precatório (renúncia antiga, precatório novo) do que parou na RPV.
+    """
+    return int(bool(f31_max_dt) and bool(f32_max_dt) and f32_max_dt >= f31_max_dt)
+
+
 def compute_features(processo) -> dict:
     """Computa as 19 features do v5 a partir de um Process.
 
@@ -524,8 +611,8 @@ def compute_features(processo) -> dict:
         row = cur.fetchone()
 
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
-     f13_n, f14_n, f19_n, f20_n, f31_n, pago_max_dt, exped_max_dt, extneg_max_dt,
-     ult_mov_dt) = row
+     f13_n, f14_n, f19_n, f20_n, f31_n, f31_max_dt, f32_max_dt, pago_max_dt,
+     exped_max_dt, extneg_max_dt, ult_mov_dt) = row
 
     if not total_movs:
         return _empty_features(ano, f1, f10)
@@ -579,6 +666,8 @@ def compute_features(processo) -> dict:
         'F30_extinto_neg_ANTI': f25,
         # Sinal de expedição do TJRS (peso LR 0: atua só como regra de sinal).
         'F31_exp_precatorio_tjrs': int(f31_n > 0),
+        # Anti do TJRS: precatório convertido em RPV DEPOIS da última expedição.
+        'F32_convertido_rpv_tjrs': f32_convertido(f31_max_dt, f32_max_dt),
     }
 
 
@@ -596,7 +685,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F21_diasUltMovZ': f21, 'F23_logPartes': 0.0,
         'F1xF11': 0, 'F1xF15': 0.0, 'F1xF20': 0,
         'F24_pago_pos_exped_ANTI': 0, 'F30_extinto_neg_ANTI': 0,
-        'F31_exp_precatorio_tjrs': 0,
+        'F31_exp_precatorio_tjrs': 0, 'F32_convertido_rpv_tjrs': 0,
     }
 
 
@@ -614,6 +703,11 @@ def predict_score(features: dict, pesos: dict | None = None) -> float:
         w = pesos.get(fname, 0.0)
         z += w * value
     return _sigmoid(z)
+
+
+def _convertido_em_rpv(processo, features: dict) -> bool:
+    return (processo.tribunal_id in CONVERSAO_RPV_SINAL_TRIBUNAIS
+            and features.get('F32_convertido_rpv_tjrs') == 1)
 
 
 def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, dict]:
@@ -643,7 +737,12 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
         pago_pos_exped = (
             processo.tribunal_id in PAGAMENTO_SINAL_TRIBUNAIS
             and features.get('F24_pago_pos_exped_ANTI') == 1)
+        # Guard F32 (TJRS): o precatório expedido virou RPV — o F31 continua no
+        # histórico, mas não promove mais. Cai no fluxo normal e é rebaixado lá
+        # embaixo.
+        convertido = _convertido_em_rpv(processo, features)
         if (not pago_pos_exped
+                and not convertido
                 and features.get('F1_cumprim') == 1
                 and any(features.get(f) == 1 for f in feats_sinal)):
             return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, features
@@ -684,6 +783,17 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
             and features.get('F24_pago_pos_exped_ANTI') == 1
             and cat in (Process.CLASSIF_PRECATORIO,
                         Process.CLASSIF_PRE_PRECATORIO)):
+        return (Process.CLASSIF_NAO_LEAD,
+                min(score, SCORE_REBAIXAMENTO_SINAL), features)
+
+    # Regra de sinal NEGATIVA do TJRS (F32): precatório convertido em RPV depois
+    # da última expedição. RPV paga pela SEFAZ em ~2 meses não é crédito
+    # comprável em NENHUM nível — inclusive DC, que é o que o LR costuma dar a
+    # um Cumprimento sem o F31 promovendo (medido no teste do caso do QA).
+    if (_convertido_em_rpv(processo, features)
+            and cat in (Process.CLASSIF_PRECATORIO,
+                        Process.CLASSIF_PRE_PRECATORIO,
+                        Process.CLASSIF_DIREITO_CREDITORIO)):
         return (Process.CLASSIF_NAO_LEAD,
                 min(score, SCORE_REBAIXAMENTO_SINAL), features)
 

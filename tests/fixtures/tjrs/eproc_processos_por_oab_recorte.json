@@ -1,0 +1,407 @@
+{
+ "data": [
+  {
+   "numeroCNJ": "50416561820228210001",
+   "numeroCNJFormatado": "5041656-18.2022.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "07/03/2003 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "29/04/2026 15:19:41",
+   "ultimoMovimento": "29/04/2026 - PETIÇÃO PROTOCOLADA JUNTADA",
+   "dataUltimoMovimento": "29/04/2026",
+   "situacaoUltimoMovimento": "PETIÇÃO PROTOCOLADA JUNTADA"
+  },
+  {
+   "numeroCNJ": "50048579820078210001",
+   "numeroCNJFormatado": "5004857-98.2007.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA",
+   "dataDistribuicao": "09/03/2007 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "13/02/2025 15:35:00",
+   "ultimoMovimento": "13/02/2025 - PROCESSO SUSPENSO OU SOBRESTADO POR DECISÃO JUDICIAL - AGUARDA PAGAMENTO",
+   "dataUltimoMovimento": "13/02/2025",
+   "situacaoUltimoMovimento": "PROCESSO SUSPENSO OU SOBRESTADO POR DECISÃO JUDICIAL"
+  },
+  {
+   "numeroCNJ": "50017071220078210001",
+   "numeroCNJFormatado": "5001707-12.2007.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "21/03/2007 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "30/09/2026 03:27:05",
+   "ultimoMovimento": "30/09/2026 - PUBLICADO NO DJEN",
+   "dataUltimoMovimento": "30/09/2026",
+   "situacaoUltimoMovimento": "PUBLICADO NO DJEN"
+  },
+  {
+   "numeroCNJ": "50036697020078210001",
+   "numeroCNJFormatado": "5003669-70.2007.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "21/03/2007 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "13/10/2026 18:13:06",
+   "ultimoMovimento": "13/10/2026 - EXPEDIDA/CERTIFICADA A INTIMAÇÃO ELETRÔNICA",
+   "dataUltimoMovimento": "13/10/2026",
+   "situacaoUltimoMovimento": "EXPEDIDA/CERTIFICADA A INTIMAÇÃO ELETRÔNICA"
+  },
+  {
+   "numeroCNJ": "50099573420078210001",
+   "numeroCNJFormatado": "5009957-34.2007.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA",
+   "dataDistribuicao": "21/03/2007 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "06/12/2025 00:03:00",
+   "ultimoMovimento": "06/12/2025 - DECORRIDO PRAZO",
+   "dataUltimoMovimento": "06/12/2025",
+   "situacaoUltimoMovimento": "DECORRIDO PRAZO"
+  },
+  {
+   "numeroCNJ": "50044699820078210001",
+   "numeroCNJFormatado": "5004469-98.2007.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "20/04/2007 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "15/10/2026 07:22:49",
+   "ultimoMovimento": "15/10/2026 - CLASSE PROCESSUAL ALTERADA",
+   "dataUltimoMovimento": "15/10/2026",
+   "situacaoUltimoMovimento": "CLASSE PROCESSUAL ALTERADA"
+  },
+  {
+   "numeroCNJ": "50021038620078210001",
+   "numeroCNJFormatado": "5002103-86.2007.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA",
+   "dataDistribuicao": "07/05/2007 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "05/12/2025 11:17:13",
+   "ultimoMovimento": "05/12/2025 - REDISTRIBUÍDO POR REMANEJAMENTO DE ACERVO",
+   "dataUltimoMovimento": "05/12/2025",
+   "situacaoUltimoMovimento": "REDISTRIBUÍDO POR REMANEJAMENTO DE ACERVO"
+  },
+  {
+   "numeroCNJ": "50020301720078210001",
+   "numeroCNJFormatado": "5002030-17.2007.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "29/06/2007 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "07/10/2026 03:16:11",
+   "ultimoMovimento": "07/10/2026 - PUBLICADO NO DJEN",
+   "dataUltimoMovimento": "07/10/2026",
+   "situacaoUltimoMovimento": "PUBLICADO NO DJEN"
+  },
+  {
+   "numeroCNJ": "50010930720078210001",
+   "numeroCNJFormatado": "5001093-07.2007.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "21/09/2007 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "14/10/2026 00:18:57",
+   "ultimoMovimento": "14/10/2026 - DECORRIDO PRAZO",
+   "dataUltimoMovimento": "14/10/2026",
+   "situacaoUltimoMovimento": "DECORRIDO PRAZO"
+  },
+  {
+   "numeroCNJ": "50115437220088210001",
+   "numeroCNJFormatado": "5011543-72.2008.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO PROVISÓRIO DE SENTENÇA",
+   "dataDistribuicao": "08/02/2008 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "12ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "12ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "18/02/2026 18:06:56",
+   "ultimoMovimento": "18/02/2026 - PROCESSO SUSPENSO OU SOBRESTADO POR DECISÃO JUDICIAL - AGUARDA PAGAMENTO",
+   "dataUltimoMovimento": "18/02/2026",
+   "situacaoUltimoMovimento": "PROCESSO SUSPENSO OU SOBRESTADO POR DECISÃO JUDICIAL"
+  },
+  {
+   "numeroCNJ": "50016428020088210001",
+   "numeroCNJFormatado": "5001642-80.2008.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "07/11/2008 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "7ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "7ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "05/09/2026 06:21:53",
+   "ultimoMovimento": "05/09/2026 - ALTERADO O ASSUNTO PROCESSUAL",
+   "dataUltimoMovimento": "05/09/2026",
+   "situacaoUltimoMovimento": "ALTERADO O ASSUNTO PROCESSUAL"
+  },
+  {
+   "numeroCNJ": "50006346820088210001",
+   "numeroCNJFormatado": "5000634-68.2008.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA",
+   "dataDistribuicao": "10/12/2008 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "3ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "3ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "30/06/2023 11:39:21",
+   "ultimoMovimento": "30/06/2023 - ALTERADO O ASSUNTO PROCESSUAL",
+   "dataUltimoMovimento": "30/06/2023",
+   "situacaoUltimoMovimento": "ALTERADO O ASSUNTO PROCESSUAL"
+  },
+  {
+   "numeroCNJ": "50009167220098210001",
+   "numeroCNJFormatado": "5000916-72.2009.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA",
+   "dataDistribuicao": "18/08/2009 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "23/10/2025 13:42:19",
+   "ultimoMovimento": "23/10/2025 - REDISTRIBUÍDO POR REMANEJAMENTO DE ACERVO",
+   "dataUltimoMovimento": "23/10/2025",
+   "situacaoUltimoMovimento": "REDISTRIBUÍDO POR REMANEJAMENTO DE ACERVO"
+  },
+  {
+   "numeroCNJ": "50028879220098210001",
+   "numeroCNJFormatado": "5002887-92.2009.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "04/09/2009 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "05/10/2026 07:02:18",
+   "ultimoMovimento": "05/10/2026 - CLASSE PROCESSUAL ALTERADA",
+   "dataUltimoMovimento": "05/10/2026",
+   "situacaoUltimoMovimento": "CLASSE PROCESSUAL ALTERADA"
+  },
+  {
+   "numeroCNJ": "50103620220098210001",
+   "numeroCNJFormatado": "5010362-02.2009.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA",
+   "dataDistribuicao": "28/10/2009 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "7ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "7ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "24/08/2026 18:54:49",
+   "ultimoMovimento": "24/08/2026 - CONCLUSOS PARA DECISÃO/DESPACHO",
+   "dataUltimoMovimento": "24/08/2026",
+   "situacaoUltimoMovimento": "CONCLUSOS PARA DECISÃO/DESPACHO"
+  },
+  {
+   "numeroCNJ": "50180302420098210001",
+   "numeroCNJFormatado": "5018030-24.2009.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "26/11/2009 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "12ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "12ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "15/10/2026 19:05:21",
+   "ultimoMovimento": "15/10/2026 - REMETIDOS OS AUTOS - CÁLCULO MATÉRIA DA FAZENDA",
+   "dataUltimoMovimento": "15/10/2026",
+   "situacaoUltimoMovimento": "REMETIDOS OS AUTOS"
+  },
+  {
+   "numeroCNJ": "50208761420098210001",
+   "numeroCNJFormatado": "5020876-14.2009.8.21.0001",
+   "classeCNJ": "PROCEDIMENTO COMUM CÍVEL",
+   "dataDistribuicao": "28/12/2009 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "Vara Estadual da Saúde Pública",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "Vara Estadual da Saúde Pública",
+   "dataUltimaMovimentacao": "14/10/2026 11:13:40",
+   "ultimoMovimento": "14/10/2026 - PETIÇÃO PROTOCOLADA JUNTADA",
+   "dataUltimoMovimento": "14/10/2026",
+   "situacaoUltimoMovimento": "PETIÇÃO PROTOCOLADA JUNTADA"
+  },
+  {
+   "numeroCNJ": "50018742420108210001",
+   "numeroCNJFormatado": "5001874-24.2010.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "06/01/2010 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "25/09/2026 07:51:09",
+   "ultimoMovimento": "25/09/2026 - ALTERADO O ASSUNTO PROCESSUAL",
+   "dataUltimoMovimento": "25/09/2026",
+   "situacaoUltimoMovimento": "ALTERADO O ASSUNTO PROCESSUAL"
+  },
+  {
+   "numeroCNJ": "50046188920108210001",
+   "numeroCNJFormatado": "5004618-89.2010.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "19/02/2010 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "7ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "7ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "16/09/2026 07:43:46",
+   "ultimoMovimento": "16/09/2026 - CLASSE PROCESSUAL ALTERADA",
+   "dataUltimoMovimento": "16/09/2026",
+   "situacaoUltimoMovimento": "CLASSE PROCESSUAL ALTERADA"
+  },
+  {
+   "numeroCNJ": "50013408020108210001",
+   "numeroCNJFormatado": "5001340-80.2010.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA",
+   "dataDistribuicao": "26/02/2010 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": "2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+   "dataUltimaMovimentacao": "13/06/2026 00:10:37",
+   "ultimoMovimento": "13/06/2026 - DECORRIDO PRAZO",
+   "dataUltimoMovimento": "13/06/2026",
+   "situacaoUltimoMovimento": "DECORRIDO PRAZO"
+  }
+ ],
+ "exceptionKey": 0,
+ "messages": null,
+ "uri": null
+}

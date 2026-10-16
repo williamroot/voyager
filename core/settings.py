@@ -209,6 +209,7 @@ RQ_QUEUES = {
     'enrich_tjac':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     'enrich_tjmt':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     'enrich_tjpa':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
+    'enrich_tjrs':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     # Fila prioritária pra requests on-demand do dashboard (botões de
     # 'Atualizar dados públicos' / 'Sincronizar movimentações'). Workers
     # dedicados garantem latência baixa mesmo com filas de backfill cheias.
@@ -558,6 +559,16 @@ DJEN_CORTEX_RATIO_DEGRADED = env.float('DJEN_CORTEX_RATIO_DEGRADED', default=1.0
 # WAF que exigem residencial caem no Cortex via _next_proxy quando o pool é
 # bloqueado. True volta a Cortex-first (2026-07-12: invertido a pedido).
 ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=False)
+# Tribunais cujo refill de enriquecimento serve PRIMEIRO os leads (PRECATORIO,
+# depois PRE_PRECATORIO) e só então o resto do backlog, furando a fila
+# (`at_front`). Começa no TJRS: ~5,9 M pendentes na estreia do enricher, e o
+# que o JURISCOPE compra são os ~16 mil PRECATORIO. Ver `.ia/ENRICHMENT.md`.
+ENRICH_PRIORIDADE_TRIBUNAIS = env.list('ENRICH_PRIORIDADE_TRIBUNAIS', default=['TJRS'])
+# O refill passa `so_pendente=True` aos jobs (pula quem já saiu de pendente).
+# DESLIGADO por padrão: worker com código anterior quebra com TypeError ao
+# receber o kwarg. Ligar no host do scheduler SÓ depois que todos os hosts de
+# workers estiverem na versão nova (`.ia/DEPLOY.md`, "PR #27").
+ENRICH_SO_PENDENTE_KWARG = env.bool('ENRICH_SO_PENDENTE_KWARG', default=False)
 # Seguir incidentes no e-SAJ (cada beneficiário do crédito tem um incidente —
 # o precatório/RPV dele). Vale SÓ para o caminho manual/dossiê
 # (`enqueue_enriquecimento_manual`); o enriquecimento em massa nunca passa a

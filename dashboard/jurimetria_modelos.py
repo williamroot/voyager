@@ -44,6 +44,10 @@ _OVERRIDES_DESC = {
         'intimação da expedição do precatório no DJEN (ato ordinatório do eproc TJRS) → '
         'promove Cumprimento a PRECATORIO (score 1,0). Peso LR 0 (atua como regra); '
         'gated por tribunal (PRECATORIO_SINAL_FEATURES, só TJRS).',
+    'F32_convertido_rpv_tjrs':
+        'precatório expedido convertido em RPV (renúncia ao excedente homologada ou '
+        'precatório cancelado) DEPOIS da última expedição (F31) → não promove e rebaixa '
+        'PRECATORIO/PRE_PRECATORIO/DIREITO_CREDITORIO a NAO_LEAD (score 0,10). Só TJRS.',
 }
 
 

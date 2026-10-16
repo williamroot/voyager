@@ -84,6 +84,8 @@ Exceção: em `voyager-entidades` o `_id` é a chave canônica (`cnpj:29979036` 
 | tem_sinal_precatorio | boolean | idem | potencial (Fase 0) |
 | tem_ente_publico_passivo | boolean | derivado (RE_ENTE_PUBLICO no passivo) | coração do precatório |
 
+> **`tem_ente_publico_passivo` (16/10/2026):** o gate `tribunals.estagio.RE_ENTE_PUBLICO` passou a casar "Estado de/do <UF>" (antes "ESTADO DO RIO GRANDE DO SUL" não casava), previdência própria, DETRAN/DAER; e a recusar razão social privada ("EXPRESSO UNIAO LTDA") e Defensoria/MP (intimados, não devedores). Amostra de 0,2% dos processos: 15.934 → 17.761 com o flag (+1.956 / −129, conferidos); autarquias municipais de água (SAAE/SAMAE/DMAE) entram; OAB, caixa de assistência e instituição de ensino privada ficam fora. O `_update` usa `if_seq_no`/`if_primary_term`: 409 = o builder reescreveu o doc no meio (já com o gate novo) e é só contado. Docs já indexados só mudam com `manage.py recalcular_ente_publico_es --apply` (ES-only, `_update` parcial, dry-run por padrão). A feature do modelo do Estágio ficou congelada em `RE_ENTE_PUBLICO_FEATURE_V1`.
+
 ### participacoes (nested)
 
 ```

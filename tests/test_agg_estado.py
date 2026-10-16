@@ -224,15 +224,19 @@ def test_fundir_entidades_usa_regex_canonica_do_estagio():
 
 
 def test_complemento_pega_falso_negativo_institucional_da_regex_canonica():
-    """A regex do Estágio derruba ente óbvio; o complemento recupera e MARCA.
+    """O gate canônico deixa de fora ente federal institucional; o complemento
+    recupera e MARCA.
 
-    Medido 12/08: em FED ela descartava 153 dos 200 buckets (FUNASA 314
-    processos, IBAMA, UnB, FNDE, SUFRAMA, DNIT, UFG, CEF, FUNAI); em MG,
-    "ESTADO DE MINAS GERAIS" (o alternante `estado d` exige fronteira depois
-    do "d"). Não dá pra corrigir em `tribunals/estagio.py`: é feature de modelo.
+    Medido 12/08: em FED o gate descartava 153 dos 200 buckets (FUNASA 314
+    processos, IBAMA, UnB, FNDE, SUFRAMA, DNIT, UFG, CEF, FUNAI). "ESTADO DE
+    MINAS GERAIS" saiu desta lista em 16/10/2026: o gate canônico passou a
+    casar "Estado de/do <UF>" (a feature congelada do modelo continua errando).
     """
-    from tribunals.estagio import RE_ENTE_PUBLICO
-    for nome in ('ESTADO DE MINAS GERAIS', 'FUNDACAO NACIONAL DE SAUDE',
+    from tribunals.estagio import RE_ENTE_PUBLICO, RE_ENTE_PUBLICO_FEATURE_V1
+    assert RE_ENTE_PUBLICO.search('ESTADO DE MINAS GERAIS')
+    assert ae.eh_ente_publico('ESTADO DE MINAS GERAIS') == (True, False)
+    assert not RE_ENTE_PUBLICO_FEATURE_V1.search('ESTADO DE MINAS GERAIS')
+    for nome in ('FUNDACAO NACIONAL DE SAUDE',
                  'UNIVERSIDADE FEDERAL DE GOIAS', 'CAIXA ECONOMICA FEDERAL - CEF',
                  'DNIT-DEPARTAMENTO NACIONAL DE INFRAEST DE TRANSPORTES'):
         assert not RE_ENTE_PUBLICO.search(nome), nome   # a canônica erra
@@ -246,7 +250,7 @@ def test_complemento_pega_falso_negativo_institucional_da_regex_canonica():
 
 def test_fundir_entidades_marca_o_que_veio_do_complemento():
     buckets = [
-        {'key': 'ESTADO DE MINAS GERAIS', 'doc_count': 21,
+        {'key': 'FUNDACAO NACIONAL DE SAUDE', 'doc_count': 21,
          'processos': {'doc_count': 21}},
         {'key': 'PREFEITURA MUNICIPAL DE SÃO PAULO', 'doc_count': 7380,
          'processos': {'doc_count': 7380}},
@@ -254,7 +258,7 @@ def test_fundir_entidades_marca_o_que_veio_do_complemento():
     ]
     out = ae.fundir_entidades(buckets)
     por_nome = {i['entidade']: i for i in out['itens']}
-    assert por_nome['ESTADO DE MINAS GERAIS']['por_complemento'] is True
+    assert por_nome['FUNDACAO NACIONAL DE SAUDE']['por_complemento'] is True
     assert por_nome['PREFEITURA MUNICIPAL DE SÃO PAULO']['por_complemento'] is False
     assert out['aceitos_por_complemento'] == 1
     assert out['descartados_nao_ente'] == 1     # BANCO GM fora
