@@ -96,12 +96,20 @@ def _sem_cortex(settings):
     # Pool de credenciais e chaves do bundle vivem no cache: cada teste com o seu.
     settings.CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
                                    'LOCATION': 'tjrs-testes'}}
+    import django_rq
     from django.core.cache import cache
     cache.clear()
+    conn = django_rq.get_connection('default')
+
+    def limpar_pool():
+        for k in conn.scan_iter('tjrs:cred:*'):
+            conn.delete(k)
+    limpar_pool()
     with patch('enrichers.tjrs.cortex_proxy_url', return_value=None), \
             patch('enrichers.tjrs.chaves_tjrs', return_value=CHAVES_TJRS_CONHECIDAS):
         yield
     cache.clear()
+    limpar_pool()
 
 
 # ─────────────────────────── credencial ALTCHA ───────────────────────────
@@ -465,22 +473,37 @@ def test_pool_reaproveita_a_credencial_entre_instancias():
     assert a.session.submits + b.session.submits == 1
 
 
-def test_pool_concorrente_nunca_passa_de_7_por_credencial():
+def _pool_redis():
+    import django_rq
+
+    from enrichers.tjrs_credencial import PoolCredenciais
+    pool = PoolCredenciais(CHAVES_TJRS_CONHECIDAS, conexao=django_rq.get_connection('default'))
+    pool.redis.delete(pool.chave, pool.trava)
+    return pool
+
+
+def test_pool_concorrente_usa_7_por_credencial_e_nunca_mais():
+    """16 réplicas x 20 consultas no Redis real. Só uma gera por vez (SET NX);
+    as outras releem. Resultado: cada credencial usada 7 vezes (a última,
+    menos), nenhuma além disso — antes, sob contenção, cada réplica
+    sobrescrevia a atual e jogava fora as consultas dela."""
     import threading
     from collections import Counter
 
-    from enrichers.tjrs_credencial import PoolCredenciais
-    pool = PoolCredenciais(CHAVES_TJRS_CONHECIDAS)
+    pool = _pool_redis()
+    pool.PASSO_ESPERA_S = 0.005
     usos, geradas, trava = Counter(), [0], threading.Lock()
+
+    def gerar():
+        with trava:
+            geradas[0] += 1
+            n = geradas[0]
+        __import__('time').sleep(0.01)          # o PoW/submit não é instantâneo
+        return f'cred-{n}', 7
 
     def consultar():
         for _ in range(20):
-            cred = pool.pegar()
-            if not cred:
-                with trava:
-                    geradas[0] += 1
-                    cred = f'cred-{geradas[0]}'
-                pool.publicar(cred, 7)
+            cred = pool.pegar_ou_gerar(gerar)
             with trava:
                 usos[cred] += 1
 
@@ -489,10 +512,27 @@ def test_pool_concorrente_nunca_passa_de_7_por_credencial():
         t.start()
     for t in threads:
         t.join()
+    pool.redis.delete(pool.chave, pool.trava)
     assert sum(usos.values()) == 16 * 20
-    assert max(usos.values()) <= 7
-    # Corrida só desperdiça um pouco, nunca reusa além do limite.
-    assert geradas[0] <= (16 * 20) // 7 + 16
+    assert max(usos.values()) == 7
+    cheias = sum(1 for n in usos.values() if n == 7)
+    assert cheias >= len(usos) - 1               # só a última pode sobrar
+    assert geradas[0] == -(-320 // 7)            # 46: nenhuma credencial jogada fora
+
+
+def test_pool_pegar_e_atomico_e_nao_recria_contador_sem_ttl():
+    pool = _pool_redis()
+    assert pool.pegar() is None
+    assert not pool.redis.exists(pool.chave)     # o pegar no vazio não cria nada
+    pool.publicar('c1', 2)
+    assert 0 < pool.redis.ttl(pool.chave) <= 900
+    assert pool.pegar() == 'c1'
+    assert pool.pegar() is None                  # 2 consultas: 1 de quem gerou + 1
+    pool.descartar('outra')                      # descartar outra não mexe na atual
+    pool.publicar('c2', 7)
+    pool.descartar('c2')
+    assert pool.pegar() is None
+    pool.redis.delete(pool.chave, pool.trava)
 
 
 def test_401_em_serie_rele_o_bundle_uma_vez_e_segue_com_as_chaves_novas():
@@ -615,6 +655,17 @@ def test_oab_preserva_letra_e_uf(valor, esperado):
     ('JOAO DA SILVA', 'MARIA DA SILVA', False),
     ('MARIA', 'MARIA EXEMPLO DA SILVA', False),
     ('MARIA SOUZA', 'MARIA EXEMPLO DA SILVA', False),
+    # revisão: geração muda a pessoa; ente só casa igual
+    ('JOSE EXEMPLO DA SILVA', 'JOSE EXEMPLO DA SILVA FILHO', False),
+    ('JOSE EXEMPLO DA SILVA', 'JOSE EXEMPLO DA SILVA JUNIOR', False),
+    ('JOSE EXEMPLO DA SILVA', 'JOSÉ EXEMPLO DA SILVA JÚNIOR', False),
+    ('JOSE EXEMPLO', 'JOSE EXEMPLO NETO', False),
+    ('JOSE EXEMPLO', 'JOSE EXEMPLO SOBRINHO', False),
+    ('JOSE EXEMPLO', 'JOSE EXEMPLO SEGUNDO', False),
+    ('JOSE EXEMPLO FILHO', 'JOSE EXEMPLO FILHO', True),
+    ('MUNICIPIO DE SANTA MARIA', 'MUNICIPIO DE SANTA MARIA DO HERVAL', False),
+    ('MUNICÍPIO DE SANTA MARIA', 'MUNICIPIO DE SANTA MARIA', True),
+    ('ESTADO DO RIO GRANDE DO SUL', 'ESTADO DO RIO GRANDE DO SUL - SECRETARIA DA FAZENDA', False),
 ])
 def test_mesma_pessoa(a, b, mesma):
     from enrichers.tjrs import mesma_pessoa

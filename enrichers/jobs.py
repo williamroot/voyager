@@ -773,6 +773,20 @@ ENRICH_FRENTE_TTL_S = 6 * 3600
 _FRENTE_KEY = 'enr:frente:%s'
 
 
+def _kwargs_do_refill() -> dict:
+    """`{'so_pendente': True}` só com `settings.ENRICH_SO_PENDENTE_KWARG` ligado.
+
+    ORDEM DE DEPLOY: um worker com o código anterior recebe `so_pendente` como
+    argumento desconhecido e quebra com `TypeError` — em TODAS as filas
+    `enrich_*`, porque o refill é um só. Por isso o padrão é DESLIGADO: o
+    código novo sobe nos workers e no scheduler sem mudar o formato do job, e
+    a flag só é ligada (no `.env` do host do scheduler) depois que
+    `git log -1` dos workers mostrar a versão nova. Ver `.ia/DEPLOY.md`.
+    """
+    from django.conf import settings
+    return {'so_pendente': True} if getattr(settings, 'ENRICH_SO_PENDENTE_KWARG', False) else {}
+
+
 def _tribunais_com_prioridade() -> set[str]:
     from django.conf import settings
     return {s.upper() for s in getattr(settings, 'ENRICH_PRIORIDADE_TRIBUNAIS', ())}
@@ -788,11 +802,18 @@ def pendentes_por_nivel(sigla: str, nivel: str, limite: int) -> list:
         ).values_list('pk', 'numero_cnj')[:limite])
 
 
-def sair_da_frente(sigla: str, process_id: int) -> None:
-    """O job terminou (qualquer desfecho): o pid libera vaga na frente."""
+def sair_da_frente(sigla: str, process_id: int, conexao=None) -> None:
+    """O job terminou (qualquer desfecho): o pid libera vaga na frente.
+
+    Usa a conexão do job que está rodando (`rq.get_current_connection`, a
+    mesma da fila) — abrir `django_rq.get_connection` por job era uma conexão
+    nova por job em todos os tribunais."""
     import contextlib
     with contextlib.suppress(Exception):
-        django_rq.get_connection('default').zrem(_FRENTE_KEY % sigla.lower(), str(process_id))
+        if conexao is None:
+            from rq import get_current_connection
+            conexao = get_current_connection() or django_rq.get_connection('default')
+        conexao.zrem(_FRENTE_KEY % sigla.lower(), str(process_id))
 
 
 def enfileirar_na_frente(sigla: str, niveis=ENRICH_PRIORIDADE_NIVEIS,
@@ -832,7 +853,7 @@ def enfileirar_na_frente(sigla: str, niveis=ENRICH_PRIORIDADE_NIVEIS,
     contagem: dict = {}
     for nivel, pid in reversed(escolhidos):
         try:
-            queue.enqueue(enriquecer_processo, args=(pid,), kwargs={'so_pendente': True},
+            queue.enqueue(enriquecer_processo, args=(pid,), kwargs=_kwargs_do_refill(),
                           job_timeout=ENRICH_TIMEOUT, retry=ENRICH_RETRY, at_front=True)
         except Exception as exc:
             conn.zrem(chave_frente, str(pid))
@@ -893,7 +914,7 @@ def _reabastecer_impl() -> dict:
         ids = _filtrar_em_voo(conn, sigla, candidatos, capacidade)
         for pid in ids:
             try:
-                queue.enqueue(enriquecer_processo, args=(pid,), kwargs={'so_pendente': True},
+                queue.enqueue(enriquecer_processo, args=(pid,), kwargs=_kwargs_do_refill(),
                               job_timeout=ENRICH_TIMEOUT, retry=ENRICH_RETRY)
             except Exception as exc:
                 logger.warning('falha ao enfileirar', extra={'pid': pid, 'erro': str(exc)})

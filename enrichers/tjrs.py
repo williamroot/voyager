@@ -131,24 +131,40 @@ def _tokens(nome: str) -> list[str]:
     return [t for t in re.findall(r'[A-Z0-9]+', limpo) if t not in _CONECTIVOS]
 
 
+#: Acréscimo que muda a pessoa: pai x filho, avô x neto.
+_SUFIXOS_DE_GERACAO = frozenset({'FILHO', 'FILHA', 'JUNIOR', 'JR', 'NETO', 'NETA',
+                                 'SOBRINHO', 'SOBRINHA', 'SEGUNDO', 'TERCEIRO', 'II', 'III'})
+
+
 def mesma_pessoa(a: str, b: str) -> bool:
     """O nome da consulta e o do DJEN são a mesma parte?
 
     Iguais (sem acento/caixa/conectivo), ou o mais curto cabe no mais longo
     NA ORDEM, com o mesmo primeiro token, aceitando abreviação por inicial
     ("MARIA E. DA SILVA" ≅ "MARIA EXEMPLO DA SILVA") e sobrenome omitido
-    ("MARIA EXEMPLO DA SILVA" ≅ "MARIA EXEMPLO DA SILVA SANTOS"). Primeiro
-    token diferente nunca casa — "JOAO SILVA" e "MARIA SILVA" são outras.
+    ("MARIA EXEMPLO DA SILVA" ≅ "MARIA EXEMPLO DA SILVA SANTOS"). Nunca casa:
+
+    * primeiro token diferente ("JOAO SILVA" x "MARIA SILVA");
+    * acréscimo de geração ("JOSE DA SILVA" x "JOSE DA SILVA FILHO" — pai e
+      filho são partes diferentes);
+    * ente público, que só casa IGUAL: "MUNICIPIO DE SANTA MARIA" e
+      "MUNICIPIO DE SANTA MARIA DO HERVAL" são dois municípios.
+
     Na dúvida o DJEN fica: parte duplicada é ruído; parte apagada é perda.
     """
+    from tribunals.estagio import RE_ENTE_PUBLICO
+
     ta, tb = _tokens(a), _tokens(b)
     if not ta or not tb:
         return False
     if ta == tb:
         return True
+    if RE_ENTE_PUBLICO.search(a or '') or RE_ENTE_PUBLICO.search(b or ''):
+        return False
     curto, longo = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
     if curto[0] != longo[0] or len(curto) < 2:
         return False
+    usados: set[int] = set()
     i = 0
     for t in curto:
         while i < len(longo) and not (
@@ -156,8 +172,10 @@ def mesma_pessoa(a: str, b: str) -> bool:
             i += 1
         if i == len(longo):
             return False
+        usados.add(i)
         i += 1
-    return True
+    sobra = {t for k, t in enumerate(longo) if k not in usados}
+    return not (sobra & _SUFIXOS_DE_GERACAO)
 
 
 class TjrsEnricher:
@@ -351,13 +369,8 @@ class TjrsEnricher:
         return credencial_tjrs(corpo['username'], chaves), consultas
 
     def _credencial(self, pool: PoolCredenciais, proxies, chaves) -> str:
-        """Do pool compartilhado; sem nenhuma lá, gera e publica."""
-        cred = pool.pegar()
-        if cred:
-            return cred
-        cred, consultas = self._nova_credencial(proxies, chaves)
-        pool.publicar(cred, consultas)
-        return cred
+        """Do pool compartilhado; sem consulta lá, uma réplica gera e publica."""
+        return pool.pegar_ou_gerar(lambda: self._nova_credencial(proxies, chaves))
 
     def get_api(self, caminho: str, params: dict,  # noqa: PLR0912 — um ramo por status medido
                 timeout: tuple | None = None) -> tuple[int, dict | None]:

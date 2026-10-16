@@ -22,7 +22,6 @@ Duas coisas que o recon de 15/10/2026 errou e a revisão do PR #27 achou:
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import logging
 
 from .fingerprints import (
@@ -97,40 +96,107 @@ def chaves_tjrs(sessao, forcar: bool = False, timeout=(10, 30)) -> tuple[int, in
     return chaves
 
 
+_LUA_PEGAR = """
+local cred = redis.call('HGET', KEYS[1], 'cred')
+if not cred then return false end
+local n = redis.call('HINCRBY', KEYS[1], 'n', -1)
+if n >= 0 then return cred end
+return false
+"""
+_LUA_PUBLICAR = """
+redis.call('DEL', KEYS[1])
+redis.call('HSET', KEYS[1], 'cred', ARGV[1], 'n', ARGV[2])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+redis.call('DEL', KEYS[2])
+return 1
+"""
+_LUA_DESCARTAR = """
+if redis.call('HGET', KEYS[1], 'cred') == ARGV[1] then
+  redis.call('HSET', KEYS[1], 'n', -10000)
+end
+return 1
+"""
+
+
 class PoolCredenciais:
-    """Credencial anônima compartilhada entre réplicas (Redis via cache Django)."""
+    """Credencial anônima compartilhada entre réplicas, no Redis da fila.
 
-    def __init__(self, chaves: tuple[int, int]):
-        self.prefixo = f'tjrs:cred:{chaves[0]}:{chaves[1]}'
+    Um HASH `{cred, n}` por par de chaves do bundle. Tudo atômico em Lua:
 
-    @staticmethod
-    def _contador(cred: str) -> str:
-        return 'tjrs:cred:n:' + hashlib.sha1(cred.encode()).hexdigest()[:16]
+    * `pegar`: lê a credencial e decrementa `n` na MESMA operação — sem a
+      corrida "existe? → incrementa" que podia recriar o contador sem TTL;
+    * `publicar`: troca credencial e contador juntos e põe o TTL junto;
+    * gerar credencial nova é de UMA réplica por vez (`SET NX` com EX): as
+      outras releem o pool por alguns segundos em vez de sobrescrever a
+      credencial atual — antes, sob contenção, cada réplica gerava a sua e
+      jogava fora as consultas da anterior.
+    """
+
+    #: Quanto uma réplica espera a outra gerar antes de gerar a sua (sem publicar).
+    ESPERA_GERACAO_S = 8.0
+    PASSO_ESPERA_S = 0.1
+    TRAVA_GERACAO_S = 30
+
+    def __init__(self, chaves: tuple[int, int], conexao=None):
+        self.chave = f'tjrs:cred:{chaves[0]}:{chaves[1]}'
+        self.trava = self.chave + ':gerando'
+        self._conexao = conexao
+
+    @property
+    def redis(self):
+        if self._conexao is None:
+            import django_rq
+            self._conexao = django_rq.get_connection('default')
+        return self._conexao
 
     def pegar(self) -> str | None:
         """Uma consulta da credencial atual, ou None se não há/esgotou."""
-        cache = _cache()
         try:
-            cred = cache.get(self.prefixo + ':atual')
-            if not cred:
-                return None
-            restante = cache.decr(self._contador(cred))
-        except ValueError:          # contador expirou/sumiu
-            return None
+            cred = self.redis.eval(_LUA_PEGAR, 1, self.chave)
         except Exception:
             return None
-        return cred if restante >= 0 else None
+        if not cred:
+            return None
+        return cred.decode() if isinstance(cred, bytes) else cred
 
     def publicar(self, cred: str, consultas: int) -> None:
         """Nova credencial para os outros — já descontada a consulta de quem gerou."""
-        cache = _cache()
-        try:
-            cache.set(self._contador(cred), max(consultas - 1, 0), timeout=CREDENCIAL_TTL_S)
-            cache.set(self.prefixo + ':atual', cred, timeout=CREDENCIAL_TTL_S)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            self.redis.eval(_LUA_PUBLICAR, 2, self.chave, self.trava,
+                            cred, max(consultas - 1, 0), CREDENCIAL_TTL_S)
 
     def descartar(self, cred: str) -> None:
-        """401/429: ninguém mais usa esta."""
+        """401/429: ninguém mais usa esta (se ainda for a atual)."""
         with contextlib.suppress(Exception):
-            _cache().set(self._contador(cred), -10_000, timeout=CREDENCIAL_TTL_S)
+            self.redis.eval(_LUA_DESCARTAR, 1, self.chave, cred)
+
+    def pegar_ou_gerar(self, gerar) -> str:
+        """Do pool; sem consulta lá, UMA réplica gera (`gerar() -> (cred, n)`) e
+        publica, e as outras releem — e, se a nova também esgotar enquanto
+        esperam, uma delas pega a trava e gera a próxima. Se o Redis falhar ou
+        a espera estourar, gera para si sem publicar: a coleta não para por
+        causa do pool."""
+        import time as _time
+        prazo = _time.monotonic() + self.ESPERA_GERACAO_S
+        while True:
+            cred = self.pegar()
+            if cred:
+                return cred
+            try:
+                dono = bool(self.redis.set(self.trava, '1', nx=True, ex=self.TRAVA_GERACAO_S))
+            except Exception:
+                cred, _n = gerar()
+                return cred
+            if dono:
+                try:
+                    cred, consultas = gerar()
+                except Exception:
+                    with contextlib.suppress(Exception):
+                        self.redis.delete(self.trava)
+                    raise
+                self.publicar(cred, consultas)
+                return cred
+            if _time.monotonic() >= prazo:
+                cred, _n = gerar()
+                return cred
+            _time.sleep(self.PASSO_ESPERA_S)

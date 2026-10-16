@@ -23,7 +23,8 @@ def _pendentes(por_nivel):
                                          for pk in por_nivel.get(nivel, [])][:limite]
 
 
-def test_precatorio_sai_primeiro_e_pre_depois():
+def test_precatorio_sai_primeiro_e_pre_depois(settings):
+    settings.ENRICH_SO_PENDENTE_KWARG = True
     q = _fila()
     with patch('enrichers.jobs.django_rq.get_queue', return_value=q), \
             patch('enrichers.jobs.pendentes_por_nivel',
@@ -162,7 +163,8 @@ def redis_real():
     q.empty()
 
 
-def test_worker_parado_n_passadas_nao_multiplicam_jobs(redis_real):
+def test_worker_parado_n_passadas_nao_multiplicam_jobs(redis_real, settings):
+    settings.ENRICH_SO_PENDENTE_KWARG = True
     """37 mil PRECATORIO+PRE pendentes, worker parado, 30 passadas do refill e
     a trava de voo expirando no meio: a fila da frente fica no teto, e nenhum
     pid entra duas vezes."""
@@ -241,7 +243,8 @@ def test_respiro_alerta_com_o_motivo(cache_limpo):
     assert detalhe == 'API recusou 3 credenciais'
 
 
-def test_refill_comum_enfileira_de_verdade_no_rq():
+def test_refill_comum_enfileira_de_verdade_no_rq(settings):
+    settings.ENRICH_SO_PENDENTE_KWARG = True
     """Regressão: `enqueue(f, pid, kwargs=…)` é recusado pelo RQ ("Extra
     positional arguments cannot be used when using explicit args and kwargs")
     e o `except` do refill só logava WARNING — a fila não recebia nada. Aqui
@@ -265,3 +268,45 @@ def test_refill_comum_enfileira_de_verdade_no_rq():
     finally:
         q.empty()
         q.connection.delete('enr:inflight:tjmt')
+
+
+
+@pytest.mark.parametrize('ligado,esperado', [(False, {}), (True, {'so_pendente': True})])
+def test_kwarg_so_pendente_so_com_a_flag_de_deploy(settings, ligado, esperado):
+    """ORDEM DE DEPLOY: worker com código anterior quebra com TypeError ao
+    receber `so_pendente`. Desligada (padrão), o job sai no formato antigo."""
+    settings.ENRICH_SO_PENDENTE_KWARG = ligado
+    q = _fila()
+    with patch('enrichers.jobs.django_rq.get_queue', return_value=q), \
+            patch('enrichers.jobs.pendentes_por_nivel', _pendentes({'PRECATORIO': [1]})), \
+            patch('enrichers.jobs._filtrar_em_voo', lambda c, s, ids, n: ids[:n]):
+        jobs.enfileirar_na_frente('TJRS')
+    assert q.enqueue.call_args.kwargs['kwargs'] == esperado
+
+
+def test_job_no_formato_antigo_roda_no_worker_novo():
+    """O inverso também vale: job sem `so_pendente` (refill com a flag
+    desligada, ou fila antiga) roda no código novo."""
+    proc = MagicMock(tribunal_id='TJMT', enriquecimento_status='pendente', numero_cnj='1')
+
+    class Cls:
+        def __init__(self, prefer_cortex=None):
+            pass
+
+        def enriquecer(self, p, direct_apply=False):
+            return {'status': 'ok'}
+    with patch('enrichers.jobs.Process.objects') as objs, \
+            patch('enrichers.jobs.enrich_pausado', return_value=False), \
+            patch('enrichers.jobs._hook_fora_da_fonte', return_value=None), \
+            patch('enrichers.jobs._ENRICHERS', {'TJMT': Cls}):
+        objs.select_related.return_value.get.return_value = proc
+        assert jobs.enriquecer_processo(7)['status'] == 'ok'
+
+
+def test_sair_da_frente_usa_a_conexao_do_job_rodando():
+    conn = MagicMock()
+    with patch('rq.get_current_connection', return_value=conn), \
+            patch('enrichers.jobs.django_rq.get_connection') as nova:
+        jobs.sair_da_frente('TJRS', 9)
+    conn.zrem.assert_called_once_with('enr:frente:tjrs', '9')
+    nova.assert_not_called()

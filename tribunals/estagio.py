@@ -94,13 +94,17 @@ _RE_ENTE_POSITIVO = re.compile(
     r'|\bipe[\s-]?(prev|sa[úu]de)\b|\biprev\w*\b|\bdetran\b|\bdaer\b'
     # autarquia municipal de água e esgoto (SAMAE/SAAE/DMAE)
     r'|\b(samae|saae|dmae)\b|\bservi[çc]o\s+aut[ôo]nomo\s+(municipal\s+)?de\s+[áa]gua'
-    r'|\bdepartamento\s+municipal\s+de\s+[áa]gua', re.I)
+    r'|\bdepartamento\s+municipal\s+de\s+[áa]gua'
+    # autarquia de ensino: "CENTRO UNIVERSITARIO MUNICIPAL DE FRANCA"
+    r'|\bcentro\s+universit[áa]rio\s+(municipal|estadual)\b', re.I)
 _RE_FORMA_PRIVADA = re.compile(
     r'\b(ltda|eireli|epp|me|s\s?/\s?a|s\.\s?a\.?|s\s?a|cia|companhia|cooperativa'
     r'|associa[çc][ãa]o|sindicato|banco|seguradora|condom[íi]nio|servi[çc]o\s+social'
     r'|clube|igreja|caixa\s+de\s+assist[êe]ncia|ordem\s+dos\s+advogados|oab'
     r'|institui[çc][õo]es\s+(de\s+ensino|educacionais)|uniesp|faculdade'
-    r'|centro\s+universit[áa]rio)\b', re.I)
+    # centro universitário só é privado se não se declara municipal/estadual:
+    # "CENTRO UNIVERSITARIO MUNICIPAL DE …" é autarquia municipal.
+    r'|centro\s+universit[áa]rio(?!\s+(municipal|estadual|p[úu]blico)))\b', re.I)
 _RE_COMECA_PELO_ENTE = re.compile(
     r'\s*(munic[íi]pio|prefeitura|estado\s+d|uni[ãa]o(\s+federal)?\s*($|[(\-/])'
     r'|fazenda\s+(p[úu]blica|nacional|do\s+estado|estadual|municipal)'

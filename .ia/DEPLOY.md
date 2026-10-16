@@ -41,6 +41,26 @@ Classifique a mudança e escolha a estratégia:
 ⚠️ **Regra de ouro**: esquecer de rebuildar o worker com schema novo causa
 `IntegrityError` em todos os runs. **Em dúvida, rebuild full.**
 
+## ⚠️ PR #27 (TJRS) — ordem de deploy obrigatória
+
+O refill de enriquecimento (scheduler/web) passa a poder mandar `so_pendente=True`
+aos jobs `enriquecer_processo`. **Worker com o código anterior quebra com
+`TypeError` ao receber esse kwarg — em TODAS as filas `enrich_*`**, porque o
+refill é um só. Por isso:
+
+1. **Atualize os hosts de workers (`voyager-workers` e os demais que rodam
+   `enrich_*`/`manual`) ANTES ou junto do host web/scheduler.**
+2. Antes de reiniciar qualquer coisa, confira `git log -1` nos DOIS lados — o
+   commit tem de ser o mesmo.
+3. O kwarg fica DESLIGADO por padrão (`ENRICH_SO_PENDENTE_KWARG=False`): com a
+   flag desligada o job sai no formato antigo e a ordem não importa. **Só ligue**
+   `ENRICH_SO_PENDENTE_KWARG=true` no `.env` do host do scheduler (e
+   `force-recreate` do scheduler) DEPOIS de confirmar que todos os workers
+   estão na versão nova.
+4. Depois: `recalcular_ente_publico_es` (dry-run, depois `--apply`),
+   `reclassificar_tjrs_precatorio --apply` e, com a API do TJRS respondendo,
+   `enriquecer_tjrs --apply`.
+
 ## Pré-deploy (checar antes de propor o plano)
 
 - [ ] Branch em prod faz `git pull --ff-only` na `main` — sua branch **já está mergeada na `main`**? Se não, merge antes (ou ajuste pra deployar a branch explicitamente).

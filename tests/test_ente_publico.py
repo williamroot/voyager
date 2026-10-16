@@ -29,6 +29,9 @@ from tribunals.estagio import RE_ENTE_PUBLICO, RE_ENTE_PUBLICO_FEATURE_V1
     'SERVICO AUTONOMO MUNICIPAL DE AGUA E ESGOTO - SAMAE', 'SAMAE',
     'DEPARTAMENTO MUNICIPAL DE AGUA E ESGOTOS - DMAE', 'SAAE SERVICO AUTONOMO DE AGUA E ESGOTO',
     'Servico Autonomo de Agua e Esgoto de Salto - Saae Salto',
+    # autarquia municipal de ensino: o veto de "centro universitário" é só p/ privado
+    'CENTRO UNIVERSITARIO MUNICIPAL DE FRANCA - UNIFACEF',
+    'CENTRO UNIVERSITARIO MUNICIPAL DE SAO JOSE',
 ])
 def test_e_devedor_publico(nome):
     assert RE_ENTE_PUBLICO.search(nome), nome
@@ -54,6 +57,8 @@ def test_e_devedor_publico(nome):
     'ORDEM DOS ADVOGADOS DO BRASIL SECCAO DO RS',
     'Uniesp União das Inst Educ do Estado de São Paulo',
     'FACULDADE DE DIREITO DO ESTADO DE SAO PAULO LTDA',
+    'CENTRO UNIVERSITARIO DO ESTADO DO PARA - CESUPA',
+    'CENTRO UNIVERSITARIO RITTER DOS REIS LTDA',
     # órgão público que não é DEVEDOR: está no passivo como intimado
     'Ministério Público do Estado de São Paulo', 'DEFENSORIA PÚBLICA DA UNIÃO',
     'Defensoria Pública da União no Estado de São Paulo', 'MINISTERIO PUBLICO DA UNIAO',

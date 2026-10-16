@@ -564,6 +564,11 @@ ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=False)
 # (`at_front`). Começa no TJRS: ~5,9 M pendentes na estreia do enricher, e o
 # que o JURISCOPE compra são os ~16 mil PRECATORIO. Ver `.ia/ENRICHMENT.md`.
 ENRICH_PRIORIDADE_TRIBUNAIS = env.list('ENRICH_PRIORIDADE_TRIBUNAIS', default=['TJRS'])
+# O refill passa `so_pendente=True` aos jobs (pula quem já saiu de pendente).
+# DESLIGADO por padrão: worker com código anterior quebra com TypeError ao
+# receber o kwarg. Ligar no host do scheduler SÓ depois que todos os hosts de
+# workers estiverem na versão nova (`.ia/DEPLOY.md`, "PR #27").
+ENRICH_SO_PENDENTE_KWARG = env.bool('ENRICH_SO_PENDENTE_KWARG', default=False)
 # Seguir incidentes no e-SAJ (cada beneficiário do crédito tem um incidente —
 # o precatório/RPV dele). Vale SÓ para o caminho manual/dossiê
 # (`enqueue_enriquecimento_manual`); o enriquecimento em massa nunca passa a
