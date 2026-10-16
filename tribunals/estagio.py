@@ -46,9 +46,77 @@ CLASSES = ['DC', 'PRE', 'EMITIDO', 'MORTO']
 CLASSES_CUMPRIMENTO = {'12078', '156', '15160', '15215', '12079'}
 CLASSES_FAZENDA_PUBLICA = {'12078', '12079', '15215'}
 RE_JUIZADO = re.compile(r'juizado especial|recurso inominado|procedimento comum', re.I)
-RE_ENTE_PUBLICO = re.compile(
+# FEATURE do modelo treinado (`estagio_gbm_v1`): congelada. O modelo aprendeu
+# com ESTA regex — com o defeito dela (o alternante `estado d` exige fronteira
+# de palavra depois do "d", então "ESTADO DE MINAS GERAIS" não casa). Mudar
+# aqui mudaria a predição sem retreino. Use `RE_ENTE_PUBLICO` para todo o resto.
+RE_ENTE_PUBLICO_FEATURE_V1 = re.compile(
     r'\b(uniao|união|municipio|município|estado d|fazenda|inss|instituto nacional'
     r'|autarquia|prefeitura|df|distrito federal|funda[çc][ãa]o p[úu]blica)\b', re.I)
+
+# --- "Há DEVEDOR público no polo passivo?" (16/10/2026) ----------------------
+# Gate canônico usado pelo doc do ES (`tem_ente_publico_passivo`), pela
+# agregação por estado e pelo cadastro de entidades. Corrige três defeitos da
+# regex acima, medidos numa amostra de 0,2% de `tribunals_process` (54.508
+# processos com polo passivo, semente 20261016):
+#
+#  1. FALSO-NEGATIVO "Estado de/do/da <UF>": "ESTADO DO RIO GRANDE DO SUL",
+#     "ESTADO DE MATO GROSSO", "Estado de São Paulo" não casavam. Agora casa
+#     só com nome ou sigla de UF depois — "estado civil", "ESTADO DE ALERTA"
+#     ficam fora. Mais previdência própria (IPE-PREV, IPERGS, IPREV*,
+#     "instituto de previdência"), DETRAN e DAER.
+#  2. FALSO-POSITIVO de razão social privada: "EXPRESSO UNIAO LTDA", "FAZENDA
+#     BODOQUENA SA", "BANCO DO ESTADO DO RIO GRANDE DO SUL SA", cooperativas,
+#     associações e sindicatos de aposentados "do INSS". Veto por forma
+#     societária/associativa — exceto quando o nome COMEÇA pelo ente
+#     ("MUNICIPIO DE SENADOR SA" é município).
+#  3. Órgão que não é DEVEDOR: Ministério Público e Defensoria (inclusive "da
+#     União", que casava por `uniao`). Aparecem no passivo como intimados, não
+#     como quem paga. No cadastro de entidades eles continuam ente público pelo
+#     complemento de `search/agg_estado.py`.
+#
+# Resultado na amostra: 15.934 → 17.748 processos com devedor público;
+# 1.943 false→true (40/40 conferidos à mão: Estados, PGE, previdência própria,
+# DETRAN, conselhos profissionais) e 129 true→false (129/129: 50 razões sociais
+# privadas e 79 Defensoria/MP da União). Detalhe por tribunal no PR #27.
+_UF = (r'(acre|alagoas|amap[áa]|amazonas|bahia|cear[áa]|esp[íi]rito\s+santo|goi[áa]s'
+       r'|maranh[ãa]o|mato\s+grosso(\s+do\s+sul)?|minas\s+gerais|par[áa]|para[íi]ba'
+       r'|paran[áa]|pernambuco|piau[íi]|rio\s+de\s+janeiro|rio\s+grande\s+do\s+(norte|sul)'
+       r'|rond[ôo]nia|roraima|santa\s+catarina|s[ãa]o\s+paulo|sergipe|tocantins'
+       r'|ac|al|ap|am|ba|ce|es|go|ma|mt|ms|mg|pa|pb|pr|pe|pi|rj|rn|rs|ro|rr|sc|sp|se|to)')
+_RE_ENTE_POSITIVO = re.compile(
+    r'\b(uniao|união|municipio|município|fazenda|inss|instituto nacional'
+    r'|autarquia|prefeitura|df|distrito federal|funda[çc][ãa]o p[úu]blica)\b'
+    r'|\bestados?\s+d[eoa]s?\s+' + _UF + r'\b'
+    r'|\binstituto\s+(municipal\s+)?de\s+previd[êe]ncia\b|\bipergs\b'
+    r'|\bipe[\s-]?(prev|sa[úu]de)\b|\biprev\w*\b|\bdetran\b|\bdaer\b', re.I)
+_RE_FORMA_PRIVADA = re.compile(
+    r'\b(ltda|eireli|epp|me|s\s?/\s?a|s\.\s?a\.?|s\s?a|cia|companhia|cooperativa'
+    r'|associa[çc][ãa]o|sindicato|banco|seguradora|condom[íi]nio|servi[çc]o\s+social'
+    r'|clube|igreja)\b', re.I)
+_RE_COMECA_PELO_ENTE = re.compile(
+    r'\s*(munic[íi]pio|prefeitura|estado\s+d|uni[ãa]o(\s+federal)?\s*($|[(\-/])'
+    r'|fazenda\s+(p[úu]blica|nacional|do\s+estado|estadual|municipal)'
+    r'|distrito\s+federal|inss\b|instituto\s+nacional\s+do\s+seguro)', re.I)
+_RE_NAO_DEVEDOR = re.compile(
+    r'\b(minist[ée]rio\s+p[úu]blico|defensoria|procuradoria[\s-]+geral\s+de\s+justi[çc]a)\b',
+    re.I)
+
+
+class _GateEntePublico:
+    """Mesma interface de um `re.Pattern` (`.search(nome)` → match ou None),
+    para quem já chamava `RE_ENTE_PUBLICO.search(...)` não mudar uma linha."""
+
+    def search(self, nome):
+        n = nome or ''
+        if _RE_NAO_DEVEDOR.search(n):
+            return None
+        if _RE_FORMA_PRIVADA.search(n) and not _RE_COMECA_PELO_ENTE.match(n):
+            return None
+        return _RE_ENTE_POSITIVO.search(n)
+
+
+RE_ENTE_PUBLICO = _GateEntePublico()
 RE_VALOR_BRL = re.compile(r'R\$\s*([\d.]{1,15},\d{2})')
 
 # Agregado de movimentações públicas — MANTER EM SINCRONIA com
@@ -213,7 +281,7 @@ def computar_features_publicas(processo, snapshot: date | None = None) -> tuple[
         cur.execute(PARTES_SQL, [processo.pk])
         for nome, polo, papel in cur.fetchall():
             n_partes += 1
-            if polo == 'passivo' and RE_ENTE_PUBLICO.search(nome or ''):
+            if polo == 'passivo' and RE_ENTE_PUBLICO_FEATURE_V1.search(nome or ''):
                 tem_ente = 1
             if polo == 'ativo' and len(beneficiarias) < 5 \
                     and not re.search(r'advogad', (papel or ''), re.I):

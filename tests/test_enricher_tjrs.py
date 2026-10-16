@@ -242,13 +242,18 @@ def test_credencial_renovada_antes_de_esgotar_as_7():
     assert e.session.submits == 2       # 7 consultas na 1ª, a 8ª já pede outra
 
 
-def test_401_seguido_vira_erro_retentavel_nunca_nao_encontrado():
-    """16/10/2026 00:00 UTC: a API recusou toda credencial (até a da SPA)."""
+def test_401_em_serie_arma_respiro_sem_evento_nem_tentativa():
+    """16/10/2026 00:00 UTC: a API recusou toda credencial (até a da SPA).
+    Não é o processo — nada de `erro`, nada de `nao_encontrado`: o tribunal
+    respira e o processo continua `pendente`."""
     e = _enricher([_resp(b'', 401) for _ in range(5)])
-    with patch('enrichers.tjrs.stream.publish') as pub:
+    with patch('enrichers.tjrs.stream.publish') as pub, \
+            patch('enrichers.jobs.armar_respiro') as respiro:
         r = e.enriquecer(_processo())
-    assert r['status'] == 'erro'
-    assert pub.call_args[0][0]['status'] == 'erro'
+    assert r['status'] == 'adiado'
+    pub.assert_not_called()
+    respiro.assert_called_once()
+    assert respiro.call_args[0][0] == 'TJRS'
     assert e.session.submits == TjrsEnricher.MAX_CREDENCIAIS_RECUSADAS
 
 

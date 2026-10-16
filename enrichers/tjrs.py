@@ -86,6 +86,11 @@ class TjrsCredencialError(TjrsEnricherError):
     """A troca ALTCHA → credencial falhou (desafio, submit ou resposta)."""
 
 
+class TjrsFonteRecusandoError(TjrsEnricherError):
+    """A API recusou credenciais NOVAS em série (401). Não é o processo: é a
+    fonte. Quem chama arma o respiro do tribunal em vez de gravar `erro`."""
+
+
 def _so_digitos(valor: str) -> str:
     return re.sub(r'\D', '', valor or '')
 
@@ -189,10 +194,20 @@ class TjrsEnricher:
 
         try:
             item = self.buscar_ficha(processo.numero_cnj)
+        except TjrsFonteRecusandoError as exc:
+            # Fonte fora para todo mundo: nenhum evento, nenhuma tentativa
+            # somada — o processo continua `pendente` e o tribunal respira.
+            from .jobs import armar_respiro
+            armar_respiro(self.TRIBUNAL_SIGLA, str(exc))
+            return {'cnj': processo.numero_cnj, 'status': 'adiado', 'erro': str(exc)[:200],
+                    'requisicoes': self.requisicoes}
         except Exception as exc:
             self.logger.exception('falha na busca', extra={'cnj': processo.numero_cnj})
             self._emit(stream.build_erro_payload(**base, erro=f'busca: {exc}'), direct_apply)
             return {'cnj': processo.numero_cnj, 'status': 'erro', 'erro': str(exc)[:200]}
+
+        from .jobs import desarmar_respiro
+        desarmar_respiro(self.TRIBUNAL_SIGLA)
 
         if item is None:
             self._emit(stream.build_nao_encontrado_payload(**base), direct_apply)
@@ -298,7 +313,8 @@ class TjrsEnricher:
         """GET autenticado na API. Devolve `(status, json)`.
 
         200 → json; 404 → `(404, json)` (a fonte diz "nenhum registro");
-        401/429 → credencial nova e tenta de novo; 403/transporte → outro IP;
+        401/429 → credencial nova e tenta de novo (3 recusas seguidas de
+        credencial NOVA → `TjrsFonteRecusandoError`); 403/transporte → outro IP;
         5xx → outra tentativa. Esgotadas as rotações, levanta.
         """
         url = f'{self.API_URL}{caminho}'
@@ -341,7 +357,7 @@ class TjrsEnricher:
                 if resp.status_code == 401:
                     recusadas += 1
                     if recusadas >= self.MAX_CREDENCIAIS_RECUSADAS:
-                        raise TjrsEnricherError(
+                        raise TjrsFonteRecusandoError(
                             f'API recusou {recusadas} credenciais novas (401) — '
                             'fonte instável, não é "não encontrado"')
                 continue

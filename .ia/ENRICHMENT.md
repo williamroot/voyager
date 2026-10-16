@@ -63,7 +63,11 @@ GET  …/v1/<rota>?…   Authorization: Basic credencial_tjrs(username)
 
 **Instabilidade observada:** em 16/10/2026 a partir de ~00:00 UTC a API passou a responder **401 vazio a TODA credencial**, inclusive à da SPA oficial num Chromium. O enricher desiste após 3 credenciais recusadas (`MAX_CREDENCIAIS_RECUSADAS`) e grava `erro` (re-tentável), nunca `nao_encontrado`. O eproc do TJRS tem janela anunciada no sábado 17/10, 8h–12h.
 
-**Operação:** fila `enrich_tjrs`, `worker_tjrs` com 4 réplicas (começar baixo; ~5,9 M processos TJRS pendentes). O vigia sonda a SPA (`LIST_URL`), que fica de pé mesmo quando a API recusa — a pausa, se precisar, é manual (`enrich_pausados`).
+**Operação:** fila `enrich_tjrs`, `worker_tjrs` com 4 réplicas (começar baixo; ~5,9 M processos TJRS pendentes). O vigia sonda a SPA (`LIST_URL`), que fica de pé mesmo quando a API recusa.
+
+**Ordem do enriquecimento (16/10/2026).** Nos tribunais de `settings.ENRICH_PRIORIDADE_TRIBUNAIS` (padrão `TJRS`), cada passada do refill (2 min) chama `enfileirar_na_frente`: até `ENRICH_PRIORIDADE_BATCH` = 500 pendentes **PRECATORIO**, depois **PRE_PRECATORIO**, entram na **frente** da fila (`at_front`, enfileirados do menos para o mais prioritário). Isso roda ANTES do teste de profundidade — o PRECATORIO que nasce depois (DJEN novo → classificação) fura o backlog na passada seguinte, com a fila cheia ou não. O resto do backlog segue com o refill comum. Mesmas travas contra flood: lote por passada, trava de voo (1 h), faixa fora-da-fonte. Consulta pelo `proc_leads_api_idx` (tribunal, classificacao). Semeadura sob demanda: `manage.py enriquecer_tjrs [--nivel PRECATORIO ...] [--limite N] --apply` (dry-run por padrão, teto 5.000).
+
+**Respiro (pausa com prazo).** Quando a API recusa 3 credenciais NOVAS seguidas (401), o enricher não grava `erro` nem soma tentativa: arma `armar_respiro('TJRS')` (10 min, dobrando até 60 min a cada recaída) e o processo continua `pendente`. `enrich_pausado()` respeita o respiro — o job sai sem tocar no status e o refill pula o tribunal. Desarma (zera a contagem) no primeiro job que a fonte responde. Sem isso, uma queda de horas estacionaria milhões de processos em `erro`.
 
 ## Papel processual: está no TEXTO da publicação, e o JSONB não tem (27/08/2026)
 

@@ -559,6 +559,11 @@ DJEN_CORTEX_RATIO_DEGRADED = env.float('DJEN_CORTEX_RATIO_DEGRADED', default=1.0
 # WAF que exigem residencial caem no Cortex via _next_proxy quando o pool é
 # bloqueado. True volta a Cortex-first (2026-07-12: invertido a pedido).
 ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=False)
+# Tribunais cujo refill de enriquecimento serve PRIMEIRO os leads (PRECATORIO,
+# depois PRE_PRECATORIO) e só então o resto do backlog, furando a fila
+# (`at_front`). Começa no TJRS: ~5,9 M pendentes na estreia do enricher, e o
+# que o JURISCOPE compra são os ~16 mil PRECATORIO. Ver `.ia/ENRICHMENT.md`.
+ENRICH_PRIORIDADE_TRIBUNAIS = env.list('ENRICH_PRIORIDADE_TRIBUNAIS', default=['TJRS'])
 # Seguir incidentes no e-SAJ (cada beneficiário do crédito tem um incidente —
 # o precatório/RPV dele). Vale SÓ para o caminho manual/dossiê
 # (`enqueue_enriquecimento_manual`); o enriquecimento em massa nunca passa a

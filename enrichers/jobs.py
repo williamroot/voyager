@@ -152,7 +152,58 @@ def enrich_pausados() -> set[str]:
 
 
 def enrich_pausado(sigla: str) -> bool:
-    return (sigla or '').upper() in enrich_pausados()
+    sigla = (sigla or '').upper()
+    return sigla in enrich_pausados() or em_respiro(sigla)
+
+
+# --- Respiro: pausa COM PRAZO, armada pela própria fonte ---------------------
+# A pausa acima é de humano (ou do vigia) e não expira. O respiro é o que o
+# enricher arma quando a fonte recusa TUDO por um tempo — o caso medido é o
+# TJRS em 16/10/2026: a API passou a devolver 401 a toda credencial, inclusive
+# à da SPA oficial. Sem isto, cada job da fila gastaria 3 provas de trabalho,
+# gravaria `erro` e somaria uma tentativa ao processo — e o requeue de erros
+# os devolveria para a fila, 6 vezes por hora, até estacionar 5,9 M processos
+# em `erro` por uma queda de horas.
+#
+# Com o respiro o job sai sem tocar no status (o processo continua `pendente`),
+# a trava de voo segura o pid por 1 h e o refill pula o tribunal. O prazo dobra
+# a cada recaída (10 min, 20, 40, 60 no máximo) e volta ao início quando a
+# fonte responde. Sai em ERROR no log: teto é alerta, nunca corte mudo.
+_RESPIRO_KEY = 'enrich:respiro:%s'
+_RESPIRO_N_KEY = 'enrich:respiro_n:%s'
+RESPIRO_BASE_S = 600
+RESPIRO_MAX_S = 3600
+
+
+def em_respiro(sigla: str) -> bool:
+    from django.core.cache import cache
+    try:
+        return bool(cache.get(_RESPIRO_KEY % (sigla or '').upper()))
+    except Exception:
+        return False
+
+
+def armar_respiro(sigla: str, motivo: str) -> int:
+    """Pausa o tribunal por um prazo que dobra a cada recaída. Devolve o prazo."""
+    from django.core.cache import cache
+    sigla = (sigla or '').upper()
+    n = int(cache.get(_RESPIRO_N_KEY % sigla) or 0)
+    prazo = min(RESPIRO_BASE_S * (2 ** n), RESPIRO_MAX_S)
+    cache.set(_RESPIRO_KEY % sigla, motivo[:200], timeout=prazo)
+    cache.set(_RESPIRO_N_KEY % sigla, n + 1, timeout=prazo + RESPIRO_MAX_S)
+    logger.error('respiro armado para %s por %d s (recaída %d): %s',
+                 sigla, prazo, n + 1, motivo)
+    return prazo
+
+
+def desarmar_respiro(sigla: str) -> None:
+    """A fonte respondeu: zera a contagem de recaídas (o prazo em curso, se
+    houver, já expirou — quem respondeu é um job que rodou)."""
+    import contextlib
+
+    from django.core.cache import cache
+    with contextlib.suppress(Exception):
+        cache.delete(_RESPIRO_N_KEY % (sigla or '').upper())
 
 
 def set_enrich_pausados(siglas: set[str]) -> None:
@@ -661,21 +712,92 @@ def reabastecer_filas_enriquecimento() -> dict:
         cache.delete(lock)
 
 
+# --- Prioridade por nível de lead ------------------------------------------
+# O refill comum pega `pendente` na ordem do índice — para um tribunal estreando
+# com 5,9 M pendentes (TJRS, 15/10/2026) isso é enriquecer o acervo inteiro
+# antes de chegar nos ~16 mil PRECATORIO que o JURISCOPE compra. Nos tribunais
+# de `settings.ENRICH_PRIORIDADE_TRIBUNAIS`, cada passada (a cada 2 min) põe na
+# FRENTE da fila (`at_front`) até `ENRICH_PRIORIDADE_BATCH` pendentes desses
+# níveis, nesta ordem — inclusive os que viraram PRECATORIO depois de o backlog
+# já estar na fila. É a mesma régua de sempre contra flood: lote limitado por
+# passada, trava de voo (um pid não volta antes de 1 h) e faixa fora-da-fonte.
+# A consulta usa `proc_leads_api_idx` (tribunal, classificacao) — parcial nos
+# níveis de lead, por isso o resto do backlog fica com o refill comum.
+ENRICH_PRIORIDADE_NIVEIS = ('PRECATORIO', 'PRE_PRECATORIO')
+ENRICH_PRIORIDADE_BATCH = 500
+
+
+def _tribunais_com_prioridade() -> set[str]:
+    from django.conf import settings
+    return {s.upper() for s in getattr(settings, 'ENRICH_PRIORIDADE_TRIBUNAIS', ())}
+
+
+def pendentes_por_nivel(sigla: str, nivel: str, limite: int) -> list:
+    """`(pk, numero_cnj)` pendentes de um nível de lead, até `limite`."""
+    from tribunals.models import Process
+    return list(
+        Process.objects.filter(
+            tribunal_id=sigla, classificacao=nivel,
+            enriquecimento_status=Process.ENRIQ_PENDENTE,
+        ).values_list('pk', 'numero_cnj')[:limite])
+
+
+def enfileirar_na_frente(sigla: str, niveis=ENRICH_PRIORIDADE_NIVEIS,
+                         lote: int = ENRICH_PRIORIDADE_BATCH) -> dict:
+    """Põe até `lote` pendentes dos `niveis` (na ordem dada) na FRENTE da fila.
+
+    `at_front` empilha na cabeça, então enfileiramos do MENOS para o MAIS
+    prioritário: o último a entrar (o 1º PRECATORIO) é o primeiro a sair.
+    Devolve `{nivel: quantos}`.
+    """
+    queue = django_rq.get_queue(queue_for(sigla))
+    conn = queue.connection
+    em_voo = conn.zcard(_INFLIGHT_KEY % sigla.lower())
+    escolhidos: list[tuple[str, int]] = []
+    restante = lote
+    for nivel in niveis:
+        if restante <= 0:
+            break
+        linhas = pendentes_por_nivel(sigla, nivel, min(restante + em_voo + 1_000, 60_000))
+        candidatos, _recusados = _separar_fora_da_fonte(sigla, linhas)
+        ids = _filtrar_em_voo(conn, sigla, candidatos, restante)
+        escolhidos += [(nivel, pid) for pid in ids]
+        restante -= len(ids)
+    for _nivel, pid in reversed(escolhidos):
+        try:
+            queue.enqueue(enriquecer_processo, pid, job_timeout=ENRICH_TIMEOUT,
+                          retry=ENRICH_RETRY, at_front=True)
+        except Exception as exc:
+            logger.warning('falha ao enfileirar prioritário', extra={'pid': pid, 'erro': str(exc)})
+    contagem: dict = {}
+    for nivel, _pid in escolhidos:
+        contagem[nivel] = contagem.get(nivel, 0) + 1
+    return contagem
+
+
 def _reabastecer_impl() -> dict:
     from tribunals.models import Process
 
     relatorio = {}
     pausados = enrich_pausados()
+    prioridade = _tribunais_com_prioridade()
     for sigla in _ENRICHERS.keys():
-        if sigla in pausados:
-            relatorio[sigla] = 'pausado'
+        if sigla in pausados or em_respiro(sigla):
+            relatorio[sigla] = 'pausado' if sigla in pausados else 'respiro'
             continue
         queue = django_rq.get_queue(queue_for(sigla))
         conn = queue.connection
+        prefixo = ''
+        if sigla in prioridade:
+            # ANTES do teste de profundidade: o PRECATORIO que chegou agora não
+            # espera a fila de backlog esvaziar — fura a fila, em lote limitado.
+            frente = enfileirar_na_frente(sigla)
+            if frente:
+                prefixo = 'frente ' + ', '.join(f'{n} +{q}' for n, q in frente.items()) + '; '
         qlen = len(queue)
         alvo = _profundidade_alvo(conn, queue.name)
         if qlen >= alvo:
-            relatorio[sigla] = f'skip (fila {qlen:,} ≥ alvo {alvo:,})'
+            relatorio[sigla] = f'{prefixo}skip (fila {qlen:,} ≥ alvo {alvo:,})'
             continue
         capacidade = min(alvo - qlen, ENQUEUE_BATCH_SIZE)
         # Query simples e sargável (usa índice de tribunal_id / status); NÃO
@@ -708,7 +830,7 @@ def _reabastecer_impl() -> dict:
                               retry=ENRICH_RETRY)
             except Exception as exc:
                 logger.warning('falha ao enfileirar', extra={'pid': pid, 'erro': str(exc)})
-        relatorio[sigla] = (f'+{len(ids)} (fila {qlen}->{qlen+len(ids)}, alvo {alvo:,}, '
+        relatorio[sigla] = (f'{prefixo}+{len(ids)} (fila {qlen}->{qlen+len(ids)}, alvo {alvo:,}, '
                             f'em voo {em_voo:,}, candidatos {len(candidatos):,}'
                             + (f', fora da fonte {recusados:,}' if recusados else '') + ')')
     logger.info('reabastecer_filas_enriquecimento', extra={'r': relatorio})
