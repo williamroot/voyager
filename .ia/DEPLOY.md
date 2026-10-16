@@ -43,7 +43,7 @@ Classifique a mudança e escolha a estratégia:
 
 ## ⚠️ PR #27 (TJRS) — ordem de deploy obrigatória
 
-O refill de enriquecimento (scheduler/web) passa a poder mandar `so_pendente=True`
+O refill de enriquecimento passa a poder mandar `so_pendente=True`
 aos jobs `enriquecer_processo`. **Worker com o código anterior quebra com
 `TypeError` ao receber esse kwarg — em TODAS as filas `enrich_*`**, porque o
 refill é um só. Por isso:
@@ -54,9 +54,15 @@ refill é um só. Por isso:
    commit tem de ser o mesmo.
 3. O kwarg fica DESLIGADO por padrão (`ENRICH_SO_PENDENTE_KWARG=False`): com a
    flag desligada o job sai no formato antigo e a ordem não importa. **Só ligue**
-   `ENRICH_SO_PENDENTE_KWARG=true` no `.env` do host do scheduler (e
-   `force-recreate` do scheduler) DEPOIS de confirmar que todos os workers
-   estão na versão nova.
+   `ENRICH_SO_PENDENTE_KWARG=true` DEPOIS de confirmar que todos os workers
+   estão na versão nova. **O lugar certo é o `.env` do host que roda a fila
+   `default`** (`voyager-workers`, serviço `worker_default`, seguido de
+   `up -d --no-deps --force-recreate worker_default`): o scheduler só faz
+   `reabastecer_filas_enriquecimento.delay()`, e quem monta os jobs — e lê a
+   flag — é o worker que executa o refill. Ligar só no scheduler não tem
+   efeito nenhum (medido no deploy de 16/10/2026). Para conferir, os jobs
+   recém-enfileirados nas filas `enrich_*` passam a ter `so_pendente` nos
+   `kwargs`.
 4. Depois: `recalcular_ente_publico_es` (dry-run, depois `--apply`),
    `reclassificar_tjrs_precatorio --apply` e, com a API do TJRS respondendo,
    `enriquecer_tjrs --apply`.

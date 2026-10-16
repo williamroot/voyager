@@ -566,8 +566,9 @@ ENRICH_PREFER_CORTEX = env.bool('ENRICH_PREFER_CORTEX', default=False)
 ENRICH_PRIORIDADE_TRIBUNAIS = env.list('ENRICH_PRIORIDADE_TRIBUNAIS', default=['TJRS'])
 # O refill passa `so_pendente=True` aos jobs (pula quem já saiu de pendente).
 # DESLIGADO por padrão: worker com código anterior quebra com TypeError ao
-# receber o kwarg. Ligar no host do scheduler SÓ depois que todos os hosts de
-# workers estiverem na versão nova (`.ia/DEPLOY.md`, "PR #27").
+# receber o kwarg. Ligar SÓ depois que todos os hosts de workers estiverem na
+# versão nova, no `.env` de quem roda a fila `default` (o refill roda lá, não no
+# scheduler) — `.ia/DEPLOY.md`, "PR #27".
 ENRICH_SO_PENDENTE_KWARG = env.bool('ENRICH_SO_PENDENTE_KWARG', default=False)
 # Seguir incidentes no e-SAJ (cada beneficiário do crédito tem um incidente —
 # o precatório/RPV dele). Vale SÓ para o caminho manual/dossiê

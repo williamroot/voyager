@@ -780,7 +780,8 @@ def _kwargs_do_refill() -> dict:
     argumento desconhecido e quebra com `TypeError` — em TODAS as filas
     `enrich_*`, porque o refill é um só. Por isso o padrão é DESLIGADO: o
     código novo sobe nos workers e no scheduler sem mudar o formato do job, e
-    a flag só é ligada (no `.env` do host do scheduler) depois que
+    a flag só é ligada (no `.env` dos workers da fila `default`, que executam
+    este refill — não no scheduler) depois que
     `git log -1` dos workers mostrar a versão nova. Ver `.ia/DEPLOY.md`.
     """
     from django.conf import settings
