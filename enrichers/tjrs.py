@@ -24,10 +24,13 @@ Recon de 15/10/2026, dos hosts do Voyager (workers e web) e do Mac:
 Sem login e sem captcha visual: `GET /public/auth/token` dá um desafio de
 prova de trabalho, `POST /public/auth/submit` troca a solução por um usuário
 anônimo (`ChaAnon_<n>`), e a credencial `Basic` deriva dele
-(`fingerprints.credencial_tjrs`). **Cada credencial vale 7 consultas** — a 8ª
-devolve 429 "Limite de chamadas atingido". Novas credenciais não tiveram teto
-observado (60 em 40 s do mesmo IP) e não são presas ao IP (a mesma credencial
-respondeu 200 por 4 proxies do pool e pelo Cortex).
+(`fingerprints.credencial_tjrs`) com DUAS CONSTANTES QUE MUDAM A CADA DEPLOY DA
+SPA — lidas do bundle vivo (`tjrs_credencial.chaves_tjrs`). **Cada credencial
+vale 7 consultas** — a 8ª devolve 429 "Limite de chamadas atingido" — e é
+dividida entre as réplicas (`tjrs_credencial.PoolCredenciais`). Novas
+credenciais não tiveram teto observado (60 em 40 s do mesmo IP) e não são
+presas ao IP (a mesma credencial respondeu 200 por 4 proxies do pool e pelo
+Cortex).
 
 ### O que a ficha pública traz (e o que não traz)
 
@@ -65,6 +68,7 @@ from .fingerprints import (
     resolver_altcha,
 )
 from .parsers import classificar_tipo_parte
+from .tjrs_credencial import PoolCredenciais, chaves_tjrs
 
 _UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
        '(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36')
@@ -116,6 +120,46 @@ def _data_br(texto: str) -> str:
     return m.group(1) if m else ''
 
 
+_CONECTIVOS = frozenset({'DA', 'DE', 'DO', 'DAS', 'DOS', 'E'})
+
+
+def _tokens(nome: str) -> list[str]:
+    import unicodedata
+    nfkd = unicodedata.normalize('NFKD', nome or '')
+    limpo = ''.join(c for c in nfkd if not unicodedata.combining(c)).upper()
+    limpo = re.sub(r'\(.*?\)', ' ', limpo)          # "(REQUERIDO(A))"
+    return [t for t in re.findall(r'[A-Z0-9]+', limpo) if t not in _CONECTIVOS]
+
+
+def mesma_pessoa(a: str, b: str) -> bool:
+    """O nome da consulta e o do DJEN são a mesma parte?
+
+    Iguais (sem acento/caixa/conectivo), ou o mais curto cabe no mais longo
+    NA ORDEM, com o mesmo primeiro token, aceitando abreviação por inicial
+    ("MARIA E. DA SILVA" ≅ "MARIA EXEMPLO DA SILVA") e sobrenome omitido
+    ("MARIA EXEMPLO DA SILVA" ≅ "MARIA EXEMPLO DA SILVA SANTOS"). Primeiro
+    token diferente nunca casa — "JOAO SILVA" e "MARIA SILVA" são outras.
+    Na dúvida o DJEN fica: parte duplicada é ruído; parte apagada é perda.
+    """
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return False
+    if ta == tb:
+        return True
+    curto, longo = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    if curto[0] != longo[0] or len(curto) < 2:
+        return False
+    i = 0
+    for t in curto:
+        while i < len(longo) and not (
+                longo[i] == t or (len(t) == 1 and longo[i].startswith(t))):
+            i += 1
+        if i == len(longo):
+            return False
+        i += 1
+    return True
+
+
 class TjrsEnricher:
     TRIBUNAL_SIGLA = 'TJRS'
     LOG_NAME = 'voyager.enrichers.tjrs'
@@ -134,11 +178,11 @@ class TjrsEnricher:
     REQUEST_TIMEOUT = (10, 60)
     MAX_PROXY_ROTATIONS = 8
 
-    #: Credenciais recusadas (401) seguidas antes de desistir da chamada. Em
-    #: 16/10/2026 00:00 UTC a API passou a devolver 401 vazio para TODA
-    #: credencial — inclusive para a própria SPA num Chromium (a credencial que
-    #: ela calculou é byte a byte a nossa). Sem teto, cada job queimaria 8
-    #: provas de trabalho numa fonte fora; com ele, vira `erro` re-tentável.
+    #: Credenciais recusadas (401) seguidas antes de reler o bundle da SPA e,
+    #: se as chaves não mudaram, desistir. O caso de 16/10/2026 00:00 UTC: a
+    #: SPA trocou a constante da `obfuscation()` (92120 → 92125) e TODA
+    #: credencial calculada com a antiga levou 401 — não era a API fora. Ver
+    #: `tjrs_credencial.py`.
     MAX_CREDENCIAIS_RECUSADAS = 3
 
     #: Prefixo `8` de 2024 em diante: 16/16 sondas 404 com controle 200
@@ -162,8 +206,6 @@ class TjrsEnricher:
         self.logger = logging.getLogger(self.LOG_NAME)
         self.pool = pool or ProxyScrapePool.singleton()
         self.prefer_cortex = prefer_cortex
-        self._credencial: str | None = None
-        self._restantes = 0
         self.requisicoes = 0
 
     @classmethod
@@ -288,8 +330,8 @@ class TjrsEnricher:
                 return cortex
         return None
 
-    def _nova_credencial(self, proxies: dict | None) -> str:
-        """Desafio ALTCHA → solução → usuário anônimo → credencial `Basic`."""
+    def _nova_credencial(self, proxies: dict | None, chaves: tuple[int, int]) -> tuple[str, int]:
+        """Desafio ALTCHA → solução → usuário anônimo → `(credencial, consultas)`."""
         r = self.session.get(f'{self.AUTH_URL}/token', proxies=proxies,
                              timeout=self.REQUEST_TIMEOUT)
         self.requisicoes += 1
@@ -305,22 +347,35 @@ class TjrsEnricher:
         corpo = r.json()
         if not corpo.get('success') or not corpo.get('username'):
             raise TjrsCredencialError(f'submit recusado: {str(corpo)[:120]}')
-        self._restantes = int(corpo.get('queries') or self.CONSULTAS_POR_CREDENCIAL)
-        return credencial_tjrs(corpo['username'])
+        consultas = int(corpo.get('queries') or self.CONSULTAS_POR_CREDENCIAL)
+        return credencial_tjrs(corpo['username'], chaves), consultas
+
+    def _credencial(self, pool: PoolCredenciais, proxies, chaves) -> str:
+        """Do pool compartilhado; sem nenhuma lá, gera e publica."""
+        cred = pool.pegar()
+        if cred:
+            return cred
+        cred, consultas = self._nova_credencial(proxies, chaves)
+        pool.publicar(cred, consultas)
+        return cred
 
     def get_api(self, caminho: str, params: dict,  # noqa: PLR0912 — um ramo por status medido
                 timeout: tuple | None = None) -> tuple[int, dict | None]:
         """GET autenticado na API. Devolve `(status, json)`.
 
         200 → json; 404 → `(404, json)` (a fonte diz "nenhum registro");
-        401/429 → credencial nova e tenta de novo (3 recusas seguidas de
-        credencial NOVA → `TjrsFonteRecusandoError`); 403/transporte → outro IP;
-        5xx → outra tentativa. Esgotadas as rotações, levanta.
+        429 → descarta a credencial e pega outra; 401 → idem, e na 3ª seguida
+        relê o bundle da SPA UMA vez (as chaves da credencial mudam com o
+        deploy dela); se as chaves não mudaram, `TjrsFonteRecusandoError`.
+        403/transporte → outro IP; 5xx → outra tentativa.
         """
         url = f'{self.API_URL}{caminho}'
         tentados: set = set()
         ultimo: str | None = None
         recusadas = 0
+        bundle_relido = False
+        chaves = chaves_tjrs(self.session)
+        pool = PoolCredenciais(chaves)
         cortex = cortex_proxy_url(self.pool) if self.pool is not None else None
         for tentativa in range(1, self.MAX_PROXY_ROTATIONS + 1):
             proxy = self._next_proxy(tentados) if self.pool is not None else None
@@ -329,13 +384,12 @@ class TjrsEnricher:
             if proxy and proxy != cortex:
                 tentados.add(proxy)
             proxies = {'http': proxy, 'https': proxy} if proxy else None
+            cred = None
             try:
-                if not self._credencial or self._restantes <= 0:
-                    self._credencial = self._nova_credencial(proxies)
-                self._restantes -= 1
+                cred = self._credencial(pool, proxies, chaves)
                 resp = self.session.get(
                     url, params=params, proxies=proxies,
-                    headers={'Authorization': f'Basic {self._credencial}'},
+                    headers={'Authorization': f'Basic {cred}'},
                     timeout=timeout or self.REQUEST_TIMEOUT)
                 self.requisicoes += 1
             except (requests.ConnectionError, requests.Timeout,
@@ -346,21 +400,29 @@ class TjrsEnricher:
                 continue
             except (TjrsCredencialError, ValueError) as exc:
                 ultimo = f'credencial: {str(exc)[:120]}'
-                self._credencial = None
                 continue
 
             if resp.status_code in (401, 429):
                 # Credencial esgotada/recusada: a SPA faz o mesmo (regenera no
                 # 401/429). Não é culpa do IP — não marca o proxy.
                 ultimo = f'credencial {resp.status_code}'
-                self._credencial = None
+                pool.descartar(cred)
                 if resp.status_code == 401:
                     recusadas += 1
                     if recusadas >= self.MAX_CREDENCIAIS_RECUSADAS:
+                        if not bundle_relido:
+                            bundle_relido = True
+                            novas = chaves_tjrs(self.session, forcar=True)
+                            if novas != chaves:
+                                self.logger.error('TJRS: chaves da credencial trocadas no '
+                                                  'bundle %s → %s; seguindo', chaves, novas)
+                                chaves, pool, recusadas = novas, PoolCredenciais(novas), 0
+                                continue
                         raise TjrsFonteRecusandoError(
-                            f'API recusou {recusadas} credenciais novas (401) — '
-                            'fonte instável, não é "não encontrado"')
+                            f'API recusou {recusadas} credenciais seguidas (401) com as '
+                            f'chaves do bundle vivo {chaves} — fonte recusando')
                 continue
+            recusadas = 0
             if resp.status_code == 403:
                 ultimo = 'bloqueado 403'
                 if proxy and proxy != cortex:
@@ -413,14 +475,14 @@ class TjrsEnricher:
         """
         from tribunals.models import ProcessoParte
 
-        nomes = {self._chave(p['nome']) for lista in partes.values() for p in lista}
+        nomes = [p['nome'] for lista in partes.values() for p in lista]
         linhas = (ProcessoParte.objects
                   .filter(processo_id=process_id, fonte__isnull=False, representa__isnull=True)
                   .select_related('parte'))
         for pp in linhas:
             parte = pp.parte
             advogado = parte.tipo == 'advogado' or bool(parte.oab) or 'ADVOGAD' in (pp.papel or '')
-            if not advogado and self._chave(parte.nome) in nomes:
+            if not advogado and any(mesma_pessoa(parte.nome, n) for n in nomes):
                 continue
             polo = pp.polo if pp.polo in partes else 'outros'
             partes[polo].append({

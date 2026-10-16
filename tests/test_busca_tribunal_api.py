@@ -99,18 +99,21 @@ def test_tribunal_sem_busca_e_400_que_diz_quais_existem(http):
 
 @pytest.mark.django_db
 def test_criterio_que_a_fonte_nao_tem_vira_recusa_declarada(http):
-    """TJPA não busca por nome de advogado — e isso é dito, não silenciado."""
+    """TJRS não busca por nome de advogado — e isso é dito, não silenciado.
+
+    (Era o TJPA até 08/09/2026, quando se mediu que lá o advogado responde
+    pela rota do nome da parte — ver `registry.py`. O teste ficou para trás.)"""
     from enrichers.busca.jobs import iniciar
 
     run = BuscaTribunalRun.objects.create(
         criterio='advogado', valor='JOAO', valor_normalizado='JOAO',
-        tribunais=['TJPA', 'TJSP'])
+        tribunais=['TJRS', 'TJSP'])
     with patch('django_rq.get_queue'):
         saida = iniciar(run)
     run.refresh_from_db()
     assert saida['enfileirados'] == ['TJSP']
-    assert run.por_tribunal['TJPA']['status'] == 'criterio_indisponivel'
-    assert 'não oferece' in run.por_tribunal['TJPA']['mensagem']
+    assert run.por_tribunal['TJRS']['status'] == 'criterio_indisponivel'
+    assert 'não oferece' in run.por_tribunal['TJRS']['mensagem']
 
 
 # ── GET: parciais, avisos e cache ────────────────────────────────────────────
@@ -150,8 +153,9 @@ def test_avisos_separam_os_quatro_tipos_de_vazio(http):
     assert ('truncado', 'TJSP') in codigos
     assert ('refinar', 'TJMG') in codigos
     assert ('fonte_indisponivel', 'TJPA') in codigos
-    # TRF3 nunca foi conferido ao vivo: o catálogo avisa, mesmo tendo respondido.
-    assert ('nao_verificado', 'TRF3') in codigos
+    # TRF3 foi medido em 04/09/2026 (os quatro critérios): sem aviso de
+    # "não verificado" — o aviso só sai para critério que o catálogo não mediu.
+    assert ('nao_verificado', 'TRF3') not in codigos
 
 
 @pytest.mark.django_db
@@ -200,10 +204,12 @@ def test_catalogo_diz_o_que_cada_fonte_aceita_e_desde_quando(http):
     assert por_sigla['TJMG']['teto_da_fonte'] == 30
     assert por_sigla['TJMG']['pagina'] is False
     assert por_sigla['TJMT']['teto_da_fonte'] is None
-    # TJPA não tem busca por nome de advogado na consulta pública.
-    assert 'advogado' not in por_sigla['TJPA']['criterios']
-    # TRF3 entra pelo motor, mas nunca foi medido — e o catálogo não finge.
-    assert por_sigla['TRF3']['verificado_em'] is None
+    # TJRS não tem busca por nome de advogado nem por documento na consulta pública.
+    assert 'advogado' not in por_sigla['TJRS']['criterios']
+    assert 'documento' not in por_sigla['TJRS']['criterios']
+    assert por_sigla['TJRS']['verificado_em'] == '2026-10-15'
+    # TRF3: medido em 04/09/2026 pelo nosso cliente (registry.py).
+    assert por_sigla['TRF3']['verificado_em'] == '2026-09-04'
     assert por_sigla['TJSP']['verificado_em'] == '2026-09-04'
 
 

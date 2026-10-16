@@ -11,6 +11,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import time
 
 #: Chave do `environment.fingerPrint`, hardcoded no bundle da SPA do TJMT.
@@ -88,18 +89,62 @@ def altcha_formulario(solucao: dict) -> str:
         json.dumps(solucao, separators=(',', ':')).encode()).decode('ascii')
 
 
-def credencial_tjrs(username: str) -> str:
+#: Constantes de `obfuscation()` — `x = n % MODULO + SOMA`. **Mudam com o
+#: deploy da SPA**: até 15/10/2026 eram (60029, 92120) no `main.3ce0ff771a3adcf2.js`;
+#: em 16/10/2026 ~00:00 UTC o `main.667e4d4a4b94df67.js` trocou a soma para
+#: 92125 e TODA credencial calculada com a antiga passou a levar 401. Quem usa
+#: em produção lê do bundle vivo (`enrichers.tjrs.chaves_tjrs`); estas são só o
+#: último par conhecido, para teste e para quando o bundle não responde.
+CHAVES_TJRS_CONHECIDAS = (60029, 92125)
+
+_RE_OBFUSCATION = re.compile(r'%BigInt\((\d+)\)\+BigInt\((\d+)\)')
+#: O resto da fórmula — `"@"+x+"@"+(n*x)+"!"` com SHA-256. Se ISTO mudar, não
+#: adianta trocar número: o formato é outro e a função tem de ser relida.
+_RE_FORMATO_VT = re.compile(
+    r'"@"\+\w+\.toString\(\)\+"@"\+\w+\.toString\(\)\+"!"')
+_RE_BUNDLE_MAIN = re.compile(r'src="(main\.[0-9a-f]+\.js)"')
+
+
+class BundleTjrsMudouError(ValueError):
+    """O bundle da SPA não tem a `obfuscation()` no formato que sabemos ler."""
+
+
+def bundle_principal_tjrs(html: str) -> str:
+    """Nome do `main.<hash>.js` no `index.html` da SPA."""
+    m = _RE_BUNDLE_MAIN.search(html or '')
+    if not m:
+        raise BundleTjrsMudouError('index da SPA sem main.<hash>.js')
+    return m.group(1)
+
+
+def chaves_do_bundle_tjrs(js: str) -> tuple[int, int]:
+    """`(MODULO, SOMA)` lidos da `obfuscation()` do bundle — ou `BundleTjrsMudouError`.
+
+    Exige UMA ocorrência do par e o formato do `vt` intacto: abster > chutar —
+    duas ocorrências ou fórmula diferente é a SPA reescrita, não número trocado.
+    """
+    pares = _RE_OBFUSCATION.findall(js or '')
+    if len(set(pares)) != 1:
+        raise BundleTjrsMudouError(f'{len(pares)} ocorrências de %BigInt(m)+BigInt(s) no bundle')
+    if not _RE_FORMATO_VT.search(js):
+        raise BundleTjrsMudouError('formato "@x@n·x!" não encontrado na obfuscation()')
+    modulo, soma = (int(v) for v in pares[0])
+    return modulo, soma
+
+
+def credencial_tjrs(username: str, chaves: tuple[int, int] = CHAVES_TJRS_CONHECIDAS) -> str:
     """Valor do `Authorization: Basic …` a partir do `username` do submit.
 
-    Reproduz `obfuscation()` do bundle:
+    Reproduz `obfuscation()` do bundle (com `chaves = (MODULO, SOMA)` lidos dele):
 
         n  = BigInt(username sem "ChaAnon_")
-        x  = n % 60029 + 92120
+        x  = n % MODULO + SOMA
         vt = "@" + x + "@" + (n * x) + "!"
         cred = btoa(username + ":" + SHA256(vt).hex)
     """
+    modulo, soma = chaves
     n = int(username.replace('ChaAnon_', ''))
-    x = n % 60029 + 92120
+    x = n % modulo + soma
     vt = f'@{x}@{n * x}!'
     senha = hashlib.sha256(vt.encode()).hexdigest()
     return base64.b64encode(f'{username}:{senha}'.encode()).decode('ascii')

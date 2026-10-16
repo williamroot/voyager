@@ -25,6 +25,10 @@ from tribunals.estagio import RE_ENTE_PUBLICO, RE_ENTE_PUBLICO_FEATURE_V1
     'INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS', 'Fazenda Pública do Estado de São Paulo',
     'DISTRITO FEDERAL', 'PREFEITURA MUNICIPAL DE CANOAS',
     'EMPRESA PÚBLICA DE TRANSPORTES E CIRCULAÇÃO DO MUNICÍPIO DE PORTO ALEGRE - EPTC / RS',
+    # autarquia municipal de água (medido: 29 linhas na amostra, todas SAAE/SAMAE/DMAE reais)
+    'SERVICO AUTONOMO MUNICIPAL DE AGUA E ESGOTO - SAMAE', 'SAMAE',
+    'DEPARTAMENTO MUNICIPAL DE AGUA E ESGOTOS - DMAE', 'SAAE SERVICO AUTONOMO DE AGUA E ESGOTO',
+    'Servico Autonomo de Agua e Esgoto de Salto - Saae Salto',
 ])
 def test_e_devedor_publico(nome):
     assert RE_ENTE_PUBLICO.search(nome), nome
@@ -44,6 +48,12 @@ def test_e_devedor_publico(nome):
     'AAPB-ASSOCIACAO DOS APOSENTADOS E PENSIONISTAS BRASILEIROS DO INSS E FUNDOS DE PENSAO',
     'DF TRANSPORTES E LOGISTICA EIRELI - ME', 'COMPANHIA DE SANEAMENTO AMBIENTAL DO DISTRITO FEDERAL',
     'IPE COUNTRY CLUBE',
+    # revisão do PR #27: não são devedor público
+    'CAIXA DE ASSISTENCIA DOS SERVIDORES DO ESTADO DO MS',
+    'Ordem dos Advogados do Estado do Rio Grande do Sul',
+    'ORDEM DOS ADVOGADOS DO BRASIL SECCAO DO RS',
+    'Uniesp União das Inst Educ do Estado de São Paulo',
+    'FACULDADE DE DIREITO DO ESTADO DE SAO PAULO LTDA',
     # órgão público que não é DEVEDOR: está no passivo como intimado
     'Ministério Público do Estado de São Paulo', 'DEFENSORIA PÚBLICA DA UNIÃO',
     'Defensoria Pública da União no Estado de São Paulo', 'MINISTERIO PUBLICO DA UNIAO',
@@ -66,3 +76,48 @@ def test_flag_do_doc_so_olha_o_passivo():
                       {'nome': 'ESTADO DO RIO GRANDE DO SUL', 'polo': 'passivo'}])
     assert not flag_novo([{'nome': 'ESTADO DO RIO GRANDE DO SUL', 'polo': 'ativo'}])
     assert not flag_novo(None)
+
+
+def test_recalculo_es_trata_conflito_do_builder():
+    """`_update` com `if_seq_no`/`if_primary_term`: 409 é o builder ganhando a
+    corrida (ele já grava com o gate novo) — conta e segue; outro erro para."""
+    from django.core.management.base import CommandError
+
+    from search.management.commands.recalcular_ente_publico_es import Command
+    cmd = Command()
+    cmd._pedir = lambda caminho, corpo=None, dados=None: {'errors': True, 'items': [
+        {'update': {'status': 200}}, {'update': {'status': 409}}]}
+    assert cmd._escrever(['x']) == 1
+    cmd._pedir = lambda caminho, corpo=None, dados=None: {'errors': True, 'items': [
+        {'update': {'status': 400, 'error': 'mapper'}}]}
+    with pytest.raises(CommandError):
+        cmd._escrever(['x'])
+
+
+def test_recalculo_es_manda_controle_otimista():
+    import json as _json
+    from io import StringIO
+
+    from search.management.commands.recalcular_ente_publico_es import Command
+    chamadas = []
+    pagina = {'hits': {'hits': [{'_index': 'v-processos', '_id': '9', '_seq_no': 41,
+                                 '_primary_term': 3, '_source': {
+                                     'id': 9, 'tribunal': 'TJRS', 'tem_ente_publico_passivo': False,
+                                     'participacoes': [{'nome': 'ESTADO DO RIO GRANDE DO SUL',
+                                                        'polo': 'passivo'}]}}]}}
+
+    def pedir(caminho, corpo=None, dados=None):
+        chamadas.append((caminho, corpo, dados))
+        if caminho.endswith('_search'):
+            assert corpo['seq_no_primary_term'] is True
+            return pagina if len(chamadas) == 1 else {'hits': {'hits': []}}
+        return {'errors': False}
+
+    cmd = Command(stdout=StringIO(), stderr=StringIO())
+    cmd._pedir = pedir
+    with __import__('unittest.mock').mock.patch('requests.Session'):
+        cmd.handle(tribunal=None, apply=True, pagina=1, limite=0, sleep=0)
+    bulk = next(c for c in chamadas if c[0] == '/_bulk')[2].decode().splitlines()
+    acao = _json.loads(bulk[0])['update']
+    assert (acao['if_seq_no'], acao['if_primary_term']) == (41, 3)
+    assert _json.loads(bulk[1]) == {'doc': {'tem_ente_publico_passivo': True}}

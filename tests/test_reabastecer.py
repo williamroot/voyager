@@ -81,7 +81,7 @@ def test_enfileira_ate_capacidade():
          patch('enrichers.jobs._filtrar_em_voo', side_effect=lambda c, s, ids, n: ids[:n]), \
          patch('tribunals.models.Process.objects', _process_objects(pend)):
         rel = jobs._reabastecer_impl()
-    assert [c.args[1] for c in q.enqueue.call_args_list] == pend
+    assert [c.kwargs['args'][0] for c in q.enqueue.call_args_list] == pend
     assert '+5' in rel['TJX']
 
 
@@ -101,7 +101,7 @@ def test_nao_reenfileira_processo_em_voo():
          patch('enrichers.jobs._profundidade_alvo', return_value=2_000), \
          patch('tribunals.models.Process.objects', _process_objects(pend)):
         jobs._reabastecer_impl()
-    assert [c.args[1] for c in q.enqueue.call_args_list] == [11]
+    assert [c.kwargs['args'][0] for c in q.enqueue.call_args_list] == [11]
     # e só o 11 foi marcado em voo — marcar os outros seria mentira
     (chave, mapa), _ = q.connection.zadd.call_args
     assert chave == 'enr:inflight:tjx'
@@ -170,7 +170,7 @@ def test_refill_fecha_a_faixa_fora_da_fonte_em_LOTE_e_nao_a_enfileira():
         rel = jobs._reabastecer_impl()
 
     # só o processo do e-SAJ virou job
-    assert [c.args[1] for c in q.enqueue.call_args_list] == [3]
+    assert [c.kwargs['args'][0] for c in q.enqueue.call_args_list] == [3]
     # os dois do eproc saíram de `pendente` por UPDATE, com carimbo de tempo
     update_kw = qs.filter.return_value.update.call_args.kwargs
     assert update_kw['enriquecimento_status'] == 'nao_encontrado'
@@ -192,6 +192,6 @@ def test_tribunal_sem_faixa_medida_nao_perde_ninguem():
          patch('enrichers.jobs.registrar_fora_do_esaj') as contador, \
          patch('tribunals.models.Process.objects', _process_objects([1, 2, 3])):
         rel = jobs._reabastecer_impl()
-    assert [c.args[1] for c in q.enqueue.call_args_list] == [1, 2, 3]
+    assert [c.kwargs['args'][0] for c in q.enqueue.call_args_list] == [1, 2, 3]
     contador.assert_not_called()
     assert 'fora da fonte' not in rel['TJX']

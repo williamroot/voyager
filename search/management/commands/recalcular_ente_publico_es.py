@@ -66,13 +66,18 @@ class Command(BaseCommand):
             filtro.append({'terms': {'tribunal': [t.upper() for t in o['tribunal']]}})
 
         lidos = 0
+        conflitos = 0
         mudou = collections.Counter()           # (tribunal, 'F->T'|'T->F')
         apos = None
         while True:
             corpo = {'size': o['pagina'], 'query': {'bool': {'filter': filtro}},
                      '_source': ['id', 'tribunal', 'tem_ente_publico_passivo',
                                  'participacoes.nome', 'participacoes.polo'],
-                     'sort': [{'id': 'asc'}], 'track_total_hits': False}
+                     'sort': [{'id': 'asc'}], 'track_total_hits': False,
+                     # controle otimista: o `_update` só vale se o doc ainda é
+                     # o que lemos — senão o builder o reescreveu (com o gate
+                     # novo) entre a leitura e a escrita, e quem ganha é ele.
+                     'seq_no_primary_term': True}
             if apos is not None:
                 corpo['search_after'] = [apos]
             hits = self._pedir(f'/{indice}/_search', corpo)['hits']['hits']
@@ -85,12 +90,12 @@ class Command(BaseCommand):
                 novo = flag_novo(s.get('participacoes'))
                 if novo != atual:
                     mudou[(s.get('tribunal') or '?', 'F->T' if novo else 'T->F')] += 1
-                    linhas.append(json.dumps({'update': {'_index': h['_index'], '_id': h['_id']}}))
+                    linhas.append(json.dumps({'update': {
+                        '_index': h['_index'], '_id': h['_id'],
+                        'if_seq_no': h['_seq_no'], 'if_primary_term': h['_primary_term']}}))
                     linhas.append(json.dumps({'doc': {'tem_ente_publico_passivo': novo}}))
             if o['apply'] and linhas:
-                resp = self._pedir('/_bulk', dados=('\n'.join(linhas) + '\n').encode())
-                if resp.get('errors'):
-                    raise CommandError('bulk com erros — parei para não seguir às cegas')
+                conflitos += self._escrever(linhas)
             lidos += len(hits)
             apos = hits[-1]['_source']['id']
             if lidos % (o['pagina'] * 50) == 0:
@@ -113,4 +118,23 @@ class Command(BaseCommand):
                               f'T->F {por_trib[t].get("T->F", 0):>9,}')
         modo = 'APLICADO' if o['apply'] else 'DRY-RUN — nada escrito'
         self.stdout.write(self.style.SUCCESS(
-            f'{modo}: {lidos:,} docs lidos, {sum(mudou.values()):,} com o flag diferente.'))
+            f'{modo}: {lidos:,} docs lidos, {sum(mudou.values()):,} com o flag diferente'
+            + (f', {conflitos:,} reescritos pelo builder no meio (não tocados)' if conflitos else '')
+            + '.'))
+
+    def _escrever(self, linhas) -> int:
+        """Bulk `_update` condicional. Devolve quantos deram 409 (versão nova do
+        doc — o builder já gravou com o gate novo). Qualquer OUTRO erro para."""
+        resp = self._pedir('/_bulk', dados=('\n'.join(linhas) + '\n').encode())
+        if not resp.get('errors'):
+            return 0
+        conflitos = 0
+        for item in resp.get('items') or []:
+            r = item.get('update') or {}
+            if r.get('status', 200) < 300:
+                continue
+            if r.get('status') == 409:
+                conflitos += 1
+                continue
+            raise CommandError(f'bulk com erro que não é conflito: {str(r)[:300]}')
+        return conflitos

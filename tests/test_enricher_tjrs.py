@@ -24,7 +24,11 @@ from enrichers.busca.registry import CATALOGO, buscador
 from enrichers.busca.rest import BuscaTjrs
 from enrichers.busca.rest_parser import parse_tjrs_nomes, parse_tjrs_processos
 from enrichers.fingerprints import (
+    CHAVES_TJRS_CONHECIDAS,
+    BundleTjrsMudouError,
     altcha_formulario,
+    bundle_principal_tjrs,
+    chaves_do_bundle_tjrs,
     comarca_tjrs,
     credencial_tjrs,
     resolver_altcha,
@@ -88,9 +92,16 @@ def _enricher(api: list, **kw) -> TjrsEnricher:
 
 
 @pytest.fixture(autouse=True)
-def _sem_cortex():
-    with patch('enrichers.tjrs.cortex_proxy_url', return_value=None):
+def _sem_cortex(settings):
+    # Pool de credenciais e chaves do bundle vivem no cache: cada teste com o seu.
+    settings.CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+                                   'LOCATION': 'tjrs-testes'}}
+    from django.core.cache import cache
+    cache.clear()
+    with patch('enrichers.tjrs.cortex_proxy_url', return_value=None), \
+            patch('enrichers.tjrs.chaves_tjrs', return_value=CHAVES_TJRS_CONHECIDAS):
         yield
+    cache.clear()
 
 
 # ─────────────────────────── credencial ALTCHA ───────────────────────────
@@ -114,12 +125,49 @@ def test_altcha_formulario_e_btoa_do_json_compacto():
     assert b' ' not in base64.b64decode(altcha_formulario(sol))
 
 
-def test_credencial_identica_a_da_spa():
-    """Vetor tirado do console da própria SPA (Chromium, 16/10/2026): o
-    interceptor registrou a credencial que ELA calculou para este usuário."""
-    assert credencial_tjrs('ChaAnon_89605450504550') == (
+def test_credencial_do_bundle_de_15_10_identica_a_da_spa():
+    """Vetor do console da própria SPA (Chromium com o bundle `main.3ce0…`,
+    constantes 60029/92120): o interceptor registrou a credencial que ELA
+    calculou para este usuário."""
+    assert credencial_tjrs('ChaAnon_89605450504550', (60029, 92120)) == (
         'Q2hhQW5vbl84OTYwNTQ1MDUwNDU1MDo2MmQ1MTM3MzQ2NmNlY2ZiODc5NzUzNDNjZTI1'
         'Y2I0NDA0YTgzMTllYzJmOGEwZjY3ZTNkNmQxYTUyZjNiYzRk')
+
+
+def test_credencial_do_bundle_vivo_aceita_pela_api():
+    """Vetor de 16/10/2026 com o bundle `main.667e…` (60029/92125): esta
+    credencial levou **200** em `/consultaProcesso`; a mesma com 92120, 401."""
+    usuario = 'ChaAnon_14336925147968'
+    assert credencial_tjrs(usuario, (60029, 92125)) == (
+        'Q2hhQW5vbl8xNDMzNjkyNTE0Nzk2ODo5MzAyMjgzOTlhMjM4YTJiYzczMDU2Y2QwZmQ2NGM0MDU2'
+        'ODllNmRmNmQ2MTZlM2E2ODhjZWQxZjJjOGVkZWIw')
+    assert credencial_tjrs(usuario, (60029, 92120)) != credencial_tjrs(usuario)
+    assert CHAVES_TJRS_CONHECIDAS == (60029, 92125)
+
+
+@pytest.mark.parametrize('arquivo,esperado', [
+    ('spa_main_obfuscation_2026-10-15.js.txt', (60029, 92120)),
+    ('spa_main_obfuscation_2026-10-16.js.txt', (60029, 92125)),
+])
+def test_chaves_lidas_do_trecho_real_do_bundle(arquivo, esperado):
+    assert chaves_do_bundle_tjrs((FIX / arquivo).read_text()) == esperado
+
+
+def test_bundle_com_formula_diferente_nao_e_lido_no_chute():
+    trecho = (FIX / 'spa_main_obfuscation_2026-10-16.js.txt').read_text()
+    with pytest.raises(BundleTjrsMudouError):
+        chaves_do_bundle_tjrs(trecho.replace('"@"+x.toString()', '"#"+x.toString()'))
+    with pytest.raises(BundleTjrsMudouError):
+        chaves_do_bundle_tjrs(trecho + 'y=oe%BigInt(7)+BigInt(8)')
+    with pytest.raises(BundleTjrsMudouError):
+        chaves_do_bundle_tjrs('nada aqui')
+
+
+def test_index_da_spa_aponta_o_bundle():
+    html = (FIX / 'spa_index_scripts_2026-10-16.html.txt').read_text()
+    assert bundle_principal_tjrs(html) == 'main.667e4d4a4b94df67.js'
+    with pytest.raises(BundleTjrsMudouError):
+        bundle_principal_tjrs('<html></html>')
 
 
 @pytest.mark.parametrize('cnj,esperado', [
@@ -318,7 +366,8 @@ def _busca(api):
 
 def test_busca_nome_dois_passos():
     b = _busca([
-        _resp(_json('eproc_busca_nomes_parte.json')),
+        _resp(_json('eproc_busca_nomes_parte.json')),                 # partes, ativos
+        _resp(_json('eproc_busca_nomes_parte.json')),                 # partes, baixados
         _resp(_json('eproc_processos_por_cod_parte.json')),           # situação A
         _resp(_json('eproc_processos_por_cod_parte.json')),           # situação B (repetidos)
     ])
@@ -327,8 +376,10 @@ def test_busca_nome_dois_passos():
     assert '5232029-64.2026.8.21.0001' in cnjs
     assert len(cnjs) == len(set(cnjs))
     chamadas = [c for c in b.enricher.session.chamadas if '/v1/' in c[0]]
-    assert chamadas[1][1]['codParte1g'] == '10000000000000000000000000001'
-    assert {chamadas[1][1]['situacao'], chamadas[2][1]['situacao']} == {'A', 'B'}
+    assert {chamadas[0][1]['situacao'], chamadas[1][1]['situacao']} == {'A', 'B'}
+    assert chamadas[2][1]['codParte1g'] == '10000000000000000000000000001'
+    assert {chamadas[2][1]['situacao'], chamadas[3][1]['situacao']} == {'A', 'B'}
+    assert paginas[-1].tem_proxima is False
 
 
 def test_busca_oab_janelas_ate_404():
@@ -397,3 +448,189 @@ def test_advogados_do_djen_sobrevivem_ao_enriquecimento():
     assert ('MARIA EXEMPLO DA SILVA', 'ativo', 'EXEQUENTE', None) in linhas
     assert not any(n == 'MARIA EXEMPLO DA SILVA' and f == 'djen' for n, _, _, f in linhas)
     assert ('ESTADO DO RIO GRANDE DO SUL', 'passivo', 'EXECUTADO', None) in linhas
+
+
+# ─────────────────── revisão do PR #27: pool, bundle, busca ───────────────────
+
+def test_pool_reaproveita_a_credencial_entre_instancias():
+    """Duas instâncias (duas réplicas) dividem a mesma credencial: 7 consultas,
+    1 submit — não 7 submits."""
+    fichas = [_resp(_json('consulta_processo_cumprimento_rpv.json')) for _ in range(7)]
+    a, b = _enricher(fichas[:4]), _enricher(fichas[4:])
+    with patch('enrichers.tjrs.stream.publish'):
+        for _ in range(4):
+            assert a.enriquecer(_processo())['status'] == 'ok'
+        for _ in range(3):
+            assert b.enriquecer(_processo())['status'] == 'ok'
+    assert a.session.submits + b.session.submits == 1
+
+
+def test_pool_concorrente_nunca_passa_de_7_por_credencial():
+    import threading
+    from collections import Counter
+
+    from enrichers.tjrs_credencial import PoolCredenciais
+    pool = PoolCredenciais(CHAVES_TJRS_CONHECIDAS)
+    usos, geradas, trava = Counter(), [0], threading.Lock()
+
+    def consultar():
+        for _ in range(20):
+            cred = pool.pegar()
+            if not cred:
+                with trava:
+                    geradas[0] += 1
+                    cred = f'cred-{geradas[0]}'
+                pool.publicar(cred, 7)
+            with trava:
+                usos[cred] += 1
+
+    threads = [threading.Thread(target=consultar) for _ in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sum(usos.values()) == 16 * 20
+    assert max(usos.values()) <= 7
+    # Corrida só desperdiça um pouco, nunca reusa além do limite.
+    assert geradas[0] <= (16 * 20) // 7 + 16
+
+
+def test_401_em_serie_rele_o_bundle_uma_vez_e_segue_com_as_chaves_novas():
+    """O caso de 16/10: a SPA trocou a constante. 3 x 401 com a antiga →
+    relê o bundle → chaves novas → 200."""
+    e = _enricher([_resp(b'', 401), _resp(b'', 401), _resp(b'', 401),
+                   _resp(_json('consulta_processo_cumprimento_rpv.json'))],
+                  usernames=('ChaAnon_1', 'ChaAnon_2', 'ChaAnon_3', 'ChaAnon_4'))
+    leituras = []
+
+    def chaves(sessao, forcar=False):
+        leituras.append(forcar)
+        return (60029, 92125) if forcar else (60029, 92120)
+
+    with patch('enrichers.tjrs.chaves_tjrs', side_effect=chaves), \
+            patch('enrichers.tjrs.stream.publish') as pub:
+        r = e.enriquecer(_processo())
+    assert r['status'] == 'ok'
+    assert leituras == [False, True]
+    assert pub.call_args[0][0]['status'] == 'ok'
+    assert e.session.chamadas[-1][2]['Authorization'] == \
+        'Basic ' + credencial_tjrs('ChaAnon_4', (60029, 92125))
+
+
+def test_401_com_bundle_igual_arma_respiro_depois_de_reler_uma_vez():
+    e = _enricher([_resp(b'', 401) for _ in range(5)])
+    leituras = []
+    with patch('enrichers.tjrs.chaves_tjrs',
+               side_effect=lambda s, forcar=False: leituras.append(forcar) or (60029, 92125)), \
+            patch('enrichers.tjrs.stream.publish') as pub, \
+            patch('enrichers.jobs.armar_respiro') as respiro:
+        r = e.enriquecer(_processo())
+    assert r['status'] == 'adiado'
+    assert leituras == [False, True]
+    respiro.assert_called_once()
+    pub.assert_not_called()
+
+
+def test_chaves_tjrs_le_index_e_bundle_e_guarda_no_cache():
+    from django.core.cache import cache
+
+    from enrichers.tjrs_credencial import chaves_tjrs as chaves_reais
+    html = (FIX / 'spa_index_scripts_2026-10-16.html.txt').read_text()
+    js = (FIX / 'spa_main_obfuscation_2026-10-16.js.txt').read_text()
+    sessao = MagicMock()
+    sessao.get.side_effect = lambda url, timeout=None: MagicMock(
+        text=js if url.endswith('.js') else html, raise_for_status=lambda: None)
+    assert chaves_reais(sessao) == (60029, 92125)
+    assert sessao.get.call_args_list[1].args[0].endswith('main.667e4d4a4b94df67.js')
+    sessao.get.reset_mock()
+    assert chaves_reais(sessao) == (60029, 92125)       # do cache, sem rede
+    sessao.get.assert_not_called()
+    assert cache.get('tjrs:spa:chaves:ultimo') == [60029, 92125]
+
+
+def test_chaves_tjrs_bundle_ilegivel_usa_o_ultimo_par():
+    from django.core.cache import cache
+
+    from enrichers.tjrs_credencial import chaves_tjrs as chaves_reais
+    cache.set('tjrs:spa:chaves:ultimo', [60029, 92125])
+    sessao = MagicMock()
+    sessao.get.return_value = MagicMock(text='<html>sem bundle</html>', raise_for_status=lambda: None)
+    assert chaves_reais(sessao, forcar=True) == (60029, 92125)
+
+
+def _cod_parte(n, inicio=0):
+    return {'data': [{'numeroCNJ': f'5{i:06d}0020268210001', 'numeroCNJFormatado':
+                      f'5{i:06d}-00.2026.8.21.0001', 'classeCNJ': 'X',
+                      'orgaoJulgador': {'nome': 'Y'}, 'dataDistribuicao': '01/01/2026'}
+                     for i in range(inicio, inicio + n)]}
+
+
+def test_busca_nome_le_todas_as_paginas_de_partes_e_avisa_das_grafias_nao_seguidas():
+    pag1 = {'data': [{'nome': 'MARIA EXEMPLO DA SILVA', 'cpfCnpj': '', 'codParte1g': '1'}]
+            + [{'nome': f'MARIA EXEMPLO {i}', 'cpfCnpj': '', 'codParte1g': f'x{i}'}
+               for i in range(499)]}
+    pag2 = {'data': [{'nome': 'MARIA EXEMPLO DA SILVA', 'cpfCnpj': '', 'codParte1g': '2'}]}
+    vazio = {'data': []}
+    b = _busca([_resp(pag1), _resp(pag2), _resp(vazio),
+                _resp(_cod_parte(3)), _resp(vazio), _resp(_cod_parte(2, 10)), _resp(vazio)])
+    paginas = list(b.paginar(NOME, 'Maria Exemplo da Silva'))
+    cnjs = [i.numero_cnj for p in paginas for i in p.itens]
+    assert len(cnjs) == 5                       # a grafia da página 2 também foi seguida
+    assert '499 grafia(s) parecida(s) não seguida(s)' in paginas[-1].aviso_fonte
+    assert [p.tem_proxima for p in paginas] == [True, False]
+
+
+def test_busca_pagina_so_de_repetidos_nao_encerra():
+    """Página cheia de repetidos não é o fim — o fim é a fonte dizer."""
+    cheia = _cod_parte(500)
+    b = _busca([_resp({'data': [{'nome': 'A B', 'codParte1g': '1'}]}), _resp({'data': []}),
+                _resp(cheia), _resp(cheia), _resp(_cod_parte(1, 900)), _resp({'data': []})])
+    cnjs = [i.numero_cnj for p in b.paginar(NOME, 'A B') for i in p.itens]
+    assert '5000900-00.2026.8.21.0001' in cnjs and len(cnjs) == 501
+
+
+def test_busca_teto_de_paginas_sai_como_truncado():
+    janelas = [_resp(_cod_parte(10, 100 * i)) for i in range(5)]
+    b = _busca(janelas)
+    paginas = list(b.paginar(OAB, 'RS1', teto_paginas=2))
+    assert len(paginas) == 2
+    assert paginas[-1].tem_proxima is True       # o job lê teto + tem_proxima = truncado
+
+
+@pytest.mark.parametrize('valor,esperado', [
+    ('RS083749', ('RS', '83749')), ('083749', ('RS', '83749')),
+    ('RS12345A', ('RS', '12345A')), ('12345A/SC', ('SC', '12345A')),
+    ('SC 012345', ('SC', '12345')),
+])
+def test_oab_preserva_letra_e_uf(valor, esperado):
+    from enrichers.busca.rest import oab_tjrs
+    assert oab_tjrs(valor) == esperado
+
+
+@pytest.mark.parametrize('a,b,mesma', [
+    ('MARIA EXEMPLO DA SILVA', 'MARIA EXEMPLO DA SILVA', True),
+    ('MARIA E. DA SILVA', 'MARIA EXEMPLO DA SILVA', True),
+    ('MARIA EXEMPLO DA SILVA', 'MARIA EXEMPLO DA SILVA SANTOS', True),
+    ('Maria Exemplo da Silva (EXEQUENTE)', 'MARIA EXEMPLO DA SILVA', True),
+    ('JOAO DA SILVA', 'MARIA DA SILVA', False),
+    ('MARIA', 'MARIA EXEMPLO DA SILVA', False),
+    ('MARIA SOUZA', 'MARIA EXEMPLO DA SILVA', False),
+])
+def test_mesma_pessoa(a, b, mesma):
+    from enrichers.tjrs import mesma_pessoa
+    assert mesma_pessoa(a, b) is mesma
+
+
+@pytest.mark.django_db
+def test_nome_abreviado_na_consulta_nao_duplica_a_parte_do_djen():
+    from tribunals.models import Parte, Process as Proc, ProcessoParte, Tribunal
+    t, _ = Tribunal.objects.get_or_create(sigla='TJRS', defaults={'nome': 'TJ RS',
+                                                                   'sigla_djen': 'TJRS'})
+    proc = Proc.objects.create(tribunal=t, numero_cnj='5232029-64.2026.8.21.0001')
+    cheia = Parte.objects.create(nome='MARIA EXEMPLO DA SILVA SANTOS', tipo='desconhecido')
+    ProcessoParte.objects.create(processo=proc, parte=cheia, polo='ativo', papel='', fonte='djen')
+    e = TjrsEnricher(pool=MagicMock())
+    partes = e.somar_partes_de_terceiros(proc.pk, {
+        'ativo': [{'nome': 'MARIA EXEMPLO DA SILVA', 'papel': 'EXEQUENTE'}],
+        'passivo': [], 'outros': []})
+    assert [p['nome'] for p in partes['ativo']] == ['MARIA EXEMPLO DA SILVA']

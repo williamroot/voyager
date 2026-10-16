@@ -75,10 +75,12 @@ RE_ENTE_PUBLICO_FEATURE_V1 = re.compile(
 #     como quem paga. No cadastro de entidades eles continuam ente público pelo
 #     complemento de `search/agg_estado.py`.
 #
-# Resultado na amostra: 15.934 → 17.748 processos com devedor público;
-# 1.943 false→true (40/40 conferidos à mão: Estados, PGE, previdência própria,
-# DETRAN, conselhos profissionais) e 129 true→false (129/129: 50 razões sociais
-# privadas e 79 Defensoria/MP da União). Detalhe por tribunal no PR #27.
+# Resultado na amostra: 15.934 → 17.761 processos com devedor público;
+# 1.956 false→true (40/40 sorteados conferidos à mão: Estados, PGE,
+# previdência própria, DETRAN, conselhos profissionais; e as 29 linhas de
+# SAAE/SAMAE/DMAE, todas autarquias municipais) e 129 true→false (129/129: 50
+# razões sociais privadas e 79 Defensoria/MP da União). Revisão do PR #27:
+# OAB, caixa de assistência e instituição de ensino privada também ficam fora.
 _UF = (r'(acre|alagoas|amap[áa]|amazonas|bahia|cear[áa]|esp[íi]rito\s+santo|goi[áa]s'
        r'|maranh[ãa]o|mato\s+grosso(\s+do\s+sul)?|minas\s+gerais|par[áa]|para[íi]ba'
        r'|paran[áa]|pernambuco|piau[íi]|rio\s+de\s+janeiro|rio\s+grande\s+do\s+(norte|sul)'
@@ -89,11 +91,16 @@ _RE_ENTE_POSITIVO = re.compile(
     r'|autarquia|prefeitura|df|distrito federal|funda[çc][ãa]o p[úu]blica)\b'
     r'|\bestados?\s+d[eoa]s?\s+' + _UF + r'\b'
     r'|\binstituto\s+(municipal\s+)?de\s+previd[êe]ncia\b|\bipergs\b'
-    r'|\bipe[\s-]?(prev|sa[úu]de)\b|\biprev\w*\b|\bdetran\b|\bdaer\b', re.I)
+    r'|\bipe[\s-]?(prev|sa[úu]de)\b|\biprev\w*\b|\bdetran\b|\bdaer\b'
+    # autarquia municipal de água e esgoto (SAMAE/SAAE/DMAE)
+    r'|\b(samae|saae|dmae)\b|\bservi[çc]o\s+aut[ôo]nomo\s+(municipal\s+)?de\s+[áa]gua'
+    r'|\bdepartamento\s+municipal\s+de\s+[áa]gua', re.I)
 _RE_FORMA_PRIVADA = re.compile(
     r'\b(ltda|eireli|epp|me|s\s?/\s?a|s\.\s?a\.?|s\s?a|cia|companhia|cooperativa'
     r'|associa[çc][ãa]o|sindicato|banco|seguradora|condom[íi]nio|servi[çc]o\s+social'
-    r'|clube|igreja)\b', re.I)
+    r'|clube|igreja|caixa\s+de\s+assist[êe]ncia|ordem\s+dos\s+advogados|oab'
+    r'|institui[çc][õo]es\s+(de\s+ensino|educacionais)|uniesp|faculdade'
+    r'|centro\s+universit[áa]rio)\b', re.I)
 _RE_COMECA_PELO_ENTE = re.compile(
     r'\s*(munic[íi]pio|prefeitura|estado\s+d|uni[ãa]o(\s+federal)?\s*($|[(\-/])'
     r'|fazenda\s+(p[úu]blica|nacional|do\s+estado|estadual|municipal)'
