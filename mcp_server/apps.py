@@ -11,8 +11,8 @@ class McpServerConfig(AppConfig):
 
     def ready(self):
         # O SDK `mcp` pode não estar instalado em todos os ambientes.
-        # O app não declara models próprios nem depende do import pra funcionar
-        # (as views em server.py são HTTP/JSON-RPC puras, sem usar o SDK).
+        # O app não depende do import pra funcionar (as views em server.py
+        # são HTTP/JSON-RPC puras, sem usar o SDK).
         # Tentamos importar só pra validar; se falhar, logamos e seguimos.
         try:
             import mcp  # noqa: F401

@@ -1,15 +1,25 @@
 """MCP Server — expõe tools e resources do Voyager pra LLMs/agentes."""
 import json
 import logging
+from dataclasses import dataclass
 
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 
-from . import delegates, macro
+from . import acesso, delegates, macro, oauth, tokens
 from .auth import check_rate_limit, validate_mcp_token
 
 logger = logging.getLogger('voyager.mcp.server')
+
+
+@dataclass(frozen=True)
+class Chamador:
+    """Quem está chamando: `c:<ApiClient.pk>` (token legado) ou `u:<User.id>` (OAuth)."""
+
+    chave: str
+    rotulo: str
 
 TOOLS = [
     {
@@ -423,22 +433,70 @@ for _t in TOOLS:
 def _extract_token(request):
     """Extrai MCP token do header Authorization ou query param."""
     auth = request.META.get('HTTP_AUTHORIZATION', '')
-    if auth.startswith('Bearer '):
-        return auth[7:].strip()
+    esquema, _, valor = auth.partition(' ')
+    if esquema.lower() == 'bearer' and valor.strip():
+        return valor.strip()
     return request.GET.get('token', '')
 
 
-def _auth_or_403(request):
-    """Valida auth. Retorna (cliente, None) ou (None, JsonResponse 403)."""
+def _negar(status, erro):
+    """401 leva o desafio OAuth (RFC 9728): é assim que o Claude descobre o
+    login. Até 16/10/2026 era 403 seco — e o conector do claude.ai, que só fala
+    OAuth, não tinha por onde entrar."""
+    resp = JsonResponse({'error': erro}, status=status)
+    resp['Cache-Control'] = 'no-store'
+    if status == 401 and oauth.base():
+        resp['WWW-Authenticate'] = oauth.desafio()
+    return resp
+
+
+def _origem_recusada(request):
+    """Origin fora da allowlist ⇒ 403 (MUST da spec contra DNS rebinding).
+    Sem Origin (Claude Code, curl, servidor→servidor) passa."""
+    origem = request.META.get('HTTP_ORIGIN')
+    if origem is None:
+        return False
+    permitidas = {o.rstrip('/') for o in settings.MCP_ALLOWED_ORIGINS}
+    if oauth.base():
+        permitidas.add(oauth.base())
+    return origem.rstrip('/') not in permitidas
+
+
+def _auth(request):
+    """Valida auth. Retorna (Chamador, None) ou (None, resposta de erro).
+
+    Dois caminhos: o token OAuth (login do dashboard + MCPAcesso, o do conector
+    do Claude) e o legado `ApiClient.mcp_token` (UUID, integrações e configs
+    antigas de Claude Code com header fixo).
+    """
+    if _origem_recusada(request):
+        return None, _negar(403, 'origin_recusada')
     token = _extract_token(request)
     if not token:
-        return None, JsonResponse({'error': 'token_ausente'}, status=403)
+        return None, _negar(401, 'token_ausente')
+
+    chamador = None
     cliente = validate_mcp_token(token)
-    if cliente is None:
-        return None, JsonResponse({'error': 'token_invalido'}, status=403)
-    if not check_rate_limit(cliente):
-        return None, JsonResponse({'error': 'rate_limit_excedido'}, status=429)
-    return cliente, None
+    if cliente is not None:
+        chamador = Chamador(chave=f'c:{cliente.pk}', rotulo=f'cliente={cliente.nome}')
+    elif oauth.base():
+        sessao = tokens.resolver_access(token)
+        if sessao is not None:
+            if not oauth.resource_valido(sessao.resource):
+                # Token emitido para outro recurso (audiência errada) não vale aqui
+                return None, _negar(401, 'token_invalido')
+            veredito = acesso.verificar(sessao.usuario_id)
+            if veredito == acesso.INDISPONIVEL:
+                return None, _negar(503, 'allowlist_indisponivel')
+            if veredito != acesso.PERMITIDO:
+                # verificar() já derrubou as sessões: o Claude reabre o login.
+                return None, _negar(401, 'acesso_revogado')
+            chamador = Chamador(chave=f'u:{sessao.usuario_id}', rotulo=f'usuario={sessao.usuario_id}')
+    if chamador is None:
+        return None, _negar(401, 'token_invalido')
+    if not check_rate_limit(chamador.chave):
+        return None, _negar(429, 'rate_limit_excedido')
+    return chamador, None
 
 
 @csrf_exempt
@@ -451,7 +509,7 @@ def mcp_descriptor(request):
         'transport': 'http',
         'tools': [{'name': t['name'], 'description': t['description'], 'inputSchema': t['inputSchema']}
                   for t in TOOLS],
-        'auth': {'type': 'bearer', 'header': 'Authorization'},
+        'auth': {'type': 'oauth2' if oauth.base() else 'bearer', 'header': 'Authorization'},
     })
 
 
@@ -527,7 +585,7 @@ def _call_tool(params, cliente):
     except Exception as e:
         logger.error('MCP tool=%s erro: %s', tool_name, e)
         raise _RpcError(-32603, f'Erro interno: {e}', http_status=500) from e
-    logger.info('MCP tool=%s cliente=%s', tool_name, cliente.nome if cliente else '?')
+    logger.info('MCP tool=%s %s', tool_name, cliente.rotulo if cliente else '?')
     return {
         'content': [{'type': 'text', 'text': json.dumps(result, default=str, ensure_ascii=False)}],
     }
@@ -618,7 +676,7 @@ def mcp_endpoint(request):
     """
     if request.method != 'POST':
         return HttpResponse(status=405, headers={'Allow': 'POST'})
-    cliente, err = _auth_or_403(request)
+    cliente, err = _auth(request)
     if err:
         return err
     try:
@@ -642,7 +700,7 @@ def mcp_endpoint(request):
 def _legacy(request):
     """Endpoints antigos (/mcp/messages, /mcp/resources): mesmo dispatch, mas
     erro de protocolo continua saindo com o status HTTP de antes."""
-    cliente, err = _auth_or_403(request)
+    cliente, err = _auth(request)
     if err:
         return err
     try:

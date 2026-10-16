@@ -84,7 +84,11 @@ voyager/
 │                   prompts); registra também as tools de dashboard/jurimetria_tools.py
 │                 - delegates.py: tools de processo/publicação (reusa api/ e search/)
 │                 - macro.py: panorama e perguntas sobre a base (agregar, visao_geral)
-│                 - auth.py: mcp_token + rate limit (token-bucket Redis)
+│                 - oauth.py: OAuth 2.1 embutido (DCR, PKCE, consentimento) —
+│                   o conector do Claude entra com o login do dashboard
+│                 - tokens.py: tokens/codes OAuth no Redis (só sha256)
+│                 - acesso.py + models.py: allowlist MCPAcesso (Django admin)
+│                 - auth.py: mcp_token legado + rate limit (token-bucket Redis)
 │                 - management/commands/: gerar_mcp_token
 ```
 

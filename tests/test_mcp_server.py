@@ -30,19 +30,19 @@ def test_mcp_descriptor_lista_todas_tools(client):
 
 
 @pytest.mark.django_db
-def test_mcp_messages_sem_token_403(client):
+def test_mcp_messages_sem_token_401(client):
     resp = client.post('/mcp/messages', data=json.dumps({'method': 'tools/list', 'id': 1}),
                         content_type='application/json')
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 @pytest.mark.django_db
-def test_mcp_messages_token_invalido_403(client):
+def test_mcp_messages_token_invalido_401(client):
     resp = client.post('/mcp/messages',
                         data=json.dumps({'method': 'tools/list', 'id': 1}),
                         content_type='application/json',
                         HTTP_AUTHORIZATION='Bearer token-invalido')
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 @pytest.mark.django_db
@@ -306,11 +306,11 @@ def test_mcp_streamable_http_erro_jsonrpc_no_corpo(client):
 
 
 @pytest.mark.django_db
-def test_mcp_endpoint_get_405_e_sem_token_403(client):
+def test_mcp_endpoint_get_405_e_sem_token_401(client):
     assert client.get('/mcp/').status_code == 405
     resp = client.post('/mcp/', data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}),
                        content_type='application/json')
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 def test_buscar_diarios_usa_servico_da_busca(monkeypatch):

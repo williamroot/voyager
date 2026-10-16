@@ -1609,7 +1609,24 @@ incerto (compat spec: "lista vazia quando não disponível").
 
 ## ApiClient.mcp_token
 
-UUID opcional pra auth no MCP server. Gerado via `python manage.py gerar_mcp_token <nome>`.
+UUID opcional pra auth no MCP server (caminho legado, token fixo). Gerado via
+`python manage.py gerar_mcp_token <nome>`.
+
+## MCPAcesso (`mcp_server/models.py`)
+
+Allowlist do conector do Claude (OAuth): ter conta no dashboard não basta.
+
+```python
+usuario      OneToOne User  CASCADE   # um usuário = um acesso
+ativo        bool                     # False ⇒ revogado_em = agora
+observacao   text
+criado_por   FK User NULL             # preenchido pelo admin
+criado_em / revogado_em / ultimo_uso  # ultimo_uso gravado no máx. a cada 5 min
+```
+
+Vale só com `ativo` **e** `usuario.is_active`. Admin só pra superusuário;
+revogar (ação ou checkbox) derruba as sessões OAuth na hora. Tokens não ficam
+no Postgres — ficam no Redis (`mcp:oauth:*`, ver `mcp_server/tokens.py`).
 
 ## PdfArquivo (`pdf_storage/models.py`)
 

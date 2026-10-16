@@ -431,6 +431,30 @@ hosts de workers — não rebuilde ~320 containers à toa (risco de OOM, ver inc
 
 `web` roda `migrate --noinput` + `collectstatic` no entrypoint. Migrations grandes (10+ min) tornam o `healthcheck` `unhealthy` temporariamente — workers ficam em `dependency failed to start` até o web ficar healthy. Não é problema, basta aguardar.
 
+## MCP pelo conector do Claude (OAuth) — ligar e liberar gente
+
+Desenho em `.ia/API.md` → *MCP Server* e ADR-039.
+
+1. `.env` do web: `MCP_PUBLIC_BASE_URL=https://voyager.was.dev.br` (sem barra).
+   Vazio = OAuth desligado (só o token fixo de `ApiClient` entra).
+2. Deploy do web (migration `mcp_server.0001_initial` roda no entrypoint).
+3. Liberar uma pessoa: Django admin → **Acessos ao MCP** → adicionar (o usuário
+   precisa existir e estar ativo). Revogar = ação "Revogar acesso" — derruba as
+   sessões na hora. Pelo shell:
+   `MCPAcesso.objects.create(usuario=User.objects.get(email=...))`.
+4. Conferir de fora (sem token tem de vir 401 com desafio, e o metadata 200):
+   ```bash
+   curl -si -X POST https://voyager.was.dev.br/mcp -d '{}' | grep -i 'www-authenticate'
+   curl -s https://voyager.was.dev.br/.well-known/oauth-authorization-server
+   ```
+5. Se o claude.ai falhar no "Connect" com 403/429 vindo da Cloudflare: isentar
+   `/mcp`, `/.well-known/*` e `/oauth/*` do WAF/Bot Fight Mode (ou liberar o
+   egress da Anthropic, `160.79.104.0/21`). **Não** pôr Cloudflare Access nesses
+   paths: ele devolve 302 pro login dele e o cliente MCP espera 401.
+
+Estado no Redis: `mcp:oauth:*` (tokens só como sha256). Derrubar TODAS as
+sessões de alguém: `mcp_server.tokens.revogar_usuario(<user_id>)`.
+
 ## Comandos do dia-a-dia
 
 ```bash

@@ -757,10 +757,25 @@ AWS_S3_FILE_OVERWRITE = False
 AWS_QUERYSTRING_EXPIRE = 604800  # 7 dias — presigned URL expira em 1 semana.
 
 # MCP server — Model Context Protocol pra LLMs/agentes conversarem sobre processos.
-# Transport SSE em /mcp/sse; auth via ApiClient.mcp_token (UUID).
+# Streamable HTTP em /mcp; auth por OAuth (login do dashboard + MCPAcesso) ou,
+# legado, ApiClient.mcp_token (UUID).
 MCP_RATE_LIMIT_RPM = env.int('MCP_RATE_LIMIT_RPM', default=60)
 # Gate: se True, expõe a tool classificacao_lead (score de ML). Default off.
 MCP_ENABLE_CLASSIFICACAO = env.bool('MCP_ENABLE_CLASSIFICACAO', default=False)
+# OAuth 2.1 embutido (mcp_server/oauth.py) — o que deixa o conector entrar
+# direto no Claude (web, desktop, mobile e Code) com o login do dashboard.
+# URL pública: é o issuer OAuth e a base do `resource` (…/mcp). Vazio = OAuth
+# DESLIGADO (as rotas /oauth/* e /.well-known/oauth-* respondem 503) — só o
+# token legado de ApiClient entra. Fail-closed: issuer não sai do Host da request.
+MCP_PUBLIC_BASE_URL = env('MCP_PUBLIC_BASE_URL', default='').strip().rstrip('/')
+# Origins aceitas no /mcp (MUST da spec contra DNS rebinding). A própria origem
+# pública entra sempre; request sem Origin (Claude Code, curl) passa.
+MCP_ALLOWED_ORIGINS = env.list('MCP_ALLOWED_ORIGINS', default=['https://claude.ai', 'https://claude.com'])
+MCP_ACCESS_TOKEN_TTL_S = env.int('MCP_ACCESS_TOKEN_TTL_S', default=3600)
+MCP_REFRESH_TOKEN_TTL_S = env.int('MCP_REFRESH_TOKEN_TTL_S', default=30 * 24 * 3600)
+# Cache do "permitido" da allowlist (MCPAcesso) por request; revogar no admin
+# corta em até isto. Negado nunca é cacheado.
+MCP_ALLOWLIST_CACHE_S = env.int('MCP_ALLOWLIST_CACHE_S', default=30)
 
 # Showcase do Extrator (/dashboard/ia/showcase/) — URLs por VERSÃO do modelo,
 # cada uma a raiz de um SDK standalone (FastAPI) servido num pod (extração 100%
