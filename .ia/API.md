@@ -427,7 +427,7 @@ um corte mudo.
 | ingestão por consulta | 1.000 processos | `enrichers/busca/ingestao.py` |
 | cache da mesma pergunta | 6 h | `api/busca_tribunal_views.py` |
 | buscas por minuto/cliente | 20 | idem |
-| **teto da FONTE** | 1.000 (e-SAJ) · 30 (PJe) · sem teto (TJPA, TJMT) | medido — `registry.py` |
+| **teto da FONTE** | 1.000 (e-SAJ) · 30 (PJe) · sem teto (TJPA, TJMT, TJRS) | medido — `registry.py` |
 
 Os nossos tetos são deliberadamente ≥ o da fonte: um teto interno menor faria a
 busca gastar o scraping, achar 823 processos e entregar 250 — e ainda chamar
@@ -446,7 +446,10 @@ do INSS no TRF3. Com 60 s, a busca por ente público grande morreria em
 Tamanho de página por fonte, medido: e-SAJ **25** (fixo, seguimos o link
 "próxima") · TJMT `Take` **50** (60 passa, 75 dá HTTP 422) · TJPA **25 a 56** —
 ele não respeita o valor pedido, então a parada é "não veio processo novo", e
-não a aritmética de páginas.
+não a aritmética de páginas · TJRS (15/10/2026, só **nome** e **OAB**): por nome
+500 por página do `codParte`; por OAB janelas de **2.000** linhas
+(`registroInicial … +1999`) até 404, com linhas repetidas entre janelas
+(deduplicadas). Detalhes em `.ia/ENRICHMENT.md` §TJRS.
 
 ## Busca de processos da TELA (`/dashboard/api/busca/*`)
 

@@ -1,0 +1,246 @@
+{
+ "data": [
+  {
+   "movimentos": {
+    "movimento": [
+     {
+      "data": "15/10/2026",
+      "descricao": "Requisição de pagamento de pequeno valor enviada -  RPV 260068055 incluída na fila de pagamentos da SEFAZ/RS",
+      "conclusaoAoJuiz": null,
+      "documentos": [],
+      "codDocumento": null,
+      "numero": 49,
+      "codMovimentoCNJ": null,
+      "julgadores": null,
+      "numeroProcessoCNJ": null,
+      "protocolo": null,
+      "complemento": null
+     },
+     {
+      "data": "15/10/2026",
+      "descricao": "Disponibilizado no DJEN - no dia 15/10/2026 - Refer. ao Evento: 43",
+      "conclusaoAoJuiz": null,
+      "documentos": [],
+      "codDocumento": null,
+      "numero": 48,
+      "codMovimentoCNJ": null,
+      "julgadores": null,
+      "numeroProcessoCNJ": null,
+      "protocolo": null,
+      "complemento": null
+     },
+     {
+      "data": "15/10/2026",
+      "descricao": "Disponibilizado no DJEN - no dia 15/10/2026 - Refer. ao Evento: 40",
+      "conclusaoAoJuiz": null,
+      "documentos": [],
+      "codDocumento": null,
+      "numero": 47,
+      "codMovimentoCNJ": null,
+      "julgadores": null,
+      "numeroProcessoCNJ": null,
+      "protocolo": null,
+      "complemento": null
+     },
+     {
+      "data": "14/10/2026",
+      "descricao": "Requisição de pagamento de pequeno valor enviada - RPV NR 260068055 transmitida para SEFAZ/RS",
+      "conclusaoAoJuiz": null,
+      "documentos": [],
+      "codDocumento": null,
+      "numero": 46,
+      "codMovimentoCNJ": null,
+      "julgadores": null,
+      "numeroProcessoCNJ": null,
+      "protocolo": null,
+      "complemento": null
+     },
+     {
+      "data": "14/10/2026",
+      "descricao": "Ato ordinatório praticado   Documento encaminhado à disponibilização no Diário Eletrônico - no dia 15/10/2026 - Refer. ao Evento: 43",
+      "conclusaoAoJuiz": null,
+      "documentos": [
+       {
+        "desDocumento": "ATO ORDINATÓRIO",
+        "linkDocumento": "https://eproc1g.tjrs.jus.br/eproc/controlador.php?acao=acessar_documento_publico&doc=0&evento=40400826&key=0000&hash=0000",
+        "seqDocumento": 1
+       }
+      ],
+      "codDocumento": null,
+      "numero": 45,
+      "codMovimentoCNJ": null,
+      "julgadores": null,
+      "numeroProcessoCNJ": null,
+      "protocolo": null,
+      "complemento": null
+     }
+    ]
+   },
+   "partes": {
+    "parte": [
+     {
+      "advogados": {
+       "advogado": [
+        {
+         "nome": null,
+         "oab": null
+        }
+       ]
+      },
+      "descricaoTipo": "EXEQUENTE",
+      "nome": "MARIA EXEMPLO DA SILVA"
+     },
+     {
+      "advogados": {
+       "advogado": [
+        {
+         "nome": null,
+         "oab": null
+        }
+       ]
+      },
+      "descricaoTipo": "EXECUTADO",
+      "nome": "ESTADO DO RIO GRANDE DO SUL"
+     }
+    ]
+   },
+   "localAutosEletronicos": null,
+   "assuntoCNJ": "Licença-Prêmio, Licenças / Afastamentos, Servidor Público Civil, DIREITO ADMINISTRATIVO E OUTRAS MATÉRIAS DE DIREITO PÚBLICO",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "codigoComarca": "1",
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "dataDistribuicao": "12/08/2026 10:37:13",
+   "folhas": null,
+   "indTipoProcesso": "E",
+   "numero": null,
+   "numeroCNJ": "52320296420268210001",
+   "numeroCNJFormatado": "5232029-64.2026.8.21.0001",
+   "numeroFormatado": null,
+   "orgaoJulgador": {
+    "nome": "2º Juízo do 2º Juizado Especial da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": {
+     "nome": null
+    }
+   },
+   "segredoJustica": false,
+   "situacao": null,
+   "tipoProcesso": "EPROC",
+   "volumes": null,
+   "numeroAntigo": null,
+   "dataPropositura": null,
+   "nomeSecao": null,
+   "nomeClasse": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "nomeNatureza": "Licença-Prêmio, Licenças / Afastamentos, Servidor Público Civil, DIREITO ADMINISTRATIVO E OUTRAS MATÉRIAS DE DIREITO PÚBLICO",
+   "situacaoProcesso": "MOVIMENTO",
+   "reuIdoso": "N",
+   "classe": null,
+   "natureza": {
+    "codigo": "01111403",
+    "nome": "Licença-Prêmio, Licenças / Afastamentos, Servidor Público Civil, DIREITO ADMINISTRATIVO E OUTRAS MATÉRIAS DE DIREITO PÚBLICO",
+    "naturezaThemis": null
+   },
+   "numeroProcessoPrincipal": null,
+   "processoOrigem": {
+    "numeroProcessoOrigem": "53002417420258210001",
+    "codigoComarcaOrigem": null,
+    "municipioOrigem": null,
+    "varaOrigem": null
+   },
+   "processosVinculados": [
+    {
+     "nomeParte": null,
+     "numero": null,
+     "numeroAntigo": null,
+     "numeroCNJFormatado": null,
+     "codigoClasseCNJ": null,
+     "classeCNJ": null,
+     "assuntoCNJ": null,
+     "numeroFormatado": null,
+     "siglaTipoCamara": null,
+     "anoCodSessao": null,
+     "classe": null,
+     "codigoClasse": null,
+     "nomeClasse": null,
+     "sessao": null,
+     "nomeSecao": null,
+     "codigoSessao": null,
+     "codigoComarca": "0001",
+     "nomeComarca": null,
+     "tribunal": null,
+     "natureza": null,
+     "codigoNatureza": null,
+     "nomeNatureza": null,
+     "processoPrincipal": null,
+     "numeroProcessoPrincipal": null,
+     "segredoJustica": null,
+     "orgaoJulgador": null,
+     "numeroOrgaoJulgador": null,
+     "nomeOrgaoJulgador": null,
+     "peticaoEletronica": null,
+     "numeroPeticaoEletronica": null,
+     "dataUltimaMovimentacao": null,
+     "movimento": null,
+     "comarca": null,
+     "vara": null,
+     "nomeVara": null,
+     "juizado": null,
+     "ultimaAtualizacao": null,
+     "dataPropositura": null,
+     "dataDaBaixa": null,
+     "valorDaAcao": null,
+     "arquivamento": null,
+     "ultimoJulgamento": null,
+     "ultimoMovimento": null,
+     "status": null,
+     "movimentos": [],
+     "partes": [],
+     "audiencias": [],
+     "termosAudiencias": [],
+     "sentencas": [],
+     "despachos": [],
+     "processosVinculados": [],
+     "notas": [],
+     "mandados": [],
+     "classeThemis": null,
+     "tipoProcesso": null,
+     "numeroCNJ": "53002417420258210001",
+     "situacao": null,
+     "situacaoProcesso": null,
+     "cpfCnpj": null,
+     "acordaosDecisoes": null,
+     "outrasDecisoesDespachos": null,
+     "depositosJudiciais": [],
+     "leiloesPracas": [],
+     "alvaras": [],
+     "guias": [],
+     "processosDeprecados": [],
+     "processoOrigem": null,
+     "localAutosEletronicos": null,
+     "reuIdoso": null,
+     "folhas": null,
+     "volumes": null,
+     "nomeForo": null,
+     "dataDistribuicao": null,
+     "nomeDelegacia": null,
+     "codigoDelegacia": null,
+     "mniVinculo": null,
+     "codAssuntoCNJ": null,
+     "codClasseCNJ": null,
+     "indTipoProcesso": null,
+     "nomeAdvogado": null,
+     "especializacao": null,
+     "outrosParametros": [],
+     "anoCodigoNE": null,
+     "juiz": null,
+     "totalMovimentos": null
+    }
+   ]
+  }
+ ],
+ "exceptionKey": 0,
+ "messages": null,
+ "uri": null
+}

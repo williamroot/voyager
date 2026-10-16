@@ -31,6 +31,8 @@ from .rest_parser import (
     parse_tjmt,
     parse_tjpa,
     parse_tjpa_nomes,
+    parse_tjrs_nomes,
+    parse_tjrs_processos,
     rota_tjpa,
 )
 
@@ -296,3 +298,112 @@ class BuscaTjpa(_BuscaRest):
             yield resultado
             pagina += 1
             time.sleep(self.PAUSA_ENTRE_PAGINAS_S)
+
+
+class BuscaTjrs(BuscaPorParte):
+    """Consulta processual pública do TJRS (eproc) — rotas lidas do bundle da SPA.
+
+    Dois critérios, os dois exercitados ao vivo em 15/10/2026:
+
+    * **nome** — em DOIS passos, como a SPA: `eprocBuscaPorNomesDaParte`
+      devolve as PARTES (nome, CPF/CNPJ mascarado, `codParte1g`/`codParte2g`)
+      e `eprocBuscaProcessosPorCodParte` lista os processos de cada uma. Só as
+      grafias iguais ao nome pedido seguem (ver `parse_tjrs_nomes`).
+    * **oab** — `eprocBuscaProcessosPorOAB`. A janela é `registroInicial` …
+      `registroInicial + 1999` (2.000 linhas por chamada, qualquer que seja o
+      `registroFinal`) e o fim é **404** "Nenhum registro". Medido com uma OAB
+      real de Porto Alegre: janelas 1, 1001 e 2001 trouxeram 2.000, 2.000 e
+      1.433 linhas; 3001 deu 404; 3.394 processos distintos na união. A mesma
+      linha volta em janelas vizinhas — paginamos de 2.000 em 2.000 e
+      deduplicamos.
+
+    Fora: **documento** (a consulta pública não busca por CPF/CNPJ — só mostra
+    a máscara no resultado do nome) e **advogado** por nome (não há rota).
+    Situação: a API separa Ativos (`A`) de Baixados (`B`); a coleta pede as
+    duas, senão o processo arquivado some da resposta.
+    """
+
+    CRITERIOS_SUPORTADOS = frozenset({NOME, OAB})
+    TETO_DA_FONTE = None
+    POR_PAGINA = 500
+    JANELA_OAB = 2000
+    SITUACOES = ('A', 'B')
+    TIMEOUT_BUSCA = (10, 180)
+    PAUSA_ENTRE_PAGINAS_S = 0.5
+
+    def __init__(self, enricher_cls, prefer_cortex: bool | None = None):
+        self.enricher = enricher_cls(prefer_cortex=bool(prefer_cortex))
+        self.TRIBUNAL = enricher_cls.TRIBUNAL_SIGLA
+
+    def _get(self, caminho: str, params: dict):
+        from enrichers.tjrs import TjrsEnricherError
+        try:
+            status, corpo = self.enricher.get_api(caminho, params, timeout=self.TIMEOUT_BUSCA)
+        except TjrsEnricherError as exc:
+            raise FonteIndisponivel(f'TJRS: {exc}') from exc
+        return None if status == 404 else corpo
+
+    def partes_por_nome(self, nome: str) -> list[dict]:
+        corpo = self._get('/eprocBuscaPorNomesDaParte', {
+            'totalRegistrosPorPagina': '500', 'numeroPagina': '1',
+            'nomeParte': nome, 'tipoPesquisa': 'F', 'situacao': 'A', 'perfil': '0'})
+        return parse_tjrs_nomes(corpo, nome)
+
+    def paginar(self, criterio: str, valor: str,
+                teto_paginas: int = 40) -> Iterator[PaginaResultado]:
+        self.exigir_suporte(criterio)
+        if criterio == OAB:
+            yield from self._paginar_oab(valor, teto_paginas)
+        else:
+            yield from self._paginar_nome(valor, teto_paginas)
+
+    def _paginar_nome(self, nome: str, teto_paginas: int) -> Iterator[PaginaResultado]:
+        vistos: set[str] = set()
+        pagina_global = 0
+        for parte in self.partes_por_nome(nome):
+            for situacao in self.SITUACOES:
+                numero = 1
+                while pagina_global < teto_paginas:
+                    params = {'totalRegistrosPorPagina': str(self.POR_PAGINA),
+                              'numeroPagina': str(numero),
+                              'codParte1g': parte['codParte1g'],
+                              'tipoPesquisa': 'F', 'situacao': situacao, 'perfil': '0'}
+                    if parte['codParte2g']:
+                        params['codParte2g'] = parte['codParte2g']
+                    corpo = self._get('/eprocBuscaProcessosPorCodParte', params)
+                    linhas = len((corpo or {}).get('data') or [])
+                    itens = [i for i in parse_tjrs_processos(corpo)
+                             if i.numero_cnj not in vistos]
+                    pagina_global += 1
+                    if itens:
+                        vistos.update(i.numero_cnj for i in itens)
+                        yield PaginaResultado(itens=itens, pagina=pagina_global,
+                                              tem_proxima=True)
+                    if linhas < self.POR_PAGINA or not itens:
+                        break
+                    numero += 1
+                    time.sleep(self.PAUSA_ENTRE_PAGINAS_S)
+
+    def _paginar_oab(self, valor: str, teto_paginas: int) -> Iterator[PaginaResultado]:
+        uf = (re.sub(r'[^A-Za-z]', '', valor or '') or 'RS').upper()[:2]
+        numero = str(int(_so_digitos(valor) or '0'))
+        vistos: set[str] = set()
+        pagina_global = 0
+        for situacao in self.SITUACOES:
+            inicio = 1
+            while pagina_global < teto_paginas:
+                corpo = self._get('/eprocBuscaProcessosPorOAB', {
+                    'ufOAB': uf, 'numeroOAB': numero, 'situacao': situacao,
+                    'registroInicial': str(inicio),
+                    'registroFinal': str(inicio + self.JANELA_OAB - 1),
+                    'comarca': '', 'ordenarPor': 'M'})
+                pagina_global += 1
+                if corpo is None:
+                    break
+                itens = [i for i in parse_tjrs_processos(corpo) if i.numero_cnj not in vistos]
+                if not itens:
+                    break
+                vistos.update(i.numero_cnj for i in itens)
+                yield PaginaResultado(itens=itens, pagina=pagina_global, tem_proxima=True)
+                inicio += self.JANELA_OAB
+                time.sleep(self.PAUSA_ENTRE_PAGINAS_S)

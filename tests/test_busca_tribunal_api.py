@@ -91,7 +91,7 @@ def test_post_cria_run_e_devolve_202(http):
 def test_tribunal_sem_busca_e_400_que_diz_quais_existem(http):
     resp = http.post(reverse('busca-tribunal-criar'),
                      {'criterio': 'nome', 'valor': 'MARIA DA SILVA',
-                      'tribunais': ['TJRS']})
+                      'tribunais': ['TJSC']})
     assert resp.status_code == 400
     assert resp.json()['erro'] == 'tribunal_sem_busca'
     assert 'TJSP' in resp.json()['mensagem']

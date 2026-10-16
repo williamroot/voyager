@@ -1,0 +1,13 @@
+{
+ "data": [
+  {
+   "nome": "MARIA EXEMPLO DA SILVA",
+   "cpfCnpj": "123.4**.***-**",
+   "codParte1g": "10000000000000000000000000001",
+   "codParte2g": null
+  }
+ ],
+ "exceptionKey": 0,
+ "messages": null,
+ "uri": null
+}

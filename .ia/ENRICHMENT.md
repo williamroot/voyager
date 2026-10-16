@@ -32,7 +32,38 @@ DJEN dá só metadata da movimentação (texto, tipo, órgão). Pra **partes** (
 | TJAC | e-SAJ clássico **+ eproc (65,7% do que publica)** | **Sim** (só o e-SAJ) (2026-06-29) | `enrichers/esaj.py::TjacEnricher` (subclasse) — `esaj.tjac.jus.br`, 2º grau `cposg5`. |
 | TJMT | PJe SPA Angular + REST (sem login) | **Sim** (2026-06-29) | `enrichers/tjmt.py` (classe própria). API gateway `hellsgate.tjmt.jus.br/consultaprocessual/ProcessosJudiciais/v2?numeroUnico=`. Exige header `X-Fingerprint` = base64(HMAC-SHA256("UA-resolução-lang-timestamp_ms", chave `A_mesma_mao_que_aplaude_e_a_que_vaia!`)) gerado fresco por request. Sem login/captcha. OAB sem UF (assume MT). |
 | TJPA | Portal próprio "Consulta Unificada" (SPA + REST) | **Sim** (2026-06-29) | `enrichers/tjpa.py` (classe própria). `GET consulta-processual-unificada-prd.tjpa.jus.br/consilium-rest/processobycnj/{cnj}` (UA de browser, throttle p/ 429). reCAPTCHA só no front, não enforced. `cpfcnpj` vazio na consulta pública (tipo pf/pj por `tppessoa`). |
-| **Bloqueados (recon 2026-06-29)** | vários | **Não — captcha/login/anti-bot** | Consulta pública gated, inviável headless sem captcha-solver ou credenciais: **captcha** (hCaptcha/reCaptcha/Tencent) — TJBA, TJPB, TJRR, TJSE, TJMS (e-SAJ virou SPA Next.js c/ captcha), TJGO+TJPR (PROJUDI), TJAM (PROJUDI atrás de F5 anti-bot); **login obrigatório** — TJES, TJPI, TJTO; **indeterminado** (sem amostra/host estável) — TJRN. eproc (TRF2/4/6, TJRS, TJSC) segue exigindo login+2FA (ver linhas TRF acima). Desbloqueio exige decisão: serviço de captcha-solving (2captcha etc.) ou credenciais/OTP. Veredictos completos do recon no histórico do commit. |
+| **Bloqueados (recon 2026-06-29)** | vários | **Não — captcha/login/anti-bot** | Consulta pública gated, inviável headless sem captcha-solver ou credenciais: **captcha** (hCaptcha/reCaptcha/Tencent) — TJBA, TJPB, TJRR, TJSE, TJMS (e-SAJ virou SPA Next.js c/ captcha), TJGO+TJPR (PROJUDI), TJAM (PROJUDI atrás de F5 anti-bot); **login obrigatório** — TJES, TJPI, TJTO; **indeterminado** (sem amostra/host estável) — TJRN. eproc (TRF2/4/6, TJSC) segue exigindo login+2FA (ver linhas TRF acima); **o TJRS tem enricher desde 15/10/2026** pela consulta processual do portal (ver §TJRS). Desbloqueio exige decisão: serviço de captcha-solving (2captcha etc.) ou credenciais/OTP. Veredictos completos do recon no histórico do commit. |
+
+## TJRS — consulta processual pública: REST + ALTCHA, sem login (15/10/2026)
+
+`enrichers/tjrs.py` (`TjrsEnricher`) e `enrichers/busca/rest.py` (`BuscaTjrs`).
+
+**A consulta pública do eproc está fechada para robô.** `eproc1g/eproc2g.tjrs.jus.br/eproc/externo_controlador.php?acao=processo_consulta_publica` responde **403 `Forbidden`** (9 bytes, `text/plain`, `Server: cloudflare`, CF-RAY GRU) a partir dos workers, do web, do Mac e de Chromium headless; `?acao=principal` do mesmo host responde 302→login (200). É regra do Cloudflare para essa `acao`. O próprio eproc não linka mais essa tela: aponta para `www.tjrs.jus.br/busca/?tb=proc`, que embute a SPA abaixo.
+
+**A porta que funciona** é a SPA `https://consulta.tjrs.jus.br/consulta-processual/` (Angular, v2.5.15) e a API dela:
+
+```
+GET  https://consulta-processual-service.tjrs.jus.br/api/consulta-service/public/auth/token
+     → {algorithm: SHA-256, challenge, salt, maxnumber: 1e6, signature}      (ALTCHA)
+POST …/public/auth/submit   (multipart, campo altcha = btoa(JSON da solução))
+     → {success, username: "ChaAnon_<n>", queries: 7}
+GET  …/v1/<rota>?…   Authorization: Basic credencial_tjrs(username)
+```
+
+- Prova de trabalho: achar `n` com `sha256(salt + n) == challenge` — 0,04 a 1 s em Python puro. A credencial é `btoa(username + ":" + sha256("@x@n·x!"))`, `x = n % 60029 + 92120` (função `obfuscation()` do bundle). Conferida **byte a byte** contra a que a própria SPA calculou num Chromium (`tests/test_enricher_tjrs.py::test_credencial_identica_a_da_spa`).
+- **7 consultas por credencial**; a 8ª dá `429 "Limite de chamadas atingido"`. Credencial nova não teve teto (60 em 40 s do mesmo IP) e **não é presa ao IP** (a mesma respondeu por 4 proxies do pool e pelo Cortex).
+- `codComarca` é obrigatório: últimos 3 dígitos do `OOOO` do CNJ, salvo `7000`→`700` (2º grau) e `9000`→`710` (Turmas Recursais). Sem ele, 404 para processo que existe.
+- Rotas lidas do bundle (`*.js` lazy): `consultaProcesso` (ficha + 5 últimos eventos + vinculados), `consultaMovimentacao` (todos os eventos, com link público de documento), `eprocBuscaPorNomesDaParte`, `eprocBuscaProcessosPorCodParte`, `eprocBuscaProcessosPorOAB`. `consultaPartesEAdvogados` e `consultaOutrasInformacoes` dão 500/404 para processo eproc (são do Themis).
+
+**O que a ficha traz:** classe (só NOME, sem código TPU — o drainer preserva o código do DJEN), assunto (hierarquia folha→raiz separada por `, `; guardamos a folha), órgão julgador, relator no 2º grau (`juizo`), data de distribuição, segredo, partes com o PAPEL (EXEQUENTE/EXECUTADO/REQUERENTE…). **Não traz:** valor da causa, CPF/CNPJ (a busca por nome mostra a máscara `547.5**.***-**`), advogados (`{nome: null, oab: null}` no eproc). Por isso o enricher **devolve no evento as partes de outra procedência** (`fonte='djen'`/`'diario'`): o drainer apaga e regrava todas, e sem isso os advogados com OAB vindos do DJEN sumiriam (`somar_partes_de_terceiros`).
+
+**Fora da fonte:** prefixo `8` de 2024+ (execução penal) — 16/16 sondas 404 com controle 200. Na amostra de 2% do acervo TJRS, 99,5% é prefixo `5` (eproc) e 0,5% prefixo `8`.
+
+**Busca por parte:** só **nome** e **OAB** (exercitados ao vivo). Nome é em dois passos (partes → processos por `codParte`), só grafias iguais ao nome pedido. OAB: a janela é `registroInicial … +1999` (2.000 linhas, qualquer `registroFinal`), fim = 404; linhas repetem entre janelas (medido: 1, 1001, 2001 → 2.000/2.000/1.433 linhas, 3.394 processos distintos). A busca com `comarca` vazia levou ~30 s. Situação `A` (ativos) e `B` (baixados) são pedidas as duas.
+
+**Instabilidade observada:** em 16/10/2026 a partir de ~00:00 UTC a API passou a responder **401 vazio a TODA credencial**, inclusive à da SPA oficial num Chromium. O enricher desiste após 3 credenciais recusadas (`MAX_CREDENCIAIS_RECUSADAS`) e grava `erro` (re-tentável), nunca `nao_encontrado`. O eproc do TJRS tem janela anunciada no sábado 17/10, 8h–12h.
+
+**Operação:** fila `enrich_tjrs`, `worker_tjrs` com 4 réplicas (começar baixo; ~5,9 M processos TJRS pendentes). O vigia sonda a SPA (`LIST_URL`), que fica de pé mesmo quando a API recusa — a pausa, se precisar, é manual (`enrich_pausados`).
 
 ## Papel processual: está no TEXTO da publicação, e o JSONB não tem (27/08/2026)
 

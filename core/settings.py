@@ -209,6 +209,7 @@ RQ_QUEUES = {
     'enrich_tjac':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     'enrich_tjmt':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     'enrich_tjpa':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
+    'enrich_tjrs':     {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600,   **_RQ_CONN},
     # Fila prioritária pra requests on-demand do dashboard (botões de
     # 'Atualizar dados públicos' / 'Sincronizar movimentações'). Workers
     # dedicados garantem latência baixa mesmo com filas de backfill cheias.

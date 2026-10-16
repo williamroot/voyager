@@ -187,3 +187,74 @@ def parse_tjpa_nomes(corpo: list) -> list[dict]:
         nomes.append({'nome': nome, 'quantidade': quantidade,
                       'sistema': str(bruto.get('sistema') or '')})
     return sorted(nomes, key=lambda n: -n['quantidade'])
+
+
+# ── TJRS ──────────────────────────────────────────────────────────────────────
+
+_URL_FICHA_TJRS = ('https://consulta.tjrs.jus.br/consulta-processual/processo/resumo'
+                   '?numeroProcesso={digitos}&codComarca={comarca}')
+
+
+def parse_tjrs_processos(corpo: dict | None) -> list[ItemEncontrado]:
+    """Lista de processos do eproc (`eprocBuscaProcessosPorCodParte` e
+    `eprocBuscaProcessosPorOAB` devolvem o MESMO formato).
+
+    `{data: [{numeroCNJ, numeroCNJFormatado, classeCNJ, dataDistribuicao,
+    orgaoJulgador: {nome}, comarca: {codigo, nome}, ...}]}`. A busca por OAB
+    devolve o mesmo processo em mais de uma linha (uma por representação):
+    medido em 15/10/2026, 2.000 linhas para 1.709 processos. A deduplicação é
+    aqui, na ordem em que vieram.
+    """
+    from enrichers.fingerprints import comarca_tjrs
+
+    itens, vistos = [], set()
+    for bruto in ((corpo or {}).get('data') or []):
+        digitos = re.sub(r'\D', '', str(bruto.get('numeroCNJ') or ''))
+        numero = bruto.get('numeroCNJFormatado') or formatar_cnj(digitos)
+        if len(digitos) != 20 or numero in vistos:
+            continue
+        vistos.add(numero)
+        itens.append(ItemEncontrado(
+            numero_cnj=numero,
+            tribunal='TJRS',
+            classe=str(bruto.get('classeCNJ') or ''),
+            orgao=str((bruto.get('orgaoJulgador') or {}).get('nome')
+                      or bruto.get('nomeOrgaoJulgador') or ''),
+            distribuicao=str(bruto.get('dataDistribuicao') or '')[:10],
+            url_fonte=_URL_FICHA_TJRS.format(digitos=digitos,
+                                             comarca=comarca_tjrs(digitos)),
+        ))
+    return itens
+
+
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+    nfkd = unicodedata.normalize('NFKD', texto or '')
+    return re.sub(r'\s+', ' ', ''.join(c for c in nfkd if not unicodedata.combining(c))
+                  ).strip().upper()
+
+
+def parse_tjrs_nomes(corpo: dict | None, nome_pedido: str) -> list[dict]:
+    """`eprocBuscaPorNomesDaParte` não devolve processo: devolve PARTES.
+
+    `[{nome, cpfCnpj (mascarado), codParte1g, codParte2g}]` — a pesquisa é
+    fonética, então "MUNICIPIO DE CRUZ ALTA" traz também "MUNICÍPIO DE CRUZ
+    ALTA / RS" e "MUNICIPIO DE CRUZ ALTA/RS". Ficam só as grafias IGUAIS ao
+    nome pedido (sem acento, sem diferença de caixa/espaço): escolher sozinho
+    entre grafias diferentes é decidir quem é a pessoa, e isso não é nosso.
+    Homônimos de grafia idêntica (CPFs mascarados diferentes) entram todos —
+    é o que qualquer busca por nome faz.
+    """
+    alvo = _sem_acento(nome_pedido)
+    partes = []
+    for bruto in ((corpo or {}).get('data') or []):
+        nome = str(bruto.get('nome') or '').strip()
+        if not nome or _sem_acento(nome) != alvo:
+            continue
+        cod1 = str(bruto.get('codParte1g') or '')
+        cod2 = str(bruto.get('codParte2g') or '')
+        if not (cod1 or cod2):
+            continue
+        partes.append({'nome': nome, 'documento_mascarado': str(bruto.get('cpfCnpj') or ''),
+                       'codParte1g': cod1, 'codParte2g': cod2})
+    return partes

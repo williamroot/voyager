@@ -1,0 +1,227 @@
+{
+ "data": [
+  {
+   "numeroCNJ": "51466851820268210001",
+   "numeroCNJFormatado": "5146685-18.2026.8.21.0001",
+   "classeCNJ": "RECURSO INOMINADO CÍVEL",
+   "dataDistribuicao": "26/05/2026 12:48:09",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2ª Turma Recursal da Fazenda Pública",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "15/10/2026 16:59:12",
+   "ultimoMovimento": "15/10/2026 - PETIÇÃO PROTOCOLADA JUNTADA",
+   "dataUltimoMovimento": "15/10/2026",
+   "situacaoUltimoMovimento": "PETIÇÃO PROTOCOLADA JUNTADA"
+  },
+  {
+   "numeroCNJ": "52320296420268210001",
+   "numeroCNJFormatado": "5232029-64.2026.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "12/08/2026 10:37:13",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2º Juizado Especial da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "15/10/2026 11:00:18",
+   "ultimoMovimento": "15/10/2026 - REQUISIÇÃO DE PAGAMENTO DE PEQUENO VALOR ENVIADA",
+   "dataUltimoMovimento": "15/10/2026",
+   "situacaoUltimoMovimento": "REQUISIÇÃO DE PAGAMENTO DE PEQUENO VALOR ENVIADA"
+  },
+  {
+   "numeroCNJ": "50245226120118210001",
+   "numeroCNJFormatado": "5024522-61.2011.8.21.0001",
+   "classeCNJ": "PROCEDIMENTO COMUM CÍVEL",
+   "dataDistribuicao": "13/05/2011 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "PROGRAM - Piso Salarial do Magistério",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "09/12/2024 17:56:51",
+   "ultimoMovimento": "09/12/2024 - REMETIDOS OS AUTOS PARA O PROJETO ESPECIAL",
+   "dataUltimoMovimento": "09/12/2024",
+   "situacaoUltimoMovimento": "REMETIDOS OS AUTOS PARA O PROJETO ESPECIAL"
+  },
+  {
+   "numeroCNJ": "51256548320198210001",
+   "numeroCNJFormatado": "5125654-83.2019.8.21.0001",
+   "classeCNJ": "Procedimento do Juizado Especial da Fazenda Pública",
+   "dataDistribuicao": "19/05/2019 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "1º Juizado Especial da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "12/12/2025 13:23:42",
+   "ultimoMovimento": "12/12/2025 - BAIXA DEFINITIVA",
+   "dataUltimoMovimento": "12/12/2025",
+   "situacaoUltimoMovimento": "BAIXA DEFINITIVA"
+  },
+  {
+   "numeroCNJ": "52321197720238210001",
+   "numeroCNJFormatado": "5232119-77.2023.8.21.0001",
+   "classeCNJ": "Procedimento do Juizado Especial da Fazenda Pública",
+   "dataDistribuicao": "01/11/2023 14:17:56",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2º Juizado Especial da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "14/05/2025 16:06:14",
+   "ultimoMovimento": "14/05/2025 - BAIXA DEFINITIVA",
+   "dataUltimoMovimento": "14/05/2025",
+   "situacaoUltimoMovimento": "BAIXA DEFINITIVA"
+  },
+  {
+   "numeroCNJ": "53002417420258210001",
+   "numeroCNJFormatado": "5300241-74.2025.8.21.0001",
+   "classeCNJ": "Procedimento do Juizado Especial da Fazenda Pública",
+   "dataDistribuicao": "19/11/2025 11:47:28",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "2º Juizado Especial da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "18/06/2026 16:34:04",
+   "ultimoMovimento": "18/06/2026 - BAIXA DEFINITIVA",
+   "dataUltimoMovimento": "18/06/2026",
+   "situacaoUltimoMovimento": "BAIXA DEFINITIVA"
+  },
+  {
+   "numeroCNJ": "50054271620098210001",
+   "numeroCNJFormatado": "5005427-16.2009.8.21.0001",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA",
+   "dataDistribuicao": "03/06/2009 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "4ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "07/12/2022 17:32:16",
+   "ultimoMovimento": "07/12/2022 - CANCELAMENTO DE DISTRIBUIÇÃO - PRÉ-CADASTRO DESCARTADO",
+   "dataUltimoMovimento": "07/12/2022",
+   "situacaoUltimoMovimento": "CANCELAMENTO DE DISTRIBUIÇÃO"
+  },
+  {
+   "numeroCNJ": "50925292720198210001",
+   "numeroCNJFormatado": "5092529-27.2019.8.21.0001",
+   "classeCNJ": "Procedimento do Juizado Especial da Fazenda Pública",
+   "dataDistribuicao": "19/05/2019 00:00:00",
+   "nomeComarca": "Porto Alegre - Foro Central",
+   "orgaoJulgador": {
+    "nome": "JEFAZ Adjunto à 2ª Vara da Fazenda Pública do Foro Central da Comarca de Porto Alegre",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "1",
+    "nome": "PORTO ALEGRE"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "24/02/2025 11:43:37",
+   "ultimoMovimento": "24/02/2025 - BAIXA DEFINITIVA",
+   "dataUltimoMovimento": "24/02/2025",
+   "situacaoUltimoMovimento": "BAIXA DEFINITIVA"
+  },
+  {
+   "numeroCNJ": "50015514020188210065",
+   "numeroCNJFormatado": "5001551-40.2018.8.21.0065",
+   "classeCNJ": "Procedimento do Juizado Especial da Fazenda Pública",
+   "dataDistribuicao": "20/12/2018 00:00:00",
+   "nomeComarca": "Santo Antônio da Patrulha",
+   "orgaoJulgador": {
+    "nome": "Juizado Especial Cível Adjunto da Comarca de Santo Antônio da Patrulha",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "65",
+    "nome": "SANTO ANTÔNIO DA PATRULHA"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "03/02/2025 17:48:18",
+   "ultimoMovimento": "03/02/2025 - REDISTRIBUÍDO POR PREVENÇÃO AO JUÍZO",
+   "dataUltimoMovimento": "03/02/2025",
+   "situacaoUltimoMovimento": "REDISTRIBUÍDO POR PREVENÇÃO AO JUÍZO"
+  },
+  {
+   "numeroCNJ": "50026466620228210065",
+   "numeroCNJFormatado": "5002646-66.2022.8.21.0065",
+   "classeCNJ": "Procedimento do Juizado Especial da Fazenda Pública",
+   "dataDistribuicao": "25/07/2022 16:15:04",
+   "nomeComarca": "Santo Antônio da Patrulha",
+   "orgaoJulgador": {
+    "nome": "Juizado Especial Cível Adjunto da Comarca de Santo Antônio da Patrulha",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "65",
+    "nome": "SANTO ANTÔNIO DA PATRULHA"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "01/04/2024 11:19:48",
+   "ultimoMovimento": "01/04/2024 - BAIXA DEFINITIVA",
+   "dataUltimoMovimento": "01/04/2024",
+   "situacaoUltimoMovimento": "BAIXA DEFINITIVA"
+  },
+  {
+   "numeroCNJ": "50014127820248210065",
+   "numeroCNJFormatado": "5001412-78.2024.8.21.0065",
+   "classeCNJ": "CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA",
+   "dataDistribuicao": "18/03/2024 13:48:25",
+   "nomeComarca": "Santo Antônio da Patrulha",
+   "orgaoJulgador": {
+    "nome": "Juizado Especial Cível Adjunto da Comarca de Santo Antônio da Patrulha",
+    "julgador": null
+   },
+   "comarca": {
+    "codigo": "65",
+    "nome": "SANTO ANTÔNIO DA PATRULHA"
+   },
+   "nomeOrgaoJulgador": null,
+   "dataUltimaMovimentacao": "12/02/2026 18:52:11",
+   "ultimoMovimento": "12/02/2026 - BAIXA DEFINITIVA",
+   "dataUltimoMovimento": "12/02/2026",
+   "situacaoUltimoMovimento": "BAIXA DEFINITIVA"
+  }
+ ],
+ "exceptionKey": 0,
+ "messages": null,
+ "uri": null
+}

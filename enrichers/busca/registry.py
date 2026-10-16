@@ -14,14 +14,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .base import CRITERIOS, BuscaPorParte, CriterioIndisponivel
+from .base import CRITERIOS, NOME, OAB, BuscaPorParte, CriterioIndisponivel
 
-# Escopo: os nove tribunais que o JURISCOPE opera (`VOYAGER_TRIBUNAIS`), todos
+# Escopo: os tribunais que o JURISCOPE opera (`VOYAGER_TRIBUNAIS`), todos
 # com enricher aqui. Tribunal sem enricher não entra — a busca reusa a malha
 # de coleta do enricher, e sem ela não há por onde sair.
 ESAJ = ('TJSP', 'TJAL')
 PJE = ('TRF1', 'TRF3', 'TRF5', 'TJMG', 'TJMA')
-REST = ('TJPA', 'TJMT')
+REST = ('TJPA', 'TJMT', 'TJRS')
 
 TRIBUNAIS = ESAJ + PJE + REST
 
@@ -94,6 +94,16 @@ CATALOGO: dict[str, Fonte] = {
                   'total real e paginação (Take até 60; 75 dá HTTP 422); filtro '
                   'desconhecido é ignorado pela API, então toda busca confere o '
                   'total contra o baseline'),
+    # Medido em 15/10/2026 contra a API da consulta processual pública (a do
+    # eproc responde 403 do Cloudflare). Só os critérios exercitados ao vivo.
+    'TJRS': Fonte('TJRS', 'rest', frozenset({NOME, OAB}), None, True, '2026-10-15',
+                  frozenset({NOME, OAB}),
+                  'consulta pública não busca por CPF/CNPJ nem por nome de '
+                  'advogado. Nome: pesquisa fonética que devolve PARTES (com '
+                  'CPF/CNPJ mascarado); seguem só as grafias iguais ao nome '
+                  'pedido. OAB: janelas de 2.000 linhas até a fonte dizer 404; '
+                  'o mesmo processo se repete entre janelas e é deduplicado. '
+                  'Cada credencial anônima vale 7 consultas (ALTCHA)'),
 }
 
 
@@ -105,25 +115,26 @@ def _fabricar(sigla: str) -> BuscaPorParte:
     from enrichers.tjmg import TjmgEnricher
     from enrichers.tjmt import TjmtEnricher
     from enrichers.tjpa import TjpaEnricher
+    from enrichers.tjrs import TjrsEnricher
     from enrichers.trf1 import Trf1Enricher
     from enrichers.trf3 import Trf3Enricher
     from enrichers.trf5 import Trf5Enricher
 
     from .esaj import BuscaEsaj
     from .pje import BuscaPje
-    from .rest import BuscaTjmt, BuscaTjpa
+    from .rest import BuscaTjmt, BuscaTjpa, BuscaTjrs
 
     enrichers = {
         'TJSP': TjspEnricher, 'TJAL': TjalEnricher,
         'TRF1': Trf1Enricher, 'TRF3': Trf3Enricher, 'TRF5': Trf5Enricher,
         'TJMG': TjmgEnricher, 'TJMA': TjmaEnricher,
-        'TJPA': TjpaEnricher, 'TJMT': TjmtEnricher,
+        'TJPA': TjpaEnricher, 'TJMT': TjmtEnricher, 'TJRS': TjrsEnricher,
     }
     motores = {'esaj': BuscaEsaj, 'pje': BuscaPje}
 
     fonte = CATALOGO[sigla]
-    classe = ((BuscaTjmt if sigla == 'TJMT' else BuscaTjpa)
-              if fonte.motor == 'rest' else motores[fonte.motor])
+    rest = {'TJMT': BuscaTjmt, 'TJPA': BuscaTjpa, 'TJRS': BuscaTjrs}
+    classe = rest[sigla] if fonte.motor == 'rest' else motores[fonte.motor]
     return classe(enrichers[sigla])
 
 

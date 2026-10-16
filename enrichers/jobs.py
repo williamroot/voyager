@@ -17,6 +17,7 @@ from .tjpa import TjpaEnricher
 from .tjpe import TjpeEnricher
 from .tjrj import TjrjEnricher
 from .tjro import TjroEnricher
+from .tjrs import TjrsEnricher
 from .trf1 import Trf1Enricher
 from .trf3 import Trf3Enricher
 from .trf5 import Trf5Enricher
@@ -42,6 +43,8 @@ _ENRICHERS = {
     'TJAC': TjacEnricher,
     'TJPA': TjpaEnricher,
     'TJMT': TjmtEnricher,
+    # Consulta processual pública (SPA + REST, credencial ALTCHA) — 15/10/2026.
+    'TJRS': TjrsEnricher,
 }
 
 ENRICH_TIMEOUT = 300

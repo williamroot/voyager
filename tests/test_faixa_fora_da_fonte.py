@@ -112,7 +112,9 @@ def test_tribunal_nao_medido_nao_recusa_nada():
     tem enricher, então não há requisição a poupar. Onde há enricher e a
     separação por CNJ não é limpa (TJCE, TJAP), a resposta é não recusar."""
     outros = [cls for sig, cls in _ENRICHERS.items()
-              if sig not in {'TJSP', 'TJMG', 'TJRJ', 'TJAC', 'TJAL'}]
+              # TJRS: prefixo 8 (execução penal, 2024+) medido em 15/10/2026 —
+              # 16/16 sondas 404 com controle 200; teste em test_enricher_tjrs.
+              if sig not in {'TJSP', 'TJMG', 'TJRJ', 'TJAC', 'TJAL', 'TJRS'}]
     assert outros, 'o registro de enrichers não pode estar vazio'
     for cls in outros:
         assert getattr(cls, 'FORA_DA_FONTE_FAIXAS', ()) == (), cls.__name__
