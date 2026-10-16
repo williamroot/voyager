@@ -18,6 +18,7 @@ DRF read-only sob `/api/v1/`. Auth via API key (`Authorization: Api-Key <key>`).
 | GET | `/api/v1/leads/` | Próximos N leads não consumidos (Juriscope integration) |
 | POST | `/api/v1/leads/consumed/` | Enfileira consumo (async, 202) — requer `lote_id` |
 | GET | `/api/v1/leads/stats/` | Métricas agregadas pro cliente |
+| POST | `/api/v1/leads/sinais/` | Sinais de expedição de até 5.000 CNJs (vigia do Juriscope) |
 | GET | `/api/v1/busca/processos/<cnj>/` | **Busca v1 (ES)** — doc completo por CNJ exato |
 | GET | `/api/v1/busca/processos/<cnj>/movimentacoes/` | Movs do processo (cursor search_after) |
 | GET | `/api/v1/busca/processos/` | Busca parte/advogado/valor/documento/OAB/vara + filtros |
@@ -219,6 +220,72 @@ Erros:
   "modelo_versao": "v5", "modelo_atualizado_em": "..."
 }
 ```
+
+### `POST /api/v1/leads/sinais/` — sinais de expedição em lote
+
+Para o **vigia de expedição** do Juriscope: o processo já foi coletado lá sem
+ofício, e a pergunta é "saiu alguma coisa depois?". Mesma auth (`X-API-Key`).
+Código em `tribunals/sinais_expedicao.py`; a view é `api/leads.py::sinais_expedicao`.
+
+Corpo: `{"cnjs": [...até 5000, com ou sem máscara], "desde": "AAAA-MM-DD"}`
+(`desde` opcional).
+
+**Mesma regra do classificador, sem cópia.** As regex vêm das constantes de
+`tribunals/classificador.py` que montam o `_MOVS_AGG_SQL`
+(`TIPOS_F2_EXPEDICAO`, `TIPOS_F7_ENVIO`, `F20_EXPEDICAO_SQL`,
+`SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL`, `F19_CANCELAMENTO_SQL`,
+`PAGAMENTO_SQL`, `EXTINCAO_NEGATIVA_SQL`, `CONVERSAO_RPV_TJRS_SQL`), e os vetos
+usam as mesmas funções (`f24_pago_pos_exped`, `f30_extinto_neg`,
+`f32_convertido`). `tests/test_leads_sinais.py::TestParidadeComClassificador`
+compara com `compute_features` sobre os mesmos processos.
+
+Sinais que contam: F2, F7 e F20 em todo tribunal; **no TJRS só o F31** (como na
+regra de promoção — lá o F20 casa ordem e RPV SEFAZ). O F14 ("ofício
+requisitório" no texto) não conta em lugar nenhum: é ordem em 83% dos casos
+no TJMG.
+
+```json
+{"count": 1, "desde": "2026-09-01", "tempo_ms": 840, "completo": true,
+ "nao_processados": [], "nao_encontrados": ["1234567-00.2025.8.26.0000"], "invalidos": [],
+ "results": [{
+   "cnj": "5001727-66.2025.8.21.0067", "tribunal": "TJRS",
+   "nivel": "PRECATORIO", "score": 1.0, "classificacao_em": "2026-10-16T10:50:33+00:00",
+   "ultima_transicao": {"nivel": "PRECATORIO", "nivel_anterior": "PRE_PRECATORIO",
+                        "em": "2026-10-15T02:41:47+00:00", "depois_de_desde": true},
+   "sinal_expedicao_em": "2026-09-30", "sinal_inserido_em": "2026-09-30T03:33:03+00:00",
+   "sinal_tipo": "F31_exp_precatorio_tjrs", "sinal_mov_id": 2380768703,
+   "sinal_trecho": "…Ficam as partes intimadas da expedição do(s) precatório(s) para, …",
+   "sinal_depois_de_desde": true,
+   "sinais_considerados": ["F31_exp_precatorio_tjrs"],
+   "sinais_por_feature": {"F31_exp_precatorio_tjrs": "2026-09-30"},
+   "vetos": {"F19_cancelado_ANTI": {"ultima_em": null, "ativo": false},
+             "F24_pago_pos_exped_ANTI": {"ultima_em": null, "ativo": false},
+             "F30_extinto_neg_ANTI": {"ultima_em": null, "ativo": false},
+             "F32_convertido_rpv_tjrs": {"ultima_em": null, "ativo": false}},
+   "movimentacao_mais_recente_em": "2026-09-30"}]}
+```
+
+- Datas de movimentação (`*_em` sem hora) são o dia em São Paulo da
+  `data_disponibilizacao`; `sinal_inserido_em` é quando o Voyager GRAVOU a
+  movimentação (UTC) — é ele que diz se o Voyager "já tinha" o sinal.
+- `vetos.*.ativo` é o valor da feature como o classificador calcula (F24/F30
+  comparam com a última expedição F20; F32 com o último F31). Onde o
+  classificador APLICA cada veto é por tribunal (ver `CLASSIFICACAO.md`).
+- Um CNJ em dois tribunais (TRF1 e TRF6) gera duas linhas.
+- `results` sai em ordem de CNJ.
+
+**Custo e tetos.** O caro é a regex sobre o texto das movimentações (entra
+pelo índice `(processo_id, data_disponibilizacao)`, nunca pela tabela). Lê em
+fatias de 250 processos, 4 em paralelo (`SINAIS_PARALELISMO`), cada consulta
+com o `statement_timeout` de `LEADS_SQL_TIMEOUT_SECONDS`. Teto de tempo é
+alerta: passado `SINAIS_ORCAMENTO_SEGUNDOS` (45 s), as fatias seguintes não
+rodam, os CNJs delas voltam em `nao_processados` com `completo: false` (log em
+WARNING) e o cliente reenvia. Medido em prod (16/10/2026), lote de 5.000 CNJs
+aleatórios do estoque do Juriscope (62% TJSP, ~240 mil movimentações): 39 s frio, 10–25 s
+quente, completo.
+
+Erros: `403` chave; `400` `cnjs` vazio/não-lista/>5000 ou `desde` fora de
+`AAAA-MM-DD`; `503` uma consulta passou do teto.
 
 ## API de Busca v1 (`/api/v1/busca/*`) — 100% Elasticsearch
 

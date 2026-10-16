@@ -628,6 +628,15 @@ DJEN_POOL_DEGRADED_TTL_SECONDS = env.int('DJEN_POOL_DEGRADED_TTL_SECONDS', defau
 # 503 e log do recorte, em vez de o arbiter matar o worker e deixar a consulta
 # rodando órfã no Postgres (foi o que o TJSP nível 2 fez em 09/09/2026).
 LEADS_SQL_TIMEOUT_SECONDS = env.int('LEADS_SQL_TIMEOUT_SECONDS', default=20)
+# `POST /api/v1/leads/sinais/`: tempo de parede por requisição. O custo é a
+# regex sobre o texto das movimentações (medido em 16/10/2026: ~1,9 s por fatia
+# de 500 processos com cache quente, várias vezes isso frio); o que passar
+# disto volta em `nao_processados` em vez de segurar a requisição até o
+# timeout do Cloudflare (100 s).
+SINAIS_ORCAMENTO_SEGUNDOS = env.int('SINAIS_ORCAMENTO_SEGUNDOS', default=45)
+# Fatias lidas em paralelo (uma conexão cada). O banco tem 36 núcleos; 4 é o
+# que a medição de 16/10/2026 usou.
+SINAIS_PARALELISMO = env.int('SINAIS_PARALELISMO', default=4)
 
 # Cache pré-calculado da listagem de leads (`api/leads_cache.py`). Em 13/10/2026
 # o pull das 08:00 do Juriscope tinha falhado (503) em 10/13 dias no TRF3 e
