@@ -676,6 +676,10 @@ CLASSIFICADOR_RELOAD_TTL = env.int('CLASSIFICADOR_RELOAD_TTL', default=60)
 # — o que nunca acontece com ingestão contínua — e 16.966 Cumprimentos do TRF3
 # ficaram NAO_LEAD com o classificador de antes do fix do F1 pela fase.
 CLASSIF_FATIA_MAIS_ANTIGOS = env.float('CLASSIF_FATIA_MAIS_ANTIGOS', default=0.2)
+# O grupo 2 (revisão de veredito antigo) não promove a PRECATORIO processo sem
+# movimentação há mais que isto: nada mudou nele, só o modelo — e no TRF3 isso
+# era RPV de JEF já paga (16/10/2026). Ver `classificar_e_persistir`.
+CLASSIF_PARADO_DIAS = env.int('CLASSIF_PARADO_DIAS', default=365)
 
 # Shadow mode — fração [0, 1] de classificações principais que disparam
 # também a aplicação das ClassificadorVersao(shadow=True) em job async.

@@ -79,12 +79,15 @@ def reclassificar_recentes(dias: int = 7, batch_size: int = 1000,
 
 
 @job('classificacao', timeout=600)
-def reclassificar_batch(process_ids: list[int]) -> dict:
-    """Reclassifica um lote de processos passados por ID."""
+def reclassificar_batch(process_ids: list[int], sem_promover_parado: bool = False) -> dict:
+    """Reclassifica um lote de processos passados por ID.
+
+    `sem_promover_parado`: ver `classificar_e_persistir` (lotes do grupo 2)."""
     n_done = 0; n_fail = 0
     for p in Process.objects.filter(pk__in=process_ids).iterator(chunk_size=200):
         try:
-            classificar_e_persistir(p, registrar_log=True)
+            classificar_e_persistir(p, registrar_log=True,
+                                    sem_promover_parado=sem_promover_parado)
             n_done += 1
         except Exception as exc:
             logger.warning('reclassificar_batch fail pid=%d: %s', p.pk, exc)
@@ -168,9 +171,13 @@ def reclassificar_por_prioridade(
 
     n_jobs = 0
     # Grupo 1 primeiro na fila: movimento novo continua sendo o mais urgente.
-    for i in range(0, len(pids), batch_size):
-        reclassificar_batch.delay(pids[i:i + batch_size])
-        n_jobs += 1
+    # Lotes separados: o grupo 2 não promove processo parado a PRECATORIO
+    # (`classificar_e_persistir`, 16/10/2026).
+    for grupo_pids, sem_promover in ((pids_g1, False), (pids_g2, True)):
+        for i in range(0, len(grupo_pids), batch_size):
+            reclassificar_batch.delay(grupo_pids[i:i + batch_size],
+                                      sem_promover_parado=sem_promover)
+            n_jobs += 1
 
     grupo = ('desatualizados+mais_antigos' if pids_g1 and pids_g2
              else 'desatualizados' if pids_g1 else 'mais_antigos')

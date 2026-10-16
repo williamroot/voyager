@@ -811,9 +811,26 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     return cat, score, features
 
 
-def classificar_e_persistir(processo, registrar_log: bool = True) -> tuple[str, float]:
+def _parado(processo, agora) -> bool:
+    """Sem movimentação há mais de `CLASSIF_PARADO_DIAS` (ou sem nenhuma)."""
+    dias = getattr(settings, 'CLASSIF_PARADO_DIAS', 365)
+    ult = processo.ultima_movimentacao_em
+    return ult is None or (agora - ult).days > dias
+
+
+def classificar_e_persistir(processo, registrar_log: bool = True,
+                            sem_promover_parado: bool = False) -> tuple[str, float]:
     """Classifica + atualiza Process. Cria ClassificacaoLog apenas quando
     a categoria mudou (evita inflar tabela de log).
+
+    `sem_promover_parado=True` (revisão de vereditos antigos, grupo 2 do
+    `reclassificar_por_prioridade`): processo PARADO não sobe a PRECATORIO —
+    fica com a categoria que tinha. Nada mudou no processo; só o modelo. Medido
+    em 16/10/2026: a revisão promoveu 3.695 processos do TRF3 a N1 em
+    14–15/10, 1.526 de 1.528 consultados pelo JURISCOPE sem movimentação havia
+    mais de 1 ano (RPV de JEF pagas em 2021–2024), 3,3% viraram lead contra
+    ~29% no lote fresco — e o pull serve N1 primeiro, então comeram a cota do
+    dia. Rebaixamento (F24/F30) e promoção a N2/DC continuam valendo.
     """
     from .models import ClassificacaoLog, Process
 
@@ -822,6 +839,13 @@ def classificar_e_persistir(processo, registrar_log: bool = True) -> tuple[str, 
     versao_em_uso = get_versao_ativa()
 
     classif_anterior = processo.classificacao
+    if (sem_promover_parado
+            and cat == Process.CLASSIF_PRECATORIO
+            and classif_anterior != Process.CLASSIF_PRECATORIO
+            and _parado(processo, now)):
+        logger.info('grupo2: parado nao sobe a PRECATORIO pid=%s fica=%s score=%.3f',
+                    processo.pk, classif_anterior, score)
+        cat, score = classif_anterior, processo.classificacao_score
     Process.objects.filter(pk=processo.pk).update(
         classificacao=cat,
         classificacao_score=score,

@@ -125,7 +125,7 @@ def test_exige_um_modo(cenario):
 def enfileirados(monkeypatch):
     lotes = []
     monkeypatch.setattr(tjobs.reclassificar_batch, 'delay',
-                        lambda ids: lotes.append(list(ids)))
+                        lambda ids, **kw: lotes.append(list(ids)))
     return lotes
 
 
@@ -173,3 +173,98 @@ def test_fatia_zero_volta_ao_comportamento_antigo(tribs, enfileirados):
                                            fatia_mais_antigos=0)
 
     assert r['desatualizados'] == 3 and r['mais_antigos'] == 0
+
+
+# ── grupo 2 não promove processo parado a PRECATORIO (16/10/2026) ──────────
+
+@pytest.mark.django_db
+def test_lotes_do_grupo_2_saem_marcados(tribs, monkeypatch):
+    lotes = []
+    monkeypatch.setattr(tjobs.reclassificar_batch, 'delay',
+                        lambda ids, sem_promover_parado=False:
+                        lotes.append((set(ids), sem_promover_parado)))
+    t = tribs['TRF3']
+    novos = {_mk(t, 100 + i, classif_em=datetime.now(UTC) - timedelta(days=5),
+                 mov_dias=1).pk for i in range(3)}
+    velhos = {_mk(t, 200 + i, classif_em=ANTES_DO_FIX - timedelta(days=i),
+                  mov_dias=400).pk for i in range(2)}
+
+    tjobs.reclassificar_por_prioridade(cap=10, batch_size=100, fatia_mais_antigos=0.2)
+
+    assert (novos, False) in lotes
+    assert (velhos, True) in lotes
+
+
+def _classificar_dando(monkeypatch, cat, score=0.73):
+    from tribunals import classificador as clf
+    monkeypatch.setattr(clf, 'classificar', lambda p: (cat, score, {'F1_cumprim': 1}))
+    monkeypatch.setattr(clf, '_maybe_enfileirar_shadow', lambda pid: None)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('antes', [Process.CLASSIF_PRE_PRECATORIO, Process.CLASSIF_NAO_LEAD])
+def test_parado_nao_sobe_a_precatorio_na_revisao(tribs, monkeypatch, antes):
+    """O caso do TRF3: RPV de JEF paga em 2021–2024, veredito de maio, o v6
+    atual dá 0,73 — sem movimento novo, fica onde estava."""
+    from tribunals.classificador import classificar_e_persistir
+    _classificar_dando(monkeypatch, Process.CLASSIF_PRECATORIO)
+    p = _mk(tribs['TRF3'], 300, classif=antes, mov_dias=400)
+    Process.objects.filter(pk=p.pk).update(classificacao_score=0.55)
+    p.refresh_from_db()
+
+    cat, score = classificar_e_persistir(p, sem_promover_parado=True)
+
+    p.refresh_from_db()
+    assert (cat, p.classificacao, p.classificacao_score) == (antes, antes, 0.55)
+    assert p.classificacao_em > ANTES_DO_FIX     # a varredura anda
+
+
+@pytest.mark.django_db
+def test_parado_sem_movimento_nenhum_tambem_nao_sobe(tribs, monkeypatch):
+    from tribunals.classificador import classificar_e_persistir
+    _classificar_dando(monkeypatch, Process.CLASSIF_PRECATORIO)
+    p = _mk(tribs['TRF3'], 301, classif=Process.CLASSIF_PRE_PRECATORIO)
+    Process.objects.filter(pk=p.pk).update(ultima_movimentacao_em=None)
+    p.refresh_from_db()
+    assert classificar_e_persistir(p, sem_promover_parado=True)[0] == \
+        Process.CLASSIF_PRE_PRECATORIO
+
+
+@pytest.mark.django_db
+def test_com_movimento_recente_a_revisao_promove(tribs, monkeypatch):
+    from tribunals.classificador import classificar_e_persistir
+    _classificar_dando(monkeypatch, Process.CLASSIF_PRECATORIO)
+    p = _mk(tribs['TRF3'], 302, classif=Process.CLASSIF_PRE_PRECATORIO, mov_dias=200)
+    assert classificar_e_persistir(p, sem_promover_parado=True)[0] == \
+        Process.CLASSIF_PRECATORIO
+
+
+@pytest.mark.django_db
+def test_fora_da_revisao_parado_continua_promovendo(tribs, monkeypatch):
+    """Grupo 1, comandos e clique manual não mudam: só a revisão de antigos."""
+    from tribunals.classificador import classificar_e_persistir
+    _classificar_dando(monkeypatch, Process.CLASSIF_PRECATORIO)
+    p = _mk(tribs['TRF3'], 303, classif=Process.CLASSIF_PRE_PRECATORIO, mov_dias=400)
+    assert classificar_e_persistir(p)[0] == Process.CLASSIF_PRECATORIO
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('nova', [Process.CLASSIF_NAO_LEAD, Process.CLASSIF_DIREITO_CREDITORIO,
+                                  Process.CLASSIF_PRE_PRECATORIO])
+def test_parado_ainda_rebaixa_e_ainda_vira_n2_ou_dc(tribs, monkeypatch, nova):
+    """Rebaixamento (F24/F30) e promoção a N2/DC seguem valendo no parado."""
+    from tribunals.classificador import classificar_e_persistir
+    _classificar_dando(monkeypatch, nova)
+    p = _mk(tribs['TRF3'], 304, classif=Process.CLASSIF_PRECATORIO
+            if nova != Process.CLASSIF_PRE_PRECATORIO else Process.CLASSIF_NAO_LEAD,
+            mov_dias=400)
+    assert classificar_e_persistir(p, sem_promover_parado=True)[0] == nova
+
+
+@pytest.mark.django_db
+def test_precatorio_parado_continua_precatorio(tribs, monkeypatch):
+    from tribunals.classificador import classificar_e_persistir
+    _classificar_dando(monkeypatch, Process.CLASSIF_PRECATORIO, score=0.8)
+    p = _mk(tribs['TRF3'], 305, classif=Process.CLASSIF_PRECATORIO, mov_dias=400)
+    assert classificar_e_persistir(p, sem_promover_parado=True) == \
+        (Process.CLASSIF_PRECATORIO, 0.8)
