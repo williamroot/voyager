@@ -1,7 +1,27 @@
 {% extends 'dashboard/base.html' %}
-{% load voyager_extras %}
+{% load static voyager_extras %}
 {% block title %}Visão geral{% endblock %}
 {% block content %}
+{# Conector do Claude em destaque no topo da home. #}
+<div class="card mb-5 relative overflow-hidden border-mission/35">
+  <div class="absolute inset-0 pointer-events-none" style="background:radial-gradient(ellipse 50% 120% at 0% 50%, rgb(var(--c-mission) / .14), transparent 65%), radial-gradient(ellipse 40% 120% at 100% 0%, rgb(var(--c-pale-blue) / .07), transparent 60%)"></div>
+  <div class="relative flex items-center gap-4 flex-wrap">
+    <div class="w-11 h-11 shrink-0 rounded-xl bg-mission/15 border border-mission/40 flex items-center justify-center">{% voy_icon "uplink" "w-5 h-5 text-mission" %}</div>
+    <div class="flex-1 min-w-[16rem]">
+      <div class="flex items-center gap-2">
+        <span class="font-mono text-[0.62rem] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-mission/40 bg-mission/10 text-mission-fg">Novo</span>
+        <span class="font-semibold text-fg">O Voyager agora conversa com o Claude</span>
+      </div>
+      <div class="text-xs text-fg-muted mt-0.5">Pergunte sobre processos, diários, partes e precatórios no claude.ai, no Desktop, no celular ou no Claude Code — com o seu login do Voyager.</div>
+    </div>
+    <div class="flex items-stretch rounded-lg border border-border bg-muted/40 overflow-hidden max-w-full">
+      <code id="mcp-url-home" class="px-3 py-2 font-mono text-xs text-fg-soft truncate">{{ mcp_url }}</code>
+      <button type="button" data-copiar="mcp-url-home" class="px-3 text-[0.68rem] font-semibold uppercase tracking-wider border-l border-border text-fg-muted hover:text-mission-fg" aria-label="Copiar o endereço do conector"><span data-rotulo>Copiar</span></button>
+    </div>
+    <a href="{% url 'dashboard:mcp-setup' %}" class="btn-mission px-4 py-2 rounded-lg text-sm font-medium inline-flex items-center gap-2">Conectar {% voy_icon "arrow" "w-4 h-4" %}</a>
+  </div>
+</div>
+<script src="{% static 'mcp_server/landing.js' %}" defer></script>
 {% if backfill_em_curso %}
 <div class="card mb-5 border-warning/30 bg-warning/10">
   <div class="flex items-start gap-3">
@@ -18,6 +38,7 @@
   </div>
 </div>
 {% endif %}
+
 
 <div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
   <div>
