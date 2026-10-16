@@ -224,10 +224,13 @@ CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 # 15/10/2026: a mesma família ganhou os EVENTOS do eproc que o DJEN republica
 # no ato ordinatório ("O ato refere-se ao seguinte evento: Evento 41 -
 # Requisição de pagamento de precatório preparada para envio" / "... enviada
-# ao tribunal"). Medido no banco de produção: 609 processos TJRS citam um dos
-# dois eventos e 20 deles NÃO tinham a intimação acima. Os 20 foram conferidos
-# na consulta pública do TJRS: 20/20 têm o precatório distribuído no 2º grau
-# (processo vinculado `…8.21.7000`, evento "precatório enviada ao tribunal").
+# ao tribunal"). Medido no banco de produção (15/10/2026): 413 processos TJRS
+# citam um dos dois eventos SEM a intimação acima (322 deles Cumprimento, que é
+# o que a regra promove). Amostra de 20 conferida na consulta pública do TJRS:
+# 20/20 com o precatório distribuído no 2º grau (processo vinculado
+# `…8.21.7000`, evento "precatório enviada ao tribunal"). O texto que casa É o
+# evento do eproc republicado — "Evento 91 - Requisição de pagamento de
+# precatório enviada ao tribunal" —, a mesma verdade usada na conferência.
 SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL = (
     r'intimad\w*\s+da\s+expedi(ç|c|&ccedil;)(ã|a|&atilde;)o\s+d[oa]\(?s?\)?\s+precat'
     r'|requisi(ç|c|&ccedil;)(ã|a|&atilde;)o(\s|&nbsp;)+de(\s|&nbsp;)+pagamento(\s|&nbsp;)+de'

@@ -15,7 +15,7 @@ tribunal da movimentação — ~5 min no TJRS inteiro.
 15/10/2026: o mesmo alvo cobre o F32 (precatório convertido em RPV) — todo
 processo com F32 tem F31, por definição — e o F31 ampliado (eventos "precatório
 preparada para envio/enviada ao tribunal"). Rodar de novo depois do deploy
-rebaixa os convertidos e promove os ~20 que só tinham o evento.
+rebaixa os convertidos (~274) e promove os que só tinham o evento (~322).
 
 Uso:
   python manage.py reclassificar_tjrs_precatorio --dry-run
