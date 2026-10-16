@@ -61,7 +61,9 @@
 
       {% if consentimento %}
         <p><b>{{ cliente_nome }}</b> quer acessar o Voyager em seu nome.</p>
-        <div class="quem"><div><b>{{ nome }}</b>{% if email %}<span>{{ email }}</span>{% endif %}</div></div>
+        {% comment %}email_off: a Cloudflare troca e-mail no HTML por "[email protected]" e
+        depende de um script dela pra desfazer — que a CSP desta tela (sem script) bloqueia.{% endcomment %}
+        <div class="quem"><div><!--email_off--><b>{{ nome }}</b>{% if email %}<span>{{ email }}</span>{% endif %}<!--/email_off--></div></div>
         <ul class="lista">
           <li>Processos, publicações dos diários, partes/entidades e precatórios do acervo.</li>
           <li>Leitura; as únicas escritas possíveis são cadastrar monitoramento de termo ou processo.</li>
