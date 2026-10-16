@@ -1,205 +1,272 @@
 {% extends 'dashboard/base.html' %}
-{% load voyager_extras %}
+{% load static voyager_extras %}
 
-{% block title %}MCP · Configuração{% endblock %}
+{% block title %}Conector MCP{% endblock %}
 {% block content %}
 
-<div class="mb-5">
-  <h1 class="text-2xl font-semibold text-fg-soft mb-1">MCP · Configuração</h1>
-  <p class="text-sm text-fg-subtle">Como conectar o Voyager a LLMs e agentes de IA (Claude, ChatGPT, Gemini, Cursor) via Model Context Protocol.</p>
+{# ---------- cabeçalho ---------- #}
+<div class="flex items-start justify-between gap-4 flex-wrap mb-6">
+  <div>
+    <div class="inline-flex items-center gap-2 px-2 py-1 rounded-md border border-mission/40 bg-mission/10 text-mission-fg font-mono text-[0.65rem] uppercase tracking-[0.18em]">
+      {% voy_icon "uplink" "w-3.5 h-3.5" %} Conector do Claude
+    </div>
+    <h1 class="text-3xl font-semibold tracking-tight text-fg mt-3">Voyager no Claude</h1>
+    <p class="text-sm text-fg-muted mt-1 max-w-2xl">O acervo inteiro — processos, diários, partes e precatórios — consultável em português pelo Claude, com o seu login do Voyager.</p>
+  </div>
+  <a href="/mcp" target="_blank" rel="noopener" class="text-xs px-3 py-2 rounded-lg border border-border text-fg-muted hover:text-fg hover:border-mission/50 inline-flex items-center gap-2">
+    Página pública do conector {% voy_icon "arrow" "w-3.5 h-3.5" %}
+  </a>
 </div>
 
-<!-- Endpoint -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2">Endpoint</h2>
-  <div class="space-y-2 text-xs">
-    <div>
-      <span class="text-fg-subtle">URL base:</span>
-      <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp</code>
+{# ---------- herói: URL + status ---------- #}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+  <div class="card lg:col-span-2 relative overflow-hidden">
+    <div class="absolute inset-0 pointer-events-none" style="background:radial-gradient(ellipse 60% 80% at 100% 0%, rgb(var(--c-mission) / .12), transparent 60%)"></div>
+    <div class="relative">
+      <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-2">Endereço do conector</div>
+      <div class="flex items-stretch rounded-lg border border-mission/40 bg-muted/40 overflow-hidden">
+        <code id="url-conector" class="flex-1 min-w-0 px-4 py-3 font-mono text-[0.95rem] font-semibold text-fg break-all">{{ url_conector }}</code>
+        <button type="button" data-copiar="url-conector" class="btn-mission px-4 text-xs font-semibold uppercase tracking-wider rounded-none" aria-label="Copiar o endereço do conector"><span data-rotulo>Copiar</span></button>
+      </div>
+      <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-xs text-fg-muted">
+        <span class="inline-flex items-center gap-1.5">{% voy_icon "circle-check" "w-4 h-4 text-pulsar-fg" %} Login do Voyager (OAuth 2.1)</span>
+        <span class="inline-flex items-center gap-1.5">{% voy_icon "circle-check" "w-4 h-4 text-pulsar-fg" %} Sem token pra copiar</span>
+        <span class="inline-flex items-center gap-1.5">{% voy_icon "circle-check" "w-4 h-4 text-pulsar-fg" %} Web, Desktop, mobile e Claude Code</span>
+      </div>
     </div>
-    <div>
-      <span class="text-fg-subtle">Descriptor:</span>
-      <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/.well-known/mcp.json</code>
-    </div>
-    <div>
-      <span class="text-fg-subtle">Transport:</span>
-      Streamable HTTP (JSON-RPC 2.0) · auth OAuth 2.1 ou token fixo
-    </div>
+  </div>
+
+  <div class="card {% if tem_acesso %}border-accent/30{% else %}border-warning/40{% endif %}">
+    <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-2">Sua conta</div>
+    {% if tem_acesso %}
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center">{% voy_icon "signal-ok" "w-5 h-5 text-accent-fg" %}</div>
+        <div><div class="font-semibold text-fg">Liberada</div><div class="text-xs text-fg-muted">{{ request.user.email|default:request.user.get_username }}</div></div>
+      </div>
+      <p class="text-xs text-fg-muted mt-3">{% if acesso_ultimo_uso %}Último uso pelo conector: <span class="font-mono text-fg-soft">{{ acesso_ultimo_uso|date:"d/m/Y H:i" }}</span>.{% else %}Ainda não conectou. Siga os passos abaixo.{% endif %}</p>
+    {% else %}
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-warning/15 border border-warning/30 flex items-center justify-center">{% voy_icon "signal-lost" "w-5 h-5 text-warning" %}</div>
+        <div><div class="font-semibold text-fg">Não liberada</div><div class="text-xs text-fg-muted">{{ request.user.email|default:request.user.get_username }}</div></div>
+      </div>
+      <p class="text-xs text-fg-muted mt-3">Peça a um administrador para liberar sua conta em <strong>Acessos ao MCP</strong>. Sem isso, o login no Claude mostra "Sem acesso".</p>
+    {% endif %}
   </div>
 </div>
 
-<!-- Claude (OAuth) -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
-    <span class="text-mission">◉</span> Claude — claude.ai, Desktop, mobile e Claude Code
-  </h2>
-  <p class="text-xs text-fg-muted mb-3">O login é o <strong>do próprio Voyager</strong> (o mesmo e-mail e senha deste dashboard), por OAuth — não há token pra copiar. Além da conta, o acesso precisa estar liberado por um superusuário em <strong>Django admin → Acessos ao MCP</strong>.</p>
-  <p class="text-xs mb-3">
-    {% if tem_acesso %}<span class="text-accent">● Sua conta está liberada para o conector.</span>
-    {% else %}<span class="text-danger">● Sua conta ainda NÃO está liberada para o conector — peça a um superusuário.</span>{% endif %}
-  </p>
-  <p class="text-xs font-semibold text-fg-soft mb-1">claude.ai / Desktop / mobile</p>
-  <ol class="text-xs text-fg-muted space-y-1 mb-3 list-decimal list-inside">
-    <li>Abra <strong>Settings</strong> → <strong>Connectors</strong> → <strong>Add custom connector</strong></li>
-    <li>URL: <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp</code> — deixe <em>OAuth Client ID/Secret</em> em branco</li>
-    <li>Clique em <strong>Connect</strong>: abre o login do Voyager e depois a tela <strong>Autorizar acesso</strong></li>
-    <li>Pronto — o conector vale para o Claude em todos os dispositivos da sua conta</li>
-  </ol>
-  <p class="text-xs font-semibold text-fg-soft mb-1">Claude Code (CLI)</p>
-  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto mb-2"><code>claude mcp add --transport http voyager https://voyager.was.dev.br/mcp</code></pre>
-  <p class="text-xs text-fg-subtle">Depois rode <code>/mcp</code> no Claude Code e escolha <strong>Authenticate</strong>: o navegador abre o mesmo login.</p>
+{# ---------- números ---------- #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {% include 'dashboard/_partials/kpi.html' with label='Tools' value=total_tools hint='o mesmo tools/list do Claude' %}
+  {% include 'dashboard/_partials/kpi.html' with label='Só leitura' value=tools_leitura|length hint='nada é alterado' %}
+  {% include 'dashboard/_partials/kpi.html' with label='Roteiros prontos' value=prompts|length hint='prompts do conector' %}
+  {% include 'dashboard/_partials/kpi.html' with label='Fontes públicas' value=total_externas hint='BCB, Tesouro, RFB, STJ, CNJ' %}
 </div>
 
-<!-- Token -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2">Token fixo (outros clientes e integrações)</h2>
-  <p class="text-xs text-fg-muted mb-3">Clientes que não falam OAuth usam um <strong>token MCP</strong> (UUID) de um <code>ApiClient</code>. Gere via command (gira o token):</p>
-  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto mb-3"><code>python manage.py gerar_mcp_token &lt;nome_cliente&gt;</code></pre>
-  <div class="flex items-center gap-2">
-    <input type="text" id="mcp-token" placeholder="Cole seu token MCP aqui..."
-           class="flex-1 bg-muted/50 border border-border rounded px-3 py-2 text-xs font-mono text-fg-soft placeholder-fg-subtle focus:outline-none focus:border-mission">
-    <button onclick="navigator.clipboard.readText().then(t=>{document.getElementById('mcp-token').value=t;updateTokens()})"
-            class="text-xs px-3 py-2 border border-border rounded text-fg-subtle hover:text-mission">📋 Colar</button>
+{# ---------- conectar ---------- #}
+<div class="card mb-6" x-data="{ aba: 'claude' }">
+  <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+    <h2 class="text-lg font-semibold text-fg">Conectar</h2>
+    <div class="flex flex-wrap gap-1 text-xs bg-muted/50 border border-border rounded-xl p-1" role="tablist">
+      <button type="button" role="tab" @click="aba='claude'" :aria-selected="aba==='claude'" :class="aba==='claude' ? 'bg-card text-fg shadow-sm' : 'text-fg-muted hover:text-fg'" class="px-3 py-1.5 rounded-lg">claude.ai · Desktop · mobile</button>
+      <button type="button" role="tab" @click="aba='code'" :aria-selected="aba==='code'" :class="aba==='code' ? 'bg-card text-fg shadow-sm' : 'text-fg-muted hover:text-fg'" class="px-3 py-1.5 rounded-lg">Claude Code</button>
+      <button type="button" role="tab" @click="aba='outros'" :aria-selected="aba==='outros'" :class="aba==='outros' ? 'bg-card text-fg shadow-sm' : 'text-fg-muted hover:text-fg'" class="px-3 py-1.5 rounded-lg">Outros clientes</button>
+    </div>
   </div>
-  <p class="text-xs text-fg-subtle mt-2">Cole o token acima e os exemplos abaixo serão preenchidos automaticamente. Claude Code com token fixo: <code>claude mcp add --transport http voyager https://voyager.was.dev.br/mcp --header "Authorization: Bearer <span class="token-placeholder">SEU-TOKEN</span>"</code></p>
-</div>
 
-<!-- ChatGPT -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
-    <span class="text-mission">◉</span> ChatGPT (developer mode)
-  </h2>
-  <ol class="text-xs text-fg-muted space-y-1 mb-3 list-decimal list-inside">
-    <li>Abra <strong>Settings</strong> → <strong>Connectors</strong> → <strong>Create</strong></li>
-    <li>URL: <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/</code></li>
-    <li>Auth: header <code class="font-mono bg-muted px-1 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code></li>
-  </ol>
-</div>
+  {# claude.ai #}
+  <div x-show="aba==='claude'" role="tabpanel">
+    <ol class="grid grid-cols-1 md:grid-cols-4 gap-3">
+      {% for passo in passos_claude %}
+      <li class="rounded-lg border border-border bg-muted/30 p-4">
+        <div class="w-7 h-7 rounded-full border border-mission/40 bg-mission/10 text-mission-fg font-mono text-xs font-bold flex items-center justify-center">{{ forloop.counter }}</div>
+        <div class="text-sm font-medium text-fg mt-3">{{ passo.0 }}</div>
+        <div class="text-xs text-fg-muted mt-1 leading-relaxed">{{ passo.1 }}</div>
+      </li>
+      {% endfor %}
+    </ol>
+    <p class="text-xs text-fg-subtle mt-4">Conectou uma vez, vale em todos os dispositivos da sua conta do Claude. Para desconectar: Settings → Connectors → Voyager → Disconnect.</p>
+  </div>
 
-<!-- OpenAI Responses API -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
-    <span class="text-mission">◉</span> OpenAI Responses API
-  </h2>
-  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>tools=[{
-    "type": "mcp",
-    "server_label": "voyager",
-    "server_url": "https://voyager.was.dev.br/mcp",
-    "authorization": "<span class="token-placeholder">SEU-TOKEN</span>",
-    "require_approval": {"never": {"tool_names": [
-        "buscar_diarios", "get_documento", "get_processo",
-        "list_movimentacoes", "get_partes", "listar_fontes",
-        "status_cobertura", "buscar_entidades", "buscar_valores",
-        "jurimetria", "contexto_processo", "buscar_por_parte",
-    ]}},
-}]</code></pre>
-  <p class="text-xs text-fg-subtle mt-2">Mantenha aprovação manual para <code>monitorar_termo</code> e <code>monitorar_processo</code> — eles criam monitoramentos push.</p>
-</div>
+  {# Claude Code #}
+  <div x-show="aba==='code'" x-cloak role="tabpanel">
+    <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mb-1">1 · Adicione o servidor</div>
+    <div class="flex items-stretch gap-2">
+      <pre id="cmd-code" class="flex-1 min-w-0 bg-muted/50 border border-border rounded-lg p-3 text-xs overflow-auto font-mono">claude mcp add --transport http voyager {{ url_conector }}</pre>
+      <button type="button" data-copiar="cmd-code" class="text-xs px-3 border border-border rounded-lg text-fg-muted hover:text-mission-fg hover:border-mission/50"><span data-rotulo>Copiar</span></button>
+    </div>
+    <div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle mt-4 mb-1">2 · Autentique</div>
+    <p class="text-sm text-fg-muted">Dentro do Claude Code, rode <code class="font-mono bg-muted px-1.5 py-0.5 rounded">/mcp</code>, escolha <strong>voyager → Authenticate</strong> e faça o login do Voyager no navegador que abrir. Para valer em todos os projetos, acrescente <code class="font-mono bg-muted px-1.5 py-0.5 rounded">--scope user</code> ao comando.</p>
+  </div>
 
-<!-- Gemini -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
-    <span class="text-mission">◉</span> Google Gemini (AI Studio)
-  </h2>
-  <ol class="text-xs text-fg-muted space-y-1 mb-3 list-decimal list-inside">
-    <li>No Google AI Studio, abra <strong>Settings</strong> → <strong>Tools</strong> → <strong>MCP Servers</strong></li>
-    <li>Add server: URL <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/</code></li>
-    <li>Header: <code class="font-mono bg-muted px-1 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code></li>
-    <li>O Gemini terá acesso às tools e poderá buscar processos, ver partes, jurimetria, etc.</li>
-  </ol>
-  <p class="text-xs text-fg-subtle">Alternativa via SDK Python: use a lib <code>google-genai</code> com <code>tools=mcp.Server(url=..., headers={"Authorization": "Bearer ..."})</code>.</p>
-</div>
+  {# Outros #}
+  <div x-show="aba==='outros'" x-cloak role="tabpanel" class="space-y-5">
+    <p class="text-sm text-fg-muted">Clientes que não fazem o login OAuth do Claude usam um <strong>token fixo</strong> (UUID) de um <code class="font-mono bg-muted px-1.5 py-0.5 rounded">ApiClient</code>. Peça a um administrador — ele roda <code class="font-mono bg-muted px-1.5 py-0.5 rounded">python manage.py gerar_mcp_token &lt;nome&gt;</code> (cada execução gira o token e o anterior morre).</p>
+    <input type="text" id="mcp-token" placeholder="Cole aqui o token para preencher os exemplos (fica só no seu navegador)"
+           class="w-full bg-muted/50 border border-border rounded-lg px-3 py-2 text-xs font-mono text-fg-soft placeholder-fg-subtle focus:outline-none focus:border-mission">
 
-<!-- Cursor -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
-    <span class="text-mission">◉</span> Cursor
-  </h2>
-  <ol class="text-xs text-fg-muted space-y-1 mb-3 list-decimal list-inside">
-    <li>Abra <strong>Settings</strong> → <strong>Models</strong> → <strong>MCP</strong></li>
-    <li>Add MCP Server: URL <code class="font-mono bg-muted px-1 py-0.5 rounded">https://voyager.was.dev.br/mcp/</code></li>
-    <li>Header: <code class="font-mono bg-muted px-1 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code></li>
-  </ol>
-  <p class="text-xs text-fg-subtle">Ou edite <code>~/.cursor/mcp.json</code> diretamente:</p>
-  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>{
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div>
+        <div class="text-sm font-medium text-fg mb-1">Cursor · <span class="font-mono text-xs text-fg-muted">~/.cursor/mcp.json</span></div>
+<pre class="bg-muted/50 border border-border rounded-lg p-3 text-xs overflow-auto font-mono">{
   "mcpServers": {
     "voyager": {
-      "url": "https://voyager.was.dev.br/mcp",
+      "url": "{{ url_conector }}",
       "headers": { "Authorization": "Bearer <span class="token-placeholder">SEU-TOKEN</span>" }
     }
   }
-}</code></pre>
-</div>
-
-<!-- Clientes customizados -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2 flex items-center gap-2">
-    <span class="text-mission">◉</span> Clientes customizados (HTTP/JSON-RPC)
-  </h2>
-  <p class="text-xs text-fg-muted mb-3">O MCP server usa JSON-RPC 2.0 sobre HTTP. Exemplos com curl:</p>
-
-  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Listar tools</div>
-  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto mb-3"><code>curl -X POST https://voyager.was.dev.br/mcp/messages \
+}</pre>
+      </div>
+      <div>
+        <div class="text-sm font-medium text-fg mb-1">Gemini CLI · <span class="font-mono text-xs text-fg-muted">~/.gemini/settings.json</span></div>
+<pre class="bg-muted/50 border border-border rounded-lg p-3 text-xs overflow-auto font-mono">{
+  "mcpServers": {
+    "voyager": {
+      "httpUrl": "{{ url_conector }}",
+      "headers": { "Authorization": "Bearer <span class="token-placeholder">SEU-TOKEN</span>" }
+    }
+  }
+}</pre>
+      </div>
+      <div>
+        <div class="text-sm font-medium text-fg mb-1">OpenAI Responses API</div>
+<pre class="bg-muted/50 border border-border rounded-lg p-3 text-xs overflow-auto font-mono">tools=[{
+    "type": "mcp",
+    "server_label": "voyager",
+    "server_url": "{{ url_conector }}",
+    "authorization": "<span class="token-placeholder">SEU-TOKEN</span>",
+    # leitura sem aprovação; {{ tools_escrita|join:" e " }} pedem confirmação
+    "require_approval": {"never": {"tool_names": [{% for n in tools_leitura %}"{{ n }}"{% if not forloop.last %}, {% endif %}{% endfor %}]}},
+}]</pre>
+      </div>
+      <div>
+        <div class="text-sm font-medium text-fg mb-1">HTTP direto (JSON-RPC 2.0)</div>
+<pre class="bg-muted/50 border border-border rounded-lg p-3 text-xs overflow-auto font-mono">curl -s {{ url_conector }} \
   -H "Authorization: Bearer <span class="token-placeholder">SEU-TOKEN</span>" \
   -H "Content-Type: application/json" \
-  -d '{"method":"tools/list","id":1,"params":{}}'</code></pre>
-
-  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Buscar diários</div>
-  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto mb-3"><code>curl -X POST https://voyager.was.dev.br/mcp/messages \
-  -H "Authorization: Bearer <span class="token-placeholder">SEU-TOKEN</span>" \
-  -H "Content-Type: application/json" \
-  -d '{"method":"tools/call","id":2,"params":{"name":"buscar_diarios","arguments":{"query":"precatório","size":5}}}'</code></pre>
-
-  <div class="text-xs text-fg-subtle uppercase tracking-wider mb-1">Dossiê de processo</div>
-  <pre class="bg-muted/50 border border-border rounded p-3 text-xs overflow-auto"><code>curl -X POST https://voyager.was.dev.br/mcp/messages \
-  -H "Authorization: Bearer <span class="token-placeholder">SEU-TOKEN</span>" \
-  -H "Content-Type: application/json" \
-  -d '{"method":"tools/call","id":3,"params":{"name":"contexto_processo","arguments":{"cnj":"1097648-06.2025.4.01.3400"}}}'</code></pre>
-</div>
-
-<!-- Tools disponíveis -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2">Tools disponíveis (17)</h2>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-    <div><code class="font-mono text-mission-fg">buscar_diarios</code> — busca textual em diários oficiais (ES)</div>
-    <div><code class="font-mono text-mission-fg">get_documento</code> — detalhe de publicação por ID</div>
-    <div><code class="font-mono text-mission-fg">get_processo</code> — dados de um processo por CNJ</div>
-    <div><code class="font-mono text-mission-fg">list_movimentacoes</code> — movimentações de um processo</div>
-    <div><code class="font-mono text-mission-fg">get_partes</code> — partes (polo ativo/passivo/outros)</div>
-    <div><code class="font-mono text-mission-fg">listar_fontes</code> — diários/tribunais cobertos</div>
-    <div><code class="font-mono text-mission-fg">status_cobertura</code> — cobertura por área</div>
-    <div><code class="font-mono text-mission-fg">buscar_entidades</code> — busca por nome/doc/OAB</div>
-    <div><code class="font-mono text-mission-fg">buscar_valores</code> — busca por faixa de valor da causa</div>
-    <div><code class="font-mono text-mission-fg">jurimetria</code> — estatísticas (volume/valores/classificação/andamentos)</div>
-    <div><code class="font-mono text-mission-fg">contexto_processo</code> — dossiê completo (partes+movs+timeline)</div>
-    <div><code class="font-mono text-mission-fg">buscar_por_parte</code> — busca por nome de parte + estatísticas</div>
-    <div><code class="font-mono text-mission-fg">monitorar_termo</code> — cria monitoramento push (webhook)</div>
-    <div><code class="font-mono text-mission-fg">monitorar_processo</code> — cria monitoramento de processo</div>
-    <div><code class="font-mono text-mission-fg">listar_detections</code> — detecções recentes</div>
-    <div><code class="font-mono text-mission-fg">get_pdf</code> — URL do PDF armazenado</div>
-    <div><code class="font-mono text-mission-fg">classificacao_lead</code> — score de ML (gated)</div>
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"visao_geral","arguments":{}}}'</pre>
+        <p class="text-xs text-fg-subtle mt-1">Também: <code class="font-mono">tools/list</code>, <code class="font-mono">resources/read</code>, <code class="font-mono">prompts/get</code>. Descriptor em <a class="underline decoration-mission/60" href="/mcp/.well-known/mcp.json">/mcp/.well-known/mcp.json</a>.</p>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- Resources -->
-<div class="card-tight mb-6">
-  <h2 class="text-sm font-semibold text-fg-soft mb-2">Resources</h2>
-  <div class="space-y-2 text-xs">
-    <div><code class="font-mono text-pulsar">voyager://processo/{cnj}</code> — dados de um processo</div>
-    <div><code class="font-mono text-pulsar">voyager://movimentacao/{id}</code> — detalhe de uma publicação</div>
-    <div><code class="font-mono text-pulsar">voyager://contexto/{cnj}</code> — dossiê completo enriquecido</div>
-    <div><code class="font-mono text-pulsar">voyager://fontes</code> — lista de fontes/diários</div>
+{# ---------- catálogo ---------- #}
+<div class="card mb-6" x-data="{ q: '' }">
+  <div class="flex items-center justify-between gap-3 flex-wrap mb-1">
+    <h2 class="text-lg font-semibold text-fg">Catálogo · {{ total_tools }} tools</h2>
+    <label class="relative">
+      <span class="sr-only">Filtrar tools</span>
+      <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle">{% voy_icon "search" "w-3.5 h-3.5" %}</span>
+      <input type="search" x-model="q" placeholder="Filtrar: precatório, CNJ, OAB…" class="w-64 max-w-full pl-8 pr-3 py-1.5 bg-muted/50 border border-border rounded-lg text-xs focus:outline-none focus:border-mission">
+    </label>
+  </div>
+  <p class="text-xs text-fg-subtle mb-5">A mesma lista que o Claude recebe ao conectar.
+    <span class="badge chip-mini bg-golden/10 text-golden border border-golden/30">grava</span> cria algo no Voyager ·
+    <span class="badge chip-mini bg-info/10 text-info border border-info/30">fonte pública</span> consulta serviço de fora.</p>
+
+  <div class="space-y-6">
+    {% for g in grupos %}
+    <section x-data="{ get n() { return [...$el.querySelectorAll('[data-busca]')].filter(e => !q || e.dataset.busca.includes(q.toLowerCase())).length } }" x-show="n > 0">
+      <div class="flex items-start gap-3 mb-3">
+        <div class="w-9 h-9 shrink-0 rounded-lg bg-mission/10 border border-mission/25 flex items-center justify-center">{% voy_icon g.icone "w-[18px] h-[18px] text-mission" %}</div>
+        <div>
+          <h3 class="text-sm font-semibold text-fg">{{ g.titulo }} <span class="font-mono text-xs text-fg-subtle ml-1">{{ g.tools|length }}</span></h3>
+          <p class="text-xs text-fg-muted">{{ g.descricao }}</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+        {% for t in g.tools %}
+        <div data-busca="{{ t.nome }} {{ t.titulo|lower }} {{ t.resumo|lower }}" x-show="!q || $el.dataset.busca.includes(q.toLowerCase())"
+             class="rounded-lg border border-border bg-muted/20 p-3 hover:border-mission/40 transition-colors">
+          <div class="flex items-start justify-between gap-2">
+            <div class="text-sm font-medium text-fg">{{ t.titulo }}</div>
+            <div class="flex gap-1 shrink-0">
+              {% if t.escrita %}<span class="badge chip-mini bg-golden/10 text-golden border border-golden/30">grava</span>{% endif %}
+              {% if t.externa %}<span class="badge chip-mini bg-info/10 text-info border border-info/30">fonte pública</span>{% endif %}
+            </div>
+          </div>
+          <code class="font-mono text-[0.7rem] text-mission-fg">{{ t.nome }}</code>
+          <p class="text-xs text-fg-muted mt-1.5 leading-relaxed line-clamp-4">{{ t.resumo }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
   </div>
 </div>
 
+{# ---------- roteiros, recursos, regras ---------- #}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+  <div class="card">
+    <h2 class="text-sm font-semibold text-fg mb-1">Roteiros prontos</h2>
+    <p class="text-xs text-fg-subtle mb-3">Aparecem como prompts do conector no Claude.</p>
+    <ul class="space-y-3">
+      {% for p in prompts %}
+      <li><code class="font-mono text-xs text-mission-fg">{{ p.nome }}</code>{% if p.argumentos %}<span class="font-mono text-[0.7rem] text-fg-subtle"> ({{ p.argumentos|join:", " }})</span>{% endif %}
+        <div class="text-xs text-fg-muted">{{ p.descricao }}</div></li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="card">
+    <h2 class="text-sm font-semibold text-fg mb-1">Recursos</h2>
+    <p class="text-xs text-fg-subtle mb-3">Leitura direta por URI.</p>
+    <ul class="space-y-3">
+      {% for r in recursos %}
+      <li><code class="font-mono text-xs text-pulsar-fg">{{ r.uri }}</code><div class="text-xs text-fg-muted">{{ r.descricao }}</div></li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="card border-accent/25">
+    <h2 class="text-sm font-semibold text-fg mb-1">Honestidade com o dado</h2>
+    <p class="text-xs text-fg-subtle mb-3">O conector entrega estas regras ao Claude antes da primeira pergunta.</p>
+    <ul class="space-y-2.5">
+      {% for r in regras %}
+      <li class="flex gap-2 text-xs text-fg-muted">{% voy_icon "circle-check" "w-4 h-4 shrink-0 text-accent-fg" %}<span>{{ r }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+{# ---------- administração (superusuário) ---------- #}
+{% if admin_acessos %}
+<div class="card mb-6">
+  <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+    <div>
+      <h2 class="text-sm font-semibold text-fg">Acessos ao conector</h2>
+      <p class="text-xs text-fg-subtle">Visível só para superusuário. Conta nova <strong>não</strong> entra sozinha: libere aqui.</p>
+    </div>
+    <a href="/admin/mcp_server/mcpacesso/" class="btn-mission px-3 py-1.5 rounded-lg text-xs font-medium">Gerenciar acessos</a>
+  </div>
+  <div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="rounded-lg border border-border p-3"><div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">Liberados</div><div class="text-2xl font-semibold kpi-num">{{ admin_acessos.ativos }}</div></div>
+    <div class="rounded-lg border border-border p-3"><div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">Já usaram</div><div class="text-2xl font-semibold kpi-num">{{ admin_acessos.usaram }}</div></div>
+    <div class="rounded-lg border {% if admin_acessos.sem_acesso %}border-warning/40{% else %}border-border{% endif %} p-3"><div class="text-[0.7rem] uppercase tracking-wider text-fg-subtle">Contas sem acesso</div><div class="text-2xl font-semibold kpi-num">{{ admin_acessos.sem_acesso }}</div></div>
+  </div>
+  <table class="w-full text-xs">
+    <thead><tr class="text-left text-fg-subtle uppercase tracking-wider text-[0.65rem]"><th class="py-1.5 font-medium">Usuário</th><th class="py-1.5 font-medium">Situação</th><th class="py-1.5 font-medium text-right">Último uso</th></tr></thead>
+    <tbody>
+      {% for a in admin_acessos.lista %}
+      <tr class="border-t border-border">
+        <td class="py-2 text-fg-soft">{{ a.usuario.email|default:a.usuario.get_username }}</td>
+        <td class="py-2">{% if a.liberado %}<span class="badge chip-mini bg-accent/15 text-accent-fg border border-accent/30">liberado</span>{% else %}<span class="badge chip-mini bg-danger/15 text-danger border border-danger/30">revogado</span>{% endif %}</td>
+        <td class="py-2 text-right font-mono text-fg-muted">{{ a.ultimo_uso|date:"d/m/Y H:i"|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<script src="{% static 'mcp_server/landing.js' %}" defer></script>
 <script>
-function updateTokens() {
-  const token = document.getElementById('mcp-token').value.trim();
-  document.querySelectorAll('.token-placeholder').forEach(el => {
-    el.textContent = token || 'SEU-TOKEN';
+(function () {
+  var campo = document.getElementById('mcp-token');
+  if (!campo) return;
+  campo.addEventListener('input', function () {
+    var token = campo.value.trim();
+    document.querySelectorAll('.token-placeholder').forEach(function (el) { el.textContent = token || 'SEU-TOKEN'; });
   });
-}
-document.getElementById('mcp-token').addEventListener('input', updateTokens);
+})();
 </script>
-
 {% endblock %}

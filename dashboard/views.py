@@ -110,6 +110,8 @@ def overview(request):
     ctx = {
         'periodo_dias': dias,
         'tribunais': Tribunal.objects.filter(ativo=True),
+        # Faixa do conector do Claude no topo da home.
+        'mcp_url': _url_conector(request),
         'tribunal_filtro': ','.join(tribunais_filtro),
         'backfill_em_curso': backfill_em_curso,
         'cobertura_ate': cobertura_ate,
@@ -2470,11 +2472,42 @@ def api_docs(request):
 @login_required
 @require_GET
 def mcp_setup(request):
-    """Página de configuração do MCP server — como conectar em Claude/ChatGPT/Gemini/Cursor."""
-    from mcp_server.acesso import acesso_liberado
-    return render(request, 'dashboard/mcp_setup.html', {
-        'tem_acesso': acesso_liberado(request.user.id) is not None,
-    })
+    """Conector MCP: endereço, status da conta, como conectar em cada cliente,
+    catálogo (gerado do servidor) e, para superusuário, os acessos."""
+    from mcp_server import catalogo
+    from mcp_server.models import MCPAcesso
+    acesso = MCPAcesso.objects.filter(usuario_id=request.user.id).first()
+    ctx = {
+        **catalogo.contexto(),
+        'url_conector': _url_conector(request),
+        'tem_acesso': bool(acesso and acesso.liberado),
+        'acesso_ultimo_uso': acesso.ultimo_uso if acesso else None,
+        'passos_claude': (
+            ('Abra os conectores', 'No Claude: Settings → Connectors → Add custom connector.'),
+            ('Cole o endereço', 'Use o endereço acima. Deixe OAuth Client ID e Secret em branco.'),
+            ('Entre no Voyager', 'Clique em Connect: abre o login do Voyager, com o e-mail e a senha de sempre.'),
+            ('Autorize', 'Confira para onde vai a autorização e clique em Autorizar. Pronto.'),
+        ),
+        'admin_acessos': None,
+    }
+    if request.user.is_superuser:
+        from django.contrib.auth import get_user_model
+        from django.db.models import F
+        lista = list(MCPAcesso.objects.select_related('usuario')
+                     .order_by(F('ultimo_uso').desc(nulls_last=True), 'usuario__email'))
+        ctx['admin_acessos'] = {
+            'ativos': sum(a.liberado for a in lista),
+            'usaram': sum(a.ultimo_uso is not None for a in lista),
+            'sem_acesso': get_user_model().objects.filter(is_active=True, acesso_mcp__isnull=True).count(),
+            'lista': lista,
+        }
+    return render(request, 'dashboard/mcp_setup.html', ctx)
+
+
+def _url_conector(request):
+    from django.conf import settings as dj_settings
+    base = dj_settings.MCP_PUBLIC_BASE_URL or request.build_absolute_uri('/').rstrip('/')
+    return f'{base}/mcp'
 
 
 

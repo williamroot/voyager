@@ -1,0 +1,170 @@
+{% load static voyager_extras %}<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Conector MCP · VOYAGER</title>
+  <meta name="description" content="O acervo judicial do Voyager direto no Claude: processos, diários oficiais, partes e precatórios, com o login do Voyager.">
+  <link rel="icon" type="image/svg+xml" href="{% static 'dashboard/favicon.svg' %}">
+  <link rel="stylesheet" href="{% static 'mcp_server/landing.css' %}">
+  <script src="{% static 'mcp_server/landing.js' %}" defer></script>
+</head>
+<body>
+<div class="ceu" aria-hidden="true"></div>
+
+<div class="wrap">
+  <header class="topo">
+    <a class="marca" href="/mcp" aria-label="Voyager — conector MCP">
+      <img src="{% static 'dashboard/voyager-patch.svg' %}" alt="">
+      <span><b>VOYAGER</b><small>Conector MCP</small></span>
+    </a>
+    <div class="telemetria"><span class="pulsar"></span>Uplink ativo · MCP {{ versao_protocolo }}</div>
+    <nav aria-label="Seções">
+      <a href="#conectar">Conectar</a>
+      <a href="#catalogo">Catálogo</a>
+      <a href="/dashboard/mcp/">Dashboard</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="heroi">
+      <div>
+        <span class="etiqueta">↗ Conector do Claude</span>
+        <h1>O acervo judicial do Voyager, <em>direto no Claude.</em></h1>
+        <p class="lead">Pergunte em português sobre processos, publicações dos diários oficiais, partes e precatórios.
+          O Claude consulta o Voyager por você — com o seu login, e dizendo quando o número não é o universo.</p>
+        <div class="url">
+          <span id="url-conector">{{ url_conector }}</span>
+          <button class="copiar" type="button" data-copiar="url-conector" aria-label="Copiar o endereço do conector">
+            <span data-rotulo>Copiar</span></button>
+        </div>
+        <p class="dica">Cole este endereço como <b>conector personalizado</b> no Claude. Não há token pra copiar: o login é o do Voyager.</p>
+        <div class="acoes">
+          <a class="btn" href="#conectar">Como conectar →</a>
+          <a class="btn" href="/dashboard/mcp/">Ver se minha conta está liberada</a>
+        </div>
+      </div>
+
+      <aside class="painel" aria-label="O que o conector traz">
+        <h2>// Telemetria do conector</h2>
+        <div class="numeros">
+          <div class="numero"><b>{{ total_tools }}</b><span>tools de consulta</span></div>
+          <div class="numero"><b>{{ grupos|length }}</b><span>áreas: do panorama ao processo</span></div>
+          <div class="numero"><b>{{ prompts|length }}</b><span>roteiros prontos</span></div>
+          <div class="numero"><b>{{ recursos|length }}</b><span>recursos navegáveis</span></div>
+        </div>
+        <div class="selo"><span class="pulsar"></span>
+          <span><b>Leitura</b> em {{ tools_leitura|length }} das {{ total_tools }} tools. Só {{ tools_escrita|length }} gravam algo: cadastrar monitoramento.</span></div>
+      </aside>
+    </div>
+
+    <section id="conectar">
+      <div class="titulo-sec"><small>01</small><h2 class="sec">Conectar</h2></div>
+      <p class="sub">Funciona no Claude da web, no Desktop, no celular e no Claude Code. Conectou uma vez na conta, vale em todos os dispositivos dela.</p>
+      <div class="grade g2">
+        <div class="cartao">
+          <div class="cliente"><span class="ic">AI</span><h3>claude.ai · Desktop · mobile</h3></div>
+          <ol class="passos">
+            <li><span>Abra <b>Settings → Connectors → Add custom connector</b>.</span></li>
+            <li><span>Cole <code class="in">{{ url_conector }}</code> e deixe <i>OAuth Client ID/Secret</i> em branco.</span></li>
+            <li><span>Clique em <b>Connect</b>: entre com o e-mail e a senha do Voyager.</span></li>
+            <li><span>Confira o destino e clique em <b>Autorizar</b>. Pronto.</span></li>
+          </ol>
+        </div>
+        <div class="cartao">
+          <div class="cliente"><span class="ic">&gt;_</span><h3>Claude Code</h3></div>
+          <ol class="passos">
+            <li><div>Adicione o servidor no terminal:
+              <div class="cmd-linha"><div class="cmd" id="cmd-code">claude mcp add --transport http voyager {{ url_conector }}</div>
+                <button class="copiar mini" type="button" data-copiar="cmd-code" aria-label="Copiar o comando"><span data-rotulo>Copiar</span></button></div></div></li>
+            <li><span>No Claude Code, rode <code class="in">/mcp</code>, escolha <b>voyager → Authenticate</b> e faça o mesmo login no navegador.</span></li>
+          </ol>
+        </div>
+      </div>
+      <div class="grade g2" style="margin-top:14px">
+        <div class="cartao">
+          <h3>Quem pode usar</h3>
+          <p>Quem tem conta no Voyager <b>e</b> foi liberado para o conector por um administrador. Sem a liberação, a tela de login avisa — nada é consultado.</p>
+        </div>
+        <div class="cartao">
+          <h3>Outros clientes MCP</h3>
+          <p>Cursor, Gemini CLI, API da OpenAI e integrações próprias usam um token fixo. As receitas estão em <a href="/dashboard/mcp/">/dashboard/mcp</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="bases">
+      <div class="titulo-sec"><small>02</small><h2 class="sec">Três bases, que não são a mesma coisa</h2></div>
+      <p class="sub">O Claude sabe em qual procurar cada pergunta — e não confunde "não temos o detalhe" com "não existe".</p>
+      <div class="grade g3">
+        {% for chave, titulo, detalhe in bases %}
+        <div class="cartao base"><b>{{ chave }}</b><h3>{{ titulo }}</h3><p>{{ detalhe|capfirst }}.</p></div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section id="catalogo">
+      <div class="titulo-sec"><small>03</small><h2 class="sec">Catálogo · {{ total_tools }} tools</h2></div>
+      <p class="sub">A mesma lista que o Claude recebe ao conectar, organizada por assunto.
+        <span class="m m-ext">fonte pública</span> consulta serviço de fora (BCB, Tesouro, RFB, STJ, CNJ);
+        <span class="m m-esc">grava</span> cria algo no Voyager.</p>
+      {% for g in grupos %}
+      <div class="grupo" id="g-{{ g.slug }}">
+        <div class="grupo-cab">
+          <span class="ic">{% voy_icon g.icone "" %}</span>
+          <div><h3>{{ g.titulo }}<span>{{ g.tools|length }}</span></h3><p>{{ g.descricao }}</p></div>
+        </div>
+        <div class="tools">
+          {% for t in g.tools %}
+          <article class="tool">
+            <b>{{ t.titulo }}</b><code>{{ t.nome }}</code>
+            <p>{{ t.resumo }}</p>
+            {% if t.escrita or t.externa %}<div class="marcas">
+              {% if t.escrita %}<span class="m m-esc">grava</span>{% endif %}
+              {% if t.externa %}<span class="m m-ext">fonte pública</span>{% endif %}
+            </div>{% endif %}
+          </article>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section id="extras">
+      <div class="grade g2">
+        <div class="cartao">
+          <div class="titulo-sec" style="margin-bottom:4px"><small>04</small><h2 class="sec" style="font-size:20px">Roteiros prontos</h2></div>
+          <p>No Claude, aparecem como prompts do conector: encadeiam as tools certas pra cada tipo de pergunta.</p>
+          <ul class="lista">
+            {% for p in prompts %}<li><code>{{ p.nome }}</code><br>{{ p.descricao }}</li>{% endfor %}
+          </ul>
+        </div>
+        <div class="cartao regras">
+          <div class="titulo-sec" style="margin-bottom:4px"><small>05</small><h2 class="sec" style="font-size:20px">Honestidade com o dado</h2></div>
+          <p>Regras que o conector entrega ao Claude antes da primeira pergunta:</p>
+          <ul class="lista">
+            {% for r in regras %}<li><span>{{ r }}</span></li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+      <div class="cartao" style="margin-top:14px">
+        <h3>Recursos</h3>
+        <p>Leitura direta por URI, para clientes que navegam recursos MCP.</p>
+        <ul class="lista" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+          {% for r in recursos %}<li><code>{{ r.uri }}</code><br>{{ r.descricao }}</li>{% endfor %}
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Voyager · Deep data network</span>
+    <span>
+      <a href="/.well-known/oauth-protected-resource/mcp">OAuth metadata</a> ·
+      <a href="/mcp/.well-known/mcp.json">Descriptor</a> ·
+      <a href="/dashboard/">Dashboard</a>
+    </span>
+  </footer>
+</div>
+</body>
+</html>

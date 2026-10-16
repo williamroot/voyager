@@ -660,9 +660,17 @@ Configuração:
   e depois `/mcp` → Authenticate. Com token fixo: acrescente
   `--header "Authorization: Bearer <mcp_token>"`.
 
-### Página de configuração
+### Telas do conector
 
-O dashboard tem uma página interativa que ensina a configurar o MCP em cada cliente:
-`/dashboard/mcp/` — mostra instruções pra Claude Desktop, Claude Code, ChatGPT, Gemini, Cursor e clientes customizados (curl).
+| Onde | Quem vê | O quê |
+|---|---|---|
+| `GET /mcp` no navegador (`Accept: text/html`) | público | Landing (`mcp_server/templates/mcp_server/landing.html`): o que é, URL pra copiar, como conectar, as 3 bases, catálogo, prompts, regras do dado. Cliente MCP (sem `text/html`, ou com `text/event-stream`) segue recebendo 405 |
+| `/dashboard/mcp/` | logado | Status da SUA conta (liberada ou não, último uso), abas claude.ai / Claude Code / outros clientes (token fixo), catálogo com filtro; superusuário vê os acessos e quantas contas estão sem acesso |
+| Faixa no topo de `/dashboard/` | logado | "O Voyager agora conversa com o Claude" + URL + botão Conectar |
+
+O catálogo das três sai de `mcp_server/catalogo.py`, montado do `server.TOOLS` em
+tempo de execução (até 16/10/2026 a página dizia "17 tools", escrito à mão,
+com 43 no servidor). Tool nova sem grupo aparece em "Outras" e
+`tests/test_mcp_catalogo.py` falha até alguém catalogar (`GRUPOS` + `TITULOS`).
 
 Plano completo de implementação: [`JUSBRASIL_COMPAT_PLANO.md`](JUSBRASIL_COMPAT_PLANO.md).

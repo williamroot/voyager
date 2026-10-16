@@ -665,6 +665,37 @@ def _rpc_error(msg_id, err, status):
     }, status=status)
 
 
+def _quer_html(request):
+    """Navegador abrindo a URL do conector (e não cliente MCP pedindo stream)."""
+    aceita = request.META.get('HTTP_ACCEPT', '')
+    return 'text/html' in aceita and 'text/event-stream' not in aceita
+
+
+#: CSP da landing: nada de fora, script só o arquivo estático (botão Copiar).
+CSP_LANDING = (
+    "default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+)
+
+
+def landing(request):
+    """GET /mcp no navegador: o que é o conector, como conectar e o catálogo.
+    Pública — não mostra dado do acervo, só o que o `tools/list` já diz."""
+    from django.shortcuts import render
+
+    from . import catalogo
+    base = oauth.base() or request.build_absolute_uri('/').rstrip('/')
+    resp = render(request, 'mcp_server/landing.html', {
+        **catalogo.contexto(),
+        'url_conector': f'{base}/mcp',
+        'versao_protocolo': PROTOCOL_VERSIONS[0],
+    })
+    resp['Content-Security-Policy'] = CSP_LANDING
+    resp['X-Frame-Options'] = 'DENY'
+    resp['Vary'] = 'Accept'
+    return resp
+
+
 @csrf_exempt
 def mcp_endpoint(request):
     """/mcp/ — transporte Streamable HTTP da spec MCP: TODO request JSON-RPC
@@ -672,8 +703,11 @@ def mcp_endpoint(request):
 
     Antes este endpoint respondia `initialize` a qualquer método, e o Claude
     Code/Desktop conectava mas nunca via uma tool. Notificação (sem `id`) ⇒ 202.
-    Não abrimos stream servidor→cliente: GET ⇒ 405, como a spec permite.
+    Não abrimos stream servidor→cliente: GET ⇒ 405, como a spec permite —
+    salvo navegador (Accept text/html), que recebe a landing do conector.
     """
+    if request.method == 'GET' and _quer_html(request):
+        return landing(request)
     if request.method != 'POST':
         return HttpResponse(status=405, headers={'Allow': 'POST'})
     cliente, err = _auth(request)
