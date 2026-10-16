@@ -37,8 +37,20 @@ def test_escrita_e_externa_vem_das_annotations():
 
 
 @pytest.mark.django_db
-def test_landing_no_navegador_e_405_pro_cliente_mcp(client, settings):
+def test_landing_exige_login(client, settings):
     settings.MCP_PUBLIC_BASE_URL = 'https://voyager.test'
+    for path in ('/mcp', '/mcp/'):
+        resp = client.get(path, HTTP_ACCEPT='text/html')
+        assert resp.status_code == 302
+        assert resp['Location'] == f'/dashboard/login/?next={path}'
+        assert 'Catálogo' not in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_landing_no_navegador_e_405_pro_cliente_mcp(client, settings):
+    from django.contrib.auth import get_user_model
+    settings.MCP_PUBLIC_BASE_URL = 'https://voyager.test'
+    client.force_login(get_user_model().objects.create_user('l@x.com', 'l@x.com', 'senha-forte-123'))
     resp = client.get('/mcp', HTTP_ACCEPT='text/html,application/xhtml+xml')
     assert resp.status_code == 200
     html = resp.content.decode()

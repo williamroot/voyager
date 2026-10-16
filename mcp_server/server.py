@@ -680,10 +680,16 @@ CSP_LANDING = (
 
 def landing(request):
     """GET /mcp no navegador: o que é o conector, como conectar e o catálogo.
-    Pública — não mostra dado do acervo, só o que o `tools/list` já diz."""
+    Só com sessão do dashboard: sem login, vai pro login e volta pra cá."""
+    from django.contrib.auth.views import redirect_to_login
     from django.shortcuts import render
 
     from . import catalogo
+    if not request.user.is_authenticated:
+        resp = redirect_to_login(request.get_full_path())
+        resp['Cache-Control'] = 'no-store'
+        resp['Vary'] = 'Accept, Cookie'
+        return resp
     base = oauth.base() or request.build_absolute_uri('/').rstrip('/')
     resp = render(request, 'mcp_server/landing.html', {
         **catalogo.contexto(),
@@ -692,7 +698,8 @@ def landing(request):
     })
     resp['Content-Security-Policy'] = CSP_LANDING
     resp['X-Frame-Options'] = 'DENY'
-    resp['Vary'] = 'Accept'
+    resp['Vary'] = 'Accept, Cookie'
+    resp['Cache-Control'] = 'private, no-store'
     return resp
 
 
