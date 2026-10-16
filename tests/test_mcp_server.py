@@ -6,9 +6,29 @@ import pytest
 from tribunals.models import ApiClient
 
 
+def _token_legado():
+    token = uuid.uuid4()
+    ApiClient.objects.create(nome=f'desc-{token.hex[:8]}', api_key=token.hex, ativo=True, mcp_token=token)
+    return str(token)
+
+
+@pytest.mark.django_db
+def test_mcp_descriptor_exige_sessao_ou_token(client):
+    """Lista tools com descrição e schema: era público até 16/10/2026."""
+    resp = client.get('/mcp/.well-known/mcp.json')
+    assert resp.status_code == 401
+    assert 'tools' not in resp.json()
+    assert client.get('/mcp/.well-known/mcp.json', HTTP_AUTHORIZATION='Bearer lixo').status_code == 401
+
+    from django.contrib.auth import get_user_model
+    client.force_login(get_user_model().objects.create_user('d@x.com', 'd@x.com', 'senha-forte-123'))
+    resp = client.get('/mcp/.well-known/mcp.json')
+    assert resp.status_code == 200 and resp['Cache-Control'] == 'private, no-store'
+
+
 @pytest.mark.django_db
 def test_mcp_descriptor(client):
-    resp = client.get('/mcp/.well-known/mcp.json')
+    resp = client.get('/mcp/.well-known/mcp.json', HTTP_AUTHORIZATION=f'Bearer {_token_legado()}')
     assert resp.status_code == 200
     data = resp.json()
     assert data['name'] == 'voyager'
@@ -18,7 +38,7 @@ def test_mcp_descriptor(client):
 
 @pytest.mark.django_db
 def test_mcp_descriptor_lista_todas_tools(client):
-    resp = client.get('/mcp/.well-known/mcp.json')
+    resp = client.get('/mcp/.well-known/mcp.json', HTTP_AUTHORIZATION=f'Bearer {_token_legado()}')
     data = resp.json()
     tool_names = [t['name'] for t in data['tools']]
     expected = {

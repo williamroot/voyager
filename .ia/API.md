@@ -566,7 +566,7 @@ processos **e sobre a base inteira** (panorama, contagens, séries).
 |---|---|---|
 | POST | `/mcp` ou `/mcp/` | **Streamable HTTP** (spec MCP): TODO request JSON-RPC chega aqui — `initialize`, `ping`, `tools/*`, `resources/*`, `prompts/*`. Notificação (sem `id`) ⇒ 202 |
 | GET | `/mcp/` | 405 (sem stream servidor→cliente, como a spec permite) |
-| GET | `/mcp/.well-known/mcp.json` | Descriptor (tools, versão, auth) |
+| GET | `/mcp/.well-known/mcp.json` | Descriptor (tools, versão, auth). **Exige sessão do dashboard ou token do MCP** (era público até 16/10/2026) |
 | POST | `/mcp/messages` | Legado: `tools/list`, `tools/call` (erro de protocolo sai com HTTP 400/500) |
 | POST | `/mcp/resources` | Legado: `resources/list`, `resources/read` |
 | GET | `/mcp/sse` | Placeholder (compat) |

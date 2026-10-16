@@ -501,8 +501,16 @@ def _auth(request):
 
 @csrf_exempt
 def mcp_descriptor(request):
-    """GET /mcp/.well-known/mcp.json — descriptor do server."""
-    return JsonResponse({
+    """GET /mcp/.well-known/mcp.json — descriptor do server.
+
+    Lista as tools com descrição e schema: o mesmo que o `tools/list`, então a
+    mesma porta — sessão do dashboard ou token do MCP (OAuth ou ApiClient).
+    Até 16/10/2026 era público."""
+    if not request.user.is_authenticated:
+        _, err = _auth(request)
+        if err:
+            return err
+    resp = JsonResponse({
         'name': 'voyager',
         'version': '1.0.0',
         'description': 'Voyager — busca e monitoramento em diários oficiais brasileiros',
@@ -511,6 +519,8 @@ def mcp_descriptor(request):
                   for t in TOOLS],
         'auth': {'type': 'oauth2' if oauth.base() else 'bearer', 'header': 'Authorization'},
     })
+    resp['Cache-Control'] = 'private, no-store'
+    return resp
 
 
 #: Versões do protocolo que o servidor fala. O cliente pede uma no `initialize`:
