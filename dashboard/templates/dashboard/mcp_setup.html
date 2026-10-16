@@ -41,13 +41,13 @@
     {% if tem_acesso %}
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center">{% voy_icon "signal-ok" "w-5 h-5 text-accent-fg" %}</div>
-        <div><div class="font-semibold text-fg">Liberada</div><div class="text-xs text-fg-muted">{{ request.user.email|default:request.user.get_username }}</div></div>
+        <div><div class="font-semibold text-fg">Liberada</div><div class="text-xs text-fg-muted"><!--email_off-->{{ request.user.email|default:request.user.get_username }}<!--/email_off--></div></div>
       </div>
       <p class="text-xs text-fg-muted mt-3">{% if acesso_ultimo_uso %}Último uso pelo conector: <span class="font-mono text-fg-soft">{{ acesso_ultimo_uso|date:"d/m/Y H:i" }}</span>.{% else %}Ainda não conectou. Siga os passos abaixo.{% endif %}</p>
     {% else %}
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-lg bg-warning/15 border border-warning/30 flex items-center justify-center">{% voy_icon "signal-lost" "w-5 h-5 text-warning" %}</div>
-        <div><div class="font-semibold text-fg">Não liberada</div><div class="text-xs text-fg-muted">{{ request.user.email|default:request.user.get_username }}</div></div>
+        <div><div class="font-semibold text-fg">Não liberada</div><div class="text-xs text-fg-muted"><!--email_off-->{{ request.user.email|default:request.user.get_username }}<!--/email_off--></div></div>
       </div>
       <p class="text-xs text-fg-muted mt-3">Peça a um administrador para liberar sua conta em <strong>Acessos ao MCP</strong>. Sem isso, o login no Claude mostra "Sem acesso".</p>
     {% endif %}
@@ -248,7 +248,7 @@
     <tbody>
       {% for a in admin_acessos.lista %}
       <tr class="border-t border-border">
-        <td class="py-2 text-fg-soft">{{ a.usuario.email|default:a.usuario.get_username }}</td>
+        <td class="py-2 text-fg-soft"><!--email_off-->{{ a.usuario.email|default:a.usuario.get_username }}<!--/email_off--></td>
         <td class="py-2">{% if a.liberado %}<span class="badge chip-mini bg-accent/15 text-accent-fg border border-accent/30">liberado</span>{% else %}<span class="badge chip-mini bg-danger/15 text-danger border border-danger/30">revogado</span>{% endif %}</td>
         <td class="py-2 text-right font-mono text-fg-muted">{{ a.ultimo_uso|date:"d/m/Y H:i"|default:"—" }}</td>
       </tr>

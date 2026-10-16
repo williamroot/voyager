@@ -261,3 +261,16 @@ def test_consentimento_passa_no_csrf_de_verdade(usuario, settings):
     ok = c.post('/oauth/authorize', {'ticket': resp.context['ticket'], 'decisao': 'autorizar',
                                      'csrfmiddlewaretoken': str(csrf)})
     assert ok.status_code == 302 and 'code=' in ok['Location']
+
+
+@pytest.mark.django_db
+def test_email_na_tela_fora_da_ofuscacao_da_cloudflare(client, usuario):
+    """A Email Obfuscation da Cloudflare troca e-mail por "[email protected]" e só
+    desfaz com script — que a CSP da tela bloqueia. O e-mail vai entre email_off."""
+    client.force_login(usuario)
+    _, challenge = _pkce()
+    html = client.get('/oauth/authorize', _params(_registrar(client), challenge)).content.decode()
+    ini, fim = html.index('<!--email_off-->'), html.index('<!--/email_off-->')
+    assert 'ana@x.com' in html[ini:fim]
+    assert 'ana@x.com' not in html[:ini] + html[fim:]
+    assert 'endcomment' not in html and 'Cloudflare troca' not in html
