@@ -31,6 +31,7 @@ urlpatterns = [
     path('leads/', leads_views.listar_leads, name='leads-list'),
     path('leads/consumed/', leads_views.marcar_consumidos, name='leads-consumed'),
     path('leads/stats/', leads_views.stats, name='leads-stats'),
+    path('leads/sinais/', leads_views.sinais_expedicao, name='leads-sinais'),
 
     # API de Busca v1 (100% Elasticsearch — ver search/busca_api.py)
     path('busca/processos/', busca_views.busca_processos, name='busca-processos'),

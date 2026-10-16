@@ -295,23 +295,59 @@ VETO_CONVERSAO_RPV_TJRS_SQL = (
 # Rollout por tribunal, como as demais regras de sinal.
 CONVERSAO_RPV_SINAL_TRIBUNAIS = {'TJRS'}
 
+# Os padrões de cada feature moram em constantes porque têm DOIS leitores que
+# não podem divergir: o `_MOVS_AGG_SQL` abaixo (o classificador) e a consulta
+# em lote de sinais (`tribunals/sinais_expedicao.py`, endpoint
+# `/api/v1/leads/sinais/`), que diz ao JURISCOPE QUANDO o sinal apareceu. Os
+# textos são exatamente os que estavam escritos no SQL — o SQL montado é o
+# mesmo, byte a byte.
+TIPOS_F2_EXPEDICAO = ('Expedição de precatório/rpv', 'Precatório')
+TIPOS_F7_ENVIO = ('Enviada ao Tribunal', 'Preparada para Envio')
+F19_CANCELAMENTO_SQL = (
+    r'cancelamento de precat[óo]rio|cancelamento de rpv'
+    r'|revoga[çc][ãa]o de precat[óo]rio|revoga[çc][ãa]o de rpv'
+)
+# F20 e "última expedição" (referência do F24/F30) são o MESMO padrão.
+F20_EXPEDICAO_SQL = (
+    r'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido'
+    r'|requisi[çc][ãa]o de pagamento de pequeno valor enviada'
+    r'|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada'
+    r'|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv'
+    r'|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
+)
+PAGAMENTO_SQL = (
+    r'alvar[áa]\s+(judicial|de\s+levantamento)|expe[çc]am?-se\s+(o\s+)?alvar[áa]'
+    r'|autorizo[^.]{0,150}sequestro|defiro[^.]{0,100}sequestro'
+    r'|sequestro\s+do\s+numer[áa]rio|julgo\s+extint[oa]|mandado\s+de\s+levantamento'
+)
+EXTINCAO_NEGATIVA_SQL = (
+    r'extin\w+.{0,40}sem\s+resolu[çc][ãa]o\s+do\s+m[ée]rito|improceden'
+    r'|indefer\w+\s+a\s+(peti[çc][ãa]o|inicial|exordial)|denego\s+seguimento'
+    r'|nego\s+provimento|(decreto|reconhe[çc]o|pronuncio)\s+a\s+prescri'
+)
+
+
+def _sql_in(valores: tuple[str, ...]) -> str:
+    return '(' + ','.join(f"'{v}'" for v in valores) + ')'
+
+
 # Agrega todos os counts de movimentações em uma única passagem pela tabela,
 # eliminando os ~10 round-trips separados do código anterior.
 _MOVS_AGG_SQL = """
     SELECT
         COUNT(*) AS total_movs,
         COUNT(DISTINCT CASE WHEN tipo_comunicacao <> '' THEN tipo_comunicacao END) AS distinct_tipos,
-        COALESCE(SUM(CASE WHEN tipo_comunicacao IN ('Expedição de precatório/rpv','Precatório')
+        COALESCE(SUM(CASE WHEN tipo_comunicacao IN __TIPOS_F2__
                           THEN 1 ELSE 0 END), 0) AS f2_n,
-        COALESCE(SUM(CASE WHEN tipo_comunicacao IN ('Enviada ao Tribunal','Preparada para Envio')
+        COALESCE(SUM(CASE WHEN tipo_comunicacao IN __TIPOS_F7__
                           THEN 1 ELSE 0 END), 0) AS f7_n,
         COALESCE(SUM(CASE WHEN texto ~* 'precat[óo]rio'                THEN 1 ELSE 0 END), 0) AS f11_n,
         COALESCE(SUM(CASE WHEN texto ~* '\\mrpv\\M'                    THEN 1 ELSE 0 END), 0) AS f12_n,
         COALESCE(SUM(CASE WHEN texto ~* 'requisi[çc][ãa]o de pagamento' THEN 1 ELSE 0 END), 0) AS f13_n,
         COALESCE(SUM(CASE WHEN texto ~* 'of[íi]cio requisit[óo]rio'    THEN 1 ELSE 0 END), 0) AS f14_n,
-        COALESCE(SUM(CASE WHEN texto ~* 'cancelamento de precat[óo]rio|cancelamento de rpv|revoga[çc][ãa]o de precat[óo]rio|revoga[çc][ãa]o de rpv'
+        COALESCE(SUM(CASE WHEN texto ~* '__F19__'
                           THEN 1 ELSE 0 END), 0) AS f19_n,
-        COALESCE(SUM(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
+        COALESCE(SUM(CASE WHEN texto ~* '__F20__'
                           THEN 1 ELSE 0 END), 0) AS f20_n,
         COALESCE(SUM(CASE WHEN texto ~* '__SINAL_F31__' THEN 1 ELSE 0 END), 0) AS f31_n,
         MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__SINAL_F31__'
@@ -319,18 +355,24 @@ _MOVS_AGG_SQL = """
         MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__CONV_F32__'
                       AND texto !~* '__VETO_F32__'
                  THEN data_disponibilizacao END) AS f32_max_dt,
-        MAX(CASE WHEN texto ~* 'alvar[áa]\\s+(judicial|de\\s+levantamento)|expe[çc]am?-se\\s+(o\\s+)?alvar[áa]|autorizo[^.]{0,150}sequestro|defiro[^.]{0,100}sequestro|sequestro\\s+do\\s+numer[áa]rio|julgo\\s+extint[oa]|mandado\\s+de\\s+levantamento'
+        MAX(CASE WHEN texto ~* '__PAGO__'
                  THEN data_disponibilizacao END) AS pago_max_dt,
-        MAX(CASE WHEN texto ~* 'precat[óo]rio expedido|rpv expedida|of[íi]cio requisit[óo]rio expedido|requisi[çc][ãa]o de pagamento de pequeno valor enviada|requisi[çc][ãa]o de pagamento de precat[óo]rio enviada|determinada expedi[çc][ãa]o de precat[óo]rio|determinada expedi[çc][ãa]o de rpv|expedi[çc][ãa]o de requisi[çc][ãa]o de pagamento'
+        MAX(CASE WHEN texto ~* '__F20__'
                  THEN data_disponibilizacao END) AS exped_max_dt,
         -- DESFECHO terminal NEGATIVO (crédito não existe): extinção sem mérito,
         -- improcedência, indeferimento da inicial, prescrição decretada. NÃO é lead.
-        MAX(CASE WHEN texto ~* 'extin\\w+.{0,40}sem\\s+resolu[çc][ãa]o\\s+do\\s+m[ée]rito|improceden|indefer\\w+\\s+a\\s+(peti[çc][ãa]o|inicial|exordial)|denego\\s+seguimento|nego\\s+provimento|(decreto|reconhe[çc]o|pronuncio)\\s+a\\s+prescri'
+        MAX(CASE WHEN texto ~* '__EXTNEG__'
                  THEN data_disponibilizacao END) AS extneg_max_dt,
         MAX(data_disponibilizacao) AS ult_mov_dt
     FROM tribunals_movimentacao
     WHERE processo_id = %s
-""".replace('__SINAL_F31__', SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL) \
+""".replace('__TIPOS_F2__', _sql_in(TIPOS_F2_EXPEDICAO)) \
+ .replace('__TIPOS_F7__', _sql_in(TIPOS_F7_ENVIO)) \
+ .replace('__F19__', F19_CANCELAMENTO_SQL) \
+ .replace('__F20__', F20_EXPEDICAO_SQL) \
+ .replace('__PAGO__', PAGAMENTO_SQL) \
+ .replace('__EXTNEG__', EXTINCAO_NEGATIVA_SQL) \
+ .replace('__SINAL_F31__', SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL) \
  .replace('__CONV_F32__', CONVERSAO_RPV_TJRS_SQL) \
  .replace('__VETO_F32__', VETO_CONVERSAO_RPV_TJRS_SQL)
 
@@ -589,6 +631,18 @@ def f32_convertido(f31_max_dt, f32_max_dt) -> int:
     return int(bool(f31_max_dt) and bool(f32_max_dt) and f32_max_dt >= f31_max_dt)
 
 
+def f24_pago_pos_exped(pago_max_dt, exped_max_dt) -> int:
+    """1 se o último marcador de pagamento é posterior (ou igual) à última expedição."""
+    return int(bool(pago_max_dt)
+               and (exped_max_dt is None or pago_max_dt >= exped_max_dt))
+
+
+def f30_extinto_neg(extneg_max_dt, exped_max_dt) -> int:
+    """1 se o desfecho terminal negativo é a última palavra (sem expedição depois)."""
+    return int(bool(extneg_max_dt)
+               and (exped_max_dt is None or extneg_max_dt >= exped_max_dt))
+
+
 def compute_features(processo) -> dict:
     """Computa as 19 features do v5 a partir de um Process.
 
@@ -629,12 +683,10 @@ def compute_features(processo) -> dict:
     f21 = (dias_ult - DIAS_ULT_MOV_MEAN) / DIAS_ULT_MOV_STD
     f23 = math.log1p(n_partes) / math.log(50)
 
-    f24 = int(bool(pago_max_dt)
-              and (exped_max_dt is None or pago_max_dt >= exped_max_dt))
+    f24 = f24_pago_pos_exped(pago_max_dt, exped_max_dt)
     # F30: desfecho terminal NEGATIVO (extinção sem mérito/improcedência/prescrição) que
     # é a última palavra — sem expedição posterior. Crédito não existe → NÃO é lead.
-    f25 = int(bool(extneg_max_dt)
-              and (exped_max_dt is None or extneg_max_dt >= exped_max_dt))
+    f25 = f30_extinto_neg(extneg_max_dt, exped_max_dt)
 
     f2 = int(f2_n > 0); f7 = int(f7_n > 0)
     f11 = int(f11_n > 0); f12 = int(f12_n > 0); f13 = int(f13_n > 0); f14 = int(f14_n > 0)

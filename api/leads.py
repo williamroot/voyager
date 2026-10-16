@@ -9,11 +9,15 @@ Endpoints:
                                 recente — ver `api/leads_cache.py`)
   POST /api/leads/consumed/   — marca processos como consumidos
   GET  /api/leads/stats/      — métricas agregadas
+  POST /api/leads/sinais/     — sinais de expedição de um lote de CNJs (vigia
+                                de expedição do JURISCOPE)
 """
 from __future__ import annotations
 
 import logging
+import time
 import uuid
+from datetime import date
 
 import django_rq
 from rq import Retry
@@ -32,6 +36,7 @@ from tribunals.jobs import registrar_consumo_leads
 from tribunals.models import (
     ApiClient, ClassificadorVersao, LeadConsumption, Process,
 )
+from tribunals.sinais_expedicao import LIMITE_CNJS, calcular_sinais
 
 from . import leads_cache
 from .leads_cache import executar_com_teto
@@ -240,4 +245,57 @@ def stats(request):
         'taxa_validacao': taxa_val,
         'modelo_versao': versao_ativa.versao if versao_ativa else 'v5',
         'modelo_atualizado_em': versao_ativa.criada_em.isoformat() if versao_ativa else None,
+    })
+
+
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def sinais_expedicao(request):
+    """POST /api/leads/sinais/ {cnjs: [...], desde: 'AAAA-MM-DD'?}
+
+    Para cada CNJ: nível atual, última transição, data da última movimentação
+    que casa o sinal de expedição do tribunal (mesmas regras do classificador)
+    e vetos com data. Ver `tribunals/sinais_expedicao.py`.
+    """
+    cliente = _autenticar(request)
+    if not cliente:
+        return Response({'erro': 'X-API-Key inválida ou ausente'}, status=403)
+
+    cnjs = request.data.get('cnjs')
+    if not isinstance(cnjs, list) or not cnjs:
+        return Response({'erro': 'cnjs deve ser lista não-vazia'}, status=400)
+    if len(cnjs) > LIMITE_CNJS:
+        return Response({'erro': f'cnjs excede {LIMITE_CNJS} por requisição'}, status=400)
+    desde_txt = request.data.get('desde')
+    desde = None
+    if desde_txt:
+        try:
+            desde = date.fromisoformat(str(desde_txt))
+        except ValueError:
+            return Response({'erro': 'desde deve ser AAAA-MM-DD'}, status=400)
+
+    teto = settings.LEADS_SQL_TIMEOUT_SECONDS
+    t0 = time.monotonic()
+    try:
+        resposta = executar_com_teto(
+            lambda: calcular_sinais(
+                cnjs, desde, orcamento_s=settings.SINAIS_ORCAMENTO_SEGUNDOS,
+                teto_s=teto, paralelismo=settings.SINAIS_PARALELISMO),
+            teto)
+    except OperationalError as exc:
+        logger.warning('sinais_expedicao estourou %ss (cliente=%s cnjs=%s): %s',
+                       teto, cliente.id, len(cnjs), exc)
+        return Response({'erro': f'consulta excedeu o teto de {teto}s no banco'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    ms = int((time.monotonic() - t0) * 1000)
+    logger.log(logging.INFO if resposta['completo'] else logging.WARNING,
+               'sinais_expedicao cliente=%s cnjs=%s encontrados=%s '
+               'nao_processados=%s ms=%s', cliente.id, len(cnjs),
+               len(resposta['results']), len(resposta['nao_processados']), ms)
+    return Response({
+        'count': len(resposta['results']),
+        'desde': desde.isoformat() if desde else None,
+        'tempo_ms': ms,
+        **resposta,
     })
