@@ -664,7 +664,7 @@ Configuração:
 
 | Onde | Quem vê | O quê |
 |---|---|---|
-| `GET /mcp` no navegador (`Accept: text/html`) | público | Landing (`mcp_server/templates/mcp_server/landing.html`): o que é, URL pra copiar, como conectar, as 3 bases, catálogo, prompts, regras do dado. Cliente MCP (sem `text/html`, ou com `text/event-stream`) segue recebendo 405 |
+| `GET /mcp` no navegador (`Accept: text/html`) | **logado** (sem sessão ⇒ login e volta) | Landing (`mcp_server/templates/mcp_server/landing.html`): o que é, URL pra copiar, como conectar, as 3 bases, catálogo, prompts, regras do dado. Cliente MCP (sem `text/html`, ou com `text/event-stream`) segue recebendo 405 |
 | `/dashboard/mcp/` | logado | Status da SUA conta (liberada ou não, último uso), abas claude.ai / Claude Code / outros clientes (token fixo), catálogo com filtro; superusuário vê os acessos e quantas contas estão sem acesso |
 | Faixa no topo de `/dashboard/` | logado | "O Voyager agora conversa com o Claude" + URL + botão Conectar |
 
