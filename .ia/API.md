@@ -576,11 +576,49 @@ processos **e sobre a base inteira** (panorama, contagens, séries).
 > `POST /mcp` (sem barra, o que a página de setup ensina) levava 301 — que o
 > cliente segue trocando POST por GET. Os dois testados em `tests/test_mcp_server.py`.
 
-Auth: `Authorization: Bearer <mcp_token>`. O token é do **`ApiClient`**, não do
-usuário: `python manage.py gerar_mcp_token <nome_cliente>` — **gira** o token
-(o anterior morre na hora). Pra dar acesso a uma pessoa, crie um `ApiClient`
-próprio dela (a `api_key` dele é aleatória e não é entregue). Token que nem é
-UUID ⇒ 403 (era 500). Rate limit: `MCP_RATE_LIMIT_RPM` (60) por cliente.
+**Auth — dois caminhos** (`mcp_server/server.py::_auth`):
+
+1. **OAuth 2.1 (conector do Claude)** — `mcp_server/oauth.py`. O Voyager é o
+   próprio Authorization Server, mesmo desenho do MCP admin do Juriscope
+   (`juriscope/mcp`), sem o ticket de SSO (dashboard e MCP são o mesmo Django):
+
+   ```
+   Claude ──DCR──► POST /oauth/register            (só redirect do claude.ai/claude.com ou loopback)
+   Claude ──────► GET  /oauth/authorize ── sem sessão ──► /dashboard/login/?next=…
+                       └─ MCPAcesso? ── tela "Autorizar acesso" ── POST (CSRF) ──► redirect_uri?code&state&iss
+   Claude ──────► POST /oauth/token (PKCE S256) → access 1h + refresh 30d (rotativo)
+   ```
+
+   | Método | Path | |
+   |---|---|---|
+   | GET | `/.well-known/oauth-protected-resource[/mcp]` | PRM (RFC 9728) |
+   | GET | `/.well-known/oauth-authorization-server[/mcp]` | AS metadata (RFC 8414) |
+   | POST | `/oauth/register` | DCR (RFC 7591), público, 20/min por IP, 500/dia |
+   | GET/POST | `/oauth/authorize` | login do dashboard + consentimento |
+   | POST | `/oauth/token` | `authorization_code` / `refresh_token` |
+   | POST | `/oauth/trocar-conta` | logout + volta ao login com o mesmo pedido |
+
+   - Sem token (ou token inválido/revogado) ⇒ **401 + `WWW-Authenticate`**
+     apontando o PRM — é assim que o Claude descobre o login. Até 16/10/2026 era
+     **403 seco**, e o conector do claude.ai (que só fala OAuth; não tem "header
+     estático", ao contrário do que a página de setup ensinava) não entrava.
+   - Quem entra: conta ativa **e** `MCPAcesso` ativo (Django admin → *Acessos ao
+     MCP*, só superusuário). Conferido na tela, no clique, em cada refresh (sem
+     cache) e em cada request (cache de `MCP_ALLOWLIST_CACHE_S`=30s). Revogar no
+     admin derruba as sessões na hora.
+   - Tokens opacos; no Redis só o sha256 (`mcp:oauth:*`, cliente Redis próprio
+     com timeout). Code e refresh de uso único (GETDEL); reapresentar um já
+     usado derruba a família inteira (RFC 9700).
+   - `Origin` fora de `MCP_ALLOWED_ORIGINS` (claude.ai, claude.com + a própria) ⇒ 403.
+   - **Fail-closed:** `MCP_PUBLIC_BASE_URL` vazio ⇒ OAuth desligado (rotas 503,
+     401 sem desafio); o issuer nunca sai do `Host` da request.
+
+2. **Token fixo legado** — `Authorization: Bearer <mcp_token>` (ou `?token=`).
+   O token é do **`ApiClient`**: `python manage.py gerar_mcp_token <nome_cliente>`
+   — **gira** o token (o anterior morre na hora). Pra integrações e configs
+   antigas de Claude Code.
+
+Rate limit: `MCP_RATE_LIMIT_RPM` (60) por chamador (`c:<ApiClient>` ou `u:<User>`).
 
 `initialize` devolve `instructions` (como usar as bases e as ressalvas do dado),
 que o cliente põe no contexto do modelo.
@@ -615,11 +653,12 @@ tela); antes era `query_string` cru sem timeout e estourava 30s.
 **Prompts:** `panorama_do_acervo`, `responder_pergunta`, `analisar_processo`,
 `perfil_devedor` — roteiros que encadeiam as tools certas.
 
-Configuração Claude Code:
-```bash
-claude mcp add --transport http voyager https://voyager.was.dev.br/mcp \
-  --header "Authorization: Bearer <mcp_token>"
-```
+Configuração:
+- **claude.ai / Desktop / mobile:** Settings → Connectors → Add custom connector →
+  `https://voyager.was.dev.br/mcp` (Client ID/Secret em branco) → Connect.
+- **Claude Code:** `claude mcp add --transport http voyager https://voyager.was.dev.br/mcp`
+  e depois `/mcp` → Authenticate. Com token fixo: acrescente
+  `--header "Authorization: Bearer <mcp_token>"`.
 
 ### Página de configuração
 

@@ -2471,7 +2471,10 @@ def api_docs(request):
 @require_GET
 def mcp_setup(request):
     """Página de configuração do MCP server — como conectar em Claude/ChatGPT/Gemini/Cursor."""
-    return render(request, 'dashboard/mcp_setup.html', {})
+    from mcp_server.acesso import acesso_liberado
+    return render(request, 'dashboard/mcp_setup.html', {
+        'tem_acesso': acesso_liberado(request.user.id) is not None,
+    })
 
 
 

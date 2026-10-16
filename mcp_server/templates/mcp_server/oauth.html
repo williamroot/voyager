@@ -1,0 +1,95 @@
+{% load static %}<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ titulo }} · VOYAGER</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'dashboard/favicon.svg' %}">
+  {# Mesma casca do login: quem chega aqui acabou de passar por ele. Sem script (CSP), #}
+  {# então o tema segue o sistema em vez do toggle do dashboard. #}
+  <link rel="stylesheet" href="{% static 'dashboard/login.css' %}">
+  <style>
+    @media (prefers-color-scheme: dark){
+      html:not(.dark){--c-base:9 9 11;--c-surface:24 24 27;--c-card:24 24 27;--c-muted:39 39 42;
+        --c-border:39 39 42;--c-fg:244 244 245;--c-fg-muted:161 161 170;--c-danger:244 63 94;}
+      html:not(.dark) .bg{opacity:.75;filter:none;}
+      html:not(.dark) .brand{color:rgb(var(--c-fg));}
+    }
+    body{overflow:auto;}
+    .mission-tag.ruim{color:rgb(var(--c-danger));border-color:rgb(var(--c-danger) / .4);background:rgb(var(--c-danger) / .08);}
+    h1{margin:0 0 .5rem;font-size:1.25rem;line-height:1.25;}
+    p{margin:.4rem 0 0;font-size:.85rem;line-height:1.55;color:rgb(var(--c-fg-muted));}
+    p b{color:rgb(var(--c-fg));}
+    .quem{display:flex;align-items:center;gap:.75rem;margin-top:1rem;padding:.65rem .8rem;
+      border:1px solid rgb(var(--c-border));border-radius:.5rem;}
+    .quem b{display:block;font-size:.9rem;}
+    .quem span{display:block;font-size:.75rem;color:rgb(var(--c-fg-subtle));overflow-wrap:anywhere;}
+    .lista{list-style:none;margin:1rem 0 0;padding:0;display:grid;gap:.4rem;}
+    .lista li{font-size:.8rem;line-height:1.5;color:rgb(var(--c-fg-muted));padding-left:1.1rem;position:relative;}
+    .lista li::before{content:'✓';position:absolute;left:0;color:rgb(var(--c-accent));}
+    .destino{margin-top:1rem;padding:.65rem .8rem;border:1px solid rgb(var(--c-border));
+      border-left:3px solid rgb(var(--c-mission));border-radius:.375rem;}
+    .destino small{display:block;font-size:.6rem;letter-spacing:.18em;text-transform:uppercase;color:rgb(var(--c-fg-subtle));}
+    .destino code{display:block;margin:.25rem 0;font:600 .85rem/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;}
+    .destino p{margin:0;font-size:.75rem;}
+    form{margin-top:1rem;gap:.5rem;}
+    .btn{margin-top:0;}
+    .btn.sec{background:transparent;color:rgb(var(--c-fg));box-shadow:none;border-color:rgb(var(--c-border));}
+    .link{background:none;border:0;padding:0;cursor:pointer;font:inherit;font-size:.75rem;color:rgb(var(--c-fg-muted));
+      text-decoration:underline;text-decoration-color:rgb(var(--c-mission));text-underline-offset:3px;}
+    .rodape{margin-top:.75rem;text-align:center;}
+    .rodape form{margin:0;display:inline;}
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="bg" aria-hidden="true"></div>
+  <div class="bg-overlay" aria-hidden="true"></div>
+  <div class="shell">
+    <div class="card">
+      <div class="hdr">
+        <img src="{% static 'dashboard/voyager-patch.svg' %}" alt="" class="patch">
+        <div>
+          <div class="brand">VOYAGER</div>
+          <div class="brand-sub">Conector do Claude · MCP</div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <span class="mission-tag{% if etiqueta_ruim %} ruim{% endif %}">↗ Conector do Claude</span>
+      <h1>{{ titulo }}</h1>
+
+      {% if consentimento %}
+        <p><b>{{ cliente_nome }}</b> quer acessar o Voyager em seu nome.</p>
+        <div class="quem"><div><b>{{ nome }}</b>{% if email %}<span>{{ email }}</span>{% endif %}</div></div>
+        <ul class="lista">
+          <li>Processos, publicações dos diários, partes/entidades e precatórios do acervo.</li>
+          <li>Leitura; as únicas escritas possíveis são cadastrar monitoramento de termo ou processo.</li>
+          <li>O acesso vale até você ou um administrador revogar.</li>
+        </ul>
+        <div class="destino"><small>A autorização vai para</small><code>{{ destino }}</code>
+          <p>Se não foi você quem iniciou esta conexão, cancele.</p></div>
+        <form method="post" action="/oauth/authorize" autocomplete="off">
+          {% csrf_token %}
+          <input type="hidden" name="ticket" value="{{ ticket }}">
+          <button class="btn" type="submit" name="decisao" value="autorizar">Autorizar</button>
+          <button class="btn sec" type="submit" name="decisao" value="cancelar">Cancelar</button>
+        </form>
+      {% else %}
+        <p>{{ texto }}</p>
+      {% endif %}
+
+      {% if trocar %}
+        <div class="rodape">
+          <form method="post" action="/oauth/trocar-conta">
+            {% csrf_token %}
+            <input type="hidden" name="volta" value="{{ trocar }}">
+            <button class="link" type="submit">{% if consentimento %}Não é você? {% endif %}Entrar com outra conta</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+</body>
+</html>

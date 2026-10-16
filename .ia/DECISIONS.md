@@ -1141,3 +1141,37 @@ contrato de API significa devolver "não sei" com o motivo, não um zero limpo.
   pelo motor, mas declarado como não medido.
 - Bater qualquer teto (páginas, tempo, ingestão) é ERRO no log e `truncado` na
   resposta, com o número real — teto é alerta, nunca corte mudo (regra nº 2).
+
+## ADR-039: o conector do Claude entra por OAuth com o login do dashboard (2026-10-16)
+
+**Contexto.** O MCP só aceitava `Authorization: Bearer <ApiClient.mcp_token>` e
+respondia **403** a quem chegasse sem ele. O conector personalizado do claude.ai
+(web, Desktop, mobile) só fala OAuth — não há campo de header fixo, ao contrário
+do que a página `/dashboard/mcp/` ensinava. Resultado: o Voyager funcionava no
+Claude Code com header colado e em nenhum outro lugar. E o token, sendo de
+`ApiClient`, não dizia QUEM estava perguntando.
+
+**Decisão.** O Voyager vira o próprio Authorization Server OAuth 2.1
+(`mcp_server/oauth.py`), copiando o desenho do MCP administrativo do Juriscope
+(`juriscope/mcp` + `falcon/mcp_admin`): DCR restrito aos callbacks do Claude e
+loopback, PKCE S256 obrigatório, tela de consentimento própria, tokens opacos
+com só o sha256 no Redis, refresh rotativo com derrubada da família no reuso,
+allowlist `MCPAcesso` por usuário (Django admin, só superusuário), 401 com
+`WWW-Authenticate` apontando o PRM, checagem de `Origin`.
+
+**Diferença pro Juriscope.** Lá o login mora no painel (outro processo) e volta
+por um ticket de uso único trocado servidor→servidor com segredo de serviço.
+Aqui dashboard e MCP são o mesmo Django: o `/oauth/authorize` lê a sessão
+direto (`redirect_to_login` quando não há), e o POST do consentimento é
+protegido pelo CSRF do Django. Menos peças, mesma garantia.
+
+**Consequências.**
+
+- O token fixo de `ApiClient` continua valendo (integrações, configs antigas).
+- Ter conta no dashboard não basta: sem `MCPAcesso` ativo, a tela diz "Sem
+  acesso ao MCP" e oferece "Entrar com outra conta".
+- `MCP_PUBLIC_BASE_URL` vazio desliga o OAuth (fail-closed); o issuer nunca sai
+  do `Host` da request.
+- `Referrer-Policy` das telas é `same-origin`, NÃO `no-referrer` como no
+  Juriscope: com `no-referrer` o navegador manda `Origin: null` e o CSRF do
+  Django recusa o "Autorizar".

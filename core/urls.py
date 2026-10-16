@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView, TemplateView
 
+from mcp_server import oauth
 from mcp_server.server import mcp_endpoint
 
 
@@ -29,6 +30,16 @@ urlpatterns = [
     # responderia 301 — que o cliente segue trocando POST por GET.
     path('mcp', mcp_endpoint),
     path('mcp/', include('mcp_server.server')),
+    # OAuth 2.1 do conector do Claude (mcp_server/oauth.py). PRM e AS metadata
+    # na raiz, com e sem o sufixo /mcp: os clientes tentam as duas formas.
+    path('.well-known/oauth-protected-resource', oauth.protected_resource_metadata),
+    path('.well-known/oauth-protected-resource/mcp', oauth.protected_resource_metadata),
+    path('.well-known/oauth-authorization-server', oauth.authorization_server_metadata),
+    path('.well-known/oauth-authorization-server/mcp', oauth.authorization_server_metadata),
+    path('oauth/register', oauth.register),
+    path('oauth/authorize', oauth.authorize),
+    path('oauth/token', oauth.token),
+    path('oauth/trocar-conta', oauth.trocar_conta),
     path('dashboard/', include('dashboard.urls')),
     path('', include('accounts.urls')),
     path('favicon.ico', FaviconRedirect.as_view()),
