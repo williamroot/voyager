@@ -19,6 +19,7 @@ import django_rq
 from django.db import transaction
 from django.utils import timezone
 from django_rq import job
+from rq.timeouts import JobTimeoutException
 
 from .base import CriterioIndisponivel, FonteIndisponivel, RefinarBusca
 from .registry import CATALOGO, TribunalSemBusca, buscador
@@ -184,6 +185,21 @@ def buscar_no_tribunal(run_id: str, sigla: str) -> dict:
                       'motivo_truncagem': f'a fonte parou de responder no meio: {exc}'}
         else:
             estado = {'status': INDISPONIVEL, 'mensagem': str(exc)}
+    except JobTimeoutException:
+        # O teto de tempo acima só é checado ENTRE páginas; uma requisição lenta
+        # que começa perto dele cruza o `JOB_TIMEOUT` e o RQ interrompe o job.
+        # Medido em 16/10/2026: OAB no TJRS (janelas de 2.000 linhas, ~45 s
+        # cada) colheu 17.926 processos e o tribunal saía como ERRO — a tela
+        # dizia "falhou" com o resultado inteiro salvo. Mesma regra da fonte
+        # que cai no meio: o que foi colhido vale, marcado como truncado.
+        logger.error('busca %s: tempo do job estourado em %s (colhidos=%d em %d páginas)',
+                     run_id, sigla, len(colhidos), paginas)
+        if colhidos:
+            estado = {'status': OK, 'truncado': True,
+                      'motivo_truncagem': f'teto de {JOB_TIMEOUT}s por tribunal'}
+        else:
+            estado = {'status': INDISPONIVEL,
+                      'mensagem': f'a fonte não respondeu em {JOB_TIMEOUT}s'}
     except Exception as exc:
         logger.exception('busca %s: falha inesperada em %s', run_id, sigla)
         estado = {'status': ERRO, 'mensagem': f'{type(exc).__name__}: {str(exc)[:200]}'}
