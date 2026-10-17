@@ -233,15 +233,15 @@ def revisar_janela_trf3(batch_size: int = _CLASSIF_BATCH_SIZE) -> dict:
       * PRECATORIO: desce a PRE quando a minuta passa de 30 dias ou o envio de
         15 sem nova expedição.
 
-    Alvo: os dois grupos com veredito de mais de 12 horas (o cron roda uma vez
-    por dia; 12 h evita pegar o que o próprio dia já reclassificou). Tamanho
-    estimado: ~1,5 mil em espera + ~3 mil na janela.
+    Alvo: os dois grupos inteiros, sem filtro de idade do veredito — um
+    filtro por horas deixaria de fora quem foi reclassificado na véspera
+    entre o fim da tarde e a hora do cron. Tamanho estimado: ~3 mil em espera
+    + ~13 mil em PRECATORIO.
     """
     from .classificador import SCORE_ESPERA_MINUTA
 
-    limite = timezone.now() - timedelta(hours=12)
     pids = list(
-        Process.objects.filter(tribunal_id='TRF3', classificacao_em__lt=limite)
+        Process.objects.filter(tribunal_id='TRF3')
         .filter(
             Q(classificacao=Process.CLASSIF_PRECATORIO)
             | Q(classificacao=Process.CLASSIF_PRE_PRECATORIO,

@@ -26,9 +26,11 @@ from django.db import connection
 from django.utils import timezone
 
 from tribunals.classificador import (
+    CANCELAMENTO_TRF3_SQL,
     ENVIO_TRF3_SQL,
     MINUTA_TRF3_SQL,
     PAGO_TRF3_SQL,
+    PAGO_VETO_TRF3_SQL,
     SCORE_ESPERA_MINUTA,
     classificar,
     compute_features,
@@ -151,6 +153,54 @@ INTEIRO_TEOR = (
 )
 
 
+# Falsos positivos achados na revisão do PR (textos reais do DJEN do TRF3).
+# Sentença da fase de conhecimento: o "valores pagos" é benefício inacumulável.
+FP_BENEFICIO = (
+    'indicando separadamente os montantes devidos a título de Principal, atualização '
+    'monetária, juros de mora, e Selic a partir de 09/12/2021, relativos à obrigação de '
+    'pagar, apontando os índices usados para correção monetária, juros e RMI adotada, '
+    'compensando-se os valores pagos a título de benefício inacumulável e/ou no curso da '
+    'presente ação e observando-se o que segue: a) Correção monetária: Conforme julgado.'
+)
+# Ato sobre cálculos, antes da requisição: a NEGAÇÃO da intimação da liberação.
+FP_NAO_SERA_INTIMADA = (
+    'ATO ORDINATÓRIO Intimem-se as partes para, em 10 (dez) dias, manifestarem-se acerca dos '
+    'cálculos ou informações prestadas pela Seção de Cálculos Judiciais, dando ciência à parte '
+    'autora de que não será intimada da liberação do pagamento, tampouco para dizer se a '
+    'sentença foi cumprida, uma vez que pode acompanhar a tramitação do requisitório '
+    'diretamente no sítio eletrônico do Tribunal Regional Federal da 3ª Região.'
+)
+# 5002198-49.2022.4.03.6202, 02/10/2026: paga a RPV dos honorários; o precatório
+# do principal segue ativo no TRF.
+PAGO_SO_HONORARIOS = (
+    'DESPACHO Ciência ao advogado da parte autora da disponibilização da(s) requisição(ões) '
+    'referente(s) aos honorários sucumbenciais, cujos dados de pagamento poderão ser '
+    'consultados através do seguinte endereço eletrônico: web.trf3.jus.br/consultas/'
+    'Internet/ConsultaReqPag Os saques correspondentes ao precatórios/RPVs serão efetuados '
+    'em qualquer agência do banco depositário.'
+)
+# 5000150-30.2021.4.03.6113, 30/09/2025: a RPV do advogado; o PRC segue ativo.
+PAGO_SO_PATRONO = (
+    'DESPACHO 1. Ciência ao patrono do(a) exequente acerca da disponibilização da quantia '
+    'requisitada em seu nome, conforme extrato de pagamento retro, devendo o(s) saque(s) '
+    'correspondente(s) ser(em) feito(s) independentemente de alvará.'
+)
+CANCELA = (
+    'considerando a possibilidade de recurso desta decisão, determino à secretaria que '
+    'proceda ao cancelamento da minuta de precatório anexada ao id 123, e confeccione novo '
+    'ofício precatório relativo ao crédito principal.'
+)
+AVISO_CANCELAMENTO = (
+    'o CPF da parte autora deve estar regular, sob pena de cancelamento do ofício '
+    'requisitório. Fica a secretaria autorizada, apontado erro material, a cancelar o ofício '
+    'correspondente. Ratifico o requisitório expedido.'
+)
+
+
+def _pago(texto: str) -> bool:
+    return _casa(texto, PAGO_TRF3_SQL) and not _casa(texto, PAGO_VETO_TRF3_SQL)
+
+
 def _casa(texto: str, regex: str) -> bool:
     with connection.cursor() as cur:
         cur.execute('SELECT %s ~* %s', [texto, regex])
@@ -178,6 +228,21 @@ class TestRegexNoPostgres:
         assert _casa(texto, PAGO_TRF3_SQL)
         assert not _casa(texto, MINUTA_TRF3_SQL)
         assert not _casa(texto, ENVIO_TRF3_SQL)
+
+    @pytest.mark.parametrize('texto', [
+        PAGO_SENTENCA, PAGO_CIENTIFICADA, PAGO_DISPONIBILIZACAO, PAGO_DEPOSITADOS])
+    def test_pagamento_do_autor_nao_e_vetado(self, texto):
+        assert _pago(texto)
+
+    @pytest.mark.parametrize('texto', [
+        FP_BENEFICIO, FP_NAO_SERA_INTIMADA, PAGO_SO_HONORARIOS, PAGO_SO_PATRONO])
+    def test_nao_e_pagamento_do_credito(self, texto):
+        assert not _pago(texto)
+
+    def test_cancelamento_so_a_ordem(self):
+        assert _casa(CANCELA, CANCELAMENTO_TRF3_SQL)
+        assert not _casa(AVISO_CANCELAMENTO, CANCELAMENTO_TRF3_SQL)
+        assert not _casa(MINUTA, CANCELAMENTO_TRF3_SQL)
 
     @pytest.mark.parametrize('texto', [FUTURO_PAGAMENTO, ORDEM_DE_EXPEDIR, INTEIRO_TEOR])
     def test_ordem_e_futuro_nao_casam(self, texto):
@@ -217,6 +282,11 @@ class TestEstado:
     ])
     def test_estado(self, minuta, envio, pago, esperado):
         assert estado_trf3(minuta, envio, pago, AGORA) == esperado
+
+    def test_cancelamento_depois_da_expedicao_tira_da_janela(self):
+        assert estado_trf3(_dias(10), None, None, AGORA, cancel_dt=_dias(5)) == 'vencido'
+        # Cancelamento antigo, minuta nova: a requisição nova vale.
+        assert estado_trf3(_dias(10), None, None, AGORA, cancel_dt=_dias(60)) == 'janela'
 
 
 def _proc(tribunal_id='TRF3', classe_codigo='12078'):
@@ -323,6 +393,14 @@ class TestNoBanco:
         assert feats['F37_exped_vencida_trf3'] == 1
         assert classificar(p, features=feats)[0] != Process.CLASSIF_PRECATORIO
 
+    def test_pago_so_honorarios_nao_veta_o_principal(self):
+        p = self._processo('5002198-49.2022.4.03.6202', [
+            (40, MINUTA), (12, ENVIO_REGISTRO), (5, PAGO_SO_HONORARIOS)])
+        feats = compute_features(p)
+        assert feats['F38_pago_trf3'] == 0
+        assert feats['F35_minuta_janela_trf3'] == 1
+        assert classificar(p, features=feats)[0] == Process.CLASSIF_PRECATORIO
+
     def test_mesmos_textos_no_trf1_nao_mexem(self):
         p = self._processo('1003422-58.2024.4.01.3400', [(8, MINUTA)], tribunal='TRF1')
         feats = compute_features(p)
@@ -348,13 +426,13 @@ def test_revisao_diaria_pega_espera_e_janela():
     Process.objects.create(  # PRE do LR: não vence pelo relógio
         tribunal=t, numero_cnj='5013538-85.2025.4.03.6201', classificacao='PRE_PRECATORIO',
         classificacao_score=0.55, classificacao_em=velho)
-    Process.objects.create(  # reclassificado agora há pouco
+    recente = Process.objects.create(  # reclassificado de madrugada: entra também
         tribunal=t, numero_cnj='5002190-16.2025.4.03.6316', classificacao='PRECATORIO',
         classificacao_score=1.0, classificacao_em=timezone.now())
     with mock.patch.object(jobs.reclassificar_batch, 'delay') as delay:
         r = jobs.revisar_janela_trf3()
-    assert r == {'enfileirados': 2}
-    assert sorted(delay.call_args.args[0]) == sorted([espera.pk, janela.pk])
+    assert r == {'enfileirados': 3}
+    assert sorted(delay.call_args.args[0]) == sorted([espera.pk, janela.pk, recente.pk])
 
 
 @pytest.mark.django_db

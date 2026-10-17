@@ -66,7 +66,9 @@ _OVERRIDES_DESC = {
         'o PRECATORIO do LR desce a PRE (8% ativa). Só TRF3.',
     'F38_pago_trf3':
         'pagamento publicado (foram pagos, disponibilização, extinção pelo art. 924, II) no dia '
-        'ou depois da última expedição → NAO_LEAD (0,2% ativa, n=13.573). Só TRF3.',
+        'ou depois da última expedição → NAO_LEAD. Não vale a negação ("não será intimada da '
+        'liberação") nem o pagamento só dos honorários (o principal segue vivo). '
+        'Cancelamento da requisição determinado depois da expedição tira da janela. Só TRF3.',
 }
 
 

@@ -32,12 +32,14 @@ from django.db import connection
 from django.utils import timezone
 
 from tribunals.classificador import (
+    CANCELAMENTO_TRF3_SQL,
     ENVIO_TRF3_SQL,
     ESTADO_TRF3_ESPERA,
     ESTADO_TRF3_JANELA,
     ESTADO_TRF3_PAGO,
     MINUTA_TRF3_SQL,
     PAGO_TRF3_SQL,
+    PAGO_VETO_TRF3_SQL,
     estado_trf3,
 )
 from tribunals.jobs import reclassificar_batch
@@ -57,7 +59,9 @@ _DATAS_SQL = """
     SELECT m.processo_id,
            MAX(m.data_disponibilizacao) FILTER (WHERE m.texto ~* %(minuta)s),
            MAX(m.data_disponibilizacao) FILTER (WHERE m.texto ~* %(envio)s),
-           MAX(m.data_disponibilizacao) FILTER (WHERE m.texto ~* %(pago)s)
+           MAX(m.data_disponibilizacao) FILTER (WHERE m.texto ~* %(pago)s
+                                                  AND m.texto !~* %(veto)s),
+           MAX(m.data_disponibilizacao) FILTER (WHERE m.texto ~* %(cancel)s)
     FROM tribunals_movimentacao m
     WHERE m.processo_id = ANY(%(pids)s)
     GROUP BY m.processo_id
@@ -122,9 +126,10 @@ class Command(BaseCommand):
             for i in range(0, len(pids), 1000):
                 lote = pids[i:i + 1000]
                 cur.execute(_DATAS_SQL, {'minuta': MINUTA_TRF3_SQL, 'envio': ENVIO_TRF3_SQL,
-                                         'pago': PAGO_TRF3_SQL, 'pids': lote})
-                for pid, minuta, envio, pago in cur.fetchall():
-                    estados[pid] = estado_trf3(minuta, envio, pago, agora)
+                                         'pago': PAGO_TRF3_SQL, 'veto': PAGO_VETO_TRF3_SQL,
+                                         'cancel': CANCELAMENTO_TRF3_SQL, 'pids': lote})
+                for pid, minuta, envio, pago, cancel in cur.fetchall():
+                    estados[pid] = estado_trf3(minuta, envio, pago, agora, cancel_dt=cancel)
                 cur.execute(_CLASSIF_SQL, [lote])
                 classif.update(cur.fetchall())
         tab = collections.Counter()

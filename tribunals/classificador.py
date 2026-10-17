@@ -376,7 +376,9 @@ PAGO_TRF3_SQL = (
     r'|cientificad[oa]s?\s+(acerca\s+)?d[oa]s?\s+(pagamento|disponibiliza|libera)'
     r'|(intimad[oa]s?|ci[êe]ncia)\s+([^.]{0,40}\s)?d[aoe]s?\s+(disponibiliza[çc][ãa]o|libera[çc][ãa]o)\M'
     r'|intima[çc][ãa]o\s+das\s+partes\s+sobre\s+a\s+disponibiliza'
-    r'|valores\s+pagos\s+(em|a\s+t[íi]tulo\s+de)'
+    # Só o pagamento da REQUISIÇÃO: "compensando-se os valores pagos a título
+    # de benefício inacumulável" é cálculo da fase de conhecimento.
+    r'|valores\s+pagos\s+(em|a\s+t[íi]tulo\s+de)\s+(rpv|prc|precat|requisi|of[íi]cio)'
     r'|requisitad[oa]s?\s+em\s+seu\s+favor\s+foram\s+depositad'
     r'|intimad[oa]s?\s+do\(?s?\)?\s+dep[óo]sito\(?s?\)?\s+da\s+quantia'
     r'|juntada\s+d[oe]s?\s+extratos?\s+de\s+pagamento|extratos?\s+de\s+pagamento\s+(de\s+\S+\s+)?juntad'
@@ -385,6 +387,32 @@ PAGO_TRF3_SQL = (
     # Extinção da execução pelo pagamento (art. 924, II, CPC). A extinção sem
     # mérito/improcedência continua com o F30.
     r'|(julgo|declaro)\s+extint[ao]\s+(a\s+)?(presente\s+)?(execu[çc][ãa]o|fase\s+de\s+cumprimento)'
+)
+# Vetos por movimentação: o texto casa o PAGO_TRF3_SQL mas não é pagamento do
+# crédito do autor.
+#   * negação: "dando ciência à parte autora de que não será intimada da
+#     liberação do pagamento" (ato sobre cálculos, antes da requisição);
+#   * pagamento SÓ dos honorários (sucumbenciais/contratuais): "ciência ao
+#     advogado da disponibilização da(s) requisição(ões) referente(s) aos
+#     honorários sucumbenciais" — a RPV do advogado foi paga e o precatório do
+#     principal segue vivo (26 dos "pagos" com requisição ativa eram isso, ex.
+#     5002198-49.2022.4.03.6202).
+PAGO_VETO_TRF3_SQL = (
+    r'n[ãa]o\s+ser[áa]\s+(intimad|cientificad)'
+    r'|(disponibiliza[çc][ãa]o|libera[çc][ãa]o|pagamento|pag[oa]s|dep[óo]sito)\s+([^.]{0,60}\s)?'
+    r'(a?[oa]s?\s+)?honor[áa]rios\s+(sucumb|contrat|advoc)'
+    # "ciência ao patrono/advogado ... da quantia requisitada em seu nome"
+    r'|ci[êe]ncia\s+ao\s+(patrono|advogad)'
+)
+# Cancelamento da requisição DETERMINADO depois da última expedição: a
+# requisição morreu (a nova, se vier, traz minuta nova e reabre a janela).
+# Só a ordem; avisos ("sob pena de cancelamento", "a fim de evitar o
+# cancelamento") e "ratifico o requisitório" não casam.
+_ALVO_CANCEL = r'\s*\(?s?\)?\s*(of[íi]cio|requisi|rpv|prc|precat|minuta)'
+CANCELAMENTO_TRF3_SQL = (
+    r'(determino|defiro)\s+o\s+cancelamento\s+d[oa]s?' + _ALVO_CANCEL
+    + r'|cancele(m)?-se\s+(o|a|os|as)' + _ALVO_CANCEL
+    + r'|proceda(-se)?\s+(a|à|ao)\s+cancelamento\s+d[oa]s?' + _ALVO_CANCEL
 )
 JANELA_MINUTA_TRIBUNAIS = {'TRF3'}
 MINUTA_TRF3_ESPERA_DIAS = 7     # antes disso a requisição quase nunca está no TRF
@@ -469,7 +497,10 @@ _MOVS_AGG_SQL = """
         MAX(CASE WHEN tribunal_id = 'TRF3' AND texto ~* '__ENVIO_TRF3__'
                  THEN data_disponibilizacao END) AS envio_trf3_dt,
         MAX(CASE WHEN tribunal_id = 'TRF3' AND texto ~* '__PAGO_TRF3__'
+                      AND texto !~* '__PAGO_VETO_TRF3__'
                  THEN data_disponibilizacao END) AS pago_trf3_dt,
+        MAX(CASE WHEN tribunal_id = 'TRF3' AND texto ~* '__CANCEL_TRF3__'
+                 THEN data_disponibilizacao END) AS cancel_trf3_dt,
         MAX(CASE WHEN texto ~* '__PAGO__'
                  THEN data_disponibilizacao END) AS pago_max_dt,
         MAX(CASE WHEN texto ~* '__F20__'
@@ -493,7 +524,9 @@ _MOVS_AGG_SQL = """
  .replace('__VETO_F32__', VETO_CONVERSAO_RPV_TJRS_SQL) \
  .replace('__MINUTA_TRF3__', MINUTA_TRF3_SQL) \
  .replace('__ENVIO_TRF3__', ENVIO_TRF3_SQL) \
- .replace('__PAGO_TRF3__', PAGO_TRF3_SQL)
+ .replace('__PAGO_TRF3__', PAGO_TRF3_SQL) \
+ .replace('__PAGO_VETO_TRF3__', PAGO_VETO_TRF3_SQL) \
+ .replace('__CANCEL_TRF3__', CANCELAMENTO_TRF3_SQL)
 
 # Thresholds (revisáveis com base em produção)
 THRESHOLD_PRECATORIO = 0.70
@@ -772,7 +805,7 @@ def minuta_vencida(f33_max_dt, agora) -> int:
     return int((agora - f33_max_dt).days > MINUTA_TJRS_VENCE_DIAS)
 
 
-def estado_trf3(minuta_dt, envio_dt, pago_dt, agora) -> str:
+def estado_trf3(minuta_dt, envio_dt, pago_dt, agora, cancel_dt=None) -> str:
     """Onde está a requisição do TRF3, pelas datas da última minuta, do último
     envio e do último pagamento publicados no DJEN. '' = sem nenhum dos três.
 
@@ -786,6 +819,9 @@ def estado_trf3(minuta_dt, envio_dt, pago_dt, agora) -> str:
         return ESTADO_TRF3_PAGO
     if exped is None:
         return ''
+    # Cancelamento determinado depois da última expedição: sem requisição viva.
+    if cancel_dt and cancel_dt >= exped:
+        return ESTADO_TRF3_VENCIDO
     if envio_dt and (agora - envio_dt).days <= ENVIO_TRF3_VENCE_DIAS:
         return ESTADO_TRF3_JANELA
     if minuta_dt:
@@ -822,7 +858,7 @@ def compute_features(processo) -> dict:
 
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
      f13_n, f14_n, f19_n, f20_n, f31_n, f33_n, f31_max_dt, f33_max_dt, f32_max_dt,
-     minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, pago_max_dt,
+     minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, cancel_trf3_dt, pago_max_dt,
      exped_max_dt, extneg_max_dt, ult_mov_dt) = row
 
     if not total_movs:
@@ -848,7 +884,8 @@ def compute_features(processo) -> dict:
     f2 = int(f2_n > 0); f7 = int(f7_n > 0)
     f11 = int(f11_n > 0); f12 = int(f12_n > 0); f13 = int(f13_n > 0); f14 = int(f14_n > 0)
     f19 = int(f19_n > 0); f20 = int(f20_n > 0)
-    trf3 = estado_trf3(minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, djtz.now())
+    trf3 = estado_trf3(minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, djtz.now(),
+                       cancel_dt=cancel_trf3_dt)
 
     return {
         'F1_cumprim':         f1,
