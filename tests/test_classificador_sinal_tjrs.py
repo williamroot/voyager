@@ -1,4 +1,7 @@
-"""Regra de sinal do TJRS: F31 (intimação da expedição do precatório).
+"""Regra de sinal do TJRS: F31 (evento de ENVIO da requisição do precatório).
+
+16/10/2026: a intimação da expedição saiu do F31 e virou o F33 (minuta) — teto
+PRE_PRECATORIO. Ver `TestMinutaNaoEhEnvio` no fim do arquivo.
 
 Medido em 2026-10-14 contra 41 processos TJRS com os autos completos baixados
 do eproc (ofício conferido na íntegra): F31 casa 30/32 com ofício e 0/9 sem.
@@ -31,6 +34,13 @@ def _proc(tribunal_id='TJRS', classe_codigo='12078'):
 def _casa(texto: str) -> bool:
     with connection.cursor() as cur:
         cur.execute('SELECT %s ~* %s', [texto, SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL])
+        return cur.fetchone()[0]
+
+
+def _minuta(texto: str) -> bool:
+    from tribunals.classificador import INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL
+    with connection.cursor() as cur:
+        cur.execute('SELECT %s ~* %s', [texto, INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL])
         return cur.fetchone()[0]
 
 
@@ -79,8 +89,10 @@ class TestRegexNoPostgres:
         'as partes foram intimadas da expedi&ccedil;&atilde;o do '
         'precat&oacute;rio no Evento 67, tendo o',
     ])
-    def test_casa_expedicao(self, texto):
-        assert _casa(texto)
+    def test_intimacao_e_minuta_nao_envio(self, texto):
+        """A intimação da expedição é a fase de MINUTA: casa o F33, não o F31."""
+        assert _minuta(texto)
+        assert not _casa(texto)
 
     @pytest.mark.parametrize('texto', [
         # Ordem do juiz, não expedição (4/9 dos sem ofício).
@@ -96,6 +108,7 @@ class TestRegexNoPostgres:
     ])
     def test_nao_casa(self, texto):
         assert not _casa(texto)
+        assert not _minuta(texto)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -244,21 +257,133 @@ class TestF32NoBanco:
             'ren&uacute;ncia&nbsp;ao cr&eacute;dito no que exceda ao&nbsp;limite de dez '
             'sal&aacute;rios m&iacute;nimos nacionais 3 Cancele-se&nbsp;o precat&oacute;rio '
             'expedido &nbsp;-&nbsp; evento 18, PRECAT&Oacute;RIO1')
+    ENVIO = ('ATO ORDINAT&Oacute;RIO Intima&ccedil;&atilde;o realizada no sistema eproc. O ato '
+             'refere-se ao seguinte evento: Evento 65 - Requisi&ccedil;&atilde;o de pagamento de '
+             'precat&oacute;rio enviada ao tribunal - Precatorio 272595')
     RPV = ('ATO ORDINATÓRIO Intimação realizada no sistema eproc. O ato refere-se ao '
            'seguinte evento: Evento 42 - 14/10/2026 - Requisição de pagamento de '
            'pequeno valor expedida')
 
     def test_caso_do_qa_vira_nao_lead(self):
+        """A renúncia veio no prazo da minuta, antes do envio: a minuta conta
+        como "última expedição" para o F32."""
         p = self._processo([((10, 2), self.F31), ((10, 9), self.CONV), ((10, 15), self.RPV)])
         feats = compute_features(p)
-        assert feats['F31_exp_precatorio_tjrs'] == 1
+        assert feats['F31_exp_precatorio_tjrs'] == 0
+        assert feats['F33_minuta_precatorio_tjrs'] == 1
         assert feats['F32_convertido_rpv_tjrs'] == 1
         cat, _score, _ = classificar(p, features=feats)
         assert cat == Process.CLASSIF_NAO_LEAD
 
     def test_so_rpv_depois_do_f31_continua_precatorio(self):
         """RPV de honorários depois do precatório é o caso COMUM (77/85)."""
-        p = self._processo([((10, 2), self.F31), ((10, 15), self.RPV)])
+        p = self._processo([((10, 2), self.F31), ((10, 8), self.ENVIO), ((10, 15), self.RPV)])
         feats = compute_features(p)
         assert feats['F32_convertido_rpv_tjrs'] == 0
         assert classificar(p, features=feats)[0] == Process.CLASSIF_PRECATORIO
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Minuta (F33) versus envio (F31) — 16/10/2026
+# ─────────────────────────────────────────────────────────────────────────────
+# O pull de 16/10 baixou 7 processos TJRS; 6 eram minuta (rascunho no
+# JURISCOPE, sem ofício): "Juntada de peças digitalizadas" + ato ordinatório +
+# intimação de 5 dias em 15/10, DJEN em 16/10. O único lead (5000214-04.2012.
+# 8.21.0040) tinha "preparada para envio" e "enviada ao tribunal". Textos
+# abaixo: DJEN real do TJRS, nomes fora.
+
+MINUTA_HTML = (
+    '<p>ATO ORDINAT&Oacute;RIO</p><p>Ficam as partes intimadas da expedi&ccedil;'
+    '&atilde;o do(s) precat&oacute;rio(s) para, querendo, manifestarem-se no prazo '
+    'de 5 dias. Inexistindo oposi&ccedil;&atilde;o, os autos ser&atilde;o '
+    'distribu&iacute;dos no sistema eproc 2g.</p>'
+)
+MINUTA_TEXTO = (
+    'ATO ORDINATÓRIO Ficam as partes intimadas da expedição do(s) precatório(s) '
+    'para, querendo, manifestarem-se no prazo de 5 dias. Inexistindo oposição, os '
+    'autos serão distribuídos no sistema eproc 2g.'
+)
+PREPARADA_TEXTO = (
+    'ATO ORDINATÓRIO Intimação realizada no sistema eproc. O ato refere-se ao '
+    'seguinte evento: Evento 64 - 21/07/2025 - Requisição de pagamento de '
+    'precatório preparada para envio'
+)
+ENVIADA_HTML = (
+    'O ato refere-se ao seguinte evento: Evento&nbsp;65 - Requisi&ccedil;&atilde;o '
+    'de&nbsp;pagamento de precat&oacute;rio enviada&nbsp;ao tribunal - Precatorio 272595'
+)
+
+
+@pytest.mark.django_db
+class TestMinutaNaoEhEnvio:
+    @pytest.mark.parametrize('texto', [MINUTA_HTML, MINUTA_TEXTO])
+    def test_minuta_casa_f33_e_nao_f31(self, texto):
+        assert _minuta(texto)
+        assert not _casa(texto)
+
+    @pytest.mark.parametrize('texto', [PREPARADA_TEXTO, ENVIADA_HTML])
+    def test_envio_casa_f31_e_nao_f33(self, texto):
+        assert _casa(texto)
+        assert not _minuta(texto)
+
+    def _processo(self, cnj, textos, classe='12078'):
+        from tribunals.models import Movimentacao, Tribunal
+        t, _ = Tribunal.objects.get_or_create(
+            sigla='TJRS', defaults={'nome': 'TJ RS', 'sigla_djen': 'TJRS'})
+        p = Process.objects.create(tribunal=t, numero_cnj=cnj, classe_codigo=classe)
+        for i, (dia, texto) in enumerate(textos):
+            Movimentacao.objects.create(
+                processo=p, tribunal=t, external_id=f'{cnj}-{i}', texto=texto,
+                data_disponibilizacao=_dt.datetime(*dia, 3, tzinfo=_dt.UTC))
+        return p
+
+    def test_minuta_do_pull_de_16_10_vira_pre_precatorio(self):
+        """5231192-09.2026.8.21.0001: intimação em 15/10, DJEN em 16/10, sem envio."""
+        p = self._processo('5231192-09.2026.8.21.0001', [((2026, 10, 16), MINUTA_HTML)])
+        feats = compute_features(p)
+        assert feats['F31_exp_precatorio_tjrs'] == 0
+        assert feats['F33_minuta_precatorio_tjrs'] == 1
+        cat, score, _ = classificar(p, features=feats)
+        assert cat == Process.CLASSIF_PRE_PRECATORIO
+        assert 0.40 <= score < 0.70
+
+    def test_minuta_seguida_de_envio_vira_precatorio(self):
+        """5000214-04.2012.8.21.0040: minuta → preparada → enviada (o lead do lote)."""
+        p = self._processo('5000214-04.2012.8.21.0040', [
+            ((2025, 6, 26), MINUTA_HTML), ((2025, 7, 21), PREPARADA_TEXTO),
+            ((2025, 7, 23), ENVIADA_HTML)])
+        feats = compute_features(p)
+        assert feats['F31_exp_precatorio_tjrs'] == 1
+        assert classificar(p, features=feats)[:2] == (Process.CLASSIF_PRECATORIO, 1.0)
+
+    def test_so_preparada_para_envio_ja_promove(self):
+        p = self._processo('5003906-96.2026.8.21.0047', [((2026, 10, 1), PREPARADA_TEXTO)])
+        assert classificar(p)[0] == Process.CLASSIF_PRECATORIO
+
+
+class TestTetoSemEnvio:
+    def test_lr_alto_sem_envio_desce_a_pre(self):
+        """O LR sozinho também não leva o TJRS a PRECATORIO."""
+        from unittest import mock
+        feats = {'F1_cumprim': 1, 'F11_precat_text': 1, 'F33_minuta_precatorio_tjrs': 0}
+        with mock.patch('tribunals.classificador.predict_score', return_value=0.95), \
+             mock.patch('tribunals.classificador._current_weights', return_value={}), \
+             mock.patch('tribunals.classificador._categorizar',
+                        return_value=Process.CLASSIF_PRECATORIO):
+            cat, score, _ = classificar(_proc(), features=feats)
+        assert cat == Process.CLASSIF_PRE_PRECATORIO
+        assert score < 0.70
+
+    def test_minuta_com_conversao_continua_nao_lead(self):
+        cat, score, _ = classificar(_proc(), features={
+            'F1_cumprim': 1, 'F33_minuta_precatorio_tjrs': 1, 'F32_convertido_rpv_tjrs': 1})
+        assert cat == Process.CLASSIF_NAO_LEAD
+        assert score <= 0.10
+
+    @pytest.mark.django_db
+    def test_teto_nao_vale_fora_do_tjrs(self):
+        from tribunals.classificador import TETO_PRE_SEM_ENVIO_TRIBUNAIS
+        assert TETO_PRE_SEM_ENVIO_TRIBUNAIS == {'TJRS'}
+        cat, _score, _ = classificar(_proc('TJMG'), features={
+            'F1_cumprim': 1, 'F20_exp_juriscope': 1})
+        assert cat == Process.CLASSIF_PRECATORIO

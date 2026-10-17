@@ -205,37 +205,46 @@ SCORE_REBAIXAMENTO_SINAL = 0.10
 
 CNJ_ANO_RE = re.compile(r'^\d{7}-\d{2}\.(\d{4})\.')
 
-# Sinal de EXPEDIÇÃO do TJRS (F31): o ato ordinatório padrão do eproc depois que
-# a requisição é expedida — "Ficam as partes intimadas da expedição do(s)
-# precatório(s) para, querendo, manifestarem-se no prazo de 5 dias. Inexistindo
-# oposição, os autos serão distribuídos no sistema eproc 2g."
-#
-# Medido em 2026-10-14 contra 41 processos com os AUTOS COMPLETOS baixados do
-# eproc (com/sem ofício conferido na íntegra): 30/32 com ofício, 0/9 sem. Os 2
-# que escapam são INSS previdenciário com requisição do TRF4 (competência
-# delegada) — não é precatório do TJRS.
+# Sinal de ENVIO do TJRS (F31): a requisição de pagamento do precatório saiu
+# da vara para o tribunal. São os EVENTOS do eproc que o DJEN republica no ato
+# ordinatório ("O ato refere-se ao seguinte evento: Evento 41 - Requisição de
+# pagamento de precatório preparada para envio" / "... enviada ao tribunal").
+# Medido no banco de produção (15/10/2026): amostra de 20 conferida na consulta
+# pública do TJRS, 20/20 com o precatório distribuído no 2º grau (processo
+# vinculado `…8.21.7000`).
 #
 # Por que não o F20: no TJRS ele casa "determinada expedição" (ordem, 0/4 com
 # ofício) e "pequeno valor enviada" (RPV SEFAZ, sem documento e paga em ~2
 # meses). E por que as alternâncias com entidade: o DJEN do TJRS publica o
-# texto em HTML com acento codificado ("expedi&ccedil;&atilde;o") — os 38
-# acertos da amostra estão TODOS nessa forma; a regex só com "ç/ã" casava zero.
+# texto em HTML com acento codificado ("expedi&ccedil;&atilde;o").
 #
-# 15/10/2026: a mesma família ganhou os EVENTOS do eproc que o DJEN republica
-# no ato ordinatório ("O ato refere-se ao seguinte evento: Evento 41 -
-# Requisição de pagamento de precatório preparada para envio" / "... enviada
-# ao tribunal"). Medido no banco de produção (15/10/2026): 413 processos TJRS
-# citam um dos dois eventos SEM a intimação acima (322 deles Cumprimento, que é
-# o que a regra promove). Amostra de 20 conferida na consulta pública do TJRS:
-# 20/20 com o precatório distribuído no 2º grau (processo vinculado
-# `…8.21.7000`, evento "precatório enviada ao tribunal"). O texto que casa É o
-# evento do eproc republicado — "Evento 91 - Requisição de pagamento de
-# precatório enviada ao tribunal" —, a mesma verdade usada na conferência.
+# 16/10/2026: a INTIMAÇÃO da expedição saiu do F31 (virou o F33, abaixo). Ela é
+# o ato da fase de MINUTA — a requisição está juntada nos autos ("Juntada de
+# peças digitalizadas") e as partes têm 5 dias para se opor; só depois o eproc
+# prepara e envia ao TJ. O JURISCOPE lê a minuta sem evento de envio como
+# rascunho: a parte nasce com valor, sem ofício, e NÃO é lead. No pull de
+# 16/10, 6 dos 7 processos TJRS baixados eram rascunho (intimação em 15/10,
+# DJEN em 16/10, pull no mesmo dia), cada um gastando 1 dos 30 downloads/dia da
+# conta. A medição de 14/10 (30/32 "com ofício") contava minuta como ofício.
+# Ver o PR fix/tjrs-f31-so-envio para as tabelas.
+_REQ_PRECATORIO_TJRS = (
+    r'requisi(ç|c|&ccedil;)(ã|a|&atilde;)o(\s|&nbsp;)+de(\s|&nbsp;)+pagamento(\s|&nbsp;)+de'
+    r'(\s|&nbsp;)+precat(ó|o|&oacute;)rio(\s|&nbsp;)+'
+)
 SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL = (
+    _REQ_PRECATORIO_TJRS
+    + r'(preparada(\s|&nbsp;)+para(\s|&nbsp;)+envio|enviada(\s|&nbsp;)+ao(\s|&nbsp;)+tribunal)'
+)
+
+# Sinal de MINUTA do TJRS (F33): o ato ordinatório "Ficam as partes intimadas
+# da expedição do(s) precatório(s) para, querendo, manifestarem-se no prazo de
+# 5 dias. Inexistindo oposição, os autos serão distribuídos no sistema eproc
+# 2g." O precatório está a caminho, mas ainda não existe no tribunal: promove
+# no máximo a PRE_PRECATORIO (o pull do TJRS só serve PRECATORIO). Continua
+# contando como "expedição" para o F32 — a renúncia ao excedente costuma vir
+# justamente nesse prazo de 5 dias, antes do envio.
+INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL = (
     r'intimad\w*\s+da\s+expedi(ç|c|&ccedil;)(ã|a|&atilde;)o\s+d[oa]\(?s?\)?\s+precat'
-    r'|requisi(ç|c|&ccedil;)(ã|a|&atilde;)o(\s|&nbsp;)+de(\s|&nbsp;)+pagamento(\s|&nbsp;)+de'
-    r'(\s|&nbsp;)+precat(ó|o|&oacute;)rio(\s|&nbsp;)+(preparada(\s|&nbsp;)+para(\s|&nbsp;)+envio'
-    r'|enviada(\s|&nbsp;)+ao(\s|&nbsp;)+tribunal)'
 )
 
 # Sinal ANTI do TJRS (F32): o precatório expedido virou RPV. É o caso que o QA
@@ -295,6 +304,12 @@ VETO_CONVERSAO_RPV_TJRS_SQL = (
 # Rollout por tribunal, como as demais regras de sinal.
 CONVERSAO_RPV_SINAL_TRIBUNAIS = {'TJRS'}
 
+# Tribunais em que PRECATORIO exige o evento de ENVIO (ver F31/F33 acima): sem
+# ele, o teto é PRE_PRECATORIO. O score do teto fica abaixo do corte N1 do
+# Falcon (VOYAGER_MIN_SCORE_N1=0.70) e acima do corte de PRE (0.40).
+TETO_PRE_SEM_ENVIO_TRIBUNAIS = {'TJRS'}
+SCORE_TETO_PRE_SEM_ENVIO = 0.60
+
 # Os padrões de cada feature moram em constantes porque têm DOIS leitores que
 # não podem divergir: o `_MOVS_AGG_SQL` abaixo (o classificador) e a consulta
 # em lote de sinais (`tribunals/sinais_expedicao.py`, endpoint
@@ -350,7 +365,10 @@ _MOVS_AGG_SQL = """
         COALESCE(SUM(CASE WHEN texto ~* '__F20__'
                           THEN 1 ELSE 0 END), 0) AS f20_n,
         COALESCE(SUM(CASE WHEN texto ~* '__SINAL_F31__' THEN 1 ELSE 0 END), 0) AS f31_n,
-        MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__SINAL_F31__'
+        COALESCE(SUM(CASE WHEN texto ~* '__MINUTA_F33__' THEN 1 ELSE 0 END), 0) AS f33_n,
+        -- "Última expedição" para o F32: envio OU minuta.
+        MAX(CASE WHEN tribunal_id = 'TJRS'
+                      AND (texto ~* '__SINAL_F31__' OR texto ~* '__MINUTA_F33__')
                  THEN data_disponibilizacao END) AS f31_max_dt,
         MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__CONV_F32__'
                       AND texto !~* '__VETO_F32__'
@@ -373,6 +391,7 @@ _MOVS_AGG_SQL = """
  .replace('__PAGO__', PAGAMENTO_SQL) \
  .replace('__EXTNEG__', EXTINCAO_NEGATIVA_SQL) \
  .replace('__SINAL_F31__', SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL) \
+ .replace('__MINUTA_F33__', INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL) \
  .replace('__CONV_F32__', CONVERSAO_RPV_TJRS_SQL) \
  .replace('__VETO_F32__', VETO_CONVERSAO_RPV_TJRS_SQL)
 
@@ -665,7 +684,7 @@ def compute_features(processo) -> dict:
         row = cur.fetchone()
 
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
-     f13_n, f14_n, f19_n, f20_n, f31_n, f31_max_dt, f32_max_dt, pago_max_dt,
+     f13_n, f14_n, f19_n, f20_n, f31_n, f33_n, f31_max_dt, f32_max_dt, pago_max_dt,
      exped_max_dt, extneg_max_dt, ult_mov_dt) = row
 
     if not total_movs:
@@ -716,8 +735,10 @@ def compute_features(processo) -> dict:
         'F24_pago_pos_exped_ANTI': f24,
         # Sinal-anti de desfecho terminal negativo (override, todos os tribunais).
         'F30_extinto_neg_ANTI': f25,
-        # Sinal de expedição do TJRS (peso LR 0: atua só como regra de sinal).
+        # Sinal de ENVIO do TJRS (peso LR 0: atua só como regra de sinal).
         'F31_exp_precatorio_tjrs': int(f31_n > 0),
+        # Minuta do TJRS (intimação da expedição, sem envio): teto PRE_PRECATORIO.
+        'F33_minuta_precatorio_tjrs': int(f33_n > 0),
         # Anti do TJRS: precatório convertido em RPV DEPOIS da última expedição.
         'F32_convertido_rpv_tjrs': f32_convertido(f31_max_dt, f32_max_dt),
     }
@@ -738,6 +759,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F1xF11': 0, 'F1xF15': 0.0, 'F1xF20': 0,
         'F24_pago_pos_exped_ANTI': 0, 'F30_extinto_neg_ANTI': 0,
         'F31_exp_precatorio_tjrs': 0, 'F32_convertido_rpv_tjrs': 0,
+        'F33_minuta_precatorio_tjrs': 0,
     }
 
 
@@ -760,6 +782,21 @@ def predict_score(features: dict, pesos: dict | None = None) -> float:
 def _convertido_em_rpv(processo, features: dict) -> bool:
     return (processo.tribunal_id in CONVERSAO_RPV_SINAL_TRIBUNAIS
             and features.get('F32_convertido_rpv_tjrs') == 1)
+
+
+def _teto_pre_sem_envio(cat: str, score: float, features: dict) -> tuple[str, float]:
+    """TJRS sem evento de envio: PRECATORIO desce a PRE_PRECATORIO, e o
+    Cumprimento com a minuta (F33) sobe a PRE_PRECATORIO — o precatório está a
+    caminho, só não existe ainda no tribunal."""
+    from .models import Process
+
+    if cat == Process.CLASSIF_PRECATORIO:
+        return Process.CLASSIF_PRE_PRECATORIO, min(score, SCORE_TETO_PRE_SEM_ENVIO)
+    if (features.get('F1_cumprim') == 1
+            and features.get('F33_minuta_precatorio_tjrs') == 1
+            and cat in (Process.CLASSIF_DIREITO_CREDITORIO, Process.CLASSIF_NAO_LEAD)):
+        return Process.CLASSIF_PRE_PRECATORIO, SCORE_TETO_PRE_SEM_ENVIO
+    return cat, score
 
 
 def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, dict]:
@@ -848,6 +885,14 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
                         Process.CLASSIF_DIREITO_CREDITORIO)):
         return (Process.CLASSIF_NAO_LEAD,
                 min(score, SCORE_REBAIXAMENTO_SINAL), features)
+
+    # Teto do TJRS: PRECATORIO só pelo evento de ENVIO (F31, que já retornou lá
+    # em cima). A minuta (F33) e o LR sozinho param em PRE_PRECATORIO — o pull
+    # do TJRS só serve PRECATORIO, e cada download de minuta queimava 1 dos 30
+    # downloads/dia da conta para um rascunho sem ofício (16/10/2026: 6 de 7).
+    # Vem DEPOIS dos rebaixamentos (F32/F30 continuam mandando a NAO_LEAD).
+    if processo.tribunal_id in TETO_PRE_SEM_ENVIO_TRIBUNAIS:
+        cat, score = _teto_pre_sem_envio(cat, score, features)
 
     # Regra de sinal NEGATIVA universal (todos os tribunais): desfecho terminal
     # negativo (extinção sem mérito / improcedência / prescrição) sem expedição
