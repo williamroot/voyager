@@ -449,6 +449,18 @@ class TestTetoSemEnvio:
         assert cat == Process.CLASSIF_PRE_PRECATORIO
         assert score < 0.70
 
+    def test_lr_alto_com_envio_fora_do_cumprimento_continua_precatorio(self):
+        """Sem F1 não há promoção direta: o LR leva a PRECATORIO e, com o
+        envio (F31) no histórico, o teto não pode rebaixar."""
+        from unittest import mock
+        feats = {'F1_cumprim': 0, 'F11_precat_text': 1, 'F31_exp_precatorio_tjrs': 1}
+        with mock.patch('tribunals.classificador.predict_score', return_value=0.95), \
+             mock.patch('tribunals.classificador._current_weights', return_value={}), \
+             mock.patch('tribunals.classificador._categorizar',
+                        return_value=Process.CLASSIF_PRECATORIO):
+            cat, _score, _ = classificar(_proc(), features=feats)
+        assert cat == Process.CLASSIF_PRECATORIO
+
     def test_minuta_com_conversao_continua_nao_lead(self):
         cat, score, _ = classificar(_proc(), features={
             'F1_cumprim': 1, 'F33_minuta_precatorio_tjrs': 1, 'F32_convertido_rpv_tjrs': 1})

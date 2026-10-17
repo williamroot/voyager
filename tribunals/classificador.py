@@ -822,6 +822,12 @@ def _teto_pre_sem_envio(cat: str, score: float, features: dict) -> tuple[str, fl
     caminho, só não existe ainda no tribunal."""
     from .models import Process
 
+    # Com o envio (F31) ou a minuta vencida (F34) não há teto: o processo que
+    # não é Cumprimento não passa pela promoção direta (exige F1) e chega a
+    # PRECATORIO pelo LR — sem esta guarda ele descia a PRE mesmo enviado.
+    if (features.get('F31_exp_precatorio_tjrs') == 1
+            or features.get('F34_minuta_vencida_tjrs') == 1):
+        return cat, score
     if cat == Process.CLASSIF_PRECATORIO:
         return Process.CLASSIF_PRE_PRECATORIO, min(score, SCORE_TETO_PRE_SEM_ENVIO)
     if (features.get('F1_cumprim') == 1
