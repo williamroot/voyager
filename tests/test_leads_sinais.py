@@ -34,8 +34,16 @@ TXT_F20 = (
     'consulta de pagamento do ofício requisitório expedido a fls. 115/116 (ofício '
     'requisitório nº 2022025033), já que a pesquisa realizada a fls.'
 )
-# TJRS 5001727-66.2025.8.21.0067 (o caso do plano), mov 2380768703 — HTML do DJEN.
+# TJRS: evento de ENVIO republicado no DJEN (o F31 desde 16/10/2026).
 TXT_F31 = (
+    '<p>ATO ORDINAT&Oacute;RIO</p><p>O ato refere-se ao seguinte evento: Evento 65 - '
+    'Requisi&ccedil;&atilde;o de pagamento de precat&oacute;rio enviada ao tribunal '
+    '- Precatorio 272595</p>'
+)
+# TJRS 5001727-66.2025.8.21.0067 (o caso do plano), mov 2380768703 — HTML do DJEN.
+# É a MINUTA (F33): não é sinal de expedição, mas conta como "última expedição"
+# para o veto F32.
+TXT_MINUTA = (
     '<p>ATO ORDINAT&Oacute;RIO</p><p>Ficam as partes intimadas da expedi&ccedil;'
     '&atilde;o do(s) precat&oacute;rio(s) para, querendo, manifestarem-se no prazo '
     'de 5 dias. Inexistindo oposi&ccedil;&atilde;o, os autos ser&atilde;o '
@@ -128,7 +136,7 @@ class TestSinalPorTipo:
         _proc('TJRS', '5001727-66.2025.8.21.0067', [((2026, 9, 30), TXT_F31)])
         r = _um('5001727-66.2025.8.21.0067')
         assert (r['sinal_tipo'], r['sinal_expedicao_em']) == ('F31_exp_precatorio_tjrs', '2026-09-30')
-        assert 'intimadas da expedição do(s) precatório(s)' in r['sinal_trecho']
+        assert 'precatório enviada ao tribunal' in r['sinal_trecho']
         assert '&' not in r['sinal_trecho'] and '<' not in r['sinal_trecho']
         assert r['sinais_considerados'] == ['F31_exp_precatorio_tjrs']
 
@@ -186,11 +194,18 @@ class TestVetos:
         assert v == {'ultima_em': '2026-03-16', 'ativo': True}
 
     def test_f32_conversao_em_rpv_tjrs(self):
-        _proc('TJRS', '5232029-64.2026.8.21.0001', [((2026, 10, 2), TXT_F31), ((2026, 10, 9), TXT_F32)])
+        _proc('TJRS', '5232029-64.2026.8.21.0001', [((2026, 10, 2), TXT_MINUTA), ((2026, 10, 9), TXT_F32)])
         r = _um('5232029-64.2026.8.21.0001')
         assert r['vetos']['F32_convertido_rpv_tjrs'] == {'ultima_em': '2026-10-09', 'ativo': True}
-        # O sinal continua sendo informado: o veto é que diz que ele morreu.
-        assert r['sinal_expedicao_em'] == '2026-10-02'
+        # Minuta não é sinal de expedição (só o envio é); o veto F32 a usa como
+        # referência, igual ao classificador.
+        assert r['sinal_expedicao_em'] is None
+
+    def test_minuta_sozinha_nao_e_sinal(self):
+        _proc('TJRS', '5231192-09.2026.8.21.0001', [((2026, 10, 16), TXT_MINUTA)])
+        r = _um('5231192-09.2026.8.21.0001')
+        assert r['sinal_expedicao_em'] is None
+        assert r['sinais_por_feature'] == {'F31_exp_precatorio_tjrs': None}
 
 
 @pytest.mark.django_db
@@ -206,7 +221,7 @@ class TestParidadeComClassificador:
         ),
         ('TJPA', '0000352-51.2012.8.14.0040', [((2026, 5, 24), TXT_F7, 'Preparada para Envio')]),
         ('TJSP', '0000023-70.2021.8.26.0337', [((2023, 3, 15), TXT_F20), ((2023, 1, 1), TXT_EXTNEG)]),
-        ('TJRS', '5232029-64.2026.8.21.0001', [((2026, 10, 2), TXT_F31), ((2026, 10, 9), TXT_F32)]),
+        ('TJRS', '5232029-64.2026.8.21.0001', [((2026, 10, 2), TXT_MINUTA), ((2026, 10, 9), TXT_F32)]),
         ('TJRS', '5023148-96.2024.8.21.0019', [((2026, 9, 1), TXT_F20)]),
         ('TJMT', '1002513-09.2022.8.11.0021', [((2024, 8, 6), TXT_F19)]),
         ('TRF5', '0000201-16.2026.4.05.8403', [((2026, 3, 16), TXT_EXTNEG), ((2026, 4, 1), TXT_F20)]),

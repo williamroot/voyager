@@ -564,6 +564,20 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # Minuta do TJRS vence pelo relógio (F34), não por movimento novo: revisita
+    # diária antes do pull das 08:00 do JURISCOPE. Ver `revisar_minutas_tjrs`.
+    from tribunals.jobs import revisar_minutas_tjrs
+    scheduler.add_job(
+        revisar_minutas_tjrs.delay,
+        'cron',
+        hour=5,
+        minute=40,
+        id='revisar_minutas_tjrs',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Cache pré-calculado da listagem de leads (`api/leads_cache.py`). A consulta
     # ao vivo do `GET /api/v1/leads/` passava dos 20 s às 08:00 (503 em 10/13
     # dias no TRF3, 12/13 no TJSP até 13/10/2026). O job roda a mesma consulta

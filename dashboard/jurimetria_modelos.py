@@ -41,12 +41,18 @@ _OVERRIDES_DESC = {
         'crédito não existe, rebaixa QUALQUER lead a NAO_LEAD (score 0,10). Override '
         'GLOBAL (todos os tribunais), fora dos pesos da LR.',
     'F31_exp_precatorio_tjrs':
-        'intimação da expedição do precatório no DJEN (ato ordinatório do eproc TJRS) → '
-        'promove Cumprimento a PRECATORIO (score 1,0). Peso LR 0 (atua como regra); '
-        'gated por tribunal (PRECATORIO_SINAL_FEATURES, só TJRS).',
+        'evento de ENVIO da requisição do precatório no DJEN ("preparada para envio" / '
+        '"enviada ao tribunal", eproc TJRS) → promove Cumprimento a PRECATORIO (score 1,0). '
+        'Peso LR 0 (atua como regra); gated por tribunal (PRECATORIO_SINAL_FEATURES, só TJRS).',
+    'F33_minuta_precatorio_tjrs':
+        'intimação da expedição do precatório (fase de MINUTA, eproc TJRS) sem envio → teto '
+        'PRE_PRECATORIO (score 0,60); o LR sozinho também não leva o TJRS a PRECATORIO.',
+    'F34_minuta_vencida_tjrs':
+        'última minuta há mais de 63 dias sem envio no DJEN → conta como enviada e promove a '
+        'PRECATORIO (28/28 enviados na consulta pública, 16/10/2026). Só TJRS.',
     'F32_convertido_rpv_tjrs':
         'precatório expedido convertido em RPV (renúncia ao excedente homologada ou '
-        'precatório cancelado) DEPOIS da última expedição (F31) → não promove e rebaixa '
+        'precatório cancelado) DEPOIS da última expedição (envio F31 ou minuta F33) → não promove e rebaixa '
         'PRECATORIO/PRE_PRECATORIO/DIREITO_CREDITORIO a NAO_LEAD (score 0,10). Só TJRS.',
 }
 

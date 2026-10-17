@@ -47,6 +47,7 @@ from .classificador import (
     EXTINCAO_NEGATIVA_SQL,
     F19_CANCELAMENTO_SQL,
     F20_EXPEDICAO_SQL,
+    INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL,
     PAGAMENTO_SQL,
     PRECATORIO_SINAL_FEATURES,
     SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL,
@@ -104,6 +105,7 @@ _AGG_SQL = """
                tipo_comunicacao IN __TIPOS_F7__ AS f7,
                texto ~* %(f20)s AS f20,
                (tribunal_id = 'TJRS' AND texto ~* %(f31)s) AS f31,
+               (tribunal_id = 'TJRS' AND texto ~* %(f33)s) AS f33,
                texto ~* %(f19)s AS f19,
                texto ~* %(pago)s AS pago,
                texto ~* %(extneg)s AS extneg,
@@ -119,6 +121,8 @@ _AGG_SQL = """
            MAX(dt) FILTER (WHERE f20) AS exped_dt,
            MAX(dt) FILTER (WHERE extneg) AS extneg_dt,
            MAX(dt) FILTER (WHERE f31) AS f31_tjrs_dt,
+           -- Referência do F32 no classificador: envio OU minuta (F31 ou F33).
+           MAX(dt) FILTER (WHERE f31 OR f33) AS exped_tjrs_dt,
            MAX(dt) FILTER (WHERE f32) AS f32_dt,
            COALESCE(json_agg(json_build_object(
                'id', id, 'dt', dt, 'ins', inserido_em,
@@ -131,6 +135,7 @@ _AGG_SQL = """
 _PARAMS_REGEX = {
     'f20': F20_EXPEDICAO_SQL,
     'f31': SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL,
+    'f33': INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL,
     'f19': F19_CANCELAMENTO_SQL,
     'pago': PAGAMENTO_SQL,
     'extneg': EXTINCAO_NEGATIVA_SQL,
@@ -364,7 +369,7 @@ def _vetos(linha: dict) -> dict:
         },
         'F32_convertido_rpv_tjrs': {
             'ultima_em': _dia(linha.get('f32_dt')),
-            'ativo': bool(f32_convertido(linha.get('f31_tjrs_dt'), linha.get('f32_dt'))),
+            'ativo': bool(f32_convertido(linha.get('exped_tjrs_dt'), linha.get('f32_dt'))),
         },
     }
 
