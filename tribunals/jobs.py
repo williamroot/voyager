@@ -220,6 +220,41 @@ def revisar_minutas_tjrs(batch_size: int = _CLASSIF_BATCH_SIZE) -> dict:
     return {'enfileirados': len(pids)}
 
 
+@job('classificacao', timeout=1800)
+def revisar_janela_trf3(batch_size: int = _CLASSIF_BATCH_SIZE) -> dict:
+    """Revisita, uma vez por dia, os processos do TRF3 cuja classificação vence
+    pelo relógio (janela da minuta, `estado_trf3`).
+
+    Os dois lados da janela andam sem movimento novo — e o
+    `reclassificar_por_prioridade` só revisita quem teve movimento depois do
+    veredito:
+      * PRE em espera (score `SCORE_ESPERA_MINUTA`): sobe a PRECATORIO quando a
+        minuta faz 7 dias;
+      * PRECATORIO: desce a PRE quando a minuta passa de 30 dias ou o envio de
+        15 sem nova expedição.
+
+    Alvo: os dois grupos inteiros, sem filtro de idade do veredito — um
+    filtro por horas deixaria de fora quem foi reclassificado na véspera
+    entre o fim da tarde e a hora do cron. Tamanho estimado: ~3 mil em espera
+    + ~13 mil em PRECATORIO.
+    """
+    from .classificador import SCORE_ESPERA_MINUTA
+
+    pids = list(
+        Process.objects.filter(tribunal_id='TRF3')
+        .filter(
+            Q(classificacao=Process.CLASSIF_PRECATORIO)
+            | Q(classificacao=Process.CLASSIF_PRE_PRECATORIO,
+                classificacao_score=SCORE_ESPERA_MINUTA)
+        )
+        .values_list('pk', flat=True)
+    )
+    for i in range(0, len(pids), batch_size):
+        reclassificar_batch.delay(pids[i:i + batch_size])
+    logger.info('revisar_janela_trf3: %d processos enfileirados', len(pids))
+    return {'enfileirados': len(pids)}
+
+
 # ============================================================================
 # Shadow mode (T19) — jobs assíncronos e comparação v_ativa x v_shadow
 # ============================================================================

@@ -54,6 +54,21 @@ _OVERRIDES_DESC = {
         'precatório expedido convertido em RPV (renúncia ao excedente homologada ou '
         'precatório cancelado) DEPOIS da última expedição (envio F31 ou minuta F33) → não promove e rebaixa '
         'PRECATORIO/PRE_PRECATORIO/DIREITO_CREDITORIO a NAO_LEAD (score 0,10). Só TJRS.',
+    'F35_minuta_janela_trf3':
+        'minuta ("intimadas do teor do(s) ofício(s) requisitório(s) expedido(s)") com 7 a 30 '
+        'dias, ou transmissão ao tribunal com até 15 dias, sem pagamento depois → PRECATORIO '
+        '(score 1,0). 82% com requisição ativa no TRF (n=1.640). Só TRF3.',
+    'F36_minuta_espera_trf3':
+        'minuta com menos de 7 dias → PRE_PRECATORIO com score 0,15, abaixo do corte do pull '
+        'de PRE (29% com requisição ativa; revisitada todo dia). Só TRF3.',
+    'F37_exped_vencida_trf3':
+        'minuta com mais de 30 dias ou transmissão com mais de 15, sem pagamento publicado → '
+        'o PRECATORIO do LR desce a PRE (8% ativa). Só TRF3.',
+    'F38_pago_trf3':
+        'pagamento publicado (foram pagos, disponibilização, extinção pelo art. 924, II) no dia '
+        'ou depois da última expedição → NAO_LEAD. Não vale a negação ("não será intimada da '
+        'liberação") nem o pagamento só dos honorários (o principal segue vivo). '
+        'Cancelamento da requisição determinado depois da expedição tira da janela. Só TRF3.',
 }
 
 
