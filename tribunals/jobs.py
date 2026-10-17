@@ -190,6 +190,36 @@ def reclassificar_por_prioridade(
             'mais_antigos': len(pids_g2), 'enfileirados': n_jobs, 'versao': VERSAO}
 
 
+@job('classificacao', timeout=1800)
+def revisar_minutas_tjrs(batch_size: int = _CLASSIF_BATCH_SIZE) -> dict:
+    """Revisita, uma vez por dia, os processos TJRS parados no teto da minuta.
+
+    A minuta (F33) vence em `MINUTA_TJRS_VENCE_DIAS` (F34) pelo RELÓGIO, não
+    por movimento novo — e o `reclassificar_por_prioridade` só revisita quem
+    teve movimento depois do veredito. Sem este job, o processo com a minuta
+    de ontem ficaria em PRE_PRECATORIO para sempre, mesmo depois de o
+    precatório chegar ao tribunal (28 de 28 na amostra de 16/10/2026).
+
+    Alvo: PRE_PRECATORIO do TJRS com o score do teto (0,60 é exclusivo da regra
+    da minuta) e veredito de mais de um dia. Cabe no lote: no máximo os ~12 mil
+    que tinham só a minuta em 16/10/2026.
+    """
+    from .classificador import SCORE_TETO_PRE_SEM_ENVIO
+
+    pids = list(
+        Process.objects.filter(
+            tribunal_id='TJRS',
+            classificacao=Process.CLASSIF_PRE_PRECATORIO,
+            classificacao_score=SCORE_TETO_PRE_SEM_ENVIO,
+            classificacao_em__lt=timezone.now() - timedelta(days=1),
+        ).values_list('pk', flat=True)
+    )
+    for i in range(0, len(pids), batch_size):
+        reclassificar_batch.delay(pids[i:i + batch_size])
+    logger.info('revisar_minutas_tjrs: %d processos enfileirados', len(pids))
+    return {'enfileirados': len(pids)}
+
+
 # ============================================================================
 # Shadow mode (T19) — jobs assíncronos e comparação v_ativa x v_shadow
 # ============================================================================

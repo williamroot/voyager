@@ -332,14 +332,17 @@ class TestMinutaNaoEhEnvio:
             sigla='TJRS', defaults={'nome': 'TJ RS', 'sigla_djen': 'TJRS'})
         p = Process.objects.create(tribunal=t, numero_cnj=cnj, classe_codigo=classe)
         for i, (dia, texto) in enumerate(textos):
+            quando = (_agora() - _dt.timedelta(days=dia) if isinstance(dia, int)
+                      else _dt.datetime(*dia, 3, tzinfo=_dt.UTC))
             Movimentacao.objects.create(
                 processo=p, tribunal=t, external_id=f'{cnj}-{i}', texto=texto,
-                data_disponibilizacao=_dt.datetime(*dia, 3, tzinfo=_dt.UTC))
+                data_disponibilizacao=quando)
         return p
 
     def test_minuta_do_pull_de_16_10_vira_pre_precatorio(self):
-        """5231192-09.2026.8.21.0001: intimação em 15/10, DJEN em 16/10, sem envio."""
-        p = self._processo('5231192-09.2026.8.21.0001', [((2026, 10, 16), MINUTA_HTML)])
+        """5231192-09.2026.8.21.0001: intimação em 15/10, DJEN em 16/10, sem envio
+        (dia relativo: a minuta tem 1 dia)."""
+        p = self._processo('5231192-09.2026.8.21.0001', [(1, MINUTA_HTML)])
         feats = compute_features(p)
         assert feats['F31_exp_precatorio_tjrs'] == 0
         assert feats['F33_minuta_precatorio_tjrs'] == 1
@@ -356,9 +359,81 @@ class TestMinutaNaoEhEnvio:
         assert feats['F31_exp_precatorio_tjrs'] == 1
         assert classificar(p, features=feats)[:2] == (Process.CLASSIF_PRECATORIO, 1.0)
 
+    def test_minuta_vencida_sem_envio_no_djen_vira_precatorio(self):
+        """5034720-69.2025.8.21.0001: minuta em 01/08/2025, envio em 03/09/2025
+        só na consulta pública — o DJEN não republicou."""
+        p = self._processo('5034720-69.2025.8.21.0001', [(64, MINUTA_HTML)])
+        feats = compute_features(p)
+        assert feats['F31_exp_precatorio_tjrs'] == 0
+        assert feats['F34_minuta_vencida_tjrs'] == 1
+        assert classificar(p, features=feats)[:2] == (Process.CLASSIF_PRECATORIO, 1.0)
+
+    def test_minuta_nova_reinicia_o_prazo(self):
+        """Re-expedição: vale a ÚLTIMA minuta, não a primeira."""
+        p = self._processo('5001312-83.2025.8.21.0067', [(200, MINUTA_HTML), (10, MINUTA_TEXTO)])
+        feats = compute_features(p)
+        assert feats['F34_minuta_vencida_tjrs'] == 0
+        assert classificar(p, features=feats)[0] == Process.CLASSIF_PRE_PRECATORIO
+
+    def test_minuta_vencida_com_conversao_nao_promove(self):
+        conv = ('homologo a renúncia ao crédito no que exceda ao limite de dez '
+                'salários mínimos. Cancele-se o precatório expedido.')
+        p = self._processo('5232029-64.2026.8.21.0001', [(120, MINUTA_HTML), (100, conv)])
+        feats = compute_features(p)
+        assert feats['F34_minuta_vencida_tjrs'] == 1
+        assert feats['F32_convertido_rpv_tjrs'] == 1
+        assert classificar(p, features=feats)[0] == Process.CLASSIF_NAO_LEAD
+
     def test_so_preparada_para_envio_ja_promove(self):
         p = self._processo('5003906-96.2026.8.21.0047', [((2026, 10, 1), PREPARADA_TEXTO)])
         assert classificar(p)[0] == Process.CLASSIF_PRECATORIO
+
+
+def _agora():
+    from django.utils import timezone
+    return timezone.now()
+
+
+class TestMinutaVencida:
+    def test_fronteira(self):
+        from tribunals.classificador import MINUTA_TJRS_VENCE_DIAS, minuta_vencida
+        agora = _dt.datetime(2026, 10, 16, 12, tzinfo=_dt.UTC)
+        assert MINUTA_TJRS_VENCE_DIAS == 63
+        assert minuta_vencida(agora - _dt.timedelta(days=63), agora) == 0
+        assert minuta_vencida(agora - _dt.timedelta(days=64), agora) == 1
+        assert minuta_vencida(None, agora) == 0
+
+    def test_f34_promove_so_no_tjrs_e_com_cumprimento(self):
+        feats = {'F1_cumprim': 1, 'F34_minuta_vencida_tjrs': 1}
+        assert classificar(_proc(), features=feats)[:2] == (Process.CLASSIF_PRECATORIO, 1.0)
+        cat, score, _ = classificar(_proc(), features={**feats, 'F1_cumprim': 0})
+        assert score != 1.0
+
+
+@pytest.mark.django_db
+class TestRevisaoDiariaDasMinutas:
+    def test_enfileira_so_o_teto_da_minuta_vencido_ha_um_dia(self):
+        from unittest import mock
+
+        from tribunals import jobs
+        from tribunals.models import Tribunal
+        t, _ = Tribunal.objects.get_or_create(
+            sigla='TJRS', defaults={'nome': 'TJ RS', 'sigla_djen': 'TJRS'})
+        velho = _agora() - _dt.timedelta(days=2)
+        alvo = Process.objects.create(
+            tribunal=t, numero_cnj='5231192-09.2026.8.21.0001', classificacao='PRE_PRECATORIO',
+            classificacao_score=0.60, classificacao_em=velho)
+        Process.objects.create(  # PRE pelo LR, não pela minuta
+            tribunal=t, numero_cnj='5246904-39.2026.8.21.0001', classificacao='PRE_PRECATORIO',
+            classificacao_score=0.55, classificacao_em=velho)
+        Process.objects.create(  # classificado agora há pouco
+            tribunal=t, numero_cnj='5003906-96.2026.8.21.0047', classificacao='PRE_PRECATORIO',
+            classificacao_score=0.60, classificacao_em=_agora())
+        with mock.patch.object(jobs.reclassificar_batch, 'delay') as delay:
+            r = jobs.revisar_minutas_tjrs.__wrapped__() if hasattr(
+                jobs.revisar_minutas_tjrs, '__wrapped__') else jobs.revisar_minutas_tjrs()
+        assert r == {'enfileirados': 1}
+        delay.assert_called_once_with([alvo.pk])
 
 
 class TestTetoSemEnvio:
@@ -387,3 +462,27 @@ class TestTetoSemEnvio:
         cat, _score, _ = classificar(_proc('TJMG'), features={
             'F1_cumprim': 1, 'F20_exp_juriscope': 1})
         assert cat == Process.CLASSIF_PRECATORIO
+
+
+@pytest.mark.django_db
+def test_dry_run_do_backfill_conta_quem_desce():
+    """Envio fica; minuta vencida fica (F34); minuta recente desce a PRE."""
+    import io
+
+    from django.core.management import call_command
+
+    from tribunals.models import Movimentacao, Tribunal
+    t, _ = Tribunal.objects.get_or_create(
+        sigla='TJRS', defaults={'nome': 'TJ RS', 'sigla_djen': 'TJRS'})
+    casos = [('5000214-04.2012.8.21.0040', 300, ENVIADA_HTML),
+             ('5034720-69.2025.8.21.0001', 100, MINUTA_HTML),
+             ('5231192-09.2026.8.21.0001', 1, MINUTA_TEXTO)]
+    for cnj, dias, texto in casos:
+        p = Process.objects.create(tribunal=t, numero_cnj=cnj, classe_codigo='12078',
+                                   classificacao='PRECATORIO')
+        Movimentacao.objects.create(processo=p, tribunal=t, external_id=cnj, texto=texto,
+                                    data_disponibilizacao=_agora() - _dt.timedelta(days=dias))
+    out = io.StringIO()
+    call_command('reclassificar_tjrs_precatorio', '--dry-run', stdout=out)
+    assert 'com envio (F31)=1 | só minuta (F33)=2' in out.getvalue()
+    assert 'ficam (F34, minuta > 63 dias)=1, descem a PRE_PRECATORIO=1' in out.getvalue()

@@ -21,7 +21,8 @@ rebaixa os convertidos (~274) e promove os que só tinham o evento (~322).
 expedição (a minuta) virou o F33, com teto PRE_PRECATORIO. O alvo agora é
 F31 OU F33 — sem isso, os processos que só têm a minuta (e hoje estão em
 PRECATORIO) nunca seriam revisitados. O `--dry-run` mostra quantos processos em
-PRECATORIO só têm a minuta, isto é, quantos descem a PRE_PRECATORIO.
+PRECATORIO só têm a minuta e, desses, quantos ficam pela minuta vencida (F34)
+e quantos descem a PRE_PRECATORIO.
 
 Uso:
   python manage.py reclassificar_tjrs_precatorio --dry-run
@@ -33,10 +34,13 @@ from __future__ import annotations
 import django_rq
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
+from django.utils import timezone
 
 from tribunals.classificador import (
     INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL,
+    MINUTA_TJRS_VENCE_DIAS,
     SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL,
+    minuta_vencida,
 )
 from tribunals.jobs import reclassificar_batch
 
@@ -47,7 +51,8 @@ TRIBUNAL = 'TJRS'
 _ALVO_SQL = """
     SELECT m.processo_id,
            bool_or(m.texto ~* %(envio)s) AS envio,
-           bool_or(m.texto ~* %(minuta)s) AS minuta
+           bool_or(m.texto ~* %(minuta)s) AS minuta,
+           MAX(m.data_disponibilizacao) FILTER (WHERE m.texto ~* %(minuta)s) AS minuta_dt
     FROM tribunals_movimentacao m
     WHERE m.tribunal_id = %(tribunal)s
       AND strpos(lower(m.texto), 'precat') > 0
@@ -96,11 +101,16 @@ class Command(BaseCommand):
                           f'batch={batch_size} | batches={n_batches}')
 
         if opts['dry_run']:
-            com_envio = sum(1 for _pid, envio, _m in linhas if envio)
-            so_minuta = [pid for pid, envio, minuta in linhas if minuta and not envio]
-            descem = sum(1 for pid in so_minuta if classif.get(pid) == 'PRECATORIO')
-            self.stdout.write(f'com envio (F31)={com_envio} | só minuta (F33)={len(so_minuta)} | '
-                              f'só minuta hoje em PRECATORIO (descem a PRE_PRECATORIO)={descem}')
+            agora = timezone.now()
+            com_envio = sum(1 for _pid, envio, _m, _dt in linhas if envio)
+            so_minuta = [(pid, dt) for pid, envio, minuta, dt in linhas if minuta and not envio]
+            em_n1 = [(pid, dt) for pid, dt in so_minuta if classif.get(pid) == 'PRECATORIO']
+            vencidas = sum(1 for _pid, dt in em_n1 if minuta_vencida(dt, agora))
+            self.stdout.write(
+                f'com envio (F31)={com_envio} | só minuta (F33)={len(so_minuta)} | '
+                f'só minuta hoje em PRECATORIO={len(em_n1)}: '
+                f'ficam (F34, minuta > {MINUTA_TJRS_VENCE_DIAS} dias)={vencidas}, '
+                f'descem a PRE_PRECATORIO={len(em_n1) - vencidas}')
             self.stdout.write(self.style.SUCCESS('DRY-RUN — nada alterado.'))
             return
 

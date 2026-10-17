@@ -310,6 +310,19 @@ CONVERSAO_RPV_SINAL_TRIBUNAIS = {'TJRS'}
 TETO_PRE_SEM_ENVIO_TRIBUNAIS = {'TJRS'}
 SCORE_TETO_PRE_SEM_ENVIO = 0.60
 
+# Minuta VENCIDA (F34): o DJEN só republica o evento de envio quando há
+# intimação referindo a ele — na maioria dos processos o envio acontece e não
+# aparece no Voyager. Medido em 16/10/2026 nos 16.226 processos TJRS em
+# PRECATORIO: 12.029 só com a minuta, 11.034 deles com a última intimação há
+# mais de 30 dias. Na consulta pública do TJRS (`consultaMovimentacao`, todos
+# os eventos do eproc), 28 de 28 com a minuta há mais de 63 dias tinham o
+# evento "precatório enviada ao tribunal" (maior distância: 45 dias). Nos 3.860
+# que têm os dois no DJEN, da última intimação ao envio: p50 27, p75 37, p90 57,
+# p95 71 dias. Daí: minuta há mais de 63 dias sem conversão (F32) conta como
+# enviada. Abaixo disso, 4 de 8 com a minuta há menos de 30 dias ainda não
+# tinham envio — é a faixa que queimava a cota.
+MINUTA_TJRS_VENCE_DIAS = 63
+
 # Os padrões de cada feature moram em constantes porque têm DOIS leitores que
 # não podem divergir: o `_MOVS_AGG_SQL` abaixo (o classificador) e a consulta
 # em lote de sinais (`tribunals/sinais_expedicao.py`, endpoint
@@ -370,6 +383,8 @@ _MOVS_AGG_SQL = """
         MAX(CASE WHEN tribunal_id = 'TJRS'
                       AND (texto ~* '__SINAL_F31__' OR texto ~* '__MINUTA_F33__')
                  THEN data_disponibilizacao END) AS f31_max_dt,
+        MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__MINUTA_F33__'
+                 THEN data_disponibilizacao END) AS f33_max_dt,
         MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__CONV_F32__'
                       AND texto !~* '__VETO_F32__'
                  THEN data_disponibilizacao END) AS f32_max_dt,
@@ -662,6 +677,16 @@ def f30_extinto_neg(extneg_max_dt, exped_max_dt) -> int:
                and (exped_max_dt is None or extneg_max_dt >= exped_max_dt))
 
 
+def minuta_vencida(f33_max_dt, agora) -> int:
+    """1 se a ÚLTIMA intimação da expedição (minuta) tem mais de
+    `MINUTA_TJRS_VENCE_DIAS` — a requisição já foi enviada ao TJ, só o DJEN não
+    republicou o evento. A última, não a primeira: precatório re-expedido
+    (minuta nova) volta a esperar o envio."""
+    if not f33_max_dt:
+        return 0
+    return int((agora - f33_max_dt).days > MINUTA_TJRS_VENCE_DIAS)
+
+
 def compute_features(processo) -> dict:
     """Computa as 19 features do v5 a partir de um Process.
 
@@ -684,7 +709,7 @@ def compute_features(processo) -> dict:
         row = cur.fetchone()
 
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
-     f13_n, f14_n, f19_n, f20_n, f31_n, f33_n, f31_max_dt, f32_max_dt, pago_max_dt,
+     f13_n, f14_n, f19_n, f20_n, f31_n, f33_n, f31_max_dt, f33_max_dt, f32_max_dt, pago_max_dt,
      exped_max_dt, extneg_max_dt, ult_mov_dt) = row
 
     if not total_movs:
@@ -739,6 +764,8 @@ def compute_features(processo) -> dict:
         'F31_exp_precatorio_tjrs': int(f31_n > 0),
         # Minuta do TJRS (intimação da expedição, sem envio): teto PRE_PRECATORIO.
         'F33_minuta_precatorio_tjrs': int(f33_n > 0),
+        # Minuta há mais de MINUTA_TJRS_VENCE_DIAS sem envio no DJEN: enviada.
+        'F34_minuta_vencida_tjrs': minuta_vencida(f33_max_dt, djtz.now()),
         # Anti do TJRS: precatório convertido em RPV DEPOIS da última expedição.
         'F32_convertido_rpv_tjrs': f32_convertido(f31_max_dt, f32_max_dt),
     }
@@ -759,7 +786,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F1xF11': 0, 'F1xF15': 0.0, 'F1xF20': 0,
         'F24_pago_pos_exped_ANTI': 0, 'F30_extinto_neg_ANTI': 0,
         'F31_exp_precatorio_tjrs': 0, 'F32_convertido_rpv_tjrs': 0,
-        'F33_minuta_precatorio_tjrs': 0,
+        'F33_minuta_precatorio_tjrs': 0, 'F34_minuta_vencida_tjrs': 0,
     }
 
 
@@ -782,6 +809,11 @@ def predict_score(features: dict, pesos: dict | None = None) -> float:
 def _convertido_em_rpv(processo, features: dict) -> bool:
     return (processo.tribunal_id in CONVERSAO_RPV_SINAL_TRIBUNAIS
             and features.get('F32_convertido_rpv_tjrs') == 1)
+
+
+def _minuta_vencida(processo, features: dict) -> bool:
+    return (processo.tribunal_id in TETO_PRE_SEM_ENVIO_TRIBUNAIS
+            and features.get('F34_minuta_vencida_tjrs') == 1)
 
 
 def _teto_pre_sem_envio(cat: str, score: float, features: dict) -> tuple[str, float]:
@@ -833,7 +865,8 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
         if (not pago_pos_exped
                 and not convertido
                 and features.get('F1_cumprim') == 1
-                and any(features.get(f) == 1 for f in feats_sinal)):
+                and (any(features.get(f) == 1 for f in feats_sinal)
+                     or _minuta_vencida(processo, features))):
             return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, features
 
     # Regra de sinal por CLASSE: a classe 1265 É o precatório autuado. Promove
