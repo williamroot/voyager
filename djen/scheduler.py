@@ -578,6 +578,20 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # Janela da minuta do TRF3: espera (< 7 dias) e janela (7–30 dias / envio
+    # até 15) vencem pelo relógio. Antes do cache das 07:40 e do pull das 08:00.
+    from tribunals.jobs import revisar_janela_trf3
+    scheduler.add_job(
+        revisar_janela_trf3.delay,
+        'cron',
+        hour=5,
+        minute=50,
+        id='revisar_janela_trf3',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Cache pré-calculado da listagem de leads (`api/leads_cache.py`). A consulta
     # ao vivo do `GET /api/v1/leads/` passava dos 20 s às 08:00 (503 em 10/13
     # dias no TRF3, 12/13 no TJSP até 13/10/2026). O job roda a mesma consulta

@@ -323,6 +323,81 @@ SCORE_TETO_PRE_SEM_ENVIO = 0.60
 # tinham envio — é a faixa que queimava a cota.
 MINUTA_TJRS_VENCE_DIAS = 63
 
+# ---------------------------------------------------------------------------
+# TRF3: janela da minuta, envio recente e veto de pagamento (F35–F38)
+# ---------------------------------------------------------------------------
+# O PJe da 3ª Região publica no DJEN três atos do caminho da requisição, e cada
+# um diz uma coisa diferente sobre a existência do crédito no tribunal:
+#
+#   MINUTA (ato ordinatório citando a resolução do CJF): "ficam as partes intimadas do teor
+#       do(s) ofício(s) requisitório(s) expedido(s) ... se nada for requerido
+#       no prazo de 5 (cinco) dias, o(s) requisitório(s) será(ão) transmitido(s)
+#       ao tribunal". A requisição existe na vara, mas ainda não no TRF: a
+#       consulta pública de requisições (onde o JURISCOPE acha o ofício do
+#       TRF3) não a mostra. Na maioria dos casos ela é transmitida em 1 a 2
+#       semanas e uma RPV é paga em ~60 dias.
+#   ENVIO: "ciência às partes da transmissão ao tribunal da(s) requisição(ões)
+#       de pagamento expedida(s)" / "do registro da requisição de pagamento
+#       expedida". A requisição está no TRF.
+#   PAGAMENTO: "os valores a título de requisitório de pagamento ... foram pagos
+#       pelo Tribunal", "cientificada acerca do pagamento do ofício
+#       requisitório", "disponibilização dos valores", extinção da execução.
+#
+# Antes, o TRF3 virava PRECATORIO pelo LR no dia da minuta (o próprio texto da
+# minuta cita "precatórios e RPV") e o JURISCOPE consultava no mesmo dia: só 11%
+# dos consultados tinham requisição ATIVA, e 73% das requisições achadas já
+# estavam "PAGO TOTAL". Medição e números no PR fix/trf3-janela-minuta.
+#
+# Regra (validada com o resultado da consulta do JURISCOPE, 60 dias de pull):
+#   PRECATORIO     = minuta com 7 a 30 dias OU envio com até 15 dias, sem
+#                    pagamento publicado depois da última expedição.
+#   PRE (espera)   = minuta com menos de 7 dias: score abaixo do corte do pull
+#                    de PRE do JURISCOPE (VOYAGER_MIN_SCORE_N2=0,20), para não
+#                    ser consumida antes de amadurecer.
+#   PRE (teto)     = o resto que o LR punha em PRECATORIO (minuta vencida,
+#                    envio antigo, sem sinal): desce a PRE.
+#   NAO_LEAD       = pagamento depois da última expedição (RPV/precatório pago:
+#                    não há crédito a comprar).
+MINUTA_TRF3_SQL = (
+    # "ficam as partes intimadas do teor do(s) ofício(s) requisitório(s)
+    # expedido(s)" e "intimadas, por meio deste ato ordinatório, pelo prazo de
+    # 5 dias, do teor do(s) ofício(s)". Medidos e DESCARTADOS (0 de 74 com
+    # requisição até 30 dias): "manifestação acerca do inteiro teor do ofício
+    # requisitório" e "manifestação sobre a minuta de RPV expedida".
+    r'intimad[oa]s?\s+([^.]{0,70}\s)?do\s+(inteiro\s+)?teor\s+do\(?s?\)?\s+of[íi]cio\(?s?\)?\s+requisit'
+)
+ENVIO_TRF3_SQL = (
+    r'transmiss[ãa]o\s+ao\s+tribunal\s+d[ao]\(?s?\)?\s+requisi'
+    r'|transmiss[ãa]o\s+d[ao]\(?s?\)?\s+requisi[çc][ãa]o[^.]{0,80}\s+ao\s+tribunal'
+    r'|registro\s+da\s+requisi[çc][ãa]o\s+de\s+pagamento\s+expedida'
+)
+PAGO_TRF3_SQL = (
+    r'foram\s+pag[oa]s\s+pelo\s+tribunal'
+    r'|cientificad[oa]s?\s+(acerca\s+)?d[oa]s?\s+(pagamento|disponibiliza|libera)'
+    r'|(intimad[oa]s?|ci[êe]ncia)\s+([^.]{0,40}\s)?d[aoe]s?\s+(disponibiliza[çc][ãa]o|libera[çc][ãa]o)\M'
+    r'|intima[çc][ãa]o\s+das\s+partes\s+sobre\s+a\s+disponibiliza'
+    r'|valores\s+pagos\s+(em|a\s+t[íi]tulo\s+de)'
+    r'|requisitad[oa]s?\s+em\s+seu\s+favor\s+foram\s+depositad'
+    r'|intimad[oa]s?\s+do\(?s?\)?\s+dep[óo]sito\(?s?\)?\s+da\s+quantia'
+    r'|juntada\s+d[oe]s?\s+extratos?\s+de\s+pagamento|extratos?\s+de\s+pagamento\s+(de\s+\S+\s+)?juntad'
+    r'|ci[êe]ncia[^.]{0,40}extratos?\s+de\s+pagamento'
+    r'|liberad[oa]s?\s+para\s+(saque|pagamento)'
+    # Extinção da execução pelo pagamento (art. 924, II, CPC). A extinção sem
+    # mérito/improcedência continua com o F30.
+    r'|(julgo|declaro)\s+extint[ao]\s+(a\s+)?(presente\s+)?(execu[çc][ãa]o|fase\s+de\s+cumprimento)'
+)
+JANELA_MINUTA_TRIBUNAIS = {'TRF3'}
+MINUTA_TRF3_ESPERA_DIAS = 7     # antes disso a requisição quase nunca está no TRF
+MINUTA_TRF3_VENCE_DIAS = 30     # depois disso a RPV, em geral, já foi paga
+ENVIO_TRF3_VENCE_DIAS = 15
+# Abaixo do VOYAGER_MIN_SCORE_N2 (0,20) do JURISCOPE: PRE que o pull não serve.
+SCORE_ESPERA_MINUTA = 0.15
+
+ESTADO_TRF3_PAGO = 'pago'
+ESTADO_TRF3_JANELA = 'janela'
+ESTADO_TRF3_ESPERA = 'espera'
+ESTADO_TRF3_VENCIDO = 'vencido'
+
 # Os padrões de cada feature moram em constantes porque têm DOIS leitores que
 # não podem divergir: o `_MOVS_AGG_SQL` abaixo (o classificador) e a consulta
 # em lote de sinais (`tribunals/sinais_expedicao.py`, endpoint
@@ -388,6 +463,13 @@ _MOVS_AGG_SQL = """
         MAX(CASE WHEN tribunal_id = 'TJRS' AND texto ~* '__CONV_F32__'
                       AND texto !~* '__VETO_F32__'
                  THEN data_disponibilizacao END) AS f32_max_dt,
+        -- TRF3: minuta, envio e pagamento (janela da minuta, F35-F38).
+        MAX(CASE WHEN tribunal_id = 'TRF3' AND texto ~* '__MINUTA_TRF3__'
+                 THEN data_disponibilizacao END) AS minuta_trf3_dt,
+        MAX(CASE WHEN tribunal_id = 'TRF3' AND texto ~* '__ENVIO_TRF3__'
+                 THEN data_disponibilizacao END) AS envio_trf3_dt,
+        MAX(CASE WHEN tribunal_id = 'TRF3' AND texto ~* '__PAGO_TRF3__'
+                 THEN data_disponibilizacao END) AS pago_trf3_dt,
         MAX(CASE WHEN texto ~* '__PAGO__'
                  THEN data_disponibilizacao END) AS pago_max_dt,
         MAX(CASE WHEN texto ~* '__F20__'
@@ -408,7 +490,10 @@ _MOVS_AGG_SQL = """
  .replace('__SINAL_F31__', SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL) \
  .replace('__MINUTA_F33__', INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL) \
  .replace('__CONV_F32__', CONVERSAO_RPV_TJRS_SQL) \
- .replace('__VETO_F32__', VETO_CONVERSAO_RPV_TJRS_SQL)
+ .replace('__VETO_F32__', VETO_CONVERSAO_RPV_TJRS_SQL) \
+ .replace('__MINUTA_TRF3__', MINUTA_TRF3_SQL) \
+ .replace('__ENVIO_TRF3__', ENVIO_TRF3_SQL) \
+ .replace('__PAGO_TRF3__', PAGO_TRF3_SQL)
 
 # Thresholds (revisáveis com base em produção)
 THRESHOLD_PRECATORIO = 0.70
@@ -687,6 +772,33 @@ def minuta_vencida(f33_max_dt, agora) -> int:
     return int((agora - f33_max_dt).days > MINUTA_TJRS_VENCE_DIAS)
 
 
+def estado_trf3(minuta_dt, envio_dt, pago_dt, agora) -> str:
+    """Onde está a requisição do TRF3, pelas datas da última minuta, do último
+    envio e do último pagamento publicados no DJEN. '' = sem nenhum dos três.
+
+    Pagamento só conta se veio no mesmo dia ou depois da última expedição
+    (minuta ou envio): uma requisição nova depois de uma RPV paga (honorários,
+    complementar) é crédito novo. Sem expedição nenhuma no DJEN, o pagamento
+    vale sozinho — "foram pagos pelo Tribunal" não precisa de referência.
+    """
+    exped = max((d for d in (minuta_dt, envio_dt) if d), default=None)
+    if pago_dt and (exped is None or pago_dt >= exped):
+        return ESTADO_TRF3_PAGO
+    if exped is None:
+        return ''
+    if envio_dt and (agora - envio_dt).days <= ENVIO_TRF3_VENCE_DIAS:
+        return ESTADO_TRF3_JANELA
+    if minuta_dt:
+        idade = (agora - minuta_dt).days
+        if MINUTA_TRF3_ESPERA_DIAS <= idade <= MINUTA_TRF3_VENCE_DIAS:
+            return ESTADO_TRF3_JANELA
+        # Minuta nova depois de um envio antigo (requisição complementar) espera
+        # como qualquer minuta.
+        if idade < MINUTA_TRF3_ESPERA_DIAS:
+            return ESTADO_TRF3_ESPERA
+    return ESTADO_TRF3_VENCIDO
+
+
 def compute_features(processo) -> dict:
     """Computa as 19 features do v5 a partir de um Process.
 
@@ -709,7 +821,8 @@ def compute_features(processo) -> dict:
         row = cur.fetchone()
 
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
-     f13_n, f14_n, f19_n, f20_n, f31_n, f33_n, f31_max_dt, f33_max_dt, f32_max_dt, pago_max_dt,
+     f13_n, f14_n, f19_n, f20_n, f31_n, f33_n, f31_max_dt, f33_max_dt, f32_max_dt,
+     minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, pago_max_dt,
      exped_max_dt, extneg_max_dt, ult_mov_dt) = row
 
     if not total_movs:
@@ -735,6 +848,7 @@ def compute_features(processo) -> dict:
     f2 = int(f2_n > 0); f7 = int(f7_n > 0)
     f11 = int(f11_n > 0); f12 = int(f12_n > 0); f13 = int(f13_n > 0); f14 = int(f14_n > 0)
     f19 = int(f19_n > 0); f20 = int(f20_n > 0)
+    trf3 = estado_trf3(minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, djtz.now())
 
     return {
         'F1_cumprim':         f1,
@@ -768,6 +882,11 @@ def compute_features(processo) -> dict:
         'F34_minuta_vencida_tjrs': minuta_vencida(f33_max_dt, djtz.now()),
         # Anti do TJRS: precatório convertido em RPV DEPOIS da última expedição.
         'F32_convertido_rpv_tjrs': f32_convertido(f31_max_dt, f32_max_dt),
+        # TRF3 (peso LR 0: regra). Um só estado vale por vez — ver estado_trf3.
+        'F35_minuta_janela_trf3': int(trf3 == ESTADO_TRF3_JANELA),
+        'F36_minuta_espera_trf3': int(trf3 == ESTADO_TRF3_ESPERA),
+        'F37_exped_vencida_trf3': int(trf3 == ESTADO_TRF3_VENCIDO),
+        'F38_pago_trf3': int(trf3 == ESTADO_TRF3_PAGO),
     }
 
 
@@ -787,6 +906,8 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F24_pago_pos_exped_ANTI': 0, 'F30_extinto_neg_ANTI': 0,
         'F31_exp_precatorio_tjrs': 0, 'F32_convertido_rpv_tjrs': 0,
         'F33_minuta_precatorio_tjrs': 0, 'F34_minuta_vencida_tjrs': 0,
+        'F35_minuta_janela_trf3': 0, 'F36_minuta_espera_trf3': 0,
+        'F37_exped_vencida_trf3': 0, 'F38_pago_trf3': 0,
     }
 
 
@@ -835,6 +956,30 @@ def _teto_pre_sem_envio(cat: str, score: float, features: dict) -> tuple[str, fl
             and cat in (Process.CLASSIF_DIREITO_CREDITORIO, Process.CLASSIF_NAO_LEAD)):
         return Process.CLASSIF_PRE_PRECATORIO, SCORE_TETO_PRE_SEM_ENVIO
     return cat, score
+
+
+def _janela_minuta(cat: str, score: float, features: dict) -> tuple[str, float, bool]:
+    """TRF3: (categoria, score, decidido). `decidido=False` deixa o processo
+    seguir para os vetos globais (F30)."""
+    from .models import Process
+
+    if features.get('F38_pago_trf3') == 1:
+        # RPV/precatório pago: não há crédito a comprar em nível nenhum.
+        if cat == Process.CLASSIF_NAO_LEAD:
+            return cat, score, True
+        return Process.CLASSIF_NAO_LEAD, min(score, SCORE_REBAIXAMENTO_SINAL), True
+    if features.get('F35_minuta_janela_trf3') == 1:
+        return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, True
+    if features.get('F36_minuta_espera_trf3') == 1:
+        # Estacionado: PRE com score fora do pull, até a minuta fazer 7 dias
+        # (o job `revisar_janela_trf3` revisita todo dia).
+        return Process.CLASSIF_PRE_PRECATORIO, SCORE_ESPERA_MINUTA, True
+    # Minuta vencida, envio antigo ou nenhum sinal: o LR não leva o TRF3 a
+    # PRECATORIO sozinho (era ele que entregava a minuta do dia).
+    if cat == Process.CLASSIF_PRECATORIO:
+        return (Process.CLASSIF_PRE_PRECATORIO,
+                min(score, SCORE_TETO_PRE_SEM_ENVIO), False)
+    return cat, score, False
 
 
 def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, dict]:
@@ -933,11 +1078,20 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     if processo.tribunal_id in TETO_PRE_SEM_ENVIO_TRIBUNAIS:
         cat, score = _teto_pre_sem_envio(cat, score, features)
 
+    # TRF3: a janela da minuta decide o nível (ver MINUTA_TRF3_SQL). Vem antes
+    # do F30 de propósito: o F30 mede a extinção contra o F20, que não casa a
+    # minuta do TRF3 — uma improcedência antiga da fase de conhecimento
+    # derrubaria a requisição que acabou de ser expedida.
+    decidido = False
+    if processo.tribunal_id in JANELA_MINUTA_TRIBUNAIS:
+        cat, score, decidido = _janela_minuta(cat, score, features)
+
     # Regra de sinal NEGATIVA universal (todos os tribunais): desfecho terminal
     # negativo (extinção sem mérito / improcedência / prescrição) sem expedição
     # posterior → o crédito não existe. Rebaixa qualquer lead a NAO_LEAD. O Juriscope
     # tem a checagem fina nos autos; aqui evitamos gastar o cap baixando processo morto.
-    if (features.get('F30_extinto_neg_ANTI') == 1
+    if (not decidido
+            and features.get('F30_extinto_neg_ANTI') == 1
             and cat in (Process.CLASSIF_PRECATORIO,
                         Process.CLASSIF_PRE_PRECATORIO,
                         Process.CLASSIF_DIREITO_CREDITORIO)):
