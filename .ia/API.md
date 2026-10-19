@@ -261,15 +261,17 @@ no TJMG.
    "vetos": {"F19_cancelado_ANTI": {"ultima_em": null, "ativo": false},
              "F24_pago_pos_exped_ANTI": {"ultima_em": null, "ativo": false},
              "F30_extinto_neg_ANTI": {"ultima_em": null, "ativo": false},
-             "F32_convertido_rpv_tjrs": {"ultima_em": null, "ativo": false}},
+             "F32_convertido_rpv_tjrs": {"ultima_em": null, "ativo": false},
+             "F39_extinto_satisfeito_ANTI": {"ultima_em": null, "ativo": false}},
    "movimentacao_mais_recente_em": "2026-09-30"}]}
 ```
 
 - Datas de movimentação (`*_em` sem hora) são o dia em São Paulo da
   `data_disponibilizacao`; `sinal_inserido_em` é quando o Voyager GRAVOU a
   movimentação (UTC) — é ele que diz se o Voyager "já tinha" o sinal.
-- `vetos.*.ativo` é o valor da feature como o classificador calcula (F24/F30
-  comparam com a última expedição F20; F32 com o último F31). Onde o
+- `vetos.*.ativo` é o valor da feature como o classificador calcula (F24/F30/F39
+  comparam com a última expedição F20; F32 com o último F31). O F39 (extinção
+  pela satisfação) só é lido nos tribunais de `SATISFACAO_SINAL_TRIBUNAIS`. Onde o
   classificador APLICA cada veto é por tribunal (ver `CLASSIFICACAO.md`).
 - Um CNJ em dois tribunais (TRF1 e TRF6) gera duas linhas.
 - `results` sai em ordem de CNJ.

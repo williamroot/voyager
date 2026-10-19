@@ -255,6 +255,32 @@ def revisar_janela_trf3(batch_size: int = _CLASSIF_BATCH_SIZE) -> dict:
     return {'enfileirados': len(pids)}
 
 
+@job('classificacao', timeout=1800)
+def revisar_rpv_federal_parada(batch_size: int = _CLASSIF_BATCH_SIZE) -> dict:
+    """Revisita, uma vez por dia, o PRECATORIO dos tribunais do F40 (RPV federal
+    parada) cujo DJEN já está em silêncio há mais de `RPV_FEDERAL_PARADA_DIAS`.
+
+    O F40 vence pelo relógio, sem movimento novo — e o
+    `reclassificar_por_prioridade` só revisita quem teve movimento depois do
+    veredito. Quem não tem o INSS no polo passivo volta igual (o
+    `classificar_e_persistir` só grava log quando a categoria muda).
+    """
+    from .classificador import RPV_FEDERAL_PARADA_DIAS, RPV_FEDERAL_PARADA_TRIBUNAIS
+
+    corte = timezone.now() - timedelta(days=RPV_FEDERAL_PARADA_DIAS)
+    pids = list(
+        Process.objects.filter(
+            tribunal_id__in=sorted(RPV_FEDERAL_PARADA_TRIBUNAIS),
+            classificacao=Process.CLASSIF_PRECATORIO,
+            ultima_movimentacao_em__lt=corte,
+        ).values_list('pk', flat=True)
+    )
+    for i in range(0, len(pids), batch_size):
+        reclassificar_batch.delay(pids[i:i + batch_size])
+    logger.info('revisar_rpv_federal_parada: %d processos enfileirados', len(pids))
+    return {'enfileirados': len(pids)}
+
+
 # ============================================================================
 # Shadow mode (T19) — jobs assíncronos e comparação v_ativa x v_shadow
 # ============================================================================

@@ -592,6 +592,20 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # RPV federal parada (F40, TJMT): vence pelo relógio quando o DJEN passa de
+    # 540 dias em silêncio. Antes do cache das 07:40 e do pull das 08:00.
+    from tribunals.jobs import revisar_rpv_federal_parada
+    scheduler.add_job(
+        revisar_rpv_federal_parada.delay,
+        'cron',
+        hour=5,
+        minute=55,
+        id='revisar_rpv_federal_parada',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Cache pré-calculado da listagem de leads (`api/leads_cache.py`). A consulta
     # ao vivo do `GET /api/v1/leads/` passava dos 20 s às 08:00 (503 em 10/13
     # dias no TRF3, 12/13 no TJSP até 13/10/2026). O job roda a mesma consulta
