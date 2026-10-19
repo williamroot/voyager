@@ -75,6 +75,12 @@ TXT_EXTNEG = (
 )
 # Ordem, não expedição: casa F14 ('ofício requisitório'), que o vigia NÃO usa.
 TXT_F14_ORDEM = 'Expeça-se ofício requisitório em favor da parte autora.'
+# 1000418-65.2023.8.11.0087 (TJMT, Guarantã do Norte), 14/11/2023 — F39.
+TXT_EXTINTO_SATISFEITO = (
+    'Diante da comprovação de pagamento da condenação, determino a expedição de alvará de '
+    'levantamento dos créditos. Desta forma, haja vista o adimplemento da obrigação, '
+    'extingo a execução pelo pagamento, na forma do art. 924, II, do CPC.'
+)
 TXT_NEUTRO = 'Intimem-se as partes para manifestação no prazo de 15 dias.'
 
 
@@ -226,6 +232,12 @@ class TestParidadeComClassificador:
         ('TJMT', '1002513-09.2022.8.11.0021', [((2024, 8, 6), TXT_F19)]),
         ('TRF5', '0000201-16.2026.4.05.8403', [((2026, 3, 16), TXT_EXTNEG), ((2026, 4, 1), TXT_F20)]),
         ('TJMG', '5009780-22.2025.8.13.0079', [((2026, 9, 1), TXT_F14_ORDEM)]),
+        ('TJMT', '1000418-65.2023.8.11.0087', [((2023, 11, 14), TXT_EXTINTO_SATISFEITO)]),
+        # Expedição depois da extinção: crédito novo, o F39 não vale.
+        ('TJMT', '1005419-07.2025.8.11.0040',
+         [((2026, 4, 24), TXT_EXTINTO_SATISFEITO), ((2026, 7, 25), TXT_F20)]),
+        # Fora do rollout do F39: o mesmo texto não conta.
+        ('TJMG', '5011469-11.2023.8.13.0261', [((2025, 10, 16), TXT_EXTINTO_SATISFEITO)]),
     ]
 
     @pytest.mark.parametrize('sigla,cnj,movs', CASOS, ids=[c[1] for c in CASOS])
@@ -241,6 +253,7 @@ class TestParidadeComClassificador:
             'F24_pago_pos_exped_ANTI',
             'F30_extinto_neg_ANTI',
             'F32_convertido_rpv_tjrs',
+            'F39_extinto_satisfeito_ANTI',
         ):
             assert r['vetos'][veto]['ativo'] == bool(f[veto]), veto
 
@@ -380,3 +393,10 @@ class TestEndpoint:
         r = self._post({'cnjs': [f'{i:07d}-00.2024.8.26.0001' for i in range(5000)]})
         assert r.status_code == 200
         assert len(r.json()['nao_encontrados']) == 5000
+
+
+@pytest.mark.django_db
+def test_veto_f39_tjmt_traz_a_data_da_extincao():
+    _proc('TJMT', '1000418-65.2023.8.11.0087', [((2023, 11, 14), TXT_EXTINTO_SATISFEITO)])
+    v = _um('1000418-65.2023.8.11.0087')['vetos']['F39_extinto_satisfeito_ANTI']
+    assert v == {'ultima_em': '2023-11-14', 'ativo': True}

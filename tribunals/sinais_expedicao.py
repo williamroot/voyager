@@ -45,11 +45,14 @@ from django.utils import timezone
 from .classificador import (
     CONVERSAO_RPV_TJRS_SQL,
     EXTINCAO_NEGATIVA_SQL,
+    EXTINCAO_SATISFEITA_SQL,
+    EXTINCAO_SATISFEITA_VETO_SQL,
     F19_CANCELAMENTO_SQL,
     F20_EXPEDICAO_SQL,
     INTIMACAO_EXPEDICAO_PRECATORIO_TJRS_SQL,
     PAGAMENTO_SQL,
     PRECATORIO_SINAL_FEATURES,
+    SATISFACAO_SINAL_TRIBUNAIS,
     SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL,
     TIPOS_F2_EXPEDICAO,
     TIPOS_F7_ENVIO,
@@ -57,6 +60,7 @@ from .classificador import (
     f24_pago_pos_exped,
     f30_extinto_neg,
     f32_convertido,
+    f39_extinto_satisfeito,
 )
 from .cnj import partes
 from .models import Process
@@ -95,8 +99,8 @@ def _sql_in(valores: tuple[str, ...]) -> str:
     return '(' + ','.join(f"'{v}'" for v in valores) + ')'
 
 
-# Uma linha por processo. `f31_tjrs` e `f32` têm o mesmo recorte de tribunal
-# que o `_MOVS_AGG_SQL` (`f31_max_dt`/`f32_max_dt`).
+# Uma linha por processo. `f31_tjrs`, `f32` e `satisf` têm o mesmo recorte de
+# tribunal que o `_MOVS_AGG_SQL` (`f31_max_dt`/`f32_max_dt`/`satisf_max_dt`).
 _AGG_SQL = """
     WITH m AS MATERIALIZED (
         SELECT processo_id, id, tribunal_id, inserido_em,
@@ -110,7 +114,9 @@ _AGG_SQL = """
                texto ~* %(pago)s AS pago,
                texto ~* %(extneg)s AS extneg,
                (tribunal_id = 'TJRS' AND texto ~* %(conv)s
-                AND texto !~* %(veto)s) AS f32
+                AND texto !~* %(veto)s) AS f32,
+               (tribunal_id = ANY(%(tribs_satisf)s) AND texto ~* %(satisf)s
+                AND texto !~* %(satisf_veto)s) AS satisf
         FROM tribunals_movimentacao
         WHERE processo_id = ANY(%(pids)s)
     )
@@ -124,6 +130,7 @@ _AGG_SQL = """
            -- Referência do F32 no classificador: envio OU minuta (F31 ou F33).
            MAX(dt) FILTER (WHERE f31 OR f33) AS exped_tjrs_dt,
            MAX(dt) FILTER (WHERE f32) AS f32_dt,
+           MAX(dt) FILTER (WHERE satisf) AS satisf_dt,
            COALESCE(json_agg(json_build_object(
                'id', id, 'dt', dt, 'ins', inserido_em,
                'f2', f2, 'f7', f7, 'f20', f20, 'f31', f31)
@@ -141,6 +148,9 @@ _PARAMS_REGEX = {
     'extneg': EXTINCAO_NEGATIVA_SQL,
     'conv': CONVERSAO_RPV_TJRS_SQL,
     'veto': VETO_CONVERSAO_RPV_TJRS_SQL,
+    'satisf': EXTINCAO_SATISFEITA_SQL,
+    'satisf_veto': EXTINCAO_SATISFEITA_VETO_SQL,
+    'tribs_satisf': sorted(SATISFACAO_SINAL_TRIBUNAIS),
 }
 
 # Últimas duas transições (o log só grava quando a categoria muda).
@@ -370,6 +380,10 @@ def _vetos(linha: dict) -> dict:
         'F32_convertido_rpv_tjrs': {
             'ultima_em': _dia(linha.get('f32_dt')),
             'ativo': bool(f32_convertido(linha.get('exped_tjrs_dt'), linha.get('f32_dt'))),
+        },
+        'F39_extinto_satisfeito_ANTI': {
+            'ultima_em': _dia(linha.get('satisf_dt')),
+            'ativo': bool(f39_extinto_satisfeito(linha.get('satisf_dt'), exped_dt)),
         },
     }
 

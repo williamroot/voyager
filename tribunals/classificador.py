@@ -426,6 +426,114 @@ ESTADO_TRF3_JANELA = 'janela'
 ESTADO_TRF3_ESPERA = 'espera'
 ESTADO_TRF3_VENCIDO = 'vencido'
 
+# ---------------------------------------------------------------------------
+# TJMT: execução extinta pela satisfação (F39) e RPV federal parada (F40)
+# ---------------------------------------------------------------------------
+# O PRECATORIO do TJMT era quase todo RPV já paga. No MT a RPV é depositada em
+# conta judicial e sai por alvará juntado no processo — o DJEN não publica a
+# juntada, e o JURISCOPE só descobria baixando os autos. Medido em 19/10/2026:
+#
+#   * amostra aleatória de 50 dos 841 PRECATORIO que a homologação consumiu,
+#     conferida na consulta pública do TJMT (eventos do PJe + o PDF do alvará):
+#     48 pagos ao credor, 1 com alvará só dos honorários contratuais (os 70% do
+#     credor, menor de idade, seguem depositados), 1 não é lead (obrigação de
+#     fazer), 0 lead vivo. Os 50 estão arquivados;
+#   * 549 processos TJMT que o JURISCOPE baixou (autos lidos, movimentos do PJe
+#     gravados), para medir o veto contra lead vivo.
+#
+# F39 — a sentença que extingue a execução PELA SATISFAÇÃO da obrigação (art.
+# 924, II, CPC; "extingo a execução pelo pagamento"; "declaro satisfeita a
+# obrigação"), publicada no mesmo dia ou depois da última expedição (F20). É o
+# sinal de quitação que o DJEN do TJMT publica: casa 36 dos 50 da amostra e
+# 3.459 dos 5.202 PRECATORIO. O alvará NÃO entra: depois do ofício ele é, com
+# frequência, só dos honorários (contratuais ou da RPV de sucumbência) enquanto
+# o precatório do credor segue vivo (1000243-33.2022.8.11.0111,
+# 1001868-86.2023.8.11.0008).
+#
+# Precisa do verbo do dispositivo (1ª pessoa: o juiz decidindo) E da causa no
+# mesmo trecho (até 250 chars):
+#   * "sob pena de extinção ... (CPC, art. 924, inciso II)" é aviso, sem verbo;
+#   * "no silêncio, o feito será julgado extinto pelo pagamento" é aviso, e o
+#     particípio não é dispositivo;
+#   * a citação da lei, "Art. 924. Extingue-se a execução quando: ... II - a
+#     obrigação for satisfeita", não é dispositivo;
+#   * "julgo-os procedentes ... com fundamento no art. 924, II" (embargos) não
+#     tem "extint" logo depois do verbo;
+#   * "julgo extinto o processo ... art. 487, III" (acordo na fase de
+#     conhecimento, a RPV ainda vai ser expedida) não tem a causa.
+# A ordem é livre: "satisfeita a obrigação, por força do art. 925 e 924, II
+# ... EXTINGUE-SE o processo" põe a causa antes.
+_DISP_EXTINCAO = (
+    r'(julgo|declaro|decreto)\s+(e\s+declaro\s+)?(por\s+senten[çc]a\s+)?'
+    r'(extint[ao]|a\s+extin[çc][ãa]o|satisfeita)'
+    r'|extingo\s+a\s+(presente\s+)?execu'
+    r'|extingue-se\s+(a\s+execu[çc][ãa]o|o\s+processo|o\s+feito|a\s+fase)(?!\s+quando)'
+    r'|extinguindo\s+o\s+feito'
+)
+# "\madimplemento": sem a fronteira, "inadimplemento" (correção desde o
+# inadimplemento de cada parcela) casava na sentença de mérito.
+_CAUSA_SATISFACAO = (
+    r'924,?\s*(inc(iso|\.)?\s*)?ii\M|satisf\w+|pelo\s+pagamento|quita[çc][ãa]o|quitad[oa]'
+    r'|\madimplemento|cumprimento\s+integral'
+    r'|pagamento\s+d[ao]s?\s+(rpv|requisi|d[ée]bito)'
+)
+EXTINCAO_SATISFEITA_SQL = (
+    '(' + _DISP_EXTINCAO + ').{0,250}(' + _CAUSA_SATISFACAO + ')'
+    '|(' + _CAUSA_SATISFACAO + ').{0,250}(' + _DISP_EXTINCAO + ')'
+)
+# Veto no mesmo texto — a extinção não é a quitação do crédito:
+#   * o PRECATÓRIO ainda por pagar: "Em relação ao precatório, ... aguarde-se o
+#     pagamento, mantendo os autos arquivados" (1000145-25.2019.8.11.0088), "a
+#     parte executada já se encontra intimada para efetivar o pagamento do
+#     ofício precatório expedido ... JULGO EXTINTA A EXECUÇÃO" (TJMG);
+#   * extinção ANTECIPADA no despacho inicial, condicionada ao pagamento que
+#     ainda vai acontecer: "Adimplido o débito, desde logo, declaro extinta",
+#     "nada mais sendo requerido, julgo extinto o feito" (TJRS),
+#     "inexistindo outras pendências, JULGO EXTINTO" (TJMT);
+#   * extinção PARCIAL: "julgo extinta a execução pelo pagamento ... em
+#     relação à FULANA ... expeça-se precatório" (litisconsorte);
+#   * a sentença de MÉRITO da fase de conhecimento ("julgo extinto o feito, com
+#     resolução de mérito, nos termos do artigo 487, inciso I ... CONDENO a
+#     autarquia no pagamento dos valores"): 4 de 978 textos casavam antes.
+EXTINCAO_SATISFEITA_VETO_SQL = (
+    r'aguard\w*[^.]{0,80}pagamento\s+do\s+precat'
+    r'|em\s+rela[çc][ãa]o\s+ao\s+precat[óo]rio'
+    r'|prossegu\w*[^.]{0,80}precat[óo]rio'
+    r'|precat[óo]rio\s+expedido|expe[çc]a-se\s+(o\s+)?precat[óo]rio'
+    r'|desde\s+(logo|j[áa])\s*,?\s*(julgo|declaro|decreto)'
+    r'|nada\s+mais\s+sendo\s+requerido\s*,?\s*(julgo|declaro|decreto)'
+    r'|(inexistindo|n[ãa]o\s+havendo)\s+(outras\s+)?pend[êe]ncias\s*,?\s*(julgo|declaro|decreto)'
+    r'|ser[áa]\s+(julgad[oa]|declarad[oa])\s+extint'
+    r'|extint\w*.{0,100}em\s+rela[çc][ãa]o\s+(à|ao|aos|às|a)\s'
+    r'|487,?\s*(inc(iso|\.)?\s*)?i\M'
+)
+SATISFACAO_SINAL_TRIBUNAIS = {'TJMT'}
+
+# F40 — RPV FEDERAL parada. No 1º grau do TJMT o INSS só aparece por
+# competência delegada, e lá o crédito é RPV paga pelo TRF1 em ~60 dias, quase
+# sempre sem alvará e sem sentença publicada (o saque é direto no banco). Nos
+# 549 baixados pelo JURISCOPE, o INSS no polo passivo separa RPV de precatório:
+# 456 de 469 RPV contra 5 de 80 precatórios (estes, do Estado e de municípios,
+# ficam ANOS no arquivo do 1º grau esperando o 2º grau pagar — é ali que mora o
+# lead vivo do TJMT, e por isso não há veto de "parado" sem o INSS).
+#
+# Regra: INSS no polo passivo e o DJEN em silêncio há mais de
+# `RPV_FEDERAL_PARADA_DIAS`. Os 540 dias cobrem também o precatório federal
+# (orçamento do ano seguinte, pago até dezembro): com 365 dias o veto pegava
+# 1001868-86.2023.8.11.0008, precatório do INSS de R$ 117 mil ainda por pagar.
+#
+# O polo passivo vem do cadastro de partes (enricher) ou, sem ele, do
+# cabeçalho da publicação ("EXECUTADO: INSTITUTO NACIONAL DO SEGURO SOCIAL").
+# A simples menção ao INSS não basta: 1005271-82.2022.8.11.0013 é precatório do
+# Estado que cita o INSS no texto.
+INSS_PASSIVO_SQL = (
+    r'(executad[oa]|requerid[oa]|r[ée]u|polo\s+passivo|impetrad[oa])\s*:?\s*(o\s+)?'
+    r'(instituto\s+nacional\s+do\s+seguro\s+social|inss\M)'
+)
+INSS_NOME_PARTE_RE = re.compile(r'instituto\s+nacional\s+do\s+seguro\s+social|^inss\b', re.I)
+RPV_FEDERAL_PARADA_TRIBUNAIS = {'TJMT'}
+RPV_FEDERAL_PARADA_DIAS = 540
+
 # Os padrões de cada feature moram em constantes porque têm DOIS leitores que
 # não podem divergir: o `_MOVS_AGG_SQL` abaixo (o classificador) e a consulta
 # em lote de sinais (`tribunals/sinais_expedicao.py`, endpoint
@@ -509,6 +617,13 @@ _MOVS_AGG_SQL = """
         -- improcedência, indeferimento da inicial, prescrição decretada. NÃO é lead.
         MAX(CASE WHEN texto ~* '__EXTNEG__'
                  THEN data_disponibilizacao END) AS extneg_max_dt,
+        -- TJMT: extinção da execução pela satisfação (F39) e INSS no polo
+        -- passivo (F40). Só nos tribunais do rollout: o regex do F39 é caro.
+        MAX(CASE WHEN tribunal_id IN __TRIBS_F39__
+                      AND texto ~* '__SATISF_F39__' AND texto !~* '__VETO_F39__'
+                 THEN data_disponibilizacao END) AS satisf_max_dt,
+        COALESCE(BOOL_OR(tribunal_id IN __TRIBS_F40__ AND texto ~* '__INSS_F40__'),
+                 FALSE) AS inss_passivo_txt,
         MAX(data_disponibilizacao) AS ult_mov_dt
     FROM tribunals_movimentacao
     WHERE processo_id = %s
@@ -526,7 +641,12 @@ _MOVS_AGG_SQL = """
  .replace('__ENVIO_TRF3__', ENVIO_TRF3_SQL) \
  .replace('__PAGO_TRF3__', PAGO_TRF3_SQL) \
  .replace('__PAGO_VETO_TRF3__', PAGO_VETO_TRF3_SQL) \
- .replace('__CANCEL_TRF3__', CANCELAMENTO_TRF3_SQL)
+ .replace('__CANCEL_TRF3__', CANCELAMENTO_TRF3_SQL) \
+ .replace('__TRIBS_F39__', _sql_in(tuple(sorted(SATISFACAO_SINAL_TRIBUNAIS)))) \
+ .replace('__SATISF_F39__', EXTINCAO_SATISFEITA_SQL) \
+ .replace('__VETO_F39__', EXTINCAO_SATISFEITA_VETO_SQL) \
+ .replace('__TRIBS_F40__', _sql_in(tuple(sorted(RPV_FEDERAL_PARADA_TRIBUNAIS)))) \
+ .replace('__INSS_F40__', INSS_PASSIVO_SQL)
 
 # Thresholds (revisáveis com base em produção)
 THRESHOLD_PRECATORIO = 0.70
@@ -835,6 +955,32 @@ def estado_trf3(minuta_dt, envio_dt, pago_dt, agora, cancel_dt=None) -> str:
     return ESTADO_TRF3_VENCIDO
 
 
+def f39_extinto_satisfeito(satisf_max_dt, exped_max_dt) -> int:
+    """1 se a extinção pela satisfação veio no mesmo dia ou depois da última
+    expedição (F20). Uma requisição nova depois da extinção (crédito
+    complementar) é crédito novo; sem expedição no DJEN — o caso comum do TJMT
+    — a extinção vale sozinha."""
+    return int(bool(satisf_max_dt)
+               and (exped_max_dt is None or satisf_max_dt >= exped_max_dt))
+
+
+def f40_rpv_federal_parada(inss_passivo: bool, ult_mov_dt, agora) -> int:
+    """1 se o INSS está no polo passivo e o DJEN não publica nada há mais de
+    `RPV_FEDERAL_PARADA_DIAS`."""
+    if not inss_passivo or not ult_mov_dt:
+        return 0
+    return int((agora - ult_mov_dt).days > RPV_FEDERAL_PARADA_DIAS)
+
+
+def _inss_no_polo_passivo(processo_id: int) -> bool:
+    """INSS no cadastro de partes (polo passivo). Complementa o cabeçalho da
+    publicação (`INSS_PASSIVO_SQL`) quando o DJEN não traz "EXECUTADO: ..."."""
+    nomes = (ProcessoParte.objects
+             .filter(processo_id=processo_id, polo='passivo')
+             .values_list('parte__nome', flat=True))
+    return any(INSS_NOME_PARTE_RE.search(n or '') for n in nomes)
+
+
 def compute_features(processo) -> dict:
     """Computa as 19 features do v5 a partir de um Process.
 
@@ -859,7 +1005,7 @@ def compute_features(processo) -> dict:
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
      f13_n, f14_n, f19_n, f20_n, f31_n, f33_n, f31_max_dt, f33_max_dt, f32_max_dt,
      minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, cancel_trf3_dt, pago_max_dt,
-     exped_max_dt, extneg_max_dt, ult_mov_dt) = row
+     exped_max_dt, extneg_max_dt, satisf_max_dt, inss_passivo_txt, ult_mov_dt) = row
 
     if not total_movs:
         return _empty_features(ano, f1, f10)
@@ -886,6 +1032,14 @@ def compute_features(processo) -> dict:
     f19 = int(f19_n > 0); f20 = int(f20_n > 0)
     trf3 = estado_trf3(minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, djtz.now(),
                        cancel_dt=cancel_trf3_dt)
+    # F40: a consulta às partes só roda onde a regra vale e o DJEN já está em
+    # silêncio há tempo bastante — é o único caso em que ela muda alguma coisa.
+    f40 = 0
+    if (processo.tribunal_id in RPV_FEDERAL_PARADA_TRIBUNAIS
+            and f40_rpv_federal_parada(True, ult_mov_dt, djtz.now())):
+        f40 = f40_rpv_federal_parada(
+            bool(inss_passivo_txt) or _inss_no_polo_passivo(processo.pk),
+            ult_mov_dt, djtz.now())
 
     return {
         'F1_cumprim':         f1,
@@ -924,6 +1078,10 @@ def compute_features(processo) -> dict:
         'F36_minuta_espera_trf3': int(trf3 == ESTADO_TRF3_ESPERA),
         'F37_exped_vencida_trf3': int(trf3 == ESTADO_TRF3_VENCIDO),
         'F38_pago_trf3': int(trf3 == ESTADO_TRF3_PAGO),
+        # TJMT (peso LR 0: regra). Extinção pela satisfação depois da última
+        # expedição; RPV federal (INSS) com o DJEN parado.
+        'F39_extinto_satisfeito_ANTI': f39_extinto_satisfeito(satisf_max_dt, exped_max_dt),
+        'F40_rpv_federal_parada_ANTI': f40,
     }
 
 
@@ -945,6 +1103,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F33_minuta_precatorio_tjrs': 0, 'F34_minuta_vencida_tjrs': 0,
         'F35_minuta_janela_trf3': 0, 'F36_minuta_espera_trf3': 0,
         'F37_exped_vencida_trf3': 0, 'F38_pago_trf3': 0,
+        'F39_extinto_satisfeito_ANTI': 0, 'F40_rpv_federal_parada_ANTI': 0,
     }
 
 
@@ -972,6 +1131,16 @@ def _convertido_em_rpv(processo, features: dict) -> bool:
 def _minuta_vencida(processo, features: dict) -> bool:
     return (processo.tribunal_id in TETO_PRE_SEM_ENVIO_TRIBUNAIS
             and features.get('F34_minuta_vencida_tjrs') == 1)
+
+
+def _extinto_satisfeito(processo, features: dict) -> bool:
+    return (processo.tribunal_id in SATISFACAO_SINAL_TRIBUNAIS
+            and features.get('F39_extinto_satisfeito_ANTI') == 1)
+
+
+def _rpv_federal_parada(processo, features: dict) -> bool:
+    return (processo.tribunal_id in RPV_FEDERAL_PARADA_TRIBUNAIS
+            and features.get('F40_rpv_federal_parada_ANTI') == 1)
 
 
 def _teto_pre_sem_envio(cat: str, score: float, features: dict) -> tuple[str, float]:
@@ -1052,6 +1221,7 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
         convertido = _convertido_em_rpv(processo, features)
         if (not pago_pos_exped
                 and not convertido
+                and not _extinto_satisfeito(processo, features)
                 and features.get('F1_cumprim') == 1
                 and (any(features.get(f) == 1 for f in feats_sinal)
                      or _minuta_vencida(processo, features))):
@@ -1093,6 +1263,22 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
             and features.get('F24_pago_pos_exped_ANTI') == 1
             and cat in (Process.CLASSIF_PRECATORIO,
                         Process.CLASSIF_PRE_PRECATORIO)):
+        return (Process.CLASSIF_NAO_LEAD,
+                min(score, SCORE_REBAIXAMENTO_SINAL), features)
+
+    # Regras NEGATIVAS do TJMT (ver EXTINCAO_SATISFEITA_SQL e INSS_PASSIVO_SQL).
+    # F39: a execução foi extinta pela satisfação depois da última expedição —
+    # não há crédito a comprar em nível nenhum (o pull do TJMT serve PRE).
+    if (_extinto_satisfeito(processo, features)
+            and cat in (Process.CLASSIF_PRECATORIO,
+                        Process.CLASSIF_PRE_PRECATORIO,
+                        Process.CLASSIF_DIREITO_CREDITORIO)):
+        return (Process.CLASSIF_NAO_LEAD,
+                min(score, SCORE_REBAIXAMENTO_SINAL), features)
+    # F40: RPV federal com o DJEN parado há mais de 540 dias. Só PRECATORIO: é
+    # o nível medido (a RPV expedida); o PRE parado não foi conferido.
+    if (_rpv_federal_parada(processo, features)
+            and cat == Process.CLASSIF_PRECATORIO):
         return (Process.CLASSIF_NAO_LEAD,
                 min(score, SCORE_REBAIXAMENTO_SINAL), features)
 
