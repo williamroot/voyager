@@ -587,7 +587,9 @@ completude (lista oficial × acervo, por entidade).
 | `situacao_raw`, `fonte` | rótulo da fonte; `tjal_sapre` / `tjal_lista_pdf` / `tjal_sapre+lista` |
 | `entidade`, `entidade_devedora` | nomes normalizados (ente público) |
 | `valor_original`, `valor_atualizado`, `ano_orcamento`, `natureza`, `ordem`, `regime`, `n_itens` | o que a fonte publica |
+| `valor_pago`, `preferencia` | (0063) TJMT/SRP: "Valor Pago" (saldo = original - pago) e Idade/Doença Grave/Deficiência |
 | `primeira_vez_em`, `visto_em` | 1ª e última coleta que o listou |
+| `saiu_em`, `motivo_saida` | (0063) quando o pendente virou `fora_da_fila` e por quê; limpos se ele voltar. Saída é ANOTADA, nada é apagado |
 
 **Sem CPF e sem nome do credor, de propósito** (Res. CNJ 303/2019, art. 12,
 §3º): o SAPRE publica os dois e o coletor os descarta na leitura. Por que

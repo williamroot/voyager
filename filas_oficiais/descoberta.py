@@ -21,6 +21,10 @@
 
 Item não pendente (pago, extinto, outro) NUNCA cria processo; se o processo já
 existe, é vinculado — e pago/extinto o veta.
+
+TJMT (SRP): o precatório pendente ausente nasce direto (classe 1265, grau G2;
+`tjmt_2g`), e no classificador `fora_da_fila`/`outro` REBAIXAM com motivo
+anotado em vez de se abster (ver `tribunals/classificador.py`).
 """
 from __future__ import annotations
 
@@ -46,13 +50,21 @@ from tribunals.models import PrecatorioFilaOficial, Process, Tribunal
 logger = logging.getLogger('voyager.filas_oficiais.descoberta')
 
 #: "J.TR" do CNJ de cada tribunal com fila oficial ligada.
-SEGMENTO = {'TJAL': '8.02'}
+SEGMENTO = {'TJAL': '8.02', 'TJMT': '8.11'}
 CLASSE_PRECATORIO = ('1265', 'Precatório')
 _RE_FORO_PRESIDENCIA = re.compile(r'\.9003$')
+#: TJMT: o precatório é autuado no PJe de 2º grau, foro 0000 (os 17.885 da
+#: fila SRP de 23/10/2026, sem exceção). Nasce direto, classe 1265, grau G2:
+#: o enricher do TJMT lê a consulta pública, que não tem o 2º grau (7.090
+#: `nao_encontrado` medidos), e o DJEN do precatório é "Processo sigiloso".
+_RE_PRECATORIO_TJMT = re.compile(r'\.8\.11\.0000$')
+#: Tipos de número que nascem direto (sem Datajud), com o grau a gravar.
+_NASCE_DIRETO = {'foro_9003': '', 'tjmt_2g': 'G2'}
 
 _CAMPOS = ('fonte', 'entidade', 'entidade_devedora', 'situacao', 'situacao_raw',
            'chave_e_origem', 'id_externo', 'valor_original', 'valor_atualizado',
-           'ano_orcamento', 'natureza', 'origem_cnj', 'ordem', 'regime', 'n_itens')
+           'ano_orcamento', 'natureza', 'origem_cnj', 'ordem', 'regime', 'n_itens',
+           'valor_pago', 'preferencia')
 
 
 @dataclass
@@ -74,7 +86,9 @@ class Placar:
                 for k, v in self.__dict__.items()}
 
 
-def tipo_do_numero(chave: str, chave_e_origem: bool) -> str:
+def tipo_do_numero(chave: str, chave_e_origem: bool, sigla: str = 'TJAL') -> str:
+    if sigla == 'TJMT':
+        return 'tjmt_2g' if _RE_PRECATORIO_TJMT.search(chave) else 'tjmt_outro_numero'
     if chave_e_origem:
         return 'origem_1grau'
     if _RE_FORO_PRESIDENCIA.search(chave):
@@ -82,10 +96,12 @@ def tipo_do_numero(chave: str, chave_e_origem: bool) -> str:
     return 'comarca_050'
 
 
-def _criar_9003(chave: str, tribunal: Tribunal) -> Process:
+def _criar_direto(chave: str, tribunal: Tribunal, grau: str = '') -> Process:
     cod, nome = CLASSE_PRECATORIO
     campos = {'numero_cnj': chave, 'tribunal': tribunal,
               'classe_codigo': cod, 'classe_nome': nome}
+    if grau:
+        campos['grau'] = grau
     fk = resolver_catalogo('classe', cod)
     if fk:
         campos['classe_id'] = fk
@@ -101,9 +117,16 @@ def garantir_processo(item: ItemFila, tribunal: Tribunal, placar: Placar,
         return proc, False
     if item.situacao != SITUACAO_PENDENTE:
         return None, False
-    tipo = tipo_do_numero(item.chave, item.chave_e_origem)
-    if tipo == 'foro_9003':
-        proc = _criar_9003(item.chave, tribunal)
+    tipo = tipo_do_numero(item.chave, item.chave_e_origem, tribunal.sigla)
+    if tipo in _NASCE_DIRETO:
+        proc = _criar_direto(item.chave, tribunal, _NASCE_DIRETO[tipo])
+    elif tipo == 'tjmt_outro_numero':
+        # Nunca visto (0 em 17.885): protocolo do SRP fora do foro 0000. Não
+        # se adivinha o que é — fica registrado e conta como falha no run.
+        logger.warning('fila oficial TJMT: protocolo %s fora do 2º grau; não criado',
+                       item.chave)
+        placar.falhas += 1
+        return None, False
     else:
         try:
             out = hidratar_cnj(item.chave, com_enricher=com_enricher,
@@ -176,6 +199,10 @@ def gravar_entidade(tribunal: Tribunal, itens: list[ItemFila], placar: Placar,
                          or (proc is not None and reg.processo_id != proc.pk))
                 for c, v in valores.items():
                     setattr(reg, c, v)
+                if reg.saiu_em is not None:
+                    # Voltou à fila: a saída anotada deixa de valer (o histórico
+                    # fica no ClassificacaoLog do processo).
+                    reg.saiu_em, reg.motivo_saida = None, ''
                 reg.processo = proc or reg.processo
                 reg.processo_origem = origem or reg.processo_origem
                 reg.visto_em = agora
@@ -207,8 +234,29 @@ def marcar_fora_da_fila(tribunal: Tribunal, entidade: str, inicio, placar: Placa
     qs = PrecatorioFilaOficial.objects.filter(
         tribunal=tribunal, entidade=entidade, situacao=SITUACAO_PENDENTE,
         visto_em__lt=inicio)
+    return _sair_da_fila(qs, inicio, placar, classificar,
+                         f'ausente da coleta completa da entidade {entidade}')
+
+
+def marcar_fora_da_fila_tribunal(tribunal: Tribunal, inicio, placar: Placar,
+                                 classificar: bool = True) -> int:
+    """Pendente do tribunal que NENHUMA entidade listou na coleta iniciada em
+    `inicio` — o ente que saiu do cadastro da fonte ou mudou de nome. Só
+    chamar com a coleta inteira completa (todas as entidades, nenhuma pulada)."""
+    qs = PrecatorioFilaOficial.objects.filter(
+        tribunal=tribunal, situacao=SITUACAO_PENDENTE, visto_em__lt=inicio)
+    return _sair_da_fila(qs, inicio, placar, classificar,
+                         'ausente da coleta completa do tribunal')
+
+
+def _sair_da_fila(qs, inicio, placar: Placar, classificar: bool, onde: str) -> int:
+    """Marca `fora_da_fila` e ANOTA o motivo (nunca apaga registro nem processo)."""
+    agora = timezone.now()
     pids = list(qs.exclude(processo__isnull=True).values_list('processo_id', flat=True))
-    n = qs.update(situacao=SITUACAO_FORA_DA_FILA, atualizado_em=timezone.now())
+    motivo = (f'saiu da fila oficial sem pagamento registrado pela fonte: {onde} '
+              f'de {timezone.localtime(inicio):%d/%m/%Y %H:%M}')[:500]
+    n = qs.update(situacao=SITUACAO_FORA_DA_FILA, saiu_em=agora, motivo_saida=motivo,
+                  atualizado_em=agora)
     placar.fora_da_fila += n
     if classificar:
         for proc in Process.objects.filter(pk__in=pids):
@@ -222,11 +270,22 @@ def marcar_fora_da_fila(tribunal: Tribunal, entidade: str, inicio, placar: Placa
 
 
 def medir_entidade(tribunal: Tribunal, itens: list[ItemFila], placar: Placar,
-                   saida=None) -> None:
+                   saida=None, entidade: str | None = None) -> None:
     """Dry-run: o que `gravar_entidade` faria, sem escrever nada.
 
     `saida(dict)`: recebe uma linha por item (sem dado pessoal) para auditoria.
+    `entidade` (só quando a coleta dela veio COMPLETA): conta em
+    `placar.fora_da_fila` os pendentes já registrados que sairiam da fila.
     """
+    if entidade is not None:
+        vistas = {it.chave for it in itens}
+        sairiam = [c for c in PrecatorioFilaOficial.objects.filter(
+            tribunal=tribunal, entidade=entidade, situacao=SITUACAO_PENDENTE,
+        ).values_list('chave', flat=True) if c not in vistas]
+        placar.fora_da_fila += len(sairiam)
+        if saida is not None:
+            for c in sairiam:
+                saida({'chave': c, 'entidade': entidade, 'acao': 'sairia_da_fila'})
     segmento = SEGMENTO.get(tribunal.sigla)
     chaves = [it.chave for it in itens]
     existentes = dict(Process.objects.filter(numero_cnj__in=chaves)
@@ -245,9 +304,13 @@ def medir_entidade(tribunal: Tribunal, itens: list[ItemFila], placar: Placar,
             linha['acao'] = 'ja_no_acervo'
             linha['classificacao'] = existentes[it.chave]
         elif it.situacao == SITUACAO_PENDENTE:
-            tipo = tipo_do_numero(it.chave, it.chave_e_origem)
-            placar.criados[tipo] += 1
-            linha['acao'] = 'criaria'
+            tipo = tipo_do_numero(it.chave, it.chave_e_origem, tribunal.sigla)
+            if tipo == 'tjmt_outro_numero':
+                placar.falhas += 1
+                linha['acao'] = 'nao_criaria'
+            else:
+                placar.criados[tipo] += 1
+                linha['acao'] = 'criaria'
             linha['tipo'] = tipo
         else:
             linha['acao'] = 'nao_pendente'

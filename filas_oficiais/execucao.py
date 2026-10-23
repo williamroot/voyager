@@ -23,7 +23,13 @@ from importlib import import_module
 from django.core.cache import cache
 from django.utils import timezone
 
-from filas_oficiais.descoberta import Placar, gravar_entidade, marcar_fora_da_fila, medir_entidade
+from filas_oficiais.descoberta import (
+    Placar,
+    gravar_entidade,
+    marcar_fora_da_fila,
+    marcar_fora_da_fila_tribunal,
+    medir_entidade,
+)
 from tribunals.models import IngestionRun, PrecatorioFilaOficial, Tribunal
 
 logger = logging.getLogger('voyager.filas_oficiais')
@@ -31,6 +37,7 @@ logger = logging.getLogger('voyager.filas_oficiais')
 FONTE = PrecatorioFilaOficial.FONTE_RUN
 COLETORES = {
     'TJAL': 'filas_oficiais.fontes.tjal.ColetorTjal',
+    'TJMT': 'filas_oficiais.fontes.tjmt.ColetorTjmt',
 }
 #: Run desta fonte em `running` há mais que isto é zumbi.
 ZUMBI_HORAS = 8
@@ -86,8 +93,13 @@ def executar(sigla: str = 'TJAL', escrever: bool = False, retomar: bool = True, 
             janela_inicio=hoje, janela_fim=hoje)
     inicio = timezone.now()
 
+    puladas: list = []
+
     def pular(chave_ent):
-        return bool(escrever and retomar and cache.get(_chave_retomada(sigla, chave_ent)))
+        p = bool(escrever and retomar and cache.get(_chave_retomada(sigla, chave_ent)))
+        if p:
+            puladas.append(chave_ent)
+        return p
 
     try:
         for res in coletor.iterar(entidades=entidades, pular=pular, falhas=falhas_globais):
@@ -99,7 +111,8 @@ def executar(sigla: str = 'TJAL', escrever: bool = False, retomar: bool = True, 
                     cache.set(_chave_retomada(sigla, res.info.get('chave', res.entidade)),
                               1, 2 * 86400)
             else:
-                medir_entidade(tribunal, res.itens, placar, saida=saida)
+                medir_entidade(tribunal, res.itens, placar, saida=saida,
+                               entidade=res.entidade if res.completa else None)
             if not res.completa:
                 incompletas.append(res.entidade)
             entidades_info[res.entidade] = {**res.info, 'itens': len(res.itens),
@@ -115,6 +128,13 @@ def executar(sigla: str = 'TJAL', escrever: bool = False, retomar: bool = True, 
             cache.delete(_LOCK % sigla)
         raise
 
+    # Coletor que cobre o tribunal INTEIRO numa execução (TJMT: todos os entes
+    # do SRP): com tudo completo e nada pulado, o pendente que nenhuma entidade
+    # listou — ente que sumiu do cadastro ou mudou de nome — também sai da fila.
+    varredura = (getattr(coletor, 'cobertura_total', False) and not entidades
+                 and not puladas and not incompletas and not falhas_globais)
+    if varredura and escrever:
+        marcar_fora_da_fila_tribunal(tribunal, inicio, placar)
     if placar.falhas:
         falhas_globais.append(f'{placar.falhas} itens com falha de hidratação ou '
                               'classificação (ver o log do worker)')

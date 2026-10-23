@@ -272,7 +272,8 @@ RQ_QUEUES = {
 # Fila oficial de precatórios (`filas_oficiais/`, ver .ia/INGESTION.md).
 # Cron diário da coleta + descoberta; kill switch sem deploy de código.
 FILA_OFICIAL_SCHEDULER_ENABLED = env.bool('FILA_OFICIAL_SCHEDULER_ENABLED', default=True)
-FILA_OFICIAL_TRIBUNAIS_AGENDADOS = env.list('FILA_OFICIAL_TRIBUNAIS_AGENDADOS', default=['TJAL'])
+FILA_OFICIAL_TRIBUNAIS_AGENDADOS = env.list('FILA_OFICIAL_TRIBUNAIS_AGENDADOS',
+                                            default=['TJAL', 'TJMT'])
 FILA_OFICIAL_COM_ENRICHER = env.bool('FILA_OFICIAL_COM_ENRICHER', default=True)
 # SAPRE: uma requisição por vez; pausa mínima de 1 s (o coletor não aceita menos).
 FILA_OFICIAL_TJAL_PAUSA = env.float('FILA_OFICIAL_TJAL_PAUSA', default=1.5)
@@ -282,6 +283,18 @@ FILA_OFICIAL_TJAL_PROFUNDIDADE = env.int('FILA_OFICIAL_TJAL_PROFUNDIDADE', defau
 # Entidades do SAPRE que só saem pela lista em PDF (Estado de Alagoas = 28:
 # 504 mesmo fatiado, medido em 23/10/2026).
 FILA_OFICIAL_TJAL_SO_PDF = [int(x) for x in env.list('FILA_OFICIAL_TJAL_SO_PDF', default=['28'])]
+# SRP do TJMT: uma requisição por vez, pausa mínima de 1 s; o relatório do
+# Estado (2 MB) leva ~13 s para ser gerado.
+FILA_OFICIAL_TJMT_PAUSA = env.float('FILA_OFICIAL_TJMT_PAUSA', default=1.5)
+FILA_OFICIAL_TJMT_TIMEOUT = env.int('FILA_OFICIAL_TJMT_TIMEOUT', default=300)
+# TRAVA do pull: o precatório TJMT de 2º grau que a fila oficial (SRP) promove
+# a PRECATORIO só sai no `GET /api/v1/leads/` com isto LIGADO. O JURISCOPE ainda
+# não lê o PJe de 2º grau do TJMT (as contas não têm cadastro lá): servido
+# antes disso, ele gasta a cota do TJMT (30 consultas/conta/dia) tentando o 1º
+# grau. Desligado, o processo continua PRECATORIO e visível em contagem, tela,
+# `leads/stats/` e gate — só não é entregue no pull. Ligar = env + restart do web
+# (o cache de leads se refaz às 07:40; ver `api/leads_cache.py`).
+TJMT_PRECATORIO_2G_NO_PULL = env.bool('TJMT_PRECATORIO_2G_NO_PULL', default=False)
 
 # DJEN
 DJEN_BASE_URL = env('DJEN_BASE_URL', default='https://comunicaapi.pje.jus.br/api/v1/comunicacao')
