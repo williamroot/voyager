@@ -324,6 +324,16 @@ class Indisponivel(Exception):  # noqa: N818 — mesmo nome do coletor validado 
     """504/timeout: a consulta pesada demais para o SAPRE (fatiar)."""
 
 
+class ForaDoAr(Exception):  # noqa: N818
+    """5xx que não é 504, ou rede, depois das retentativas: a fonte caiu.
+
+    NÃO se fatia (fatiar uma fonte fora do ar multiplica a espera por 100 —
+    medido em 23/10/2026: o SAPRE respondeu 500 "Algo deu errado" em todo
+    `por-entidade` e em `entidades` por mais de uma hora, com as listas em PDF
+    no ar). A entidade fica incompleta e o SAPRE é pulado no resto da coleta.
+    """
+
+
 class ColetorTjal:
     tribunal = TRIBUNAL
 
@@ -341,6 +351,7 @@ class ColetorTjal:
         self.so_pdf = set(so_pdf if so_pdf is not None
                           else getattr(settings, 'FILA_OFICIAL_TJAL_SO_PDF', [28]))
         self.requisicoes = 0
+        self.sapre_fora = False
 
     # -- HTTP --------------------------------------------------------------
     def _pedir(self, metodo, caminho, **kw):
@@ -368,7 +379,7 @@ class ColetorTjal:
                 continue
             resp.raise_for_status()
             return resp
-        raise Indisponivel(f'{caminho}: sem resposta depois de 3 tentativas')
+        raise ForaDoAr(f'{caminho}: sem resposta depois de 3 tentativas')
 
     def entidades(self) -> list[dict]:
         return self._pedir('GET', '/api/sapre/precatorios/entidades').json()
@@ -397,6 +408,8 @@ class ColetorTjal:
         a entidade incompleta — é registrado, nunca corte mudo.
         """
         linhas, completo = {}, True
+        if self.sapre_fora:
+            return [], False
         pendentes = [None]
         while pendentes:
             busca = pendentes.pop(0)
@@ -414,6 +427,10 @@ class ColetorTjal:
                     completo = False
                     continue
                 pendentes.extend(filhos)
+            except ForaDoAr as e:
+                logger.warning('SAPRE fora do ar na entidade %s: %s', entidade_id, e)
+                self.sapre_fora = True
+                return list(linhas.values()), False
         return list(linhas.values()), completo
 
     def listas_pendentes(self) -> dict[str, dict]:
@@ -449,7 +466,7 @@ class ColetorTjal:
             return [], True             # entidade sem lista: nada a faltar
         try:
             itens = self.itens_da_lista(listas[nome], nome)
-        except (Indisponivel, requests.RequestException, ValueError) as e:
+        except (Indisponivel, ForaDoAr, requests.RequestException, ValueError) as e:
             res.falhas.append(f'lista {nome}: {e}')
             return [], False
         res.info['lista'] = {'id': listas[nome]['id'], 'data': listas[nome]['data'],
@@ -469,15 +486,16 @@ class ColetorTjal:
         try:
             listas = self.listas_pendentes()
             listas_ok = True
-        except (Indisponivel, requests.RequestException, ValueError) as e:
+        except (Indisponivel, ForaDoAr, requests.RequestException, ValueError) as e:
             logger.warning('índice das listas indisponível: %s', e)
             listas, listas_ok = {}, False
             falhas.append(f'índice das listas: {e}')
         try:
             ents = self.entidades()
-        except (Indisponivel, requests.RequestException, ValueError) as e:
+        except (Indisponivel, ForaDoAr, requests.RequestException, ValueError) as e:
             falhas.append(f'entidades do SAPRE: {e}')
             ents = []
+            self.sapre_fora = True
         if entidades:
             alvo = {str(e) for e in entidades} | {normalizar_entidade(str(e)) for e in entidades}
             ents = [e for e in ents if str(e.get('id')) in alvo
@@ -523,5 +541,9 @@ class ColetorTjal:
             res = ResultadoEntidade(entidade=nome, itens=[], completa=False,
                                     info={'chave': chave_ent, 'sapre': None})
             itens, ok = self._lista(listas, nome, res)
-            res.itens, res.completa = itens, ok
+            # Sem a relação de entidades do SAPRE não há como saber se esta
+            # lista tem par no SAPRE: nunca completa (não marca fora_da_fila).
+            res.itens, res.completa = itens, ok and not (self.sapre_fora and not ents)
+            if self.sapre_fora and not ents:
+                res.falhas.append(f'lista {nome}: SAPRE fora do ar, sem a relação de entidades')
             yield res

@@ -510,3 +510,37 @@ def test_descoberto_pela_fila_e_servido_no_pull_do_tjal(tjal_trib, sem_datajud):
     # Sem movimentação (`ultima_movimentacao_em` NULL), o descoberto vem
     # PRIMEIRO: o Postgres põe NULL na frente em ORDER BY ... DESC.
     assert cnjs == ['0500371-61.2022.8.02.9003', '0503003-55.2025.8.02.9003']
+
+
+class _SessaoFora(_Sessao):
+    """SAPRE devolvendo 500 em tudo (medido em 23/10/2026), listas no ar."""
+
+    def request(self, metodo, url, timeout=None, json=None, params=None):
+        if 'sapre' in url:
+            self.chamadas.append((metodo, url, json, params))
+            return _Resp(500)
+        return super().request(metodo, url, timeout=timeout, json=json, params=params)
+
+
+def test_sapre_fora_do_ar_nao_fatia_e_nada_fica_completo(pdf_falso):
+    sessao = _SessaoFora()
+    res = list(_coletor(sessao).iterar())
+    # Só a relação de entidades foi tentada (3 tentativas); nenhuma fatia.
+    assert len([c for c in sessao.chamadas if 'sapre' in c[1]]) == 3
+    assert res and not any(r.completa for r in res)
+    assert {i.chave for r in res for i in r.itens} >= {'0500371-61.2022.8.02.9003'}
+
+
+def test_sapre_cai_no_meio_pula_o_resto_sem_fatiar(pdf_falso):
+    class Meio(_Sessao):
+        def request(self, metodo, url, timeout=None, json=None, params=None):
+            if json and json.get('idEntidadePrincipal') == 48:
+                self.chamadas.append((metodo, url, json, params))
+                return _Resp(500)
+            return super().request(metodo, url, timeout=timeout, json=json, params=params)
+    sessao = Meio()
+    res = {r.entidade: r for r in _coletor(sessao).iterar()}
+    assert res['DELMIRO GOUVEIA'].completa
+    assert not res['MACEIO'].completa
+    assert len([c for c in sessao.chamadas
+                if c[2] and c[2].get('idEntidadePrincipal') == 48]) == 3

@@ -1023,6 +1023,7 @@ cron 01:30 (djen/scheduler.py, fila `diarios`)  ou  manage.py fila_oficial_colet
 | Uma requisição por vez, pausa ≥ 1 s | `FILA_OFICIAL_TJAL_PAUSA` (1,5 s); o coletor recusa menos de 1 s |
 | Retomável | entidade gravada hoje fica marcada no Redis (2 dias); `--retomar` / o job a pula |
 | Zumbi | o `watchdog_ingestao` ignora `fonte='fila_oficial'` (a coleta dura ~2 h e ele mata run > 1 h); a execução seguinte marca o run > 8 h como `failed` |
+| SAPRE fora do ar (500 que não é 504) | NÃO fatia — em 23/10/2026 o SAPRE deu 500 "Algo deu errado" em `entidades` e `por-entidade` por mais de 1 h, e fatiar multiplicava a espera por 100. A entidade fica incompleta e o SAPRE é pulado no resto da coleta; as listas em PDF seguem, sem marcar ninguém `fora_da_fila` |
 | Run `failed` | alguma entidade incompleta ou falha de índice: o que veio é gravado, a lacuna fica em `erros` (regra nº 2) |
 
 Por que o processo nasce **sem `fase_*`**: fase é a classe com que o tribunal
