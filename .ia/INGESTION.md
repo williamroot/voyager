@@ -10,6 +10,9 @@
 > - **Diários próprios** — texto verbatim de *antes* de o tribunal aderir ao
 >   DJEN (o TJSP só entrou em **14/03/2025**, a Justiça do Trabalho em
 >   **01/08/2024**, e o STF nunca entrou): [`DIARIOS.md`](DIARIOS.md).
+> - **Fila oficial de precatórios** — o precatório PARADO na fila de pagamento,
+>   que não publica nada e por isso nunca nasce pelo DJEN (TJAL: SAPRE + listas
+>   em PDF). Ver a seção "Fila oficial de precatórios" abaixo.
 >
 > **Cuidado ao mexer em cobertura/lag:** desde 2026-08-16 `IngestionRun` tem o
 > campo `fonte` (default `'djen'`) e TODA query de cobertura do DJEN filtra por
@@ -979,6 +982,69 @@ E não adianta enfileirá-los de novo: conferido em 24/08, **os 156 já estão n
 fila** (120 do TJRS como `adiado:<sigla>:<dia>`, o resto como `f2:`), com
 posição mediana **638 de 1.964**. O que falta ali é VAZÃO, não descoberta —
 enfileirar de novo só duplicaria requisição contra o CNJ.
+
+## Fila oficial de precatórios (4ª porta) — `filas_oficiais/`
+
+**Por quê.** O DJEN só mostra o precatório que teve ato publicado. Medido em
+23/10/2026 no TJAL: 75 dos 82 precatórios TJ-AL da lista oficial de Delmiro
+Gouveia tinham **zero** publicação no DJEN (75/75 consultados), e na amostra de
+8.532 pendentes das listas oficiais **2.387 (28%) estavam fora do Voyager** — 0
+de 424 consultados com publicação. A fila oficial do tribunal é a fonte
+primária desse acervo, e a descoberta é papel do Voyager: o JURISCOPE só
+consome pelo pull.
+
+```
+cron 01:30 (djen/scheduler.py, fila `diarios`)  ou  manage.py fila_oficial_coletar
+  └─ filas_oficiais.execucao.executar(sigla)        IngestionRun(fonte='fila_oficial')
+       └─ ColetorTjal.iterar()  — uma entidade por vez (gerador)
+            ├─ SAPRE  POST /api/sapre/precatorios/por-entidade  (10/página, ~10 s)
+            │    504 → fatia a busca pelo dígito verificador ("-07.") e mais 1 dígito
+            ├─ lista de pendentes em PDF (a mais recente da entidade, regimes e/g)
+            └─ união por chave (CNJ do precatório sem "/NN")
+       └─ descoberta.gravar_entidade()
+            ├─ upsert PrecatorioFilaOficial (sem CPF, sem nome — LGPD)
+            ├─ PENDENTE sem processo → nasce:
+            │     9003   → Process criado direto, classe 1265 "Precatório"
+            │              (sem Datajud: 2 docs em 3,1 M; sem enricher: o cpopg não tem 2º grau)
+            │     050    → hidratar_cnj (Datajud + enricher na fila do tribunal);
+            │              sem esqueleto, ganha a classe 1265
+            │     origem → hidratar_cnj (a fonte deu o processo de 1º grau como número)
+            ├─ classificar_e_persistir (inline: quem nasceu, foi vinculado ou mudou)
+            └─ entidade COMPLETA → pendente ausente vira `fora_da_fila`
+```
+
+| regra | por quê |
+|---|---|
+| Só PENDENTE cria processo | pago/extinto/outro só vinculam (e pago/extinto vetam no classificador) |
+| `fora_da_fila` só com a entidade COMPLETA | completa = SAPRE inteiro (ou entidade só-PDF) **e** lista lida **e** índice das listas lido. Fonte fora do ar não "paga" ninguém |
+| `fora_da_fila` → classificador se ABSTÉM | sumir da fila não prova pagamento (a fonte não diz por quê) |
+| Estado de Alagoas (id 28) só pelo PDF | 504 no SAPRE mesmo fatiado (`FILA_OFICIAL_TJAL_SO_PDF`) |
+| Texto do PDF: `pdftotext -raw` ou PyMuPDF | a imagem não tem poppler; nas 8 listas de 23/10/2026 (Estado 6.798, Maceió 914, Delmiro 82, Canapi 53...) os dois dão o mesmo conjunto de chaves e os mesmos campos. pdfplumber NÃO (0 itens no Estado) |
+| Uma requisição por vez, pausa ≥ 1 s | `FILA_OFICIAL_TJAL_PAUSA` (1,5 s); o coletor recusa menos de 1 s |
+| Retomável | entidade gravada hoje fica marcada no Redis (2 dias); `--retomar` / o job a pula |
+| Zumbi | o `watchdog_ingestao` ignora `fonte='fila_oficial'` (a coleta dura ~2 h e ele mata run > 1 h); a execução seguinte marca o run > 8 h como `failed` |
+| SAPRE fora do ar (500 que não é 504) | NÃO fatia — em 23/10/2026 o SAPRE deu 500 "Algo deu errado" em `entidades` e `por-entidade` por mais de 1 h, e fatiar multiplicava a espera por 100. A entidade fica incompleta e o SAPRE é pulado no resto da coleta; as listas em PDF seguem, sem marcar ninguém `fora_da_fila` |
+| Run `failed` | alguma entidade incompleta ou falha de índice: o que veio é gravado, a lacuna fica em `erros` (regra nº 2) |
+
+Por que o processo nasce **sem `fase_*`**: fase é a classe com que o tribunal
+PUBLICOU o processo, e não houve publicação. A classe 1265 do 9003 vem da
+fonte oficial (é o número do precatório na Presidência).
+
+Caminho até o JURISCOPE: `pull_voyager_leads` (08:00) pede `nivel=PRECATORIO`,
+`tribunal=TJAL`, `min_score=0,70`, `limit=min(10000, budget)`. O descoberto
+nasce PRECATORIO com score 1,0 e não consumido; a API não filtra data,
+enriquecimento nem classe nesse nível. Sem movimentação, `ultima_movimentacao_em`
+é NULL e o Postgres o põe **na frente** do `ORDER BY ... DESC` (teste
+`test_descoberto_pela_fila_e_servido_no_pull_do_tjal`).
+
+```bash
+manage.py fila_oficial_coletar --tribunal TJAL                       # DRY-RUN: só mede
+manage.py fila_oficial_coletar --tribunal TJAL --entidade 26 --saida /tmp/x.jsonl
+manage.py fila_oficial_coletar --tribunal TJAL --executar            # backfill / sob demanda
+manage.py fila_oficial_coletar --tribunal TJAL --executar --retomar  # continua o de hoje
+```
+
+Kill switch do cron: `FILA_OFICIAL_SCHEDULER_ENABLED=0` (restart do scheduler).
 
 ## Comandos manuais
 

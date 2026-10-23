@@ -1182,6 +1182,85 @@ class Incidente(models.Model):
         return f'{self.tipo or self.classe} {self.sequencial} · {self.cnj_principal}'
 
 
+class PrecatorioFilaOficial(models.Model):
+    """Um precatório da FILA OFICIAL de pagamento do tribunal (quarta porta).
+
+    A fila oficial (no TJAL: SAPRE + listas de pendentes em PDF) é a fonte
+    primária do precatório parado que nunca publicou no DJEN — o caso que deixou
+    28% dos pendentes do TJAL fora do acervo (medido em 23/10/2026, ver
+    `filas_oficiais/base.py`). Esta tabela é o REGISTRO da fonte e a MARCA de
+    procedência do processo descoberto por ela: um `Process` com linha aqui
+    entrou (ou foi confirmado) pela fila oficial.
+
+    Por que tabela própria e não uma coluna `source` em `tribunals_process`:
+    ALTER em tabela de ~130 M linhas sob escrita enfileira lock (ver 0058), e o
+    que a fonte diz (situação, entidade devedora, ordem, orçamento) é um fato
+    datado, com `visto_em`, que muda a cada coleta — não um atributo do
+    processo. É também o denominador do gate de completude: lista oficial x
+    acervo, por entidade.
+
+    `chave` é o CNJ do precatório como a fonte o dá, sem o sufixo "/NN".
+    `chave_e_origem`: a fonte deu o próprio processo de 1º grau como número do
+    precatório (precatório antigo, sem autuação própria) — então `processo` é
+    esse processo de 1º grau.
+
+    LGPD (Res. CNJ 303/2019, art. 12, §3º): NÃO há coluna de CPF nem de nome do
+    credor, de propósito. O JURISCOPE lê o credor na consulta pública.
+    """
+
+    #: `IngestionRun.fonte` das coletas desta porta.
+    FONTE_RUN = 'fila_oficial'
+
+    tribunal = models.ForeignKey(Tribunal, on_delete=models.PROTECT,
+                                 related_name='fila_oficial')
+    chave = models.CharField(max_length=25)
+    #: O processo da `chave` no acervo. NULL = ainda não existe (item não
+    #: pendente, que não é criado) ou o CNJ não é deste tribunal.
+    processo = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True,
+                                 blank=True, related_name='fila_oficial')
+    #: O processo de origem (1º grau) que a fonte informa. Vazio = a fonte não
+    #: disse, ou disse o próprio número do precatório.
+    origem_cnj = models.CharField(max_length=25, blank=True)
+    processo_origem = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True,
+                                        blank=True, related_name='+')
+    chave_e_origem = models.BooleanField(default=False)
+    #: tjal_sapre / tjal_lista_pdf / tjal_sapre+lista
+    fonte = models.CharField(max_length=24, blank=True)
+    #: pendente / pago / extinto / outro / fora_da_fila (ver filas_oficiais/base.py)
+    situacao = models.CharField(max_length=16, blank=True)
+    situacao_raw = models.CharField(max_length=80, blank=True)
+    entidade = models.CharField(max_length=255, blank=True)
+    entidade_devedora = models.CharField(max_length=255, blank=True)
+    #: id da linha no sistema da fonte (SAPRE). Vazio para item só da lista.
+    id_externo = models.CharField(max_length=32, blank=True)
+    valor_original = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    valor_atualizado = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    ano_orcamento = models.PositiveSmallIntegerField(null=True, blank=True)
+    natureza = models.CharField(max_length=16, blank=True)
+    ordem = models.PositiveIntegerField(null=True, blank=True)
+    regime = models.CharField(max_length=16, blank=True)
+    #: requisições da fonte somadas nesta chave (o SAPRE lista o precatório
+    #: antigo uma vez por beneficiário).
+    n_itens = models.PositiveSmallIntegerField(default=1)
+    primeira_vez_em = models.DateTimeField()
+    #: última coleta em que a fonte listou o item.
+    visto_em = models.DateTimeField()
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=['tribunal', 'chave'], name='uniq_filaoficial_trib_chave'),
+        ]
+        indexes = [
+            models.Index(fields=['tribunal', 'entidade', 'situacao'],
+                         name='filaoficial_ent_sit_idx'),
+            models.Index(fields=['visto_em'], name='filaoficial_visto_em_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.tribunal_id}/{self.chave} ({self.situacao})'
+
+
 class Magistrado(models.Model):
     """Quem ASSINA o ato, lido do TEXTO da publicação (`services/magistrados.py`).
 

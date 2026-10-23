@@ -48,6 +48,9 @@ INSTALLED_APPS = [
     # App separado porque tem model próprio: publicação do Executivo não tem
     # tribunal, e `Movimentacao.tribunal` é FK NOT NULL.
     'diarios_entes',
+    # Fila oficial de precatórios do tribunal (4ª porta: SAPRE + listas do
+    # TJAL). Descobre o precatório parado que nunca publicou no DJEN.
+    'filas_oficiais',
 ]
 
 MIDDLEWARE = [
@@ -265,6 +268,20 @@ RQ_QUEUES = {
     'busca_hidratacao': {'URL': REDIS_URL, 'DEFAULT_TIMEOUT': 600, **_RQ_CONN},
 
 }
+
+# Fila oficial de precatórios (`filas_oficiais/`, ver .ia/INGESTION.md).
+# Cron diário da coleta + descoberta; kill switch sem deploy de código.
+FILA_OFICIAL_SCHEDULER_ENABLED = env.bool('FILA_OFICIAL_SCHEDULER_ENABLED', default=True)
+FILA_OFICIAL_TRIBUNAIS_AGENDADOS = env.list('FILA_OFICIAL_TRIBUNAIS_AGENDADOS', default=['TJAL'])
+FILA_OFICIAL_COM_ENRICHER = env.bool('FILA_OFICIAL_COM_ENRICHER', default=True)
+# SAPRE: uma requisição por vez; pausa mínima de 1 s (o coletor não aceita menos).
+FILA_OFICIAL_TJAL_PAUSA = env.float('FILA_OFICIAL_TJAL_PAUSA', default=1.5)
+FILA_OFICIAL_TJAL_TIMEOUT = env.int('FILA_OFICIAL_TJAL_TIMEOUT', default=120)
+# Níveis de fatiamento da busca quando o SAPRE dá 504 (Maceió: 182 consultas).
+FILA_OFICIAL_TJAL_PROFUNDIDADE = env.int('FILA_OFICIAL_TJAL_PROFUNDIDADE', default=2)
+# Entidades do SAPRE que só saem pela lista em PDF (Estado de Alagoas = 28:
+# 504 mesmo fatiado, medido em 23/10/2026).
+FILA_OFICIAL_TJAL_SO_PDF = [int(x) for x in env.list('FILA_OFICIAL_TJAL_SO_PDF', default=['28'])]
 
 # DJEN
 DJEN_BASE_URL = env('DJEN_BASE_URL', default='https://comunicaapi.pje.jus.br/api/v1/comunicacao')

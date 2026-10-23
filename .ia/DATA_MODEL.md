@@ -570,6 +570,32 @@ As mesmas pessoas entram como `ProcessoParte` do processo-pai com
 `fonte='esaj_incidente'` (o `Ent. Devedora` no **polo passivo** — é o polo que
 a tela "Quem deve" filtra, mesma convenção do ente devedor do diário, #118).
 
+## PrecatorioFilaOficial (`tribunals/models.py`, migration 0062)
+
+O precatório como a **fila oficial de pagamento** do tribunal o lista (4ª
+porta, `filas_oficiais/`, ver `INGESTION.md`). É o registro da fonte, a marca
+de procedência do processo descoberto por ela e o denominador do gate de
+completude (lista oficial × acervo, por entidade).
+
+| coluna | o que é |
+|---|---|
+| `tribunal`, `chave` | unique; `chave` = CNJ do precatório sem "/NN" |
+| `processo` | FK `SET_NULL`; NULL = não existe no acervo (item não pendente não é criado) |
+| `origem_cnj`, `processo_origem` | o 1º grau que a fonte informa, e o processo dele se já estiver no acervo |
+| `chave_e_origem` | a fonte deu o próprio processo de 1º grau como número do precatório |
+| `situacao` | `pendente` / `pago` / `extinto` / `outro` / `fora_da_fila` (lida pelo classificador) |
+| `situacao_raw`, `fonte` | rótulo da fonte; `tjal_sapre` / `tjal_lista_pdf` / `tjal_sapre+lista` |
+| `entidade`, `entidade_devedora` | nomes normalizados (ente público) |
+| `valor_original`, `valor_atualizado`, `ano_orcamento`, `natureza`, `ordem`, `regime`, `n_itens` | o que a fonte publica |
+| `primeira_vez_em`, `visto_em` | 1ª e última coleta que o listou |
+
+**Sem CPF e sem nome do credor, de propósito** (Res. CNJ 303/2019, art. 12,
+§3º): o SAPRE publica os dois e o coletor os descarta na leitura. Por que
+tabela e não uma coluna `source` em `tribunals_process`: ALTER em ~130 M linhas
+enfileira lock, e o que a fonte diz é fato datado que muda a cada coleta.
+Migration na receita da 0058 (tabela sem FK, FKs com `lock_timeout` 3 s em
+laço).
+
 ## Magistrado / MagistradoAtuacao (`tribunals/models.py`, migration 0059)
 
 **Quem ASSINOU o ato**, lido do TEXTO da publicação — dado que já estava no
