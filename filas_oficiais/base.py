@@ -84,8 +84,12 @@ class ItemFila:
     id_externo: str = ''
     valor_original: Decimal | None = None
     valor_atualizado: Decimal | None = None
+    #: Quanto a fonte diz que já foi pago (TJMT/SRP). Saldo = original - pago.
+    valor_pago: Decimal | None = None
     ano_orcamento: int | None = None
     natureza: str = ''
+    #: Preferência constitucional (Idade, Doença Grave, Deficiência) — TJMT/SRP.
+    preferencia: str = ''
     origem_cnj: str = ''
     ordem: int | None = None
     regime: str = ''

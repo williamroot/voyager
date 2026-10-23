@@ -243,9 +243,26 @@ ORGAOS_PRECATORIO_TJAL = frozenset({
 #   outro/fora_da_fila/sem registro → abstenção: segue o fluxo de sempre.
 #
 # Rollout por tribunal, como as demais regras de sinal.
-FILA_OFICIAL_TRIBUNAIS = {'TJAL'}
+#
+# TJMT (SRP, 2026-10-23): a fila é o ÚNICO sinal. O Voyager tem 27.984
+# processos TJMT com classe/fase 1265 e só 15.425 estão na fila oficial; os
+# outros 12.559 (45%) já saíram dela, e o DJEN do precatório é "Processo
+# sigiloso" (427 de 446 movimentos sem texto), então F24/F19/F30 não disparam.
+# Por isso a classe 1265 do TJMT NÃO entra em CLASSE_PRECATORIO_SINAL_TRIBUNAIS:
+# só é PRECATORIO o que a fila lista como `pendente` (situação de fila e saldo >
+# 0, ver `filas_oficiais/fontes/tjmt.py`), e o que sai dela ou está nela sem
+# saldo é REBAIXADO com o motivo no snapshot do ClassificacaoLog (no TJAL, a
+# saída é abstenção).
+FILA_OFICIAL_TRIBUNAIS = {'TJAL', 'TJMT'}
 FILA_OFICIAL_PENDENTE = 'pendente'
 FILA_OFICIAL_VETO = frozenset({'pago', 'extinto'})
+#: Tribunais em que `fora_da_fila`/`outro` rebaixa a NAO_LEAD (em vez de se abster).
+FILA_OFICIAL_REBAIXA_FORA = {'TJMT'}
+#: situação → marca gravada nas features (vai para `ClassificacaoLog.features_snapshot`).
+FILA_OFICIAL_MOTIVO = {
+    'fora_da_fila': 'FILA_OFICIAL_saiu_sem_pagamento_ANTI',
+    'outro': 'FILA_OFICIAL_sem_saldo_ANTI',
+}
 
 # Score gravado na promoção por regra de sinal. Precisa passar o
 # VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
@@ -1316,6 +1333,13 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     if situacao_fila in FILA_OFICIAL_VETO:
         if features is None:
             features = compute_features(processo)
+        return Process.CLASSIF_NAO_LEAD, SCORE_REBAIXAMENTO_SINAL, features
+    if (situacao_fila in FILA_OFICIAL_MOTIVO
+            and processo.tribunal_id in FILA_OFICIAL_REBAIXA_FORA):
+        # Rebaixa e ANOTA: o motivo fica no snapshot do log; o registro da fila
+        # guarda `saiu_em`/`motivo_saida`. Nada é removido.
+        features = dict(compute_features(processo) if features is None else features)
+        features[FILA_OFICIAL_MOTIVO[situacao_fila]] = 1
         return Process.CLASSIF_NAO_LEAD, SCORE_REBAIXAMENTO_SINAL, features
     if situacao_fila == FILA_OFICIAL_PENDENTE:
         if features is None:

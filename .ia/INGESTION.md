@@ -1044,6 +1044,53 @@ manage.py fila_oficial_coletar --tribunal TJAL --executar --retomar  # continua 
 ```
 
 Kill switch do cron: `FILA_OFICIAL_SCHEDULER_ENABLED=0` (restart do scheduler).
+Tribunais no cron: `FILA_OFICIAL_TRIBUNAIS_AGENDADOS` (padrão `TJAL,TJMT`).
+
+### TJMT — SRP (`filas_oficiais/fontes/tjmt.py`)
+
+**Por quê.** Medido em 23/10/2026: a fila oficial do TJMT tem 17.885
+precatórios (todos `NNNNNNN-DD.AAAA.8.11.0000`, PJe 2º grau, classe 1265). O
+Voyager conhecia 15.426, **todos NAO_LEAD** (o DJEN do precatório é "Processo
+sigiloso": o LR dá 0,02–0,22 e nenhuma regra de texto dispara), e os outros
+2.414 pendentes **nunca publicaram** no DJEN (0 de 309 na amostra). O buraco do
+TJMT é de classificação e de descoberta ao mesmo tempo.
+
+```
+GET https://hellsgate.tjmt.jus.br/precatorios-cms/srp/orgaos-devedores        (JSON, 242 entes)
+GET https://hellsgate.tjmt.jus.br/precatorios-cms/srp/requisicao-precatorio/<id> (PDF por ente)
+  └─ ColetorTjmt.iterar()  — um GRUPO PAGADOR por vez (`idOrgaoPagador`; 215 grupos)
+       ├─ PDF lido com PyMuPDF por coordenadas (cabeçalho só na 1ª página)
+       ├─ parcelas do mesmo CNJ no mesmo relatório SOMADAS (superpreferência)
+       ├─ CNJ deduplicado no grupo (o relatório do pagador manda)
+       └─ pendente = situação de fila E saldo > 0
+  └─ descoberta.gravar_entidade()
+       ├─ pendente ausente → Process direto: classe 1265, grau G2 (`tjmt_2g`)
+       └─ entidade completa → pendente ausente vira `fora_da_fila` (anotado)
+  └─ coleta inteira completa e nada pulado → varredura do tribunal
+       (pendente que NENHUM ente listou: ente que sumiu ou mudou de nome)
+```
+
+| regra | por quê (medido em 23/10/2026, 242 relatórios, 87.176 linhas) |
+|---|---|
+| Grupo = pagador (`idOrgaoPagador` ou o próprio ente) | as 8 autarquias estaduais devolvem a lista do Estado, Cuiabá-Prev/SANECAP/FUNED/LIMPURB a de Cuiabá etc.; agrupado pelo pagador, **0** CNJs aparecem em dois grupos |
+| Parcelas do mesmo CNJ no mesmo relatório somam | os **375 CNJs "divergentes"** eram 975 pares (relatório, CNJ) com 2 linhas: a parcela superpreferencial (valor = `valorSuperpreferenciaCalculoPagamento` do ente: Estado 118.845,00, INSS 254.160,00, Cuiabá 38.930,10, Sinop 23.358,06) e o restante. Somadas, os relatórios do mesmo grupo concordam em 100%. Divergência que sobrar entre relatórios do grupo é falha do run (o do pagador vale) |
+| Pendente exige saldo > 0 | "Provisionado" vem R$ 0,00 / R$ 0,00 (550 CNJs); 197 "Pagamento Preferencial"/"Pago parcialmente" têm pago > requisitado (correção). Esses ficam `outro` |
+| Situação desconhecida → `outro` + falha no run | abster > chutar; o vocabulário medido está em `SITUACOES_FILA` |
+| Parser estrito | ordem 1..N contínua por PDF, senão o grupo fica incompleto (nada sai da fila por ele). Conferido contra o `pdftotext -layout` da investigação: 87.174 linhas, **0** divergências de CNJ/valor/exercício/natureza; o PyMuPDF ainda recupera 2 linhas do INSS sem data de envio que o regex antigo perdia |
+| Lista de entes truncada (`totalElements` ≠ itens) | erro do run, nada é coletado (regra nº 2) |
+| Uma requisição por vez, pausa ≥ 1 s | `FILA_OFICIAL_TJMT_PAUSA` (1,5 s); 243 requisições ≈ 11 min; `FILA_OFICIAL_TJMT_TIMEOUT` 300 s (o PDF do Estado tem 2 MB e leva ~13 s) |
+
+O PDF **não traz credor, CPF nem processo de origem** — nada de LGPD a
+descartar, e também nada para o JURISCOPE ler sem os autos do PJe 2º grau.
+Por isso a trava do pull (`TJMT_PRECATORIO_2G_NO_PULL`, ver `API.md`): os
+promovidos ficam PRECATORIO e contados, mas não são entregues até o JURISCOPE
+ler o 2º grau.
+
+```bash
+manage.py fila_oficial_coletar --tribunal TJMT                         # DRY-RUN: só mede
+manage.py fila_oficial_coletar --tribunal TJMT --entidade 51 --saida /tmp/estado.jsonl
+manage.py fila_oficial_coletar --tribunal TJMT --executar              # backfill / sob demanda
+```
 
 ## Comandos manuais
 
