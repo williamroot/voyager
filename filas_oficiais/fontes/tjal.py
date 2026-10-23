@@ -473,7 +473,7 @@ class ColetorTjal:
                              'itens': len(itens)}
         return itens, True
 
-    def iterar(self, entidades=None,
+    def iterar(self, entidades=None,  # noqa: PLR0912
                pular: Callable[[str], bool] | None = None,
                falhas: list | None = None) -> Iterator[ResultadoEntidade]:
         """Uma `ResultadoEntidade` por entidade, na hora em que ela termina.

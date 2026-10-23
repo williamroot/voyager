@@ -59,7 +59,7 @@ def _matar_zumbis_da_fonte(tribunal: Tribunal) -> int:
              erros=['zumbi: execução da fila oficial não terminou'])
 
 
-def executar(sigla: str = 'TJAL', escrever: bool = False, retomar: bool = True,
+def executar(sigla: str = 'TJAL', escrever: bool = False, retomar: bool = True,  # noqa: PLR0912
              entidades=None, com_enricher: bool = True, coletor=None,
              saida=None, ao_concluir_entidade=None) -> dict:
     """Roda a porta. `escrever=False` é o dry-run: só mede.
