@@ -226,6 +226,27 @@ ORGAOS_PRECATORIO_TJAL = frozenset({
     'precatório/presidência',
 })
 
+# ---------------------------------------------------------------------------
+# Regra da FILA OFICIAL de precatórios (quarta porta, `filas_oficiais/`).
+# ---------------------------------------------------------------------------
+# O processo que a fila oficial de pagamento do tribunal lista como PENDENTE é
+# precatório requisitado e não pago — a fonte primária afirma. Medido em
+# 23/10/2026 no TJAL: 28% dos pendentes das listas oficiais estavam fora do
+# acervo porque nunca publicaram no DJEN; sem esta regra, o que a porta nova
+# traz e não tem classe 1265 (o 050 de comarca que o Datajud dá como 1298, o
+# processo de origem que a fonte usa como número do precatório antigo) cairia
+# no LR e morreria NAO_LEAD.
+#
+#   pendente      → PRECATORIO, score 1,0, com os MESMOS vetos da classe 1265
+#                   (F24 pago, F19 cancelado, F30 extinto) lidos do DJEN;
+#   pago/extinto  → NAO_LEAD (a fonte oficial diz que não há o que comprar);
+#   outro/fora_da_fila/sem registro → abstenção: segue o fluxo de sempre.
+#
+# Rollout por tribunal, como as demais regras de sinal.
+FILA_OFICIAL_TRIBUNAIS = {'TJAL'}
+FILA_OFICIAL_PENDENTE = 'pendente'
+FILA_OFICIAL_VETO = frozenset({'pago', 'extinto'})
+
 # Score gravado na promoção por regra de sinal. Precisa passar o
 # VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
 SCORE_PROMOCAO_SINAL = 1.0
@@ -944,6 +965,27 @@ def _is_pa_precatorio_comarca(processo) -> bool:
     return _publicado_por_orgao_de_precatorio(processo)
 
 
+def _situacao_fila_oficial(processo) -> str | None:
+    """Situação do processo na fila oficial de precatórios, ou None.
+
+    Uma consulta pelo índice de `processo_id`, e só nos tribunais da regra.
+    """
+    if processo.tribunal_id not in FILA_OFICIAL_TRIBUNAIS or not processo.pk:
+        return None
+    from .models import PrecatorioFilaOficial
+    return (PrecatorioFilaOficial.objects
+            .filter(processo_id=processo.pk)
+            .values_list('situacao', flat=True)
+            .first())
+
+
+def _vetado_como_precatorio(features: dict) -> bool:
+    """Os vetos da regra da classe 1265: pago (F24), cancelado (F19), extinto (F30)."""
+    return (features.get('F24_pago_pos_exped_ANTI') == 1
+            or features.get('F19_cancelado_ANTI') == 1
+            or features.get('F30_extinto_neg_ANTI') == 1)
+
+
 def _publicado_por_orgao_de_precatorio(processo) -> bool:
     if not processo.pk:
         return False
@@ -1266,6 +1308,21 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
       else                                    → NAO_LEAD
     """
     from .models import Process
+
+    # Regra da FILA OFICIAL (ver FILA_OFICIAL_TRIBUNAIS). Primeiro de tudo: o
+    # veto da fonte oficial (pago/extinto) não pode ser atropelado por
+    # promoção nenhuma, e o pendente vale para qualquer classe.
+    situacao_fila = _situacao_fila_oficial(processo)
+    if situacao_fila in FILA_OFICIAL_VETO:
+        if features is None:
+            features = compute_features(processo)
+        return Process.CLASSIF_NAO_LEAD, SCORE_REBAIXAMENTO_SINAL, features
+    if situacao_fila == FILA_OFICIAL_PENDENTE:
+        if features is None:
+            features = compute_features(processo)
+        if not _vetado_como_precatorio(features):
+            return Process.CLASSIF_PRECATORIO, SCORE_PROMOCAO_SINAL, features
+        # vetado pelo DJEN: segue o fluxo, e as regras negativas decidem.
 
     # Regra de sinal: Cumprimento (F1) com sinal de requisitório nos movimentos
     # é precatório de fato. Promove a N1 com score alto, bypassando o LR (que

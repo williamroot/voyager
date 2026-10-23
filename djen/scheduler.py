@@ -592,6 +592,30 @@ def create_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
 
+    # FILA OFICIAL de precatórios (4ª porta, `filas_oficiais/`): coleta o
+    # SAPRE + listas do TJAL e faz nascer o precatório pendente que nunca
+    # publicou no DJEN. ~2 h de coleta (uma requisição por vez): às 01:30
+    # termina bem antes do cache de leads das 07:40 e do pull das 08:00.
+    if getattr(settings, 'FILA_OFICIAL_SCHEDULER_ENABLED', True):
+        from filas_oficiais.jobs import coletar_fila_oficial
+        for sigla in getattr(settings, 'FILA_OFICIAL_TRIBUNAIS_AGENDADOS', ['TJAL']):
+            scheduler.add_job(
+                coletar_fila_oficial.delay,
+                'cron',
+                args=[sigla],
+                hour=1,
+                minute=30,
+                id=f'fila_oficial_{sigla}',
+                replace_existing=True,
+                misfire_grace_time=3600,
+                max_instances=1,
+                coalesce=True,
+            )
+            logger.info('agendado fila_oficial %s (01:30)', sigla)
+    else:
+        logger.warning('fila oficial: agendamento DESLIGADO '
+                       '(FILA_OFICIAL_SCHEDULER_ENABLED=0)')
+
     # RPV federal parada (F40, TJMT): vence pelo relógio quando o DJEN passa de
     # 540 dias em silêncio. Antes do cache das 07:40 e do pull das 08:00.
     from tribunals.jobs import revisar_rpv_federal_parada

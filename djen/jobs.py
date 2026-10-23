@@ -15,7 +15,7 @@ from django.db.utils import OperationalError
 from django.utils import timezone
 from django_rq import job
 
-from tribunals.models import IngestionRun, Process, Tribunal
+from tribunals.models import IngestionRun, PrecatorioFilaOficial, Process, Tribunal
 
 from .client import DJENClient
 from .ingestion import chunk_dates, ingest_window
@@ -28,6 +28,7 @@ logger = logging.getLogger('voyager.djen.jobs')
 # COBERTURA daqui tem que ser restrita ao DJEN: sem isto, um run do diário
 # próprio na mesma janela faria o backfill do DJEN pular o dia como coberto.
 FONTE = 'djen'
+FONTE_FILA_OFICIAL = PrecatorioFilaOficial.FONTE_RUN
 
 
 @job('djen_ingestion', timeout=300)
@@ -640,11 +641,14 @@ def _matar_zumbis(agora) -> tuple[int, int]:
     """
     zumbi_cutoff = agora - timedelta(seconds=WATCHDOG_RUN_ZOMBIE_SECONDS)
     vivos = _dias_com_job_vivo()
+    # A fila oficial (`filas_oficiais/`) roda ~2 h numa execução só e cuida
+    # dos próprios zumbis (`execucao._matar_zumbis_da_fonte`).
     candidatos = _leitura_com_teto(lambda: list(IngestionRun.objects.filter(
         status=IngestionRun.STATUS_RUNNING,
         finished_at__isnull=True,
         started_at__lt=zumbi_cutoff,
-    ).values('pk', 'tribunal__sigla', 'janela_inicio', 'janela_fim', 'started_at')))
+    ).exclude(fonte=FONTE_FILA_OFICIAL).values(
+        'pk', 'tribunal__sigla', 'janela_inicio', 'janela_fim', 'started_at')))
     teto_vivo = agora - timedelta(seconds=WATCHDOG_RUN_ZOMBIE_COM_JOB_S)
     alvos, poupados = [], 0
     for r in candidatos:
