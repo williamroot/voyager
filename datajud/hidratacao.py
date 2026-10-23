@@ -61,13 +61,22 @@ def esqueleto(cnj: str) -> dict | None:
     return hits[0]['_source'] if hits else None
 
 
-def hidratar_cnj(cnj: str, com_enricher: bool = True) -> dict:
+FILAS_ENRICHER = ('manual', 'tribunal')
+
+
+def hidratar_cnj(cnj: str, com_enricher: bool = True,
+                 fila_enricher: str = 'manual') -> dict:
     """Faz o esqueleto virar processo: cria, puxa movimentos, pede partes.
 
     Idempotente: se o processo já existe no acervo rico, não recria — só
     completa o que faltar. Devolve sempre um dict com `estado`, pra tela poder
     dizer o que aconteceu em vez de só girar um spinner.
+
+    `fila_enricher='manual'` é a da tela (alguém esperando). Lote usa
+    `'tribunal'`: centenas de jobs na fila manual atrasariam os cliques.
     """
+    if fila_enricher not in FILAS_ENRICHER:
+        raise ValueError(f'fila_enricher inválida: {fila_enricher!r}')
     digitos = so_digitos(cnj)
     if len(digitos) != 20:
         return {'cnj': cnj, 'estado': 'cnj_invalido'}
@@ -128,12 +137,16 @@ def hidratar_cnj(cnj: str, com_enricher: bool = True) -> dict:
     enfileirado = False
     if com_enricher:
         from djen.ingestion import TRIBUNAIS_COM_ENRICHER
-        from enrichers.jobs import enqueue_enriquecimento_manual
+        from enrichers.jobs import enqueue_enriquecimento, enqueue_enriquecimento_manual
         if proc.tribunal_id in TRIBUNAIS_COM_ENRICHER:
-            # fila MANUAL: quem hidrata está esperando resposta, e a fila
-            # per-tribunal tem centenas de milhares de itens de backlog
-            enqueue_enriquecimento_manual(proc.pk)
-            enfileirado = True
+            if fila_enricher == 'manual':
+                # fila MANUAL: quem hidrata está esperando resposta, e a fila
+                # per-tribunal tem centenas de milhares de itens de backlog
+                enqueue_enriquecimento_manual(proc.pk)
+                enfileirado = True
+            else:
+                # `None` = enrich pausado/fora da fonte no tribunal
+                enfileirado = enqueue_enriquecimento(proc.pk, proc.tribunal_id) is not None
 
     _marcar_no_acervo(numero)
     return {
@@ -192,3 +205,38 @@ def hidratar_lote(sigla: str, classe: str | int = 12078, limite: int = 1000,
     resultados.update({'tribunal': sigla.upper(), 'classe': str(classe),
                        'candidatos': len(r['hits']['hits'])})
     return resultados
+
+
+def iterar_esqueletos(sigla: str, classe: str | int, prefixo: str = '',
+                      excluir_foros: tuple[str, ...] = (), pagina: int = 1000):
+    """Percorre o recorte inteiro do `voyager-acervo`, paginando com
+    `search_after` (sem o teto de 10.000 do `size`). Devolve o `_source` de
+    cada documento, na ordem do número; o mesmo CNJ pode vir mais de uma vez
+    (G1 e G2 são documentos distintos) — quem consome deduplica.
+
+    `excluir_foros`: os 4 últimos dígitos do CNJ a descartar (ex.: '9003').
+    """
+    filtros = [{'term': {'tribunal': sigla.upper()}},
+               {'term': {'classe_codigo': str(classe)}}]
+    if prefixo:
+        filtros.append({'prefix': {'proc': prefixo}})
+    excluir = [{'wildcard': {'proc': f'*.{foro}'}} for foro in excluir_foros]
+    after = None
+    while True:
+        kw = {}
+        if after is not None:
+            kw['search_after'] = after
+        r = get_es().search(
+            index=index_name(INDICE), size=pagina,
+            query={'bool': {'filter': filtros, 'must_not': excluir}},
+            sort=[{'proc': {'order': 'asc'}}],
+            source=['proc', 'classe_codigo', 'assunto_codigos', 'assunto_nomes',
+                    'orgao_nome', 'grau'],
+            **kw,
+        )
+        hits = r['hits']['hits']
+        if not hits:
+            return
+        for h in hits:
+            yield h['_source']
+        after = hits[-1]['sort']

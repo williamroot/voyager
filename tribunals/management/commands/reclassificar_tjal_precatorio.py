@@ -1,18 +1,28 @@
-"""Reclassifica os Cumprimentos do TJAL (1º grau) — para a regra de sinal
-promover a PRECATORIO os que têm ofício requisitório/expedição. Enfileira
-reclassificar_batch na fila 'classificacao', do mais recente ao mais antigo.
+"""Reclassifica processos do TJAL depois de mudança numa regra de sinal.
+Enfileira reclassificar_batch na fila 'classificacao', do mais recente ao mais
+antigo.
+
+Alvos (`--alvo`):
+  cumprimento  (padrão) os Cumprimentos de 1º grau — regra F14/F20.
+  pa-comarca   o "Processo Administrativo" (1298) de comarca, numeração 050,
+               fora do foro 9003 — regra do órgão de precatórios. Só os que
+               ainda não são PRECATORIO.
 
 Uso:
   python manage.py reclassificar_tjal_precatorio --dry-run
   python manage.py reclassificar_tjal_precatorio --apply
   python manage.py reclassificar_tjal_precatorio --apply --batch-size 500
+  python manage.py reclassificar_tjal_precatorio --alvo pa-comarca --dry-run
 """
 from __future__ import annotations
 
 import django_rq
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 
-from tribunals.classificador import CLASSES_CUMPRIMENTO
+from tribunals.classificador import (
+    CLASSES_CUMPRIMENTO, CLASSES_PA_PRECATORIO_ORGAO, _RE_CNJ_PA_COMARCA_TJAL,
+)
 from tribunals.jobs import reclassificar_batch
 from tribunals.models import Process
 
@@ -28,18 +38,28 @@ class Command(BaseCommand):
         parser.add_argument('--dry-run', action='store_true')
         parser.add_argument('--apply', action='store_true')
         parser.add_argument('--batch-size', type=int, default=500)
+        parser.add_argument('--alvo', choices=('cumprimento', 'pa-comarca'),
+                            default='cumprimento')
 
     def handle(self, *args, **opts):
         if opts['dry_run'] == opts['apply']:
             raise CommandError('Passe --dry-run OU --apply.')
         batch_size = opts['batch_size']
 
-        qs = (Process.objects
-              .filter(tribunal_id=TRIBUNAL, classe_codigo__in=CLASSES)
-              .order_by('-ultima_movimentacao_em', '-id'))
+        if opts['alvo'] == 'pa-comarca':
+            classes = sorted(CLASSES_PA_PRECATORIO_ORGAO)
+            qs = (Process.objects
+                  .filter(tribunal_id=TRIBUNAL)
+                  .filter(Q(classe_codigo__in=classes) | Q(fase_codigo__in=classes))
+                  .filter(numero_cnj__regex=_RE_CNJ_PA_COMARCA_TJAL.pattern)
+                  .exclude(classificacao=Process.CLASSIF_PRECATORIO))
+        else:
+            classes = CLASSES
+            qs = Process.objects.filter(tribunal_id=TRIBUNAL, classe_codigo__in=classes)
+        qs = qs.order_by('-ultima_movimentacao_em', '-id')
         total = qs.count()
         n_batches = (total + batch_size - 1) // batch_size
-        self.stdout.write(f'tribunal={TRIBUNAL} classes={CLASSES} | '
+        self.stdout.write(f'tribunal={TRIBUNAL} alvo_regra={opts["alvo"]} classes={classes} | '
                           f'alvo={total} | batch={batch_size} | '
                           f'batches={n_batches}')
 

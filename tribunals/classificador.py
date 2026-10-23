@@ -189,6 +189,43 @@ _RE_NOME_CARTA_PRECATORIA = re.compile(r'carta\s+precat', re.I)
 # consulta pública de 2º grau. Ampliar exige o leitor correspondente.
 CLASSE_PRECATORIO_SINAL_TRIBUNAIS = {'TJAL'}
 
+# ---------------------------------------------------------------------------
+# Regra de sinal por ÓRGÃO: o precatório de comarca autuado como "Processo
+# Administrativo" (TJAL).
+# ---------------------------------------------------------------------------
+# Até 2024 o TJAL autuava a requisição de precatório NA COMARCA como classe
+# 1298 "Processo Administrativo", numeração `050xxxx-..8.02.<foro da
+# comarca>` (ex.: 0500008-51.2023.8.02.0043), e ela segue nesse número na
+# Diretoria de Precatórios. A consulta pública de 2º grau (cposg5) mostra
+# "Classe: Precatório" para esses processos (conferido em 23/10/2026 em
+# 0500205-98.2024.8.02.0001), mas o DJEN publica com código 1298, e a regra da
+# classe 1265 não os vê.
+#
+# Medido em 23/10/2026 (Voyager, TJAL, classe/fase 1298, NAO_LEAD): 169 com
+# publicação dos órgãos de precatório. Lidas as publicações:
+#   * 63 de foro de COMARCA: todos são requisição individual ("Precatório -
+#     Porto Calvo - Credora: ... - Devedor: Estado de Alagoas", "visando a
+#     liberação dos pagamentos do presente precatório"). É o lead.
+#   * 106 do foro 9003: 102 com "Requerente: Desembargador Presidente /
+#     Tribunal de Justiça" e "Requerido: Município de X" (ou autarquia), os
+#     outros 4 do mesmo tipo. São os processos de ACOMPANHAMENTO de repasses e
+#     sequestros do ente devedor ("processo administrativo instaurado com a
+#     finalidade de acompanhar os repasses e eventuais sequestros"), sem credor
+#     individual. NÃO é lead — por isso o foro 9003 fica fora da regra.
+# Um 1298 de comarca SEM publicação desses órgãos pode ser qualquer coisa
+# (processo administrativo do Júri, suscitação de dúvida, prestação
+# pecuniária, requisição extinta na vara): a publicação do órgão é a prova.
+PA_PRECATORIO_ORGAO_TRIBUNAIS = {'TJAL'}
+CLASSES_PA_PRECATORIO_ORGAO = {'1298'}
+_RE_CNJ_PA_COMARCA_TJAL = re.compile(r'^050\d{4}-\d{2}\.\d{4}\.8\.02\.(?!9003)\d{4}$')
+# Valores reais de `Movimentacao.nome_orgao` (medidos; os únicos com
+# "precat" nas publicações TJAL das classes 1265/1298). Comparação exata, em
+# minúsculas — um órgão novo com outro nome tem de ser medido antes de entrar.
+ORGAOS_PRECATORIO_TJAL = frozenset({
+    'diretoria de precatório e rpv - presidência',
+    'precatório/presidência',
+})
+
 # Score gravado na promoção por regra de sinal. Precisa passar o
 # VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
 SCORE_PROMOCAO_SINAL = 1.0
@@ -889,6 +926,37 @@ def _is_classe_precatorio_autuado(processo) -> bool:
     return bool(_RE_NOME_PRECATORIO.search(nome))
 
 
+def _is_pa_precatorio_comarca(processo) -> bool:
+    """True para o 1298 de comarca do TJAL que o órgão de precatórios publicou.
+
+    Ver comentário em PA_PRECATORIO_ORGAO_TRIBUNAIS. A classe pode estar só na
+    fase ou só no legado (`classe_codigo='1265'` com nome "Processo
+    Administrativo" e fase 1298 também é este caso). A consulta ao banco só
+    roda depois dos filtros baratos (tribunal, classe, número).
+    """
+    if processo.tribunal_id not in PA_PRECATORIO_ORGAO_TRIBUNAIS:
+        return False
+    cods = {(processo.fase_codigo or '').strip(), (processo.classe_codigo or '').strip()}
+    if not cods & CLASSES_PA_PRECATORIO_ORGAO:
+        return False
+    if not _RE_CNJ_PA_COMARCA_TJAL.match(processo.numero_cnj or ''):
+        return False
+    return _publicado_por_orgao_de_precatorio(processo)
+
+
+def _publicado_por_orgao_de_precatorio(processo) -> bool:
+    if not processo.pk:
+        return False
+    from django.db.models.functions import Lower
+
+    from .models import Movimentacao
+    return (Movimentacao.objects
+            .filter(processo_id=processo.pk)
+            .annotate(_orgao=Lower('nome_orgao'))
+            .filter(_orgao__in=ORGAOS_PRECATORIO_TJAL)
+            .exists())
+
+
 def _sigmoid(z: float) -> float:
     z = max(min(z, 30.0), -30.0)
     return 1.0 / (1.0 + math.exp(-z))
@@ -1230,8 +1298,12 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     # Regra de sinal por CLASSE: a classe 1265 É o precatório autuado. Promove
     # a N1 direto — não há "score" a estimar, a classe processual já afirma que
     # o crédito foi requisitado.
-    if (processo.tribunal_id in CLASSE_PRECATORIO_SINAL_TRIBUNAIS
-            and _is_classe_precatorio_autuado(processo)):
+    # O mesmo vale para o "Processo Administrativo" de comarca do TJAL que a
+    # Diretoria de Precatórios publicou (ver PA_PRECATORIO_ORGAO_TRIBUNAIS),
+    # com os mesmos vetos.
+    if ((processo.tribunal_id in CLASSE_PRECATORIO_SINAL_TRIBUNAIS
+            and _is_classe_precatorio_autuado(processo))
+            or _is_pa_precatorio_comarca(processo)):
         if features is None:
             features = compute_features(processo)
         # Vetos: precatório pago (F24), cancelado/revogado (F19) ou com
