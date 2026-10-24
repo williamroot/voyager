@@ -18,7 +18,7 @@ DRF read-only sob `/api/v1/`. Auth via API key (`Authorization: Api-Key <key>`).
 | GET | `/api/v1/leads/` | Próximos N leads não consumidos (Juriscope integration) |
 | POST | `/api/v1/leads/consumed/` | Enfileira consumo (async, 202) — requer `lote_id` |
 | GET | `/api/v1/leads/stats/` | Métricas agregadas pro cliente |
-| POST | `/api/v1/leads/sinais/` | Sinais de expedição de até 5.000 CNJs (vigia do Juriscope) |
+| POST | `/api/v1/leads/sinais/` | Sinais de expedição: `cnjs` (até 5.000, histórico inteiro) ou `itens` (até 500, só depois do `desde` de cada CNJ — vigia F1) |
 | GET | `/api/v1/busca/processos/<cnj>/` | **Busca v1 (ES)** — doc completo por CNJ exato |
 | GET | `/api/v1/busca/processos/<cnj>/movimentacoes/` | Movs do processo (cursor search_after) |
 | GET | `/api/v1/busca/processos/` | Busca parte/advogado/valor/documento/OAB/vara + filtros |
@@ -311,6 +311,50 @@ quente, completo.
 
 Erros: `403` chave; `400` `cnjs` vazio/não-lista/>5000 ou `desde` fora de
 `AAAA-MM-DD`; `503` uma consulta passou do teto.
+
+#### Contrato do vigia (F1): `itens` com `desde` por CNJ
+
+Corpo com `itens` em vez de `cnjs` (o legado acima segue igual):
+`{"itens": [{"cnj": "0000000-00.0000.0.00.0000", "desde": "2026-08-01T00:00:00Z"}, ...]}`
+— até **500**; `desde` obrigatório em ISO 8601 (só a data = meia-noite de São
+Paulo; sem fuso = São Paulo). É o instante do download dos autos no JURISCOPE.
+CNJ repetido usa o `desde` mais antigo. Código: `calcular_sinais_vigia` em
+`tribunals/sinais_expedicao.py`.
+
+```json
+{"count": 2, "tempo_ms": 910, "invalidos": ["lixo"],
+ "sinais": [
+  {"cnj": "0000023-70.2021.8.26.0337", "tribunal": "TJSP", "conhecido": true,
+   "publicacoes_desde": 3, "sinal_expedicao": true,
+   "ultimo_sinal_em": "2026-09-02T03:00:00+00:00", "tipo": "oficio",
+   "classificacao": "PRE_PRECATORIO", "pago": false},
+  {"cnj": "1234567-00.2025.8.26.0000", "tribunal": null, "conhecido": false,
+   "publicacoes_desde": 0, "sinal_expedicao": false, "ultimo_sinal_em": null,
+   "tipo": null, "classificacao": null, "pago": false}]}
+```
+
+- Só contam publicações com `data_disponibilizacao > desde`. A consulta entra
+  pelo índice `mov_processo_data_disp_idx` já com esse recorte (`LATERAL` por
+  processo) — o histórico anterior nem é lido.
+- `sinal_expedicao`: os mesmos sinais do contrato legado (F2/F7/F20; TJRS só
+  F31) e, no TJPA, também o F41 (envio/devolução à Coordenadoria de
+  Precatórios). RPV conta. F14 (ordem) não.
+- `tipo`: do último sinal — `precatorio`/`rpv` quando o trecho que casou diz um
+  só (F31/F41 são precatório), `oficio` quando não dá para dizer (F7, movimento
+  "Expedição de precatório/rpv"); `alvara_pago` quando `pago`.
+- `pago`: o F24 (`f24_pago_pos_exped`) recortado na janela — marcador de
+  `PAGAMENTO_SQL` depois de `desde` e no mesmo dia ou depois do último sinal da
+  janela (ou sem sinal nela). `ultimo_sinal_em` é então a data do pagamento.
+  `PAGAMENTO_SQL` inclui "julgo extinto" e "expeça-se alvará": é largo, por isso
+  o campo é separado e o cliente decide.
+- CNJ em dois tribunais (TRF1/TRF6): uma linha por processo.
+- Leitura em `SINAIS_PARALELISMO` fatias (threads, conexão própria, teto
+  `LEADS_SQL_TIMEOUT_SECONDS` cada). Medido em prod em 24/10/2026, amostra do
+  estoque `AguardandoOficio` do JURISCOPE (TJSP): o lote mais pesado (13 mil
+  publicações / 17 MB de texto na janela) levou 16,7 s frio numa conexão só e
+  1,4 s com 4 threads; lotes de 500 aleatórios, 0,9–1,0 s frio.
+- Erros: `400` `itens` vazio/não-lista/>500, item sem `cnj`, `desde` ausente ou
+  inválido; `503` teto.
 
 ## API de Busca v1 (`/api/v1/busca/*`) — 100% Elasticsearch
 

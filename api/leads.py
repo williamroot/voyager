@@ -10,14 +10,15 @@ Endpoints:
   POST /api/leads/consumed/   — marca processos como consumidos
   GET  /api/leads/stats/      — métricas agregadas
   POST /api/leads/sinais/     — sinais de expedição de um lote de CNJs (vigia
-                                de expedição do JURISCOPE)
+                                de expedição do JURISCOPE); com `itens`, só as
+                                publicações posteriores ao `desde` de cada CNJ
 """
 from __future__ import annotations
 
 import logging
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime, time as dtime
 
 import django_rq
 from rq import Retry
@@ -36,7 +37,9 @@ from tribunals.jobs import registrar_consumo_leads
 from tribunals.models import (
     ApiClient, ClassificadorVersao, LeadConsumption, Process,
 )
-from tribunals.sinais_expedicao import LIMITE_CNJS, calcular_sinais
+from tribunals.sinais_expedicao import (
+    LIMITE_CNJS, LIMITE_ITENS_VIGIA, calcular_sinais, calcular_sinais_vigia,
+)
 
 from . import leads_cache
 from .leads_cache import executar_com_teto
@@ -252,16 +255,26 @@ def stats(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def sinais_expedicao(request):
-    """POST /api/leads/sinais/ {cnjs: [...], desde: 'AAAA-MM-DD'?}
+    """POST /api/leads/sinais/
 
-    Para cada CNJ: nível atual, última transição, data da última movimentação
-    que casa o sinal de expedição do tribunal (mesmas regras do classificador)
-    e vetos com data. Ver `tribunals/sinais_expedicao.py`.
+    Dois contratos (ver `.ia/API.md`):
+      * `{itens: [{cnj, desde}, ...]}` (vigia F1, até 500) → `{sinais: [...]}`:
+        só as publicações com `data_disponibilizacao > desde` de cada CNJ.
+      * `{cnjs: [...], desde: 'AAAA-MM-DD'?}` (16/10) → `{results: [...]}`: nível
+        atual, última transição, data do último sinal no histórico inteiro e
+        vetos com data.
+    Ver `tribunals/sinais_expedicao.py`.
     """
     cliente = _autenticar(request)
     if not cliente:
         return Response({'erro': 'X-API-Key inválida ou ausente'}, status=403)
 
+    if 'itens' in request.data:
+        return _sinais_vigia(request, cliente)
+    return _sinais_por_cnjs(request, cliente)
+
+
+def _sinais_por_cnjs(request, cliente):
     cnjs = request.data.get('cnjs')
     if not isinstance(cnjs, list) or not cnjs:
         return Response({'erro': 'cnjs deve ser lista não-vazia'}, status=400)
@@ -299,3 +312,56 @@ def sinais_expedicao(request):
         'tempo_ms': ms,
         **resposta,
     })
+
+
+def _ler_desde(valor) -> datetime | None:
+    """ISO 8601 com hora (`2026-08-01T00:00:00Z`) ou só a data (meia-noite de
+    São Paulo). Sem fuso, vale o de São Paulo."""
+    if not isinstance(valor, str) or not valor.strip():
+        return None
+    txt = valor.strip()
+    try:
+        if len(txt) == 10:
+            momento = datetime.combine(date.fromisoformat(txt), dtime.min)
+        else:
+            momento = datetime.fromisoformat(txt.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    if timezone.is_naive(momento):
+        momento = timezone.make_aware(momento)
+    return momento
+
+
+def _sinais_vigia(request, cliente):
+    itens = request.data.get('itens')
+    if not isinstance(itens, list) or not itens:
+        return Response({'erro': 'itens deve ser lista não-vazia'}, status=400)
+    if len(itens) > LIMITE_ITENS_VIGIA:
+        return Response({'erro': f'itens excede {LIMITE_ITENS_VIGIA} por requisição'}, status=400)
+    pares = []
+    for i, item in enumerate(itens):
+        if not isinstance(item, dict) or not item.get('cnj'):
+            return Response({'erro': f'itens[{i}]: cnj obrigatório'}, status=400)
+        desde = _ler_desde(item.get('desde'))
+        if desde is None:
+            return Response({'erro': f'itens[{i}]: desde obrigatório em ISO 8601'}, status=400)
+        pares.append((item['cnj'], desde))
+
+    teto = settings.LEADS_SQL_TIMEOUT_SECONDS
+    t0 = time.monotonic()
+    try:
+        resposta = executar_com_teto(
+            lambda: calcular_sinais_vigia(pares, teto_s=teto, paralelismo=settings.SINAIS_PARALELISMO),
+            teto)
+    except OperationalError as exc:
+        logger.warning('sinais_vigia estourou %ss (cliente=%s itens=%s): %s',
+                       teto, cliente.id, len(itens), exc)
+        return Response({'erro': f'consulta excedeu o teto de {teto}s no banco'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    ms = int((time.monotonic() - t0) * 1000)
+    logger.info('sinais_vigia cliente=%s itens=%s com_sinal=%s pagos=%s invalidos=%s ms=%s',
+                cliente.id, len(itens),
+                sum(s['sinal_expedicao'] for s in resposta['sinais']),
+                sum(s['pago'] for s in resposta['sinais']),
+                len(resposta['invalidos']), ms)
+    return Response({'count': len(resposta['sinais']), 'tempo_ms': ms, **resposta})
