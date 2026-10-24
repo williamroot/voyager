@@ -253,11 +253,21 @@ ORGAOS_PRECATORIO_TJAL = frozenset({
 # 0, ver `filas_oficiais/fontes/tjmt.py`), e o que sai dela ou está nela sem
 # saldo é REBAIXADO com o motivo no snapshot do ClassificacaoLog (no TJAL, a
 # saída é abstenção).
-FILA_OFICIAL_TRIBUNAIS = {'TJAL', 'TJMT'}
+#
+# TJPA (Power BI da Coordenadoria, 2026-10-24): mesmo desenho do TJMT. A lista
+# cronológica só traz pendentes; o precatório de 2º grau (`.8.14.0000`) nunca
+# publica no DJEN, então a fila é o único sinal dele: `pendente` → PRECATORIO,
+# saiu da lista → NAO_LEAD com o motivo anotado. E a ORIGEM de 1º grau
+# vinculada a um item pendente (`processo_origem`, o CNJ do precatório citado
+# no DJEN da origem — `filas_oficiais/vinculo.py`) também é promovida: é nela
+# que o JURISCOPE lê o ofício (FILA_OFICIAL_ORIGEM_TRIBUNAIS).
+FILA_OFICIAL_TRIBUNAIS = {'TJAL', 'TJMT', 'TJPA'}
+#: Tribunais em que a origem vinculada a um item `pendente` vira PRECATORIO.
+FILA_OFICIAL_ORIGEM_TRIBUNAIS = {'TJPA'}
 FILA_OFICIAL_PENDENTE = 'pendente'
 FILA_OFICIAL_VETO = frozenset({'pago', 'extinto'})
 #: Tribunais em que `fora_da_fila`/`outro` rebaixa a NAO_LEAD (em vez de se abster).
-FILA_OFICIAL_REBAIXA_FORA = {'TJMT'}
+FILA_OFICIAL_REBAIXA_FORA = {'TJMT', 'TJPA'}
 #: situação → marca gravada nas features (vai para `ClassificacaoLog.features_snapshot`).
 FILA_OFICIAL_MOTIVO = {
     'fora_da_fila': 'FILA_OFICIAL_saiu_sem_pagamento_ANTI',
@@ -990,10 +1000,18 @@ def _situacao_fila_oficial(processo) -> str | None:
     if processo.tribunal_id not in FILA_OFICIAL_TRIBUNAIS or not processo.pk:
         return None
     from .models import PrecatorioFilaOficial
-    return (PrecatorioFilaOficial.objects
-            .filter(processo_id=processo.pk)
-            .values_list('situacao', flat=True)
-            .first())
+    situacao = (PrecatorioFilaOficial.objects
+                .filter(processo_id=processo.pk)
+                .values_list('situacao', flat=True)
+                .first())
+    if situacao is None and processo.tribunal_id in FILA_OFICIAL_ORIGEM_TRIBUNAIS:
+        # A origem só herda o `pendente`: a saída do precatório da fila não diz
+        # nada sobre os outros créditos do processo de 1º grau (abstenção).
+        if PrecatorioFilaOficial.objects.filter(
+                processo_origem_id=processo.pk,
+                situacao=FILA_OFICIAL_PENDENTE).exists():
+            return FILA_OFICIAL_PENDENTE
+    return situacao
 
 
 def _vetado_como_precatorio(features: dict) -> bool:

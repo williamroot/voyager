@@ -80,7 +80,7 @@ voyager/
 │                 - management/commands/entes_frescor.py: selo de frescor por
 │                   município (o campo `level` da API do QD mente)
 ├── filas_oficiais/ Fila oficial de PRECATÓRIOS do tribunal (4ª porta: TJAL
-│                 SAPRE + listas em PDF; TJMT SRP, PDF por ente). Faz nascer o precatório parado que
+│                 SAPRE + listas em PDF; TJMT SRP, PDF por ente; TJPA Power BI). Faz nascer o precatório parado que
 │                 nunca publicou no DJEN. Model em tribunals/
 │                 (PrecatorioFilaOficial). Cron 01:30. Ver INGESTION.md.
 ├── mcp_server/    MCP (Model Context Protocol) server pra LLMs/agentes.

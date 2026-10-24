@@ -50,7 +50,7 @@ from tribunals.models import PrecatorioFilaOficial, Process, Tribunal
 logger = logging.getLogger('voyager.filas_oficiais.descoberta')
 
 #: "J.TR" do CNJ de cada tribunal com fila oficial ligada.
-SEGMENTO = {'TJAL': '8.02', 'TJMT': '8.11'}
+SEGMENTO = {'TJAL': '8.02', 'TJMT': '8.11', 'TJPA': '8.14'}
 CLASSE_PRECATORIO = ('1265', 'Precatório')
 _RE_FORO_PRESIDENCIA = re.compile(r'\.9003$')
 #: TJMT: o precatório é autuado no PJe de 2º grau, foro 0000 (os 17.885 da
@@ -58,8 +58,17 @@ _RE_FORO_PRESIDENCIA = re.compile(r'\.9003$')
 #: o enricher do TJMT lê a consulta pública, que não tem o 2º grau (7.090
 #: `nao_encontrado` medidos), e o DJEN do precatório é "Processo sigiloso".
 _RE_PRECATORIO_TJMT = re.compile(r'\.8\.11\.0000$')
+#: TJPA: o mesmo desenho — precatório autuado no PJe 2º grau (`08xxxxx-DD.AAAA.
+#: 8.14.0000`, os 3.756 da lista do Power BI de 23/10/2026, sem exceção). Não
+#: publica no DJEN (0 de 314 consultados), não está no Datajud (0 de 2) e a
+#: consulta unificada o filtra: nasce direto, classe 1265, grau G2.
+_RE_PRECATORIO_TJPA = re.compile(r'\.8\.14\.0000$')
+#: Tribunais cujo precatório nasce no 2º grau (foro 0000): regex e tipo.
+_PRECATORIO_2G = {'TJMT': (_RE_PRECATORIO_TJMT, 'tjmt'), 'TJPA': (_RE_PRECATORIO_TJPA, 'tjpa')}
 #: Tipos de número que nascem direto (sem Datajud), com o grau a gravar.
-_NASCE_DIRETO = {'foro_9003': '', 'tjmt_2g': 'G2'}
+_NASCE_DIRETO = {'foro_9003': '', 'tjmt_2g': 'G2', 'tjpa_2g': 'G2'}
+#: Número que a fonte de 2º grau deu fora do foro 0000: não se adivinha.
+_OUTRO_NUMERO = {'tjmt_outro_numero', 'tjpa_outro_numero'}
 
 _CAMPOS = ('fonte', 'entidade', 'entidade_devedora', 'situacao', 'situacao_raw',
            'chave_e_origem', 'id_externo', 'valor_original', 'valor_atualizado',
@@ -87,8 +96,9 @@ class Placar:
 
 
 def tipo_do_numero(chave: str, chave_e_origem: bool, sigla: str = 'TJAL') -> str:
-    if sigla == 'TJMT':
-        return 'tjmt_2g' if _RE_PRECATORIO_TJMT.search(chave) else 'tjmt_outro_numero'
+    if sigla in _PRECATORIO_2G:
+        regex, pref = _PRECATORIO_2G[sigla]
+        return f'{pref}_2g' if regex.search(chave) else f'{pref}_outro_numero'
     if chave_e_origem:
         return 'origem_1grau'
     if _RE_FORO_PRESIDENCIA.search(chave):
@@ -120,11 +130,12 @@ def garantir_processo(item: ItemFila, tribunal: Tribunal, placar: Placar,
     tipo = tipo_do_numero(item.chave, item.chave_e_origem, tribunal.sigla)
     if tipo in _NASCE_DIRETO:
         proc = _criar_direto(item.chave, tribunal, _NASCE_DIRETO[tipo])
-    elif tipo == 'tjmt_outro_numero':
-        # Nunca visto (0 em 17.885): protocolo do SRP fora do foro 0000. Não
-        # se adivinha o que é — fica registrado e conta como falha no run.
-        logger.warning('fila oficial TJMT: protocolo %s fora do 2º grau; não criado',
-                       item.chave)
+    elif tipo in _OUTRO_NUMERO:
+        # Nunca visto (0 em 17.885 no TJMT, 0 em 3.756 no TJPA): número fora do
+        # foro 0000. Não se adivinha o que é — fica registrado e conta como
+        # falha no run.
+        logger.warning('fila oficial %s: número %s fora do 2º grau; não criado',
+                       tribunal.sigla, item.chave)
         placar.falhas += 1
         return None, False
     else:
@@ -305,7 +316,7 @@ def medir_entidade(tribunal: Tribunal, itens: list[ItemFila], placar: Placar,
             linha['classificacao'] = existentes[it.chave]
         elif it.situacao == SITUACAO_PENDENTE:
             tipo = tipo_do_numero(it.chave, it.chave_e_origem, tribunal.sigla)
-            if tipo == 'tjmt_outro_numero':
+            if tipo in _OUTRO_NUMERO:
                 placar.falhas += 1
                 linha['acao'] = 'nao_criaria'
             else:

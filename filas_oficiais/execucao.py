@@ -38,6 +38,7 @@ FONTE = PrecatorioFilaOficial.FONTE_RUN
 COLETORES = {
     'TJAL': 'filas_oficiais.fontes.tjal.ColetorTjal',
     'TJMT': 'filas_oficiais.fontes.tjmt.ColetorTjmt',
+    'TJPA': 'filas_oficiais.fontes.tjpa.ColetorTjpa',
 }
 #: Run desta fonte em `running` há mais que isto é zumbi.
 ZUMBI_HORAS = 8

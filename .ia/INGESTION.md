@@ -1093,6 +1093,52 @@ manage.py fila_oficial_coletar --tribunal TJMT --entidade 51 --saida /tmp/estado
 manage.py fila_oficial_coletar --tribunal TJMT --executar              # backfill / sob demanda
 ```
 
+### TJPA — Power BI da Coordenadoria (`filas_oficiais/fontes/tjpa.py`)
+
+A lista cronológica do TJPA (`tjpa.jus.br/.../1401291-lista-cronologica.xhtml`)
+é um Power BI "publicar na web". A API pública dele (`wabi-brazil-south-api.
+analysis.windows.net/public/reports`, header `X-PowerBI-ResourceKey`) devolve a
+tabela crua do modelo sem login: `modelsAndExploration` (modelo, último
+refresh) → `conceptualschema` (colunas) → `querydata` da lista
+(`BI_PREC_LISTAORDEMCRONOLOGICA`) → `querydata` das superpreferências. São 4
+requisições (~120 KB comprimidos). Em 24/10/2026: 3.771 linhas, 3.757
+processos `08xxxxx-DD.AAAA.8.14.0000` (PJe 2º grau), 127 entes, R$ 1,13 bi;
+**sem credor, CPF ou origem**.
+
+- **Por que é porta de descoberta:** o precatório de 2º grau do TJPA nunca
+  publica no DJEN (0 de 314 consultados; controles 4/4), não está no Datajud e
+  a consulta unificada o filtra. O Voyager tinha 0 dos 3.756.
+- **Parser estrito:** modelo único, colunas exigidas no `conceptualschema`,
+  `IC=true`, nenhuma sobra no `C` do DSR, CNJ com DV e foro `8.14.0000`,
+  ordem/valor/exercício plausíveis, lista ≥ 50% dos pendentes já registrados.
+  Qualquer desvio = `LayoutDesconhecido`: o coletor não entrega NADA, o run
+  fecha `failed` e ninguém sai da fila. Nunca "fila vazia com sucesso".
+- **Descoberta:** pendente ausente nasce direto (classe 1265, grau G2, tipo
+  `tjpa_2g`) e vira PRECATORIO pela regra da fila. Saiu da lista numa coleta
+  completa → `fora_da_fila`, NAO_LEAD com `FILA_OFICIAL_saiu_sem_pagamento_ANTI`
+  no log e `saiu_em`/`motivo_saida` no registro (nada é removido). Devedor
+  solidário (Estado + IGEPREV/IASEP, 6 casos) fica num ente só.
+- **Vínculo com a origem (`filas_oficiais/vinculo.py`):** o CNJ `8.14.0000`
+  citado até 80 caracteres depois de "precat"/"CPREC"/"Coordenadoria" no DJEN de
+  um processo TJPA de 1º grau grava `processo_origem`. Só item já na fila, sem
+  origem gravada e com uma única origem citando; o resto conta no placar
+  (`citado_fora_da_fila`, `ambiguo`, `conflito`). A origem de item pendente
+  vira PRECATORIO (`FILA_OFICIAL_ORIGEM_TRIBUNAIS`); quando o item sai da fila,
+  ela se abstém. Ponte por VALOR fica de fora (colide em 7 de 52). Diário: o
+  job da fila roda o vínculo nos processos com movimento nos últimos 3 dias;
+  backfill: `fila_oficial_vincular_origem --tribunal TJPA [--executar]`.
+- **Trava do pull:** o 2º grau TJPA não sai no `GET /api/v1/leads/` (ver
+  `API.md`, `FILA_OFICIAL_2G_PULL_LIBERADO`).
+- **Cron:** 05:30 (São Paulo), depois do refresh do dataset (07:00 UTC,
+  `FILA_OFICIAL_HORARIOS`). Pausa ≥ 1 s, uma requisição por vez.
+
+```bash
+manage.py fila_oficial_coletar --tribunal TJPA               # dry-run
+manage.py fila_oficial_coletar --tribunal TJPA --executar
+manage.py fila_oficial_vincular_origem --tribunal TJPA        # dry-run
+manage.py fila_oficial_vincular_origem --tribunal TJPA --executar
+```
+
 ## Comandos manuais
 
 ```bash

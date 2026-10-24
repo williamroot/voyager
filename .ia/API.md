@@ -121,6 +121,18 @@ Documentação completa + casos de uso: ver [`CLASSIFICACAO.md`](CLASSIFICACAO.m
 > PRECATORIO em `leads/stats/`, tela e gate. Ligar: env
 > `TJMT_PRECATORIO_2G_NO_PULL=1` + restart do `web` (o cache sem eles se refaz
 > no pré-cálculo das 07:40 ou com `precomputar_leads_cache`).
+>
+> **Generalizada por tribunal (24/10/2026): `FILA_OFICIAL_2G_PULL_LIBERADO`**
+> (env, lista de siglas, padrão vazio). Todo tribunal em
+> `leads_cache.SUFIXO_PRECATORIO_2G` (hoje TJMT `.8.11.0000` e TJPA
+> `.8.14.0000`) fica com o 2º grau da fila oficial FORA do pull até a sigla
+> entrar na lista — o padrão vazio não serve o 2º grau de nenhuma fila oficial.
+> `TJMT_PRECATORIO_2G_NO_PULL=1` continua valendo como "TJMT liberado". Pedido
+> com `tribunal=X` só aplica a trava de X; sem tribunal, aplica todas. A origem
+> de 1º grau promovida pela fila (TJPA, `processo_origem`) NÃO é travada: é onde
+> o JURISCOPE lê o ofício. Ligar o TJPA: `FILA_OFICIAL_2G_PULL_LIBERADO=TJPA`
+> + restart do `web` — só quando houver leitor do PJe 2º grau do TJPA
+> (`pje-tjpa-2g`; as contas de mineração não logam lá).
 
 Retorna processos classificados não-consumidos pelo cliente. Exclui `LeadConsumption` do cliente com `NOT IN` (o plano real é um *hashed SubPlan* sobre `(cliente_id, processo_id)` — 969 mil consumos do `falcon` em 13/10/2026, ~0,2 s quente). O caro não é montar o conjunto: é caminhar o índice por cima dos consumidos (ver cache abaixo).
 

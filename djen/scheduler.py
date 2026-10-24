@@ -593,26 +593,31 @@ def create_scheduler() -> BlockingScheduler:
     )
 
     # FILA OFICIAL de precatórios (4ª porta, `filas_oficiais/`): coleta o
-    # SAPRE + listas do TJAL e o SRP do TJMT e faz nascer o precatório
+    # SAPRE + listas do TJAL, o SRP do TJMT e o Power BI do TJPA e faz nascer o precatório
     # pendente que nunca publicou no DJEN. TJAL ~2 h, TJMT ~11 min (uma
     # requisição por vez, cada tribunal no seu job): às 01:30 termina bem antes
     # do cache de leads das 07:40 e do pull das 08:00.
     if getattr(settings, 'FILA_OFICIAL_SCHEDULER_ENABLED', True):
         from filas_oficiais.jobs import coletar_fila_oficial
-        for sigla in getattr(settings, 'FILA_OFICIAL_TRIBUNAIS_AGENDADOS', ['TJAL', 'TJMT']):
+        # TJPA (Power BI): o dataset atualiza às 07:00 UTC (04:00 aqui); a coleta
+        # de 4 requisições roda às 05:30, depois do refresh e antes das 07:40.
+        horarios = getattr(settings, 'FILA_OFICIAL_HORARIOS', {'TJPA': (5, 30)})
+        for sigla in getattr(settings, 'FILA_OFICIAL_TRIBUNAIS_AGENDADOS',
+                             ['TJAL', 'TJMT', 'TJPA']):
+            hora, minuto = horarios.get(sigla, (1, 30))
             scheduler.add_job(
                 coletar_fila_oficial.delay,
                 'cron',
                 args=[sigla],
-                hour=1,
-                minute=30,
+                hour=hora,
+                minute=minuto,
                 id=f'fila_oficial_{sigla}',
                 replace_existing=True,
                 misfire_grace_time=3600,
                 max_instances=1,
                 coalesce=True,
             )
-            logger.info('agendado fila_oficial %s (01:30)', sigla)
+            logger.info('agendado fila_oficial %s (%02d:%02d)', sigla, hora, minuto)
     else:
         logger.warning('fila oficial: agendamento DESLIGADO '
                        '(FILA_OFICIAL_SCHEDULER_ENABLED=0)')

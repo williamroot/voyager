@@ -591,3 +591,4 @@ Pendente:
 - [ ] Adaptar para TJMG/TJSP — precision real após patch de `classe_codigo`
 - [ ] [BIZ pendente] `model_admins ∩ validadores_leads` permitido? (conflito de interesse)
 - [ ] [BIZ pendente] Texto LGPD do convite revisado pelo DPO
+- **Fila oficial no TJPA (Power BI, 2026-10-24)**: como o TJMT — `pendente` → PRECATORIO 1,0; saiu da lista → NAO_LEAD 0,10 com `FILA_OFICIAL_saiu_sem_pagamento_ANTI` (`FILA_OFICIAL_REBAIXA_FORA` inclui TJPA). Novidade: a **origem de 1º grau** vinculada a um item pendente (`PrecatorioFilaOficial.processo_origem`, ver `filas_oficiais/vinculo.py`) também vira PRECATORIO (`FILA_OFICIAL_ORIGEM_TRIBUNAIS = {'TJPA'}`), com os vetos F24/F19/F30; quando o item sai, a origem se abstém (segue o fluxo normal). O 2º grau fica fora do pull (`FILA_OFICIAL_2G_PULL_LIBERADO`).
