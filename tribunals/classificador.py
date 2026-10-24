@@ -157,6 +157,9 @@ PRECATORIO_SINAL_FEATURES = {
     # TJRS: só o F31 (intimação da expedição do precatório). O F20 ali promove
     # ordem de expedição e RPV SEFAZ — ver SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL.
     'TJRS': ('F31_exp_precatorio_tjrs',),
+    # TJPA: só o F41 (o ofício foi à Coordenadoria de Precatórios). O F14/F20
+    # casam "RPV/precatório" junto — ver SINAL_PRECATORIO_TJPA_SQL.
+    'TJPA': ('F41_precatorio_coord_tjpa',),
 }
 
 # Derivado — quem só precisa saber "este tribunal tem regra de sinal?".
@@ -592,6 +595,79 @@ INSS_NOME_PARTE_RE = re.compile(r'instituto\s+nacional\s+do\s+seguro\s+social|^i
 RPV_FEDERAL_PARADA_TRIBUNAIS = {'TJMT'}
 RPV_FEDERAL_PARADA_DIAS = 540
 
+# ---------------------------------------------------------------------------
+# TJPA: o ofício foi (ou vai) para a Coordenadoria de Precatórios (F41)
+# ---------------------------------------------------------------------------
+# No TJPA o PRECATORIO era quase todo RPV e o precatório de verdade ficava em
+# PRE_PRECATORIO. O TJPA não tinha regra de sinal e quem decidia era só o LR,
+# que não separa as duas coisas: o texto das decisões cita "RPV/Precatório"
+# junto ("expeça-se RPV/precatório", "fase de expedição de RPV/precatório") e
+# o movimento TPU 12457 "Expedição de precatório/rpv" é um só para as duas.
+#
+# Verdade usada (23/10/2026): as 730 partes TJPA com valor e ofício lidas pelo
+# JURISCOPE (o formulário do TJPA diz se é precatório ou RPV), agrupadas por
+# processo: 325 processos no Voyager, 148 com ofício de precatório e 177 só
+# com RPV. Antes desta regra:
+#
+#   PRECATORIO      11 com precatório, 28 só RPV   (28% de precisão)
+#   PRE_PRECATORIO 132 com precatório, 149 só RPV
+#
+# O que separa é o DESTINO do ofício. No TJPA a RPV é paga pelo ente devedor
+# (ou pelo TRF1, na competência delegada do INSS) e não passa pela
+# Coordenadoria de Precatórios; o precatório é enviado a ela e autuado no 2º
+# grau (`08xxxxx-DD.AAAA.8.14.0000`). O DJEN de 1º grau publica isso de cinco
+# jeitos (medido nos 325, com a contagem de processos com precatório contra só RPV):
+#
+#   * o ato ordinatório da intimação do ofício "a ser(em) enviado(s) à
+#     Coordenadoria de Precatórios" (Belém e Tucuruí, entre outras), ou a ordem
+#     "encaminhem-se os ofícios requisitórios à coordenadoria de precatórios";
+#   * o ofício DEVOLVIDO pela Coordenadoria para correção ("o ofício precatório
+#     foi devolvido pela Coordenadoria de Precatórios") — o precatório existe e
+#     volta corrigido;
+#   * o próprio formulário publicado: "OFÍCIO PRECATÓRIO JUÍZO REQUISITANTE";
+#   * "ficam as partes intimadas do inteiro teor do Ofício Precatório";
+#   * o número do precatório no 2º grau citado junto de "precatório"/"CPREC".
+#   * (DataJud) a "Remessa · motivo da remessa: outros motivos" depois de uma
+#     "Expedição de precatório/rpv": a remessa dos autos à Coordenadoria. É a
+#     assinatura medida no DataJud em agosto (`.ia/integracoes/TJPA.md` do
+#     JURISCOPE).
+#
+# Juntos: 85 de 148 com precatório e 3 de 177 só RPV (96,6% de precisão). Os 3
+# são de Belém, com o ato "a ser enviado à Coordenadoria" e a parte marcada
+# RPV no JURISCOPE (R$ 9 mil a 132 mil).
+#
+# O que NÃO serve:
+#   * "Ofício(s) Precatório(s)" sozinho: a Vara Única de Anapu publica
+#     "comunica-se ... a expedição de Ofício(s) Precatório(s)" para RPV do INSS
+#     (7 dos 177 só RPV têm a expressão);
+#   * "expeça-se (o) precatório", "determino a expedição de precatório": é
+#     ordem, e no TJPA vem quase sempre como "RPV/precatório";
+#   * "Coordenadoria de Precatório" solta: o despacho-padrão das Varas da
+#     Fazenda de Belém diz "sobrevindo diligências da Coordenadoria de
+#     Precatório..." também na RPV;
+#   * veto por "cancelamento do ofício precatório" ou "renúncia ao excedente"
+#     depois do sinal: 4 de 148 com precatório e 0 de 177 só RPV. É o
+#     precatório dos HONORÁRIOS cancelado para virar RPV, com o do principal
+#     seguindo (0020647-97.2015.8.14.0301 está na fila oficial).
+_COORDENADORIA_PRECATORIOS_TJPA = r'(coordenadoria\s+de\s+precat\w*|\mcprec\M)'
+SINAL_PRECATORIO_TJPA_SQL = (
+    r'(enviad|remetid|encaminh|remessa)\w*[^.]{0,80}' + _COORDENADORIA_PRECATORIOS_TJPA
+    + r'|(devolvid|restitu[íi]d|devolu[çc][ãa]o)\w*[^.]{0,80}' + _COORDENADORIA_PRECATORIOS_TJPA
+    + r'|of[íi]cio\s+precat[óo]rio\s+ju[íi]zo\s+requisitante'
+    + r'|teor\s+do\s+of[íi]cio\s+precat[óo]rio'
+    + r'|(precat[óo]rio|' + _COORDENADORIA_PRECATORIOS_TJPA + r').{0,60}'
+    + r'\d{7}-\d{2}\.\d{4}\.8\.14\.0000'
+)
+# Movimento do DataJud gravado como movimentação: tipo 'Remessa', texto
+# "Remessa · motivo da remessa: outros motivos".
+TIPO_REMESSA = 'Remessa'
+REMESSA_OUTROS_MOTIVOS_SQL = r'motivo\s+da\s+remessa\W{0,5}outros\s+motivos'
+SINAL_COORDENADORIA_TRIBUNAIS = {'TJPA'}
+
+# Tribunais em que PRECATORIO exige a regra de sinal: o LR sozinho para em
+# PRE_PRECATORIO (no TJPA ele promovia RPV). Mesmo score de teto do TJRS.
+TETO_PRE_SEM_SINAL_TRIBUNAIS = {'TJPA'}
+
 # Os padrões de cada feature moram em constantes porque têm DOIS leitores que
 # não podem divergir: o `_MOVS_AGG_SQL` abaixo (o classificador) e a consulta
 # em lote de sinais (`tribunals/sinais_expedicao.py`, endpoint
@@ -682,6 +758,14 @@ _MOVS_AGG_SQL = """
                  THEN data_disponibilizacao END) AS satisf_max_dt,
         COALESCE(BOOL_OR(tribunal_id IN __TRIBS_F40__ AND texto ~* '__INSS_F40__'),
                  FALSE) AS inss_passivo_txt,
+        -- TJPA: o ofício foi à Coordenadoria de Precatórios (F41).
+        COALESCE(SUM(CASE WHEN tribunal_id IN __TRIBS_F41__ AND texto ~* '__SINAL_F41__'
+                          THEN 1 ELSE 0 END), 0) AS f41_n,
+        MAX(CASE WHEN tribunal_id IN __TRIBS_F41__ AND tipo_comunicacao = '__TIPO_REMESSA__'
+                      AND texto ~* '__REMESSA_F41__'
+                 THEN data_disponibilizacao END) AS remessa_f41_dt,
+        MIN(CASE WHEN tribunal_id IN __TRIBS_F41__ AND tipo_comunicacao IN __TIPOS_F2__
+                 THEN data_disponibilizacao END) AS exped_tc_min_dt,
         MAX(data_disponibilizacao) AS ult_mov_dt
     FROM tribunals_movimentacao
     WHERE processo_id = %s
@@ -704,7 +788,11 @@ _MOVS_AGG_SQL = """
  .replace('__SATISF_F39__', EXTINCAO_SATISFEITA_SQL) \
  .replace('__VETO_F39__', EXTINCAO_SATISFEITA_VETO_SQL) \
  .replace('__TRIBS_F40__', _sql_in(tuple(sorted(RPV_FEDERAL_PARADA_TRIBUNAIS)))) \
- .replace('__INSS_F40__', INSS_PASSIVO_SQL)
+ .replace('__INSS_F40__', INSS_PASSIVO_SQL) \
+ .replace('__TRIBS_F41__', _sql_in(tuple(sorted(SINAL_COORDENADORIA_TRIBUNAIS)))) \
+ .replace('__SINAL_F41__', SINAL_PRECATORIO_TJPA_SQL) \
+ .replace('__TIPO_REMESSA__', TIPO_REMESSA) \
+ .replace('__REMESSA_F41__', REMESSA_OUTROS_MOTIVOS_SQL)
 
 # Thresholds (revisáveis com base em produção)
 THRESHOLD_PRECATORIO = 0.70
@@ -1082,6 +1170,15 @@ def f40_rpv_federal_parada(inss_passivo: bool, ult_mov_dt, agora) -> int:
     return int((agora - ult_mov_dt).days > RPV_FEDERAL_PARADA_DIAS)
 
 
+def f41_precatorio_coord(sinal_n, remessa_dt, exped_tc_min_dt) -> int:
+    """TJPA: texto de envio/devolução à Coordenadoria de Precatórios, ou a
+    remessa "outros motivos" do DataJud depois de uma expedição (TPU 12457)."""
+    if sinal_n:
+        return 1
+    return int(remessa_dt is not None and exped_tc_min_dt is not None
+               and remessa_dt >= exped_tc_min_dt)
+
+
 def _inss_no_polo_passivo(processo_id: int) -> bool:
     """INSS no cadastro de partes (polo passivo). Complementa o cabeçalho da
     publicação (`INSS_PASSIVO_SQL`) quando o DJEN não traz "EXECUTADO: ..."."""
@@ -1115,7 +1212,8 @@ def compute_features(processo) -> dict:
     (total_movs, distinct_tipos, f2_n, f7_n, f11_n, f12_n,
      f13_n, f14_n, f19_n, f20_n, f31_n, f33_n, f31_max_dt, f33_max_dt, f32_max_dt,
      minuta_trf3_dt, envio_trf3_dt, pago_trf3_dt, cancel_trf3_dt, pago_max_dt,
-     exped_max_dt, extneg_max_dt, satisf_max_dt, inss_passivo_txt, ult_mov_dt) = row
+     exped_max_dt, extneg_max_dt, satisf_max_dt, inss_passivo_txt,
+     f41_n, remessa_f41_dt, exped_tc_min_dt, ult_mov_dt) = row
 
     if not total_movs:
         return _empty_features(ano, f1, f10)
@@ -1192,6 +1290,9 @@ def compute_features(processo) -> dict:
         # expedição; RPV federal (INSS) com o DJEN parado.
         'F39_extinto_satisfeito_ANTI': f39_extinto_satisfeito(satisf_max_dt, exped_max_dt),
         'F40_rpv_federal_parada_ANTI': f40,
+        # TJPA (peso LR 0: regra). O ofício foi à Coordenadoria de Precatórios.
+        'F41_precatorio_coord_tjpa': f41_precatorio_coord(
+            f41_n, remessa_f41_dt, exped_tc_min_dt),
     }
 
 
@@ -1214,6 +1315,7 @@ def _empty_features(ano: int, f1: int, f10: int) -> dict:
         'F35_minuta_janela_trf3': 0, 'F36_minuta_espera_trf3': 0,
         'F37_exped_vencida_trf3': 0, 'F38_pago_trf3': 0,
         'F39_extinto_satisfeito_ANTI': 0, 'F40_rpv_federal_parada_ANTI': 0,
+        'F41_precatorio_coord_tjpa': 0,
     }
 
 
@@ -1429,6 +1531,13 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     # Vem DEPOIS dos rebaixamentos (F32/F30 continuam mandando a NAO_LEAD).
     if processo.tribunal_id in TETO_PRE_SEM_ENVIO_TRIBUNAIS:
         cat, score = _teto_pre_sem_envio(cat, score, features)
+
+    # Teto do TJPA: PRECATORIO só pela regra de sinal (F41, que já retornou lá
+    # em cima). O LR sozinho promovia RPV: 28 dos 39 PRECATORIO com ofício lido
+    # pelo JURISCOPE eram só RPV (ver SINAL_PRECATORIO_TJPA_SQL).
+    if (processo.tribunal_id in TETO_PRE_SEM_SINAL_TRIBUNAIS
+            and cat == Process.CLASSIF_PRECATORIO):
+        cat, score = Process.CLASSIF_PRE_PRECATORIO, min(score, SCORE_TETO_PRE_SEM_ENVIO)
 
     # TRF3: a janela da minuta decide o nível (ver MINUTA_TRF3_SQL). Vem antes
     # do F30 de propósito: o F30 mede a extinção contra o F20, que não casa a
