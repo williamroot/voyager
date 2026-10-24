@@ -53,7 +53,9 @@ from .classificador import (
     PAGAMENTO_SQL,
     PRECATORIO_SINAL_FEATURES,
     SATISFACAO_SINAL_TRIBUNAIS,
+    SINAL_COORDENADORIA_TRIBUNAIS,
     SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL,
+    SINAL_PRECATORIO_TJPA_SQL,
     TIPOS_F2_EXPEDICAO,
     TIPOS_F7_ENVIO,
     VETO_CONVERSAO_RPV_TJRS_SQL,
@@ -478,3 +480,273 @@ def calcular_sinais(
         'nao_processados': nao_processados,
         'completo': not nao_processados,
     }
+
+
+# ===========================================================================
+# Contrato do vigia (F1): `{"itens": [{"cnj", "desde"}]}` → `{"sinais": [...]}`
+# ===========================================================================
+# A pergunta do vigia é mais estreita que a de `calcular_sinais`: "DEPOIS do
+# meu download (`desde`, por CNJ), saiu publicação que diz que o ofício foi
+# expedido?". Por isso a leitura entra no índice `(processo_id,
+# data_disponibilizacao DESC)` já com o recorte `> desde` — só as publicações
+# novas passam pela regex, não o histórico inteiro do processo.
+#
+# Sinais: os mesmos de `sinais_do_tribunal` (F2/F7/F20; TJRS só F31) e, no
+# TJPA, também o F41 (texto de envio/devolução à Coordenadoria de Precatórios).
+# RPV conta: o vigia procura ofício requisitório de qualquer tipo.
+#
+# `pago` é o F24 recortado na janela: há marcador de pagamento (`PAGAMENTO_SQL`)
+# depois de `desde` e ele é posterior (ou igual) ao último sinal de expedição
+# da janela — ou não há sinal na janela. Mesma função `f24_pago_pos_exped`; a
+# diferença para o classificador é a referência de expedição, que aqui é
+# qualquer sinal válido do tribunal (não só o F20) e só dentro da janela.
+
+LIMITE_ITENS_VIGIA = 500
+
+F41 = 'F41_precatorio_coord_tjpa'
+SINAIS_EXTRA_VIGIA = {'TJPA': (F41,)}
+
+_ORDEM_SINAIS_VIGIA = (F2, F7, F20, F31, F41)
+_COLUNA_VIGIA = {**_COLUNA, F41: 'f41'}
+
+TIPO_OFICIO = 'oficio'
+TIPO_PRECATORIO = 'precatorio'
+TIPO_RPV = 'rpv'
+TIPO_ALVARA_PAGO = 'alvara_pago'
+
+
+def sinais_vigia_do_tribunal(tribunal_id: str) -> tuple[str, ...]:
+    return sinais_do_tribunal(tribunal_id) + SINAIS_EXTRA_VIGIA.get(tribunal_id, ())
+
+
+# Uma linha por processo que tenha publicação na janela. O `LATERAL` força a
+# entrada pelo índice com o recorte de data de cada processo.
+_VIGIA_SQL = """
+    WITH alvo AS (
+        SELECT * FROM unnest(%(pids)s::bigint[], %(desdes)s::timestamptz[]) AS a(pid, desde)
+    ),
+    m AS MATERIALIZED (
+        SELECT a.pid AS processo_id, mv.id, mv.data_disponibilizacao AS dt,
+               mv.tipo_comunicacao AS tc,
+               mv.tipo_comunicacao IN __TIPOS_F2__ AS f2,
+               mv.tipo_comunicacao IN __TIPOS_F7__ AS f7,
+               mv.texto ~* %(f20)s AS f20,
+               (mv.tribunal_id = 'TJRS' AND mv.texto ~* %(f31)s) AS f31,
+               (mv.tribunal_id = ANY(%(tribs_f41)s) AND mv.texto ~* %(f41)s) AS f41,
+               mv.texto ~* %(pago)s AS pago
+        FROM alvo a
+        CROSS JOIN LATERAL (
+            SELECT id, data_disponibilizacao, tribunal_id, tipo_comunicacao, texto
+            FROM tribunals_movimentacao
+            WHERE processo_id = a.pid AND data_disponibilizacao > a.desde
+        ) mv
+    )
+    SELECT processo_id,
+           COUNT(*) AS publicacoes,
+           MAX(dt) FILTER (WHERE pago) AS pago_dt,
+           COALESCE(json_agg(json_build_object(
+               'id', id, 'dt', dt, 'tc', tc,
+               'f2', f2, 'f7', f7, 'f20', f20, 'f31', f31, 'f41', f41)
+           ) FILTER (WHERE f2 OR f7 OR f20 OR f31 OR f41), '[]') AS candidatos
+    FROM m
+    GROUP BY processo_id
+""".replace('__TIPOS_F2__', _sql_in(TIPOS_F2_EXPEDICAO)).replace('__TIPOS_F7__', _sql_in(TIPOS_F7_ENVIO))
+
+_PARAMS_VIGIA = {
+    'f20': F20_EXPEDICAO_SQL,
+    'f31': SINAL_EXPEDICAO_PRECATORIO_TJRS_SQL,
+    'f41': SINAL_PRECATORIO_TJPA_SQL,
+    'tribs_f41': sorted(SINAL_COORDENADORIA_TRIBUNAIS),
+    'pago': PAGAMENTO_SQL,
+}
+
+# O trecho do F20 que casou diz o tipo ("precatório expedido", "rpv expedida",
+# "ofício requisitório expedido"). Lido por pk, só das movimentações escolhidas.
+_CASAMENTO_F20_SQL = """
+    SELECT id, regexp_substr(texto, %(re)s, 1, 1, 'i')
+    FROM tribunals_movimentacao
+    WHERE id = ANY(%(ids)s)
+"""
+
+_RE_TIPO_RPV = re.compile(r'rpv|pequeno\s+valor', re.I)
+_RE_TIPO_PRECATORIO = re.compile(r'precat[óo]rio', re.I)
+
+
+def tipo_do_texto(texto: str | None) -> str:
+    """precatorio / rpv quando o texto diz um só; senão `oficio` (não chuta)."""
+    texto = texto or ''
+    rpv = bool(_RE_TIPO_RPV.search(texto))
+    precat = bool(_RE_TIPO_PRECATORIO.search(texto))
+    if precat and not rpv:
+        return TIPO_PRECATORIO
+    if rpv and not precat:
+        return TIPO_RPV
+    return TIPO_OFICIO
+
+
+def _tipo_do_sinal(feat: str, cand: dict, casamento_f20: str | None) -> str:
+    if feat in (F31, F41):
+        return TIPO_PRECATORIO
+    if feat == F20:
+        return tipo_do_texto(casamento_f20)
+    if feat == F2:
+        # 'Precatório' é inequívoco; 'Expedição de precatório/rpv' é um só
+        # movimento TPU para os dois.
+        return tipo_do_texto(cand.get('tc'))
+    return TIPO_OFICIO  # F7: "Enviada ao Tribunal" não diz qual requisição
+
+
+def _escolher_sinal_vigia(tribunal_id: str, candidatos: list[dict]) -> tuple[dict, str] | None:
+    validos = sinais_vigia_do_tribunal(tribunal_id)
+    melhor = None
+    for c in candidatos:
+        casados = [f for f in _ORDEM_SINAIS_VIGIA if f in validos and c[_COLUNA_VIGIA[f]]]
+        if not casados:
+            continue
+        chave = (c['dt'], c['id'])
+        if melhor is None or chave > melhor[0]:
+            melhor = (chave, c, casados[0])
+    if melhor is None:
+        return None
+    return melhor[1], melhor[2]
+
+
+def _casamentos_f20(ids: list[int]) -> dict[int, str]:
+    if not ids:
+        return {}
+    with connection.cursor() as cur:
+        cur.execute(_CASAMENTO_F20_SQL, {'re': F20_EXPEDICAO_SQL, 'ids': ids})
+        return dict(cur.fetchall())
+
+
+def _item_vazio(cnj: str) -> dict:
+    return {
+        'cnj': cnj, 'tribunal': None, 'conhecido': False, 'publicacoes_desde': 0,
+        'sinal_expedicao': False, 'ultimo_sinal_em': None, 'tipo': None,
+        'classificacao': None, 'pago': False,
+    }
+
+
+def _normalizar_itens(itens) -> tuple[dict[str, datetime], list[str]]:
+    """{cnj mascarado: desde} (o mais antigo, se repetido) e os inválidos."""
+    invalidos, desde_por_cnj = [], {}
+    for bruto, desde in itens:
+        cnj = normalizar_cnj(bruto)
+        if cnj is None:
+            invalidos.append(str(bruto))
+            continue
+        atual = desde_por_cnj.get(cnj)
+        desde_por_cnj[cnj] = desde if atual is None else min(atual, desde)
+    return desde_por_cnj, invalidos
+
+
+def _ler_janela(cur, processos: list[dict], desde_por_cnj: dict[str, datetime]) -> list[dict]:
+    cur.execute(_VIGIA_SQL, {
+        **_PARAMS_VIGIA,
+        'pids': [p['id'] for p in processos],
+        'desdes': [desde_por_cnj[p['numero_cnj']] for p in processos],
+    })
+    cols = [c[0] for c in cur.description]
+    linhas = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+    for linha in linhas:
+        for c in linha['candidatos']:
+            c['dt'] = datetime.fromisoformat(c['dt'])
+    return linhas
+
+
+def _ler_janela_em_thread(processos, desde_por_cnj, teto_s: float | None) -> list[dict]:
+    """Fatia lida numa thread: conexão e transação próprias, fechada no fim."""
+    try:
+        with transaction.atomic(), connection.cursor() as cur:
+            if teto_s:
+                cur.execute('SET LOCAL statement_timeout = %s', [int(teto_s * 1000)])
+            _desligar_jit(cur)
+            return _ler_janela(cur, processos, desde_por_cnj)
+    finally:
+        connection.close()
+
+
+def _ler_janelas(processos: list[dict], desde_por_cnj: dict[str, datetime],
+                 teto_s: float | None, paralelismo: int) -> dict[int, dict]:
+    """{processo_id: linha} das publicações na janela de cada processo.
+
+    O custo é ler o `texto` (TOAST, frio em disco) e passar a regex nele — medido
+    em prod (24/10/2026, TJSP): 13 mil publicações / 17 MB num lote de 500 levam
+    2,2 s quente e até 16 s frio numa conexão só. Com `paralelismo` > 1 as
+    fatias vão em threads, cada uma com `statement_timeout` = `teto_s`.
+    """
+    if not processos:
+        return {}
+    if paralelismo <= 1 or len(processos) == 1:
+        with connection.cursor() as cur:
+            _desligar_jit(cur)
+            linhas = _ler_janela(cur, processos, desde_por_cnj)
+    else:
+        n = -(-len(processos) // paralelismo)
+        fatias = [processos[i:i + n] for i in range(0, len(processos), n)]
+        with ThreadPoolExecutor(max_workers=len(fatias)) as pool:
+            futuros = [pool.submit(_ler_janela_em_thread, f, desde_por_cnj, teto_s) for f in fatias]
+            linhas = [linha for fut in futuros for linha in fut.result()]
+    return {linha['processo_id']: linha for linha in linhas}
+
+
+def _linha_vigia(p: dict, linha: dict, escolha, casamentos: dict[int, str]) -> dict:
+    sinal_dt = escolha[0]['dt'] if escolha else None
+    pago_dt = linha.get('pago_dt')
+    pago = bool(f24_pago_pos_exped(pago_dt, sinal_dt))
+    if pago:
+        tipo, ultimo = TIPO_ALVARA_PAGO, pago_dt
+    elif escolha:
+        cand, feat = escolha
+        tipo, ultimo = _tipo_do_sinal(feat, cand, casamentos.get(cand['id'])), sinal_dt
+    else:
+        tipo, ultimo = None, None
+    return {
+        'cnj': p['numero_cnj'],
+        'tribunal': p['tribunal_id'],
+        'conhecido': True,
+        'publicacoes_desde': linha.get('publicacoes') or 0,
+        'sinal_expedicao': escolha is not None,
+        'ultimo_sinal_em': _iso(ultimo),
+        'tipo': tipo,
+        'classificacao': p['classificacao'],
+        'pago': pago,
+    }
+
+
+def calcular_sinais_vigia(itens: list[tuple[str, datetime]], teto_s: float | None = None,
+                          paralelismo: int = 1) -> dict:
+    """Sinais de expedição POSTERIORES a `desde`, por CNJ.
+
+    `itens`: [(cnj, desde aware)]. CNJ inválido vai para `invalidos`; CNJ
+    repetido usa o `desde` mais antigo. Um CNJ em dois tribunais (TRF1/TRF6)
+    gera uma linha por processo; CNJ desconhecido, uma linha `conhecido=false`.
+    Com `paralelismo` 1 roda na conexão (e na transação) de quem chama — o
+    teto é dela; com mais, as fatias vão em threads com `teto_s` cada.
+    """
+    desde_por_cnj, invalidos = _normalizar_itens(itens)
+    if len(desde_por_cnj) > LIMITE_ITENS_VIGIA:
+        raise ValueError(f'mais de {LIMITE_ITENS_VIGIA} CNJs')
+
+    processos = list(
+        Process.objects.filter(numero_cnj__in=list(desde_por_cnj))
+        .order_by('numero_cnj', 'tribunal_id')
+        .values('id', 'numero_cnj', 'tribunal_id', 'classificacao')
+    )
+    agg = _ler_janelas(processos, desde_por_cnj, teto_s, paralelismo)
+    escolhas = {}
+    for p in processos:
+        if p['id'] in agg:
+            escolha = _escolher_sinal_vigia(p['tribunal_id'], agg[p['id']]['candidatos'])
+            if escolha:
+                escolhas[p['id']] = escolha
+    casamentos = _casamentos_f20([c['id'] for c, feat in escolhas.values() if feat == F20])
+
+    por_cnj: dict[str, list[dict]] = {}
+    for p in processos:
+        por_cnj.setdefault(p['numero_cnj'], []).append(
+            _linha_vigia(p, agg.get(p['id']) or {}, escolhas.get(p['id']), casamentos))
+    sinais = []
+    for cnj in desde_por_cnj:
+        sinais.extend(por_cnj.get(cnj) or [_item_vazio(cnj)])
+    return {'sinais': sinais, 'invalidos': invalidos}
