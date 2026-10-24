@@ -1235,8 +1235,13 @@ class PrecatorioFilaOficial(models.Model):
     id_externo = models.CharField(max_length=32, blank=True)
     valor_original = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     valor_atualizado = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    #: Quanto a fonte diz que já foi pago (TJMT/SRP: coluna "Valor Pago").
+    #: Saldo = valor_original - valor_pago; NULL = a fonte não informa.
+    valor_pago = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     ano_orcamento = models.PositiveSmallIntegerField(null=True, blank=True)
     natureza = models.CharField(max_length=16, blank=True)
+    #: Preferência constitucional (Idade / Doença Grave / Deficiência) — TJMT/SRP.
+    preferencia = models.CharField(max_length=32, blank=True)
     ordem = models.PositiveIntegerField(null=True, blank=True)
     regime = models.CharField(max_length=16, blank=True)
     #: requisições da fonte somadas nesta chave (o SAPRE lista o precatório
@@ -1245,6 +1250,11 @@ class PrecatorioFilaOficial(models.Model):
     primeira_vez_em = models.DateTimeField()
     #: última coleta em que a fonte listou o item.
     visto_em = models.DateTimeField()
+    #: Quando o pendente saiu da fila (`fora_da_fila`) e por quê. A saída é
+    #: ANOTADA, nunca apagada: nem o registro nem o processo somem. NULL/'' =
+    #: está na fila (ou voltou a ela).
+    saiu_em = models.DateTimeField(null=True, blank=True)
+    motivo_saida = models.CharField(max_length=500, blank=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
     class Meta:

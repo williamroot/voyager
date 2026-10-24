@@ -111,6 +111,29 @@ Documentação completa + casos de uso: ver [`CLASSIFICACAO.md`](CLASSIFICACAO.m
 
 ### `GET /api/v1/leads/?nivel=PRECATORIO&tribunal=TRF1&limit=5000&min_score=0`
 
+> **Trava TJMT 2º grau (`TJMT_PRECATORIO_2G_NO_PULL`, padrão `False`).** Com a
+> setting desligada, o pedido com `tribunal=TJMT` (ou sem tribunal) NÃO devolve
+> o processo que a fila oficial do TJMT (SRP) conhece
+> (`PrecatorioFilaOficial` TJMT, chave `.8.11.0000`): o JURISCOPE ainda não lê o
+> PJe 2º grau do TJMT e gastaria a cota (30 consultas/conta/dia) tentando o 1º
+> grau. Vale para a consulta ao vivo (`leads_cache.montar_queryset`) e para o
+> cache pré-calculado (`servir_do_cache` refiltra). O processo continua
+> PRECATORIO em `leads/stats/`, tela e gate. Ligar: env
+> `TJMT_PRECATORIO_2G_NO_PULL=1` + restart do `web` (o cache sem eles se refaz
+> no pré-cálculo das 07:40 ou com `precomputar_leads_cache`).
+>
+> **Generalizada por tribunal (24/10/2026): `FILA_OFICIAL_2G_PULL_LIBERADO`**
+> (env, lista de siglas, padrão vazio). Todo tribunal em
+> `leads_cache.SUFIXO_PRECATORIO_2G` (hoje TJMT `.8.11.0000` e TJPA
+> `.8.14.0000`) fica com o 2º grau da fila oficial FORA do pull até a sigla
+> entrar na lista — o padrão vazio não serve o 2º grau de nenhuma fila oficial.
+> `TJMT_PRECATORIO_2G_NO_PULL=1` continua valendo como "TJMT liberado". Pedido
+> com `tribunal=X` só aplica a trava de X; sem tribunal, aplica todas. A origem
+> de 1º grau promovida pela fila (TJPA, `processo_origem`) NÃO é travada: é onde
+> o JURISCOPE lê o ofício. Ligar o TJPA: `FILA_OFICIAL_2G_PULL_LIBERADO=TJPA`
+> + restart do `web` — só quando houver leitor do PJe 2º grau do TJPA
+> (`pje-tjpa-2g`; as contas de mineração não logam lá).
+
 Retorna processos classificados não-consumidos pelo cliente. Exclui `LeadConsumption` do cliente com `NOT IN` (o plano real é um *hashed SubPlan* sobre `(cliente_id, processo_id)` — 969 mil consumos do `falcon` em 13/10/2026, ~0,2 s quente). O caro não é montar o conjunto: é caminhar o índice por cima dos consumidos (ver cache abaixo).
 
 **Ordenação**: `(-ultima_movimentacao_em, -classificacao_score, -id)` — mais recentes primeiro, score como tiebreaker. Vale pra todos os tribunais. Motivação: pra precatórios, a expedição de ofício mais recente implica ordem orçamentária mais distante (CF art. 100 §5º — expedição após 02/abril vai pro orçamento de ano+2), então recência da última mov é o sinal operacional mais útil pro consumidor.

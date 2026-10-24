@@ -54,7 +54,7 @@ from django.utils import timezone
 from django_rq import job
 
 from tribunals.classificador import CLASSES_FAZENDA_PUBLICA
-from tribunals.models import ApiClient, LeadConsumption, Process
+from tribunals.models import ApiClient, LeadConsumption, PrecatorioFilaOficial, Process
 
 logger = logging.getLogger('voyager.api.leads_cache')
 
@@ -113,6 +113,57 @@ def _sementes() -> list[str]:
 # ---------------------------------------------------------------------------
 # A consulta (uma só, usada pelo ao vivo e pelo pré-cálculo)
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Trava do precatório de 2º grau das filas oficiais (TJMT, TJPA)
+# ---------------------------------------------------------------------------
+# O JURISCOPE não lê o PJe de 2º grau do TJMT nem o do TJPA (as contas de
+# mineração não têm cadastro lá: SSO "usuário ou senha inválido" no client
+# `pje-tjmt-2g`/`pje-tjpa-2g`, medido em 23/10/2026). O precatório de 2º grau
+# que a fila oficial promove a PRECATORIO continua PRECATORIO (contagem, tela,
+# stats e gate o veem) e só NÃO sai no pull — senão queimaria a cota de
+# consulta do tribunal tentando um processo que o leitor não abre.
+#
+# Uma lista, por tribunal: `FILA_OFICIAL_2G_PULL_LIBERADO` (padrão vazio = não
+# serve o 2º grau de nenhuma fila oficial). Tribunal com fila oficial de 2º grau
+# entra em `SUFIXO_PRECATORIO_2G` já travado; liberar = pôr a sigla na lista
+# quando o JURISCOPE tiver o leitor. `TJMT_PRECATORIO_2G_NO_PULL=True` continua
+# valendo como "TJMT liberado" (compatibilidade com a flag do PR do TJMT).
+#: Sufixo do CNJ do precatório autuado no PJe 2º grau (foro 0000) por tribunal.
+SUFIXO_PRECATORIO_2G = {'TJMT': '.8.11.0000', 'TJPA': '.8.14.0000'}
+SUFIXO_TJMT_2G = SUFIXO_PRECATORIO_2G['TJMT']
+
+
+def tribunais_2g_liberados() -> set[str]:
+    lib = {str(t).strip().upper() for t in
+           getattr(settings, 'FILA_OFICIAL_2G_PULL_LIBERADO', []) or [] if str(t).strip()}
+    if getattr(settings, 'TJMT_PRECATORIO_2G_NO_PULL', False):
+        lib.add('TJMT')
+    return lib
+
+
+def tribunais_2g_travados(tribunal: str) -> list[str]:
+    """Tribunais cujo 2º grau da fila oficial fica fora DESTE pedido: todos os
+    travados para `tribunal` vazio; só ele (se travado) para um tribunal."""
+    liberados = tribunais_2g_liberados()
+    trav = [t for t in SUFIXO_PRECATORIO_2G if t not in liberados]
+    return [t for t in trav if t == tribunal] if tribunal else trav
+
+
+def trava_tjmt_2g_ativa(tribunal: str) -> bool:
+    """Compatibilidade: a trava do TJMT vale para o pedido?"""
+    return 'TJMT' in tribunais_2g_travados(tribunal)
+
+
+def _ids_2g_da_fila(travados: list[str]):
+    """Processos de 2º grau que a fila oficial dos tribunais travados conhece.
+    Subconsulta pelo índice de `tribunal_id`."""
+    q = Q()
+    for t in travados:
+        q |= Q(tribunal_id=t, chave__endswith=SUFIXO_PRECATORIO_2G[t])
+    return (PrecatorioFilaOficial.objects.filter(q, processo__isnull=False)
+            .values('processo_id'))
+
+
 def montar_queryset(cliente_id: int, nivel: str, tribunal: str, min_score: float,
                     devedor_publico: bool, incluir_consumidos: bool = False):
     """O recorte da listagem. Ao vivo e pré-cálculo TÊM de usar este, senão o
@@ -136,6 +187,12 @@ def montar_queryset(cliente_id: int, nivel: str, tribunal: str, min_score: float
         consumidos = LeadConsumption.objects.filter(
             cliente_id=cliente_id).values('processo_id')
         qs = qs.exclude(pk__in=consumidos)
+    travados = tribunais_2g_travados(tribunal)
+    if travados:
+        # O JURISCOPE não lê o PJe 2º grau destes tribunais: entregar estes
+        # processos queimaria a cota de consulta. Continuam PRECATORIO
+        # (contagem, tela, stats e gate os veem); só não saem no pull.
+        qs = qs.exclude(pk__in=_ids_2g_da_fila(travados))
     return qs
 
 
@@ -281,6 +338,12 @@ def servir_do_cache(cliente_id: int, nivel: str, tribunal: str, min_score: float
             LeadConsumption.objects.filter(cliente_id=cliente_id, processo_id__in=ids)
             .values_list('processo_id', flat=True)) if ids else set()
         restantes = [i for i in ids if i not in consumidos]
+        trav_2g = tribunais_2g_travados(tribunal)
+        if trav_2g and restantes:
+            # Cache calculado com a trava aberta não fura a trava fechada.
+            travados = set(_ids_2g_da_fila(trav_2g).filter(processo_id__in=restantes)
+                           .values_list('processo_id', flat=True))
+            restantes = [i for i in restantes if i not in travados]
         linhas: list = []
         reclassificados = 0
         # Busca em fatias na ordem do cache: um `limit` pequeno não precisa

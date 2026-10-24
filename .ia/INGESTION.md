@@ -1045,6 +1045,99 @@ manage.py fila_oficial_coletar --tribunal TJAL --executar --retomar  # continua 
 ```
 
 Kill switch do cron: `FILA_OFICIAL_SCHEDULER_ENABLED=0` (restart do scheduler).
+Tribunais no cron: `FILA_OFICIAL_TRIBUNAIS_AGENDADOS` (padrão `TJAL,TJMT`).
+
+### TJMT — SRP (`filas_oficiais/fontes/tjmt.py`)
+
+**Por quê.** Medido em 23/10/2026: a fila oficial do TJMT tem 17.885
+precatórios (todos `NNNNNNN-DD.AAAA.8.11.0000`, PJe 2º grau, classe 1265). O
+Voyager conhecia 15.426, **todos NAO_LEAD** (o DJEN do precatório é "Processo
+sigiloso": o LR dá 0,02–0,22 e nenhuma regra de texto dispara), e os outros
+2.414 pendentes **nunca publicaram** no DJEN (0 de 309 na amostra). O buraco do
+TJMT é de classificação e de descoberta ao mesmo tempo.
+
+```
+GET https://hellsgate.tjmt.jus.br/precatorios-cms/srp/orgaos-devedores        (JSON, 242 entes)
+GET https://hellsgate.tjmt.jus.br/precatorios-cms/srp/requisicao-precatorio/<id> (PDF por ente)
+  └─ ColetorTjmt.iterar()  — um GRUPO PAGADOR por vez (`idOrgaoPagador`; 215 grupos)
+       ├─ PDF lido com PyMuPDF por coordenadas (cabeçalho só na 1ª página)
+       ├─ parcelas do mesmo CNJ no mesmo relatório SOMADAS (superpreferência)
+       ├─ CNJ deduplicado no grupo (o relatório do pagador manda)
+       └─ pendente = situação de fila E saldo > 0
+  └─ descoberta.gravar_entidade()
+       ├─ pendente ausente → Process direto: classe 1265, grau G2 (`tjmt_2g`)
+       └─ entidade completa → pendente ausente vira `fora_da_fila` (anotado)
+  └─ coleta inteira completa e nada pulado → varredura do tribunal
+       (pendente que NENHUM ente listou: ente que sumiu ou mudou de nome)
+```
+
+| regra | por quê (medido em 23/10/2026, 242 relatórios, 87.176 linhas) |
+|---|---|
+| Grupo = pagador (`idOrgaoPagador` ou o próprio ente) | as 8 autarquias estaduais devolvem a lista do Estado, Cuiabá-Prev/SANECAP/FUNED/LIMPURB a de Cuiabá etc.; agrupado pelo pagador, **0** CNJs aparecem em dois grupos |
+| Parcelas do mesmo CNJ no mesmo relatório somam | os **375 CNJs "divergentes"** eram 975 pares (relatório, CNJ) com 2 linhas: a parcela superpreferencial (valor = `valorSuperpreferenciaCalculoPagamento` do ente: Estado 118.845,00, INSS 254.160,00, Cuiabá 38.930,10, Sinop 23.358,06) e o restante. Somadas, os relatórios do mesmo grupo concordam em 100%. Divergência que sobrar entre relatórios do grupo é falha do run (o do pagador vale) |
+| Pendente exige saldo > 0 | "Provisionado" vem R$ 0,00 / R$ 0,00 (550 CNJs); 197 "Pagamento Preferencial"/"Pago parcialmente" têm pago > requisitado (correção). Esses ficam `outro` |
+| Situação desconhecida → `outro` + falha no run | abster > chutar; o vocabulário medido está em `SITUACOES_FILA` |
+| Parser estrito | ordem 1..N contínua por PDF, senão o grupo fica incompleto (nada sai da fila por ele). Conferido contra o `pdftotext -layout` da investigação: 87.174 linhas, **0** divergências de CNJ/valor/exercício/natureza; o PyMuPDF ainda recupera 2 linhas do INSS sem data de envio que o regex antigo perdia |
+| Lista de entes truncada (`totalElements` ≠ itens) | erro do run, nada é coletado (regra nº 2) |
+| Uma requisição por vez, pausa ≥ 1 s | `FILA_OFICIAL_TJMT_PAUSA` (1,5 s); 243 requisições ≈ 11 min; `FILA_OFICIAL_TJMT_TIMEOUT` 300 s (o PDF do Estado tem 2 MB e leva ~13 s) |
+
+O PDF **não traz credor, CPF nem processo de origem** — nada de LGPD a
+descartar, e também nada para o JURISCOPE ler sem os autos do PJe 2º grau.
+Por isso a trava do pull (`TJMT_PRECATORIO_2G_NO_PULL`, ver `API.md`): os
+promovidos ficam PRECATORIO e contados, mas não são entregues até o JURISCOPE
+ler o 2º grau.
+
+```bash
+manage.py fila_oficial_coletar --tribunal TJMT                         # DRY-RUN: só mede
+manage.py fila_oficial_coletar --tribunal TJMT --entidade 51 --saida /tmp/estado.jsonl
+manage.py fila_oficial_coletar --tribunal TJMT --executar              # backfill / sob demanda
+```
+
+### TJPA — Power BI da Coordenadoria (`filas_oficiais/fontes/tjpa.py`)
+
+A lista cronológica do TJPA (`tjpa.jus.br/.../1401291-lista-cronologica.xhtml`)
+é um Power BI "publicar na web". A API pública dele (`wabi-brazil-south-api.
+analysis.windows.net/public/reports`, header `X-PowerBI-ResourceKey`) devolve a
+tabela crua do modelo sem login: `modelsAndExploration` (modelo, último
+refresh) → `conceptualschema` (colunas) → `querydata` da lista
+(`BI_PREC_LISTAORDEMCRONOLOGICA`) → `querydata` das superpreferências. São 4
+requisições (~120 KB comprimidos). Em 24/10/2026: 3.771 linhas, 3.757
+processos `08xxxxx-DD.AAAA.8.14.0000` (PJe 2º grau), 127 entes, R$ 1,13 bi;
+**sem credor, CPF ou origem**.
+
+- **Por que é porta de descoberta:** o precatório de 2º grau do TJPA nunca
+  publica no DJEN (0 de 314 consultados; controles 4/4), não está no Datajud e
+  a consulta unificada o filtra. O Voyager tinha 0 dos 3.756.
+- **Parser estrito:** modelo único, colunas exigidas no `conceptualschema`,
+  `IC=true`, nenhuma sobra no `C` do DSR, CNJ com DV e foro `8.14.0000`,
+  ordem/valor/exercício plausíveis, lista ≥ 50% dos pendentes já registrados.
+  Qualquer desvio = `LayoutDesconhecido`: o coletor não entrega NADA, o run
+  fecha `failed` e ninguém sai da fila. Nunca "fila vazia com sucesso".
+- **Descoberta:** pendente ausente nasce direto (classe 1265, grau G2, tipo
+  `tjpa_2g`) e vira PRECATORIO pela regra da fila. Saiu da lista numa coleta
+  completa → `fora_da_fila`, NAO_LEAD com `FILA_OFICIAL_saiu_sem_pagamento_ANTI`
+  no log e `saiu_em`/`motivo_saida` no registro (nada é removido). Devedor
+  solidário (Estado + IGEPREV/IASEP, 6 casos) fica num ente só.
+- **Vínculo com a origem (`filas_oficiais/vinculo.py`):** o CNJ `8.14.0000`
+  citado até 80 caracteres depois de "precat"/"CPREC"/"Coordenadoria" no DJEN de
+  um processo TJPA de 1º grau grava `processo_origem`. Só item já na fila, sem
+  origem gravada e com uma única origem citando; o resto conta no placar
+  (`citado_fora_da_fila`, `ambiguo`, `conflito`). A origem de item pendente
+  vira PRECATORIO (`FILA_OFICIAL_ORIGEM_TRIBUNAIS`); quando o item sai da fila,
+  ela se abstém. Ponte por VALOR fica de fora (colide em 7 de 52). Diário: o
+  job da fila roda o vínculo nos processos com movimento nos últimos 3 dias;
+  backfill: `fila_oficial_vincular_origem --tribunal TJPA [--executar]`.
+- **Trava do pull:** o 2º grau TJPA não sai no `GET /api/v1/leads/` (ver
+  `API.md`, `FILA_OFICIAL_2G_PULL_LIBERADO`).
+- **Cron:** 05:30 (São Paulo), depois do refresh do dataset (07:00 UTC,
+  `FILA_OFICIAL_HORARIOS`). Pausa ≥ 1 s, uma requisição por vez.
+
+```bash
+manage.py fila_oficial_coletar --tribunal TJPA               # dry-run
+manage.py fila_oficial_coletar --tribunal TJPA --executar
+manage.py fila_oficial_vincular_origem --tribunal TJPA        # dry-run
+manage.py fila_oficial_vincular_origem --tribunal TJPA --executar
+```
 
 ## Comandos manuais
 

@@ -246,9 +246,36 @@ ORGAOS_PRECATORIO_TJAL = frozenset({
 #   outro/fora_da_fila/sem registro → abstenção: segue o fluxo de sempre.
 #
 # Rollout por tribunal, como as demais regras de sinal.
-FILA_OFICIAL_TRIBUNAIS = {'TJAL'}
+#
+# TJMT (SRP, 2026-10-23): a fila é o ÚNICO sinal. O Voyager tem 27.984
+# processos TJMT com classe/fase 1265 e só 15.425 estão na fila oficial; os
+# outros 12.559 (45%) já saíram dela, e o DJEN do precatório é "Processo
+# sigiloso" (427 de 446 movimentos sem texto), então F24/F19/F30 não disparam.
+# Por isso a classe 1265 do TJMT NÃO entra em CLASSE_PRECATORIO_SINAL_TRIBUNAIS:
+# só é PRECATORIO o que a fila lista como `pendente` (situação de fila e saldo >
+# 0, ver `filas_oficiais/fontes/tjmt.py`), e o que sai dela ou está nela sem
+# saldo é REBAIXADO com o motivo no snapshot do ClassificacaoLog (no TJAL, a
+# saída é abstenção).
+#
+# TJPA (Power BI da Coordenadoria, 2026-10-24): mesmo desenho do TJMT. A lista
+# cronológica só traz pendentes; o precatório de 2º grau (`.8.14.0000`) nunca
+# publica no DJEN, então a fila é o único sinal dele: `pendente` → PRECATORIO,
+# saiu da lista → NAO_LEAD com o motivo anotado. E a ORIGEM de 1º grau
+# vinculada a um item pendente (`processo_origem`, o CNJ do precatório citado
+# no DJEN da origem — `filas_oficiais/vinculo.py`) também é promovida: é nela
+# que o JURISCOPE lê o ofício (FILA_OFICIAL_ORIGEM_TRIBUNAIS).
+FILA_OFICIAL_TRIBUNAIS = {'TJAL', 'TJMT', 'TJPA'}
+#: Tribunais em que a origem vinculada a um item `pendente` vira PRECATORIO.
+FILA_OFICIAL_ORIGEM_TRIBUNAIS = {'TJPA'}
 FILA_OFICIAL_PENDENTE = 'pendente'
 FILA_OFICIAL_VETO = frozenset({'pago', 'extinto'})
+#: Tribunais em que `fora_da_fila`/`outro` rebaixa a NAO_LEAD (em vez de se abster).
+FILA_OFICIAL_REBAIXA_FORA = {'TJMT', 'TJPA'}
+#: situação → marca gravada nas features (vai para `ClassificacaoLog.features_snapshot`).
+FILA_OFICIAL_MOTIVO = {
+    'fora_da_fila': 'FILA_OFICIAL_saiu_sem_pagamento_ANTI',
+    'outro': 'FILA_OFICIAL_sem_saldo_ANTI',
+}
 
 # Score gravado na promoção por regra de sinal. Precisa passar o
 # VOYAGER_MIN_SCORE_N1=0.70 do Falcon; é certeza de regra, não probabilidade LR.
@@ -1061,10 +1088,18 @@ def _situacao_fila_oficial(processo) -> str | None:
     if processo.tribunal_id not in FILA_OFICIAL_TRIBUNAIS or not processo.pk:
         return None
     from .models import PrecatorioFilaOficial
-    return (PrecatorioFilaOficial.objects
-            .filter(processo_id=processo.pk)
-            .values_list('situacao', flat=True)
-            .first())
+    situacao = (PrecatorioFilaOficial.objects
+                .filter(processo_id=processo.pk)
+                .values_list('situacao', flat=True)
+                .first())
+    if situacao is None and processo.tribunal_id in FILA_OFICIAL_ORIGEM_TRIBUNAIS:
+        # A origem só herda o `pendente`: a saída do precatório da fila não diz
+        # nada sobre os outros créditos do processo de 1º grau (abstenção).
+        if PrecatorioFilaOficial.objects.filter(
+                processo_origem_id=processo.pk,
+                situacao=FILA_OFICIAL_PENDENTE).exists():
+            return FILA_OFICIAL_PENDENTE
+    return situacao
 
 
 def _vetado_como_precatorio(features: dict) -> bool:
@@ -1418,6 +1453,13 @@ def classificar(processo, features: Optional[dict] = None) -> tuple[str, float, 
     if situacao_fila in FILA_OFICIAL_VETO:
         if features is None:
             features = compute_features(processo)
+        return Process.CLASSIF_NAO_LEAD, SCORE_REBAIXAMENTO_SINAL, features
+    if (situacao_fila in FILA_OFICIAL_MOTIVO
+            and processo.tribunal_id in FILA_OFICIAL_REBAIXA_FORA):
+        # Rebaixa e ANOTA: o motivo fica no snapshot do log; o registro da fila
+        # guarda `saiu_em`/`motivo_saida`. Nada é removido.
+        features = dict(compute_features(processo) if features is None else features)
+        features[FILA_OFICIAL_MOTIVO[situacao_fila]] = 1
         return Process.CLASSIF_NAO_LEAD, SCORE_REBAIXAMENTO_SINAL, features
     if situacao_fila == FILA_OFICIAL_PENDENTE:
         if features is None:

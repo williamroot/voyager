@@ -11,7 +11,9 @@
     manage.py fila_oficial_coletar --tribunal TJAL --executar --retomar
 
 A coleta inteira do TJAL leva ~2 h (SAPRE ~10 s por página, uma requisição por
-vez, pausa ≥ 1 s). `--entidade` (id do SAPRE ou nome) restringe, repetível.
+vez, pausa ≥ 1 s); a do TJMT (SRP, `--tribunal TJMT`) ~11 min, 243 requisições.
+`--entidade` (id do SAPRE/SRP ou nome) restringe, repetível; no TJMT, qualquer
+ente do grupo pagador seleciona o grupo inteiro.
 `--saida` grava uma linha JSON por item no dry-run (sem CPF e sem nome: a
 fonte publica, o coletor descarta).
 """
